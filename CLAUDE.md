@@ -213,38 +213,40 @@ When applying such a translation `(lt, ltr)`: `(R, t, tr) → (R, t - lt, tr XOR
 
 5. **UNI matching must prioritize parent Hall number.** After primitive reduction, `changed_symmetry` has the same operations regardless of centering (e.g., P-3c1 reduced=12 ≡ R-3c reduced=12). Since `is_subset` allows matching both, the result is non-unique (e.g., CoF3 AFM [001] matches both 165.91 Hall=457 and 167.103 Hall=460). The parent (non-magnetic) Hall number breaks this tie—the magnetic space group must be a subgroup of the parent. `msg_identify_with_parent_hall` now tries `parent_hall_number` first for UNI candidates, only falling back to the FSG-discovered Hall number if the parent gives no match.
 
-## Next Task: C-Style `&mut` Refactoring
+## Recent Refactoring (completed)
 
-Many Rust functions still use C-style patterns that don't need `&mut`:
+### C-Style `&mut` → Return Values
 
-1. **`&mut` output parameter pattern:** `fn foo(&mut out: &mut Mat3, input...)` — these should return `Mat3` instead. When a function takes `&mut` solely to write a result (not to modify an existing value in place), convert it to `-> ReturnType`.
+Refactored 17 functions across 7 files to remove `&mut` output parameters:
 
-2. **`&mut` for temporary mutation:** Some functions take `&mut` for a local variable that gets mutated and never read after. These can use `let mut` locally and return by value.
+| Function | Before | After |
+|----------|--------|-------|
+| `prm_get_primitive_symmetry` | `&mut t_mat: Mat3` | returns `(Mat3, Symmetry)` |
+| `get_primitive_in_translation_space` | `&mut t_mat_inv` | returns `Option<Mat3>` |
+| `spa_copy_spacegroup` | hand-written field copy | deleted, uses `#[derive(Clone)]` |
+| `spg_delaunay_reduce` | `&mut lattice` | returns `Result<Mat3, E>` |
+| `spg_niggli_reduce` | `&mut lattice` | returns `Result<Mat3, E>` |
+| `ptg_get_transformation_matrix` | `&mut tmat: Mat3I` | returns `(Mat3I, Pointgroup)` |
+| `ref_get_conventional_lattice` + 8 `set_*` | `&mut lattice` | returns `Mat3` |
+| `apply_symmetry_to_position` | `&mut pos_dst` | returns `Vec3` |
+| `permute_vec3`, `permute_i32` | `&mut data_out` | returns `Vec` |
+| `transform_translation` | `&mut trans` | returns `Vec3` |
+| `transform_rotation` | `&mut rot` | returns `Mat3` |
+| `unpack_generators` | `&mut rot` | returns 3D array |
+| `get_surrounding_frame`, `get_corners` | `&mut` | returns value |
+| `measure_rigid_rotation` | `&mut rotation` | returns `Mat3` |
+| `get_orthonormal_basis` | `&mut basis` | returns `Mat3` |
 
-3. **`Vec` vs pointer pre-allocation:** The C code pre-allocates arrays passed by pointer. Rust ports should return `Vec<T>` instead of taking `&mut Vec<T>` and pushing into it.
+### Option → Result at Public API
 
-### Systematic approach
+- `spg_get_symmetry_from_database`: `Option<Symmetry>` → `Result<Symmetry, SpglibError>`
+- `mat_inverse_matrix_d3`: `Option<Mat3>` → `Result<Mat3, SpglibError>` (all 35 call sites updated)
+- `mat_get_similar_matrix_d3`: `Option<Mat3>` → `Result<Mat3, SpglibError>`
+- New error variants: `InvalidInput`, `MathFailed`
 
-For each file in `src/`, audit every `fn.*&mut` signature and classify:
-- **Needs `&mut`**: genuinely mutates external state (e.g., `Cell`, `Spacegroup` fields)
-- **Should return by value**: output-only `&mut` parameters → convert to return
-- **Borderline**: flag for discussion
+### Rustdoc
 
-Priority files (heavy C-style porting):
-- `mathfunc.rs` — many matrix functions with `&mut` out params
-- `primitive.rs` — lattice vector search with pre-allocated output
-- `spacegroup.rs` — contains `spa_copy_spacegroup` etc.
-- `symmetry.rs`, `refinement.rs`
-
-### Example transformation
-
-```rust
-// C-style (current):
-pub fn foo(out: &mut Mat3, input: &Mat3, symprec: f64) { ... }
-
-// Rust-style (target):
-pub fn foo(input: &Mat3, symprec: f64) -> Option<Mat3> { ... }
-```
+5 public API functions have runnable doctest examples: `spg_get_dataset`, `spg_get_symmetry`, `spg_get_magnetic_dataset`, `spg_delaunay_reduce`, `spg_niggli_reduce`.
 
 ## Notes
 
