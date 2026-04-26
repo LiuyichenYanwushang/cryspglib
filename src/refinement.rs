@@ -183,7 +183,7 @@ fn get_bravais_exact_positions_and_lattice(
     let num_pure_trans = get_number_of_pure_translation(&conv_sym);
 
     // Set conventional lattice
-    ref_get_conventional_lattice(&mut conv_prim.lattice, spacegroup);
+    conv_prim.lattice = ref_get_conventional_lattice(spacegroup);
 
     // Set aperiodic axis
     conv_prim.aperiodic_axis = if spacegroup.hall_number > 0 { None } else { Some(AperiodicAxis::Z) };
@@ -303,11 +303,17 @@ fn get_conventional_primitive(spacegroup: &Spacegroup, primitive: &Cell) -> Opti
 /// 计算给定空间群类型的标准化晶格。
 ///
 /// 根据全形对称性 (holohedry) 从 metric tensor 计算出理想化的标准晶格矢量。
-pub fn ref_get_conventional_lattice(lattice: &mut Mat3, spacegroup: &Spacegroup) {
+/// 根据空间群和 Bravais 晶格计算常规晶格矩阵。
+///
+/// 通过点群的 holohedry 类型确定晶格约束，
+/// 将自由的 Bravais 晶格约化到标准常规形式。
+///
+/// # Returns
+/// 满足空间群约束的标准常规晶格矩阵。
+pub fn ref_get_conventional_lattice(spacegroup: &Spacegroup) -> Mat3 {
     let pointgroup = ptg_get_pointgroup(spacegroup.pointgroup_number);
 
-    // 初始化为零
-    *lattice = [[0.0; 3]; 3];
+    let mut lattice = [[0.0; 3]; 3];
 
     let metric = mat_get_metric(&spacegroup.bravais_lattice);
 
@@ -316,32 +322,34 @@ pub fn ref_get_conventional_lattice(lattice: &mut Mat3, spacegroup: &Spacegroup)
     debug::debug_print(format_args!("{}\n", spacegroup.choice));
 
     match pointgroup.holohedry {
-        Holohedry::Tricli => set_tricli(lattice, &metric),
+        Holohedry::Tricli => lattice = set_tricli(&metric),
         Holohedry::Monocli => {
             if spacegroup.hall_number > 0 {
-                set_monocli(lattice, &metric, &spacegroup.choice);
+                lattice = set_monocli(&metric, &spacegroup.choice);
             } else {
-                set_layer_monocli(lattice, &metric, &spacegroup.choice);
+                lattice = set_layer_monocli(&metric, &spacegroup.choice);
             }
         }
-        Holohedry::Ortho => set_ortho(lattice, &metric),
-        Holohedry::Tetra => set_tetra(lattice, &metric),
+        Holohedry::Ortho => lattice = set_ortho(&metric),
+        Holohedry::Tetra => lattice = set_tetra(&metric),
         Holohedry::Trigo => {
             if spacegroup.choice.starts_with('R') {
-                set_rhomb(lattice, &metric);
+                lattice = set_rhomb(&metric);
             } else {
-                set_trigo(lattice, &metric);
+                lattice = set_trigo(&metric);
             }
         }
-        Holohedry::Hexa => set_trigo(lattice, &metric),
-        Holohedry::Cubic => set_cubic(lattice, &metric),
+        Holohedry::Hexa => lattice = set_trigo(&metric),
+        Holohedry::Cubic => lattice = set_cubic(&metric),
         Holohedry::None => {}
     }
+    lattice
 }
 
 // --- 标准晶格生成函数 ---
 
-fn set_tricli(lattice: &mut Mat3, metric: &Mat3) {
+fn set_tricli(metric: &Mat3) -> Mat3 {
+    let mut lattice = [[0.0; 3]; 3];
     let a = metric[0][0].sqrt();
     let b = metric[1][1].sqrt();
     let c = metric[2][2].sqrt();
@@ -360,9 +368,11 @@ fn set_tricli(lattice: &mut Mat3, metric: &Mat3) {
     lattice[1][1] = b * sg;
     lattice[1][2] = c * (ca - cb * cg) / sg;
     lattice[2][2] = c * (1.0 - ca * ca - cb * cb - cg * cg + 2.0 * ca * cb * cg).sqrt() / sg;
+    lattice
 }
 
-fn set_monocli(lattice: &mut Mat3, metric: &Mat3, choice: &str) {
+fn set_monocli(metric: &Mat3, choice: &str) -> Mat3 {
+    let mut lattice = [[0.0; 3]; 3];
     debug::debug_print(format_args!("set_monocli:\n"));
     debug::debug_print_matrix_d3(metric);
 
@@ -400,9 +410,11 @@ fn set_monocli(lattice: &mut Mat3, metric: &Mat3, choice: &str) {
             ));
         }
     }
+    lattice
 }
 
-fn set_layer_monocli(lattice: &mut Mat3, metric: &Mat3, choice: &str) {
+fn set_layer_monocli(metric: &Mat3, choice: &str) -> Mat3 {
+    let mut lattice = [[0.0; 3]; 3];
     debug::debug_print(format_args!("set_layer_monocli:\n"));
     debug::debug_print_matrix_d3(metric);
 
@@ -438,24 +450,30 @@ fn set_layer_monocli(lattice: &mut Mat3, metric: &Mat3, choice: &str) {
             ));
         }
     }
+    lattice
 }
 
-fn set_ortho(lattice: &mut Mat3, metric: &Mat3) {
+fn set_ortho(metric: &Mat3) -> Mat3 {
+    let mut lattice = [[0.0; 3]; 3];
     lattice[0][0] = metric[0][0].sqrt();
     lattice[1][1] = metric[1][1].sqrt();
     lattice[2][2] = metric[2][2].sqrt();
+    lattice
 }
 
-fn set_tetra(lattice: &mut Mat3, metric: &Mat3) {
+fn set_tetra(metric: &Mat3) -> Mat3 {
+    let mut lattice = [[0.0; 3]; 3];
     let a = metric[0][0].sqrt();
     let b = metric[1][1].sqrt();
     let c = metric[2][2].sqrt();
     lattice[0][0] = (a + b) / 2.0;
     lattice[1][1] = (a + b) / 2.0;
     lattice[2][2] = c;
+    lattice
 }
 
-fn set_rhomb(lattice: &mut Mat3, metric: &Mat3) {
+fn set_rhomb(metric: &Mat3) -> Mat3 {
+    let mut lattice = [[0.0; 3]; 3];
     let a = metric[0][0].sqrt();
     let b = metric[1][1].sqrt();
     let c = metric[2][2].sqrt();
@@ -473,9 +491,11 @@ fn set_rhomb(lattice: &mut Mat3, metric: &Mat3) {
     lattice[0][2] = 0.0;
     lattice[1][2] = -ahex / (3.0f64).sqrt();
     lattice[2][2] = chex / 3.0;
+    lattice
 }
 
-fn set_trigo(lattice: &mut Mat3, metric: &Mat3) {
+fn set_trigo(metric: &Mat3) -> Mat3 {
+    let mut lattice = [[0.0; 3]; 3];
     let a = metric[0][0].sqrt();
     let b = metric[1][1].sqrt();
     let c = metric[2][2].sqrt();
@@ -483,9 +503,11 @@ fn set_trigo(lattice: &mut Mat3, metric: &Mat3) {
     lattice[0][1] = -(a + b) / 4.0;
     lattice[1][1] = (a + b) / 4.0 * (3.0f64).sqrt();
     lattice[2][2] = c;
+    lattice
 }
 
-fn set_cubic(lattice: &mut Mat3, metric: &Mat3) {
+fn set_cubic(metric: &Mat3) -> Mat3 {
+    let mut lattice = [[0.0; 3]; 3];
     let a = metric[0][0].sqrt();
     let b = metric[1][1].sqrt();
     let c = metric[2][2].sqrt();
@@ -493,6 +515,7 @@ fn set_cubic(lattice: &mut Mat3, metric: &Mat3) {
     lattice[0][0] = avg;
     lattice[1][1] = avg;
     lattice[2][2] = avg;
+    lattice
 }
 
 // --- 对称操作精细化 ---
@@ -909,7 +932,7 @@ pub fn ref_find_similar_bravais_lattice(spacegroup: &mut Spacegroup, symprec: f6
     };
 
     let mut std_lattice = [[0.0; 3]; 3];
-    ref_get_conventional_lattice(&mut std_lattice, spacegroup);
+    std_lattice = ref_get_conventional_lattice(spacegroup);
 
     // Find best rotation
     let mut min_length2 = 0.0;
