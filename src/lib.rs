@@ -334,10 +334,25 @@ pub fn spg_get_error_message(error: SpglibError) -> &'static str {
 // Dataset (核心 API)
 // ---------------------------------------------------------------------------
 
-/// 获取空间群数据集。
+/// 识别晶体的空间群。
 ///
-/// 这是最常用的入口，返回完整的空间群信息包括标准晶胞、
-/// 对称操作、Wyckoff 位置等。
+/// 输入晶格、原子分数坐标和原子种类，返回完整的 [`SpglibDataset`]，
+/// 包括空间群编号 (1–230)、Hall 符号、标准晶胞、对称操作、Wyckoff 位置等。
+///
+/// # Arguments
+/// * `lattice` — 3×3 晶格矩阵，布局 `[cart][vec]`（列 = 晶格矢量）。
+/// * `position` — 原子分数坐标 `[f64; 3]` 的切片。
+/// * `types` — 原子种类（原子序数）。
+/// * `symprec` — 对称性容差（笛卡尔坐标距离，典型值 `1e-5`）。
+///
+/// # Examples
+///
+/// ```
+/// # use cryspglib::spg_get_dataset;
+/// let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+/// let ds = spg_get_dataset(&lattice, &[[0.,0.,0.], [0.5,0.5,0.5]], &[55,17], 1e-5);
+/// assert!(ds.is_ok());
+/// ```
 pub fn spg_get_dataset(
     lattice: &Mat3,
     position: &[Vec3],
@@ -405,10 +420,18 @@ pub fn spg_get_layer_dataset(
 // Symmetry operations
 // ---------------------------------------------------------------------------
 
-/// 获取对称操作（旋转和平移）。
+/// 获取对称操作（旋转矩阵和分数平移）。
 ///
-/// 返回 `Some(Symmetry)` 包含旋转矩阵和对应的平移矢量。
-/// 返回 `None` 表示搜索失败。
+/// 返回晶体的完整对称操作集合（在常规晶胞基下）。
+///
+/// # Examples
+///
+/// ```
+/// # use cryspglib::spg_get_symmetry;
+/// let sym = spg_get_symmetry(
+///     &[[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]], &[[0.,0.,0.]], &[29], 1e-5);
+/// assert!(sym.is_ok());
+/// ```
 pub fn spg_get_symmetry(
     lattice: &Mat3,
     position: &[Vec3],
@@ -1196,6 +1219,13 @@ fn element_to_number(symbol: &str) -> i32 {
 
 /// Delaunay 晶格约化。
 ///
+/// 将任意晶格约化到 Delaunay 标准形式，返回约化后的晶格矩阵。
+///
+/// ```
+/// # use cryspglib::spg_delaunay_reduce;
+/// let reduced = spg_delaunay_reduce(&[[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]], 1e-5);
+/// assert!(reduced.is_ok());
+/// ```
 /// 返回约化后的晶格矩阵。
 pub fn spg_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibError> {
     del_delaunay_reduce(lattice, symprec).ok_or(SpglibError::DelaunayFailed)
@@ -1203,7 +1233,13 @@ pub fn spg_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibE
 
 /// Niggli 晶格约化。
 ///
-/// 返回约化后的晶格矩阵。
+/// 适用于三斜和单斜晶系的晶格约化，返回约化后的晶格矩阵。
+///
+/// ```
+/// # use cryspglib::spg_niggli_reduce;
+/// let reduced = spg_niggli_reduce(&[[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]], 1e-5);
+/// assert!(reduced.is_ok());
+/// ```
 pub fn spg_niggli_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibError> {
     let mut reduced = *lattice;
     if niggli_reduce(&mut reduced, symprec, None) {
