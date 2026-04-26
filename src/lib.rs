@@ -107,6 +107,12 @@ pub enum SpglibError {
     /// 数组大小不足
     #[error("array size shortage")]
     ArraySizeShortage = 8,
+    /// 输入格式无效
+    #[error("invalid input format")]
+    InvalidInput = 9,
+    /// 数学运算失败
+    #[error("math operation failed")]
+    MathFailed = 10,
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +333,8 @@ pub fn spg_get_error_message(error: SpglibError) -> &'static str {
         SpglibError::NiggliFailed => "Niggli reduction failed",
         SpglibError::DelaunayFailed => "Delaunay reduction failed",
         SpglibError::ArraySizeShortage => "array size shortage",
+        SpglibError::InvalidInput => "invalid input format",
+        SpglibError::MathFailed => "math operation failed",
     }
 }
 
@@ -455,8 +463,9 @@ pub fn spgat_get_symmetry(
 /// 从空间群数据库获取对称操作。
 ///
 /// 根据 Hall 编号直接返回所有空间群操作。
-pub fn spg_get_symmetry_from_database(hall_number: usize) -> Option<Symmetry> {
+pub fn spg_get_symmetry_from_database(hall_number: usize) -> Result<Symmetry, SpglibError> {
     spgdb_get_spacegroup_operations(hall_number)
+        .ok_or(SpglibError::SpacegroupSearchFailed)
 }
 
 /// 从对称操作确定 Hall 编号。
