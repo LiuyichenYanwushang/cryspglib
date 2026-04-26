@@ -370,14 +370,22 @@ pub(crate) static ROT_AXES: [[i32; 3]; NUM_ROT_AXES] = [
     [3, -1, -1],
 ];
 
+/// 从旋转操作确定点群并计算变换矩阵。
+///
+/// # Arguments
+/// * `rotations` - 旋转操作矩阵（整数矩阵）。
+/// * `aperiodic_axis` - 层状结构的非周期轴（三维周期传 `None`）。
+///
+/// # Returns
+/// `(transform_mat, pointgroup)` — `transform_mat` 将旋转操作变换到标准方向，
+/// `pointgroup` 包含点群编号、符号等信息。若无法识别点群则 `pointgroup.number == 0`。
 pub fn ptg_get_transformation_matrix(
-    transform_mat: &mut Mat3I,
     rotations: &[Mat3I],
     aperiodic_axis: Option<AperiodicAxis>,
-) -> Pointgroup {
+) -> (Mat3I, Pointgroup) {
     debug::debug_print(format_args!("ptg_get_transformation_matrix:\n"));
 
-    *transform_mat = [[0; 3]; 3];
+    let mut transform_mat = [[0; 3]; 3];
 
     let pg_num = get_pointgroup_number_by_rotations(rotations);
 
@@ -386,13 +394,13 @@ pub fn ptg_get_transformation_matrix(
         let pointsym = ptg_get_pointsymmetry(rotations);
         let mut axes = [0; 3];
         get_axes(&mut axes, pointgroup.laue, &pointsym, aperiodic_axis);
-        set_transformation_matrix(transform_mat, &axes);
-        pointgroup
+        set_transformation_matrix(&mut transform_mat, &axes);
+        (transform_mat, pointgroup)
     } else {
         debug::info_print(format_args!("spglib: No point group was found\n"));
         let mut pg = ptg_get_pointgroup(0);
         pg.number = 0;
-        pg
+        (transform_mat, pg)
     }
 }
 

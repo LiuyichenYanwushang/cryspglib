@@ -499,9 +499,7 @@ fn search_hall_number(
     debug::debug_print(format_args!("search_hall_number:\n"));
 
     let aperiodic_axis = primitive.cell.as_ref().unwrap().aperiodic_axis;
-    let mut tmat_int = [[0; 3]; 3];
-
-    let pointgroup = ptg_get_transformation_matrix(&mut tmat_int, &symmetry.rot, aperiodic_axis);
+    let (mut tmat_int, pointgroup) = ptg_get_transformation_matrix(&symmetry.rot, aperiodic_axis);
 
     if pointgroup.number == 0 {
         return 0;

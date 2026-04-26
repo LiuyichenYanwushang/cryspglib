@@ -655,10 +655,7 @@ pub fn spg_get_spacegroup_type(hall_number: usize) -> Result<SpglibSpacegroupTyp
 pub fn spg_get_pointgroup(
     rotations: &[Mat3I],
 ) -> Result<(String, Mat3I, usize), SpglibError> {
-    let mut transform_mat = [[0; 3]; 3];
-    let pointgroup = ptg_get_transformation_matrix(
-        &mut transform_mat, rotations, None, /* aperiodic_axis */
-    );
+    let (transform_mat, pointgroup) = ptg_get_transformation_matrix(rotations, None);
 
     if pointgroup.number == 0 {
         return Err(SpglibError::PointgroupNotFound);

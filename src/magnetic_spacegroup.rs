@@ -502,9 +502,8 @@ fn find_spacegroup_by_symmetry(
 ) -> Option<Spacegroup> {
     let mut origin_shift = [0.0; 3];
     let mut conv_lattice = [[0.0; 3]; 3];
-    let mut tmat_int = [[0; 3]; 3];
 
-    let pointgroup = ptg_get_transformation_matrix(&mut tmat_int, &symmetry.rot, None);
+    let (tmat_int, pointgroup) = ptg_get_transformation_matrix(&symmetry.rot, None);
     if pointgroup.number == 0 {
         return None;
     }
