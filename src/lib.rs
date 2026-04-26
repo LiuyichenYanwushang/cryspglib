@@ -1199,18 +1199,18 @@ fn element_to_number(symbol: &str) -> i32 {
 
 /// Delaunay 晶格约化。
 ///
-pub fn spg_delaunay_reduce(lattice: &mut Mat3, symprec: f64) -> Result<(), SpglibError> {
-    if let Some(reduced) = del_delaunay_reduce(lattice, symprec) {
-        *lattice = reduced;
-        Ok(())
-    } else {
-        Err(SpglibError::DelaunayFailed)
-    }
+/// 返回约化后的晶格矩阵。
+pub fn spg_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibError> {
+    del_delaunay_reduce(lattice, symprec).ok_or(SpglibError::DelaunayFailed)
 }
 
-pub fn spg_niggli_reduce(lattice: &mut Mat3, symprec: f64) -> Result<(), SpglibError> {
-    if niggli_reduce(lattice, symprec, None) {
-        Ok(())
+/// Niggli 晶格约化。
+///
+/// 返回约化后的晶格矩阵。
+pub fn spg_niggli_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibError> {
+    let mut reduced = *lattice;
+    if niggli_reduce(&mut reduced, symprec, None) {
+        Ok(reduced)
     } else {
         Err(SpglibError::NiggliFailed)
     }
