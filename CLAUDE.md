@@ -213,6 +213,39 @@ When applying such a translation `(lt, ltr)`: `(R, t, tr) → (R, t - lt, tr XOR
 
 5. **UNI matching must prioritize parent Hall number.** After primitive reduction, `changed_symmetry` has the same operations regardless of centering (e.g., P-3c1 reduced=12 ≡ R-3c reduced=12). Since `is_subset` allows matching both, the result is non-unique (e.g., CoF3 AFM [001] matches both 165.91 Hall=457 and 167.103 Hall=460). The parent (non-magnetic) Hall number breaks this tie—the magnetic space group must be a subgroup of the parent. `msg_identify_with_parent_hall` now tries `parent_hall_number` first for UNI candidates, only falling back to the FSG-discovered Hall number if the parent gives no match.
 
+## Next Task: C-Style `&mut` Refactoring
+
+Many Rust functions still use C-style patterns that don't need `&mut`:
+
+1. **`&mut` output parameter pattern:** `fn foo(&mut out: &mut Mat3, input...)` — these should return `Mat3` instead. When a function takes `&mut` solely to write a result (not to modify an existing value in place), convert it to `-> ReturnType`.
+
+2. **`&mut` for temporary mutation:** Some functions take `&mut` for a local variable that gets mutated and never read after. These can use `let mut` locally and return by value.
+
+3. **`Vec` vs pointer pre-allocation:** The C code pre-allocates arrays passed by pointer. Rust ports should return `Vec<T>` instead of taking `&mut Vec<T>` and pushing into it.
+
+### Systematic approach
+
+For each file in `src/`, audit every `fn.*&mut` signature and classify:
+- **Needs `&mut`**: genuinely mutates external state (e.g., `Cell`, `Spacegroup` fields)
+- **Should return by value**: output-only `&mut` parameters → convert to return
+- **Borderline**: flag for discussion
+
+Priority files (heavy C-style porting):
+- `mathfunc.rs` — many matrix functions with `&mut` out params
+- `primitive.rs` — lattice vector search with pre-allocated output
+- `spacegroup.rs` — contains `spa_copy_spacegroup` etc.
+- `symmetry.rs`, `refinement.rs`
+
+### Example transformation
+
+```rust
+// C-style (current):
+pub fn foo(out: &mut Mat3, input: &Mat3, symprec: f64) { ... }
+
+// Rust-style (target):
+pub fn foo(input: &Mat3, symprec: f64) -> Option<Mat3> { ... }
+```
+
 ## Notes
 
 - `debug_test.rs` and similar ad-hoc files in the repo root are gitignored/untracked — use them for quick experiments but don't commit.
