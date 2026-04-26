@@ -19,7 +19,7 @@ use crate::pointgroup::ptg_get_transformation_matrix;
 use crate::primitive::prm_get_primitive_symmetry;
 use crate::refinement::ref_find_similar_bravais_lattice;
 use crate::spacegroup::{
-    get_centering, get_initial_conventional_symmetry, spa_copy_spacegroup,
+    get_centering, get_initial_conventional_symmetry,
     spa_search_spacegroup_with_symmetry, Spacegroup,
 };
 use crate::spg_database::{spgdb_get_spacegroup_type, Centering};
@@ -231,7 +231,7 @@ fn get_reference_space_group(
 
     // 7. 复制 ref_sg 用于返回
     let mut ref_sg_copy = Spacegroup::new();
-    spa_copy_spacegroup(&mut ref_sg_copy, ref_sg);
+    ref_sg_copy = ref_sg.clone();
 
     Some((ref_sg_copy, changed_symmetry, tmat, shift, msgtype_num))
 }
@@ -277,8 +277,7 @@ fn build_fallback_reference(
     )?;
 
     // 5. 复制 ref_sg 用于返回
-    let mut ref_sg_copy = Spacegroup::new();
-    spa_copy_spacegroup(&mut ref_sg_copy, &ref_sg);
+    let ref_sg_copy = ref_sg.clone();
 
     Some((ref_sg_copy, changed_symmetry, tmat, shift, msgtype_num))
 }
@@ -470,21 +469,15 @@ fn get_space_group_with_magnetic_symmetry(
     }
 
     // Get primitive symmetry: (a, b, c) = (a_prim, b_prim, c_prim) @ tmat
-    let mut tmat = [[0.0; 3]; 3];
-    let prim_sym = prm_get_primitive_symmetry(&mut tmat, &sym, symprec);
+    let (tmat, prim_sym) = prm_get_primitive_symmetry(&sym, symprec)?;
 
-    let mut spacegroup = if let Some(ref prim) = prim_sym {
-        match spa_search_spacegroup_with_symmetry(prim, &unit_lat, symprec) {
-            Some(sg) => sg,
-            None => {
-                // 标准空间群搜索失败 → 使用 fallback
-                return find_spacegroup_by_symmetry(&sym, &unit_lat, symprec)
-                    .map(|sg| (sg, sym));
-            }
+    let mut spacegroup = match spa_search_spacegroup_with_symmetry(&prim_sym, &unit_lat, symprec) {
+        Some(sg) => sg,
+        None => {
+            // 标准空间群搜索失败 → 使用 fallback
+            return find_spacegroup_by_symmetry(&sym, &unit_lat, symprec)
+                .map(|sg| (sg, sym));
         }
-    } else {
-        return find_spacegroup_by_symmetry(&sym, &unit_lat, symprec)
-            .map(|sg| (sg, sym));
     };
 
     // Refine bravais lattice and origin_shift

@@ -86,32 +86,35 @@ pub fn prm_get_primitive_with_pure_trans(
     Some(primitive)
 }
 
+/// 从含中心化平移的对称操作提取原胞对称性和变换矩阵。
+///
+/// 给定可能包含中心化平移的对称操作集合，返回原胞表示：
+/// `(t_mat, prim_symmetry)`，其中 `t_mat` 将原胞坐标变换到原始坐标。
+///
+/// # Arguments
+/// * `symmetry` - 原始对称操作（可能含中心化平移，如 R/F/I/C 中心化）。
+/// * `symprec` - 对称性检查容差。
+///
+/// # Returns
+/// `Some((t_mat, prim_symmetry))` — `t_mat` 是从原胞到原始晶胞的变换矩阵，
+/// `prim_symmetry` 包含原胞中的对称操作（旋转矩阵和分数平移）。
 pub fn prm_get_primitive_symmetry(
-    t_mat: &mut Mat3,
     symmetry: &Symmetry,
     symprec: f64,
-) -> Option<Symmetry> {
+) -> Option<(Mat3, Symmetry)> {
     let pure_trans = collect_pure_translations(symmetry)?;
     let primsym_size = symmetry.size / pure_trans.len();
 
-    let mut t_mat_inv = [[0.0; 3]; 3];
-    if !get_primitive_in_translation_space(&mut t_mat_inv, &pure_trans, symmetry.size, symprec) {
-        return None;
-    }
-
-    // FIX: mat_inverse_matrix_d3 returns Option<Mat3>, assign result to *t_mat
-    match mat_inverse_matrix_d3(&t_mat_inv, symprec) {
-        Some(inv) => *t_mat = inv,
-        None => return None,
-    }
+    let t_mat_inv = get_primitive_in_translation_space(&pure_trans, symmetry.size, symprec)?;
+    let t_mat = mat_inverse_matrix_d3(&t_mat_inv, symprec)?;
 
     let mut prim_symmetry = collect_primitive_symmetry(symmetry, primsym_size)?;
 
     for i in 0..prim_symmetry.size {
-        let mut tmp_mat = mat_multiply_matrix_di3(t_mat, &prim_symmetry.rot[i]);
+        let mut tmp_mat = mat_multiply_matrix_di3(&t_mat, &prim_symmetry.rot[i]);
         tmp_mat = mat_multiply_matrix_d3(&tmp_mat, &t_mat_inv);
         prim_symmetry.rot[i] = mat_cast_matrix_3d_to_3i(&tmp_mat);
-        prim_symmetry.trans[i] = mat_multiply_matrix_vector_d3(t_mat, &prim_symmetry.trans[i]);
+        prim_symmetry.trans[i] = mat_multiply_matrix_vector_d3(&t_mat, &prim_symmetry.trans[i]);
     }
 
     for i in 0..prim_symmetry.size {
@@ -128,7 +131,7 @@ pub fn prm_get_primitive_symmetry(
         ));
     }
 
-    Some(prim_symmetry)
+    Some((t_mat, prim_symmetry))
 }
 
 pub fn prm_get_primitive_lattice_vectors(
@@ -400,15 +403,21 @@ fn collect_pure_translations(symmetry: &Symmetry) -> Option<Vec<Vec3>> {
     }
 }
 
+/// 在平移空间中找到原胞变换矩阵的逆。
+///
+/// 利用纯平移构建一个人工晶胞（单位晶格），搜索其原胞变换，
+/// 返回原胞晶格矩阵作为 `t_mat_inv`。
+///
+/// # Returns
+/// `Some(t_mat_inv)` — 从原胞到原始坐标的变换矩阵的逆。
 fn get_primitive_in_translation_space(
-    t_mat_inv: &mut Mat3,
     pure_trans: &[Vec3],
     symmetry_size: usize,
     symprec: f64,
-) -> bool {
+) -> Option<Mat3> {
     let primsym_size = symmetry_size / pure_trans.len();
     if symmetry_size != primsym_size * pure_trans.len() {
-        return false;
+        return None;
     }
 
     let mut cell = Cell::new(pure_trans.len(), crate::cell::TensorRank::NoSpin);
@@ -416,20 +425,14 @@ fn get_primitive_in_translation_space(
         cell.types[i] = 1;
         cell.position[i] = pure_trans[i];
     }
-    // Identity lattice
     cell.lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
-    if let Some(primitive) = get_primitive(&cell, symprec, -1.0) {
-        if let Some(prim_cell) = primitive.cell {
-            if prim_cell.size != 1 {
-                return false;
-            }
-            *t_mat_inv = prim_cell.lattice;
-            return true;
-        }
+    let primitive = get_primitive(&cell, symprec, -1.0)?;
+    let prim_cell = primitive.cell?;
+    if prim_cell.size != 1 {
+        return None;
     }
-
-    false
+    Some(prim_cell.lattice)
 }
 
 fn collect_primitive_symmetry(symmetry: &Symmetry, primsym_size: usize) -> Option<Symmetry> {

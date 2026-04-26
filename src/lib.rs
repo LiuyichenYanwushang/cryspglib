@@ -1681,8 +1681,7 @@ fn get_hall_number_from_symmetry(
         symmetry.trans[i] = translations[i];
     }
 
-    let mut t_mat = [[0.0; 3]; 3];
-    let prim_sym = prm_get_primitive_symmetry(&mut t_mat, &symmetry, symprec)
+    let (t_mat, prim_sym) = prm_get_primitive_symmetry(&symmetry, symprec)
         .ok_or(SpglibError::SpacegroupSearchFailed)?;
 
     let prim_lat = if transform_lattice_by_tmat {

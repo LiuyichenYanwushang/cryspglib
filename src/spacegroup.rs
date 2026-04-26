@@ -364,20 +364,6 @@ pub fn spa_transform_from_primitive(
     trimmed_cell
 }
 
-pub fn spa_copy_spacegroup(dst: &mut Spacegroup, src: &Spacegroup) {
-    dst.number = src.number;
-    dst.hall_number = src.hall_number;
-    dst.pointgroup_number = src.pointgroup_number;
-    dst.schoenflies = src.schoenflies.clone();
-    dst.hall_symbol = src.hall_symbol.clone();
-    dst.international = src.international.clone();
-    dst.international_long = src.international_long.clone();
-    dst.international_short = src.international_short.clone();
-    dst.choice = src.choice.clone();
-    dst.bravais_lattice = src.bravais_lattice;
-    dst.origin_shift = src.origin_shift;
-}
-
 // --- Internal Functions ---
 
 fn search_spacegroup_with_symmetry(
