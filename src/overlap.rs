@@ -80,8 +80,8 @@ impl OverlapChecker {
         }
 
         // 应用排序
-        permute_vec3(&mut checker.pos_sorted, &cell.position, &checker.perm_temp);
-        permute_i32(&mut checker.types_sorted, &cell.types, &checker.perm_temp);
+        checker.pos_sorted = permute_vec3(&cell.position, &checker.perm_temp);
+        checker.types_sorted = permute_i32(cell.types.as_slice(), &checker.perm_temp);
 
         // 设置周期性轴 (用于层状结构)
         let mut lattice_rank = 0;
@@ -141,7 +141,7 @@ impl OverlapChecker {
             return -1;
         }
 
-        permute_vec3(&mut self.pos_temp_2, &self.pos_temp_1, &self.perm_temp);
+        self.pos_temp_2 = permute_vec3(&self.pos_temp_1, &self.perm_temp);
 
         // 检查排序后的重叠
         check_total_overlap_for_sorted(
@@ -190,7 +190,7 @@ impl OverlapChecker {
             return -1;
         }
 
-        permute_vec3(&mut self.pos_temp_2, &self.pos_temp_1, &self.perm_temp);
+        self.pos_temp_2 = permute_vec3(&self.pos_temp_1, &self.perm_temp);
 
         check_layer_total_overlap_for_sorted(
             &self.lattice,
@@ -367,16 +367,14 @@ fn argsort_by_lattice_point_distance(
     true
 }
 
-fn permute_vec3(data_out: &mut [Vec3], data_in: &[Vec3], perm: &[usize]) {
-    for (i, &idx) in perm.iter().enumerate() {
-        data_out[i] = data_in[idx];
-    }
+/// 按置换表重排 `Vec3` 切片，返回重排后的向量。
+fn permute_vec3(data_in: &[Vec3], perm: &[usize]) -> Vec<Vec3> {
+    perm.iter().map(|&idx| data_in[idx]).collect()
 }
 
-fn permute_i32(data_out: &mut [i32], data_in: &[i32], perm: &[usize]) {
-    for (i, &idx) in perm.iter().enumerate() {
-        data_out[i] = data_in[idx];
-    }
+/// 按置换表重排 `i32` 切片，返回重排后的向量。
+fn permute_i32(data_in: &[i32], perm: &[usize]) -> Vec<i32> {
+    perm.iter().map(|&idx| data_in[idx]).collect()
 }
 
 /// 检查两个已排序的原子列表是否重叠

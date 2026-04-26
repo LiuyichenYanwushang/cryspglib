@@ -77,7 +77,7 @@ pub fn ref_get_exact_structure_and_symmetry(
     )?;
 
     let mut rotation = [[0.0; 3]; 3];
-    measure_rigid_rotation(&mut rotation, &spacegroup.bravais_lattice, &bravais.lattice);
+    rotation = measure_rigid_rotation(&spacegroup.bravais_lattice, &bravais.lattice);
 
     Some(ExactStructure {
         bravais,
@@ -732,10 +732,10 @@ fn get_primitive_db_symmetry(t_mat: &Mat3, conv_sym: &Symmetry) -> Option<Symmet
 
 // --- 框架和角落计算 ---
 
-fn get_surrounding_frame(frame: &mut [i32; 3], t_mat: &Mat3I) {
-    let mut corners = [[0i32; 8]; 3];
-    get_corners(&mut corners, t_mat);
+fn get_surrounding_frame(t_mat: &Mat3I) -> [i32; 3] {
+    let corners = get_corners(t_mat);
 
+    let mut frame = [0; 3];
     for i_axis in 0..3 {
         let mut max = corners[i_axis][0];
         let mut min = corners[i_axis][0];
@@ -749,32 +749,26 @@ fn get_surrounding_frame(frame: &mut [i32; 3], t_mat: &Mat3I) {
         }
         frame[i_axis] = max - min;
     }
+    frame
 }
 
-fn get_corners(corners: &mut [[i32; 8]; 3], t_mat: &Mat3I) {
+fn get_corners(t_mat: &Mat3I) -> [[i32; 8]; 3] {
+    let mut corners = [[0i32; 8]; 3];
     // O
-    for i in 0..3 {
-        corners[i][0] = 0;
-    }
-
+    for i in 0..3 { corners[i][0] = 0; }
     // a, b, c
     for i in 0..3 {
-        for j in 0..3 {
-            corners[j][i + 1] = t_mat[j][i];
-        }
+        for j in 0..3 { corners[j][i + 1] = t_mat[j][i]; }
     }
-
     // b+c, c+a, a+b
     for i in 0..3 {
         for j in 0..3 {
             corners[j][i + 4] = t_mat[j][(i + 1) % 3] + t_mat[j][(i + 2) % 3];
         }
     }
-
     // a+b+c
-    for i in 0..3 {
-        corners[i][7] = t_mat[i][0] + t_mat[i][1] + t_mat[i][2];
-    }
+    for i in 0..3 { corners[i][7] = t_mat[i][0] + t_mat[i][1] + t_mat[i][2]; }
+    corners
 }
 
 // --- 原始晶胞对称操作恢复 ---
@@ -788,7 +782,7 @@ fn recover_symmetry_in_original_cell(
     symprec: f64,
 ) -> Option<Symmetry> {
     let mut frame = [0i32; 3];
-    get_surrounding_frame(&mut frame, t_mat);
+    frame = get_surrounding_frame(t_mat);
 
     let t_mat_d = mat_cast_matrix_3i_to_3d(t_mat);
     let inv_tmat = mat_inverse_matrix_d3(&t_mat_d, 0.0)?;
@@ -1006,25 +1000,23 @@ pub fn ref_find_similar_bravais_lattice(spacegroup: &mut Spacegroup, symprec: f6
 }
 
 /// 计算 rigid rotation: std_lattice = rotation @ bravais_lattice
-fn measure_rigid_rotation(rotation: &mut Mat3, bravais_lattice: &Mat3, std_lattice: &Mat3) {
-    let mut brv_basis = [[0.0; 3]; 3];
-    let mut std_basis = [[0.0; 3]; 3];
-    get_orthonormal_basis(&mut brv_basis, bravais_lattice);
-    get_orthonormal_basis(&mut std_basis, std_lattice);
+fn measure_rigid_rotation(bravais_lattice: &Mat3, std_lattice: &Mat3) -> Mat3 {
+    let brv_basis = get_orthonormal_basis(bravais_lattice);
+    let std_basis = get_orthonormal_basis(std_lattice);
     let inv_brv_basis = mat_inverse_matrix_d3(&brv_basis, 0.0);
+    let mut rotation = [[0.0; 3]; 3];
     if let Some(inv) = inv_brv_basis {
-        *rotation = mat_multiply_matrix_d3(&std_basis, &inv);
+        rotation = mat_multiply_matrix_d3(&std_basis, &inv);
     }
+    rotation
 }
 
-fn get_orthonormal_basis(basis: &mut Mat3, lattice: &Mat3) {
+fn get_orthonormal_basis(lattice: &Mat3) -> Mat3 {
     let lattice_t = mat_transpose_matrix_d3(lattice);
     let mut basis_t = [[0.0; 3]; 3];
 
     basis_t[0] = lattice_t[0];
-    // c' = a x b
     basis_t[2] = mat_cross_product_d3(&lattice_t[0], &lattice_t[1]);
-    // b' = (a x b) x a = c' x a
     basis_t[1] = mat_cross_product_d3(&basis_t[2], &lattice_t[0]);
 
     for i in 0..3 {
@@ -1034,5 +1026,5 @@ fn get_orthonormal_basis(basis: &mut Mat3, lattice: &Mat3) {
         }
     }
 
-    *basis = mat_transpose_matrix_d3(&basis_t);
+    mat_transpose_matrix_d3(&basis_t)
 }

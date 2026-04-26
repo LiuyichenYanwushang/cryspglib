@@ -136,8 +136,7 @@ pub fn spn_get_idealized_cell(
             let j = inv_perm[i]; // p-th operation maps site-j to site-i
 
             let mut pos_tmp = [0.0; 3];
-            apply_symmetry_to_position(
-                &mut pos_tmp,
+            pos_tmp = apply_symmetry_to_position(
                 &cell.position[j],
                 &magnetic_symmetry.rot[p],
                 &magnetic_symmetry.trans[p],
@@ -238,8 +237,7 @@ fn get_operations(
 
         for j in 0..cell.size {
             let mut pos = [0.0; 3];
-            apply_symmetry_to_position(
-                &mut pos,
+            pos = apply_symmetry_to_position(
                 &cell.position[j],
                 &sym_nonspin.rot[i],
                 &sym_nonspin.trans[i],
@@ -410,8 +408,7 @@ fn get_symmetry_permutations(
     for p in 0..magnetic_symmetry.size {
         for i in 0..cell.size {
             let mut pos = [0.0; 3];
-            apply_symmetry_to_position(
-                &mut pos,
+            pos = apply_symmetry_to_position(
                 &cell.position[i],
                 &magnetic_symmetry.rot[p],
                 &magnetic_symmetry.trans[p],
@@ -565,11 +562,13 @@ fn get_operation_sign_on_vector(
     0
 }
 
-fn apply_symmetry_to_position(pos_dst: &mut Vec3, pos_src: &Vec3, rot: &Mat3I, trans: &Vec3) {
-    *pos_dst = mat_multiply_matrix_vector_id3(rot, pos_src);
+/// 将对称操作作用于分数坐标: `pos' = rot·pos + trans`。
+fn apply_symmetry_to_position(pos_src: &Vec3, rot: &Mat3I, trans: &Vec3) -> Vec3 {
+    let mut pos_dst = mat_multiply_matrix_vector_id3(rot, pos_src);
     for k in 0..3 {
         pos_dst[k] += trans[k];
     }
+    pos_dst
 }
 
 fn apply_symmetry_to_site_scalar(

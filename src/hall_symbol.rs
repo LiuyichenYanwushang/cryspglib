@@ -7969,7 +7969,7 @@ fn is_hall_symbol(
     if trace { eprintln!("    is_hall_symbol(hall={}): op_count={}, symmetry.size={}", hall_number, op_count_i32, symmetry.size); }
 
     let mut rot = [[[0; 3]; 3]; 3];
-    unpack_generators(&mut rot, generators);
+    rot = unpack_generators(generators);
     if trace { eprintln!("    is_hall_symbol: generators unpacked, rot[0]={:?}, rot[1]={:?}, rot[2]={:?}", rot[0], rot[1], rot[2]); }
 
     let mut trans = [[0.0; 3]; 3];
@@ -8001,7 +8001,9 @@ fn is_hall_symbol(
     false
 }
 
-fn unpack_generators(rot: &mut [[[i32; 3]; 3]; 3], generators: &[[i32; 9]; 3]) {
+/// 从扁平生成元数组解包为 3×3×3 旋转矩阵数组。
+fn unpack_generators(generators: &[[i32; 9]; 3]) -> [[[i32; 3]; 3]; 3] {
+    let mut rot = [[[0; 3]; 3]; 3];
     for i in 0..3 {
         for j in 0..3 {
             for k in 0..3 {
@@ -8009,6 +8011,7 @@ fn unpack_generators(rot: &mut [[[i32; 3]; 3]; 3], generators: &[[i32; 9]; 3]) {
             }
         }
     }
+    rot
 }
 
 fn get_translations(
@@ -8111,13 +8114,12 @@ fn set_dw(
     centering: Centering,
 ) -> bool {
     let mut trans_prim = [0.0; 3];
-    transform_translation(&mut trans_prim, centering, trans);
+    trans_prim = transform_translation(centering, trans);
 
     for i in 0..count {
-        // FIX: Handle Option return from spgdb_get_operation
         if let Some((rot_db, trans_db)) = spgdb_get_operation_by_index(start_index + i) {
             let mut trans_db_prim = [0.0; 3];
-            transform_translation(&mut trans_db_prim, centering, &trans_db);
+            trans_db_prim = transform_translation(centering, &trans_db);
 
             if mat_check_identity_matrix_i3(&rot_db, rot) {
                 for j in 0..3 {
@@ -8130,20 +8132,22 @@ fn set_dw(
     false
 }
 
-fn transform_translation(trans_reduced: &mut Vec3, centering: Centering, trans: &Vec3) {
+/// 将分数平移变换到约化原胞表示。
+fn transform_translation(centering: Centering, trans: &Vec3) -> Vec3 {
     match centering {
-        Centering::Primitive => *trans_reduced = *trans,
-        Centering::Body => *trans_reduced = mat_multiply_matrix_vector_id3(&M_BCC, trans),
-        Centering::Face => *trans_reduced = mat_multiply_matrix_vector_id3(&M_FCC, trans),
-        Centering::AFace => *trans_reduced = mat_multiply_matrix_vector_id3(&M_AC, trans),
-        Centering::BFace => *trans_reduced = mat_multiply_matrix_vector_id3(&M_BC, trans),
-        Centering::CFace => *trans_reduced = mat_multiply_matrix_vector_id3(&M_CC, trans),
-        Centering::RCenter => *trans_reduced = mat_multiply_matrix_vector_id3(&M_RC, trans),
-        _ => *trans_reduced = *trans,
+        Centering::Primitive => *trans,
+        Centering::Body => mat_multiply_matrix_vector_id3(&M_BCC, trans),
+        Centering::Face => mat_multiply_matrix_vector_id3(&M_FCC, trans),
+        Centering::AFace => mat_multiply_matrix_vector_id3(&M_AC, trans),
+        Centering::BFace => mat_multiply_matrix_vector_id3(&M_BC, trans),
+        Centering::CFace => mat_multiply_matrix_vector_id3(&M_CC, trans),
+        Centering::RCenter => mat_multiply_matrix_vector_id3(&M_RC, trans),
+        _ => *trans,
     }
 }
 
-fn transform_rotation(rot_reduced: &mut Mat3, centering: Centering, rot: &Mat3I) {
+/// 将旋转矩阵变换到约化原胞表示 (cartesian)。
+fn transform_rotation(centering: Centering, rot: &Mat3I) -> Mat3 {
     let rot_d3 = mat_cast_matrix_3i_to_3d(rot);
 
     if centering != Centering::Primitive {
@@ -8158,14 +8162,12 @@ fn transform_rotation(rot_reduced: &mut Mat3, centering: Centering, rot: &Mat3I)
         };
 
         if let Some(m_inv) = inv_matrix {
-            // FIX: Use mat_get_similar_matrix_d3 correctly
             if let Some(res) = mat_get_similar_matrix_d3(&rot_d3, m_inv, 0.0) {
-                *rot_reduced = res;
-                return;
+                return res;
             }
         }
     }
-    *rot_reduced = rot_d3;
+    rot_d3
 }
 
 fn is_match_database(
@@ -8192,13 +8194,13 @@ fn is_match_database(
             if let Some((rot_db, trans_db)) = spgdb_get_operation_by_index(start_index + j) {
                 if mat_check_identity_matrix_i3(&symmetry.rot[i], &rot_db) {
                     let mut trans_db_prim = [0.0; 3];
-                    transform_translation(&mut trans_db_prim, centering, &trans_db);
+                    trans_db_prim = transform_translation(centering, &trans_db);
 
                     let mut trans_prim = [0.0; 3];
-                    transform_translation(&mut trans_prim, centering, &symmetry.trans[i]);
+                    trans_prim = transform_translation(centering, &symmetry.trans[i]);
 
                     let mut rot_prim = [[0.0; 3]; 3];
-                    transform_rotation(&mut rot_prim, centering, &rot_db);
+                    rot_prim = transform_rotation(centering, &rot_db);
 
                     let mut diff = [0.0; 3];
                     for k in 0..3 {
