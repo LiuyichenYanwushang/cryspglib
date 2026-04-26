@@ -106,7 +106,7 @@ pub fn prm_get_primitive_symmetry(
     let primsym_size = symmetry.size / pure_trans.len();
 
     let t_mat_inv = get_primitive_in_translation_space(&pure_trans, symmetry.size, symprec)?;
-    let t_mat = mat_inverse_matrix_d3(&t_mat_inv, symprec)?;
+    let t_mat = mat_inverse_matrix_d3(&t_mat_inv, symprec).ok()?;
 
     let mut prim_symmetry = collect_primitive_symmetry(symmetry, primsym_size)?;
 
@@ -181,7 +181,7 @@ fn get_cell_with_smallest_lattice(cell: &Cell, symprec: f64) -> Option<Cell> {
         del_layer_delaunay_reduce(&cell.lattice, aperiodic_axis, symprec)?
     };
 
-    let inv_lat = mat_inverse_matrix_d3(&min_lat, 0.0)?;
+    let inv_lat = mat_inverse_matrix_d3(&min_lat, 0.0).ok()?;
     let trans_mat = mat_multiply_matrix_d3(&inv_lat, &cell.lattice);
 
     let mut smallest_cell = Cell::new(cell.size, cell.tensor_rank);
@@ -349,11 +349,11 @@ fn find_primitive_lattice_vectors(
         }
     }
 
-    if let Some(inv_mat_dbl) = mat_inverse_matrix_d3(&relative_lattice, 0.0) {
+    if let Ok(inv_mat_dbl) = mat_inverse_matrix_d3(&relative_lattice, 0.0) {
         let inv_mat_int = mat_cast_matrix_3d_to_3i(&inv_mat_dbl);
         if mat_get_determinant_i3(&inv_mat_int).abs() == (size - 2) as i32 {
             let inv_mat_dbl_clean = mat_cast_matrix_3i_to_3d(&inv_mat_int);
-            if let Some(rel) = mat_inverse_matrix_d3(&inv_mat_dbl_clean, 0.0) {
+            if let Ok(rel) = mat_inverse_matrix_d3(&inv_mat_dbl_clean, 0.0) {
                 relative_lattice = rel;
             }
         } else {

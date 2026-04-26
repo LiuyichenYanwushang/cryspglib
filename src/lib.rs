@@ -1199,7 +1199,7 @@ pub fn spg_read_structure(data: &str) -> Option<(Mat3, Vec<Vec3>, Vec<i32>, Opti
 
     // convert Cartesian to fractional if needed
     if is_cartesian {
-        let inv_lat = crate::mathfunc::mat_inverse_matrix_d3(&lattice, 1e-10)?;
+        let inv_lat = crate::mathfunc::mat_inverse_matrix_d3(&lattice, 1e-10).ok()?;
         for i in 0..n_atoms {
             let frac = crate::mathfunc::mat_multiply_matrix_vector_d3(&inv_lat, &positions[i]);
             positions[i] = frac;
@@ -1494,7 +1494,7 @@ fn set_dataset(
     };
 
     // Transformation matrix: inv(brv_lat) * cell_lat
-    let inv_lat = mat_inverse_matrix_d3(&spacegroup.bravais_lattice, 0.0)?;
+    let inv_lat = mat_inverse_matrix_d3(&spacegroup.bravais_lattice, 0.0).ok()?;
     dataset.transformation_matrix = mat_multiply_matrix_d3(&inv_lat, &cell.lattice);
 
     // Copy symmetry operations
@@ -1727,7 +1727,7 @@ fn get_hall_number_from_symmetry(
         .ok_or(SpglibError::SpacegroupSearchFailed)?;
 
     let prim_lat = if transform_lattice_by_tmat {
-        let t_mat_inv = mat_inverse_matrix_d3(&t_mat, symprec)
+        let t_mat_inv = mat_inverse_matrix_d3(&t_mat, symprec).ok()
             .ok_or(SpglibError::SpacegroupSearchFailed)?;
         mat_multiply_matrix_d3(lattice, &t_mat_inv)
     } else {

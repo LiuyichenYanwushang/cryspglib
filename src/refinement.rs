@@ -283,7 +283,7 @@ fn get_number_of_pure_translation(conv_sym: &Symmetry) -> i32 {
 fn get_conventional_primitive(spacegroup: &Spacegroup, primitive: &Cell) -> Option<Cell> {
     let mut conv_prim = Cell::new(primitive.size, primitive.tensor_rank);
 
-    let inv_brv = mat_inverse_matrix_d3(&spacegroup.bravais_lattice, 0.0)?;
+    let inv_brv = mat_inverse_matrix_d3(&spacegroup.bravais_lattice, 0.0).ok()?;
     let trans_mat = mat_multiply_matrix_d3(&inv_brv, &primitive.lattice);
 
     for i in 0..primitive.size {
@@ -530,7 +530,7 @@ fn get_refined_symmetry_operations(
     // Primitive symmetry from database
     let conv_sym = spgdb_get_spacegroup_operations(spacegroup.hall_number)?;
 
-    let inv_prim_lat = mat_inverse_matrix_d3(&primitive.lattice, 0.0)?;
+    let inv_prim_lat = mat_inverse_matrix_d3(&primitive.lattice, 0.0).ok()?;
     let t_mat = mat_multiply_matrix_d3(&inv_prim_lat, &spacegroup.bravais_lattice);
 
     let mut conv_sym_mut = conv_sym;
@@ -694,7 +694,7 @@ fn set_translation_with_origin_shift(conv_sym: &mut Symmetry, origin_shift: &Vec
 
 /// 从常规对称操作变换到原胞对称操作。
 fn get_primitive_db_symmetry(t_mat: &Mat3, conv_sym: &Symmetry) -> Option<Symmetry> {
-    let inv_mat = mat_inverse_matrix_d3(t_mat, 0.0)?;
+    let inv_mat = mat_inverse_matrix_d3(t_mat, 0.0).ok()?;
 
     let mut r_prim: Vec<Mat3I> = Vec::with_capacity(conv_sym.size);
     let mut t_prim: Vec<Vec3> = Vec::with_capacity(conv_sym.size);
@@ -785,7 +785,7 @@ fn recover_symmetry_in_original_cell(
     frame = get_surrounding_frame(t_mat);
 
     let t_mat_d = mat_cast_matrix_3i_to_3d(t_mat);
-    let inv_tmat = mat_inverse_matrix_d3(&t_mat_d, 0.0)?;
+    let inv_tmat = mat_inverse_matrix_d3(&t_mat_d, 0.0).ok()?;
 
     let lattice_trans = get_lattice_translations(&frame, &inv_tmat);
     let pure_trans = remove_overlapping_lattice_points(lattice, &lattice_trans, symprec)?;
@@ -972,7 +972,7 @@ pub fn ref_find_similar_bravais_lattice(spacegroup: &mut Spacegroup, symprec: f6
             }
             let tmp_mat_d = mat_cast_matrix_3i_to_3d(&conv_sym.rot[i]);
             let tmp_inv = mat_inverse_matrix_d3(&tmp_mat_d, 0.0);
-            let Some(tmp_inv) = tmp_inv else { continue; };
+            let Ok(tmp_inv) = tmp_inv else { continue; };
 
             let mut p = mat_multiply_matrix_vector_d3(&tmp_inv, &spacegroup.origin_shift);
             let tmp_vec = mat_multiply_matrix_vector_d3(&tmp_inv, &conv_sym.trans[i]);
@@ -1003,7 +1003,7 @@ pub fn ref_find_similar_bravais_lattice(spacegroup: &mut Spacegroup, symprec: f6
 fn measure_rigid_rotation(bravais_lattice: &Mat3, std_lattice: &Mat3) -> Mat3 {
     let brv_basis = get_orthonormal_basis(bravais_lattice);
     let std_basis = get_orthonormal_basis(std_lattice);
-    let inv_brv_basis = mat_inverse_matrix_d3(&brv_basis, 0.0);
+    let inv_brv_basis = mat_inverse_matrix_d3(&brv_basis, 0.0).ok();
     let mut rotation = [[0.0; 3]; 3];
     if let Some(inv) = inv_brv_basis {
         rotation = mat_multiply_matrix_d3(&std_basis, &inv);

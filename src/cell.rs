@@ -324,7 +324,7 @@ fn trim_cell(
     let ratio = mat_nint(det_cell / det_trimmed).abs();
 
     // 验证变换矩阵的行列式是否等于体积比
-    let inv_trimmed = mat_inverse_matrix_d3(trimmed_lattice, symprec)?;
+    let inv_trimmed = mat_inverse_matrix_d3(trimmed_lattice, symprec).ok()?;
     let tmp_mat = mat_multiply_matrix_d3(&inv_trimmed, &cell.lattice);
     let tmp_mat_int = mat_cast_matrix_3d_to_3i(&tmp_mat);
 

@@ -134,7 +134,7 @@ fn delaunay_reduce(
 
     // 验证变换矩阵是否为幺模矩阵 (行列式为 +/- 1)
     // M_new = M_trans * M_orig => M_trans = M_new * M_orig^-1
-    if let Some(inv_red) = mat_inverse_matrix_d3(&red_lattice, symprec) {
+    if let Ok(inv_red) = mat_inverse_matrix_d3(&red_lattice, symprec) {
         let tmp_mat = mat_multiply_matrix_d3(&inv_red, &orig_lattice);
         let tmp_mat_int = mat_cast_matrix_3d_to_3i(&tmp_mat);
         if mat_get_determinant_i3(&tmp_mat_int).abs() != 1 {

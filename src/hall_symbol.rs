@@ -8162,7 +8162,7 @@ fn transform_rotation(centering: Centering, rot: &Mat3I) -> Mat3 {
         };
 
         if let Some(m_inv) = inv_matrix {
-            if let Some(res) = mat_get_similar_matrix_d3(&rot_d3, m_inv, 0.0) {
+            if let Ok(res) = mat_get_similar_matrix_d3(&rot_d3, m_inv, 0.0) {
                 return res;
             }
         }

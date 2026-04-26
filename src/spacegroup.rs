@@ -275,7 +275,7 @@ pub fn spa_transform_to_primitive(
     centering: Centering,
     symprec: f64,
 ) -> Option<Cell> {
-    let tmat_inv = match mat_inverse_matrix_d3(trans_mat, symprec) {
+    let tmat_inv = match mat_inverse_matrix_d3(trans_mat, symprec).ok() {
         Some(m) => m,
         None => return None,
     };
@@ -312,23 +312,23 @@ pub fn spa_transform_from_primitive(
         Centering::Primitive => {}
         Centering::AFace => {
             tmat = A_MAT;
-            inv_tmat = mat_inverse_matrix_d3(&A_MAT, 0.0).unwrap();
+            inv_tmat = mat_inverse_matrix_d3(&A_MAT, 0.0).ok().unwrap();
         }
         Centering::CFace => {
             tmat = C_MAT;
-            inv_tmat = mat_inverse_matrix_d3(&C_MAT, 0.0).unwrap();
+            inv_tmat = mat_inverse_matrix_d3(&C_MAT, 0.0).ok().unwrap();
         }
         Centering::Face => {
             tmat = F_MAT;
-            inv_tmat = mat_inverse_matrix_d3(&F_MAT, 0.0).unwrap();
+            inv_tmat = mat_inverse_matrix_d3(&F_MAT, 0.0).ok().unwrap();
         }
         Centering::Body => {
             tmat = I_MAT;
-            inv_tmat = mat_inverse_matrix_d3(&I_MAT, 0.0).unwrap();
+            inv_tmat = mat_inverse_matrix_d3(&I_MAT, 0.0).ok().unwrap();
         }
         Centering::RCenter => {
             tmat = R_MAT;
-            inv_tmat = mat_inverse_matrix_d3(&R_MAT, 0.0).unwrap();
+            inv_tmat = mat_inverse_matrix_d3(&R_MAT, 0.0).ok().unwrap();
         }
         _ => return None,
     }
@@ -595,7 +595,7 @@ fn change_basis_tricli(
         }
     }
 
-    let inv_lattice = mat_inverse_matrix_d3(primitive_lattice, 0.0).unwrap();
+    let inv_lattice = mat_inverse_matrix_d3(primitive_lattice, 0.0).ok().unwrap();
     let tmat = mat_multiply_matrix_d3(&inv_lattice, &smallest_lattice);
     *tmat_int = mat_cast_matrix_3d_to_3i(&tmat);
 
@@ -640,7 +640,7 @@ fn change_basis_monocli(
         smallest_lattice = mat_multiply_matrix_d3(&smallest_lattice, &CHANGE_OF_BASIS_MONOCLI[2]);
     }
 
-    let inv_lattice = mat_inverse_matrix_d3(primitive_lattice, 0.0).unwrap();
+    let inv_lattice = mat_inverse_matrix_d3(primitive_lattice, 0.0).ok().unwrap();
     let tmat = mat_multiply_matrix_d3(&inv_lattice, &smallest_lattice);
     *tmat_int = mat_cast_matrix_3d_to_3i(&tmat);
 
@@ -678,14 +678,14 @@ fn get_conventional_symmetry(
         _ => symmetry = Symmetry::new(size),
     }
 
-    let inv_tmat = mat_inverse_matrix_d3(tmat, 0.0).unwrap_or([[0.0; 3]; 3]);
+    let inv_tmat = mat_inverse_matrix_d3(tmat, 0.0).ok().unwrap_or([[0.0; 3]; 3]);
 
     for i in 0..size {
         let primitive_sym_rot_d3 = mat_cast_matrix_3i_to_3d(&primitive_sym.rot[i]);
 
         // C*S*C^-1
         let mut symmetry_rot_d3 = [[0.0; 3]; 3];
-        if let Some(res) = mat_get_similar_matrix_d3(&primitive_sym_rot_d3, tmat, 0.0) {
+        if let Ok(res) = mat_get_similar_matrix_d3(&primitive_sym_rot_d3, tmat, 0.0) {
             symmetry_rot_d3 = res;
         }
         symmetry.rot[i] = mat_cast_matrix_3d_to_3i(&symmetry_rot_d3);
@@ -861,7 +861,7 @@ fn is_equivalent_lattice(
     }
 
     let mut inv_lat = [[0.0; 3]; 3];
-    if mat_inverse_matrix_d3(lattice, symprec).is_none() {
+    if mat_inverse_matrix_d3(lattice, symprec).is_err() {
         return false;
     }
 

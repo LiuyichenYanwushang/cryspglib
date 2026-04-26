@@ -243,13 +243,15 @@ pub fn mat_cast_matrix_3d_to_3i(a: &Mat3) -> Mat3I {
     m
 }
 
-/// 计算逆矩阵 m = a^-1
-/// 如果行列式接近 0，返回 None
-pub fn mat_inverse_matrix_d3(a: &Mat3, precision: f64) -> Option<Mat3> {
+/// 计算逆矩阵 m = a^-1。
+///
+/// # Errors
+/// 行列式绝对值小于 `precision` 时返回 [`SpglibError::MathFailed`]。
+pub fn mat_inverse_matrix_d3(a: &Mat3, precision: f64) -> Result<Mat3, crate::SpglibError> {
     let det = mat_get_determinant_d3(a);
     if det.abs() < precision {
         debug::debug_print(format_args!("spglib: No inverse matrix (det={})\n", det));
-        return None;
+        return Err(crate::SpglibError::MathFailed);
     }
 
     let mut c = [[0.0; 3]; 3];
@@ -263,16 +265,17 @@ pub fn mat_inverse_matrix_d3(a: &Mat3, precision: f64) -> Option<Mat3> {
     c[1][2] = (a[0][2] * a[1][0] - a[0][0] * a[1][2]) / det;
     c[2][2] = (a[0][0] * a[1][1] - a[0][1] * a[1][0]) / det;
 
-    Some(c)
+    Ok(c)
 }
 
-/// 计算相似矩阵 m = b^-1 a b
-pub fn mat_get_similar_matrix_d3(a: &Mat3, b: &Mat3, precision: f64) -> Option<Mat3> {
+/// 计算相似矩阵 m = b^-1 a b。
+///
+/// # Errors
+/// `b` 不可逆时返回 [`SpglibError::MathFailed`]。
+pub fn mat_get_similar_matrix_d3(a: &Mat3, b: &Mat3, precision: f64) -> Result<Mat3, crate::SpglibError> {
     let inv_b = mat_inverse_matrix_d3(b, precision)?;
-    // m = a * b
     let temp = mat_multiply_matrix_d3(a, b);
-    // m = inv_b * temp
-    Some(mat_multiply_matrix_d3(&inv_b, &temp))
+    Ok(mat_multiply_matrix_d3(&inv_b, &temp))
 }
 
 /// 矩阵转置 (double)
@@ -477,7 +480,7 @@ mod tests {
         assert!((inv[2][2] - 0.25).abs() < 1e-10);
 
         let singular: Mat3 = [[0.0; 3]; 3];
-        assert!(mat_inverse_matrix_d3(&singular, 1e-10).is_none());
+        assert!(mat_inverse_matrix_d3(&singular, 1e-10).is_err());
     }
 
     #[test]

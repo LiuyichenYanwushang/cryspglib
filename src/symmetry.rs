@@ -749,13 +749,13 @@ fn transform_pointsymmetry(
     let mut lat_sym_new = PointSymmetry::new(0);
     let mut rot_list = Vec::new();
 
-    let inv_mat = mat_inverse_matrix_d3(original_lattice, 0.0).unwrap_or([[0.0; 3]; 3]);
+    let inv_mat = mat_inverse_matrix_d3(original_lattice, 0.0).ok().unwrap_or([[0.0; 3]; 3]);
     let trans_mat = mat_multiply_matrix_d3(&inv_mat, new_lattice);
 
     for i in 0..lat_sym_orig.size {
         let mut drot = mat_cast_matrix_3i_to_3d(&lat_sym_orig.rot[i]);
         // 尝试获取相似矩阵，如果失败则跳过
-        if let Some(sim) = mat_get_similar_matrix_d3(&drot, &trans_mat, 0.0) {
+        if let Ok(sim) = mat_get_similar_matrix_d3(&drot, &trans_mat, 0.0) {
             drot = sim;
             if mat_is_int_matrix(&drot, mat_dabs(mat_get_determinant_d3(&trans_mat)) / 10.0) {
                 let rot_i = mat_cast_matrix_3d_to_3i(&drot);

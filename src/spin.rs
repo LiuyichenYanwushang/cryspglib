@@ -214,11 +214,7 @@ fn get_operations(
 ) -> Option<MagneticSymmetry> {
     let mut rotations_cart = vec![[[0.0; 3]; 3]; sym_nonspin.size];
 
-    // FIX: mat_inverse_matrix_d3 returns Option<Mat3>
-    let inv_lat = match mat_inverse_matrix_d3(&cell.lattice, 0.0) {
-        Some(m) => m,
-        None => return None,
-    };
+    let inv_lat = mat_inverse_matrix_d3(&cell.lattice, 0.0).ok()?;
 
     for i in 0..sym_nonspin.size {
         // rot_cart = lattice @ rot @ lattice^-1
@@ -623,8 +619,7 @@ fn set_rotations_in_cartesian(
     lattice: &Mat3,
     magnetic_symmetry: &MagneticSymmetry,
 ) {
-    // FIX: mat_inverse_matrix_d3 returns Option<Mat3>
-    let inv_lat = mat_inverse_matrix_d3(lattice, 0.0).unwrap_or([[0.0; 3]; 3]);
+    let inv_lat = mat_inverse_matrix_d3(lattice, 0.0).ok().unwrap_or([[0.0; 3]; 3]);
 
     for i in 0..magnetic_symmetry.size {
         // rot_cart = lattice @ rot @ lattice^-1

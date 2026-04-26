@@ -487,7 +487,7 @@ fn get_space_group_with_magnetic_symmetry(
     // x = (tmat, 0)^-1 x_prim
     // => x_std = (P^-1, p) (tmat, 0) x = ( P^-1 @ tmat, p) x
     //    (a_std, b_std, c_std) = (a, b, c) @ tmat^-1 @ P
-    let inv_tmat = mat_inverse_matrix_d3(&tmat, 0.0)?;
+    let inv_tmat = mat_inverse_matrix_d3(&tmat, 0.0).ok()?;
     spacegroup.bravais_lattice = mat_multiply_matrix_d3(&inv_tmat, &spacegroup.bravais_lattice);
 
     Some((spacegroup, sym))
@@ -696,7 +696,7 @@ fn get_distinct_changed_magnetic_symmetry(
     shift: &Vec3,
     sym_msg: &MagneticSymmetry,
 ) -> Option<MagneticSymmetry> {
-    let inv_tmat = mat_inverse_matrix_d3(tmat, 0.0)?;
+    let inv_tmat = mat_inverse_matrix_d3(tmat, 0.0).ok()?;
 
     let mut changed = MagneticSymmetry::new(sym_msg.size);
     let mut size = 0usize;
@@ -1143,10 +1143,10 @@ fn get_rigid_rotation(
     tmat: &Mat3,
     ref_sg: &Spacegroup,
 ) {
-    let inv_tmat = mat_inverse_matrix_d3(tmat, 0.0);
+    let inv_tmat = mat_inverse_matrix_d3(tmat, 0.0).ok();
     if let Some(inv) = inv_tmat {
         let tmp = mat_multiply_matrix_d3(&ref_sg.bravais_lattice, &inv);
-        let inv_lat = mat_inverse_matrix_d3(lattice, 0.0);
+        let inv_lat = mat_inverse_matrix_d3(lattice, 0.0).ok();
         if let Some(inv_l) = inv_lat {
             let result = mat_multiply_matrix_d3(&inv_l, &tmp);
             *rigid_rot = result;
