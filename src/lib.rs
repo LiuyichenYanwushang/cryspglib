@@ -1,4 +1,4 @@
-//! rspglib — Rust 晶体空间群识别库。
+//! cryspglib — Rust 晶体空间群识别库。
 //!
 //! 基于 [spglib](https://github.com/spglib/spglib) 的纯 Rust 移植，
 //! 提供晶体对称性分析、空间群识别、标准晶胞构造和 k 点网格生成。
