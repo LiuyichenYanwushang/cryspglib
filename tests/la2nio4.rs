@@ -3,7 +3,7 @@
 //! 四方 P4₂/ncm (#138)，D₄ₕ 点群。晶胞含 8 La + 4 Ni + 16 O = 28 原子。
 
 use cryspglib::{
-    spg_get_dataset, spg_get_pointgroup, spg_get_spacegroup_type,
+    Crystal, spg_get_pointgroup, spg_get_spacegroup_type,
 };
 
 const SYMPREC: f64 = 1e-5;
@@ -57,8 +57,11 @@ fn test_la2nio4() {
         8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, // O
     ];
 
-    let dataset = spg_get_dataset(&lattice, &positions, &types, SYMPREC)
-        .expect("spg_get_dataset failed for La2NiO4");
+    let dataset = Crystal::new(lattice, positions.to_vec(), types.to_vec())
+        .analyze()
+        .symprec(SYMPREC)
+        .dataset()
+        .expect("dataset failed for La2NiO4");
 
     // P4₂/ncm (#138), Hall 422, 点群 4/mmm (D₄ₕ)
     assert_eq!(dataset.spacegroup_number, 138,

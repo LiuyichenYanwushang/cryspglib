@@ -4,7 +4,7 @@
 //! 所有测试只使用公共 API。
 
 use cryspglib::{
-    spg_get_dataset, spg_get_magnetic_dataset, spg_get_pointgroup, spg_get_spacegroup_type,
+    Crystal, spg_get_magnetic_dataset, spg_get_pointgroup, spg_get_spacegroup_type,
     spg_format_magnetic_symmetry, MagneticType,
 };
 
@@ -53,8 +53,11 @@ fn test_cof3_nonmagnetic() {
         24, 24, 24, 24, 24, 24, // Cr
     ];
 
-    let dataset = spg_get_dataset(&lattice, &positions, &types, SYMPREC)
-        .expect("spg_get_dataset failed for CoF3");
+    let dataset = Crystal::new(lattice, positions.to_vec(), types.to_vec())
+        .analyze()
+        .symprec(SYMPREC)
+        .dataset()
+        .expect("dataset failed for CoF3");
 
     assert_eq!(dataset.spacegroup_number, 167, "CoF₃ should be R-3c (#167)");
 

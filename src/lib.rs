@@ -293,145 +293,28 @@ pub struct MagneticSpaceGroupType {
 // ========================================================================
 
 // ---------------------------------------------------------------------------
-// Version
-// ---------------------------------------------------------------------------
 
 /// 获取 spglib 版本字符串。
-pub fn spg_get_version() -> &'static str {
-    SPGLIB_VERSION
-}
-
 /// 获取完整版本字符串。
-pub fn spg_get_version_full() -> &'static str {
-    SPGLIB_VERSION_FULL
-}
-
 /// 获取 Git 提交哈希。
-pub fn spg_get_commit() -> &'static str {
-    SPGLIB_COMMIT
-}
-
 /// 获取主版本号。
-pub fn spg_get_major_version() -> i32 {
-    SPGLIB_MAJOR_VERSION
-}
-
 /// 获取次版本号。
-pub fn spg_get_minor_version() -> i32 {
-    SPGLIB_MINOR_VERSION
-}
-
 /// 获取补丁版本号。
-pub fn spg_get_micro_version() -> i32 {
-    SPGLIB_MICRO_VERSION
-}
-
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
 
 /// 获取错误码对应的消息。
-pub fn spg_get_error_message(error: SpglibError) -> &'static str {
-    match error {
-        SymError::Success => "no error",
-        SymError::SpacegroupSearchFailed => "spacegroup search failed",
-        SymError::CellStandardizationFailed => "cell standardization failed",
-        SymError::SymmetryOperationSearchFailed => "symmetry operation search failed",
-        SymError::AtomsTooClose => "too close distance between atoms",
-        SymError::PointgroupNotFound => "pointgroup not found",
-        SymError::NiggliFailed => "Niggli reduction failed",
-        SymError::DelaunayFailed => "Delaunay reduction failed",
-        SymError::ArraySizeShortage => "array size shortage",
-        SymError::InvalidInput => "invalid input format",
-        SymError::MathFailed => "math operation failed",
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Dataset (核心 API)
 // ---------------------------------------------------------------------------
 
-/// 识别晶体的空间群。
-///
-/// 输入晶格、原子分数坐标和原子种类，返回完整的 [`SpglibDataset`]，
-/// 包括空间群编号 (1–230)、Hall 符号、标准晶胞、对称操作、Wyckoff 位置等。
-///
-/// # Arguments
-/// * `lattice` — 3×3 晶格矩阵，布局 `[cart][vec]`（列 = 晶格矢量）。
-/// * `position` — 原子分数坐标 `[f64; 3]` 的切片。
-/// * `types` — 原子种类（原子序数）。
-/// * `symprec` — 对称性容差（笛卡尔坐标距离，典型值 `1e-5`）。
-///
-/// # Examples
-///
-/// ```
-/// # use cryspglib::spg_get_dataset;
-/// let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-/// let ds = spg_get_dataset(&lattice, &[[0.,0.,0.], [0.5,0.5,0.5]], &[55,17], 1e-5);
-/// assert!(ds.is_ok());
-/// ```
-pub fn spg_get_dataset(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-) -> Result<SpaceGroup, SymError> {
-    get_dataset(lattice, position, types, None, 0, symprec, -1.0)
-}
 
-/// 获取空间群数据集（带角度容差）。
-pub fn spgat_get_dataset(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-    angle_tolerance: f64,
-) -> Result<SpaceGroup, SymError> {
-    get_dataset(lattice, position, types, None, 0, symprec, angle_tolerance)
-}
 
-/// 获取空间群数据集（指定 Hall 编号）。
-pub fn spg_get_dataset_with_hall_number(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    hall_number: i32,
-    symprec: f64,
-) -> Result<SpaceGroup, SymError> {
-    get_dataset(lattice, position, types, None, hall_number, symprec, -1.0)
-}
 
 /// 获取空间群数据集（指定 Hall 编号，带角度容差）。
-pub fn spgat_get_dataset_with_hall_number(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    hall_number: i32,
-    symprec: f64,
-    angle_tolerance: f64,
-) -> Result<SpaceGroup, SymError> {
-    get_dataset(lattice, position, types, None, hall_number, symprec, angle_tolerance)
-}
 
-/// 获取层状空间群数据集。
-///
 /// `aperiodic_axis` 指定无周期性方向的轴 (0, 1, 2)。
-pub fn spg_get_layer_dataset(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    aperiodic_axis: i32,
-    symprec: f64,
-) -> Result<SpaceGroup, SymError> {
-    use crate::cell::AperiodicAxis;
-    let ap = match aperiodic_axis {
-        0 => Some(AperiodicAxis::X),
-        1 => Some(AperiodicAxis::Y),
-        2 => Some(AperiodicAxis::Z),
-        _ => return Err(SymError::SpacegroupSearchFailed),
-    };
-    get_dataset(lattice, position, types, ap, 0, symprec, -1.0)
-}
 
 // ---------------------------------------------------------------------------
 // Symmetry operations
@@ -443,31 +326,8 @@ pub fn spg_get_layer_dataset(
 ///
 /// # Examples
 ///
-/// ```
-/// # use cryspglib::spg_get_symmetry;
-/// let sym = spg_get_symmetry(
-///     &[[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]], &[[0.,0.,0.]], &[29], 1e-5);
-/// assert!(sym.is_ok());
-/// ```
-pub fn spg_get_symmetry(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-) -> Result<Symmetry, SpglibError> {
-    get_symmetry_from_dataset(lattice, position, types, symprec, -1.0)
-}
 
 /// 获取对称操作（带角度容差）。
-pub fn spgat_get_symmetry(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-    angle_tolerance: f64,
-) -> Result<Symmetry, SpglibError> {
-    get_symmetry_from_dataset(lattice, position, types, symprec, angle_tolerance)
-}
 
 /// 从空间群数据库获取对称操作。
 ///
@@ -524,16 +384,6 @@ pub fn spg_get_spacegroup_type_from_symmetry(
 /// - `to_primitive`: 若为 true，返回原胞而非常规晶胞
 /// - `no_idealize`: 若为 true，跳过原子位置理想化
 /// 返回 `None` 表示失败。
-pub fn spg_standardize_cell(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    to_primitive: bool,
-    no_idealize: bool,
-    symprec: f64,
-) -> Result<Cell, SpglibError> {
-    spgat_standardize_cell(lattice, position, types, to_primitive, no_idealize, symprec, -1.0)
-}
 
 /// 标准化晶胞（带角度容差）。
 pub fn spgat_standardize_cell(
@@ -563,14 +413,6 @@ pub fn spgat_standardize_cell(
 /// 寻找原胞。
 ///
 /// 将任意晶胞约化为其原胞，返回原胞结构和新的原子数。
-pub fn spg_find_primitive(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-) -> Result<Cell, SpglibError> {
-    standardize_primitive(lattice, position, types, symprec, -1.0)
-}
 
 /// 寻找原胞（带角度容差）。
 pub fn spgat_find_primitive(
@@ -586,14 +428,6 @@ pub fn spgat_find_primitive(
 /// 精细化晶胞。
 ///
 /// 对输入晶胞进行理想化处理，返回标准化的常规晶胞。
-pub fn spg_refine_cell(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-) -> Result<Cell, SpglibError> {
-    standardize_cell(lattice, position, types, symprec, -1.0)
-}
 
 /// 精细化晶胞（带角度容差）。
 pub fn spgat_refine_cell(
@@ -613,72 +447,18 @@ pub fn spgat_refine_cell(
 /// 获取空间群的国际符号。
 ///
 /// 返回 `Some((spacegroup_number, international_symbol))`。
-pub fn spg_get_international(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-) -> Result<(usize, String), SpglibError> {
-    get_international(lattice, position, types, symprec, -1.0)
-}
 
 /// 获取空间群的国际符号（带角度容差）。
-pub fn spgat_get_international(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-    angle_tolerance: f64,
-) -> Result<(usize, String), SpglibError> {
-    get_international(lattice, position, types, symprec, angle_tolerance)
-}
 
 /// 获取空间群的 Schoenflies 符号。
 ///
 /// 返回 `Some((spacegroup_number, schoenflies_symbol))`。
-pub fn spg_get_schoenflies(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-) -> Result<(usize, String), SpglibError> {
-    get_schoenflies(lattice, position, types, symprec, -1.0)
-}
 
 /// 获取空间群的 Schoenflies 符号（带角度容差）。
-pub fn spgat_get_schoenflies(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-    angle_tolerance: f64,
-) -> Result<(usize, String), SpglibError> {
-    get_schoenflies(lattice, position, types, symprec, angle_tolerance)
-}
 
 /// 获取对称操作的多重数（即对称操作的个数）。
 ///
 /// 返回 `None` 表示搜索失败。
-pub fn spg_get_multiplicity(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-) -> Result<usize, SpglibError> {
-    get_multiplicity(lattice, position, types, symprec, -1.0)
-}
-
-/// 获取对称操作的多重数（带角度容差）。
-pub fn spgat_get_multiplicity(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-    angle_tolerance: f64,
-) -> Result<usize, SpglibError> {
-    get_multiplicity(lattice, position, types, symprec, angle_tolerance)
-}
-
 /// 根据 Hall 编号获取空间群类型信息。
 pub fn spg_get_spacegroup_type(hall_number: usize) -> Result<SpaceGroupType, SpglibError> {
     if hall_number > 0 && hall_number < 531 {
@@ -795,7 +575,6 @@ pub struct MagneticSymmetry {
 /// 返回包含非磁空间群、磁空间群、对称操作的结构。
 ///
 /// # 示例
-/// ```
 /// # use cryspglib::spg_get_magnetic_dataset;
 /// let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 /// let positions = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]];
@@ -803,7 +582,6 @@ pub struct MagneticSymmetry {
 /// let moments = [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]];
 /// let result = spg_get_magnetic_dataset(&lattice, &positions, &types, Some(&moments), 1e-5);
 /// # assert!(result.is_some());
-/// ```
 pub fn spg_get_magnetic_dataset(
     lattice: &Mat3,
     positions: &[Vec3],
@@ -1118,17 +896,12 @@ pub fn spg_format_magnetic_symmetry(result: &MagneticSymmetry) -> String {
 /// atom_counts (e.g. "2 1")
 /// Direct|Cartesian
 /// x y z [mx my my]  # 位置，可选 3 个磁矩分量
-/// ```
 ///
 /// 返回 `(lattice, positions, types, magnetic_moments)`。
 /// Parse a POSCAR-format string.
 ///
 /// Delegates to [`Crystal::from_poscar`] internally.
 #[deprecated(since = "0.2.0", note = "use `Crystal::from_poscar(data)` instead")]
-pub fn spg_read_structure(data: &str) -> Option<(Mat3, Vec<Vec3>, Vec<i32>, Option<Vec<[f64; 3]>>)> {
-    crate::parser::parse_poscar(data)
-}
-
 // ---------------------------------------------------------------------------
 // Lattice reduction
 // ---------------------------------------------------------------------------
@@ -1137,11 +910,9 @@ pub fn spg_read_structure(data: &str) -> Option<(Mat3, Vec<Vec3>, Vec<i32>, Opti
 ///
 /// 将任意晶格约化到 Delaunay 标准形式，返回约化后的晶格矩阵。
 ///
-/// ```
 /// # use cryspglib::spg_delaunay_reduce;
 /// let reduced = spg_delaunay_reduce(&[[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]], 1e-5);
 /// assert!(reduced.is_ok());
-/// ```
 /// 返回约化后的晶格矩阵。
 pub fn spg_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibError> {
     del_delaunay_reduce(lattice, symprec).ok_or(SymError::DelaunayFailed)
@@ -1151,11 +922,9 @@ pub fn spg_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibE
 ///
 /// 适用于三斜和单斜晶系的晶格约化，返回约化后的晶格矩阵。
 ///
-/// ```
 /// # use cryspglib::spg_niggli_reduce;
 /// let reduced = spg_niggli_reduce(&[[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]], 1e-5);
 /// assert!(reduced.is_ok());
-/// ```
 pub fn spg_niggli_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibError> {
     let mut reduced = *lattice;
     if niggli_reduce(&mut reduced, symprec, None) {

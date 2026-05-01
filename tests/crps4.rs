@@ -4,7 +4,7 @@
 //! PPOSCAR 原胞含 2 Cr + 2 P + 8 S = 12 原子（约化因子 4）。
 
 use cryspglib::{
-    spg_get_dataset, spg_get_pointgroup, spg_get_spacegroup_type,
+    Crystal, spg_get_pointgroup, spg_get_spacegroup_type,
 };
 
 const SYMPREC: f64 = 1e-5;
@@ -81,8 +81,11 @@ fn test_crps4() {
         16, 16, 16, 16, 16, 16, 16, 16,
     ];
 
-    let dataset = spg_get_dataset(&lattice, &positions, &types, SYMPREC)
-        .expect("spg_get_dataset failed for CrPS4");
+    let dataset = Crystal::new(lattice, positions.to_vec(), types.to_vec())
+        .analyze()
+        .symprec(SYMPREC)
+        .dataset()
+        .expect("dataset failed for CrPS4");
 
     // C2 (#5), Hall 9, 点群 2 (C₂)
     assert_eq!(dataset.spacegroup_number, 5,
