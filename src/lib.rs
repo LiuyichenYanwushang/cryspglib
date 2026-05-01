@@ -3,12 +3,31 @@
 //! 基于 [spglib](https://github.com/spglib/spglib) 的纯 Rust 移植，
 //! 提供晶体对称性分析、空间群识别、标准晶胞构造和 k 点网格生成。
 //!
-//! # 主要入口
+//! # 快速开始
 //!
-//! - [`spg_get_dataset`] — 获取完整空间群信息数据集
-//! - [`spg_get_symmetry`] — 仅获取对称操作
-//! - [`spg_standardize_cell`] — 获取理想化标准晶胞
-//! - [`spg_find_primitive`] — 获取原胞
+//! ```no_run
+//! use cryspglib::Crystal;
+//!
+//! // FCC Al (space group Fm-3m, #225)
+//! let al = Crystal::new(
+//!     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+//!     vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.5, 0.0, 0.5], [0.0, 0.5, 0.5]],
+//!     vec![13, 13, 13, 13],
+//! );
+//! let ds = al.analyze().symprec(1e-5).dataset()?;
+//! println!("Space group #{}: {}", ds.spacegroup_number, ds.international_symbol);
+//! # Ok::<(), cryspglib::SymError>(())
+//! ```
+//!
+//! # 主要类型
+//!
+//! | 类型 | 说明 |
+//! |------|------|
+//! | [`Crystal`] | 晶体结构（晶格 + 原子位置 + 可选磁矩） |
+//! | [`SymmetryAnalysis`] | 对称性分析构建器 |
+//! | [`SpaceGroup`] | 空间群数据（编号、符号、Wyckoff 位置等） |
+//! | [`SymmetryOp`] | 单个对称操作 `{R\|t}` |
+//! | [`MagneticDataset`] | 磁性空间群数据集 |
 //!
 //! # 晶格矩阵约定
 //!
@@ -1211,34 +1230,8 @@ fn set_dataset(
 }
 
 /// 从数据集获取对称操作。
-fn get_symmetry_from_dataset(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-    angle_tolerance: f64,
-) -> Result<Symmetry, SpglibError> {
-    let dataset = get_dataset(lattice, position, types, None, 0, symprec, angle_tolerance)?;
-    let n_ops = dataset.n_operations;
-    let mut sym = Symmetry::new(n_ops);
-    for i in 0..n_ops {
-        sym.rot[i] = dataset.rotations[i];
-        sym.trans[i] = dataset.translations[i];
-    }
-    Ok(sym)
-}
 
 /// 获取多重数。
-fn get_multiplicity(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-    angle_tolerance: f64,
-) -> Result<usize, SpglibError> {
-    let dataset = get_dataset(lattice, position, types, None, 0, symprec, angle_tolerance)?;
-    Ok(dataset.n_operations)
-}
 
 /// 寻找原胞。
 fn standardize_primitive(
@@ -1347,37 +1340,8 @@ fn get_standardized_cell(
 }
 
 /// 获取国际符号。
-fn get_international(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-    angle_tolerance: f64,
-) -> Result<(usize, String), SpglibError> {
-    let dataset = get_dataset(lattice, position, types, None, 0, symprec, angle_tolerance)?;
-    if dataset.spacegroup_number > 0 {
-        Ok((dataset.spacegroup_number, dataset.international_symbol))
-    } else {
-        Err(SymError::SpacegroupSearchFailed)
-    }
-}
 
 /// 获取 Schoenflies 符号。
-fn get_schoenflies(
-    lattice: &Mat3,
-    position: &[Vec3],
-    types: &[i32],
-    symprec: f64,
-    angle_tolerance: f64,
-) -> Result<(usize, String), SpglibError> {
-    let dataset = get_dataset(lattice, position, types, None, 0, symprec, angle_tolerance)?;
-    if dataset.spacegroup_number > 0 {
-        if let Ok(spgtype) = get_spacegroup_type(dataset.hall_number) {
-            return Ok((dataset.spacegroup_number, spgtype.schoenflies));
-        }
-    }
-    Err(SymError::SpacegroupSearchFailed)
-}
 
 /// 获取 Hall 编号对应的 Centering。
 fn get_centering(hall_number: usize) -> Option<Centering> {
