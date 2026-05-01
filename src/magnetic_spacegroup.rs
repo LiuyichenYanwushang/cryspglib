@@ -1154,3 +1154,112 @@ fn get_rigid_rotation(
     }
 }
 
+// ============================================================================
+// 内部测试: DB 匹配算法、边界情况
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use crate::MagneticType;
+    use crate::mathfunc::{Mat3, Mat3I, Vec3, is_proper};
+    use crate::msg_database::msgdb_get_magnetic_spacegroup_type;
+    use crate::symmetry::MagneticSymmetry;
+
+    const SYMPREC: f64 = 1e-5;
+
+    fn cubic_lattice() -> Mat3 {
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    }
+
+    fn pm3m_ops() -> Vec<(Mat3I, Vec3)> {
+        let (count, start) = crate::spg_database::spgdb_get_operation_index(517);
+        (0..count)
+            .filter_map(|i| crate::spg_database::spgdb_get_operation_by_index(start + i))
+            .collect()
+    }
+
+    fn make_mag_sym(timerev: &[bool], ops: &[(Mat3I, Vec3)]) -> MagneticSymmetry {
+        assert_eq!(timerev.len(), ops.len());
+        let mut sym = MagneticSymmetry::new(ops.len());
+        for (i, ((r, t), &tr)) in ops.iter().zip(timerev).enumerate() {
+            sym.rot[i] = *r;
+            sym.trans[i] = *t;
+            sym.timerev[i] = tr;
+        }
+        sym
+    }
+
+    /// Type-1 (Ordinary): 所有 timerev=false
+    #[test]
+    fn test_db_type1() {
+        let ops = pm3m_ops();
+        let mag_sym = make_mag_sym(&vec![false; ops.len()], &ops);
+        let ds = super::msg_identify_magnetic_space_group_type(
+            &cubic_lattice(), &mag_sym, SYMPREC,
+        )
+        .expect("must match");
+        assert_eq!(ds.msg_type, MagneticType::Ordinary);
+        assert_eq!(ds.hall_number, 517);
+        assert_eq!(msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_, MagneticType::Ordinary);
+    }
+
+    /// Type-2 (Grey): 每个操作加倍 (timerev=false + timerev=true)
+    #[test]
+    fn test_db_type2() {
+        let ops = pm3m_ops();
+        let n = ops.len();
+        let mut mag_sym = MagneticSymmetry::new(n * 2);
+        for (i, (r, t)) in ops.iter().enumerate() {
+            mag_sym.rot[i] = *r;
+            mag_sym.trans[i] = *t;
+            mag_sym.timerev[i] = false;
+            mag_sym.rot[i + n] = *r;
+            mag_sym.trans[i + n] = *t;
+            mag_sym.timerev[i + n] = true;
+        }
+        let ds = super::msg_identify_magnetic_space_group_type(
+            &cubic_lattice(), &mag_sym, SYMPREC,
+        )
+        .expect("must match");
+        assert_eq!(ds.msg_type, MagneticType::Grey);
+        assert_eq!(ds.hall_number, 517);
+        assert_eq!(msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_, MagneticType::Grey);
+    }
+
+    /// Type-3 (BlackWhite): 非正当旋转带 timerev=true
+    #[test]
+    fn test_db_type3() {
+        let ops = pm3m_ops();
+        let timerev: Vec<bool> = ops.iter().map(|(r, _)| !is_proper(r)).collect();
+        let mag_sym = make_mag_sym(&timerev, &ops);
+        let ds = super::msg_identify_magnetic_space_group_type(
+            &cubic_lattice(), &mag_sym, SYMPREC,
+        )
+        .expect("must match");
+        assert_eq!(ds.msg_type, MagneticType::BlackWhite);
+        assert_eq!(ds.hall_number, 517);
+        assert_eq!(msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_, MagneticType::BlackWhite);
+    }
+
+    /// 空对称操作 → 返回 None
+    #[test]
+    fn test_empty_symmetry() {
+        let mag_sym = MagneticSymmetry::new(0);
+        assert!(super::msg_identify_magnetic_space_group_type(
+            &cubic_lattice(), &mag_sym, SYMPREC,
+        ).is_none());
+    }
+
+    /// 缺少单位操作 → 返回 None
+    #[test]
+    fn test_no_identity() {
+        let mut mag_sym = MagneticSymmetry::new(1);
+        mag_sym.rot[0] = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
+        mag_sym.trans[0] = [0.0; 3];
+        mag_sym.timerev[0] = false;
+        assert!(super::msg_identify_magnetic_space_group_type(
+            &cubic_lattice(), &mag_sym, SYMPREC,
+        ).is_none());
+    }
+}
+

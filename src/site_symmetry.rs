@@ -116,10 +116,10 @@ fn set_equivalent_atom(
             }
             if cel_is_overlap_with_same_type(
                 &pos, &conv_prim.position[i],
-                conv_prim.types[indep_atoms[j]], conv_prim.types[i],
+                conv_prim.types[j], conv_prim.types[i],
                 &conv_prim.lattice, symprec,
             ) {
-                equiv_atoms[i] = indep_atoms[j] as i32;
+                equiv_atoms[i] = j as i32;
                 // positions is &mut in the caller, here we can't mutate it
                 // because it's &[]. So we rely on the caller to handle this.
                 return true;
@@ -194,10 +194,10 @@ fn set_layer_equivalent_atom(
             }
             if cel_layer_is_overlap_with_same_type(
                 &pos, &conv_prim.position[i],
-                conv_prim.types[indep_atoms[j]], conv_prim.types[i],
+                conv_prim.types[j], conv_prim.types[i],
                 &conv_prim.lattice, aperiodic, symprec,
             ) {
-                equiv_atoms[i] = indep_atoms[j] as i32;
+                equiv_atoms[i] = j as i32;
                 return true;
             }
         }

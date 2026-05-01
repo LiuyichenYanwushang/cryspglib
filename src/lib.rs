@@ -16,6 +16,7 @@
 //! 详见 [`mathfunc`] 模块文档。
 
 pub mod arithmetic;
+pub mod api;
 pub mod cell;
 pub mod debug;
 pub mod delaunay;
@@ -26,14 +27,10 @@ pub mod kpoint;
 pub mod magnetic_spacegroup;
 pub mod mathfunc;
 pub mod msg_database;
-#[cfg(test)]
-pub mod magnetic_spacegroup_test;
-pub mod cof3_test;
-pub mod crps4_test;
-pub mod la2nio4_test;
 pub mod niggli;
 pub mod overlap;
 pub mod pointgroup;
+pub mod parser;
 pub mod primitive;
 pub mod refinement;
 pub mod site_symmetry;
@@ -56,6 +53,9 @@ use crate::spacegroup::{
 };
 use crate::spg_database::{Centering, spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use crate::symmetry::Symmetry;
+
+// Re-export the new Rust-idiomatic API
+pub use api::{Crystal, IrMesh, SymmetryAnalysis, SymmetryOp, SymmetryOps};
 
 // ---------------------------------------------------------------------------
 // Version constants
@@ -1112,114 +1112,12 @@ pub fn spg_format_magnetic_symmetry(result: &SpglibMagneticSymmetry) -> String {
 /// ```
 ///
 /// 返回 `(lattice, positions, types, magnetic_moments)`。
+/// Parse a POSCAR-format string.
+///
+/// Delegates to [`Crystal::from_poscar`] internally.
+#[deprecated(since = "0.2.0", note = "use `Crystal::from_poscar(data)` instead")]
 pub fn spg_read_structure(data: &str) -> Option<(Mat3, Vec<Vec3>, Vec<i32>, Option<Vec<[f64; 3]>>)> {
-    let lines: Vec<&str> = data.lines().collect();
-    if lines.len() < 6 {
-        return None;
-    }
-
-    // scale factor
-    let scale: f64 = lines.get(1)?.trim().parse().ok()?;
-
-    // lattice vectors
-    // POSCAR 格式: 每行是一个晶格矢量（行向量）
-    // 我们的 lattice[cart][vec] 需要列=矢量，所以读取后需转置
-    let mut rows = [[0.0; 3]; 3];
-    for i in 0..3 {
-        let parts: Vec<f64> = lines[i + 2].split_whitespace().filter_map(|x| x.parse().ok()).collect();
-        if parts.len() < 3 {
-            return None;
-        }
-        rows[i] = [parts[0], parts[1], parts[2]];
-    }
-    // 转置: lattice[cart][vec] ← 行向量
-    let mut lattice = [[0.0; 3]; 3];
-    for i in 0..3 {
-        for j in 0..3 {
-            lattice[i][j] = rows[j][i];
-        }
-    }
-    // apply scale
-    if scale != 1.0 {
-        for i in 0..3 {
-            for j in 0..3 {
-                lattice[i][j] *= scale;
-            }
-        }
-    }
-
-    // atom types (skip, just count)
-    let type_line = lines.get(5)?;
-    let counts: Vec<i32> = lines.get(6)?.split_whitespace().filter_map(|x| x.parse().ok()).collect();
-    if counts.is_empty() {
-        return None;
-    }
-    let n_atoms: usize = counts.iter().map(|&c| c as usize).sum();
-
-    // atom types: if type_line has non-numeric tokens, assign 1..n
-    let type_names: Vec<&str> = type_line.split_whitespace().collect();
-    let mut types = Vec::with_capacity(n_atoms);
-    let mut atom_idx = 0;
-    for (ti, &cnt) in counts.iter().enumerate() {
-        let type_num = if type_names.len() > ti && type_names[ti].parse::<i32>().is_err() {
-            // map element name to atomic number
-            element_to_number(type_names[ti])
-        } else {
-            (ti + 1) as i32
-        };
-        for _ in 0..cnt {
-            types.push(type_num);
-            atom_idx += 1;
-        }
-    }
-
-    // coordinate mode
-    let mode_line = lines.get(7)?;
-    let is_cartesian = mode_line.trim().to_uppercase().starts_with('C') || mode_line.trim().to_uppercase().starts_with('K');
-
-    // read positions
-    let mut positions = Vec::with_capacity(n_atoms);
-    let mut moments = Vec::with_capacity(n_atoms);
-    let mut has_moments = false;
-
-    for i in 0..n_atoms {
-        let line = lines.get(8 + i)?;
-        let parts: Vec<f64> = line.split_whitespace().filter_map(|x| x.parse().ok()).collect();
-        if parts.len() < 3 {
-            return None;
-        }
-        positions.push([parts[0], parts[1], parts[2]]);
-        if parts.len() >= 6 {
-            moments.push([parts[3], parts[4], parts[5]]);
-            has_moments = true;
-        } else {
-            moments.push([0.0; 3]);
-        }
-    }
-
-    // convert Cartesian to fractional if needed
-    if is_cartesian {
-        let inv_lat = crate::mathfunc::mat_inverse_matrix_d3(&lattice, 1e-10).ok()?;
-        for i in 0..n_atoms {
-            let frac = crate::mathfunc::mat_multiply_matrix_vector_d3(&inv_lat, &positions[i]);
-            positions[i] = frac;
-        }
-    }
-
-    let mag_opt = if has_moments { Some(moments) } else { None };
-    Some((lattice, positions, types, mag_opt))
-}
-
-/// 原子符号到原子序数的简单映射。
-fn element_to_number(symbol: &str) -> i32 {
-    match symbol.trim() {
-        "H" => 1, "He" => 2, "Li" => 3, "Be" => 4, "B" => 5,
-        "C" => 6, "N" => 7, "O" => 8, "F" => 9, "Ne" => 10,
-        "Na" => 11, "Mg" => 12, "Al" => 13, "Si" => 14, "P" => 15,
-        "S" => 16, "Cl" => 17, "Ar" => 18, "K" => 19, "Ca" => 20,
-        "Fe" => 26, "Co" => 27, "Ni" => 28, "Cu" => 29, "Zn" => 30,
-        _ => 1,
-    }
+    crate::parser::parse_poscar(data)
 }
 
 // ---------------------------------------------------------------------------

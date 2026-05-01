@@ -91,9 +91,10 @@ let result = spg_get_magnetic_dataset(&lattice, &positions, &types, Some(&moment
 ## Build
 
 ```bash
-rustup default nightly  # requires nightly Rust (edition 2024)
-cargo build
-cargo test              # 70 unit tests + 1 doc test
+# This crate is part of a workspace; run from workspace root:
+cd /home/liuyichen/TB_rs
+cargo build --package cryspglib
+cargo test --package cryspglib   # 57 unit + 13 integration + 5 doc tests
 ```
 
 ## Relationship to upstream spglib
