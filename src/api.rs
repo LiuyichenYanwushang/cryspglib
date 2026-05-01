@@ -3,7 +3,7 @@
 //! # Quick start
 //!
 //! ```no_run
-//! use cryspglib::{Crystal, SpglibError};
+//! use cryspglib::{Crystal, SymError};
 //!
 //! let cry = Crystal::new(
 //!     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
@@ -12,7 +12,7 @@
 //! );
 //! let ds = cry.analyze().symprec(1e-5).dataset()?;
 //! println!("Space group #{}: {}", ds.spacegroup_number, ds.international_symbol);
-//! # Ok::<(), SpglibError>(())
+//! # Ok::<(), SymError>(())
 //! ```
 
 use crate::cell::{AperiodicAxis, Cell, TensorRank};
@@ -25,7 +25,7 @@ use crate::pointgroup::ptg_get_pointgroup;
 use crate::primitive::Primitive;
 use crate::spacegroup::Spacegroup;
 use crate::spg_database::{Centering, spgdb_get_spacegroup_type};
-use crate::{SpglibDataset, SpglibError};
+use crate::{SpaceGroup, SymError};
 
 // ── Crystal ──────────────────────────────────────────────────────────────────
 
@@ -112,17 +112,17 @@ impl Crystal {
     }
 
     /// Delaunay lattice reduction.
-    pub fn delaunay_reduce(&self, symprec: f64) -> Result<Mat3, SpglibError> {
-        del_delaunay_reduce(&self.lattice, symprec).ok_or(SpglibError::DelaunayFailed)
+    pub fn delaunay_reduce(&self, symprec: f64) -> Result<Mat3, SymError> {
+        del_delaunay_reduce(&self.lattice, symprec).ok_or(SymError::DelaunayFailed)
     }
 
     /// Niggli lattice reduction.
-    pub fn niggli_reduce(&self, symprec: f64) -> Result<Mat3, SpglibError> {
+    pub fn niggli_reduce(&self, symprec: f64) -> Result<Mat3, SymError> {
         let mut reduced = self.lattice;
         if niggli_reduce(&mut reduced, symprec, None) {
             Ok(reduced)
         } else {
-            Err(SpglibError::NiggliFailed)
+            Err(SymError::NiggliFailed)
         }
     }
 
@@ -201,7 +201,7 @@ impl Crystal {
 ///     .symprec(1e-5)
 ///     .angle_tolerance(-0.1)
 ///     .dataset()?;
-/// # Ok::<(), cryspglib::SpglibError>(())
+/// # Ok::<(), cryspglib::SymError>(())
 /// ```
 pub struct SymmetryAnalysis<'a> {
     crystal: &'a Crystal,
@@ -225,13 +225,13 @@ impl<'a> SymmetryAnalysis<'a> {
     // ── Terminal methods ────────────────────────────────────────────────────
 
     /// Full space group dataset.
-    pub fn dataset(&self) -> Result<SpglibDataset, SpglibError> {
+    pub fn dataset(&self) -> Result<SpaceGroup, SymError> {
         let cell = self.crystal.to_cell();
         get_dataset_inner(&cell, self.symprec, self.angle_tolerance, 0)
     }
 
     /// Symmetry operations only (rotations + translations).
-    pub fn symmetry(&self) -> Result<SymmetryOps, SpglibError> {
+    pub fn symmetry(&self) -> Result<SymmetryOps, SymError> {
         let ds = self.dataset()?;
         let ops: Vec<SymmetryOp> = (0..ds.n_operations)
             .map(|i| SymmetryOp {
@@ -244,32 +244,32 @@ impl<'a> SymmetryAnalysis<'a> {
     }
 
     /// Primitive cell.
-    pub fn primitive_cell(&self) -> Result<Crystal, SpglibError> {
+    pub fn primitive_cell(&self) -> Result<Crystal, SymError> {
         let cell = self.crystal.to_cell();
         let prim_cell = standardize_primitive_inner(&cell, self.symprec, self.angle_tolerance)?;
         Ok(cell_to_crystal(&prim_cell))
     }
 
     /// Standardize cell: `to_primitive` returns primitive cell; `no_idealize` skips position idealization.
-    pub fn standardize(&self, to_primitive: bool, no_idealize: bool) -> Result<Crystal, SpglibError> {
+    pub fn standardize(&self, to_primitive: bool, no_idealize: bool) -> Result<Crystal, SymError> {
         let cell = self.crystal.to_cell();
         let cc = standardize_cell_inner(&cell, to_primitive, no_idealize, self.symprec, self.angle_tolerance)?;
         Ok(cell_to_crystal(&cc))
     }
 
     /// Space group hall number.
-    pub fn hall_number(&self) -> Result<usize, SpglibError> {
+    pub fn hall_number(&self) -> Result<usize, SymError> {
         let ds = self.dataset()?;
         Ok(ds.hall_number)
     }
 
     /// Space group international symbol.
-    pub fn international(&self) -> Result<(usize, String), SpglibError> {
+    pub fn international(&self) -> Result<(usize, String), SymError> {
         let ds = self.dataset()?;
         if ds.spacegroup_number > 0 {
             Ok((ds.spacegroup_number, ds.international_symbol))
         } else {
-            Err(SpglibError::SpacegroupSearchFailed)
+            Err(SymError::SpacegroupSearchFailed)
         }
     }
 
@@ -279,7 +279,7 @@ impl<'a> SymmetryAnalysis<'a> {
         mesh: [i32; 3],
         is_shift: [i32; 3],
         time_reversal: bool,
-    ) -> Result<IrMesh, SpglibError> {
+    ) -> Result<IrMesh, SymError> {
         let ds = self.dataset()?;
         use crate::mathfunc::MatINT;
         let mut rotations = MatINT::new(ds.n_operations);
@@ -291,7 +291,7 @@ impl<'a> SymmetryAnalysis<'a> {
             &rotations,
             if time_reversal { 1 } else { 0 },
         )
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
 
         let total = (mesh[0] as usize) * (mesh[1] as usize) * (mesh[2] as usize);
         let mut grid_address = vec![[0i32; 3]; total];
@@ -360,25 +360,25 @@ fn get_dataset_inner(
     symprec: f64,
     angle_tolerance: f64,
     hall_number: i32,
-) -> Result<SpglibDataset, SpglibError> {
+) -> Result<SpaceGroup, SymError> {
     let container = det_determine_all(cell, hall_number, symprec, angle_tolerance)
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
 
     let spacegroup = container
         .spacegroup
         .as_ref()
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
     let primitive = container
         .primitive
         .as_ref()
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
     let exstr = container
         .exact_structure
         .as_ref()
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
 
     let dataset = build_dataset(cell, primitive, spacegroup, exstr)
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
     Ok(dataset)
 }
 
@@ -387,11 +387,11 @@ fn build_dataset(
     primitive: &Primitive,
     spacegroup: &Spacegroup,
     exstr: &crate::refinement::ExactStructure,
-) -> Option<SpglibDataset> {
+) -> Option<SpaceGroup> {
     let n_atoms = cell.size;
     let n_operations = exstr.symmetry.size;
 
-    let mut dataset = SpglibDataset {
+    let mut dataset = SpaceGroup {
         spacegroup_number: spacegroup.number,
         hall_number: spacegroup.hall_number,
         international_symbol: spacegroup.international_short.clone(),
@@ -457,7 +457,7 @@ fn standardize_primitive_inner(
     cell: &Cell,
     symprec: f64,
     angle_tolerance: f64,
-) -> Result<Cell, SpglibError> {
+) -> Result<Cell, SymError> {
     let dataset = get_dataset_inner(cell, symprec, angle_tolerance, 0)?;
     let centering = spgdb_get_spacegroup_type(dataset.hall_number).centering;
 
@@ -477,7 +477,7 @@ fn standardize_primitive_inner(
         centering,
         symprec,
     )
-    .ok_or(SpglibError::CellStandardizationFailed)?;
+    .ok_or(SymError::CellStandardizationFailed)?;
 
     for i in 0..primitive.size {
         if mapping_table[i] != i {
@@ -485,7 +485,7 @@ fn standardize_primitive_inner(
                 "spglib: spa_transform_to_primitive failed ({} != {})\n",
                 mapping_table[i], i
             ));
-            return Err(SpglibError::CellStandardizationFailed);
+            return Err(SymError::CellStandardizationFailed);
         }
     }
     Ok(primitive)
@@ -497,7 +497,7 @@ fn standardize_cell_inner(
     no_idealize: bool,
     symprec: f64,
     angle_tolerance: f64,
-) -> Result<Cell, SpglibError> {
+) -> Result<Cell, SymError> {
     if to_primitive && !no_idealize {
         return standardize_primitive_inner(cell, symprec, angle_tolerance);
     }
@@ -522,7 +522,7 @@ fn standardize_cell_inner(
             centering,
             symprec,
         )
-        .ok_or(SpglibError::CellStandardizationFailed)?;
+        .ok_or(SymError::CellStandardizationFailed)?;
 
         for i in 0..num_atom {
             if mapping_table[i] != dataset.mapping_to_primitive[i] as usize {
@@ -530,7 +530,7 @@ fn standardize_cell_inner(
                     "spglib: spa_transform_to_primitive failed ({} != {})\n",
                     mapping_table[i], dataset.mapping_to_primitive[i]
                 ));
-                return Err(SpglibError::CellStandardizationFailed);
+                return Err(SymError::CellStandardizationFailed);
             }
         }
         Ok(primitive)
@@ -552,7 +552,7 @@ fn standardize_cell_inner(
             centering,
             symprec,
         )
-        .ok_or(SpglibError::CellStandardizationFailed)?;
+        .ok_or(SymError::CellStandardizationFailed)?;
 
         for i in 0..num_atom {
             if mapping_table[i] != dataset.mapping_to_primitive[i] as usize {
@@ -560,14 +560,14 @@ fn standardize_cell_inner(
                     "spglib: spa_transform_to_primitive failed ({} != {})\n",
                     mapping_table[i], dataset.mapping_to_primitive[i]
                 ));
-                return Err(SpglibError::CellStandardizationFailed);
+                return Err(SymError::CellStandardizationFailed);
             }
         }
         if matches!(centering, Centering::Primitive) {
             return Ok(primitive);
         }
         crate::spacegroup::spa_transform_from_primitive(&primitive, centering, symprec)
-            .ok_or(SpglibError::CellStandardizationFailed)
+            .ok_or(SymError::CellStandardizationFailed)
     } else {
         // Standard refinement
         let n_std = dataset.n_std_atoms;

@@ -57,6 +57,14 @@ use crate::symmetry::Symmetry;
 // Re-export the new Rust-idiomatic API
 pub use api::{Crystal, IrMesh, SymmetryAnalysis, SymmetryOp, SymmetryOps};
 
+// Deprecated aliases
+pub type SpglibDataset = SpaceGroup;
+pub type SpglibError = SymError;
+pub type SpglibSpacegroupType = SpaceGroupType;
+pub type SpglibMagneticDataset = MagneticDataset;
+pub type SpglibMagneticSpacegroupType = MagneticSpaceGroupType;
+pub type SpglibMagneticSymmetry = MagneticSymmetry;
+
 // ---------------------------------------------------------------------------
 // Version constants
 // ---------------------------------------------------------------------------
@@ -66,20 +74,21 @@ pub const SPGLIB_MAJOR_VERSION: i32 = 2;
 pub const SPGLIB_MINOR_VERSION: i32 = 5;
 /// 补丁版本号
 pub const SPGLIB_MICRO_VERSION: i32 = 4;
-/// 版本字符串
+/// Library version.
+pub const VERSION: &str = "0.2.0";
+
+// Deprecated version constants (use `VERSION` instead)
 pub const SPGLIB_VERSION: &str = "2.5.4";
-/// 完整版本字符串（含构建信息）
 pub const SPGLIB_VERSION_FULL: &str = "2.5.4";
-/// Git 提交哈希
 pub const SPGLIB_COMMIT: &str = "unknown";
 
 // ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
-/// spglib 错误码。
+/// Symmetry analysis error codes.
 #[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(i32)]
-pub enum SpglibError {
+pub enum SymError {
     /// 无错误
     #[error("no error")]
     Success = 0,
@@ -124,7 +133,7 @@ pub enum SpglibError {
 /// 包含标准晶胞、对称操作、Wyckoff 位置标记和映射信息。
 /// 所有动态数据由 Rust 的 [`Vec`] 所有权管理，无需手动释放。
 #[derive(Debug, Clone)]
-pub struct SpglibDataset {
+pub struct SpaceGroup {
     /// 空间群编号 (1–230)
     pub spacegroup_number: usize,
     /// Hall 编号 (1–530)
@@ -177,7 +186,7 @@ pub struct SpglibDataset {
 
 /// 空间群类型信息（从数据库查询）。
 #[derive(Debug, Clone)]
-pub struct SpglibSpacegroupType {
+pub struct SpaceGroupType {
     /// 空间群编号 (1–230)
     pub number: usize,
     /// Hall 编号
@@ -206,7 +215,7 @@ pub struct SpglibSpacegroupType {
 
 /// 磁性空间群数据集。
 #[derive(Debug, Clone)]
-pub struct SpglibMagneticDataset {
+pub struct MagneticDataset {
     /// UNI 编号 (1–1651)
     pub uni_number: usize,
     /// 磁性空间群类型
@@ -264,7 +273,7 @@ pub enum MagneticType {
 
 /// 磁性空间群类型（从数据库查询）。
 #[derive(Debug, Clone)]
-pub struct SpglibMagneticSpacegroupType {
+pub struct MagneticSpaceGroupType {
     /// UNI 编号
     pub uni_number: usize,
     /// Litvin 编号
@@ -324,17 +333,17 @@ pub fn spg_get_micro_version() -> i32 {
 /// 获取错误码对应的消息。
 pub fn spg_get_error_message(error: SpglibError) -> &'static str {
     match error {
-        SpglibError::Success => "no error",
-        SpglibError::SpacegroupSearchFailed => "spacegroup search failed",
-        SpglibError::CellStandardizationFailed => "cell standardization failed",
-        SpglibError::SymmetryOperationSearchFailed => "symmetry operation search failed",
-        SpglibError::AtomsTooClose => "too close distance between atoms",
-        SpglibError::PointgroupNotFound => "pointgroup not found",
-        SpglibError::NiggliFailed => "Niggli reduction failed",
-        SpglibError::DelaunayFailed => "Delaunay reduction failed",
-        SpglibError::ArraySizeShortage => "array size shortage",
-        SpglibError::InvalidInput => "invalid input format",
-        SpglibError::MathFailed => "math operation failed",
+        SymError::Success => "no error",
+        SymError::SpacegroupSearchFailed => "spacegroup search failed",
+        SymError::CellStandardizationFailed => "cell standardization failed",
+        SymError::SymmetryOperationSearchFailed => "symmetry operation search failed",
+        SymError::AtomsTooClose => "too close distance between atoms",
+        SymError::PointgroupNotFound => "pointgroup not found",
+        SymError::NiggliFailed => "Niggli reduction failed",
+        SymError::DelaunayFailed => "Delaunay reduction failed",
+        SymError::ArraySizeShortage => "array size shortage",
+        SymError::InvalidInput => "invalid input format",
+        SymError::MathFailed => "math operation failed",
     }
 }
 
@@ -366,7 +375,7 @@ pub fn spg_get_dataset(
     position: &[Vec3],
     types: &[i32],
     symprec: f64,
-) -> Result<SpglibDataset, SpglibError> {
+) -> Result<SpaceGroup, SymError> {
     get_dataset(lattice, position, types, None, 0, symprec, -1.0)
 }
 
@@ -377,7 +386,7 @@ pub fn spgat_get_dataset(
     types: &[i32],
     symprec: f64,
     angle_tolerance: f64,
-) -> Result<SpglibDataset, SpglibError> {
+) -> Result<SpaceGroup, SymError> {
     get_dataset(lattice, position, types, None, 0, symprec, angle_tolerance)
 }
 
@@ -388,7 +397,7 @@ pub fn spg_get_dataset_with_hall_number(
     types: &[i32],
     hall_number: i32,
     symprec: f64,
-) -> Result<SpglibDataset, SpglibError> {
+) -> Result<SpaceGroup, SymError> {
     get_dataset(lattice, position, types, None, hall_number, symprec, -1.0)
 }
 
@@ -400,7 +409,7 @@ pub fn spgat_get_dataset_with_hall_number(
     hall_number: i32,
     symprec: f64,
     angle_tolerance: f64,
-) -> Result<SpglibDataset, SpglibError> {
+) -> Result<SpaceGroup, SymError> {
     get_dataset(lattice, position, types, None, hall_number, symprec, angle_tolerance)
 }
 
@@ -413,13 +422,13 @@ pub fn spg_get_layer_dataset(
     types: &[i32],
     aperiodic_axis: i32,
     symprec: f64,
-) -> Result<SpglibDataset, SpglibError> {
+) -> Result<SpaceGroup, SymError> {
     use crate::cell::AperiodicAxis;
     let ap = match aperiodic_axis {
         0 => Some(AperiodicAxis::X),
         1 => Some(AperiodicAxis::Y),
         2 => Some(AperiodicAxis::Z),
-        _ => return Err(SpglibError::SpacegroupSearchFailed),
+        _ => return Err(SymError::SpacegroupSearchFailed),
     };
     get_dataset(lattice, position, types, ap, 0, symprec, -1.0)
 }
@@ -465,7 +474,7 @@ pub fn spgat_get_symmetry(
 /// 根据 Hall 编号直接返回所有空间群操作。
 pub fn spg_get_symmetry_from_database(hall_number: usize) -> Result<Symmetry, SpglibError> {
     spgdb_get_spacegroup_operations(hall_number)
-        .ok_or(SpglibError::SpacegroupSearchFailed)
+        .ok_or(SymError::SpacegroupSearchFailed)
 }
 
 /// 从对称操作确定 Hall 编号。
@@ -484,7 +493,7 @@ pub fn spg_get_hall_number_from_symmetry(
     if hall_number > 0 {
         Ok(hall_number)
     } else {
-        Err(SpglibError::SpacegroupSearchFailed)
+        Err(SymError::SpacegroupSearchFailed)
     }
 }
 
@@ -494,14 +503,14 @@ pub fn spg_get_spacegroup_type_from_symmetry(
     translations: &[Vec3],
     lattice: &Mat3,
     symprec: f64,
-) -> Result<SpglibSpacegroupType, SpglibError> {
+) -> Result<SpaceGroupType, SpglibError> {
     let hall_number = get_hall_number_from_symmetry(
         rotations, translations, lattice, true, symprec,
     )?;
     if hall_number > 0 {
         get_spacegroup_type(hall_number)
     } else {
-        Err(SpglibError::SpacegroupSearchFailed)
+        Err(SymError::SpacegroupSearchFailed)
     }
 }
 
@@ -671,11 +680,11 @@ pub fn spgat_get_multiplicity(
 }
 
 /// 根据 Hall 编号获取空间群类型信息。
-pub fn spg_get_spacegroup_type(hall_number: usize) -> Result<SpglibSpacegroupType, SpglibError> {
+pub fn spg_get_spacegroup_type(hall_number: usize) -> Result<SpaceGroupType, SpglibError> {
     if hall_number > 0 && hall_number < 531 {
         get_spacegroup_type(hall_number)
     } else {
-        Err(SpglibError::SpacegroupSearchFailed)
+        Err(SymError::SpacegroupSearchFailed)
     }
 }
 
@@ -690,7 +699,7 @@ pub fn spg_get_pointgroup(
     let (transform_mat, pointgroup) = ptg_get_transformation_matrix(rotations, None);
 
     if pointgroup.number == 0 {
-        return Err(SpglibError::PointgroupNotFound);
+        return Err(SymError::PointgroupNotFound);
     }
 
     Ok((pointgroup.symbol.to_string(), transform_mat, pointgroup.number))
@@ -705,9 +714,9 @@ pub fn spg_get_pointgroup(
 /// 根据 UNI 编号查询磁性空间群类型信息。返回默认值（全零）表示未找到。
 pub fn spg_get_magnetic_spacegroup_type(
     uni_number: usize,
-) -> SpglibMagneticSpacegroupType {
+) -> MagneticSpaceGroupType {
     let msgtype = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni_number);
-    SpglibMagneticSpacegroupType {
+    MagneticSpaceGroupType {
         uni_number: msgtype.uni_number,
         litvin_number: msgtype.litvin_number,
         bns_number: msgtype.bns_number.to_string(),
@@ -726,7 +735,7 @@ pub fn spg_get_magnetic_spacegroup_type_from_symmetry(
     time_reversals: Option<&[bool]>,
     lattice: &Mat3,
     symprec: f64,
-) -> SpglibMagneticSpacegroupType {
+) -> MagneticSpaceGroupType {
     let n_ops = rotations.len();
     let mut mag_sym = crate::symmetry::MagneticSymmetry::new(n_ops);
     for i in 0..n_ops {
@@ -739,7 +748,7 @@ pub fn spg_get_magnetic_spacegroup_type_from_symmetry(
         lattice, &mag_sym, symprec,
     ) {
         Some(dataset) => spg_get_magnetic_spacegroup_type(dataset.uni_number),
-        None => SpglibMagneticSpacegroupType {
+        None => MagneticSpaceGroupType {
             uni_number: 0,
             litvin_number: 0,
             bns_number: String::new(),
@@ -751,7 +760,7 @@ pub fn spg_get_magnetic_spacegroup_type_from_symmetry(
 }
 
 /// 磁空间群 + 对称操作的完整分析结果。
-pub struct SpglibMagneticSymmetry {
+pub struct MagneticSymmetry {
     /// 空间群编号 (1-230)
     pub spacegroup_number: usize,
     /// 国际符号（短）
@@ -801,7 +810,7 @@ pub fn spg_get_magnetic_dataset(
     types: &[i32],
     magnetic_moments: Option<&[[f64; 3]]>,
     symprec: f64,
-) -> Option<SpglibMagneticSymmetry> {
+) -> Option<MagneticSymmetry> {
     let n_atoms = positions.len();
 
     // --- 构建 Cell ---
@@ -839,7 +848,7 @@ pub fn spg_get_magnetic_dataset(
         let trans = (0..nonspin_sym.size).map(|i| nonspin_sym.trans[i]).collect();
         let timerev = vec![false; nonspin_sym.size];
         let spg_type = crate::spg_database::spgdb_get_spacegroup_type(hall_number);
-        return Some(SpglibMagneticSymmetry {
+        return Some(MagneticSymmetry {
             spacegroup_number: spg.number,
             international_short: spg.international_short.trim().to_string(),
             hall_number,
@@ -940,7 +949,7 @@ pub fn spg_get_magnetic_dataset(
     let trans_out = (0..final_mag_sym.size).map(|i| final_mag_sym.trans[i]).collect();
     let tr_out = (0..final_mag_sym.size).map(|i| final_mag_sym.timerev[i]).collect();
 
-    Some(SpglibMagneticSymmetry {
+    Some(MagneticSymmetry {
         spacegroup_number: spg.number,
         international_short: spg.international_short.trim().to_string(),
         hall_number,
@@ -1044,8 +1053,8 @@ fn manual_compute_timerev(
         .collect()
 }
 
-/// 将 `SpglibMagneticSymmetry` 格式化为可读文本（类似 phonopy --symmetry 风格）。
-pub fn spg_format_magnetic_symmetry(result: &SpglibMagneticSymmetry) -> String {
+/// 将 `MagneticSymmetry` 格式化为可读文本（类似 phonopy --symmetry 风格）。
+pub fn spg_format_magnetic_symmetry(result: &MagneticSymmetry) -> String {
     use std::fmt::Write;
     let mut s = String::new();
 
@@ -1135,7 +1144,7 @@ pub fn spg_read_structure(data: &str) -> Option<(Mat3, Vec<Vec3>, Vec<i32>, Opti
 /// ```
 /// 返回约化后的晶格矩阵。
 pub fn spg_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibError> {
-    del_delaunay_reduce(lattice, symprec).ok_or(SpglibError::DelaunayFailed)
+    del_delaunay_reduce(lattice, symprec).ok_or(SymError::DelaunayFailed)
 }
 
 /// Niggli 晶格约化。
@@ -1152,7 +1161,7 @@ pub fn spg_niggli_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibErr
     if niggli_reduce(&mut reduced, symprec, None) {
         Ok(reduced)
     } else {
-        Err(SpglibError::NiggliFailed)
+        Err(SymError::NiggliFailed)
     }
 }
 
@@ -1295,9 +1304,9 @@ fn get_dataset(
     hall_number: i32,
     symprec: f64,
     angle_tolerance: f64,
-) -> Result<SpglibDataset, SpglibError> {
+) -> Result<SpaceGroup, SymError> {
     if hall_number > 530 {
-        return Err(SpglibError::SpacegroupSearchFailed);
+        return Err(SymError::SpacegroupSearchFailed);
     }
 
     let num_atom = position.len();
@@ -1305,27 +1314,27 @@ fn get_dataset(
     if aperiodic_axis.is_none() {
         cel_set_cell(&mut cell, lattice, position, types);
         if cel_any_overlap_with_same_type(&cell, symprec) {
-            return Err(SpglibError::AtomsTooClose);
+            return Err(SymError::AtomsTooClose);
         }
     } else {
         cel_set_layer_cell(&mut cell, lattice, position, types, aperiodic_axis);
         if cel_layer_any_overlap_with_same_type(&cell, aperiodic_axis.unwrap(), symprec) {
-            return Err(SpglibError::AtomsTooClose);
+            return Err(SymError::AtomsTooClose);
         }
     }
 
     let container = det_determine_all(&cell, hall_number, symprec, angle_tolerance)
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
 
     let spacegroup = container.spacegroup.as_ref()
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
     let primitive = container.primitive.as_ref()
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
     let exstr = container.exact_structure.as_ref()
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
 
     let dataset = set_dataset(&cell, primitive, spacegroup, exstr)
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
     Ok(dataset)
 }
 
@@ -1364,7 +1373,7 @@ fn set_dataset(
     let n_atoms = cell.size;
     let n_operations = exstr.symmetry.size;
 
-    let mut dataset = SpglibDataset {
+    let mut dataset = SpaceGroup {
         spacegroup_number: spacegroup.number,
         hall_number: spacegroup.hall_number,
         international_symbol: spacegroup.international_short.clone(),
@@ -1473,7 +1482,7 @@ fn standardize_primitive(
     let dataset = get_dataset(lattice, position, types, None, 0, symprec, angle_tolerance)?;
 
     let centering = get_centering(dataset.hall_number)
-        .ok_or(SpglibError::CellStandardizationFailed)?;
+        .ok_or(SymError::CellStandardizationFailed)?;
 
     let mut bravais = Cell::new(dataset.n_std_atoms, TensorRank::NoSpin);
     bravais.lattice = dataset.std_lattice;
@@ -1486,7 +1495,7 @@ fn standardize_primitive(
     let identity: Mat3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
     let primitive = spa_transform_to_primitive(&mut mapping_table, &bravais, &identity, centering, symprec)
-        .ok_or(SpglibError::CellStandardizationFailed)?;
+        .ok_or(SymError::CellStandardizationFailed)?;
 
     // Validation: mapping_table should be identity for standardize_primitive
     for i in 0..primitive.size {
@@ -1495,7 +1504,7 @@ fn standardize_primitive(
                 "spglib: spa_transform_to_primitive failed ({} != {})\n",
                 mapping_table[i], i
             ));
-            return Err(SpglibError::CellStandardizationFailed);
+            return Err(SymError::CellStandardizationFailed);
         }
     }
 
@@ -1533,7 +1542,7 @@ fn get_standardized_cell(
 ) -> Result<Cell, SpglibError> {
     let dataset = get_dataset(lattice, position, types, None, 0, symprec, angle_tolerance)?;
     let centering = get_centering(dataset.hall_number)
-        .ok_or(SpglibError::CellStandardizationFailed)?;
+        .ok_or(SymError::CellStandardizationFailed)?;
 
     let num_atom = position.len();
     let mut cell = Cell::new(num_atom, TensorRank::NoSpin);
@@ -1546,7 +1555,7 @@ fn get_standardized_cell(
     let mut mapping_table: Vec<usize> = vec![0; num_atom];
     let primitive = spa_transform_to_primitive(
         &mut mapping_table, &cell, &dataset.transformation_matrix, centering, symprec,
-    ).ok_or(SpglibError::CellStandardizationFailed)?;
+    ).ok_or(SymError::CellStandardizationFailed)?;
 
     // Validate mapping
     for i in 0..num_atom {
@@ -1555,7 +1564,7 @@ fn get_standardized_cell(
                 "spglib: spa_transform_to_primitive failed ({} != {})\n",
                 mapping_table[i], dataset.mapping_to_primitive[i]
             ));
-            return Err(SpglibError::CellStandardizationFailed);
+            return Err(SymError::CellStandardizationFailed);
         }
     }
 
@@ -1564,7 +1573,7 @@ fn get_standardized_cell(
     }
 
     let std_cell = spa_transform_from_primitive(&primitive, centering, symprec)
-        .ok_or(SpglibError::CellStandardizationFailed)?;
+        .ok_or(SymError::CellStandardizationFailed)?;
     Ok(std_cell)
 }
 
@@ -1580,7 +1589,7 @@ fn get_international(
     if dataset.spacegroup_number > 0 {
         Ok((dataset.spacegroup_number, dataset.international_symbol))
     } else {
-        Err(SpglibError::SpacegroupSearchFailed)
+        Err(SymError::SpacegroupSearchFailed)
     }
 }
 
@@ -1598,7 +1607,7 @@ fn get_schoenflies(
             return Ok((dataset.spacegroup_number, spgtype.schoenflies));
         }
     }
-    Err(SpglibError::SpacegroupSearchFailed)
+    Err(SymError::SpacegroupSearchFailed)
 }
 
 /// 获取 Hall 编号对应的 Centering。
@@ -1622,31 +1631,31 @@ fn get_hall_number_from_symmetry(
     }
 
     let (t_mat, prim_sym) = prm_get_primitive_symmetry(&symmetry, symprec)
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
 
     let prim_lat = if transform_lattice_by_tmat {
         let t_mat_inv = mat_inverse_matrix_d3(&t_mat, symprec).ok()
-            .ok_or(SpglibError::SpacegroupSearchFailed)?;
+            .ok_or(SymError::SpacegroupSearchFailed)?;
         mat_multiply_matrix_d3(lattice, &t_mat_inv)
     } else {
         *lattice
     };
 
     let spacegroup = spa_search_spacegroup_with_symmetry(&prim_sym, &prim_lat, symprec)
-        .ok_or(SpglibError::SpacegroupSearchFailed)?;
+        .ok_or(SymError::SpacegroupSearchFailed)?;
     Ok(spacegroup.hall_number)
 }
 
-/// 获取 SpglibSpacegroupType。
-fn get_spacegroup_type(hall_number: usize) -> Result<SpglibSpacegroupType, SpglibError> {
+/// 获取 SpaceGroupType。
+fn get_spacegroup_type(hall_number: usize) -> Result<SpaceGroupType, SpglibError> {
     if hall_number == 0 || hall_number >= 531 {
-        return Err(SpglibError::SpacegroupSearchFailed);
+        return Err(SymError::SpacegroupSearchFailed);
     }
 
     let spgtype = spgdb_get_spacegroup_type(hall_number);
     let pointgroup = ptg_get_pointgroup(spgtype.pointgroup_number);
 
-    Ok(SpglibSpacegroupType {
+    Ok(SpaceGroupType {
         number: spgtype.number,
         hall_number,
         schoenflies: spgtype.schoenflies,
@@ -1685,7 +1694,7 @@ fn get_ir_reciprocal_mesh(
     let rot_reciprocal = crate::kpoint::kpt_get_point_group_reciprocal(
         &rotations,
         if is_time_reversal { 1 } else { 0 },
-    ).ok_or(SpglibError::SpacegroupSearchFailed)?;
+    ).ok_or(SymError::SpacegroupSearchFailed)?;
     let num_ir = crate::kpoint::kpt_get_irreducible_reciprocal_mesh(
         grid_address, ir_mapping_table, mesh, is_shift, &rot_reciprocal,
     );
@@ -1715,7 +1724,7 @@ fn get_dense_ir_reciprocal_mesh(
     let rot_reciprocal = crate::kpoint::kpt_get_point_group_reciprocal(
         &rotations,
         if is_time_reversal { 1 } else { 0 },
-    ).ok_or(SpglibError::SpacegroupSearchFailed)?;
+    ).ok_or(SymError::SpacegroupSearchFailed)?;
     let num_ir = crate::kpoint::kpt_get_dense_irreducible_reciprocal_mesh(
         grid_address, ir_mapping_table, mesh, is_shift, &rot_reciprocal,
     );
