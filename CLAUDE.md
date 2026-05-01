@@ -2,19 +2,201 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Build & Test Commands
+---
 
-```bash
-rustup default nightly    # Required: edition 2024 needs nightly Rust
-cargo build              # Build the library
-cargo test               # Run all 70 tests + 1 doctest
-cargo test -- --nocapture  # Run tests with debug output (eprintln visible)
-cargo test <test_name>   # Run a single test (e.g., `cargo test test_graphene_p6mmm`)
-cargo check              # Check compilation without building
-cargo clippy             # Run lints
+# REFACTORING: Rust-idiomatic API (v0.2.0)
+
+> **Status**: IN PROGRESS. Replace C-style `spg_*` free functions with a clean, struct-based Rust API.
+
+## 1. Current Problems
+
+| Problem | Example |
+|---------|---------|
+| C-style prefix | `spg_get_dataset()`, `spg_get_symmetry()` — 40+ functions |
+| Parameter soup | Every function repeats `(lattice, position, types, symprec)` |
+| Pre-allocated output | `spg_get_ir_reciprocal_mesh(grid_address: &mut [..])` |
+| Duplicate API surface | `spg_*` + `spgat_*` double every function for angle_tolerance |
+| Mixed concerns | `spg_read_structure`, `element_to_number` in lib.rs |
+| Version getter spam | 6 functions for version constants |
+
+## 2. New API Design
+
+### 2.1 Core struct: `Crystal`
+
+Replaces bare `(lattice, position, types, tensors?)` tuples:
+
+```rust
+pub struct Crystal {
+    lattice: Mat3,              // [cart][vec] convention unchanged
+    positions: Vec<[f64; 3]>,   // fractional coordinates
+    types: Vec<i32>,            // atomic numbers
+    tensors: Option<Vec<f64>>,  // magnetic moments (None = non-magnetic)
+    aperiodic_axis: Option<AperiodicAxis>, // None = 3D bulk
+}
+
+impl Crystal {
+    pub fn new(lattice: Mat3, positions: Vec<[f64; 3]>, types: Vec<i32>) -> Self;
+
+    // Builder-style setters
+    pub fn with_magnetic(mut self, moments: Vec<[f64; 3]>) -> Self;
+    pub fn with_layer(mut self, axis: AperiodicAxis) -> Self;
+}
 ```
 
-The project uses `edition = "2024"` (requires nightly Rust). All commands must use nightly toolchain.
+### 2.2 Analysis builder: `Crystal::analyze()`
+
+```rust
+impl Crystal {
+    pub fn analyze(&self) -> SymmetryAnalysis<'_> { ... }
+}
+
+pub struct SymmetryAnalysis<'a> {
+    crystal: &'a Crystal,
+    symprec: f64,           // default 1e-5
+    angle_tolerance: f64,   // default -1.0 (auto)
+    hall_number_hint: Option<i32>,
+}
+impl<'a> SymmetryAnalysis<'a> {
+    pub fn symprec(mut self, val: f64) -> Self;
+    pub fn angle_tolerance(mut self, val: f64) -> Self;
+    pub fn hall_number(mut self, val: i32) -> Self;
+
+    // Terminal methods — consume the builder, return result
+    pub fn dataset(&self) -> Result<SpglibDataset, SpglibError>;
+    pub fn symmetry(&self) -> Result<SymmetryOps, SpglibError>;
+    pub fn primitive_cell(&self) -> Result<Crystal, SpglibError>;
+    pub fn standardize(&self, to_primitive: bool, no_idealize: bool) -> Result<Crystal, SpglibError>;
+    pub fn irreducible_mesh(&self, mesh: [i32; 3], is_shift: [i32; 3], time_reversal: bool) -> Result<IrMesh, SpglibError>;
+}
+```
+
+### 2.3 Proper types instead of parallel arrays
+
+```rust
+/// A single symmetry operation {R|t}
+pub struct SymmetryOp {
+    pub rotation: [[i32; 3]; 3],  // integer rotation matrix
+    pub translation: [f64; 3],    // fractional translation
+    pub time_reversal: bool,      // for magnetic symmetry
+}
+
+/// Ordered set of symmetry operations
+pub struct SymmetryOps {
+    pub operations: Vec<SymmetryOp>,
+}
+
+/// Irreducible k-point mesh
+pub struct IrMesh {
+    pub grid_addresses: Vec<[i32; 3]>,
+    pub mapping_table: Vec<usize>,   // full grid → irreducible map
+    pub num_ir: usize,
+}
+```
+
+### 2.4 What to REMOVE from public API
+
+- All `spg_get_*` free functions → replaced by `Crystal::analyze().xxx()`
+- All `spgat_*` variants → replaced by `.angle_tolerance()` builder
+- `spg_get_version()`, `spg_get_major_version()`, etc. → single `pub const VERSION: &str`
+- `spg_get_error_message()` → `thiserror::Error` already provides `Display`
+
+### 2.5 What STAYS (re-exported from lib)
+
+- `SpglibError` enum (already Rust-idiomatic)
+- `SpglibDataset` struct — but rename to `SpaceGroup`?
+- `SpglibMagneticDataset` → rename to `MagneticSpaceGroup`?
+- `MagneticType` enum
+- `AperiodicAxis` enum
+- `TensorRank` enum
+- `spg_read_structure` → move to `parser` module, rename to `Crystal::from_poscar(data)`
+- `spg_format_magnetic_symmetry` → `impl Display for MagneticSymmetry`
+
+### 2.6 Usage comparison
+
+**Before (C-style):**
+```rust
+let ds = spg_get_dataset(&lattice, &positions, &types, 1e-5)?;
+let prim = spg_find_primitive(&lattice, &positions, &types, 1e-5)?;
+let sym = spg_get_symmetry(&lattice, &positions, &types, 1e-5)?;
+```
+
+**After (Rust-idiomatic):**
+```rust
+let crystal = Crystal::new(lattice, positions, types);
+let ds = crystal.analyze().symprec(1e-5).dataset()?;
+let prim = crystal.analyze().symprec(1e-5).primitive_cell()?;
+let sym = crystal.analyze().symprec(1e-5).symmetry()?;
+```
+
+## 3. Migration Steps (ordered)
+
+### Step 1: `Crystal` struct + `SymmetryAnalysis` builder
+- Create `Crystal` in a new top-level module (or in `cell.rs`)
+- Implement `SymmetryAnalysis` with all builder methods
+- Wire up `dataset()`, `symmetry()` to call existing internal functions
+- Keep old `spg_*` functions working (delegate to new API internally)
+
+### Step 2: New output types
+- `SymmetryOp`, `SymmetryOps` — replace parallel `rotations`/`translations` arrays
+- `IrMesh` — owned output for k-point grid
+- Update internal pipeline to use new types
+
+### Step 3: Move parser
+- `spg_read_structure` → `crate::parser::from_poscar(data) -> Option<Crystal>`
+- `element_to_number` → `crate::parser` (private)
+
+### Step 4: Clean up public API
+- Remove old `spg_*`/`spgat_*` free functions
+- Remove version getter functions, use `const VERSION`
+- Remove `spg_get_error_message` (thiserror already provides Display)
+
+### Step 5: Rename for clarity
+- `SpglibDataset` → `SpaceGroup` (the `Spglib` prefix is redundant)
+- `SpglibMagneticDataset` → `MagneticSpaceGroup`
+- All names drop the `Spglib`/`spg` prefix
+
+### Step 6: Update all tests and docs
+
+## 4. Risk Points
+
+- **Type alias `Mat3`** — is `[[f64; 3]; 3]`, fine for 3D but cannot express 1D/2D. This is a pre-existing limitation, not introduced by this refactor.
+- **Internal code uses `Cell` struct** heavily — we keep `Cell` as an internal type, `Crystal` is the public-facing wrapper that converts to/from `Cell`.
+- **Backward compatibility** — old `spg_*` functions can be kept as `#[deprecated]` shims during migration, then removed.
+- **`TensorRank`** — currently has `NoSpin = -1`, `Collinear = 0`, `NonCollinear = 1`. This maps to C enums and may need cleanup (negative discriminant is unusual in Rust).
+
+## 5. Naming Convention
+
+| Old | New |
+|-----|-----|
+| `spg_get_dataset` | `crystal.analyze().dataset()` |
+| `spg_get_symmetry` | `crystal.analyze().symmetry()` |
+| `spg_find_primitive` | `crystal.analyze().primitive_cell()` |
+| `spg_standardize_cell` | `crystal.analyze().standardize(to_prim, no_ideal)` |
+| `spg_refine_cell` | `crystal.analyze().standardize(false, false)` |
+| `spg_get_international` | `crystal.analyze().dataset()?.spacegroup_number` |
+| `spg_get_schoenflies` | `crystal.analyze().dataset()?.schoenflies` |
+| `spg_get_ir_reciprocal_mesh` | `crystal.analyze().irreducible_mesh(mesh, shift, tr)` |
+| `spg_delaunay_reduce` | `crystal.delaunay_reduce(symprec)` |
+| `spg_niggli_reduce` | `crystal.niggli_reduce(symprec)` |
+
+---
+
+## Build & Test Commands
+
+This crate is part of a workspace at `/home/liuyichen/TB_rs/`. Run all commands from the workspace root with `--package cryspglib`:
+
+```bash
+cd /home/liuyichen/TB_rs
+cargo build --package cryspglib          # Build the library
+cargo test --package cryspglib           # Run all tests (57 unit + 13 integration + 5 doctests)
+cargo test --package cryspglib -- --nocapture  # Run tests with debug output
+cargo test --package cryspglib <test_name>     # Run a single test by name
+cargo test --package cryspglib --test cof3     # Run a specific integration test file
+cargo check --package cryspglib          # Check compilation without building
+cargo clippy --package cryspglib         # Run lints
+```
+
+The project uses `edition = "2024"` (stable since Rust 1.85). No nightly required.
 
 ## Critical Convention: Matrix Layout `lattice[cart][vec]`
 
@@ -42,18 +224,16 @@ lattice = [[a_x, b_x, c_x],
 fn hexagonal_lattice(a: f64, c: f64) -> Mat3 {
     let sqrt3 = 3.0_f64.sqrt();
     [
-        [a, -a / 2.0, 0.0],      // x components of a, b, c
+        [a, -a / 2.0, 0.0],           // x components of a, b, c
         [0.0, a * sqrt3 / 2.0, 0.0],  // y components
-        [0.0, 0.0, c],            // z components
+        [0.0, 0.0, c],                // z components
     ]
 }
 ```
 
-**When reading C reference code**, note that C uses the same memory layout (`double lattice[3][3]` with first index as row/cartesian), but the C code's array initialization may be transposed relative to Rust's `[[f64; 3]; 3]` depending on how it's written.
-
 ## Architecture: Space Group Identification Pipeline
 
-This is a pure Rust port of the C library `spglib` with zero external dependencies.
+This is a pure Rust port of the C library `spglib` with a single dependency (`thiserror`).
 
 The pipeline for identifying a crystal's space group:
 
@@ -78,110 +258,78 @@ Key supporting modules:
 - `kgrid.rs`, `kpoint.rs` — k-point grid generation (Monkhorst-Pack)
 - `debug.rs` — debug/warning print macros
 
-## Critical Porting Pattern: C Output Parameters → Rust Return Values
+## Error Handling: `SpglibError` + `thiserror`
 
-In the C source (`src_c/*.txt`), many functions write results through pointer parameters:
-```c
-void mat_cast_matrix_3i_to_3d(double out[3][3], int const a[3][3]);
-```
-
-The Rust port converts these to return values:
 ```rust
-pub fn mat_cast_matrix_3i_to_3d(a: &Mat3I) -> Mat3;
+#[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpglibError {
+    Success,                      // no error (used internally)
+    SpacegroupSearchFailed,       // no matching space group found
+    CellStandardizationFailed,    // could not standardize cell
+    SymmetryOperationSearchFailed,// symmetry detection failed
+    AtomsTooClose,                // overlapping atoms beyond tolerance
+    PointgroupNotFound,           // rotation part doesn't match any point group
+    NiggliFailed,                 // Niggli reduction did not converge
+    DelaunayFailed,               // Delaunay reduction did not converge
+    ArraySizeShortage,            // internal buffer too small
+    InvalidInput,                 // malformed input (e.g., POSCAR parse error)
+    MathFailed,                   // singular matrix, non-invertible, etc.
+}
 ```
 
-**When comparing Rust against C code, always check that the return value is actually captured.** The most severe bug found in this port was ignoring the return value of `mat_cast_matrix_3i_to_3d` in `get_conventional_symmetry`, which caused all rotation matrices to be zero and silently broke space group identification.
+All fallible public APIs return `Result<T, SpglibError>`. Internal functions that can fail in multiple ways (e.g., `mat_inverse_matrix_d3`, `mat_get_similar_matrix_d3`) also return `Result`.
 
-## Rust API Design Conventions (C → Rust mapping)
+## API Naming Conventions
 
-The `lib.rs` public API follows these conventions when porting from C:
+| Pattern | Meaning |
+|---------|---------|
+| `spg_<name>` | Standard API with default angle tolerance (`-1.0` = auto) |
+| `spgat_<name>` | Same API with explicit `angle_tolerance` parameter |
+| `spg_<name>_with_hall_number` | Returns dataset + Hall number hint for magnetic matching |
+| `spg_get_layer_<name>` | 2D slab variant (one aperiodic axis, periodicity in the other two) |
 
-| C Pattern | Rust Pattern |
-|-----------|-------------|
-| `malloc`/`free` | `Vec` (ownership, auto-drop) |
-| `NULL` return on failure | `Option<T>` (None = failure) |
-| `thread_local` error code + return 0 | `Option<T>` return |
-| Output parameter `double out[3][3]` | Return `Mat3` |
-| Output parameter `int *types` + `int *num_atom` | Return `Cell` (owns lattice, positions, types) |
-| `spg_free_dataset(dataset)` | Not needed — Rust drops `SpglibDataset` automatically |
-| `char[7]` / `char[11]` buffers | `String` |
-| `int *mapping_table` pre-allocated by caller | `Vec<i32>` returned |
-| K-point pre-allocated grid arrays | `&mut [i32]` / `&mut [usize]` slices |
+## `TensorRank` and `AperiodicAxis`
 
-## Reference C Code
+`TensorRank` controls how magnetic moments (or site tensors) are treated:
 
-`src_c/` contains the original spglib C source (`*.txt` files, renamed from `*.c` for tooling compatibility). Most `.rs` files correspond to a `.txt` file of the same name. The magnetic modules (`msg_database`, `magnetic_spacegroup`) are partially ported.
+- `TensorRank::Scalar` — non-magnetic (no spin)
+- `TensorRank::Collinear` — collinear magnetic (spin up/down along one axis)
+- `TensorRank::NonCollinear` — non-collinear magnetic (arbitrary 3D spin vectors)
 
-| C file | Rust module | Purpose |
-|--------|------------|---------|
-| `spglib.txt` | `lib.rs` | Public API, dataset, standardization |
-| `determination.txt` | `determination.rs` | Top-level retry loop |
-| `refinement.txt` | `refinement.rs` | Bravais lattice refinement, Wyckoff positions |
-| `site_symmetry.txt` | `site_symmetry.rs` | Site symmetry exact positions |
-| `spacegroup.txt` | `spacegroup.rs` | Space group search and identification |
-| `primitive.txt` | `primitive.rs` | Primitive cell finding |
-| `hall_symbol.txt` | `hall_symbol.rs` | Hall symbol matching |
-| `pointgroup.txt` | `pointgroup.rs` | Point group classification |
-| `spg_database.txt` | `spg_database.rs` | Space group database |
-| `sitesym_database.txt` | `sitesym_database.rs` | Site symmetry database |
-| `mathfunc.txt` | `mathfunc.rs` | Matrix/vector math |
-| `delaunay.txt` | `delaunay.rs` | Delaunay lattice reduction |
-| `niggli.txt` | `niggli.rs` | Niggli lattice reduction |
-| `kgrid.txt` | `kgrid.rs` | k-point grid generation |
-| `kpoint.txt` | `kpoint.rs` | k-point address mapping |
-| `symmetry.txt` | `symmetry.rs` | Symmetry operation search |
-| `cell.txt` | `cell.rs` | Crystal cell and overlap checks |
-| `msg_database.txt` | `msg_database.rs` + `msg_database_gen.rs` | Magnetic space group database (auto-converted from C) |
-| `magnetic_spacegroup.txt` | `magnetic_spacegroup.rs` | Magnetic space group identification |
-| `spin.txt` | `spin.rs` | Magnetic symmetry operations with site tensors |
-
-When debugging, compare Rust implementation against the C original line-by-line, paying special attention to:
-- Output parameter → return value conversions
-- Array indexing differences (C is row-major, Rust uses same layout)
-- Floating point tolerance constants
+`AperiodicAxis` marks which axis lacks periodicity in 2D slab systems (`X`, `Y`, or `Z`). Layer functions accept `Option<AperiodicAxis>` where `None` means full 3D periodicity.
 
 ## Test Coverage
 
-Tests are inline (`#[cfg(test)] mod tests` in most `.rs` files) and in dedicated test files.
+- **Unit tests** — `#[cfg(test)] mod tests` inside source files, can access private APIs
+- **Integration tests** — `tests/*.rs` files, use only the public API (real material tests)
 
-**Non-magnetic space group tests** (in `spacegroup.rs`):
-- Cubic: simple (#221), bcc (#229), fcc (#225), diamond (#227), rocksalt (#225)
-- Hexagonal: graphene (#191), hcp (#194), AB-buckled silicene (#164)
-- Supercells: 2x2x2 simple cubic (#221), 2x2x2 CsCl (#221), 2x2x1 graphene (#191)
+**Unit tests in source files:**
 
-**Magnetic space group tests** (in `magnetic_spacegroup_test.rs`):
-- Type-1/2/3 identification via Pm-3m (#221) symmetry operations from database
-- FCC FM [001] and [111] end-to-end tests
-- Public API `spg_get_magnetic_spacegroup_type_from_symmetry`
-- Edge cases: empty symmetry, missing identity
+| Module | What's tested |
+|--------|--------------|
+| `spacegroup.rs` | Cubic (#221/229/225/227), hexagonal (#191/194/164), supercells |
+| `magnetic_spacegroup.rs` | DB matching Type-1/2/3, edge cases (empty sym, missing identity) |
+| `mathfunc.rs` | Matrix inverse, multiply, det, trace, similar, nint, dabs |
+| `kgrid.rs`, `kpoint.rs` | Grid generation, irreducible mesh, mesh symmetry |
+| `cell.rs` | Cell creation, overlap detection, trim |
+| `delaunay.rs` | Delaunay reduction, extended basis |
+| `niggli.rs` | Niggli reduction identity/swap |
+| `overlap.rs` | Overlap checker, layer overlap |
+| `symmetry.rs` | Pure translation detection, supercell |
+| `debug.rs`, `sitesym_database.rs`, `arithmetic.rs`, `determination.rs` | Smoke/correctness |
 
-**CoF3 tests** (in `cof3_test.rs`):
-- Non-magnetic: R-3c (#167) with 24 atoms (18 F + 6 Cr)
-- Magnetic: Cr AFM [001] alternating ±z → Type-1, UNI=1333, BNS=167.103
-- POSCAR test files in `test/CoF3/` (POSCAR, BPOSCAR, PPOSCAR)
+**Integration tests in `tests/`:**
 
-**CrPS₄ tests** (in `crps4_test.rs`):
-- Monoclinic C2 (#5) with 48 atoms (8 Cr + 8 P + 32 S)
-- Primitive cell validation against phonopy PPOSCAR (12 atoms)
-
-**La₂NiO₄ tests** (in `la2nio4_test.rs`):
-- Tetragonal P4₂/ncm (#138) with 28 atoms (8 La + 4 Ni + 16 O)
-
-**Unit tests** for individual modules: `kgrid.rs`, `kpoint.rs`, `cell.rs`, `delaunay.rs`, `debug.rs`, `overlap.rs`, `symmetry.rs`.
+| File | System | Space group | Notes |
+|------|--------|------------|-------|
+| `tests/cof3.rs` | CoF₃ | R-3c (#167) | Non-magnetic + AFM [001] magnetic (UNI=1333) |
+| `tests/crps4.rs` | CrPS₄ | C2 (#5) | Monoclinic, 48 atoms, C-centering |
+| `tests/la2nio4.rs` | La₂NiO₄ | P4₂/ncm (#138) | Tetragonal, 28 atoms, D₄ₕ |
+| `tests/magnetic_integration.rs` | Fe SC/BCC/FCC | Various | Type-1/2/3 magnetic, FM/AFM, public API end-to-end |
 
 ## Magnetic Space Group: Complete Pipeline
 
 End-to-end: **POSCAR-like input → non-magnetic space group + magnetic space group (BNS) + symmetry operations**.
-
-### API
-
-```rust
-pub fn spg_get_magnetic_dataset(
-    lattice, positions, types, magnetic_moments, symprec
-) -> Option<SpglibMagneticSymmetry>;
-pub fn spg_read_structure(data) -> Option<(Mat3, Vec<Vec3>, Vec<i32>, Option<Vec<[f64;3]>>)>;
-pub fn spg_format_magnetic_symmetry(result) -> String;
-```
 
 ### Pipeline Flow
 
@@ -209,46 +357,12 @@ Key rules for lattice translation collection:
 
 When applying such a translation `(lt, ltr)`: `(R, t, tr) → (R, t - lt, tr XOR ltr)`.
 
-4. **Always call `match_hall_symbol_db`** (not `hal_match_hall_symbol_db` directly) in `search_hall_number`. The intermediate layer does: (a) point-group filter to skip unmatching Hall numbers, (b) centering expansion for RCenter (expands 12 primitive ops → 36 with centering translations `(2/3,1/3,1/3)` and `(1/3,2/3,2/3)`). Without expansion, all 7 rhombohedral Hall numbers fail matching because DB ops (36) can't match symmetry ops (12). Other centerings are pre-expanded by `get_initial_conventional_symmetry`.
+4. **Always call `match_hall_symbol_db`** (not `hal_match_hall_symbol_db` directly) in `search_hall_number`. The intermediate layer does: (a) point-group filter to skip unmatching Hall numbers, (b) centering expansion for RCenter (expands 12 primitive ops → 36 with centering translations). Without expansion, all 7 rhombohedral Hall numbers fail matching because DB ops (36) can't match symmetry ops (12). Other centerings are pre-expanded by `get_initial_conventional_symmetry`.
 
-5. **UNI matching must prioritize parent Hall number.** After primitive reduction, `changed_symmetry` has the same operations regardless of centering (e.g., P-3c1 reduced=12 ≡ R-3c reduced=12). Since `is_subset` allows matching both, the result is non-unique (e.g., CoF3 AFM [001] matches both 165.91 Hall=457 and 167.103 Hall=460). The parent (non-magnetic) Hall number breaks this tie—the magnetic space group must be a subgroup of the parent. `msg_identify_with_parent_hall` now tries `parent_hall_number` first for UNI candidates, only falling back to the FSG-discovered Hall number if the parent gives no match.
-
-## Recent Refactoring (completed)
-
-### C-Style `&mut` → Return Values
-
-Refactored 17 functions across 7 files to remove `&mut` output parameters:
-
-| Function | Before | After |
-|----------|--------|-------|
-| `prm_get_primitive_symmetry` | `&mut t_mat: Mat3` | returns `(Mat3, Symmetry)` |
-| `get_primitive_in_translation_space` | `&mut t_mat_inv` | returns `Option<Mat3>` |
-| `spa_copy_spacegroup` | hand-written field copy | deleted, uses `#[derive(Clone)]` |
-| `spg_delaunay_reduce` | `&mut lattice` | returns `Result<Mat3, E>` |
-| `spg_niggli_reduce` | `&mut lattice` | returns `Result<Mat3, E>` |
-| `ptg_get_transformation_matrix` | `&mut tmat: Mat3I` | returns `(Mat3I, Pointgroup)` |
-| `ref_get_conventional_lattice` + 8 `set_*` | `&mut lattice` | returns `Mat3` |
-| `apply_symmetry_to_position` | `&mut pos_dst` | returns `Vec3` |
-| `permute_vec3`, `permute_i32` | `&mut data_out` | returns `Vec` |
-| `transform_translation` | `&mut trans` | returns `Vec3` |
-| `transform_rotation` | `&mut rot` | returns `Mat3` |
-| `unpack_generators` | `&mut rot` | returns 3D array |
-| `get_surrounding_frame`, `get_corners` | `&mut` | returns value |
-| `measure_rigid_rotation` | `&mut rotation` | returns `Mat3` |
-| `get_orthonormal_basis` | `&mut basis` | returns `Mat3` |
-
-### Option → Result at Public API
-
-- `spg_get_symmetry_from_database`: `Option<Symmetry>` → `Result<Symmetry, SpglibError>`
-- `mat_inverse_matrix_d3`: `Option<Mat3>` → `Result<Mat3, SpglibError>` (all 35 call sites updated)
-- `mat_get_similar_matrix_d3`: `Option<Mat3>` → `Result<Mat3, SpglibError>`
-- New error variants: `InvalidInput`, `MathFailed`
-
-### Rustdoc
-
-5 public API functions have runnable doctest examples: `spg_get_dataset`, `spg_get_symmetry`, `spg_get_magnetic_dataset`, `spg_delaunay_reduce`, `spg_niggli_reduce`.
+5. **UNI matching must prioritize parent Hall number.** After primitive reduction, `changed_symmetry` has the same operations regardless of centering. Since `is_subset` allows matching both, the result is non-unique. The parent (non-magnetic) Hall number breaks this tie—the magnetic space group must be a subgroup of the parent. `msg_identify_with_parent_hall` tries `parent_hall_number` first for UNI candidates.
 
 ## Notes
 
 - `debug_test.rs` and similar ad-hoc files in the repo root are gitignored/untracked — use them for quick experiments but don't commit.
-- `periodic_axes` in `cell.rs` layer functions uses `[usize; 2]` through the `AperiodicAxis` enum (not raw `i32`).
+- Integration tests in `tests/` use only the public API. When adding new material tests, prefer `tests/` over `src/`.
+- Internal DB-level or edge-case tests go in the corresponding source file's `#[cfg(test)] mod tests`.
