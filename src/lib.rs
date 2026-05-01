@@ -232,6 +232,17 @@ pub struct SpaceGroupType {
     pub arithmetic_crystal_class_symbol: String,
 }
 
+impl SpaceGroupType {
+    /// Look up space group type by Hall number (1–530).
+    pub fn from_hall(hall_number: usize) -> Result<Self, SymError> {
+        if hall_number > 0 && hall_number < 531 {
+            get_spacegroup_type(hall_number)
+        } else {
+            Err(SymError::SpacegroupSearchFailed)
+        }
+    }
+}
+
 /// 磁性空间群数据集。
 #[derive(Debug, Clone)]
 pub struct MagneticDataset {
@@ -307,6 +318,20 @@ pub struct MagneticSpaceGroupType {
     pub type_: MagneticType,
 }
 
+impl MagneticSpaceGroupType {
+    pub fn from_uni(uni_number: usize) -> Self {
+        let msgtype = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni_number);
+        MagneticSpaceGroupType {
+            uni_number: msgtype.uni_number,
+            litvin_number: msgtype.litvin_number,
+            bns_number: msgtype.bns_number.to_string(),
+            og_number: msgtype.og_number.to_string(),
+            number: msgtype.number,
+            type_: msgtype.type_,
+        }
+    }
+}
+
 // ========================================================================
 // Public API
 // ========================================================================
@@ -377,20 +402,9 @@ pub fn spg_get_hall_number_from_symmetry(
 }
 
 /// 从对称操作确定空间群类型。
-pub fn spg_get_spacegroup_type_from_symmetry(
-    rotations: &[Mat3I],
-    translations: &[Vec3],
-    lattice: &Mat3,
-    symprec: f64,
-) -> Result<SpaceGroupType, SpglibError> {
-    let hall_number = get_hall_number_from_symmetry(
-        rotations, translations, lattice, true, symprec,
-    )?;
-    if hall_number > 0 {
-        get_spacegroup_type(hall_number)
-    } else {
-        Err(SymError::SpacegroupSearchFailed)
-    }
+#[deprecated(since = "0.2.0", note = "use SpaceGroupType::from_hall(hall_number)" )]
+pub fn spg_get_spacegroup_type(hall_number: usize) -> Result<SpaceGroupType, SymError> {
+    SpaceGroupType::from_hall(hall_number)
 }
 
 // ---------------------------------------------------------------------------
@@ -477,15 +491,6 @@ pub fn spgat_refine_cell(
 
 /// 获取对称操作的多重数（即对称操作的个数）。
 ///
-/// 返回 `None` 表示搜索失败。
-/// 根据 Hall 编号获取空间群类型信息。
-pub fn spg_get_spacegroup_type(hall_number: usize) -> Result<SpaceGroupType, SpglibError> {
-    if hall_number > 0 && hall_number < 531 {
-        get_spacegroup_type(hall_number)
-    } else {
-        Err(SymError::SpacegroupSearchFailed)
-    }
-}
 
 /// 获取点群信息。
 ///

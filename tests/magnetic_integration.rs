@@ -3,7 +3,7 @@
 //! 所有测试走公共 API `spg_get_magnetic_dataset`，覆盖 Type-1/2/3 真实物理系统。
 
 use cryspglib::{
-    spg_format_magnetic_symmetry, spg_get_magnetic_dataset,
+     spg_get_magnetic_dataset,
     spg_get_magnetic_spacegroup_type_from_symmetry, MagneticType,
 };
 
@@ -23,7 +23,7 @@ fn run_dataset(
     let result = spg_get_magnetic_dataset(lattice, positions, types, moments, SYMPREC)
         .unwrap_or_else(|| panic!("{}: spg_get_magnetic_dataset returned None", label));
     eprintln!("=== {} ===", label);
-    eprintln!("{}", spg_format_magnetic_symmetry(&result));
+    eprintln!("{}", result.to_string());
     result
 }
 

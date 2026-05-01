@@ -4,8 +4,8 @@
 //! 所有测试只使用公共 API。
 
 use cryspglib::{
-    Crystal, spg_get_magnetic_dataset, spg_get_pointgroup, spg_get_spacegroup_type,
-    spg_format_magnetic_symmetry, MagneticType,
+    Crystal, spg_get_magnetic_dataset,
+     MagneticType,
 };
 
 const SYMPREC: f64 = 1e-5;
@@ -61,8 +61,8 @@ fn test_cof3_nonmagnetic() {
 
     assert_eq!(dataset.spacegroup_number, 167, "CoF₃ should be R-3c (#167)");
 
-    let sg_type = spg_get_spacegroup_type(dataset.hall_number)
-        .expect("spg_get_spacegroup_type failed");
+    let sg_type = SpaceGroupType::from_hall(dataset.hall_number)
+        .expect("SpaceGroupType::from_hall failed");
     assert_eq!(sg_type.international_short.trim(), "R-3c");
     assert_eq!(sg_type.schoenflies.trim(), "D3d^6");
 
@@ -129,7 +129,7 @@ fn test_cof3_magnetic() {
     let result = spg_get_magnetic_dataset(&lattice, &positions, &types, Some(&moments), SYMPREC)
         .expect("spg_get_magnetic_dataset must succeed");
 
-    eprintln!("{}", spg_format_magnetic_symmetry(&result));
+    eprintln!("{}", result.to_string());
 
     assert_eq!(result.spacegroup_number, 167, "non-mag: R-3c");
     assert_eq!(result.uni_number, 1333, "UNI=1333");

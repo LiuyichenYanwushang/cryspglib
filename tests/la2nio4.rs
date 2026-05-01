@@ -3,7 +3,7 @@
 //! 四方 P4₂/ncm (#138)，D₄ₕ 点群。晶胞含 8 La + 4 Ni + 16 O = 28 原子。
 
 use cryspglib::{
-    Crystal, spg_get_pointgroup, spg_get_spacegroup_type,
+    Crystal,
 };
 
 const SYMPREC: f64 = 1e-5;
@@ -69,8 +69,8 @@ fn test_la2nio4() {
     assert_eq!(dataset.hall_number, 422,
         "expected Hall 422, got {}", dataset.hall_number);
 
-    let sg_type = spg_get_spacegroup_type(dataset.hall_number)
-        .expect("spg_get_spacegroup_type failed");
+    let sg_type = SpaceGroupType::from_hall(dataset.hall_number)
+        .expect("SpaceGroupType::from_hall failed");
     assert_eq!(sg_type.international_short.trim(), "P4_2/ncm");
     assert_eq!(sg_type.schoenflies.trim(), "D4h^16");
 

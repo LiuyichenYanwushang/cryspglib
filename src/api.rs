@@ -25,7 +25,7 @@ use crate::pointgroup::ptg_get_pointgroup;
 use crate::primitive::Primitive;
 use crate::spacegroup::Spacegroup;
 use crate::spg_database::{Centering, spgdb_get_spacegroup_type};
-use crate::{SpaceGroup, SymError};
+use crate::{MagneticSymmetry, SpaceGroup, SymError};
 
 // ── Crystal ──────────────────────────────────────────────────────────────────
 
@@ -310,6 +310,29 @@ impl<'a> SymmetryAnalysis<'a> {
             mapping_table,
             num_ir,
         })
+    }
+
+    /// Magnetic space group dataset.
+    ///
+    /// Requires the crystal to have magnetic moments set via [`Crystal::with_magnetic`].
+    pub fn magnetic_dataset(&self) -> Option<MagneticSymmetry> {
+        crate::spg_get_magnetic_dataset(
+            &self.crystal.lattice,
+            &self.crystal.positions,
+            &self.crystal.types,
+            self.crystal.moments.as_deref(),
+            self.symprec,
+        )
+    }
+}
+
+// ── Display impls ────────────────────────────────────────────────────────────
+
+use std::fmt;
+
+impl fmt::Display for MagneticSymmetry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", crate::spg_format_magnetic_symmetry(self))
     }
 }
 
