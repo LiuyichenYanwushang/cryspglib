@@ -4,7 +4,7 @@
 //! PPOSCAR 原胞含 2 Cr + 2 P + 8 S = 12 原子（约化因子 4）。
 
 use cryspglib::{
-    Crystal,
+    Crystal, SpaceGroupType, spg_get_pointgroup,
 };
 
 const SYMPREC: f64 = 1e-5;

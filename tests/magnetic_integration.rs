@@ -1,10 +1,9 @@
 //! 磁性空间群集成测试。
 //!
-//! 所有测试走公共 API `spg_get_magnetic_dataset`，覆盖 Type-1/2/3 真实物理系统。
+//! 所有测试走公共 API `Crystal` + `SymmetryAnalysis`，覆盖 Type-1/2/3 真实物理系统。
 
 use cryspglib::{
-     spg_get_magnetic_dataset,
-    spg_get_magnetic_spacegroup_type_from_symmetry, MagneticType,
+    Crystal, MagneticSpaceGroupType, MagneticType,
 };
 
 const SYMPREC: f64 = 1e-5;
@@ -19,9 +18,13 @@ fn run_dataset(
     positions: &[[f64; 3]],
     types: &[i32],
     moments: Option<&[[f64; 3]]>,
-) -> cryspglib::SpglibMagneticSymmetry {
-    let result = spg_get_magnetic_dataset(lattice, positions, types, moments, SYMPREC)
-        .unwrap_or_else(|| panic!("{}: spg_get_magnetic_dataset returned None", label));
+) -> cryspglib::MagneticSymmetry {
+    let mut cry = Crystal::new(*lattice, positions.to_vec(), types.to_vec());
+    if let Some(m) = moments {
+        cry = cry.with_magnetic(m.to_vec());
+    }
+    let result = cry.analyze().symprec(SYMPREC).magnetic_dataset()
+        .unwrap_or_else(|| panic!("{}: magnetic_dataset returned None", label));
     eprintln!("=== {} ===", label);
     eprintln!("{}", result.to_string());
     result
@@ -47,7 +50,7 @@ fn pm3m_ops() -> (Vec<[[i32; 3]; 3]>, Vec<[f64; 3]>) {
 #[test]
 fn test_api_type1() {
     let (rots, trans) = pm3m_ops();
-    let result = spg_get_magnetic_spacegroup_type_from_symmetry(
+    let result = MagneticSpaceGroupType::classify(
         &rots, &trans, None, &cubic_lattice(), SYMPREC,
     );
     assert_eq!(result.type_, MagneticType::Ordinary);
@@ -61,7 +64,7 @@ fn test_api_type2() {
     let all_rots: Vec<_> = rots.iter().chain(rots.iter()).cloned().collect();
     let all_trans: Vec<_> = trans.iter().chain(trans.iter()).cloned().collect();
     let timerev: Vec<bool> = (0..n).map(|_| false).chain((0..n).map(|_| true)).collect();
-    let result = spg_get_magnetic_spacegroup_type_from_symmetry(
+    let result = MagneticSpaceGroupType::classify(
         &all_rots, &all_trans, Some(&timerev), &cubic_lattice(), SYMPREC,
     );
     assert_eq!(result.type_, MagneticType::Grey);
@@ -72,7 +75,7 @@ fn test_api_type2() {
 fn test_api_type3() {
     let (rots, trans) = pm3m_ops();
     let timerev: Vec<bool> = rots.iter().map(|r| !cryspglib::mathfunc::is_proper(r)).collect();
-    let result = spg_get_magnetic_spacegroup_type_from_symmetry(
+    let result = MagneticSpaceGroupType::classify(
         &rots, &trans, Some(&timerev), &cubic_lattice(), SYMPREC,
     );
     assert_eq!(result.type_, MagneticType::BlackWhite);
@@ -80,7 +83,7 @@ fn test_api_type3() {
 }
 
 // ====================================================================
-// 物理系统测试
+// 物理系统测试 — 全部使用 Crystal API
 // ====================================================================
 
 /// Fe SC 体心, 非磁 (moments=None)

@@ -5,6 +5,8 @@
 //!
 //! # 快速开始
 //!
+//! ## 非磁空间群
+//!
 //! ```no_run
 //! use cryspglib::Crystal;
 //!
@@ -19,24 +21,56 @@
 //! # Ok::<(), cryspglib::SymError>(())
 //! ```
 //!
+//! ## 磁性空间群
+//!
+//! ```no_run
+//! use cryspglib::Crystal;
+//!
+//! // BCC AFM [111]: Fe at [0,0,0] and [0.5,0.5,0.5], opposite spins
+//! let n = (3.0_f64).sqrt();
+//! let fe = Crystal::new(
+//!     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+//!     vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
+//!     vec![26, 26],
+//! ).with_magnetic(vec![
+//!     [1.0/n, 1.0/n, 1.0/n],
+//!     [-1.0/n, -1.0/n, -1.0/n],
+//! ]);
+//!
+//! let r = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
+//! println!("SG #{} → UNI={}, BNS={}", r.spacegroup_number, r.uni_number, r.bns_number);
+//! ```
+//!
 //! # 主要类型
 //!
 //! | 类型 | 说明 |
 //! |------|------|
 //! | [`Crystal`] | 晶体结构（晶格 + 原子位置 + 可选磁矩） |
-//! | [`SymmetryAnalysis`] | 对称性分析构建器 |
-//! | [`SpaceGroup`] | 空间群数据（编号、符号、Wyckoff 位置等） |
-//! | [`SymmetryOp`] | 单个对称操作 `{R\|t}` |
-//! | [`MagneticDataset`] | 磁性空间群数据集 |
+//! | [`SymmetryAnalysis`] | 对称性分析构建器（`.symprec()`, `.dataset()`, `.magnetic_dataset()` 等） |
+//! | [`SpaceGroup`] | 空间群完整数据（编号、符号、Wyckoff 位置、对称操作等） |
+//! | [`SymmetryOp`] | 单个对称操作 `{R\|t}` + `time_reversal` |
+//! | [`SymmetryOps`] | 对称操作集合，支持 [`SymmetryOps::from_database`] |
+//! | [`MagneticSymmetry`] | 磁空间群分析结果，实现 `Display` trait |
+//! | [`MagneticSpaceGroupType`] | 磁空间群类型，支持 `.from_uni()` 和 `.classify()` |
+//! | [`SpaceGroupType`] | 空间群类型信息，支持 `.from_hall()` |
+//! | [`IrMesh`] | 不可约 k 点网格 |
+//! | [`StabilizedMesh`] | 稳定化倒易网格（含 q 点） |
+//! | [`BzMesh`] | 第一布里渊区重定位结果 |
 //!
 //! # 晶格矩阵约定
 //!
 //! 所有 3x3 矩阵采用 `lattice[cart][vec]` 布局（行=笛卡尔分量，列=晶格矢量）。
 //! 详见 [`mathfunc`] 模块文档。
+//!
+//! # 弃用说明
+//!
+//! 所有 `spg_*` 前缀的 C 风格函数已标注 `#[deprecated]`，请使用上表中的 Rust 风格 API。
+//! 旧函数仍然可用，但会在编译时产生警告。
 
 pub mod arithmetic;
 pub mod api;
 pub mod cell;
+pub mod irrep;
 pub mod debug;
 pub mod delaunay;
 pub mod determination;
@@ -74,7 +108,11 @@ use crate::spg_database::{Centering, spgdb_get_spacegroup_operations, spgdb_get_
 use crate::symmetry::Symmetry;
 
 // Re-export the new Rust-idiomatic API
-pub use api::{Crystal, IrMesh, SymmetryAnalysis, SymmetryOp, SymmetryOps};
+pub use api::{
+    BzMesh, Crystal, IrMesh, StabilizedMesh, SymmetryAnalysis, SymmetryOp, SymmetryOps,
+    dense_bz_grid_points_by_rotations, dense_grid_points_by_rotations,
+    grid_point_from_address, relocate_bz_grid_address, stabilized_reciprocal_mesh,
+};
 
 // Deprecated aliases
 pub type SpglibDataset = SpaceGroup;
@@ -234,6 +272,21 @@ pub struct SpaceGroupType {
 
 impl SpaceGroupType {
     /// Look up space group type by Hall number (1–530).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cryspglib::SpaceGroupType;
+    ///
+    /// // Pm-3m (Hall number 517)
+    /// let sg = SpaceGroupType::from_hall(517).unwrap();
+    /// assert_eq!(sg.number, 221);
+    /// assert_eq!(sg.international_short.trim(), "Pm-3m");
+    /// assert_eq!(sg.schoenflies.trim(), "Oh^1");
+    ///
+    /// // Invalid Hall number
+    /// assert!(SpaceGroupType::from_hall(999).is_err());
+    /// ```
     pub fn from_hall(hall_number: usize) -> Result<Self, SymError> {
         if hall_number > 0 && hall_number < 531 {
             get_spacegroup_type(hall_number)
@@ -319,6 +372,23 @@ pub struct MagneticSpaceGroupType {
 }
 
 impl MagneticSpaceGroupType {
+    /// Look up a magnetic space group type by UNI number (1–1651).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cryspglib::{MagneticSpaceGroupType, MagneticType};
+    ///
+    /// // UNI 1331 = BNS 166.101 (Type-3 black-white, parent R-3m)
+    /// let msg = MagneticSpaceGroupType::from_uni(1331);
+    /// assert_eq!(msg.uni_number, 1331);
+    /// assert_eq!(msg.bns_number.trim(), "166.101");
+    /// assert_eq!(msg.type_, MagneticType::BlackWhite);
+    ///
+    /// // UNI 1005 = BNS 123.345 (Type-3, ferromagnetic along [001])
+    /// let msg = MagneticSpaceGroupType::from_uni(1005);
+    /// assert_eq!(msg.bns_number.trim(), "123.345");
+    /// ```
     pub fn from_uni(uni_number: usize) -> Self {
         let msgtype = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni_number);
         MagneticSpaceGroupType {
@@ -329,6 +399,41 @@ impl MagneticSpaceGroupType {
             number: msgtype.number,
             type_: msgtype.type_,
         }
+    }
+
+    /// Classify magnetic space group type from a set of symmetry operations.
+    ///
+    /// `time_reversals` can be `None` (treated as all-false / ordinary operations).
+    ///
+    /// Returns a default (UNI=0, NonMagnetic) when identification fails.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cryspglib::{MagneticSpaceGroupType, SymmetryOps, MagneticType};
+    ///
+    /// // Get Pm-3m symmetry operations from database
+    /// let ops = SymmetryOps::from_database(517).unwrap();
+    /// let rots: Vec<_> = ops.operations.iter().map(|op| op.rotation).collect();
+    /// let trans: Vec<_> = ops.operations.iter().map(|op| op.translation).collect();
+    /// let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    ///
+    /// // Without time reversal → Type-1 (ordinary)
+    /// let msg = MagneticSpaceGroupType::classify(&rots, &trans, None, &lattice, 1e-5);
+    /// assert_eq!(msg.type_, MagneticType::Ordinary);
+    /// assert!(msg.uni_number > 0);
+    /// ```
+    pub fn classify(
+        rotations: &[Mat3I],
+        translations: &[Vec3],
+        time_reversals: Option<&[bool]>,
+        lattice: &Mat3,
+        symprec: f64,
+    ) -> Self {
+        #[allow(deprecated)]
+        spg_get_magnetic_spacegroup_type_from_symmetry(
+            rotations, translations, time_reversals, lattice, symprec,
+        )
     }
 }
 
@@ -376,6 +481,7 @@ impl MagneticSpaceGroupType {
 /// 从空间群数据库获取对称操作。
 ///
 /// 根据 Hall 编号直接返回所有空间群操作。
+#[deprecated(since = "0.2.0", note = "use `SymmetryOps::from_database(hall_number)` instead")]
 pub fn spg_get_symmetry_from_database(hall_number: usize) -> Result<Symmetry, SpglibError> {
     spgdb_get_spacegroup_operations(hall_number)
         .ok_or(SymError::SpacegroupSearchFailed)
@@ -419,6 +525,7 @@ pub fn spg_get_spacegroup_type(hall_number: usize) -> Result<SpaceGroupType, Sym
 /// 返回 `None` 表示失败。
 
 /// 标准化晶胞（带角度容差）。
+#[deprecated(since = "0.2.0", note = "use `crystal.analyze().standardize(to_primitive, no_idealize)` instead")]
 pub fn spgat_standardize_cell(
     lattice: &Mat3,
     position: &[Vec3],
@@ -448,6 +555,7 @@ pub fn spgat_standardize_cell(
 /// 将任意晶胞约化为其原胞，返回原胞结构和新的原子数。
 
 /// 寻找原胞（带角度容差）。
+#[deprecated(since = "0.2.0", note = "use `crystal.analyze().primitive_cell()` instead")]
 pub fn spgat_find_primitive(
     lattice: &Mat3,
     position: &[Vec3],
@@ -463,6 +571,7 @@ pub fn spgat_find_primitive(
 /// 对输入晶胞进行理想化处理，返回标准化的常规晶胞。
 
 /// 精细化晶胞（带角度容差）。
+#[deprecated(since = "0.2.0", note = "use `crystal.analyze().standardize(false, false)` instead")]
 pub fn spgat_refine_cell(
     lattice: &Mat3,
     position: &[Vec3],
@@ -516,6 +625,7 @@ pub fn spg_get_pointgroup(
 /// 获取磁性空间群类型。
 ///
 /// 根据 UNI 编号查询磁性空间群类型信息。返回默认值（全零）表示未找到。
+#[deprecated(since = "0.2.0", note = "use `MagneticSpaceGroupType::from_uni(uni_number)` instead")]
 pub fn spg_get_magnetic_spacegroup_type(
     uni_number: usize,
 ) -> MagneticSpaceGroupType {
@@ -533,6 +643,7 @@ pub fn spg_get_magnetic_spacegroup_type(
 /// 获取磁性空间群类型（从对称操作）。
 ///
 /// `time_reversals` 为 `None` 时全部视为 0（无时间反演）。
+#[deprecated(since = "0.2.0", note = "use `MagneticSpaceGroupType::classify(rotations, translations, time_reversals, lattice, symprec)` instead")]
 pub fn spg_get_magnetic_spacegroup_type_from_symmetry(
     rotations: &[Mat3I],
     translations: &[Vec3],
@@ -551,7 +662,7 @@ pub fn spg_get_magnetic_spacegroup_type_from_symmetry(
     match crate::magnetic_spacegroup::msg_identify_magnetic_space_group_type(
         lattice, &mag_sym, symprec,
     ) {
-        Some(dataset) => spg_get_magnetic_spacegroup_type(dataset.uni_number),
+        Some(dataset) => MagneticSpaceGroupType::from_uni(dataset.uni_number),
         None => MagneticSpaceGroupType {
             uni_number: 0,
             litvin_number: 0,
@@ -597,6 +708,7 @@ pub struct MagneticSymmetry {
 /// 每个原子的磁矩为 3 分量 `[mx, my, mz]`。
 ///
 /// 返回包含非磁空间群、磁空间群、对称操作的结构。
+#[deprecated(since = "0.2.0", note = "use `Crystal::new(lat, pos, types).with_magnetic(moments).analyze().symprec(prec).magnetic_dataset()` instead")]
 ///
 /// # 示例
 /// # use cryspglib::spg_get_magnetic_dataset;
@@ -856,6 +968,7 @@ fn manual_compute_timerev(
 }
 
 /// 将 `MagneticSymmetry` 格式化为可读文本（类似 phonopy --symmetry 风格）。
+#[deprecated(since = "0.2.0", note = "use `result.to_string()` (Display trait) instead")]
 pub fn spg_format_magnetic_symmetry(result: &MagneticSymmetry) -> String {
     use std::fmt::Write;
     let mut s = String::new();
@@ -925,7 +1038,6 @@ pub fn spg_format_magnetic_symmetry(result: &MagneticSymmetry) -> String {
 /// Parse a POSCAR-format string.
 ///
 /// Delegates to [`Crystal::from_poscar`] internally.
-#[deprecated(since = "0.2.0", note = "use `Crystal::from_poscar(data)` instead")]
 // ---------------------------------------------------------------------------
 // Lattice reduction
 // ---------------------------------------------------------------------------
@@ -937,6 +1049,7 @@ pub fn spg_format_magnetic_symmetry(result: &MagneticSymmetry) -> String {
 /// # use cryspglib::spg_delaunay_reduce;
 /// let reduced = spg_delaunay_reduce(&[[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]], 1e-5);
 /// assert!(reduced.is_ok());
+#[deprecated(since = "0.2.0", note = "use `crystal.delaunay_reduce(symprec)` instead")]
 /// 返回约化后的晶格矩阵。
 pub fn spg_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibError> {
     del_delaunay_reduce(lattice, symprec).ok_or(SymError::DelaunayFailed)
@@ -949,6 +1062,7 @@ pub fn spg_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibE
 /// # use cryspglib::spg_niggli_reduce;
 /// let reduced = spg_niggli_reduce(&[[1.,0.,0.],[0.,1.,0.],[0.,0.,1.]], 1e-5);
 /// assert!(reduced.is_ok());
+#[deprecated(since = "0.2.0", note = "use `crystal.niggli_reduce(symprec)` instead")]
 pub fn spg_niggli_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibError> {
     let mut reduced = *lattice;
     if niggli_reduce(&mut reduced, symprec, None) {
@@ -963,17 +1077,17 @@ pub fn spg_niggli_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibErr
 // ---------------------------------------------------------------------------
 
 /// 从网格地址获取网格点索引。
+#[deprecated(since = "0.2.0", note = "use `grid_point_from_address(grid_address, mesh)` instead")]
 pub fn spg_get_grid_point_from_address(grid_address: &[i32; 3], mesh: &[i32; 3]) -> usize {
-    let mut address_double = [0i32; 3];
-    let is_shift = [0i32; 3];
-    crate::kgrid::kgd_get_grid_address_double_mesh(&mut address_double, grid_address, mesh, &is_shift);
-    crate::kgrid::kgd_get_dense_grid_point_double_mesh(&address_double, mesh)
+    grid_point_from_address(*grid_address, *mesh)
 }
 
 /// 获取不可约倒易网格。
 ///
 /// 返回不可约网格点的数量。`grid_address` 和 `ir_mapping_table`
 /// 需预分配足够空间（通常为 `mesh[0]*mesh[1]*mesh[2]`）。
+#[deprecated(since = "0.2.0", note = "use `crystal.analyze().irreducible_mesh(mesh, is_shift, time_reversal)` instead")]
+#[allow(deprecated)]
 pub fn spg_get_ir_reciprocal_mesh(
     grid_address: &mut [[i32; 3]],
     ir_mapping_table: &mut [usize],
@@ -992,6 +1106,8 @@ pub fn spg_get_ir_reciprocal_mesh(
 }
 
 /// 获取不可约倒易网格（密集版本，使用 usize 映射表）。
+#[deprecated(since = "0.2.0", note = "use `crystal.analyze().irreducible_mesh(mesh, is_shift, time_reversal)` instead")]
+#[allow(deprecated)]
 pub fn spg_get_dense_ir_reciprocal_mesh(
     grid_address: &mut [[i32; 3]],
     ir_mapping_table: &mut [usize],
@@ -1010,6 +1126,7 @@ pub fn spg_get_dense_ir_reciprocal_mesh(
 }
 
 /// 获取稳定化倒易网格（给定对称操作和 q 点）。
+#[deprecated(since = "0.2.0", note = "use `stabilized_reciprocal_mesh(mesh, is_shift, is_time_reversal, rotations, qpoints)` instead")]
 pub fn spg_get_stabilized_reciprocal_mesh(
     grid_address: &mut [[i32; 3]],
     ir_mapping_table: &mut [usize],
@@ -1019,19 +1136,15 @@ pub fn spg_get_stabilized_reciprocal_mesh(
     rotations: &[Mat3I],
     qpoints: &[[f64; 3]],
 ) -> usize {
-    use crate::mathfunc::MatINT;
-    let mut rot_real = MatINT::new(rotations.len());
-    for (i, r) in rotations.iter().enumerate() {
-        rot_real.mat[i] = *r;
-    }
-    crate::kpoint::kpt_get_stabilized_reciprocal_mesh(
-        grid_address, ir_mapping_table, mesh, is_shift,
-        if is_time_reversal { 1 } else { 0 },
-        &rot_real, qpoints,
-    )
+    let result = stabilized_reciprocal_mesh(*mesh, *is_shift, is_time_reversal, rotations, qpoints);
+    let n = result.num_ir;
+    grid_address[..result.grid_addresses.len()].copy_from_slice(&result.grid_addresses);
+    ir_mapping_table[..result.mapping_table.len()].copy_from_slice(&result.mapping_table);
+    n
 }
 
 /// 通过旋转矩阵获取密集网格点。
+#[deprecated(since = "0.2.0", note = "use `dense_grid_points_by_rotations(address_orig, rot_reciprocal, mesh, is_shift)` instead")]
 pub fn spg_get_dense_grid_points_by_rotations(
     rot_grid_points: &mut [usize],
     address_orig: &[i32; 3],
@@ -1039,17 +1152,12 @@ pub fn spg_get_dense_grid_points_by_rotations(
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
 ) {
-    use crate::mathfunc::MatINT;
-    let mut rot = MatINT::new(rot_reciprocal.len());
-    for (i, r) in rot_reciprocal.iter().enumerate() {
-        rot.mat[i] = *r;
-    }
-    crate::kpoint::kpt_get_dense_grid_points_by_rotations(
-        rot_grid_points, address_orig, &rot, mesh, is_shift,
-    )
+    let result = dense_grid_points_by_rotations(*address_orig, rot_reciprocal, *mesh, *is_shift);
+    rot_grid_points[..result.len()].copy_from_slice(&result);
 }
 
 /// 通过旋转矩阵获取 BZ 网格点。
+#[deprecated(since = "0.2.0", note = "use `dense_bz_grid_points_by_rotations(address_orig, rot_reciprocal, mesh, is_shift, bz_map)` instead")]
 pub fn spg_get_dense_BZ_grid_points_by_rotations(
     rot_grid_points: &mut [usize],
     address_orig: &[i32; 3],
@@ -1058,19 +1166,14 @@ pub fn spg_get_dense_BZ_grid_points_by_rotations(
     is_shift: &[i32; 3],
     bz_map: &[usize],
 ) {
-    use crate::mathfunc::MatINT;
-    let mut rot = MatINT::new(rot_reciprocal.len());
-    for (i, r) in rot_reciprocal.iter().enumerate() {
-        rot.mat[i] = *r;
-    }
-    crate::kpoint::kpt_get_dense_BZ_grid_points_by_rotations(
-        rot_grid_points, address_orig, &rot, mesh, is_shift, bz_map,
-    )
+    let result = dense_bz_grid_points_by_rotations(*address_orig, rot_reciprocal, *mesh, *is_shift, bz_map);
+    rot_grid_points[..result.len()].copy_from_slice(&result);
 }
 
 /// 将网格点重新定位到第一布里渊区。
 ///
 /// 返回 BZ 网格点的数量。`bz_map` 中未映射的条目设为 `usize::MAX`（对应 C 中的 -1）。
+#[deprecated(since = "0.2.0", note = "use `relocate_bz_grid_address(grid_address, mesh, rec_lattice, is_shift)` instead")]
 pub fn spg_relocate_BZ_grid_address(
     bz_grid_address: &mut [[i32; 3]],
     bz_map: &mut [usize],
@@ -1079,9 +1182,11 @@ pub fn spg_relocate_BZ_grid_address(
     rec_lattice: &Mat3,
     is_shift: &[i32; 3],
 ) -> usize {
-    crate::kpoint::kpt_relocate_bz_grid_address(
-        bz_grid_address, bz_map, grid_address, mesh, rec_lattice, is_shift,
-    )
+    let result = relocate_bz_grid_address(grid_address, *mesh, rec_lattice, *is_shift);
+    let n = result.num_bz;
+    bz_grid_address[..result.grid_addresses.len()].copy_from_slice(&result.grid_addresses);
+    bz_map[..result.bz_map.len()].copy_from_slice(&result.bz_map);
+    n
 }
 
 // ========================================================================

@@ -4,8 +4,7 @@
 //! 所有测试只使用公共 API。
 
 use cryspglib::{
-    Crystal, spg_get_magnetic_dataset,
-     MagneticType,
+    Crystal, SpaceGroupType, spg_get_pointgroup, MagneticType,
 };
 
 const SYMPREC: f64 = 1e-5;
@@ -126,7 +125,11 @@ fn test_cof3_magnetic() {
         [0.0, 0.0, -1.0], [0.0, 0.0, 1.0], [0.0, 0.0, -1.0],
     ];
 
-    let result = spg_get_magnetic_dataset(&lattice, &positions, &types, Some(&moments), SYMPREC)
+    let result = Crystal::new(lattice, positions.to_vec(), types.to_vec())
+        .with_magnetic(moments.to_vec())
+        .analyze()
+        .symprec(SYMPREC)
+        .magnetic_dataset()
         .expect("spg_get_magnetic_dataset must succeed");
 
     eprintln!("{}", result.to_string());

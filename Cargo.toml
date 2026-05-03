@@ -6,5 +6,13 @@ description = "A pure-Rust port of spglib — not a replacement, but a dependenc
 license = "BSD-3-Clause"
 repository = "https://github.com/spglib/spglib"
 
+exclude = [
+    "isotropy_subgroup/*.zip",
+    "isotropy_subgroup/*.txt",
+    "isotropy_subgroup/*.html",
+    "scripts/",
+    "docs/",
+]
+
 [dependencies]
 thiserror = "2"

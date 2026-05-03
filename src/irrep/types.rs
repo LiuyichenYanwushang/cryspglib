@@ -1,0 +1,219 @@
+//! Common types for irreducible representation data.
+//!
+//! Based on Stokes & Hatch (1988), *Isotropy Subgroups of the 230
+//! Crystallographic Space Groups*.  Three irrep labeling conventions are
+//! supported.
+//!
+//! # Labeling conventions
+//!
+//! | Convention | Reference | Example |
+//! |-----------|-----------|---------|
+//! | Miller & Love | Miller & Love (1967) | `GM1+`, `X2-` |
+//! | Kovalev | Kovalev (1986) | `τ1`, `k6τ2` |
+//! | Bradley & Cracknell | B&C (1972) | `Γ1+`, `X1` |
+
+/// A single irreducible representation at a k-point, with labels in three conventions.
+///
+/// The three label systems are cross-referenced from Stokes & Hatch Table 7.
+#[derive(Debug, Clone)]
+pub struct IrrepData {
+    /// Miller & Love label (e.g. `"GM1+"`, `"X3-"`, `"R4+"`)
+    pub ml_label: &'static str,
+    /// Kovalev label (e.g. `"τ1"`, `"k6τ3"`)
+    pub kovalev_label: &'static str,
+    /// Bradley & Cracknell / CDML label (e.g. `"Γ1+"`, `"Γ4-"`)
+    pub bc_label: &'static str,
+    /// Dimension of the irrep: 1, 2, 3, 4, or 6
+    pub dimension: u8,
+    /// Stokes-Hatch image symbol (e.g. `"A1a"`, `"C24c"`, `"B4a"`)
+    pub image: &'static str,
+    /// Basis functions (e.g. `"1"`, `"x,y,z"`, `"Sx,Sy,Sz"`)
+    pub basis_functions: &'static str,
+}
+
+/// A high-symmetry k-point in the Brillouin zone with its little co-group and irreps.
+#[derive(Debug, Clone)]
+pub struct KPointData {
+    /// k-point label: `"Γ"`, `"X"`, `"M"`, `"R"`, `"A"`, `"H"`, `"K"`, `"L"`, etc.
+    pub label: &'static str,
+    /// Fractional reciprocal coordinates `[kx, ky, kz]`
+    pub coords: [f64; 3],
+    /// Little co-group (point group of the wave-vector): `"m-3m"`, `"4/mmm"`, etc.
+    pub little_group: &'static str,
+    /// Irreducible representations at this k-point
+    pub irreps: &'static [IrrepData],
+}
+
+/// An isotropy subgroup: the lower-symmetry space group obtained when the order
+/// parameter condenses along a specific direction for a given irrep.
+#[derive(Debug, Clone)]
+pub struct IsotropySubgroup {
+    /// Space group number (1–230)
+    pub sg_number: u16,
+    /// Hermann-Mauguin symbol (e.g. `"Pm-3m"`, `"R-3m"`)
+    pub symbol: &'static str,
+    /// Schoenflies symbol (e.g. `"Oh^1"`, `"D3d^5"`)
+    pub schoenflies: &'static str,
+    /// Order-parameter direction (e.g. `"(a,0,0)"`, `"(a,a,a)"`)
+    pub direction: &'static str,
+    /// Number of domains
+    pub domains: u8,
+    /// Basis vectors of the subgroup cell relative to the parent cell
+    pub basis: &'static str,
+    /// Origin shift relative to the parent cell
+    pub origin: &'static str,
+}
+
+// ── Machine-generated record types (flat-array storage) ─────────────────────
+
+/// Compact irrep record for the generated flat array.
+///
+/// Field names are abbreviated to keep the generated code size manageable.
+///
+/// # Navigation
+///
+/// Use [`IrrepRecord::subgroups`] to get isotropy subgroups directly,
+/// without needing to know global indices.
+#[derive(Debug, Clone, Copy)]
+pub struct IrrepRecord {
+    /// Space group number (1–230)
+    pub sg: u8,
+    /// CDML / Miller-Love label: `"GM4+"`, `"X1-"`
+    pub ml: &'static str,
+    /// Bradley-Cracknell label (LaTeX): `"\\Gamma_4^+"`
+    pub bc: &'static str,
+    /// Kovalev label (LaTeX): `"k_{12}\\tau_{9}"`
+    pub kov: &'static str,
+    /// Dimension: 1, 2, 3, 4, 6, 8, 12, 16, 24
+    pub dim: u8,
+    /// Image symbol: `"A1a"`, `"C24c"`, `"B6a"`
+    pub image: &'static str,
+    /// Lifshitz condition satisfied
+    pub lifshitz: bool,
+
+    /// k-vector numerator x (fractional reciprocal coordinate)
+    pub kx: i8,
+    /// k-vector numerator y (fractional reciprocal coordinate)
+    pub ky: i8,
+    /// k-vector numerator z (fractional reciprocal coordinate)
+    pub kz: i8,
+    /// k-vector common denominator (actual coordinate = numerator / denominator)
+    pub kd: i8,
+
+    // ── internal: character table + matrix pointers ──
+    /// Start index into [`CHARACTERS`]
+    pub(crate) _char_start: u16,
+    /// Number of operators (= number of character values)
+    pub(crate) _char_count: u16,
+    /// Start index into [`MATRICES`] (u32: ~1M entries total)
+    pub(crate) _mat_start: u32,
+    /// Number of matrix elements = opcount × dim² (fits in u16: max ~27648)
+    pub(crate) _mat_count: u16,
+    /// Start index into [`ISOTROPY_SUBGROUPS`]
+    pub(crate) _iso_start: u16,
+    /// Number of isotropy subgroups for this irrep
+    pub(crate) _iso_count: u16,
+}
+
+impl IrrepRecord {
+    /// Character table: χ(g) = Tr(D(g)) for each space-group operator.
+    ///
+    /// The character χ(g) of a representation D is the trace of the
+    /// representation matrix for each symmetry operation g.  The return
+    /// slice has length equal to the number of operators in the little
+    /// co-group of the wave-vector, and each entry is a floating-point
+    /// value (possibly negative, fractional, or zero).
+    pub fn characters(&self) -> &'static [f64] {
+        if self._char_count == 0 {
+            return &[];
+        }
+        &self::generated_data::CHARACTERS
+            [self._char_start as usize..(self._char_start + self._char_count) as usize]
+    }
+
+    /// Full irrep matrices for each operator, flattened: op0(row0,row1,...), op1(...), ...
+    ///
+    /// The total number of elements is `opcount × dim²`.
+    /// For operator `g`, the matrix D(g) is at offset `g × dim²` with
+    /// row-major layout: D[0][0], D[0][1], ..., D[dim-1][dim-1].
+    pub fn matrices(&self) -> &'static [f64] {
+        if self._mat_count == 0 {
+            return &[];
+        }
+        &self::generated_data::MATRICES
+            [self._mat_start as usize..(self._mat_start + self._mat_count as u32) as usize]
+    }
+
+    /// Isotropy subgroups for this irrep — no index arithmetic needed.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cryspglib::irrep::query::irreps_of;
+    ///
+    /// for ir in irreps_of(221) {
+    ///     if ir.ml == "GM4-" {
+    ///         for sub in ir.subgroups() {
+    ///             println!("#{} {}", sub.sg, sub.symbol);
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    pub fn subgroups(&self) -> &'static [IsotropyRecord] {
+        &self::generated_data::ISOTROPY_SUBGROUPS
+            [self._iso_start as usize..(self._iso_start + self._iso_count) as usize]
+    }
+
+    /// k-point label prefix extracted from the ML label.
+    ///
+    /// - `"GM4+"` → `"GM"` (Γ point)
+    /// - `"X3-"` → `"X"`
+    /// - `"DT1"` → `"DT"` (Δ line)
+    pub fn k_label(&self) -> &'static str {
+        let body = self.ml.trim_end_matches(|c: char| c == '+' || c == '-');
+        let end = body.find(|c: char| c.is_ascii_digit()).unwrap_or(body.len());
+        &body[..end]
+    }
+
+    /// Whether this is a special k-point (not a line or plane).
+    pub fn is_point(&self) -> bool {
+        let k = self.k_label();
+        // Lines and planes have longer prefixes (DT, LD, SM, etc.)
+        // Points have short prefixes (GM, X, M, R, A, H, K, L, etc.)
+        k.len() <= 2 && !matches!(k, "GP")
+    }
+}
+
+impl IsotropyRecord {
+    /// Human-readable description of this isotropy subgroup.
+    pub fn describe(&self) -> String {
+        format!("#{} {} ({}), domains={}", self.sg, self.symbol, self.schoenflies, self.domains)
+    }
+}
+
+/// Compact isotropy subgroup record for the generated flat array.
+#[derive(Debug, Clone, Copy)]
+pub struct IsotropyRecord {
+    /// Subgroup space group number (1–230)
+    pub sg: u16,
+    /// Hermann-Mauguin symbol
+    pub symbol: &'static str,
+    /// Schoenflies symbol
+    pub schoenflies: &'static str,
+    /// Order-parameter direction label
+    pub direction: &'static str,
+    /// Number of domains
+    pub domains: u16,
+    /// Number of arms in the star
+    pub arms: u16,
+}
+
+/// Auto-generated data from iso_data files.
+///
+/// This module is regenerated by `scripts/generate_irrep_data.py`.
+/// Do not edit manually.
+#[allow(missing_docs)]
+pub mod generated_data {
+    #![allow(clippy::all)]
+    include!("generated_data.rs");
+}

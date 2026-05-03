@@ -51,18 +51,40 @@ Starting from the C source, the AI-assisted porting effort delivered:
 
 ## Usage
 
+### Non-magnetic
+
 ```rust
-use cryspglib::spg_get_magnetic_dataset;
+use cryspglib::Crystal;
+
+// FCC Al (space group Fm-3m, #225)
+let al = Crystal::new(
+    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+    vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.5, 0.0, 0.5], [0.0, 0.5, 0.5]],
+    vec![13, 13, 13, 13],
+);
+let ds = al.analyze().symprec(1e-5).dataset()?;
+// → SpaceGroup { spacegroup_number: 225, international_symbol: "Fm-3m", ... }
+# Ok::<(), cryspglib::SymError>(())
+```
+
+### Magnetic
+
+```rust
+use cryspglib::Crystal;
 
 // BCC AFM [111]: Fe at [0,0,0] and [0.5,0.5,0.5], opposite spins along [111]
-let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-let positions = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]];
-let types = [26, 26];
 let n = (3.0_f64).sqrt();
-let moments = [[1.0/n, 1.0/n, 1.0/n], [-1.0/n, -1.0/n, -1.0/n]];
+let fe = Crystal::new(
+    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+    vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
+    vec![26, 26],
+).with_magnetic(vec![
+    [1.0/n, 1.0/n, 1.0/n],
+    [-1.0/n, -1.0/n, -1.0/n],
+]);
 
-let result = spg_get_magnetic_dataset(&lattice, &positions, &types, Some(&moments), 1e-5);
-// → SpglibMagneticSymmetry {
+let result = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
+// → MagneticSymmetry {
 //     spacegroup_number: 229 (Im-3m),
 //     uni_number: 1331,
 //     bns_number: "166.101",
@@ -74,19 +96,26 @@ let result = spg_get_magnetic_dataset(&lattice, &positions, &types, Some(&moment
 
 ### Key API
 
-| Function | Description |
-|----------|-------------|
-| `spg_get_dataset` | Non-magnetic space group identification |
-| `spg_standardize_cell` | Standardize crystal cell |
-| `spg_find_primitive` | Find primitive cell |
-| `spg_refine_cell` | Wyckoff position refinement |
-| `spg_get_symmetry` | Get symmetry operations |
-| `spg_get_magnetic_dataset` | Full magnetic space group identification |
-| `spg_get_magnetic_spacegroup_type` | Look up magnetic space group type by UNI number |
-| `spg_get_magnetic_spacegroup_type_from_symmetry` | Identify magnetic space group type from symmetry operations |
-| `spg_delaunay_reduce` | Delaunay lattice reduction |
-| `spg_niggli_reduce` | Niggli lattice reduction |
-| `spg_read_structure` | Parse POSCAR-format input |
+| Type / Method | Description |
+|---------------|-------------|
+| `Crystal::new(lat, pos, types)` | Create a non-magnetic 3D crystal |
+| `.with_magnetic(moments)` | Add magnetic moments `[mx,my,mz]` per atom |
+| `.with_layer(axis)` | Mark as 2D slab |
+| `.analyze()` | Begin symmetry analysis |
+| `.delaunay_reduce(prec)` | Delaunay lattice reduction |
+| `.niggli_reduce(prec)` | Niggli lattice reduction |
+| `Crystal::from_poscar(data)` | Parse POSCAR-format input |
+| `SymmetryAnalysis::symprec(val)` | Set symmetry tolerance |
+| `.dataset()` | Full space group dataset |
+| `.symmetry()` | Symmetry operations only |
+| `.primitive_cell()` | Primitive cell |
+| `.standardize(to_prim, no_ideal)` | Standardized cell |
+| `.hall_number()` | Hall number (1-530) |
+| `.international()` | Space group number + symbol |
+| `.magnetic_dataset()` | Magnetic space group |
+| `.irreducible_mesh(mesh, shift, tr)` | Irreducible k-point grid |
+| `SpaceGroupType::from_hall(n)` | Look up space group type by Hall number |
+| `MagneticSpaceGroupType::from_uni(n)` | Look up magnetic SG type by UNI number |
 
 ## Build
 

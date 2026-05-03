@@ -47,9 +47,19 @@ test_metric
 hall_symbol.c
 hall_symbol.rs.bak
 
+# Irrep generated intermediate files
+character_tables.json
+irrep_browser.html
+irrep_browser_data.json
+
 # Temporary files
 *.tmp
 *.temp
+
+# Large data archives (not published)
+isotropy_subgroup/*.zip
+isotropy_subgroup/*.txt
+isotropy_subgroup/*.html
 
 # Claude Code
 .claude/

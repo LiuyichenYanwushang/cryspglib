@@ -175,6 +175,28 @@ impl Crystal {
     /// Direct|Cartesian
     /// x y z [mx my mz]  # positions, optional 3 magnetic moment components
     /// ```
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cryspglib::Crystal;
+    ///
+    /// let poscar = "\
+    /// Si
+    /// 1.0
+    ///    5.4300000000    0.0000000000    0.0000000000
+    ///    0.0000000000    5.4300000000    0.0000000000
+    ///    0.0000000000    0.0000000000    5.4300000000
+    /// Si
+    /// 2
+    /// Direct
+    /// 0.00 0.00 0.00
+    /// 0.25 0.25 0.25
+    /// ";
+    /// let cry = Crystal::from_poscar(poscar).unwrap();
+    /// assert_eq!(cry.natom(), 2);
+    /// assert_eq!(cry.types, vec![14, 14]);
+    /// ```
     pub fn from_poscar(data: &str) -> Option<Self> {
         crate::parser::parse_poscar(data).map(
             |(lattice, positions, types, moments)| Crystal {
@@ -315,6 +337,7 @@ impl<'a> SymmetryAnalysis<'a> {
     /// Magnetic space group dataset.
     ///
     /// Requires the crystal to have magnetic moments set via [`Crystal::with_magnetic`].
+    #[allow(deprecated)]
     pub fn magnetic_dataset(&self) -> Option<MagneticSymmetry> {
         crate::spg_get_magnetic_dataset(
             &self.crystal.lattice,
@@ -331,6 +354,7 @@ impl<'a> SymmetryAnalysis<'a> {
 use std::fmt;
 
 impl fmt::Display for MagneticSymmetry {
+    #[allow(deprecated)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", crate::spg_format_magnetic_symmetry(self))
     }
@@ -355,6 +379,37 @@ pub struct SymmetryOps {
     pub operations: Vec<SymmetryOp>,
 }
 
+impl SymmetryOps {
+    /// Look up symmetry operations from the space group database by Hall number.
+    ///
+    /// Returns all symmetry operations for the given Hall number (1–530).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cryspglib::SymmetryOps;
+    ///
+    /// // Pm-3m (Hall number 517) has 48 symmetry operations
+    /// let ops = SymmetryOps::from_database(517).unwrap();
+    /// assert_eq!(ops.operations.len(), 48);
+    ///
+    /// // Invalid Hall number returns an error
+    /// assert!(SymmetryOps::from_database(999).is_err());
+    /// ```
+    pub fn from_database(hall_number: usize) -> Result<Self, crate::SymError> {
+        let sym = crate::spg_database::spgdb_get_spacegroup_operations(hall_number)
+            .ok_or(crate::SymError::SpacegroupSearchFailed)?;
+        let ops: Vec<SymmetryOp> = (0..sym.size)
+            .map(|i| SymmetryOp {
+                rotation: sym.rot[i],
+                translation: sym.trans[i],
+                time_reversal: false,
+            })
+            .collect();
+        Ok(SymmetryOps { operations: ops })
+    }
+}
+
 /// Irreducible k-point mesh.
 #[derive(Debug, Clone)]
 pub struct IrMesh {
@@ -364,6 +419,237 @@ pub struct IrMesh {
     pub mapping_table: Vec<usize>,
     /// Number of irreducible points
     pub num_ir: usize,
+}
+
+// ── K-point mesh types ────────────────────────────────────────────────────────
+
+/// Result of stabilized reciprocal mesh generation (with q-points).
+#[derive(Debug, Clone)]
+pub struct StabilizedMesh {
+    /// Grid point addresses in fractional coordinates
+    pub grid_addresses: Vec<[i32; 3]>,
+    /// Full grid index → irreducible grid index mapping
+    pub mapping_table: Vec<usize>,
+    /// Number of irreducible points
+    pub num_ir: usize,
+}
+
+/// Result of Brillouin-zone grid address relocation.
+#[derive(Debug, Clone)]
+pub struct BzMesh {
+    /// Grid addresses relocated into first BZ
+    pub grid_addresses: Vec<[i32; 3]>,
+    /// Mapping table (unmapped entries = `usize::MAX`)
+    pub bz_map: Vec<usize>,
+    /// Number of BZ grid points
+    pub num_bz: usize,
+}
+
+// ── K-point free functions ────────────────────────────────────────────────────
+
+/// Convert a 3D grid address to a linear grid index.
+///
+/// # Examples
+///
+/// ```
+/// use cryspglib::grid_point_from_address;
+///
+/// // Γ point is always index 0
+/// let idx = grid_point_from_address([0, 0, 0], [4, 4, 4]);
+/// assert_eq!(idx, 0);
+/// ```
+pub fn grid_point_from_address(grid_address: [i32; 3], mesh: [i32; 3]) -> usize {
+    let mut address_double = [0i32; 3];
+    let is_shift = [0i32; 3];
+    crate::kgrid::kgd_get_grid_address_double_mesh(&mut address_double, &grid_address, &mesh, &is_shift);
+    crate::kgrid::kgd_get_dense_grid_point_double_mesh(&address_double, &mesh)
+}
+
+/// Generate a stabilized irreducible reciprocal mesh for given q-points.
+///
+/// # Examples
+///
+/// ```
+/// use cryspglib::{Crystal, stabilized_reciprocal_mesh};
+///
+/// // Get symmetry operations from a cubic crystal
+/// let cry = Crystal::new(
+///     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+///     vec![[0.0, 0.0, 0.0]],
+///     vec![14],
+/// );
+/// let ds = cry.analyze().symprec(1e-5).dataset().unwrap();
+///
+/// // 2x2x2 mesh, no q-point distortion
+/// let sm = stabilized_reciprocal_mesh(
+///     [2, 2, 2],
+///     [0, 0, 0],
+///     true,  // time-reversal symmetry
+///     &ds.rotations,
+///     &[[0.0, 0.0, 0.0]],  // q-points (Γ only)
+/// );
+/// assert!(sm.num_ir > 0);
+/// assert!(sm.num_ir <= 8); // 8 total points in 2x2x2 mesh
+/// ```
+pub fn stabilized_reciprocal_mesh(
+    mesh: [i32; 3],
+    is_shift: [i32; 3],
+    is_time_reversal: bool,
+    rotations: &[Mat3I],
+    qpoints: &[[f64; 3]],
+) -> StabilizedMesh {
+    use crate::mathfunc::MatINT;
+    let mut rot = MatINT::new(rotations.len());
+    for (i, r) in rotations.iter().enumerate() {
+        rot.mat[i] = *r;
+    }
+    let total = (mesh[0] as usize) * (mesh[1] as usize) * (mesh[2] as usize);
+    let mut grid_address = vec![[0i32; 3]; total];
+    let mut mapping_table = vec![0usize; total];
+    let num_ir = crate::kpoint::kpt_get_stabilized_reciprocal_mesh(
+        &mut grid_address,
+        &mut mapping_table,
+        &mesh,
+        &is_shift,
+        if is_time_reversal { 1 } else { 0 },
+        &rot,
+        qpoints,
+    );
+    StabilizedMesh { grid_addresses: grid_address, mapping_table, num_ir }
+}
+
+/// Apply rotations to a grid address, returning rotated grid point indices.
+///
+/// # Examples
+///
+/// ```
+/// use cryspglib::{SymmetryOps, dense_grid_points_by_rotations};
+///
+/// let ops = SymmetryOps::from_database(517).unwrap(); // Pm-3m
+/// let rots: Vec<_> = ops.operations.iter().map(|op| op.rotation).collect();
+///
+/// let points = dense_grid_points_by_rotations(
+///     [0, 0, 0],     // Γ point
+///     &rots,
+///     [4, 4, 4],
+///     [0, 0, 0],
+/// );
+/// // All rotations of Γ point map to index 0
+/// for p in &points {
+///     assert_eq!(*p, 0);
+/// }
+/// ```
+pub fn dense_grid_points_by_rotations(
+    address_orig: [i32; 3],
+    rot_reciprocal: &[Mat3I],
+    mesh: [i32; 3],
+    is_shift: [i32; 3],
+) -> Vec<usize> {
+    use crate::mathfunc::MatINT;
+    let mut rot = MatINT::new(rot_reciprocal.len());
+    for (i, r) in rot_reciprocal.iter().enumerate() {
+        rot.mat[i] = *r;
+    }
+    let mut rot_grid_points = vec![0usize; rot_reciprocal.len()];
+    crate::kpoint::kpt_get_dense_grid_points_by_rotations(
+        &mut rot_grid_points,
+        &address_orig,
+        &rot,
+        &mesh,
+        &is_shift,
+    );
+    rot_grid_points
+}
+
+/// Apply rotations to a grid address, returning BZ-mapped grid point indices.
+///
+/// # Examples
+///
+/// ```no_run
+/// use cryspglib::{SymmetryOps, dense_bz_grid_points_by_rotations};
+///
+/// let ops = SymmetryOps::from_database(517).unwrap();
+/// let rots: Vec<_> = ops.operations.iter().map(|op| op.rotation).collect();
+/// // BZ map for 2x2x2 mesh (8 points → 64 double-mesh points)
+/// let bz_map: Vec<usize> = (0..64).map(|i| i % 8).collect();
+///
+/// let points = dense_bz_grid_points_by_rotations(
+///     [0, 0, 0],
+///     &rots,
+///     [2, 2, 2],
+///     [0, 0, 0],
+///     &bz_map,
+/// );
+/// assert_eq!(points.len(), rots.len());
+/// ```
+pub fn dense_bz_grid_points_by_rotations(
+    address_orig: [i32; 3],
+    rot_reciprocal: &[Mat3I],
+    mesh: [i32; 3],
+    is_shift: [i32; 3],
+    bz_map: &[usize],
+) -> Vec<usize> {
+    use crate::mathfunc::MatINT;
+    let mut rot = MatINT::new(rot_reciprocal.len());
+    for (i, r) in rot_reciprocal.iter().enumerate() {
+        rot.mat[i] = *r;
+    }
+    let mut rot_grid_points = vec![0usize; rot_reciprocal.len()];
+    crate::kpoint::kpt_get_dense_BZ_grid_points_by_rotations(
+        &mut rot_grid_points,
+        &address_orig,
+        &rot,
+        &mesh,
+        &is_shift,
+        bz_map,
+    );
+    rot_grid_points
+}
+
+/// Relocate grid addresses into the first Brillouin zone.
+///
+/// # Examples
+///
+/// ```
+/// use cryspglib::{Crystal, relocate_bz_grid_address};
+///
+/// // Γ-centered 2x2x2 mesh in a cubic lattice
+/// let cry = Crystal::new(
+///     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+///     vec![[0.0, 0.0, 0.0]],
+///     vec![14],
+/// );
+/// let ds = cry.analyze().symprec(1e-5).dataset().unwrap();
+/// let im = cry.analyze().irreducible_mesh([2, 2, 2], [0, 0, 0], true).unwrap();
+///
+/// // Relocate all mesh addresses into the first BZ
+/// let reciprocal_lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+/// let bz = relocate_bz_grid_address(
+///     &im.grid_addresses,
+///     [2, 2, 2],
+///     &reciprocal_lattice,
+///     [0, 0, 0],
+/// );
+/// assert!(bz.num_bz > 0);
+/// ```
+pub fn relocate_bz_grid_address(
+    grid_address: &[[i32; 3]],
+    mesh: [i32; 3],
+    rec_lattice: &Mat3,
+    is_shift: [i32; 3],
+) -> BzMesh {
+    let num_bz_map = (mesh[0] * mesh[1] * mesh[2]) as usize * 8;
+    let mut bz_grid_address = vec![[0i32; 3]; num_bz_map];
+    let mut bz_map = vec![0usize; num_bz_map];
+    let num_bz = crate::kpoint::kpt_relocate_bz_grid_address(
+        &mut bz_grid_address,
+        &mut bz_map,
+        grid_address,
+        &mesh,
+        rec_lattice,
+        &is_shift,
+    );
+    BzMesh { grid_addresses: bz_grid_address, bz_map, num_bz }
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
