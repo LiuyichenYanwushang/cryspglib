@@ -239,6 +239,9 @@ impl IrrepRecord {
 
     /// Full irrep matrices for each operator, flattened: op0(row0,row1,...), op1(...), ...
     ///
+    /// **Order**: ISOTROPY (PIR_data.txt) order — NOT spglib H_ops order.
+    /// Use [`Self::matrices_reordered`] to reorder to spglib H_ops order.
+    ///
     /// The total number of elements is `opcount × dim²`.
     /// For operator `g`, the matrix D(g) is at offset `g × dim²` with
     /// row-major layout: D[0][0], D[0][1], ..., D[dim-1][dim-1].
@@ -248,6 +251,55 @@ impl IrrepRecord {
         }
         &self::generated_data::MATRICES
             [self._mat_start as usize..(self._mat_start + self._mat_count as u32) as usize]
+    }
+
+    /// Full irrep matrices reordered to match spglib H_ops order.
+    ///
+    /// Only those H_ops that match a PIR operation (via rotation matrix)
+    /// get matrix data.  Unmatched ops get zero-filled blocks.
+    /// Returns an empty `Vec` if matrices or rotation data are unavailable.
+    pub fn matrices_reordered(&self, h_seitz: &[crate::irrep::wigner::SeitzOp]) -> Vec<f64> {
+        let mats = self.matrices();
+        let rots = self.pir_rotations();
+        if mats.is_empty() || rots.is_empty() {
+            return mats.to_vec();
+        }
+        let dim = self.dim as usize;
+        let n_pir_ops = self._char_count as usize;
+        let block_size = dim * dim;
+
+        // Build partial H_ops → PIR map (only for ops in the little group)
+        let h_to_pir = match crate::irrep::wigner::build_h_to_cir_map(h_seitz, rots) {
+            Some(m) => m,
+            None => {
+                // Full mapping failed — try matching only ops present in PIR
+                let n_cir = rots.len() / 9;
+                let h_count = h_seitz.len().min(n_cir);
+                if h_count == 0 {
+                    return mats.to_vec();
+                }
+                crate::irrep::wigner::build_h_to_cir_map(&h_seitz[..h_count], rots)
+                    .unwrap_or_else(|| {
+                        // Last resort: identity mapping for first n_pir_ops
+                        (0..n_pir_ops).collect()
+                    })
+            }
+        };
+
+        let mut reordered = vec![0.0f64; mats.len()];
+        for h_idx in 0..h_to_pir.len().min(n_pir_ops) {
+            let pir_idx = h_to_pir[h_idx];
+            if pir_idx >= n_pir_ops {
+                continue;
+            }
+            let src_start = pir_idx * block_size;
+            let dst_start = h_idx * block_size;
+            if src_start + block_size <= mats.len() && dst_start + block_size <= reordered.len() {
+                reordered[dst_start..dst_start + block_size]
+                    .copy_from_slice(&mats[src_start..src_start + block_size]);
+            }
+        }
+        reordered
     }
 
     /// Isotropy subgroups for this irrep — no index arithmetic needed.

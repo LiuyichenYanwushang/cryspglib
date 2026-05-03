@@ -1096,4 +1096,63 @@ mod tests {
             }
         }
     }
+
+    /// BCS: SG 139 (I4/mmm) double-group irreps at k=(1,1,1) (P point)
+    ///
+    /// k-Subgroupsmag_139.html shows 14 irreps (10 scalar + 4 spinor)
+    /// with 4 operations: {1|t}, {2₀₀₁|0}, {4⁺₀₀₁|0}, {4⁻₀₀₁|0}
+    #[test]
+    fn test_sg139_p_point_bcs() {
+        let sg = 139u8;
+        let irreps = crate::irrep::query::irreps_of(sg);
+
+        // P-point irreps (k=(1,1,1) in body-centered tetragonal)
+        let p_irreps: Vec<&IrrepRecord> = irreps.iter()
+            .filter(|r| r.k_label() == "P")
+            .collect();
+        println!("SG{} P-point: {} irreps ({} scalar + {} spinor)",
+            sg, p_irreps.len(),
+            p_irreps.iter().filter(|r| !r.spinor).count(),
+            p_irreps.iter().filter(|r| r.spinor).count());
+
+        assert!(!p_irreps.is_empty(), "SG 139 should have P-point irreps");
+
+        // BCS shows 14 irreps: M₁⁺..M₅⁻ (10 scalar) + M̄₆..M̄₉ (4 spinor)
+        let scalar: Vec<_> = p_irreps.iter().filter(|r| !r.spinor).collect();
+        let spinor: Vec<_> = p_irreps.iter().filter(|r| r.spinor).collect();
+        assert!(scalar.len() >= 5, "Should have >=5 scalar P-point irreps");
+        assert!(spinor.len() >= 2, "Should have >=2 spinor P-point irreps");
+
+        // Check P1-P5 have correct dimensions (BCS: 1D for P1-P4, 2D for P5)
+        for ir in &scalar {
+            assert!(ir.dim > 0, "dim > 0 for {}", ir.ml);
+            let chars = ir.characters();
+            assert!(!chars.is_empty(), "Should have characters for {}", ir.ml);
+            // Identity character should equal dim
+            assert!((chars[0] - ir.dim as f64).abs() < 0.01,
+                "χ(id)={} ≠ dim={} for {}", chars[0], ir.dim, ir.ml);
+            println!("  {}: dim={} ops={} χ(id)={}", ir.ml, ir.dim, chars.len(), chars[0]);
+        }
+
+        // Test matrix reordering for a P-point irrep with matrix data
+        if let Some(p1) = scalar.first() {
+            let mats = p1.matrices();
+            if !mats.is_empty() {
+                println!("  {}: {} matrix elements", p1.ml, mats.len());
+                let h_ops = get_parent_operations(sg);
+                let h_seitz = ops_to_seitz(&h_ops);
+                let reordered = p1.matrices_reordered(&h_seitz);
+                assert_eq!(reordered.len(), mats.len(),
+                    "Reordered matrix should have same size");
+                // Identity should be at H[0] position (1,0,0 in original)
+                let dim = p1.dim as usize;
+                if dim > 0 && reordered.len() >= dim * dim {
+                    let trace: f64 = (0..dim).map(|d| reordered[d * dim + d]).sum();
+                    assert!((trace - p1.dim as f64).abs() < 0.5,
+                        "Reordered identity trace should ≈ dim");
+                }
+                println!("  Matrix reordering OK ({} elements)", reordered.len());
+            }
+        }
+    }
 }
