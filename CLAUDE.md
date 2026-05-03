@@ -270,21 +270,30 @@ src/irrep/generated_data.rs   → 5 个静态数组, ~8.7 MB, 编译进二进制
 | 文件 | 功能 |
 |------|------|
 | `src/irrep/mod.rs` | 模块入口, 230 SG 索引表 + rustdoc |
-| `src/irrep/types.rs` | `IrrepRecord`, `IsotropyRecord`, `IrrepData`, `KPointData` |
-| `src/irrep/query.rs` | `irreps_of()`, `kpoints_of()`, `format_character_table()`, `symmetry_operations_of()` |
-| `src/irrep/generated_data.rs` | 自动生成: `IRREPS[4777]`, `ISOTROPY_SUBGROUPS[15239]`, `CHARACTERS[f64]`, `MATRICES[f64]`, `SG_IRREP_INDEX[231]` |
+| `src/irrep/types.rs` | `IrrepRecord`, `IsotropyRecord`, `MagneticIsotropyRecord` |
+| `src/irrep/query.rs` | `irreps_of()`, `kpoints_of()`, `format_character_table()` |
+| `src/irrep/wigner.rs` | Wigner 测试: Seitz 组合, Bloch 相位, 分类函数, SU(2) 辅助 |
+| `src/irrep/corep.rs` | Co-representation API: `compute_coreps()`, `MagneticOps`, `CorepType` |
+| `src/irrep/generated_data.rs` | 自动生成: 15+ 个静态数组, ~18 MB |
 | `src/irrep/preamble.rs` | 230 SG 的 HM 符号 + Schoenflies 符号 |
 | `src/irrep/{triclinic,monoclinic,...,cubic}.rs` | 7 个晶系文件的 rustdoc 页面 |
 
-### 静态数组 (全部在 generated_data.rs)
+### 静态数组 (全部在 generated_data.rs, ~18 MB 总计)
 
 | 数组 | 大小 | 说明 |
 |------|------|------|
 | `SG_IRREP_INDEX` | 231 | SG# → (start, count) into IRREPS |
-| `IRREPS` | 4,777 | 所有 irreps (sg, ml, bc, kov, dim, image, kvec, pointers) |
-| `ISOTROPY_SUBGROUPS` | 15,239 | 所有 isotropy subgroups (sg, symbol, direction, domains, arms) |
-| `CHARACTERS` | ~50K f64 | 所有特征标值, 100% 覆盖 |
-| `MATRICES` | ~580K f64 | 所有矩阵元素, 100% 覆盖 |
+| `IRREPS` | 8,388 | 所有 irreps (4,777 scalar + 3,611 spinor) |
+| `ISOTROPY_SUBGROUPS` | 15,239 | 所有 isotropy subgroups |
+| `MAGNETIC_ISOTROPY_SUBGROUPS` | 16,721 | 磁 isotropy subgroups |
+| `CHARACTERS` | ~106K f64 | 所有特征标值 (含 spinor) |
+| `MATRICES` | ~634K f64 | 所有矩阵元素 |
+| `CIR_COMPONENT_CHARS` | ~23K f64 | Compound irrep CIR 复字符 |
+| `CIR_ROTS` | ~104K i32 | CIR 操作旋转矩阵 |
+| `PIR_ROTS` | ~500K i32 | PIR 操作旋转矩阵 |
+| `SPIN_OP_ROTS/TRANS/SU2` | ~73K total | Spinor 操作数据 |
+| `SPIN_EXTRA_CHARS` | ~17K f64 | Spinor Wigner extra 值 |
+| `SPIN_OP_SG_INDEX` | 231 | SG# → spin op 索引 |
 
 ### IrrepRecord 字段
 
@@ -367,4 +376,163 @@ cargo test --package cryspglib --test irrep_validation
 `IrrepRecord::corepresentation(uni)` 对非磁 irrep 现场计算磁共表示，无需预存表格。
 
 **已验证**: 128.406 (UNI 1066) 的 unitary subgroup = SG 118 (P-4n2)，与 BCS 一致。
+
+---
+
+## v0.3.0: Co-representation (corep) / Wigner 测试实现
+
+### 概述
+
+基于 Wigner (1959) 和 Bradley & Cracknell (1972) 理论，从磁空间群的 BNS 标签自动计算磁共表示 (corepresentation)。核心流程：
+
+```
+BNS label ("128.406") + k-point label ("Z")
+  → uni_from_bns()              // BNS → UNI number
+  → identify_unitary_subgroup()  // UNI → H (unitary subgroup) SG number
+  → get_magnetic_operations()    // 获取磁群对称操作 {R|t,θ}
+  → irreps_of(H) at k-point      // H 的不可约表示
+  → compute_corepresentation()   // Wigner 测试 → corep type + character table
+```
+
+### BCS 128.406 Z-point 验证结果 (全部通过)
+
+| Irrep | Type | W | Dim | BCS | 路径 |
+|-------|------|---|-----|-----|------|
+| Z1Z4 | C | W=(0,0) | 4 | C | CIR 路径 |
+| Z2Z3 | C | W=(0,0) | 4 | C | CIR 路径 |
+| Z5 | A | W=1.0000 | 2 | A | PIR 路径+重排 |
+| Z6 | C | extra_sum=0 | 4 | C | Spinor extra chars |
+| Z7 | C | extra_sum=0 | 4 | C | Spinor extra chars |
+
+### 核心问题与解决方案
+
+#### 问题 1: 操作顺序不匹配 (Operation Ordering Mismatch)
+
+**现象**: Wigner 测试给出非量子化 W=0.5，而非预期的 0, +1, -1。
+
+**根因**: ISOTROPY 数据 (PIR/CIR) 和 spglib 数据库使用**不同的操作排列顺序**。
+`find_seitz()` 返回的 `m.op_index` 是 spglib 顺序的索引，但 `h_chars[m.op_index]`
+读取的是 ISOTROPY 顺序的特征标，两者不对应。
+
+例如：SG 118 的 H[2] = {2_001|0,0,0} 在 spglib 中位于索引 2，但在 CIR 数据中
+2_001 操作位于索引 1。`cir_chars[2]` 读到了错误操作的特征标。
+
+**修复**: 通过匹配旋转矩阵建立 H_ops(spglib) → CIR/PIR(ISOTROPY) 索引映射。
+- 生成阶段：从 PIR_data.txt 和 CIR_data.txt 提取操作旋转矩阵 (9 i32/op)
+- 存储为 `PIR_ROTS` 和 `CIR_ROTS` 静态数组
+- 运行时：`build_h_to_cir_map()` 通过旋转矩阵匹配建立映射
+- `reorder_cir_chars()` 将字符表重排到 spglib 顺序
+- Wigner 测试使用重排后的字符表，`m.op_index` 直接对应正确字符
+
+#### 问题 2: CIR 解析器的 conjugate 矩阵跳过
+
+**现象**: CIR 字符表包含错误值（如 dim=12 的 irrep 给出 χ(id)=1.0）。
+
+**根因**: CIR_data.txt 中复不可约表示在 ordinary 复矩阵之后还有 **conjugate 复矩阵**。
+旧解析器未跳过 conjugate 部分，导致后续操作读取了错误的数据行。
+
+CIR_data.txt 格式 (每个操作):
+```
+[operator 4×4 matrix: 16 ints]
+[ordinary complex matrix: dim² (re,im) pairs]
+[conjugate complex matrix: dim² (re,im) pairs]  ← 仅 irtype==2 时存在
+```
+
+**修复**: 解析 header 中的 `irtype` 字段 (1=real, 2=complex)。当 irtype==2 时，
+读取 ordinary 矩阵后额外跳过 dim² 个 token (conjugate 部分)。
+
+#### 问题 3: 复合标签分解过于激进
+
+**现象**: 251 个 compound irrep 的 CIR 字符和与 PIR 字符不匹配。
+
+**根因**: `_decompose_compound_label("W1W2")` 纯基于字符串规则拆分为 ["W1", "W2"]，
+但某些标签 (如 SG226 W1W2) 可能不是真的复合标签，或需要特殊处理 (同标签取共轭)。
+
+**修复 (三层校验)**:
+1. **Identity 字符校验**: `sum(CIR_χ_id) == PIR_χ_id` — 不满足则拒绝 (69 个被拒)
+2. **同标签共轭**: `P3P3 = P3 ⊕ P3*` (第二份取共轭使虚部抵消)
+3. **全字符表校验**: straight sum 和 conjugate sum 双候选，必须全操作匹配 PIR
+
+结果: 251 → 41 → **0 mismatches**
+
+#### 问题 4: Spinor Wigner 测试
+
+**现象**: Z6/Z7 给出 W=0.5 (非量子化)，无法分类。
+
+**根因**: Spinor (双值) 不可约表示需要 double-group 处理。每个空间操作 {R|t} 在
+双群中有两个 lift: g 和 Ēg (Ē = 2π 旋转 = -1)。SeitzOp 只包含空间部分，
+无法区分中心元，导致部分 Wigner 贡献项少乘了 -1。
+
+**发现**: Bilbao spin.dat 文件中 BZ 边界 k 点的 irrep 行包含 **额外字符值** (extra chars)。
+例如 Z6 的 16 个字符值中，后 8 个 `[0,0,0.5,-0.5,0,0,0,0]` 求和为 0，
+恰好等于 Wigner indicator。分析 2141 个有 extra 的 spinor irrep 发现：
+- 31% extra_sum = +1 (Type A)
+- 18% extra_sum = 0 (Type C)
+- 8.5% extra_sum = -1 (Type B)
+- 其余为未量子化值
+
+这表明 extra chars 是 Bilbao 预计算的 Wigner test contributions。
+
+**修复**: 
+1. 拆分 spin.dat 字符为标准字符 (前 n_lg) + extra (后 n_extra)
+2. 存储 `SPIN_EXTRA_CHARS` 数组
+3. `wigner_classify_spinor_extra()` 直接求和 → 分类
+4. 优先使用 extra 通道，回退到 SU(2) 双群路径 (框架已搭建)
+
+### Wigner 测试三条路径
+
+| 路径 | 适用 | 关键函数 | 数据源 |
+|------|------|---------|--------|
+| CIR 路径 | Compound irreps (Z1Z4) | `wigner_classify_cir` | CIR_COMPONENT_CHARS + CIR_ROTS |
+| PIR 路径 | Non-compound scalar (Z5) | `wigner_classify` | CHARACTERS + PIR_ROTS |
+| Spinor extra | Spinor with extra (Z6/Z7) | `wigner_classify_spinor_extra` | SPIN_EXTRA_CHARS |
+| Spinor SU(2) | Spinor w/o extra (fallback) | `wigner_classify_spinor` | SPIN_OP_ROTS/TRANS/SU2 |
+
+### 严格 Wigner 分类
+
+所有 Wigner 测试现在使用**严格量子化检查**:
+- `|W-1| < 1e-6` → Type A
+- `|W+1| < 1e-6` → Type B
+- `|W| < 1e-6` → Type C
+- 否则 → `CorepType::Unsupported`
+
+### 新增/修改的源文件
+
+| 文件 | 功能 |
+|------|------|
+| `src/irrep/wigner.rs` | Wigner 测试核心: Seitz 操作组合、Bloch 相位、分类函数 |
+| `src/irrep/corep.rs` | Co-representation API: `compute_coreps()`, `CorepType`, `MagneticOps` |
+| `src/irrep/types.rs` | `IrrepRecord` 新增: `_cir_start/count/ops`, `_pir_rot_start`, `_spin_*` 字段 |
+| `scripts/parse_spinor_data.py` | 解析 Bilbao spin.dat: SU(2) lifts, op_indices, characters |
+
+### 新增静态数组 (generated_data.rs)
+
+| 数组 | 大小 | 说明 |
+|------|------|------|
+| `CIR_COMPONENT_CHARS` | ~27K f64 | Compound irrep 的 CIR 分量复字符 (re,im 对) |
+| `CIR_ROTS` | ~104K i32 | CIR 操作旋转矩阵 (9/op)，与 CIR_COMPONENT_CHARS 同序 |
+| `PIR_ROTS` | ~500K i32 | PIR 操作旋转矩阵 (9/op)，与 CHARACTERS 同序 |
+| `SPIN_OP_ROTS` | ~40K i32 | Spinor 操作旋转矩阵 (9/op)，按 SG 索引 |
+| `SPIN_OP_TRANS` | ~14K f64 | Spinor 操作平移矢量 (3/op) |
+| `SPIN_OP_SU2` | ~19K f64 | Spinor SU(2) lift (4/op) |
+| `SPIN_EXTRA_CHARS` | ~17K f64 | Pre-computed Wigner contributions for spinor irreps |
+| `SPIN_OP_SG_INDEX` | 231 | SG# → (start, count) into SPIN_OP_* arrays |
+
+### 数据生成关键修复 (generate_irrep_data.py)
+
+1. **CIR 解析器**: 跳过 conjugate 复矩阵 (irtype==2 时)
+2. **CIR_ROTS 对齐**: 当某 irrep 缺少旋转数据时零填充，保持与 CIR_COMPONENT_CHARS 同步
+3. **PIR 旋转提取**: 从 PIR_data.txt 操作矩阵行提取旋转矩阵 → `PIR_ROTS`
+4. **同标签共轭**: 自动检测并应用第二份取共轭
+5. **全字符校验**: straight sum + conjugate sum 双候选，全操作匹配 PIR
+6. **Spinor 旋转继承**: spinor irrep 从同 SG 同 k 点 scalar irrep 继承 PIR 旋转
+7. **Spinor extra 拆分**: 按 op_indices 长度切分标准字符和 extra
+
+### 重要教训
+
+1. **永远不要假设数据顺序一致**: 不同数据源 (ISOTROPY vs spglib vs Bilbao) 的操作排列顺序不同，必须通过旋转矩阵匹配来建立映射
+2. **字符串规则拆分不可靠**: `_decompose_compound_label()` 必须用字符表校验 (identity + full)，不能纯靠字符串匹配
+3. **非量子化 W 必须报错**: 不能把 W=0.5 当做 Type A (W>0)，这是数据不完整的标志
+4. **Bilbao extra chars 是预计算值**: 不需要自己实现 SU(2) 组合即可获得正确的 spinor Wigner 分类
+5. **CIR 解析器边界处理**: 高维矩阵跨多行时，token-count 推进必须精确，否则逐操作累积偏移
 
