@@ -93,7 +93,7 @@
 use crate::mathfunc::{Mat3I, Vec3};
 use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use super::types::IrrepRecord;
-use super::wigner::{self, filter_little_group};
+use super::wigner::{self, filter_little_group, ops_to_seitz};
 
 /// Co-representation type from Wigner's test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,28 +212,32 @@ pub fn compute_corepresentation(
     let h_chars = h_irrep.characters();
     let h_dim = h_irrep.dim as usize;
 
-    // 5. Separate unitary / anti-unitary in little group
+    // 5. Convert to SeitzOps for proper composition
+    let mag_seitz = ops_to_seitz(mag_ops);
+    let h_seitz = ops_to_seitz(&h_ops);
+
+    // 6. Separate unitary / anti-unitary in little group
     let unitary: Vec<usize> = mag_lg.iter()
         .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
     let antiunitary: Vec<usize> = mag_lg.iter()
         .filter(|&&i| mag_ops.timerev[i]).copied().collect();
 
-    // 6. Wigner test
+    // 7. Wigner test with full Seitz arithmetic
     let corep_type = if antiunitary.is_empty() {
         CorepType::A
     } else {
-        wigner::wigner_classify(h_chars, &unitary, mag_ops, &h_ops, antiunitary[0])
+        wigner::wigner_classify(
+            h_chars, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+            h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
+        )
     };
 
-    // 7. Build corep character table
-    let characters = wigner::build_corep_characters(
+    // 8. Build corep character table
+    let characters = wigner::build_corep_chars(
         &corep_type, mag_ops, &mag_lg, &op_map, h_chars,
     );
 
-    let dim = match corep_type {
-        CorepType::A | CorepType::B => h_dim,
-        CorepType::C => h_dim * 2,
-    };
+    let dim = wigner::corep_dim(&corep_type, h_dim);
 
     Some(Corepresentation {
         characters,
