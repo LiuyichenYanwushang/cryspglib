@@ -209,11 +209,56 @@ ir.subgroups()            // &[IsotropyRecord] (direction, SG, size, basis, orig
 
 ### 数据流
 
+### zip 档案及其内容
+
+#### 核心数据 (3D 空间群, 有理 k 矢量)
+
+| 文件 | 大小 | 内容 |
+|------|------|------|
+| `iso.zip` | ~90 MB | 27 个文件: 元数据 + Fortran 工具 |
+| ├ `data_irreps.txt` | 1 MB | 4,777 个 irrep 的 ML/BC/Kovalev 标签, SG编号, image码, Lifshitz |
+| ├ `data_isotropy.txt` | 6 MB | 15,239 个 isotropy subgroup (方向, domain数, basis, origin) |
+| ├ `data_little.txt` | 10 MB | 每个 SG 的 k 点小群: k_count, k_label, k_kov |
+| ├ `data_images.txt` | 144 KB | 141 个 image 符号 (A1a, C24c, ...) |
+| ├ `data_space.txt` | 570 KB | 点操作标签 (E, C2x, C3+, ...) + 空间群符号 |
+| ├ `data_magnetic.txt` | 2.5 MB | 磁空间群数据 (1,651 个) |
+| ├ `data_wyckoff.txt` | 712 KB | Wyckoff 位置数据 |
+| ├ `data_ssg.txt` | 25 MB | 超空间群数据 (16,697 个) |
+| ├ `data_ssgmag.txt` | 30 MB | 磁超空间群数据 (325,127 个) |
+| ├ `data_diperiodic.txt` | 11 KB | 双周期 (层) 群数据 |
+| ├ `const.dat` | 3 KB | pir_data_constant 表 (25 个浮点数, 矩阵元素解码) |
+| ├ `*.f` | — | Fortran 源码 (未打包在 zip 中, 仅 PIR/CIR zip 有) |
+| ├ `comsubs`, `findsym`, `iso`, `smodes` | ~8 MB | Fortran 可执行文件 (Linux) |
+| └ `*sample*`, `*.txt` | ~30 KB | 示例输入/输出 + 文档 |
+| `PIR_data.zip` | 29 MB | **实不可约表示** (Physical IR) |
+| ├ `PIR_data.txt` | 29 MB | 10,294 条 irrep 矩阵: k-vector + 操作矩阵 + dim² 浮点矩阵 |
+| └ `PIR_data.f` | 30 KB | Fortran 读取源码; 定义 `pir_data_constant` 编解码表 |
+| `CIR_data.zip` | 54 MB | **复不可约表示** (Complex IR, PIR 的回退数据源) |
+| ├ `CIR_data.txt` | 54 MB | 11,202 条 irrep 矩阵: 同样格式, 矩阵元素为 `(实部,虚部)` |
+| └ `CIR_data.f` | 28 KB | Fortran 读取源码 |
+
+**注意**: PIR 存实表示 (H2H3 为 4D 实矩阵), CIR 存复表示 (H2, H3 为独立 2D 复矩阵)。CIR 是 PIR 的超集: CIR→PIR 可转换 (复共轭对→实块矩阵), 反之不可。当前生成器先用 PIR, 缺失时回退到 CIR 并做复→实转换。
+
+#### 超空间群数据 (3+d 维, 无理 k 矢量)
+
+| 文件 | 大小 | 内容 |
+|------|------|------|
+| `PIR_SSG_data.zip` | 37 MB | 超空间群 PIR |
+| ├ `PIR_SSG_data.txt` | 37 MB | 超空间群实不可约表示矩阵 |
+| └ `PIR_SSG_data.f` | 28 KB | Fortran 读取源码 |
+| `CIR_SSG_data.zip` | 61 MB | 超空间群 CIR |
+| ├ `CIR_SSG_data.txt` | 61 MB | 超空间群复不可约表示矩阵 |
+| └ `CIR_SSG_data.f` | 25 KB | Fortran 读取源码 |
+
+**注意**: SSG (Superspace Group) 数据目前**未使用**, 仅保留以备将来扩展。
+
+### 数据流
+
 ```
-isotropy_subgroup/
-├── iso.zip/data_irreps.txt    → 元数据 (标签, SG, image, isotropy)
-├── PIR_data.zip/PIR_data.txt  → 实表示矩阵 (PIR)
-└── CIR_data.zip/CIR_data.txt  → 复表示矩阵 (CIR, 回退用)
+iso.zip/data_irreps.txt     → 元数据 (标签, SG, image, isotropy)
+iso.zip/data_isotropy.txt   → isotropy subgroups
+PIR_data.zip/PIR_data.txt   → 实表示矩阵 (主数据源)
+CIR_data.zip/CIR_data.txt   → 复表示矩阵 (回退数据源)
 
                     ↓ scripts/generate_irrep_data.py ↓
 

@@ -2,6 +2,37 @@
 //!
 //! These functions provide convenient access to the machine-generated
 //! data in [`generated_data`].
+//!
+//! # Quick start
+//!
+//! ```
+//! use cryspglib::irrep::query::*;
+//!
+//! // List all irreps for a space group
+//! let irreps = irreps_of(221);  // Pm-3m
+//!
+//! // Get all unique k-points with their labels and coordinates
+//! let kpoints = kpoints_of(221);
+//!
+//! // Print a markdown-style character table for the Γ point
+//! println!("{}", format_character_table(221, 0, 0, 0, 1));
+//!
+//! // Get symmetry operations {R|t} for the space group
+//! let ops = symmetry_operations_of(221);
+//!
+//! // Look up space group info
+//! let (hm, schoenflies) = sg_info(221).unwrap();
+//! ```
+//!
+//! # Irrep records
+//!
+//! Each [`IrrepRecord`] provides:
+//! - [`IrrepRecord::characters()`] — χ(g) = Tr(D(g)) for each little-group operator
+//! - [`IrrepRecord::matrices()`] — full D(g) matrix elements, flattened
+//! - [`IrrepRecord::subgroups()`] — non-magnetic isotropy subgroups (lower-symmetry space groups)
+//! - [`IrrepRecord::magnetic_subgroups()`] — magnetic isotropy subgroups (magnetic space groups)
+//! - [`IrrepRecord::k_label()`] — k-point prefix (`"GM"`, `"X"`, ...)
+//! - [`IrrepRecord::is_point()`] — whether this is a special k-point
 
 use std::collections::BTreeMap;
 

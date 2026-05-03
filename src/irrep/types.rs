@@ -113,6 +113,10 @@ pub struct IrrepRecord {
     pub(crate) _iso_start: u16,
     /// Number of isotropy subgroups for this irrep
     pub(crate) _iso_count: u16,
+    /// Start index into [`MAGNETIC_ISOTROPY_SUBGROUPS`]
+    pub(crate) _mag_iso_start: u16,
+    /// Number of magnetic isotropy subgroups for this irrep
+    pub(crate) _mag_iso_count: u16,
 }
 
 impl IrrepRecord {
@@ -164,6 +168,32 @@ impl IrrepRecord {
             [self._iso_start as usize..(self._iso_start + self._iso_count) as usize]
     }
 
+    /// Magnetic isotropy subgroups for this irrep.
+    ///
+    /// When the order parameter of this irrep condenses, the system
+    /// can lower its symmetry to one of these magnetic space groups.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cryspglib::irrep::query::irreps_of;
+    ///
+    /// for ir in irreps_of(221) {
+    ///     if ir.ml == "GM4-" {
+    ///         for sub in ir.magnetic_subgroups() {
+    ///             println!("{} {}", sub.bns_label, sub.direction);
+    ///         }
+    ///     }
+    /// }
+    /// ```
+    pub fn magnetic_subgroups(&self) -> &'static [MagneticIsotropyRecord] {
+        if self._mag_iso_count == 0 {
+            return &[];
+        }
+        &self::generated_data::MAGNETIC_ISOTROPY_SUBGROUPS
+            [self._mag_iso_start as usize..(self._mag_iso_start + self._mag_iso_count) as usize]
+    }
+
     /// k-point label prefix extracted from the ML label.
     ///
     /// - `"GM4+"` → `"GM"` (Γ point)
@@ -206,6 +236,22 @@ pub struct IsotropyRecord {
     pub domains: u16,
     /// Number of arms in the star
     pub arms: u16,
+}
+
+/// A magnetic isotropy subgroup: the lower-symmetry magnetic space group
+/// obtained when the order parameter condenses along a specific direction
+/// for a given non-magnetic irrep.  Magnetic isotropy subgroups describe
+/// the possible magnetic structures that can form.
+#[derive(Debug, Clone, Copy)]
+pub struct MagneticIsotropyRecord {
+    /// Magnetic space group number (1–1651, ISOTROPY Suite numbering)
+    pub mag_sg: u16,
+    /// BNS (Belov-Neronova-Smirnova) symbol, e.g. `"Pm'mm"`
+    pub bns_label: &'static str,
+    /// ISOTROPY label, e.g. `"47.251"`
+    pub iso_label: &'static str,
+    /// Order-parameter direction label
+    pub direction: &'static str,
 }
 
 /// Auto-generated data from iso_data files.

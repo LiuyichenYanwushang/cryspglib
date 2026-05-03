@@ -1,18 +1,32 @@
 //! # Irreducible representations of the 230 crystallographic space groups
 //!
 //! This module provides irrep data at high-symmetry **k**-points for all 230
-//! space groups, based on **Stokes & Hatch (1988)**, *Isotropy Subgroups of
-//! the 230 Crystallographic Space Groups* (World Scientific).
+//! space groups, based on the **ISOTROPY Suite** (Stokes, Campbell & Hatch,
+//! 2022 version).  Data is stored as static arrays and compiled directly into
+//! the binary — no runtime I/O required.
+//!
+//! ## Coverage
+//!
+//! | Data | Entries | Coverage |
+//! |------|---------|----------|
+//! | Irreps | 4,777 | 100% |
+//! | Character tables χ(g) | ~50,000 f64 values | 100% |
+//! | Full matrices D(g) | ~580,000 f64 values | 100% |
+//! | Non-magnetic isotropy subgroups | 15,239 | 100% |
+//! | Magnetic isotropy subgroups | 16,721 | 100% |
+//!
+//! Data sources: `PIR_data.txt` (physical / real irreps), `CIR_data.txt`
+//! (complex irreps, used as fallback), `data_irreps.txt` (metadata),
+//! `data_isotropy.txt` (non-mag subgroups), `data_magnetic.txt` (mag subgroups).
 //!
 //! ## Three labeling conventions
 //!
-//! Each irrep is labeled in three widely-used conventions (cross-referenced
-//! from Stokes & Hatch Table 7):
+//! Each irrep is labeled in three widely-used conventions:
 //!
 //! | Convention | Reference | Example |
 //! |-----------|-----------|---------|
-//! | **Miller & Love** (ML) | Miller & Love (1967); Cracknell, Davies, Miller & Love (1979) | `GM1+`, `X3-` |
-//! | **Kovalev** | Kovalev (1965, 1980, 1986) | `τ1`, `k6τ3` |
+//! | **Miller & Love** (ML) | Miller & Love (1967) | `GM1+`, `X3-` |
+//! | **Kovalev** | Kovalev (1986) | `τ1`, `k6τ3` |
 //! | **Bradley & Cracknell** (B&C) | Bradley & Cracknell (1972) | `Γ1+`, `X1` |
 //!
 //! ## Quick lookup
@@ -31,26 +45,47 @@
 //! | 168–194 | P6 … P6₃/mmc | C₆¹ … D₆ₕ⁴ | Hexagonal | [`hexagonal`] |
 //! | 195–230 | P23 … Ia-3d | T¹ … Oₕ¹⁰ | Cubic | [`cubic`] |
 //!
-//! ## Data format
-//!
-//! For each space group we list:
-//!
-//! 1. **k-points** — high-symmetry points in the Brillouin zone with their
-//!    little co-groups.
-//! 2. **Irreps** — each k-point's irreducible representations in all three
-//!    label conventions, plus dimension, Stokes-Hatch image, and basis
-//!    functions.
-//! 3. **Isotropy subgroups** — for each irrep: the lower-symmetry space
-//!    groups that can result from a distortion transforming as that irrep,
-//!    together with the order-parameter direction, number of domains, cell
-//!    basis, and origin shift.
-//!
 //! ## Programmatic access
 //!
-//! The [`types`] module provides [`IrrepData`], [`KPointData`], and
-//! [`IsotropySubgroup`] structs that can be constructed from the
-//! tabulated data for use in your own symmetry analysis code.
+//! The [`query`] module provides the main entry point:
 //!
+//! ```rust,no_run
+//! use cryspglib::irrep::query::*;
+//!
+//! // SG 221 (Pm-3m) at Γ point
+//! let irreps = irreps_of(221);
+//! let gm4m = irreps.iter().find(|r| r.ml == "GM4-").unwrap();
+//!
+//! // Character table
+//! for (i, &chi) in gm4m.characters().iter().enumerate() {
+//!     println!("op {}: χ = {}", i, chi);
+//! }
+//!
+//! // Non-magnetic isotropy subgroups
+//! for sub in gm4m.subgroups() {
+//!     println!("#{} {} — dir={}", sub.sg, sub.symbol, sub.direction);
+//! }
+//!
+//! // Magnetic isotropy subgroups
+//! for sub in gm4m.magnetic_subgroups() {
+//!     println!("{} {} — dir={}", sub.bns_label, sub.iso_label, sub.direction);
+//! }
+//! ```
+//!
+//! ## Key types
+//!
+//! | Type | Description |
+//! |------|-------------|
+//! | [`IrrepRecord`] | Single irrep with labels, k-vector, character table, matrices, subgroups |
+//! | [`IsotropyRecord`] | Non-magnetic isotropy subgroup (SG#, symbol, direction, domains) |
+//! | [`MagneticIsotropyRecord`] | Magnetic isotropy subgroup (BNS label, direction) |
+//! | [`KPointSummary`] | k-point with label, coordinates, and irrep indices |
+//!
+//! [`IrrepRecord`]: crate::irrep::types::IrrepRecord
+//! [`IsotropyRecord`]: crate::irrep::types::IsotropyRecord
+//! [`MagneticIsotropyRecord`]: crate::irrep::types::MagneticIsotropyRecord
+//! [`KPointSummary`]: crate::irrep::query::KPointSummary
+//! [`query`]: crate::irrep::query
 //! [`types`]: crate::irrep::types
 //! [`triclinic`]: crate::irrep::triclinic
 //! [`monoclinic`]: crate::irrep::monoclinic

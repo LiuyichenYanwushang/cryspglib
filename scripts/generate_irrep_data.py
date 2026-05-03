@@ -881,6 +881,35 @@ def parse_all():
     dir_map = build_direction_map(iso_direction, iso_dir_dim, iso_dir_free, iso_dir_labels)
     print(f"  Built direction map with {len(dir_map)} entries")
 
+    print("Parsing data_magnetic.txt (magnetic isotropy subgroups)...")
+    mag_lines = read_file("data_magnetic.txt")
+    mag_sec = get_sections(mag_lines)
+
+    mag_iso_sg       = parse_ints(mag_lines, mag_sec, "mag_iso_subgroup")
+    mag_iso_irrep    = parse_ints(mag_lines, mag_sec, "mag_iso_irrep")
+    mag_iso_ptr      = parse_ints(mag_lines, mag_sec, "mag_iso_irrep_pointer")
+    mag_nlabel       = parse_labels(mag_lines, mag_sec, "mag_nlabel")
+    mag_bns_label    = parse_labels(mag_lines, mag_sec, "mag_bns_label")
+    print(f"  {len(mag_iso_sg)} mag iso entries, {len(mag_iso_ptr)} ptrs, {len(mag_nlabel)} labels")
+
+    # Direction labels for magnetic isotropy
+    mag_iso_dir_labels = parse_labels(mag_lines, mag_sec, "mag_iso_orderparam_label")
+    # Map direction codes to labels (similar to non-mag dir_map)
+    mag_iso_dir_code  = parse_ints(mag_lines, mag_sec, "mag_iso_orderparam")
+    mag_iso_dir_ptr   = parse_ints(mag_lines, mag_sec, "mag_iso_orderparam_pointer")
+    # Build mag direction lookup: entry index → direction string
+    mag_dir_by_entry = {}
+    for entry_idx in range(len(mag_iso_sg)):
+        if entry_idx < len(mag_iso_dir_ptr) and mag_iso_dir_ptr[entry_idx] > 0:
+            ptr = mag_iso_dir_ptr[entry_idx] - 1  # 1-based → 0-based
+            if ptr < len(mag_iso_dir_labels):
+                mag_dir_by_entry[entry_idx] = mag_iso_dir_labels[ptr]
+            else:
+                mag_dir_by_entry[entry_idx] = f"dir{ptr}"
+        else:
+            mag_dir_by_entry[entry_idx] = "(a)"
+    print(f"  {len(mag_dir_by_entry)} direction labels mapped")
+
     print("Parsing data_space.txt...")
     sp_lines = read_file("data_space.txt")
     sp_sec = get_sections(sp_lines)
@@ -946,6 +975,12 @@ def parse_all():
         "matrices_map": matrices_map,
         "cir_data": cir_data,
         "cir_matrices": cir_matrices,
+        "mag_iso_sg": mag_iso_sg,
+        "mag_iso_irrep": mag_iso_irrep,
+        "mag_iso_ptr": mag_iso_ptr,
+        "mag_nlabel": mag_nlabel,
+        "mag_bns_label": mag_bns_label,
+        "mag_dir_by_entry": mag_dir_by_entry,
     }
 
 # ── data assembly ────────────────────────────────────────────────────────────
@@ -1420,6 +1455,23 @@ def generate_rust_data(data):
         iso_starts.append(s)
         iso_counts.append(max(0, e - s))
 
+    # ── Pre-compute magnetic isotropy subgroup ranges per irrep ──
+    mag_iso_ptr = data.get("mag_iso_ptr", [])
+    mag_iso_sg_arr = data.get("mag_iso_sg", [])
+    mag_iso_starts = []
+    mag_iso_counts = []
+    for i in range(len(ml)):
+        if i < len(mag_iso_ptr):
+            s = mag_iso_ptr[i] - 1  # 1-based → 0-based
+        else:
+            s = 0
+        if i + 1 < len(mag_iso_ptr):
+            e = mag_iso_ptr[i + 1] - 1
+        else:
+            e = len(mag_iso_sg_arr)
+        mag_iso_starts.append(s)
+        mag_iso_counts.append(max(0, e - s))
+
     for i in range(len(ml)):
         ml_label = ml[i]
         bc_label = bc[i]
@@ -1429,6 +1481,8 @@ def generate_rust_data(data):
         lif_val = lif[i]
         iso_s = iso_starts[i]
         iso_c = iso_counts[i]
+        mag_iso_s = mag_iso_starts[i]
+        mag_iso_c = mag_iso_counts[i]
 
         # Image label
         if 1 <= img_code <= len(img_labels):
@@ -1475,6 +1529,8 @@ def generate_rust_data(data):
         lines.append(f"        _mat_count: {mat_c},")
         lines.append(f"        _iso_start: {iso_s},")
         lines.append(f"        _iso_count: {iso_c},")
+        lines.append(f"        _mag_iso_start: {mag_iso_s},")
+        lines.append(f"        _mag_iso_count: {mag_iso_c},")
         lines.append(f"    }},")
 
     lines.append("];")
@@ -1509,6 +1565,31 @@ def generate_rust_data(data):
         lines.append(f'        direction: "{dir_str}",')
         lines.append(f"        domains: {dom_val},")
         lines.append(f"        arms: {arms_val},")
+        lines.append(f"    }},")
+    lines.append("];")
+    lines.append("")
+
+    # ── Magnetic isotropy subgroup records ──
+    mag_iso_sg_arr = data.get("mag_iso_sg", [])
+    mag_nlabel = data.get("mag_nlabel", [])
+    mag_bns_label = data.get("mag_bns_label", [])
+    mag_dir_by_entry = data.get("mag_dir_by_entry", {})
+    total_mag_iso = len(mag_iso_sg_arr)
+
+    lines.append("/// Magnetic isotropy subgroup records (flat, per-irrep ordering).")
+    lines.append(f"pub static MAGNETIC_ISOTROPY_SUBGROUPS: [MagneticIsotropyRecord; {total_mag_iso}] = [")
+    for i in range(total_mag_iso):
+        msg = mag_iso_sg_arr[i]
+        # Magnetic SG label lookup
+        iso_label = mag_nlabel[msg - 1] if 1 <= msg <= len(mag_nlabel) else f"{msg}"
+        bns = mag_bns_label[msg - 1] if 1 <= msg <= len(mag_bns_label) else f"MSG{msg}"
+        direction = mag_dir_by_entry.get(i, "(a)")
+
+        lines.append(f"    MagneticIsotropyRecord {{")
+        lines.append(f"        mag_sg: {msg},")
+        lines.append(f'        bns_label: "{escape_rust_str(bns)}",')
+        lines.append(f'        iso_label: "{escape_rust_str(iso_label)}",')
+        lines.append(f'        direction: "{escape_rust_str(direction)}",')
         lines.append(f"    }},")
     lines.append("];")
     lines.append("")
