@@ -364,6 +364,12 @@ pub fn wigner_classify_cir(
     let mut w_re: f64 = 0.0;
     let mut w_im: f64 = 0.0;
 
+    eprintln!("DEBUG wigner_cir: cir_chars first 4: ({:.2},{:.2}) ({:.2},{:.2}) ({:.2},{:.2}) ({:.2},{:.2})",
+        cir_chars.get(0).copied().unwrap_or(0.0), cir_chars.get(1).copied().unwrap_or(0.0),
+        cir_chars.get(2).copied().unwrap_or(0.0), cir_chars.get(3).copied().unwrap_or(0.0),
+        cir_chars.get(4).copied().unwrap_or(0.0), cir_chars.get(5).copied().unwrap_or(0.0),
+        cir_chars.get(6).copied().unwrap_or(0.0), cir_chars.get(7).copied().unwrap_or(0.0));
+
     for &h_mag_idx in unitary_mag_indices {
         let h = &mag_seitz[h_mag_idx];
         let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
@@ -378,7 +384,6 @@ pub fn wigner_classify_cir(
                 lattice_sq[2] + m.lattice_shift[2],
             ];
             let (ph_re, ph_im) = bloch_phase(kx, ky, kz, kd, &total_lattice);
-            // CIR character at this operation
             let chi_re = if 2 * m.op_index + 1 < cir_chars.len() {
                 cir_chars[2 * m.op_index]
             } else { 0.0 };
@@ -395,6 +400,8 @@ pub fn wigner_classify_cir(
     let w_re = w_re / n;
     let w_im = w_im / n;
     let w_abs = (w_re * w_re + w_im * w_im).sqrt();
+    eprintln!("DEBUG wigner_classify_cir: W=({:.4},{:.4}) |W|={:.4} k=({},{},{})/{}",
+        w_re, w_im, w_abs, kx, ky, kz, kd);
 
     if w_abs < 0.01 {
         CorepType::C

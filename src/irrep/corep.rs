@@ -231,10 +231,9 @@ pub fn compute_corepresentation(
     let corep_type = if antiunitary.is_empty() {
         CorepType::A
     } else if h_irrep.cir_component_count() > 0 {
-        // Compound irrep: test each CIR component individually.
-        // If ANY component gives Type C, the overall corep is Type C
-        // (the antiunitary operation pairs this component with another irrep).
+        // Compound irrep: test each CIR component
         let mut any_c = false;
+        eprintln!("DEBUG CIR path: {} n_comp={}", h_irrep.ml, h_irrep.cir_component_count());
         for comp in 0..h_irrep.cir_component_count() {
             let cir = h_irrep.cir_component_chars(comp);
             if cir.is_empty() { continue; }
