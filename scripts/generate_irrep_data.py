@@ -302,6 +302,7 @@ def _parse_pir_characters():
 
     chars_map = {}
     matrices_map = {}
+    rots_map = {}     # (SG#, ML_label) -> [[r00..r22], ...] per operation
     i = 3  # skip 3 header lines
 
     while i < len(lines):
@@ -344,6 +345,7 @@ def _parse_pir_characters():
 
         # Read operator matrices + irrep matrices
         chars = []
+        rots = []         # rotation matrices: list of [r00..r22], 9 ints per op
         all_matrices = []  # flat: op0_row0, op0_row1, ..., op1_row0, ...
         for _op in range(opcount):
             # Advance to operator matrix line
@@ -351,7 +353,22 @@ def _parse_pir_characters():
             if i >= len(lines):
                 break
 
-            # Skip operator matrix (16 ints) and move to the irrep/irtranslation line
+            # Parse operator matrix (16 ints): extract rotation matrix
+            op_parts = lines[i].strip().split()
+            if len(op_parts) >= 16:
+                try:
+                    op_nums = [int(x) for x in op_parts[:16]]
+                    denom = op_nums[15] if op_nums[15] != 0 else 1
+                    r00 = op_nums[0] // denom; r01 = op_nums[1] // denom; r02 = op_nums[2] // denom
+                    r10 = op_nums[4] // denom; r11 = op_nums[5] // denom; r12 = op_nums[6] // denom
+                    r20 = op_nums[8] // denom; r21 = op_nums[9] // denom; r22 = op_nums[10] // denom
+                    rots.append([r00, r01, r02, r10, r11, r12, r20, r21, r22])
+                except ValueError:
+                    rots.append([0,0,0, 0,0,0, 0,0,0])
+            else:
+                rots.append([0,0,0, 0,0,0, 0,0,0])
+
+            # Move to the irrep/irtranslation line
             i += 1
             if i >= len(lines):
                 break
@@ -405,6 +422,7 @@ def _parse_pir_characters():
         if key not in chars_map:
             chars_map[key] = chars
             matrices_map[key] = all_matrices
+            rots_map[key] = rots
 
         # Advance to next irrep header
         i += 1
@@ -414,7 +432,7 @@ def _parse_pir_characters():
                 break
             i += 1
 
-    return chars_map, matrices_map
+    return chars_map, matrices_map, rots_map
 
 
 # ── CIR (Complex Irreducible Representations) parsing ────────────────────────
@@ -991,7 +1009,7 @@ def parse_all():
     print(f"  Parsed {len(kvec_map)} k-vector entries")
 
     print("Parsing PIR_data.txt characters and matrices...")
-    chars_map, matrices_map = _parse_pir_characters()
+    chars_map, matrices_map, rots_map = _parse_pir_characters()
     print(f"  Parsed {len(chars_map)} character table entries")
     print(f"  Parsed {len(matrices_map)} matrix data entries")
 
@@ -1050,6 +1068,7 @@ def parse_all():
         "kvec_map": kvec_map,
         "chars_map": chars_map,
         "matrices_map": matrices_map,
+        "rots_map": rots_map,
         "cir_data": cir_data,
         "cir_matrices": cir_matrices,
         "mag_iso_sg": mag_iso_sg,
@@ -1406,6 +1425,9 @@ def generate_rust_data(data):
 
     cir_data = data.get("cir_data", {})
 
+    # PIR rotation matrices for H_ops → PIR order mapping (Wigner test)
+    rots_map = data.get("rots_map", {})
+
     # ── Build flat CHARACTERS array and per-irrep start/count ──
     chars_flat = []
     char_starts = []
@@ -1454,7 +1476,21 @@ def generate_rust_data(data):
     if cir_mat_filled > 0:
         print(f"  (CIR matrix conversion filled {cir_mat_filled} tables)")
 
-    # ── CIR component characters for compound irreps ──
+    # ── Build flat PIR_ROTS array ──
+    pir_rots_flat = []
+    pir_rot_starts = []
+    for i in range(len(ml)):
+        rts = rots_map.get((sg[i], ml[i]), [])
+        pir_rot_starts.append(len(pir_rots_flat))
+        for r9 in rts:
+            pir_rots_flat.extend(r9)
+        # Pad with zeros if no rotation data
+        expected_ops = char_counts[i]
+        needed_ints = expected_ops * 9
+        current = len(pir_rots_flat) - pir_rot_starts[-1]
+        if current < needed_ints:
+            pir_rots_flat.extend([0] * (needed_ints - current))
+    # (Spinor irreps: PIR rot starts added after spinor_irreps variable is available)
     # For compound labels like Z1Z4 = Z1 ⊕ Z4, store the individual CIR
     # complex character tables as (re, im) pairs.  Used for Wigner test.
     cir_comp_flat = []   # (re, im) pairs, flattened
@@ -1470,14 +1506,21 @@ def generate_rust_data(data):
             comp_chars = []
             comp_rots = []
             n_ops = 0
-            for part in parts:
+            for p_idx, part in enumerate(parts):
                 pk = (sg[i], part)
                 if pk in cir_data:
                     entry = cir_data[pk]
                     n_ops = entry['opcount']
+                    # For same-label compounds (e.g. P3P3 = P3 ⊕ P3*),
+                    # conjugate the second occurrence so imaginary parts cancel.
+                    # PIR irreps are always real; the CIR sum must be real.
+                    conjugate_this = (p_idx > 0 and part == parts[0])
                     for (re_val, im_val, _) in entry['chars']:
                         comp_chars.append(re_val)
-                        comp_chars.append(im_val)
+                        if conjugate_this:
+                            comp_chars.append(-im_val)
+                        else:
+                            comp_chars.append(im_val)
                     # Rotation matrices (if available)
                     rots = entry.get('rots', [])
                     for r9 in rots:
@@ -1524,6 +1567,9 @@ def generate_rust_data(data):
 
     # ── Spinor (double-valued) irrep data ──
     spinor_irreps = data.get("spinor_irreps", [])
+    # Spinor irreps have no PIR rotations
+    for _ in range(len(spinor_irreps)):
+        pir_rot_starts.append(len(pir_rots_flat))
     spinor_starts = []
     spinor_counts = []
     for sir in spinor_irreps:
@@ -1571,6 +1617,17 @@ def generate_rust_data(data):
     for chunk_start in range(0, len(matrices_flat), 10):
         chunk = matrices_flat[chunk_start:chunk_start + 10]
         vals = ", ".join(_fmt_char(v) for v in chunk)
+        lines.append(f"    {vals},")
+    lines.append("];")
+    lines.append("")
+
+    # ── PIR rotation matrices ──
+    lines.append("/// Rotation matrices for PIR operations, 9 i32 per op, same order as CHARACTERS.")
+    lines.append("/// Used to build H_ops → PIR index mapping for the Wigner test.")
+    lines.append(f"pub static PIR_ROTS: [i32; {len(pir_rots_flat)}] = [")
+    for chunk_start in range(0, len(pir_rots_flat), 9):
+        chunk = pir_rots_flat[chunk_start:chunk_start + 9]
+        vals = ", ".join(str(v) for v in chunk)
         lines.append(f"    {vals},")
     lines.append("];")
     lines.append("")
@@ -1691,6 +1748,7 @@ def generate_rust_data(data):
             "iso_s": iso_s, "iso_c": iso_c,
             "mag_iso_s": mag_iso_s, "mag_iso_c": mag_iso_c,
             "cir_s": cir_comp_starts[i], "cir_c": cir_comp_counts[i], "cir_o": cir_comp_ops[i],
+            "pir_rot_s": pir_rot_starts[i],
         })
 
     # Pre-compute spinor IrrepRecord data
@@ -1707,6 +1765,7 @@ def generate_rust_data(data):
             "iso_s": 0, "iso_c": 0,
             "mag_iso_s": 0, "mag_iso_c": 0,
             "cir_s": 0, "cir_c": 0, "cir_o": 0,
+            "pir_rot_s": 0,
         })
 
     # Now emit IrrepRecord entries in SG order
@@ -1731,6 +1790,7 @@ def generate_rust_data(data):
             lines.append(f"        ky: {r['ky']},")
             lines.append(f"        kz: {r['kz']},")
             lines.append(f"        kd: {r['kd']},")
+            lines.append(f"        _pir_rot_start: {r['pir_rot_s']},")
             lines.append(f"        _char_start: {r['char_s']},")
             lines.append(f"        _char_count: {r['char_c']},")
             lines.append(f"        _mat_start: {r['mat_s']},")

@@ -119,6 +119,8 @@ pub struct IrrepRecord {
     pub(crate) _mag_iso_start: u16,
     /// Number of magnetic isotropy subgroups for this irrep
     pub(crate) _mag_iso_count: u16,
+    /// Start index into [`PIR_ROTS`] (9 i32 per op), for H_ops→PIR order mapping
+    pub(crate) _pir_rot_start: u32,
     /// Start index into [`CIR_COMPONENT_CHARS`] (0 if not compound)
     pub(crate) _cir_start: u32,
     /// Number of CIR components (0 for non-compound irreps, 2 for Z1Z4 type)
@@ -128,6 +130,19 @@ pub struct IrrepRecord {
 }
 
 impl IrrepRecord {
+    /// Rotation matrices for PIR operations, 9 i32 per op, same order as [`Self::characters`].
+    ///
+    /// Used to build H_ops→PIR index mapping for the Wigner test.
+    pub fn pir_rotations(&self) -> &'static [i32] {
+        let char_count = self._char_count as usize;
+        if char_count == 0 {
+            return &[];
+        }
+        let start = self._pir_rot_start as usize;
+        let len = char_count * 9;
+        &super::generated_data::PIR_ROTS[start..start + len]
+    }
+
     /// Number of CIR (complex) components this PIR irrep decomposes into.
     /// 0 = non-compound, 2 = compound like Z1Z4 = Z1 ⊕ Z4.
     pub fn cir_component_count(&self) -> usize {

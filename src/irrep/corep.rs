@@ -241,12 +241,10 @@ pub fn compute_corepresentation(
             let cir = h_irrep.cir_component_chars(comp);
             if cir.is_empty() { continue; }
             let cir_rots = h_irrep.cir_rotations(comp);
-            let cir_reordered = if cir_rots.len() >= h_seitz.len() * 9 {
-                let h_to_cir = wigner::build_h_to_cir_map(&h_seitz, cir_rots);
+            let cir_reordered = if let Some(h_to_cir) = wigner::build_h_to_cir_map(&h_seitz, cir_rots) {
                 wigner::reorder_cir_chars(cir, &h_to_cir)
             } else {
-                // Fallback: no rotation data, use as-is (may be wrong)
-                cir.to_vec()
+                cir.to_vec()  // fallback: no matching rotations
             };
             let ct = wigner::wigner_classify_cir(
                 &cir_reordered, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
@@ -256,8 +254,21 @@ pub fn compute_corepresentation(
         }
         if any_c { CorepType::C } else { CorepType::A }
     } else {
+        // Non-compound irrep: use PIR path with operation order mapping.
+        // Reorder PIR chars from ISOTROPY order to H_ops (spglib) order.
+        let pir_rots = h_irrep.pir_rotations();
+        let h_chars_reordered: Vec<f64> = if let Some(h_to_pir) = wigner::build_h_to_cir_map(&h_seitz, pir_rots) {
+            // Reorder PIR characters (real-valued, single f64 per op).
+            let doubled = wigner::reorder_cir_chars(
+                &h_chars.iter().flat_map(|&c| [c, 0.0f64]).collect::<Vec<_>>(),
+                &h_to_pir,
+            );
+            (0..h_to_pir.len()).map(|i| doubled[2 * i]).collect()
+        } else {
+            h_chars.to_vec()
+        };
         wigner::wigner_classify(
-            h_chars, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+            &h_chars_reordered, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
             h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
         )
     };
