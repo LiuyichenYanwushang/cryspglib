@@ -1,6 +1,8 @@
 # Wigner 共表示算法 — 错题本
 
 > 当前 `wigner.rs` 的框架（M = H ∪ a₀H → Wigner test → type A/B/C）是正确的，但实现细节对 nonsymmorphic + BZ 边界 k 点 + double group 的组合不够。以下是所有已知问题，按严重程度排序。
+>
+> **状态**: P0 全部已修复 ✓, P1 Type B 已修复 ✓, 其余待修。
 
 ---
 
