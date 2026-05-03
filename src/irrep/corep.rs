@@ -1039,4 +1039,61 @@ mod tests {
         println!("  H:Z5(2D,PIR)   → corep type-A → BCS Z5(2D)");
         println!("  H:Z6,Z7(2D,spinor) → corep type-C → BCS Z̄6Z̄7(4D)");
     }
+
+    /// BCS: 165.95 (P-3c'1, UNI 1325) at L:(1/2,0,1/2)
+    ///
+    /// k-Subgroupsmag_165.95.html confirms:
+    ///   Unitary subgroup: P-3 (No. 147)
+    ///   Magnetic little co-group: 2'/m'
+    ///   Coreps: L₁⁻L₁⁺ (2D, Type C), L̄₂L̄₃ (2D spinor, Type C)
+    #[test]
+    fn test_corep_sg165_95_l_bcs() {
+        let uni = 1325usize;
+
+        // 1. Verify unitary subgroup identification
+        let h_sg = identify_unitary_subgroup(uni);
+        assert!(h_sg.is_some(), "Should identify unitary subgroup of 165.95");
+        let h_sg = h_sg.unwrap();
+        println!("165.95 (UNI {}) → unitary subgroup: SG {}", uni, h_sg);
+
+        // 2. Verify magnetic operations exist
+        let mag_ops = get_magnetic_operations(uni);
+        assert!(mag_ops.is_some(), "Should get ops for UNI {}", uni);
+        let mag_ops = mag_ops.unwrap();
+        let n_u = mag_ops.timerev.iter().filter(|&&t| !t).count();
+        let n_a = mag_ops.timerev.iter().filter(|&&t| t).count();
+        println!("  {} ops ({} unitary + {} anti-unitary)", mag_ops.len(), n_u, n_a);
+
+        // 3. Compute coreps at L point (using H = unitary subgroup)
+        let h_irreps = crate::irrep::query::irreps_of(h_sg as u8);
+        let l_irreps: Vec<&IrrepRecord> = h_irreps.iter()
+            .filter(|r| r.k_label() == "L")
+            .collect();
+        let n_scalar = l_irreps.iter().filter(|r| !r.spinor).count();
+        let n_spinor = l_irreps.iter().filter(|r| r.spinor).count();
+        println!("  H=SG{} L-point irreps: {} scalar + {} spinor",
+            h_sg, n_scalar, n_spinor);
+
+        assert!(!l_irreps.is_empty(), "Should have L-point irreps");
+
+        // 4. Compute coreps one by one
+        for ir in &l_irreps {
+            if let Some(c) = ir.corepresentation(uni) {
+                let type_str = match c.corep_type {
+                    CorepType::A => "A",
+                    CorepType::B => "B",
+                    CorepType::C => "C",
+                    CorepType::Unsupported => "?",
+                };
+                println!("  {}: dim={} type={} χ(id)={:.1}",
+                    ir.ml, c.dim, type_str, c.characters[0]);
+
+                if c.corep_type != CorepType::Unsupported {
+                    assert!(c.dim > 0);
+                    assert!((c.characters[0] - c.dim as f64).abs() < 0.01,
+                        "χ(id) should equal dim for {}", ir.ml);
+                }
+            }
+        }
+    }
 }
