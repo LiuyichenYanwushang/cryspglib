@@ -1639,6 +1639,30 @@ def generate_rust_data(data):
     if spinor_irreps:
         print(f"  Added {len(spinor_irreps)} spinor irreps to database")
 
+    # ── Spinor operation arrays ──
+    spinor_ops_data = data.get("spinor_ops", {})
+    spin_op_rots = []   # 9 i32 per op
+    spin_op_trans = []  # 3 f64 per op
+    spin_op_su2 = []    # 4 f64 per op
+    spin_op_sg_start = [0] * 231  # 0-indexed, SG 0 unused
+    spin_op_sg_count = [0] * 231
+    for sg_num in range(1, 231):
+        ops = spinor_ops_data.get(sg_num, [])
+        spin_op_sg_start[sg_num] = len(spin_op_rots) // 9  # count in ops
+        spin_op_sg_count[sg_num] = len(ops)
+        for op in ops:
+            spin_op_rots.extend(op['rot'])
+            spin_op_trans.extend(op['trans'])
+            spin_op_su2.extend(op['su2'])
+    total_spin_ops = len(spin_op_rots) // 9
+
+    # ── Spinor little-group character counts ──
+    # Spinor irreps have characters for the little group ops (first n) plus
+    # possibly extra values.  Track the little-group count separately.
+    spin_lg_counts = []
+    for sir in spinor_irreps:
+        spin_lg_counts.append(len(sir.get("op_indices", [])))
+
     lines = []
     lines.append("// Auto-generated from iso_data files by scripts/generate_irrep_data.py")
     lines.append("// DO NOT EDIT MANUALLY")
@@ -1708,6 +1732,38 @@ def generate_rust_data(data):
         chunk = cir_comp_rots[chunk_start:chunk_start + 9]
         vals = ", ".join(str(v) for v in chunk)
         lines.append(f"    {vals},")
+    lines.append("];")
+    lines.append("")
+
+    # ── Spinor (double-group) operation arrays ──
+    lines.append("/// Spinor symmetry operations with SU(2) lifts, indexed by SG number.")
+    lines.append("/// Use [`SPIN_OP_SG_INDEX`] to find start and count for each SG.")
+    lines.append(f"pub static SPIN_OP_ROTS: [i32; {len(spin_op_rots)}] = [")
+    for chunk_start in range(0, len(spin_op_rots), 9):
+        chunk = spin_op_rots[chunk_start:chunk_start + 9]
+        vals = ", ".join(str(v) for v in chunk)
+        lines.append(f"    {vals},")
+    lines.append("];")
+    lines.append("")
+    lines.append(f"pub static SPIN_OP_TRANS: [f64; {len(spin_op_trans)}] = [")
+    for chunk_start in range(0, len(spin_op_trans), 3):
+        chunk = spin_op_trans[chunk_start:chunk_start + 3]
+        vals = ", ".join(_fmt_char(v) for v in chunk)
+        lines.append(f"    {vals},")
+    lines.append("];")
+    lines.append("")
+    lines.append(f"pub static SPIN_OP_SU2: [f64; {len(spin_op_su2)}] = [")
+    for chunk_start in range(0, len(spin_op_su2), 4):
+        chunk = spin_op_su2[chunk_start:chunk_start + 4]
+        vals = ", ".join(_fmt_char(v) for v in chunk)
+        lines.append(f"    {vals},")
+    lines.append("];")
+    lines.append("")
+    lines.append(f"/// SG# → (operation_start, operation_count) into SPIN_OP_* arrays.")
+    lines.append(f"pub static SPIN_OP_SG_INDEX: [(u16, u8); 231] = [")
+    lines.append("    (0, 0),  // dummy for index 0")
+    for s in range(1, 231):
+        lines.append(f"    ({spin_op_sg_start[s]}, {spin_op_sg_count[s]}),  // SG {s}")
     lines.append("];")
     lines.append("")
 
@@ -1806,6 +1862,7 @@ def generate_rust_data(data):
             "mag_iso_s": mag_iso_s, "mag_iso_c": mag_iso_c,
             "cir_s": cir_comp_starts[i], "cir_c": cir_comp_counts[i], "cir_o": cir_comp_ops[i],
             "pir_rot_s": pir_rot_starts[i],
+            "spin_lg_count": 0,
         })
 
     # Pre-compute spinor IrrepRecord data
@@ -1823,6 +1880,7 @@ def generate_rust_data(data):
             "mag_iso_s": 0, "mag_iso_c": 0,
             "cir_s": 0, "cir_c": 0, "cir_o": 0,
             "pir_rot_s": pir_rot_starts[len(ml) + idx],
+            "spin_lg_count": spin_lg_counts[idx],
         })
 
     # Now emit IrrepRecord entries in SG order
@@ -1857,6 +1915,7 @@ def generate_rust_data(data):
             lines.append(f"        _mag_iso_start: {r['mag_iso_s']},")
             lines.append(f"        _mag_iso_count: {r['mag_iso_c']},")
             lines.append(f"        _cir_start: {r['cir_s']},")
+            lines.append(f"        _spin_lg_count: {r['spin_lg_count']},")
             lines.append(f"        _cir_count: {r['cir_c']},")
             lines.append(f"        _cir_ops: {r['cir_o']},")
             lines.append(f"    }},")

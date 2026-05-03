@@ -254,6 +254,20 @@ pub fn compute_corepresentation(
             if ct == CorepType::C { any_c = true; break; }
         }
         if any_c { CorepType::C } else { CorepType::A }
+    } else if h_irrep.spinor {
+        // Spinor (double-valued) irrep: use spinor Wigner test with SU(2) lifts.
+        let (spin_rots, spin_trans, spin_su2) = h_irrep.spin_ops();
+        let n_lg = h_irrep.spin_lg_char_count();
+        if let Some(ct) = wigner::wigner_classify_spinor(
+            h_chars, n_lg,
+            spin_rots, spin_trans, spin_su2,
+            &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+            h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
+        ) {
+            ct
+        } else {
+            CorepType::Unsupported
+        }
     } else {
         // Non-compound irrep: use PIR path with operation order mapping.
         let pir_rots = h_irrep.pir_rotations();

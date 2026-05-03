@@ -107,6 +107,9 @@ pub struct IrrepRecord {
     pub(crate) _char_start: u32,
     /// Number of operators (= number of character values)
     pub(crate) _char_count: u16,
+    /// For spinor irreps: number of little-group ops (≤ _char_count).
+    /// Extra character values beyond this count are antiunitary/auxiliary.
+    pub(crate) _spin_lg_count: u8,
     /// Start index into [`MATRICES`] (u32: ~1M entries total)
     pub(crate) _mat_start: u32,
     /// Number of matrix elements = opcount × dim² (fits in u16: max ~27648)
@@ -130,6 +133,29 @@ pub struct IrrepRecord {
 }
 
 impl IrrepRecord {
+    /// For spinor irreps: number of characters corresponding to the little-group
+    /// operations (the first `n` values in [`Self::characters`]).
+    /// Returns 0 for scalar irreps.
+    pub fn spin_lg_char_count(&self) -> usize {
+        self._spin_lg_count as usize
+    }
+
+    /// Spin symmetry operations with SU(2) lifts for this irrep's space group.
+    /// Returns (rotations, translations, su2) slices.
+    pub fn spin_ops(&self) -> (&'static [i32], &'static [f64], &'static [f64]) {
+        let sg_idx = self.sg as usize;
+        if sg_idx == 0 || sg_idx > 230 {
+            return (&[], &[], &[]);
+        }
+        let (start, count) = super::generated_data::SPIN_OP_SG_INDEX[sg_idx];
+        let start = start as usize;
+        let count = count as usize;
+        let rots = &super::generated_data::SPIN_OP_ROTS[start * 9..(start + count) * 9];
+        let trans = &super::generated_data::SPIN_OP_TRANS[start * 3..(start + count) * 3];
+        let su2 = &super::generated_data::SPIN_OP_SU2[start * 4..(start + count) * 4];
+        (rots, trans, su2)
+    }
+
     /// Rotation matrices for PIR operations, 9 i32 per op, same order as [`Self::characters`].
     ///
     /// Used to build H_ops→PIR index mapping for the Wigner test.

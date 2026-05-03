@@ -636,6 +636,139 @@ fn cir_char_at(cir_chars: &[f64], op_idx: usize) -> Complex64 {
     }
 }
 
+// ── Spinor (double-group) operations ───────────────────────────────────────
+
+/// Compose two SU(2) 4-vectors (Bilbao convention: stored as [v0,v1,v2,v3]).
+///
+/// The exact multiplication rule depends on the Bilbao data format.
+/// Currently uses component-wise heuristic: result = (a0*b0 - a1*b1 - a2*b2 - a3*b3, ...)
+/// treating the vector as a quaternion (w, x, y, z).
+/// Returns the composed SU(2) 4-vector.
+pub fn su2_compose(a: &[f64; 4], b: &[f64; 4]) -> [f64; 4] {
+    // Quaternion multiplication: (w1, x1, y1, z1) * (w2, x2, y2, z2)
+    // Assumes [w, x, y, z] order.
+    // If the actual Bilbao order is different, this function is the single
+    // place to change the convention.
+    [
+        a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
+        a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+        a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
+        a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0],
+    ]
+}
+
+/// Check if two SU(2) vectors are the same up to a sign (central element Ē).
+///
+/// Returns `Some(false)` if they match, `Some(true)` if a = -b (central differs),
+/// `None` if they don't match at all.
+pub fn su2_same_up_to_sign(a: &[f64; 4], b: &[f64; 4]) -> Option<bool> {
+    let dot = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
+    let na = (a[0]*a[0] + a[1]*a[1] + a[2]*a[2] + a[3]*a[3]).sqrt();
+    let nb = (b[0]*b[0] + b[1]*b[1] + b[2]*b[2] + b[3]*b[3]).sqrt();
+    if na < 1e-10 || nb < 1e-10 {
+        return None;
+    }
+    let cos = dot / (na * nb);
+    if (cos - 1.0).abs() < 1e-6 {
+        Some(false)  // same lift
+    } else if (cos + 1.0).abs() < 1e-6 {
+        Some(true)   // opposite lift (central Ē)
+    } else {
+        None  // unrelated
+    }
+}
+
+// ── Spinor (double-group) Wigner test ──────────────────────────────────────
+
+/// Wigner test for spinor (double-valued) irreps.
+///
+/// Unlike scalar irreps, spinor irreps live in the double group where each
+/// spatial operation {R|t} has two lifts: g and Ēg (Ē = 2π rotation = -1).
+/// The spinor character table from spin.dat assigns characters to specific
+/// double-group elements, indexed by SU(2) lift.
+///
+/// # Algorithm
+///
+/// For each antiunitary operation b = a₀h in the magnetic little group:
+/// 1. Compute the spatial square (a₀h)² using Seitz composition
+/// 2. Compose the SU(2) lifts: U(a₀)·U(h) → U(a₀h), then square
+/// 3. Find the matching spin op by (rotation, translation, SU2)
+/// 4. Read the spinor character; if SU2 differs by central Ē, negate it
+/// 5. Sum with Bloch phase
+///
+/// # Returns
+/// `None` if spin ops are unavailable (fallback to Unsupported).
+pub fn wigner_classify_spinor(
+    spin_chars: &[f64],         // first n values = little-group characters
+    n_lg_ops: usize,            // number of little-group ops
+    spin_op_rots: &[i32],       // 9 per spin op, in spin.dat order
+    spin_op_trans: &[f64],      // 3 per spin op
+    spin_op_su2: &[f64],        // 4 per spin op
+    unitary_mag_indices: &[usize],
+    mag_seitz: &[SeitzOp],
+    h_seitz: &[SeitzOp],
+    a0_idx: usize,
+    kx: i8, ky: i8, kz: i8, kd: i8,
+) -> Option<CorepType> {
+    if spin_op_rots.is_empty() || n_lg_ops == 0 {
+        return None;
+    }
+    let n_spin_ops = spin_op_rots.len() / 9;
+
+    // Build mapping: H_ops (spglib order) → spin_op index (spin.dat order)
+    // by matching rotation matrices.
+    let h_to_spin = build_h_to_cir_map(h_seitz, spin_op_rots)?;
+
+    let a0 = &mag_seitz[a0_idx];
+    let mut w_sum = Complex64::ZERO;
+
+    for &h_mag_idx in unitary_mag_indices {
+        let h = &mag_seitz[h_mag_idx];
+        let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
+        let h_spatial = SeitzOp::new(h.rot, h.trans, false);
+        let (g0h, l1) = compose_seitz(&g0_spatial, &h_spatial);
+        let (sq, lattice_sq) = square_seitz(&g0h);
+
+        // Match the spatial square to an H operation
+        if let Some(m) = find_seitz(&sq.rot, &sq.trans, h_seitz) {
+            let r_l1 = mat_vec_i32(&g0h.rot, &l1);
+            let total_lattice = add3(
+                &add3(&lattice_sq, &m.lattice_shift),
+                &add3(&l1, &r_l1),
+            );
+            let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
+
+            // Get the spin op index for this H op
+            let spin_idx = h_to_spin[m.op_index];
+            if spin_idx < n_lg_ops && spin_idx < spin_chars.len() {
+                let chi = spin_chars[spin_idx];
+                let contrib = Complex64::new(chi, 0.0) * phase;
+                w_sum += contrib;
+                eprintln!("    spinor: h[{}]→H[{}]→spin[{}] Lz_par={} ph={:.2} χ={:.4} → {:.2}",
+                    h_mag_idx, m.op_index, spin_idx,
+                    ((total_lattice[2] % 2) + 2) % 2,
+                    phase, chi, contrib);
+            }
+        }
+    }
+
+    let n = (unitary_mag_indices.len() as f64).max(1.0);
+    let w = w_sum / n;
+    eprintln!("DEBUG wigner_classify_spinor: W=({:.8},{:.8}) |W|={:.4} n_ops={} k=({},{},{})/{}",
+        w.re, w.im, w.norm(), unitary_mag_indices.len(), kx, ky, kz, kd);
+
+    let tol = 1e-6;
+    if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
+        Some(CorepType::A)
+    } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
+        Some(CorepType::B)
+    } else if w.norm() < tol {
+        Some(CorepType::C)
+    } else {
+        None  // non-quantized → Unsupported
+    }
+}
+
 // ── Conjugate representation & partner finding ──────────────────────────────
 
 /// Compute the conjugate character of Δ under anti-unitary operation a₀.
