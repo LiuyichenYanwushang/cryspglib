@@ -334,6 +334,77 @@ pub fn wigner_classify(
     }
 }
 
+// ── CIR-based Wigner test ───────────────────────────────────────────────────
+
+/// Wigner test using CIR (complex) character tables.
+///
+/// For compound PIR irreps like Z1Z4 = Z1 ⊕ Z4, the underlying CIR
+/// irreps Z1, Z4 are complex and may individually give Type C under
+/// the antiunitary operation, even though the combined PIR gives Type A.
+///
+/// This function is called once per CIR component.  The caller (in
+/// `compute_corepresentation`) should:
+/// 1. Check `irrep.cir_component_count() > 0`
+/// 2. Loop over components, call this function for each
+/// 3. If any component gives Type C, the overall corep is Type C
+///
+/// $$ W = \frac{1}{|H|} \sum_{h \in H} \chi_{\text{CIR}}((a_0 h)^2) $$
+///
+/// where $$\chi_{\text{CIR}}$$ is complex-valued.  W is complex; we
+/// classify by $$|W| < 0.01$$ → Type C, Re(W) > 0 → Type A, else Type B.
+pub fn wigner_classify_cir(
+    cir_chars: &[f64],  // (re, im) pairs for one CIR component
+    unitary_mag_indices: &[usize],
+    mag_seitz: &[SeitzOp],
+    h_seitz: &[SeitzOp],
+    a0_idx: usize,
+    kx: i8, ky: i8, kz: i8, kd: i8,
+) -> CorepType {
+    let a0 = &mag_seitz[a0_idx];
+    let mut w_re: f64 = 0.0;
+    let mut w_im: f64 = 0.0;
+
+    for &h_mag_idx in unitary_mag_indices {
+        let h = &mag_seitz[h_mag_idx];
+        let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
+        let h_spatial = SeitzOp::new(h.rot, h.trans, false);
+        let (g0h, _) = compose_seitz(&g0_spatial, &h_spatial);
+        let (sq, lattice_sq) = square_seitz(&g0h);
+
+        if let Some(m) = find_seitz(&sq.rot, &sq.trans, h_seitz) {
+            let total_lattice = [
+                lattice_sq[0] + m.lattice_shift[0],
+                lattice_sq[1] + m.lattice_shift[1],
+                lattice_sq[2] + m.lattice_shift[2],
+            ];
+            let (ph_re, ph_im) = bloch_phase(kx, ky, kz, kd, &total_lattice);
+            // CIR character at this operation
+            let chi_re = if 2 * m.op_index + 1 < cir_chars.len() {
+                cir_chars[2 * m.op_index]
+            } else { 0.0 };
+            let chi_im = if 2 * m.op_index + 1 < cir_chars.len() {
+                cir_chars[2 * m.op_index + 1]
+            } else { 0.0 };
+            // Complex multiplication: χ · phase
+            w_re += chi_re * ph_re - chi_im * ph_im;
+            w_im += chi_re * ph_im + chi_im * ph_re;
+        }
+    }
+
+    let n = (unitary_mag_indices.len() as f64).max(1.0);
+    let w_re = w_re / n;
+    let w_im = w_im / n;
+    let w_abs = (w_re * w_re + w_im * w_im).sqrt();
+
+    if w_abs < 0.01 {
+        CorepType::C
+    } else if w_re > 0.0 {
+        CorepType::A
+    } else {
+        CorepType::B
+    }
+}
+
 // ── Conjugate representation & partner finding ──────────────────────────────
 
 /// Compute the conjugate character of Δ under anti-unitary operation a₀.

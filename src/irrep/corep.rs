@@ -227,9 +227,24 @@ pub fn compute_corepresentation(
     let antiunitary: Vec<usize> = mag_lg.iter()
         .filter(|&&i| mag_ops.timerev[i]).copied().collect();
 
-    // 7. Wigner test with full Seitz arithmetic
+    // 7. Wigner test: use CIR complex chars for compound irreps
     let corep_type = if antiunitary.is_empty() {
         CorepType::A
+    } else if h_irrep.cir_component_count() > 0 {
+        // Compound irrep: test each CIR component individually.
+        // If ANY component gives Type C, the overall corep is Type C
+        // (the antiunitary operation pairs this component with another irrep).
+        let mut any_c = false;
+        for comp in 0..h_irrep.cir_component_count() {
+            let cir = h_irrep.cir_component_chars(comp);
+            if cir.is_empty() { continue; }
+            let ct = wigner::wigner_classify_cir(
+                cir, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+                h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
+            );
+            if ct == CorepType::C { any_c = true; break; }
+        }
+        if any_c { CorepType::C } else { CorepType::A }
     } else {
         wigner::wigner_classify(
             h_chars, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
@@ -570,6 +585,53 @@ mod tests {
 
         // 1.2 (BNS) → UNI 2, simplest non-trivial magnetic SG
         assert!(identify_unitary_subgroup(2).is_some(), "UNI 2 should work");
+    }
+
+    /// Cross-validate: for all compound irreps, PIR χ = Σ CIR component χ.
+    #[test]
+    fn test_cir_pir_cross_validation() {
+        let mut checked = 0usize;
+        let mut mismatches = 0usize;
+        // Iterate over all SGs
+        for sg in 1u8..=230 {
+            for ir in crate::irrep::query::irreps_of(sg) {
+                let n_comp = ir.cir_component_count();
+                if n_comp == 0 { continue; }
+
+                let pir = ir.characters();
+                let n_ops = pir.len();
+                if n_ops == 0 { continue; }
+
+                // Sum CIR component characters
+                let mut cir_sum_re = vec![0.0f64; n_ops];
+                let mut cir_sum_im = vec![0.0f64; n_ops];
+                for c in 0..n_comp {
+                    let cir = ir.cir_component_chars(c);
+                    if cir.len() < n_ops * 2 {
+                        mismatches += 1;
+                        break;
+                    }
+                    for op in 0..n_ops {
+                        cir_sum_re[op] += cir[2 * op];     // real part
+                        cir_sum_im[op] += cir[2 * op + 1]; // imag part
+                    }
+                }
+
+                for op in 0..n_ops {
+                    let diff_re = (pir[op] - cir_sum_re[op]).abs();
+                    let diff_im = cir_sum_im[op].abs();
+                    if diff_re > 0.01 || diff_im > 0.01 {
+                        mismatches += 1;
+                        eprintln!("MISMATCH SG{} {} op{}: PIR={:.4} CIR_sum=({:.4},{:.4})",
+                            sg, ir.ml, op, pir[op], cir_sum_re[op], cir_sum_im[op]);
+                    }
+                }
+                checked += 1;
+            }
+        }
+        println!("CIR↔PIR cross-check: {} compound irreps, {} mismatches", checked, mismatches);
+        assert_eq!(mismatches, 0, "All CIR sums must match PIR characters");
+        assert!(checked > 500, "Should cover at least 500 compound irreps, got {}", checked);
     }
 
     /// Test BNS/OG → UNI lookup functions.
