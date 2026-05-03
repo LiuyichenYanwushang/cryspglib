@@ -1,7 +1,7 @@
 //! Validation against Bilbao Crystallographic Server corep data.
 //!
 //! Reference: https://cryst.ehu.es/cgi-bin/cryst/programs/corepresentations.pl
-//! Magnetic SG 128.406 (P4'/m'nc', UNI 1073), Z point = (0, 0, 1/2)
+//! Magnetic SG 128.406 (P4'/m'nc', UNI 1066), Z point = (0, 0, 1/2)
 
 use cryspglib::irrep::corep::*;
 use cryspglib::irrep::query::irreps_of;
@@ -15,7 +15,7 @@ use cryspglib::irrep::types::IrrepRecord;
 /// Source: k-Subgroupsmag.html (corepresentations_out.pl)
 #[test]
 fn bcs_sg128_406_z_character_table() {
-    let uni: u16 = 1073;
+    let uni: usize = 1066;
 
     // ── BCS reference: magnetic little co-group character table ──
     // χ(g) = Tr(D(g)) for each of the 16 operations.

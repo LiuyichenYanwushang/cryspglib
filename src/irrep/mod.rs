@@ -100,6 +100,7 @@ pub mod generated_data;
 pub mod preamble;
 pub mod query;
 pub mod corep;
+pub mod wigner;
 
 pub mod triclinic;
 pub mod monoclinic;

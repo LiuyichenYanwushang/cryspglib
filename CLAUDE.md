@@ -341,5 +341,30 @@ cargo test --package cryspglib --test irrep_validation
 - PIR_data 存储**实表示** (PIR), CIR_data 存储**复表示** (CIR)
 - CIR 是 PIR 的超集: CIR→PIR 可转换 (取实部), PIR→CIR 不可逆
 - 生成器从 zip 直接读取, 不需要解压
-- `domains` 和 `arms` 是 `u16` (不是 u8), 因为值可达 384
+- `domains` 和 `arms` 是 `usize`, 因为值可达 384
+
+### 磁群编号系统
+
+**ISOTROPY `mag_nlabel` 索引 = spglib UNI 编号** (1-1651)。两者使用同一套编号系统。
+`MagneticIsotropyRecord.mag_sg` 存储的就是 UNI 号，可以直接传给 `corepresentation()`。
+
+| 编号类型 | 128.406 示例 | 说明 |
+|---------|-------------|------|
+| UNI | 1066 | spglib 内部编号，`MagneticSpaceGroupType.uni_number` |
+| BNS | `"128.406"` | Belov-Neronova-Smirnova 标签，`MagneticSpaceGroupType.bns_number` |
+| OG | `"128.8.1073"` | Opechowski-Guccione 标签，末尾 1073 是 **Litvin 编号**（非 UNI！） |
+| Litvin | 1073 | Litvin 编号，出现于 OG 标签末尾，易与 UNI 混淆 |
+
+### corep API (`src/irrep/corep.rs`)
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `identify_unitary_subgroup` | `(uni: usize) -> Option<usize>` | 从磁群 UNI 识别其 unitary subgroup 的 SG 号 |
+| `uni_from_bns` | `(bns: &str) -> Option<usize>` | BNS 标签 → UNI 编号 |
+| `uni_from_og` | `(og: &str) -> Option<usize>` | OG 标签 → UNI 编号 |
+| `get_magnetic_operations` | `(uni: usize) -> Option<MagneticOps>` | 获取磁群对称操作 |
+
+`IrrepRecord::corepresentation(uni)` 对非磁 irrep 现场计算磁共表示，无需预存表格。
+
+**已验证**: 128.406 (UNI 1066) 的 unitary subgroup = SG 118 (P-4n2)，与 BCS 一致。
 

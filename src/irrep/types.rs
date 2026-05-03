@@ -227,7 +227,7 @@ impl IsotropyRecord {
 #[derive(Debug, Clone, Copy)]
 pub struct IsotropyRecord {
     /// Subgroup space group number (1–230)
-    pub sg: u16,
+    pub sg: usize,
     /// Hermann-Mauguin symbol
     pub symbol: &'static str,
     /// Schoenflies symbol
@@ -235,9 +235,9 @@ pub struct IsotropyRecord {
     /// Order-parameter direction label
     pub direction: &'static str,
     /// Number of domains
-    pub domains: u16,
+    pub domains: usize,
     /// Number of arms in the star
-    pub arms: u16,
+    pub arms: usize,
 }
 
 /// A magnetic isotropy subgroup: the lower-symmetry magnetic space group
@@ -246,8 +246,8 @@ pub struct IsotropyRecord {
 /// the possible magnetic structures that can form.
 #[derive(Debug, Clone, Copy)]
 pub struct MagneticIsotropyRecord {
-    /// Magnetic space group number (1–1651, ISOTROPY Suite numbering)
-    pub mag_sg: u16,
+    /// Magnetic space group UNI number (1–1651)
+    pub mag_sg: usize,
     /// BNS (Belov-Neronova-Smirnova) symbol, e.g. `"Pm'mm"`
     pub bns_label: &'static str,
     /// ISOTROPY label, e.g. `"47.251"`

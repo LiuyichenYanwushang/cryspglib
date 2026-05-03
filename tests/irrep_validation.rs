@@ -250,7 +250,7 @@ fn sg221_gm4m_subgroups_are_polar() {
     let subs = gm4m.subgroups();
     assert!(!subs.is_empty(), "GM4- should have subgroups");
 
-    let sg_nums: Vec<u16> = subs.iter().map(|s| s.sg).collect();
+    let sg_nums: Vec<usize> = subs.iter().map(|s| s.sg).collect();
     assert!(
         sg_nums.contains(&160),
         "GM4- should have #160 R3m. Found: {:?}",
@@ -485,10 +485,10 @@ fn sg137_r1_subgroups() {
     let subs = r1.subgroups();
     assert_eq!(subs.len(), 13, "R1 should have 13 subgroups");
 
-    let sg_nums: Vec<u16> = subs.iter().map(|s| s.sg).collect();
+    let sg_nums: Vec<usize> = subs.iter().map(|s| s.sg).collect();
 
     // 验证集合 (忽略顺序)
-    let expected: Vec<u16> = vec![38, 11, 109, 119, 15, 6, 44, 44, 2, 9, 5, 8, 1];
+    let expected: Vec<usize> = vec![38, 11, 109, 119, 15, 6, 44, 44, 2, 9, 5, 8, 1];
     let mut actual_sorted = sg_nums.clone();
     actual_sorted.sort();
     let mut expected_sorted = expected.clone();
