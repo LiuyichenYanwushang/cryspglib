@@ -88,8 +88,10 @@ pub struct IrrepRecord {
     pub dim: u8,
     /// Image symbol: `"A1a"`, `"C24c"`, `"B6a"`
     pub image: &'static str,
-    /// Lifshitz condition satisfied
+    /// Lifshitz condition satisfied (scalar irreps only)
     pub lifshitz: bool,
+    /// Whether this is a double-valued (spinor) irrep
+    pub spinor: bool,
 
     /// k-vector numerator x (fractional reciprocal coordinate)
     pub kx: i8,
@@ -102,7 +104,7 @@ pub struct IrrepRecord {
 
     // ── internal: character table + matrix pointers ──
     /// Start index into [`CHARACTERS`]
-    pub(crate) _char_start: u16,
+    pub(crate) _char_start: u32,
     /// Number of operators (= number of character values)
     pub(crate) _char_count: u16,
     /// Start index into [`MATRICES`] (u32: ~1M entries total)
@@ -132,7 +134,7 @@ impl IrrepRecord {
             return &[];
         }
         &self::generated_data::CHARACTERS
-            [self._char_start as usize..(self._char_start + self._char_count) as usize]
+            [self._char_start as usize..(self._char_start as usize + self._char_count as usize)]
     }
 
     /// Full irrep matrices for each operator, flattened: op0(row0,row1,...), op1(...), ...

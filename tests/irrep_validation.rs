@@ -25,13 +25,15 @@ fn all_sgs_have_irreps() {
     );
 }
 
-/// 每个 irrep 都有非空的四个标签
+/// 每个标量 irrep 都有非空标签，双值 irrep 至少有 ML 标签
 #[test]
 fn every_irrep_has_labels() {
     for (i, ir) in IRREPS.iter().enumerate() {
         assert!(!ir.ml.is_empty(), "irrep {} has empty ML label", i);
-        assert!(!ir.bc.is_empty(), "irrep {} has empty BC label", i);
-        assert!(!ir.kov.is_empty(), "irrep {} has empty Kov label", i);
+        if !ir.spinor {
+            assert!(!ir.bc.is_empty(), "scalar irrep {} has empty BC label", i);
+            assert!(!ir.kov.is_empty(), "scalar irrep {} has empty Kov label", i);
+        }
     }
 }
 
@@ -48,11 +50,14 @@ fn sg_numbers_valid() {
     }
 }
 
-/// Image 标签格式: 首字母大写 + 数字 + 小写字母
+/// Image 标签格式: 标量 irrep 的 image 首字母大写
 #[test]
 fn image_labels_well_formed() {
     for (i, ir) in IRREPS.iter().enumerate() {
         let img = ir.image;
+        if ir.spinor {
+            continue; // spinor irreps don't have image labels yet
+        }
         assert!(!img.is_empty(), "irrep {}: empty image", i);
         assert!(
             img.chars().next().unwrap().is_ascii_uppercase(),
@@ -133,7 +138,7 @@ fn sg2_p1bar_irreps() {
     assert!(labels.contains(&"GM1-"), "P-1 should have GM1-");
 }
 
-/// SG #221 Pm-3m: Γ 点有 10 个 irrep (5 偶 + 5 奇)
+/// SG #221 Pm-3m: Γ 点有 10 个标量 irrep + 6 个双值 irrep
 #[test]
 fn sg221_gamma_irreps() {
     let irreps = irreps_of(221);
@@ -143,17 +148,16 @@ fn sg221_gamma_irreps() {
         irreps.len()
     );
 
-    // Γ 点 irrep
+    // Γ 点 irrep (scalar + spinor)
     let gamma: Vec<_> = irreps
         .iter()
         .filter(|r| kpoint_label(r.ml) == "GM")
         .collect();
-    assert_eq!(
-        gamma.len(),
-        10,
-        "#221 should have 10 Γ irreps, got {}",
-        gamma.len()
-    );
+    assert!(gamma.len() >= 10, "#221 should have >=10 Γ irreps, got {}", gamma.len());
+
+    // Scalar-only Γ irreps
+    let gamma_scalar: Vec<_> = gamma.iter().filter(|r| !r.spinor).collect();
+    assert_eq!(gamma_scalar.len(), 10, "#221 should have 10 scalar Γ irreps");
 
     // 检查关键 irrep
     let find_ml = |ml: &str| gamma.iter().find(|r| r.ml == ml);
@@ -341,16 +345,16 @@ fn sg221_kov_labels_well_formed() {
     }
 }
 
-/// X 点的 X2 和 X3 标签在 ML 和 Kovalev 中顺序可能不同 (已知的 convention 差异)
+/// X 点的标量 irrep 标签应完整 (10 个)
 #[test]
 fn sg221_x_labels_exist() {
     let irreps = irreps_of(221);
     let x_labels: Vec<&str> = irreps
         .iter()
-        .filter(|r| kpoint_label(r.ml) == "X")
+        .filter(|r| !r.spinor && kpoint_label(r.ml) == "X")
         .map(|r| r.ml)
         .collect();
-    assert_eq!(x_labels.len(), 10, "#221 should have 10 X-point irreps");
+    assert_eq!(x_labels.len(), 10, "#221 should have 10 scalar X-point irreps");
     for label in &["X1+", "X2+", "X3+", "X4+", "X5+", "X1-", "X2-", "X3-", "X4-", "X5-"] {
         assert!(
             x_labels.contains(label),
@@ -364,10 +368,13 @@ fn sg221_x_labels_exist() {
 // 数据库总容量验证
 // ==========================================================================
 
-/// 总共 4777 个 irrep (Stokes & Hatch 1988 中记录的数量)
+/// 总共 4777 个标量 irrep + 3611 个双值 (spinor) irrep
 #[test]
 fn total_irrep_count() {
-    assert_eq!(IRREPS.len(), 4777, "Expected 4777 total irreps");
+    let scalar = IRREPS.iter().filter(|r| !r.spinor).count();
+    let spinor = IRREPS.iter().filter(|r| r.spinor).count();
+    assert_eq!(scalar, 4777, "Expected 4777 scalar irreps");
+    assert!(spinor >= 3000, "Expected >=3000 spinor irreps, got {}", spinor);
 }
 
 /// ISOTROPY_SUBGROUPS 总共 15239 条 (书中记录)
@@ -446,21 +453,18 @@ fn sg1_bc_uses_different_k_labels() {
     assert_ne!(x1.bc, x1.ml, "X1 BC should differ (BC uses B1)");
 }
 
-/// 全局: 2162 个 irrep 的 BC ≠ ML
+/// 全局: 2162 个标量 irrep 的 BC ≠ ML
 #[test]
 fn total_bc_ml_differences() {
     let mut diff = 0u32;
-    for ir in IRREPS.iter() {
-        // Strip LaTeX markup to compare raw labels
+    for ir in IRREPS.iter().filter(|r| !r.spinor) {
         let bc_clean = ir.bc.replace("\\", "").replace("{", "").replace("}", "")
             .replace("^", "").replace("_", "").replace("$", "");
-        // ML label without LaTeX
         let ml_clean = ir.ml.replace("+", "").replace("-", "");
         if !bc_clean.contains(&ml_clean) && !ml_clean.contains(&bc_clean) {
             diff += 1;
         }
     }
-    // 至少 2000 个应该不同（已知事实: 45% = 2162）
     assert!(diff > 2000, "Expected >2000 BC≠ML differences, got {}", diff);
     assert!(diff < 3000, "Too many differences: {}", diff);
 }
@@ -582,14 +586,12 @@ fn dump_sg142_x_point() {
     }
 }
 
-/// 验证 k 点坐标与 label 前缀的一致性
-/// 例如: 所有 "X" 前缀的 irrep 应该有相同的 k 点
+/// 验证 k 点坐标与 label 前缀的一致性 (标量 irrep)
 #[test]
 fn same_prefix_same_kpoint() {
     let irs = irreps_of(221);
-    // Group by k-point
     let mut groups: std::collections::HashMap<&str, Vec<&IrrepRecord>> = std::collections::HashMap::new();
-    for ir in irs {
+    for ir in irs.iter().filter(|r| !r.spinor) {
         let k = ir.k_label();
         groups.entry(k).or_default().push(ir);
     }

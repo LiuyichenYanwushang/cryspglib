@@ -945,8 +945,18 @@ def parse_all():
     cir_data, cir_matrices = _parse_cir_characters(needed_labels=needed_cir)
     print(f"  Parsed {len(cir_data)} CIR character entries, {len(cir_matrices)} matrix entries")
 
+    print("Parsing spinor (double-valued) irrep data from irrepTables...")
+    try:
+        from parse_spinor_data import parse_all_spinor
+        spinor_irreps = parse_all_spinor()
+        print(f"  Parsed {len(spinor_irreps)} spinor irreps")
+    except (ImportError, FileNotFoundError) as e:
+        print(f"  Skipping spinor data: {e}")
+        spinor_irreps = []
+
     return {
-        "n_irreps": n_irreps,
+        "n_irreps": n_irreps + len(spinor_irreps),
+        "spinor_irreps": spinor_irreps,
         "ml_labels": ml_labels,
         "bc_labels": bc_labels,
         "kov_labels": kov_labels,
@@ -1377,6 +1387,20 @@ def generate_rust_data(data):
     if cir_mat_filled > 0:
         print(f"  (CIR matrix conversion filled {cir_mat_filled} tables)")
 
+    # ── Spinor (double-valued) irrep data ──
+    spinor_irreps = data.get("spinor_irreps", [])
+    spinor_starts = []
+    spinor_counts = []
+    for sir in spinor_irreps:
+        spinor_starts.append(len(chars_flat))
+        spinor_counts.append(len(sir["characters"]))
+        chars_flat.extend(sir["characters"])
+        # No matrices for spinor irreps
+        mat_starts.append(len(matrices_flat))
+        mat_counts.append(0)
+    if spinor_irreps:
+        print(f"  Added {len(spinor_irreps)} spinor irreps to database")
+
     lines = []
     lines.append("// Auto-generated from iso_data files by scripts/generate_irrep_data.py")
     lines.append("// DO NOT EDIT MANUALLY")
@@ -1417,35 +1441,38 @@ def generate_rust_data(data):
     lines.append("")
 
     # ── SG index ──
+    # Build per-SG entry order: scalar entries first, then spinor, contiguous per SG
+    sg_entries = defaultdict(list)
+    for i in range(len(ml)):
+        sg_entries[sg[i]].append(("scalar", i))
+    for i, sir in enumerate(spinor_irreps):
+        sg_entries[sir["sg"]].append(("spinor", i))
+
     lines.append("/// SG# → (start_index, count) into IRREPS")
-    lines.append("pub static SG_IRREP_INDEX: [(u16, u16); 231] = [")
-    # Build index
-    sg_to_irreps = defaultdict(list)
-    for i, s in enumerate(sg):
-        sg_to_irreps[s].append(i)
+    total_irreps = len(ml) + len(spinor_irreps)
+    lines.append(f"pub static SG_IRREP_INDEX: [(u16, u16); 231] = [")
     lines.append("    (0, 0),  // dummy for index 0")
+    irrep_idx = 0
     for s in range(1, 231):
-        indices = sg_to_irreps.get(s, [])
-        if indices:
-            start = indices[0]
-            count = len(indices)
+        entries = sg_entries.get(s, [])
+        if entries:
+            start = irrep_idx
+            count = len(entries)
+            irrep_idx += count
         else:
             start = 0
             count = 0
         lines.append(f"    ({start}, {count}),  // SG {s}")
     lines.append("];")
-    lines.append("")
 
-    # ── Irrep records ──
-    lines.append("/// All irreducible representations, ordered by SG then k-point.")
-    lines.append(f"pub static IRREPS: [IrrepRecord; {len(ml)}] = [")
-
+    # Rebuild the IrrepRecord generation loop to emit entries in SG order
+    # First, pre-compute all scalar IrrepRecord data (same as before)
     # ── Pre-compute isotropy subgroup ranges per irrep ──
     iso_starts = []
     iso_counts = []
     for i in range(len(ml)):
         if i < len(data["iso_irrep_ptr"]):
-            s = data["iso_irrep_ptr"][i] - 1  # 1-based → 0-based
+            s = data["iso_irrep_ptr"][i] - 1
         else:
             s = 0
         if i + 1 < len(data["iso_irrep_ptr"]):
@@ -1455,14 +1482,13 @@ def generate_rust_data(data):
         iso_starts.append(s)
         iso_counts.append(max(0, e - s))
 
-    # ── Pre-compute magnetic isotropy subgroup ranges per irrep ──
     mag_iso_ptr = data.get("mag_iso_ptr", [])
     mag_iso_sg_arr = data.get("mag_iso_sg", [])
     mag_iso_starts = []
     mag_iso_counts = []
     for i in range(len(ml)):
         if i < len(mag_iso_ptr):
-            s = mag_iso_ptr[i] - 1  # 1-based → 0-based
+            s = mag_iso_ptr[i] - 1
         else:
             s = 0
         if i + 1 < len(mag_iso_ptr):
@@ -1472,6 +1498,7 @@ def generate_rust_data(data):
         mag_iso_starts.append(s)
         mag_iso_counts.append(max(0, e - s))
 
+    scalar_records = []  # list of dicts with all the generated fields
     for i in range(len(ml)):
         ml_label = ml[i]
         bc_label = bc[i]
@@ -1483,56 +1510,77 @@ def generate_rust_data(data):
         iso_c = iso_counts[i]
         mag_iso_s = mag_iso_starts[i]
         mag_iso_c = mag_iso_counts[i]
-
-        # Image label
         if 1 <= img_code <= len(img_labels):
             img_name = img_labels[img_code - 1]
         else:
             img_name = "?"
-
-        # Dimension from image label first letter
         if img_name and img_name[0] in IMAGE_DIM:
             dim = IMAGE_DIM[img_name[0]]
         else:
             dim = 1
-
-        # LaTeX B&C label
         latex_bc = label_to_latex(bc_label)
         latex_kov = label_to_latex(kov_label)
-
-        # k-vector lookup
         kx, ky, kz, kd = _lookup_kvec(kvec_map, sg_num, ml_label)
-
-        # Character table pointers
         char_s = char_starts[i]
         char_c = char_counts[i]
-
-        # Matrix data pointers
         mat_s = mat_starts[i]
         mat_c = mat_counts[i]
+        scalar_records.append({
+            "sg": sg_num, "ml": ml_label, "bc": latex_bc, "kov": latex_kov,
+            "dim": dim, "img": img_name, "lifshitz": lif_val == 1,
+            "spinor": False, "kx": kx, "ky": ky, "kz": kz, "kd": kd,
+            "char_s": char_s, "char_c": char_c,
+            "mat_s": mat_s, "mat_c": mat_c,
+            "iso_s": iso_s, "iso_c": iso_c,
+            "mag_iso_s": mag_iso_s, "mag_iso_c": mag_iso_c,
+        })
 
-        lines.append(f"    IrrepRecord {{")
-        lines.append(f"        sg: {sg_num},")
-        lines.append(f'        ml: "{escape_rust_str(ml_label)}",')
-        lines.append(f'        bc: "{escape_rust_str(latex_bc)}",')
-        lines.append(f'        kov: "{escape_rust_str(latex_kov)}",')
-        lines.append(f"        dim: {dim},")
-        lines.append(f'        image: "{img_name}",')
-        lines.append(f"        lifshitz: {str(lif_val == 1).lower()},")
-        lines.append(f"        kx: {kx},")
-        lines.append(f"        ky: {ky},")
-        lines.append(f"        kz: {kz},")
-        lines.append(f"        kd: {kd},")
-        lines.append(f"        _char_start: {char_s},")
-        lines.append(f"        _char_count: {char_c},")
-        lines.append(f"        _mat_start: {mat_s},")
-        lines.append(f"        _mat_count: {mat_c},")
-        lines.append(f"        _iso_start: {iso_s},")
-        lines.append(f"        _iso_count: {iso_c},")
-        lines.append(f"        _mag_iso_start: {mag_iso_s},")
-        lines.append(f"        _mag_iso_count: {mag_iso_c},")
-        lines.append(f"    }},")
+    # Pre-compute spinor IrrepRecord data
+    spinor_records = []
+    for idx, sir in enumerate(spinor_irreps):
+        latex_bc = label_to_latex(sir["ml_label"])
+        spinor_records.append({
+            "sg": sir["sg"], "ml": sir["ml_label"], "bc": latex_bc, "kov": "",
+            "dim": sir["dim"], "img": "?", "lifshitz": False,
+            "spinor": True,
+            "kx": sir["kx"], "ky": sir["ky"], "kz": sir["kz"], "kd": sir["kd"],
+            "char_s": spinor_starts[idx], "char_c": spinor_counts[idx],
+            "mat_s": 0, "mat_c": 0,
+            "iso_s": 0, "iso_c": 0,
+            "mag_iso_s": 0, "mag_iso_c": 0,
+        })
 
+    # Now emit IrrepRecord entries in SG order
+    lines.append("/// All irreducible representations (scalar + spinor), ordered by SG then k-point.")
+    lines.append(f"pub static IRREPS: [IrrepRecord; {total_irreps}] = [")
+    for s in range(1, 231):
+        for entry_type, entry_idx in sg_entries.get(s, []):
+            if entry_type == "scalar":
+                r = scalar_records[entry_idx]
+            else:
+                r = spinor_records[entry_idx]
+            lines.append(f"    IrrepRecord {{")
+            lines.append(f"        sg: {r['sg']},")
+            lines.append(f'        ml: "{escape_rust_str(r["ml"])}",')
+            lines.append(f'        bc: "{escape_rust_str(r["bc"])}",')
+            lines.append(f'        kov: "{escape_rust_str(r["kov"])}",')
+            lines.append(f"        dim: {r['dim']},")
+            lines.append(f'        image: "{r["img"]}",')
+            lines.append(f"        lifshitz: {str(r['lifshitz']).lower()},")
+            lines.append(f"        spinor: {str(r['spinor']).lower()},")
+            lines.append(f"        kx: {r['kx']},")
+            lines.append(f"        ky: {r['ky']},")
+            lines.append(f"        kz: {r['kz']},")
+            lines.append(f"        kd: {r['kd']},")
+            lines.append(f"        _char_start: {r['char_s']},")
+            lines.append(f"        _char_count: {r['char_c']},")
+            lines.append(f"        _mat_start: {r['mat_s']},")
+            lines.append(f"        _mat_count: {r['mat_c']},")
+            lines.append(f"        _iso_start: {r['iso_s']},")
+            lines.append(f"        _iso_count: {r['iso_c']},")
+            lines.append(f"        _mag_iso_start: {r['mag_iso_s']},")
+            lines.append(f"        _mag_iso_count: {r['mag_iso_c']},")
+            lines.append(f"    }},")
     lines.append("];")
     lines.append("")
 
