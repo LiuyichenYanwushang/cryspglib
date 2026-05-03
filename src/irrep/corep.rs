@@ -95,7 +95,7 @@ use crate::mathfunc::{Mat3I, Vec3};
 use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use super::types::IrrepRecord;
 use super::wigner::{self, filter_little_group, ops_to_seitz, SeitzOp,
-    compose_seitz, square_seitz, find_seitz, bloch_phase};
+    compose_seitz, square_seitz, find_seitz, bloch_phase, mat_vec_i32, add3};
 
 /// Co-representation type from Wigner's test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -782,6 +782,44 @@ mod tests {
         }
 
         let h_irreps = crate::irrep::query::irreps_of(h_sg as u8);
+
+        // Compare magnetic ops with SG 118 standard ops — check for origin shift
+        let h_ops_sg118 = get_parent_operations(h_sg as u8);
+        println!("\n=== Magnetic ops vs SG 118 standard ops ===");
+        println!("Unitary magnetic ops:");
+        for i in 0..mag_ops.len() {
+            if mag_ops.timerev[i] { continue; }
+            let r = &mag_ops.rot[i]; let t = &mag_ops.trans[i];
+            // Find matching H op
+            let h_match = h_ops_sg118.rot.iter().position(|hr| {
+                hr[0][0]==r[0][0] && hr[0][1]==r[0][1] && hr[0][2]==r[0][2]
+                && hr[1][0]==r[1][0] && hr[1][1]==r[1][1] && hr[1][2]==r[1][2]
+                && hr[2][0]==r[2][0] && hr[2][1]==r[2][1] && hr[2][2]==r[2][2]
+            });
+            let dt = h_match.map(|hi| {
+                let ht = &h_ops_sg118.trans[hi];
+                [t[0]-ht[0], t[1]-ht[1], t[2]-ht[2]]
+            });
+            println!("  mag[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3}) H_match={:?} dt={:?}",
+                i, r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2],
+                t[0],t[1],t[2], h_match, dt);
+        }
+        println!("Anti-unitary magnetic ops:");
+        for i in 0..mag_ops.len() {
+            if !mag_ops.timerev[i] { continue; }
+            let r = &mag_ops.rot[i]; let t = &mag_ops.trans[i];
+            println!("  mag[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3})",
+                i, r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2],
+                t[0],t[1],t[2]);
+        }
+        println!("SG 118 standard ops:");
+        for i in 0..h_ops_sg118.len() {
+            let r = &h_ops_sg118.rot[i]; let t = &h_ops_sg118.trans[i];
+            println!("  H[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3})",
+                i, r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2],
+                t[0],t[1],t[2]);
+        }
+
         let k_irreps: Vec<_> = h_irreps.iter()
             .filter(|r| r.k_label() == "Z").collect();
 
@@ -868,6 +906,30 @@ mod tests {
                     cir, &anti_lg, &mag_seitz, &h_seitz,
                     ir.kx, ir.ky, ir.kz, ir.kd);
                 println!("  Direct anti-coset W = {:.4}", w_direct);
+
+                // Try all antiunitary ops as a₀
+                println!("\n  Sweeping a₀ choices:");
+                for &a0_cand in &anti_lg {
+                    let mut w_sum = Complex64::ZERO;
+                    let mut np = 0u32; let mut nm = 0u32;
+                    for &h_mag_idx in &unitary_lg {
+                        let h = &mag_seitz[h_mag_idx];
+                        let g0_sp = SeitzOp::new(mag_seitz[a0_cand].rot, mag_seitz[a0_cand].trans, false);
+                        let h_sp = SeitzOp::new(h.rot, h.trans, false);
+                        let (g0h, l1) = compose_seitz(&g0_sp, &h_sp);
+                        let (sq, lsq) = square_seitz(&g0h);
+                        if let Some(m) = find_seitz(&sq.rot, &sq.trans, &h_seitz) {
+                            let rl1 = mat_vec_i32(&g0h.rot, &l1);
+                            let tl = add3(&add3(&lsq, &m.lattice_shift), &add3(&l1, &rl1));
+                            let ph = bloch_phase(ir.kx, ir.ky, ir.kz, ir.kd, &tl);
+                            let chi = Complex64::new(cir[2*m.op_index], cir[2*m.op_index+1]);
+                            w_sum += chi * ph;
+                            if ph.re > 0.5 { np += 1; } else if ph.re < -0.5 { nm += 1; }
+                        }
+                    }
+                    let w = w_sum / (unitary_lg.len() as f64);
+                    println!("    a₀=mag[{}]: +={} -={} W={:.4}", a0_cand, np, nm, w);
+                }
             }
         }
     }

@@ -175,7 +175,7 @@ pub fn filter_little_group(
 
 /// Multiply a 3×3 integer matrix by a 3D integer vector.
 #[inline]
-fn mat_vec_i32(r: &Mat3I, v: &[i32; 3]) -> [i32; 3] {
+pub fn mat_vec_i32(r: &Mat3I, v: &[i32; 3]) -> [i32; 3] {
     [
         r[0][0] as i32 * v[0] + r[0][1] as i32 * v[1] + r[0][2] as i32 * v[2],
         r[1][0] as i32 * v[0] + r[1][1] as i32 * v[1] + r[1][2] as i32 * v[2],
@@ -185,7 +185,7 @@ fn mat_vec_i32(r: &Mat3I, v: &[i32; 3]) -> [i32; 3] {
 
 /// Add two [i32; 3] vectors.
 #[inline]
-fn add3(a: &[i32; 3], b: &[i32; 3]) -> [i32; 3] {
+pub fn add3(a: &[i32; 3], b: &[i32; 3]) -> [i32; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
 
