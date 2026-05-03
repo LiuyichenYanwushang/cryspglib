@@ -93,7 +93,7 @@
 use crate::mathfunc::{Mat3I, Vec3};
 use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use super::types::IrrepRecord;
-use super::wigner::{self, filter_little_group, ops_to_seitz};
+use super::wigner::{self, filter_little_group, ops_to_seitz, SeitzOp};
 
 /// Co-representation type from Wigner's test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -234,7 +234,7 @@ pub fn compute_corepresentation(
 
     // 8. Build corep character table
     let characters = wigner::build_corep_chars(
-        &corep_type, mag_ops, &mag_lg, &op_map, h_chars,
+        &corep_type, mag_ops, &mag_lg, &op_map, h_chars, None, // partner resolved by caller
     );
 
     let dim = wigner::corep_dim(&corep_type, h_dim);
@@ -345,10 +345,60 @@ pub fn compute_coreps(bns: &str, k_label: &str) -> Option<Vec<(&'static str, Cor
     let k_irreps: Vec<&IrrepRecord> = h_irreps.iter()
         .filter(|r| r.k_label() == k_label).collect();
     if k_irreps.is_empty() { return None; }
+
+    // Pre-compute: convert H ops to Seitz and get anti-unitary representative
+    let h_ops = get_parent_operations(h_sg as u8);
+    let h_seitz = ops_to_seitz(&h_ops);
+    let a0_idx = mag_ops.timerev.iter().position(|&t| t)?; // first anti-unitary
+    let a0 = &wigner::SeitzOp::new(
+        mag_ops.rot[a0_idx], mag_ops.trans[a0_idx], true,
+    );
+
+    // Build character tables for all k-point irreps (for partner finding)
+    let char_tables: Vec<&[f64]> = k_irreps.iter().map(|ir| ir.characters()).collect();
+
     let mut results = Vec::with_capacity(k_irreps.len());
-    for ir in k_irreps {
+    for (i, ir) in k_irreps.iter().enumerate() {
         if let Some(c) = compute_corepresentation(ir, uni, &mag_ops) {
-            results.push((ir.ml, c));
+            // For Type C, find partner and rebuild character table
+            let final_chars = if c.corep_type == CorepType::C {
+                let (conj_chars, _) = wigner::conjugate_chars(
+                    ir.characters(), &h_seitz, a0,
+                    ir.kx, ir.ky, ir.kz, ir.kd,
+                );
+                let other_chars: Vec<&[f64]> = k_irreps.iter()
+                    .enumerate()
+                    .filter(|(j, _)| *j != i)
+                    .map(|(_, r)| r.characters())
+                    .collect();
+                if let Some(partner_idx) = wigner::find_partner(&conj_chars, &other_chars) {
+                    let partner_ir = &k_irreps[if partner_idx >= i { partner_idx + 1 } else { partner_idx }];
+                    let mag_lg = filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+                    let op_map: Vec<Option<usize>> = (0..mag_ops.len())
+                        .map(|mi| {
+                            if mag_ops.timerev[mi] { None }
+                            else {
+                                let r = &mag_ops.rot[mi];
+                                h_ops.rot.iter().position(|hr| {
+                                    hr[0][0] == r[0][0] && hr[0][1] == r[0][1] && hr[0][2] == r[0][2]
+                                    && hr[1][0] == r[1][0] && hr[1][1] == r[1][1] && hr[1][2] == r[1][2]
+                                    && hr[2][0] == r[2][0] && hr[2][1] == r[2][1] && hr[2][2] == r[2][2]
+                                })
+                            }
+                        })
+                        .collect();
+                    wigner::build_corep_chars(
+                        &c.corep_type, &mag_ops, &mag_lg, &op_map,
+                        ir.characters(), Some(partner_ir.characters()),
+                    )
+                } else {
+                    c.characters // fallback: no clear partner found
+                }
+            } else {
+                c.characters
+            };
+
+            results.push((ir.ml, Corepresentation { characters: final_chars, ..c }));
         }
     }
     if results.is_empty() { None } else { Some(results) }

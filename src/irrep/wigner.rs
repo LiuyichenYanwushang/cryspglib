@@ -337,6 +337,140 @@ pub fn wigner_classify(
     }
 }
 
+// ── Conjugate representation & partner finding ──────────────────────────────
+
+/// Compute the conjugate character of Δ under anti-unitary operation a₀.
+///
+/// The conjugate representation is defined as:
+///
+/// $$ \chi^{a_0}(h) = \chi\big(a_0^{-1} h a_0\big)^* $$
+///
+/// where $$a_0^{-1} h a_0$$ is computed via Seitz composition: first conjugate
+/// h by a₀'s spatial inverse, then apply to a₀'s spatial part.
+///
+/// For each unitary op h in H, we compute $$h' = g_0^{-1} \circ h \circ g_0$$
+/// (where g₀ is the spatial part of a₀), find h' in H's operation list,
+/// and read off $$\chi(h')^*$$.
+///
+/// # Arguments
+/// * `h_chars` — character table of irrep Δ_i
+/// * `h_seitz` — H's operations as SeitzOps
+/// * `a0` — the anti-unitary coset representative a₀ = θ·g₀
+/// * `kx, ky, kz, kd` — wave-vector for Bloch phases
+///
+/// # Returns
+/// `(conj_chars, h_to_conj_map)` where `conj_chars[h_idx] = χ(a₀⁻¹ h a₀)*`
+/// and `h_to_conj_map[h_idx]` is the H-index of the conjugated operation.
+pub fn conjugate_chars(
+    h_chars: &[f64],
+    h_seitz: &[SeitzOp],
+    a0: &SeitzOp,
+    kx: i8, ky: i8, kz: i8, kd: i8,
+) -> (Vec<f64>, Vec<Option<usize>>) {
+    let n = h_seitz.len();
+    let mut conj = vec![0.0f64; n];
+    let mut h_to_conj = vec![None; n];
+
+    // g₀⁻¹: inverse of the spatial part of a₀
+    // For orthogonal matrices, R⁻¹ = Rᵀ
+    let g0_inv_rot = {
+        let r = &a0.rot;
+        [
+            [r[0][0], r[1][0], r[2][0]],
+            [r[0][1], r[1][1], r[2][1]],
+            [r[0][2], r[1][2], r[2][2]],
+        ]
+    };
+    // g₀⁻¹ translation: t_inv = -R⁻¹·t
+    let mut g0_inv_trans = [0.0f64; 3];
+    for i in 0..3 {
+        let s = g0_inv_rot[i][0] as f64 * a0.trans[0]
+              + g0_inv_rot[i][1] as f64 * a0.trans[1]
+              + g0_inv_rot[i][2] as f64 * a0.trans[2];
+        g0_inv_trans[i] = -s;
+    }
+    let g0_inv = SeitzOp::new(g0_inv_rot, g0_inv_trans, false);
+
+    for h_idx in 0..n {
+        let h = &h_seitz[h_idx];
+
+        // Compute h' = g₀⁻¹ ∘ h ∘ g₀
+        let (hg0, _) = compose_seitz(h, a0);  // h ∘ g₀ (treat a0 as spatial only)
+        let (h_prime, lattice) = compose_seitz(&g0_inv, &hg0); // g₀⁻¹ ∘ (h ∘ g₀)
+
+        // Find h' in H's operation list
+        if let Some(m) = find_seitz(&h_prime.rot, &h_prime.trans, h_seitz) {
+            let total_lattice = [
+                lattice[0] + m.lattice_shift[0],
+                lattice[1] + m.lattice_shift[1],
+                lattice[2] + m.lattice_shift[2],
+            ];
+            let (phase_re, phase_im) = bloch_phase(kx, ky, kz, kd, &total_lattice);
+            h_to_conj[h_idx] = Some(m.op_index);
+            if m.op_index < h_chars.len() {
+                // χ(a₀⁻¹ h a₀)* : complex conjugate
+                // For real PIR characters, conj = same value
+                // Phase from lattice shift also gets conjugated
+                conj[h_idx] = h_chars[m.op_index] * phase_re
+                    // - phase_im part for conjugation: (a+bi)* = a-bi
+                    // Since h_chars are real for PIR, only the Bloch phase matters
+                    - 0.0; // Im part is 0 for real chars × real phase → conj = same
+            }
+        }
+    }
+
+    (conj, h_to_conj)
+}
+
+/// Find the partner irrep for Type C by comparing conjugate characters.
+///
+/// For each irrep Δ_j of H at the same k-point, compute the overlap
+///
+/// $$ \text{overlap}_{ij} = \frac{1}{|H|}
+///     \sum_{h \in H} \chi_i^{a_0}(h) \cdot \chi_j(h)^* $$
+///
+/// If Δ_j is equivalent to Δ_i^{a₀}, the overlap ≈ 1 (or the dimension d).
+/// For Type C, the partner is the irrep with the highest overlap.
+///
+/// Returns the index of the partner irrep in `candidates`, or `None` if
+/// no clear partner is found (Type A/B case).
+pub fn find_partner(
+    conj_chars: &[f64],
+    candidate_chars: &[&[f64]],  // character tables of candidate irreps
+) -> Option<usize> {
+    let n_ops = conj_chars.len();
+    if n_ops == 0 || candidate_chars.is_empty() {
+        return None;
+    }
+
+    let norm = 1.0 / (n_ops as f64);
+
+    // For each candidate irrep, compute overlap with conjugate
+    let mut best_idx = None;
+    let mut best_overlap = 0.0f64;
+
+    for (j, chars_j) in candidate_chars.iter().enumerate() {
+        if chars_j.len() < n_ops { continue; }
+        let overlap: f64 = (0..n_ops)
+            .map(|h| conj_chars[h] * chars_j[h])
+            .sum();
+        let overlap_norm = overlap.abs() * norm;
+
+        if overlap_norm > best_overlap {
+            best_overlap = overlap_norm;
+            best_idx = Some(j);
+        }
+    }
+
+    // Return partner if overlap is significantly above noise
+    // For n-dimensional irrep, overlap ≈ d²/|H| per operation
+    if best_overlap > 0.1 {
+        best_idx
+    } else {
+        None
+    }
+}
+
 // ── Character table construction ─────────────────────────────────────────────
 
 /// Build the magnetic co-representation character table.
@@ -368,6 +502,7 @@ pub fn build_corep_chars(
     mag_lg_indices: &[usize],
     op_map: &[Option<usize>],
     h_chars: &[f64],
+    partner_chars: Option<&[f64]>,  // for Type C: character table of paired irrep
 ) -> Vec<f64> {
     let n_lg = mag_lg_indices.len();
     let mut chars = vec![0.0; n_lg];
@@ -399,14 +534,18 @@ pub fn build_corep_chars(
                 }
             }
             CorepType::C => {
-                // Paired with conjugate: dimension 2d
+                // Paired with conjugate irrep: dimension 2d
                 if is_anti {
                     chars[out_idx] = 0.0;
                 } else if let Some(hi) = h_idx {
-                    if hi < h_chars.len() {
-                        // 2·Re[χ] — for PIR (real) irreps this is just 2·χ
-                        chars[out_idx] = 2.0 * h_chars[hi];
-                    }
+                    let chi_i = if hi < h_chars.len() { h_chars[hi] } else { 0.0 };
+                    let chi_partner = if let Some(pc) = partner_chars {
+                        if hi < pc.len() { pc[hi] } else { 0.0 }
+                    } else {
+                        // Fallback: assume partner = conjugate of self
+                        chi_i
+                    };
+                    chars[out_idx] = chi_i + chi_partner;
                 }
             }
         }
