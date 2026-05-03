@@ -1529,22 +1529,55 @@ def generate_rust_data(data):
                     comp_chars = []
                     break
 
-            # ── Identity character validation ──
-            # Compound decomposition is only valid if sum(CIR χ_id) == PIR χ_id.
-            # This catches cases where _decompose_compound_label incorrectly
-            # splits a non-compound label, or where CIR character parsing
-            # produced wrong values (e.g. dim=12 but χ(id)=1).
+            # ── Full character table validation ──
+            # For same-label compounds (e.g. P3P3), try both:
+            #   A: straight sum  χ + χ
+            #   B: conjugate sum χ + χ*  (imaginary parts cancel)
+            # For different-label compounds, only straight sum.
+            # Accept only if ALL operations match the PIR character table.
             valid = False
             if comp_chars:
                 pir_ch = _lookup_chars(chars_map, sg[i], ml[i], kvec_map)
-                if pir_ch and len(pir_ch) > 0:
-                    pir_id = pir_ch[0]
-                    cir_id_sum = 0.0
-                    for p_idx in range(len(parts)):
-                        # Each component's identity is at offset p_idx * n_ops * 2
-                        cir_id_sum += comp_chars[p_idx * n_ops * 2]
-                    if abs(cir_id_sum - pir_id) < 0.01:
+                if pir_ch and len(pir_ch) > 0 and len(pir_ch) == n_ops:
+                    all_same = all(p == parts[0] for p in parts)
+                    use_conjugate = False  # which candidate was selected
+
+                    # Candidate 1: straight sum
+                    straight_ok = True
+                    for op in range(n_ops):
+                        s_re = 0.0; s_im = 0.0
+                        for p_idx in range(len(parts)):
+                            s_re += comp_chars[2 * (p_idx * n_ops + op)]
+                            s_im += comp_chars[2 * (p_idx * n_ops + op) + 1]
+                        if abs(s_re - pir_ch[op]) > 0.01 or abs(s_im) > 0.01:
+                            straight_ok = False
+                            break
+                    if straight_ok:
                         valid = True
+
+                    # Candidate 2: conjugate second (only for same-label 2-part)
+                    if not valid and all_same and len(parts) == 2:
+                        conj_ok = True
+                        for op in range(n_ops):
+                            s_re = comp_chars[2 * op] + comp_chars[2 * (n_ops + op)]
+                            s_im = comp_chars[2 * op + 1] - comp_chars[2 * (n_ops + op) + 1]
+                            if abs(s_re - pir_ch[op]) > 0.01 or abs(s_im) > 0.01:
+                                conj_ok = False
+                                break
+                        if conj_ok:
+                            valid = True
+                            use_conjugate = True
+
+                    # Apply conjugation to comp_chars if that candidate won
+                    if use_conjugate:
+                        new_chars = []
+                        for op in range(n_ops):
+                            new_chars.append(comp_chars[2 * op])
+                            new_chars.append(comp_chars[2 * op + 1])
+                        for op in range(n_ops):
+                            new_chars.append(comp_chars[2 * (n_ops + op)])
+                            new_chars.append(-comp_chars[2 * (n_ops + op) + 1])
+                        comp_chars = new_chars
 
             if comp_chars and valid:
                 cir_comp_starts.append(len(cir_comp_flat))
