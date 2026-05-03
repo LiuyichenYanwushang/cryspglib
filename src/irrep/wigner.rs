@@ -32,6 +32,7 @@
 //! - Bradley & Cracknell (1972), *The Mathematical Theory of Symmetry in Solids*
 //! - Bilbao Crystallographic Server, *Co-representations of Magnetic Space Groups*
 
+use num_complex::Complex64;
 use crate::mathfunc::{mat_multiply_matrix_i3, Mat3I};
 use super::corep::{CorepType, MagneticOps};
 
@@ -246,18 +247,16 @@ pub fn find_seitz(
 ///
 /// where $$\mathbf{k} = (k_x,k_y,k_z)/k_d$$ in reciprocal lattice units and
 /// $$\mathbf{L}$$ is an integer lattice vector.
-///
-/// Returns a complex phase factor as `(re, im)`.
-pub fn bloch_phase(kx: i8, ky: i8, kz: i8, kd: i8, lattice: &[i32; 3]) -> (f64, f64) {
+pub fn bloch_phase(kx: i8, ky: i8, kz: i8, kd: i8, lattice: &[i32; 3]) -> Complex64 {
     if kd == 0 {
-        return (1.0, 0.0);
+        return Complex64::new(1.0, 0.0);
     }
     let theta = 2.0 * std::f64::consts::PI
         * (kx as f64 * lattice[0] as f64
            + ky as f64 * lattice[1] as f64
            + kz as f64 * lattice[2] as f64)
         / (kd as f64);
-    (theta.cos(), theta.sin())
+    Complex64::new(theta.cos(), theta.sin())
 }
 
 // ── Wigner test ──────────────────────────────────────────────────────────────
@@ -324,11 +323,11 @@ pub fn wigner_classify(
                     &add3(&lattice_sq, &m.lattice_shift),
                     &add3(&l1, &r_l1),
                 );
-                let (phase_re, phase_im) = bloch_phase(kx, ky, kz, kd, &total_lattice);
-                let contrib = h_chars[m.op_index] * phase_re;
+                let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
+                let contrib = h_chars[m.op_index] * phase.re;
                 w_sum += contrib;
                 eprintln!("    wigner: h[{}]→H[{}] sq=H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
-                    h_mag_idx, "?", m.op_index, total_lattice, phase_re,
+                    h_mag_idx, "?", m.op_index, total_lattice, phase.re,
                     h_chars[m.op_index], contrib);
             }
         } else {
@@ -380,14 +379,7 @@ pub fn wigner_classify_cir(
     kx: i8, ky: i8, kz: i8, kd: i8,
 ) -> CorepType {
     let a0 = &mag_seitz[a0_idx];
-    let mut w_re: f64 = 0.0;
-    let mut w_im: f64 = 0.0;
-
-    eprintln!("DEBUG wigner_cir: cir_chars first 4: ({:.2},{:.2}) ({:.2},{:.2}) ({:.2},{:.2}) ({:.2},{:.2})",
-        cir_chars.get(0).copied().unwrap_or(0.0), cir_chars.get(1).copied().unwrap_or(0.0),
-        cir_chars.get(2).copied().unwrap_or(0.0), cir_chars.get(3).copied().unwrap_or(0.0),
-        cir_chars.get(4).copied().unwrap_or(0.0), cir_chars.get(5).copied().unwrap_or(0.0),
-        cir_chars.get(6).copied().unwrap_or(0.0), cir_chars.get(7).copied().unwrap_or(0.0));
+    let mut w_sum = Complex64::new(0.0, 0.0);
 
     for &h_mag_idx in unitary_mag_indices {
         let h = &mag_seitz[h_mag_idx];
@@ -402,36 +394,36 @@ pub fn wigner_classify_cir(
                 &add3(&lattice_sq, &m.lattice_shift),
                 &add3(&l1, &r_l1),
             );
-            let (ph_re, ph_im) = bloch_phase(kx, ky, kz, kd, &total_lattice);
-            let chi_re = if 2 * m.op_index + 1 < cir_chars.len() {
-                cir_chars[2 * m.op_index]
-            } else { 0.0 };
-            let chi_im = if 2 * m.op_index + 1 < cir_chars.len() {
-                cir_chars[2 * m.op_index + 1]
-            } else { 0.0 };
-            // Complex multiplication: χ · phase
-            w_re += chi_re * ph_re - chi_im * ph_im;
-            w_im += chi_re * ph_im + chi_im * ph_re;
-            eprintln!("    cir: h[{}]→H[{}] l1={:?} r_l1={:?} l_sq={:?} m_sh={:?} ph=({:.2},{:.2}) χ=({:.2},{:.2}) → ({:.2},{:.2})",
-                h_mag_idx, m.op_index, l1, r_l1, lattice_sq, m.lattice_shift,
-                ph_re, ph_im, chi_re, chi_im,
-                chi_re * ph_re - chi_im * ph_im, chi_re * ph_im + chi_im * ph_re);
+            let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
+            let chi = cir_char_at(cir_chars, m.op_index);
+            w_sum += chi * phase;
+            eprintln!("    cir: h[{}]→H[{}] l1={:?} r_l1={:?} l_sq={:?} m_sh={:?} ph={:.2} χ={:.2} → {:.2}",
+                h_mag_idx, m.op_index, l1, r_l1, lattice_sq, m.lattice_shift, phase, chi, chi * phase);
         }
     }
 
     let n = (unitary_mag_indices.len() as f64).max(1.0);
-    let w_re = w_re / n;
-    let w_im = w_im / n;
-    let w_abs = (w_re * w_re + w_im * w_im).sqrt();
-    eprintln!("DEBUG wigner_classify_cir: W=({:.4},{:.4}) |W|={:.4} k=({},{},{})/{}",
-        w_re, w_im, w_abs, kx, ky, kz, kd);
+    let w = w_sum / n;
+    eprintln!("DEBUG wigner_classify_cir: W={:.4} |W|={:.4} k=({},{},{})/{}",
+        w, w.norm(), kx, ky, kz, kd);
 
-    if w_abs < 0.01 {
+    if w.norm() < 0.01 {
         CorepType::C
-    } else if w_re > 0.0 {
+    } else if w.re > 0.0 {
         CorepType::A
     } else {
         CorepType::B
+    }
+}
+
+/// Helper: read a complex character from (re, im) pair array.
+#[inline]
+fn cir_char_at(cir_chars: &[f64], op_idx: usize) -> Complex64 {
+    let i = 2 * op_idx;
+    if i + 1 < cir_chars.len() {
+        Complex64::new(cir_chars[i], cir_chars[i + 1])
+    } else {
+        Complex64::ZERO
     }
 }
 
@@ -503,16 +495,13 @@ pub fn conjugate_chars(
                 lattice[1] + m.lattice_shift[1],
                 lattice[2] + m.lattice_shift[2],
             ];
-            let (phase_re, phase_im) = bloch_phase(kx, ky, kz, kd, &total_lattice);
+            let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
             h_to_conj[h_idx] = Some(m.op_index);
             if m.op_index < h_chars.len() {
-                // χ(a₀⁻¹ h a₀)* : complex conjugate
-                // For real PIR characters, conj = same value
-                // Phase from lattice shift also gets conjugated
-                conj[h_idx] = h_chars[m.op_index] * phase_re
-                    // - phase_im part for conjugation: (a+bi)* = a-bi
-                    // Since h_chars are real for PIR, only the Bloch phase matters
-                    - 0.0; // Im part is 0 for real chars × real phase → conj = same
+                // χ(a₀⁻¹ h a₀)* : complex conjugate of (χ · phase)
+                // For real PIR characters: (χ * phase).conj() = χ * phase.conj()
+                let val = Complex64::new(h_chars[m.op_index], 0.0) * phase.conj();
+                conj[h_idx] = val.re; // PIR chars are real
             }
         }
     }

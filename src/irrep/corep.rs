@@ -791,13 +791,13 @@ mod tests {
                 match find_seitz(&sq.rot, &sq.trans, &h_seitz) {
                     Some(m) => {
                         let total_l = [l_sq[0]+m.lattice_shift[0], l_sq[1]+m.lattice_shift[1], l_sq[2]+m.lattice_shift[2]];
-                        let (ph_re, ph_im) = bloch_phase(ir.kx, ir.ky, ir.kz, ir.kd, &total_l);
+                        let phase = bloch_phase(ir.kx, ir.ky, ir.kz, ir.kd, &total_l);
                         let chi = if m.op_index < h_chars.len() { h_chars[m.op_index] } else { 0.0 };
-                        let contrib = chi * ph_re;
+                        let contrib = chi * phase.re;
                         w_sum += contrib;
-                        println!("    h[{}]→H[{}]: (a₀h)²=H[{}] L={:?} ph=({:.2},{:.2}) χ={:.2} contrib={:.2}",
+                        println!("    h[{}]→H[{}]: (a₀h)²=H[{}] L={:?} ph={:.2} χ={:.2} contrib={:.2}",
                             h_mag_idx, h_h.map_or("?".into(), |x| x.to_string()),
-                            m.op_index, total_l, ph_re, ph_im, chi, contrib);
+                            m.op_index, total_l, phase, chi, contrib);
                     }
                     None => {
                         println!("    h[{}]→H[{}]: (a₀h)² R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3}) NOT FOUND",
