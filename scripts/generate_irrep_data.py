@@ -1033,15 +1033,17 @@ def parse_all():
     print("Parsing spinor (double-valued) irrep data from irrepTables...")
     try:
         from parse_spinor_data import parse_all_spinor
-        spinor_irreps = parse_all_spinor()
-        print(f"  Parsed {len(spinor_irreps)} spinor irreps")
+        spinor_irreps, spinor_ops = parse_all_spinor()
+        print(f"  Parsed {len(spinor_irreps)} spinor irreps, {len(spinor_ops)} SG spin op tables")
     except (ImportError, FileNotFoundError) as e:
         print(f"  Skipping spinor data: {e}")
         spinor_irreps = []
+        spinor_ops = {}
 
     return {
         "n_irreps": n_irreps + len(spinor_irreps),
         "spinor_irreps": spinor_irreps,
+        "spinor_ops": spinor_ops,
         "ml_labels": ml_labels,
         "bc_labels": bc_labels,
         "kov_labels": kov_labels,

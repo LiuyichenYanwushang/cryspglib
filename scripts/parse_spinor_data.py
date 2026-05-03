@@ -51,13 +51,15 @@ def parse_spinor_file(filepath):
 
     Returns:
         sg: int, space group number
+        spin_ops: list of dicts with keys: rot[9], trans[3], su2[4]
         irreps: list of dicts with keys:
-            k_label, kx/ky/kz/kd, ml_label, dim, characters
+            k_label, kx/ky/kz/kd, ml_label, dim, characters, op_indices
     """
     with open(filepath) as f:
         lines = f.readlines()
 
     sg = None
+    spin_ops = []  # global symmetry operations with SU(2) lifts
     irreps = []
 
     # Parse header
@@ -66,8 +68,6 @@ def parse_spinor_file(filepath):
         line = lines[i].strip()
         if line.startswith("SG="):
             sg = int(line.split("=")[1])
-        elif line.startswith("name="):
-            pass
         elif line.startswith("nsym="):
             pass
         elif line.startswith("spinor="):
@@ -77,13 +77,18 @@ def parse_spinor_file(filepath):
             break
         i += 1
 
-    # Skip symmetry operations (nsym lines)
-    # Each line: R(3x3) + t(3) + SU2(4) + ... (variable format)
-    # Count until we hit a blank line or kpoint
+    # Parse symmetry operations (nsym lines)
+    # Format: R(3x3) 9ints | t(3) 3floats | SU2(4) 4floats | extra(4) 4floats
     while i < len(lines):
         line = lines[i].strip()
         if not line or line.startswith("kpoint"):
             break
+        parts = line.split()
+        if len(parts) >= 16:
+            rot = [int(x) for x in parts[0:9]]
+            trans = [float(x) for x in parts[9:12]]
+            su2 = [float(x) for x in parts[12:16]]
+            spin_ops.append({"rot": rot, "trans": trans, "su2": su2})
         i += 1
 
     # Parse kpoints and irreps
@@ -145,32 +150,46 @@ def parse_spinor_file(filepath):
                 "ml_label": label,
                 "dim": dim,
                 "characters": chars,
+                "op_indices": current_op_indices,
             })
 
         i += 1
 
-    return sg, irreps
+    return sg, spin_ops, irreps
 
 
 def parse_all_spinor():
-    """Parse all 230 spin.dat files."""
+    """Parse all 230 spin.dat files.
+
+    Returns:
+        all_irreps: list of spinor irrep dicts
+        all_spin_ops: dict SG# -> list of spin op dicts (rot, trans, su2)
+    """
     tables_dir = find_tables_dir()
     files = sorted(glob.glob(os.path.join(tables_dir, "irreps-SG=*-spin.dat")))
 
     all_irreps = []
+    all_spin_ops = {}  # SG# -> list of spin ops
     for f in files:
-        sg, irreps = parse_spinor_file(f)
+        sg, spin_ops, irreps = parse_spinor_file(f)
+        all_spin_ops[sg] = spin_ops
         all_irreps.extend(irreps)
 
     # Sort by SG then by k-label for contiguity
     all_irreps.sort(key=lambda x: (x["sg"], x["k_label"], x["ml_label"]))
 
-    return all_irreps
+    return all_irreps, all_spin_ops
 
 
 if __name__ == "__main__":
-    irreps = parse_all_spinor()
-    print(f"Parsed {len(irreps)} spinor irreps from 230 SGs")
+    irreps, spin_ops = parse_all_spinor()
+    print(f"Parsed {len(irreps)} spinor irreps from {len(spin_ops)} SGs")
+    # Show sample ops
+    for sg in sorted(spin_ops.keys())[:3]:
+        ops = spin_ops[sg]
+        print(f"  SG{sg}: {len(ops)} spin ops")
+        if ops:
+            print(f"    op[0]: rot={ops[0]['rot'][:3]}... trans={ops[0]['trans']} su2={ops[0]['su2']}")
     by_sg = defaultdict(int)
     for ir in irreps:
         by_sg[ir["sg"]] += 1
