@@ -1600,9 +1600,31 @@ def generate_rust_data(data):
 
     # ── Spinor (double-valued) irrep data ──
     spinor_irreps = data.get("spinor_irreps", [])
-    # Spinor irreps have no PIR rotations
-    for _ in range(len(spinor_irreps)):
+    # Build (SG, k_label) → rotation data lookup from scalar irreps.
+    # All irreps at the same k-point share the same little group operations,
+    # so spinor irreps can reuse scalar rotation data.
+    kpoint_rots = {}  # (sg, k_label) -> flat [r00..r22, ...] per op
+    for i in range(len(ml)):
+        rts = rots_map.get((sg[i], ml[i]), [])
+        if rts:
+            k_label = _kpoint_label_from_ml(ml[i])
+            key = (sg[i], k_label)
+            if key not in kpoint_rots:
+                flat = []
+                for r9 in rts:
+                    flat.extend(r9)
+                kpoint_rots[key] = flat
+
+    for sir in spinor_irreps:
+        key = (sir['sg'], sir['k_label'])
+        rts = kpoint_rots.get(key, [])
         pir_rot_starts.append(len(pir_rots_flat))
+        if rts:
+            pir_rots_flat.extend(rts)
+        else:
+            # Fallback: zero-pad based on character count
+            n_ops = len(sir.get('characters', []))
+            pir_rots_flat.extend([0] * (n_ops * 9))
     spinor_starts = []
     spinor_counts = []
     for sir in spinor_irreps:
@@ -1798,7 +1820,7 @@ def generate_rust_data(data):
             "iso_s": 0, "iso_c": 0,
             "mag_iso_s": 0, "mag_iso_c": 0,
             "cir_s": 0, "cir_c": 0, "cir_o": 0,
-            "pir_rot_s": 0,
+            "pir_rot_s": pir_rot_starts[len(ml) + idx],
         })
 
     # Now emit IrrepRecord entries in SG order

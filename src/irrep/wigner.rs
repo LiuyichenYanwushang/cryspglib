@@ -340,15 +340,19 @@ pub fn wigner_classify(
     let n = (unitary_mag_indices.len() as f64).max(1.0);
     let w = w_sum / n;
 
-    // Classify with tolerance
+    // Strict classification: W must be quantized to 0, +1, or -1.
     eprintln!("DEBUG wigner_classify: w_sum={:.4} n_unitary={} W={:.4} k=({},{},{})/{}",
         w_sum, unitary_mag_indices.len(), w, kx, ky, kz, kd);
-    if w.abs() < 0.01 {
-        CorepType::C
-    } else if w > 0.0 {
+    let tol = 1e-6;
+    if (w - 1.0).abs() < tol {
         CorepType::A
-    } else {
+    } else if (w + 1.0).abs() < tol {
         CorepType::B
+    } else if w.abs() < tol {
+        CorepType::C
+    } else {
+        eprintln!("  Non-quantized Wigner indicator W={:.8}; expected 0, +1, or -1.", w);
+        CorepType::Unsupported
     }
 }
 
