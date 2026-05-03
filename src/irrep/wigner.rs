@@ -455,6 +455,120 @@ pub fn debug_char_order(cir_chars: &[f64], h_seitz: &[SeitzOp], label: &str) {
     }
 }
 
+/// Diagnostic: unwrapped Seitz square without intermediate normalization.
+/// Computes (g₀h)² directly from raw translations, then compares
+/// with the normalized+matched result.  Used to debug phase parity.
+pub fn debug_unwrapped_square(
+    h_mag_idx: usize,
+    a0_idx: usize,
+    mag_seitz: &[SeitzOp],
+    h_seitz: &[SeitzOp],
+    kx: i8, ky: i8, kz: i8, kd: i8,
+) {
+    let a0 = &mag_seitz[a0_idx];
+    let h = &mag_seitz[h_mag_idx];
+
+    // Step 1: g₀h raw (no normalization)
+    let rc = mat_multiply_matrix_i3(&a0.rot, &h.rot);
+    let r0_th = mat_vec_f64(&a0.rot, &h.trans);
+    let tc_raw = [a0.trans[0] + r0_th[0], a0.trans[1] + r0_th[1], a0.trans[2] + r0_th[2]];
+
+    // Step 2: (g₀h)² raw
+    let rsq = mat_multiply_matrix_i3(&rc, &rc);
+    let rc_tc = mat_vec_f64(&rc, &tc_raw);
+    let tsq_raw = [tc_raw[0] + rc_tc[0], tc_raw[1] + rc_tc[1], tc_raw[2] + rc_tc[2]];
+
+    eprintln!("=== unwrapped square: h[{}] ===", h_mag_idx);
+    eprintln!("  a0: R={:?}, t={:?}", a0.rot, a0.trans);
+    eprintln!("  h : R={:?}, t={:?}", h.rot, h.trans);
+    eprintln!("  g0h raw: R={:?}, t={:?}", rc, tc_raw);
+    eprintln!("  sq raw : R={:?}, t={:?}", rsq, tsq_raw);
+
+    // Normalize for matching
+    let (tsq_mod, l_reduce) = reduce01_with_lattice(&tsq_raw);
+    eprintln!("  sq mod : t={:?}, L_reduce={:?}", tsq_mod, l_reduce);
+
+    if let Some(m) = find_seitz(&rsq, &tsq_mod, h_seitz) {
+        let stored_t = &h_seitz[m.op_index].trans;
+        // Direct lattice difference: tsq_raw - stored_t
+        let l_direct = [
+            (tsq_raw[0] - stored_t[0]).round() as i32,
+            (tsq_raw[1] - stored_t[1]).round() as i32,
+            (tsq_raw[2] - stored_t[2]).round() as i32,
+        ];
+        let lz_par = ((l_direct[2] % 2) + 2) % 2;
+        let phase = bloch_phase(kx, ky, kz, kd, &l_direct);
+
+        eprintln!("  matched H[{}]: t_stored={:?}", m.op_index, stored_t);
+        eprintln!("  L_direct={:?} Lz_par={} phase={:.2}", l_direct, lz_par, phase);
+        eprintln!("  m.lattice_shift={:?} (from normalized match)", m.lattice_shift);
+    } else {
+        eprintln!("  NOT FOUND in h_seitz");
+    }
+}
+
+/// Diagnostic: direct anti-coset Wigner sum.
+/// Uses ALL antiunitary little-group ops b directly (not a₀h construction).
+/// If this gives different phase parity than wigner_classify_cir,
+/// the a₀h construction is wrong.
+pub fn wigner_direct_anti_coset(
+    cir_chars: &[f64],
+    anti_lg_indices: &[usize],
+    mag_seitz: &[SeitzOp],
+    h_seitz: &[SeitzOp],
+    kx: i8, ky: i8, kz: i8, kd: i8,
+) -> Complex64 {
+    let mut sum = Complex64::ZERO;
+    let mut n_plus = 0u32;
+    let mut n_minus = 0u32;
+
+    for &b_idx in anti_lg_indices {
+        let b = &mag_seitz[b_idx];
+        let (sq, lattice_sq) = square_seitz(b);
+        let m = find_seitz(&sq.rot, &sq.trans, h_seitz)
+            .unwrap_or_else(|| panic!("direct anti: b[{}]^2 not found in H", b_idx));
+
+        let total_lattice = add3(&lattice_sq, &m.lattice_shift);
+        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
+        let chi = cir_char_at(cir_chars, m.op_index);
+        let contrib = chi * phase;
+        sum += contrib;
+
+        if phase.re > 0.5 { n_plus += 1; }
+        else if phase.re < -0.5 { n_minus += 1; }
+
+        eprintln!("  direct: b[{}]^2→H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
+            b_idx, m.op_index, total_lattice, phase, chi, contrib);
+    }
+    let w = sum / (anti_lg_indices.len() as f64);
+    eprintln!("  direct anti stats: +={} -={} W={:.4}", n_plus, n_minus, w);
+    w
+}
+
+// ── Internal helpers ────────────────────────────────────────────────────────
+
+/// f64 vector: R · v
+fn mat_vec_f64(r: &Mat3I, v: &[f64; 3]) -> [f64; 3] {
+    [
+        r[0][0] as f64 * v[0] + r[0][1] as f64 * v[1] + r[0][2] as f64 * v[2],
+        r[1][0] as f64 * v[0] + r[1][1] as f64 * v[1] + r[1][2] as f64 * v[2],
+        r[2][0] as f64 * v[0] + r[2][1] as f64 * v[1] + r[2][2] as f64 * v[2],
+    ]
+}
+
+/// Normalize translation to [0,1) and return discarded integer shift.
+fn reduce01_with_lattice(t: &[f64; 3]) -> ([f64; 3], [i32; 3]) {
+    let mut tr = [0.0f64; 3];
+    let mut l = [0i32; 3];
+    for i in 0..3 {
+        let fl = t[i].floor();
+        l[i] = fl as i32;
+        tr[i] = t[i] - fl;
+        if tr[i] < 0.0 { tr[i] += 1.0; l[i] -= 1; }
+    }
+    (tr, l)
+}
+
 /// Helper: read a complex character from (re, im) pair array.
 #[inline]
 fn cir_char_at(cir_chars: &[f64], op_idx: usize) -> Complex64 {

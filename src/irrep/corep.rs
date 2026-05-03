@@ -853,6 +853,22 @@ mod tests {
             let w = w_sum / (unitary_lg.len() as f64).max(1.0);
             println!("  Wigner W = {:.4} → {}", w,
                 if w.abs() < 0.01 { "Type C" } else if w > 0.0 { "Type A" } else { "Type B" });
+
+            // Unwrapped square diagnostic for h[4] and h[7]
+            if ir.ml == "Z1Z4" {
+                let a0_idx = anti_lg[0];
+                wigner::debug_unwrapped_square(4, a0_idx, &mag_seitz, &h_seitz,
+                    ir.kx, ir.ky, ir.kz, ir.kd);
+                wigner::debug_unwrapped_square(7, a0_idx, &mag_seitz, &h_seitz,
+                    ir.kx, ir.ky, ir.kz, ir.kd);
+
+                // Direct anti-coset Wigner sum
+                let cir = ir.cir_component_chars(0);
+                let w_direct = wigner::wigner_direct_anti_coset(
+                    cir, &anti_lg, &mag_seitz, &h_seitz,
+                    ir.kx, ir.ky, ir.kz, ir.kd);
+                println!("  Direct anti-coset W = {:.4}", w_direct);
+            }
         }
     }
 
