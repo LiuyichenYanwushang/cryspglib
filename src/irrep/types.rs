@@ -119,6 +119,33 @@ pub struct IrrepRecord {
     pub(crate) _mag_iso_start: u16,
     /// Number of magnetic isotropy subgroups for this irrep
     pub(crate) _mag_iso_count: u16,
+    /// Start index into [`CIR_COMPONENT_CHARS`] (0 if not compound)
+    pub(crate) _cir_start: u32,
+    /// Number of CIR components (0 for non-compound irreps, 2 for Z1Z4 type)
+    pub(crate) _cir_count: u8,
+    /// Number of operations per CIR component
+    pub(crate) _cir_ops: u8,
+}
+
+impl IrrepRecord {
+    /// Number of CIR (complex) components this PIR irrep decomposes into.
+    /// 0 = non-compound, 2 = compound like Z1Z4 = Z1 ⊕ Z4.
+    pub fn cir_component_count(&self) -> usize {
+        self._cir_count as usize
+    }
+
+    /// Complex character table for a specific CIR component.
+    ///
+    /// Returns `(re, im)` pairs.  Use only when `cir_component_count() > 0`.
+    pub fn cir_component_chars(&self, comp: usize) -> &'static [f64] {
+        if comp >= self._cir_count as usize || self._cir_start == 0 {
+            return &[];
+        }
+        let start = self._cir_start as usize + comp * self._cir_ops as usize * 2;
+        let len = self._cir_ops as usize * 2;
+        // SAFETY: generated data guarantees valid bounds
+        &super::generated_data::CIR_COMPONENT_CHARS[start..start + len]
+    }
 }
 
 impl IrrepRecord {

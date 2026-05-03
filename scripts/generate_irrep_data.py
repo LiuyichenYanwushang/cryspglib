@@ -1412,6 +1412,42 @@ def generate_rust_data(data):
     if cir_mat_filled > 0:
         print(f"  (CIR matrix conversion filled {cir_mat_filled} tables)")
 
+    # ── CIR component characters for compound irreps ──
+    # For compound labels like Z1Z4 = Z1 ⊕ Z4, store the individual CIR
+    # complex character tables as (re, im) pairs.  Used for Wigner test.
+    cir_comp_flat = []   # (re, im) pairs, flattened
+    cir_comp_starts = []  # per-irrep start index (0 = not compound)
+    cir_comp_counts = []  # number of CIR components (0 = not compound)
+    cir_comp_ops = []     # operations per CIR component
+    cir_comp_total = 0
+    for i in range(len(ml)):
+        parts = _decompose_compound_label(ml[i])
+        if parts and len(parts) >= 2:
+            comp_chars = []
+            n_ops = 0
+            for part in parts:
+                pk = (sg[i], part)
+                if pk in cir_data:
+                    entry = cir_data[pk]
+                    n_ops = entry['opcount']
+                    for (re_val, im_val, _) in entry['chars']:
+                        comp_chars.append(re_val)
+                        comp_chars.append(im_val)
+                else:
+                    comp_chars = []
+                    break
+            if comp_chars:
+                cir_comp_starts.append(len(cir_comp_flat))
+                cir_comp_counts.append(len(parts))
+                cir_comp_ops.append(n_ops)
+                cir_comp_flat.extend(comp_chars)
+                cir_comp_total += 1
+            else:
+                cir_comp_starts.append(0); cir_comp_counts.append(0); cir_comp_ops.append(0)
+        else:
+            cir_comp_starts.append(0); cir_comp_counts.append(0); cir_comp_ops.append(0)
+    print(f"  CIR component chars: {cir_comp_total} compound irreps, {len(cir_comp_flat)} values")
+
     # ── Spinor (double-valued) irrep data ──
     spinor_irreps = data.get("spinor_irreps", [])
     spinor_starts = []
@@ -1460,6 +1496,18 @@ def generate_rust_data(data):
     lines.append(f"pub static MATRICES: [f64; {len(matrices_flat)}] = [")
     for chunk_start in range(0, len(matrices_flat), 10):
         chunk = matrices_flat[chunk_start:chunk_start + 10]
+        vals = ", ".join(_fmt_char(v) for v in chunk)
+        lines.append(f"    {vals},")
+    lines.append("];")
+    lines.append("")
+
+    # ── CIR component complex characters ──
+    lines.append("/// Complex character tables for CIR components of compound irreps.")
+    lines.append("/// Stored as (re, im) pairs.  Used by Wigner test for correct")
+    lines.append("/// Type C classification of magnetic co-representations.")
+    lines.append(f"pub static CIR_COMPONENT_CHARS: [f64; {len(cir_comp_flat)}] = [")
+    for chunk_start in range(0, len(cir_comp_flat), 10):
+        chunk = cir_comp_flat[chunk_start:chunk_start + 10]
         vals = ", ".join(_fmt_char(v) for v in chunk)
         lines.append(f"    {vals},")
     lines.append("];")
@@ -1558,6 +1606,7 @@ def generate_rust_data(data):
             "mat_s": mat_s, "mat_c": mat_c,
             "iso_s": iso_s, "iso_c": iso_c,
             "mag_iso_s": mag_iso_s, "mag_iso_c": mag_iso_c,
+            "cir_s": cir_comp_starts[i], "cir_c": cir_comp_counts[i], "cir_o": cir_comp_ops[i],
         })
 
     # Pre-compute spinor IrrepRecord data
@@ -1573,6 +1622,7 @@ def generate_rust_data(data):
             "mat_s": 0, "mat_c": 0,
             "iso_s": 0, "iso_c": 0,
             "mag_iso_s": 0, "mag_iso_c": 0,
+            "cir_s": 0, "cir_c": 0, "cir_o": 0,
         })
 
     # Now emit IrrepRecord entries in SG order
@@ -1605,6 +1655,9 @@ def generate_rust_data(data):
             lines.append(f"        _iso_count: {r['iso_c']},")
             lines.append(f"        _mag_iso_start: {r['mag_iso_s']},")
             lines.append(f"        _mag_iso_count: {r['mag_iso_c']},")
+            lines.append(f"        _cir_start: {r['cir_s']},")
+            lines.append(f"        _cir_count: {r['cir_c']},")
+            lines.append(f"        _cir_ops: {r['cir_o']},")
             lines.append(f"    }},")
     lines.append("];")
     lines.append("")
