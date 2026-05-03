@@ -267,6 +267,29 @@ def is_int_4(s):
         return False
 
 
+# k-point prefixes for special (high-symmetry) points
+_SPECIAL_KPTS = {
+    "GM", "G", "X", "Y", "Z", "M", "R", "A", "H", "K", "L",
+    "S", "T", "U", "V", "W", "N", "P", "F", "C", "D", "E",
+    "Q", "B", "J",
+}
+
+
+def _is_special_kpoint(label):
+    """Check if a k-point label is a special (high-symmetry) point.
+
+    Special k-points have kspecial=true in the ISOTROPY data and do NOT
+    have irtranslation lines after the operator matrix.
+    Non-special k-points (lines DT, LD, SM, GP, etc.) have irtranslation.
+    """
+    # Extract the k-point prefix (letters before the first digit)
+    m = re.match(r'^([A-Za-z]+)', label)
+    if not m:
+        return False
+    prefix = m.group(1)
+    return prefix in _SPECIAL_KPTS
+
+
 def _parse_pir_characters():
     """Parse PIR_data.txt and return two dicts:
 	    chars_map:    (SG#, ML_label) -> [char1, char2, ..., charN]
@@ -333,15 +356,17 @@ def _parse_pir_characters():
             if i >= len(lines):
                 break
 
-            # Check if this line is irtranslation (4 ints, non-special k only).
-            # Irtranslation is written as '(4i3)' → exactly 4 small integers,
-            # e.g. "  0  0  0  1".  1D irrep matrix values are single numbers
-            # (e.g. "1" or "-1") and must NOT be mistaken for irtranslation.
+            # Check if this line is irtranslation.
+            # Irtranslation is only present for NON-special k-points
+            # (lines DT/LD/SM, planes, and general points GP).
+            # Special k-points (GM, X, Z, M, R, A, H, K, L, etc.)
+            # have kspecial=true → NO irtranslation.
+            # We determine kspecial from the k-point label.
             nxt = lines[i].strip().split()
-            if (nxt and len(nxt) == 4
+            if (not _is_special_kpoint(label) and nxt
+                    and len(nxt) == 4
                     and not any('.' in x for x in nxt)
                     and all(is_int_4(x) for x in nxt)):
-                # Verify it looks like irtranslation: last value (denominator) > 0
                 try:
                     if int(nxt[3]) > 0:
                         i += 1  # skip irtranslation
