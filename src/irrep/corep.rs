@@ -90,6 +90,7 @@
 //! - Stokes, Campbell & Hatch, ISOTROPY Suite documentation
 //! - Bilbao Crystallographic Server: <https://cryst.ehu.es/cgi-bin/cryst/programs/corepresentations.pl>
 
+use num_complex::Complex64;
 use crate::mathfunc::{Mat3I, Vec3};
 use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use super::types::IrrepRecord;
@@ -708,6 +709,46 @@ mod tests {
     ///   Z1Z4, Z2Z3, Z5 (scalar), Z6, Z7 (spinor)
     /// Type C doubles the dimension: 2D PIR → 4D corep.
     #[test]
+    /// Character order: verify h_seitz[0] is identity with CIR χ=dim.
+    #[test]
+    fn test_char_order_sg118() {
+        let uni = 1066usize;
+        let mag_ops = get_magnetic_operations(uni).unwrap();
+        let h_sg = identify_unitary_subgroup(uni).unwrap();
+        let h_ops = get_parent_operations(h_sg as u8);
+        let h_seitz = ops_to_seitz(&h_ops);
+        let h_irreps = crate::irrep::query::irreps_of(h_sg as u8);
+
+        // Check identity at position 0
+        let id_op = &h_seitz[0];
+        assert!(id_op.rot[0][0]==1 && id_op.rot[1][1]==1 && id_op.rot[2][2]==1,
+            "h_seitz[0] must be identity");
+        assert!(id_op.trans[0].abs()<0.01 && id_op.trans[1].abs()<0.01 && id_op.trans[2].abs()<0.01,
+            "identity must have zero translation");
+
+        // For each Z-point CIR irrep, check χ(id)=dim
+        for ir in h_irreps.iter().filter(|r| r.k_label() == "Z") {
+            if ir.cir_component_count() > 0 {
+                for c in 0..ir.cir_component_count() {
+                    let cir = ir.cir_component_chars(c);
+                    let chi_id = Complex64::new(cir[0], cir[1]);
+                    println!("{} comp{}: cir_chars[0]=({:.2},{:.2}) |χ|={:.2}",
+                        ir.ml, c, chi_id.re, chi_id.im, chi_id.norm());
+                }
+            } else {
+                let pir = ir.characters();
+                println!("{} (non-compound): pir_chars[0]={:.2} dim={}",
+                    ir.ml, pir[0], ir.dim);
+            }
+        }
+
+        // Print full h_seitz ↔ cir_chars mapping for Z1Z4's first component
+        if let Some(z1z4) = h_irreps.iter().find(|r| r.ml == "Z1Z4") {
+            let cir = z1z4.cir_component_chars(0);
+            wigner::debug_char_order(cir, &h_seitz, "SG118 Z1Z4 comp0");
+        }
+    }
+
     /// Diagnostic: print Wigner sum term-by-term for SG 118 Z-point irreps.
     #[test]
     fn debug_wigner_z_point() {

@@ -380,6 +380,8 @@ pub fn wigner_classify_cir(
 ) -> CorepType {
     let a0 = &mag_seitz[a0_idx];
     let mut w_sum = Complex64::new(0.0, 0.0);
+    let mut n_plus = 0u32;
+    let mut n_minus = 0u32;
 
     for &h_mag_idx in unitary_mag_indices {
         let h = &mag_seitz[h_mag_idx];
@@ -397,22 +399,59 @@ pub fn wigner_classify_cir(
             let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
             let chi = cir_char_at(cir_chars, m.op_index);
             w_sum += chi * phase;
-            eprintln!("    cir: h[{}]→H[{}] l1={:?} r_l1={:?} l_sq={:?} m_sh={:?} ph={:.2} χ={:.2} → {:.2}",
-                h_mag_idx, m.op_index, l1, r_l1, lattice_sq, m.lattice_shift, phase, chi, chi * phase);
+            // Phase parity stats
+            if phase.re > 0.5 { n_plus += 1; }
+            else if phase.re < -0.5 { n_minus += 1; }
+            eprintln!("    cir: h[{}]→H[{}] Lz_par={} ph={:.2} χ={:.2} → {:.2}",
+                h_mag_idx, m.op_index,
+                ((total_lattice[2] % 2) + 2) % 2,
+                phase, chi, chi * phase);
         }
     }
 
+    eprintln!("    phase stats: +={} -={}", n_plus, n_minus);
     let n = (unitary_mag_indices.len() as f64).max(1.0);
     let w = w_sum / n;
-    eprintln!("DEBUG wigner_classify_cir: W={:.4} |W|={:.4} k=({},{},{})/{}",
-        w, w.norm(), kx, ky, kz, kd);
+    eprintln!("DEBUG wigner_classify_cir: W=({:.8},{:.8}) |W|={:.4} k=({},{},{})/{}",
+        w.re, w.im, w.norm(), kx, ky, kz, kd);
 
-    if w.norm() < 0.01 {
-        CorepType::C
-    } else if w.re > 0.0 {
+    let tol = 1e-6;
+    if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
         CorepType::A
-    } else {
+    } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
         CorepType::B
+    } else if w.norm() < tol {
+        CorepType::C
+    } else {
+        panic!(
+            "Non-quantized Wigner indicator W=({:.8},{:.8}); expected 0, +1, or -1. \
+             Check Seitz matching, character table ordering, and a₀ coset coverage.",
+            w.re, w.im
+        );
+    }
+}
+
+/// Verify that `h_seitz` operation ordering matches the CIR character table.
+/// Prints all operations with their characters for manual inspection.
+#[cfg(test)]
+pub fn debug_char_order(cir_chars: &[f64], h_seitz: &[SeitzOp], label: &str) {
+    eprintln!("=== Character order check: {} ===", label);
+    for (i, op) in h_seitz.iter().enumerate() {
+        let re = cir_chars.get(2 * i).copied().unwrap_or(999.0);
+        let im = cir_chars.get(2 * i + 1).copied().unwrap_or(999.0);
+        let is_id = op.rot[0][0] == 1 && op.rot[0][1] == 0 && op.rot[0][2] == 0
+                 && op.rot[1][0] == 0 && op.rot[1][1] == 1 && op.rot[1][2] == 0
+                 && op.rot[2][0] == 0 && op.rot[2][1] == 0 && op.rot[2][2] == 1
+                 && op.trans[0].abs() < 0.01 && op.trans[1].abs() < 0.01 && op.trans[2].abs() < 0.01;
+        eprintln!("  H[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3}) chi=({:.3},{:.3}){}",
+            i,
+            op.rot[0][0],op.rot[0][1],op.rot[0][2],
+            op.rot[1][0],op.rot[1][1],op.rot[1][2],
+            op.rot[2][0],op.rot[2][1],op.rot[2][2],
+            op.trans[0], op.trans[1], op.trans[2],
+            re, im,
+            if is_id { " ← ID" } else { "" },
+        );
     }
 }
 
