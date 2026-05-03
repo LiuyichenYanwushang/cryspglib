@@ -232,14 +232,24 @@ pub fn compute_corepresentation(
     let corep_type = if antiunitary.is_empty() {
         CorepType::A
     } else if h_irrep.cir_component_count() > 0 {
-        // Compound irrep: test each CIR component
+        // Compound irrep: test each CIR component.
+        // Reorder CIR chars from ISOTROPY order to H_ops (spglib) order
+        // so that m.op_index correctly indexes into the character table.
         let mut any_c = false;
         eprintln!("DEBUG CIR path: {} n_comp={}", h_irrep.ml, h_irrep.cir_component_count());
         for comp in 0..h_irrep.cir_component_count() {
             let cir = h_irrep.cir_component_chars(comp);
             if cir.is_empty() { continue; }
+            let cir_rots = h_irrep.cir_rotations(comp);
+            let cir_reordered = if cir_rots.len() >= h_seitz.len() * 9 {
+                let h_to_cir = wigner::build_h_to_cir_map(&h_seitz, cir_rots);
+                wigner::reorder_cir_chars(cir, &h_to_cir)
+            } else {
+                // Fallback: no rotation data, use as-is (may be wrong)
+                cir.to_vec()
+            };
             let ct = wigner::wigner_classify_cir(
-                cir, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+                &cir_reordered, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
                 h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
             );
             if ct == CorepType::C { any_c = true; break; }
@@ -708,7 +718,7 @@ mod tests {
     /// Our computation uses H = SG 118's PIR irreps at Z:
     ///   Z1Z4, Z2Z3, Z5 (scalar), Z6, Z7 (spinor)
     /// Type C doubles the dimension: 2D PIR → 4D corep.
-    #[test]
+    ///
     /// Character order: verify h_seitz[0] is identity with CIR χ=dim.
     #[test]
     fn test_char_order_sg118() {

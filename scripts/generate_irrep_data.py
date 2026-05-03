@@ -491,8 +491,10 @@ def _parse_cir_characters(needed_labels=None):
             continue
 
         dim = int(after_line[0])
+        irtype = int(after_line[1]) if len(after_line) > 1 else 1  # 1=real, 2=complex
         pmkcount = int(after_line[3])
         opcount = int(after_line[4])
+        has_conjugate = (irtype == 2)  # complex CIR irreps have conjugate data after ordinary
 
         # Skip k-vector data
         kvec_remaining = pmkcount * 16
@@ -504,15 +506,40 @@ def _parse_cir_characters(needed_labels=None):
 
         # Read operator matrices + complex irrep matrices
         chars = []
+        rots = []         # rotation matrices: list of [r00,r01,r02,r10,r11,r12,r20,r21,r22]
         all_matrices = []  # flattened complex matrix elements for all ops
         store_matrices = (needed_labels is None) or ((sg, label) in needed_labels)
 
         for _op in range(opcount):
-            # Advance to operator matrix line (skip it)
+            # Advance to operator augmented 4×4 matrix (16 ints).
+            # For complex irreps, there may be conjugate complex values
+            # before the next operator matrix — skip those.
             i += 1
+            while i < len(lines):
+                op_str = lines[i].strip()
+                if not op_str:
+                    i += 1
+                    continue
+                # Operator matrix line starts with a digit or minus sign
+                if op_str[0].isdigit() or op_str[0] == '-':
+                    op_parts = op_str.split()
+                    if len(op_parts) >= 16:
+                        try:
+                            op_nums = [int(x) for x in op_parts[:16]]
+                            denom = op_nums[15] if op_nums[15] != 0 else 1
+                            r00 = op_nums[0] // denom; r01 = op_nums[1] // denom; r02 = op_nums[2] // denom
+                            r10 = op_nums[4] // denom; r11 = op_nums[5] // denom; r12 = op_nums[6] // denom
+                            r20 = op_nums[8] // denom; r21 = op_nums[9] // denom; r22 = op_nums[10] // denom
+                            rots.append([r00, r01, r02, r10, r11, r12, r20, r21, r22])
+                        except ValueError:
+                            pass
+                    break
+                # Complex value line (conjugate from previous op): skip
+                i += 1
             if i >= len(lines):
                 break
-            # Move past operator matrix to the complex irrep matrix line
+
+            # Move to complex irrep matrix line (ordinary values)
             i += 1
             if i >= len(lines):
                 break
@@ -545,12 +572,27 @@ def _parse_cir_characters(needed_labels=None):
 
             chars.append((trace_re, trace_im, _round_char(trace_re)))
 
+            # Skip conjugate complex matrix if present (complex irreps only).
+            # Conjugate has the same number of values (dim²) as ordinary.
+            if has_conjugate:
+                conj_needed = dim * dim
+                conj_read = 0
+                while conj_read < conj_needed and i < len(lines):
+                    for token in lines[i].strip().split():
+                        conj_read += 1
+                        if conj_read >= conj_needed:
+                            break
+                    if conj_read >= conj_needed:
+                        break
+                    i += 1
+
         key = (sg, label)
         if key not in cir_chars:
             cir_chars[key] = {
                 'dim': dim,
                 'opcount': opcount,
                 'chars': chars,  # list of (re, im, rounded_re)
+                'rots': rots,   # list of [r00..r22], 9 ints per op
             }
             if store_matrices:
                 cir_matrices[key] = all_matrices
@@ -1416,14 +1458,17 @@ def generate_rust_data(data):
     # For compound labels like Z1Z4 = Z1 ⊕ Z4, store the individual CIR
     # complex character tables as (re, im) pairs.  Used for Wigner test.
     cir_comp_flat = []   # (re, im) pairs, flattened
+    cir_comp_rots = []   # rotation matrices (9 ints per op), same order as chars
     cir_comp_starts = []  # per-irrep start index (0 = not compound)
     cir_comp_counts = []  # number of CIR components (0 = not compound)
     cir_comp_ops = []     # operations per CIR component
     cir_comp_total = 0
+    cir_comp_rejected = 0
     for i in range(len(ml)):
         parts = _decompose_compound_label(ml[i])
         if parts and len(parts) >= 2:
             comp_chars = []
+            comp_rots = []
             n_ops = 0
             for part in parts:
                 pk = (sg[i], part)
@@ -1433,20 +1478,49 @@ def generate_rust_data(data):
                     for (re_val, im_val, _) in entry['chars']:
                         comp_chars.append(re_val)
                         comp_chars.append(im_val)
+                    # Rotation matrices (if available)
+                    rots = entry.get('rots', [])
+                    for r9 in rots:
+                        comp_rots.extend(r9)
                 else:
                     comp_chars = []
                     break
+
+            # ── Identity character validation ──
+            # Compound decomposition is only valid if sum(CIR χ_id) == PIR χ_id.
+            # This catches cases where _decompose_compound_label incorrectly
+            # splits a non-compound label, or where CIR character parsing
+            # produced wrong values (e.g. dim=12 but χ(id)=1).
+            valid = False
             if comp_chars:
+                pir_ch = _lookup_chars(chars_map, sg[i], ml[i], kvec_map)
+                if pir_ch and len(pir_ch) > 0:
+                    pir_id = pir_ch[0]
+                    cir_id_sum = 0.0
+                    for p_idx in range(len(parts)):
+                        # Each component's identity is at offset p_idx * n_ops * 2
+                        cir_id_sum += comp_chars[p_idx * n_ops * 2]
+                    if abs(cir_id_sum - pir_id) < 0.01:
+                        valid = True
+
+            if comp_chars and valid:
                 cir_comp_starts.append(len(cir_comp_flat))
                 cir_comp_counts.append(len(parts))
                 cir_comp_ops.append(n_ops)
                 cir_comp_flat.extend(comp_chars)
+                # Always extend rotations to keep arrays in sync.
+                total_rots_needed = len(parts) * n_ops * 9
+                if len(comp_rots) == total_rots_needed:
+                    cir_comp_rots.extend(comp_rots)
+                else:
+                    cir_comp_rots.extend([0] * total_rots_needed)
                 cir_comp_total += 1
             else:
                 cir_comp_starts.append(0); cir_comp_counts.append(0); cir_comp_ops.append(0)
+                cir_comp_rejected += 1
         else:
             cir_comp_starts.append(0); cir_comp_counts.append(0); cir_comp_ops.append(0)
-    print(f"  CIR component chars: {cir_comp_total} compound irreps, {len(cir_comp_flat)} values")
+    print(f"  CIR component chars: {cir_comp_total} compound irreps, {cir_comp_rejected} rejected (id mismatch), {len(cir_comp_flat)} values, {len(cir_comp_rots)} rotation ints")
 
     # ── Spinor (double-valued) irrep data ──
     spinor_irreps = data.get("spinor_irreps", [])
@@ -1509,6 +1583,16 @@ def generate_rust_data(data):
     for chunk_start in range(0, len(cir_comp_flat), 10):
         chunk = cir_comp_flat[chunk_start:chunk_start + 10]
         vals = ", ".join(_fmt_char(v) for v in chunk)
+        lines.append(f"    {vals},")
+    lines.append("];")
+    lines.append("")
+
+    # ── CIR rotation matrices (for runtime order matching) ──
+    lines.append("/// Rotation matrices for CIR operations, 9 i32 per op, same order as CIR_COMPONENT_CHARS.")
+    lines.append(f"pub static CIR_ROTS: [i32; {len(cir_comp_rots)}] = [")
+    for chunk_start in range(0, len(cir_comp_rots), 9):
+        chunk = cir_comp_rots[chunk_start:chunk_start + 9]
+        vals = ", ".join(str(v) for v in chunk)
         lines.append(f"    {vals},")
     lines.append("];")
     lines.append("")

@@ -569,6 +569,80 @@ fn reduce01_with_lattice(t: &[f64; 3]) -> ([f64; 3], [i32; 3]) {
     (tr, l)
 }
 
+/// Build index map from `h_seitz` (spglib H_ops order) to CIR operation order.
+///
+/// The ISOTROPY data (CIR/PIR) lists symmetry operations in a different order
+/// than spglib's database.  This function matches each H operation to the
+/// corresponding CIR entry by comparing **rotation matrices**.
+///
+/// # Arguments
+/// * `h_seitz` — H's symmetry operations in spglib order
+/// * `cir_rots` — CIR rotation matrices for one component, 9 i32 per op,
+///   in CIR/ISOTROPY order
+///
+/// # Returns
+/// `h_to_cir[h_idx] = cir_op_idx` where `cir_op_idx` indexes into the
+/// CIR character table (each char = 2 consecutive f64: re, im).
+pub fn build_h_to_cir_map(h_seitz: &[SeitzOp], cir_rots: &[i32]) -> Vec<usize> {
+    let n_ops = h_seitz.len();
+    let n_cir_ops = cir_rots.len() / 9;
+    let mut map = vec![0usize; n_ops];
+
+    eprintln!("build_h_to_cir_map: n_ops={} n_cir_ops={}", n_ops, n_cir_ops);
+    if n_cir_ops > 0 {
+        eprintln!("  CIR rots[0..9]={:?}", &cir_rots[..9.min(cir_rots.len())]);
+        eprintln!("  CIR rots[9..18]={:?}", &cir_rots[9..18.min(cir_rots.len())]);
+    }
+    for h_idx in 0..n_ops {
+        let h_op = &h_seitz[h_idx];
+        let r = &h_op.rot;
+        // Find CIR operation with matching rotation matrix
+        let cir_idx = (0..n_cir_ops).find(|&c| {
+            let off = c * 9;
+            off + 8 < cir_rots.len()
+            && cir_rots[off] == r[0][0] && cir_rots[off+1] == r[0][1] && cir_rots[off+2] == r[0][2]
+            && cir_rots[off+3] == r[1][0] && cir_rots[off+4] == r[1][1] && cir_rots[off+5] == r[1][2]
+            && cir_rots[off+6] == r[2][0] && cir_rots[off+7] == r[2][1] && cir_rots[off+8] == r[2][2]
+        }).unwrap_or_else(|| {
+            eprintln!("  All CIR rots:");
+            for c in 0..n_cir_ops {
+                let off = c * 9;
+                if off + 8 < cir_rots.len() {
+                    eprintln!("    [{}]: [{},{},{};{},{},{};{},{},{}]",
+                        c, cir_rots[off],cir_rots[off+1],cir_rots[off+2],
+                        cir_rots[off+3],cir_rots[off+4],cir_rots[off+5],
+                        cir_rots[off+6],cir_rots[off+7],cir_rots[off+8]);
+                }
+            }
+            panic!(
+                "build_h_to_cir_map: H[{}] R=[{},{},{};{},{},{};{},{},{}] not found in CIR rots ({} ops)",
+                h_idx,
+                r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2],
+                n_cir_ops,
+            );
+        });
+        map[h_idx] = cir_idx;
+    }
+    map
+}
+
+/// Reorder CIR complex characters from ISOTROPY order to H_ops (spglib) order.
+///
+/// After reordering, `out[2*h_idx]` and `out[2*h_idx+1]` give the (re, im)
+/// character for the operation at `h_seitz[h_idx]`.
+pub fn reorder_cir_chars(cir_chars: &[f64], h_to_cir: &[usize]) -> Vec<f64> {
+    let n_ops = h_to_cir.len();
+    let mut reordered = vec![0.0f64; n_ops * 2];
+    for h_idx in 0..n_ops {
+        let c_idx = h_to_cir[h_idx];
+        if 2 * c_idx + 1 < cir_chars.len() {
+            reordered[2 * h_idx] = cir_chars[2 * c_idx];
+            reordered[2 * h_idx + 1] = cir_chars[2 * c_idx + 1];
+        }
+    }
+    reordered
+}
+
 /// Helper: read a complex character from (re, im) pair array.
 #[inline]
 fn cir_char_at(cir_chars: &[f64], op_idx: usize) -> Complex64 {

@@ -136,15 +136,32 @@ impl IrrepRecord {
 
     /// Complex character table for a specific CIR component.
     ///
-    /// Returns `(re, im)` pairs.  Use only when `cir_component_count() > 0`.
+    /// Returns `(re, im)` pairs in CIR/ISOTROPY operation order.
+    /// Use `cir_rotation_at()` for the corresponding operation rotations
+    /// and `build_cir_index_map()` to map to H_ops order.
     pub fn cir_component_chars(&self, comp: usize) -> &'static [f64] {
-        if comp >= self._cir_count as usize || self._cir_start == 0 {
+        if comp >= self._cir_count as usize {
             return &[];
         }
         let start = self._cir_start as usize + comp * self._cir_ops as usize * 2;
         let len = self._cir_ops as usize * 2;
-        // SAFETY: generated data guarantees valid bounds
         &super::generated_data::CIR_COMPONENT_CHARS[start..start + len]
+    }
+
+    /// Rotation matrices for CIR operations of a specific component.
+    ///
+    /// Returns 9×n_ops i32 values (r00,r01,r02, r10,r11,r12, r20,r21,r22 per op).
+    pub fn cir_rotations(&self, comp: usize) -> &'static [i32] {
+        if comp >= self._cir_count as usize {
+            return &[];
+        }
+        // _cir_start indexes into CIR_COMPONENT_CHARS (2 f64 per op).
+        // CIR_ROTS has 9 i32 per op in the SAME flat order.
+        // Convert from f64-pair index to rotation index:
+        let ops_before = self._cir_start as usize / 2;
+        let start = (ops_before + comp * self._cir_ops as usize) * 9;
+        let len = self._cir_ops as usize * 9;
+        &super::generated_data::CIR_ROTS[start..start + len]
     }
 }
 
