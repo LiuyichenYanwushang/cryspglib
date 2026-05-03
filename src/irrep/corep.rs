@@ -93,7 +93,8 @@
 use crate::mathfunc::{Mat3I, Vec3};
 use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use super::types::IrrepRecord;
-use super::wigner::{self, filter_little_group, ops_to_seitz, SeitzOp};
+use super::wigner::{self, filter_little_group, ops_to_seitz, SeitzOp,
+    compose_seitz, square_seitz, find_seitz, bloch_phase};
 
 /// Co-representation type from Wigner's test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -211,6 +212,10 @@ pub fn compute_corepresentation(
     // 4. H's irrep characters
     let h_chars = h_irrep.characters();
     let h_dim = h_irrep.dim as usize;
+    if h_irrep.ml == "Z1Z4" {
+        eprintln!("DEBUG compute_corep Z1Z4: sg={} h_chars={:?} h_ops.len={} mag_ops.len={}",
+            h_irrep.sg, &h_chars[..h_chars.len().min(8)], h_ops.len(), mag_ops.len());
+    }
 
     // 5. Convert to SeitzOps for proper composition
     let mag_seitz = ops_to_seitz(mag_ops);
@@ -641,6 +646,114 @@ mod tests {
     /// Our computation uses H = SG 118's PIR irreps at Z:
     ///   Z1Z4, Z2Z3, Z5 (scalar), Z6, Z7 (spinor)
     /// Type C doubles the dimension: 2D PIR → 4D corep.
+    #[test]
+    /// Diagnostic: print Wigner sum term-by-term for SG 118 Z-point irreps.
+    #[test]
+    fn debug_wigner_z_point() {
+        let uni = 1066usize;
+        let mag_ops = get_magnetic_operations(uni).unwrap();
+        let h_sg = identify_unitary_subgroup(uni).unwrap();
+        let h_ops = get_parent_operations(h_sg as u8);
+        let mag_seitz = ops_to_seitz(&mag_ops);
+        let h_seitz = ops_to_seitz(&h_ops);
+        let a0_idx = mag_ops.timerev.iter().position(|&t| t).unwrap();
+        let a0 = &mag_seitz[a0_idx];
+
+        println!("\n=== Wigner diagnostic: UNI {} → H=SG {} ===", uni, h_sg);
+        println!("Magnetic ops: {} total, {} unitary, {} anti-unitary",
+            mag_ops.len(),
+            mag_ops.timerev.iter().filter(|&&t| !t).count(),
+            mag_ops.timerev.iter().filter(|&&t| t).count());
+        println!("a₀ (anti-unitary rep): R=[{},{},{};{},{},{};{},{},{}] t=({:.4},{:.4},{:.4})",
+            a0.rot[0][0],a0.rot[0][1],a0.rot[0][2],
+            a0.rot[1][0],a0.rot[1][1],a0.rot[1][2],
+            a0.rot[2][0],a0.rot[2][1],a0.rot[2][2],
+            a0.trans[0],a0.trans[1],a0.trans[2]);
+        println!("H ops (SG {}): {}", h_sg, h_ops.len());
+        for (i, s) in h_seitz.iter().enumerate() {
+            println!("  H[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.4},{:.4},{:.4})",
+                i,
+                s.rot[0][0],s.rot[0][1],s.rot[0][2],
+                s.rot[1][0],s.rot[1][1],s.rot[1][2],
+                s.rot[2][0],s.rot[2][1],s.rot[2][2],
+                s.trans[0],s.trans[1],s.trans[2]);
+        }
+
+        let h_irreps = crate::irrep::query::irreps_of(h_sg as u8);
+        let k_irreps: Vec<_> = h_irreps.iter()
+            .filter(|r| r.k_label() == "Z").collect();
+
+        for ir in &k_irreps {
+            println!("\n--- {} (dim={}, spinor={}, k=({},{},{})/{}) ---",
+                ir.ml, ir.dim, ir.spinor, ir.kx, ir.ky, ir.kz, ir.kd);
+
+            let mag_lg = filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+            let unitary_lg: Vec<usize> = mag_lg.iter()
+                .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+            let anti_lg: Vec<usize> = mag_lg.iter()
+                .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+            println!("  Little group: {} ops ({} unitary + {} anti-unitary)",
+                mag_lg.len(), unitary_lg.len(), anti_lg.len());
+
+            let h_chars = ir.characters();
+            println!("  H characters ({} ops): {:?}...", h_ops.len(),
+                &h_chars[..h_chars.len().min(8)]);
+
+            // Map unitary ops to H
+            let op_map: Vec<Option<usize>> = (0..mag_ops.len())
+                .map(|i| {
+                    if mag_ops.timerev[i] { None }
+                    else {
+                        let r = &mag_ops.rot[i];
+                        h_ops.rot.iter().position(|hr| {
+                            hr[0][0] == r[0][0] && hr[0][1] == r[0][1] && hr[0][2] == r[0][2]
+                            && hr[1][0] == r[1][0] && hr[1][1] == r[1][1] && hr[1][2] == r[1][2]
+                            && hr[2][0] == r[2][0] && hr[2][1] == r[2][1] && hr[2][2] == r[2][2]
+                        })
+                    }
+                }).collect();
+
+            // Term-by-term Wigner sum
+            let mut w_sum = 0.0f64;
+            for &h_mag_idx in &unitary_lg {
+                let h = &mag_seitz[h_mag_idx];
+                let h_h = op_map[h_mag_idx];
+
+                // g₀h
+                let (g0h, l1) = compose_seitz(
+                    &SeitzOp::new(a0.rot, a0.trans, false),
+                    &SeitzOp::new(h.rot, h.trans, false),
+                );
+                // (g₀h)²
+                let (sq, l_sq) = square_seitz(&g0h);
+
+                match find_seitz(&sq.rot, &sq.trans, &h_seitz) {
+                    Some(m) => {
+                        let total_l = [l_sq[0]+m.lattice_shift[0], l_sq[1]+m.lattice_shift[1], l_sq[2]+m.lattice_shift[2]];
+                        let (ph_re, ph_im) = bloch_phase(ir.kx, ir.ky, ir.kz, ir.kd, &total_l);
+                        let chi = if m.op_index < h_chars.len() { h_chars[m.op_index] } else { 0.0 };
+                        let contrib = chi * ph_re;
+                        w_sum += contrib;
+                        println!("    h[{}]→H[{}]: (a₀h)²=H[{}] L={:?} ph=({:.2},{:.2}) χ={:.2} contrib={:.2}",
+                            h_mag_idx, h_h.map_or("?".into(), |x| x.to_string()),
+                            m.op_index, total_l, ph_re, ph_im, chi, contrib);
+                    }
+                    None => {
+                        println!("    h[{}]→H[{}]: (a₀h)² R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3}) NOT FOUND",
+                            h_mag_idx, h_h.map_or("?".into(), |x| x.to_string()),
+                            sq.rot[0][0],sq.rot[0][1],sq.rot[0][2],
+                            sq.rot[1][0],sq.rot[1][1],sq.rot[1][2],
+                            sq.rot[2][0],sq.rot[2][1],sq.rot[2][2],
+                            sq.trans[0],sq.trans[1],sq.trans[2]);
+                    }
+                }
+            }
+            let w = w_sum / (unitary_lg.len() as f64).max(1.0);
+            println!("  Wigner W = {:.4} → {}", w,
+                if w.abs() < 0.01 { "Type C" } else if w > 0.0 { "Type A" } else { "Type B" });
+        }
+    }
+
     #[test]
     fn test_corep_sg128_406_z_bcs() {
         let coreps = compute_coreps("128.406", "Z");

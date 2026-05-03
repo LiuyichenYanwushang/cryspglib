@@ -293,41 +293,38 @@ pub fn wigner_classify(
         let h = &mag_seitz[h_mag_idx];
         debug_assert!(!h.timerev, "h must be unitary");
 
-        // Step 1: g₀h = a₀(spatial) ∘ h (both unitary spatial parts)
-        // For the spatial part, we ignore timerev during composition
         let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
         let h_spatial = SeitzOp::new(h.rot, h.trans, false);
         let (g0h, _l1) = compose_seitz(&g0_spatial, &h_spatial);
-
-        // Step 2: (g₀h)²
         let (sq, lattice_sq) = square_seitz(&g0h);
 
-        // Step 3: find (g₀h)² in H's operations
         if let Some(m) = find_seitz(&sq.rot, &sq.trans, h_seitz) {
             if m.op_index < h_chars.len() {
-                // Account for lattice shift from composition
                 let total_lattice = [
                     lattice_sq[0] + m.lattice_shift[0],
                     lattice_sq[1] + m.lattice_shift[1],
                     lattice_sq[2] + m.lattice_shift[2],
                 ];
                 let (phase_re, phase_im) = bloch_phase(kx, ky, kz, kd, &total_lattice);
-                // Character is real for PIR irreps; Bloch phase may be complex.
-                // For now we use the real character (PIR convention).
-                // The phase factor multiplies the character.
-                w_sum += h_chars[m.op_index] * phase_re;
-                // Imaginary part should vanish for real irreps at TRIM points
+                let contrib = h_chars[m.op_index] * phase_re;
+                w_sum += contrib;
+                eprintln!("    wigner: h[{}]→H[{}] sq=H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
+                    h_mag_idx, "?", m.op_index, total_lattice, phase_re,
+                    h_chars[m.op_index], contrib);
             }
+        } else {
+            eprintln!("    wigner: h[{}] sq R=[{},{},{};...] t=({:.3},{:.3},{:.3}) NOT FOUND",
+                h_mag_idx, sq.rot[0][0],sq.rot[0][1],sq.rot[0][2],
+                sq.trans[0],sq.trans[1],sq.trans[2]);
         }
-        // If no Seitz match is found, this indicates a structural problem
-        // (setting mismatch, wrong operations).  We skip the term rather than
-        // silently adding 0 — but in production this should be a hard error.
     }
 
     let n = (unitary_mag_indices.len() as f64).max(1.0);
     let w = w_sum / n;
 
     // Classify with tolerance
+    eprintln!("DEBUG wigner_classify: w_sum={:.4} n_unitary={} W={:.4} k=({},{},{})/{}",
+        w_sum, unitary_mag_indices.len(), w, kx, ky, kz, kd);
     if w.abs() < 0.01 {
         CorepType::C
     } else if w > 0.0 {
