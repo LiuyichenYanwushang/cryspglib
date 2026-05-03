@@ -1629,15 +1629,26 @@ def generate_rust_data(data):
             pir_rots_flat.extend([0] * (n_ops * 9))
     spinor_starts = []
     spinor_counts = []
+    spin_extra_flat = []   # extra character values for spinor Wigner test
+    spin_extra_starts = [] # per-irrep start index (0 = no extra)
+    spin_extra_counts = [] # number of extra values (0 = no extra)
     for sir in spinor_irreps:
         spinor_starts.append(len(chars_flat))
-        spinor_counts.append(len(sir["characters"]))
-        chars_flat.extend(sir["characters"])
+        all_chars = sir["characters"]
+        spinor_counts.append(len(all_chars))
+        chars_flat.extend(all_chars)
+        # Split extra characters: first n_lg are standard, rest are extra
+        n_lg = len(sir.get("op_indices", []))
+        extra = all_chars[n_lg:] if len(all_chars) > n_lg else []
+        spin_extra_starts.append(len(spin_extra_flat))
+        spin_extra_counts.append(len(extra))
+        spin_extra_flat.extend(extra)
         # No matrices for spinor irreps
         mat_starts.append(len(matrices_flat))
         mat_counts.append(0)
     if spinor_irreps:
-        print(f"  Added {len(spinor_irreps)} spinor irreps to database")
+        n_with_extra = sum(1 for c in spin_extra_counts if c > 0)
+        print(f"  Added {len(spinor_irreps)} spinor irreps ({n_with_extra} with extra chars)")
 
     # ── Spinor operation arrays ──
     spinor_ops_data = data.get("spinor_ops", {})
@@ -1731,6 +1742,18 @@ def generate_rust_data(data):
     for chunk_start in range(0, len(cir_comp_rots), 9):
         chunk = cir_comp_rots[chunk_start:chunk_start + 9]
         vals = ", ".join(str(v) for v in chunk)
+        lines.append(f"    {vals},")
+    lines.append("];")
+    lines.append("")
+
+    # ── Spinor extra characters (Wigner test contributions) ──
+    lines.append("/// Extra character values for spinor irreps at BZ boundary k-points.")
+    lines.append("/// Sum over these values gives the Wigner indicator contribution.")
+    lines.append("/// Indexed by IrrepRecord._spin_extra_start / _spin_extra_count.")
+    lines.append(f"pub static SPIN_EXTRA_CHARS: [f64; {len(spin_extra_flat)}] = [")
+    for chunk_start in range(0, len(spin_extra_flat), 10):
+        chunk = spin_extra_flat[chunk_start:chunk_start + 10]
+        vals = ", ".join(_fmt_char(v) for v in chunk)
         lines.append(f"    {vals},")
     lines.append("];")
     lines.append("")
@@ -1863,6 +1886,8 @@ def generate_rust_data(data):
             "cir_s": cir_comp_starts[i], "cir_c": cir_comp_counts[i], "cir_o": cir_comp_ops[i],
             "pir_rot_s": pir_rot_starts[i],
             "spin_lg_count": 0,
+            "spin_extra_s": 0,
+            "spin_extra_c": 0,
         })
 
     # Pre-compute spinor IrrepRecord data
@@ -1881,6 +1906,8 @@ def generate_rust_data(data):
             "cir_s": 0, "cir_c": 0, "cir_o": 0,
             "pir_rot_s": pir_rot_starts[len(ml) + idx],
             "spin_lg_count": spin_lg_counts[idx],
+            "spin_extra_s": spin_extra_starts[idx],
+            "spin_extra_c": spin_extra_counts[idx],
         })
 
     # Now emit IrrepRecord entries in SG order
@@ -1915,9 +1942,11 @@ def generate_rust_data(data):
             lines.append(f"        _mag_iso_start: {r['mag_iso_s']},")
             lines.append(f"        _mag_iso_count: {r['mag_iso_c']},")
             lines.append(f"        _cir_start: {r['cir_s']},")
-            lines.append(f"        _spin_lg_count: {r['spin_lg_count']},")
             lines.append(f"        _cir_count: {r['cir_c']},")
             lines.append(f"        _cir_ops: {r['cir_o']},")
+            lines.append(f"        _spin_lg_count: {r['spin_lg_count']},")
+            lines.append(f"        _spin_extra_start: {r['spin_extra_s']},")
+            lines.append(f"        _spin_extra_count: {r['spin_extra_c']},")
             lines.append(f"    }},")
     lines.append("];")
     lines.append("")

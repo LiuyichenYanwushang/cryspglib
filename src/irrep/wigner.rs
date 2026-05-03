@@ -680,24 +680,50 @@ pub fn su2_same_up_to_sign(a: &[f64; 4], b: &[f64; 4]) -> Option<bool> {
 
 // ── Spinor (double-group) Wigner test ──────────────────────────────────────
 
-/// Wigner test for spinor (double-valued) irreps.
+/// Wigner test for spinor irreps using Bilbao pre-computed extra characters.
+///
+/// The spin.dat files from Bilbao include extra character values at BZ
+/// boundary k-points.  These values are χ((a₀h)²) contributions for the
+/// Wigner test.  Summing them and normalising by |H| gives the Wigner
+/// indicator directly, without needing SU(2) composition.
+///
+/// # Returns
+/// `Some(CorepType)` if the extra sum is quantized (0, ±1, or ±|H|),
+/// `None` if not quantized.
+pub fn wigner_classify_spinor_extra(extra: &[f64], n_unitary: usize) -> Option<CorepType> {
+    if extra.is_empty() || n_unitary == 0 {
+        return None;
+    }
+    let sum: f64 = extra.iter().sum();
+    // Try both normalised (W = sum) and un-normalised (W = sum/|H|)
+    let w_direct = sum;
+    let w_norm = sum / (n_unitary as f64);
+
+    let tol = 1e-6;
+    // Check normalised first
+    for &w in &[w_direct, w_norm] {
+        if (w - 1.0).abs() < tol {
+            return Some(CorepType::A);
+        } else if (w + 1.0).abs() < tol {
+            return Some(CorepType::B);
+        } else if w.abs() < tol {
+            return Some(CorepType::C);
+        }
+    }
+    eprintln!("DEBUG wigner_classify_spinor_extra: sum={:.4} W={:.4} W/|H|={:.4} n_unitary={}",
+        sum, w_direct, w_norm, n_unitary);
+    None
+}
+
+/// Wigner test for spinor (double-valued) irreps using SU(2) composition.
 ///
 /// Unlike scalar irreps, spinor irreps live in the double group where each
 /// spatial operation {R|t} has two lifts: g and Ēg (Ē = 2π rotation = -1).
 /// The spinor character table from spin.dat assigns characters to specific
 /// double-group elements, indexed by SU(2) lift.
 ///
-/// # Algorithm
-///
-/// For each antiunitary operation b = a₀h in the magnetic little group:
-/// 1. Compute the spatial square (a₀h)² using Seitz composition
-/// 2. Compose the SU(2) lifts: U(a₀)·U(h) → U(a₀h), then square
-/// 3. Find the matching spin op by (rotation, translation, SU2)
-/// 4. Read the spinor character; if SU2 differs by central Ē, negate it
-/// 5. Sum with Bloch phase
-///
 /// # Returns
-/// `None` if spin ops are unavailable (fallback to Unsupported).
+/// `None` if spin ops are unavailable or result is non-quantized.
 pub fn wigner_classify_spinor(
     spin_chars: &[f64],         // first n values = little-group characters
     n_lg_ops: usize,            // number of little-group ops

@@ -124,6 +124,10 @@ pub struct IrrepRecord {
     pub(crate) _mag_iso_count: u16,
     /// Start index into [`PIR_ROTS`] (9 i32 per op), for H_ops→PIR order mapping
     pub(crate) _pir_rot_start: u32,
+    /// Start index into [`SPIN_EXTRA_CHARS`] (0 if no extra)
+    pub(crate) _spin_extra_start: u32,
+    /// Number of extra character values (0 if no extra)
+    pub(crate) _spin_extra_count: u16,
     /// Start index into [`CIR_COMPONENT_CHARS`] (0 if not compound)
     pub(crate) _cir_start: u32,
     /// Number of CIR components (0 for non-compound irreps, 2 for Z1Z4 type)
@@ -138,6 +142,17 @@ impl IrrepRecord {
     /// Returns 0 for scalar irreps.
     pub fn spin_lg_char_count(&self) -> usize {
         self._spin_lg_count as usize
+    }
+
+    /// Extra character values for spinor Wigner test (Bilbao pre-computed).
+    /// Sum of these values gives the Wigner indicator.
+    pub fn spin_extra_chars(&self) -> &'static [f64] {
+        if self._spin_extra_count == 0 {
+            return &[];
+        }
+        let start = self._spin_extra_start as usize;
+        let len = self._spin_extra_count as usize;
+        &super::generated_data::SPIN_EXTRA_CHARS[start..start + len]
     }
 
     /// Spin symmetry operations with SU(2) lifts for this irrep's space group.

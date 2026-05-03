@@ -149,7 +149,7 @@ def parse_spinor_file(filepath):
                 "kx": kx_i, "ky": ky_i, "kz": kz_i, "kd": kd,
                 "ml_label": label,
                 "dim": dim,
-                "characters": chars,
+                "characters": chars,  # full: standard + extra (if any)
                 "op_indices": current_op_indices,
             })
 

@@ -255,18 +255,25 @@ pub fn compute_corepresentation(
         }
         if any_c { CorepType::C } else { CorepType::A }
     } else if h_irrep.spinor {
-        // Spinor (double-valued) irrep: use spinor Wigner test with SU(2) lifts.
-        let (spin_rots, spin_trans, spin_su2) = h_irrep.spin_ops();
-        let n_lg = h_irrep.spin_lg_char_count();
-        if let Some(ct) = wigner::wigner_classify_spinor(
-            h_chars, n_lg,
-            spin_rots, spin_trans, spin_su2,
-            &unitary, &mag_seitz, &h_seitz, antiunitary[0],
-            h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
-        ) {
-            ct
+        // Spinor irrep: try extra chars first (Bilbao pre-computed), then SU(2).
+        let extra = h_irrep.spin_extra_chars();
+        if !extra.is_empty() {
+            wigner::wigner_classify_spinor_extra(extra, unitary.len())
+                .unwrap_or(CorepType::Unsupported)
         } else {
-            CorepType::Unsupported
+            // Fallback to SU(2) double-group path
+            let (spin_rots, _spin_trans, _spin_su2) = h_irrep.spin_ops();
+            let n_lg = h_irrep.spin_lg_char_count();
+            if let Some(ct) = wigner::wigner_classify_spinor(
+                h_chars, n_lg,
+                spin_rots, _spin_trans, _spin_su2,
+                &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+                h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
+            ) {
+                ct
+            } else {
+                CorepType::Unsupported
+            }
         }
     } else {
         // Non-compound irrep: use PIR path with operation order mapping.
