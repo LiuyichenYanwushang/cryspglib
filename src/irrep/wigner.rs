@@ -170,6 +170,24 @@ pub fn filter_little_group(
         .collect()
 }
 
+// ── Lattice arithmetic helpers ──────────────────────────────────────────────
+
+/// Multiply a 3×3 integer matrix by a 3D integer vector.
+#[inline]
+fn mat_vec_i32(r: &Mat3I, v: &[i32; 3]) -> [i32; 3] {
+    [
+        r[0][0] as i32 * v[0] + r[0][1] as i32 * v[1] + r[0][2] as i32 * v[2],
+        r[1][0] as i32 * v[0] + r[1][1] as i32 * v[1] + r[1][2] as i32 * v[2],
+        r[2][0] as i32 * v[0] + r[2][1] as i32 * v[1] + r[2][2] as i32 * v[2],
+    ]
+}
+
+/// Add two [i32; 3] vectors.
+#[inline]
+fn add3(a: &[i32; 3], b: &[i32; 3]) -> [i32; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
 // ── Seitz matching ───────────────────────────────────────────────────────────
 
 /// Result of matching a computed Seitz operation to a stored one.
@@ -295,16 +313,17 @@ pub fn wigner_classify(
 
         let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
         let h_spatial = SeitzOp::new(h.rot, h.trans, false);
-        let (g0h, _l1) = compose_seitz(&g0_spatial, &h_spatial);
+        let (g0h, l1) = compose_seitz(&g0_spatial, &h_spatial);
         let (sq, lattice_sq) = square_seitz(&g0h);
 
         if let Some(m) = find_seitz(&sq.rot, &sq.trans, h_seitz) {
             if m.op_index < h_chars.len() {
-                let total_lattice = [
-                    lattice_sq[0] + m.lattice_shift[0],
-                    lattice_sq[1] + m.lattice_shift[1],
-                    lattice_sq[2] + m.lattice_shift[2],
-                ];
+                // Total lattice shift = L_sq + L_match + L1 + R_{g0h}·L1
+                let r_l1 = mat_vec_i32(&g0h.rot, &l1);
+                let total_lattice = add3(
+                    &add3(&lattice_sq, &m.lattice_shift),
+                    &add3(&l1, &r_l1),
+                );
                 let (phase_re, phase_im) = bloch_phase(kx, ky, kz, kd, &total_lattice);
                 let contrib = h_chars[m.op_index] * phase_re;
                 w_sum += contrib;
@@ -374,15 +393,15 @@ pub fn wigner_classify_cir(
         let h = &mag_seitz[h_mag_idx];
         let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
         let h_spatial = SeitzOp::new(h.rot, h.trans, false);
-        let (g0h, _) = compose_seitz(&g0_spatial, &h_spatial);
+        let (g0h, l1) = compose_seitz(&g0_spatial, &h_spatial);
         let (sq, lattice_sq) = square_seitz(&g0h);
 
         if let Some(m) = find_seitz(&sq.rot, &sq.trans, h_seitz) {
-            let total_lattice = [
-                lattice_sq[0] + m.lattice_shift[0],
-                lattice_sq[1] + m.lattice_shift[1],
-                lattice_sq[2] + m.lattice_shift[2],
-            ];
+            let r_l1 = mat_vec_i32(&g0h.rot, &l1);
+            let total_lattice = add3(
+                &add3(&lattice_sq, &m.lattice_shift),
+                &add3(&l1, &r_l1),
+            );
             let (ph_re, ph_im) = bloch_phase(kx, ky, kz, kd, &total_lattice);
             let chi_re = if 2 * m.op_index + 1 < cir_chars.len() {
                 cir_chars[2 * m.op_index]
@@ -393,6 +412,10 @@ pub fn wigner_classify_cir(
             // Complex multiplication: χ · phase
             w_re += chi_re * ph_re - chi_im * ph_im;
             w_im += chi_re * ph_im + chi_im * ph_re;
+            eprintln!("    cir: h[{}]→H[{}] l1={:?} r_l1={:?} l_sq={:?} m_sh={:?} ph=({:.2},{:.2}) χ=({:.2},{:.2}) → ({:.2},{:.2})",
+                h_mag_idx, m.op_index, l1, r_l1, lattice_sq, m.lattice_shift,
+                ph_re, ph_im, chi_re, chi_im,
+                chi_re * ph_re - chi_im * ph_im, chi_re * ph_im + chi_im * ph_re);
         }
     }
 
