@@ -101,14 +101,14 @@ use super::wigner::{self, filter_little_group, ops_to_seitz, SeitzOp,
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CorepType {
     /// W = +1: D ∼ D*, real representation.
-    /// Magnetic irrep same dimension, anti-unitary characters non-zero.
     A,
     /// W = -1: D ∼ D*, pseudo-real (quaternionic).
-    /// Magnetic irrep same dimension, anti-unitary characters non-zero.
     B,
     /// W = 0: D ≁ D*.
-    /// Magnetic irrep = D ⊕ D*, dimension doubled, anti-unitary characters = 0.
     C,
+    /// Wigner indicator is non-quantized — missing data (e.g. spinor without
+    /// rotations) or parser error.  Cannot classify.
+    Unsupported,
 }
 
 impl CorepType {
@@ -117,6 +117,7 @@ impl CorepType {
             CorepType::A => "type-a: D ~ D*, real (W=+1)",
             CorepType::B => "type-b: D ~ D*, pseudo-real (W=-1)",
             CorepType::C => "type-c: D ≁ D* (W=0)",
+            CorepType::Unsupported => "unsupported: non-quantized Wigner indicator",
         }
     }
 }
@@ -255,22 +256,21 @@ pub fn compute_corepresentation(
         if any_c { CorepType::C } else { CorepType::A }
     } else {
         // Non-compound irrep: use PIR path with operation order mapping.
-        // Reorder PIR chars from ISOTROPY order to H_ops (spglib) order.
         let pir_rots = h_irrep.pir_rotations();
-        let h_chars_reordered: Vec<f64> = if let Some(h_to_pir) = wigner::build_h_to_cir_map(&h_seitz, pir_rots) {
-            // Reorder PIR characters (real-valued, single f64 per op).
+        if let Some(h_to_pir) = wigner::build_h_to_cir_map(&h_seitz, pir_rots) {
             let doubled = wigner::reorder_cir_chars(
                 &h_chars.iter().flat_map(|&c| [c, 0.0f64]).collect::<Vec<_>>(),
                 &h_to_pir,
             );
-            (0..h_to_pir.len()).map(|i| doubled[2 * i]).collect()
+            let h_chars_reordered: Vec<f64> = (0..h_to_pir.len()).map(|i| doubled[2 * i]).collect();
+            wigner::wigner_classify(
+                &h_chars_reordered, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+                h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
+            )
         } else {
-            h_chars.to_vec()
-        };
-        wigner::wigner_classify(
-            &h_chars_reordered, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
-            h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
-        )
+            // No rotation data (e.g. spinor irreps): cannot reorder, mark unsupported.
+            CorepType::Unsupported
+        }
     };
 
     // 8. Build corep character table
@@ -536,6 +536,7 @@ mod tests {
         assert!(!coreps.is_empty(), "Should have at least one corep");
 
         for (label, c) in &coreps {
+            if c.corep_type == CorepType::Unsupported { continue; }
             assert!(c.dim > 0, "dim > 0 for {}", label);
             assert!((c.characters[0] - c.dim as f64).abs() < 0.01,
                 "χ(id) = dim for {}", label);
@@ -978,8 +979,13 @@ mod tests {
                 CorepType::A => "A",
                 CorepType::B => "B",
                 CorepType::C => "C",
+                CorepType::Unsupported => "?",
             };
             println!("{:<8} {:<4} {:<8} {:<8.1}", label, c.dim, type_str, c.characters[0]);
+
+            if c.corep_type == CorepType::Unsupported {
+                continue;  // skip invariants for unsupported (spinor, etc.)
+            }
 
             // Basic invariants
             assert!(c.characters[0] > 0.0, "χ(id) must be > 0 for {}", label);

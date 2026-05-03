@@ -834,11 +834,13 @@ pub fn build_corep_chars(
                     let chi_partner = if let Some(pc) = partner_chars {
                         if hi < pc.len() { pc[hi] } else { 0.0 }
                     } else {
-                        // Fallback: assume partner = conjugate of self
                         chi_i
                     };
                     chars[out_idx] = chi_i + chi_partner;
                 }
+            }
+            CorepType::Unsupported => {
+                chars[out_idx] = f64::NAN;
             }
         }
     }
@@ -857,6 +859,7 @@ pub fn corep_dim(corep_type: &CorepType, h_dim: usize) -> usize {
     match corep_type {
         CorepType::A => h_dim,
         CorepType::B | CorepType::C => h_dim * 2,
+        CorepType::Unsupported => 0,
     }
 }
 
