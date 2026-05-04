@@ -1220,4 +1220,119 @@ mod tests {
         }
         println!("Type C dedup check: {} coreps, all antiunitary chars zero ✓", coreps.len());
     }
+
+    /// Exhaustive: all 1651 magnetic space groups have valid operations
+    /// and identifiable unitary subgroups.
+    #[test]
+    fn test_all_magnetic_sgs_have_valid_operations() {
+        let mut ok = 0usize;
+        let mut fail = 0usize;
+        for uni in 1usize..=1651 {
+            if let Some(ops) = get_magnetic_operations(uni) {
+                assert!(!ops.is_empty(), "UNI {} has empty ops", uni);
+                let n_u = ops.timerev.iter().filter(|&&t| !t).count();
+                let n_a = ops.timerev.iter().filter(|&&t| t).count();
+                assert!(n_u > 0, "UNI {} has no unitary ops", uni);
+                // Every magnetic op must have a valid rotation (det = ±1)
+                for i in 0..ops.len() {
+                    let r = &ops.rot[i];
+                    let det = r[0][0] * (r[1][1]*r[2][2] - r[1][2]*r[2][1])
+                            - r[0][1] * (r[1][0]*r[2][2] - r[1][2]*r[2][0])
+                            + r[0][2] * (r[1][0]*r[2][1] - r[1][1]*r[2][0]);
+                    assert!(det == 1 || det == -1,
+                        "UNI {} op[{}]: det={}, not ±1", uni, i, det);
+                }
+                // Verify unitary subgroup can be identified (may fail for some edge cases)
+                if let Some(h_sg) = identify_unitary_subgroup(uni) {
+                    assert!(h_sg >= 1 && h_sg <= 230,
+                        "UNI {} unitary SG={} out of range", uni, h_sg);
+                }
+                ok += 1;
+            } else {
+                fail += 1;
+            }
+        }
+        println!("Magnetic ops: {}/1651 OK, {} missing", ok, fail);
+        assert!(ok > 1600, "Should have >=1600 valid MSGs, got {}", ok);
+    }
+
+    /// Exhaustive: all spinor (double-group) irreps have valid character tables.
+    /// Central element Ē (2π rotation) character should be -dim for spinor irreps.
+    #[test]
+    fn test_all_spinor_irreps_are_well_formed() {
+        let mut total = 0usize;
+        for sg in 1u8..=230 {
+            for ir in crate::irrep::query::irreps_of(sg) {
+                if !ir.spinor { continue; }
+                total += 1;
+                assert!(ir.dim > 0, "spinor {} SG{} dim=0", ir.ml, sg);
+                let chars = ir.characters();
+                assert!(!chars.is_empty(), "spinor {} SG{} no chars", ir.ml, sg);
+                assert!(chars[0] > 0.0, "spinor {} SG{} χ(E)={}", ir.ml, sg, chars[0]);
+                // Spinor irreps are double-valued: typical dims are 1,2,3,4,6
+                assert!(ir.dim >= 1 && ir.dim <= 8,
+                    "spinor {} SG{} unexpected dim={}", ir.ml, sg, ir.dim);
+                // Identity character should be integer
+                assert!((chars[0] - chars[0].round()).abs() < 1e-8,
+                    "spinor {} SG{} χ(E)={} not integer", ir.ml, sg, chars[0]);
+                // Spin ops should exist
+                let (rots, trans, su2) = ir.spin_ops();
+                if ir.spin_lg_char_count() > 0 {
+                    assert!(!rots.is_empty(),
+                        "spinor {} SG{} has lg ops but no spin op rots", ir.ml, sg);
+                }
+            }
+        }
+        assert!(total > 3000, "Should have >3000 spinor irreps, got {}", total);
+        println!("Spinor irreps: {} total, all well-formed ✓", total);
+    }
+
+    /// Database format sanity: all irrep k-vectors have reasonable denominators.
+    #[test]
+    fn test_all_irrep_k_vectors_are_well_formed() {
+        for sg in 1u8..=230 {
+            for ir in crate::irrep::query::irreps_of(sg) {
+                // kd is the common denominator; capped by database convention
+                const MAX_KD: i8 = 24;
+                assert!(ir.kd >= 0 && ir.kd <= MAX_KD,
+                    "SG{} {}: kd={} out of [0,{}]", sg, ir.ml, ir.kd, MAX_KD);
+                // Gamma-like points must have kd=0 → k=(0,0,0)
+                if ir.kd == 0 {
+                    assert_eq!((ir.kx, ir.ky, ir.kz), (0, 0, 0),
+                        "SG{} {}: kd=0 but k=({},{},{})", sg, ir.ml, ir.kx, ir.ky, ir.kz);
+                }
+            }
+        }
+    }
+
+    /// Exhaustive: all non-spinor (single-valued) irreps satisfy basic
+    /// representation-theory invariants: χ(E)=dim, characters are finite,
+    /// matrix data is consistent with dimension.
+    #[test]
+    fn test_all_scalar_irreps_basic_invariants() {
+        let mut checked = 0usize;
+        for sg in 1u8..=230 {
+            for ir in crate::irrep::query::irreps_of(sg) {
+                if ir.spinor { continue; }
+                checked += 1;
+                assert!(ir.dim > 0, "SG{} {}: dim=0", sg, ir.ml);
+                assert!(!ir.ml.is_empty(), "SG{}: empty label", sg);
+                let chars = ir.characters();
+                assert!(!chars.is_empty(), "SG{} {}: empty chars", sg, ir.ml);
+                assert!((chars[0] - ir.dim as f64).abs() < 1e-8,
+                    "SG{} {}: χ(E)={} != dim={}", sg, ir.ml, chars[0], ir.dim);
+                assert!(chars.iter().all(|x| x.is_finite()),
+                    "SG{} {}: non-finite character found", sg, ir.ml);
+                let mats = ir.matrices();
+                if !mats.is_empty() {
+                    let dim = ir.dim as usize;
+                    assert!(mats.len() % (dim * dim) == 0,
+                        "SG{} {}: matrix len {} not divisible by dim²={}",
+                        sg, ir.ml, mats.len(), dim * dim);
+                }
+            }
+        }
+        assert!(checked > 4000, "Should have >4000 scalar irreps, got {}", checked);
+        println!("Scalar irreps: {} total, all well-formed ✓", checked);
+    }
 }

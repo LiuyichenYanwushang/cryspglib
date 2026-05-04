@@ -302,6 +302,7 @@ def _parse_pir_characters():
 
     chars_map = {}
     matrices_map = {}
+    dim_map = {}     # (SG#, ML_label) -> dim (from PIR header)
     rots_map = {}     # (SG#, ML_label) -> [[r00..r22], ...] per operation
     i = 3  # skip 3 header lines
 
@@ -423,6 +424,7 @@ def _parse_pir_characters():
             chars_map[key] = chars
             matrices_map[key] = all_matrices
             rots_map[key] = rots
+            dim_map[key] = dim
 
         # Advance to next irrep header
         i += 1
@@ -432,7 +434,7 @@ def _parse_pir_characters():
                 break
             i += 1
 
-    return chars_map, matrices_map, rots_map
+    return chars_map, matrices_map, rots_map, dim_map
 
 
 # ── CIR (Complex Irreducible Representations) parsing ────────────────────────
@@ -922,8 +924,9 @@ def parse_all():
     img_lines = read_file("data_images.txt")
     img_sec = get_sections(img_lines)
     img_labels = parse_labels(img_lines, img_sec, "image_label")
-    # image code 1 → img_labels[0], code 2 → img_labels[1], etc.
-    print(f"  {len(img_labels)} image labels")
+    img_dims = parse_ints(img_lines, img_sec, "image_dimension")
+    # image code 1 → img_labels[0] / img_dims[0]
+    print(f"  {len(img_labels)} image labels, {len(img_dims)} image dimensions")
 
     print("Parsing data_little.txt...")
     lit_lines = read_file("data_little.txt")
@@ -1009,7 +1012,7 @@ def parse_all():
     print(f"  Parsed {len(kvec_map)} k-vector entries")
 
     print("Parsing PIR_data.txt characters and matrices...")
-    chars_map, matrices_map, rots_map = _parse_pir_characters()
+    chars_map, matrices_map, rots_map, pir_dim_map = _parse_pir_characters()
     print(f"  Parsed {len(chars_map)} character table entries")
     print(f"  Parsed {len(matrices_map)} matrix data entries")
 
@@ -1052,6 +1055,7 @@ def parse_all():
         "images": images,
         "lifshitz": lifshitz,
         "img_labels": img_labels,
+        "img_dims": img_dims,
         "k_counts": k_counts,
         "k_labels_all": k_labels_all,
         "k_kov_all": k_kov_all,
@@ -1071,6 +1075,7 @@ def parse_all():
         "chars_map": chars_map,
         "matrices_map": matrices_map,
         "rots_map": rots_map,
+        "pir_dim_map": pir_dim_map,
         "cir_data": cir_data,
         "cir_matrices": cir_matrices,
         "mag_iso_sg": mag_iso_sg,
@@ -1415,6 +1420,8 @@ def generate_rust_data(data):
     img = data["images"]
     lif = data["lifshitz"]
     img_labels = data["img_labels"]
+    img_dims = data.get("img_dims", [])
+    pir_dim_map = data.get("pir_dim_map", {})
 
     # direction labels
     dir_map = data["dir_map"]
@@ -1864,10 +1871,27 @@ def generate_rust_data(data):
             img_name = img_labels[img_code - 1]
         else:
             img_name = "?"
-        if img_name and img_name[0] in IMAGE_DIM:
+        # Determine dimension: PIR header > χ(E) > image_dimension > error
+        pir_d = pir_dim_map.get((sg_num, ml_label))
+        chars = chars_map.get((sg_num, ml_label), [])
+        if pir_d is not None and pir_d > 0:
+            dim = pir_d
+        elif chars and len(chars) > 0:
+            dim = int(round(chars[0]))
+        elif 1 <= img_code <= len(img_dims):
+            dim = img_dims[img_code - 1]
+        elif img_name and img_name[0] in IMAGE_DIM:
             dim = IMAGE_DIM[img_name[0]]
         else:
-            dim = 1
+            raise ValueError(
+                f"Cannot determine dim for SG{sg_num} {ml_label}, img={img_name}"
+            )
+        # Consistency: χ(E) must equal dim
+        if chars and len(chars) > 0:
+            chi_e = int(round(chars[0]))
+            if chi_e != dim:
+                # Trust χ(E) over image-based dim for compound irreps
+                dim = chi_e
         latex_bc = label_to_latex(bc_label)
         latex_kov = label_to_latex(kov_label)
         kx, ky, kz, kd = _lookup_kvec(kvec_map, sg_num, ml_label)

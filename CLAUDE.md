@@ -84,6 +84,13 @@ let ds = si.analyze().symprec(1e-5).dataset()?;
 5. **Builder pattern for optional parameters** — `SymmetryAnalysis` with `.symprec()`, `.angle_tolerance()`
 6. **Deprecated aliases** — old names (`SpglibDataset`, `SpglibError`) kept as type aliases
 
+## Integer type convention
+
+- **All integer types use `usize` / `isize`** except for enums which may use `u8`.
+- Never use `i16`, `i32`, `i64`, `u16`, `u32`, `u64` in new code — use `usize` or `isize`.
+- The `IrrepRecord` fields (`kx`, `ky`, `kz`, `kd`, `dim`, `sg`) use `i8`/`u8` only because they are packed into a large static array (8,388 entries) where memory is a concern.
+- Internal pointer fields (`_char_start`, `_mat_start`, etc.) use `u32`/`u16` for the same memory-compaction reason.
+
 ## Module structure
 
 | Module | Role |

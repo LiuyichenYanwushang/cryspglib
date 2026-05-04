@@ -439138,7 +439138,7 @@ pub static IRREPS: [IrrepRecord; 8388] = [
         ml: "W1W2",
         bc: "W_{1}W2",
         kov: "k_{8}t1t2",
-        dim: 1,
+        dim: 24,
         image: "K1536a",
         lifshitz: false,
         spinor: false,
