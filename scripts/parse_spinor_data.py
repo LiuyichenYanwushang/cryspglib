@@ -121,12 +121,15 @@ def parse_spinor_file(filepath):
             # We need to store them in that order
             chars = [_round_char(c) for c in chars_raw]
 
-            # Compute k-vector denominator from coords
+            # Compute k-vector denominator from coords.
+            # Use the SMALLEST common denominator so that spinor and scalar
+            # irreps at the same k-point get the same (kx,ky,kz,kd) tuple
+            # and are correctly grouped by kpoints_of().
             if current_kvec:
                 kx, ky, kz = current_kvec
-                # Find common denominator (up to 6)
+                from math import gcd
                 kd = 1
-                for d in [6, 4, 3, 2, 1]:
+                for d in [1, 2, 3, 4, 6]:
                     ok = True
                     for v in [kx, ky, kz]:
                         v_scaled = v * d
@@ -139,6 +142,15 @@ def parse_spinor_file(filepath):
                 kx_i = int(round(kx * kd))
                 ky_i = int(round(ky * kd))
                 kz_i = int(round(kz * kd))
+                # Reduce to simplest form
+                g = gcd(abs(kx_i), abs(ky_i))
+                g = gcd(g, abs(kz_i))
+                g = gcd(g, kd)
+                if g > 1:
+                    kx_i //= g
+                    ky_i //= g
+                    kz_i //= g
+                    kd //= g
             else:
                 kx_i = ky_i = kz_i = 0
                 kd = 1
