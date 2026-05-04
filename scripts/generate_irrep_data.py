@@ -1856,6 +1856,7 @@ def generate_rust_data(data):
         mag_iso_counts.append(max(0, e - s))
 
     scalar_records = []  # list of dicts with all the generated fields
+    dim_warnings = 0
     for i in range(len(ml)):
         ml_label = ml[i]
         bc_label = bc[i]
@@ -1871,13 +1872,22 @@ def generate_rust_data(data):
             img_name = img_labels[img_code - 1]
         else:
             img_name = "?"
-        # Determine dimension: PIR header > χ(E) > image_dimension > error
+        latex_bc = label_to_latex(bc_label)
+        latex_kov = label_to_latex(kov_label)
+        kx, ky, kz, kd = _lookup_kvec(kvec_map, sg_num, ml_label)
+        char_s = char_starts[i]
+        char_c = char_counts[i]
+
+        # Determine dimension from the final character table (which already
+        # went through _lookup_chars fallback matching), so dim and the
+        # written CHARACTERS are guaranteed consistent.
+        # Priority: χ(E) from CHARACTERS > PIR header > image_dimension > error
         pir_d = pir_dim_map.get((sg_num, ml_label))
-        chars = chars_map.get((sg_num, ml_label), [])
-        if pir_d is not None and pir_d > 0:
+        final_chars = chars_flat[char_s:char_s + char_c] if char_c > 0 else []
+        if final_chars:
+            dim = int(round(final_chars[0]))
+        elif pir_d is not None and pir_d > 0:
             dim = pir_d
-        elif chars and len(chars) > 0:
-            dim = int(round(chars[0]))
         elif 1 <= img_code <= len(img_dims):
             dim = img_dims[img_code - 1]
         elif img_name and img_name[0] in IMAGE_DIM:
@@ -1886,17 +1896,17 @@ def generate_rust_data(data):
             raise ValueError(
                 f"Cannot determine dim for SG{sg_num} {ml_label}, img={img_name}"
             )
-        # Consistency: χ(E) must equal dim
-        if chars and len(chars) > 0:
-            chi_e = int(round(chars[0]))
-            if chi_e != dim:
-                # Trust χ(E) over image-based dim for compound irreps
-                dim = chi_e
-        latex_bc = label_to_latex(bc_label)
-        latex_kov = label_to_latex(kov_label)
-        kx, ky, kz, kd = _lookup_kvec(kvec_map, sg_num, ml_label)
-        char_s = char_starts[i]
-        char_c = char_counts[i]
+
+        # Cross-check: warn if PIR header dim disagrees with final χ(E)
+        if pir_d is not None and final_chars:
+            chi_e = int(round(final_chars[0]))
+            if pir_d != chi_e:
+                print(f"  WARNING dim mismatch: SG{sg_num} {ml_label}: "
+                      f"PIR header dim={pir_d}, χ(E)={final_chars[0]}, img={img_name}")
+                dim_warnings += 1
+
+    if dim_warnings > 0:
+        print(f"  ⚠ {dim_warnings} irreps have PIR header dim ≠ χ(E) (fixed to χ(E))")
         mat_s = mat_starts[i]
         mat_c = mat_counts[i]
         scalar_records.append({
