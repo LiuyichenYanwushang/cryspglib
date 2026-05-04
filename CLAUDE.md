@@ -565,5 +565,5 @@ CIR_data.txt 格式 (每个操作):
 | 项目 | 说明 |
 |------|------|
 | `generate_irrep_docs.py` | 只做了 3/7 晶系的 rustdoc，未完成。不影响功能，可后续补全或删除 |
-| SU(2) Wigner 组合 | `su2_compose` 框架已搭建，但 SU(2) 数据格式（Bilbao 约定）待确认。仅影响无 extra chars 的 spinor irrep |
+| SU(2) Wigner 组合 | `su2_compose` 改为 flat 2×2 矩阵乘法（closure test 验证通过）。中央元检测 `su2_same_up_to_sign` 已实现。`wigner_classify_spinor` 尚未调用 SU(2) 组合逻辑 |
 
