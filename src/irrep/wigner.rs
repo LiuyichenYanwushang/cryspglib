@@ -36,6 +36,13 @@ use num_complex::Complex64;
 use crate::mathfunc::{mat_multiply_matrix_i3, Mat3I};
 use super::corep::{CorepType, MagneticOps};
 
+macro_rules! debug_log {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "debug-corep")]
+        eprintln!($($arg)*);
+    };
+}
+
 // ── Seitz operation ──────────────────────────────────────────────────────────
 
 /// A space-group operation $$\{R|\mathbf{t}\}$$ with optional time reversal.
@@ -326,12 +333,12 @@ pub fn wigner_classify(
                 let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
                 let contrib = h_chars[m.op_index] * phase.re;
                 w_sum += contrib;
-                eprintln!("    wigner: h[{}]→H[{}] sq=H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
+                debug_log!("    wigner: h[{}]→H[{}] sq=H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
                     h_mag_idx, "?", m.op_index, total_lattice, phase.re,
                     h_chars[m.op_index], contrib);
             }
         } else {
-            eprintln!("    wigner: h[{}] sq R=[{},{},{};...] t=({:.3},{:.3},{:.3}) NOT FOUND",
+            debug_log!("    wigner: h[{}] sq R=[{},{},{};...] t=({:.3},{:.3},{:.3}) NOT FOUND",
                 h_mag_idx, sq.rot[0][0],sq.rot[0][1],sq.rot[0][2],
                 sq.trans[0],sq.trans[1],sq.trans[2]);
         }
@@ -341,7 +348,7 @@ pub fn wigner_classify(
     let w = w_sum / n;
 
     // Strict classification: W must be quantized to 0, +1, or -1.
-    eprintln!("DEBUG wigner_classify: w_sum={:.4} n_unitary={} W={:.4} k=({},{},{})/{}",
+    debug_log!("DEBUG wigner_classify: w_sum={:.4} n_unitary={} W={:.4} k=({},{},{})/{}",
         w_sum, unitary_mag_indices.len(), w, kx, ky, kz, kd);
     let tol = 1e-6;
     if (w - 1.0).abs() < tol {
@@ -351,7 +358,7 @@ pub fn wigner_classify(
     } else if w.abs() < tol {
         CorepType::C
     } else {
-        eprintln!("  Non-quantized Wigner indicator W={:.8}; expected 0, +1, or -1.", w);
+        debug_log!("  Non-quantized Wigner indicator W={:.8}; expected 0, +1, or -1.", w);
         CorepType::Unsupported
     }
 }
@@ -406,17 +413,17 @@ pub fn wigner_classify_cir(
             // Phase parity stats
             if phase.re > 0.5 { n_plus += 1; }
             else if phase.re < -0.5 { n_minus += 1; }
-            eprintln!("    cir: h[{}]→H[{}] Lz_par={} ph={:.2} χ={:.2} → {:.2}",
+            debug_log!("    cir: h[{}]→H[{}] Lz_par={} ph={:.2} χ={:.2} → {:.2}",
                 h_mag_idx, m.op_index,
                 ((total_lattice[2] % 2) + 2) % 2,
                 phase, chi, chi * phase);
         }
     }
 
-    eprintln!("    phase stats: +={} -={}", n_plus, n_minus);
+    debug_log!("    phase stats: +={} -={}", n_plus, n_minus);
     let n = (unitary_mag_indices.len() as f64).max(1.0);
     let w = w_sum / n;
-    eprintln!("DEBUG wigner_classify_cir: W=({:.8},{:.8}) |W|={:.4} k=({},{},{})/{}",
+    debug_log!("DEBUG wigner_classify_cir: W=({:.8},{:.8}) |W|={:.4} k=({},{},{})/{}",
         w.re, w.im, w.norm(), kx, ky, kz, kd);
 
     let tol = 1e-6;
@@ -439,7 +446,7 @@ pub fn wigner_classify_cir(
 /// Prints all operations with their characters for manual inspection.
 #[cfg(test)]
 pub fn debug_char_order(cir_chars: &[f64], h_seitz: &[SeitzOp], label: &str) {
-    eprintln!("=== Character order check: {} ===", label);
+    debug_log!("=== Character order check: {} ===", label);
     for (i, op) in h_seitz.iter().enumerate() {
         let re = cir_chars.get(2 * i).copied().unwrap_or(999.0);
         let im = cir_chars.get(2 * i + 1).copied().unwrap_or(999.0);
@@ -447,7 +454,7 @@ pub fn debug_char_order(cir_chars: &[f64], h_seitz: &[SeitzOp], label: &str) {
                  && op.rot[1][0] == 0 && op.rot[1][1] == 1 && op.rot[1][2] == 0
                  && op.rot[2][0] == 0 && op.rot[2][1] == 0 && op.rot[2][2] == 1
                  && op.trans[0].abs() < 0.01 && op.trans[1].abs() < 0.01 && op.trans[2].abs() < 0.01;
-        eprintln!("  H[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3}) chi=({:.3},{:.3}){}",
+        debug_log!("  H[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3}) chi=({:.3},{:.3}){}",
             i,
             op.rot[0][0],op.rot[0][1],op.rot[0][2],
             op.rot[1][0],op.rot[1][1],op.rot[1][2],
@@ -482,15 +489,15 @@ pub fn debug_unwrapped_square(
     let rc_tc = mat_vec_f64(&rc, &tc_raw);
     let tsq_raw = [tc_raw[0] + rc_tc[0], tc_raw[1] + rc_tc[1], tc_raw[2] + rc_tc[2]];
 
-    eprintln!("=== unwrapped square: h[{}] ===", h_mag_idx);
-    eprintln!("  a0: R={:?}, t={:?}", a0.rot, a0.trans);
-    eprintln!("  h : R={:?}, t={:?}", h.rot, h.trans);
-    eprintln!("  g0h raw: R={:?}, t={:?}", rc, tc_raw);
-    eprintln!("  sq raw : R={:?}, t={:?}", rsq, tsq_raw);
+    debug_log!("=== unwrapped square: h[{}] ===", h_mag_idx);
+    debug_log!("  a0: R={:?}, t={:?}", a0.rot, a0.trans);
+    debug_log!("  h : R={:?}, t={:?}", h.rot, h.trans);
+    debug_log!("  g0h raw: R={:?}, t={:?}", rc, tc_raw);
+    debug_log!("  sq raw : R={:?}, t={:?}", rsq, tsq_raw);
 
     // Normalize for matching
     let (tsq_mod, l_reduce) = reduce01_with_lattice(&tsq_raw);
-    eprintln!("  sq mod : t={:?}, L_reduce={:?}", tsq_mod, l_reduce);
+    debug_log!("  sq mod : t={:?}, L_reduce={:?}", tsq_mod, l_reduce);
 
     if let Some(m) = find_seitz(&rsq, &tsq_mod, h_seitz) {
         let stored_t = &h_seitz[m.op_index].trans;
@@ -503,11 +510,11 @@ pub fn debug_unwrapped_square(
         let lz_par = ((l_direct[2] % 2) + 2) % 2;
         let phase = bloch_phase(kx, ky, kz, kd, &l_direct);
 
-        eprintln!("  matched H[{}]: t_stored={:?}", m.op_index, stored_t);
-        eprintln!("  L_direct={:?} Lz_par={} phase={:.2}", l_direct, lz_par, phase);
-        eprintln!("  m.lattice_shift={:?} (from normalized match)", m.lattice_shift);
+        debug_log!("  matched H[{}]: t_stored={:?}", m.op_index, stored_t);
+        debug_log!("  L_direct={:?} Lz_par={} phase={:.2}", l_direct, lz_par, phase);
+        debug_log!("  m.lattice_shift={:?} (from normalized match)", m.lattice_shift);
     } else {
-        eprintln!("  NOT FOUND in h_seitz");
+        debug_log!("  NOT FOUND in h_seitz");
     }
 }
 
@@ -541,11 +548,11 @@ pub fn wigner_direct_anti_coset(
         if phase.re > 0.5 { n_plus += 1; }
         else if phase.re < -0.5 { n_minus += 1; }
 
-        eprintln!("  direct: b[{}]^2→H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
+        debug_log!("  direct: b[{}]^2→H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
             b_idx, m.op_index, total_lattice, phase, chi, contrib);
     }
     let w = sum / (anti_lg_indices.len() as f64);
-    eprintln!("  direct anti stats: +={} -={} W={:.4}", n_plus, n_minus, w);
+    debug_log!("  direct anti stats: +={} -={} W={:.4}", n_plus, n_minus, w);
     w
 }
 
@@ -584,7 +591,7 @@ pub fn build_h_to_cir_map(h_seitz: &[SeitzOp], cir_rots: &[i32]) -> Option<Vec<u
     }
     let mut map = vec![0usize; n_ops];
 
-    eprintln!("build_h_to_cir_map: n_ops={} n_cir_ops={}", n_ops, n_cir_ops);
+    debug_log!("build_h_to_cir_map: n_ops={} n_cir_ops={}", n_ops, n_cir_ops);
     for h_idx in 0..n_ops {
         let h_op = &h_seitz[h_idx];
         let r = &h_op.rot;
@@ -598,7 +605,7 @@ pub fn build_h_to_cir_map(h_seitz: &[SeitzOp], cir_rots: &[i32]) -> Option<Vec<u
         match found {
             Some(c) => map[h_idx] = c,
             None => {
-                eprintln!("build_h_to_cir_map: H[{}] R=[{},{},{};{},{},{};{},{},{}] not found in rots ({} ops)",
+                debug_log!("build_h_to_cir_map: H[{}] R=[{},{},{};{},{},{};{},{},{}] not found in rots ({} ops)",
                     h_idx, r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2],
                     n_cir_ops);
                 return None;
@@ -710,7 +717,7 @@ pub fn wigner_classify_spinor_extra(extra: &[f64], n_unitary: usize) -> Option<C
             return Some(CorepType::C);
         }
     }
-    eprintln!("DEBUG wigner_classify_spinor_extra: sum={:.4} W={:.4} W/|H|={:.4} n_unitary={}",
+    debug_log!("DEBUG wigner_classify_spinor_extra: sum={:.4} W={:.4} W/|H|={:.4} n_unitary={}",
         sum, w_direct, w_norm, n_unitary);
     None
 }
@@ -770,7 +777,7 @@ pub fn wigner_classify_spinor(
                 let chi = spin_chars[spin_idx];
                 let contrib = Complex64::new(chi, 0.0) * phase;
                 w_sum += contrib;
-                eprintln!("    spinor: h[{}]→H[{}]→spin[{}] Lz_par={} ph={:.2} χ={:.4} → {:.2}",
+                debug_log!("    spinor: h[{}]→H[{}]→spin[{}] Lz_par={} ph={:.2} χ={:.4} → {:.2}",
                     h_mag_idx, m.op_index, spin_idx,
                     ((total_lattice[2] % 2) + 2) % 2,
                     phase, chi, contrib);
@@ -780,7 +787,7 @@ pub fn wigner_classify_spinor(
 
     let n = (unitary_mag_indices.len() as f64).max(1.0);
     let w = w_sum / n;
-    eprintln!("DEBUG wigner_classify_spinor: W=({:.8},{:.8}) |W|={:.4} n_ops={} k=({},{},{})/{}",
+    debug_log!("DEBUG wigner_classify_spinor: W=({:.8},{:.8}) |W|={:.4} n_ops={} k=({},{},{})/{}",
         w.re, w.im, w.norm(), unitary_mag_indices.len(), kx, ky, kz, kd);
 
     let tol = 1e-6;

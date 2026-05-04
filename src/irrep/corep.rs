@@ -97,6 +97,15 @@ use super::types::IrrepRecord;
 use super::wigner::{self, filter_little_group, ops_to_seitz, SeitzOp,
     compose_seitz, square_seitz, find_seitz, bloch_phase, mat_vec_i32, add3};
 
+macro_rules! debug_log {
+    ($($arg:tt)*) => {
+        #[cfg(feature = "debug-corep")]
+        eprintln!($($arg)*);
+    };
+}
+
+use debug_log;
+
 /// Co-representation type from Wigner's test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CorepType {
@@ -217,7 +226,7 @@ pub fn compute_corepresentation(
     let h_chars = h_irrep.characters();
     let h_dim = h_irrep.dim as usize;
     if h_irrep.ml == "Z1Z4" {
-        eprintln!("DEBUG compute_corep Z1Z4: sg={} h_chars={:?} h_ops.len={} mag_ops.len={}",
+        debug_log!("DEBUG compute_corep Z1Z4: sg={} h_chars={:?} h_ops.len={} mag_ops.len={}",
             h_irrep.sg, &h_chars[..h_chars.len().min(8)], h_ops.len(), mag_ops.len());
     }
 
@@ -235,7 +244,7 @@ pub fn compute_corepresentation(
         // Reorder CIR chars from ISOTROPY order to H_ops (spglib) order
         // so that m.op_index correctly indexes into the character table.
         let mut any_c = false;
-        eprintln!("DEBUG CIR path: {} n_comp={}", h_irrep.ml, h_irrep.cir_component_count());
+        debug_log!("DEBUG CIR path: {} n_comp={}", h_irrep.ml, h_irrep.cir_component_count());
         for comp in 0..h_irrep.cir_component_count() {
             let cir = h_irrep.cir_component_chars(comp);
             if cir.is_empty() { continue; }
