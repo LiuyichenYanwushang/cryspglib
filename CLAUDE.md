@@ -564,7 +564,6 @@ CIR_data.txt 格式 (每个操作):
 
 | 项目 | 说明 |
 |------|------|
-| spinor `op_indices` | 已解析但未存入 Rust record，SU(2) Wigner fallback 路径依赖它做 global→local 字符索引映射 |
-| `generate_irrep_docs.py` | 只做了 3/7 晶系的 rustdoc，未完成 |
-| debug eprintln! | wigner.rs/corep.rs 中仍有调试输出，应用 feature flag 包起来 |
+| `generate_irrep_docs.py` | 只做了 3/7 晶系的 rustdoc，未完成。不影响功能，可后续补全或删除 |
+| SU(2) Wigner 组合 | `su2_compose` 框架已搭建，但 SU(2) 数据格式（Bilbao 约定）待确认。仅影响无 extra chars 的 spinor irrep |
 
