@@ -178,10 +178,6 @@ def label_to_latex(label):
 
     return result
 
-# Dimension: image label first letter encodes dimension
-# A=1, B=2, C=3, D=4, E=6, F=8, G=12, H=16, J=24
-IMAGE_DIM = {'A': 1, 'B': 2, 'C': 3, 'D': 4, 'E': 6, 'F': 8, 'G': 12, 'H': 16, 'J': 24}
-
 # ── PIR k-vector parsing ──────────────────────────────────────────────────────
 
 def _read_pir_lines():

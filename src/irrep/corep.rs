@@ -1335,4 +1335,28 @@ mod tests {
         assert!(checked > 4000, "Should have >4000 scalar irreps, got {}", checked);
         println!("Scalar irreps: {} total, all well-formed ✓", checked);
     }
+
+    /// Regression: high-dimension image labels (e.g. "K1536a") must not
+    /// fall back to dim=1.  This was the root cause of the K1536a bug.
+    #[test]
+    fn test_high_dim_image_irreps_not_default_to_one() {
+        let mut checked = 0usize;
+        for sg in 1u8..=230 {
+            for ir in crate::irrep::query::irreps_of(sg) {
+                if ir.image.starts_with('K') || ir.image.starts_with('L')
+                    || ir.image.starts_with('M') || ir.image.starts_with('N')
+                {
+                    assert!(ir.dim > 1,
+                        "SG{} {}: image={} dim={} (should not fall back to 1)",
+                        sg, ir.ml, ir.image, ir.dim);
+                    assert_eq!(ir.characters()[0] as usize, ir.dim as usize,
+                        "SG{} {}: χ(E)={} != dim={}",
+                        sg, ir.ml, ir.characters()[0], ir.dim);
+                    checked += 1;
+                }
+            }
+        }
+        println!("High-dim image irreps: {} checked, all dim > 1 ✓", checked);
+        assert!(checked > 0, "Should have at least one high-dim image irrep");
+    }
 }
