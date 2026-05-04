@@ -339,6 +339,21 @@ fn get_first_hall_for_uni(uni: usize) -> Option<usize> {
     None
 }
 
+/// Get the symmetry operations (rotation + translation) for a space group.
+///
+/// Returns [`MagneticOps`] with `timerev` all `false` (non-magnetic).
+/// The operations are in spglib's standard order.
+///
+/// # Example
+/// ```
+/// use cryspglib::irrep::corep::symmetry_operations_of;
+/// let ops = symmetry_operations_of(139);
+/// println!("SG 139: {} operations", ops.len());
+/// ```
+pub fn symmetry_operations_of(sg: u8) -> MagneticOps {
+    get_parent_operations(sg)
+}
+
 fn get_parent_operations(sg: u8) -> MagneticOps {
     let hall = find_hall_number(sg);
     let mut rot = Vec::new();
