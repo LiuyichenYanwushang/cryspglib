@@ -172,39 +172,46 @@ def test_file(path, mul_fn, max_fail=10):
     ops = parse_spin_dat(path)
     if len(ops) < 2:
         return None
-    failures = []
-    total = 0
+    spatial_missing = 0
+    spatial_matched = 0
+    su2_mismatch = 0
+    su2_matched = 0
     sign_p = 0
     sign_m = 0
     for i, op_i in enumerate(ops):
         for j, op_j in enumerate(ops):
-            total += 1
             r, t = compose_seitz(op_i, op_j)
             ks = find_spatial_product(ops, r, t)
             if not ks:
-                failures.append((i, j, "no spatial match"))
-                if len(failures) >= max_fail:
-                    break
+                spatial_missing += 1
                 continue
+            spatial_matched += 1
             qij = mul_fn(op_i[2], op_j[2])
-            ok = False
+            matched = False
             for k in ks:
                 s = same_up_to_sign(qij, ops[k][2])
                 if s != 0:
-                    ok = True
+                    matched = True
                     if s > 0: sign_p += 1
                     else: sign_m += 1
                     break
-            if not ok:
-                failures.append((i, j, f"SU2 mismatch; spatial→{ks}"))
-                if len(failures) >= max_fail:
+            if matched:
+                su2_matched += 1
+            else:
+                su2_mismatch += 1
+                if su2_mismatch > max_fail:
                     break
-        if len(failures) >= max_fail:
+        if su2_mismatch > max_fail:
             break
-    rate = (total - len(failures)) / total * 100 if total > 0 else 0
-    return {"total": total, "+": sign_p, "-": sign_m,
-            "failures": len(failures), "rate": rate,
-            "examples": failures[:3]}
+    total = spatial_matched + spatial_missing
+    return {
+        "total": total,
+        "spatial_matched": spatial_matched,
+        "spatial_missing": spatial_missing,
+        "su2_matched": su2_matched,
+        "su2_mismatch": su2_mismatch,
+        "+": sign_p, "-": sign_m,
+    }
 
 
 def main():
@@ -215,26 +222,39 @@ def main():
     files = sorted(glob.glob(os.path.join(tables, "irreps-SG=*-spin.dat")))
     for name, mul_fn in CONVENTIONS.items():
         print(f"\n=== Testing convention: {name} ===")
-        ok = 0
-        total_sg = 0
+        sgs_ok = 0
+        sgs_total = 0
+        total_matched = 0
+        total_mismatch = 0
+        total_missing = 0
+        total_sign_plus = 0
+        total_sign_minus = 0
         worst = None
         for f in files:
-            r = test_file(f, mul_fn, max_fail=3)
+            r = test_file(f, mul_fn, max_fail=5)
             if r is None:
                 continue
-            total_sg += 1
-            if r["failures"] == 0:
-                ok += 1
+            sgs_total += 1
+            if r["su2_mismatch"] == 0:
+                sgs_ok += 1
             else:
-                if worst is None or r["rate"] < worst["rate"]:
+                if worst is None or r["su2_mismatch"] > worst.get("su2_mismatch", 0):
                     sg = os.path.basename(f).replace("irreps-SG=", "").replace("-spin.dat", "")
                     r["sg"] = sg
                     worst = r
-        print(f"  Passed: {ok}/{total_sg} ({ok/total_sg*100:.1f}%)")
+            total_matched += r["spatial_matched"]
+            total_mismatch += r["su2_mismatch"]
+            total_missing += r["spatial_missing"]
+            total_sign_plus += r["+"]
+            total_sign_minus += r["-"]
+        print(f"  SGs with 0 SU2 mismatch: {sgs_ok}/{sgs_total} ({sgs_ok/sgs_total*100:.1f}%)" if sgs_total > 0 else "  no data")
+        print(f"  Spatial matched pairs: {total_matched}")
+        print(f"  Spatial missing pairs: {total_missing}")
+        print(f"  SU2 matched (among matched): {total_matched - total_mismatch}/{total_matched}")
+        print(f"  SU2 mismatches (among matched): {total_mismatch}")
+        print(f"  Sign +: {total_sign_plus}, -: {total_sign_minus}")
         if worst:
-            print(f"  Worst: SG{worst.get('sg','?')} rate={worst['rate']:.1f}% fails={worst['failures']}/{worst['total']} +{worst['+']} -{worst['-']}")
-            for ex in worst["examples"]:
-                print(f"    {ex}")
+            print(f"  Worst SG: {worst.get('sg','?')} mismatches={worst['su2_mismatch']}")
 
 
 if __name__ == "__main__":
