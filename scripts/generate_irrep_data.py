@@ -1671,11 +1671,16 @@ def generate_rust_data(data):
     total_spin_ops = len(spin_op_rots) // 9
 
     # ── Spinor little-group character counts ──
-    # Spinor irreps have characters for the little group ops (first n) plus
-    # possibly extra values.  Track the little-group count separately.
     spin_lg_counts = []
+    spin_lg_op_indices_flat = []  # op_indices flattened
+    spin_lg_op_starts = []        # per-irrep start index
+    spin_lg_op_counts = []        # per-irrep count (= len(op_indices))
     for sir in spinor_irreps:
-        spin_lg_counts.append(len(sir.get("op_indices", [])))
+        ops = sir.get("op_indices", [])
+        spin_lg_counts.append(len(ops))
+        spin_lg_op_starts.append(len(spin_lg_op_indices_flat))
+        spin_lg_op_counts.append(len(ops))
+        spin_lg_op_indices_flat.extend(ops)
 
     lines = []
     lines.append("// Auto-generated from iso_data files by scripts/generate_irrep_data.py")
@@ -1757,6 +1762,18 @@ def generate_rust_data(data):
     for chunk_start in range(0, len(spin_extra_flat), 10):
         chunk = spin_extra_flat[chunk_start:chunk_start + 10]
         vals = ", ".join(_fmt_char(v) for v in chunk)
+        lines.append(f"    {vals},")
+    lines.append("];")
+    lines.append("")
+
+    # ── Spinor little-group operation indices ──
+    lines.append("/// Per-irrep little-group operation indices into SPIN_OP_* arrays.")
+    lines.append("/// Maps global spin op index → local character table position.")
+    lines.append("/// Indexed by IrrepRecord._spin_lg_op_start / _spin_lg_op_count.")
+    lines.append(f"pub static SPIN_LG_OP_INDICES: [u16; {len(spin_lg_op_indices_flat)}] = [")
+    for chunk_start in range(0, len(spin_lg_op_indices_flat), 12):
+        chunk = spin_lg_op_indices_flat[chunk_start:chunk_start + 12]
+        vals = ", ".join(str(v) for v in chunk)
         lines.append(f"    {vals},")
     lines.append("];")
     lines.append("")
@@ -1912,6 +1929,8 @@ def generate_rust_data(data):
             "cir_s": cir_comp_starts[i], "cir_c": cir_comp_counts[i], "cir_o": cir_comp_ops[i],
             "pir_rot_s": pir_rot_starts[i],
             "spin_lg_count": 0,
+            "spin_lg_op_s": 0,
+            "spin_lg_op_c": 0,
             "spin_extra_s": 0,
             "spin_extra_c": 0,
         })
@@ -1935,6 +1954,8 @@ def generate_rust_data(data):
             "cir_s": 0, "cir_c": 0, "cir_o": 0,
             "pir_rot_s": pir_rot_starts[len(ml) + idx],
             "spin_lg_count": spin_lg_counts[idx],
+            "spin_lg_op_s": spin_lg_op_starts[idx],
+            "spin_lg_op_c": spin_lg_op_counts[idx],
             "spin_extra_s": spin_extra_starts[idx],
             "spin_extra_c": spin_extra_counts[idx],
         })
@@ -1974,6 +1995,8 @@ def generate_rust_data(data):
             lines.append(f"        _cir_count: {r['cir_c']},")
             lines.append(f"        _cir_ops: {r['cir_o']},")
             lines.append(f"        _spin_lg_count: {r['spin_lg_count']},")
+            lines.append(f"        _spin_lg_op_start: {r['spin_lg_op_s']},")
+            lines.append(f"        _spin_lg_op_count: {r['spin_lg_op_c']},")
             lines.append(f"        _spin_extra_start: {r['spin_extra_s']},")
             lines.append(f"        _spin_extra_count: {r['spin_extra_c']},")
             lines.append(f"    }},")

@@ -124,6 +124,10 @@ pub struct IrrepRecord {
     pub(crate) _mag_iso_count: u16,
     /// Start index into [`PIR_ROTS`] (9 i32 per op), for H_ops→PIR order mapping
     pub(crate) _pir_rot_start: u32,
+    /// Start index into [`SPIN_LG_OP_INDICES`] (0 if no data)
+    pub(crate) _spin_lg_op_start: u32,
+    /// Number of little-group operation indices
+    pub(crate) _spin_lg_op_count: u8,
     /// Start index into [`SPIN_EXTRA_CHARS`] (0 if no extra)
     pub(crate) _spin_extra_start: u32,
     /// Number of extra character values (0 if no extra)
@@ -142,6 +146,17 @@ impl IrrepRecord {
     /// Returns 0 for scalar irreps.
     pub fn spin_lg_char_count(&self) -> usize {
         self._spin_lg_count as usize
+    }
+
+    /// Little-group operation indices for spinor irreps.
+    /// Maps local character position → global SPIN_OP index.
+    pub fn spin_lg_op_indices(&self) -> &'static [u16] {
+        if self._spin_lg_op_count == 0 {
+            return &[];
+        }
+        let start = self._spin_lg_op_start as usize;
+        let len = self._spin_lg_op_count as usize;
+        &super::generated_data::SPIN_LG_OP_INDICES[start..start + len]
     }
 
     /// Extra character values for spinor Wigner test (Bilbao pre-computed).
