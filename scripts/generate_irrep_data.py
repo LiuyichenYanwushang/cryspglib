@@ -1890,8 +1890,6 @@ def generate_rust_data(data):
             dim = pir_d
         elif 1 <= img_code <= len(img_dims):
             dim = img_dims[img_code - 1]
-        elif img_name and img_name[0] in IMAGE_DIM:
-            dim = IMAGE_DIM[img_name[0]]
         else:
             raise ValueError(
                 f"Cannot determine dim for SG{sg_num} {ml_label}, img={img_name}"
@@ -1905,8 +1903,6 @@ def generate_rust_data(data):
                       f"PIR header dim={pir_d}, χ(E)={final_chars[0]}, img={img_name}")
                 dim_warnings += 1
 
-    if dim_warnings > 0:
-        print(f"  ⚠ {dim_warnings} irreps have PIR header dim ≠ χ(E) (fixed to χ(E))")
         mat_s = mat_starts[i]
         mat_c = mat_counts[i]
         scalar_records.append({
@@ -1923,6 +1919,9 @@ def generate_rust_data(data):
             "spin_extra_s": 0,
             "spin_extra_c": 0,
         })
+
+    if dim_warnings > 0:
+        print(f"  ⚠ {dim_warnings} irreps have PIR header dim ≠ χ(E) (fixed to χ(E))")
 
     # Pre-compute spinor IrrepRecord data
     spinor_records = []
