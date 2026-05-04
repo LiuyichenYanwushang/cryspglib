@@ -732,11 +732,12 @@ pub fn wigner_classify_spinor_extra(extra: &[f64], n_unitary: usize) -> Option<C
 /// # Returns
 /// `None` if spin ops are unavailable or result is non-quantized.
 pub fn wigner_classify_spinor(
-    spin_chars: &[f64],         // first n values = little-group characters
-    n_lg_ops: usize,            // number of little-group ops
-    spin_op_rots: &[i32],       // 9 per spin op, in spin.dat order
-    spin_op_trans: &[f64],      // 3 per spin op
-    spin_op_su2: &[f64],        // 4 per spin op
+    spin_chars: &[f64],             // first n values = little-group characters
+    n_lg_ops: usize,                // number of little-group ops
+    spin_lg_op_indices: &[u16],     // global spin op index → local char position
+    spin_op_rots: &[i32],           // 9 per spin op, in spin.dat order
+    spin_op_trans: &[f64],          // 3 per spin op
+    spin_op_su2: &[f64],            // 4 per spin op
     unitary_mag_indices: &[usize],
     mag_seitz: &[SeitzOp],
     h_seitz: &[SeitzOp],
@@ -746,11 +747,18 @@ pub fn wigner_classify_spinor(
     if spin_op_rots.is_empty() || n_lg_ops == 0 {
         return None;
     }
-    let n_spin_ops = spin_op_rots.len() / 9;
 
     // Build mapping: H_ops (spglib order) → spin_op index (spin.dat order)
-    // by matching rotation matrices.
     let h_to_spin = build_h_to_cir_map(h_seitz, spin_op_rots)?;
+
+    // Build global spin op index → local character position mapping.
+    // spin_chars is in little-group order; op_indices[i] gives the global
+    // spin op index for the i-th little-group operation.
+    let global_to_local: std::collections::HashMap<usize, usize> = spin_lg_op_indices
+        .iter()
+        .enumerate()
+        .map(|(local, &global)| (global as usize, local))
+        .collect();
 
     let a0 = &mag_seitz[a0_idx];
     let mut w_sum = Complex64::ZERO;
@@ -762,7 +770,6 @@ pub fn wigner_classify_spinor(
         let (g0h, l1) = compose_seitz(&g0_spatial, &h_spatial);
         let (sq, lattice_sq) = square_seitz(&g0h);
 
-        // Match the spatial square to an H operation
         if let Some(m) = find_seitz(&sq.rot, &sq.trans, h_seitz) {
             let r_l1 = mat_vec_i32(&g0h.rot, &l1);
             let total_lattice = add3(
@@ -771,16 +778,14 @@ pub fn wigner_classify_spinor(
             );
             let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
 
-            // Get the spin op index for this H op
+            // global spin op index → local character position
             let spin_idx = h_to_spin[m.op_index];
-            if spin_idx < n_lg_ops && spin_idx < spin_chars.len() {
-                let chi = spin_chars[spin_idx];
-                let contrib = Complex64::new(chi, 0.0) * phase;
-                w_sum += contrib;
-                debug_log!("    spinor: h[{}]→H[{}]→spin[{}] Lz_par={} ph={:.2} χ={:.4} → {:.2}",
-                    h_mag_idx, m.op_index, spin_idx,
-                    ((total_lattice[2] % 2) + 2) % 2,
-                    phase, chi, contrib);
+            if let Some(&local_idx) = global_to_local.get(&spin_idx) {
+                if local_idx < spin_chars.len() {
+                    let chi = spin_chars[local_idx];
+                    let contrib = Complex64::new(chi, 0.0) * phase;
+                    w_sum += contrib;
+                }
             }
         }
     }

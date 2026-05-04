@@ -271,8 +271,9 @@ pub fn compute_corepresentation(
             // Fallback to SU(2) double-group path
             let (spin_rots, _spin_trans, _spin_su2) = h_irrep.spin_ops();
             let n_lg = h_irrep.spin_lg_char_count();
+            let op_indices = h_irrep.spin_lg_op_indices();
             if let Some(ct) = wigner::wigner_classify_spinor(
-                h_chars, n_lg,
+                h_chars, n_lg, op_indices,
                 spin_rots, _spin_trans, _spin_su2,
                 &unitary, &mag_seitz, &h_seitz, antiunitary[0],
                 h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
