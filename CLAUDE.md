@@ -534,6 +534,21 @@ CIR_data.txt 格式 (每个操作):
 5. **全字符校验**: straight sum + conjugate sum 双候选，全操作匹配 PIR
 6. **Spinor 旋转继承**: spinor irrep 从同 SG 同 k 点 scalar irrep 继承 PIR 旋转
 7. **Spinor extra 拆分**: 按 op_indices 长度切分标准字符和 extra
+8. **dim 从字符表读取**: 优先级 χ(E) from chars_flat > PIR header > image_dimension > error。
+   删除了不可靠的 `IMAGE_DIM` 硬编码首字母猜测（曾导致 K1536a → dim=1）
+9. **Spinor kd 最小分母**: 从 `[1,2,3,4,6]` 找最小公分母 + gcd 约分，确保 scalar 和 spinor irrep
+   在同一 k 点共享相同的 (kx,ky,kz,kd) 元组
+
+### 测试体系 (45 tests, 1 ignored)
+
+| 层 | 测试数 | 说明 |
+|----|--------|------|
+| Wigner 算法 | 10 | Seitz 组合、k 滤波、Type A/B/C 维度 |
+| 数据查询 | 12 | irreps_of, kpoints_of, subgroups, 格式化 |
+| 全量自洽 | 8 | 230 SG 所有 irrep χ(E)=dim, k-point 分组不重不漏, isotropy subgroup 合法, 1651 MSG 操作合法, spinor well-formed, k-vector 格式 |
+| BCS 验证 | 5 | 128.406 Z, 165.95 L, SG 128 Γ, SG 139 P, SG 1 GM1 |
+| 交叉验证 | 1 | 596 compound irrep: ΣCIR_χ = PIR_χ (全字符表) |
+| 其他 | 9 | UNI lookup, 操作顺序, 矩阵重排, a₀ 无关性, Type C 去重, 高维 image 回归 |
 
 ### 重要教训
 
@@ -542,4 +557,14 @@ CIR_data.txt 格式 (每个操作):
 3. **非量子化 W 必须报错**: 不能把 W=0.5 当做 Type A (W>0)，这是数据不完整的标志
 4. **Bilbao extra chars 是预计算值**: 不需要自己实现 SU(2) 组合即可获得正确的 spinor Wigner 分类
 5. **CIR 解析器边界处理**: 高维矩阵跨多行时，token-count 推进必须精确，否则逐操作累积偏移
+6. **dim 不能靠 image 标签猜**: `IMAGE_DIM` 硬编码首字母映射不完整（缺 K/L/M/N），导致 K1536a 等被解析为 dim=1。应从 PIR 字符表的 χ(E) 直接读取表示维度
+7. **生成器缩进错误会被空 warning 掩盖**: scalar_records.append 错放在 if dim_warnings > 0 块内 → warnings=0 时静默生成空数据。全量自洽测试能抓这类 bug
+
+### 技术债
+
+| 项目 | 说明 |
+|------|------|
+| spinor `op_indices` | 已解析但未存入 Rust record，SU(2) Wigner fallback 路径依赖它做 global→local 字符索引映射 |
+| `generate_irrep_docs.py` | 只做了 3/7 晶系的 rustdoc，未完成 |
+| debug eprintln! | wigner.rs/corep.rs 中仍有调试输出，应用 feature flag 包起来 |
 
