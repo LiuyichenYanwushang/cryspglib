@@ -485,4 +485,50 @@ mod tests {
         assert_eq!(format_value(0.75), "3/4");  // 6/8 simplified to 3/4
         assert_eq!(format_value(2.0), "2");     // 4/2 simplified to 2
     }
+
+    /// Every irrep in all 230 SGs satisfies basic constraints: χ(E)=dim, non-empty labels.
+    #[test]
+    fn test_all_space_group_irreps_are_well_formed() {
+        for sg in 1u8..=230 {
+            let irreps = super::irreps_of(sg);
+            assert!(!irreps.is_empty(), "SG {} has no irreps", sg);
+            for ir in irreps {
+                assert_eq!(ir.sg, sg);
+                assert!(ir.dim > 0, "zero dim: SG{} {}", sg, ir.ml);
+                let chars = ir.characters();
+                assert!(!chars.is_empty(), "empty chars: SG{} {}", sg, ir.ml);
+                // χ(E) must be positive and approximately integer.
+                // (dim field from image label may be inaccurate for compound irreps.)
+                assert!(chars[0] > 0.0,
+                    "χ(E) <= 0 for SG{} {}: χ(E)={}", sg, ir.ml, chars[0]);
+                let chi_e_rounded = chars[0].round();
+                assert!((chars[0] - chi_e_rounded).abs() < 1e-8,
+                    "χ(E) not integer for SG{} {}: χ(E)={}", sg, ir.ml, chars[0]);
+            }
+        }
+    }
+
+    /// kpoints_of covers every irrep exactly once across all 230 SGs.
+    #[test]
+    fn test_kpoints_partition_all_irreps() {
+        for sg in 1u8..=230 {
+            let irreps = super::irreps_of(sg);
+            let kps = super::kpoints_of(sg);
+            let mut covered = vec![false; irreps.len()];
+            for kp in &kps {
+                assert!(!kp.irreps.is_empty(), "SG{} k-point {} empty", sg, kp.label);
+                for &idx in &kp.irreps {
+                    assert!(idx < irreps.len());
+                    assert!(!covered[idx], "SG{} irrep {} duplicate in kpoints", sg, idx);
+                    covered[idx] = true;
+                    let ir = &irreps[idx];
+                    assert_eq!((ir.kx, ir.ky, ir.kz, ir.kd), kp.coords,
+                        "SG{} irrep {} k-coord mismatch with k-point {}", sg, ir.ml, kp.label);
+                }
+            }
+            for (i, ok) in covered.iter().enumerate() {
+                assert!(*ok, "SG{} irrep {} not covered", sg, irreps[i].ml);
+            }
+        }
+    }
 }

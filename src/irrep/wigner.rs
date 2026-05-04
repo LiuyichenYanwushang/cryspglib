@@ -1165,4 +1165,42 @@ mod tests {
     fn test_corep_dim_type_c() {
         assert_eq!(corep_dim(&CorepType::C, 2), 4);
     }
+
+    /// Wigner type must be independent of which antiunitary op is chosen as a₀.
+    #[test]
+    fn test_wigner_classification_independent_of_a0() {
+        use crate::irrep::corep::{get_magnetic_operations, identify_unitary_subgroup};
+
+        let uni = 1066usize;
+        let mag_ops = get_magnetic_operations(uni).unwrap();
+        let h_sg = identify_unitary_subgroup(uni).unwrap();
+        let mag_seitz = ops_to_seitz(&mag_ops);
+
+        let h_ops_raw = crate::irrep::corep::symmetry_operations_of(h_sg as u8);
+        let h_seitz = ops_to_seitz(&h_ops_raw);
+
+        let h_irreps = crate::irrep::query::irreps_of(h_sg as u8);
+        for ir in h_irreps.iter().filter(|r| r.k_label() == "Z" && !r.spinor) {
+            let mag_lg = filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+            let unitary: Vec<usize> = mag_lg.iter().copied()
+                .filter(|&i| !mag_ops.timerev[i]).collect();
+            let anti: Vec<usize> = mag_lg.iter().copied()
+                .filter(|&i| mag_ops.timerev[i]).collect();
+
+            if anti.len() <= 1 { continue; }
+
+            let mut types = Vec::new();
+            for &a0 in &anti {
+                let ty = wigner_classify(
+                    ir.characters(), &unitary, &mag_seitz, &h_seitz, a0,
+                    ir.kx, ir.ky, ir.kz, ir.kd,
+                );
+                types.push(ty);
+            }
+            assert!(
+                types.iter().all(|&x| x == types[0]),
+                "Wigner type depends on a₀ for {}: {:?}", ir.ml, types
+            );
+        }
+    }
 }
