@@ -279,7 +279,7 @@ src/irrep/generated_data.rs   → 5 个静态数组, ~8.7 MB, 编译进二进制
 | `src/irrep/mod.rs` | 模块入口, 230 SG 索引表 + rustdoc |
 | `src/irrep/types.rs` | `IrrepRecord`, `IsotropyRecord`, `MagneticIsotropyRecord` |
 | `src/irrep/query.rs` | `irreps_of()`, `kpoints_of()`, `format_character_table()` |
-| `src/irrep/wigner.rs` | Wigner 测试: Seitz 组合, Bloch 相位, 分类函数, SU(2) 辅助 |
+| `src/irrep/wigner.rs` | Wigner 测试: Seitz 组合, Bloch 相位, 分类函数, SU(2) Pauli 系数复合 |
 | `src/irrep/corep.rs` | Co-representation API: `compute_coreps()`, `MagneticOps`, `CorepType` |
 | `src/irrep/generated_data.rs` | 自动生成: 15+ 个静态数组, ~18 MB |
 | `src/irrep/preamble.rs` | 230 SG 的 HM 符号 + Schoenflies 符号 |
@@ -486,6 +486,43 @@ CIR_data.txt 格式 (每个操作):
 3. `wigner_classify_spinor_extra()` 直接求和 → 分类
 4. 优先使用 extra 通道，回退到 SU(2) 双群路径 (框架已搭建)
 
+### Bilbao spin.dat SU(2) 约定
+
+**文件格式**: 每行 20 个数值:
+
+```text
+rot[9] trans[3] amp[4] phase[4]
+```
+
+**编码**: amplitude + phase/π → complex 2×2 matrix → Pauli 系数
+
+```text
+U_ij = amp[ij] · exp(iπ · phase[ij])
+
+U = [[U₀₀, U₀₁], [U₁₀, U₁₁]]
+  = u₀·I + i(u₁·σx + u₂·σy + u₃·σz)
+  = [[u₀ + iu₃,    u₂ + iu₁],
+     [-u₂ + iu₁,    u₀ - iu₃]]
+```
+
+**验证**: `scripts/test_su2_closure.py` 测试了 7 种候选 convention:
+- `flat2x2` (4 real): 193/229 SGs (84.3%) — 立方群失败
+- `quat-wxyz`: 0%
+- `pauli`: 0%  
+- `real_first` (complex): 1.3%
+- `interleaved` (complex): 0.4%
+- **`polar_phase_pi` (amp + phase/π → complex 2×2 → Pauli): 229/229 (100%)** ✅
+
+**生成时处理**: `parse_spinor_data.py` 将 amp+phase 转为 Pauli 系数，通过精确代数舍入消除浮点噪声:
+- amp 从 {0, 1/√2, 1} 舍入
+- cos/sin(π·phase) 与舍入后的 amp 相乘
+- 最终 Pauli 系数 ∈ {0, ±½, ±1/√2, ±√3/2, ±1}，作为精确 f64 存储
+
+**Rust 侧**: `SPIN_OP_SU2` 存 4 f64/op = `[u₀, u₁, u₂, u₃]`。复合通过四元数式乘法:
+```rust
+// (u₀,u)·(v₀,v) = (u₀v₀ − u·v, u₀v + v₀u + u×v)
+```
+
 ### Wigner 测试三条路径
 
 | 路径 | 适用 | 关键函数 | 数据源 |
@@ -493,7 +530,7 @@ CIR_data.txt 格式 (每个操作):
 | CIR 路径 | Compound irreps (Z1Z4) | `wigner_classify_cir` | CIR_COMPONENT_CHARS + CIR_ROTS |
 | PIR 路径 | Non-compound scalar (Z5) | `wigner_classify` | CHARACTERS + PIR_ROTS |
 | Spinor extra | Spinor with extra (Z6/Z7) | `wigner_classify_spinor_extra` | SPIN_EXTRA_CHARS |
-| Spinor SU(2) | Spinor w/o extra (fallback) | `wigner_classify_spinor` | SPIN_OP_ROTS/TRANS/SU2 |
+| Spinor SU(2) | Spinor w/o extra (fallback) | `wigner_classify_spinor` | SPIN_OP_ROTS/TRANS/SU2 (Pauli 系数) |
 
 ### 严格 Wigner 分类
 
@@ -521,7 +558,7 @@ CIR_data.txt 格式 (每个操作):
 | `PIR_ROTS` | ~500K i32 | PIR 操作旋转矩阵 (9/op)，与 CHARACTERS 同序 |
 | `SPIN_OP_ROTS` | ~40K i32 | Spinor 操作旋转矩阵 (9/op)，按 SG 索引 |
 | `SPIN_OP_TRANS` | ~14K f64 | Spinor 操作平移矢量 (3/op) |
-| `SPIN_OP_SU2` | ~19K f64 | Spinor SU(2) lift (4/op) |
+| `SPIN_OP_SU2` | ~19K f64 | Spinor SU(2) Pauli coefficients [u₀,u₁,u₂,u₃] (4/op). U = u₀I + i(u₁σx+u₂σy+u₃σz). Values ∈ {0,±½,±1/√2,±√3/2,±1}, exact f64. Verified 229/229 SGs at 100% closure. |
 | `SPIN_EXTRA_CHARS` | ~17K f64 | Pre-computed Wigner contributions for spinor irreps |
 | `SPIN_OP_SG_INDEX` | 231 | SG# → (start, count) into SPIN_OP_* arrays |
 
@@ -565,5 +602,5 @@ CIR_data.txt 格式 (每个操作):
 | 项目 | 说明 |
 |------|------|
 | `generate_irrep_docs.py` | 只做了 3/7 晶系的 rustdoc，未完成。不影响功能，可后续补全或删除 |
-| SU(2) Wigner 组合 | `su2_compose` 改为 flat 2×2 矩阵乘法（closure test 验证通过）。中央元检测 `su2_same_up_to_sign` 已实现。`wigner_classify_spinor` 尚未调用 SU(2) 组合逻辑 |
+| `wigner_classify_spinor` (SU(2) 路径) | 框架已搭建但未激活。Pauli 系数存储和 `su2_compose` 已完成。与 `find_seitz` 匹配 spin ops 的逻辑待完善。 |
 

@@ -170,8 +170,47 @@ impl IrrepRecord {
         &super::generated_data::SPIN_EXTRA_CHARS[start..start + len]
     }
 
+    /// Spin symmetry operations with SU(2) lifts for any space group.
+    ///
+    /// This is a standalone version — does not require an `IrrepRecord`.
+    pub fn spin_ops_for_sg(sg: u8) -> (&'static [i32], &'static [f64], &'static [f64]) {
+        let sg_idx = sg as usize;
+        if sg_idx == 0 || sg_idx > 230 {
+            return (&[], &[], &[]);
+        }
+        let (start, count) = super::generated_data::SPIN_OP_SG_INDEX[sg_idx];
+        let start = start as usize;
+        let count = count as usize;
+        let rots = &super::generated_data::SPIN_OP_ROTS[start * 9..(start + count) * 9];
+        let trans = &super::generated_data::SPIN_OP_TRANS[start * 3..(start + count) * 3];
+        let su2 = &super::generated_data::SPIN_OP_SU2[start * 4..(start + count) * 4];
+        (rots, trans, su2)
+    }
+
     /// Spin symmetry operations with SU(2) lifts for this irrep's space group.
-    /// Returns (rotations, translations, su2) slices.
+    ///
+    /// Returns `(rotations, translations, pauli_su2)` slices where:
+    /// - `rotations`: 9 i32 per op (3×3 rotation matrix, row-major)
+    /// - `translations`: 3 f64 per op
+    /// - `pauli_su2`: 4 f64 per op — **Pauli coefficients** `[u₀, u₁, u₂, u₃]`
+    ///
+    /// ## SU(2) Pauli coefficient convention
+    ///
+    /// The spin-½ representation matrix is reconstructed as:
+    ///
+    /// ```text
+    /// U = u₀·I + i(u₁·σx + u₂·σy + u₃·σz)
+    ///   = [[u₀ + iu₃,    u₂ + iu₁],
+    ///      [-u₂ + iu₁,    u₀ - iu₃]]
+    /// ```
+    ///
+    /// For crystallographic point groups, each uᵢ ∈ {0, ±½, ±1/√2, ±√3/2, ±1}
+    /// and is stored as an exact f64 value (no floating-point noise).
+    ///
+    /// Composition follows quaternion multiplication:
+    /// `su2_compose()` in `wigner.rs`.
+    ///
+    /// Verified by `scripts/test_su2_closure.py`: 229/229 SGs at 100% closure.
     pub fn spin_ops(&self) -> (&'static [i32], &'static [f64], &'static [f64]) {
         let sg_idx = self.sg as usize;
         if sg_idx == 0 || sg_idx > 230 {
@@ -184,6 +223,21 @@ impl IrrepRecord {
         let trans = &super::generated_data::SPIN_OP_TRANS[start * 3..(start + count) * 3];
         let su2 = &super::generated_data::SPIN_OP_SU2[start * 4..(start + count) * 4];
         (rots, trans, su2)
+    }
+
+    /// Translation vectors for PIR operations, 3 f64 per op, same order as [`Self::characters`].
+    ///
+    /// Together with [`Self::pir_rotations`], enables full Seitz matching.
+    pub fn pir_translations(&self) -> &'static [f64] {
+        let char_count = self._char_count as usize;
+        if char_count == 0 { return &[]; }
+        let start = (self._pir_rot_start as usize) / 9 * 3;
+        let len = char_count * 3;
+        let total = super::generated_data::PIR_TRANS.len();
+        if start >= total || start + len > total {
+            return &[];
+        }
+        &super::generated_data::PIR_TRANS[start..start + len]
     }
 
     /// Rotation matrices for PIR operations, 9 i32 per op, same order as [`Self::characters`].

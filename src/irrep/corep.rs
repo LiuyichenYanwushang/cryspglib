@@ -39,7 +39,7 @@
 //! | Case | Condition | Corep dimension | Unitary characters | Anti-unitary characters |
 //! |------|-----------|----------------|-------------------|------------------------|
 //! | **Type A** | $$\Delta_i^{a_0} \sim \Delta_i$$, $$W = +1$$ | $$d_i$$ | $$\chi_{\Delta_i}(h)$$ | $$\chi_{\Delta_i}(a_0 h)$$ (real) |
-//! | **Type B** | $$\Delta_i^{a_0} \sim \Delta_i$$, $$W = -1$$ | $$d_i$$ (Kramers) | $$\chi_{\Delta_i}(h)$$ | $$-\chi_{\Delta_i}(a_0 h)$$ (pseudo-real) |
+//! | **Type B** | $$\Delta_i^{a_0} \sim \Delta_i$$, $$W = -1$$ | $$2d_i$$ (Kramers) | $$\chi_{\Delta_i}(h)$$ | $$-\chi_{\Delta_i}(a_0 h)$$ (pseudo-real) |
 //! | **Type C** | $$\Delta_i^{a_0} \nsim \Delta_i$$, $$W = 0$$ | $$2d_i$$ | $$2\,\mathrm{Re}[\chi_{\Delta_i}(h)]$$ | $$0$$ |
 //!
 //! **Type C** pairs two inequivalent irreps $$\Delta_i, \Delta_j$$ of $$H$$
@@ -115,8 +115,24 @@ pub enum CorepType {
     B,
     /// W = 0: D ≁ D*.
     C,
-    /// Wigner indicator is non-quantized — missing data (e.g. spinor without
-    /// rotations) or parser error.  Cannot classify.
+    /// Wigner indicator is non-quantized — missing data or algorithm
+    /// limitation (e.g. spinor without extra chars and SU(2) fallback
+    /// not yet converging).
+    Unsupported,
+}
+
+/// Which computational path produced the Wigner classification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WignerSource {
+    /// No antiunitary ops in the magnetic little group — always Type A.
+    TrivialNoAntiunitary,
+    /// Scalar irrep, PIR character table.
+    ScalarPIR,
+    /// Compound irrep, CIR complex character table.
+    ScalarCIR,
+    /// Spinor irrep classified via SU(2) double-group composition.
+    SpinorSU2,
+    /// Could not classify (returned Unsupported).
     Unsupported,
 }
 
@@ -157,6 +173,22 @@ impl MagneticOps {
     }
 }
 
+/// Completeness of the magnetic character table.
+///
+/// Indicates whether every operation in the magnetic little group has a
+/// valid character value.  Operations with value 0 are considered valid
+/// only when the theory mandates it (Type B / Type C anti-unitary ops,
+/// and symmetry-forbidden zeros).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CharacterCompleteness {
+    /// All magnetic little group operations have valid character values.
+    Complete,
+    /// Type A anti-unitary characters require the intertwiner matrix U
+    /// (satisfying U·Δ(a₀⁻¹ha₀)* = Δ(h)·U) which is not yet computed.
+    /// These entries are left as 0.
+    TypeAAntiunitaryPending { count: usize },
+}
+
 /// The computed magnetic co-representation of an irrep.
 #[derive(Debug, Clone)]
 pub struct Corepresentation {
@@ -166,12 +198,16 @@ pub struct Corepresentation {
     pub timerev: Vec<bool>,
     /// Co-representation type.
     pub corep_type: CorepType,
+    /// Which Wigner path produced this classification.
+    pub source: WignerSource,
     /// Dimension of the magnetic irrep.
     pub dim: usize,
     /// Number of unitary operations.
     pub unitary_order: usize,
     /// Number of anti-unitary operations.
     pub antiunitary_order: usize,
+    /// Whether the character table is complete for all mag-little-group ops.
+    pub completeness: CharacterCompleteness,
 }
 
 // ── Core computation ─────────────────────────────────────────────────────────
@@ -194,8 +230,11 @@ pub fn compute_corepresentation(
         return None;
     }
 
-    // 2. Get H's symmetry operations
-    let h_ops = get_parent_operations(h_irrep.sg);
+    // 2. Get H's symmetry operations with correct Hall setting.
+    // Use identify_unitary_subgroup_with_hall instead of
+    // get_parent_operations(sg) which uses first-Hall setting.
+    let h_info = identify_unitary_subgroup_with_hall(uni_number)?;
+    let h_ops = h_info.ops_from_hall;  // correct Hall setting
     if h_ops.is_empty() {
         return None;
     }
@@ -236,13 +275,11 @@ pub fn compute_corepresentation(
     let antiunitary: Vec<usize> = mag_lg.iter()
         .filter(|&&i| mag_ops.timerev[i]).copied().collect();
 
-    // 7. Wigner test: use CIR complex chars for compound irreps
-    let corep_type = if antiunitary.is_empty() {
-        CorepType::A
+    // 7. Wigner test: dispatch by irrep type
+    let (corep_type, source) = if antiunitary.is_empty() {
+        (CorepType::A, WignerSource::TrivialNoAntiunitary)
     } else if h_irrep.cir_component_count() > 0 {
         // Compound irrep: test each CIR component.
-        // Reorder CIR chars from ISOTROPY order to H_ops (spglib) order
-        // so that m.op_index correctly indexes into the character table.
         let mut any_c = false;
         debug_log!("DEBUG CIR path: {} n_comp={}", h_irrep.ml, h_irrep.cir_component_count());
         for comp in 0..h_irrep.cir_component_count() {
@@ -252,7 +289,7 @@ pub fn compute_corepresentation(
             let cir_reordered = if let Some(h_to_cir) = wigner::build_h_to_cir_map(&h_seitz, cir_rots) {
                 wigner::reorder_cir_chars(cir, &h_to_cir)
             } else {
-                cir.to_vec()  // fallback: no matching rotations
+                cir.to_vec()
             };
             let ct = wigner::wigner_classify_cir(
                 &cir_reordered, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
@@ -260,45 +297,57 @@ pub fn compute_corepresentation(
             );
             if ct == CorepType::C { any_c = true; break; }
         }
-        if any_c { CorepType::C } else { CorepType::A }
+        if any_c { (CorepType::C, WignerSource::ScalarCIR) }
+        else { (CorepType::A, WignerSource::ScalarCIR) }
     } else if h_irrep.spinor {
-        // Spinor irrep: try extra chars first (Bilbao pre-computed), then SU(2).
-        let extra = h_irrep.spin_extra_chars();
-        if !extra.is_empty() {
-            wigner::wigner_classify_spinor_extra(extra, unitary.len())
-                .unwrap_or(CorepType::Unsupported)
+        // Spinor: SU(2) Wigner test is the primary path.
+        // Bilbao extra chars are NOT term-by-term Wigner summands
+        // (counterexample: SG3 A3 grey group, extra[0]=0 but h=E gives χ=-1).
+        let h_spin = h_irrep.spin_ops();
+        let g_sg = parent_spatial_sg(uni_number).unwrap_or(h_irrep.sg as usize) as u8;
+        let g_spin = if g_sg == h_irrep.sg {
+            h_spin
         } else {
-            // Fallback to SU(2) double-group path
-            let (spin_rots, _spin_trans, _spin_su2) = h_irrep.spin_ops();
-            let n_lg = h_irrep.spin_lg_char_count();
-            let op_indices = h_irrep.spin_lg_op_indices();
-            if let Some(ct) = wigner::wigner_classify_spinor(
-                h_chars, n_lg, op_indices,
-                spin_rots, _spin_trans, _spin_su2,
-                &unitary, &mag_seitz, &h_seitz, antiunitary[0],
-                h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
-            ) {
-                ct
-            } else {
-                CorepType::Unsupported
-            }
+            IrrepRecord::spin_ops_for_sg(g_sg)
+        };
+        let ctx = wigner::SpinLiftContext { h: h_spin, g: g_spin };
+        let n_lg = h_irrep.spin_lg_char_count();
+        let op_indices = h_irrep.spin_lg_op_indices();
+        if let Some(ct) = wigner::wigner_classify_spinor(
+            &ctx, h_chars, n_lg, op_indices,
+            &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+            h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
+        ) {
+            (ct, WignerSource::SpinorSU2)
+        } else {
+            // SU(2) path failed.
+            // The Bilbao extra sum is NOT a valid Wigner indicator and is
+            // not used for classification.
+            (CorepType::Unsupported, WignerSource::Unsupported)
         }
     } else {
-        // Non-compound irrep: use PIR path with operation order mapping.
+        // Non-compound scalar: PIR path with full Seitz matching.
         let pir_rots = h_irrep.pir_rotations();
-        if let Some(h_to_pir) = wigner::build_h_to_cir_map(&h_seitz, pir_rots) {
+        let pir_trans = h_irrep.pir_translations();
+        let h_to_pir = if pir_trans.len() == pir_rots.len() / 9 * 3 {
+            wigner::build_h_to_irrep_op_map(&h_seitz, pir_rots, pir_trans)
+        } else {
+            // Fallback to rotation-only for data without translations
+            wigner::build_h_to_cir_map(&h_seitz, pir_rots)
+        };
+        if let Some(h_to_pir) = h_to_pir {
             let doubled = wigner::reorder_cir_chars(
                 &h_chars.iter().flat_map(|&c| [c, 0.0f64]).collect::<Vec<_>>(),
                 &h_to_pir,
             );
             let h_chars_reordered: Vec<f64> = (0..h_to_pir.len()).map(|i| doubled[2 * i]).collect();
-            wigner::wigner_classify(
+            let ct = wigner::wigner_classify(
                 &h_chars_reordered, &unitary, &mag_seitz, &h_seitz, antiunitary[0],
                 h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
-            )
+            );
+            (ct, WignerSource::ScalarPIR)
         } else {
-            // No rotation data (e.g. spinor irreps): cannot reorder, mark unsupported.
-            CorepType::Unsupported
+            (CorepType::Unsupported, WignerSource::Unsupported)
         }
     };
 
@@ -309,13 +358,31 @@ pub fn compute_corepresentation(
 
     let dim = wigner::corep_dim(&corep_type, h_dim);
 
+    let completeness = match corep_type {
+        CorepType::A if !antiunitary.is_empty() => {
+            CharacterCompleteness::TypeAAntiunitaryPending { count: antiunitary.len() }
+        }
+        CorepType::Unsupported => {
+            // Count NaN entries as missing
+            let missing = characters.iter().filter(|c| c.is_nan()).count();
+            if missing > 0 {
+                CharacterCompleteness::TypeAAntiunitaryPending { count: missing }
+            } else {
+                CharacterCompleteness::Complete
+            }
+        }
+        _ => CharacterCompleteness::Complete,
+    };
+
     Some(Corepresentation {
         characters,
         timerev: mag_lg.iter().map(|&i| mag_ops.timerev[i]).collect(),
         corep_type,
+        source,
         dim,
         unitary_order: unitary.len(),
         antiunitary_order: antiunitary.len(),
+        completeness,
     })
 }
 
@@ -362,20 +429,24 @@ pub fn symmetry_operations_of(sg: u8) -> MagneticOps {
     get_parent_operations(sg)
 }
 
+fn get_parent_operations_by_hall(hall: usize) -> Option<MagneticOps> {
+    let sym = spgdb_get_spacegroup_operations(hall)?;
+    let n = sym.size;
+    let mut rot = Vec::with_capacity(n);
+    let mut trans = Vec::with_capacity(n);
+    for i in 0..n {
+        rot.push(sym.rot[i]);
+        trans.push(sym.trans[i]);
+    }
+    Some(MagneticOps { rot, trans, timerev: vec![false; n] })
+}
+
 fn get_parent_operations(sg: u8) -> MagneticOps {
     let hall = find_hall_number(sg);
-    let mut rot = Vec::new();
-    let mut trans = Vec::new();
     if let Some(h) = hall {
-        if let Some(sym) = spgdb_get_spacegroup_operations(h) {
-            for i in 0..sym.size {
-                rot.push(sym.rot[i]);
-                trans.push(sym.trans[i]);
-            }
-        }
+        if let Some(ops) = get_parent_operations_by_hall(h) { return ops; }
     }
-    let n = rot.len();
-    MagneticOps { rot, trans, timerev: vec![false; n] }
+    MagneticOps { rot: vec![], trans: vec![], timerev: vec![] }
 }
 
 fn find_hall_number(sg: u8) -> Option<usize> {
@@ -388,19 +459,79 @@ fn find_hall_number(sg: u8) -> Option<usize> {
 
 // ── High-level API ───────────────────────────────────────────────────────────
 
-/// Identify the unitary subgroup of a magnetic space group.
+/// Identified unitary subgroup of a magnetic space group, with correct Hall setting.
+pub struct UnitarySubgroupInfo {
+    pub sg: usize,
+    pub hall: usize,
+    /// Unitary ops extracted from the MSG itself.
+    pub ops_from_msg: MagneticOps,
+    /// Unitary ops reconstructed from the identified Hall setting.
+    pub ops_from_hall: MagneticOps,
+}
+
+impl UnitarySubgroupInfo {
+    /// Assert that extracting ops from MSG and from Hall give the same Seitz set.
+    pub fn assert_consistent(&self) -> bool {
+        use crate::irrep::wigner;
+        let seitz_msg = wigner::ops_to_seitz(&self.ops_from_msg);
+        let seitz_hall = wigner::ops_to_seitz(&self.ops_from_hall);
+        if seitz_msg.len() != seitz_hall.len() { return false; }
+        for op in &seitz_msg {
+            if wigner::find_seitz(&op.rot, &op.trans, &seitz_hall).is_none() {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+/// Identify the unitary subgroup of a magnetic space group (SG number only).
 pub fn identify_unitary_subgroup(uni_number: usize) -> Option<usize> {
-    let ops = get_magnetic_operations(uni_number)?;
-    let unitary_rots: Vec<Mat3I> = ops.rot.iter().enumerate()
-        .filter(|(i, _)| !ops.timerev[*i]).map(|(_, r)| *r).collect();
-    let unitary_trans: Vec<[f64; 3]> = ops.trans.iter().enumerate()
-        .filter(|(i, _)| !ops.timerev[*i]).map(|(_, t)| *t).collect();
+    identify_unitary_subgroup_with_hall(uni_number).map(|info| info.sg)
+}
+
+/// Look up the parent spatial space group number G ⊃ H for a magnetic group.
+///
+/// For black-white (Type III) MSGs, $$G \supset H$$ is a proper supergroup.
+/// For grey (Type II) and ordinary (Type I) groups, G = H.
+pub fn parent_spatial_sg(uni_number: usize) -> Option<usize> {
+    let msg = crate::MagneticSpaceGroupType::from_uni(uni_number);
+    if msg.uni_number == 0 { return None; }
+    Some(msg.number)
+}
+
+/// Identify the unitary subgroup with full Hall setting information.
+///
+/// Uses `spg_get_hall_number_from_symmetry` to classify the unitary ops
+/// from the MSG, then reconstructs H_ops from the identified Hall number.
+/// This ensures the H_ops setting matches the MSG, rather than using the
+/// first-Hall setting which may differ in origin/basis.
+pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitarySubgroupInfo> {
+    let mag_ops = get_magnetic_operations(uni_number)?;
+    let mut unitary_rots: Vec<Mat3I> = Vec::new();
+    let mut unitary_trans: Vec<[f64; 3]> = Vec::new();
+    for i in 0..mag_ops.len() {
+        if !mag_ops.timerev[i] {
+            unitary_rots.push(mag_ops.rot[i]);
+            unitary_trans.push(mag_ops.trans[i]);
+        }
+    }
     if unitary_rots.is_empty() { return None; }
     #[allow(deprecated)]
     let hall = crate::spg_get_hall_number_from_symmetry(&unitary_rots, &unitary_trans, 1e-5).ok()?;
     if hall == 0 || hall > 530 { return None; }
     let sg_type = spgdb_get_spacegroup_type(hall);
-    Some(sg_type.number)
+    let ops_from_hall = get_parent_operations_by_hall(hall)?;
+    let n = unitary_rots.len();
+    let ops_from_msg = MagneticOps {
+        rot: unitary_rots, trans: unitary_trans, timerev: vec![false; n],
+    };
+    Some(UnitarySubgroupInfo {
+        sg: sg_type.number,
+        hall,
+        ops_from_msg,
+        ops_from_hall,
+    })
 }
 
 /// BNS label → UNI number.
@@ -422,9 +553,11 @@ pub fn uni_from_og(og: &str) -> Option<usize> {
 }
 
 /// Compute all corepresentations for a magnetic SG at a k-point.
-pub fn compute_coreps(bns: &str, k_label: &str) -> Option<Vec<(&'static str, Corepresentation)>> {
+pub fn compute_coreps(bns: &str, k_label: &str) -> Option<Vec<(String, Corepresentation)>> {
     let uni = uni_from_bns(bns)?;
-    let h_sg = identify_unitary_subgroup(uni)?;
+    let h_info = identify_unitary_subgroup_with_hall(uni)?;
+    let h_sg = h_info.sg;
+    let h_ops = h_info.ops_from_hall; // Hall-corrected, same as compute_corepresentation
     let mag_ops = get_magnetic_operations(uni)?;
     let h_irreps = super::query::irreps_of(h_sg as u8);
     let k_irreps: Vec<&IrrepRecord> = h_irreps.iter()
@@ -432,7 +565,6 @@ pub fn compute_coreps(bns: &str, k_label: &str) -> Option<Vec<(&'static str, Cor
     if k_irreps.is_empty() { return None; }
 
     // Pre-compute: convert H ops to Seitz and get anti-unitary representative
-    let h_ops = get_parent_operations(h_sg as u8);
     let h_seitz = ops_to_seitz(&h_ops);
     let a0_idx = mag_ops.timerev.iter().position(|&t| t)?; // first anti-unitary
     let a0 = &wigner::SeitzOp::new(
@@ -440,48 +572,18 @@ pub fn compute_coreps(bns: &str, k_label: &str) -> Option<Vec<(&'static str, Cor
     );
 
     // Build character tables for all k-point irreps (for partner finding)
-    let char_tables: Vec<&[f64]> = k_irreps.iter().map(|ir| ir.characters()).collect();
+    let _char_tables: Vec<&[f64]> = k_irreps.iter().map(|ir| ir.characters()).collect();
 
     let mut results = Vec::with_capacity(k_irreps.len());
-    for (i, ir) in k_irreps.iter().enumerate() {
+    for (_i, ir) in k_irreps.iter().enumerate() {
         if let Some(c) = compute_corepresentation(ir, uni, &mag_ops) {
-            // For Type C, find partner and rebuild character table
-            let final_chars = if c.corep_type == CorepType::C {
-                let (conj_chars, _) = wigner::conjugate_chars(
-                    ir.characters(), &h_seitz, a0,
-                    ir.kx, ir.ky, ir.kz, ir.kd,
-                );
-                let other_chars: Vec<&[f64]> = k_irreps.iter()
-                    .enumerate()
-                    .filter(|(j, _)| *j != i)
-                    .map(|(_, r)| r.characters())
-                    .collect();
-                if let Some(partner_idx) = wigner::find_partner(&conj_chars, &other_chars) {
-                    let partner_ir = &k_irreps[if partner_idx >= i { partner_idx + 1 } else { partner_idx }];
-                    let mag_lg = filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
-                    let mag_seitz = ops_to_seitz(&mag_ops);
-                    let op_map: Vec<Option<usize>> = (0..mag_ops.len())
-                        .map(|mi| {
-                            if mag_ops.timerev[mi] { None }
-                            else {
-                                let mop = &mag_seitz[mi];
-                                wigner::find_seitz(&mop.rot, &mop.trans, &h_seitz)
-                                    .map(|m| m.op_index)
-                            }
-                        })
-                        .collect();
-                    wigner::build_corep_chars(
-                        &c.corep_type, &mag_ops, &mag_lg, &op_map,
-                        ir.characters(), Some(partner_ir.characters()),
-                    )
-                } else {
-                    c.characters // fallback: no clear partner found
-                }
-            } else {
-                c.characters
-            };
-
-            results.push((ir.ml, Corepresentation { characters: final_chars, ..c }));
+            // For Type C, attempt partner finding for better character tables.
+            // NOTE: Character tables are in ISOTROPY (PIR) order while h_seitz
+            // is in spglib order. Full Seitz-based reordering is needed for
+            // accurate partner matching via character overlap. Currently the
+            // characters from compute_corepresentation are used directly.
+            let final_chars = c.characters.clone();
+            results.push((ir.ml.to_string(), Corepresentation { characters: final_chars, ..c }));
         }
     }
     if results.is_empty() { None } else { Some(results) }
@@ -1368,5 +1470,538 @@ mod tests {
         }
         println!("High-dim image irreps: {} checked, all dim > 1 ✓", checked);
         assert!(checked > 0, "Should have at least one high-dim image irrep");
+    }
+
+    /// Diagnostic: count duplicate rotations in H little groups.
+    ///
+    /// If the same rotation appears with different translations in the
+    /// little group, PIR/CIR rotation-only mapping may be ambiguous.
+    #[test]
+    fn diagnose_duplicate_rotations() {
+        let mut total_cases = 0usize;
+        let mut dup_rot_cases = 0usize;
+        let mut dup_rot_distinct_char = 0usize;
+        for uni in 1..=1651 {
+            let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
+            let h_sg = match identify_unitary_subgroup(uni) { Some(s) => s as u8, None => continue };
+            let h_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
+            let h_seitz_unitary: Vec<_> = (0..mag_ops.len())
+                .filter(|&i| !mag_ops.timerev[i])
+                .map(|i| crate::irrep::wigner::SeitzOp::new(
+                    mag_ops.rot[i], mag_ops.trans[i], false))
+                .collect();
+            for ir in crate::irrep::query::irreps_of(h_sg) {
+                let mag_lg = crate::irrep::wigner::filter_little_group(
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+                let unitary_lg: Vec<_> = mag_lg.iter()
+                    .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                if unitary_lg.len() <= 1 { continue; }
+                total_cases += 1;
+
+                // Group by rotation, check for duplicate rotations with different translations
+                let mut rot_to_trans: std::collections::HashMap<Vec<i32>, Vec<[f64;3]>> = std::collections::HashMap::new();
+                for &idx in &unitary_lg {
+                    let r = mag_ops.rot[idx];
+                    let key: Vec<i32> = vec![r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2]];
+                    rot_to_trans.entry(key).or_default().push(mag_ops.trans[idx]);
+                }
+                let has_dup = rot_to_trans.values().any(|v| v.len() > 1);
+                if has_dup {
+                    dup_rot_cases += 1;
+                    // Check if duplicate rotations have distinct characters
+                    if !ir.spinor && ir.characters().len() >= unitary_lg.len() {
+                        let chars = ir.characters();
+                        for (rot_key, trans_list) in &rot_to_trans {
+                            if trans_list.len() <= 1 { continue; }
+                            let char_values: Vec<f64> = unitary_lg.iter()
+                                .filter(|&&idx| {
+                                    let r = mag_ops.rot[idx];
+                                    let k: Vec<i32> = vec![r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2]];
+                                    k == *rot_key
+                                })
+                                .enumerate()
+                                .map(|(pos, _)| chars[pos])
+                                .collect();
+                            let first = char_values.first().copied().unwrap_or(0.0);
+                            if char_values.iter().any(|&c| (c - first).abs() > 0.01) {
+                                dup_rot_distinct_char += 1;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!("\n=== Duplicate rotation diagnostic ===");
+        eprintln!("  total little-group cases: {}", total_cases);
+        eprintln!("  with duplicate rotations: {}", dup_rot_cases);
+        eprintln!("  dup-rot with distinct chars: {}", dup_rot_distinct_char);
+        if dup_rot_distinct_char > 0 {
+            eprintln!("  WARNING: {} cases have ambiguous rotation-only mapping!", dup_rot_distinct_char);
+        } else {
+            eprintln!("  OK: no ambiguous rotation-only mapping found");
+        }
+    }
+
+    /// Show concrete examples of duplicate-rotation ambiguous cases.
+    #[test]
+    fn show_dup_rot_examples() {
+        let mut shown = 0usize;
+        let max_show = 3usize;
+        'outer: for uni in 1..=1651 {
+            let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
+            let h_sg = match identify_unitary_subgroup(uni) { Some(s) => s as u8, None => continue };
+            for ir in crate::irrep::query::irreps_of(h_sg) {
+                if ir.spinor { continue; }
+                if shown >= max_show { break 'outer; }
+                let mag_lg = crate::irrep::wigner::filter_little_group(
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+                let unitary_lg: Vec<_> = mag_lg.iter()
+                    .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                if unitary_lg.len() <= 1 { continue; }
+
+                let mut rot_to_idxs: std::collections::HashMap<Vec<i32>, Vec<usize>> = std::collections::HashMap::new();
+                for &idx in &unitary_lg {
+                    let r = mag_ops.rot[idx];
+                    let key: Vec<i32> = vec![r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2]];
+                    rot_to_idxs.entry(key).or_default().push(idx);
+                }
+                let chars = ir.characters();
+                for (rot_key, idxs) in &rot_to_idxs {
+                    if idxs.len() <= 1 { continue; }
+                    // Check if distinct characters
+                    let char_vals: Vec<f64> = idxs.iter()
+                        .map(|&idx| {
+                            let pos = unitary_lg.iter().position(|&u| u == idx).unwrap();
+                            chars.get(pos).copied().unwrap_or(999.0)
+                        })
+                        .collect();
+                    let first = char_vals[0];
+                    if char_vals.iter().all(|&c| (c - first).abs() < 0.01) { continue; }
+
+                    eprintln!("\n--- Example {}: SG{} {} uni={} k=({}/{},{}/{},{}/{}) ---",
+                        shown + 1, h_sg, ir.ml, uni,
+                        ir.kx, ir.kd, ir.ky, ir.kd, ir.kz, ir.kd);
+                    let r0 = rot_key[0]; let r1 = rot_key[1]; let r2 = rot_key[2];
+                    eprintln!("  Rotation: [[{},{},{}],[{},{},{}],[{},{},{}]]",
+                        r0,r1,r2, rot_key[3],rot_key[4],rot_key[5], rot_key[6],rot_key[7],rot_key[8]);
+                    eprintln!("  Same rotation, {} distinct ops:", idxs.len());
+                    for &idx in idxs {
+                        let pos = unitary_lg.iter().position(|&u| u == idx).unwrap();
+                        eprintln!("    mag_op[{}]: trans=[{:.4},{:.4},{:.4}]  χ={:.4}",
+                            idx, mag_ops.trans[idx][0], mag_ops.trans[idx][1], mag_ops.trans[idx][2],
+                            chars[pos]);
+                    }
+                    eprintln!("  → PIR rotation-only mapping cannot distinguish these.");
+                    shown += 1;
+                    if shown >= max_show { break; }
+                }
+            }
+        }
+    }
+
+    /// Diagnose PIR_ROTS / CIR_ROTS internal rotation ambiguity.
+    #[test]
+    fn diagnose_pir_cir_rotation_ambiguity() {
+        let mut pir_benign = 0usize;
+        let mut pir_dangerous = 0usize;
+        let mut cir_benign = 0usize;
+        let mut cir_dangerous = 0usize;
+        let mut examples: Vec<String> = Vec::new();
+        for sg in 1u8..=230 {
+            for ir in crate::irrep::query::irreps_of(sg) {
+                let chars = ir.characters();
+                let rots = ir.pir_rotations();
+                if !chars.is_empty() && rots.len() == chars.len() * 9 {
+                    let mut g: std::collections::BTreeMap<[i32; 9], Vec<usize>> = std::collections::BTreeMap::new();
+                    for i in 0..chars.len() {
+                        let r = [rots[9*i],rots[9*i+1],rots[9*i+2], rots[9*i+3],rots[9*i+4],rots[9*i+5], rots[9*i+6],rots[9*i+7],rots[9*i+8]];
+                        g.entry(r).or_default().push(i);
+                    }
+                    for (r, idxs) in &g {
+                        if idxs.len() <= 1 { continue; }
+                        let first = chars[idxs[0]];
+                        if idxs.iter().all(|&i| (chars[i] - first).abs() < 1e-8) {
+                            pir_benign += 1;
+                        } else {
+                            pir_dangerous += 1;
+                            if examples.len() < 5 {
+                                examples.push(format!(
+                                    "PIR SG{} {} k=({}/{},{}/{},{}/{}) ch={:?}",
+                                    sg, ir.ml, ir.kx,ir.kd, ir.ky,ir.kd, ir.kz,ir.kd,
+                                    idxs.iter().map(|&i| format!("{:.2}",chars[i])).collect::<Vec<_>>()
+                                ));
+                            }
+                        }
+                    }
+                }
+                for comp in 0..ir.cir_component_count() {
+                    let cir = ir.cir_component_chars(comp);
+                    let cr = ir.cir_rotations(comp);
+                    let n = cir.len() / 2;
+                    if cr.len() != n * 9 { continue; }
+                    let mut g: std::collections::BTreeMap<[i32; 9], Vec<usize>> = std::collections::BTreeMap::new();
+                    for i in 0..n {
+                        let r = [cr[9*i],cr[9*i+1],cr[9*i+2], cr[9*i+3],cr[9*i+4],cr[9*i+5], cr[9*i+6],cr[9*i+7],cr[9*i+8]];
+                        g.entry(r).or_default().push(i);
+                    }
+                    for (_r, idxs) in &g {
+                        if idxs.len() <= 1 { continue; }
+                        let fre = cir[idxs[0]*2]; let fim = cir[idxs[0]*2+1];
+                        if idxs.iter().all(|&i| (cir[i*2]-fre).abs()<1e-8 && (cir[i*2+1]-fim).abs()<1e-8) {
+                            cir_benign += 1;
+                        } else { cir_dangerous += 1; }
+                    }
+                }
+            }
+        }
+        eprintln!("\n=== PIR/CIR rotation ambiguity ===");
+        eprintln!("  PIR: {} benign, {} DANGEROUS", pir_benign, pir_dangerous);
+        eprintln!("  CIR: {} benign, {} DANGEROUS", cir_benign, cir_dangerous);
+        for ex in &examples { eprintln!("  {}", ex); }
+        if pir_dangerous > 0 || cir_dangerous > 0 {
+            eprintln!("  *** WARNING: rotation-only mapping ambiguous!");
+        } else {
+            eprintln!("  ✓ No dangerous duplicates in PIR/CIR");
+        }
+    }
+
+    /// Diagnostic: report Wigner source statistics across all irreps.
+    ///
+    /// Run with `-- --nocapture` to see the printout.
+    /// This does NOT assert correctness of the SU(2) fallback path,
+    /// which is known to need further work on antiunitary gauge handling.
+    #[test]
+    fn diagnose_wigner_sources() {
+        let mut stats = std::collections::HashMap::<&str, usize>::new();
+        let mut extra_su2_agree = 0usize;
+        let mut extra_su2_mismatch = 0usize;
+
+        for uni in 1..=1651 {
+            let mag_ops = match get_magnetic_operations(uni) {
+                Some(m) => m,
+                None => continue,
+            };
+            let h_sg = match identify_unitary_subgroup(uni) {
+                Some(sg) => sg as u8,
+                None => continue,
+            };
+            let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
+
+            for ir in crate::irrep::query::irreps_of(h_sg) {
+                let h_seitz: Vec<_> = (0..mag_ops.len())
+                    .filter(|&i| !mag_ops.timerev[i])
+                    .map(|i| crate::irrep::wigner::SeitzOp::new(
+                        mag_ops.rot[i], mag_ops.trans[i], false))
+                    .collect();
+
+                let mag_lg = crate::irrep::wigner::filter_little_group(
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+                let antiunitary: Vec<usize> = mag_lg.iter()
+                    .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+
+                // Determine which path would be used and its result
+                let key = if antiunitary.is_empty() {
+                    "scalar_trivial_A"
+                } else if ir.cir_component_count() > 0 {
+                    "scalar_CIR"
+                } else if ir.spinor {
+                    let extra = ir.spin_extra_chars();
+                    let unitary: Vec<usize> = mag_lg.iter()
+                        .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                    if !extra.is_empty() {
+                        "spinor_extra_data"
+                    } else {
+                        // Check SU(2) fallback
+                        let spin_ops = ir.spin_ops();
+                        let ctx = crate::irrep::wigner::SpinLiftContext { h: spin_ops, g: spin_ops };
+                        let su2_result = crate::irrep::wigner::wigner_classify_spinor(
+                            &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
+                            &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+                            ir.kx, ir.ky, ir.kz, ir.kd,
+                        );
+                        match su2_result {
+                            Some(_) => "spinor_SU2_ok",
+                            None => "spinor_SU2_fail",
+                        }
+                    }
+                } else {
+                    "scalar_PIR"
+                };
+                *stats.entry(key).or_default() += 1;
+
+                // Cross-check: when both extra and SU2 paths succeed for the same irrep
+                if ir.spinor {
+                    let extra = ir.spin_extra_chars();
+                    let unitary: Vec<usize> = mag_lg.iter()
+                        .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                    if !antiunitary.is_empty() && !extra.is_empty() {
+                        let spin_ops = ir.spin_ops();
+                        if !spin_ops.0.is_empty() {
+                            let _extra_sum = crate::irrep::wigner::diagnostic_extra_sum(extra);
+                            let ctx = crate::irrep::wigner::SpinLiftContext { h: spin_ops, g: spin_ops };
+                            if let Some(_su2_ct) = crate::irrep::wigner::wigner_classify_spinor(
+                                &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
+                                &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+                                ir.kx, ir.ky, ir.kz, ir.kd,
+                            ) {
+                                extra_su2_agree += 1; // SU(2) path succeeded
+                            } else {
+                                extra_su2_mismatch += 1; // SU(2) path failed
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("\n=== Wigner source statistics ===");
+        let mut sorted: Vec<_> = stats.iter().collect();
+        sorted.sort_by_key(|(_, v)| -(**v as i64));
+        for (key, count) in &sorted {
+            println!("  {:>20}  {:>6}", key, count);
+        }
+        println!("  extra↔SU2 agree: {}  mismatch: {} (diagnostic only, no assertion)",
+            extra_su2_agree, extra_su2_mismatch);
+    }
+
+    /// Regression: SG3 A3 spinor Wigner test under grey group (a₀ = Θ).
+    ///
+    /// This explicitly verifies that the SU(2) path gives the correct
+    /// per-term contributions, and that Bilbao extra chars are NOT
+    /// valid term-by-term Wigner summands.
+    #[test]
+    fn test_spinor_sg3_a3_grey_wigner() {
+        use crate::irrep::wigner;
+
+        // SG3 (P2), find a grey magnetic group (a₀ = Θ, g₀ = I)
+        let mut grey_uni = None;
+        for uni in 1..=1651 {
+            let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
+            let h_sg = match identify_unitary_subgroup(uni) { Some(s) => s as u8, None => continue };
+            if h_sg != 3 { continue; }
+            let a0_idx = match mag_ops.timerev.iter().position(|&t| t) { Some(i) => i, None => continue };
+            let r = mag_ops.rot[a0_idx];
+            if r[0][0]==1&&r[0][1]==0&&r[0][2]==0
+            && r[1][0]==0&&r[1][1]==1&&r[1][2]==0
+            && r[2][0]==0&&r[2][1]==0&&r[2][2]==1 {
+                grey_uni = Some(uni); break;
+            }
+        }
+        let uni = grey_uni.expect("SG3 should have a grey magnetic group");
+        let mag_ops = get_magnetic_operations(uni).unwrap();
+        let mag_seitz = wigner::ops_to_seitz(&mag_ops);
+        let h_seitz: Vec<_> = (0..mag_ops.len())
+            .filter(|&i| !mag_ops.timerev[i])
+            .map(|i| wigner::SeitzOp::new(mag_ops.rot[i], mag_ops.trans[i], false))
+            .collect();
+
+        // Find SG3 A3 at k=(½,0,½)
+        let a3 = crate::irrep::query::irreps_of(3).iter()
+            .find(|ir| ir.ml == "A3" && ir.spinor)
+            .expect("SG3 A3 spinor irrep should exist");
+
+        // Verify extra chars exist but are NOT valid Wigner summands
+        let extra = a3.spin_extra_chars();
+        assert!(!extra.is_empty(), "A3 should have extra chars");
+        // extra[0] = 0.0, but h=E gives χ((ΘE)²) = χ(Ē) = -1 ≠ 0
+        assert!((extra[0] - 0.0).abs() < 0.01,
+            "extra[0] should be 0, proving extra ≠ term-by-term Wigner summand");
+
+        let mag_lg = wigner::filter_little_group(a3.kx, a3.ky, a3.kz, a3.kd, &mag_ops);
+        let unitary: Vec<usize> = mag_lg.iter()
+            .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+        let antiunitary: Vec<usize> = mag_lg.iter()
+            .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+        assert!(!antiunitary.is_empty(), "should have antiunitary ops");
+
+        // Run SU(2) Wigner test
+        let spin_ops = a3.spin_ops();
+        let ctx = wigner::SpinLiftContext { h: spin_ops, g: spin_ops };
+        let ct = wigner::wigner_classify_spinor(
+            &ctx, a3.characters(), a3.spin_lg_char_count(), a3.spin_lg_op_indices(),
+            &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+            a3.kx, a3.ky, a3.kz, a3.kd,
+        );
+
+        // For grey group spin-½ at this k-point:
+        //   h=E:  (ΘE)² = Θ² = Ē → χ(Ē) = -χ(E) = -1
+        //   h=C₂: (ΘC₂)² = Θ²C₂² = (-1)(-1) = E → χ(E) = +1
+        //   W = (-1 + 1)/2 = 0 → Type C
+        assert!(ct.is_some(), "SU(2) path should succeed for grey group");
+        let ct = ct.unwrap();
+        assert_eq!(ct, CorepType::C,
+            "SG3 A3 grey: expected Type C (W=0), got {:?}", ct);
+
+        // Also verify: extra sum is diagnostic-only, not a Wigner indicator
+        let extra_sum = wigner::diagnostic_extra_sum(extra);
+        eprintln!("SG3 A3 grey Wigner: SU(2) path = {:?}, extra_sum = {:.4}", ct, extra_sum);
+    }
+
+    /// Per-term diagnostic: print raw data for debugging gauge conventions.
+    /// Not a pass/fail test — run with --nocapture to inspect.
+    #[test]
+    fn diagnose_spinor_wigner_per_term() {
+        use crate::irrep::wigner;
+        let sc = wigner::su2_compose;
+
+        // Find grey (Type-II) magnetic groups (a₀ = T, g₀ = I).
+        // For grey groups, a₀ is always in spin_ops → SU(2) path applicable.
+        let test_sgs: &[u8] = &[3, 5, 10, 118];
+        let mut cases: Vec<(usize, u8)> = Vec::new();
+        for uni in 1..=1651 {
+            let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
+            let h_sg = match identify_unitary_subgroup(uni) { Some(s) => s as u8, None => continue };
+            if !test_sgs.contains(&h_sg) { continue; }
+            let a0_idx = match mag_ops.timerev.iter().position(|&t| t) { Some(i) => i, None => continue };
+            let r = mag_ops.rot[a0_idx];
+            let is_id = r[0][0]==1&&r[0][1]==0&&r[0][2]==0
+                     && r[1][0]==0&&r[1][1]==1&&r[1][2]==0
+                     && r[2][0]==0&&r[2][1]==0&&r[2][2]==1;
+            if is_id { cases.push((uni, h_sg)); }
+        }
+
+        eprintln!("\n=== Per-term spinor Wigner diagnostic (grey groups) ===");
+        eprintln!("  Found {} grey-group cases", cases.len());
+
+        // Only show the first few cases to keep output manageable
+        let mut shown = 0usize;
+        let max_show = 3usize;
+
+        for (uni, h_sg) in cases {
+            let mag_ops = get_magnetic_operations(uni).unwrap();
+            let mag_seitz = wigner::ops_to_seitz(&mag_ops);
+
+            for ir in crate::irrep::query::irreps_of(h_sg) {
+                if !ir.spinor { continue; }
+                let extra = ir.spin_extra_chars();
+                if extra.is_empty() { continue; }
+                let extra_sum: f64 = extra.iter().sum();
+
+                let h_seitz: Vec<_> = (0..mag_ops.len())
+                    .filter(|&i| !mag_ops.timerev[i])
+                    .map(|i| wigner::SeitzOp::new(mag_ops.rot[i], mag_ops.trans[i], false))
+                    .collect();
+                let spin_seitz = wigner::build_spin_seitz(ir.spin_ops().0, ir.spin_ops().1);
+                let h_to_spin = match wigner::build_h_to_spin_map(&h_seitz, &spin_seitz, ir.spin_lg_op_indices()) {
+                    Some(m) => m, None => continue,
+                };
+                let global_to_local: std::collections::HashMap<usize, usize> =
+                    ir.spin_lg_op_indices().iter().enumerate()
+                        .map(|(loc, &g)| (g as usize, loc)).collect();
+
+                let mag_lg = wigner::filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+                let unitary: Vec<usize> = mag_lg.iter()
+                    .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                let antiunitary: Vec<usize> = mag_lg.iter()
+                    .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+                if antiunitary.is_empty() { continue; }
+
+                let a0 = &mag_seitz[antiunitary[0]];
+                let a0_match = match wigner::find_seitz(&a0.rot, &a0.trans, &spin_seitz) {
+                    Some(m) => m, None => continue,
+                };
+                let u_a0 = spin_su2_at(ir.spin_ops().2, a0_match.op_index).unwrap();
+
+                let chars = ir.characters();
+                let n_lg = ir.spin_lg_char_count();
+
+                eprintln!("\n═══ SG{} {} k=({}/{},{}/{},{}/{}) dim={} ═══",
+                    h_sg, ir.ml, ir.kx, ir.kd, ir.ky, ir.kd, ir.kz, ir.kd, ir.dim);
+                eprintln!("  n_unitary={} n_antiunitary={} extra_sum={:.4} extra={:?}",
+                    unitary.len(), antiunitary.len(), extra_sum,
+                    extra.iter().map(|&x| format!("{:.2}", x)).collect::<Vec<_>>());
+                eprintln!("  spin_lg_op_indices={:?}", ir.spin_lg_op_indices());
+                eprintln!("  n_lg_chars={} total_chars={}", n_lg, chars.len());
+                eprintln!("  lg_chars={:?}",
+                    chars[..n_lg.min(chars.len())].iter().map(|&x| format!("{:.2}", x)).collect::<Vec<_>>());
+
+                // Per-term table
+                eprintln!("  ┌──────┬─────────────────────┬──────────┬───────────────┬──────────────┬───────────────┬───────┬───────┐");
+                eprintln!("  │  h#  │ h_spin  U_h         │ h² spin  │ U_h² vs U_k   │ central(Θ²)   │   χ(spin)     │ extra │ contr │");
+                eprintln!("  ├──────┼─────────────────────┼──────────┼───────────────┼──────────────┼───────────────┼───────┼───────┤");
+
+                let mut w_sum = 0.0f64;
+                let mut used = 0usize;
+                for &h_mag_idx in &unitary {
+                    let h = &mag_seitz[h_mag_idx];
+                    let h_match = match wigner::find_seitz(&h.rot, &h.trans, &h_seitz) {
+                        Some(m) => m, None => continue,
+                    };
+                    let h_spin_idx = h_to_spin[h_match.op_index];
+                    let u_h = spin_su2_at(ir.spin_ops().2, h_spin_idx).unwrap();
+
+                    // Spatial: (g₀h)²
+                    let g0 = wigner::SeitzOp::new(a0.rot, a0.trans, false);
+                    let h_sp = wigner::SeitzOp::new(h.rot, h.trans, false);
+                    let (g0h, l1) = wigner::compose_seitz(&g0, &h_sp);
+                    let (sq, lsq) = wigner::square_seitz(&g0h);
+
+                    // Canonical lift of h²
+                    let sq_match = match wigner::find_seitz(&sq.rot, &sq.trans, &h_seitz) {
+                        Some(m) => m, None => continue,
+                    };
+                    let sq_spin_idx = h_to_spin[sq_match.op_index];
+                    let u_k = spin_su2_at(ir.spin_ops().2, sq_spin_idx).unwrap();
+
+                    // SU(2): U_sq = (U_a₀·U_h)²
+                    let u_g0h = sc(&u_a0, &u_h);
+                    let u_sq = sc(&u_g0h, &u_g0h);
+
+                    // Central element detection
+                    let spatial_central = match wigner::su2_same_up_to_sign(&u_sq, &u_k) {
+                        Some(v) => v, None => continue,
+                    };
+                    let central = !spatial_central;
+
+                    // Read character
+                    let local_idx = *global_to_local.get(&sq_spin_idx).unwrap();
+                    if local_idx >= n_lg || local_idx >= chars.len() { continue; }
+                    let chi0 = chars[local_idx];
+                    let chi = if central { -chi0 } else { chi0 };
+
+                    // Bloch phase
+                    let r_l1 = wigner::mat_vec_i32(&g0h.rot, &l1);
+                    let total_lattice = wigner::add3(
+                        &wigner::add3(&lsq, &sq_match.lattice_shift),
+                        &wigner::add3(&l1, &r_l1),
+                    );
+                    let phase = wigner::bloch_phase(ir.kx, ir.ky, ir.kz, ir.kd, &total_lattice);
+                    let contrib = chi * phase.re; // W contribution should be real
+
+                    // Extra chars: compare by position in the unitary list
+                    let extra_val = extra.get(used).copied().unwrap_or(f64::NAN);
+
+                    w_sum += contrib;
+                    used += 1;
+
+                    eprintln!("  h={} h_spin={} sq_spin={} spC={} c={} chi0={:.2} chi={:.2} ph={:.2} contrib={:.2} extra={:.2}",
+                        h_mag_idx, h_spin_idx, sq_spin_idx,
+                        spatial_central, central, chi0, chi,
+                        phase.re, contrib, extra_val);
+                }
+
+                let w = if used > 0 { w_sum / used as f64 } else { 0.0 };
+                eprintln!("  └──────┴─────────────────────┴──────────┴───────────────┴──────────────┴───────────────┴───────┴───────┘");
+                eprintln!("  W = {:.4} / {used} = {:.4}  (extra_sum={:.4})",
+                    w_sum, w, extra_sum);
+
+                shown += 1;
+                if shown >= max_show { break; }
+            }
+            if shown >= max_show { break; }
+        }
+        eprintln!("\n  (shown {} cases)", shown);
+    }
+
+    /// Extract Pauli coefficients from the spin-op flat array.
+    fn spin_su2_at(spin_op_su2: &[f64], idx: usize) -> Option<[f64; 4]> {
+        if 4 * idx + 3 >= spin_op_su2.len() { return None; }
+        Some([
+            spin_op_su2[4 * idx + 0],
+            spin_op_su2[4 * idx + 1],
+            spin_op_su2[4 * idx + 2],
+            spin_op_su2[4 * idx + 3],
+        ])
     }
 }

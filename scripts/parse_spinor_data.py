@@ -9,9 +9,93 @@ space group:
 
 Output format:
 - SG#, k-point label (GM, X, ...), coords, irrep label, dim, character table
+
+## Bilbao SU(2) storage convention (verified by scripts/test_su2_closure.py)
+
+Each symmetry operation line in spin.dat stores 20 values:
+
+    rot[9] trans[3] amp[4] phase[4]
+
+where:
+  amp[4]   = |U_ij| — amplitudes of the 4 complex 2×2 matrix elements
+  phase[4] = arg(U_ij)/π — phases in units of π
+
+The complex SU(2) matrix is reconstructed as:
+
+    U_ij = amp[ij] · exp(iπ · phase[ij])
+
+Then decomposed into real Pauli coefficients (u₀, u₁, u₂, u₃):
+
+    U = u₀·I + i(u₁·σx + u₂·σy + u₃·σz)
+
+      = [[u₀ + iu₃,    u₂ + iu₁],
+         [-u₂ + iu₁,    u₀ - iu₃]]
+
+For crystallographic point-group rotations, the Pauli coefficients
+take values only from the set {0, ±½, ±1/√2, ±√3/2, ±1}.
+These are stored as f64 rounded to the nearest exact algebraic value.
 """
-import os, re, sys, glob
+import math, os, re, sys, glob
 from collections import defaultdict
+
+# ── Exact Pauli coefficient rounding ────────────────────────────────────
+# For crystallographic double-group operations, the Pauli coefficients
+# u₀,u₁,u₂,u₃ ∈ {0, ±½, ±1/√2, ±√3/2, ±1}.
+# We round floating-point values to the nearest exact algebraic number
+# to eliminate numerical noise from sin/cos computations.
+
+_SQRT2 = math.sqrt(2.0)
+_SQRT3 = math.sqrt(3.0)
+
+_EXACT_PAULI_VALUES = [
+    0.0,
+    0.5, -0.5,
+    1.0 / _SQRT2, -1.0 / _SQRT2,
+    _SQRT3 / 2.0, -_SQRT3 / 2.0,
+    1.0, -1.0,
+]
+
+
+def _round_to_exact_pauli(val, tol=1e-10):
+    """Round a floating-point Pauli coefficient to the nearest exact value."""
+    for exact in _EXACT_PAULI_VALUES:
+        if abs(val - exact) < tol:
+            return exact
+    return val
+
+
+def _round_amplitude(val):
+    """Round amplitude to exact value {0, 1/√2, 1}.
+
+    Uses a relaxed tolerance because spin.dat files store amplitudes with
+    only ~5 significant digits (e.g. 0.70711 for 1/√2 ≈ 0.70710678).
+    """
+    for exact in [0.0, 1.0 / _SQRT2, 1.0]:
+        if abs(val - exact) < 1e-4:
+            return exact
+    return val
+
+
+def _amp_phase_to_pauli(amp, phase):
+    """Convert Bilbao polar encoding (amp[4] + phase[4]/π) to Pauli coefficients.
+
+    Returns [u₀, u₁, u₂, u₃] as exact f64 values.
+
+    The amp values in spin.dat files are rounded to ~5 significant digits
+    (e.g. 0.70711 for 1/√2).  We round them to the exact algebraic value
+    {0, 1/√2, 1} before multiplying, so that uᵢ = amp × cos/sin(π·phase)
+    comes out exact (e.g. 0.5 instead of 0.500002276).
+    """
+    # Round amplitudes to exact {0, 1/√2, 1} before multiplying.
+    # This eliminates the ~5-digit precision loss in spin.dat amplitude values.
+    exact_amp = [_round_amplitude(a) for a in amp]
+
+    u0 = _round_to_exact_pauli(exact_amp[0] * math.cos(math.pi * phase[0]))
+    u3 = _round_to_exact_pauli(exact_amp[0] * math.sin(math.pi * phase[0]))
+    u2 = _round_to_exact_pauli(exact_amp[1] * math.cos(math.pi * phase[1]))
+    u1 = _round_to_exact_pauli(exact_amp[1] * math.sin(math.pi * phase[1]))
+
+    return [u0, u1, u2, u3]
 
 
 def find_tables_dir():
@@ -52,6 +136,7 @@ def parse_spinor_file(filepath):
     Returns:
         sg: int, space group number
         spin_ops: list of dicts with keys: rot[9], trans[3], su2[4]
+                  su2[4] = Pauli coefficients (u₀, u₁, u₂, u₃), exact f64
         irreps: list of dicts with keys:
             k_label, kx/ky/kz/kd, ml_label, dim, characters, op_indices
     """
@@ -78,16 +163,27 @@ def parse_spinor_file(filepath):
         i += 1
 
     # Parse symmetry operations (nsym lines)
-    # Format: R(3x3) 9ints | t(3) 3floats | SU2(4) 4floats | extra(4) 4floats
+    # Format: R(3x3) 9ints | t(3) 3floats | amp(4) 4floats | phase(4)/π 4floats
+    # Converted to Pauli coefficients: SU(2) = u₀I + i(u₁σx + u₂σy + u₃σz)
     while i < len(lines):
         line = lines[i].strip()
         if not line or line.startswith("kpoint"):
             break
         parts = line.split()
-        if len(parts) >= 16:
+        if len(parts) >= 20:
             rot = [int(x) for x in parts[0:9]]
             trans = [float(x) for x in parts[9:12]]
-            su2 = [float(x) for x in parts[12:16]]
+            amp = [float(x) for x in parts[12:16]]
+            phase = [float(x) for x in parts[16:20]]
+            su2 = _amp_phase_to_pauli(amp, phase)
+            spin_ops.append({"rot": rot, "trans": trans, "su2": su2})
+        elif len(parts) >= 16:
+            # Fallback for files without the extra 4 columns
+            rot = [int(x) for x in parts[0:9]]
+            trans = [float(x) for x in parts[9:12]]
+            amp = [float(x) for x in parts[12:16]]
+            phase = [0.0, 0.0, 0.0, 0.0]
+            su2 = _amp_phase_to_pauli(amp, phase)
             spin_ops.append({"rot": rot, "trans": trans, "su2": su2})
         i += 1
 
@@ -176,6 +272,7 @@ def parse_all_spinor():
     Returns:
         all_irreps: list of spinor irrep dicts
         all_spin_ops: dict SG# -> list of spin op dicts (rot, trans, su2)
+                      su2[4] = Pauli coefficients (u₀, u₁, u₂, u₃)
     """
     tables_dir = find_tables_dir()
     files = sorted(glob.glob(os.path.join(tables_dir, "irreps-SG=*-spin.dat")))

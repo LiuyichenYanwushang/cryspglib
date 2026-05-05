@@ -36,6 +36,25 @@ use num_complex::Complex64;
 use crate::mathfunc::{mat_multiply_matrix_i3, Mat3I};
 use super::corep::{CorepType, MagneticOps};
 
+/// Spin-lift context for the Wigner test on spinor irreps.
+///
+/// For black-white (Type III) magnetic space groups $$\mathcal{M} = H \cup a_0 H$$,
+/// the anti-unitary representative $$a_0 = \mathcal{T} g_0$$ has spatial part
+/// $$g_0 \in G \setminus H$$ where $$G$$ is the parent space group.  Its SU(2)
+/// lift therefore lives in $$G$$'s double group, not $$H$$'s.
+///
+/// This struct bundles both sets of spin operations so [`wigner_classify_spinor`]
+/// can use $$H$$'s lifts for canonical little-group mapping and $$G$$'s lifts
+/// for $$a_0$$ lookup.
+#[derive(Debug, Clone)]
+pub struct SpinLiftContext {
+    /// H's spin ops (unitary subgroup): (rotations 9/op, translations 3/op, su2 4/op)
+    pub h: (&'static [i32], &'static [f64], &'static [f64]),
+    /// G's spin ops (parent spatial group): (rotations 9/op, translations 3/op, su2 4/op)
+    /// Same as `h` for grey (Type II) and ordinary (Type I) groups.
+    pub g: (&'static [i32], &'static [f64], &'static [f64]),
+}
+
 macro_rules! debug_log {
     ($($arg:tt)*) => {
         #[cfg(feature = "debug-corep")]
@@ -583,6 +602,63 @@ fn reduce01_with_lattice(t: &[f64; 3]) -> ([f64; 3], [i32; 3]) {
 /// Build index map from `h_seitz` (spglib H_ops order) to CIR operation order.
 ///
 /// Returns `None` if any H operation cannot be matched (e.g., missing rotation data).
+/// Build mapping from H_ops to PIR/CIR operations using full Seitz matching.
+///
+/// Unlike [`build_h_to_cir_map`] (rotation-only), this matches by both
+/// rotation AND translation (modulo lattice), eliminating ambiguity when
+/// the same rotation appears with different fractional translations
+/// (e.g. in nonsymmorphic groups).
+pub fn build_h_to_irrep_op_map(
+    h_seitz: &[SeitzOp],
+    irrep_rots: &[i32],
+    irrep_trans: &[f64],
+) -> Option<Vec<usize>> {
+    let n_ops = h_seitz.len();
+    let n_ir_ops = irrep_rots.len() / 9;
+    if n_ir_ops == 0 || irrep_trans.len() < n_ir_ops * 3 {
+        return None;
+    }
+    let mut map = Vec::with_capacity(n_ops);
+    for h_idx in 0..n_ops {
+        let h = &h_seitz[h_idx];
+        let mut found = None;
+        for ir_idx in 0..n_ir_ops {
+            let r_match = {
+                let off = ir_idx * 9;
+                off + 8 < irrep_rots.len()
+                    && irrep_rots[off] == h.rot[0][0]
+                    && irrep_rots[off+1] == h.rot[0][1]
+                    && irrep_rots[off+2] == h.rot[0][2]
+                    && irrep_rots[off+3] == h.rot[1][0]
+                    && irrep_rots[off+4] == h.rot[1][1]
+                    && irrep_rots[off+5] == h.rot[1][2]
+                    && irrep_rots[off+6] == h.rot[2][0]
+                    && irrep_rots[off+7] == h.rot[2][1]
+                    && irrep_rots[off+8] == h.rot[2][2]
+            };
+            if !r_match { continue; }
+            // Check translation modulo lattice
+            let toff = ir_idx * 3;
+            let t_ok = (0..3).all(|k| {
+                let d = h.trans[k] - irrep_trans[toff + k];
+                (d - d.round()).abs() < 1e-9
+            });
+            if t_ok {
+                if found.is_some() {
+                    return None; // ambiguous: shouldn't happen with full Seitz
+                }
+                found = Some(ir_idx);
+            }
+        }
+        map.push(found?);
+    }
+    Some(map)
+}
+
+/// Build mapping from H_ops to PIR/CIR operations using rotation-only matching.
+///
+/// DEPRECATED: prefer [`build_h_to_irrep_op_map`] when translation data is available.
+/// Rotation-only matching can be ambiguous for nonsymmorphic groups.
 pub fn build_h_to_cir_map(h_seitz: &[SeitzOp], cir_rots: &[i32]) -> Option<Vec<usize>> {
     let n_ops = h_seitz.len();
     let n_cir_ops = cir_rots.len() / 9;
@@ -644,29 +720,46 @@ fn cir_char_at(cir_chars: &[f64], op_idx: usize) -> Complex64 {
 }
 
 // ── Spinor (double-group) operations ───────────────────────────────────────
+//
+// Bilbao spin.dat SU(2) convention (verified by scripts/test_su2_closure.py,
+// 229/229 SGs pass at 100% closure):
+//
+//   rot[9] trans[3] amp[4] phase[4]/π
+//   U_ij = amp[ij] · exp(iπ · phase[ij])
+//
+// Converted at generation time to real Pauli coefficients [u₀,u₁,u₂,u₃]:
+//
+//   U = u₀·I + i(u₁·σx + u₂·σy + u₃·σz)
+//     = [[u₀ + iu₃,    u₂ + iu₁],
+//        [-u₂ + iu₁,    u₀ - iu₃]]
+//
+// For crystallographic point groups the coefficients take values only
+// from {0, ±½, ±1/√2, ±√3/2, ±1} and are stored as exact f64.
+//
+// Composition follows quaternion multiplication (isomorphic to SU(2)):
+//   (u₀,u)·(v₀,v) = (u₀v₀ − u·v,  u₀v + v₀u + u×v)
 
-/// Compose two SU(2) 4-vectors from Bilbao spin.dat.
-///
-/// **Convention** (verified by `scripts/test_su2_closure.py`):
-/// The 4 values `[a,b,c,d]` represent a flat 2×2 matrix `[[a, b], [c, d]]`.
-/// Composition is ordinary 2×2 matrix multiplication.
-///
-/// Quaternion and Pauli-parameter conventions were tested and ruled out
-/// (0% closure rate vs 73% for flat 2×2 across 229 spin.dat files).
+/// Compose two SU(2) matrices in Pauli coefficient representation.
 pub fn su2_compose(a: &[f64; 4], b: &[f64; 4]) -> [f64; 4] {
-    // 2×2 matrix multiply: [[a0,a1],[a2,a3]] · [[b0,b1],[b2,b3]]
+    let [u0, u1, u2, u3] = *a;
+    let [v0, v1, v2, v3] = *b;
+    // Quaternion multiply: (u₀, u₁, u₂, u₃) · (v₀, v₁, v₂, v₃)
     [
-        a[0] * b[0] + a[1] * b[2],
-        a[0] * b[1] + a[1] * b[3],
-        a[2] * b[0] + a[3] * b[2],
-        a[2] * b[1] + a[3] * b[3],
+        u0 * v0 - u1 * v1 - u2 * v2 - u3 * v3,
+        u0 * v1 + u1 * v0 + u2 * v3 - u3 * v2,
+        u0 * v2 - u1 * v3 + u2 * v0 + u3 * v1,
+        u0 * v3 + u1 * v2 - u2 * v1 + u3 * v0,
     ]
 }
 
-/// Check if two SU(2) 4-vectors are the same up to a sign (central element Ē).
+/// Check if two SU(2) Pauli coefficient vectors match up to sign (central element Ē).
 ///
-/// Returns `Some(false)` if they match, `Some(true)` if a = -b (central differs),
-/// `None` if they don't match at all.
+/// Both `a` and `b` are `[u₀, u₁, u₂, u₃]` Pauli coefficients. The central
+/// element of SU(2) is Ē = -I = [-1, 0, 0, 0], so `a = ±b` iff the unit-vector
+/// dot product is ±1.
+///
+/// Returns `Some(false)` if a ≈ b, `Some(true)` if a ≈ -b (central differs),
+/// `None` if they are unrelated.
 pub fn su2_same_up_to_sign(a: &[f64; 4], b: &[f64; 4]) -> Option<bool> {
     let dot = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
     let na = (a[0]*a[0] + a[1]*a[1] + a[2]*a[2] + a[3]*a[3]).sqrt();
@@ -685,40 +778,112 @@ pub fn su2_same_up_to_sign(a: &[f64; 4], b: &[f64; 4]) -> Option<bool> {
 }
 
 // ── Spinor (double-group) Wigner test ──────────────────────────────────────
+//
+// For spinor irreps, each spatial operation {R|t} has two lifts in the
+// double group: g and Ēg where Ē = 2π rotation = −1.  The character of
+// the double-group element (a₀h)² is:
+//
+//   χ((a₀h)²) = {  χ(g_k)  if U_sq ≈ U_k
+//                { −χ(g_k)  if U_sq ≈ −U_k  (central element Ē appears)
+//
+// where U_sq = (U_{a₀} U_h)² computed via Pauli-coefficient quaternion
+// multiplication, and U_k is the canonical SU(2) lift of the spatial
+// operation (a₀h)².
 
-/// Wigner test for spinor irreps using Bilbao pre-computed extra characters.
-///
-/// The spin.dat files from Bilbao include extra character values at BZ
-/// boundary k-points.  These values are χ((a₀h)²) contributions for the
-/// Wigner test.  Summing them and normalising by |H| gives the Wigner
-/// indicator directly, without needing SU(2) composition.
-///
-/// # Returns
-/// `Some(CorepType)` if the extra sum is quantized (0, ±1, or ±|H|),
-/// `None` if not quantized.
-pub fn wigner_classify_spinor_extra(extra: &[f64], n_unitary: usize) -> Option<CorepType> {
-    if extra.is_empty() || n_unitary == 0 {
+/// Extract a Seitz operation from the spin-op flat arrays.
+fn spin_seitz_at(idx: usize, spin_op_rots: &[i32], spin_op_trans: &[f64]) -> Option<SeitzOp> {
+    if 9 * idx + 8 >= spin_op_rots.len() || 3 * idx + 2 >= spin_op_trans.len() {
         return None;
     }
-    let sum: f64 = extra.iter().sum();
-    // Try both normalised (W = sum) and un-normalised (W = sum/|H|)
-    let w_direct = sum;
-    let w_norm = sum / (n_unitary as f64);
+    let r = [
+        [spin_op_rots[9 * idx + 0], spin_op_rots[9 * idx + 1], spin_op_rots[9 * idx + 2]],
+        [spin_op_rots[9 * idx + 3], spin_op_rots[9 * idx + 4], spin_op_rots[9 * idx + 5]],
+        [spin_op_rots[9 * idx + 6], spin_op_rots[9 * idx + 7], spin_op_rots[9 * idx + 8]],
+    ];
+    let t = [spin_op_trans[3 * idx], spin_op_trans[3 * idx + 1], spin_op_trans[3 * idx + 2]];
+    Some(SeitzOp::new(r, t, false))
+}
 
-    let tol = 1e-6;
-    // Check normalised first
-    for &w in &[w_direct, w_norm] {
-        if (w - 1.0).abs() < tol {
-            return Some(CorepType::A);
-        } else if (w + 1.0).abs() < tol {
-            return Some(CorepType::B);
-        } else if w.abs() < tol {
-            return Some(CorepType::C);
+/// Extract Pauli coefficients [u₀,u₁,u₂,u₃] from the spin-op flat array.
+fn spin_su2_at(spin_op_su2: &[f64], idx: usize) -> Option<[f64; 4]> {
+    if 4 * idx + 3 >= spin_op_su2.len() {
+        return None;
+    }
+    Some([
+        spin_op_su2[4 * idx + 0],
+        spin_op_su2[4 * idx + 1],
+        spin_op_su2[4 * idx + 2],
+        spin_op_su2[4 * idx + 3],
+    ])
+}
+
+/// Check if two Seitz ops match modulo lattice translations.
+fn same_seitz_mod_lattice(a: &SeitzOp, b: &SeitzOp) -> bool {
+    if a.rot != b.rot {
+        return false;
+    }
+    for i in 0..3 {
+        let d = a.trans[i] - b.trans[i];
+        if (d - d.round()).abs() > 1e-9 {
+            return false;
         }
     }
-    debug_log!("DEBUG wigner_classify_spinor_extra: sum={:.4} W={:.4} W/|H|={:.4} n_unitary={}",
-        sum, w_direct, w_norm, n_unitary);
-    None
+    true
+}
+
+/// Build mapping from H_ops (spglib order) to spin-op index, using full
+/// Seitz matching (rotation + translation) restricted to the canonical
+/// lifts specified by `spin_lg_op_indices`.
+///
+/// Unlike `build_h_to_cir_map` (rotation-only) and raw `find_seitz`
+/// (returns first spatial match — may be the wrong double-group lift),
+/// this ensures each H op maps to the specific spin lift that the
+/// spinor character table uses.
+pub fn build_h_to_spin_map(
+    h_seitz: &[SeitzOp],
+    spin_seitz: &[SeitzOp],
+    spin_lg_op_indices: &[u16],
+) -> Option<Vec<usize>> {
+    let allowed: std::collections::HashSet<usize> =
+        spin_lg_op_indices.iter().map(|&x| x as usize).collect();
+
+    let mut map = Vec::with_capacity(h_seitz.len());
+    for h in h_seitz {
+        let mut found = None;
+        for &spin_idx in &allowed {
+            if let Some(sop) = spin_seitz.get(spin_idx) {
+                if same_seitz_mod_lattice(h, sop) {
+                    found = Some(spin_idx);
+                    break;
+                }
+            }
+        }
+        map.push(found?);
+    }
+    Some(map)
+}
+
+/// Build a Vec<SeitzOp> from the spin-op flat arrays (public for testing).
+pub fn build_spin_seitz(spin_op_rots: &[i32], spin_op_trans: &[f64]) -> Vec<SeitzOp> {
+    let n = (spin_op_rots.len() / 9).min(spin_op_trans.len() / 3);
+    (0..n)
+        .filter_map(|i| spin_seitz_at(i, spin_op_rots, spin_op_trans))
+        .collect()
+}
+
+/// **DIAGNOSTIC ONLY — not an authoritative Wigner test.**
+///
+/// Bilbao spin.dat may contain extra character-like values at some k-points.
+/// These values are NOT guaranteed to be term-by-term Wigner summands
+/// χ((a₀h)²).  Counterexample: for a spin-½ grey group with a₀ = Θ,
+/// the h = E term must be χ(Θ²) = χ(Ē) = -1, yet the stored extra value
+/// can be 0 (see SG3 A3 at k=(½,0,½)).
+///
+/// This function only checks whether the raw sum accidentally gives a
+/// quantized value (0, ±1, or ±|H|).  It must NOT be used as the primary
+/// spinor Wigner test — use [`wigner_classify_spinor`] instead.
+pub fn diagnostic_extra_sum(extra: &[f64]) -> f64 {
+    extra.iter().sum()
 }
 
 /// Wigner test for spinor (double-valued) irreps using SU(2) composition.
@@ -728,31 +893,54 @@ pub fn wigner_classify_spinor_extra(extra: &[f64], n_unitary: usize) -> Option<C
 /// The spinor character table from spin.dat assigns characters to specific
 /// double-group elements, indexed by SU(2) lift.
 ///
+/// # Arguments
+/// * `ctx` — [`SpinLiftContext`] with H's and G's spin operations.
+///   For black-white MSGs, $$a_0$$'s SU(2) lift is looked up in G's spin ops
+///   because $$g_0 \in G \setminus H$$.
+/// * `spin_chars` — first `n_lg_ops` values are little-group characters
+/// * `spin_lg_op_indices` — local char position → global spin op index
+///
 /// # Returns
 /// `None` if spin ops are unavailable or result is non-quantized.
 pub fn wigner_classify_spinor(
-    spin_chars: &[f64],             // first n values = little-group characters
-    n_lg_ops: usize,                // number of little-group ops
-    spin_lg_op_indices: &[u16],     // global spin op index → local char position
-    spin_op_rots: &[i32],           // 9 per spin op, in spin.dat order
-    spin_op_trans: &[f64],          // 3 per spin op
-    spin_op_su2: &[f64],            // 4 per spin op
+    ctx: &SpinLiftContext,
+    spin_chars: &[f64],
+    n_lg_ops: usize,
+    spin_lg_op_indices: &[u16],
     unitary_mag_indices: &[usize],
     mag_seitz: &[SeitzOp],
     h_seitz: &[SeitzOp],
     a0_idx: usize,
     kx: i8, ky: i8, kz: i8, kd: i8,
 ) -> Option<CorepType> {
-    if spin_op_rots.is_empty() || n_lg_ops == 0 {
+    let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
+    let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
+
+    if h_spin_rots.is_empty()
+        || h_spin_trans.is_empty()
+        || h_spin_su2.is_empty()
+        || g_spin_rots.is_empty()
+        || g_spin_trans.is_empty()
+        || g_spin_su2.is_empty()
+        || n_lg_ops == 0
+        || spin_lg_op_indices.is_empty()
+    {
         return None;
     }
 
-    // Build mapping: H_ops (spglib order) → spin_op index (spin.dat order)
-    let h_to_spin = build_h_to_cir_map(h_seitz, spin_op_rots)?;
+    // Build spin Seitz table from H's ops (for canonical lift mapping)
+    let h_spin_seitz = build_spin_seitz(h_spin_rots, h_spin_trans);
+    if h_spin_seitz.is_empty() {
+        return None;
+    }
 
-    // Build global spin op index → local character position mapping.
-    // spin_chars is in little-group order; op_indices[i] gives the global
-    // spin op index for the i-th little-group operation.
+    // Canonical lift mapping: H_op index → spin.dat global op index.
+    // Uses full Seitz matching (rotation + translation), restricted to
+    // the lifts specified by spin_lg_op_indices — so we get the same
+    // gauge as the spinor character table.
+    let h_to_spin = build_h_to_spin_map(h_seitz, &h_spin_seitz, spin_lg_op_indices)?;
+
+    // local character position → global spin op index
     let global_to_local: std::collections::HashMap<usize, usize> = spin_lg_op_indices
         .iter()
         .enumerate()
@@ -760,39 +948,85 @@ pub fn wigner_classify_spinor(
         .collect();
 
     let a0 = &mag_seitz[a0_idx];
+
+    // a₀ lift lookup: use G's spin ops because for black-white MSGs,
+    // g₀ ∈ G \ H and its SU(2) lift may not exist in H's spin ops.
+    let g_spin_seitz = build_spin_seitz(g_spin_rots, g_spin_trans);
+    let a0_match = find_seitz(&a0.rot, &a0.trans, &g_spin_seitz)?;
+    let u_a0 = spin_su2_at(g_spin_su2, a0_match.op_index)?;
+
     let mut w_sum = Complex64::ZERO;
+    let mut used = 0usize;
 
     for &h_mag_idx in unitary_mag_indices {
         let h = &mag_seitz[h_mag_idx];
+
+        // ── Spatial: (g₀ h)² ──
         let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
         let h_spatial = SeitzOp::new(h.rot, h.trans, false);
         let (g0h, l1) = compose_seitz(&g0_spatial, &h_spatial);
         let (sq, lattice_sq) = square_seitz(&g0h);
 
-        if let Some(m) = find_seitz(&sq.rot, &sq.trans, h_seitz) {
-            let r_l1 = mat_vec_i32(&g0h.rot, &l1);
-            let total_lattice = add3(
-                &add3(&lattice_sq, &m.lattice_shift),
-                &add3(&l1, &r_l1),
-            );
-            let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
+        // ── SU(2): U_sq = (U_{a₀} · U_h)² ──
+        // h uses H's canonical lift (not find_seitz on h_seitz).
+        let h_match = find_seitz(&h.rot, &h.trans, h_seitz)?;
+        let h_spin_idx = h_to_spin[h_match.op_index];
+        let u_h = spin_su2_at(h_spin_su2, h_spin_idx)?;
+        let u_g0h = su2_compose(&u_a0, &u_h);
+        let u_sq = su2_compose(&u_g0h, &u_g0h);
 
-            // global spin op index → local character position
-            let spin_idx = h_to_spin[m.op_index];
-            if let Some(&local_idx) = global_to_local.get(&spin_idx) {
-                if local_idx < spin_chars.len() {
-                    let chi = spin_chars[local_idx];
-                    let contrib = Complex64::new(chi, 0.0) * phase;
-                    w_sum += contrib;
-                }
-            }
+        // Spatial square in H order (for Bloch phase).
+        let m = find_seitz(&sq.rot, &sq.trans, h_seitz)?;
+        let r_l1 = mat_vec_i32(&g0h.rot, &l1);
+        let total_lattice = add3(
+            &add3(&lattice_sq, &m.lattice_shift),
+            &add3(&l1, &r_l1),
+        );
+        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
+
+        // Canonical lift of the spatial square — same gauge as chars.
+        let sq_spin_idx = h_to_spin[m.op_index];
+        let u_k = spin_su2_at(h_spin_su2, sq_spin_idx)?;
+
+        // SU(2) central element detection (spatial spin lift only):
+        //   U_sq ≈ +U_k → spatial_central = false
+        //   U_sq ≈ −U_k → spatial_central = true
+        //
+        // For spin-½: Θ² = −1 = Ē, so the actual double-group element
+        // (a₀h)² carries one extra central element:
+        //   actual_central = spatial_central ⊕ Θ²
+        let spatial_central = su2_same_up_to_sign(&u_sq, &u_k)?;
+        let central = !spatial_central;
+
+        // Global spin op index → local character position
+        let local_idx = *global_to_local.get(&sq_spin_idx)?;
+        if local_idx >= n_lg_ops || local_idx >= spin_chars.len() {
+            return None;
         }
+
+        let chi0 = spin_chars[local_idx];
+        let chi = if central { -chi0 } else { chi0 };
+
+        w_sum += Complex64::new(chi, 0.0) * phase;
+        used += 1;
+
+        debug_log!(
+            "    spinor SU2: h[{}] sq→H[{}] sq_spin[{}] spatial_central={} central={} L={:?} χ₀={:.4}→χ={:.4}",
+            h_mag_idx, m.op_index, sq_spin_idx, spatial_central, central, total_lattice, chi0, chi
+        );
     }
 
-    let n = (unitary_mag_indices.len() as f64).max(1.0);
+    if used == 0 || used != unitary_mag_indices.len() {
+        return None;
+    }
+
+    let n = unitary_mag_indices.len() as f64;
     let w = w_sum / n;
-    debug_log!("DEBUG wigner_classify_spinor: W=({:.8},{:.8}) |W|={:.4} n_ops={} k=({},{},{})/{}",
-        w.re, w.im, w.norm(), unitary_mag_indices.len(), kx, ky, kz, kd);
+
+    debug_log!(
+        "DEBUG wigner_classify_spinor SU2: W=({:.8},{:.8}) |W|={:.4} used={} n_ops={} k=({},{},{})/{}",
+        w.re, w.im, w.norm(), used, unitary_mag_indices.len(), kx, ky, kz, kd
+    );
 
     let tol = 1e-6;
     if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
@@ -909,6 +1143,8 @@ pub fn find_partner(
         return None;
     }
 
+    // Dimension of the conjugate irrep: χ(E)
+    let conj_dim = conj_chars[0].abs();
     let norm = 1.0 / (n_ops as f64);
 
     // For each candidate irrep, compute overlap with conjugate
@@ -917,6 +1153,8 @@ pub fn find_partner(
 
     for (j, chars_j) in candidate_chars.iter().enumerate() {
         if chars_j.len() < n_ops { continue; }
+        // Dimension must match: Δⱼ ∼ Δᵢ^{a₀} ⇒ same dimension
+        if (chars_j[0].abs() - conj_dim).abs() > 0.01 { continue; }
         let overlap: f64 = (0..n_ops)
             .map(|h| conj_chars[h] * chars_j[h])
             .sum();
@@ -928,8 +1166,8 @@ pub fn find_partner(
         }
     }
 
-    // Return partner if overlap is significantly above noise
-    // For n-dimensional irrep, overlap ≈ d²/|H| per operation
+    // Return partner if overlap is significantly above noise.
+    // For n-dimensional irrep, overlap ≈ d²/|H| per operation.
     if best_overlap > 0.1 {
         best_idx
     } else {
