@@ -831,19 +831,19 @@ fn same_seitz_mod_lattice(a: &SeitzOp, b: &SeitzOp) -> bool {
     true
 }
 
-/// Build mapping from H_ops (spglib order) to spin-op index, using full
-/// Seitz matching (rotation + translation) restricted to the canonical
-/// lifts specified by `spin_lg_op_indices`.
+/// Build mapping from H_ops (spglib order) to spin-op index using
+/// **rotation-only** matching, restricted to the canonical lifts in
+/// `spin_lg_op_indices`.  Returns `Some(spin_idx)` for ops whose
+/// rotation appears in the allowed set, `None` otherwise.
 ///
-/// Unlike `build_h_to_cir_map` (rotation-only) and raw `find_seitz`
-/// (returns first spatial match — may be the wrong double-group lift),
-/// this ensures each H op maps to the specific spin lift that the
-/// spinor character table uses.
+/// Translation is ignored because spglib and Bilbao spin.dat may use
+/// different origin settings.  SU(2) coefficients depend only on
+/// rotation, so this is safe for the Wigner test.
 pub fn build_h_to_spin_map(
     h_seitz: &[SeitzOp],
     spin_seitz: &[SeitzOp],
     spin_lg_op_indices: &[u16],
-) -> Option<Vec<usize>> {
+) -> Vec<Option<usize>> {
     let allowed: std::collections::HashSet<usize> =
         spin_lg_op_indices.iter().map(|&x| x as usize).collect();
 
@@ -852,15 +852,15 @@ pub fn build_h_to_spin_map(
         let mut found = None;
         for &spin_idx in &allowed {
             if let Some(sop) = spin_seitz.get(spin_idx) {
-                if same_seitz_mod_lattice(h, sop) {
+                if sop.rot == h.rot {
                     found = Some(spin_idx);
                     break;
                 }
             }
         }
-        map.push(found?);
+        map.push(found);
     }
-    Some(map)
+    map
 }
 
 /// Build a Vec<SeitzOp> from the spin-op flat arrays (public for testing).
@@ -935,10 +935,8 @@ pub fn wigner_classify_spinor(
     }
 
     // Canonical lift mapping: H_op index → spin.dat global op index.
-    // Uses full Seitz matching (rotation + translation), restricted to
-    // the lifts specified by spin_lg_op_indices — so we get the same
-    // gauge as the spinor character table.
-    let h_to_spin = build_h_to_spin_map(h_seitz, &h_spin_seitz, spin_lg_op_indices)?;
+    // Rotation-only matching because SU(2) depends only on rotation.
+    let h_to_spin = build_h_to_spin_map(h_seitz, &h_spin_seitz, spin_lg_op_indices);
 
     // local character position → global spin op index
     let global_to_local: std::collections::HashMap<usize, usize> = spin_lg_op_indices
@@ -949,11 +947,12 @@ pub fn wigner_classify_spinor(
 
     let a0 = &mag_seitz[a0_idx];
 
-    // a₀ lift lookup: use G's spin ops because for black-white MSGs,
-    // g₀ ∈ G \ H and its SU(2) lift may not exist in H's spin ops.
+    // a₀ lift lookup: rotation-only, because a₀'s SU(2) lift depends only
+    // on the rotation part.  Use G's spin ops for black-white MSGs (g₀ ∈ G\H).
     let g_spin_seitz = build_spin_seitz(g_spin_rots, g_spin_trans);
-    let a0_match = find_seitz(&a0.rot, &a0.trans, &g_spin_seitz)?;
-    let u_a0 = spin_su2_at(g_spin_su2, a0_match.op_index)?;
+    let a0_match = g_spin_seitz.iter()
+        .position(|s| s.rot == a0.rot)?;
+    let u_a0 = spin_su2_at(g_spin_su2, a0_match)?;
 
     let mut w_sum = Complex64::ZERO;
     let mut used = 0usize;
@@ -968,24 +967,44 @@ pub fn wigner_classify_spinor(
         let (sq, lattice_sq) = square_seitz(&g0h);
 
         // ── SU(2): U_sq = (U_{a₀} · U_h)² ──
-        // h uses H's canonical lift (not find_seitz on h_seitz).
-        let h_match = find_seitz(&h.rot, &h.trans, h_seitz)?;
-        let h_spin_idx = h_to_spin[h_match.op_index];
+        // Spin op lookup: rotation-only.  Bloch phase: via h_seitz
+        // lattice shift if the op exists there, else from raw translation.
+        let (h_spin_idx, sq_spin_idx, phase) =
+            if let Some(h_match) = find_seitz(&h.rot, &h.trans, h_seitz)
+        {
+            // h in h_seitz — use its lattice shift for Bloch phase
+            let hsi = match h_to_spin[h_match.op_index] {
+                Some(idx) => idx, None => continue,
+            };
+            let m = match find_seitz(&sq.rot, &sq.trans, h_seitz) {
+                Some(m) => m, None => continue,
+            };
+            let ssi = match h_to_spin[m.op_index] {
+                Some(idx) => idx, None => continue,
+            };
+            let r_l1 = mat_vec_i32(&g0h.rot, &l1);
+            let tl = add3(&add3(&lattice_sq, &m.lattice_shift), &add3(&l1, &r_l1));
+            let ph = bloch_phase(kx, ky, kz, kd, &tl);
+            (hsi, ssi, ph)
+        } else {
+            // h not in h_seitz — find spin ops by rotation, compute
+            // Bloch phase from raw translation (no h_seitz shift).
+            let find_rot = |rot: Mat3I| -> Option<usize> {
+                spin_lg_op_indices.iter()
+                    .map(|&x| x as usize)
+                    .find(|&si| h_spin_seitz.get(si).map_or(false, |s| s.rot == rot))
+            };
+            let hsi = match find_rot(h.rot) { Some(i) => i, None => continue };
+            let ssi = match find_rot(sq.rot) { Some(i) => i, None => continue };
+            let r_l1 = mat_vec_i32(&g0h.rot, &l1);
+            let tl = add3(&lattice_sq, &add3(&l1, &r_l1));
+            let ph = bloch_phase(kx, ky, kz, kd, &tl);
+            (hsi, ssi, ph)
+        };
+
         let u_h = spin_su2_at(h_spin_su2, h_spin_idx)?;
         let u_g0h = su2_compose(&u_a0, &u_h);
         let u_sq = su2_compose(&u_g0h, &u_g0h);
-
-        // Spatial square in H order (for Bloch phase).
-        let m = find_seitz(&sq.rot, &sq.trans, h_seitz)?;
-        let r_l1 = mat_vec_i32(&g0h.rot, &l1);
-        let total_lattice = add3(
-            &add3(&lattice_sq, &m.lattice_shift),
-            &add3(&l1, &r_l1),
-        );
-        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
-
-        // Canonical lift of the spatial square — same gauge as chars.
-        let sq_spin_idx = h_to_spin[m.op_index];
         let u_k = spin_su2_at(h_spin_su2, sq_spin_idx)?;
 
         // SU(2) central element detection (spatial spin lift only):
@@ -1016,11 +1035,13 @@ pub fn wigner_classify_spinor(
         );
     }
 
-    if used == 0 || used != unitary_mag_indices.len() {
+    // Normalize by the number of ops actually in the spinor little group.
+    // Ops outside the spinor lg are skipped via `continue` above.
+    if used == 0 {
         return None;
     }
 
-    let n = unitary_mag_indices.len() as f64;
+    let n = used as f64;
     let w = w_sum / n;
 
     debug_log!(
@@ -1175,6 +1196,10 @@ pub fn find_partner(
     }
 }
 
+// ── Type A intertwiner + matrix utilities ────────────────────────────────────
+
+include!("wigner_extra.rs");
+
 // ── Character table construction ─────────────────────────────────────────────
 
 /// Build the magnetic co-representation character table.
@@ -1207,6 +1232,7 @@ pub fn build_corep_chars(
     op_map: &[Option<usize>],
     h_chars: &[f64],
     partner_chars: Option<&[f64]>,  // for Type C: character table of paired irrep
+    au_chars: Option<&[f64]>,       // for Type A: pre-computed antiunitary chars
 ) -> Vec<f64> {
     let n_lg = mag_lg_indices.len();
     let mut chars = vec![0.0; n_lg];
@@ -1217,15 +1243,13 @@ pub fn build_corep_chars(
 
         match corep_type {
             CorepType::A => {
-                // Same dimension: inherit H character directly for unitary ops
-                if !is_anti {
-                    if let Some(hi) = h_idx {
-                        if hi < h_chars.len() {
-                            chars[out_idx] = h_chars[hi];
-                        }
+                if is_anti {
+                    if let Some(ac) = au_chars {
+                        if out_idx < ac.len() { chars[out_idx] = ac[out_idx]; }
                     }
+                } else if let Some(hi) = h_idx {
+                    if hi < h_chars.len() { chars[out_idx] = h_chars[hi]; }
                 }
-                // Anti-unitary: requires intertwiner U. Leave as 0 for now.
             }
             CorepType::B => {
                 // Kramers doubling: dimension 2d

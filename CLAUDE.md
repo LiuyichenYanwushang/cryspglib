@@ -346,9 +346,14 @@ pub struct IrrepRecord {
 ### 重新生成数据
 
 ```bash
-cd cryspglib
-python3 scripts/generate_irrep_data.py
-cargo test --package cryspglib --test irrep_validation
+# 完整 pipeline（推荐）:
+bash scripts/regenerate_all.sh
+
+# 或手动分步:
+python3 scripts/generate_irrep_data.py                          # Step 1: main data
+cargo test ... generate_char_reorder_map -- --nocapture         # Step 2: mapping
+python3 scripts/apply_char_reorder.py                           # Step 3: reorder data
+# Step 4: append reorder_data.rs to generated_data.rs (script does this)
 ```
 
 ### 注意事项
@@ -597,10 +602,41 @@ U = [[U₀₀, U₀₁], [U₁₀, U₁₁]]
 6. **dim 不能靠 image 标签猜**: `IMAGE_DIM` 硬编码首字母映射不完整（缺 K/L/M/N），导致 K1536a 等被解析为 dim=1。应从 PIR 字符表的 χ(E) 直接读取表示维度
 7. **生成器缩进错误会被空 warning 掩盖**: scalar_records.append 错放在 if dim_warnings > 0 块内 → warnings=0 时静默生成空数据。全量自洽测试能抓这类 bug
 
+### 重要教训 (新增)
+
+8. **a₀ 的 SU(2) lift 只取决于 rotation 部分**: `wigner_classify_spinor` 中用 `find_seitz` 查找 a₀ 时，不能要求 translation 也匹配——spin ops 只存了 reference translation，而 a₀ 可能有不同的平移分量（如 `{E|0,0,½}`）。已修复为 rotation-only 匹配，SU(2) 成功率从 14.2% 提升到 37.6%。
+9. **spinor canonical lift 的空间顺序 = scalar PIR 操作顺序**: Ē-lift 不在 spinor little group 中（至少对 BZ 边界 k-point），spinor 字符可以直接用 scalar PIR rotations 做 1:1 映射。
+10. **Bilbao spin.dat 只存 canonical lift**: 双群的 Ē-lift 通过 χ(Ēg) = -χ(g) 推导，不单独存储。单个空间操作对应一个 spinor 字符位置。
+
 ### 技术债
 
 | 项目 | 说明 |
 |------|------|
-| `generate_irrep_docs.py` | 只做了 3/7 晶系的 rustdoc，未完成。不影响功能，可后续补全或删除 |
-| `wigner_classify_spinor` (SU(2) 路径) | 框架已搭建但未激活。Pauli 系数存储和 `su2_compose` 已完成。与 `find_seitz` 匹配 spin ops 的逻辑待完善。 |
+| `wigner_classify_spinor` SU(2) 成功率 | 37.6% (8044/21389)。剩余失败在低对称群 SG1-12，`build_h_to_spin_map` 的 H_ops→spin_ops 匹配失败。不是算法 bug，是 spin.dat 与 spglib H_ops 的 setting 不一致。 |
+| Type A 高维 intertwiner | 1D 已完成（U=√χ(a₀²)），高维 (>1D) 的 U 矩阵求解未实现 |
+| Spinor 字符重排 unmapped 3270 | 低对称群 SG5-44 的 PIR 数据用 primitive cell 但 spglib 用 base-centered setting，scalar 的 PIR rotations 不匹配 |
+
+## v0.4.0 路线图 (更新)
+
+详见 `.claude/plans/quiet-tumbling-cray.md`
+
+| Phase | 任务 | 状态 |
+|-------|------|------|
+| 1.1 | Spinor 字符重排 (scalar PIR rot 继承) | done: 5118 mapped, PER_CHAR_REORDER 54066 条目 |
+| 1.2 | Pipeline 脚本 `regenerate_all.sh` | done |
+| 2.1 | Type A 1D 反酉字符 (intertwiner U) | done: `type_a_antiunitary_chars()`, `CharacterCompleteness` |
+| 2.1b | Type A 高维 intertwiner | TODO |
+| 3.1 | Spinor SU(2) Wigner 全量统计 | done: 37.6% success, a₀ rotation-only fix applied |
+| 3.2 | Type C partner 多 MSG 验证 | done: 128.406 Z, 165.95 L, SG 139 P, SG1 GM1 |
+| 3.3 | `verify_char_reorder_consistency` | cleaned up (git restore) |
+
+### 当前关键文件状态
+
+- `src/irrep/wigner.rs`: `SpinLiftContext`, `type_a_antiunitary_chars()`, `wigner_classify_spinor` (rotation-only a₀), `build_corep_chars` (au_chars 参数)
+- `src/irrep/corep.rs`: `compute_corepresentation` (au_chars 计算), `parent_spatial_sg()`, `CharacterCompleteness`, `test_corep_sg1_gm1` (Type A 1D 验证)
+- `src/irrep/types.rs`: `characters_spglib()`, `spin_ops_for_sg()`, `IrrepRecord` 带 `_pir_rot_start`
+- `src/irrep/generated_data.rs`: 末尾附有 `PER_CHAR_REORDER` 等重排数组 (54066 条目)
+- `scripts/apply_char_reorder.py`: mapping txt → Rust 代码
+- `scripts/regenerate_all.sh`: 完整 pipeline 脚本
+- `char_reorder_map.txt`: 5118 mapped + 3270 unmapped (不提交 git)
 

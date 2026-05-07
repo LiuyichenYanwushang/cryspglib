@@ -173,6 +173,21 @@ impl IrrepRecord {
     /// Spin symmetry operations with SU(2) lifts for any space group.
     ///
     /// This is a standalone version — does not require an `IrrepRecord`.
+    /// Get the ISOTROPY setting (basis matrix + origin shift) for a space group.
+    ///
+    /// Returns `(basis_3x3_row_major, origin_3vec)` as f64 slices.
+    /// Basis is always identity (same axes as ITA), origin has 205/230 non-trivial.
+    pub fn sg_setting(sg: u8) -> (&'static [f64], &'static [f64]) {
+        let idx = sg.saturating_sub(1) as usize;
+        if idx >= 230 { return (&[], &[]); }
+        let b_start = idx * 9;
+        let o_start = idx * 3;
+        (
+            &super::generated_data::SG_SETTING_BASIS[b_start..b_start + 9],
+            &super::generated_data::SG_SETTING_ORIGIN[o_start..o_start + 3],
+        )
+    }
+
     pub fn spin_ops_for_sg(sg: u8) -> (&'static [i32], &'static [f64], &'static [f64]) {
         let sg_idx = sg as usize;
         if sg_idx == 0 || sg_idx > 230 {
@@ -434,6 +449,57 @@ impl IrrepRecord {
         // Lines and planes have longer prefixes (DT, LD, SM, etc.)
         // Points have short prefixes (GM, X, M, R, A, H, K, L, etc.)
         k.len() <= 2 && !matches!(k, "GP")
+    }
+
+    /// Look up the pre-computed h_to_pir mapping for this irrep.
+    ///
+    /// Returns a slice `h_to_pir` where `h_to_pir[h_idx] = pir_idx` maps each
+    /// spglib H operation position to the corresponding ISOTROPY (PIR) character index.
+    fn reorder_map(&self) -> &'static [u16] {
+        let sg_idx = self.sg as usize;
+        if sg_idx == 0 || sg_idx > 230 { return &[]; }
+        let (reo_start, reo_count) = super::generated_data::SG_CHAR_REORDER_INDEX[sg_idx];
+        let reo_start = reo_start as usize;
+        let reo_count = reo_count as usize;
+        // Find this irrep's position within its SG's irrep list
+        let (ir_start, ir_count) = super::generated_data::SG_IRREP_INDEX[sg_idx];
+        let sg_irreps = &super::generated_data::IRREPS[ir_start as usize..(ir_start + ir_count) as usize];
+        let pos = sg_irreps.iter().position(|r| std::ptr::eq(r, self));
+        match pos {
+            Some(p) if p < reo_count => {
+                let (perm_start, perm_count) =
+                    super::generated_data::IRREP_CHAR_REORDER_INDEX[reo_start + p];
+                let start = perm_start as usize;
+                let len = perm_count as usize;
+                if len > 0 {
+                    &super::generated_data::PER_CHAR_REORDER[start..start + len]
+                } else {
+                    &[]
+                }
+            }
+            _ => &[],
+        }
+    }
+
+    /// Character table reordered to spglib H_ops order.
+    ///
+    /// Unlike [`Self::characters`] which returns characters in ISOTROPY (PIR) order,
+    /// this method returns one character value per spglib H operation, using the
+    /// pre-computed h_to_pir mapping.
+    ///
+    /// The returned `Vec` has length equal to the number of spglib H operations.
+    pub fn characters_spglib(&self) -> Vec<f64> {
+        let chars = self.characters();
+        let h_to_pir = self.reorder_map();
+        if h_to_pir.is_empty() || chars.is_empty() {
+            return chars.to_vec();
+        }
+        h_to_pir.iter()
+            .map(|&pir_idx| {
+                let idx = pir_idx as usize;
+                if idx < chars.len() { chars[idx] } else { 0.0 }
+            })
+            .collect()
     }
 }
 
