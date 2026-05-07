@@ -310,7 +310,7 @@ pub fn compute_corepresentation(
         } else {
             IrrepRecord::spin_ops_for_sg(g_sg)
         };
-        let ctx = wigner::SpinLiftContext { h: h_spin, g: g_spin };
+        let ctx = wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_irrep.sg };
         let n_lg = h_irrep.spin_lg_char_count();
         let op_indices = h_irrep.spin_lg_op_indices();
         if let Some(ct) = wigner::wigner_classify_spinor(
@@ -1739,7 +1739,7 @@ mod tests {
                         let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
                         let g_spin = if g_sg == h_sg { h_spin }
                             else { IrrepRecord::spin_ops_for_sg(g_sg) };
-                        let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin };
+                        let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
                         let su2_result = crate::irrep::wigner::wigner_classify_spinor(
                             &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                             &unitary, &mag_seitz, &h_seitz, antiunitary[0],
@@ -1768,7 +1768,7 @@ mod tests {
                         let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
                         let g_spin = if g_sg == h_sg { h_spin }
                             else { IrrepRecord::spin_ops_for_sg(g_sg) };
-                        let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin };
+                        let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
                             if let Some(_su2_ct) = crate::irrep::wigner::wigner_classify_spinor(
                                 &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                                 &unitary, &mag_seitz, &h_seitz, antiunitary[0],
@@ -1842,7 +1842,7 @@ mod tests {
                 let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
                 let g_spin = if g_sg == h_sg { h_spin }
                     else { IrrepRecord::spin_ops_for_sg(g_sg) };
-                let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin };
+                let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
                 let su2_ok = crate::irrep::wigner::wigner_classify_spinor(
                     &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                     &unitary, &mag_seitz, &h_seitz, antiunitary[0],
@@ -1919,7 +1919,7 @@ mod tests {
 
         // Run SU(2) Wigner test
         let spin_ops = a3.spin_ops();
-        let ctx = wigner::SpinLiftContext { h: spin_ops, g: spin_ops };
+        let ctx = wigner::SpinLiftContext { h: spin_ops, g: spin_ops, sg: a3.sg };
         let ct = wigner::wigner_classify_spinor(
             &ctx, a3.characters(), a3.spin_lg_char_count(), a3.spin_lg_op_indices(),
             &unitary, &mag_seitz, &h_seitz, antiunitary[0],
@@ -2092,6 +2092,62 @@ mod tests {
             if shown >= max_show { break; }
         }
         eprintln!("\n  (shown {} cases)", shown);
+    }
+
+    /// Diagnostic: detailed Wigner terms for one failing spinor case (SG2 T UNI69).
+    #[test]
+    fn diagnose_sg2_spinor_wigner_failure() {
+        use crate::irrep::wigner;
+
+        // UNI69: magnetic group with H=SG2
+        let uni = 69;
+        let mag_ops = get_magnetic_operations(uni).expect("UNI69 should exist");
+        let h_info = identify_unitary_subgroup_with_hall(uni).expect("H should exist");
+        assert_eq!(h_info.sg, 2, "H should be SG2");
+        let h_ops = h_info.ops_from_hall;
+        let mag_seitz = wigner::ops_to_seitz(&mag_ops);
+        let h_seitz = wigner::ops_to_seitz(&h_ops);
+
+        // SG2 T-point spinor irreps
+        for ir in crate::irrep::query::irreps_of(2) {
+            if !ir.spinor || ir.k_label() != "T" { continue; }
+            let extra = ir.spin_extra_chars();
+            if !extra.is_empty() { continue; }
+
+            let mag_lg = wigner::filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+            let antiunitary: Vec<usize> = mag_lg.iter()
+                .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+            if antiunitary.is_empty() { continue; }
+            let unitary: Vec<usize> = mag_lg.iter()
+                .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+
+            let spin_ops = ir.spin_ops();
+            let h_spin = spin_ops;
+            let g_sg = parent_spatial_sg(uni).unwrap_or(2) as u8;
+            let g_spin = if g_sg == 2 { h_spin } else { IrrepRecord::spin_ops_for_sg(g_sg) };
+            let ctx = wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: 2 };
+
+            let ct = wigner::wigner_classify_spinor(
+                &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
+                &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+                ir.kx, ir.ky, ir.kz, ir.kd,
+            );
+
+            println!("SG2 {} UNI{}: h_ops={} mag_ops={} n_lg={}/{}",
+                ir.ml, uni, h_ops.len(), mag_ops.len(),
+                unitary.len(), antiunitary.len());
+            println!("  spin_lg={:?} result={:?}",
+                ir.spin_lg_op_indices(), ct);
+            println!("  mag timerev={:?}", mag_ops.timerev);
+            println!("  h_ops rots: {:?}", h_seitz.iter().map(|s| s.rot).collect::<Vec<_>>());
+            println!("  mag lg unitary rots: {:?}",
+                unitary.iter().map(|&i| mag_ops.rot[i]).collect::<Vec<_>>());
+            println!("  spin ops rots: {:?}",
+                (0..h_spin.0.len()/9).map(|i| {
+                    let off = i*9;
+                    [h_spin.0[off..off+3].to_vec(), h_spin.0[off+3..off+6].to_vec(), h_spin.0[off+6..off+9].to_vec()]
+                }).collect::<Vec<_>>());
+        }
     }
 
     /// Extract Pauli coefficients from the spin-op flat array.

@@ -53,6 +53,8 @@ pub struct SpinLiftContext {
     /// G's spin ops (parent spatial group): (rotations 9/op, translations 3/op, su2 4/op)
     /// Same as `h` for grey (Type II) and ordinary (Type I) groups.
     pub g: (&'static [i32], &'static [f64], &'static [f64]),
+    /// SG number of H (1-230), for looking up ISOTROPY setting data.
+    pub sg: u8,
 }
 
 macro_rules! debug_log {
@@ -967,40 +969,21 @@ pub fn wigner_classify_spinor(
         let (sq, lattice_sq) = square_seitz(&g0h);
 
         // ── SU(2): U_sq = (U_{a₀} · U_h)² ──
-        // Spin op lookup: rotation-only.  Bloch phase: via h_seitz
-        // lattice shift if the op exists there, else from raw translation.
-        let (h_spin_idx, sq_spin_idx, phase) =
-            if let Some(h_match) = find_seitz(&h.rot, &h.trans, h_seitz)
-        {
-            // h in h_seitz — use its lattice shift for Bloch phase
-            let hsi = match h_to_spin[h_match.op_index] {
-                Some(idx) => idx, None => continue,
-            };
-            let m = match find_seitz(&sq.rot, &sq.trans, h_seitz) {
-                Some(m) => m, None => continue,
-            };
-            let ssi = match h_to_spin[m.op_index] {
-                Some(idx) => idx, None => continue,
-            };
-            let r_l1 = mat_vec_i32(&g0h.rot, &l1);
-            let tl = add3(&add3(&lattice_sq, &m.lattice_shift), &add3(&l1, &r_l1));
-            let ph = bloch_phase(kx, ky, kz, kd, &tl);
-            (hsi, ssi, ph)
-        } else {
-            // h not in h_seitz — find spin ops by rotation, compute
-            // Bloch phase from raw translation (no h_seitz shift).
-            let find_rot = |rot: Mat3I| -> Option<usize> {
-                spin_lg_op_indices.iter()
-                    .map(|&x| x as usize)
-                    .find(|&si| h_spin_seitz.get(si).map_or(false, |s| s.rot == rot))
-            };
-            let hsi = match find_rot(h.rot) { Some(i) => i, None => continue };
-            let ssi = match find_rot(sq.rot) { Some(i) => i, None => continue };
-            let r_l1 = mat_vec_i32(&g0h.rot, &l1);
-            let tl = add3(&lattice_sq, &add3(&l1, &r_l1));
-            let ph = bloch_phase(kx, ky, kz, kd, &tl);
-            (hsi, ssi, ph)
+        // Spin op lookup by rotation only (SU(2) depends only on rotation).
+        // Bloch phase ALWAYS from raw translation — no h_seitz lattice shift,
+        // to keep a single consistent setting for all ops in the Wigner sum.
+        let find_rot = |rot: Mat3I| -> Option<usize> {
+            spin_lg_op_indices.iter()
+                .map(|&x| x as usize)
+                .find(|&si| h_spin_seitz.get(si).map_or(false, |s| s.rot == rot))
         };
+        let hsi = match find_rot(h.rot) { Some(i) => i, None => continue };
+        let ssi = match find_rot(sq.rot) { Some(i) => i, None => continue };
+        let r_l1 = mat_vec_i32(&g0h.rot, &l1);
+        let tl = add3(&lattice_sq, &add3(&l1, &r_l1));
+        let phase = bloch_phase(kx, ky, kz, kd, &tl);
+        let h_spin_idx = hsi;
+        let sq_spin_idx = ssi;
 
         let u_h = spin_su2_at(h_spin_su2, h_spin_idx)?;
         let u_g0h = su2_compose(&u_a0, &u_h);
