@@ -833,34 +833,41 @@ fn same_seitz_mod_lattice(a: &SeitzOp, b: &SeitzOp) -> bool {
     true
 }
 
-/// Build mapping from H_ops (spglib order) to spin-op index using
-/// **rotation-only** matching, restricted to the canonical lifts in
-/// `spin_lg_op_indices`.  Returns `Some(spin_idx)` for ops whose
-/// rotation appears in the allowed set, `None` otherwise.
+/// Build mapping from H_ops (spglib order) to spin-op index.
 ///
-/// Translation is ignored because spglib and Bilbao spin.dat may use
-/// different origin settings.  SU(2) coefficients depend only on
-/// rotation, so this is safe for the Wigner test.
+/// Strategy:
+/// 1. Full Seitz matching (rotation + translation via `same_seitz_mod_lattice`)
+///    — disambiguates g vs Ēg lifts at BZ-boundary k-points.
+/// 2. Fallback: rotation-only, but only when exactly one candidate exists in
+///    `spin_lg_op_indices`.  Multiple candidates with the same rotation but
+///    different translations are UNRESOLVED → return None (caller skips).
+///
+/// Uses a `Vec` (not HashSet) for deterministic iteration order.
 pub fn build_h_to_spin_map(
     h_seitz: &[SeitzOp],
     spin_seitz: &[SeitzOp],
     spin_lg_op_indices: &[u16],
 ) -> Vec<Option<usize>> {
-    let allowed: std::collections::HashSet<usize> =
-        spin_lg_op_indices.iter().map(|&x| x as usize).collect();
+    let allowed: Vec<usize> = spin_lg_op_indices.iter().map(|&x| x as usize).collect();
 
     let mut map = Vec::with_capacity(h_seitz.len());
     for h in h_seitz {
-        let mut found = None;
-        for &spin_idx in &allowed {
-            if let Some(sop) = spin_seitz.get(spin_idx) {
-                if sop.rot == h.rot {
-                    found = Some(spin_idx);
-                    break;
-                }
-            }
+        // 1. Full Seitz matching
+        let full = allowed.iter().copied().find(|&si| {
+            spin_seitz.get(si).map_or(false, |sop| same_seitz_mod_lattice(h, sop))
+        });
+        if let Some(si) = full { map.push(Some(si)); continue; }
+
+        // 2. Rotation-only fallback — only when uniquely resolved
+        let rots: Vec<usize> = allowed.iter().copied().filter(|&si| {
+            spin_seitz.get(si).map_or(false, |sop| sop.rot == h.rot)
+        }).collect();
+
+        if rots.len() == 1 {
+            map.push(Some(rots[0]));
+        } else {
+            map.push(None);
         }
-        map.push(found);
     }
     map
 }
@@ -987,18 +994,23 @@ pub fn wigner_classify_spinor(
         let (sq, lattice_sq) = square_seitz(&g0h);
 
         // ── SU(2): U_sq = (U_{a₀} · U_h)² ──
-        let find_rot = |rot: Mat3I| -> Option<usize> {
-            spin_lg_op_indices.iter()
-                .map(|&x| x as usize)
-                .find(|&si| h_spin_seitz.get(si).map_or(false, |s| s.rot == rot))
+        // Find h in h_seitz, then lookup canonical lift via h_to_spin.
+        let h_match = match find_seitz(&h.rot, &h.trans, h_seitz) {
+            Some(m) => m, None => continue,
         };
-        let hsi = match find_rot(h.rot) { Some(i) => i, None => continue };
-        let ssi = match find_rot(sq.rot) { Some(i) => i, None => continue };
+        let h_spin_idx = match h_to_spin.get(h_match.op_index).and_then(|&o| o) {
+            Some(i) => i, None => continue,
+        };
+        // Find (a₀h)² square in H ops, lookup its canonical lift.
+        let m = match find_seitz(&sq.rot, &sq.trans, h_seitz) {
+            Some(m) => m, None => continue,
+        };
+        let sq_spin_idx = match h_to_spin.get(m.op_index).and_then(|&o| o) {
+            Some(i) => i, None => continue,
+        };
         let r_l1 = mat_vec_i32(&g0h.rot, &l1);
-        let tl = add3(&lattice_sq, &add3(&l1, &r_l1));
+        let tl = add3(&add3(&lattice_sq, &m.lattice_shift), &add3(&l1, &r_l1));
         let phase = bloch_phase(kx, ky, kz, kd, &tl);
-        let h_spin_idx = hsi;
-        let sq_spin_idx = ssi;
 
         let u_h = spin_su2_at(h_spin_su2, h_spin_idx)?;
         let u_g0h = su2_compose(&u_a0, &u_h);
@@ -1023,7 +1035,7 @@ pub fn wigner_classify_spinor(
         let chi0 = spin_chars[local_idx];
         let chi = if central { -chi0 } else { chi0 };
 
-        w_sum += Complex64::new(chi, 0.0);
+        w_sum += Complex64::new(chi, 0.0) * phase;
         used += 1;
     }
 
@@ -1044,8 +1056,24 @@ pub fn wigner_classify_spinor(
     // For spinor irreps, scale W by the irrep dimension: χ(Ē) = -dim,
     // so W = -dim for Type B, W = +dim for Type A, W = 0 for Type C.
     let tol = 1e-6;
-    let h_dim = spin_chars.first().map(|&c| c.round() as i32).unwrap_or(1).max(1) as f64;
-    // Check both: W ≈ ±dim (gray-group degenerate) and W ≈ ±1 (normal)
+
+    // Robust dimension: find the identity canonical lift in spin_lg_op_indices.
+    // spin_chars[0] may NOT be χ(E) — the first local char position may
+    // correspond to a non-identity operation (e.g. Ē lift).
+    let id_rot: Mat3I = [[1,0,0],[0,1,0],[0,0,1]];
+    let u_id = [1.0, 0.0, 0.0, 0.0];
+    let h_dim = spin_lg_op_indices.iter().map(|&x| x as usize)
+        .find_map(|si| {
+            let sop = h_spin_seitz.get(si)?;
+            if sop.rot != id_rot { return None; }
+            let u = spin_su2_at(h_spin_su2, si)?;
+            if su2_same_up_to_sign(&u, &u_id) != Some(false) { return None; }
+            let local = *global_to_local.get(&si)?;
+            spin_chars.get(local).map(|&c| c.abs().round().max(1.0))
+        })
+        .unwrap_or_else(|| spin_chars.first().map(|&c| c.abs().round().max(1.0)).unwrap_or(1.0));
+
+    // Check: W ≈ ±dim (gray-group degenerate) and W ≈ ±1 (normal)
     if (w.re - h_dim).abs() < tol && w.im.abs() < tol {
         Some(CorepType::A)
     } else if (w.re + h_dim).abs() < tol && w.im.abs() < tol {
