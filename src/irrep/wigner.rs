@@ -1041,8 +1041,16 @@ pub fn wigner_classify_spinor(
         w.re, w.im, w.norm(), used, unitary_mag_indices.len(), kx, ky, kz, kd
     );
 
+    // For spinor irreps, scale W by the irrep dimension: χ(Ē) = -dim,
+    // so W = -dim for Type B, W = +dim for Type A, W = 0 for Type C.
     let tol = 1e-6;
-    if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
+    let h_dim = spin_chars.first().map(|&c| c.round() as i32).unwrap_or(1).max(1) as f64;
+    // Check both: W ≈ ±dim (gray-group degenerate) and W ≈ ±1 (normal)
+    if (w.re - h_dim).abs() < tol && w.im.abs() < tol {
+        Some(CorepType::A)
+    } else if (w.re + h_dim).abs() < tol && w.im.abs() < tol {
+        Some(CorepType::B)
+    } else if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
         Some(CorepType::A)
     } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
         Some(CorepType::B)
