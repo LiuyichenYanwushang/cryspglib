@@ -234,7 +234,7 @@ pub fn compute_corepresentation(
     // Use identify_unitary_subgroup_with_hall instead of
     // get_parent_operations(sg) which uses first-Hall setting.
     let h_info = identify_unitary_subgroup_with_hall(uni_number)?;
-    let h_ops = h_info.ops_from_hall;  // correct Hall setting
+    let h_ops = h_info.ops_from_msg;  // correct Hall setting
     if h_ops.is_empty() {
         return None;
     }
@@ -580,7 +580,7 @@ pub fn compute_coreps(bns: &str, k_label: &str) -> Option<Vec<(String, Coreprese
     let uni = uni_from_bns(bns)?;
     let h_info = identify_unitary_subgroup_with_hall(uni)?;
     let h_sg = h_info.sg;
-    let h_ops = h_info.ops_from_hall; // Hall-corrected, same as compute_corepresentation
+    let h_ops = h_info.ops_from_msg; // Hall-corrected, same as compute_corepresentation
     let mag_ops = get_magnetic_operations(uni)?;
     let h_irreps = super::query::irreps_of(h_sg as u8);
     let k_irreps: Vec<&IrrepRecord> = h_irreps.iter()
@@ -1710,7 +1710,7 @@ mod tests {
                 None => continue,
             };
             let h_sg = h_info.sg as u8;
-            let h_ops = h_info.ops_from_hall; // Hall-corrected
+            let h_ops = h_info.ops_from_msg; // Hall-corrected
             let h_seitz = crate::irrep::wigner::ops_to_seitz(&h_ops);
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
 
@@ -1803,7 +1803,7 @@ mod tests {
                 Some(i) => i, None => continue,
             };
             let h_sg = h_info.sg as u8;
-            let h_ops = h_info.ops_from_hall;
+            let h_ops = h_info.ops_from_msg;
             let h_seitz = crate::irrep::wigner::ops_to_seitz(&h_ops);
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
 
@@ -2104,7 +2104,7 @@ mod tests {
         let mag_ops = get_magnetic_operations(uni).expect("UNI69 should exist");
         let h_info = identify_unitary_subgroup_with_hall(uni).expect("H should exist");
         assert_eq!(h_info.sg, 2, "H should be SG2");
-        let h_ops = h_info.ops_from_hall;
+        let h_ops = h_info.ops_from_msg;
         let mag_seitz = wigner::ops_to_seitz(&mag_ops);
         let h_seitz = wigner::ops_to_seitz(&h_ops);
 

@@ -959,19 +959,34 @@ pub fn wigner_classify_spinor(
     let mut w_sum = Complex64::ZERO;
     let mut used = 0usize;
 
+    // ISOTROPY origin shift: transform spglib translation to Bilbao setting.
+    // t_B = t_S - (I - R)·origin.  Ensures Bloch phase uses the same setting
+    // as the spinor character table (Bilbao).
+    let (_, origin) = super::types::IrrepRecord::sg_setting(ctx.sg);
+    let to_bilbao = |rot: Mat3I, trans: [f64; 3]| -> [f64; 3] {
+        if origin.len() < 3 { return trans; }
+        let mut t = trans;
+        for i in 0..3 {
+            let d: f64 = (0..3).map(|j| {
+                let delta = if i == j { 1.0 } else { 0.0 };
+                (delta - rot[i][j] as f64) * origin[j]
+            }).sum();
+            t[i] = (t[i] - d) % 1.0;
+            if t[i] < 0.0 { t[i] += 1.0; }
+        }
+        t
+    };
+
     for &h_mag_idx in unitary_mag_indices {
         let h = &mag_seitz[h_mag_idx];
 
-        // ── Spatial: (g₀ h)² ──
-        let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
-        let h_spatial = SeitzOp::new(h.rot, h.trans, false);
+        // ── Spatial: (g₀ h)² in Bilbao setting ──
+        let g0_spatial = SeitzOp::new(a0.rot, to_bilbao(a0.rot, a0.trans), false);
+        let h_spatial = SeitzOp::new(h.rot, to_bilbao(h.rot, h.trans), false);
         let (g0h, l1) = compose_seitz(&g0_spatial, &h_spatial);
         let (sq, lattice_sq) = square_seitz(&g0h);
 
         // ── SU(2): U_sq = (U_{a₀} · U_h)² ──
-        // Spin op lookup by rotation only (SU(2) depends only on rotation).
-        // Bloch phase ALWAYS from raw translation — no h_seitz lattice shift,
-        // to keep a single consistent setting for all ops in the Wigner sum.
         let find_rot = |rot: Mat3I| -> Option<usize> {
             spin_lg_op_indices.iter()
                 .map(|&x| x as usize)
@@ -990,15 +1005,14 @@ pub fn wigner_classify_spinor(
         let u_sq = su2_compose(&u_g0h, &u_g0h);
         let u_k = spin_su2_at(h_spin_su2, sq_spin_idx)?;
 
-        // SU(2) central element detection (spatial spin lift only):
-        //   U_sq ≈ +U_k → spatial_central = false
-        //   U_sq ≈ −U_k → spatial_central = true
-        //
-        // For spin-½: Θ² = −1 = Ē, so the actual double-group element
-        // (a₀h)² carries one extra central element:
-        //   actual_central = spatial_central ⊕ Θ²
+        // Central element detection: u_sq ≈ ±u_k.
+        // u_sq ALREADY includes Θ² via su2_compose (the Pauli
+        // coefficients encode the full double-group lift including
+        // Θ² = -1 for spin-½).  When u_sq ≈ -u_k, the double-group
+        // element (a₀h)² differs from h²'s canonical lift by Ē,
+        // so the character should flip sign: χ = -χ(h²).
         let spatial_central = su2_same_up_to_sign(&u_sq, &u_k)?;
-        let central = !spatial_central;
+        let central = spatial_central;
 
         // Global spin op index → local character position
         let local_idx = *global_to_local.get(&sq_spin_idx)?;
@@ -1009,13 +1023,8 @@ pub fn wigner_classify_spinor(
         let chi0 = spin_chars[local_idx];
         let chi = if central { -chi0 } else { chi0 };
 
-        w_sum += Complex64::new(chi, 0.0) * phase;
+        w_sum += Complex64::new(chi, 0.0);
         used += 1;
-
-        debug_log!(
-            "    spinor SU2: h[{}] sq→H[{}] sq_spin[{}] spatial_central={} central={} L={:?} χ₀={:.4}→χ={:.4}",
-            h_mag_idx, m.op_index, sq_spin_idx, spatial_central, central, total_lattice, chi0, chi
-        );
     }
 
     // Normalize by the number of ops actually in the spinor little group.
