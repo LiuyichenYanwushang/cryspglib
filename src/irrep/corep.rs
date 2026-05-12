@@ -748,7 +748,8 @@ mod tests {
 
         // ── 3. Verify: all 16 magnetic rotations are in parent SG 128 ──
         let parent_ops = get_parent_operations(128);
-        let all_match = ops.rot.iter().all(|r| parent_ops.rot.contains(r));
+        let parent_rots: Vec<_> = parent_ops.operations.iter().map(|o| o.rotation).collect();
+        let all_match = ops.operations.iter().all(|o| parent_rots.contains(&o.rotation));
         assert!(all_match, "All magnetic rotations should be in SG 128 ops");
         println!("Magnetic ops ⊆ SG 128 ops ✓");
     }
