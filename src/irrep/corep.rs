@@ -982,7 +982,7 @@ mod tests {
                 && hr[2][0]==r[2][0] && hr[2][1]==r[2][1] && hr[2][2]==r[2][2]
             });
             let dt = h_match.map(|hi| {
-                let ht = &h_ops_sg118.trans[hi];
+                let ht = &h_ops_sg118.operations[hi].translation;
                 [t[0]-ht[0], t[1]-ht[1], t[2]-ht[2]]
             });
             println!("  mag[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3}) H_match={:?} dt={:?}",
@@ -1030,7 +1030,8 @@ mod tests {
                     if mag_ops.operations[i].time_reversal { None }
                     else {
                         let r = &mag_ops.operations[i].rotation;
-                        h_ops.rot.iter().position(|hr| {
+                        h_ops.operations.iter().position(|o| {
+                            let hr = o.rotation;
                             hr[0][0] == r[0][0] && hr[0][1] == r[0][1] && hr[0][2] == r[0][2]
                             && hr[1][0] == r[1][0] && hr[1][1] == r[1][1] && hr[1][2] == r[1][2]
                             && hr[2][0] == r[2][0] && hr[2][1] == r[2][1] && hr[2][2] == r[2][2]
@@ -1365,7 +1366,7 @@ mod tests {
                 assert!(n_u > 0, "UNI {} has no unitary ops", uni);
                 // Every magnetic op must have a valid rotation (det = ±1)
                 for i in 0..ops.len() {
-                    let r = &ops.rot[i];
+                    let r = &ops.operations[i].rotation;
                     let det = r[0][0] * (r[1][1]*r[2][2] - r[1][2]*r[2][1])
                             - r[0][1] * (r[1][0]*r[2][2] - r[1][2]*r[2][0])
                             + r[0][2] * (r[1][0]*r[2][1] - r[1][1]*r[2][0]);
@@ -1849,7 +1850,7 @@ mod tests {
                     // Show unmapped reasons
                     let reasons: Vec<String> = unmapped.iter()
                         .map(|(i, reason)| format!("{}:{}", reason,
-                            if *i < mag_ops.rot.len() { format!("{:?}", mag_ops.rot[*i]) } else { "?".into() }))
+                            if *i < mag_ops.operations.len() { format!("{:?}", mag_ops.operations[*i].rotation) } else { "?".into() }))
                         .collect();
                     println!("  SG{} {} UNI{} dim={} n_lg={}/{}/{} unmapped={}/{}",
                         h_sg, ir.k_label(), uni, ir.dim,
@@ -1878,7 +1879,7 @@ mod tests {
             let h_sg = match identify_unitary_subgroup(uni) { Some(s) => s as u8, None => continue };
             if h_sg != 3 { continue; }
             let a0_idx = match mag_ops.operations.iter().position(|o| o.time_reversal) { Some(i) => i, None => continue };
-            let r = mag_ops.rot[a0_idx];
+            let r = mag_ops.operations[a0_idx].rotation;
             if r[0][0]==1&&r[0][1]==0&&r[0][2]==0
             && r[1][0]==0&&r[1][1]==1&&r[1][2]==0
             && r[2][0]==0&&r[2][1]==0&&r[2][2]==1 {
@@ -1951,7 +1952,7 @@ mod tests {
             let h_sg = match identify_unitary_subgroup(uni) { Some(s) => s as u8, None => continue };
             if !test_sgs.contains(&h_sg) { continue; }
             let a0_idx = match mag_ops.operations.iter().position(|o| o.time_reversal) { Some(i) => i, None => continue };
-            let r = mag_ops.rot[a0_idx];
+            let r = mag_ops.operations[a0_idx].rotation;
             let is_id = r[0][0]==1&&r[0][1]==0&&r[0][2]==0
                      && r[1][0]==0&&r[1][1]==1&&r[1][2]==0
                      && r[2][0]==0&&r[2][1]==0&&r[2][2]==1;
@@ -2133,7 +2134,8 @@ mod tests {
                 unitary.len(), antiunitary.len());
             println!("  spin_lg={:?} result={:?}",
                 ir.spin_lg_op_indices(), ct);
-            println!("  mag timerev={:?}", mag_ops.timerev);
+            let timerev_vec: Vec<bool> = mag_ops.operations.iter().map(|o| o.time_reversal).collect();
+            println!("  mag timerev={:?}", timerev_vec);
             println!("  h_ops rots: {:?}", h_seitz.iter().map(|s| s.rot).collect::<Vec<_>>());
             println!("  mag lg unitary rots: {:?}",
                 unitary.iter().map(|&i| mag_ops.operations[i].rotation).collect::<Vec<_>>());
