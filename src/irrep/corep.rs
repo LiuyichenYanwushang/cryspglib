@@ -727,8 +727,10 @@ mod tests {
             uni, ops.len(), n_u, n_a);
 
         // ── 1. Full group (ignore θ) should identify as parent SG 128 ──
+        let ops_rots: Vec<_> = ops.operations.iter().map(|o| o.rotation).collect();
+        let ops_trans: Vec<_> = ops.operations.iter().map(|o| o.translation).collect();
         let hall_full = crate::spg_get_hall_number_from_symmetry(
-            &ops.rot, &ops.trans, 1e-5,
+            &ops_rots, &ops_trans, 1e-5,
         );
         assert!(hall_full.is_ok(), "Should identify full group");
         let sg_full = crate::spg_get_spacegroup_type(hall_full.unwrap()).unwrap();
