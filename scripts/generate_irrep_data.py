@@ -1499,7 +1499,7 @@ def _reorder_to_spglib_order(
             if n_ops > 0:
                 _apply_reorder(pir_rots_flat, pir_rot_starts[i], n_ops, best_mapping, 9)
             char_counts[i] = len(best_mapping)
-            sg_hall_choice[sg_num] = best_mapping
+            sg_hall_choice[sg_num] = (hall_num, best_mapping)
             reorder_results.append(best_mapping)
             mapped_count += 1
         else:
@@ -1540,8 +1540,9 @@ def _reorder_to_spglib_order(
         sg_num = sir["sg"]
         n_ops = len(sir.get("op_indices", []))
         # Try to find scalar mapping for this SG
-        mapping = sg_hall_choice.get(sg_num)
-        if mapping and n_ops > 0 and spin_idx < len(spinor_starts):
+        choice = sg_hall_choice.get(sg_num)
+        if choice and n_ops > 0 and spin_idx < len(spinor_starts):
+            _, mapping = choice
             # Spinor characters reorder same as scalar at this SG
             s_start = spinor_starts[spin_idx]
             s_count = spinor_counts[spin_idx]
@@ -1555,7 +1556,7 @@ def _reorder_to_spglib_order(
 
     print(f"  Spglib reorder: {mapped_count} mapped, {unmapped_count} unmapped "
           f"(of {len(reorder_results)} irreps, {len(sg_halls)} SGs)")
-    return reorder_results
+    return reorder_results, sg_hall_choice
 
 
 def _build_padding_plans(sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops,
@@ -2120,7 +2121,7 @@ def generate_rust_data(data):
         spin_lg_op_indices_flat.extend(ops)
 
     # ── Reorder characters/matrices/rots from ISOTROPY order to spglib order ──
-    reorder_map_per_irrep = _reorder_to_spglib_order(
+    reorder_map_per_irrep, sg_hall_choice = _reorder_to_spglib_order(
         sg, ml, chars_flat, char_starts, char_counts,
         matrices_flat, mat_starts, mat_counts,
         pir_rots_flat, pir_rot_starts, rots_map,
@@ -2143,8 +2144,19 @@ def generate_rust_data(data):
     # was already reordered correctly), only CIR data needs expansion.
     # Data was reordered in-place; for extra Hall ops, copy from matching
     # rotation's CIR data with Bloch phase correction.
-    import math as _math
-    sg_halls_full = _load_hall_operations()  # sg -> [(hall_num, rots, trans), ...]
+    import math as _math, json as _json
+    # Load full Hall data (including translations) for Bloch phase computation
+    hall_json_path = os.path.join(SCRIPT_DIR, "hall_operations.json")
+    sg_halls_full = {}  # sg -> [(hall_num, rots, trans), ...]
+    if os.path.exists(hall_json_path):
+        with open(hall_json_path) as _f:
+            _raw = _json.load(_f)
+        for _hall_str, _hd in _raw.items():
+            _sg = _hd["sg"]
+            _entry = (int(_hall_str), _hd["rots"], _hd["trans"])
+            if _sg not in sg_halls_full:
+                sg_halls_full[_sg] = []
+            sg_halls_full[_sg].append(_entry)
     cir_expand_plans = {}
     n_scalar = len(ml)
     for i in range(n_scalar):
@@ -2159,11 +2171,15 @@ def generate_rust_data(data):
             continue  # Same size, reorder alone was sufficient
 
         sg_num = sg[i]
-        # Get Hall translations for this SG (find matching Hall setting)
+        # Get Hall translations using the Hall number selected during reorder
+        choice = sg_hall_choice.get(sg_num)
+        if choice is None:
+            continue
+        chosen_hall, _ = choice
         hall_trans = None
-        for hall_num, hd in sg_halls_full.get(sg_num, []):
-            if len(hd["rots"]) == hall_ops:
-                hall_trans = hd["trans"]
+        for _hall_num, _hall_rots, _hall_trans in sg_halls_full.get(sg_num, []):
+            if _hall_num == chosen_hall:
+                hall_trans = _hall_trans
                 break
         if hall_trans is None:
             continue  # Can't compute Bloch phases without translations
