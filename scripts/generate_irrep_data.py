@@ -1625,6 +1625,27 @@ def _build_padding_plans(sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops,
             print(f"  WARNING padding: SG{sg_num} {ml[i]}: "
                   f"no Hall setting matches all CIR rots (n_ops={n_ops})")
 
+    # Also handle mapped compound irreps where CIR ops < Hall ops.
+    # These were reordered in-place by _reorder_to_spglib_order but need
+    # expansion (zero-fill) to full Hall size, same as unmapped entries.
+    # reorder_results[i] = mapping[h] = ci  (Hall → CIR, same as PIR).
+    # _apply_padding_plans expects cir_to_hall[ci] = h  (CIR → Hall).
+    for i in range(n_scalar):
+        if reorder_results[i] is None:
+            continue  # Already handled (or no CIR data)
+        if cir_comp_counts[i] == 0:
+            continue
+        mapping = reorder_results[i]
+        n_cir = cir_comp_ops[i]
+        if n_cir >= len(mapping):
+            continue  # Same size, in-place reorder was sufficient
+        # Invert: mapping[h] = ci → cir_to_hall[ci] = h
+        cir_to_hall = [None] * n_cir
+        for h, ci in enumerate(mapping):
+            if ci is not None and ci < n_cir:
+                cir_to_hall[ci] = h
+        padding_plans.append((i, len(mapping), cir_to_hall))
+
     return padding_plans
 
 
