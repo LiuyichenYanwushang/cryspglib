@@ -2207,10 +2207,14 @@ def generate_rust_data(data):
                 match_ci = 0
             extra_h_to_cir.append(match_ci)
 
-            # Bloch phase: exp(i*2π*k·(t_hall - t_ref)/kd)
+            # Bloch phase: exp(i*2π*k·(t_hall - t_iso_ref)/kd)
+            # t_iso_ref = ISOTROPY PIR translation for the matching CIR op.
+            # PIR_TRANS was reordered to Hall order (same mapping as PIR_ROTS).
             t_hall = hall_trans[h]
-            t_ref = hall_trans[match_ci]
-            dt = [t_hall[j] - t_ref[j] for j in range(3)]
+            trans_start_i = pir_trans_starts[i] if i < len(pir_trans_starts) else 0
+            trans_idx = trans_start_i + match_ci * 3
+            t_iso_ref = pir_trans_flat[trans_idx:trans_idx + 3] if trans_idx + 3 <= len(pir_trans_flat) else [0.0, 0.0, 0.0]
+            dt = [t_hall[j] - t_iso_ref[j] for j in range(3)]
             dot = kx * dt[0] + ky * dt[1] + kz * dt[2]
             theta = 2.0 * _math.pi * dot / float(kd)
             extra_phases.append((_math.cos(theta), _math.sin(theta)))
