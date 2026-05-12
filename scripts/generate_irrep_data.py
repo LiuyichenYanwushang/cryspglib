@@ -1772,19 +1772,25 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
         elif i in cir_expand_plans:
             # Data was already reordered in-place by _reorder_to_spglib_order.
             # The first old_ops positions are in Hall order.  For extra Hall
-            # positions, copy from the matching-rotation CIR op (with zero
-            # Bloch phase — same as PIR convention for these ops).
-            hall_ops, extra_h_to_cir = cir_expand_plans[i]
+            # positions, copy from the matching-rotation CIR op with Bloch
+            # phase correction.
+            hall_ops, extra_h_to_cir, extra_phases = cir_expand_plans[i]
             for comp in range(n_comp):
                 old_start = cir_comp_starts[i] + comp * old_ops * 2
                 old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
                 # Copy reordered data (first old_ops positions)
                 new_cir_flat.extend(cir_comp_flat[old_start:old_start + old_ops * 2])
                 new_cir_rots.extend(cir_comp_rots[old_rot_start:old_rot_start + old_ops * 9])
-                # Copy from matching CIR ops for extra Hall positions
-                for ci in extra_h_to_cir:
-                    new_cir_flat.append(cir_comp_flat[old_start + ci * 2])
-                    new_cir_flat.append(cir_comp_flat[old_start + ci * 2 + 1])
+                # Copy from matching CIR ops with Bloch phase for extra positions
+                for idx, ci in enumerate(extra_h_to_cir):
+                    c_re = cir_comp_flat[old_start + ci * 2]
+                    c_im = cir_comp_flat[old_start + ci * 2 + 1]
+                    cos_th, sin_th = extra_phases[idx]
+                    # Complex multiplication: (re + i*im) * (cos + i*sin)
+                    new_re = c_re * cos_th - c_im * sin_th
+                    new_im = c_re * sin_th + c_im * cos_th
+                    new_cir_flat.append(new_re)
+                    new_cir_flat.append(new_im)
                     new_cir_rots.extend(cir_comp_rots[old_rot_start + ci * 9:old_rot_start + (ci + 1) * 9])
             cir_comp_ops[i] = hall_ops
         else:
@@ -2136,7 +2142,9 @@ def generate_rust_data(data):
     # cir_ops < len(mapping).  These don't need full padding (PIR data
     # was already reordered correctly), only CIR data needs expansion.
     # Data was reordered in-place; for extra Hall ops, copy from matching
-    # rotation's CIR data instead of zero-filling.
+    # rotation's CIR data with Bloch phase correction.
+    import math as _math
+    sg_halls_full = _load_hall_operations()  # sg -> [(hall_num, rots, trans), ...]
     cir_expand_plans = {}
     n_scalar = len(ml)
     for i in range(n_scalar):
@@ -2149,30 +2157,49 @@ def generate_rust_data(data):
         hall_ops = len(mapping)
         if n_cir >= hall_ops:
             continue  # Same size, reorder alone was sufficient
-        # Build rotation-based mapping for extra Hall positions.
-        # For each extra Hall op h, find which CIR op (0..n_cir-1) has
-        # the same rotation matrix, using the already-reordered PIR rots
-        # (in Hall order) and CIR rots (first n_cir in Hall order).
-        extra_h_to_cir = []  # extra_h_to_cir[extra_h] = matching_cir_pos
+
+        sg_num = sg[i]
+        # Get Hall translations for this SG (find matching Hall setting)
+        hall_trans = None
+        for hall_num, hd in sg_halls_full.get(sg_num, []):
+            if len(hd["rots"]) == hall_ops:
+                hall_trans = hd["trans"]
+                break
+        if hall_trans is None:
+            continue  # Can't compute Bloch phases without translations
+
+        # Get k-vector
+        kx, ky, kz, kd = _lookup_kvec(kvec_map, sg_num, ml[i])
+
+        # Build mapping and Bloch phases for extra Hall positions
+        extra_h_to_cir = []
+        extra_phases = []  # (cos_theta, sin_theta) for each extra pos
         cir_rot_start = (cir_comp_starts[i] // 2) * 9
         pir_rot_start = pir_rot_starts[i]
         for h in range(n_cir, hall_ops):
-            # Get Hall rotation from reordered PIR rots
             h_off = pir_rot_start + h * 9
-            if h_off + 9 > len(pir_rots_flat):
-                extra_h_to_cir.append(0)  # fallback
-                continue
-            h_rot = pir_rots_flat[h_off:h_off + 9]
-            # Find matching CIR rotation among first n_cir ops
+            h_rot = pir_rots_flat[h_off:h_off + 9] if h_off + 9 <= len(pir_rots_flat) else None
             match_ci = None
-            for ci in range(n_cir):
-                c_off = cir_rot_start + ci * 9
-                c_rot = cir_comp_rots[c_off:c_off + 9]
-                if h_rot == c_rot:
-                    match_ci = ci
-                    break
-            extra_h_to_cir.append(match_ci if match_ci is not None else 0)
-        cir_expand_plans[i] = (hall_ops, extra_h_to_cir)
+            if h_rot is not None:
+                for ci in range(n_cir):
+                    c_off = cir_rot_start + ci * 9
+                    c_rot = cir_comp_rots[c_off:c_off + 9]
+                    if h_rot == c_rot:
+                        match_ci = ci
+                        break
+            if match_ci is None:
+                match_ci = 0
+            extra_h_to_cir.append(match_ci)
+
+            # Bloch phase: exp(i*2π*k·(t_hall - t_ref)/kd)
+            t_hall = hall_trans[h]
+            t_ref = hall_trans[match_ci]
+            dt = [t_hall[j] - t_ref[j] for j in range(3)]
+            dot = kx * dt[0] + ky * dt[1] + kz * dt[2]
+            theta = 2.0 * _math.pi * dot / float(kd)
+            extra_phases.append((_math.cos(theta), _math.sin(theta)))
+
+        cir_expand_plans[i] = (hall_ops, extra_h_to_cir, extra_phases)
 
     has_padding = len(padding_plans) > 0 or len(cir_expand_plans) > 0
     if has_padding:
