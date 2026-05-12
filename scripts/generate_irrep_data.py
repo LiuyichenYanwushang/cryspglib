@@ -1771,20 +1771,21 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
             cir_comp_ops[i] = hall_ops
         elif i in cir_expand_plans:
             # Data was already reordered in-place by _reorder_to_spglib_order.
-            # The first old_ops positions are in Hall order; just copy them
-            # and zero-fill the remaining Hall positions.
-            hall_ops = cir_expand_plans[i]
+            # The first old_ops positions are in Hall order.  For extra Hall
+            # positions, copy from the matching-rotation CIR op (with zero
+            # Bloch phase — same as PIR convention for these ops).
+            hall_ops, extra_h_to_cir = cir_expand_plans[i]
             for comp in range(n_comp):
                 old_start = cir_comp_starts[i] + comp * old_ops * 2
                 old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
                 # Copy reordered data (first old_ops positions)
                 new_cir_flat.extend(cir_comp_flat[old_start:old_start + old_ops * 2])
                 new_cir_rots.extend(cir_comp_rots[old_rot_start:old_rot_start + old_ops * 9])
-                # Zero-fill remaining Hall positions
-                extra = hall_ops - old_ops
-                if extra > 0:
-                    new_cir_flat.extend([0.0] * (extra * 2))
-                    new_cir_rots.extend([0] * (extra * 9))
+                # Copy from matching CIR ops for extra Hall positions
+                for ci in extra_h_to_cir:
+                    new_cir_flat.append(cir_comp_flat[old_start + ci * 2])
+                    new_cir_flat.append(cir_comp_flat[old_start + ci * 2 + 1])
+                    new_cir_rots.extend(cir_comp_rots[old_rot_start + ci * 9:old_rot_start + (ci + 1) * 9])
             cir_comp_ops[i] = hall_ops
         else:
             old_start = cir_comp_starts[i]
@@ -2134,7 +2135,8 @@ def generate_rust_data(data):
     # Build CIR-expansion plans for mapped compound irreps where
     # cir_ops < len(mapping).  These don't need full padding (PIR data
     # was already reordered correctly), only CIR data needs expansion.
-    # Data was reordered in-place, so just need to zero-fill extra Hall positions.
+    # Data was reordered in-place; for extra Hall ops, copy from matching
+    # rotation's CIR data instead of zero-filling.
     cir_expand_plans = {}
     n_scalar = len(ml)
     for i in range(n_scalar):
@@ -2144,9 +2146,33 @@ def generate_rust_data(data):
             continue
         mapping = reorder_map_per_irrep[i]
         n_cir = cir_comp_ops[i]
-        if n_cir >= len(mapping):
+        hall_ops = len(mapping)
+        if n_cir >= hall_ops:
             continue  # Same size, reorder alone was sufficient
-        cir_expand_plans[i] = len(mapping)
+        # Build rotation-based mapping for extra Hall positions.
+        # For each extra Hall op h, find which CIR op (0..n_cir-1) has
+        # the same rotation matrix, using the already-reordered PIR rots
+        # (in Hall order) and CIR rots (first n_cir in Hall order).
+        extra_h_to_cir = []  # extra_h_to_cir[extra_h] = matching_cir_pos
+        cir_rot_start = (cir_comp_starts[i] // 2) * 9
+        pir_rot_start = pir_rot_starts[i]
+        for h in range(n_cir, hall_ops):
+            # Get Hall rotation from reordered PIR rots
+            h_off = pir_rot_start + h * 9
+            if h_off + 9 > len(pir_rots_flat):
+                extra_h_to_cir.append(0)  # fallback
+                continue
+            h_rot = pir_rots_flat[h_off:h_off + 9]
+            # Find matching CIR rotation among first n_cir ops
+            match_ci = None
+            for ci in range(n_cir):
+                c_off = cir_rot_start + ci * 9
+                c_rot = cir_comp_rots[c_off:c_off + 9]
+                if h_rot == c_rot:
+                    match_ci = ci
+                    break
+            extra_h_to_cir.append(match_ci if match_ci is not None else 0)
+        cir_expand_plans[i] = (hall_ops, extra_h_to_cir)
 
     has_padding = len(padding_plans) > 0 or len(cir_expand_plans) > 0
     if has_padding:
