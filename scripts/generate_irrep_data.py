@@ -1526,32 +1526,12 @@ def _reorder_to_spglib_order(
                 continue
 
             # Reorder CIR data for ALL components using PIR mapping.
-            # Apply Bloch phase: CIR has no ISOTROPY translation, so
-            # CIR_Hall[h] = CIR_ISO[ci] * exp(i*2π*k·t_hall[h]/kd)
-            choice = sg_hall_choice.get(sg_num)
-            if choice is None:
-                continue
-            _, _, hall_trans = choice
-            kx, ky, kz, kd = _lookup_kvec(kvec_map, sg_num, ml[i])
+            # No Bloch phase needed for the first cir_ops positions:
+            # both PIR and CIR share the same ISOTROPY translations,
+            # so simple permutation preserves PIR=CIR_sum consistency.
             for comp in range(n_comp):
                 comp_char_start = cir_start + comp * cir_ops * 2
-                # Save original data
-                original = cir_comp_flat[comp_char_start:comp_char_start + cir_ops * 2]
-                for h in range(min(cir_ops, len(mapping))):
-                    ci = mapping[h]
-                    if ci is None or ci >= cir_ops:
-                        continue
-                    c_re = original[ci * 2]
-                    c_im = original[ci * 2 + 1]
-                    # Bloch phase
-                    th = hall_trans[h]
-                    dot = kx * th[0] + ky * th[1] + kz * th[2]
-                    theta = 2.0 * math.pi * dot / float(kd)
-                    cos_th = math.cos(theta)
-                    sin_th = math.sin(theta)
-                    # Complex: (re+i*im)*(cos+i*sin) = (re*cos-im*sin) + i*(re*sin+im*cos)
-                    cir_comp_flat[comp_char_start + h * 2] = c_re * cos_th - c_im * sin_th
-                    cir_comp_flat[comp_char_start + h * 2 + 1] = c_re * sin_th + c_im * cos_th
+                _apply_reorder(cir_comp_flat, comp_char_start, cir_ops, mapping, 2)
                 comp_rot_start = (cir_start // 2) * 9 + comp * cir_ops * 9
                 _apply_reorder(cir_comp_rots, comp_rot_start, cir_ops, mapping, 9)
             cir_reordered += 1
@@ -2232,14 +2212,14 @@ def generate_rust_data(data):
                 match_ci = 0
             extra_h_to_cir.append(match_ci)
 
-            # Bloch phase: exp(i*2π*k·(t_hall - t_iso_ref)/kd)
-            # t_iso_ref = ISOTROPY PIR translation for the matching CIR op.
-            # PIR_TRANS was reordered to Hall order (same mapping as PIR_ROTS).
-            t_hall = hall_trans[h]
+            # Bloch phase between ISOTROPY translations:
+            # CIR_Hall[h] = CIR_Hall[match_ci] * exp(i*2π*k·Δt/kd)
+            # Δt = PIR_TRANS[h] - PIR_TRANS[match_ci]
+            # Both are ISOTROPY translations at their Hall positions.
             trans_start_i = pir_trans_starts[i] if i < len(pir_trans_starts) else 0
-            trans_idx = trans_start_i + match_ci * 3
-            t_iso_ref = pir_trans_flat[trans_idx:trans_idx + 3] if trans_idx + 3 <= len(pir_trans_flat) else [0.0, 0.0, 0.0]
-            dt = [t_hall[j] - t_iso_ref[j] for j in range(3)]
+            t_h = pir_trans_flat[trans_start_i + h * 3:trans_start_i + (h + 1) * 3] if trans_start_i + (h + 1) * 3 <= len(pir_trans_flat) else [0.0, 0.0, 0.0]
+            t_ref = pir_trans_flat[trans_start_i + match_ci * 3:trans_start_i + (match_ci + 1) * 3] if trans_start_i + (match_ci + 1) * 3 <= len(pir_trans_flat) else [0.0, 0.0, 0.0]
+            dt = [t_h[j] - t_ref[j] for j in range(3)]
             dot = kx * dt[0] + ky * dt[1] + kz * dt[2]
             theta = 2.0 * _math.pi * dot / float(kd)
             extra_phases.append((_math.cos(theta), _math.sin(theta)))
