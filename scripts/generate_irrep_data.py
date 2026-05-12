@@ -11,7 +11,7 @@ All arrays in data_irreps.txt and data_isotropy.txt are PARALLEL:
 position N in one array corresponds to position N in all others.
 """
 
-import re, sys, os, zipfile, io
+import re, sys, os, zipfile, io, math
 from collections import defaultdict
 
 SCRIPT_DIR = os.path.dirname(__file__)
@@ -1427,10 +1427,10 @@ def _load_hall_operations():
     with open(hall_path) as f:
         raw = json.load(f)
     # raw: {"517": {"sg": 221, "rots": [[...], ...], "trans": [[...], ...]}, ...}
-    # Build sg → [(hall_number, rots_list)] index
+    # Build sg → [(hall_number, rots_list, trans_list)] index
     sg_halls = defaultdict(list)
     for hall_str, hd in raw.items():
-        sg_halls[hd["sg"]].append((int(hall_str), hd["rots"]))
+        sg_halls[hd["sg"]].append((int(hall_str), hd["rots"], hd.get("trans", [])))
     return sg_halls
 
 
@@ -1440,7 +1440,8 @@ def _reorder_to_spglib_order(
         pir_rots_flat, pir_rot_starts, rots_map,
         spinor_irreps, spinor_starts, spinor_counts,
         cir_comp_flat=None, cir_comp_rots=None,
-        cir_comp_starts=None, cir_comp_counts=None, cir_comp_ops=None):
+        cir_comp_starts=None, cir_comp_counts=None, cir_comp_ops=None,
+        kvec_map=None):
     """Reorder per-irrep data from ISOTROPY order into spglib Hall order.
 
     For compound irreps without PIR rotations, falls back to CIR component
@@ -1473,7 +1474,7 @@ def _reorder_to_spglib_order(
         hall_candidates = sg_halls.get(sg_num, [])
 
         best_mapping = None
-        for hall_num, hall_rots in hall_candidates:
+        for hall_num, hall_rots, hall_trans in hall_candidates:
             if len(hall_rots) == 0:
                 continue
             mapping = []
@@ -1499,7 +1500,7 @@ def _reorder_to_spglib_order(
             if n_ops > 0:
                 _apply_reorder(pir_rots_flat, pir_rot_starts[i], n_ops, best_mapping, 9)
             char_counts[i] = len(best_mapping)
-            sg_hall_choice[sg_num] = (hall_num, best_mapping)
+            sg_hall_choice[sg_num] = (hall_num, best_mapping, hall_trans)
             reorder_results.append(best_mapping)
             mapped_count += 1
         else:
@@ -1524,10 +1525,33 @@ def _reorder_to_spglib_order(
             if mapping is None:
                 continue
 
-            # Reorder CIR data for ALL components using PIR mapping
+            # Reorder CIR data for ALL components using PIR mapping.
+            # Apply Bloch phase: CIR has no ISOTROPY translation, so
+            # CIR_Hall[h] = CIR_ISO[ci] * exp(i*2π*k·t_hall[h]/kd)
+            choice = sg_hall_choice.get(sg_num)
+            if choice is None:
+                continue
+            _, _, hall_trans = choice
+            kx, ky, kz, kd = _lookup_kvec(kvec_map, sg_num, ml[i])
             for comp in range(n_comp):
                 comp_char_start = cir_start + comp * cir_ops * 2
-                _apply_reorder(cir_comp_flat, comp_char_start, cir_ops, mapping, 2)
+                # Save original data
+                original = cir_comp_flat[comp_char_start:comp_char_start + cir_ops * 2]
+                for h in range(min(cir_ops, len(mapping))):
+                    ci = mapping[h]
+                    if ci is None or ci >= cir_ops:
+                        continue
+                    c_re = original[ci * 2]
+                    c_im = original[ci * 2 + 1]
+                    # Bloch phase
+                    th = hall_trans[h]
+                    dot = kx * th[0] + ky * th[1] + kz * th[2]
+                    theta = 2.0 * math.pi * dot / float(kd)
+                    cos_th = math.cos(theta)
+                    sin_th = math.sin(theta)
+                    # Complex: (re+i*im)*(cos+i*sin) = (re*cos-im*sin) + i*(re*sin+im*cos)
+                    cir_comp_flat[comp_char_start + h * 2] = c_re * cos_th - c_im * sin_th
+                    cir_comp_flat[comp_char_start + h * 2 + 1] = c_re * sin_th + c_im * cos_th
                 comp_rot_start = (cir_start // 2) * 9 + comp * cir_ops * 9
                 _apply_reorder(cir_comp_rots, comp_rot_start, cir_ops, mapping, 9)
             cir_reordered += 1
@@ -1542,7 +1566,7 @@ def _reorder_to_spglib_order(
         # Try to find scalar mapping for this SG
         choice = sg_hall_choice.get(sg_num)
         if choice and n_ops > 0 and spin_idx < len(spinor_starts):
-            _, mapping = choice
+            _, mapping, _ = choice
             # Spinor characters reorder same as scalar at this SG
             s_start = spinor_starts[spin_idx]
             s_count = spinor_counts[spin_idx]
@@ -1597,7 +1621,7 @@ def _build_padding_plans(sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops,
         hall_candidates = sg_halls.get(sg_num, [])
 
         best_plan = None
-        for hall_num, hall_rots in hall_candidates:
+        for hall_num, hall_rots, hall_trans in hall_candidates:
             hall_ops = len(hall_rots)
             if hall_ops == 0 or n_ops > hall_ops:
                 continue
@@ -2128,7 +2152,8 @@ def generate_rust_data(data):
         spinor_irreps, spinor_starts, spinor_counts,
         cir_comp_flat=cir_comp_flat, cir_comp_rots=cir_comp_rots,
         cir_comp_starts=cir_comp_starts, cir_comp_counts=cir_comp_counts,
-        cir_comp_ops=cir_comp_ops)
+        cir_comp_ops=cir_comp_ops,
+        kvec_map=kvec_map)
     # CIR component data is also reordered in-place.
     # CIR components are used by the Wigner CIR path which matches rotations
     # at runtime via build_h_to_cir_map().  The characters stay in ISOTROPY order.
@@ -2175,7 +2200,7 @@ def generate_rust_data(data):
         choice = sg_hall_choice.get(sg_num)
         if choice is None:
             continue
-        chosen_hall, _ = choice
+        chosen_hall, _, _ = choice
         hall_trans = None
         for _hall_num, _hall_rots, _hall_trans in sg_halls_full.get(sg_num, []):
             if _hall_num == chosen_hall:
