@@ -47,6 +47,52 @@ git add -A && git commit -m "描述"
 
 ---
 
+## ISOTROPY 数据格式知识
+
+### PIR vs CIR 的本质区别
+
+- **CIR**（Complex Irreducible Representation）：只依赖**旋转矩阵 R**，不依赖 translation。
+  每个独特的旋转类型有一个 complex character `χ(R) = (re, im)`。
+  opcount = little co-group 的大小（distinct rotation types）。
+
+- **PIR**（Physically Irreducible Representation）：依赖完整的空间群操作 `{R|t}`。
+  字符通过 CIR + Bloch 相位组合：`PIR({R|t}) = Σ_i CIR_i(R) * exp(i*2π*k·t)`
+  opcount = full little group 的大小（包含所有 translation 变体）。
+
+- ISOTROPY 的 PIR 和 CIR 操作数不同是结构性的，不是数据缺失。
+  CIR 永远只有 distinct rotation types 的条目。
+
+### CIR_data.txt 格式
+
+```
+seq sg "name" "label" dim kx ky kz kd
+<16-int complex matrix line>  ← 每个 operation 一行
+<16-int complex matrix line>  ← 第二行（和第一行一起编码复矩阵）
+(re, im)                      ← complex character
+...                            ← 重复（如果有更多 operation）
+```
+
+- 第一行 16 个整数是复矩阵的编码（ISOTROPY 特有格式）
+- 第二行 16 个整数也是复矩阵的一部分
+- 每个 operation 由 2 行矩阵 + 1 行字符组成
+- CIR 无 irtranslation（字符不依赖 translation）
+
+### spglib Hall vs ISOTROPY 的 translation 差异
+
+- ISOTROPY 使用 **primitive cell** 的 translation
+- spglib Hall 使用 **conventional cell** 的 translation（可能含 centering）
+- 两者 translation 不同，但**旋转矩阵相同**
+- 重排时：PIR 字符是实数，只需排列不需相位修正（ISOTROPY PIR 字符对 matched operation 是正确的）
+- CIR 展开时：额外 Hall 位置需从 matching rotation 复制 + Bloch 相位 `exp(i*2π*k·t_hall/kd)`
+
+### 重排后数据一致性
+
+重排后 PIR 和 CIR 在同一 Hall 位置的字符来自**同一个 ISOTROPY operation**
+（因为 mapping[h] 唯一定义了 ISOTROPY 索引）。因此 PIR = CIR_sum 在排列后
+仍然成立。CIR 展开只影响额外位置（CIR 源数据没有的 translation 变体）。
+
+---
+
 ## 调试方法论 — 从 spinor Wigner 排查中提炼的经验
 
 ### 原则 1：比较 passing vs failing cases，找差异因子
