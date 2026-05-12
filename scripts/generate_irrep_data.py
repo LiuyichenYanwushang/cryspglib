@@ -1770,24 +1770,21 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                         new_cir_rots.extend([0] * 9)
             cir_comp_ops[i] = hall_ops
         elif i in cir_expand_plans:
-            hall_ops, cir_to_hall = cir_expand_plans[i]
+            # Data was already reordered in-place by _reorder_to_spglib_order.
+            # The first old_ops positions are in Hall order; just copy them
+            # and zero-fill the remaining Hall positions.
+            hall_ops = cir_expand_plans[i]
             for comp in range(n_comp):
                 old_start = cir_comp_starts[i] + comp * old_ops * 2
                 old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
-                for h in range(hall_ops):
-                    ci = None
-                    for cii, hi in enumerate(cir_to_hall):
-                        if hi == h:
-                            ci = cii
-                            break
-                    if ci is not None and ci < old_ops:
-                        new_cir_flat.append(cir_comp_flat[old_start + ci * 2])
-                        new_cir_flat.append(cir_comp_flat[old_start + ci * 2 + 1])
-                        new_cir_rots.extend(cir_comp_rots[old_rot_start + ci * 9:old_rot_start + (ci + 1) * 9])
-                    else:
-                        new_cir_flat.append(0.0)
-                        new_cir_flat.append(0.0)
-                        new_cir_rots.extend([0] * 9)
+                # Copy reordered data (first old_ops positions)
+                new_cir_flat.extend(cir_comp_flat[old_start:old_start + old_ops * 2])
+                new_cir_rots.extend(cir_comp_rots[old_rot_start:old_rot_start + old_ops * 9])
+                # Zero-fill remaining Hall positions
+                extra = hall_ops - old_ops
+                if extra > 0:
+                    new_cir_flat.extend([0.0] * (extra * 2))
+                    new_cir_rots.extend([0] * (extra * 9))
             cir_comp_ops[i] = hall_ops
         else:
             old_start = cir_comp_starts[i]
@@ -2137,6 +2134,7 @@ def generate_rust_data(data):
     # Build CIR-expansion plans for mapped compound irreps where
     # cir_ops < len(mapping).  These don't need full padding (PIR data
     # was already reordered correctly), only CIR data needs expansion.
+    # Data was reordered in-place, so just need to zero-fill extra Hall positions.
     cir_expand_plans = {}
     n_scalar = len(ml)
     for i in range(n_scalar):
@@ -2147,13 +2145,8 @@ def generate_rust_data(data):
         mapping = reorder_map_per_irrep[i]
         n_cir = cir_comp_ops[i]
         if n_cir >= len(mapping):
-            continue  # Same size, in-place reorder was sufficient
-        # Invert: mapping[h] = ci → cir_to_hall[ci] = h
-        cir_to_hall = [None] * n_cir
-        for h, ci in enumerate(mapping):
-            if ci is not None and ci < n_cir:
-                cir_to_hall[ci] = h
-        cir_expand_plans[i] = (len(mapping), cir_to_hall)
+            continue  # Same size, reorder alone was sufficient
+        cir_expand_plans[i] = len(mapping)
 
     has_padding = len(padding_plans) > 0 or len(cir_expand_plans) > 0
     if has_padding:
