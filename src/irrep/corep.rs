@@ -995,7 +995,7 @@ mod tests {
         }
         println!("SG 118 standard ops:");
         for i in 0..h_ops_sg118.len() {
-            let r = &h_ops_sg118.rot[i]; let t = &h_ops_sg118.trans[i];
+            let r = &h_ops_sg118.operations[i].rotation; let t = &h_ops_sg118.operations[i].translation;
             println!("  H[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3})",
                 i, r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2],
                 t[0],t[1],t[2]);

@@ -19,11 +19,19 @@ cargo check --package cryspglib
 
 ## 工作流铁律
 
-### 规则 1: cargo check 成功后立即 commit
+### 规则 1: 每完成一个可编译的修改就立即 commit
 
-每次 `cargo check` 成功后必须立即 `git add -A && git commit`。宁可多几个小 commit，不能累积未提交改动。
+**每次 `cargo check` 成功后必须立即 commit**，然后再做下一个修改。不要连续做多个修改才 commit。
 
-**Why:** 未提交代码跨 session 容易因 git checkout 等操作永久丢失（发生过：2163→3307 行的诊断代码全部丢失）。
+```bash
+git add -A && git commit -m "描述"
+```
+
+**Why:** `git checkout` 恢复时只保留已提交的内容。中间修改全部丢失。宁可 commit 太多（事后 squash），不能丢失工作。
+
+**反面案例（发生过两次）：**
+1. 2163→3307 行的诊断代码因 git checkout 全部丢失
+2. MagneticOps→SymmetryOps 重构中，已修复的 10+ 处 field access 因一次 revert 全部丢失
 
 ### 规则 2: 不用 Python 脚本做代码修改
 
