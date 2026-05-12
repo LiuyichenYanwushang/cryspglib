@@ -1659,8 +1659,7 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                           matrices_flat, mat_starts, mat_counts,
                           pir_rots_flat, pir_rot_starts,
                           cir_comp_flat, cir_comp_rots, cir_comp_starts, cir_comp_counts, cir_comp_ops,
-                          spinor_starts, spinor_counts,
-                          cir_expand_plans=None):
+                          spinor_starts, spinor_counts):
     """Rebuild flat arrays with padded entries for compound irreps expanded to Hall size."""
     n_scalar = len(char_starts)
     plans_by_idx = {i: (hall_ops, cir_to_hall) for i, hall_ops, cir_to_hall in padding_plans}
@@ -1745,8 +1744,6 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
     new_cir_flat = []
     new_cir_rots = []
     new_cir_starts = []
-    if cir_expand_plans is None:
-        cir_expand_plans = {}
     for i in range(len(cir_comp_starts)):
         n_comp = cir_comp_counts[i]
         old_ops = cir_comp_ops[i]
@@ -1773,30 +1770,6 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                         new_cir_flat.append(0.0)
                         new_cir_flat.append(0.0)
                         new_cir_rots.extend([0] * 9)
-            cir_comp_ops[i] = hall_ops
-        elif i in cir_expand_plans:
-            # Data was already reordered in-place by _reorder_to_spglib_order.
-            # The first old_ops positions are in Hall order.  For extra Hall
-            # positions, copy from the matching-rotation CIR op with Bloch
-            # phase correction.
-            hall_ops, extra_h_to_cir, extra_phases = cir_expand_plans[i]
-            for comp in range(n_comp):
-                old_start = cir_comp_starts[i] + comp * old_ops * 2
-                old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
-                # Copy reordered data (first old_ops positions)
-                new_cir_flat.extend(cir_comp_flat[old_start:old_start + old_ops * 2])
-                new_cir_rots.extend(cir_comp_rots[old_rot_start:old_rot_start + old_ops * 9])
-                # Copy from matching CIR ops with Bloch phase for extra positions
-                for idx, ci in enumerate(extra_h_to_cir):
-                    c_re = cir_comp_flat[old_start + ci * 2]
-                    c_im = cir_comp_flat[old_start + ci * 2 + 1]
-                    cos_th, sin_th = extra_phases[idx]
-                    # Complex multiplication: (re + i*im) * (cos + i*sin)
-                    new_re = c_re * cos_th - c_im * sin_th
-                    new_im = c_re * sin_th + c_im * cos_th
-                    new_cir_flat.append(new_re)
-                    new_cir_flat.append(new_im)
-                    new_cir_rots.extend(cir_comp_rots[old_rot_start + ci * 9:old_rot_start + (ci + 1) * 9])
             cir_comp_ops[i] = hall_ops
         else:
             old_start = cir_comp_starts[i]
@@ -2144,101 +2117,20 @@ def generate_rust_data(data):
     padding_plans = _build_padding_plans(
         sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops, cir_comp_rots,
         reorder_map_per_irrep)
-    # Build CIR-expansion plans for mapped compound irreps where
-    # cir_ops < len(mapping).  These don't need full padding (PIR data
-    # was already reordered correctly), only CIR data needs expansion.
-    # Data was reordered in-place; for extra Hall ops, copy from matching
-    # rotation's CIR data with Bloch phase correction.
-    import math as _math, json as _json
-    # Load full Hall data (including translations) for Bloch phase computation
-    hall_json_path = os.path.join(SCRIPT_DIR, "hall_operations.json")
-    sg_halls_full = {}  # sg -> [(hall_num, rots, trans), ...]
-    if os.path.exists(hall_json_path):
-        with open(hall_json_path) as _f:
-            _raw = _json.load(_f)
-        for _hall_str, _hd in _raw.items():
-            _sg = _hd["sg"]
-            _entry = (int(_hall_str), _hd["rots"], _hd["trans"])
-            if _sg not in sg_halls_full:
-                sg_halls_full[_sg] = []
-            sg_halls_full[_sg].append(_entry)
-    cir_expand_plans = {}
-    n_scalar = len(ml)
-    for i in range(n_scalar):
-        if reorder_map_per_irrep[i] is None:
-            continue
-        if cir_comp_counts[i] == 0:
-            continue
-        mapping = reorder_map_per_irrep[i]
-        n_cir = cir_comp_ops[i]
-        hall_ops = len(mapping)
-        if n_cir >= hall_ops:
-            continue  # Same size, reorder alone was sufficient
+    # CIR data is reordered in-place by _reorder_to_spglib_order above.
+    # No expansion: CIR characters depend only on rotation, and CIR covers
+    # only distinct rotation types (fewer ops than full little group).
+    # PIR = Σ CIR_i * exp(i*k·t) accounts for translation differences;
+    # CIR stays at the little co-group size.
 
-        sg_num = sg[i]
-        # Get Hall translations using the Hall number selected during reorder
-        choice = sg_hall_choice.get(sg_num)
-        if choice is None:
-            continue
-        chosen_hall, _, _ = choice
-        hall_trans = None
-        for _hall_num, _hall_rots, _hall_trans in sg_halls_full.get(sg_num, []):
-            if _hall_num == chosen_hall:
-                hall_trans = _hall_trans
-                break
-        if hall_trans is None:
-            continue  # Can't compute Bloch phases without translations
-
-        # Get k-vector
-        kx, ky, kz, kd = _lookup_kvec(kvec_map, sg_num, ml[i])
-
-        # Build mapping and Bloch phases for extra Hall positions
-        extra_h_to_cir = []
-        extra_phases = []  # (cos_theta, sin_theta) for each extra pos
-        cir_rot_start = (cir_comp_starts[i] // 2) * 9
-        pir_rot_start = pir_rot_starts[i]
-        for h in range(n_cir, hall_ops):
-            h_off = pir_rot_start + h * 9
-            h_rot = pir_rots_flat[h_off:h_off + 9] if h_off + 9 <= len(pir_rots_flat) else None
-            match_ci = None
-            if h_rot is not None:
-                for ci in range(n_cir):
-                    c_off = cir_rot_start + ci * 9
-                    c_rot = cir_comp_rots[c_off:c_off + 9]
-                    if h_rot == c_rot:
-                        match_ci = ci
-                        break
-            if match_ci is None:
-                match_ci = 0
-            extra_h_to_cir.append(match_ci)
-
-            # Bloch phase between ISOTROPY translations:
-            # CIR_Hall[h] = CIR_Hall[match_ci] * exp(i*2π*k·Δt/kd)
-            # Δt = PIR_TRANS[h] - PIR_TRANS[match_ci]
-            # Both are ISOTROPY translations at their Hall positions.
-            trans_start_i = pir_trans_starts[i] if i < len(pir_trans_starts) else 0
-            t_h = pir_trans_flat[trans_start_i + h * 3:trans_start_i + (h + 1) * 3] if trans_start_i + (h + 1) * 3 <= len(pir_trans_flat) else [0.0, 0.0, 0.0]
-            t_ref = pir_trans_flat[trans_start_i + match_ci * 3:trans_start_i + (match_ci + 1) * 3] if trans_start_i + (match_ci + 1) * 3 <= len(pir_trans_flat) else [0.0, 0.0, 0.0]
-            dt = [t_h[j] - t_ref[j] for j in range(3)]
-            dot = kx * dt[0] + ky * dt[1] + kz * dt[2]
-            theta = 2.0 * _math.pi * dot / float(kd)
-            extra_phases.append((_math.cos(theta), _math.sin(theta)))
-
-        cir_expand_plans[i] = (hall_ops, extra_h_to_cir, extra_phases)
-
-    has_padding = len(padding_plans) > 0 or len(cir_expand_plans) > 0
-    if has_padding:
-        if padding_plans:
-            print(f"  CIR padding: {len(padding_plans)} entries expanded to Hall size")
-        if cir_expand_plans:
-            print(f"  CIR expand (mapped): {len(cir_expand_plans)} entries expanded to Hall size")
+    if padding_plans:
+        print(f"  CIR padding: {len(padding_plans)} entries expanded to Hall size")
         _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                              matrices_flat, mat_starts, mat_counts,
                              pir_rots_flat, pir_rot_starts,
                              cir_comp_flat, cir_comp_rots, cir_comp_starts,
                              cir_comp_counts, cir_comp_ops,
-                             spinor_starts, spinor_counts,
-                             cir_expand_plans=cir_expand_plans)
+                             spinor_starts, spinor_counts)
 
     # ── Verify identity characters for ALL scalar entries ──
     bad_chars = []
