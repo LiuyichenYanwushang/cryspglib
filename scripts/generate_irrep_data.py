@@ -1625,27 +1625,6 @@ def _build_padding_plans(sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops,
             print(f"  WARNING padding: SG{sg_num} {ml[i]}: "
                   f"no Hall setting matches all CIR rots (n_ops={n_ops})")
 
-    # Also handle mapped compound irreps where CIR ops < Hall ops.
-    # These were reordered in-place by _reorder_to_spglib_order but need
-    # expansion (zero-fill) to full Hall size, same as unmapped entries.
-    # reorder_results[i] = mapping[h] = ci  (Hall → CIR, same as PIR).
-    # _apply_padding_plans expects cir_to_hall[ci] = h  (CIR → Hall).
-    for i in range(n_scalar):
-        if reorder_results[i] is None:
-            continue  # Already handled (or no CIR data)
-        if cir_comp_counts[i] == 0:
-            continue
-        mapping = reorder_results[i]
-        n_cir = cir_comp_ops[i]
-        if n_cir >= len(mapping):
-            continue  # Same size, in-place reorder was sufficient
-        # Invert: mapping[h] = ci → cir_to_hall[ci] = h
-        cir_to_hall = [None] * n_cir
-        for h, ci in enumerate(mapping):
-            if ci is not None and ci < n_cir:
-                cir_to_hall[ci] = h
-        padding_plans.append((i, len(mapping), cir_to_hall))
-
     return padding_plans
 
 
@@ -1675,7 +1654,8 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                           matrices_flat, mat_starts, mat_counts,
                           pir_rots_flat, pir_rot_starts,
                           cir_comp_flat, cir_comp_rots, cir_comp_starts, cir_comp_counts, cir_comp_ops,
-                          spinor_starts, spinor_counts):
+                          spinor_starts, spinor_counts,
+                          cir_expand_plans=None):
     """Rebuild flat arrays with padded entries for compound irreps expanded to Hall size."""
     n_scalar = len(char_starts)
     plans_by_idx = {i: (hall_ops, cir_to_hall) for i, hall_ops, cir_to_hall in padding_plans}
@@ -1760,6 +1740,8 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
     new_cir_flat = []
     new_cir_rots = []
     new_cir_starts = []
+    if cir_expand_plans is None:
+        cir_expand_plans = {}
     for i in range(len(cir_comp_starts)):
         n_comp = cir_comp_counts[i]
         old_ops = cir_comp_ops[i]
@@ -1769,6 +1751,26 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
         new_cir_starts.append(len(new_cir_flat))
         if i in plans_by_idx:
             hall_ops, cir_to_hall = plans_by_idx[i]
+            for comp in range(n_comp):
+                old_start = cir_comp_starts[i] + comp * old_ops * 2
+                old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
+                for h in range(hall_ops):
+                    ci = None
+                    for cii, hi in enumerate(cir_to_hall):
+                        if hi == h:
+                            ci = cii
+                            break
+                    if ci is not None and ci < old_ops:
+                        new_cir_flat.append(cir_comp_flat[old_start + ci * 2])
+                        new_cir_flat.append(cir_comp_flat[old_start + ci * 2 + 1])
+                        new_cir_rots.extend(cir_comp_rots[old_rot_start + ci * 9:old_rot_start + (ci + 1) * 9])
+                    else:
+                        new_cir_flat.append(0.0)
+                        new_cir_flat.append(0.0)
+                        new_cir_rots.extend([0] * 9)
+            cir_comp_ops[i] = hall_ops
+        elif i in cir_expand_plans:
+            hall_ops, cir_to_hall = cir_expand_plans[i]
             for comp in range(n_comp):
                 old_start = cir_comp_starts[i] + comp * old_ops * 2
                 old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
@@ -2132,14 +2134,40 @@ def generate_rust_data(data):
     padding_plans = _build_padding_plans(
         sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops, cir_comp_rots,
         reorder_map_per_irrep)
-    if padding_plans:
-        print(f"  CIR padding: {len(padding_plans)} entries expanded to Hall size")
+    # Build CIR-expansion plans for mapped compound irreps where
+    # cir_ops < len(mapping).  These don't need full padding (PIR data
+    # was already reordered correctly), only CIR data needs expansion.
+    cir_expand_plans = {}
+    n_scalar = len(ml)
+    for i in range(n_scalar):
+        if reorder_map_per_irrep[i] is None:
+            continue
+        if cir_comp_counts[i] == 0:
+            continue
+        mapping = reorder_map_per_irrep[i]
+        n_cir = cir_comp_ops[i]
+        if n_cir >= len(mapping):
+            continue  # Same size, in-place reorder was sufficient
+        # Invert: mapping[h] = ci → cir_to_hall[ci] = h
+        cir_to_hall = [None] * n_cir
+        for h, ci in enumerate(mapping):
+            if ci is not None and ci < n_cir:
+                cir_to_hall[ci] = h
+        cir_expand_plans[i] = (len(mapping), cir_to_hall)
+
+    has_padding = len(padding_plans) > 0 or len(cir_expand_plans) > 0
+    if has_padding:
+        if padding_plans:
+            print(f"  CIR padding: {len(padding_plans)} entries expanded to Hall size")
+        if cir_expand_plans:
+            print(f"  CIR expand (mapped): {len(cir_expand_plans)} entries expanded to Hall size")
         _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                              matrices_flat, mat_starts, mat_counts,
                              pir_rots_flat, pir_rot_starts,
                              cir_comp_flat, cir_comp_rots, cir_comp_starts,
                              cir_comp_counts, cir_comp_ops,
-                             spinor_starts, spinor_counts)
+                             spinor_starts, spinor_counts,
+                             cir_expand_plans=cir_expand_plans)
 
     # ── Verify identity characters for ALL scalar entries ──
     bad_chars = []
