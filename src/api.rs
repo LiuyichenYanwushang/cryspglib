@@ -379,7 +379,69 @@ pub struct SymmetryOps {
     pub operations: Vec<SymmetryOp>,
 }
 
+impl Default for SymmetryOps {
+    fn default() -> Self {
+        Self { operations: vec![] }
+    }
+}
+
 impl SymmetryOps {
+    /// Number of symmetry operations.
+    pub fn len(&self) -> usize {
+        self.operations.len()
+    }
+
+    /// Whether this is an empty set.
+    pub fn is_empty(&self) -> bool {
+        self.operations.is_empty()
+    }
+
+    /// Iterate over symmetry operations.
+    pub fn iter(&self) -> impl Iterator<Item = &SymmetryOp> {
+        self.operations.iter()
+    }
+
+    /// Build from parallel arrays (structure-of-arrays form).
+    ///
+    /// Panics if the three slices have different lengths.
+    pub fn from_parallel(
+        rot: &[Mat3I],
+        trans: &[Vec3],
+        timerev: &[bool],
+    ) -> Self {
+        assert_eq!(rot.len(), trans.len(), "rot and trans length mismatch");
+        assert_eq!(rot.len(), timerev.len(), "rot and timerev length mismatch");
+        let n = rot.len();
+        let operations: Vec<SymmetryOp> = (0..n)
+            .map(|i| SymmetryOp {
+                rotation: rot[i],
+                translation: trans[i],
+                time_reversal: timerev[i],
+            })
+            .collect();
+        SymmetryOps { operations }
+    }
+
+    /// Build from owned parallel vectors.
+    pub fn from_parallel_owned(
+        rot: Vec<Mat3I>,
+        trans: Vec<Vec3>,
+        timerev: Vec<bool>,
+    ) -> Self {
+        let n = rot.len();
+        assert_eq!(trans.len(), n, "length mismatch");
+        assert_eq!(timerev.len(), n, "length mismatch");
+        let mut operations = Vec::with_capacity(n);
+        for i in 0..n {
+            operations.push(SymmetryOp {
+                rotation: rot[i],
+                translation: trans[i],
+                time_reversal: timerev[i],
+            });
+        }
+        SymmetryOps { operations }
+    }
+
     /// Look up symmetry operations from the space group database by Hall number.
     ///
     /// Returns all symmetry operations for the given Hall number (1–530).
@@ -391,7 +453,7 @@ impl SymmetryOps {
     ///
     /// // Pm-3m (Hall number 517) has 48 symmetry operations
     /// let ops = SymmetryOps::from_database(517).unwrap();
-    /// assert_eq!(ops.operations.len(), 48);
+    /// assert_eq!(ops.len(), 48);
     ///
     /// // Invalid Hall number returns an error
     /// assert!(SymmetryOps::from_database(999).is_err());
@@ -408,6 +470,67 @@ impl SymmetryOps {
             .collect();
         Ok(SymmetryOps { operations: ops })
     }
+
+    /// Look up magnetic symmetry operations from the MSG database by UNI number.
+    ///
+    /// Returns operations with `time_reversal` flags set from the magnetic
+    /// space group database (1–1651).
+    pub fn from_magnetic_database(uni_number: usize) -> Option<Self> {
+        let hall = find_first_hall_for_uni(uni_number)?;
+        let sym = crate::msg_database::msgdb_get_spacegroup_operations(uni_number, hall)?;
+        let n = sym.size;
+        let ops: Vec<SymmetryOp> = (0..n)
+            .map(|i| SymmetryOp {
+                rotation: sym.rot[i],
+                translation: sym.trans[i],
+                time_reversal: sym.timerev[i],
+            })
+            .collect();
+        Some(SymmetryOps { operations: ops })
+    }
+}
+
+impl std::ops::Index<usize> for SymmetryOps {
+    type Output = SymmetryOp;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.operations[index]
+    }
+}
+
+impl SymmetryOps {
+    /// Convenience: get symmetry operations for a space group number.
+    ///
+    /// Looks up the first Hall number for the SG and returns its operations.
+    pub fn from_sg(sg: u8) -> Option<Self> {
+        find_hall_number(sg).and_then(|h| Self::from_database(h).ok())
+    }
+}
+
+/// Find the first Hall number whose space group number matches `sg`.
+pub fn find_hall_number(sg: u8) -> Option<usize> {
+    for hall in 1..=530 {
+        let st = crate::spg_database::spgdb_get_spacegroup_type(hall);
+        if st.number == sg as usize {
+            return Some(hall);
+        }
+    }
+    None
+}
+
+/// Find the first Hall number for a magnetic UNI number.
+pub fn find_first_hall_for_uni(uni: usize) -> Option<usize> {
+    if uni == 0 || uni > 1651 {
+        return None;
+    }
+    for hall in 1..=530 {
+        if let Some([lo, hi]) = crate::msg_database::msgdb_get_uni_candidates(hall) {
+            if uni >= lo && uni <= hi {
+                return Some(hall);
+            }
+        }
+    }
+    None
 }
 
 /// Irreducible k-point mesh.

@@ -3,6 +3,7 @@
 use cryspglib::irrep::query::*;
 use cryspglib::irrep::types::generated_data::*;
 use cryspglib::irrep::types::IrrepRecord;
+use cryspglib::SymmetryOps;
 
 // ==========================================================================
 // 基本完整性检查
@@ -558,7 +559,7 @@ fn all_kvectors_have_positive_denominator() {
 #[test]
 fn dump_sg142_x_point() {
     let irs = irreps_of(142);
-    let ops = symmetry_operations_of(142);
+    let ops = SymmetryOps::from_sg(142).unwrap();
     println!("\n=== SG #142 I4_1/acd — {} irreps, {} ops ===", irs.len(), ops.len());
 
     let x1 = irs.iter().find(|r| r.ml == "X1").unwrap();
@@ -566,8 +567,8 @@ fn dump_sg142_x_point() {
     println!("\nX1 dim={} k=({}/{},{}/{},{}/{})", x1.dim, x1.kx, x1.kd, x1.ky, x1.kd, x1.kz, x1.kd);
     println!("{:3} | {{R|t}}                                    | χ", "Op");
     println!("----+------------------------------------------+-----");
-    for (i, (rot, trans)) in ops.iter().enumerate() {
-        let r = rot; let t = trans;
+    for (i, op) in ops.iter().enumerate() {
+        let r = op.rotation; let t = op.translation;
         let chi = if i < chars.len() { chars[i] } else { 0.0 };
         if chi.abs() > 0.01 || i == 0 {
             println!("{:3} | [{:2},{:2},{:2};{:2},{:2},{:2};{:2},{:2},{:2}] ({:5.2},{:5.2},{:5.2}) | {:+.1}",

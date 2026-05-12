@@ -523,6 +523,21 @@ pub fn parent_spatial_sg(uni_number: usize) -> Option<usize> {
     Some(msg.number)
 }
 
+/// Pick the correct a₀ (canonical antiunitary coset representative) for spinor Wigner.
+///
+/// For grey groups (Type II), a₀ must be pure θ (R = I), because (θg)² ≠ -g² in general.
+/// For black-white groups (Type III), any antiunitary representative works.
+pub fn select_spinor_a0(antiunitary: &[usize], mag_seitz: &[crate::irrep::wigner::SeitzOp], is_grey: bool) -> usize {
+    let id_rot: crate::mathfunc::Mat3I = [[1,0,0],[0,1,0],[0,0,1]];
+    if is_grey {
+        antiunitary.iter().copied()
+            .find(|&i| mag_seitz[i].rot == id_rot)
+            .unwrap_or(antiunitary[0])
+    } else {
+        antiunitary[0]
+    }
+}
+
 /// Identify the unitary subgroup with full Hall setting information.
 ///
 /// Uses `spg_get_hall_number_from_symmetry` to classify the unitary ops
@@ -2159,5 +2174,141 @@ mod tests {
             spin_op_su2[4 * idx + 2],
             spin_op_su2[4 * idx + 3],
         ])
+    }
+
+    #[test]
+    fn diagnose_none_examples() {
+        let mut shown = 0usize;
+        'outer: for uni in 1..=1651 {
+            if shown >= 5 { break; }
+            let mag_ops = match crate::SymmetryOps::from_magnetic_database(uni) {
+                Some(m) => m, None => continue,
+            };
+            let h_info = match identify_unitary_subgroup_with_hall(uni) {
+                Some(i) => i, None => continue,
+            };
+            let h_sg = h_info.sg as u8;
+            let h_ops = h_info.ops_from_msg;
+            let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
+            let h_seitz = crate::irrep::wigner::ops_to_seitz(&h_ops);
+
+            for ir in crate::irrep::query::irreps_of(h_sg) {
+                if !ir.spinor { continue; }
+                if shown >= 5 { break 'outer; }
+                let mag_lg = crate::irrep::wigner::filter_little_group(ir.kx,ir.ky,ir.kz,ir.kd,&mag_ops);
+                let antiunitary: Vec<usize> = mag_lg.iter().filter(|&&i| mag_ops[i].time_reversal).copied().collect();
+                if antiunitary.is_empty() { continue; }
+                let unitary: Vec<usize> = mag_lg.iter().filter(|&&i| !mag_ops[i].time_reversal).copied().collect();
+
+                let h_spin = ir.spin_ops();
+                if h_spin.0.is_empty() { continue; }
+                let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
+                let g_spin = if g_sg == h_sg { h_spin } else { IrrepRecord::spin_ops_for_sg(g_sg) };
+                let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
+                let a0_idx = select_spinor_a0(&antiunitary, &mag_seitz, g_sg == h_sg);
+
+                let result = crate::irrep::wigner::wigner_classify_spinor(
+                    &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
+                    &unitary, &mag_seitz, &h_seitz, a0_idx,
+                    ir.kx, ir.ky, ir.kz, ir.kd,
+                );
+                if result.is_some() { continue; }
+
+                let n_lg = ir.spin_lg_char_count();
+                let indices = ir.spin_lg_op_indices();
+                let (h_rots, h_trans, h_su2) = ctx.h;
+                let (g_rots, g_trans, g_su2) = ctx.g;
+                let h_spin_seitz = crate::irrep::wigner::build_spin_seitz(h_rots, h_trans);
+                let g_spin_seitz = crate::irrep::wigner::build_spin_seitz(g_rots, g_trans);
+                let lg_set: std::collections::HashSet<usize> = indices.iter().map(|&x| x as usize).collect();
+                let (_, origin) = IrrepRecord::sg_setting(ctx.sg);
+                let a0 = &mag_seitz[a0_idx];
+                let to_bilbao = |rot: crate::mathfunc::Mat3I, trans: [f64; 3]| -> [f64; 3] {
+                    if origin.len()<3 { return trans; }
+                    let mut t = trans;
+                    for i in 0..3 {
+                        let d: f64 = (0..3).map(|j| (if i==j{1.0}else{0.0}-rot[i][j] as f64)*origin[j]).sum();
+                        t[i] = (t[i]-d) % 1.0; if t[i] < 0.0 { t[i] += 1.0; }
+                    }
+                    t
+                };
+                let a0_bilbao = crate::irrep::wigner::SeitzOp::new(a0.rot, to_bilbao(a0.rot,a0.trans), false);
+                let a0_match = g_spin_seitz.iter().position(|s| s.rot==a0.rot);
+                let u_a0 = a0_match.and_then(|m| crate::irrep::wigner::spin_su2_at(g_su2, m));
+
+                let global_to_local: std::collections::HashMap<usize, usize> =
+                    indices.iter().enumerate().map(|(l,&g)| (g as usize, l)).collect();
+
+                let mut sq_all_in_lg = true;
+                for local in 0..n_lg {
+                    let gsi = indices[local] as usize;
+                    let h_spin = &h_spin_seitz[gsi];
+                    let (g0h, _l1) = crate::irrep::wigner::compose_seitz(&a0_bilbao, h_spin);
+                    let (sq, _lsq) = crate::irrep::wigner::square_seitz(&g0h);
+                    if let Some(sq_si) = h_spin_seitz.iter().position(|s| s.rot==sq.rot) {
+                        if !lg_set.contains(&sq_si) { sq_all_in_lg = false; break; }
+                    } else { sq_all_in_lg = false; break; }
+                }
+                if !sq_all_in_lg { continue; }
+
+                shown += 1;
+                println!("\n══════ NONE EXAMPLE #{} ══════", shown);
+                println!("UNI={} SG={} {} k=({},{},{})/{} dim={} n_lg={} g_sg={} is_grey={}",
+                    uni, h_sg, ir.ml, ir.kx, ir.ky, ir.kz, ir.kd, ir.dim, n_lg, g_sg, g_sg==h_sg);
+                let det = |r: &crate::mathfunc::Mat3I| -> i32 {
+                    r[0][0]*(r[1][1]*r[2][2]-r[1][2]*r[2][1])
+                    -r[0][1]*(r[1][0]*r[2][2]-r[1][2]*r[2][0])
+                    +r[0][2]*(r[1][0]*r[2][1]-r[1][1]*r[2][0])
+                };
+                println!("a0: rot={:?} det={} u_a0={:?}", a0.rot, det(&a0.rot), u_a0);
+                println!("spin_chars(lg): {:?}", &ir.characters()[..n_lg.min(8)]);
+                println!("spin_lg_indices: {:?}", indices);
+
+                let fmt_rot = |r: &crate::mathfunc::Mat3I| -> String {
+                    format!("[{:2},{:2},{:2};{:2},{:2},{:2};{:2},{:2},{:2}]",
+                        r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2])
+                };
+                let fmt_u = |v: &[f64;4]| -> String {
+                    format!("[{:7.4},{:7.4},{:7.4},{:7.4}]", v[0],v[1],v[2],v[3])
+                };
+
+                for local in 0..n_lg {
+                    let gsi = indices[local] as usize;
+                    let h_spin = &h_spin_seitz[gsi];
+                    let u_h = crate::irrep::wigner::spin_su2_at(h_su2, gsi);
+                    let (g0h, _l1) = crate::irrep::wigner::compose_seitz(&a0_bilbao, h_spin);
+                    let (sq, _lsq) = crate::irrep::wigner::square_seitz(&g0h);
+                    let sq_si = h_spin_seitz.iter().position(|s| s.rot==sq.rot);
+                    let sq_local = sq_si.and_then(|s| global_to_local.get(&s).copied());
+
+                    println!("  [{}] h={} det_h={:+} u_h={}",
+                        local, fmt_rot(&h_spin.rot), det(&h_spin.rot),
+                        u_h.map_or("?".into(), |v| fmt_u(&v)));
+                    println!("       g0h={} det_g0h={:+}", fmt_rot(&g0h.rot), det(&g0h.rot));
+                    println!("       sq={} sq_si={:?} sq_lg={:?}",
+                        fmt_rot(&sq.rot), sq_si, sq_local);
+
+                    if let (Some(u_h_v), Some(u_a0_v), Some(sq_si_v), Some(sq_local_v)) =
+                        (u_h, u_a0, sq_si, sq_local)
+                    {
+                        let u_g0h = crate::irrep::wigner::su2_compose(&u_a0_v, &u_h_v);
+                        let u_sq = crate::irrep::wigner::su2_compose(&u_g0h, &u_g0h);
+                        let u_k = crate::irrep::wigner::spin_su2_at(h_su2, sq_si_v);
+                        let rel_old = u_k.and_then(|uk| crate::irrep::wigner::su2_same_up_to_sign(&u_sq, &uk));
+
+                        let j = [0.0, 0.0, 1.0, 0.0];
+                        let ju = crate::irrep::wigner::su2_compose(&j, &u_g0h);
+                        let u_sq_j = crate::irrep::wigner::su2_compose(&ju,
+                            &crate::irrep::wigner::conj_pauli(&ju));
+                        let rel_j = u_k.and_then(|uk| crate::irrep::wigner::su2_same_up_to_sign(&u_sq_j, &uk));
+
+                        println!("       u_g0h={} u_sq(U²)={}", fmt_u(&u_g0h), fmt_u(&u_sq));
+                        println!("       u_k(Bilbao)={} rel(old)={:?} rel(J)={:?}",
+                            u_k.map_or("?".into(), |v| fmt_u(&v)), rel_old, rel_j);
+                        println!("       chi0(sq)={}", ir.characters()[sq_local_v]);
+                    }
+                }
+            }
+        }
     }
 }

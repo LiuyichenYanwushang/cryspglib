@@ -4,639 +4,282 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-# v0.2.0: Current API State
+## Workspace context
 
-> **Status**: DONE. C-style `spg_*` replaced with Rust-idiomatic `Crystal` + `SymmetryAnalysis`.
+This crate is a **workspace member** inside `/home/liuyichen/TB_rs`. All cargo commands must be run from the workspace root:
 
-## Public API
-
-### Core entry point
-
-```rust
-use cryspglib::Crystal;
-
-let si = Crystal::new(
-    [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
-    vec![[0.0, 0.0, 0.0], [0.25, 0.25, 0.25]],
-    vec![14, 14],
-);
-let ds = si.analyze().symprec(1e-5).dataset()?;
+```bash
+cd /home/liuyichen/TB_rs
+cargo build --package cryspglib
+cargo test  --package cryspglib
+cargo check --package cryspglib
 ```
 
-### Crystal methods
+---
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `Crystal::new(lat, pos, types)` | `Self` | Non-magnetic 3D crystal |
-| `.with_magnetic(moments)` | `Self` | Add magnetic moments `[mx,my,mz]` per atom |
-| `.with_layer(axis)` | `Self` | Mark as 2D slab |
-| `.analyze()` | `SymmetryAnalysis` | Begin symmetry analysis |
-| `.delaunay_reduce(prec)` | `Result<Mat3>` | Delaunay reduction |
-| `.niggli_reduce(prec)` | `Result<Mat3>` | Niggli reduction |
-| `.natom()` | `usize` | Number of atoms |
-| `Crystal::from_poscar(data)` | `Option<Self>` | Parse POSCAR format |
+## 调试方法论 — 从 spinor Wigner 排查中提炼的经验
 
-### SymmetryAnalysis terminal methods
+### 原则 1：比较 passing vs failing cases，找差异因子
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `.dataset()` | `Result<SpaceGroup>` | Full space group dataset |
-| `.symmetry()` | `Result<SymmetryOps>` | Symmetry operations only |
-| `.primitive_cell()` | `Result<Crystal>` | Primitive cell |
-| `.standardize(to_prim, no_ideal)` | `Result<Crystal>` | Standardized cell |
-| `.hall_number()` | `Result<usize>` | Hall number (1-530) |
-| `.international()` | `Result<(usize, String)>` | Space group number + symbol |
-| `.irreducible_mesh(mesh, shift, tr)` | `Result<IrMesh>` | Irreducible k-point grid |
-| `.magnetic_dataset()` | `Option<MagneticSymmetry>` | Magnetic space group |
+当同一个代码路径**有些 case 通过、有些失败**时，不要猜测通用原因。直接比较一个成功 case 和一个失败 case，问：
 
-### Key types
+> **"这两个 case 之间什么不同，导致一个通过、一个失败？"**
 
-| Type | Description |
-|------|-------------|
-| `SpaceGroup` | Space group data (number, symbol, Wyckoff, symmetry ops) |
-| `SpaceGroupType` | Space group info from database. Has `.from_hall(n)` constructor |
-| `MagneticDataset` | Magnetic space group dataset |
-| `MagneticSymmetry` | Magnetic symmetry analysis result. Implements `Display` |
-| `MagneticSpaceGroupType` | Magnetic SG from database. Has `.from_uni(n)` constructor |
-| `SymmetryOp` | Single operation `{R\|t}` + `time_reversal: bool` |
-| `SymmetryOps` | Collection of `SymmetryOp` |
-| `IrMesh` | Irreducible k-point mesh |
-| `SymError` | Error enum (SpacegroupSearchFailed, AtomsTooClose, ...) |
-| `MagneticType` | NonMagnetic/Ordinary/Grey/BlackWhite/AntiTranslation |
+这个差异通常直接揭示根因。
 
-### Old functions still present (to be deprecated)
+实例：SG2 T-point passed after loop fix → SG159 L-point still failed. Difference: SG2's LG {I, -I} always contains (a₀h)²; SG159's LG {I, mirror} doesn't. Root cause: spinor little group coverage, not algorithm correctness.
 
-| Function | Replacement |
-|----------|-------------|
-| `spg_get_magnetic_dataset(...)` | `crystal.analyze().magnetic_dataset()` |
-| `spg_format_magnetic_symmetry(&r)` | `r.to_string()` (Display impl) |
-| `spg_get_pointgroup(&rots)` | Keep as pure math utility |
-| `spg_get_symmetry_from_database(n)` | To be added to `SymmetryOps` |
-| `spg_delaunay_reduce` / `spg_niggli_reduce` | `crystal.delaunay_reduce()` / `crystal.niggli_reduce()` |
-| k-point grid functions (6) | `crystal.analyze().irreducible_mesh()` |
+### 原则 2：假设驱动的逐层排除
 
-## API design rules
+不要在无数可能原因中随机尝试。为每种假设设计一个**最小 oracle test**，一票否决或确认：
 
-1. **No `spg_` prefix** on new types/functions
-2. **No `spgat_` variants** — use `.angle_tolerance()` builder
-3. **No pre-allocated output buffers** — functions return owned types
-4. **Crystal is the single entry point** — not naked (lattice, pos, types) tuples
-5. **Builder pattern for optional parameters** — `SymmetryAnalysis` with `.symprec()`, `.angle_tolerance()`
-6. **Deprecated aliases** — old names (`SpglibDataset`, `SpglibError`) kept as type aliases
+1. **列出所有可能假设**（按先验概率排序）
+2. **为每个假设设计一个 oracle**（最小代码改动，只输出统计数据）
+3. **跑 oracle，看数据**——如果数据否决假设，立刻排除，不再纠结
+4. **如果 oracle 确认假设，再设计修复**
 
-## Integer type convention
+实例——NONE=1,007 的排查顺序：
+- H1: same-rotation lift 误选 → scan same-rot candidates → OTHER=0 → 否决
+- H2: UU* antiunitary square → 6 formulas oracle → 6.5% fix → 不是主因
+- H3: H/G gauge mismatch → G-gauge oracle → 0% fix → 否决
+- H4: det=-1 improper → det stats → 混合分布 → 否决
+- H5: J-insertion → J-oracle on NONE → 61% fix → 确认方向
+- H5-global: global J → 88.3%→83.0% → 不能全局替换 → 否决
+- H5-per-case: case-level J fallback → old_fail_j_ok=22/945 → 否决
 
-- **All integer types use `usize` / `isize`** except for enums which may use `u8`.
-- Never use `i16`, `i32`, `i64`, `u16`, `u32`, `u64` in new code — use `usize` or `isize`.
-- The `IrrepRecord` fields (`kx`, `ky`, `kz`, `kd`, `dim`, `sg`) use `i8`/`u8` only because they are packed into a large static array (8,388 entries) where memory is a concern.
-- Internal pointer fields (`_char_start`, `_mat_start`, etc.) use `u32`/`u16` for the same memory-compaction reason.
+每排除一个假设，就缩小搜索范围。不要跳过 oracle 直接修代码。
 
-## Module structure
+### 原则 3：诊断与修复分离
 
-| Module | Role |
-|--------|------|
-| `api.rs` | Crystal, SymmetryAnalysis, SymmetryOp — new public API |
-| `parser.rs` | POSCAR parser + 118-element periodic table |
-| `lib.rs` | Re-exports, type definitions, remaining old functions |
-| `cell.rs` | Internal `Cell` struct (lattice + positions + tensors) |
-| `mathfunc.rs` | `Mat3`, `Mat3I`, `Vec3` aliases + matrix ops |
-| `symmetry.rs` | Symmetry operation detection |
-| `spacegroup.rs` | Space group search pipeline |
-| `primitive.rs` | Primitive cell detection |
-| `determination.rs` | Top-level retry loop |
-| `refinement.rs` | Wyckoff + exact structure |
-| `spg_database.rs` | Hall symbol database |
-| `hall_symbol.rs` | Hall symbol matching |
-| `pointgroup.rs` | Point group classification |
-| `delaunay.rs`, `niggli.rs` | Lattice reduction |
-| `kgrid.rs`, `kpoint.rs` | k-point grid generation |
-| `magnetic_spacegroup.rs`, `spin.rs` | Magnetic symmetry |
-| `overlap.rs`, `sitesym_database.rs`, `site_symmetry.rs` | Site symmetry |
+诊断代码（oracle/counter/scan）**不应改变正式分类结果**。先加诊断、跑数据、看统计、确认假设，再设计修复。
 
-## Matrix convention
+- Oracle 只在 `None`/失败分支执行，不改变 `return` 值
+- 计数器用 `AtomicUsize`，在 diagnostic test 中读取
+- 正式路径保持原样，等 oracle 确认后再改
 
-`lattice[cart][vec]`: rows = Cartesian (x,y,z), columns = lattice vectors (a,b,c).
+### 原则 4：per-term → per-case 的层级
 
-```
-lattice = [[a_x, b_x, c_x],
-           [a_y, b_y, c_y],
-           [a_z, b_z, c_z]]
-```
+在 Wigner sum 中，单个 term 的修复不等于整个 case 的修复：
+
+1. **per-term fix**（只对失败 term 用新公式）：数学上危险，同一个 sum 混用两个 convention
+2. **global fix**（所有 term 都用新公式）：如果破坏了更多正常 term → regression
+3. **per-case fallback**（先试旧公式，整个 case 失败再试新公式）：唯一理论上干净的 fallback
+
+要区分三者，不能看到 per-term oracle 有 61% fix 就急于做 per-term patch。
+
+### 原则 5：语义正确的计数器命名
+
+计数器名字必须准确反映被计数的**物理/数学含义**，不能有歧义：
+
+- 错误：`central=false` → "raw misses"。正确：`central=false` → "same lift, no central element"
+- 错误：`theta2_fixes` → "fixing misses"。正确：关系到 `±u_k` 的 same/Ebar/none 三类
+- 错误：`NONE=0` → "0 mismatch"。正确：`NONE=1,007` → "1,007 non-trivial mismatch"
+
+错误命名会误导后续分析方向。本例中 `central=false` 被误读为 "raw failure"，导致构造了大量无用的 sign-flip 修复。
+
+### 原则 6：不要过早下结论说"需要大工程"
+
+Data generation 存 `central_parity` 或 `extended character table` 可能是最终方案，但在确认以下问题之前不应断定：
+
+1. **先确认问题确实来自数据缺失**（而非 algorithm bug or convention mismatch）
+2. **先做 oracle 估计大工程的收益**（例如 eta ±1 测试）
+3. **先排除更便宜的修复**（runtime inference, convention alignment）
+
+---
+
+## 错题集 — Spinor Wigner SU(2) 调试记录
+
+### Bug 1: 归一化分母 mismatch（SG2 T-point W=-0.5）
+
+**现象**：SG2 T2/T3 spinor irreps 返回 `None`。per-term 全部通过但 W=-0.5 不量子化。
+
+**根因**：Wigner 公式 `W = Σ χ̃(a₀h) / |H₀|` 的求和对象是 **little co-group**（不同旋转），不是 full little group（所有 Seitz 翻译变体）。旧 loop 遍历了 4 个 Seitz 变体但 spinor 表只有 2 个条目。
+
+**修复**：Loop 改为遍历 `spin_lg_op_indices[0..n_lg_ops]`（co-group 规范代表），归一化分母 = `n_lg_ops`。
+
+**教训**：loop domain 和 character domain 必须一致。
+
+### Bug 2: sq 匹配目标错误（高分群 0% pass）
+
+**现象**：Loop fix 后 SG180/SG148/SG179 等高分群全部 0% pass。
+
+**根因**：`(a₀h)²` 的翻译来自磁群，`h_spin_seitz` 只有规范翻译。Full Seitz matching 因翻译不匹配失败。
+
+**修复**：sq 用 **rotation-only matching**（rotation 在不同 setting 下不变，translation 受 origin 影响）。
+
+**教训**：匹配时区分 invariant（rotation）和 variant（translation）。
+
+### Bug 3: a₀ 选择错误（grey 群用了 θ·g 而非 θ）
+
+**现象**：SG159 L-point 产生 C3 旋转，不在 LG 中。
+
+**根因**：代码取 `antiunitary[0]` 碰巧取到 θ·g（mirror）。对 grey 群必须取纯 θ (R=I)。
+
+**修复**：`select_spinor_a0` helper 显式找 R=I 的反酉操作。
+
+**教训**：不依赖数组顺序隐含的语义。Grey 群的 a₀ 必须是 θ。
+
+### Bug 4: 示例 ctx.g 设置错误（假阳性）
+
+**现象**：SG159.63 L2 Wigner=None
+
+**真因**：示例代码 `ctx.g = h_spin`（SG143, 3 ops）而非 `spin_ops_for_sg(159)`（6 ops）。
+
+**教训**：BlackWhite 群 G≠H，必须用 G 的 spin ops。排查时先确认数据存在再怀疑算法。
+
+### Bug 5: LG-first sq matching 修复（v5, +11 cases）
+
+**现象**：`h_spin_seitz.iter().position(|s| s.rot == sq.rot)` 可能先匹配到不在 `spin_lg_op_indices` 中的 candidate。
+
+**修复**：`find_sq_spin_lg_first()` — LG 内 full Seitz → LG 内 unique rotation → 全局 rotation。
+
+**效果**：88.1% → 88.3%（+11 ok, -11 fail）
+
+### Bug 6: Θ²=Ē 中心元和 antiunitary square convention
+
+**现象**：grey group h=I 时 SU(2) 无法检测 Θ²=Ē。`(JU)(JU)*` 修复 61% NONE 但 global 替换产生 regression。
+
+**排查过程**（完整假设排除链）：
+- Paoli SU(2) closure: 47,486/0 matched → SU(2) 合成本身正确
+- Same-rotation scan: OTHER=0 → lift 选择正确
+- 6 antiunitary square formulas: UU* only 6.5% → 不是简单 square formula
+- H/G gauge mismatch: G-gauge oracle 0% → 不是 gauge mixing
+- det distribution: 混合 60/40 → 不是 improper rotation
+- J-insertion on NONE: 61% fix → J 是关键
+- Global J: 88.3%→83.0% → 不能全局替换
+- Case-level J fallback: only 22/945 fix → 不能作为 fallback
+
+**当前结论**：J-insertion `(JU)(JU)*` 确认了 direction（antiunitary square 需要显式 Θ=JK），但不能全局应用。923 个 both_fail + 1,547 个 both_ok_diff_type 需要更深层诊断。
+
+### ✅ 已排除的问题
+
+1. **spin 数据库不完整** ❌
+2. **a₀ improper rotation 缺 SU(2) lift** ❌
+3. **`(a₀h)²` 超出 little group（grey 群）** ❌
+4. **Seitz 翻译变体 double counting** ❌
+5. **sq 匹配因翻译不匹配失败** ❌
+6. **Pauli SU(2) 合成约定错误** ❌（closure test 验证）
+7. **same-rotation lift 误选** ❌（OTHER=0）
+8. **UU* antiunitary square formula** ❌（6.5% fix）
+9. **H/G gauge mismatch** ❌（G-gauge 0%）
+10. **det=-1 improper 独占** ❌（混合分布）
+11. **global J-insertion** ❌（regression）
+
+### SU(2) 覆盖率演进
+
+| 版本 | ok | fail | rate | 关键变化 |
+|------|-----|------|------|----------|
+| v3 (θ fix) | 7,108 | 956 | 88.1% | Bug 1+2+3 全部修复 |
+| v5 (LG-first sq match) | 7,119 | 945 | 88.3% | `find_sq_spin_lg_first` |
+| v6 (eta_ebar) | 7,119 | 945 | 88.3% | always missing, no gain |
+| J-left (global) | 6,690 | 1,374 | 83.0% | reverted |
+| J-left (per-case) | — | 22/945 | — | too few, reverted |
+
+### 当前失败分类 (945 total, 2026-05-12)
+
+| 类别 | 数量 | 说明 |
+|------|------|------|
+| `sq_in_lg_but_su2_fail` | 883 (93%) | sq 在 LG 内，SU(2) 或 W 失败 |
+| `sq_outside_lg` | 54 (6%) | sq 在数据库但不在 LG |
+| `sq_not_in_spin` | 8 (1%) | sq rotation 不在 H spin ops |
+
+### SU(2) central-detection relation (per-term)
+
+| 关系 | 数量 | 占比 | 含义 |
+|------|------|------|------|
+| SAME | 31,357 | 24% | u_sq ≈ u_k (same lift) |
+| EBAR | 98,356 | 75% | u_sq ≈ -u_k (Ebar lift) |
+| NONE | 1,007 | 1% | unrelated → function returns None |
+
+NONE 1,007 的 sub-category: 全部 no other same-rotation candidate (not a lift-selection issue).
+
+### 当前 wigner.rs 工具函数
+
+| 函数 | 用途 |
+|------|------|
+| `find_sq_spin_lg_first()` | LG-first sq matching |
+| `infer_eta_ebar()` | Central parity inference (always missing) |
+| `conj_pauli()`, `neg_pauli()` | Pauli operations |
+| `antiunitary_square_pauli()` | J-left antiunitary square |
+| `SquareKernel` enum | Pluggable square kernel (OldU2 / JLeft) |
+| `find_spin_in_db()` | Spin DB lookup with -R fallback |
+| `su2_compose()`, `su2_same_up_to_sign()` | Core SU(2) operations |
+
+---
+
+## Architecture overview
+
+cryspglib has two major subsystems:
+
+**1. spglib port** — space group identification from crystal structures.
+`Crystal::new(lat, positions, types)` → `.analyze()` → `.dataset()` → `SpaceGroup`.
+
+**2. irrep module** — irreducible representation data for all 230 space groups.
+`irreps_of(sg_number)` → `IrrepRecord` (labels, characters, matrices, isotropy subgroups, magnetic corepresentations).
+
+100% of characters are in spglib Hall order.
+
+---
 
 ## Build & Test Commands
 
 ```bash
 cd /home/liuyichen/TB_rs
+
 cargo build --package cryspglib
-cargo test --package cryspglib
+cargo test  --package cryspglib
+cargo test  --package cryspglib <test_name>
 cargo check --package cryspglib
 ```
 
-## Deprecation Status (v0.2.0)
+Key diagnostic test: `irrep::corep::tests::diagnose_wigner_sources -- --nocapture`
 
-All `spg_*` C-style functions now have `#[deprecated]` annotations pointing to Rust-idiomatic equivalents. Internal callers use `#[allow(deprecated)]` where the old function serves as the implementation.
-
-### Deprecation summary (17 functions total)
-
-| New API | Old function (deprecated) |
-|--------|---------------------------|
-| `Crystal::new(...)` | entry point (no old equivalent) |
-| `cry.analyze().dataset()` | `spg_get_dataset` |
-| `cry.analyze().symmetry()` | `spg_get_symmetry` |
-| `cry.analyze().primitive_cell()` | `spgat_find_primitive` |
-| `cry.analyze().standardize(to_prim, no_ideal)` | `spgat_standardize_cell`, `spgat_refine_cell` |
-| `cry.analyze().hall_number()` | (new) |
-| `cry.analyze().international()` | (new) |
-| `cry.analyze().magnetic_dataset()` | `spg_get_magnetic_dataset` |
-| `cry.analyze().irreducible_mesh(...)` | `spg_get_ir_reciprocal_mesh`, `spg_get_dense_ir_reciprocal_mesh` |
-| `cry.delaunay_reduce(prec)` | `spg_delaunay_reduce` |
-| `cry.niggli_reduce(prec)` | `spg_niggli_reduce` |
-| `Crystal::from_poscar(data)` | `spg_read_structure` |
-| `SpaceGroupType::from_hall(n)` | `spg_get_spacegroup_type` |
-| `MagneticSpaceGroupType::from_uni(n)` | `spg_get_magnetic_spacegroup_type` |
-| `MagneticSpaceGroupType::classify(...)` | `spg_get_magnetic_spacegroup_type_from_symmetry` |
-| `SymmetryOps::from_database(n)` | `spg_get_symmetry_from_database` |
-| `result.to_string()` (Display) | `spg_format_magnetic_symmetry` |
-| `grid_point_from_address(addr, mesh)` | `spg_get_grid_point_from_address` |
-| `stabilized_reciprocal_mesh(...)` | `spg_get_stabilized_reciprocal_mesh` |
-| `dense_grid_points_by_rotations(...)` | `spg_get_dense_grid_points_by_rotations` |
-| `dense_bz_grid_points_by_rotations(...)` | `spg_get_dense_BZ_grid_points_by_rotations` |
-| `relocate_bz_grid_address(...)` | `spg_relocate_BZ_grid_address` |
-
-### Kept as utility (no deprecation)
-
-- `spg_get_pointgroup(&rotations)` — pure math utility, no Crystal dependency
-- `spg_get_hall_number_from_symmetry(...)` — low-level symmetry classifier
-
-### New types added this session
-
-| Type | Description |
-|------|-------------|
-| `StabilizedMesh` | Stabilized reciprocal mesh with q-points |
-| `BzMesh` | BZ-relocated grid addresses + mapping |
-
-## v0.3.0 需求: 完整交互式查询 API
-
-### 用户工作流
-
-```
-输入 SG# → 查看所有高对称 k 点 → 选 k 点 → 查看特征标表 → 选 irrep → 查看 isotropy subgroup
-```
-
-### Rust API 需求
-
-```rust
-// 1. 输入 SG → 所有对称操作 + k 点列表
-let sg = SpaceGroupView::new(221);
-sg.symmetry_operations()  // &[SymmetryOp] (from spg_database)
-sg.kpoints()              // &[KPointSummary] (name + coords, deduplicated)
-
-// 2. 选 k 点 → 特征标表 (两种模式)
-let kp = sg.kpoint("GM");
-kp.irreps()               // &[IrrepAtK] (label + dim + characters + full_matrix)
-kp.character_table()      // 特征标表 (trace only)
-kp.full_matrix_table()    // 完整矩阵表 (dim×dim per operator)
-
-// 3. 选 irrep → isotropy subgroups
-let ir = kp.irrep("GM4-");
-ir.characters()           // &[f64] — trace per operator
-ir.matrices()             // &[f64] — dim² values per operator, flattened
-ir.subgroups()            // &[IsotropyRecord] (direction, SG, size, basis, origin)
-```
-
-## v0.3.0: Irrep (不可约表示) 模块
-
-### 概述
-
-基于 ISOTROPY Suite (Stokes & Campbell, 2022) 数据，为全部 230 个空间群提供：
-- 所有高对称 k 点的不可约表示（含 CDML/BC/Kovalev 三种标签）
-- 每个 irrep 的特征标表 χ(g) = Tr(D(g)) 和完整矩阵 D(g)
-- 每个 irrep 的 isotropy subgroup（方向、SG编号、domain 数量）
-- `format_character_table()` 以 {R|t} 操作标签为列头的特征标表
-
-### 数据流
-
-### zip 档案及其内容
-
-#### 核心数据 (3D 空间群, 有理 k 矢量)
-
-| 文件 | 大小 | 内容 |
-|------|------|------|
-| `iso.zip` | ~90 MB | 27 个文件: 元数据 + Fortran 工具 |
-| ├ `data_irreps.txt` | 1 MB | 4,777 个 irrep 的 ML/BC/Kovalev 标签, SG编号, image码, Lifshitz |
-| ├ `data_isotropy.txt` | 6 MB | 15,239 个 isotropy subgroup (方向, domain数, basis, origin) |
-| ├ `data_little.txt` | 10 MB | 每个 SG 的 k 点小群: k_count, k_label, k_kov |
-| ├ `data_images.txt` | 144 KB | 141 个 image 符号 (A1a, C24c, ...) |
-| ├ `data_space.txt` | 570 KB | 点操作标签 (E, C2x, C3+, ...) + 空间群符号 |
-| ├ `data_magnetic.txt` | 2.5 MB | 磁空间群数据 (1,651 个) |
-| ├ `data_wyckoff.txt` | 712 KB | Wyckoff 位置数据 |
-| ├ `data_ssg.txt` | 25 MB | 超空间群数据 (16,697 个) |
-| ├ `data_ssgmag.txt` | 30 MB | 磁超空间群数据 (325,127 个) |
-| ├ `data_diperiodic.txt` | 11 KB | 双周期 (层) 群数据 |
-| ├ `const.dat` | 3 KB | pir_data_constant 表 (25 个浮点数, 矩阵元素解码) |
-| ├ `*.f` | — | Fortran 源码 (未打包在 zip 中, 仅 PIR/CIR zip 有) |
-| ├ `comsubs`, `findsym`, `iso`, `smodes` | ~8 MB | Fortran 可执行文件 (Linux) |
-| └ `*sample*`, `*.txt` | ~30 KB | 示例输入/输出 + 文档 |
-| `PIR_data.zip` | 29 MB | **实不可约表示** (Physical IR) |
-| ├ `PIR_data.txt` | 29 MB | 10,294 条 irrep 矩阵: k-vector + 操作矩阵 + dim² 浮点矩阵 |
-| └ `PIR_data.f` | 30 KB | Fortran 读取源码; 定义 `pir_data_constant` 编解码表 |
-| `CIR_data.zip` | 54 MB | **复不可约表示** (Complex IR, PIR 的回退数据源) |
-| ├ `CIR_data.txt` | 54 MB | 11,202 条 irrep 矩阵: 同样格式, 矩阵元素为 `(实部,虚部)` |
-| └ `CIR_data.f` | 28 KB | Fortran 读取源码 |
-
-**注意**: PIR 存实表示 (H2H3 为 4D 实矩阵), CIR 存复表示 (H2, H3 为独立 2D 复矩阵)。CIR 是 PIR 的超集: CIR→PIR 可转换 (复共轭对→实块矩阵), 反之不可。当前生成器先用 PIR, 缺失时回退到 CIR 并做复→实转换。
-
-#### 超空间群数据 (3+d 维, 无理 k 矢量)
-
-| 文件 | 大小 | 内容 |
-|------|------|------|
-| `PIR_SSG_data.zip` | 37 MB | 超空间群 PIR |
-| ├ `PIR_SSG_data.txt` | 37 MB | 超空间群实不可约表示矩阵 |
-| └ `PIR_SSG_data.f` | 28 KB | Fortran 读取源码 |
-| `CIR_SSG_data.zip` | 61 MB | 超空间群 CIR |
-| ├ `CIR_SSG_data.txt` | 61 MB | 超空间群复不可约表示矩阵 |
-| └ `CIR_SSG_data.f` | 25 KB | Fortran 读取源码 |
-
-**注意**: SSG (Superspace Group) 数据目前**未使用**, 仅保留以备将来扩展。
-
-### 数据流
-
-```
-iso.zip/data_irreps.txt     → 元数据 (标签, SG, image, isotropy)
-iso.zip/data_isotropy.txt   → isotropy subgroups
-PIR_data.zip/PIR_data.txt   → 实表示矩阵 (主数据源)
-CIR_data.zip/CIR_data.txt   → 复表示矩阵 (回退数据源)
-
-                    ↓ scripts/generate_irrep_data.py ↓
-
-src/irrep/generated_data.rs   → 5 个静态数组, ~8.7 MB, 编译进二进制
-```
-
-### Rust 源文件
-
-| 文件 | 功能 |
-|------|------|
-| `src/irrep/mod.rs` | 模块入口, 230 SG 索引表 + rustdoc |
-| `src/irrep/types.rs` | `IrrepRecord`, `IsotropyRecord`, `MagneticIsotropyRecord` |
-| `src/irrep/query.rs` | `irreps_of()`, `kpoints_of()`, `format_character_table()` |
-| `src/irrep/wigner.rs` | Wigner 测试: Seitz 组合, Bloch 相位, 分类函数, SU(2) Pauli 系数复合 |
-| `src/irrep/corep.rs` | Co-representation API: `compute_coreps()`, `MagneticOps`, `CorepType` |
-| `src/irrep/generated_data.rs` | 自动生成: 15+ 个静态数组, ~18 MB |
-| `src/irrep/preamble.rs` | 230 SG 的 HM 符号 + Schoenflies 符号 |
-| `src/irrep/{triclinic,monoclinic,...,cubic}.rs` | 7 个晶系文件的 rustdoc 页面 |
-
-### 静态数组 (全部在 generated_data.rs, ~18 MB 总计)
-
-| 数组 | 大小 | 说明 |
-|------|------|------|
-| `SG_IRREP_INDEX` | 231 | SG# → (start, count) into IRREPS |
-| `IRREPS` | 8,388 | 所有 irreps (4,777 scalar + 3,611 spinor) |
-| `ISOTROPY_SUBGROUPS` | 15,239 | 所有 isotropy subgroups |
-| `MAGNETIC_ISOTROPY_SUBGROUPS` | 16,721 | 磁 isotropy subgroups |
-| `CHARACTERS` | ~106K f64 | 所有特征标值 (含 spinor) |
-| `MATRICES` | ~634K f64 | 所有矩阵元素 |
-| `CIR_COMPONENT_CHARS` | ~23K f64 | Compound irrep CIR 复字符 |
-| `CIR_ROTS` | ~104K i32 | CIR 操作旋转矩阵 |
-| `PIR_ROTS` | ~500K i32 | PIR 操作旋转矩阵 |
-| `SPIN_OP_ROTS/TRANS/SU2` | ~73K total | Spinor 操作数据 |
-| `SPIN_EXTRA_CHARS` | ~17K f64 | Spinor Wigner extra 值 |
-| `SPIN_OP_SG_INDEX` | 231 | SG# → spin op 索引 |
-
-### IrrepRecord 字段
-
-```rust
-pub struct IrrepRecord {
-    pub sg: u8,        // SG 编号 1-230
-    pub ml: &str,      // CDML/Miller-Love 标签 "GM4+"
-    pub bc: &str,      // Bradley-Cracknell 标签 (LaTeX)
-    pub kov: &str,     // Kovalev 标签 (LaTeX)
-    pub dim: u8,       // 维度 1-24
-    pub image: &str,   // Stokes-Hatch image "C24c"
-    pub lifshitz: bool,
-    pub kx, ky, kz, kd: i8,  // k 矢量坐标
-    // 内部指针:
-    _char_start, _char_count,  // → CHARACTERS
-    _mat_start, _mat_count,    // → MATRICES
-    _iso_start, _iso_count,    // → ISOTROPY_SUBGROUPS
-}
-// 方法: .characters(), .matrices(), .subgroups(), .k_label(), .is_point()
-```
-
-### Python 生成脚本
-
-| 文件 | 功能 |
-|------|------|
-| `scripts/generate_irrep_data.py` | **主生成器**: 解析 iso/PIR/CIR zip → generated_data.rs |
-| `scripts/direction_map.py` | 657 个方向码 → 人类可读标签 |
-| `scripts/parse_characters.py` | 单独的 PIR 特征标解析器 (调试用) |
-| `scripts/export_irrep_json.py` | 导出 JSON 用于交互式 HTML 浏览器 |
-| `scripts/generate_irrep_docs.py` | 生成各晶系文件的 rustdoc 表格 |
-| `scripts/extract_*.py` | PDF 数据提取 (实验性) |
-
-### 匹配策略 (ISO 标签 → PIR/CIR 数据)
-
-1. 精确匹配
-2. 复合标签模糊匹配 (去掉尾部数字/符号)
-3. 前缀匹配
-4. k-vector 坐标 + 数字编号匹配 (跨命名惯例: X/Y/Z ↔ A/B/C)
-5. k-vector 坐标 + 字母前缀 + 符号匹配 (编号偏移)
-6. CIR 回退: 精确匹配 + 复合标签拆解 (H2H3 → H2 + H3)
-7. CIR 复→实矩阵转换: [[A,-B],[B,A]] 或块对角复制
-
-### 重新生成数据
+### Data regeneration pipeline
 
 ```bash
-# 完整 pipeline（推荐）:
-bash scripts/regenerate_all.sh
-
-# 或手动分步:
-python3 scripts/generate_irrep_data.py                          # Step 1: main data
-cargo test ... generate_char_reorder_map -- --nocapture         # Step 2: mapping
-python3 scripts/apply_char_reorder.py                           # Step 3: reorder data
-# Step 4: append reorder_data.rs to generated_data.rs (script does this)
+cargo test --package cryspglib --lib \
+  irrep::corep::tests::export_hall_operations -- --nocapture
+python3 scripts/generate_irrep_data.py
+# or: bash scripts/regenerate_all.sh
 ```
-
-### 注意事项
-
-- `isotropy_subgroup/*.zip` 不在 git 中 (.gitignore 排除), 也不在 cargo publish 中
-- PIR_data 存储**实表示** (PIR), CIR_data 存储**复表示** (CIR)
-- CIR 是 PIR 的超集: CIR→PIR 可转换 (取实部), PIR→CIR 不可逆
-- 生成器从 zip 直接读取, 不需要解压
-- `domains` 和 `arms` 是 `usize`, 因为值可达 384
-
-### 磁群编号系统
-
-**ISOTROPY `mag_nlabel` 索引 = spglib UNI 编号** (1-1651)。两者使用同一套编号系统。
-`MagneticIsotropyRecord.mag_sg` 存储的就是 UNI 号，可以直接传给 `corepresentation()`。
-
-| 编号类型 | 128.406 示例 | 说明 |
-|---------|-------------|------|
-| UNI | 1066 | spglib 内部编号，`MagneticSpaceGroupType.uni_number` |
-| BNS | `"128.406"` | Belov-Neronova-Smirnova 标签，`MagneticSpaceGroupType.bns_number` |
-| OG | `"128.8.1073"` | Opechowski-Guccione 标签，末尾 1073 是 **Litvin 编号**（非 UNI！） |
-| Litvin | 1073 | Litvin 编号，出现于 OG 标签末尾，易与 UNI 混淆 |
-
-### corep API (`src/irrep/corep.rs`)
-
-| 函数 | 签名 | 说明 |
-|------|------|------|
-| `identify_unitary_subgroup` | `(uni: usize) -> Option<usize>` | 从磁群 UNI 识别其 unitary subgroup 的 SG 号 |
-| `uni_from_bns` | `(bns: &str) -> Option<usize>` | BNS 标签 → UNI 编号 |
-| `uni_from_og` | `(og: &str) -> Option<usize>` | OG 标签 → UNI 编号 |
-| `get_magnetic_operations` | `(uni: usize) -> Option<MagneticOps>` | 获取磁群对称操作 |
-
-`IrrepRecord::corepresentation(uni)` 对非磁 irrep 现场计算磁共表示，无需预存表格。
-
-**已验证**: 128.406 (UNI 1066) 的 unitary subgroup = SG 118 (P-4n2)，与 BCS 一致。
 
 ---
 
-## v0.3.0: Co-representation (corep) / Wigner 测试实现
+## Key types
 
-### 概述
+| Type | Location | Description |
+|------|----------|-------------|
+| `Crystal` | `api.rs` | Entry point: lattice + positions + types |
+| `SymmetryOps` | `api.rs` | Ordered set of `{R|t}` + time_reversal |
+| `SpaceGroup` | `lib.rs` | SG number, Hall number, ops |
+| `IrrepRecord` | `irrep/types.rs` | irrep: labels, dim, k-vector, characters, matrices, subgroups, corepresentations |
+| `SpinLiftContext` | `irrep/wigner.rs` | H and G spin ops for Wigner test |
+| `SeitzOp` | `irrep/wigner.rs` | `{R|t}` with optional time reversal |
+| `CorepType` | `irrep/corep.rs` | A/B/C/Unsupported |
 
-基于 Wigner (1959) 和 Bradley & Cracknell (1972) 理论，从磁空间群的 BNS 标签自动计算磁共表示 (corepresentation)。核心流程：
+---
 
-```
-BNS label ("128.406") + k-point label ("Z")
-  → uni_from_bns()              // BNS → UNI number
-  → identify_unitary_subgroup()  // UNI → H (unitary subgroup) SG number
-  → get_magnetic_operations()    // 获取磁群对称操作 {R|t,θ}
-  → irreps_of(H) at k-point      // H 的不可约表示
-  → compute_corepresentation()   // Wigner 测试 → corep type + character table
-```
+## Module structure
 
-### BCS 128.406 Z-point 验证结果 (全部通过)
+| Module | Role |
+|--------|------|
+| `api.rs` | `Crystal`, `SymmetryOps`, `find_hall_number` |
+| `irrep/types.rs` | `IrrepRecord`, `IsotropyRecord` |
+| `irrep/query.rs` | `irreps_of()`, `kpoints_of()`, `format_character_table()` |
+| `irrep/corep.rs` | Co-representation: `compute_coreps()`, `CorepType`, diagnostic tests |
+| `irrep/wigner.rs` | Wigner test: Seitz composition, SU(2) composition, spinor classification |
+| `irrep/wigner_extra.rs` | Pre-computed antiunitary character path (included into wigner.rs) |
+| `irrep/bridge.rs` | `impl SpaceGroup` — bridge APIs |
+| `irrep/generated_data.rs` | Auto-generated static arrays (~20 MB) |
 
-| Irrep | Type | W | Dim | BCS | 路径 |
-|-------|------|---|-----|-----|------|
-| Z1Z4 | C | W=(0,0) | 4 | C | CIR 路径 |
-| Z2Z3 | C | W=(0,0) | 4 | C | CIR 路径 |
-| Z5 | A | W=1.0000 | 2 | A | PIR 路径+重排 |
-| Z6 | C | extra_sum=0 | 4 | C | Spinor extra chars |
-| Z7 | C | extra_sum=0 | 4 | C | Spinor extra chars |
+---
 
-### 核心问题与解决方案
+## Test suite (177 tests)
 
-#### 问题 1: 操作顺序不匹配 (Operation Ordering Mismatch)
-
-**现象**: Wigner 测试给出非量子化 W=0.5，而非预期的 0, +1, -1。
-
-**根因**: ISOTROPY 数据 (PIR/CIR) 和 spglib 数据库使用**不同的操作排列顺序**。
-`find_seitz()` 返回的 `m.op_index` 是 spglib 顺序的索引，但 `h_chars[m.op_index]`
-读取的是 ISOTROPY 顺序的特征标，两者不对应。
-
-例如：SG 118 的 H[2] = {2_001|0,0,0} 在 spglib 中位于索引 2，但在 CIR 数据中
-2_001 操作位于索引 1。`cir_chars[2]` 读到了错误操作的特征标。
-
-**修复**: 通过匹配旋转矩阵建立 H_ops(spglib) → CIR/PIR(ISOTROPY) 索引映射。
-- 生成阶段：从 PIR_data.txt 和 CIR_data.txt 提取操作旋转矩阵 (9 i32/op)
-- 存储为 `PIR_ROTS` 和 `CIR_ROTS` 静态数组
-- 运行时：`build_h_to_cir_map()` 通过旋转矩阵匹配建立映射
-- `reorder_cir_chars()` 将字符表重排到 spglib 顺序
-- Wigner 测试使用重排后的字符表，`m.op_index` 直接对应正确字符
-
-#### 问题 2: CIR 解析器的 conjugate 矩阵跳过
-
-**现象**: CIR 字符表包含错误值（如 dim=12 的 irrep 给出 χ(id)=1.0）。
-
-**根因**: CIR_data.txt 中复不可约表示在 ordinary 复矩阵之后还有 **conjugate 复矩阵**。
-旧解析器未跳过 conjugate 部分，导致后续操作读取了错误的数据行。
-
-CIR_data.txt 格式 (每个操作):
-```
-[operator 4×4 matrix: 16 ints]
-[ordinary complex matrix: dim² (re,im) pairs]
-[conjugate complex matrix: dim² (re,im) pairs]  ← 仅 irtype==2 时存在
-```
-
-**修复**: 解析 header 中的 `irtype` 字段 (1=real, 2=complex)。当 irtype==2 时，
-读取 ordinary 矩阵后额外跳过 dim² 个 token (conjugate 部分)。
-
-#### 问题 3: 复合标签分解过于激进
-
-**现象**: 251 个 compound irrep 的 CIR 字符和与 PIR 字符不匹配。
-
-**根因**: `_decompose_compound_label("W1W2")` 纯基于字符串规则拆分为 ["W1", "W2"]，
-但某些标签 (如 SG226 W1W2) 可能不是真的复合标签，或需要特殊处理 (同标签取共轭)。
-
-**修复 (三层校验)**:
-1. **Identity 字符校验**: `sum(CIR_χ_id) == PIR_χ_id` — 不满足则拒绝 (69 个被拒)
-2. **同标签共轭**: `P3P3 = P3 ⊕ P3*` (第二份取共轭使虚部抵消)
-3. **全字符表校验**: straight sum 和 conjugate sum 双候选，必须全操作匹配 PIR
-
-结果: 251 → 41 → **0 mismatches**
-
-#### 问题 4: Spinor Wigner 测试
-
-**现象**: Z6/Z7 给出 W=0.5 (非量子化)，无法分类。
-
-**根因**: Spinor (双值) 不可约表示需要 double-group 处理。每个空间操作 {R|t} 在
-双群中有两个 lift: g 和 Ēg (Ē = 2π 旋转 = -1)。SeitzOp 只包含空间部分，
-无法区分中心元，导致部分 Wigner 贡献项少乘了 -1。
-
-**发现**: Bilbao spin.dat 文件中 BZ 边界 k 点的 irrep 行包含 **额外字符值** (extra chars)。
-例如 Z6 的 16 个字符值中，后 8 个 `[0,0,0.5,-0.5,0,0,0,0]` 求和为 0，
-恰好等于 Wigner indicator。分析 2141 个有 extra 的 spinor irrep 发现：
-- 31% extra_sum = +1 (Type A)
-- 18% extra_sum = 0 (Type C)
-- 8.5% extra_sum = -1 (Type B)
-- 其余为未量子化值
-
-这表明 extra chars 是 Bilbao 预计算的 Wigner test contributions。
-
-**修复**: 
-1. 拆分 spin.dat 字符为标准字符 (前 n_lg) + extra (后 n_extra)
-2. 存储 `SPIN_EXTRA_CHARS` 数组
-3. `wigner_classify_spinor_extra()` 直接求和 → 分类
-4. 优先使用 extra 通道，回退到 SU(2) 双群路径 (框架已搭建)
-
-### Bilbao spin.dat SU(2) 约定
-
-**文件格式**: 每行 20 个数值:
-
-```text
-rot[9] trans[3] amp[4] phase[4]
-```
-
-**编码**: amplitude + phase/π → complex 2×2 matrix → Pauli 系数
-
-```text
-U_ij = amp[ij] · exp(iπ · phase[ij])
-
-U = [[U₀₀, U₀₁], [U₁₀, U₁₁]]
-  = u₀·I + i(u₁·σx + u₂·σy + u₃·σz)
-  = [[u₀ + iu₃,    u₂ + iu₁],
-     [-u₂ + iu₁,    u₀ - iu₃]]
-```
-
-**验证**: `scripts/test_su2_closure.py` 测试了 7 种候选 convention:
-- `flat2x2` (4 real): 193/229 SGs (84.3%) — 立方群失败
-- `quat-wxyz`: 0%
-- `pauli`: 0%  
-- `real_first` (complex): 1.3%
-- `interleaved` (complex): 0.4%
-- **`polar_phase_pi` (amp + phase/π → complex 2×2 → Pauli): 229/229 (100%)** ✅
-
-**生成时处理**: `parse_spinor_data.py` 将 amp+phase 转为 Pauli 系数，通过精确代数舍入消除浮点噪声:
-- amp 从 {0, 1/√2, 1} 舍入
-- cos/sin(π·phase) 与舍入后的 amp 相乘
-- 最终 Pauli 系数 ∈ {0, ±½, ±1/√2, ±√3/2, ±1}，作为精确 f64 存储
-
-**Rust 侧**: `SPIN_OP_SU2` 存 4 f64/op = `[u₀, u₁, u₂, u₃]`。复合通过四元数式乘法:
-```rust
-// (u₀,u)·(v₀,v) = (u₀v₀ − u·v, u₀v + v₀u + u×v)
-```
-
-### Wigner 测试三条路径
-
-| 路径 | 适用 | 关键函数 | 数据源 |
-|------|------|---------|--------|
-| CIR 路径 | Compound irreps (Z1Z4) | `wigner_classify_cir` | CIR_COMPONENT_CHARS + CIR_ROTS |
-| PIR 路径 | Non-compound scalar (Z5) | `wigner_classify` | CHARACTERS + PIR_ROTS |
-| Spinor extra | Spinor with extra (Z6/Z7) | `wigner_classify_spinor_extra` | SPIN_EXTRA_CHARS |
-| Spinor SU(2) | Spinor w/o extra (fallback) | `wigner_classify_spinor` | SPIN_OP_ROTS/TRANS/SU2 (Pauli 系数) |
-
-### 严格 Wigner 分类
-
-所有 Wigner 测试现在使用**严格量子化检查**:
-- `|W-1| < 1e-6` → Type A
-- `|W+1| < 1e-6` → Type B
-- `|W| < 1e-6` → Type C
-- 否则 → `CorepType::Unsupported`
-
-### 新增/修改的源文件
-
-| 文件 | 功能 |
-|------|------|
-| `src/irrep/wigner.rs` | Wigner 测试核心: Seitz 操作组合、Bloch 相位、分类函数 |
-| `src/irrep/corep.rs` | Co-representation API: `compute_coreps()`, `CorepType`, `MagneticOps` |
-| `src/irrep/types.rs` | `IrrepRecord` 新增: `_cir_start/count/ops`, `_pir_rot_start`, `_spin_*` 字段 |
-| `scripts/parse_spinor_data.py` | 解析 Bilbao spin.dat: SU(2) lifts, op_indices, characters |
-
-### 新增静态数组 (generated_data.rs)
-
-| 数组 | 大小 | 说明 |
-|------|------|------|
-| `CIR_COMPONENT_CHARS` | ~27K f64 | Compound irrep 的 CIR 分量复字符 (re,im 对) |
-| `CIR_ROTS` | ~104K i32 | CIR 操作旋转矩阵 (9/op)，与 CIR_COMPONENT_CHARS 同序 |
-| `PIR_ROTS` | ~500K i32 | PIR 操作旋转矩阵 (9/op)，与 CHARACTERS 同序 |
-| `SPIN_OP_ROTS` | ~40K i32 | Spinor 操作旋转矩阵 (9/op)，按 SG 索引 |
-| `SPIN_OP_TRANS` | ~14K f64 | Spinor 操作平移矢量 (3/op) |
-| `SPIN_OP_SU2` | ~19K f64 | Spinor SU(2) Pauli coefficients [u₀,u₁,u₂,u₃] (4/op). U = u₀I + i(u₁σx+u₂σy+u₃σz). Values ∈ {0,±½,±1/√2,±√3/2,±1}, exact f64. Verified 229/229 SGs at 100% closure. |
-| `SPIN_EXTRA_CHARS` | ~17K f64 | Pre-computed Wigner contributions for spinor irreps |
-| `SPIN_OP_SG_INDEX` | 231 | SG# → (start, count) into SPIN_OP_* arrays |
-
-### 数据生成关键修复 (generate_irrep_data.py)
-
-1. **CIR 解析器**: 跳过 conjugate 复矩阵 (irtype==2 时)
-2. **CIR_ROTS 对齐**: 当某 irrep 缺少旋转数据时零填充，保持与 CIR_COMPONENT_CHARS 同步
-3. **PIR 旋转提取**: 从 PIR_data.txt 操作矩阵行提取旋转矩阵 → `PIR_ROTS`
-4. **同标签共轭**: 自动检测并应用第二份取共轭
-5. **全字符校验**: straight sum + conjugate sum 双候选，全操作匹配 PIR
-6. **Spinor 旋转继承**: spinor irrep 从同 SG 同 k 点 scalar irrep 继承 PIR 旋转
-7. **Spinor extra 拆分**: 按 op_indices 长度切分标准字符和 extra
-8. **dim 从字符表读取**: 优先级 χ(E) from chars_flat > PIR header > image_dimension > error。
-   删除了不可靠的 `IMAGE_DIM` 硬编码首字母猜测（曾导致 K1536a → dim=1）
-9. **Spinor kd 最小分母**: 从 `[1,2,3,4,6]` 找最小公分母 + gcd 约分，确保 scalar 和 spinor irrep
-   在同一 k 点共享相同的 (kx,ky,kz,kd) 元组
-
-### 测试体系 (45 tests, 1 ignored)
-
-| 层 | 测试数 | 说明 |
-|----|--------|------|
-| Wigner 算法 | 10 | Seitz 组合、k 滤波、Type A/B/C 维度 |
-| 数据查询 | 12 | irreps_of, kpoints_of, subgroups, 格式化 |
-| 全量自洽 | 8 | 230 SG 所有 irrep χ(E)=dim, k-point 分组不重不漏, isotropy subgroup 合法, 1651 MSG 操作合法, spinor well-formed, k-vector 格式 |
-| BCS 验证 | 5 | 128.406 Z, 165.95 L, SG 128 Γ, SG 139 P, SG 1 GM1 |
-| 交叉验证 | 1 | 596 compound irrep: ΣCIR_χ = PIR_χ (全字符表) |
-| 其他 | 9 | UNI lookup, 操作顺序, 矩阵重排, a₀ 无关性, Type C 去重, 高维 image 回归 |
-
-### 重要教训
-
-1. **永远不要假设数据顺序一致**: 不同数据源 (ISOTROPY vs spglib vs Bilbao) 的操作排列顺序不同，必须通过旋转矩阵匹配来建立映射
-2. **字符串规则拆分不可靠**: `_decompose_compound_label()` 必须用字符表校验 (identity + full)，不能纯靠字符串匹配
-3. **非量子化 W 必须报错**: 不能把 W=0.5 当做 Type A (W>0)，这是数据不完整的标志
-4. **Bilbao extra chars 是预计算值**: 不需要自己实现 SU(2) 组合即可获得正确的 spinor Wigner 分类
-5. **CIR 解析器边界处理**: 高维矩阵跨多行时，token-count 推进必须精确，否则逐操作累积偏移
-6. **dim 不能靠 image 标签猜**: `IMAGE_DIM` 硬编码首字母映射不完整（缺 K/L/M/N），导致 K1536a 等被解析为 dim=1。应从 PIR 字符表的 χ(E) 直接读取表示维度
-7. **生成器缩进错误会被空 warning 掩盖**: scalar_records.append 错放在 if dim_warnings > 0 块内 → warnings=0 时静默生成空数据。全量自洽测试能抓这类 bug
-
-### 重要教训 (新增)
-
-8. **a₀ 的 SU(2) lift 只取决于 rotation 部分**: `wigner_classify_spinor` 中用 `find_seitz` 查找 a₀ 时，不能要求 translation 也匹配——spin ops 只存了 reference translation，而 a₀ 可能有不同的平移分量（如 `{E|0,0,½}`）。已修复为 rotation-only 匹配，SU(2) 成功率从 14.2% 提升到 37.6%。
-9. **spinor canonical lift 的空间顺序 = scalar PIR 操作顺序**: Ē-lift 不在 spinor little group 中（至少对 BZ 边界 k-point），spinor 字符可以直接用 scalar PIR rotations 做 1:1 映射。
-10. **Bilbao spin.dat 只存 canonical lift**: 双群的 Ē-lift 通过 χ(Ēg) = -χ(g) 推导，不单独存储。单个空间操作对应一个 spinor 字符位置。
-
-### 技术债
-
-| 项目 | 说明 |
-|------|------|
-| `wigner_classify_spinor` SU(2) 成功率 | 37.6% (8044/21389)。剩余失败在低对称群 SG1-12，`build_h_to_spin_map` 的 H_ops→spin_ops 匹配失败。不是算法 bug，是 spin.dat 与 spglib H_ops 的 setting 不一致。 |
-| Type A 高维 intertwiner | 1D 已完成（U=√χ(a₀²)），高维 (>1D) 的 U 矩阵求解未实现 |
-| Spinor 字符重排 unmapped 3270 | 低对称群 SG5-44 的 PIR 数据用 primitive cell 但 spglib 用 base-centered setting，scalar 的 PIR rotations 不匹配 |
-
-## v0.4.0 路线图 (更新)
-
-详见 `.claude/plans/quiet-tumbling-cray.md`
-
-| Phase | 任务 | 状态 |
-|-------|------|------|
-| 1.1 | Spinor 字符重排 (scalar PIR rot 继承) | done: 5118 mapped, PER_CHAR_REORDER 54066 条目 |
-| 1.2 | Pipeline 脚本 `regenerate_all.sh` | done |
-| 2.1 | Type A 1D 反酉字符 (intertwiner U) | done: `type_a_antiunitary_chars()`, `CharacterCompleteness` |
-| 2.1b | Type A 高维 intertwiner | TODO |
-| 3.1 | Spinor SU(2) Wigner 全量统计 | done: 37.6% success, a₀ rotation-only fix applied |
-| 3.2 | Type C partner 多 MSG 验证 | done: 128.406 Z, 165.95 L, SG 139 P, SG1 GM1 |
-| 3.3 | `verify_char_reorder_consistency` | cleaned up (git restore) |
-
-### 当前关键文件状态
-
-- `src/irrep/wigner.rs`: `SpinLiftContext`, `type_a_antiunitary_chars()`, `wigner_classify_spinor` (rotation-only a₀), `build_corep_chars` (au_chars 参数)
-- `src/irrep/corep.rs`: `compute_corepresentation` (au_chars 计算), `parent_spatial_sg()`, `CharacterCompleteness`, `test_corep_sg1_gm1` (Type A 1D 验证)
-- `src/irrep/types.rs`: `characters_spglib()`, `spin_ops_for_sg()`, `IrrepRecord` 带 `_pir_rot_start`
-- `src/irrep/generated_data.rs`: 末尾附有 `PER_CHAR_REORDER` 等重排数组 (54066 条目)
-- `scripts/apply_char_reorder.py`: mapping txt → Rust 代码
-- `scripts/regenerate_all.sh`: 完整 pipeline 脚本
-- `char_reorder_map.txt`: 5118 mapped + 3270 unmapped (不提交 git)
-
+| Layer | Count | Description |
+|-------|-------|-------------|
+| Wigner algorithm | 11 | Seitz composition, k filtering, Type A/B/C |
+| Diagnostic | 15+ | `diagnose_wigner_sources`, `diagnose_per_term_su2_trace`, etc. |
+| Full self-consistency | 8 | χ(E)=dim, k-point grouping, isotropy subgroup validity |
+| BCS validation | 5 | Known reference cases |
+| Integration | 6 | bcs_corep_validation, irrep_validation, etc. |

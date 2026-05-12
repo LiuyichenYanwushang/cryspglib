@@ -173,7 +173,8 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
     // Format operation as compact string
     let fmt_op = |i: usize| -> String {
         if i >= ops.len() { return format!("g{}", i); }
-        let (r, t) = &ops[i];
+        let r = &ops[i].rotation;
+        let t = &ops[i].translation;
         let is_identity = r[0][0] == 1 && r[0][1] == 0 && r[0][2] == 0
             && r[1][0] == 0 && r[1][1] == 1 && r[1][2] == 0
             && r[2][0] == 0 && r[2][1] == 0 && r[2][2] == 1;
@@ -264,40 +265,19 @@ fn format_value(v: f64) -> String {
 ///
 /// Returns a vector of `(rotation_matrix_3x3, translation_vector_3)` pairs.
 /// The matrices are integer, the translations are fractional.
-pub fn symmetry_operations_of(sg: u8) -> Vec<(crate::mathfunc::Mat3I, crate::mathfunc::Vec3)> {
-    let hall = match find_hall_number(sg) {
-        Some(h) => h,
-        None => return vec![],
-    };
-    let sym = match crate::spg_database::spgdb_get_spacegroup_operations(hall) {
-        Some(s) => s,
-        None => return vec![],
-    };
-    (0..sym.size)
-        .map(|i| (sym.rot[i], sym.trans[i]))
-        .collect()
+/// Get symmetry operations for a space group number.
+///
+/// Returns [`crate::SymmetryOps`] which derefs to `&[SymmetryOp]`.
+pub fn symmetry_operations_of(sg: u8) -> crate::SymmetryOps {
+    crate::SymmetryOps::from_sg(sg).unwrap_or_else(|| crate::SymmetryOps::default())
 }
 
-/// Find the canonical Hall number for a given space group.
-///
-/// Iterates over Hall numbers 1–530 and returns the first match
-/// where the space group number equals `sg`.
 /// Greatest common divisor.
 fn gcd(mut a: u64, mut b: u64) -> u64 {
     while b != 0 {
         (a, b) = (b, a % b);
     }
     a
-}
-
-fn find_hall_number(sg: u8) -> Option<usize> {
-    for hall in 1..=530 {
-        let st = crate::spg_database::spgdb_get_spacegroup_type(hall);
-        if st.number == sg as usize {
-            return Some(hall);
-        }
-    }
-    None
 }
 
 #[cfg(test)]
@@ -438,7 +418,7 @@ mod tests {
         let ops = symmetry_operations_of(225); // Fm-3m
         assert!(!ops.is_empty());
         // The first operation should be identity (or close)
-        let (rot, _trans) = &ops[0];
+        let rot = &ops[0].rotation;
         // Identity rotation
         assert_eq!(rot[0][0], 1);
         assert_eq!(rot[1][1], 1);

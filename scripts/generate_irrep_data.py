@@ -1417,6 +1417,396 @@ def _lookup_matrices(matrices_map, sg_num, ml_label, kvec_map=None):
     return []  # not found
 
 
+def _load_hall_operations():
+    """Load spglib Hall symmetry operations exported by the Rust test."""
+    import json
+    hall_path = os.path.join(SCRIPT_DIR, "hall_operations.json")
+    if not os.path.exists(hall_path):
+        print("  Note: hall_operations.json not found — skipping spglib reorder")
+        return {}
+    with open(hall_path) as f:
+        raw = json.load(f)
+    # raw: {"517": {"sg": 221, "rots": [[...], ...], "trans": [[...], ...]}, ...}
+    # Build sg → [(hall_number, rots_list)] index
+    sg_halls = defaultdict(list)
+    for hall_str, hd in raw.items():
+        sg_halls[hd["sg"]].append((int(hall_str), hd["rots"]))
+    return sg_halls
+
+
+def _reorder_to_spglib_order(
+        sg, ml, chars_flat, char_starts, char_counts,
+        matrices_flat, mat_starts, mat_counts,
+        pir_rots_flat, pir_rot_starts, rots_map,
+        spinor_irreps, spinor_starts, spinor_counts,
+        cir_comp_flat=None, cir_comp_rots=None,
+        cir_comp_starts=None, cir_comp_counts=None, cir_comp_ops=None):
+    """Reorder per-irrep data from ISOTROPY order into spglib Hall order.
+
+    For compound irreps without PIR rotations, falls back to CIR component
+    rotations (CIR_ROTS) to build the mapping.
+
+    Returns per-irrep list: None if unmapped, otherwise list[h_idx→pir_idx].
+    Spinor entries appended after scalar entries.
+    """
+    sg_halls = _load_hall_operations()
+    if not sg_halls:
+        return [None] * (len(ml) + len(spinor_irreps))
+
+    n_scalar = len(ml)
+    reorder_results = []
+    sg_hall_choice = {}  # sg → mapping list
+
+    mapped_count = 0
+    unmapped_count = 0
+
+    for i in range(n_scalar):
+        sg_num = sg[i]
+        n_ops = char_counts[i]
+        pir_rots = rots_map.get((sg_num, ml[i]), [])
+
+        if n_ops == 0 or not pir_rots:
+            reorder_results.append(None)
+            unmapped_count += 1
+            continue
+
+        hall_candidates = sg_halls.get(sg_num, [])
+
+        best_mapping = None
+        for hall_num, hall_rots in hall_candidates:
+            if len(hall_rots) == 0:
+                continue
+            mapping = []
+            for h_rot in hall_rots:
+                found = None
+                for p_idx, p_rot in enumerate(pir_rots):
+                    if len(p_rot) != 9 or len(h_rot) != 9:
+                        continue
+                    if all(h_rot[d] == p_rot[d] for d in range(9)):
+                        found = p_idx
+                        break
+                mapping.append(found)
+            mapped_op_count = sum(1 for m in mapping if m is not None)
+            if mapped_op_count == len(hall_rots):
+                best_mapping = mapping
+                break
+
+        if best_mapping:
+            _apply_reorder(chars_flat, char_starts[i], n_ops, best_mapping, 1)
+            dim_sq = mat_counts[i] // n_ops if n_ops else 1
+            if dim_sq > 0 and mat_counts[i] > 0:
+                _apply_reorder(matrices_flat, mat_starts[i], n_ops, best_mapping, dim_sq)
+            if n_ops > 0:
+                _apply_reorder(pir_rots_flat, pir_rot_starts[i], n_ops, best_mapping, 9)
+            char_counts[i] = len(best_mapping)
+            sg_hall_choice[sg_num] = best_mapping
+            reorder_results.append(best_mapping)
+            mapped_count += 1
+        else:
+            reorder_results.append(None)
+            unmapped_count += 1
+
+    # ── Reorder CIR component data for compound irreps ──
+    cir_reordered = 0
+    if cir_comp_flat is not None and cir_comp_rots is not None and cir_comp_starts is not None:
+        for i in range(n_scalar):
+            n_comp = cir_comp_counts[i] if i < len(cir_comp_counts) else 0
+            if n_comp == 0:
+                continue
+            cir_ops = cir_comp_ops[i] if i < len(cir_comp_ops) else 0
+            if cir_ops == 0:
+                continue
+            cir_start = cir_comp_starts[i] if i < len(cir_comp_starts) else 0
+            if cir_start == 0:
+                continue
+
+            mapping = reorder_results[i]
+            if mapping is None:
+                continue
+
+            # Reorder CIR data for ALL components using PIR mapping
+            for comp in range(n_comp):
+                comp_char_start = cir_start + comp * cir_ops * 2
+                _apply_reorder(cir_comp_flat, comp_char_start, cir_ops, mapping, 2)
+                comp_rot_start = (cir_start // 2) * 9 + comp * cir_ops * 9
+                _apply_reorder(cir_comp_rots, comp_rot_start, cir_ops, mapping, 9)
+            cir_reordered += 1
+
+    if cir_reordered > 0:
+        print(f"  CIR reorder: {cir_reordered} compound irreps")
+
+    # Handle spinor irreps: inherit reordering from scalar at same k-point
+    for spin_idx, sir in enumerate(spinor_irreps):
+        sg_num = sir["sg"]
+        n_ops = len(sir.get("op_indices", []))
+        # Try to find scalar mapping for this SG
+        mapping = sg_hall_choice.get(sg_num)
+        if mapping and n_ops > 0 and spin_idx < len(spinor_starts):
+            # Spinor characters reorder same as scalar at this SG
+            s_start = spinor_starts[spin_idx]
+            s_count = spinor_counts[spin_idx]
+            if s_count > 0:
+                _apply_reorder(chars_flat, s_start, s_count, mapping, 1)
+            reorder_results.append(mapping)
+            mapped_count += 1
+        else:
+            reorder_results.append(None)
+            unmapped_count += 1
+
+    print(f"  Spglib reorder: {mapped_count} mapped, {unmapped_count} unmapped "
+          f"(of {len(reorder_results)} irreps, {len(sg_halls)} SGs)")
+    return reorder_results
+
+
+def _build_padding_plans(sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops,
+                          cir_comp_rots, reorder_results):
+    """Build padding plans for unmapped compound irreps using CIR_ROTS matching.
+
+    For unmapped entries (reorder_results[i] is None) that have CIR data,
+    match the first component's CIR rotation matrices against Hall operations
+    to build a cir_to_hall mapping. Each plan is (irrep_idx, hall_ops, cir_to_hall).
+
+    Returns list of padding plans.
+    """
+    sg_halls = _load_hall_operations()
+    if not sg_halls:
+        return []
+
+    padding_plans = []  # [(irrep_idx, hall_ops, cir_to_hall), ...]
+    n_scalar = len(ml)
+
+    for i in range(n_scalar):
+        if reorder_results[i] is not None:
+            continue  # Already mapped via PIR_ROTS
+        if cir_comp_counts[i] == 0:
+            continue  # No CIR data at all
+
+        n_ops = cir_comp_ops[i]  # CIR ops count (little group size)
+        if n_ops == 0:
+            continue
+
+        # Get first component's CIR rotation matrices
+        rot_start = (cir_comp_starts[i] // 2) * 9
+        cir_rots = []
+        for op_idx in range(n_ops):
+            r9 = cir_comp_rots[rot_start + op_idx * 9:rot_start + (op_idx + 1) * 9]
+            cir_rots.append(r9)
+
+        sg_num = sg[i]
+        hall_candidates = sg_halls.get(sg_num, [])
+
+        best_plan = None
+        for hall_num, hall_rots in hall_candidates:
+            hall_ops = len(hall_rots)
+            if hall_ops == 0 or n_ops > hall_ops:
+                continue
+
+            # Match each CIR op → Hall op
+            cir_to_hall = []  # cir_to_hall[ci] = hi
+            for ci, c_rot in enumerate(cir_rots):
+                found = None
+                for hi, h_rot in enumerate(hall_rots):
+                    if all(c_rot[d] == h_rot[d] for d in range(9)):
+                        found = hi
+                        break
+                cir_to_hall.append(found)
+
+            if None not in cir_to_hall:
+                # Verify identity maps to identity
+                if cir_to_hall[0] != 0:
+                    print(f"  WARNING padding: SG{sg_num} {ml[i]}: "
+                          f"CIR identity → Hall[{cir_to_hall[0]}], not 0")
+                best_plan = (i, hall_ops, cir_to_hall)
+                break  # Use first matching Hall setting
+
+        if best_plan:
+            padding_plans.append(best_plan)
+        else:
+            print(f"  WARNING padding: SG{sg_num} {ml[i]}: "
+                  f"no Hall setting matches all CIR rots (n_ops={n_ops})")
+
+    return padding_plans
+
+
+def _apply_reorder(arr, start, count, mapping, stride):
+    """Reorder `count` items in `arr` starting at `start`, each item of size `stride`.
+
+    mapping[h_idx] = orig_idx.  Only reorders the first `len(mapping)` items.
+    Extra items beyond len(mapping) are left untouched.
+    """
+    if stride == 0 or count == 0:
+        return
+    n_reorder = min(count, len(mapping))
+    if n_reorder == 0:
+        return
+    old = arr[start:start + count * stride]
+    for new_pos in range(n_reorder):
+        old_pos = mapping[new_pos]
+        if old_pos is not None and old_pos < count:
+            src = start + old_pos * stride
+            dst = start + new_pos * stride
+            offset = src - start
+            for d in range(stride):
+                arr[dst + d] = old[offset + d]
+
+
+def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
+                          matrices_flat, mat_starts, mat_counts,
+                          pir_rots_flat, pir_rot_starts,
+                          cir_comp_flat, cir_comp_rots, cir_comp_starts, cir_comp_counts, cir_comp_ops,
+                          spinor_starts, spinor_counts):
+    """Rebuild flat arrays with padded entries for compound irreps expanded to Hall size."""
+    n_scalar = len(char_starts)
+    plans_by_idx = {i: (hall_ops, cir_to_hall) for i, hall_ops, cir_to_hall in padding_plans}
+
+    # Rebuild chars_flat
+    new_chars = []
+    new_char_starts = []
+    new_char_counts = []
+    for i in range(n_scalar):
+        new_char_starts.append(len(new_chars))
+        if i in plans_by_idx:
+            hall_ops, cir_to_hall = plans_by_idx[i]
+            old = chars_flat[char_starts[i]:char_starts[i] + char_counts[i]]
+            for h in range(hall_ops):
+                ci = None
+                for cii, hi in enumerate(cir_to_hall):
+                    if hi == h:
+                        ci = cii
+                        break
+                if ci is not None and ci < len(old):
+                    new_chars.append(old[ci])
+                else:
+                    new_chars.append(0.0)
+            new_char_counts.append(hall_ops)
+        else:
+            n = char_counts[i]
+            new_chars.extend(chars_flat[char_starts[i]:char_starts[i] + n])
+            new_char_counts.append(n)
+
+    # Rebuild matrices_flat
+    new_mats = []
+    new_mat_starts = []
+    new_mat_counts = []
+    for i in range(n_scalar):
+        new_mat_starts.append(len(new_mats))
+        if i in plans_by_idx:
+            hall_ops, cir_to_hall = plans_by_idx[i]
+            old_m = matrices_flat[mat_starts[i]:mat_starts[i] + mat_counts[i]]
+            cir_ops = len(cir_to_hall)
+            dim_sq = mat_counts[i] // cir_ops if cir_ops else 0
+            for h in range(hall_ops):
+                ci = None
+                for cii, hi in enumerate(cir_to_hall):
+                    if hi == h:
+                        ci = cii
+                        break
+                if ci is not None and ci < cir_ops and dim_sq > 0:
+                    new_mats.extend(old_m[ci * dim_sq:(ci + 1) * dim_sq])
+                else:
+                    new_mats.extend([0.0] * max(dim_sq, 0))
+            new_mat_counts.append(hall_ops * max(dim_sq, 1))
+        else:
+            n = mat_counts[i]
+            new_mats.extend(matrices_flat[mat_starts[i]:mat_starts[i] + n])
+            new_mat_counts.append(n)
+
+    # Rebuild pir_rots_flat
+    new_rots = []
+    new_rot_starts = []
+    n_rot_entries = len(pir_rot_starts)
+    for i in range(n_rot_entries):
+        new_rot_starts.append(len(new_rots))
+        orig_end = pir_rot_starts[i + 1] if i + 1 < n_rot_entries else len(pir_rots_flat)
+        if i < n_scalar and i in plans_by_idx:
+            hall_ops, cir_to_hall = plans_by_idx[i]
+            cir_ops = len(cir_to_hall)
+            old_r = pir_rots_flat[pir_rot_starts[i]:pir_rot_starts[i] + cir_ops * 9]
+            for h in range(hall_ops):
+                ci = None
+                for cii, hi in enumerate(cir_to_hall):
+                    if hi == h:
+                        ci = cii
+                        break
+                if ci is not None and ci < cir_ops and len(old_r) > ci * 9:
+                    new_rots.extend(old_r[ci * 9:(ci + 1) * 9])
+                else:
+                    new_rots.extend([0] * 9)
+        else:
+            new_rots.extend(pir_rots_flat[pir_rot_starts[i]:orig_end])
+
+    # Rebuild cir_comp_flat and cir_comp_rots
+    new_cir_flat = []
+    new_cir_rots = []
+    new_cir_starts = []
+    for i in range(len(cir_comp_starts)):
+        n_comp = cir_comp_counts[i]
+        old_ops = cir_comp_ops[i]
+        if n_comp == 0 or old_ops == 0:
+            new_cir_starts.append(0)
+            continue
+        new_cir_starts.append(len(new_cir_flat))
+        if i in plans_by_idx:
+            hall_ops, cir_to_hall = plans_by_idx[i]
+            for comp in range(n_comp):
+                old_start = cir_comp_starts[i] + comp * old_ops * 2
+                old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
+                for h in range(hall_ops):
+                    ci = None
+                    for cii, hi in enumerate(cir_to_hall):
+                        if hi == h:
+                            ci = cii
+                            break
+                    if ci is not None and ci < old_ops:
+                        new_cir_flat.append(cir_comp_flat[old_start + ci * 2])
+                        new_cir_flat.append(cir_comp_flat[old_start + ci * 2 + 1])
+                        new_cir_rots.extend(cir_comp_rots[old_rot_start + ci * 9:old_rot_start + (ci + 1) * 9])
+                    else:
+                        new_cir_flat.append(0.0)
+                        new_cir_flat.append(0.0)
+                        new_cir_rots.extend([0] * 9)
+            cir_comp_ops[i] = hall_ops
+        else:
+            old_start = cir_comp_starts[i]
+            total_chars = n_comp * old_ops * 2
+            new_cir_flat.extend(cir_comp_flat[old_start:old_start + total_chars])
+            old_rot_start = (cir_comp_starts[i] // 2) * 9
+            total_rots = n_comp * old_ops * 9
+            new_cir_rots.extend(cir_comp_rots[old_rot_start:old_rot_start + total_rots])
+
+    # Copy back, preserving spinor data at the end.
+    # Use spinor_starts[0] as the true scalar/spinor boundary, because
+    # char_counts may have been truncated by _reorder_to_spglib_order
+    if spinor_starts:
+        old_scalar_chars_len = spinor_starts[0]
+    else:
+        old_scalar_chars_len = sum(char_counts)
+    spinor_chars_tail = chars_flat[old_scalar_chars_len:] if old_scalar_chars_len < len(chars_flat) else []
+    new_scalar_chars_len = len(new_chars)
+    for j in range(len(spinor_starts)):
+        old_spinor_start = spinor_starts[j]
+        if old_spinor_start >= old_scalar_chars_len:
+            spinor_starts[j] = new_scalar_chars_len + (old_spinor_start - old_scalar_chars_len)
+    chars_flat[:] = new_chars + spinor_chars_tail
+    char_starts[:] = new_char_starts
+    char_counts[:] = new_char_counts
+
+    old_scalar_mats_len = sum(mat_counts)
+    spinor_mats_tail = matrices_flat[old_scalar_mats_len:] if old_scalar_mats_len < len(matrices_flat) else []
+    new_scalar_mats_len = sum(new_mat_counts)
+    for j in range(len(spinor_starts)):  # spinor mats at end
+        pass  # spinor mat_starts are appended separately, not in mat_starts list
+    matrices_flat[:] = new_mats + spinor_mats_tail
+    mat_starts[:] = new_mat_starts
+    mat_counts[:] = new_mat_counts
+
+    pir_rots_flat[:] = new_rots
+    pir_rot_starts[:] = new_rot_starts
+    cir_comp_flat[:] = new_cir_flat
+    cir_comp_rots[:] = new_cir_rots
+    cir_comp_starts[:] = new_cir_starts
+
+
 def generate_rust_data(data):
     """Generate the content of generated_data.rs."""
     ml  = data["ml_labels"]
@@ -1701,6 +2091,52 @@ def generate_rust_data(data):
         spin_lg_op_starts.append(len(spin_lg_op_indices_flat))
         spin_lg_op_counts.append(len(ops))
         spin_lg_op_indices_flat.extend(ops)
+
+    # ── Reorder characters/matrices/rots from ISOTROPY order to spglib order ──
+    reorder_map_per_irrep = _reorder_to_spglib_order(
+        sg, ml, chars_flat, char_starts, char_counts,
+        matrices_flat, mat_starts, mat_counts,
+        pir_rots_flat, pir_rot_starts, rots_map,
+        spinor_irreps, spinor_starts, spinor_counts,
+        cir_comp_flat=cir_comp_flat, cir_comp_rots=cir_comp_rots,
+        cir_comp_starts=cir_comp_starts, cir_comp_counts=cir_comp_counts,
+        cir_comp_ops=cir_comp_ops)
+    # CIR component data is also reordered in-place.
+    # CIR components are used by the Wigner CIR path which matches rotations
+    # at runtime via build_h_to_cir_map().  The characters stay in ISOTROPY order.
+    # reorder_map_per_irrep[i] = None (unmapped) or list[h_idx→pir_idx] (mapped)
+    # For spinor irreps: entries past len(ml) are the spinor reorder maps
+
+    # ── Phase C: CIR padding for unmapped compound irreps ──
+    padding_plans = _build_padding_plans(
+        sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops, cir_comp_rots,
+        reorder_map_per_irrep)
+    if padding_plans:
+        print(f"  CIR padding: {len(padding_plans)} entries expanded to Hall size")
+        _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
+                             matrices_flat, mat_starts, mat_counts,
+                             pir_rots_flat, pir_rot_starts,
+                             cir_comp_flat, cir_comp_rots, cir_comp_starts,
+                             cir_comp_counts, cir_comp_ops,
+                             spinor_starts, spinor_counts)
+
+    # ── Verify identity characters for ALL scalar entries ──
+    bad_chars = []
+    for i in range(len(ml)):
+        cs = char_starts[i]
+        cc = char_counts[i]
+        if cc > 0 and cs < len(chars_flat):
+            chi0 = chars_flat[cs]
+            if chi0 <= 0.0:
+                bad_chars.append(f"  SG{sg[i]} {ml[i]}: χ(E)={chi0} (n_ops={cc})")
+    if bad_chars:
+        print(f"  ⚠ {len(bad_chars)} ENTRIES WITH NON-POSITIVE χ(E) AFTER PADDING:")
+        for line in bad_chars[:15]:
+            print(line)
+        if len(bad_chars) > 15:
+            print(f"  ... and {len(bad_chars) - 15} more")
+    else:
+        print(f"  ✓ All {len(ml)} scalar entries have positive χ(E)")
 
     lines = []
     lines.append("// Auto-generated from iso_data files by scripts/generate_irrep_data.py")
@@ -2093,6 +2529,9 @@ def generate_rust_data(data):
         lines.append(f'        direction: "{escape_rust_str(direction)}",')
         lines.append(f"    }},")
     lines.append("];")
+    lines.append("")
+    lines.append("// SG setting data: basis matrices and origin shifts from ISOTROPY.")
+    lines.append("include!(\"settings_data.rs\");")
     lines.append("")
 
     return "\n".join(lines)
