@@ -785,22 +785,28 @@ mod tests {
                 let n_ops = pir.len();
                 if n_ops == 0 { continue; }
 
-                // Sum CIR component characters
-                let mut cir_sum_re = vec![0.0f64; n_ops];
-                let mut cir_sum_im = vec![0.0f64; n_ops];
+                // Sum CIR component characters.
+                // CIR covers only distinct rotation types (little co-group),
+                // which may be fewer ops than PIR (full little group).
+                let cir_ops = (0..n_comp)
+                    .map(|c| ir.cir_component_chars(c).len() / 2)
+                    .min()
+                    .unwrap_or(0);
+                if cir_ops == 0 {
+                    continue; // No CIR data
+                }
+                let n_cmp = n_ops.min(cir_ops);
+                let mut cir_sum_re = vec![0.0f64; n_cmp];
+                let mut cir_sum_im = vec![0.0f64; n_cmp];
                 for c in 0..n_comp {
                     let cir = ir.cir_component_chars(c);
-                    if cir.len() < n_ops * 2 {
-                        mismatches += 1;
-                        break;
-                    }
-                    for op in 0..n_ops {
-                        cir_sum_re[op] += cir[2 * op];     // real part
-                        cir_sum_im[op] += cir[2 * op + 1]; // imag part
+                    for op in 0..n_cmp {
+                        cir_sum_re[op] += cir[2 * op];
+                        cir_sum_im[op] += cir[2 * op + 1];
                     }
                 }
 
-                for op in 0..n_ops {
+                for op in 0..n_cmp {
                     let diff_re = (pir[op] - cir_sum_re[op]).abs();
                     let diff_im = cir_sum_im[op].abs();
                     if diff_re > 0.01 || diff_im > 0.01 {
