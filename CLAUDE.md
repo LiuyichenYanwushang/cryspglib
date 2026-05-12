@@ -17,6 +17,28 @@ cargo check --package cryspglib
 
 ---
 
+## 工作流铁律
+
+### 规则 1: cargo check 成功后立即 commit
+
+每次 `cargo check` 成功后必须立即 `git add -A && git commit`。宁可多几个小 commit，不能累积未提交改动。
+
+**Why:** 未提交代码跨 session 容易因 git checkout 等操作永久丢失（发生过：2163→3307 行的诊断代码全部丢失）。
+
+### 规则 2: 不用 Python 脚本做代码修改
+
+批量 sed/Python 替换容易产生意外后果。代码修改必须用 Edit/Write 工具逐处进行，每处修改后确认正确。
+
+### 规则 3: 不用 type alias 做过渡
+
+`pub type OldName = NewName;` 只是把问题藏起来，缺少可维护性。应该全局替换所有引用，然后删除旧定义。
+
+### 规则 4: 先 use 再去掉 crate:: 前缀
+
+替换类型时，先在文件头部添加 `use crate::NewType;`，再把文件中所有 `crate::NewType` 替换为 `NewType`。
+
+---
+
 ## 调试方法论 — 从 spinor Wigner 排查中提炼的经验
 
 ### 原则 1：比较 passing vs failing cases，找差异因子

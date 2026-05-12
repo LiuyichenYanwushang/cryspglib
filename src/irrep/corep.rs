@@ -92,6 +92,7 @@
 
 use num_complex::Complex64;
 use crate::mathfunc::{Mat3I, Vec3};
+use crate::SymmetryOps;
 use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use super::types::IrrepRecord;
 use super::wigner::{self, filter_little_group, ops_to_seitz, SeitzOp,
@@ -147,31 +148,6 @@ impl CorepType {
     }
 }
 
-/// The magnetic symmetry operations for a space group.
-///
-/// Each operation has a 3×3 integer rotation matrix `rot`, a fractional
-/// translation vector `trans`, and a time-reversal flag `timerev`.
-#[derive(Debug, Clone)]
-pub struct MagneticOps {
-    /// Rotation matrices (3×3 integer)
-    pub rot: Vec<Mat3I>,
-    /// Translation vectors (fractional)
-    pub trans: Vec<Vec3>,
-    /// Time-reversal flag: true = anti-unitary
-    pub timerev: Vec<bool>,
-}
-
-impl MagneticOps {
-    /// Number of symmetry operations.
-    pub fn len(&self) -> usize {
-        self.rot.len()
-    }
-
-    /// Whether this is an empty set.
-    pub fn is_empty(&self) -> bool {
-        self.rot.is_empty()
-    }
-}
 
 /// Completeness of the magnetic character table.
 ///
@@ -192,7 +168,7 @@ pub enum CharacterCompleteness {
 /// The computed magnetic co-representation of an irrep.
 #[derive(Debug, Clone)]
 pub struct Corepresentation {
-    /// Character χ̃(g) for each magnetic operation (same order as MagneticOps).
+    /// Character χ̃(g) for each magnetic operation (same order as SymmetryOps).
     pub characters: Vec<f64>,
     /// Which operations are anti-unitary.
     pub timerev: Vec<bool>,
@@ -218,7 +194,7 @@ pub struct Corepresentation {
 pub fn compute_corepresentation(
     h_irrep: &IrrepRecord,
     uni_number: usize,
-    mag_ops: &MagneticOps,
+    mag_ops: &SymmetryOps,
 ) -> Option<Corepresentation> {
     if uni_number == 0 || uni_number > 1651 {
         return None;
@@ -247,7 +223,7 @@ pub fn compute_corepresentation(
     // (rotation + translation), not rotation-only.
     let op_map: Vec<Option<usize>> = (0..mag_ops.len())
         .map(|i| {
-            if mag_ops.timerev[i] {
+            if mag_ops.operations[i].time_reversal {
                 None
             } else {
                 let mop = &mag_seitz[i];
@@ -257,7 +233,7 @@ pub fn compute_corepresentation(
         })
         .collect();
 
-    if op_map.iter().enumerate().any(|(i, m)| !mag_ops.timerev[i] && m.is_none()) {
+    if op_map.iter().enumerate().any(|(i, m)| !mag_ops.operations[i].time_reversal && m.is_none()) {
         return None;
     }
 
@@ -271,9 +247,9 @@ pub fn compute_corepresentation(
 
     // 5. Separate unitary / anti-unitary in little group
     let unitary: Vec<usize> = mag_lg.iter()
-        .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+        .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
     let antiunitary: Vec<usize> = mag_lg.iter()
-        .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+        .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
 
     // 7. Wigner test: dispatch by irrep type
     let (corep_type, source) = if antiunitary.is_empty() {
@@ -399,7 +375,7 @@ pub fn compute_corepresentation(
 
     Some(Corepresentation {
         characters,
-        timerev: mag_lg.iter().map(|&i| mag_ops.timerev[i]).collect(),
+        timerev: mag_lg.iter().map(|&i| mag_ops.operations[i].time_reversal).collect(),
         corep_type,
         source,
         dim,
@@ -412,7 +388,7 @@ pub fn compute_corepresentation(
 // ── Magnetic operations ──────────────────────────────────────────────────────
 
 /// Get the magnetic space group symmetry operations.
-pub fn get_magnetic_operations(uni_number: usize) -> Option<MagneticOps> {
+pub fn get_magnetic_operations(uni_number: usize) -> Option<SymmetryOps> {
     let hall = get_first_hall_for_uni(uni_number)?;
     let sym = crate::msg_database::msgdb_get_spacegroup_operations(uni_number, hall)?;
     let n = sym.size;
@@ -424,7 +400,7 @@ pub fn get_magnetic_operations(uni_number: usize) -> Option<MagneticOps> {
         trans.push(sym.trans[i]);
         timerev.push(sym.timerev[i]);
     }
-    Some(MagneticOps { rot, trans, timerev })
+    Some(SymmetryOps::from_parallel(&rot, &trans, &timerev))
 }
 
 fn get_first_hall_for_uni(uni: usize) -> Option<usize> {
@@ -439,7 +415,7 @@ fn get_first_hall_for_uni(uni: usize) -> Option<usize> {
 
 /// Get the symmetry operations (rotation + translation) for a space group.
 ///
-/// Returns [`MagneticOps`] with `timerev` all `false` (non-magnetic).
+/// Returns [`SymmetryOps`] with `timerev` all `false` (non-magnetic).
 /// The operations are in spglib's standard order.
 ///
 /// # Example
@@ -448,11 +424,11 @@ fn get_first_hall_for_uni(uni: usize) -> Option<usize> {
 /// let ops = symmetry_operations_of(139);
 /// println!("SG 139: {} operations", ops.len());
 /// ```
-pub fn symmetry_operations_of(sg: u8) -> MagneticOps {
+pub fn symmetry_operations_of(sg: u8) -> SymmetryOps {
     get_parent_operations(sg)
 }
 
-fn get_parent_operations_by_hall(hall: usize) -> Option<MagneticOps> {
+fn get_parent_operations_by_hall(hall: usize) -> Option<SymmetryOps> {
     let sym = spgdb_get_spacegroup_operations(hall)?;
     let n = sym.size;
     let mut rot = Vec::with_capacity(n);
@@ -461,15 +437,16 @@ fn get_parent_operations_by_hall(hall: usize) -> Option<MagneticOps> {
         rot.push(sym.rot[i]);
         trans.push(sym.trans[i]);
     }
-    Some(MagneticOps { rot, trans, timerev: vec![false; n] })
+    let timerev = vec![false; n];
+    Some(SymmetryOps::from_parallel(&rot, &trans, &timerev))
 }
 
-fn get_parent_operations(sg: u8) -> MagneticOps {
+fn get_parent_operations(sg: u8) -> SymmetryOps {
     let hall = find_hall_number(sg);
     if let Some(h) = hall {
         if let Some(ops) = get_parent_operations_by_hall(h) { return ops; }
     }
-    MagneticOps { rot: vec![], trans: vec![], timerev: vec![] }
+    SymmetryOps::default()
 }
 
 fn find_hall_number(sg: u8) -> Option<usize> {
@@ -487,9 +464,9 @@ pub struct UnitarySubgroupInfo {
     pub sg: usize,
     pub hall: usize,
     /// Unitary ops extracted from the MSG itself.
-    pub ops_from_msg: MagneticOps,
+    pub ops_from_msg: SymmetryOps,
     /// Unitary ops reconstructed from the identified Hall setting.
-    pub ops_from_hall: MagneticOps,
+    pub ops_from_hall: SymmetryOps,
 }
 
 impl UnitarySubgroupInfo {
@@ -549,9 +526,9 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
     let mut unitary_rots: Vec<Mat3I> = Vec::new();
     let mut unitary_trans: Vec<[f64; 3]> = Vec::new();
     for i in 0..mag_ops.len() {
-        if !mag_ops.timerev[i] {
-            unitary_rots.push(mag_ops.rot[i]);
-            unitary_trans.push(mag_ops.trans[i]);
+        if !mag_ops.operations[i].time_reversal {
+            unitary_rots.push(mag_ops.operations[i].rotation);
+            unitary_trans.push(mag_ops.operations[i].translation);
         }
     }
     if unitary_rots.is_empty() { return None; }
@@ -561,9 +538,8 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
     let sg_type = spgdb_get_spacegroup_type(hall);
     let ops_from_hall = get_parent_operations_by_hall(hall)?;
     let n = unitary_rots.len();
-    let ops_from_msg = MagneticOps {
-        rot: unitary_rots, trans: unitary_trans, timerev: vec![false; n],
-    };
+    let timerev_from_msg = vec![false; n];
+    let ops_from_msg = SymmetryOps::from_parallel(&unitary_rots, &unitary_trans, &timerev_from_msg);
     Some(UnitarySubgroupInfo {
         sg: sg_type.number,
         hall,
@@ -604,9 +580,9 @@ pub fn compute_coreps(bns: &str, k_label: &str) -> Option<Vec<(String, Coreprese
 
     // Pre-compute: convert H ops to Seitz and get anti-unitary representative
     let h_seitz = ops_to_seitz(&h_ops);
-    let a0_idx = mag_ops.timerev.iter().position(|&t| t)?; // first anti-unitary
+    let a0_idx = mag_ops.operations.iter().position(|o| o.time_reversal)?; // first anti-unitary
     let a0 = &wigner::SeitzOp::new(
-        mag_ops.rot[a0_idx], mag_ops.trans[a0_idx], true,
+        mag_ops.operations[a0_idx].rotation, mag_ops.operations[a0_idx].translation, true,
     );
 
     // Build character tables for all k-point irreps (for partner finding)
@@ -993,7 +969,7 @@ mod tests {
         println!("\n=== Magnetic ops vs SG 118 standard ops ===");
         println!("Unitary magnetic ops:");
         for i in 0..mag_ops.len() {
-            if mag_ops.timerev[i] { continue; }
+            if mag_ops.operations[i].time_reversal { continue; }
             let r = &mag_ops.rot[i]; let t = &mag_ops.trans[i];
             // Find matching H op
             let h_match = h_ops_sg118.rot.iter().position(|hr| {
@@ -1011,7 +987,7 @@ mod tests {
         }
         println!("Anti-unitary magnetic ops:");
         for i in 0..mag_ops.len() {
-            if !mag_ops.timerev[i] { continue; }
+            if !mag_ops.operations[i].time_reversal { continue; }
             let r = &mag_ops.rot[i]; let t = &mag_ops.trans[i];
             println!("  mag[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3})",
                 i, r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2],
@@ -1034,9 +1010,9 @@ mod tests {
 
             let mag_lg = filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
             let unitary_lg: Vec<usize> = mag_lg.iter()
-                .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
             let anti_lg: Vec<usize> = mag_lg.iter()
-                .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+                .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
             println!("  Little group: {} ops ({} unitary + {} anti-unitary)",
                 mag_lg.len(), unitary_lg.len(), anti_lg.len());
 
@@ -1047,7 +1023,7 @@ mod tests {
             // Map unitary ops to H
             let op_map: Vec<Option<usize>> = (0..mag_ops.len())
                 .map(|i| {
-                    if mag_ops.timerev[i] { None }
+                    if mag_ops.operations[i].time_reversal { None }
                     else {
                         let r = &mag_ops.rot[i];
                         h_ops.rot.iter().position(|hr| {
@@ -1524,7 +1500,7 @@ mod tests {
             let h_sg = match identify_unitary_subgroup(uni) { Some(s) => s as u8, None => continue };
             let h_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
             let h_seitz_unitary: Vec<_> = (0..mag_ops.len())
-                .filter(|&i| !mag_ops.timerev[i])
+                .filter(|&i| !mag_ops.operations[i].time_reversal)
                 .map(|i| crate::irrep::wigner::SeitzOp::new(
                     mag_ops.rot[i], mag_ops.trans[i], false))
                 .collect();
@@ -1532,7 +1508,7 @@ mod tests {
                 let mag_lg = crate::irrep::wigner::filter_little_group(
                     ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
                 let unitary_lg: Vec<_> = mag_lg.iter()
-                    .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                    .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
                 if unitary_lg.len() <= 1 { continue; }
                 total_cases += 1;
 
@@ -1595,7 +1571,7 @@ mod tests {
                 let mag_lg = crate::irrep::wigner::filter_little_group(
                     ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
                 let unitary_lg: Vec<_> = mag_lg.iter()
-                    .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                    .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
                 if unitary_lg.len() <= 1 { continue; }
 
                 let mut rot_to_idxs: std::collections::HashMap<Vec<i32>, Vec<usize>> = std::collections::HashMap::new();
@@ -1734,7 +1710,7 @@ mod tests {
                 let mag_lg = crate::irrep::wigner::filter_little_group(
                     ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
                 let antiunitary: Vec<usize> = mag_lg.iter()
-                    .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+                    .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
 
                 // Determine which path would be used and its result
                 let key = if antiunitary.is_empty() {
@@ -1744,7 +1720,7 @@ mod tests {
                 } else if ir.spinor {
                     let extra = ir.spin_extra_chars();
                     let unitary: Vec<usize> = mag_lg.iter()
-                        .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                        .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
                     if !extra.is_empty() {
                         "spinor_extra_data"
                     } else {
@@ -1774,7 +1750,7 @@ mod tests {
                 if ir.spinor {
                     let extra = ir.spin_extra_chars();
                     let unitary: Vec<usize> = mag_lg.iter()
-                        .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                        .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
                     if !antiunitary.is_empty() && !extra.is_empty() {
                         let spin_ops = ir.spin_ops();
                         if !spin_ops.0.is_empty() {
@@ -1829,10 +1805,10 @@ mod tests {
                 let mag_lg = crate::irrep::wigner::filter_little_group(
                     ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
                 let antiunitary: Vec<usize> = mag_lg.iter()
-                    .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+                    .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
                 if antiunitary.is_empty() { continue; }
                 let unitary: Vec<usize> = mag_lg.iter()
-                    .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                    .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
 
                 let spin_ops = ir.spin_ops();
                 if spin_ops.0.is_empty() { continue; }
@@ -1909,7 +1885,7 @@ mod tests {
         let mag_ops = get_magnetic_operations(uni).unwrap();
         let mag_seitz = wigner::ops_to_seitz(&mag_ops);
         let h_seitz: Vec<_> = (0..mag_ops.len())
-            .filter(|&i| !mag_ops.timerev[i])
+            .filter(|&i| !mag_ops.operations[i].time_reversal)
             .map(|i| wigner::SeitzOp::new(mag_ops.rot[i], mag_ops.trans[i], false))
             .collect();
 
@@ -1927,9 +1903,9 @@ mod tests {
 
         let mag_lg = wigner::filter_little_group(a3.kx, a3.ky, a3.kz, a3.kd, &mag_ops);
         let unitary: Vec<usize> = mag_lg.iter()
-            .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+            .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
         let antiunitary: Vec<usize> = mag_lg.iter()
-            .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+            .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
         assert!(!antiunitary.is_empty(), "should have antiunitary ops");
 
         // Run SU(2) Wigner test
@@ -1996,7 +1972,7 @@ mod tests {
                 let extra_sum: f64 = extra.iter().sum();
 
                 let h_seitz: Vec<_> = (0..mag_ops.len())
-                    .filter(|&i| !mag_ops.timerev[i])
+                    .filter(|&i| !mag_ops.operations[i].time_reversal)
                     .map(|i| wigner::SeitzOp::new(mag_ops.rot[i], mag_ops.trans[i], false))
                     .collect();
                 let spin_seitz = wigner::build_spin_seitz(ir.spin_ops().0, ir.spin_ops().1);
@@ -2007,9 +1983,9 @@ mod tests {
 
                 let mag_lg = wigner::filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
                 let unitary: Vec<usize> = mag_lg.iter()
-                    .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                    .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
                 let antiunitary: Vec<usize> = mag_lg.iter()
-                    .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+                    .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
                 if antiunitary.is_empty() { continue; }
 
                 let a0 = &mag_seitz[antiunitary[0]];
@@ -2131,10 +2107,10 @@ mod tests {
 
             let mag_lg = wigner::filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
             let antiunitary: Vec<usize> = mag_lg.iter()
-                .filter(|&&i| mag_ops.timerev[i]).copied().collect();
+                .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
             if antiunitary.is_empty() { continue; }
             let unitary: Vec<usize> = mag_lg.iter()
-                .filter(|&&i| !mag_ops.timerev[i]).copied().collect();
+                .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
 
             let spin_ops = ir.spin_ops();
             let h_spin = spin_ops;
