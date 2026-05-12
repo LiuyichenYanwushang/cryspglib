@@ -973,7 +973,7 @@ mod tests {
         println!("Unitary magnetic ops:");
         for i in 0..mag_ops.len() {
             if mag_ops.operations[i].time_reversal { continue; }
-            let r = &mag_ops.rot[i]; let t = &mag_ops.trans[i];
+            let r = &mag_ops.operations[i].rotation; let t = &mag_ops.operations[i].translation;
             // Find matching H op
             let h_match = h_ops_sg118.operations.iter().position(|o| {
                 let hr = o.rotation;
@@ -992,7 +992,7 @@ mod tests {
         println!("Anti-unitary magnetic ops:");
         for i in 0..mag_ops.len() {
             if !mag_ops.operations[i].time_reversal { continue; }
-            let r = &mag_ops.rot[i]; let t = &mag_ops.trans[i];
+            let r = &mag_ops.operations[i].rotation; let t = &mag_ops.operations[i].translation;
             println!("  mag[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3})",
                 i, r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2],
                 t[0],t[1],t[2]);
@@ -1029,7 +1029,7 @@ mod tests {
                 .map(|i| {
                     if mag_ops.operations[i].time_reversal { None }
                     else {
-                        let r = &mag_ops.rot[i];
+                        let r = &mag_ops.operations[i].rotation;
                         h_ops.rot.iter().position(|hr| {
                             hr[0][0] == r[0][0] && hr[0][1] == r[0][1] && hr[0][2] == r[0][2]
                             && hr[1][0] == r[1][0] && hr[1][1] == r[1][1] && hr[1][2] == r[1][2]
@@ -1506,7 +1506,7 @@ mod tests {
             let h_seitz_unitary: Vec<_> = (0..mag_ops.len())
                 .filter(|&i| !mag_ops.operations[i].time_reversal)
                 .map(|i| crate::irrep::wigner::SeitzOp::new(
-                    mag_ops.rot[i], mag_ops.trans[i], false))
+                    mag_ops.operations[i].rotation, mag_ops.operations[i].translation, false))
                 .collect();
             for ir in crate::irrep::query::irreps_of(h_sg) {
                 let mag_lg = crate::irrep::wigner::filter_little_group(
@@ -1519,9 +1519,9 @@ mod tests {
                 // Group by rotation, check for duplicate rotations with different translations
                 let mut rot_to_trans: std::collections::HashMap<Vec<i32>, Vec<[f64;3]>> = std::collections::HashMap::new();
                 for &idx in &unitary_lg {
-                    let r = mag_ops.rot[idx];
+                    let r = mag_ops.operations[idx].rotation;
                     let key: Vec<i32> = vec![r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2]];
-                    rot_to_trans.entry(key).or_default().push(mag_ops.trans[idx]);
+                    rot_to_trans.entry(key).or_default().push(mag_ops.operations[idx].translation);
                 }
                 let has_dup = rot_to_trans.values().any(|v| v.len() > 1);
                 if has_dup {
@@ -1533,7 +1533,7 @@ mod tests {
                             if trans_list.len() <= 1 { continue; }
                             let char_values: Vec<f64> = unitary_lg.iter()
                                 .filter(|&&idx| {
-                                    let r = mag_ops.rot[idx];
+                                    let r = mag_ops.operations[idx].rotation;
                                     let k: Vec<i32> = vec![r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2]];
                                     k == *rot_key
                                 })
@@ -1580,7 +1580,7 @@ mod tests {
 
                 let mut rot_to_idxs: std::collections::HashMap<Vec<i32>, Vec<usize>> = std::collections::HashMap::new();
                 for &idx in &unitary_lg {
-                    let r = mag_ops.rot[idx];
+                    let r = mag_ops.operations[idx].rotation;
                     let key: Vec<i32> = vec![r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2]];
                     rot_to_idxs.entry(key).or_default().push(idx);
                 }
@@ -1607,7 +1607,7 @@ mod tests {
                     for &idx in idxs {
                         let pos = unitary_lg.iter().position(|&u| u == idx).unwrap();
                         eprintln!("    mag_op[{}]: trans=[{:.4},{:.4},{:.4}]  χ={:.4}",
-                            idx, mag_ops.trans[idx][0], mag_ops.trans[idx][1], mag_ops.trans[idx][2],
+                            idx, mag_ops.operations[idx].translation[0], mag_ops.operations[idx].translation[1], mag_ops.operations[idx].translation[2],
                             chars[pos]);
                     }
                     eprintln!("  → PIR rotation-only mapping cannot distinguish these.");
@@ -1890,7 +1890,7 @@ mod tests {
         let mag_seitz = wigner::ops_to_seitz(&mag_ops);
         let h_seitz: Vec<_> = (0..mag_ops.len())
             .filter(|&i| !mag_ops.operations[i].time_reversal)
-            .map(|i| wigner::SeitzOp::new(mag_ops.rot[i], mag_ops.trans[i], false))
+            .map(|i| wigner::SeitzOp::new(mag_ops.operations[i].rotation, mag_ops.operations[i].translation, false))
             .collect();
 
         // Find SG3 A3 at k=(½,0,½)
@@ -1977,7 +1977,7 @@ mod tests {
 
                 let h_seitz: Vec<_> = (0..mag_ops.len())
                     .filter(|&i| !mag_ops.operations[i].time_reversal)
-                    .map(|i| wigner::SeitzOp::new(mag_ops.rot[i], mag_ops.trans[i], false))
+                    .map(|i| wigner::SeitzOp::new(mag_ops.operations[i].rotation, mag_ops.operations[i].translation, false))
                     .collect();
                 let spin_seitz = wigner::build_spin_seitz(ir.spin_ops().0, ir.spin_ops().1);
                 let h_to_spin = wigner::build_h_to_spin_map(&h_seitz, &spin_seitz, ir.spin_lg_op_indices());
@@ -2136,7 +2136,7 @@ mod tests {
             println!("  mag timerev={:?}", mag_ops.timerev);
             println!("  h_ops rots: {:?}", h_seitz.iter().map(|s| s.rot).collect::<Vec<_>>());
             println!("  mag lg unitary rots: {:?}",
-                unitary.iter().map(|&i| mag_ops.rot[i]).collect::<Vec<_>>());
+                unitary.iter().map(|&i| mag_ops.operations[i].rotation).collect::<Vec<_>>());
             println!("  spin ops rots: {:?}",
                 (0..h_spin.0.len()/9).map(|i| {
                     let off = i*9;
