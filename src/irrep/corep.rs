@@ -721,8 +721,8 @@ mod tests {
         assert!(ops.is_some(), "Should get ops for UNI 1066 (128.406)");
         let ops = ops.unwrap();
 
-        let n_u = ops.timerev.iter().filter(|&&t| !t).count();
-        let n_a = ops.timerev.iter().filter(|&&t| t).count();
+        let n_u = ops.operations.iter().filter(|o| !o.time_reversal).count();
+        let n_a = ops.operations.iter().filter(|o| o.time_reversal).count();
         println!("Magnetic SG UNI {}: {} ops ({} unitary + {} anti-unitary)",
             uni, ops.len(), n_u, n_a);
 
@@ -939,14 +939,14 @@ mod tests {
         let h_ops = get_parent_operations(h_sg as u8);
         let mag_seitz = ops_to_seitz(&mag_ops);
         let h_seitz = ops_to_seitz(&h_ops);
-        let a0_idx = mag_ops.timerev.iter().position(|&t| t).unwrap();
+        let a0_idx = mag_ops.operations.iter().position(|o| o.time_reversal).unwrap();
         let a0 = &mag_seitz[a0_idx];
 
         println!("\n=== Wigner diagnostic: UNI {} → H=SG {} ===", uni, h_sg);
         println!("Magnetic ops: {} total, {} unitary, {} anti-unitary",
             mag_ops.len(),
-            mag_ops.timerev.iter().filter(|&&t| !t).count(),
-            mag_ops.timerev.iter().filter(|&&t| t).count());
+            mag_ops.operations.iter().filter(|o| !o.time_reversal).count(),
+            mag_ops.operations.iter().filter(|o| o.time_reversal).count());
         println!("a₀ (anti-unitary rep): R=[{},{},{};{},{},{};{},{},{}] t=({:.4},{:.4},{:.4})",
             a0.rot[0][0],a0.rot[0][1],a0.rot[0][2],
             a0.rot[1][0],a0.rot[1][1],a0.rot[1][2],
@@ -972,7 +972,8 @@ mod tests {
             if mag_ops.operations[i].time_reversal { continue; }
             let r = &mag_ops.rot[i]; let t = &mag_ops.trans[i];
             // Find matching H op
-            let h_match = h_ops_sg118.rot.iter().position(|hr| {
+            let h_match = h_ops_sg118.operations.iter().position(|o| {
+                let hr = o.rotation;
                 hr[0][0]==r[0][0] && hr[0][1]==r[0][1] && hr[0][2]==r[0][2]
                 && hr[1][0]==r[1][0] && hr[1][1]==r[1][1] && hr[1][2]==r[1][2]
                 && hr[2][0]==r[2][0] && hr[2][1]==r[2][1] && hr[2][2]==r[2][2]
@@ -1198,8 +1199,8 @@ mod tests {
         let mag_ops = get_magnetic_operations(uni);
         assert!(mag_ops.is_some(), "Should get ops for UNI {}", uni);
         let mag_ops = mag_ops.unwrap();
-        let n_u = mag_ops.timerev.iter().filter(|&&t| !t).count();
-        let n_a = mag_ops.timerev.iter().filter(|&&t| t).count();
+        let n_u = mag_ops.operations.iter().filter(|o| !o.time_reversal).count();
+        let n_a = mag_ops.operations.iter().filter(|o| o.time_reversal).count();
         println!("  {} ops ({} unitary + {} anti-unitary)", mag_ops.len(), n_u, n_a);
 
         // 3. Compute coreps at L point (using H = unitary subgroup)
@@ -1356,8 +1357,8 @@ mod tests {
         for uni in 1usize..=1651 {
             if let Some(ops) = get_magnetic_operations(uni) {
                 assert!(!ops.is_empty(), "UNI {} has empty ops", uni);
-                let n_u = ops.timerev.iter().filter(|&&t| !t).count();
-                let n_a = ops.timerev.iter().filter(|&&t| t).count();
+                let n_u = ops.operations.iter().filter(|o| !o.time_reversal).count();
+                let n_a = ops.operations.iter().filter(|o| o.time_reversal).count();
                 assert!(n_u > 0, "UNI {} has no unitary ops", uni);
                 // Every magnetic op must have a valid rotation (det = ±1)
                 for i in 0..ops.len() {
@@ -1873,7 +1874,7 @@ mod tests {
             let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
             let h_sg = match identify_unitary_subgroup(uni) { Some(s) => s as u8, None => continue };
             if h_sg != 3 { continue; }
-            let a0_idx = match mag_ops.timerev.iter().position(|&t| t) { Some(i) => i, None => continue };
+            let a0_idx = match mag_ops.operations.iter().position(|o| o.time_reversal) { Some(i) => i, None => continue };
             let r = mag_ops.rot[a0_idx];
             if r[0][0]==1&&r[0][1]==0&&r[0][2]==0
             && r[1][0]==0&&r[1][1]==1&&r[1][2]==0
@@ -1946,7 +1947,7 @@ mod tests {
             let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
             let h_sg = match identify_unitary_subgroup(uni) { Some(s) => s as u8, None => continue };
             if !test_sgs.contains(&h_sg) { continue; }
-            let a0_idx = match mag_ops.timerev.iter().position(|&t| t) { Some(i) => i, None => continue };
+            let a0_idx = match mag_ops.operations.iter().position(|o| o.time_reversal) { Some(i) => i, None => continue };
             let r = mag_ops.rot[a0_idx];
             let is_id = r[0][0]==1&&r[0][1]==0&&r[0][2]==0
                      && r[1][0]==0&&r[1][1]==1&&r[1][2]==0
