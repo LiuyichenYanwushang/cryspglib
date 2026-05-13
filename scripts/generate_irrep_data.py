@@ -1504,6 +1504,11 @@ def _reorder_to_spglib_order(
                 break
 
         if best_mapping:
+            if sg_num == 9 and ml[i] == 'M1M2':
+                cs = char_starts[i]
+                print(f"  DEBUG before reorder: n_ops={n_ops} char_start={cs}")
+                for op in range(min(n_ops, 8)):
+                    print(f"    ISO[{op}] = {chars_flat[cs + op]:.4f}")
             _apply_reorder(chars_flat, char_starts[i], n_ops, best_mapping, 1)
             if sg_num == 9 and ml[i] == 'M1M2':
                 cs = char_starts[i]; cc = len(best_mapping)
