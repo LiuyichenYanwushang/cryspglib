@@ -1478,7 +1478,12 @@ def _reorder_to_spglib_order(
             if len(hall_rots) == 0:
                 continue
             mapping = []
+            rot_cache = {}  # rotation_tuple → ISOTROPY index
             for h_rot in hall_rots:
+                rot_key = tuple(h_rot)
+                if rot_key in rot_cache:
+                    mapping.append(rot_cache[rot_key])
+                    continue
                 found = None
                 for p_idx, p_rot in enumerate(pir_rots):
                     if len(p_rot) != 9 or len(h_rot) != 9:
@@ -1486,6 +1491,8 @@ def _reorder_to_spglib_order(
                     if all(h_rot[d] == p_rot[d] for d in range(9)):
                         found = p_idx
                         break
+                if found is not None:
+                    rot_cache[rot_key] = found
                 mapping.append(found)
             mapped_op_count = sum(1 for m in mapping if m is not None)
             if mapped_op_count == len(hall_rots):
