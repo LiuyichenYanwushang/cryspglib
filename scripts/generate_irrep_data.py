@@ -1822,12 +1822,31 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                         new_cir_rots.extend([0] * 9)
             cir_comp_ops[i] = hall_ops
         else:
-            old_start = cir_comp_starts[i]
-            total_chars = n_comp * old_ops * 2
-            new_cir_flat.extend(cir_comp_flat[old_start:old_start + total_chars])
-            old_rot_start = (cir_comp_starts[i] // 2) * 9
-            total_rots = n_comp * old_ops * 9
-            new_cir_rots.extend(cir_comp_rots[old_rot_start:old_rot_start + total_rots])
+            # Check if this mapped entry needs CIR expansion too
+            if i in expand_plans:
+                mapping = expand_plans[i]
+                hall_ops = len(mapping)
+                for comp in range(n_comp):
+                    old_start = cir_comp_starts[i] + comp * old_ops * 2
+                    old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
+                    for h in range(hall_ops):
+                        ci = mapping[h]
+                        if ci is not None and ci < old_ops:
+                            new_cir_flat.append(cir_comp_flat[old_start + ci * 2])
+                            new_cir_flat.append(cir_comp_flat[old_start + ci * 2 + 1])
+                            new_cir_rots.extend(cir_comp_rots[old_rot_start + ci * 9:old_rot_start + (ci + 1) * 9])
+                        else:
+                            new_cir_flat.append(0.0)
+                            new_cir_flat.append(0.0)
+                            new_cir_rots.extend([0] * 9)
+                cir_comp_ops[i] = hall_ops
+            else:
+                old_start = cir_comp_starts[i]
+                total_chars = n_comp * old_ops * 2
+                new_cir_flat.extend(cir_comp_flat[old_start:old_start + total_chars])
+                old_rot_start = (cir_comp_starts[i] // 2) * 9
+                total_rots = n_comp * old_ops * 9
+                new_cir_rots.extend(cir_comp_rots[old_rot_start:old_rot_start + total_rots])
 
     # Copy back, preserving spinor data at the end.
     # Use spinor_starts[0] as the true scalar/spinor boundary, because
