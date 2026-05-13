@@ -1457,6 +1457,7 @@ def _reorder_to_spglib_order(
     n_scalar = len(ml)
     reorder_results = []
     sg_hall_choice = {}  # sg → mapping list
+    orig_char_counts = list(char_counts)  # Save ISOTROPY sizes before reorder
 
     mapped_count = 0
     unmapped_count = 0
@@ -1510,14 +1511,6 @@ def _reorder_to_spglib_order(
                 for op in range(min(n_ops, 8)):
                     print(f"    ISO[{op}] = {chars_flat[cs + op]:.4f}")
             _apply_reorder(chars_flat, char_starts[i], n_ops, best_mapping, 1)
-            # If mapping has more entries than ISOTROPY ops, fill extra positions
-            hall_ops = len(best_mapping)
-            if hall_ops > n_ops:
-                old = chars_flat[char_starts[i]:char_starts[i] + n_ops]
-                for h in range(n_ops, hall_ops):
-                    ci = best_mapping[h]
-                    if ci is not None and ci < n_ops:
-                        chars_flat[char_starts[i] + h] = old[ci]
             if sg_num == 9 and ml[i] == 'M1M2':
                 cs = char_starts[i]; cc = len(best_mapping)
                 print(f"  DEBUG after reorder: char_start={cs} count={cc}")
@@ -1526,26 +1519,8 @@ def _reorder_to_spglib_order(
             dim_sq = mat_counts[i] // n_ops if n_ops else 1
             if dim_sq > 0 and mat_counts[i] > 0:
                 _apply_reorder(matrices_flat, mat_starts[i], n_ops, best_mapping, dim_sq)
-                if hall_ops > n_ops:
-                    old_m = matrices_flat[mat_starts[i]:mat_starts[i] + n_ops * dim_sq]
-                    for h in range(n_ops, hall_ops):
-                        ci = best_mapping[h]
-                        if ci is not None and ci < n_ops:
-                            off = mat_starts[i] + h * dim_sq
-                            src_off = ci * dim_sq
-                            for d in range(dim_sq):
-                                matrices_flat[off + d] = old_m[src_off + d]
             if n_ops > 0:
                 _apply_reorder(pir_rots_flat, pir_rot_starts[i], n_ops, best_mapping, 9)
-                if hall_ops > n_ops:
-                    old_r = pir_rots_flat[pir_rot_starts[i]:pir_rot_starts[i] + n_ops * 9]
-                    for h in range(n_ops, hall_ops):
-                        ci = best_mapping[h]
-                        if ci is not None and ci < n_ops:
-                            off = pir_rot_starts[i] + h * 9
-                            src_off = ci * 9
-                            for d in range(9):
-                                pir_rots_flat[off + d] = old_r[src_off + d]
             char_counts[i] = len(best_mapping)
             sg_hall_choice[sg_num] = (hall_num, best_mapping, hall_trans)
             reorder_results.append(best_mapping)
@@ -1607,7 +1582,7 @@ def _reorder_to_spglib_order(
 
     print(f"  Spglib reorder: {mapped_count} mapped, {unmapped_count} unmapped "
           f"(of {len(reorder_results)} irreps, {len(sg_halls)} SGs)")
-    return reorder_results, sg_hall_choice
+    return reorder_results, sg_hall_choice, orig_char_counts
 
 
 def _build_padding_plans(sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops,
@@ -1706,7 +1681,9 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                           matrices_flat, mat_starts, mat_counts,
                           pir_rots_flat, pir_rot_starts,
                           cir_comp_flat, cir_comp_rots, cir_comp_starts, cir_comp_counts, cir_comp_ops,
-                          spinor_starts, spinor_counts):
+                          spinor_starts, spinor_counts,
+                          reorder_map_per_irrep=None,
+                          orig_char_counts=None):
     """Rebuild flat arrays with padded entries for compound irreps expanded to Hall size."""
     n_scalar = len(char_starts)
     plans_by_idx = {i: (hall_ops, cir_to_hall) for i, hall_ops, cir_to_hall in padding_plans}
@@ -1733,7 +1710,19 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
             new_char_counts.append(hall_ops)
         else:
             n = char_counts[i]
-            new_chars.extend(chars_flat[char_starts[i]:char_starts[i] + n])
+            mapping = reorder_map_per_irrep[i] if reorder_map_per_irrep else None
+            # Expand if mapping has more entries than ISOTROPY data
+            if mapping is not None and orig_char_counts and n > orig_char_counts[i]:
+                old_n = orig_char_counts[i]
+                old = chars_flat[char_starts[i]:char_starts[i] + old_n]
+                for h in range(n):
+                    ci = mapping[h]
+                    if ci is not None and ci < old_n:
+                        new_chars.append(old[ci])
+                    else:
+                        new_chars.append(0.0)
+            else:
+                new_chars.extend(chars_flat[char_starts[i]:char_starts[i] + n])
             new_char_counts.append(n)
 
     # Rebuild matrices_flat
@@ -2145,7 +2134,7 @@ def generate_rust_data(data):
         spin_lg_op_indices_flat.extend(ops)
 
     # ── Reorder characters/matrices/rots from ISOTROPY order to spglib order ──
-    reorder_map_per_irrep, sg_hall_choice = _reorder_to_spglib_order(
+    reorder_map_per_irrep, sg_hall_choice, orig_char_counts = _reorder_to_spglib_order(
         sg, ml, chars_flat, char_starts, char_counts,
         matrices_flat, mat_starts, mat_counts,
         pir_rots_flat, pir_rot_starts, rots_map,
@@ -2177,7 +2166,9 @@ def generate_rust_data(data):
                              pir_rots_flat, pir_rot_starts,
                              cir_comp_flat, cir_comp_rots, cir_comp_starts,
                              cir_comp_counts, cir_comp_ops,
-                             spinor_starts, spinor_counts)
+                             spinor_starts, spinor_counts,
+                             reorder_map_per_irrep=reorder_map_per_irrep,
+                             orig_char_counts=orig_char_counts)
 
     # ── Verify identity characters for ALL scalar entries ──
     bad_chars = []
