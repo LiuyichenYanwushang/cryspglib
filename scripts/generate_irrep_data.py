@@ -1494,6 +1494,10 @@ def _reorder_to_spglib_order(
                 if found is not None:
                     rot_cache[rot_key] = found
                 mapping.append(found)
+            if sg_num == 9 and ml[i] == 'M1M2':
+                print(f"  DEBUG SG9 M1M2 mapping: {mapping}")
+                print(f"    hall_rots: {[r[:6] for r in hall_rots]}")
+                print(f"    pir_rots (first 4): {[r[:6] for r in pir_rots[:4]]}")
             mapped_op_count = sum(1 for m in mapping if m is not None)
             if mapped_op_count == len(hall_rots):
                 best_mapping = mapping
@@ -1501,6 +1505,11 @@ def _reorder_to_spglib_order(
 
         if best_mapping:
             _apply_reorder(chars_flat, char_starts[i], n_ops, best_mapping, 1)
+            if sg_num == 9 and ml[i] == 'M1M2':
+                cs = char_starts[i]; cc = len(best_mapping)
+                print(f"  DEBUG after reorder: char_start={cs} count={cc}")
+                for op in range(cc):
+                    print(f"    PIR[{op}] = {chars_flat[cs + op]:.4f} (from ISO[{best_mapping[op]}])")
             dim_sq = mat_counts[i] // n_ops if n_ops else 1
             if dim_sq > 0 and mat_counts[i] > 0:
                 _apply_reorder(matrices_flat, mat_starts[i], n_ops, best_mapping, dim_sq)
