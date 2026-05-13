@@ -1688,6 +1688,21 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
     n_scalar = len(char_starts)
     plans_by_idx = {i: (hall_ops, cir_to_hall) for i, hall_ops, cir_to_hall in padding_plans}
 
+    def _needs_expand(i):
+        """True if mapped entry needs Hall-size expansion."""
+        if reorder_map_per_irrep is None or orig_char_counts is None:
+            return False
+        m = reorder_map_per_irrep[i]
+        if m is None:
+            return False
+        return len(m) > orig_char_counts[i]
+
+    # Build expand plans for mapped entries needing expansion
+    expand_plans = {}
+    for i in range(n_scalar):
+        if i not in plans_by_idx and _needs_expand(i):
+            expand_plans[i] = reorder_map_per_irrep[i]
+
     # Rebuild chars_flat
     new_chars = []
     new_char_starts = []
@@ -1710,11 +1725,10 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
             new_char_counts.append(hall_ops)
         else:
             n = char_counts[i]
-            mapping = reorder_map_per_irrep[i] if reorder_map_per_irrep else None
-            # Expand if mapping has more entries than ISOTROPY data
-            if mapping is not None and orig_char_counts and n > orig_char_counts[i]:
+            if i in expand_plans:
                 old_n = orig_char_counts[i]
                 old = chars_flat[char_starts[i]:char_starts[i] + old_n]
+                mapping = expand_plans[i]
                 for h in range(n):
                     ci = mapping[h]
                     if ci is not None and ci < old_n:
