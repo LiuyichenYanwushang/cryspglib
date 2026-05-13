@@ -1510,6 +1510,14 @@ def _reorder_to_spglib_order(
                 for op in range(min(n_ops, 8)):
                     print(f"    ISO[{op}] = {chars_flat[cs + op]:.4f}")
             _apply_reorder(chars_flat, char_starts[i], n_ops, best_mapping, 1)
+            # If mapping has more entries than ISOTROPY ops, fill extra positions
+            hall_ops = len(best_mapping)
+            if hall_ops > n_ops:
+                old = chars_flat[char_starts[i]:char_starts[i] + n_ops]
+                for h in range(n_ops, hall_ops):
+                    ci = best_mapping[h]
+                    if ci is not None and ci < n_ops:
+                        chars_flat[char_starts[i] + h] = old[ci]
             if sg_num == 9 and ml[i] == 'M1M2':
                 cs = char_starts[i]; cc = len(best_mapping)
                 print(f"  DEBUG after reorder: char_start={cs} count={cc}")
@@ -1518,8 +1526,26 @@ def _reorder_to_spglib_order(
             dim_sq = mat_counts[i] // n_ops if n_ops else 1
             if dim_sq > 0 and mat_counts[i] > 0:
                 _apply_reorder(matrices_flat, mat_starts[i], n_ops, best_mapping, dim_sq)
+                if hall_ops > n_ops:
+                    old_m = matrices_flat[mat_starts[i]:mat_starts[i] + n_ops * dim_sq]
+                    for h in range(n_ops, hall_ops):
+                        ci = best_mapping[h]
+                        if ci is not None and ci < n_ops:
+                            off = mat_starts[i] + h * dim_sq
+                            src_off = ci * dim_sq
+                            for d in range(dim_sq):
+                                matrices_flat[off + d] = old_m[src_off + d]
             if n_ops > 0:
                 _apply_reorder(pir_rots_flat, pir_rot_starts[i], n_ops, best_mapping, 9)
+                if hall_ops > n_ops:
+                    old_r = pir_rots_flat[pir_rot_starts[i]:pir_rot_starts[i] + n_ops * 9]
+                    for h in range(n_ops, hall_ops):
+                        ci = best_mapping[h]
+                        if ci is not None and ci < n_ops:
+                            off = pir_rot_starts[i] + h * 9
+                            src_off = ci * 9
+                            for d in range(9):
+                                pir_rots_flat[off + d] = old_r[src_off + d]
             char_counts[i] = len(best_mapping)
             sg_hall_choice[sg_num] = (hall_num, best_mapping, hall_trans)
             reorder_results.append(best_mapping)
@@ -1660,11 +1686,13 @@ def _apply_reorder(arr, start, count, mapping, stride):
     mapping[h_idx] = orig_idx.  Only reorders the first `len(mapping)` items.
     Extra items beyond len(mapping) are left untouched.
     """
-    if stride == 0 or len(mapping) == 0:
+    if stride == 0 or count == 0:
         return
-    n_items = max(count, len(mapping))
-    old = arr[start:start + count * stride] if count > 0 else []
-    for new_pos in range(len(mapping)):
+    n_reorder = min(count, len(mapping))
+    if n_reorder == 0:
+        return
+    old = arr[start:start + count * stride]
+    for new_pos in range(n_reorder):
         old_pos = mapping[new_pos]
         if old_pos is not None and old_pos < count:
             src = start + old_pos * stride
