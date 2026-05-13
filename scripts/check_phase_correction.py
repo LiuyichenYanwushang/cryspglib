@@ -75,8 +75,12 @@ for b in blocks:
         continue
 
     trans_start = prs // 9 * 3
+    if trans_start + cc * 3 > len(pir_trans):
+        continue
     for op_i in range(cc):
         p_t = pir_trans[trans_start+op_i*3:trans_start+(op_i+1)*3]
+        if len(p_t) < 3 or len(hall_trans[op_i]) < 3:
+            continue
         h_t = hall_trans[op_i]
         dt = [h_t[j] - p_t[j] for j in range(3)]
         if max(abs(d) for d in dt) < 0.001:
