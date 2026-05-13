@@ -1660,18 +1660,16 @@ def _apply_reorder(arr, start, count, mapping, stride):
     mapping[h_idx] = orig_idx.  Only reorders the first `len(mapping)` items.
     Extra items beyond len(mapping) are left untouched.
     """
-    if stride == 0 or count == 0:
+    if stride == 0 or len(mapping) == 0:
         return
-    n_reorder = min(count, len(mapping))
-    if n_reorder == 0:
-        return
-    old = arr[start:start + count * stride]
-    for new_pos in range(n_reorder):
+    n_items = max(count, len(mapping))
+    old = arr[start:start + count * stride] if count > 0 else []
+    for new_pos in range(len(mapping)):
         old_pos = mapping[new_pos]
         if old_pos is not None and old_pos < count:
             src = start + old_pos * stride
-            dst = start + new_pos * stride
             offset = src - start
+            dst = start + new_pos * stride
             for d in range(stride):
                 arr[dst + d] = old[offset + d]
 
