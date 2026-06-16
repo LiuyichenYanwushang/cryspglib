@@ -2502,4 +2502,115 @@ mod tests {
                 "Magnetic subgroup UNI {} should have BNS label", sub.mag_sg);
         }
     }
+
+    /// BCS validation: MSG 197.8 (I231') at H-point k=(1,1,1)
+    ///
+    /// Data source: Bilbao Crystallographic Server
+    /// `k-Subgroupsmag_197(8).html` — Corepresentations page.
+    ///
+    /// ## BCS reference data (magnetic little group):
+    ///
+    /// **Magnetic Space Group**: I231' (No. 197.8), UNI 1510
+    ///   - Grey group (Type-2): G = H ∪ θ·H
+    ///   - Unitary subgroup: I23 (No. 197), Hall 491
+    ///   - Magnetic little co-group: 231' (24 ops: 12 unitary + 12 anti-unitary)
+    ///   - Unitary little co-group: 23 (12 ops)
+    ///
+    /// **Co-irreps of the magnetic little group** (BCS labels):
+    ///   H₁ (1D), H₂H₃ (2D paired), H₄ (3D), H̄₅ (2D spinor), H̄₆H̄₇ (4D paired)
+    ///
+    /// ## What our API computes (full space group co-reps):
+    ///
+    /// Our `compute_coreps` computes co-representations for the FULL magnetic
+    /// space group (not just the little group). Dimensions are therefore
+    /// multiplied by the star arms count. The spinor irreps may return
+    /// Unsupported when SU(2) Wigner data is unavailable for the full MSG.
+    ///
+    /// This test verifies:
+    /// - BNS → UNI mapping
+    /// - Unitary subgroup identification (SG 197)
+    /// - Magnetic operations are well-formed
+    /// - Co-representations can be computed for all scalar irreps
+    /// - χ(E) = dim for each valid co-irrep
+    #[test]
+    fn test_msg197_8_h_point_bcs() {
+        let bns = "197.8";
+
+        // 1. BNS → UNI (BCS: 197.8 = UNI 1510)
+        let uni = super::uni_from_bns(bns);
+        assert!(uni.is_some(), "Should find UNI for BNS {}", bns);
+        let uni = uni.unwrap();
+        assert_eq!(uni, 1510, "BCS: 197.8 = UNI 1510");
+
+        // 2. Unitary subgroup (BCS: I23 = SG 197)
+        let h_info = identify_unitary_subgroup_with_hall(uni);
+        assert!(h_info.is_some());
+        let h_info = h_info.unwrap();
+        assert_eq!(h_info.sg, 197, "BCS: unitary subgroup = I23 (SG 197)");
+
+        // 3. Magnetic operations exist and are well-formed
+        let mag_ops = get_magnetic_operations(uni);
+        assert!(mag_ops.is_some());
+        let mag_ops = mag_ops.unwrap();
+        let n_unitary = mag_ops.iter().filter(|o| !o.time_reversal).count();
+        let n_anti = mag_ops.iter().filter(|o| o.time_reversal).count();
+        assert!(n_unitary > 0 && n_anti > 0,
+            "197.8 is grey (Type-2): should have both unitary and anti-unitary ops. \
+             Got {}U+{}A", n_unitary, n_anti);
+        // BCS: magnetic little group has 12U+12A=24
+        // Full MSG has 24U+24A=48
+        assert_eq!(n_unitary, n_anti, "Grey group: #unitary = #anti-unitary");
+
+        // 4. H's P-point irreps (BCS "H" = our "P" for body-centered)
+        let h_sg = h_info.sg as u8;
+        let h_irreps = crate::irrep::query::irreps_of(h_sg);
+        let p_irreps: Vec<&IrrepRecord> = h_irreps.iter()
+            .filter(|r| r.k_label() == "P")
+            .collect();
+        assert!(!p_irreps.is_empty(), "SG 197 should have P-point (BCS H-point) irreps");
+
+        let p_scalar: Vec<_> = p_irreps.iter().filter(|r| !r.spinor).collect();
+        let p_spinor: Vec<_> = p_irreps.iter().filter(|r| r.spinor).collect();
+
+        // BCS: P1, P2P3, P4 scalar + P̄5, P̄6P̄7 spinor
+        assert!(p_scalar.len() >= 3,
+            "Should have >=3 scalar irreps at P (BCS: 3), got {}", p_scalar.len());
+        assert!(p_spinor.len() >= 2,
+            "Should have >=2 spinor irreps at P (BCS: 2), got {}", p_spinor.len());
+
+        // 5. Compute co-representations
+        let coreps = super::compute_coreps(bns, "P");
+        assert!(coreps.is_some(),
+            "Should compute coreps for {} at P-point", bns);
+        let coreps = coreps.unwrap();
+        // BCS: 5 co-irrep labels (H₁, H₂H₃, H₄, H̄₅, H̄₆H̄₇)
+        // Our data: 4 scalar + 3 spinor = 7 labels (each partner stored separately)
+        assert!(coreps.len() >= 5,
+            "Should have >=5 co-irreps (BCS), got {}", coreps.len());
+
+        // 6. χ(E) = dim for all valid co-irreps
+        for (label, c) in &coreps {
+            if c.corep_type != CorepType::Unsupported {
+                assert!((c.characters[0] - c.dim as f64).abs() < 0.01,
+                    "χ(E)={:.4} ≠ dim={} for {}", c.characters[0], c.dim, label);
+                // χ(E) must be positive
+                assert!(c.characters[0] > 0.0,
+                    "χ(E) <= 0 for {}", label);
+            }
+        }
+
+        // 7. Scalar co-irreps should all be Type C (paired)
+        // BCS: In I231' at H, all scalar irreps pair (Type C)
+        // because time reversal maps k=(1,1,1) → (-1,-1,-1) which is
+        // inequivalent to (1,1,1) in the body-centered lattice.
+        let scalar_coreps: Vec<_> = coreps.iter()
+            .filter(|(label, _)| p_scalar.iter().any(|ir| label.contains(&ir.ml[..2])))
+            .collect();
+        for (label, c) in &scalar_coreps {
+            if c.corep_type != CorepType::Unsupported {
+                assert_eq!(c.corep_type, CorepType::C,
+                    "BCS: {} should be Type C at H-point", label);
+            }
+        }
+    }
 }
