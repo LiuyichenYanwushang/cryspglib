@@ -328,10 +328,12 @@ cryspglib has two major subsystems:
 
 **1. spglib port** — space group identification from crystal structures.
 `Crystal::new(lat, positions, types)` → `.analyze()` → `.dataset()` → `SpaceGroup`.
+Also supports magnetic space group identification (1,651 UNI types) via `.with_magnetic()`.
 
 **2. irrep module** — irreducible representation data for all 230 space groups.
 `irreps_of(sg_number)` → `IrrepRecord` (labels, characters, matrices, isotropy subgroups, magnetic corepresentations).
-
+100% data coverage: 4,777 irreps with character tables (~50k values), full matrices (~580k values),
+15,239 non-magnetic + 16,721 magnetic isotropy subgroups.
 100% of characters are in spglib Hall order.
 
 ---
@@ -385,38 +387,98 @@ After regeneration, run the full test suite to validate:
 
 | Type | Location | Description |
 |------|----------|-------------|
-| `Crystal` | `api.rs` | Entry point: lattice + positions + types |
-| `SymmetryOps` | `api.rs` | Ordered set of `{R|t}` + time_reversal |
-| `SpaceGroup` | `lib.rs` | SG number, Hall number, ops |
-| `IrrepRecord` | `irrep/types.rs` | irrep: labels, dim, k-vector, characters, matrices, subgroups, corepresentations |
+| `Crystal` | `api.rs` | Entry point: lattice + positions + types + optional magnetic moments |
+| `SymmetryAnalysis` | `api.rs` | Builder for symmetry analysis (`.symprec()`, `.dataset()`, `.magnetic_dataset()`) |
+| `SymmetryOps` | `api.rs` | Ordered set of `{R\|t}` + time_reversal, with `from_database(hall_number)` |
+| `SymmetryOp` | `api.rs` | Single `{R\|t}` with rotation, translation, time_reversal |
+| `SpaceGroup` | `lib.rs` | SG number, Hall number, ops, Wyckoff positions, standard cell |
+| `MagneticDataset` | `lib.rs` | MSG result: UNI number, type, rotations, translations, time_reversals |
+| `MagneticSymmetry` | `lib.rs` | MSG + symmetry ops combined (implements `Display`) |
+| `MagneticSpaceGroupType` | `lib.rs` | MSG type lookup: `.from_uni()`, `.classify()` |
+| `SpaceGroupType` | `lib.rs` | SG type lookup: `.from_hall()` |
+| `IrrepRecord` | `irrep/types.rs` | Irrep: labels, dim, k-vector, characters, matrices, subgroups, corepresentations |
 | `SpinLiftContext` | `irrep/wigner.rs` | H and G spin ops for Wigner test |
-| `SeitzOp` | `irrep/wigner.rs` | `{R|t}` with optional time reversal |
+| `SeitzOp` | `irrep/wigner.rs` | `{R\|t}` with optional time reversal |
 | `CorepType` | `irrep/corep.rs` | A/B/C/Unsupported |
 
 ---
 
 ## Module structure
 
+### spglib port subsystem
+
 | Module | Role |
 |--------|------|
-| `api.rs` | `Crystal`, `SymmetryOps`, `find_hall_number` |
-| `irrep/types.rs` | `IrrepRecord`, `IsotropyRecord` |
+| `api.rs` | `Crystal` (entry point), `SymmetryAnalysis` (builder), `SymmetryOps`, `SymmetryOp` |
+| `lib.rs` | `SpaceGroup`, `SpaceGroupType`, `MagneticDataset`, `MagneticSymmetry`, `MagneticSpaceGroupType`, `SymError` |
+| `cell.rs` | `Cell` (lattice + positions + types + optional tensors) |
+| `symmetry.rs` | `Symmetry` (raw symmetry operations, N×rot+trans arrays) |
+| `spacegroup.rs` | `Spacegroup`, `spa_search_spacegroup*` |
+| `spg_database.rs` | `spgdb_get_spacegroup_operations`, `spgdb_get_spacegroup_type` |
+| `magnetic_spacegroup.rs` | MSG identification: `msg_identify_magnetic_space_group_type` |
+| `msg_database.rs` | `msgdb_get_magnetic_spacegroup_type` (1,651 UNI entries) |
+| `msg_database_gen.rs` | Auto-generated MSG database (shipped as source) |
+| `spin.rs` | Spin-polarized symmetry: `spn_get_operations_with_site_tensors` |
+| `pointgroup.rs` | `ptg_get_pointgroup`, `ptg_get_transformation_matrix` |
+| `primitive.rs` | `prm_get_primitive`, `prm_get_primitive_symmetry` |
+| `delaunay.rs` | Delaunay lattice reduction |
+| `niggli.rs` | Niggli lattice reduction |
+| `hall_symbol.rs` | Hall symbol parsing/conversion |
+| `kpoint.rs` | k-point grid generation, irreducible mesh |
+| `kgrid.rs` | Grid address utilities |
+| `determination.rs` | Space group determination pipeline |
+| `refinement.rs` | Cell refinement / idealization |
+| `overlap.rs` | Atom overlap detection |
+| `parser.rs` | POSCAR parser |
+| `site_symmetry.rs`, `sitesym_database.rs` | Site symmetry + database |
+| `arithmetic.rs` | Arithmetic crystal class symbols |
+| `mathfunc.rs` | `Mat3`, `Mat3I`, `Vec3`, matrix/vector operations |
+| `debug.rs` | Diagnostic print helpers |
+
+### irrep subsystem
+
+| Module | Role |
+|--------|------|
+| `irrep/mod.rs` | Module docs, re-exports, coverage summary (4,777 irreps, 100% coverage) |
+| `irrep/types.rs` | `IrrepRecord`, `IsotropyRecord`, `MagneticIsotropyRecord` |
 | `irrep/query.rs` | `irreps_of()`, `kpoints_of()`, `format_character_table()` |
-| `irrep/corep.rs` | Co-representation: `compute_coreps()`, `CorepType`, diagnostic tests |
+| `irrep/corep.rs` | Co-representation: `compute_coreps()`, `CorepType`, diagnostic tests (30+ tests) |
 | `irrep/wigner.rs` | Wigner test: Seitz composition, SU(2) composition, spinor classification |
-| `irrep/bridge.rs` | `impl SpaceGroup` — bridge APIs |
+| `irrep/bridge.rs` | `impl SpaceGroup` — bridge APIs linking spglib port → irrep |
 | `irrep/generated_data.rs` | Auto-generated static arrays (~753k lines). `include!()`-d into `types.rs` |
 | `irrep/settings_data.rs` | Hall→setting mappings. `include!()`-d into `generated_data.rs` |
 | `irrep/wigner_extra.rs` | Pre-computed antiunitary character path. `include!()`-d into `wigner.rs` |
+| `irrep/preamble.rs` | Generated data prelude |
+| `irrep/{triclinic,monoclinic,orthorhombic,tetragonal,trigonal,hexagonal,cubic}.rs` | Per-crystal-system irrep data (`include!()`-d into `generated_data.rs`) |
 
 ---
 
-## Test suite (176 tests)
+## Test suite (176 tests across 7 binaries)
 
-| Layer | Count | Description |
+All tests pass (as of 2026-06-16).
+
+| Binary / Location | Tests | Description |
 |-------|-------|-------------|
-| Wigner algorithm | 11 | Seitz composition, k filtering, Type A/B/C |
-| Diagnostic | 15+ | `diagnose_wigner_sources`, `diagnose_per_term_su2_trace`, etc. |
-| Full self-consistency | 8 | χ(E)=dim, k-point grouping, isotropy subgroup validity |
-| BCS validation | 5 | Known reference cases |
-| Integration | 6 | bcs_corep_validation, irrep_validation, etc. |
+| `src/irrep/corep.rs` (unit) | 25 | Wigner diagnostics, BCS validation, CIR-PIR cross-validation, self-consistency invariants |
+| `src/irrep/{query,types,corep,mod}.rs` (doctests) | 5 | API examples |
+| `src/{arithmetic,cell,debug,delaunay,determination}.rs` (unit) | 12 | Arithmetic crystals, overlap detection, lattice reduction, error handling |
+| `src/{api,lib}.rs` (doctests & unit) | 21 | Entry-point API examples and type constructors |
+| `tests/irrep_validation.rs` (integration) | 31 | Full-sweep validation: every SG has irreps, dimensions match, labels well-formed, k-vectors positive |
+| `tests/magnetic_integration.rs` (integration) | 9 | Magnetic structure analysis end-to-end |
+| `tests/{cof3,crps4,la2nio4,bcs_corep_validation}.rs` (integration) | 5 | Reference material cases |
+| **Total** | **~176** | |
+
+Key diagnostic tests (most useful for Wigner debugging):
+
+```bash
+cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
+cargo test --package cryspglib diagnose_spinor_wigner_per_term -- --nocapture
+cargo test --package cryspglib diagnose_none_examples -- --nocapture
+cargo test --package cryspglib test_cir_pir_cross_validation -- --nocapture
+```
+
+Full validation sweep (integration tests, ~1 min):
+
+```bash
+cargo test --package cryspglib --tests
+```
