@@ -2384,4 +2384,122 @@ mod tests {
             }
         }
     }
+
+    /// BCS validation: SG 213 (P4₁32) at X point, k=(0,1/2,0)
+    ///
+    /// Data source: Bilbao Crystallographic Server k-Subgroupsmag page
+    /// (`k-Subgroupsmag.html`).  Confirmed:
+    ///
+    /// **Little group** (8 ops):  X₁, X₂ (both 2D)
+    ///   χ(X₁) = [2, 0, 0, 0, √2, 0, -√2, 0]
+    ///   χ(X₂) = [2, 0, 0, 0, -√2, 0, √2, 0]
+    ///
+    /// **Star**: 3 arms {(0,1/2,0), (1/2,0,0), (0,0,1/2)}
+    ///
+    /// **Full group** (ISOTROPY data): *X₁, *X₂ (both 6D = 3 arms × 2D)
+    ///   These are the full-space-group irreps induced from the little group.
+    ///   Our API returns the full group (star) representation.
+    #[test]
+    fn test_sg213_x_point_bcs() {
+        let sg = 213u8;
+        let irreps = crate::irrep::query::irreps_of(sg);
+
+        // X-point in primitive cell: k = (0, 1/2, 0)
+        // In our data: kx=0, ky=1, kz=0, kd=2
+        let kx = 0i8; let ky = 1i8; let kz = 0i8; let kd = 2i8;
+
+        let x_irreps: Vec<&IrrepRecord> = irreps.iter()
+            .filter(|r| r.kx == kx && r.ky == ky && r.kz == kz && r.kd == kd)
+            .collect();
+        assert!(!x_irreps.is_empty(),
+            "SG 213 should have irreps at X point ({}/{},{}/{},{}/{})",
+            kx, kd, ky, kd, kz, kd);
+
+        let scalar: Vec<_> = x_irreps.iter().filter(|r| !r.spinor).collect();
+        let spinor: Vec<_> = x_irreps.iter().filter(|r| r.spinor).collect();
+
+        println!("SG213 X-point: {} scalar + {} spinor irreps",
+            scalar.len(), spinor.len());
+
+        // BCS: exactly 2 scalar irreps at X (*X₁, *X₂)
+        assert_eq!(scalar.len(), 2,
+            "SG 213 should have exactly 2 scalar irreps at X point");
+
+        // Full group irreps: 6D = 3 star arms × 2D little group
+        for ir in &scalar {
+            assert_eq!(ir.dim, 6,
+                "{} full group dim = 6 (3 star arms × 2D little group, BCS)", ir.ml);
+        }
+
+        // Verify X1 and X2 ML labels exist
+        let x_labels: Vec<&str> = scalar.iter().map(|r| r.ml).collect();
+        println!("X-point scalar labels: {:?}", x_labels);
+        assert!(x_labels.contains(&"X1"),
+            "Should have X1 irrep (BCS *X₁). Labels: {:?}", x_labels);
+        assert!(x_labels.contains(&"X2"),
+            "Should have X2 irrep (BCS *X₂). Labels: {:?}", x_labels);
+
+        let x1 = scalar.iter().find(|r| r.ml == "X1").unwrap();
+        let x2 = scalar.iter().find(|r| r.ml == "X2").unwrap();
+
+        // χ(E) = dim = 6 (BCS: identity trace of full-group irrep)
+        let chars1 = x1.characters();
+        let chars2 = x2.characters();
+        assert!(!chars1.is_empty(), "X1 should have character table");
+        assert!(!chars2.is_empty(), "X2 should have character table");
+        assert!((chars1[0] - 6.0).abs() < 0.01,
+            "X1 χ(E) = dim = 6 (BCS), got {:.4}", chars1[0]);
+        assert!((chars2[0] - 6.0).abs() < 0.01,
+            "X2 χ(E) = dim = 6 (BCS), got {:.4}", chars2[0]);
+
+        // Full group has 48 operations (SG 213 is cubic, order 24 × 2 for
+        // the star). ISOTROPY character table covers all full-group ops.
+        println!("X1: {} characters", chars1.len());
+        println!("X2: {} characters", chars2.len());
+        assert!(chars1.len() >= 16,
+            "X1 character table should cover full group ops, got {}", chars1.len());
+
+        // Both irreps should have isotropy subgroups (from ISOTROPY data)
+        let subs1 = x1.subgroups();
+        let subs2 = x2.subgroups();
+        assert!(!subs1.is_empty(),
+            "X1 should have isotropy subgroups (BCS shows subgroups)");
+        assert!(!subs2.is_empty(),
+            "X2 should have isotropy subgroups (BCS shows subgroups)");
+        println!("X1: {} isotropy subgroups", subs1.len());
+        println!("X2: {} isotropy subgroups", subs2.len());
+
+        // Subgroup validity: all SG numbers in 1-230
+        for sub in subs1.iter().chain(subs2.iter()) {
+            assert!(sub.sg >= 1 && sub.sg <= 230,
+                "Invalid subgroup SG {}", sub.sg);
+            assert!(!sub.symbol.is_empty(),
+                "Subgroup #{} should have HM symbol", sub.sg);
+            assert!(!sub.direction.is_empty(),
+                "Subgroup #{} should have direction", sub.sg);
+        }
+
+        // X1 subgroup SGs should include the high-symmetry subgroups
+        let sg_nums1: Vec<usize> = subs1.iter().map(|s| s.sg).collect();
+        let sg_nums2: Vec<usize> = subs2.iter().map(|s| s.sg).collect();
+        println!("X1 subgroup SGs: {:?}", sg_nums1);
+        println!("X2 subgroup SGs: {:?}", sg_nums2);
+
+        // Both should have magnetic isotropy subgroups
+        let mag1 = x1.magnetic_subgroups();
+        let mag2 = x2.magnetic_subgroups();
+        println!("X1: {} magnetic subgroups", mag1.len());
+        println!("X2: {} magnetic subgroups", mag2.len());
+        // Scalar irreps in non-centrosymmetric SGs typically have magnetic subgroups
+        assert!(!mag1.is_empty() || !mag2.is_empty(),
+            "At least one X irrep should have magnetic subgroups");
+
+        // Magnetic subgroup validity: UNI numbers in 1-1651
+        for sub in mag1.iter().chain(mag2.iter()) {
+            assert!(sub.mag_sg >= 1 && sub.mag_sg <= 1651,
+                "Invalid magnetic UNI {}", sub.mag_sg);
+            assert!(!sub.bns_label.is_empty(),
+                "Magnetic subgroup UNI {} should have BNS label", sub.mag_sg);
+        }
+    }
 }
