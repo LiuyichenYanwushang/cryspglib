@@ -349,14 +349,35 @@ cargo check --package cryspglib
 
 Key diagnostic test: `irrep::corep::tests::diagnose_wigner_sources -- --nocapture`
 
-### Data regeneration pipeline
+Enable verbose Wigner diagnostics (eprintln! output):
 
 ```bash
-cargo test --package cryspglib --lib \
-  irrep::corep::tests::export_hall_operations -- --nocapture
-python3 scripts/generate_irrep_data.py
-# or: bash scripts/regenerate_all.sh
+cargo test --package cryspglib --features debug-corep -- <test_name> -- --nocapture
 ```
+
+### Data regeneration pipeline
+
+`hall_operations.json` is a committed static artifact (does not need regeneration).
+
+```bash
+# Regenerate generated_data.rs from ISOTROPY source data:
+python3 scripts/generate_irrep_data.py
+# Full pipeline shell:
+bash scripts/regenerate_all.sh
+```
+
+After regeneration, run the full test suite to validate:
+
+### Diagnostic validation scripts
+
+| Script | Purpose |
+|--------|---------|
+| `validate_cir_pir.py` | Standalone CIR→PIR validation — checks PIR = Σ CIR * exp(i2πk·t) per Hall op |
+| `check_iso_vs_spglib.py` | Compare ISOTROPY primitive vs spglib Hall conventional translations |
+| `check_phase_correction.py` | Analyze Bloch phase corrections when mapping ISOTROPY→spglib Hall order |
+| `debug_cir_pir_sg9.py` | Single-case debug: SG9 CIR/PIR mapping details |
+| `test_su2_closure.py` | Pauli SU(2) composition closure test |
+| `test_spinor_wigner_formula.py` | Spinor Wigner formula standalone test |
 
 ---
 
@@ -383,13 +404,14 @@ python3 scripts/generate_irrep_data.py
 | `irrep/query.rs` | `irreps_of()`, `kpoints_of()`, `format_character_table()` |
 | `irrep/corep.rs` | Co-representation: `compute_coreps()`, `CorepType`, diagnostic tests |
 | `irrep/wigner.rs` | Wigner test: Seitz composition, SU(2) composition, spinor classification |
-| `irrep/wigner_extra.rs` | Pre-computed antiunitary character path (included into wigner.rs) |
 | `irrep/bridge.rs` | `impl SpaceGroup` — bridge APIs |
-| `irrep/generated_data.rs` | Auto-generated static arrays (~20 MB) |
+| `irrep/generated_data.rs` | Auto-generated static arrays (~753k lines). `include!()`-d into `types.rs` |
+| `irrep/settings_data.rs` | Hall→setting mappings. `include!()`-d into `generated_data.rs` |
+| `irrep/wigner_extra.rs` | Pre-computed antiunitary character path. `include!()`-d into `wigner.rs` |
 
 ---
 
-## Test suite (177 tests)
+## Test suite (176 tests)
 
 | Layer | Count | Description |
 |-------|-------|-------------|
