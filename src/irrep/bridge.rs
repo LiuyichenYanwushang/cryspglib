@@ -6,18 +6,17 @@
 
 use crate::SpaceGroup;
 use crate::irrep::query;
+use crate::irrep::query::{IsotropyEntry, MagneticIsotropyEntry};
 use crate::irrep::types::IrrepRecord;
 use crate::SymmetryOps;
 
 impl SpaceGroup {
     /// All irreducible representations for this space group.
-    ///
-    /// Returns a static slice — the data is embedded in the binary.
     pub fn irreps(&self) -> &'static [IrrepRecord] {
         query::irreps_of(self.spacegroup_number as u8)
     }
 
-    /// Unique k-points and their irrep counts for this space group.
+    /// Unique k-points and their irrep indices for this space group.
     pub fn kpoints(&self) -> Vec<query::KPointSummary> {
         query::kpoints_of(self.spacegroup_number as u8)
     }
@@ -60,5 +59,46 @@ impl SpaceGroup {
             });
         }
         SymmetryOps { operations }
+    }
+
+    /// All isotropy subgroups across all scalar irreps of this space group.
+    ///
+    /// Each entry includes the source irrep (k-point, label, dimension).
+    pub fn isotropy_subgroups(&self) -> Vec<IsotropyEntry> {
+        query::isotropy_subgroups_of(self.spacegroup_number as u8)
+    }
+
+    /// All magnetic isotropy subgroups across all scalar irreps of this space group.
+    pub fn magnetic_isotropy_subgroups(&self) -> Vec<MagneticIsotropyEntry> {
+        query::magnetic_isotropy_subgroups_of(self.spacegroup_number as u8)
+    }
+
+    /// Isotropy subgroups at a specific k-point for this space group.
+    pub fn isotropy_at_k(&self, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
+        query::format_isotropy_table(self.spacegroup_number as u8, kx, ky, kz, kd)
+    }
+
+    /// Magnetic isotropy subgroups at a specific k-point for this space group.
+    pub fn magnetic_isotropy_at_k(&self, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
+        query::format_magnetic_isotropy_table(self.spacegroup_number as u8, kx, ky, kz, kd)
+    }
+
+    /// Irreps at a specific k-point label with their isotropy subgroups.
+    pub fn irreps_with_isotropy_at_k(&self, label: &str) -> Vec<(&'static IrrepRecord, String)> {
+        self.irreps_at_k(label)
+            .into_iter()
+            .map(|ir| {
+                let subs = ir.subgroups();
+                let desc = if subs.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    subs.iter()
+                        .map(|s| format!("#{} {} dir={}", s.sg, s.symbol, s.direction))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                };
+                (ir, desc)
+            })
+            .collect()
     }
 }

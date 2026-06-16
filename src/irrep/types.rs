@@ -12,59 +12,7 @@
 //! | Kovalev | Kovalev (1986) | `τ1`, `k6τ2` |
 //! | Bradley & Cracknell | B&C (1972) | `Γ1+`, `X1` |
 
-/// A single irreducible representation at a k-point, with labels in three conventions.
-///
-/// The three label systems are cross-referenced from Stokes & Hatch Table 7.
-#[derive(Debug, Clone)]
-pub struct IrrepData {
-    /// Miller & Love label (e.g. `"GM1+"`, `"X3-"`, `"R4+"`)
-    pub ml_label: &'static str,
-    /// Kovalev label (e.g. `"τ1"`, `"k6τ3"`)
-    pub kovalev_label: &'static str,
-    /// Bradley & Cracknell / CDML label (e.g. `"Γ1+"`, `"Γ4-"`)
-    pub bc_label: &'static str,
-    /// Dimension of the irrep: 1, 2, 3, 4, or 6
-    pub dimension: u8,
-    /// Stokes-Hatch image symbol (e.g. `"A1a"`, `"C24c"`, `"B4a"`)
-    pub image: &'static str,
-    /// Basis functions (e.g. `"1"`, `"x,y,z"`, `"Sx,Sy,Sz"`)
-    pub basis_functions: &'static str,
-}
-
-/// A high-symmetry k-point in the Brillouin zone with its little co-group and irreps.
-#[derive(Debug, Clone)]
-pub struct KPointData {
-    /// k-point label: `"Γ"`, `"X"`, `"M"`, `"R"`, `"A"`, `"H"`, `"K"`, `"L"`, etc.
-    pub label: &'static str,
-    /// Fractional reciprocal coordinates `[kx, ky, kz]`
-    pub coords: [f64; 3],
-    /// Little co-group (point group of the wave-vector): `"m-3m"`, `"4/mmm"`, etc.
-    pub little_group: &'static str,
-    /// Irreducible representations at this k-point
-    pub irreps: &'static [IrrepData],
-}
-
-/// An isotropy subgroup: the lower-symmetry space group obtained when the order
-/// parameter condenses along a specific direction for a given irrep.
-#[derive(Debug, Clone)]
-pub struct IsotropySubgroup {
-    /// Space group number (1–230)
-    pub sg_number: u16,
-    /// Hermann-Mauguin symbol (e.g. `"Pm-3m"`, `"R-3m"`)
-    pub symbol: &'static str,
-    /// Schoenflies symbol (e.g. `"Oh^1"`, `"D3d^5"`)
-    pub schoenflies: &'static str,
-    /// Order-parameter direction (e.g. `"(a,0,0)"`, `"(a,a,a)"`)
-    pub direction: &'static str,
-    /// Number of domains
-    pub domains: u8,
-    /// Basis vectors of the subgroup cell relative to the parent cell
-    pub basis: &'static str,
-    /// Origin shift relative to the parent cell
-    pub origin: &'static str,
-}
-
-// ── Machine-generated record types (flat-array storage) ─────────────────────
+// ── Compact record types (flat-array storage) ───────────────────────────────
 
 /// Compact irrep record for the generated flat array.
 ///
@@ -454,9 +402,21 @@ impl IrrepRecord {
 }
 
 impl IsotropyRecord {
-    /// Human-readable description of this isotropy subgroup.
+    /// Human-readable one-line description.
     pub fn describe(&self) -> String {
-        format!("#{} {} ({}), domains={}", self.sg, self.symbol, self.schoenflies, self.domains)
+        format!("#{} {} ({}), domains={}, arms={}", self.sg, self.symbol, self.schoenflies, self.domains, self.arms)
+    }
+}
+
+impl std::fmt::Display for IsotropyRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{} {} dir={} domains={} arms={}", self.sg, self.symbol, self.direction, self.domains, self.arms)
+    }
+}
+
+impl std::fmt::Display for MagneticIsotropyRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "UNI {} ({}) dir={}", self.mag_sg, self.bns_label, self.direction)
     }
 }
 

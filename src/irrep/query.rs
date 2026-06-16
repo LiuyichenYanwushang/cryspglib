@@ -272,6 +272,261 @@ pub fn symmetry_operations_of(sg: u8) -> crate::SymmetryOps {
     crate::SymmetryOps::from_sg(sg).unwrap_or_else(|| crate::SymmetryOps::default())
 }
 
+// ── Isotropy subgroup queries ───────────────────────────────────────────────
+
+/// An isotropy subgroup with the context of which irrep and k-point it comes from.
+#[derive(Debug, Clone)]
+pub struct IsotropyEntry {
+    /// k-point label (e.g. `"GM"`, `"X"`)
+    pub k_label: String,
+    /// Miller-Love irrep label (e.g. `"GM4-"`)
+    pub ml_label: &'static str,
+    /// Bradley-Cracknell label
+    pub bc_label: &'static str,
+    /// Irrep dimension
+    pub dim: u8,
+    /// The isotropy subgroup record
+    pub subgroup: IsotropyRecord,
+}
+
+/// A magnetic isotropy subgroup with the context of which irrep and k-point it comes from.
+#[derive(Debug, Clone)]
+pub struct MagneticIsotropyEntry {
+    /// k-point label (e.g. `"GM"`, `"X"`)
+    pub k_label: String,
+    /// Miller-Love irrep label (e.g. `"GM4-"`)
+    pub ml_label: &'static str,
+    /// Bradley-Cracknell label
+    pub bc_label: &'static str,
+    /// Irrep dimension
+    pub dim: u8,
+    /// The magnetic isotropy subgroup record
+    pub subgroup: MagneticIsotropyRecord,
+}
+
+/// All isotropy subgroups across all irreps of a space group.
+///
+/// Returns entries with irrep context (k-point, label, dimension).
+///
+/// ```
+/// use cryspglib::irrep::query::*;
+///
+/// let entries = isotropy_subgroups_of(221);
+/// assert!(!entries.is_empty());
+/// // GM4- (vector rep) should have many subgroups including R3m (#160)
+/// let gm4m_subs: Vec<_> = entries.iter()
+///     .filter(|e| e.ml_label == "GM4-")
+///     .collect();
+/// assert!(!gm4m_subs.is_empty());
+/// ```
+pub fn isotropy_subgroups_of(sg: u8) -> Vec<IsotropyEntry> {
+    let mut entries = Vec::new();
+    for ir in irreps_of(sg) {
+        if ir.spinor {
+            continue; // isotropy subgroups are defined for scalar irreps
+        }
+        let k_label = ir.k_label().to_string();
+        for sub in ir.subgroups() {
+            entries.push(IsotropyEntry {
+                k_label: k_label.clone(),
+                ml_label: ir.ml,
+                bc_label: ir.bc,
+                dim: ir.dim,
+                subgroup: *sub,
+            });
+        }
+    }
+    entries
+}
+
+/// All magnetic isotropy subgroups across all irreps of a space group.
+///
+/// ```
+/// use cryspglib::irrep::query::*;
+///
+/// let entries = magnetic_isotropy_subgroups_of(221);
+/// assert!(!entries.is_empty());
+/// ```
+pub fn magnetic_isotropy_subgroups_of(sg: u8) -> Vec<MagneticIsotropyEntry> {
+    let mut entries = Vec::new();
+    for ir in irreps_of(sg) {
+        if ir.spinor {
+            continue;
+        }
+        let k_label = ir.k_label().to_string();
+        for sub in ir.magnetic_subgroups() {
+            entries.push(MagneticIsotropyEntry {
+                k_label: k_label.clone(),
+                ml_label: ir.ml,
+                bc_label: ir.bc,
+                dim: ir.dim,
+                subgroup: *sub,
+            });
+        }
+    }
+    entries
+}
+
+/// Find all irreps (across all 230 SGs) that have a specific isotropy subgroup.
+///
+/// Returns `(sg, ml_label, k_label)` for each matching irrep.
+///
+/// ```
+/// use cryspglib::irrep::query::*;
+///
+/// // Find which irrep(s) have SG #1 (P1) as an isotropy subgroup
+/// // Every point group has at least some irreps that break to P1
+/// let results = irreps_with_subgroup(1);
+/// assert!(!results.is_empty());
+/// ```
+pub fn irreps_with_subgroup(target_sg: usize) -> Vec<(u8, &'static str, String)> {
+    let mut results = Vec::new();
+    for sg in 1u8..=230 {
+        for ir in irreps_of(sg) {
+            if ir.spinor {
+                continue;
+            }
+            for sub in ir.subgroups() {
+                if sub.sg == target_sg {
+                    results.push((sg, ir.ml, ir.k_label().to_string()));
+                    break; // each irrep listed once even if subgroup appears multiple times
+                }
+            }
+        }
+    }
+    results
+}
+
+/// Find all irreps that have a specific magnetic isotropy subgroup (by UNI number).
+///
+/// Returns `(sg, ml_label, k_label)` for each matching irrep.
+pub fn irreps_with_magnetic_subgroup(target_uni: usize) -> Vec<(u8, &'static str, String)> {
+    let mut results = Vec::new();
+    for sg in 1u8..=230 {
+        for ir in irreps_of(sg) {
+            if ir.spinor {
+                continue;
+            }
+            for sub in ir.magnetic_subgroups() {
+                if sub.mag_sg == target_uni {
+                    results.push((sg, ir.ml, ir.k_label().to_string()));
+                    break;
+                }
+            }
+        }
+    }
+    results
+}
+
+/// Format an isotropy subgroup table for a k-point as a markdown-style table.
+///
+/// Columns: ML, BC, dim, subgroup SG#, HM symbol, direction, domains, arms.
+pub fn format_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
+    let irreps = irreps_of(sg);
+    let matching: Vec<&IrrepRecord> = irreps
+        .iter()
+        .filter(|ir| !ir.spinor && ir.kx == kx && ir.ky == ky && ir.kz == kz && ir.kd == kd)
+        .collect();
+
+    if matching.is_empty() {
+        return format!(
+            "// No scalar irreps at ({}/{}, {}/{}, {}/{}) for SG {}",
+            kx, kd, ky, kd, kz, kd, sg
+        );
+    }
+
+    let mut lines = Vec::new();
+    let header = "| ML | BC | dim | Subgroup | Direction | Domains | Arms |";
+    let sep =    "|---|----|-----|----------|-----------|---------|------|";
+    lines.push(header.to_string());
+    lines.push(sep.to_string());
+
+    for ir in &matching {
+        let subs = ir.subgroups();
+        if subs.is_empty() {
+            lines.push(format!(
+                "| {} | {} | {} | (none) | | | |",
+                ir.ml, ir.bc, ir.dim
+            ));
+            continue;
+        }
+        for sub in subs {
+            lines.push(format!(
+                "| {} | {} | {} | #{} {} | {} | {} | {} |",
+                ir.ml, ir.bc, ir.dim,
+                sub.sg, sub.symbol,
+                sub.direction,
+                sub.domains,
+                sub.arms,
+            ));
+        }
+    }
+
+    let header_line = format!(
+        "// SG {} k=({}/{}, {}/{}, {}/{}), {} scalar irrep(s), {} subgroup(s)",
+        sg, kx, kd, ky, kd, kz, kd,
+        matching.len(),
+        matching.iter().map(|ir| ir.subgroups().len()).sum::<usize>(),
+    );
+    std::iter::once(header_line)
+        .chain(lines.into_iter())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Format a magnetic isotropy subgroup table for a k-point.
+///
+/// Columns: ML, BC, dim, UNI#, BNS label, direction.
+pub fn format_magnetic_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
+    let irreps = irreps_of(sg);
+    let matching: Vec<&IrrepRecord> = irreps
+        .iter()
+        .filter(|ir| !ir.spinor && ir.kx == kx && ir.ky == ky && ir.kz == kz && ir.kd == kd)
+        .collect();
+
+    if matching.is_empty() {
+        return format!(
+            "// No scalar irreps at ({}/{}, {}/{}, {}/{}) for SG {}",
+            kx, kd, ky, kd, kz, kd, sg
+        );
+    }
+
+    let mut lines = Vec::new();
+    let header = "| ML | BC | dim | UNI# | BNS | Direction |";
+    let sep =    "|---|----|-----|------|-----|-----------|";
+    lines.push(header.to_string());
+    lines.push(sep.to_string());
+
+    for ir in &matching {
+        let subs = ir.magnetic_subgroups();
+        if subs.is_empty() {
+            lines.push(format!(
+                "| {} | {} | {} | (none) | | |",
+                ir.ml, ir.bc, ir.dim
+            ));
+            continue;
+        }
+        for sub in subs {
+            lines.push(format!(
+                "| {} | {} | {} | {} | {} | {} |",
+                ir.ml, ir.bc, ir.dim,
+                sub.mag_sg, sub.bns_label, sub.direction,
+            ));
+        }
+    }
+
+    let header_line = format!(
+        "// SG {} k=({}/{}, {}/{}, {}/{}), {} scalar irrep(s), {} magnetic subgroup(s)",
+        sg, kx, kd, ky, kd, kz, kd,
+        matching.len(),
+        matching.iter().map(|ir| ir.magnetic_subgroups().len()).sum::<usize>(),
+    );
+    std::iter::once(header_line)
+        .chain(lines.into_iter())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Greatest common divisor.
 fn gcd(mut a: u64, mut b: u64) -> u64 {
     while b != 0 {

@@ -679,6 +679,91 @@ impl IrrepRecord {
 /// }
 /// ```
 
+// ── Magnetic isotropy → corepresentation bridge ────────────────────────────
+
+/// Result of computing a co-representation for a magnetic isotropy subgroup.
+#[derive(Debug, Clone)]
+pub struct MagneticIsotropyCorep {
+    /// Magnetic isotropy subgroup record (from ISOTROPY data)
+    pub subgroup: super::types::MagneticIsotropyRecord,
+    /// Computed co-representation, or None if computation failed
+    pub corep: Option<Corepresentation>,
+}
+
+impl MagneticIsotropyCorep {
+    /// Short description: UNI, BNS, direction, corep type, dimension.
+    pub fn describe(&self) -> String {
+        match &self.corep {
+            Some(c) => format!(
+                "UNI {} {} dir={} → {:?} dim={}",
+                self.subgroup.mag_sg, self.subgroup.bns_label,
+                self.subgroup.direction, c.corep_type, c.dim
+            ),
+            None => format!(
+                "UNI {} {} → (no corep)",
+                self.subgroup.mag_sg, self.subgroup.bns_label,
+            ),
+        }
+    }
+}
+
+impl std::fmt::Display for MagneticIsotropyCorep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.describe())
+    }
+}
+
+/// For a given irrep, compute co-representations for all its magnetic
+/// isotropy subgroups.
+///
+/// This bridges the ISOTROPY subgroup data with on-the-fly Wigner
+/// classification and character table computation.
+///
+/// ```
+/// use cryspglib::irrep::query::irreps_of;
+/// use cryspglib::irrep::corep::magnetic_isotropy_coreps_of_irrep;
+///
+/// let gm4m = irreps_of(221).iter()
+///     .find(|r| r.ml == "GM4-").unwrap();
+/// let results = magnetic_isotropy_coreps_of_irrep(gm4m);
+/// assert!(!results.is_empty());
+/// for r in &results {
+///     println!("{}", r.describe());
+/// }
+/// ```
+pub fn magnetic_isotropy_coreps_of_irrep(ir: &IrrepRecord) -> Vec<MagneticIsotropyCorep> {
+    ir.magnetic_subgroups()
+        .iter()
+        .map(|sub| {
+            let mag_ops = get_magnetic_operations(sub.mag_sg)
+                .unwrap_or_else(|| SymmetryOps::default());
+            let corep = if mag_ops.is_empty() {
+                None
+            } else {
+                compute_corepresentation(ir, sub.mag_sg, &mag_ops)
+            };
+            MagneticIsotropyCorep {
+                subgroup: *sub,
+                corep,
+            }
+        })
+        .collect()
+}
+
+/// For all scalar irreps of a space group at a k-point, compute
+/// co-representations for their magnetic isotropy subgroups.
+///
+/// Returns entries grouped by irrep.
+pub fn magnetic_isotropy_coreps_of_sg_k(
+    sg: u8, kx: i8, ky: i8, kz: i8, kd: i8,
+) -> Vec<(IrrepRecord, Vec<MagneticIsotropyCorep>)> {
+    super::query::irreps_of(sg)
+        .iter()
+        .filter(|ir| !ir.spinor && ir.kx == kx && ir.ky == ky && ir.kz == kz && ir.kd == kd)
+        .map(|ir| (*ir, magnetic_isotropy_coreps_of_irrep(ir)))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
