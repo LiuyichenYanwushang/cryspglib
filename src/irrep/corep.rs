@@ -2527,6 +2527,291 @@ mod tests {
     /// Unsupported when SU(2) Wigner data is unavailable for the full MSG.
     ///
     /// This test verifies:
+    /// Diagnostic: analyze why spinor Wigner fails for MSG 197.8 P-point
+    ///
+    /// Dumps per-term data to understand the SU(2) failure mechanism.
+    #[test]
+    fn diagnose_msg197_8_spinor_failure() {
+        let uni = 1510usize; // 197.8
+        let mag_ops = get_magnetic_operations(uni).unwrap();
+        let h_info = identify_unitary_subgroup_with_hall(uni).unwrap();
+        let h_ops = h_info.ops_from_msg;
+        let h_sg = h_info.sg as u8;
+
+        // ── Dump all operations first ──
+        println!("=== MSG 197.8 (I231') — {} total ops ===", mag_ops.len());
+        println!("Unitary subgroup: SG {} (I23)", h_sg);
+        let fmt_rot = |r: &Mat3I| -> String {
+            format!("[{:2},{:2},{:2};{:2},{:2},{:2};{:2},{:2},{:2}]",
+                r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2])
+        };
+        for (i, op) in mag_ops.iter().enumerate() {
+            let tr = if op.time_reversal { "A" } else { "U" };
+            println!("  {:2} [{}] rot={} t=[{:.2},{:.2},{:.2}]",
+                i, tr, fmt_rot(&op.rotation),
+                op.translation[0], op.translation[1], op.translation[2]);
+        }
+
+        // ── Ordering check: spin ops vs spglib H ops vs character table ──
+        // First, get the spinor irrep
+        let h_irreps = crate::irrep::query::irreps_of(h_sg);
+        let p5 = h_irreps.iter()
+            .find(|r| r.ml == "P5" && r.spinor)
+            .expect("P5 spinor not found");
+        // Set up all shared data structures
+        let (h_rots, h_trans, h_su2) = p5.spin_ops();
+        let h_spin_seitz = wigner::build_spin_seitz(h_rots, h_trans);
+        let chars = p5.characters();
+        let n_lg = p5.spin_lg_char_count();
+        let indices = p5.spin_lg_op_indices();
+        let h_seitz = ops_to_seitz(&h_ops);
+        let mag_seitz = ops_to_seitz(&mag_ops);
+        let mag_lg = filter_little_group(p5.kx, p5.ky, p5.kz, p5.kd, &mag_ops);
+
+        println!("=== Diagnostic: MSG 197.8 P5 spinor ===");
+        println!("SG={} k=({},{},{})/{} dim={} spin_lg_char_count={}",
+            p5.sg, p5.kx, p5.ky, p5.kz, p5.kd, p5.dim, p5.spin_lg_char_count());
+
+        let unitary: Vec<usize> = mag_lg.iter()
+            .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
+        let antiunitary: Vec<usize> = mag_lg.iter()
+            .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
+
+        println!("\n=== Ordering consistency check ===");
+
+        println!("Spin ops total: {}, little-group ops: {}", h_spin_seitz.len(), n_lg);
+        println!("Characters length: {}, spin_lg_char_count: {}", chars.len(), n_lg);
+
+        // Check: do spin ops match spglib H ops?
+        let mut spin_to_h: Vec<Option<usize>> = vec![None; h_spin_seitz.len()];
+        let mut h_to_spin: Vec<Option<usize>> = vec![None; h_seitz.len()];
+        for (si, spin_op) in h_spin_seitz.iter().enumerate() {
+            if let Some(m) = wigner::find_seitz(&spin_op.rot, &spin_op.trans, &h_seitz) {
+                spin_to_h[si] = Some(m.op_index);
+            }
+        }
+        for (hi, hop) in h_seitz.iter().enumerate() {
+            if let Some(m) = wigner::find_seitz(&hop.rot, &hop.trans, &h_spin_seitz) {
+                h_to_spin[hi] = Some(m.op_index);
+            }
+        }
+
+        let matched_spin = spin_to_h.iter().filter(|x| x.is_some()).count();
+        let matched_h = h_to_spin.iter().filter(|x| x.is_some()).count();
+        println!("Spin→H matched: {}/{}", matched_spin, h_spin_seitz.len());
+        println!("H→Spin matched: {}/{}", matched_h, h_seitz.len());
+        if matched_spin < h_spin_seitz.len() {
+            println!("UNMATCHED spin ops:");
+            for (si, m) in spin_to_h.iter().enumerate() {
+                if m.is_none() {
+                    println!("  spin[{}]: rot={} t={:?}",
+                        si, fmt_rot(&h_spin_seitz[si].rot), h_spin_seitz[si].trans);
+                }
+            }
+        }
+
+        // Check: are spin ops that are in the LG a subset of all spin ops?
+        println!("\nLittle-group spin ops (by spin_lg_op_indices):");
+        for local in 0..n_lg {
+            let gsi = indices[local] as usize;
+            let hi = spin_to_h[gsi];
+            let chi = if local < chars.len() { chars[local] } else { f64::NAN };
+            println!("  lg[{}] → spin[{}] rot={} t={:?} H_idx={:?} χ={:.3}",
+                local, gsi, fmt_rot(&h_spin_seitz[gsi].rot), h_spin_seitz[gsi].trans, hi, chi);
+        }
+
+        // Check: does the character table order match spin_lg_op_indices order?
+        // Compare: for each h in the spglib H ops that's in the LG,
+        // trace through spin→H→char to see if it yields the same character
+        println!("\nVerify: H_op → spin_idx → char:");
+        let pir_rots = p5.pir_rotations();
+        let pir_trans = p5.pir_translations();
+        println!("PIR rots/trans available: rots={} trans={}",
+            pir_rots.len()/9, pir_trans.len()/3);
+        let h_to_pir = if pir_trans.len() == pir_rots.len() / 9 * 3 {
+            wigner::build_h_to_irrep_op_map(&h_seitz, pir_rots, pir_trans)
+        } else {
+            wigner::build_h_to_cir_map(&h_seitz, pir_rots)
+        };
+        if let Some(ref h2p) = h_to_pir {
+            println!("H→PIR map: {} entries", h2p.len());
+            for (hi, &pi) in h2p.iter().enumerate() {
+                if pi < chars.len() as usize {
+                    println!("  H[{}] → PIR[{}] χ={:.3}", hi, pi, chars[pi]);
+                }
+            }
+        } else {
+            println!("H→PIR map: FAILED");
+        }
+
+        // Now the critical test: for each spin_lg_op local position,
+        // does the character table give the right value for the Seitz op
+        // that spglib thinks corresponds to that position?
+        println!("\nCritical test: char_via_H vs char_via_lg:");
+        let mut order_mismatches = 0usize;
+        let un_matched = h_ops.iter().filter(|o| !o.time_reversal).count();
+        println!("H ops (unitary only, from Hall): {} ops", un_matched);
+        for local in 0..n_lg {
+            let gsi = indices[local] as usize;
+            let spin_op = &h_spin_seitz[gsi];
+            let chi_local = if local < chars.len() { chars[local] } else { f64::NAN };
+
+            // Find in H ops
+            if let Some(m) = wigner::find_seitz(&spin_op.rot, &spin_op.trans, &h_seitz) {
+                let hi = m.op_index;
+                // Now go H→PIR→char
+                if let Some(ref h2p) = h_to_pir {
+                    if hi < h2p.len() {
+                        let pi = h2p[hi];
+                        let chi_via_h = if pi < chars.len() { chars[pi] } else { f64::NAN };
+                        let mismatch = (chi_local - chi_via_h).abs() > 0.01;
+                        if mismatch {
+                            order_mismatches += 1;
+                            println!("  MISMATCH lg[{}]→spin[{}] χ={:.3} vs H[{}]→PIR[{}] χ={:.3} rot={}",
+                                local, gsi, chi_local, hi, pi, chi_via_h, fmt_rot(&spin_op.rot));
+                        }
+                    }
+                }
+            }
+        }
+        println!("Order mismatches (char via spin_lg vs char via H→PIR): {}", order_mismatches);
+
+        // (variables h_seitz, mag_seitz, mag_lg, unitary, antiunitary defined above)
+
+        println!("mag_lg ops: {} ({}U + {}A)", mag_lg.len(), unitary.len(), antiunitary.len());
+
+        let a0_idx = antiunitary[0];
+        let a0 = &mag_seitz[a0_idx];
+        println!("a0 (antiunitary rep): rot={:?} trans={:?} timerev={}",
+            a0.rot, a0.trans, a0.timerev);
+
+        println!("H spin ops count: {}", h_spin_seitz.len());
+        println!("H spin SU2 count: {}", h_su2.len()/4);
+
+        // Check if a0 rotation exists in spin ops
+        let a0_spin_idx = h_spin_seitz.iter().position(|s| s.rot == a0.rot);
+        println!("a0 rotation in H spin ops: {:?}", a0_spin_idx);
+        if let Some(idx) = a0_spin_idx {
+            let su2_a0 = wigner::spin_su2_at(h_su2, idx);
+            println!("  SU(2) a0: {:?}", su2_a0);
+        }
+
+        // Check each spin_lg_op: compute g0h = a0·h, then sq = (g0h)²
+        let n_lg = p5.spin_lg_char_count();
+        let indices = p5.spin_lg_op_indices();
+        let chars = p5.characters();
+        println!("\n--- Per-term analysis ({} little group ops) ---", n_lg);
+        println!("spin chars: {:?}", &chars[..n_lg.min(12)]);
+
+        let fmt_rot = |r: &Mat3I| -> String {
+            format!("[{:2},{:2},{:2};{:2},{:2},{:2};{:2},{:2},{:2}]",
+                r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2])
+        };
+
+        // Get the ISOTROPY setting for origin shift
+        let (basis, origin) = IrrepRecord::sg_setting(p5.sg);
+        println!("\nOrigin shift (ISOTROPY setting): {:?}", &origin[..3.min(origin.len())]);
+
+        // Apply origin shift to get Bilbao convention
+        let to_bilbao = |rot: Mat3I, trans: [f64; 3]| -> [f64; 3] {
+            if origin.len() < 3 { return trans; }
+            let mut t = trans;
+            for i in 0..3 {
+                let delta: f64 = (0..3).map(|j| {
+                    let kron = if i == j { 1.0_f64 } else { 0.0 };
+                    (kron - rot[i][j] as f64) * origin[j]
+                }).sum();
+                t[i] = (t[i] - delta) % 1.0;
+                if t[i] < 0.0 { t[i] += 1.0; }
+            }
+            t
+        };
+
+        let a0_bilbao = wigner::SeitzOp::new(a0.rot, to_bilbao(a0.rot, a0.trans), false);
+        println!("a0 (Bilbao origin): rot={:?} trans={:?}", a0_bilbao.rot, a0_bilbao.trans);
+
+        let lg_set: std::collections::HashSet<usize> = indices.iter().map(|&x| x as usize).collect();
+        let global_to_local: std::collections::HashMap<usize, usize> =
+            indices.iter().enumerate().map(|(l, &g)| (g as usize, l)).collect();
+
+        let mut sq_in_lg = 0usize;
+        let mut sq_outside_lg = 0usize;
+        let mut sq_rot_not_in_spin = 0usize;
+        let mut su2_ok = 0usize;
+        let mut su2_fail = 0usize;
+
+        let j_pauli = [0.0_f64, 0.0, 1.0, 0.0]; // J = iσy for antiunitary square
+
+        for local in 0..n_lg {
+            let gsi = indices[local] as usize;
+            let h_spin = &h_spin_seitz[gsi];
+            let u_h = wigner::spin_su2_at(h_su2, gsi);
+
+            // Compute g0h = a0_bilbao · h
+            let (g0h, _l) = compose_seitz(&a0_bilbao, h_spin);
+            // Compute sq = (g0h)²
+            let (sq, _l2) = square_seitz(&g0h);
+            let sq_rot_in_h = h_spin_seitz.iter().position(|s| s.rot == sq.rot);
+            let sq_local = sq_rot_in_h.and_then(|s| global_to_local.get(&s).copied());
+
+            print!("[{}] h={} u_h={}", local, fmt_rot(&h_spin.rot),
+                u_h.map_or("?".into(), |v| format!("[{:.2},{:.2},{:.2},{:.2}]", v[0],v[1],v[2],v[3])));
+            print!(" | sq={} sq_local={:?}", fmt_rot(&sq.rot), sq_local);
+
+            if sq_rot_in_h.is_none() {
+                println!(" | sq rot NOT in H spin ops");
+                sq_rot_not_in_spin += 1;
+                continue;
+            }
+            if !lg_set.contains(&sq_rot_in_h.unwrap()) {
+                println!(" | sq outside LG");
+                sq_outside_lg += 1;
+                continue;
+            }
+            sq_in_lg += 1;
+
+            // Try SU(2) matching
+            let u_a0 = a0_spin_idx.and_then(|m| wigner::spin_su2_at(h_su2, m));
+            if let (Some(u_h_v), Some(u_a0_v), Some(sq_local_v)) = (u_h, u_a0, sq_local) {
+                // Standard antiunitary square: u_sq = (u_a0 · u_h)²
+                let u_g0h = wigner::su2_compose(&u_a0_v, &u_h_v);
+                let u_sq_u = wigner::su2_compose(&u_g0h, &u_g0h);
+                let u_k = wigner::spin_su2_at(h_su2, sq_rot_in_h.unwrap());
+                let rel_u = u_k.and_then(|uk| wigner::su2_same_up_to_sign(&u_sq_u, &uk));
+
+                // J-left antiunitary square: u_sq = (J·u_g0h)·(J·u_g0h)*
+                let ju = wigner::su2_compose(&j_pauli, &u_g0h);
+                let ju_star = [ju[0], -ju[1], -ju[2], -ju[3]];
+                let u_sq_j = wigner::su2_compose(&ju, &ju_star);
+                let rel_j = u_k.and_then(|uk| wigner::su2_same_up_to_sign(&u_sq_j, &uk));
+
+                let rel_u_str = match rel_u { Some(true) => "SAME", Some(false) => "EBAR", None => "NONE" };
+                let rel_j_str = match rel_j { Some(true) => "SAME", Some(false) => "EBAR", None => "NONE" };
+                println!(" | U²: {} J: {}", rel_u_str, rel_j_str);
+                if rel_u.is_some() || rel_j.is_some() { su2_ok += 1; } else { su2_fail += 1; }
+            } else {
+                println!(" | u_a0 missing");
+                su2_fail += 1;
+            }
+        }
+
+        println!("\n--- Summary ---");
+        println!("sq_in_lg: {} / sq_outside_lg: {} / sq_rot_not_in_spin: {}",
+            sq_in_lg, sq_outside_lg, sq_rot_not_in_spin);
+        println!("su2_ok: {} / su2_fail: {}", su2_ok, su2_fail);
+
+        // Also try the standard wigner_classify_spinor path and see why it fails
+        let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
+        let g_spin = if g_sg == h_sg { p5.spin_ops() } else { IrrepRecord::spin_ops_for_sg(g_sg) };
+        let ctx = wigner::SpinLiftContext { h: p5.spin_ops(), g: g_spin, sg: h_sg };
+        let result = wigner::wigner_classify_spinor(
+            &ctx, chars, n_lg, indices,
+            &unitary, &mag_seitz, &h_seitz, a0_idx,
+            p5.kx, p5.ky, p5.kz, p5.kd,
+        );
+        println!("\nwigner_classify_spinor result: {:?}", result);
+    }
+
     /// - BNS → UNI mapping
     /// - Unitary subgroup identification (SG 197)
     /// - Magnetic operations are well-formed
