@@ -2939,4 +2939,147 @@ mod tests {
             }
         }
     }
+
+    /// Simplest spinor Wigner failure: UNI 21 (BNS 5.14), SG 5 (C2), L-point.
+    ///
+    /// This is the absolute simplest case found — only 1 little-group operation.
+    /// The Wigner sum has a single term: W = χ̃(a₀h) for h=E (identity).
+    ///
+    /// The antiunitary square is just (a₀)², so the failure reduces to:
+    ///   (U_a₀)² ≠ ±U_{identity} = ±[1, 0, 0, 0]
+    /// This means the SU(2) database's lift for a₀'s rotation, when squared,
+    /// does not give ±identity — a fundamental gauge inconsistency for this
+    /// single operation.
+    #[test]
+    fn test_simplest_spinor_failure_uni21() {
+        let uni = 21usize; // BNS 5.14, SG 5 (C2), grey group
+        let mag_ops = get_magnetic_operations(uni).unwrap();
+        let h_info = identify_unitary_subgroup_with_hall(uni).unwrap();
+        let h_sg = h_info.sg as u8;
+
+        assert_eq!(h_sg, 5, "Unitary subgroup of 5.14 should be SG 5 (C2)");
+
+        let h_irreps = crate::irrep::query::irreps_of(h_sg);
+        // L-point spinor irrep: n_lg=1
+        let l_spinor = h_irreps.iter()
+            .find(|r| r.spinor && r.k_label() == "L" && r.spin_lg_char_count() == 1)
+            .expect("SG 5 should have L-point spinor irrep with n_lg=1");
+
+        println!("SG {} {} k=({},{},{})/{} n_lg={} dim={}",
+            l_spinor.sg, l_spinor.ml,
+            l_spinor.kx, l_spinor.ky, l_spinor.kz, l_spinor.kd,
+            l_spinor.spin_lg_char_count(), l_spinor.dim);
+
+        // One little-group op: should be identity
+        let (h_rots, h_trans, h_su2) = l_spinor.spin_ops();
+        let h_spin_seitz = wigner::build_spin_seitz(h_rots, h_trans);
+        let indices = l_spinor.spin_lg_op_indices();
+        assert_eq!(indices.len(), 1, "Exactly 1 little-group op");
+        let gsi = indices[0] as usize;
+
+        println!("LG op: spin[{}] rot={:?} su2={:?}",
+            gsi, h_spin_seitz[gsi].rot,
+            wigner::spin_su2_at(h_su2, gsi));
+
+        // Find a₀ (first antiunitary op)
+        let mag_seitz = ops_to_seitz(&mag_ops);
+        let mag_lg = filter_little_group(l_spinor.kx, l_spinor.ky, l_spinor.kz, l_spinor.kd, &mag_ops);
+        let a0_idx = mag_lg.iter()
+            .find(|&&i| mag_ops.operations[i].time_reversal)
+            .copied().expect("Should have antiunitary op");
+
+        let a0 = &mag_seitz[a0_idx];
+        let a0_spin = h_spin_seitz.iter().position(|s| s.rot == a0.rot)
+            .expect("a0 rotation should be in spin ops");
+        let u_a0 = wigner::spin_su2_at(h_su2, a0_spin).unwrap();
+
+        println!("a₀: spin[{}] rot={:?} u_a₀={:?}", a0_spin, a0.rot, u_a0);
+        println!("a₀² in SO(3): rot={:?}", wigner::square_seitz(a0).0.rot);
+
+        // The Wigner sum has ONE term: χ̃(a₀·E) = ±χ((a₀)²)
+        // In SU(2): u_sq = (U_a₀)², compare with u_k = lift of a₀² rotation
+        let u_sq_old = wigner::su2_compose(&u_a0, &u_a0);
+        let sq_rot = wigner::square_seitz(a0).0.rot;
+        let sq_spin = h_spin_seitz.iter().position(|s| s.rot == sq_rot)
+            .expect("sq rotation should be in spin ops");
+        let u_k = wigner::spin_su2_at(h_su2, sq_spin).unwrap();
+
+        println!("(U_a₀)² = {:?}", u_sq_old);
+        println!("U_sq (from DB) = {:?} (rot={:?})", u_k, sq_rot);
+        println!("rel(U²): {:?}", wigner::su2_same_up_to_sign(&u_sq_old, &u_k));
+
+        // J-left formula
+        let j = [0.0, 0.0, 1.0, 0.0];
+        let ju = wigner::su2_compose(&j, &u_a0);
+        let ju_star = [ju[0], -ju[1], -ju[2], -ju[3]];
+        let u_sq_j = wigner::su2_compose(&ju, &ju_star);
+        println!("(J·U_a₀)(J·U_a₀)* = {:?}", u_sq_j);
+        println!("rel(J): {:?}", wigner::su2_same_up_to_sign(&u_sq_j, &u_k));
+
+        // Check the full compute_corepresentation path
+        let corep = compute_corepresentation(l_spinor, uni, &mag_ops);
+        println!("\nFull compute_corepresentation result: {:?}",
+            corep.as_ref().map(|c| c.corep_type));
+
+        // For n_lg=1: (U_a₀)² = -I = -u_k → EBAR match → Type B (correct!)
+        assert_eq!(wigner::su2_same_up_to_sign(&u_sq_old, &u_k), Some(true),
+            "(U_a₀)² = -u_k → EBAR, central=true");
+        assert!(corep.is_some() && corep.unwrap().corep_type == CorepType::B,
+            "n_lg=1 with EBAR → Type B (pseudo-real, W=-1)");
+    }
+
+    /// Quick scan to find the simplest failing magnetic group.
+    /// Only scans SG 1-10 grey-group UNI numbers (small groups).
+    #[test]
+    fn scan_simplest_spinor_failure() {
+        let mut failures: Vec<(usize, usize, u8, String, String)> = Vec::new();
+        for uni in 1..=50usize {
+            let msg = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+            if msg.type_ != crate::MagneticType::Grey { continue; }
+            let h_info = match identify_unitary_subgroup_with_hall(uni) {
+                Some(h) => h,
+                None => continue,
+            };
+            let h_sg = h_info.sg as u8;
+            let h_irreps = crate::irrep::query::irreps_of(h_sg);
+            for ir in h_irreps.iter().filter(|r| r.spinor) {
+                let n_lg = ir.spin_lg_char_count();
+                if n_lg == 0 { continue; }
+                // Use compute_coreps to safely test
+                let bns = msg.bns_number.trim().to_string();
+                let k = ir.k_label();
+                if let Some(coreps) = super::compute_coreps(&bns, k) {
+                    for (label, c) in &coreps {
+                        if c.corep_type == CorepType::Unsupported {
+                            failures.push((uni, h_sg as usize, n_lg as u8,
+                                bns.clone(), format!("{}/{}", label, ir.ml)));
+                        }
+                    }
+                }
+            }
+        }
+        failures.sort_by_key(|(_, sg, n_lg, _, _)| (*sg, *n_lg));
+        println!("Spinor Wigner failures (grey UNI 1-50, {} total):", failures.len());
+        for (uni, sg, n_lg, bns, ml) in failures.iter().take(15) {
+            println!("  UNI {} SG {} {} n_lg={} irrep={}", uni, sg, bns, n_lg, ml);
+        }
+        // Also check SG 123 specifically — find its grey-group MSG
+        let mut sg123_uni = 0usize;
+        for uni in 1..=2000usize {
+            let msg = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+            if msg.type_ != crate::MagneticType::Grey { continue; }
+            if let Some(h) = identify_unitary_subgroup_with_hall(uni) {
+                if h.sg == 123 { sg123_uni = uni; break; }
+            }
+        }
+        println!("\nSG 123 grey group: UNI {} BNS {}",
+            sg123_uni,
+            crate::msg_database::msgdb_get_magnetic_spacegroup_type(sg123_uni).bns_number.trim());
+        let sg123_spinors: Vec<_> = crate::irrep::query::irreps_of(123).iter()
+            .filter(|r| r.spinor && r.spin_lg_char_count() > 0)
+            .map(|r| (r.ml, r.k_label(), r.spin_lg_char_count()))
+            .collect();
+        println!("SG 123 spinor irreps: {:?}", sg123_spinors);
+        assert!(!failures.is_empty(), "Should find at least one spinor Wigner failure");
+    }
 }
