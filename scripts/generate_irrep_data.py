@@ -1434,6 +1434,123 @@ def _load_hall_operations():
     return sg_halls
 
 
+def _reorder_spin_ops_to_hall(spin_op_rots, spin_op_trans, spin_op_su2,
+                                spin_op_sg_start, spin_op_sg_count,
+                                spin_lg_op_indices_flat, spin_lg_op_starts,
+                                spin_lg_op_counts, sg_hall_choice):
+    """Reorder SPIN_OP data per SG from Bilbao order to spglib Hall order."""
+    sg_halls = _load_hall_operations()
+    if not sg_halls:
+        return
+
+    reordered_sgs = 0
+    total_spin_ops = len(spin_op_rots) // 9
+    # Build new arrays
+    new_rots = []
+    new_trans = []
+    new_su2 = []
+    new_sg_start = [0] * 231
+    new_sg_count = [0] * 231
+    # Build old→new mapping per SG
+    sg_bilbao_to_new = {}  # sg_num → {old_pos: new_pos}
+
+    for sg_num in range(1, 231):
+        count = spin_op_sg_count[sg_num]
+        if count == 0:
+            continue
+        old_start = spin_op_sg_start[sg_num]
+        # Get canonical Hall for this SG
+        hall_info = sg_hall_choice.get(sg_num)
+        if hall_info is None:
+            # No canonical Hall — keep original order
+            new_pos = len(new_rots) // 9
+            new_sg_start[sg_num] = new_pos
+            new_sg_count[sg_num] = count
+            mapping = {i: new_pos + i for i in range(count)}
+            for i in range(count):
+                o = old_start + i
+                new_rots.extend(spin_op_rots[o*9:(o+1)*9])
+                new_trans.extend(spin_op_trans[o*3:(o+1)*3])
+                new_su2.extend(spin_op_su2[o*4:(o+1)*4])
+            sg_bilbao_to_new[sg_num] = mapping
+            continue
+
+        hall_num = hall_info[0]
+        hall_rots = None
+        for h_num, h_rots, h_trans in sg_halls.get(sg_num, []):
+            if h_num == hall_num:
+                hall_rots = h_rots
+                break
+
+        if hall_rots is None:
+            # Fallback: keep original order
+            new_pos = len(new_rots) // 9
+            new_sg_start[sg_num] = new_pos
+            new_sg_count[sg_num] = count
+            mapping = {i: new_pos + i for i in range(count)}
+            for i in range(count):
+                o = old_start + i
+                new_rots.extend(spin_op_rots[o*9:(o+1)*9])
+                new_trans.extend(spin_op_trans[o*3:(o+1)*3])
+                new_su2.extend(spin_op_su2[o*4:(o+1)*4])
+            sg_bilbao_to_new[sg_num] = mapping
+            continue
+
+        # Build Bilbao→Hall position mapping
+        n_hall = len(hall_rots)
+        bilbao_to_hall = {}
+        hall_to_bilbao = {}
+        for bi in range(count):
+            b_rot = spin_op_rots[(old_start + bi)*9:(old_start + bi)*9 + 9]
+            for hi, h_rot in enumerate(hall_rots):
+                if all(b_rot[d] == h_rot[d] for d in range(9)):
+                    bilbao_to_hall[bi] = hi
+                    hall_to_bilbao[hi] = bi
+                    break
+
+        # Build new arrays in Hall order
+        new_pos = len(new_rots) // 9
+        new_sg_start[sg_num] = new_pos
+        holes = 0
+        mapping = {}
+        for hi in range(n_hall):
+            bi = hall_to_bilbao.get(hi)
+            if bi is not None:
+                o = old_start + bi
+                new_rots.extend(spin_op_rots[o*9:(o+1)*9])
+                new_trans.extend(spin_op_trans[o*3:(o+1)*3])
+                new_su2.extend(spin_op_su2[o*4:(o+1)*4])
+                mapping[bi] = new_pos + hi - holes
+            else:
+                holes += 1
+        new_count = n_hall - holes
+        new_sg_count[sg_num] = new_count
+        sg_bilbao_to_new[sg_num] = mapping
+        if holes > 0:
+            reordered_sgs += 1  # count SGs with missing spin ops
+
+    # Replace arrays
+    spin_op_rots[:] = new_rots
+    spin_op_trans[:] = new_trans
+    spin_op_su2[:] = new_su2
+    spin_op_sg_start[:] = new_sg_start
+    spin_op_sg_count[:] = new_sg_count
+
+    # Update spin_lg_op_indices using the mapping
+    for i in range(len(spin_lg_op_indices_flat)):
+        old_val = spin_lg_op_indices_flat[i]
+        # Find which SG this index belongs to
+        # spin_lg_op_indices are per-irrep; each irrep belongs to an SG
+        # We need to find the irrep for index i and its SG
+        # For now, use a simple approach: scan through spin_lg_op_starts to find the irrep
+        # The SG is determined by the spinor_irreps order
+        pass  # This is done separately (see below)
+
+    print(f"  SPIN_OP reorder: {len(sg_bilbao_to_new)} SGs processed, "
+          f"spin ops reordered to Hall order ({total_spin_ops} → {len(spin_op_rots)//9} total)")
+    return sg_bilbao_to_new
+
+
 def _reorder_to_spglib_order(
         sg, ml, chars_flat, char_starts, char_counts,
         matrices_flat, mat_starts, mat_counts,
@@ -1569,20 +1686,15 @@ def _reorder_to_spglib_order(
     if cir_reordered > 0:
         print(f"  CIR reorder: {cir_reordered} compound irreps")
 
-    # Handle spinor irreps: inherit reordering from scalar at same k-point
+    # Spinor irreps: after SPIN_OP reorder (Phase D), spin_lg_op_indices
+    # point to Hall-ordered operations. The characters are indexed by local
+    # position → spin_lg_op_indices[local] → operation, so no character
+    # reordering is needed. Each spinor irrep gets an identity match record.
     for spin_idx, sir in enumerate(spinor_irreps):
         sg_num = sir["sg"]
         n_ops = len(sir.get("op_indices", []))
-        # Try to find scalar mapping for this SG
-        choice = sg_hall_choice.get(sg_num)
-        if choice and n_ops > 0 and spin_idx < len(spinor_starts):
-            _, mapping, _ = choice
-            # Spinor characters reorder same as scalar at this SG
-            s_start = spinor_starts[spin_idx]
-            s_count = spinor_counts[spin_idx]
-            if s_count > 0:
-                _apply_reorder(chars_flat, s_start, s_count, mapping, 1)
-            reorder_results.append(mapping)
+        if sg_hall_choice.get(sg_num) and n_ops > 0:
+            reorder_results.append(list(range(n_ops)))  # identity mapping
             mapped_count += 1
         else:
             reorder_results.append(None)
@@ -2212,6 +2324,34 @@ def generate_rust_data(data):
                              spinor_starts, spinor_counts,
                              reorder_map_per_irrep=reorder_map_per_irrep,
                              orig_char_counts=orig_char_counts)
+
+    # ── Phase D: Reorder SPIN_OP data to spglib Hall order ──
+    # Save old sg_start before reordering (needed to update spin_lg_op_indices)
+    old_spin_sg_start = list(spin_op_sg_start)
+    sg_bilbao_to_new = _reorder_spin_ops_to_hall(
+        spin_op_rots, spin_op_trans, spin_op_su2,
+        spin_op_sg_start, spin_op_sg_count,
+        spin_lg_op_indices_flat, spin_lg_op_starts, spin_lg_op_counts,
+        sg_hall_choice)
+
+    # Update spin_lg_op_indices using the old→new global position mapping
+    if sg_bilbao_to_new:
+        updated_count = 0
+        for i, sir in enumerate(spinor_irreps):
+            sg_num = sir['sg']
+            mapping = sg_bilbao_to_new.get(sg_num, {})
+            if not mapping:
+                continue
+            old_sg_start = old_spin_sg_start[sg_num]
+            start = spin_lg_op_starts[i]
+            count = spin_lg_op_counts[i]
+            for j in range(count):
+                old_global = spin_lg_op_indices_flat[start + j]
+                old_local = old_global - old_sg_start
+                new_global = mapping.get(old_local, old_global)
+                spin_lg_op_indices_flat[start + j] = new_global
+                updated_count += 1
+        print(f"  Updated {updated_count} spin_lg_op_indices after SPIN_OP reorder")
 
     # ── Verify identity characters for ALL scalar entries ──
     bad_chars = []
