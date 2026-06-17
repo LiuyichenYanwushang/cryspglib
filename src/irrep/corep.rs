@@ -2800,6 +2800,43 @@ mod tests {
             sq_in_lg, sq_outside_lg, sq_rot_not_in_spin);
         println!("su2_ok: {} / su2_fail: {}", su2_ok, su2_fail);
 
+        // ── Critical check: for each sq, is the spin_lg_op_indices mapping correct? ──
+        println!("\n=== Spin_lg_op mapping audit ===");
+        println!("Full H spin ops ({} ops):", h_spin_seitz.len());
+        for si in 0..h_spin_seitz.len() {
+            let u = wigner::spin_su2_at(h_su2, si);
+            println!("  spin[{}]: rot={} su2={}",
+                si, fmt_rot(&h_spin_seitz[si].rot),
+                u.map_or("?".into(), |v| format!("[{:.2},{:.2},{:.2},{:.2}]", v[0],v[1],v[2],v[3])));
+        }
+        println!("LG op index mapping (local → global_spin → rot):");
+        for local in 0..n_lg {
+            let gsi = indices[local] as usize;
+            let chi = if local < chars.len() { chars[local] } else { f64::NAN };
+            println!("  lg[{}] → spin[{}] rot={} χ={:.3}",
+                local, gsi, fmt_rot(&h_spin_seitz[gsi].rot), chi);
+        }
+
+        // Now verify: for each term, does the sq rotation's spin index match
+        // what spin_lg_op_indices says?
+        println!("\n=== Direct sq rotation lookup (by scanning ALL spin ops) ===");
+        for local in 0..n_lg {
+            let gsi = indices[local] as usize;
+            let h_spin = &h_spin_seitz[gsi];
+            let (g0h, _l) = compose_seitz(&a0_bilbao, h_spin);
+            let (sq, _l2) = square_seitz(&g0h);
+            let sq_by_scan = h_spin_seitz.iter().position(|s| s.rot == sq.rot);
+            let sq_via_lg = {
+                // Find local index of sq rotation in the LG list
+                indices.iter().position(|&gi| {
+                    let si = gi as usize;
+                    h_spin_seitz[si].rot == sq.rot
+                })
+            };
+            println!("  h[{}]: sq rot={} → scan_all_spin={:?}, via_LG_indices={:?}",
+                local, fmt_rot(&sq.rot), sq_by_scan, sq_via_lg);
+        }
+
         // Also try the standard wigner_classify_spinor path and see why it fails
         let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
         let g_spin = if g_sg == h_sg { p5.spin_ops() } else { IrrepRecord::spin_ops_for_sg(g_sg) };
