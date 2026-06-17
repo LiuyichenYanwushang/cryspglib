@@ -1008,8 +1008,38 @@ pub fn build_h_to_irrep_op_map(
 ) -> Option<Vec<usize>> {
     let n_ops = h_seitz.len();
     let n_ir_ops = irrep_rots.len() / 9;
-    if n_ir_ops == 0 || irrep_trans.len() < n_ir_ops * 3 {
+    if n_ir_ops == 0 {
         return None;
+    }
+
+    // Fast path: if data and H_ops are already in the same order (canonical Hall),
+    // verify with a quick rotation+translation check and return identity mapping.
+    if irrep_trans.len() >= n_ir_ops * 3 && n_ops == n_ir_ops {
+        let aligned = (0..n_ops).all(|i| {
+            let h = &h_seitz[i];
+            let roff = i * 9;
+            let toff = i * 3;
+            roff + 8 < irrep_rots.len()
+                && irrep_rots[roff] == h.rot[0][0]
+                && irrep_rots[roff+1] == h.rot[0][1]
+                && irrep_rots[roff+2] == h.rot[0][2]
+                && irrep_rots[roff+3] == h.rot[1][0]
+                && irrep_rots[roff+4] == h.rot[1][1]
+                && irrep_rots[roff+5] == h.rot[1][2]
+                && irrep_rots[roff+6] == h.rot[2][0]
+                && irrep_rots[roff+7] == h.rot[2][1]
+                && irrep_rots[roff+8] == h.rot[2][2]
+                && (0..3).all(|k| (h.trans[k] - irrep_trans[toff + k]).abs() < 1e-9)
+        });
+        if aligned {
+            return Some((0..n_ops).collect());
+        }
+    }
+
+    // Slow path: fallback O(n*m) matching (for non-canonical Hall settings)
+    if irrep_trans.len() < n_ir_ops * 3 {
+        // No translation data — fall back to rotation-only
+        return build_h_to_cir_map(h_seitz, irrep_rots);
     }
     let mut map = Vec::with_capacity(n_ops);
     for h_idx in 0..n_ops {
@@ -1030,7 +1060,6 @@ pub fn build_h_to_irrep_op_map(
                     && irrep_rots[off+8] == h.rot[2][2]
             };
             if !r_match { continue; }
-            // Check translation modulo lattice
             let toff = ir_idx * 3;
             let t_ok = (0..3).all(|k| {
                 let d = h.trans[k] - irrep_trans[toff + k];
@@ -1038,7 +1067,7 @@ pub fn build_h_to_irrep_op_map(
             });
             if t_ok {
                 if found.is_some() {
-                    return None; // ambiguous: shouldn't happen with full Seitz
+                    return None; // ambiguous
                 }
                 found = Some(ir_idx);
             }

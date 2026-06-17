@@ -8,7 +8,26 @@ use crate::SpaceGroup;
 use crate::irrep::query;
 use crate::irrep::query::{IsotropyEntry, MagneticIsotropyEntry};
 use crate::irrep::types::IrrepRecord;
+use crate::irrep::types::generated_data::SG_DATA_HALL;
 use crate::SymmetryOps;
+
+/// Get H_ops in the same order as the stored irrep data (CHARACTERS, PIR_ROTS, etc.)
+///
+/// For most SGs this matches the spglib default Hall setting.
+/// Use this to avoid runtime rotation-matching when the data and H_ops are aligned.
+pub fn canonical_hall_ops(sg: u8) -> SymmetryOps {
+    if sg == 0 || sg > 230 {
+        return SymmetryOps::default();
+    }
+    let hall = SG_DATA_HALL[sg as usize] as usize;
+    if hall == 0 {
+        // No canonical Hall recorded — fall back to SG-based lookup
+        return SymmetryOps::from_sg(sg).unwrap_or_default();
+    }
+    SymmetryOps::from_database(hall).unwrap_or_else(|_| {
+        SymmetryOps::from_sg(sg).unwrap_or_default()
+    })
+}
 
 impl SpaceGroup {
     /// All irreducible representations for this space group.

@@ -1438,7 +1438,8 @@ def _reorder_to_spglib_order(
         sg, ml, chars_flat, char_starts, char_counts,
         matrices_flat, mat_starts, mat_counts,
         pir_rots_flat, pir_rot_starts, rots_map,
-        spinor_irreps, spinor_starts, spinor_counts,
+        pir_trans_flat=None, pir_trans_starts=None,
+        spinor_irreps=None, spinor_starts=None, spinor_counts=None,
         cir_comp_flat=None, cir_comp_rots=None,
         cir_comp_starts=None, cir_comp_counts=None, cir_comp_ops=None,
         kvec_map=None):
@@ -1521,6 +1522,13 @@ def _reorder_to_spglib_order(
                 _apply_reorder(matrices_flat, mat_starts[i], n_ops, best_mapping, dim_sq)
             if n_ops > 0:
                 _apply_reorder(pir_rots_flat, pir_rot_starts[i], n_ops, best_mapping, 9)
+                if pir_trans_flat is not None and pir_trans_starts is not None:
+                    current_trans = len(pir_trans_flat) - pir_trans_starts[i]
+                    needed_trans = n_ops * 3
+                    if current_trans < needed_trans:
+                        pir_trans_flat[pir_trans_starts[i]:] = []  # truncate
+                        pir_trans_flat.extend([0.0] * needed_trans)
+                    _apply_reorder(pir_trans_flat, pir_trans_starts[i], n_ops, best_mapping, 3)
             char_counts[i] = len(best_mapping)
             sg_hall_choice[sg_num] = (hall_num, best_mapping, hall_trans)
             reorder_results.append(best_mapping)
@@ -2171,7 +2179,9 @@ def generate_rust_data(data):
         sg, ml, chars_flat, char_starts, char_counts,
         matrices_flat, mat_starts, mat_counts,
         pir_rots_flat, pir_rot_starts, rots_map,
-        spinor_irreps, spinor_starts, spinor_counts,
+        pir_trans_flat=pir_trans_flat, pir_trans_starts=pir_trans_starts,
+        spinor_irreps=spinor_irreps, spinor_starts=spinor_starts,
+        spinor_counts=spinor_counts,
         cir_comp_flat=cir_comp_flat, cir_comp_rots=cir_comp_rots,
         cir_comp_starts=cir_comp_starts, cir_comp_counts=cir_comp_counts,
         cir_comp_ops=cir_comp_ops,
@@ -2386,6 +2396,17 @@ def generate_rust_data(data):
             start = 0
             count = 0
         lines.append(f"    ({start}, {count}),  // SG {s}")
+    lines.append("];")
+
+    # ── SG_DATA_HALL: canonical Hall number per SG ──
+    lines.append("/// Hall number used for data ordering for each SG (1-230).")
+    lines.append("/// Use `SymmetryOps::from_database(SG_DATA_HALL[sg])` to get H_ops")
+    lines.append("/// in the same order as CHARACTERS / PIR_ROTS / PIR_TRANS.")
+    lines.append(f"pub static SG_DATA_HALL: [u16; 231] = [")
+    lines.append("    0,  // dummy for index 0")
+    for s in range(1, 231):
+        hall = sg_hall_choice.get(s, (0, None, None))[0]
+        lines.append(f"    {hall},  // SG {s}")
     lines.append("];")
 
     # Rebuild the IrrepRecord generation loop to emit entries in SG order
