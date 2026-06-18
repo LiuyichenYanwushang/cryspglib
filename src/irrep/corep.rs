@@ -1804,6 +1804,9 @@ mod tests {
             std::collections::HashMap::<(usize, usize), usize>::new();
         let mut direct_anti_stats = std::collections::HashMap::<&str, usize>::new();
         let mut direct_anti_failures = std::collections::HashMap::<&str, usize>::new();
+        let mut final_failure_reasons = std::collections::HashMap::<&str, usize>::new();
+        let mut final_failure_by_sg =
+            std::collections::HashMap::<(&str, u8), usize>::new();
 
         for uni in 1..=1651 {
             let mag_ops = match get_magnetic_operations(uni) {
@@ -1943,6 +1946,12 @@ mod tests {
                     );
                 if let Err(reason) = direct_diagnostic {
                     *direct_anti_failures.entry(reason.as_str()).or_default() += 1;
+                    if su2_result.is_none() {
+                        *final_failure_reasons.entry(reason.as_str()).or_default() += 1;
+                        *final_failure_by_sg
+                            .entry((reason.as_str(), h_sg))
+                            .or_default() += 1;
+                    }
                 }
                 let direct_result = direct_diagnostic.ok();
 
@@ -2019,6 +2028,22 @@ mod tests {
         direct_anti_failures.sort_by_key(|(key, count)| (std::cmp::Reverse(*count), *key));
         for (key, count) in direct_anti_failures {
             println!("  {:>30}  {:>6}", key, count);
+        }
+
+        println!("\n=== Final failure stages ===");
+        let mut final_failure_reasons: Vec<_> = final_failure_reasons.into_iter().collect();
+        final_failure_reasons.sort_by_key(|(key, count)| (std::cmp::Reverse(*count), *key));
+        for (key, count) in final_failure_reasons {
+            println!("  {:>30}  {:>6}", key, count);
+        }
+
+        println!("\n=== Final failure stages by SG ===");
+        let mut final_failure_by_sg: Vec<_> = final_failure_by_sg.into_iter().collect();
+        final_failure_by_sg.sort_by_key(|((reason, sg), count)| {
+            (std::cmp::Reverse(*count), *reason, *sg)
+        });
+        for ((reason, sg), count) in final_failure_by_sg {
+            println!("  {:>30}  SG{:>3}  {:>6}", reason, sg, count);
         }
 
         // Print MSG-gauge vs old-path triage counters for the full triage pass.
