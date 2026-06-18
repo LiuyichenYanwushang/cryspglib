@@ -480,8 +480,8 @@ fn get_space_group_with_magnetic_symmetry(
     let (tmat, prim_sym) = prm_get_primitive_symmetry(&sym, symprec)?;
 
     let mut spacegroup = match spa_search_spacegroup_with_symmetry(&prim_sym, &unit_lat, symprec) {
-        Some(sg) => sg,
-        None => {
+        Ok(sg) => sg,
+        Err(_) => {
             // 标准空间群搜索失败 → 使用 fallback
             return find_spacegroup_by_symmetry(&sym, &unit_lat, symprec)
                 .map(|sg| (sg, sym));

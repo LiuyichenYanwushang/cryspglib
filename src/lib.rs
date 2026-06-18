@@ -767,15 +767,12 @@ pub fn spg_get_magnetic_dataset(
     cell.aperiodic_axis = None;
 
     // --- 1. 非磁空间群 ---
-    let primitive = crate::primitive::prm_get_primitive(&cell, symprec, -1.0)
-        .ok_or(SymError::CellStandardizationFailed)?;
-    let spg = crate::spacegroup::spa_search_spacegroup(&primitive, 0, symprec, -1.0)
-        .ok_or(SymError::SpacegroupSearchFailed)?;
+    let primitive = crate::primitive::prm_get_primitive(&cell, symprec, -1.0)?;
+    let spg = crate::spacegroup::spa_search_spacegroup(&primitive, 0, symprec, -1.0)?;
     let hall_number = spg.hall_number;
 
     // --- 2. 非磁对称操作 (用常规晶胞获取, 保证基矢正确) ---
-    let nonspin_sym = crate::symmetry::sym_get_operation(&cell, symprec, -1.0)
-        .ok_or(SymError::SymmetryOperationSearchFailed)?;
+    let nonspin_sym = crate::symmetry::sym_get_operation(&cell, symprec, -1.0)?;
 
     if !has_mag {
         // 无磁矩: 只返回非磁结果
@@ -1506,8 +1503,7 @@ fn get_hall_number_from_symmetry(
         *lattice
     };
 
-    let spacegroup = spa_search_spacegroup_with_symmetry(&prim_sym, &prim_lat, symprec)
-        .ok_or(SymError::SpacegroupSearchFailed)?;
+    let spacegroup = spa_search_spacegroup_with_symmetry(&prim_sym, &prim_lat, symprec)?;
     Ok(spacegroup.hall_number)
 }
 

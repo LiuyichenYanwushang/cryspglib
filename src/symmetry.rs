@@ -3,6 +3,7 @@
 //! 在给定精度下寻找晶胞的所有对称操作（旋转 + 平移）。
 //! 核心函数 [`sym_get_operation`] 返回包含旋转矩阵（i32）和平移向量（f64）的 [`Symmetry`] 结构体。
 
+use crate::SymError;
 use crate::cell::{AperiodicAxis, Cell, cel_is_overlap_with_same_type, cel_layer_is_overlap_with_same_type};
 use crate::debug;
 use crate::delaunay::{del_delaunay_reduce, del_layer_delaunay_reduce};
@@ -96,7 +97,7 @@ impl MagneticSymmetry {
 // --- Public API ---
 
 /// 获取晶胞的对称操作
-pub fn sym_get_operation(primitive: &Cell, symprec: f64, angle_tolerance: f64) -> Option<Symmetry> {
+pub fn sym_get_operation(primitive: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Symmetry, SymError> {
     debug::debug_print(format_args!("sym_get_operations:\n"));
     get_operations(primitive, symprec, angle_tolerance)
 }
@@ -167,15 +168,16 @@ pub fn sym_reduce_pure_translation(
 
 // --- Internal Functions ---
 
-fn get_operations(primitive: &Cell, symprec: f64, angle_symprec: f64) -> Option<Symmetry> {
+fn get_operations(primitive: &Cell, symprec: f64, angle_symprec: f64) -> Result<Symmetry, SymError> {
     debug::debug_print(format_args!("get_operations:\n"));
 
     let lattice_sym = get_lattice_symmetry(primitive, symprec, angle_symprec);
     if lattice_sym.size == 0 {
-        return None;
+        return Err(SymError::SymmetryOperationSearchFailed);
     }
 
     get_space_group_operations(&lattice_sym, primitive, symprec)
+        .ok_or(SymError::SymmetryOperationSearchFailed)
 }
 
 fn reduce_operation(

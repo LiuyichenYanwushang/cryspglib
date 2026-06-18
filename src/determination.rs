@@ -84,7 +84,7 @@ fn get_spacegroup_and_primitive(
     let mut angle_tolerance = angle_symprec;
 
     for attempt in 0..NUM_ATTEMPT {
-        let primitive = prm_get_primitive(cell, tolerance, angle_tolerance);
+        let primitive = prm_get_primitive(cell, tolerance, angle_tolerance).ok();
         if let Some(primitive) = primitive {
             debug::debug_print(format_args!("primitive lattice\n"));
 
@@ -96,7 +96,7 @@ fn get_spacegroup_and_primitive(
                 hall_number,
                 prim_tol,
                 prim_angle_tol,
-            );
+            ).ok();
             if let Some(spacegroup) = spacegroup {
                 return Some(DataContainer {
                     spacegroup: Some(spacegroup),

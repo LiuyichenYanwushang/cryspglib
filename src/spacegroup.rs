@@ -14,6 +14,7 @@
 //! 所有 [`Mat3`] 采用 `lattice[cart][vec]` 布局（行=笛卡尔分量, 列=晶格矢量）。
 //! 详见 [`mathfunc`](crate::mathfunc) 模块文档。
 
+use crate::SymError;
 use crate::cell::{AperiodicAxis, Cell, TensorRank, cel_trim_cell};
 use crate::debug;
 use crate::delaunay::del_layer_delaunay_reduce_2D;
@@ -231,13 +232,13 @@ pub fn spa_search_spacegroup(
     hall_number: i32,
     symprec: f64,
     angle_tolerance: f64,
-) -> Option<Spacegroup> {
+) -> Result<Spacegroup, SymError> {
     debug::debug_print(format_args!(
         "search_spacegroup (tolerance = {}):\n",
         symprec
     ));
 
-    let cell = primitive.cell.as_ref()?;
+    let cell = primitive.cell.as_ref().ok_or(SymError::SpacegroupSearchFailed)?;
     let symmetry = sym_get_operation(cell, symprec, angle_tolerance)?;
 
     let candidates = if hall_number != 0 {
@@ -255,7 +256,7 @@ pub fn spa_search_spacegroup_with_symmetry(
     symmetry: &Symmetry,
     prim_lat: &Mat3,
     symprec: f64,
-) -> Option<Spacegroup> {
+) -> Result<Spacegroup, SymError> {
     let mut primitive = Primitive::new(1);
     let mut cell = Cell::new(1, TensorRank::NoSpin);
     cell.lattice = *prim_lat;
@@ -372,7 +373,7 @@ fn search_spacegroup_with_symmetry(
     symmetry: &Symmetry,
     symprec: f64,
     angle_tolerance: f64,
-) -> Option<Spacegroup> {
+) -> Result<Spacegroup, SymError> {
     debug::debug_print(format_args!(
         "search_spacegroup (tolerance = {}):\n",
         symprec
@@ -386,7 +387,7 @@ fn search_spacegroup_with_symmetry(
         debug::info_print(format_args!(
             "spglib: Point symmetry of primitive cell is broken.\n"
         ));
-        return None;
+        return Err(SymError::SpacegroupSearchFailed);
     }
 
     let hall_number = iterative_search_hall_number(
@@ -400,10 +401,11 @@ fn search_spacegroup_with_symmetry(
     );
 
     if hall_number == 0 {
-        return None;
+        return Err(SymError::SpacegroupSearchFailed);
     }
 
     get_spacegroup(hall_number, &origin_shift, &conv_lattice)
+        .ok_or(SymError::SpacegroupSearchFailed)
 }
 
 fn get_spacegroup(
@@ -1045,10 +1047,10 @@ mod tests {
         cell.aperiodic_axis = None;
 
         // 第一步：获取原胞 (Primitive)
-        let primitive = crate::primitive::prm_get_primitive(&cell, SYMPREC, ANGLE_TOL)?;
+        let primitive = crate::primitive::prm_get_primitive(&cell, SYMPREC, ANGLE_TOL).ok()?;
 
         // 第二步：搜索空间群
-        spa_search_spacegroup(&primitive, 0, SYMPREC, ANGLE_TOL)
+        spa_search_spacegroup(&primitive, 0, SYMPREC, ANGLE_TOL).ok()
     }
 
     /// 验证空间群识别结果

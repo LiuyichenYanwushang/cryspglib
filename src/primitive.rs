@@ -6,6 +6,7 @@
 //! 核心函数 [`prm_get_primitive`] 返回包含原胞晶格、位置、类型和
 //! 纯平移操作的 [`Primitive`] 结构体，以及其对称操作。
 
+use crate::SymError;
 use crate::cell::{Cell, cel_trim_cell};
 use crate::debug;
 use crate::delaunay::{del_delaunay_reduce, del_layer_delaunay_reduce};
@@ -42,7 +43,7 @@ impl Primitive {
     }
 }
 
-pub fn prm_get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Option<Primitive> {
+pub fn prm_get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Primitive, SymError> {
     get_primitive(cell, symprec, angle_tolerance)
 }
 
@@ -145,7 +146,7 @@ pub fn prm_get_primitive_lattice_vectors(
 
 // --- Internal Functions ---
 
-fn get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Option<Primitive> {
+fn get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Primitive, SymError> {
     debug::debug_print(format_args!("get_primitive (tolerance = {}):\n", symprec));
 
     let mut tolerance = symprec;
@@ -159,7 +160,7 @@ fn get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Option<Prim
                 tolerance,
                 angle_tolerance,
             ) {
-                return Some(primitive);
+                return Ok(primitive);
             }
         }
 
@@ -167,7 +168,7 @@ fn get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Option<Prim
         debug::debug_print(format_args!("spglib: Reduce tolerance to {} ", tolerance));
     }
 
-    None
+    Err(SymError::CellStandardizationFailed)
 }
 
 fn get_cell_with_smallest_lattice(cell: &Cell, symprec: f64) -> Option<Cell> {
@@ -427,7 +428,7 @@ fn get_primitive_in_translation_space(
     }
     cell.lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
-    let primitive = get_primitive(&cell, symprec, -1.0)?;
+    let primitive = get_primitive(&cell, symprec, -1.0).ok()?;
     let prim_cell = primitive.cell?;
     if prim_cell.size != 1 {
         return None;
