@@ -61,7 +61,7 @@ fn bcs_sg128_406_z_character_table() {
 
     // ── Get our magnetic SG operations ──
     let ops = SymmetryOps::from_magnetic_database(uni as usize);
-    assert!(ops.is_some(), "Should get operations for UNI 1073");
+    assert!(ops.is_ok(), "Should get operations for UNI 1073");
     let ops = ops.unwrap();
     assert_eq!(ops.len(), 16, "Full magnetic group should have 16 ops");
 

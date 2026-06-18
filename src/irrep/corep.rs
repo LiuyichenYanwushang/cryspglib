@@ -442,19 +442,11 @@ fn get_parent_operations_by_hall(hall: usize) -> Option<SymmetryOps> {
 }
 
 fn get_parent_operations(sg: u8) -> SymmetryOps {
-    let hall = find_hall_number(sg);
+    let hall = crate::api::find_hall_number(sg).ok();
     if let Some(h) = hall {
         if let Some(ops) = get_parent_operations_by_hall(h) { return ops; }
     }
     SymmetryOps::default()
-}
-
-fn find_hall_number(sg: u8) -> Option<usize> {
-    for hall in 1..=530 {
-        let st = spgdb_get_spacegroup_type(hall);
-        if st.number == sg as usize { return Some(hall); }
-    }
-    None
 }
 
 // ── High-level API ───────────────────────────────────────────────────────────
@@ -2255,7 +2247,7 @@ mod tests {
         'outer: for uni in 1..=1651 {
             if shown >= 5 { break; }
             let mag_ops = match crate::SymmetryOps::from_magnetic_database(uni) {
-                Some(m) => m, None => continue,
+                Ok(m) => m, Err(_) => continue,
             };
             let h_info = match identify_unitary_subgroup_with_hall(uni) {
                 Some(i) => i, None => continue,

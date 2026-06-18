@@ -269,7 +269,7 @@ fn format_value(v: f64) -> String {
 ///
 /// Returns [`crate::SymmetryOps`] which derefs to `&[SymmetryOp]`.
 pub fn symmetry_operations_of(sg: u8) -> crate::SymmetryOps {
-    crate::SymmetryOps::from_sg(sg).unwrap_or_else(|| crate::SymmetryOps::default())
+    crate::SymmetryOps::from_sg(sg).unwrap_or_else(|_| crate::SymmetryOps::default())
 }
 
 // ── Isotropy subgroup queries ───────────────────────────────────────────────

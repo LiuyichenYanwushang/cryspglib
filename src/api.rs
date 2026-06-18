@@ -197,9 +197,10 @@ impl Crystal {
     /// assert_eq!(cry.natom(), 2);
     /// assert_eq!(cry.types, vec![14, 14]);
     /// ```
-    pub fn from_poscar(data: &str) -> Option<Self> {
-        crate::parser::parse_poscar(data).map(
-            |(lattice, positions, types, moments)| Crystal {
+    pub fn from_poscar(data: &str) -> Result<Self, crate::SymError> {
+        crate::parser::parse_poscar(data)
+            .ok_or(crate::SymError::InvalidInput)
+            .map(|(lattice, positions, types, moments)| Crystal {
                 lattice,
                 positions,
                 types,
@@ -475,9 +476,10 @@ impl SymmetryOps {
     ///
     /// Returns operations with `time_reversal` flags set from the magnetic
     /// space group database (1–1651).
-    pub fn from_magnetic_database(uni_number: usize) -> Option<Self> {
+    pub fn from_magnetic_database(uni_number: usize) -> Result<Self, crate::SymError> {
         let hall = find_first_hall_for_uni(uni_number)?;
-        let sym = crate::msg_database::msgdb_get_spacegroup_operations(uni_number, hall)?;
+        let sym = crate::msg_database::msgdb_get_spacegroup_operations(uni_number, hall)
+            .ok_or(crate::SymError::SpacegroupSearchFailed)?;
         let n = sym.size;
         let ops: Vec<SymmetryOp> = (0..n)
             .map(|i| SymmetryOp {
@@ -486,7 +488,7 @@ impl SymmetryOps {
                 time_reversal: sym.timerev[i],
             })
             .collect();
-        Some(SymmetryOps { operations: ops })
+        Ok(SymmetryOps { operations: ops })
     }
 }
 
@@ -502,35 +504,36 @@ impl SymmetryOps {
     /// Convenience: get symmetry operations for a space group number.
     ///
     /// Looks up the first Hall number for the SG and returns its operations.
-    pub fn from_sg(sg: u8) -> Option<Self> {
-        find_hall_number(sg).and_then(|h| Self::from_database(h).ok())
+    pub fn from_sg(sg: u8) -> Result<Self, crate::SymError> {
+        let hall = find_hall_number(sg)?;
+        Self::from_database(hall)
     }
 }
 
 /// Find the first Hall number whose space group number matches `sg`.
-pub fn find_hall_number(sg: u8) -> Option<usize> {
+pub fn find_hall_number(sg: u8) -> Result<usize, crate::SymError> {
     for hall in 1..=530 {
         let st = crate::spg_database::spgdb_get_spacegroup_type(hall);
         if st.number == sg as usize {
-            return Some(hall);
+            return Ok(hall);
         }
     }
-    None
+    Err(crate::SymError::SpacegroupSearchFailed)
 }
 
 /// Find the first Hall number for a magnetic UNI number.
-pub fn find_first_hall_for_uni(uni: usize) -> Option<usize> {
+pub fn find_first_hall_for_uni(uni: usize) -> Result<usize, crate::SymError> {
     if uni == 0 || uni > 1651 {
-        return None;
+        return Err(crate::SymError::SpacegroupSearchFailed);
     }
     for hall in 1..=530 {
         if let Some([lo, hi]) = crate::msg_database::msgdb_get_uni_candidates(hall) {
             if uni >= lo && uni <= hi {
-                return Some(hall);
+                return Ok(hall);
             }
         }
     }
-    None
+    Err(crate::SymError::SpacegroupSearchFailed)
 }
 
 /// Irreducible k-point mesh.
