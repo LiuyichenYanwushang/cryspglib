@@ -1348,8 +1348,8 @@ pub fn build_spin_seitz(spin_op_rots: &[i32], spin_op_trans: &[f64]) -> Vec<Seit
 /// This function only checks whether the raw sum accidentally gives a
 /// quantized value (0, ±1, or ±|H|).  It must NOT be used as the primary
 /// spinor Wigner test — use [`wigner_classify_spinor`] instead.
-pub fn diagnostic_extra_sum(extra: &[f64]) -> f64 {
-    extra.iter().sum()
+pub fn diagnostic_imag_sum(imag: &[f64]) -> f64 {
+    imag.iter().sum()
 }
 
 /// Spinor Wigner test evaluated in the magnetic-group coordinate setting.

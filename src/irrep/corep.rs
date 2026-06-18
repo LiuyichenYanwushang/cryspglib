@@ -117,7 +117,7 @@ pub enum CorepType {
     /// W = 0: D ≁ D*.
     C,
     /// Wigner indicator is non-quantized — missing data or algorithm
-    /// limitation (e.g. spinor without extra chars and SU(2) fallback
+    /// limitation (e.g. spinor without imaginary chars and SU(2) fallback
     /// not yet converging).
     Unsupported,
 }
@@ -277,8 +277,8 @@ pub fn compute_corepresentation(
         else { (CorepType::A, WignerSource::ScalarCIR) }
     } else if h_irrep.spinor {
         // Spinor: SU(2) Wigner test is the primary path.
-        // Bilbao extra chars are NOT term-by-term Wigner summands
-        // (counterexample: SG3 A3 grey group, extra[0]=0 but h=E gives χ=-1).
+        // Bilbao imaginary chars are NOT term-by-term Wigner summands
+        // (counterexample: SG3 A3 grey group, imag[0]=0 but h=E gives χ=-1).
         let h_spin = h_irrep.spin_ops();
         let g_sg = parent_spatial_sg(uni_number).unwrap_or(h_irrep.sg as usize) as u8;
         let g_spin = if g_sg == h_irrep.sg {
@@ -1809,11 +1809,11 @@ mod tests {
                 } else if ir.cir_component_count() > 0 {
                     "scalar_CIR"
                 } else if ir.spinor {
-                    let extra = ir.spin_extra_chars();
+                    let imag = ir.spin_character_imag();
                     let unitary: Vec<usize> = mag_lg.iter()
                         .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
-                    if !extra.is_empty() {
-                        "spinor_extra_data"
+                    if !imag.is_empty() {
+                        "spinor_complex"
                     } else {
                         // Check SU(2) fallback
                         let spin_ops = ir.spin_ops();
@@ -1840,13 +1840,13 @@ mod tests {
 
                 // Cross-check: when both extra and SU2 paths succeed for the same irrep
                 if ir.spinor {
-                    let extra = ir.spin_extra_chars();
+                    let imag = ir.spin_character_imag();
                     let unitary: Vec<usize> = mag_lg.iter()
                         .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
-                    if !antiunitary.is_empty() && !extra.is_empty() {
+                    if !antiunitary.is_empty() && !imag.is_empty() {
                         let spin_ops = ir.spin_ops();
                         if !spin_ops.0.is_empty() {
-                            let _extra_sum = crate::irrep::wigner::diagnostic_extra_sum(extra);
+                            let _imag_sum = crate::irrep::wigner::diagnostic_imag_sum(imag);
                             let h_spin = ir.spin_ops();
                         let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
                         let g_spin = if g_sg == h_sg { h_spin }
@@ -1894,7 +1894,7 @@ mod tests {
             for ir in crate::irrep::query::irreps_of(h_sg) {
                 if failures_shown >= 15 { break; }
                 if !ir.spinor { continue; }
-                if !ir.spin_extra_chars().is_empty() { continue; }
+                if !ir.spin_character_imag().is_empty() { continue; }
                 let mag_lg = crate::irrep::wigner::filter_little_group(
                     ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
                 let antiunitary: Vec<usize> = mag_lg.iter()
@@ -1955,7 +1955,7 @@ mod tests {
     /// Regression: SG3 A3 spinor Wigner test under grey group (a₀ = Θ).
     ///
     /// This explicitly verifies that the SU(2) path gives the correct
-    /// per-term contributions, and that Bilbao extra chars are NOT
+    /// per-term contributions, and that Bilbao imaginary chars are NOT
     /// valid term-by-term Wigner summands.
     #[test]
     fn test_spinor_sg3_a3_grey_wigner() {
@@ -1988,12 +1988,12 @@ mod tests {
             .find(|ir| ir.ml == "A3" && ir.spinor)
             .expect("SG3 A3 spinor irrep should exist");
 
-        // Verify extra chars exist but are NOT valid Wigner summands
-        let extra = a3.spin_extra_chars();
-        assert!(!extra.is_empty(), "A3 should have extra chars");
-        // extra[0] = 0.0, but h=E gives χ((ΘE)²) = χ(Ē) = -1 ≠ 0
-        assert!((extra[0] - 0.0).abs() < 0.01,
-            "extra[0] should be 0, proving extra ≠ term-by-term Wigner summand");
+        // Verify imaginary chars exist but are NOT valid Wigner summands
+        let imag =a3.spin_character_imag();
+        assert!(!imag.is_empty(), "A3 should have imaginary chars");
+        // imag[0] = 0.0, but h=E gives χ((ΘE)²) = χ(Ē) = -1 ≠ 0
+        assert!((imag[0] - 0.0).abs() < 0.01,
+            "imag[0] should be 0, proving imag ≠ term-by-term Wigner summand");
 
         let mag_lg = wigner::filter_little_group(a3.kx, a3.ky, a3.kz, a3.kd, &mag_ops);
         let unitary: Vec<usize> = mag_lg.iter()
@@ -2022,8 +2022,8 @@ mod tests {
             "SG3 A3 grey: expected Type C (W=0), got {:?}", ct);
 
         // Also verify: extra sum is diagnostic-only, not a Wigner indicator
-        let extra_sum = wigner::diagnostic_extra_sum(extra);
-        eprintln!("SG3 A3 grey Wigner: SU(2) path = {:?}, extra_sum = {:.4}", ct, extra_sum);
+        let imag_sum = wigner::diagnostic_imag_sum(imag);
+        eprintln!("SG3 A3 grey Wigner: SU(2) path = {:?}, imag_sum = {:.4}", ct, imag_sum);
     }
 
     /// Per-term diagnostic: print raw data for debugging gauge conventions.
@@ -2062,9 +2062,9 @@ mod tests {
 
             for ir in crate::irrep::query::irreps_of(h_sg) {
                 if !ir.spinor { continue; }
-                let extra = ir.spin_extra_chars();
-                if extra.is_empty() { continue; }
-                let extra_sum: f64 = extra.iter().sum();
+                let imag =ir.spin_character_imag();
+                if imag.is_empty() { continue; }
+                let imag_sum: f64 = imag.iter().sum();
 
                 let h_seitz: Vec<_> = (0..mag_ops.len())
                     .filter(|&i| !mag_ops.operations[i].time_reversal)
@@ -2094,9 +2094,9 @@ mod tests {
 
                 eprintln!("\n═══ SG{} {} k=({}/{},{}/{},{}/{}) dim={} ═══",
                     h_sg, ir.ml, ir.kx, ir.kd, ir.ky, ir.kd, ir.kz, ir.kd, ir.dim);
-                eprintln!("  n_unitary={} n_antiunitary={} extra_sum={:.4} extra={:?}",
-                    unitary.len(), antiunitary.len(), extra_sum,
-                    extra.iter().map(|&x| format!("{:.2}", x)).collect::<Vec<_>>());
+                eprintln!("  n_unitary={} n_antiunitary={} imag_sum={:.4} imag={:?}",
+                    unitary.len(), antiunitary.len(), imag_sum,
+                    imag.iter().map(|&x| format!("{:.2}", x)).collect::<Vec<_>>());
                 eprintln!("  spin_lg_op_indices={:?}", ir.spin_lg_op_indices());
                 eprintln!("  n_lg_chars={} total_chars={}", n_lg, chars.len());
                 eprintln!("  lg_chars={:?}",
@@ -2104,7 +2104,7 @@ mod tests {
 
                 // Per-term table
                 eprintln!("  ┌──────┬─────────────────────┬──────────┬───────────────┬──────────────┬───────────────┬───────┬───────┐");
-                eprintln!("  │  h#  │ h_spin  U_h         │ h² spin  │ U_h² vs U_k   │ central(Θ²)   │   χ(spin)     │ extra │ contr │");
+                eprintln!("  │  h#  │ h_spin  U_h         │ h² spin  │ U_h² vs U_k   │ central(Θ²)   │   χ(spin)     │ imag │ contr │");
                 eprintln!("  ├──────┼─────────────────────┼──────────┼───────────────┼──────────────┼───────────────┼───────┼───────┤");
 
                 let mut w_sum = 0.0f64;
@@ -2156,12 +2156,12 @@ mod tests {
                     let contrib = chi * phase.re; // W contribution should be real
 
                     // Extra chars: compare by position in the unitary list
-                    let extra_val = extra.get(used).copied().unwrap_or(f64::NAN);
+                    let extra_val = imag.get(used).copied().unwrap_or(f64::NAN);
 
                     w_sum += contrib;
                     used += 1;
 
-                    eprintln!("  h={} h_spin={} sq_spin={} spC={} c={} chi0={:.2} chi={:.2} ph={:.2} contrib={:.2} extra={:.2}",
+                    eprintln!("  h={} h_spin={} sq_spin={} spC={} c={} chi0={:.2} chi={:.2} ph={:.2} contrib={:.2} imag={:.2}",
                         h_mag_idx, h_spin_idx, sq_spin_idx,
                         spatial_central, central, chi0, chi,
                         phase.re, contrib, extra_val);
@@ -2169,8 +2169,8 @@ mod tests {
 
                 let w = if used > 0 { w_sum / used as f64 } else { 0.0 };
                 eprintln!("  └──────┴─────────────────────┴──────────┴───────────────┴──────────────┴───────────────┴───────┴───────┘");
-                eprintln!("  W = {:.4} / {used} = {:.4}  (extra_sum={:.4})",
-                    w_sum, w, extra_sum);
+                eprintln!("  W = {:.4} / {used} = {:.4}  (imag_sum={:.4})",
+                    w_sum, w, imag_sum);
 
                 shown += 1;
                 if shown >= max_show { break; }
@@ -2197,8 +2197,8 @@ mod tests {
         // SG2 T-point spinor irreps
         for ir in crate::irrep::query::irreps_of(2) {
             if !ir.spinor || ir.k_label() != "T" { continue; }
-            let extra = ir.spin_extra_chars();
-            if !extra.is_empty() { continue; }
+            let imag =ir.spin_character_imag();
+            if !imag.is_empty() { continue; }
 
             let mag_lg = wigner::filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
             let antiunitary: Vec<usize> = mag_lg.iter()

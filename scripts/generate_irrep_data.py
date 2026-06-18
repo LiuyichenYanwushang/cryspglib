@@ -2462,8 +2462,8 @@ def generate_rust_data(data):
 
     # ── Imaginary parts of spinor characters ──
     lines.append("/// Imaginary parts of spinor irrep characters.")
-    lines.append("/// Indexed by IrrepRecord._spin_extra_start / _spin_extra_count.")
-    lines.append(f"pub static SPIN_EXTRA_CHARS: [f64; {len(spin_extra_flat)}] = [")
+    lines.append("/// Indexed by IrrepRecord._spin_imag_start / _spin_imag_count.")
+    lines.append(f"pub static SPIN_IMAG_CHARS: [f64; {len(spin_extra_flat)}] = [")
     for chunk_start in range(0, len(spin_extra_flat), 10):
         chunk = spin_extra_flat[chunk_start:chunk_start + 10]
         vals = ", ".join(_fmt_char(v) for v in chunk)
@@ -2716,8 +2716,8 @@ def generate_rust_data(data):
             lines.append(f"        _spin_lg_count: {r['spin_lg_count']},")
             lines.append(f"        _spin_lg_op_start: {r['spin_lg_op_s']},")
             lines.append(f"        _spin_lg_op_count: {r['spin_lg_op_c']},")
-            lines.append(f"        _spin_extra_start: {r['spin_extra_s']},")
-            lines.append(f"        _spin_extra_count: {r['spin_extra_c']},")
+            lines.append(f"        _spin_imag_start: {r['spin_extra_s']},")
+            lines.append(f"        _spin_imag_count: {r['spin_extra_c']},")
             lines.append(f"    }},")
     lines.append("];")
     lines.append("")

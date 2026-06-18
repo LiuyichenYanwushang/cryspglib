@@ -76,10 +76,10 @@ pub struct IrrepRecord {
     pub(crate) _spin_lg_op_start: u32,
     /// Number of little-group operation indices
     pub(crate) _spin_lg_op_count: u8,
-    /// Start index into [`SPIN_EXTRA_CHARS`] (imaginary spinor characters).
-    pub(crate) _spin_extra_start: u32,
+    /// Start index into [`SPIN_IMAG_CHARS`] (imaginary spinor characters).
+    pub(crate) _spin_imag_start: u32,
     /// Number of imaginary spinor character values.
-    pub(crate) _spin_extra_count: u16,
+    pub(crate) _spin_imag_count: u16,
     /// Start index into [`CIR_COMPONENT_CHARS`] (0 if not compound)
     pub(crate) _cir_start: u32,
     /// Number of CIR components (0 for non-compound irreps, 2 for Z1Z4 type)
@@ -109,18 +109,12 @@ impl IrrepRecord {
 
     /// Imaginary parts of the spinor character table.
     pub fn spin_character_imag(&self) -> &'static [f64] {
-        if self._spin_extra_count == 0 {
+        if self._spin_imag_count == 0 {
             return &[];
         }
-        let start = self._spin_extra_start as usize;
-        let len = self._spin_extra_count as usize;
-        &super::generated_data::SPIN_EXTRA_CHARS[start..start + len]
-    }
-
-    /// Compatibility alias for old callers.
-    #[deprecated(note = "spin.dat trailing values are character phases, not Wigner extras")]
-    pub fn spin_extra_chars(&self) -> &'static [f64] {
-        self.spin_character_imag()
+        let start = self._spin_imag_start as usize;
+        let len = self._spin_imag_count as usize;
+        &super::generated_data::SPIN_IMAG_CHARS[start..start + len]
     }
 
     /// Spin symmetry operations with SU(2) lifts for any space group.
