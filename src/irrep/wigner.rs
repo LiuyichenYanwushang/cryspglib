@@ -228,7 +228,7 @@ impl SquareKernel {
 
 /// Find a Seitz operation in a spin database, preferring full Seitz match.
 /// Returns `(index, is_minus_r_fallback)`.
-fn find_spin_in_db(op: &SeitzOp, spin_seitz: &[SeitzOp]) -> Option<(usize, bool)> {
+pub(crate) fn find_spin_in_db(op: &SeitzOp, spin_seitz: &[SeitzOp]) -> Option<(usize, bool)> {
     // 1. Full Seitz match
     if let Some(idx) = spin_seitz.iter().position(|s| same_seitz_mod_lattice(op, s)) {
         return Some((idx, false));
@@ -1476,8 +1476,9 @@ fn wigner_classify_spinor_msg_gauge(
         let u_sq_h = spin_su2_at(h_spin_su2, sq_spin_idx)?;
         let spatial_central = su2_same_up_to_sign(&u_sq_spatial, &u_sq_h)?;
 
-        // For spin-1/2, Θ commutes with spatial rotations and Θ² = Ē = -I.
-        // Therefore (Θ g0 h)² carries one additional central element.
+        // For spin-1/2: U_{(Θ·h)²} = Θ² · U_{(g₀h)²} = Ē · U_{spatial_square}.
+        //   spatial_central=true  (EBAR) → spatial already flipped → Θ²·Ē = I → SAME → no sign flip
+        //   spatial_central=false (SAME) → spatial is canonical → Θ² = Ē → EBAR → sign flip
         let central = !spatial_central;
 
         let r_l1 = mat_vec_i32(&g0h.rot, &l1);
@@ -1530,7 +1531,12 @@ fn wigner_classify_spinor_msg_gauge(
         MSG_GAUGE_OK.fetch_add(1, Ordering::Relaxed);
         Some(CorepType::C)
     } else {
-        MSG_GAUGE_W_FAIL.fetch_add(1, Ordering::Relaxed);
+        let count = MSG_GAUGE_W_FAIL.fetch_add(1, Ordering::Relaxed);
+        // Print per-term detail for the first 3 W failures
+        if count < 3 {
+            eprintln!("  W_FAIL#{}: sg={} k=({}/{},{}/{},{}/{}) dim={:.0} n_mapped={} w=({:.6},{:.6}) |w|={:.6}",
+                count, ctx.sg, kx, kd, ky, kd, kz, kd, h_dim, n_mapped, w.re, w.im, w.norm());
+        }
         None
     }
 }

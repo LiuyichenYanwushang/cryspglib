@@ -3129,4 +3129,128 @@ mod tests {
             if fail > 0 { break; } // Just report first failure
         }
     }
+
+    /// Deep dive: trace one specific MSG-gauge W failure case per-term.
+    /// SG24 W-point UNI152 dim=1 — W=-0.5 instead of ±1.
+    #[test]
+    fn debug_msg_gauge_sg24_w_uni152() {
+        use crate::irrep::wigner;
+        let uni = 152;
+        let mag_ops = get_magnetic_operations(uni).expect("UNI152 should exist");
+        let mag_seitz = wigner::ops_to_seitz(&mag_ops);
+        let h_info = identify_unitary_subgroup_with_hall(uni).expect("H info");
+        let h_sg = h_info.sg as u8; // SG24
+        let h_ops = h_info.ops_from_msg;
+        let h_seitz = wigner::ops_to_seitz(&h_ops);
+
+        // Find the W-point (1/2,1/2,1/2) spinor irrep
+        for ir in crate::irrep::query::irreps_of(h_sg) {
+            if !ir.spinor { continue; }
+            if ir.kx != 1 || ir.ky != 1 || ir.kz != 1 || ir.kd != 2 { continue; }
+
+            let mag_lg = wigner::filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+            let unitary: Vec<usize> = mag_lg.iter()
+                .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
+            let antiunitary: Vec<usize> = mag_lg.iter()
+                .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
+            if antiunitary.is_empty() { continue; }
+
+            let h_spin = ir.spin_ops();
+            let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
+            let g_spin = if g_sg == h_sg { h_spin }
+                else { IrrepRecord::spin_ops_for_sg(g_sg) };
+            let ctx = wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
+
+            eprintln!("\n═══ SG{} {} UNI{} dim={} imag={} ═══",
+                h_sg, ir.k_label(), uni, ir.dim, !ir.spin_character_imag().is_empty());
+            eprintln!("  n_lg_ops={} unitary={} antiunitary={}",
+                ir.spin_lg_char_count(), unitary.len(), antiunitary.len());
+            eprintln!("  spin_lg_op_indices={:?}", ir.spin_lg_op_indices());
+            eprintln!("  chars={:?}", &ir.characters()[..ir.spin_lg_char_count().min(ir.characters().len())]);
+            eprintln!("  imag={:?}", ir.spin_character_imag());
+
+            // Build the spin→mag map manually and trace each term
+            let h_spin_seitz = wigner::build_spin_seitz(h_spin.0, h_spin.1);
+            let g_spin_seitz = wigner::build_spin_seitz(g_spin.0, g_spin.1);
+            let h_to_spin = wigner::build_h_to_spin_map(&h_seitz, &h_spin_seitz, ir.spin_lg_op_indices());
+
+            let mut spin_to_mag = std::collections::HashMap::<usize, usize>::new();
+            for &mag_idx in &unitary {
+                let h_match = match wigner::find_seitz(&mag_seitz[mag_idx].rot, &mag_seitz[mag_idx].trans, &h_seitz) {
+                    Some(m) => m, None => continue,
+                };
+                if let Some(Some(spin_idx)) = h_to_spin.get(h_match.op_index) {
+                    spin_to_mag.entry(*spin_idx).or_insert(mag_idx);
+                }
+            }
+
+            let a0_idx = antiunitary[0];
+            let a0_spatial = wigner::SeitzOp::new(mag_seitz[a0_idx].rot, mag_seitz[a0_idx].trans, false);
+            let (a0_spin_idx, _) = wigner::find_spin_in_db(&a0_spatial, &g_spin_seitz).unwrap();
+            let u_a0 = wigner::spin_su2_at(g_spin.2, a0_spin_idx).unwrap();
+
+            let n_lg_ops = ir.spin_lg_char_count();
+            eprintln!("\n  Per-term trace (MSG-gauge):");
+            eprintln!("  a0: mag_idx={} rot={:?} trans={:?} u_a0={:?}", a0_idx, a0_spatial.rot, a0_spatial.trans, u_a0);
+            let mut w_sum = num_complex::Complex64::ZERO;
+            let mut n_mapped = 0;
+
+            for local in 0..n_lg_ops {
+                let global_spin_idx = ir.spin_lg_op_indices()[local] as usize;
+                let mag_idx = match spin_to_mag.get(&global_spin_idx) {
+                    Some(&m) => m,
+                    None => { eprintln!("  [{local}] UNMAPPED spin={global_spin_idx}"); continue; }
+                };
+                let h_msg = wigner::SeitzOp::new(mag_seitz[mag_idx].rot, mag_seitz[mag_idx].trans, false);
+                let (h_g_idx, _) = wigner::find_spin_in_db(&h_msg, &g_spin_seitz).unwrap();
+                let u_h_g = wigner::spin_su2_at(g_spin.2, h_g_idx).unwrap();
+                let u_g0h = wigner::su2_compose(&u_a0, &u_h_g);
+                let u_sq_spatial = wigner::su2_compose(&u_g0h, &u_g0h);
+
+                let (g0h, l1) = wigner::compose_seitz(&a0_spatial, &h_msg);
+                let (sq, lattice_sq) = wigner::square_seitz(&g0h);
+                let sq_h_match = wigner::find_seitz(&sq.rot, &sq.trans, &h_seitz).unwrap();
+                let sq_spin_idx = h_to_spin.get(sq_h_match.op_index).copied().flatten().unwrap();
+                let u_sq_h = wigner::spin_su2_at(h_spin.2, sq_spin_idx).unwrap();
+
+                let spatial_central = wigner::su2_same_up_to_sign(&u_sq_spatial, &u_sq_h).unwrap();
+                let central = !spatial_central;
+
+                let chi0_real = ir.characters()[sq_spin_idx.min(ir.characters().len()-1)];
+                let chi0_imag = ir.spin_character_imag().get(sq_spin_idx).copied().unwrap_or(0.0);
+                let chi0 = num_complex::Complex64::new(chi0_real, chi0_imag);
+                let eta_ebar = -1.0;
+                let chi = if central { eta_ebar * chi0 } else { chi0 };
+
+                let r_l1 = wigner::mat_vec_i32(&g0h.rot, &l1);
+                let total_lattice = wigner::add3(
+                    &wigner::add3(&lattice_sq, &sq_h_match.lattice_shift),
+                    &wigner::add3(&l1, &r_l1),
+                );
+                let phase = wigner::bloch_phase(ir.kx, ir.ky, ir.kz, ir.kd, &total_lattice);
+
+                let contrib = chi * phase;
+                w_sum += contrib;
+                n_mapped += 1;
+
+                eprintln!(
+                    "  [{local}] mag={mag_idx} h_g={h_g_idx} u_h={u_h_g:?} sq_sp={sq_spin_idx} u_sq_sp={u_sq_spatial:?} u_sq_h={u_sq_h:?} spC={spatial_central} c={central} chi0=({chi0_real:.2},{chi0_imag:.2}) chi=({},{}) ph={:.2} contrib=({:.4},{:.4})",
+                    chi.re, chi.im, phase.re,
+                    contrib.re, contrib.im,
+                );
+            }
+
+            let w = if n_mapped > 0 { w_sum / n_mapped as f64 } else { num_complex::Complex64::ZERO };
+            eprintln!("  W = ({:.6},{:.6}) / {n_mapped} = ({:.6},{:.6})", w_sum.re, w_sum.im, w.re, w.im);
+
+            let ct = wigner::wigner_classify_spinor(
+                &ctx, ir.characters(), ir.spin_character_imag(),
+                ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
+                &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+                ir.kx, ir.ky, ir.kz, ir.kd,
+            );
+            eprintln!("  Result: {:?}", ct);
+            break; // Only first matching irrep
+        }
+    }
 }
