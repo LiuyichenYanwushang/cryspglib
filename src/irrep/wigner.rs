@@ -851,7 +851,8 @@ pub fn wigner_direct_anti_coset(
 /// groups when (g₀R_h)² maps outside the little co-group lookup table.
 pub fn wigner_classify_spinor_direct_anti(
     ctx: &SpinLiftContext,
-    spin_chars: &[f64],
+    spin_chars_real: &[f64],
+    spin_chars_imag: &[f64],
     spin_lg_op_indices: &[u16],
     anti_lg_indices: &[usize],
     mag_seitz: &[SeitzOp],
@@ -918,6 +919,16 @@ pub fn wigner_classify_spinor_direct_anti(
                 b_idx, sq_spin_idx);
             return None;
         };
+        let sq_spin = h_spin_seitz.get(sq_spin_idx)?;
+        let mut spin_match_shift = [0i32; 3];
+        for i in 0..3 {
+            let d = sq.trans[i] - sq_spin.trans[i];
+            let rounded = d.round();
+            if (d - rounded).abs() > 1e-9 {
+                return None;
+            }
+            spin_match_shift[i] = rounded as i32;
+        }
 
         // SU(2) lift of b (rotation-only lookup in G spin ops — b may have
         // improper rotation from G \ H for Type III).
@@ -935,15 +946,21 @@ pub fn wigner_classify_spinor_direct_anti(
         // SU(2) central detection: U_b² vs canonical U_{b²}.
         let u_b_sq = su2_compose(&u_b, &u_b);
         let u_sq = spin_su2_at(h_spin_su2, sq_spin_idx)?;
-        let central = su2_same_up_to_sign(&u_b_sq, &u_sq)?;
+        let spatial_central = su2_same_up_to_sign(&u_b_sq, &u_sq)?;
+        // b = Θg carries the additional spin-1/2 factor Θ² = Ē.
+        let central = !spatial_central;
 
-        // Bloch phase from lattice shift (translation origin shift already
-        // accounted for by to_bilbao).
-        let phase = bloch_phase(kx, ky, kz, kd, &lattice_sq);
+        // Bloch phase includes both square reduction and the shift required
+        // to match the canonical spin-table representative.
+        let total_lattice = add3(&lattice_sq, &spin_match_shift);
+        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
 
-        let chi0 = spin_chars[sq_local_idx];
+        let chi0 = Complex64::new(
+            spin_chars_real[sq_local_idx],
+            spin_chars_imag.get(sq_local_idx).copied().unwrap_or(0.0),
+        );
         let chi = if central { -chi0 } else { chi0 };
-        w_sum += Complex64::new(chi, 0.0) * phase;
+        w_sum += chi * phase;
     }
 
     let w = w_sum / (n_anti as f64);
@@ -959,10 +976,13 @@ pub fn wigner_classify_spinor_direct_anti(
             let u = spin_su2_at(h_spin_su2, si)?;
             if su2_same_up_to_sign(&u, &u_id) != Some(false) { return None; }
             let local = *global_to_local.get(&si)?;
-            spin_chars.get(local).map(|&c| c.abs().round().max(1.0))
+            spin_chars_real.get(local).map(|&c| c.abs().round().max(1.0))
         })
         .unwrap_or_else(|| {
-            spin_chars.first().map(|&c| c.abs().round().max(1.0)).unwrap_or(1.0)
+            spin_chars_real
+                .first()
+                .map(|&c| c.abs().round().max(1.0))
+                .unwrap_or(1.0)
         });
 
     let tol = 1e-6;

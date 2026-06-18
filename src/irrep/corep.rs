@@ -1802,6 +1802,7 @@ mod tests {
         let mut failure_by_sg = std::collections::HashMap::<(&str, u8), usize>::new();
         let mut mapping_shape =
             std::collections::HashMap::<(usize, usize), usize>::new();
+        let mut direct_anti_stats = std::collections::HashMap::<&str, usize>::new();
 
         for uni in 1..=1651 {
             let mag_ops = match get_magnetic_operations(uni) {
@@ -1920,14 +1921,36 @@ mod tests {
                 let g_spin = if g_sg == h_sg { h_spin }
                     else { IrrepRecord::spin_ops_for_sg(g_sg) };
                 let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
-                let su2_ok = crate::irrep::wigner::wigner_classify_spinor(
+                let su2_result = crate::irrep::wigner::wigner_classify_spinor(
                     &ctx, ir.characters(), ir.spin_character_imag(),
                     ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                     &unitary, &mag_seitz, &h_seitz, antiunitary[0],
                     ir.kx, ir.ky, ir.kz, ir.kd,
-                ).is_some();
+                );
+                let direct_result =
+                    crate::irrep::wigner::wigner_classify_spinor_direct_anti(
+                        &ctx,
+                        ir.characters(),
+                        ir.spin_character_imag(),
+                        ir.spin_lg_op_indices(),
+                        &antiunitary,
+                        &mag_seitz,
+                        ir.kx,
+                        ir.ky,
+                        ir.kz,
+                        ir.kd,
+                    );
 
-                if su2_ok { continue; }
+                let direct_key = match (su2_result, direct_result) {
+                    (Some(a), Some(b)) if a == b => "both_ok_agree",
+                    (Some(_), Some(_)) => "both_ok_disagree",
+                    (Some(_), None) => "main_ok_direct_fail",
+                    (None, Some(_)) => "main_fail_direct_ok",
+                    (None, None) => "both_fail",
+                };
+                *direct_anti_stats.entry(direct_key).or_default() += 1;
+
+                if su2_result.is_some() { continue; }
 
                 // Classify this failure
                 let class = if !unmapped.is_empty() {
@@ -1977,6 +2000,13 @@ mod tests {
         });
         for ((unmapped, unitary), count) in mapping_shape {
             println!("  {:>3}/{:<3}  {:>6}", unmapped, unitary, count);
+        }
+
+        println!("\n=== Direct anti-coset oracle ===");
+        let mut direct_anti_stats: Vec<_> = direct_anti_stats.into_iter().collect();
+        direct_anti_stats.sort_by_key(|(key, count)| (std::cmp::Reverse(**count), **key));
+        for (key, count) in direct_anti_stats {
+            println!("  {:>30}  {:>6}", key, count);
         }
 
         // Print MSG-gauge vs old-path triage counters for the full triage pass.
