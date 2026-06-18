@@ -195,3 +195,45 @@ fn test_fcc_fm_111() {
     assert_eq!(r.bns_number.trim(), "166.101");
     assert_eq!(r.uni_number, 1331);
 }
+
+/// Graphene honeycomb lattice, 2 atoms per cell, AFM (opposite z-spins).
+///
+/// Lattice: hexagonal a1=(1,0,0), a2=(0.5,√3/2,0), a3=(0,0,10)
+/// Atom A at (0,0,0) with spin +z, atom B at (1/3,2/3,0) with spin -z
+///
+/// Non-mag space group: P6/mmm (#191).
+#[test]
+fn test_graphene_afm_z() {
+    let s3 = (3.0_f64).sqrt();
+    // lattice[cart][vec]: rows=x/y/z, cols=a/b/c
+    // a=(1,0,0), b=(1/2,√3/2,0), c=(0,0,2) → hexagonal #191
+    let lattice = [
+        [1.0, 0.5, 0.0],    // row x: a_x, b_x, c_x
+        [0.0, s3 / 2.0, 0.0], // row y: a_y, b_y, c_y
+        [0.0, 0.0, 2.0],    // row z: a_z, b_z, c_z
+    ];
+    // Sublattice A at origin, sublattice B at nearest-neighbor position
+    // τ_B = (1/3, 1/3, 0) in fractional coords → C-C bond along δ₁ direction
+    let positions = [
+        [0.0, 0.0, 0.0],
+        [1.0 / 3.0, 1.0 / 3.0, 0.0],
+    ];
+    let types = [6, 6];
+    // AFM: opposite z-spins on A and B sublattices
+    let moments = [
+        [0.0, 0.0, 1.0],
+        [0.0, 0.0, -1.0],
+    ];
+    // Try different symprec values
+    for &sp in &[1e-3, 1e-4, 1e-5, 1e-6] {
+        let mut cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
+            .with_magnetic(moments.to_vec());
+        if let Some(r) = cry.analyze().symprec(sp).magnetic_dataset() {
+            println!("symprec={}: SG={} Hall={} UNI={} BNS={} type={:?} ops={}",
+                sp, r.spacegroup_number, r.hall_number, r.uni_number,
+                r.bns_number.trim(), r.magnetic_type, r.num_operations);
+        } else {
+            println!("symprec={}: magnetic_dataset returned None", sp);
+        }
+    }
+}
