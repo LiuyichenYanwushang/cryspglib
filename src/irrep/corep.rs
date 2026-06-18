@@ -3082,4 +3082,53 @@ mod tests {
         println!("SG 123 spinor irreps: {:?}", sg123_spinors);
         assert!(!failures.is_empty(), "Should find at least one spinor Wigner failure");
     }
+
+    /// Scan trigonal SG 143 (P3) grey group for SU(2) spinor Wigner failures.
+    ///
+    /// Trigonal groups contain C₃ rotations.
+    #[test]
+    fn diagnose_sg143_spinor_wigner() {
+        let mut uni = 0usize;
+        for u in 1..=2000usize {
+            let msg = crate::msg_database::msgdb_get_magnetic_spacegroup_type(u);
+            if msg.type_ != crate::MagneticType::Grey { continue; }
+            if let Some(h) = identify_unitary_subgroup_with_hall(u) {
+                if h.sg == 143 { uni = u; break; }
+            }
+        }
+        assert!(uni > 0);
+        let mag_ops = get_magnetic_operations(uni).unwrap();
+        let irs = crate::irrep::query::irreps_of(143u8);
+
+        println!("{:>6} {:>3} {:>8} {:>6} {:>6}", "irrep", "nlg", "k", "ok", "fail");
+        for ir in irs.iter().filter(|r| r.spinor && r.spin_lg_char_count() > 0) {
+            let n_lg = ir.spin_lg_char_count();
+            let indices = ir.spin_lg_op_indices();
+            let (h_rots, h_trans, h_su2) = ir.spin_ops();
+            let h_spin_seitz = wigner::build_spin_seitz(h_rots, h_trans);
+            let mag_lg = filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+            let mag_seitz = ops_to_seitz(&mag_ops);
+            let a0_idx = mag_lg.iter().find(|&&i| mag_ops.operations[i].time_reversal).copied();
+            if a0_idx.is_none() { println!("{:>6} {:>3} — no antiunitary", ir.ml, n_lg); continue; }
+            let a0 = &mag_seitz[a0_idx.unwrap()];
+            let a0_spin = h_spin_seitz.iter().position(|s| s.rot == a0.rot);
+            if a0_spin.is_none() { println!("{:>6} {:>3} — a0 not in spin", ir.ml, n_lg); continue; }
+            let u_a0 = wigner::spin_su2_at(h_su2, a0_spin.unwrap()).unwrap();
+            let mut ok = 0usize; let mut fail = 0usize;
+            for local in 0..n_lg {
+                let gsi = indices[local] as usize;
+                let u_h = match wigner::spin_su2_at(h_su2, gsi) { Some(u) => u, None => { fail += 1; continue; } };
+                let (g0h, _) = compose_seitz(a0, &h_spin_seitz[gsi]);
+                let (sq, _) = square_seitz(&g0h);
+                let sq_spin = match h_spin_seitz.iter().position(|s| s.rot == sq.rot) { Some(s) => s, None => { fail += 1; continue; } };
+                let u_sq = wigner::su2_compose(&wigner::su2_compose(&u_a0, &u_h), &wigner::su2_compose(&u_a0, &u_h));
+                let u_k = match wigner::spin_su2_at(h_su2, sq_spin) { Some(u) => u, None => { fail += 1; continue; } };
+                if wigner::su2_same_up_to_sign(&u_sq, &u_k).is_some() { ok += 1; } else { fail += 1; }
+            }
+            let marker = if fail > 0 { " ★ FAIL" } else { "" };
+            println!("{:>6} {:>3} ({:>2},{:>2},{:>2})/{:<2} {:>4} {:>4}{}",
+                ir.ml, n_lg, ir.kx, ir.ky, ir.kz, ir.kd, ok, fail, marker);
+            if fail > 0 { break; } // Just report first failure
+        }
+    }
 }
