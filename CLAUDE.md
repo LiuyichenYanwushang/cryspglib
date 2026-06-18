@@ -487,6 +487,9 @@ cargo test --package cryspglib --tests
 
 ## 磁空间群识别的坐标变换约定
 
+完整故障复盘、数学推导、错误互相掩盖机制和调试方法见：
+`docs/magnetic-spacegroup-basis-transform-postmortem.md`。
+
 ### 标准设置变换
 
 `magnetic_spacegroup.rs` 使用
