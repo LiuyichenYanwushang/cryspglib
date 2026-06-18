@@ -29,8 +29,7 @@ pub fn spn_get_operations_with_site_tensors(
     symprec: f64,
     angle_tolerance: f64,
     mag_symprec_: f64,
-) -> Option<MagneticSymmetry> {
-    // TODO: More robust way to guess mag_symprec
+) -> Result<MagneticSymmetry, crate::SymError> {
     let mag_symprec = if mag_symprec_ < 0.0 {
         symprec
     } else {
@@ -38,47 +37,32 @@ pub fn spn_get_operations_with_site_tensors(
     };
 
     let magnetic_symmetry = get_operations(
-        sym_nonspin,
-        cell,
-        with_time_reversal,
-        is_axial,
-        symprec,
-        mag_symprec,
-    )?;
+        sym_nonspin, cell, with_time_reversal, is_axial, symprec, mag_symprec,
+    ).ok_or(crate::SymError::MagneticOpGenerationFailed)?;
 
-    /* equivalent atoms */
     *permutations = get_symmetry_permutations(
-        &magnetic_symmetry,
-        cell,
-        with_time_reversal,
-        is_axial,
-        symprec,
-        mag_symprec,
-    )?;
+        &magnetic_symmetry, cell, with_time_reversal, is_axial, symprec, mag_symprec,
+    ).ok_or(crate::SymError::MagneticOpGenerationFailed)?;
 
-    *equivalent_atoms = get_orbits(permutations, magnetic_symmetry.size, cell.size)?;
+    *equivalent_atoms = get_orbits(permutations, magnetic_symmetry.size, cell.size)
+        .ok_or(crate::SymError::MagneticOpGenerationFailed)?;
 
-    let pure_trans = spn_collect_pure_translations_from_magnetic_symmetry(&magnetic_symmetry)?;
+    let pure_trans = spn_collect_pure_translations_from_magnetic_symmetry(&magnetic_symmetry)
+        .ok_or(crate::SymError::MagneticOpGenerationFailed)?;
 
     let Some((found_lattice, multi)) = prm_get_primitive_lattice_vectors(
-        cell,
-        &pure_trans,
-        symprec,
-        angle_tolerance,
+        cell, &pure_trans, symprec, angle_tolerance,
     ) else {
-        return None;
+        return Err(crate::SymError::MagneticPrimitiveLatticeFailed);
     };
 
     *prim_lattice = found_lattice;
 
-    /* By definition, change of number of pure translations would */
-    /* not be allowed. */
     if multi != pure_trans.len() {
-        return None;
+        return Err(crate::SymError::MagneticPrimitiveLatticeFailed);
     }
 
-    // pure_trans (VecDBL) is dropped automatically
-    Some(magnetic_symmetry)
+    Ok(magnetic_symmetry)
 }
 
 pub fn spn_collect_pure_translations_from_magnetic_symmetry(

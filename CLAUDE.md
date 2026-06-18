@@ -200,6 +200,70 @@ Data generation 存 `central_parity` 或 `extended character table` 可能是最
 2. **先做 oracle 估计大工程的收益**（例如 eta ±1 测试）
 3. **先排除更便宜的修复**（runtime inference, convention alignment）
 
+### 原则 7：逐阶段确认，不要把 UNI=0 当成整个管线失败
+
+磁群识别是一条多阶段管线。当 `UNI=0` 时，不要笼统地说"磁群识别失败"。
+
+分别检查每个阶段的输出：
+- 普通 SG 是否正确？Hall 是否正确？
+- 磁类型是否正确？操作数是否正确？
+- unitary/anti-unitary 比例是否正确？
+- 失败是否**仅**发生在 DB matching 阶段？
+
+实例：石墨烯 AFM 返回 `SG=191, Hall=485, Type-3, 24 ops (12U+12A)`
+但 `UNI=0`。前四个阶段全部正确——问题只在 DB 匹配阶段。
+这排除了晶格约定、磁操作生成、FSG/XSG 分类等所有问题。
+
+### 原则 8：容差扫描是分类工具，不是修复方法
+
+对 `symprec` 做跨数量级扫描（1e-3 → 1e-6）：
+
+- 结果随容差变化 → 优先检查数值稳定性
+- **结果跨多个数量级完全不变** → 优先检查坐标约定、数据 setting、变换方向、群操作合成
+
+石墨烯 AFM 的 UNI=0 在四个数量级容差下完全不变——这排除了数值问题，
+直接指向 convention/transform 错误。
+
+### 原则 9：对矩阵方向使用推导，不使用记忆
+
+看到 `T R T⁻¹` 或 `T⁻¹ R T` 时，不要凭变量名判断。先写清楚：
+
+```
+x_new 与 x_old 的关系是什么?
+```
+
+然后计算 `C g C⁻¹`。推导结果是最小、最可靠的 oracle。
+
+对于 `x_std = T x + s`，正确的 Seitz 共轭是：
+```
+R_std = T R T⁻¹
+t_std = s - R_std s + T t
+```
+
+### 原则 10：检查 helper 的所有调用者
+
+一个错误 helper 可能在某个调用点被另一个错误抵消，却在其他调用点失败。
+
+石墨烯案例：`get_distinct_changed_magnetic_symmetry` 内部使用 `T⁻¹ R T`（错误），
+但 `get_reference_space_group` 传入的 `tmat` 本身也取反了（把 P 当 T，实际应为 P⁻¹）。
+两个错误在参考 setting 路径上互相抵消，但在数据库 correction transformation 路径
+（这里 T 已经正确）暴露出来。
+
+单独分析第一个调用点会错误地认为公式"等效"。
+
+### 原则 11：高对称测试不足以验证线性代数约定
+
+立方晶格的变换矩阵通常是单位矩阵、置换矩阵、正交对称矩阵或自逆矩阵
+（`T = T⁻¹`）。这些测试全部通过**不能**证明矩阵方向正确。
+
+应当至少包含：
+- 非正交六方/单斜晶格（`T != T⁻¹`）
+- 非零 origin shift
+- 非平凡 correction transformation
+- 具体断言 UNI/BNS 值（而非只检查 `> 0`）
+
+石墨烯六方 AFM 是第一个暴露这些问题的非正交 oracle。
+
 ---
 
 ## 错题集 — Spinor Wigner SU(2) 调试记录

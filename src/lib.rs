@@ -179,6 +179,24 @@ pub enum SymError {
     /// 数学运算失败
     #[error("math operation failed")]
     MathFailed = 10,
+    /// 磁操作生成失败
+    #[error("magnetic operation generation failed")]
+    MagneticOpGenerationFailed = 11,
+    /// 磁参考空间群搜索失败
+    #[error("magnetic reference space group search failed")]
+    MagneticReferenceGroupFailed = 12,
+    /// 磁群 fallback 参考设置失败
+    #[error("magnetic fallback reference setting failed")]
+    MagneticFallbackReferenceFailed = 13,
+    /// Hall 编号无 UNI 候选
+    #[error("no UNI candidates for Hall number")]
+    MagneticUniCandidatesNotFound = 14,
+    /// UNI 候选匹配全部失败
+    #[error("all UNI candidates failed is_subset matching")]
+    MagneticUniMatchFailed = 15,
+    /// 磁原胞晶格确定失败
+    #[error("magnetic primitive lattice determination failed")]
+    MagneticPrimitiveLatticeFailed = 16,
 }
 
 // ---------------------------------------------------------------------------
@@ -662,8 +680,8 @@ pub fn spg_get_magnetic_spacegroup_type_from_symmetry(
     match crate::magnetic_spacegroup::msg_identify_magnetic_space_group_type(
         lattice, &mag_sym, symprec,
     ) {
-        Some(dataset) => MagneticSpaceGroupType::from_uni(dataset.uni_number),
-        None => MagneticSpaceGroupType {
+        Ok(dataset) => MagneticSpaceGroupType::from_uni(dataset.uni_number),
+        Err(_) => MagneticSpaceGroupType {
             uni_number: 0,
             litvin_number: 0,
             bns_number: String::new(),
@@ -724,7 +742,7 @@ pub fn spg_get_magnetic_dataset(
     types: &[i32],
     magnetic_moments: Option<&[[f64; 3]]>,
     symprec: f64,
-) -> Option<MagneticSymmetry> {
+) -> Result<MagneticSymmetry, SymError> {
     let n_atoms = positions.len();
 
     // --- 构建 Cell ---
@@ -749,12 +767,15 @@ pub fn spg_get_magnetic_dataset(
     cell.aperiodic_axis = None;
 
     // --- 1. 非磁空间群 ---
-    let primitive = crate::primitive::prm_get_primitive(&cell, symprec, -1.0)?;
-    let spg = crate::spacegroup::spa_search_spacegroup(&primitive, 0, symprec, -1.0)?;
+    let primitive = crate::primitive::prm_get_primitive(&cell, symprec, -1.0)
+        .ok_or(SymError::CellStandardizationFailed)?;
+    let spg = crate::spacegroup::spa_search_spacegroup(&primitive, 0, symprec, -1.0)
+        .ok_or(SymError::SpacegroupSearchFailed)?;
     let hall_number = spg.hall_number;
 
     // --- 2. 非磁对称操作 (用常规晶胞获取, 保证基矢正确) ---
-    let nonspin_sym = crate::symmetry::sym_get_operation(&cell, symprec, -1.0)?;
+    let nonspin_sym = crate::symmetry::sym_get_operation(&cell, symprec, -1.0)
+        .ok_or(SymError::SymmetryOperationSearchFailed)?;
 
     if !has_mag {
         // 无磁矩: 只返回非磁结果
@@ -762,7 +783,7 @@ pub fn spg_get_magnetic_dataset(
         let trans = (0..nonspin_sym.size).map(|i| nonspin_sym.trans[i]).collect();
         let timerev = vec![false; nonspin_sym.size];
         let spg_type = crate::spg_database::spgdb_get_spacegroup_type(hall_number);
-        return Some(MagneticSymmetry {
+        return Ok(MagneticSymmetry {
             spacegroup_number: spg.number,
             international_short: spg.international_short.trim().to_string(),
             hall_number,
@@ -807,7 +828,7 @@ pub fn spg_get_magnetic_dataset(
         let valid: Vec<usize> = tr.iter().cloned().enumerate().filter(|(_, t)| *t != -1).map(|(i, _)| i).collect();
         let n = valid.len();
         if n == 0 {
-            return None;
+            return Err(SymError::MagneticOpGenerationFailed);
         }
         let mut fallback = crate::symmetry::MagneticSymmetry::new(n);
         for (j, &idx) in valid.iter().enumerate() {
@@ -831,11 +852,11 @@ pub fn spg_get_magnetic_dataset(
         symprec,
     );
     let (uni_number, magnetic_type, bns_number, og_number) = match ds {
-        Some(ds) => {
+        Ok(ds) => {
             let mt = crate::msg_database::msgdb_get_magnetic_spacegroup_type(ds.uni_number);
             (ds.uni_number, mt.type_, mt.bns_number.to_string(), mt.og_number.to_string())
         }
-        None => {
+        Err(SymError::MagneticUniMatchFailed) => {
             // 未匹配 DB 条目, 从 FSG/XSG 计算磁类型
             let sym_all = crate::magnetic_spacegroup::extract_symmetry(
                 &final_mag_sym, true, symprec,
@@ -856,6 +877,7 @@ pub fn spg_get_magnetic_dataset(
             };
             (0, fallback_type, String::new(), String::new())
         }
+        Err(e) => return Err(e),
     };
 
     let spg_type = crate::spg_database::spgdb_get_spacegroup_type(hall_number);
@@ -863,7 +885,7 @@ pub fn spg_get_magnetic_dataset(
     let trans_out = (0..final_mag_sym.size).map(|i| final_mag_sym.trans[i]).collect();
     let tr_out = (0..final_mag_sym.size).map(|i| final_mag_sym.timerev[i]).collect();
 
-    Some(MagneticSymmetry {
+    Ok(MagneticSymmetry {
         spacegroup_number: spg.number,
         international_short: spg.international_short.trim().to_string(),
         hall_number,

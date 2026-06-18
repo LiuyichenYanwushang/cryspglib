@@ -338,7 +338,7 @@ impl<'a> SymmetryAnalysis<'a> {
     ///
     /// Requires the crystal to have magnetic moments set via [`Crystal::with_magnetic`].
     #[allow(deprecated)]
-    pub fn magnetic_dataset(&self) -> Option<MagneticSymmetry> {
+    pub fn magnetic_dataset(&self) -> Result<MagneticSymmetry, crate::SymError> {
         crate::spg_get_magnetic_dataset(
             &self.crystal.lattice,
             &self.crystal.positions,

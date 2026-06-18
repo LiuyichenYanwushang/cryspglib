@@ -4,6 +4,7 @@
 //! 参考: Litvin, "Magnetic Group Tables" 2013
 
 use crate::MagneticType;
+use crate::SymError;
 use crate::mathfunc::{
     mat_cast_matrix_3i_to_3d, mat_check_identity_matrix_i3,
     mat_get_determinant_d3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
@@ -46,7 +47,7 @@ pub fn msg_identify_magnetic_space_group_type(
     lattice: &Mat3,
     magnetic_symmetry: &MagneticSymmetry,
     symprec: f64,
-) -> Option<MagneticDataset> {
+) -> Result<MagneticDataset, SymError> {
     msg_identify_with_parent_hall(lattice, magnetic_symmetry, None, symprec)
 }
 
@@ -57,21 +58,20 @@ pub fn msg_identify_with_parent_hall(
     magnetic_symmetry: &MagneticSymmetry,
     parent_hall_number: Option<usize>,
     symprec: f64,
-) -> Option<MagneticDataset> {
+) -> Result<MagneticDataset, SymError> {
     // 先约化到原胞表示（去除纯平移导致的冗余操作）
     let prim_sym = reduce_to_primitive_magsym(magnetic_symmetry, symprec);
 
     // 标准路径: 从磁对称性中提取 FSG/XSG 并搜索空间群
     let (ref_sg, changed_symmetry, mut tmat, mut shift, msgtype_num) =
         match get_reference_space_group(lattice, &prim_sym, symprec) {
-            Some(result) => {
-                result
-            }
+            Some(result) => result,
             None => {
                 // 标准路径失败 → 尝试 fallback（用母空间群的 Hall 编号）
-                let hall_number = parent_hall_number?;
-                let fb = build_fallback_reference(lattice, magnetic_symmetry, hall_number, symprec)?;
-                fb
+                let hall_number =
+                    parent_hall_number.ok_or(SymError::MagneticReferenceGroupFailed)?;
+                build_fallback_reference(lattice, magnetic_symmetry, hall_number, symprec)
+                    .ok_or(SymError::MagneticFallbackReferenceFailed)?
             }
         };
 
@@ -157,7 +157,7 @@ pub fn msg_identify_with_parent_hall(
     }
 
     if best_uni == 0 {
-        return None;
+        return Err(SymError::MagneticUniMatchFailed);
     }
 
     let hall_number = best_hall_number;
@@ -176,7 +176,7 @@ pub fn msg_identify_with_parent_hall(
     ret.transformation_matrix = tmat;
     ret.origin_shift = shift;
 
-    Some(ret)
+    Ok(ret)
 }
 
 /// 获取参考空间群和变换后的磁性对称操作。
@@ -1253,10 +1253,10 @@ mod tests {
         let mag_sym = MagneticSymmetry::new(0);
         assert!(super::msg_identify_magnetic_space_group_type(
             &cubic_lattice(), &mag_sym, SYMPREC,
-        ).is_none());
+        ).is_err());
     }
 
-    /// 缺少单位操作 → 返回 None
+    /// 缺少单位操作 → 返回 Err
     #[test]
     fn test_no_identity() {
         let mut mag_sym = MagneticSymmetry::new(1);
@@ -1265,6 +1265,6 @@ mod tests {
         mag_sym.timerev[0] = false;
         assert!(super::msg_identify_magnetic_space_group_type(
             &cubic_lattice(), &mag_sym, SYMPREC,
-        ).is_none());
+        ).is_err());
     }
 }

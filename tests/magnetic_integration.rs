@@ -24,7 +24,7 @@ fn run_dataset(
         cry = cry.with_magnetic(m.to_vec());
     }
     let result = cry.analyze().symprec(SYMPREC).magnetic_dataset()
-        .unwrap_or_else(|| panic!("{}: magnetic_dataset returned None", label));
+        .unwrap_or_else(|e| panic!("{}: magnetic_dataset failed: {:?}", label, e));
     eprintln!("=== {} ===", label);
     eprintln!("{}", result.to_string());
     result
@@ -230,7 +230,7 @@ fn test_graphene_afm_z() {
         let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
             .with_magnetic(moments.to_vec());
         let r = cry.analyze().symprec(sp).magnetic_dataset()
-            .unwrap_or_else(|| panic!("symprec={sp}: magnetic_dataset returned None"));
+            .unwrap_or_else(|e| panic!("symprec={sp}: magnetic_dataset failed: {e:?}"));
 
         assert_eq!(r.spacegroup_number, 191, "symprec={sp}");
         assert_eq!(r.hall_number, 485, "symprec={sp}");
