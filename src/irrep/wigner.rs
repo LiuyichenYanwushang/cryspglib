@@ -1409,6 +1409,13 @@ fn wigner_classify_spinor_msg_gauge(
 
     // Map each little-co-group character position to a concrete unitary MSG
     // operation.  This is the coordinate frame in which a0 is defined.
+    //
+    // NOTE: spin_lg_op_indices covers the little co-group of the FULL parent
+    // space group H.  For Type-3 (black-white) MSGs, some elements of H are
+    // anti-unitary in the MSG (they belong to the a₀·H' coset) and therefore
+    // have no unitary MSG counterpart.  These elements are NOT part of the
+    // Wigner sum H₀ ∩ H' — they should be excluded, not cause a failure.
+    // See commit 8478ce2 for the H2S diagnostic that confirmed this.
     let mut spin_to_mag = std::collections::HashMap::<usize, usize>::new();
     for &mag_idx in unitary_mag_indices {
         let h_match = find_seitz(
@@ -1420,11 +1427,11 @@ fn wigner_classify_spinor_msg_gauge(
             spin_to_mag.entry(*spin_idx).or_insert(mag_idx);
         }
     }
-    if spin_lg_op_indices.iter()
-        .any(|&idx| !spin_to_mag.contains_key(&(idx as usize)))
-    {
+    // Track whether any spin_lg_op is unmapped (diagnostic, not fatal).
+    let has_unmapped = spin_lg_op_indices.iter()
+        .any(|&idx| !spin_to_mag.contains_key(&(idx as usize)));
+    if has_unmapped {
         MSG_GAUGE_MAP_FAIL.fetch_add(1, Ordering::Relaxed);
-        return None;
     }
 
     let a0_spatial = SeitzOp::new(
@@ -1436,10 +1443,17 @@ fn wigner_classify_spinor_msg_gauge(
     let u_a0 = spin_su2_at(g_spin_su2, a0_spin_idx)?;
     let eta_ebar = -1.0;
     let mut w_sum = Complex64::ZERO;
+    let mut n_mapped: usize = 0;
 
     for local in 0..n_lg_ops {
         let global_spin_idx = spin_lg_op_indices[local] as usize;
-        let mag_idx = *spin_to_mag.get(&global_spin_idx)?;
+        // Skip little-co-group elements that have no unitary MSG counterpart.
+        // These belong to H\H' (the anti-unitary coset in the MSG) and
+        // are not part of the unitary little co-group H₀ ∩ H'.
+        let mag_idx = match spin_to_mag.get(&global_spin_idx) {
+            Some(&m) => m,
+            None => continue,
+        };
         let h_msg = SeitzOp::new(
             mag_seitz[mag_idx].rot,
             mag_seitz[mag_idx].trans,
@@ -1478,9 +1492,15 @@ fn wigner_classify_spinor_msg_gauge(
         );
         let chi = if central { eta_ebar * chi0 } else { chi0 };
         w_sum += chi * phase;
+        n_mapped += 1;
     }
 
-    let w = w_sum / (n_lg_ops as f64);
+    if n_mapped == 0 {
+        return None;
+    }
+    // Normalize by |H₀ ∩ H'| — the number of little-co-group elements
+    // that actually have unitary MSG counterparts, not the full |H₀|.
+    let w = w_sum / (n_mapped as f64);
     let h_dim = spin_lg_op_indices.iter()
         .enumerate()
         .find_map(|(local, &global)| {
