@@ -142,7 +142,12 @@ Bloch 相位修正（`exp(i*2π*k·Δt)`），每改一次 mismatches 反而增�
 
 这个差异通常直接揭示根因。
 
-实例：SG2 T-point passed after loop fix → SG159 L-point still failed. Difference: SG2's LG {I, -I} always contains (a₀h)²; SG159's LG {I, mirror} doesn't. Root cause: spinor little group coverage, not algorithm correctness.
+历史实例：SG2 T-point passed after loop fix → SG159 L-point still failed。当时观察到
+SG2 的 LG {I, -I} 包含 `(a₀h)²`，而 SG159 的 LG {I, mirror} 不包含。
+这个比较成功定位了“失败发生在 square/LG mapping 阶段”，但当时进一步断言
+“不是 setting/algorithm 问题”是错误的；2026-06-19 的 UNI663 oracle 已证明，
+MSG 嵌入基底和 standalone H Hall/spin-table 基底不一致本身就会制造这种
+`square_not_in_spin_table` / `square_outside_little_group` 现象。
 
 ### 原则 2：假设驱动的逐层排除
 
@@ -156,7 +161,7 @@ Bloch 相位修正（`exp(i*2π*k·Δt)`），每改一次 mismatches 反而增�
 实例——NONE=1,007 的排查顺序：
 - H1: same-rotation lift 误选 → scan same-rot candidates → OTHER=0 → 否决
 - H2: UU* antiunitary square → 6 formulas oracle → 6.5% fix → 不是主因
-- H3: H/G gauge mismatch → G-gauge oracle → 0% fix → 否决
+- H3: H/G gauge mismatch → 当时的 G-gauge oracle → 0% fix → **错误地否决**
 - H4: det=-1 improper → det stats → 混合分布 → 否决
 - H5: J-insertion → J-oracle on NONE → 61% fix → 确认方向
 - H5-global: global J → 88.3%→83.0% → 不能全局替换 → 否决
@@ -282,11 +287,15 @@ t_std = s - R_std s + T t
 
 **现象**：Loop fix 后 SG180/SG148/SG179 等高分群全部 0% pass。
 
-**根因**：`(a₀h)²` 的翻译来自磁群，`h_spin_seitz` 只有规范翻译。Full Seitz matching 因翻译不匹配失败。
+**当时确认的问题**：`(a₀h)²` 的翻译来自磁群，`h_spin_seitz` 只有规范翻译。
+Full Seitz matching 会因 origin/translation representative 不同而失败。
 
-**修复**：sq 用 **rotation-only matching**（rotation 在不同 setting 下不变，translation 受 origin 影响）。
+**当时修复**：sq 使用 **rotation-only matching**，绕过纯 origin shift 导致的
+translation representative 差异。
 
-**教训**：匹配时区分 invariant（rotation）和 variant（translation）。
+**重要更正（2026-06-19）**：rotation 只在“同一基底、仅 origin 不同”时保持不变。
+若存在基底变换 `x_new = T x_old + s`，必须使用
+`R_new = T R_old T⁻¹`；rotation-only matching 不能跨基底直接使用。
 
 ### Bug 3: a₀ 选择错误（grey 群用了 θ·g 而非 θ）
 
@@ -322,7 +331,8 @@ t_std = s - R_std s + T t
 - Paoli SU(2) closure: 47,486/0 matched → SU(2) 合成本身正确
 - Same-rotation scan: OTHER=0 → lift 选择正确
 - 6 antiunitary square formulas: UU* only 6.5% → 不是简单 square formula
-- H/G gauge mismatch: G-gauge oracle 0% → 不是 gauge mixing
+- H/G gauge mismatch: 当时 oracle 没有先对齐 MSG/H Hall 基底，因此“0%”不能排除
+  setting/gauge mixing；UNI663 后来提供了直接反例
 - det distribution: 混合 60/40 → 不是 improper rotation
 - J-insertion on NONE: 61% fix → J 是关键
 - Global J: 88.3%→83.0% → 不能全局替换
@@ -330,17 +340,19 @@ t_std = s - R_std s + T t
 
 **当前结论**：J-insertion `(JU)(JU)*` 确认了 direction（antiunitary square 需要显式 Θ=JK），但不能全局应用。923 个 both_fail + 1,547 个 both_ok_diff_type 需要更深层诊断。
 
-### ✅ 已排除的问题
+### 历史排除列表（2026-06-19 已复核）
 
 1. **spin 数据库不完整** ❌
 2. **a₀ improper rotation 缺 SU(2) lift** ❌
-3. **`(a₀h)²` 超出 little group（grey 群）** ❌
+3. **`(a₀h)²` 超出 little group（grey 群）**：纯 grey-group `a₀` 选择问题已修，
+   但 Type-III setting mismatch 仍可制造假的 outside-LG
 4. **Seitz 翻译变体 double counting** ❌
 5. **sq 匹配因翻译不匹配失败** ❌
 6. **Pauli SU(2) 合成约定错误** ❌（closure test 验证）
 7. **same-rotation lift 误选** ❌（OTHER=0）
 8. **UU* antiunitary square formula** ❌（6.5% fix）
-9. **H/G gauge mismatch** ❌（G-gauge 0%）
+9. **H/G gauge mismatch**：**未排除**。旧 G-gauge oracle 在未对齐基底的操作上比较，
+   结论无效；当前剩余失败的首要已证实根因正是 setting/gauge mixing
 10. **det=-1 improper 独占** ❌（混合分布）
 11. **global J-insertion** ❌（regression）
 
@@ -649,7 +661,12 @@ spglib port 的主要公共 API 已全部从 `Option<T>` 迁移到 `Result<T, Sy
 
 ---
 
-## Spinor Wigner：2026-06-18 根因修正与当前状态
+## Spinor Wigner：2026-06-18 历史快照（已过期）
+
+> **不要把本节数字和结论当作当前状态。** 本节保留用于追踪排查过程。
+> 其中“rotation 在不同 setting 下不变”“H/G gauge mismatch 已排除”
+> 和“genuine nonquantized”等判断已经被 2026-06-19 的 UNI663 oracle 否定。
+> 当前权威状态见下一节。
 
 ### 结论
 
@@ -783,3 +800,196 @@ cargo test --package cryspglib
   (a₀h)² 映射到 identity，W 退化仅依赖 Bloch 相位 → genuine 非量子化
 - **583 OLD_PATH_FAIL**：MSG-gauge 和旧 fallback 都无法处理
 - 需要逐 case 物理分析，不宜盲目修代码
+
+---
+
+## Spinor Wigner：2026-06-19 当前状态与错误复盘
+
+### 当前覆盖率
+
+目标统计口径是 `diagnose_wigner_sources` 中全部 **21,389 个
+spinor irrep × UNI 对**。这和历史上去重后的 8,064 个 unique spinor case
+不是同一个分母，后续禁止混用。
+
+| 类别 | 数量 | 比例 |
+|------|------|------|
+| `spinor_complex_ok` | **20,710** | **96.825%** |
+| `spinor_complex_fail` | **679** | **3.175%** |
+| 合计 | 21,389 | 100% |
+
+当前仍未达到 100%。剩余 679 个失败按 direct anti-coset 最终阶段分类：
+
+| 失败阶段 | 数量 | 当前解释 |
+|----------|------|----------|
+| `non_quantized` | 315 | W sum 未量子化；这是症状，不能称为物理上的 genuine non-quantized |
+| `square_not_in_spin_table` | 194 | `b²` 的 rotation 无法在 canonical H spin table 中找到 |
+| `square_outside_little_group` | 170 | `b²` 匹配到 H spin op，但不在当前 canonical spin LG 索引中 |
+
+### 已完成修复及量化效果
+
+#### 1. spin.dat 复数字符解析
+
+spin.dat 的复数字符格式是 `n 个幅值 + n 个相位/π`。旧解析器把后半段误认为
+`extra Wigner chars`，丢失了所有非零相位。现已按复数解码，并通过
+`spin_character_imag()` 暴露虚部。
+
+#### 2. 诊断统计改为全量、分阶段、作用域清晰
+
+旧 `diagnose_wigner_sources` 混用了多轮 pass 的静态 counter，并且失败 triage
+不能保证覆盖全部失败。现已：
+
+- 每轮统计前 reset counter；
+- 第一轮只给总量，第二轮穷举全部失败；
+- 按 failure stage、SG、mapping shape 交叉统计；
+- direct anti-coset oracle 和正式结果分别计数。
+
+#### 3. `SPIN_LG_OP_INDICES` 的 local/global 索引错误
+
+这是本轮确认并修复的数据生成 bug。
+
+- `SPIN_OP_*` 在每个 SG 内从 Bilbao/ISOTROPY 顺序重排到 Hall 顺序；
+- `spin_lg_op_indices` 的值本来是 **SG-local spin-op index**；
+- 旧 `generate_irrep_data.py` 却把它当成全局 index，减去 SG 的全局 start 后再映射；
+- 结果是大部分 LG index 仍停留在旧顺序，与已重排的 `SPIN_OP_*` 不一致。
+
+正确做法是维护 `old_local_index -> new_local_index`，不参与跨 SG 的 global offset。
+重新生成数据后：
+
+```text
+fail: 3,164 -> 2,207
+```
+
+相关提交：`aee2b8a fix: keep spin little-group indices SG-local after Hall reorder`
+
+#### 4. direct anti-coset fallback
+
+正式 primary path 返回 `None` 时，直接遍历实际反酉 little-group 操作
+`b ∈ M_k \ H_k`，计算 `b²` 和 `χ(b²)`，避免依赖脆弱的 `a₀h` 重构。
+
+期间修复了两点：
+
+- character 必须使用完整复数；
+- Bloch phase 必须包含 square reduction 以及 canonical representative 之间的
+  fractional translation 差，不能只处理整数 lattice shift。
+
+fallback 只在 primary path 失败时执行，因此不改变已有成功 case。结果：
+
+```text
+fail: 2,207 -> 679
+rescued: 1,528
+```
+
+相关提交：
+
+- `bf007c4 fix: include fractional translation phases in direct Wigner sum`
+- `a5dbd05 fix: fall back to direct anti-coset spinor Wigner sum`
+
+### 已证实根因：MSG/H canonical setting 不一致
+
+`identify_unitary_subgroup_with_hall()` 返回两套操作：
+
+- `ops_from_msg`：从 MSG 数据库直接抽出的 unitary H，仍在 **MSG/parent 嵌入基底**；
+- `ops_from_hall`：根据识别出的 Hall number 重建的 **canonical H Hall 基底**。
+
+`spg_get_hall_number_from_symmetry()` 只负责分类并返回 Hall number，**不会把输入操作
+变换到该 Hall setting**。因此 `hall=...` 不意味着 `ops_from_msg` 已经
+“Hall-corrected”。源码中类似 `ops_from_msg // correct Hall setting` 的注释是错误的。
+
+#### UNI663 直接反例
+
+`debug_direct_anti_setting_uni663` 给出：
+
+```text
+UNI663: parent G = SG75
+identified H = SG3, Hall3
+
+ops_from_msg 的非平凡 H rotation: C2z = diag(-1,-1, 1)
+Hall3 / H spin table 的非平凡 rotation: C2y = diag(-1, 1,-1)
+
+反酉操作: C4z, C4z^-1
+它们平方得到: C2z
+```
+
+所以 `b²=C2z` 在 MSG 嵌入的 H 中完全正确，但直接拿它查询 canonical SG3 Hall3
+spin table 时，表中只有 `C2y`，于是产生 `square_not_in_spin_table`。
+这不是 spin 数据缺失，也不是群闭包失败，而是两套基底被直接比较。
+
+### 之前排查中的错误点
+
+#### 错误 1：把 Hall 分类结果当成坐标变换结果
+
+错误假设：
+
+```text
+spg_get_hall_number_from_symmetry(...) 返回 Hall3
+=> 输入 ops 已经处于 Hall3 canonical setting
+```
+
+实际只完成了分类。必须另外求 `(T,s)` 并显式变换操作。
+
+#### 错误 2：声称 rotation 在不同 setting 下不变
+
+这只对“同一基底，仅 origin shift 不同”成立。一般 setting 变换
+`x_can = T x_msg + s` 下：
+
+```text
+R_can = T R_msg T^-1
+t_can = s - R_can s + T t_msg
+```
+
+UNI663 的 `C2z -> C2y` 就是反例。rotation-only matching 只能在已确认基底一致后使用。
+
+#### 错误 3：用无效 oracle 排除 H/G gauge mismatch
+
+旧 G-gauge oracle 报告 0% gain 后，文档曾把 gauge mismatch 标为“已排除”。
+但该 oracle 本身仍直接比较 MSG 基底和 canonical H 基底，没有先做 setting transform，
+所以它不能检验目标假设。这个排除结论无效。
+
+#### 错误 4：把 `non_quantized` 解释成 genuine 物理结果
+
+旧文档把 SG24 W 等 case 称为 “genuine nonquantized”。Wigner indicator 对适用 case
+应量子化；在映射/基底尚未对齐时，非量子化首先是实现错误的信号。当前 315 个
+`non_quantized` 只能作为 failure stage，不能作为物理结论。
+
+#### 错误 5：混用统计口径和 counter scope
+
+- 8,064 是历史 unique case；
+- 21,389 是当前全量 irrep×UNI case；
+- `MSG_GAUGE_*` 等 counter 曾累积多轮 pass，数值不能和单轮总量直接比较。
+
+后续所有覆盖率以同一轮 `diagnose_wigner_sources` 的 21,389 为分母。
+
+#### 错误 6：direct path 曾遗漏 fractional translation phase
+
+只加入整数 `lattice_sq` 不足以匹配 centering/nonsymmorphic representative。
+必须同时加入 computed square 与 canonical spin op 的 fractional translation 差。
+
+#### 错误 7：central parity 仍存在跨 gauge 比较风险
+
+当前 direct fallback 用 parent G spin table 找 `U_b`，但用 canonical H spin table
+找 `U_{b²}`，然后比较 `U_b²` 与 `U_{b²}`。若 G/H 的轴或 lift gauge 未对齐，这仍是
+跨 gauge 比较。更稳妥的做法是：
+
+- central parity 完全在 parent G spin gauge 内计算；
+- character lookup 完全在 canonical H gauge 内计算；
+- 两者只通过已验证的空间操作 setting transform 对应，不直接比较不同 gauge 的 SU(2)。
+
+### 下一步修复约束
+
+1. 从 `ops_from_msg` 到 `ops_from_hall` 求明确的 `(T,s)`；先支持并验证 48 个
+   signed-permutation 候选，但不能假设所有 230 SG 都只需要轴置换。
+2. 在 canonical H 坐标中做 little-group 过滤和 character/spin-LG lookup，
+   或等价地把 canonical k 正确变换回 MSG reciprocal coordinates；禁止直接把
+   canonical H 的 `(kx,ky,kz)` 用于未变换的 MSG rotation。
+3. `b` 和 `b²` 的 central parity 在 parent G spin gauge 内闭合计算。
+4. 每轮必须确认已有 20,710 个成功 case 无 regression，并记录 679 的三阶段变化。
+5. 只有 `spinor_complex_fail = 0` 且 full regression 通过后，才能宣称 100%。
+
+关键诊断命令：
+
+```bash
+cd /home/liuyichen/TB_rs
+cargo test --package cryspglib debug_direct_anti_setting_uni663 -- --nocapture
+cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
+cargo test --package cryspglib
+```
