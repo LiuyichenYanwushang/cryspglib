@@ -849,6 +849,35 @@ pub fn wigner_direct_anti_coset(
 /// This avoids the a₀-selection and a₀h-composition issues that can cause
 /// the main [`wigner_classify_spinor`] path to fail on Type III black-white
 /// groups when (g₀R_h)² maps outside the little co-group lookup table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DirectAntiFailure {
+    MissingSpinData,
+    SquareNotInSpinTable,
+    SquareOutsideLittleGroup,
+    SquareTranslationMismatch,
+    AntiunitarySpinLookup,
+    AntiunitarySu2Missing,
+    SquareSu2Missing,
+    Su2LiftMismatch,
+    NonQuantized,
+}
+
+impl DirectAntiFailure {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MissingSpinData => "missing_spin_data",
+            Self::SquareNotInSpinTable => "square_not_in_spin_table",
+            Self::SquareOutsideLittleGroup => "square_outside_little_group",
+            Self::SquareTranslationMismatch => "square_translation_mismatch",
+            Self::AntiunitarySpinLookup => "antiunitary_spin_lookup",
+            Self::AntiunitarySu2Missing => "antiunitary_su2_missing",
+            Self::SquareSu2Missing => "square_su2_missing",
+            Self::Su2LiftMismatch => "su2_lift_mismatch",
+            Self::NonQuantized => "non_quantized",
+        }
+    }
+}
+
 pub fn wigner_classify_spinor_direct_anti(
     ctx: &SpinLiftContext,
     spin_chars_real: &[f64],
@@ -858,16 +887,42 @@ pub fn wigner_classify_spinor_direct_anti(
     mag_seitz: &[SeitzOp],
     kx: i8, ky: i8, kz: i8, kd: i8,
 ) -> Option<CorepType> {
+    wigner_classify_spinor_direct_anti_diagnostic(
+        ctx,
+        spin_chars_real,
+        spin_chars_imag,
+        spin_lg_op_indices,
+        anti_lg_indices,
+        mag_seitz,
+        kx,
+        ky,
+        kz,
+        kd,
+    )
+    .ok()
+}
+
+pub fn wigner_classify_spinor_direct_anti_diagnostic(
+    ctx: &SpinLiftContext,
+    spin_chars_real: &[f64],
+    spin_chars_imag: &[f64],
+    spin_lg_op_indices: &[u16],
+    anti_lg_indices: &[usize],
+    mag_seitz: &[SeitzOp],
+    kx: i8, ky: i8, kz: i8, kd: i8,
+) -> Result<CorepType, DirectAntiFailure> {
     let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
     let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
 
     if h_spin_rots.is_empty() || h_spin_su2.is_empty() || anti_lg_indices.is_empty() {
-        return None;
+        return Err(DirectAntiFailure::MissingSpinData);
     }
 
     let h_spin_seitz = build_spin_seitz(h_spin_rots, h_spin_trans);
     let g_spin_seitz = build_spin_seitz(g_spin_rots, g_spin_trans);
-    if h_spin_seitz.is_empty() { return None; }
+    if h_spin_seitz.is_empty() {
+        return Err(DirectAntiFailure::MissingSpinData);
+    }
 
     let global_to_local: std::collections::HashMap<usize, usize> = spin_lg_op_indices
         .iter().enumerate()
@@ -908,24 +963,28 @@ pub fn wigner_classify_spinor_direct_anti(
             None => {
                 debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² rot={:?} not in H spin ops",
                     b_idx, sq.rot);
-                return None;
+                return Err(DirectAntiFailure::SquareNotInSpinTable);
             }
         };
 
         let sq_local_idx = if sq_in_lg {
-            *global_to_local.get(&sq_spin_idx)?
+            *global_to_local
+                .get(&sq_spin_idx)
+                .ok_or(DirectAntiFailure::SquareOutsideLittleGroup)?
         } else {
             debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² spin[{}] not in LG idxs",
                 b_idx, sq_spin_idx);
-            return None;
+            return Err(DirectAntiFailure::SquareOutsideLittleGroup);
         };
-        let sq_spin = h_spin_seitz.get(sq_spin_idx)?;
+        let sq_spin = h_spin_seitz
+            .get(sq_spin_idx)
+            .ok_or(DirectAntiFailure::SquareNotInSpinTable)?;
         let mut spin_match_shift = [0i32; 3];
         for i in 0..3 {
             let d = sq.trans[i] - sq_spin.trans[i];
             let rounded = d.round();
             if (d - rounded).abs() > 1e-9 {
-                return None;
+                return Err(DirectAntiFailure::SquareTranslationMismatch);
             }
             spin_match_shift[i] = rounded as i32;
         }
@@ -940,13 +999,17 @@ pub fn wigner_classify_spinor_direct_anti(
                     [-b.rot[2][0], -b.rot[2][1], -b.rot[2][2]],
                 ];
                 g_spin_seitz.iter().position(|s| s.rot == r)
-            })?;
-        let u_b = spin_su2_at(g_spin_su2, b_spin_idx)?;
+            })
+            .ok_or(DirectAntiFailure::AntiunitarySpinLookup)?;
+        let u_b = spin_su2_at(g_spin_su2, b_spin_idx)
+            .ok_or(DirectAntiFailure::AntiunitarySu2Missing)?;
 
         // SU(2) central detection: U_b² vs canonical U_{b²}.
         let u_b_sq = su2_compose(&u_b, &u_b);
-        let u_sq = spin_su2_at(h_spin_su2, sq_spin_idx)?;
-        let spatial_central = su2_same_up_to_sign(&u_b_sq, &u_sq)?;
+        let u_sq = spin_su2_at(h_spin_su2, sq_spin_idx)
+            .ok_or(DirectAntiFailure::SquareSu2Missing)?;
+        let spatial_central = su2_same_up_to_sign(&u_b_sq, &u_sq)
+            .ok_or(DirectAntiFailure::Su2LiftMismatch)?;
         // b = Θg carries the additional spin-1/2 factor Θ² = Ē.
         let central = !spatial_central;
 
@@ -987,17 +1050,17 @@ pub fn wigner_classify_spinor_direct_anti(
 
     let tol = 1e-6;
     if (w.re - h_dim).abs() < tol && w.im.abs() < tol {
-        Some(CorepType::A)
+        Ok(CorepType::A)
     } else if (w.re + h_dim).abs() < tol && w.im.abs() < tol {
-        Some(CorepType::B)
+        Ok(CorepType::B)
     } else if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
-        Some(CorepType::A)
+        Ok(CorepType::A)
     } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
-        Some(CorepType::B)
+        Ok(CorepType::B)
     } else if w.norm() < tol {
-        Some(CorepType::C)
+        Ok(CorepType::C)
     } else {
-        None
+        Err(DirectAntiFailure::NonQuantized)
     }
 }
 

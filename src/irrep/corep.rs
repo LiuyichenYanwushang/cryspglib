@@ -1803,6 +1803,7 @@ mod tests {
         let mut mapping_shape =
             std::collections::HashMap::<(usize, usize), usize>::new();
         let mut direct_anti_stats = std::collections::HashMap::<&str, usize>::new();
+        let mut direct_anti_failures = std::collections::HashMap::<&str, usize>::new();
 
         for uni in 1..=1651 {
             let mag_ops = match get_magnetic_operations(uni) {
@@ -1927,8 +1928,8 @@ mod tests {
                     &unitary, &mag_seitz, &h_seitz, antiunitary[0],
                     ir.kx, ir.ky, ir.kz, ir.kd,
                 );
-                let direct_result =
-                    crate::irrep::wigner::wigner_classify_spinor_direct_anti(
+                let direct_diagnostic =
+                    crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
                         &ctx,
                         ir.characters(),
                         ir.spin_character_imag(),
@@ -1940,6 +1941,10 @@ mod tests {
                         ir.kz,
                         ir.kd,
                     );
+                if let Err(reason) = direct_diagnostic {
+                    *direct_anti_failures.entry(reason.as_str()).or_default() += 1;
+                }
+                let direct_result = direct_diagnostic.ok();
 
                 let direct_key = match (su2_result, direct_result) {
                     (Some(a), Some(b)) if a == b => "both_ok_agree",
@@ -2006,6 +2011,13 @@ mod tests {
         let mut direct_anti_stats: Vec<_> = direct_anti_stats.into_iter().collect();
         direct_anti_stats.sort_by_key(|(key, count)| (std::cmp::Reverse(*count), *key));
         for (key, count) in direct_anti_stats {
+            println!("  {:>30}  {:>6}", key, count);
+        }
+
+        println!("\n=== Direct anti-coset failure stages ===");
+        let mut direct_anti_failures: Vec<_> = direct_anti_failures.into_iter().collect();
+        direct_anti_failures.sort_by_key(|(key, count)| (std::cmp::Reverse(*count), *key));
+        for (key, count) in direct_anti_failures {
             println!("  {:>30}  {:>6}", key, count);
         }
 
