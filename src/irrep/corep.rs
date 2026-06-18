@@ -1929,6 +1929,19 @@ mod tests {
         for (class, count) in failure_class.iter() {
             println!("  {:>30}  {:>6}", class, count);
         }
+
+        // Print MSG-gauge vs old-path triage counters
+        use crate::irrep::wigner::{
+            MSG_GAUGE_OK, MSG_GAUGE_MAP_FAIL, MSG_GAUGE_W_FAIL,
+            OLD_PATH_OK, OLD_PATH_FAIL,
+        };
+        use std::sync::atomic::Ordering;
+        println!("\n=== Path triage ===");
+        println!("  MSG_GAUGE_OK:       {}", MSG_GAUGE_OK.load(Ordering::Relaxed));
+        println!("  MSG_GAUGE_MAP_FAIL:  {}", MSG_GAUGE_MAP_FAIL.load(Ordering::Relaxed));
+        println!("  MSG_GAUGE_W_FAIL:    {}", MSG_GAUGE_W_FAIL.load(Ordering::Relaxed));
+        println!("  OLD_PATH_OK:         {}", OLD_PATH_OK.load(Ordering::Relaxed));
+        println!("  OLD_PATH_FAIL:       {}", OLD_PATH_FAIL.load(Ordering::Relaxed));
     }
 
     /// Regression: SG3 A3 spinor Wigner test under grey group (a₀ = Θ).

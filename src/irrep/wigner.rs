@@ -65,6 +65,13 @@ static NONE_NEG_JU_JU_STAR: AtomicUsize = AtomicUsize::new(0);
 static NONE_UJ_UJ_STAR: AtomicUsize = AtomicUsize::new(0);
 static NONE_NEG_UJ_UJ_STAR: AtomicUsize = AtomicUsize::new(0);
 static NONE_J_NONE: AtomicUsize = AtomicUsize::new(0);
+
+// MSG-gauge path triage (added 2026-06-18)
+pub static MSG_GAUGE_OK: AtomicUsize = AtomicUsize::new(0);
+pub static MSG_GAUGE_MAP_FAIL: AtomicUsize = AtomicUsize::new(0);
+pub static MSG_GAUGE_W_FAIL: AtomicUsize = AtomicUsize::new(0);
+pub static OLD_PATH_OK: AtomicUsize = AtomicUsize::new(0);
+pub static OLD_PATH_FAIL: AtomicUsize = AtomicUsize::new(0);
 // det distribution for NONE
 static NONE_DET_A0_P1: AtomicUsize = AtomicUsize::new(0);
 static NONE_DET_A0_M1: AtomicUsize = AtomicUsize::new(0);
@@ -1401,6 +1408,7 @@ fn wigner_classify_spinor_msg_gauge(
     if spin_lg_op_indices.iter()
         .any(|&idx| !spin_to_mag.contains_key(&(idx as usize)))
     {
+        MSG_GAUGE_MAP_FAIL.fetch_add(1, Ordering::Relaxed);
         return None;
     }
 
@@ -1472,16 +1480,22 @@ fn wigner_classify_spinor_msg_gauge(
 
     let tol = 1e-6;
     if (w.re - h_dim).abs() < tol && w.im.abs() < tol {
+        MSG_GAUGE_OK.fetch_add(1, Ordering::Relaxed);
         Some(CorepType::A)
     } else if (w.re + h_dim).abs() < tol && w.im.abs() < tol {
+        MSG_GAUGE_OK.fetch_add(1, Ordering::Relaxed);
         Some(CorepType::B)
     } else if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
+        MSG_GAUGE_OK.fetch_add(1, Ordering::Relaxed);
         Some(CorepType::A)
     } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
+        MSG_GAUGE_OK.fetch_add(1, Ordering::Relaxed);
         Some(CorepType::B)
     } else if w.norm() < tol {
+        MSG_GAUGE_OK.fetch_add(1, Ordering::Relaxed);
         Some(CorepType::C)
     } else {
+        MSG_GAUGE_W_FAIL.fetch_add(1, Ordering::Relaxed);
         None
     }
 }
@@ -1514,6 +1528,7 @@ pub fn wigner_classify_spinor(
     a0_idx: usize,
     kx: i8, ky: i8, kz: i8, kd: i8,
 ) -> Option<CorepType> {
+    // Try MSG-gauge path first (correct coordinate frame).
     if let Some(result) = wigner_classify_spinor_msg_gauge(
         ctx,
         spin_chars_real,
@@ -1797,16 +1812,22 @@ pub fn wigner_classify_spinor(
     // W = 0 → Type C.  Also accept W = ±1 for 1D irreps.
     let tol = 1e-6;
     if (w.re - h_dim).abs() < tol && w.im.abs() < tol {
+        OLD_PATH_OK.fetch_add(1, Ordering::Relaxed);
         Some(CorepType::A)
     } else if (w.re + h_dim).abs() < tol && w.im.abs() < tol {
+        OLD_PATH_OK.fetch_add(1, Ordering::Relaxed);
         Some(CorepType::B)
     } else if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
+        OLD_PATH_OK.fetch_add(1, Ordering::Relaxed);
         Some(CorepType::A)
     } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
+        OLD_PATH_OK.fetch_add(1, Ordering::Relaxed);
         Some(CorepType::B)
     } else if w.norm() < tol {
+        OLD_PATH_OK.fetch_add(1, Ordering::Relaxed);
         Some(CorepType::C)
     } else {
+        OLD_PATH_FAIL.fetch_add(1, Ordering::Relaxed);
         None // non-quantized → Unsupported
     }
 }
