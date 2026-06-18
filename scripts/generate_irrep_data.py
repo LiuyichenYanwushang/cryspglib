@@ -1451,8 +1451,9 @@ def _reorder_spin_ops_to_hall(spin_op_rots, spin_op_trans, spin_op_su2,
     new_su2 = []
     new_sg_start = [0] * 231
     new_sg_count = [0] * 231
-    # Build old→new mapping per SG
-    sg_bilbao_to_new = {}  # sg_num → {old_pos: new_pos}
+    # Build old→new mapping per SG. Both keys and values are SG-local
+    # operation indices because spin_lg_op_indices are SG-local.
+    sg_bilbao_to_new = {}  # sg_num → {old_local: new_local}
 
     for sg_num in range(1, 231):
         count = spin_op_sg_count[sg_num]
@@ -1466,7 +1467,7 @@ def _reorder_spin_ops_to_hall(spin_op_rots, spin_op_trans, spin_op_su2,
             new_pos = len(new_rots) // 9
             new_sg_start[sg_num] = new_pos
             new_sg_count[sg_num] = count
-            mapping = {i: new_pos + i for i in range(count)}
+            mapping = {i: i for i in range(count)}
             for i in range(count):
                 o = old_start + i
                 new_rots.extend(spin_op_rots[o*9:(o+1)*9])
@@ -1520,7 +1521,7 @@ def _reorder_spin_ops_to_hall(spin_op_rots, spin_op_trans, spin_op_su2,
                 new_rots.extend(spin_op_rots[o*9:(o+1)*9])
                 new_trans.extend(spin_op_trans[o*3:(o+1)*3])
                 new_su2.extend(spin_op_su2[o*4:(o+1)*4])
-                mapping[bi] = new_pos + hi - holes
+                mapping[bi] = hi - holes
             else:
                 holes += 1
         new_count = n_hall - holes
@@ -2332,15 +2333,13 @@ def generate_rust_data(data):
                              orig_char_counts=orig_char_counts)
 
     # ── Phase D: Reorder SPIN_OP data to spglib Hall order ──
-    # Save old sg_start before reordering (needed to update spin_lg_op_indices)
-    old_spin_sg_start = list(spin_op_sg_start)
     sg_bilbao_to_new = _reorder_spin_ops_to_hall(
         spin_op_rots, spin_op_trans, spin_op_su2,
         spin_op_sg_start, spin_op_sg_count,
         spin_lg_op_indices_flat, spin_lg_op_starts, spin_lg_op_counts,
         sg_hall_choice)
 
-    # Update spin_lg_op_indices using the old→new global position mapping
+    # Update SG-local spin_lg_op_indices using the old→new local mapping.
     if sg_bilbao_to_new:
         updated_count = 0
         for i, sir in enumerate(spinor_irreps):
@@ -2348,14 +2347,12 @@ def generate_rust_data(data):
             mapping = sg_bilbao_to_new.get(sg_num, {})
             if not mapping:
                 continue
-            old_sg_start = old_spin_sg_start[sg_num]
             start = spin_lg_op_starts[i]
             count = spin_lg_op_counts[i]
             for j in range(count):
-                old_global = spin_lg_op_indices_flat[start + j]
-                old_local = old_global - old_sg_start
-                new_global = mapping.get(old_local, old_global)
-                spin_lg_op_indices_flat[start + j] = new_global
+                old_local = spin_lg_op_indices_flat[start + j]
+                new_local = mapping.get(old_local, old_local)
+                spin_lg_op_indices_flat[start + j] = new_local
                 updated_count += 1
         print(f"  Updated {updated_count} spin_lg_op_indices after SPIN_OP reorder")
 
@@ -2472,8 +2469,8 @@ def generate_rust_data(data):
     lines.append("")
 
     # ── Spinor little-group operation indices ──
-    lines.append("/// Per-irrep little-group operation indices into SPIN_OP_* arrays.")
-    lines.append("/// Maps global spin op index → local character table position.")
+    lines.append("/// Per-irrep SG-local little-group operation indices into SPIN_OP_* arrays.")
+    lines.append("/// Maps local character table position → SG-local spin operation index.")
     lines.append("/// Indexed by IrrepRecord._spin_lg_op_start / _spin_lg_op_count.")
     lines.append(f"pub static SPIN_LG_OP_INDICES: [u16; {len(spin_lg_op_indices_flat)}] = [")
     for chunk_start in range(0, len(spin_lg_op_indices_flat), 12):

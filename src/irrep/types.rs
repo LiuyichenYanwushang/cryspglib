@@ -97,7 +97,7 @@ impl IrrepRecord {
     }
 
     /// Little-group operation indices for spinor irreps.
-    /// Maps local character position → global SPIN_OP index.
+    /// Maps local character position → SG-local SPIN_OP index.
     pub fn spin_lg_op_indices(&self) -> &'static [u16] {
         if self._spin_lg_op_count == 0 {
             return &[];
