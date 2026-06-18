@@ -202,6 +202,7 @@ fn test_fcc_fm_111() {
 /// Atom A at (0,0,0) with spin +z, atom B at (1/3,2/3,0) with spin -z
 ///
 /// Non-mag space group: P6/mmm (#191).
+/// Magnetic space group: UNI 1466, BNS 191.236.
 #[test]
 fn test_graphene_afm_z() {
     let s3 = (3.0_f64).sqrt();
@@ -224,16 +225,28 @@ fn test_graphene_afm_z() {
         [0.0, 0.0, 1.0],
         [0.0, 0.0, -1.0],
     ];
-    // Try different symprec values
+    // The identification must be stable across reasonable tolerances.
     for &sp in &[1e-3, 1e-4, 1e-5, 1e-6] {
-        let mut cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
+        let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
             .with_magnetic(moments.to_vec());
-        if let Some(r) = cry.analyze().symprec(sp).magnetic_dataset() {
-            println!("symprec={}: SG={} Hall={} UNI={} BNS={} type={:?} ops={}",
-                sp, r.spacegroup_number, r.hall_number, r.uni_number,
-                r.bns_number.trim(), r.magnetic_type, r.num_operations);
-        } else {
-            println!("symprec={}: magnetic_dataset returned None", sp);
-        }
+        let r = cry.analyze().symprec(sp).magnetic_dataset()
+            .unwrap_or_else(|| panic!("symprec={sp}: magnetic_dataset returned None"));
+
+        assert_eq!(r.spacegroup_number, 191, "symprec={sp}");
+        assert_eq!(r.hall_number, 485, "symprec={sp}");
+        assert_eq!(r.magnetic_type, MagneticType::BlackWhite, "symprec={sp}");
+        assert_eq!(r.uni_number, 1466, "symprec={sp}");
+        assert_eq!(r.bns_number.trim(), "191.236", "symprec={sp}");
+        assert_eq!(r.num_operations, 24, "symprec={sp}");
+        assert_eq!(
+            r.time_reversals.iter().filter(|&&tr| !tr).count(),
+            12,
+            "symprec={sp}: unitary operation count",
+        );
+        assert_eq!(
+            r.time_reversals.iter().filter(|&&tr| tr).count(),
+            12,
+            "symprec={sp}: anti-unitary operation count",
+        );
     }
 }

@@ -485,45 +485,44 @@ cargo test --package cryspglib --tests
 
 ---
 
-## 磁空间群识别的已知限制
+## 磁空间群识别的坐标变换约定
 
-### `magnetic_dataset()` API 的 UNI=0 问题
+### 标准设置变换
 
-`Crystal::analyze().magnetic_dataset()` 在某些情况下返回正确的非磁空间群、
-磁类型和完整操作，但 **UNI=0, BNS 为空**。这不代表磁构型无效——
-只是 spglib 的 MSG 数据库匹配流程未能分配到 1651 个条目之一。
+`magnetic_spacegroup.rs` 使用
 
-**已知触发条件**：
-
-1. **二维/准二维结构**（如石墨烯 AFM）：
-   - 原子全部在 z=0 平面，c 轴很长
-   - 非磁 SG 识别正确（如 #191 P6/mmm），磁类型正确（Type-3 BlackWhite）
-   - 但原胞约化后的操作与数据库条目设置不兼容
-   - 石墨烯 AFM 测试: `cargo test --package cryspglib --test magnetic_integration test_graphene_afm_z`
-
-2. **匹配流程**（`magnetic_spacegroup::msg_identify_with_parent_hall`）：
-   ```
-   磁操作 → reduce_to_primitive_magsym → get_reference_space_group(FSG/XSG)
-   → msgdb_get_uni_candidates(hall) → 遍历候选 UNI
-   → is_subset(mag_sym, db_entry) → 匹配成功/失败
-   ```
-   失败通常发生在 `is_subset` 阶段——原胞约化后的操作不在数据库条目的
-   子群关系中（setting/origin 不兼容）。
-
-3. **解决方法**：
-   - 如果只需要磁类型（Type-1/2/3/4），`r.magnetic_type` 仍然正确
-   - 如果需要 BNS/UNI，尝试调整 `symprec`（通常无效，因为不是精度问题）
-   - 最可靠的做法：从非磁 SG + 磁操作手动推断磁群
-
-**示例——石墨烯 AFM（z 方向反铁磁）**：
+```text
+x_std = (T, s) x
 ```
+
+因此 Seitz 操作必须按下面的方向变换：
+
+```text
+R_std = T R T⁻¹
+t_std = s - R_std s + T t
+```
+
+`get_reference_space_group` 返回的 `tmat` 是参考空间群
+`bravais_lattice` 的逆矩阵。不要把共轭方向改成 `T⁻¹ R T`，
+也不要直接把 `bravais_lattice` 当作 `tmat`；立方体系可能碰巧通过，
+但六方等非对称基底会无法匹配正确的 UNI。
+
+**回归案例——石墨烯 AFM（z 方向反铁磁）**：
+
+```text
 SG=191 (P6/mmm), Hall=485, type=BlackWhite
 24 ops (12 unitary + 12 anti-unitary)
-UNI=0, BNS=''  ← 匹配失败
+UNI=1466, BNS=191.236
 ```
-Hall 485 有 7 个 Type-3 候选 (UNI 1465-1471, BNS 191.235-191.241)，
-但 `is_subset` 全部失败。这不是 bug——该磁构型在物理上对应一个
-有效的磁空间群，只是 spglib 数据库的 setting 约定无法自动匹配。
+
+测试命令：
+
+```bash
+cargo test --package cryspglib --test magnetic_integration test_graphene_afm_z
+```
+
+该测试覆盖 `symprec=1e-3..1e-6`，结果必须保持一致。此前的 `UNI=0`
+不是二维体系的数据库限制，而是标准设置变换方向移植错误。
 
 ### 晶格矩阵约定
 
