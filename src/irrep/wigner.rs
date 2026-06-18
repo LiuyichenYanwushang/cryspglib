@@ -538,13 +538,36 @@ pub fn find_seitz(
 /// where $$\mathbf{k} = (k_x,k_y,k_z)/k_d$$ in reciprocal lattice units and
 /// $$\mathbf{L}$$ is an integer lattice vector.
 pub fn bloch_phase(kx: i8, ky: i8, kz: i8, kd: i8, lattice: &[i32; 3]) -> Complex64 {
+    bloch_phase_f64(
+        kx,
+        ky,
+        kz,
+        kd,
+        &[
+            lattice[0] as f64,
+            lattice[1] as f64,
+            lattice[2] as f64,
+        ],
+    )
+}
+
+/// Compute the Bloch phase for a general translation, including fractional
+/// centering and nonsymmorphic shifts between equivalent operation
+/// representatives.
+pub fn bloch_phase_f64(
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
+    translation: &[f64; 3],
+) -> Complex64 {
     if kd == 0 {
         return Complex64::new(1.0, 0.0);
     }
     let theta = 2.0 * std::f64::consts::PI
-        * (kx as f64 * lattice[0] as f64
-           + ky as f64 * lattice[1] as f64
-           + kz as f64 * lattice[2] as f64)
+        * (kx as f64 * translation[0]
+           + ky as f64 * translation[1]
+           + kz as f64 * translation[2])
         / (kd as f64);
     Complex64::new(theta.cos(), theta.sin())
 }
@@ -979,15 +1002,11 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         let sq_spin = h_spin_seitz
             .get(sq_spin_idx)
             .ok_or(DirectAntiFailure::SquareNotInSpinTable)?;
-        let mut spin_match_shift = [0i32; 3];
-        for i in 0..3 {
-            let d = sq.trans[i] - sq_spin.trans[i];
-            let rounded = d.round();
-            if (d - rounded).abs() > 1e-9 {
-                return Err(DirectAntiFailure::SquareTranslationMismatch);
-            }
-            spin_match_shift[i] = rounded as i32;
-        }
+        let spin_match_shift = [
+            sq.trans[0] - sq_spin.trans[0],
+            sq.trans[1] - sq_spin.trans[1],
+            sq.trans[2] - sq_spin.trans[2],
+        ];
 
         // SU(2) lift of b (rotation-only lookup in G spin ops — b may have
         // improper rotation from G \ H for Type III).
@@ -1015,8 +1034,12 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
 
         // Bloch phase includes both square reduction and the shift required
         // to match the canonical spin-table representative.
-        let total_lattice = add3(&lattice_sq, &spin_match_shift);
-        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
+        let total_translation = [
+            lattice_sq[0] as f64 + spin_match_shift[0],
+            lattice_sq[1] as f64 + spin_match_shift[1],
+            lattice_sq[2] as f64 + spin_match_shift[2],
+        ];
+        let phase = bloch_phase_f64(kx, ky, kz, kd, &total_translation);
 
         let chi0 = Complex64::new(
             spin_chars_real[sq_local_idx],
