@@ -289,9 +289,12 @@ pub fn compute_corepresentation(
         let ctx = wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_irrep.sg };
         let n_lg = h_irrep.spin_lg_char_count();
         let op_indices = h_irrep.spin_lg_op_indices();
+        let is_grey = crate::MagneticSpaceGroupType::from_uni(uni_number).type_
+            == crate::MagneticType::Grey;
+        let a0_idx = select_spinor_a0(&antiunitary, &mag_seitz, is_grey);
         if let Some(ct) = wigner::wigner_classify_spinor(
-            &ctx, h_chars, n_lg, op_indices,
-            &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+            &ctx, h_chars, h_irrep.spin_character_imag(), n_lg, op_indices,
+            &unitary, &mag_seitz, &h_seitz, a0_idx,
             h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
         ) {
             (ct, WignerSource::SpinorSU2)
@@ -1820,7 +1823,8 @@ mod tests {
                             else { IrrepRecord::spin_ops_for_sg(g_sg) };
                         let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
                         let su2_result = crate::irrep::wigner::wigner_classify_spinor(
-                            &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
+                            &ctx, ir.characters(), ir.spin_character_imag(),
+                            ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                             &unitary, &mag_seitz, &h_seitz, antiunitary[0],
                             ir.kx, ir.ky, ir.kz, ir.kd,
                         );
@@ -1849,7 +1853,8 @@ mod tests {
                             else { IrrepRecord::spin_ops_for_sg(g_sg) };
                         let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
                             if let Some(_su2_ct) = crate::irrep::wigner::wigner_classify_spinor(
-                                &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
+                                &ctx, ir.characters(), ir.spin_character_imag(),
+                                ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                                 &unitary, &mag_seitz, &h_seitz, antiunitary[0],
                                 ir.kx, ir.ky, ir.kz, ir.kd,
                             ) {
@@ -1923,7 +1928,8 @@ mod tests {
                     else { IrrepRecord::spin_ops_for_sg(g_sg) };
                 let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
                 let su2_ok = crate::irrep::wigner::wigner_classify_spinor(
-                    &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
+                    &ctx, ir.characters(), ir.spin_character_imag(),
+                    ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                     &unitary, &mag_seitz, &h_seitz, antiunitary[0],
                     ir.kx, ir.ky, ir.kz, ir.kd,
                 ).is_some();
@@ -2000,7 +2006,8 @@ mod tests {
         let spin_ops = a3.spin_ops();
         let ctx = wigner::SpinLiftContext { h: spin_ops, g: spin_ops, sg: a3.sg };
         let ct = wigner::wigner_classify_spinor(
-            &ctx, a3.characters(), a3.spin_lg_char_count(), a3.spin_lg_op_indices(),
+            &ctx, a3.characters(), a3.spin_character_imag(),
+            a3.spin_lg_char_count(), a3.spin_lg_op_indices(),
             &unitary, &mag_seitz, &h_seitz, antiunitary[0],
             a3.kx, a3.ky, a3.kz, a3.kd,
         );
@@ -2207,7 +2214,8 @@ mod tests {
             let ctx = wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: 2 };
 
             let ct = wigner::wigner_classify_spinor(
-                &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
+                &ctx, ir.characters(), ir.spin_character_imag(),
+                ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                 &unitary, &mag_seitz, &h_seitz, antiunitary[0],
                 ir.kx, ir.ky, ir.kz, ir.kd,
             );
@@ -2273,7 +2281,8 @@ mod tests {
                 let a0_idx = select_spinor_a0(&antiunitary, &mag_seitz, g_sg == h_sg);
 
                 let result = crate::irrep::wigner::wigner_classify_spinor(
-                    &ctx, ir.characters(), ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
+                    &ctx, ir.characters(), ir.spin_character_imag(),
+                    ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                     &unitary, &mag_seitz, &h_seitz, a0_idx,
                     ir.kx, ir.ky, ir.kz, ir.kd,
                 );
@@ -2836,7 +2845,7 @@ mod tests {
         let ctx = wigner::SpinLiftContext { h: p5.spin_ops(), g: p5.spin_ops(), sg: h_sg };
         let chars = p5.characters();
         let result = wigner::wigner_classify_spinor(
-            &ctx, chars, n_lg, indices,
+            &ctx, chars, p5.spin_character_imag(), n_lg, indices,
             &mag_lg.iter().filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect::<Vec<_>>(),
             &mag_seitz, &h_seitz, a0_idx,
             p5.kx, p5.ky, p5.kz, p5.kd,

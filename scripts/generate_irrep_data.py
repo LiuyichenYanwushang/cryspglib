@@ -2236,26 +2236,32 @@ def generate_rust_data(data):
             pir_rots_flat.extend([0] * (n_ops * 9))
     spinor_starts = []
     spinor_counts = []
-    spin_extra_flat = []   # extra character values for spinor Wigner test
-    spin_extra_starts = [] # per-irrep start index (0 = no extra)
-    spin_extra_counts = [] # number of extra values (0 = no extra)
+    spin_extra_flat = []   # imaginary parts of spinor characters
+    spin_extra_starts = [] # per-irrep start index
+    spin_extra_counts = [] # number of imaginary character values
     for sir in spinor_irreps:
         spinor_starts.append(len(chars_flat))
-        all_chars = sir["characters"]
-        spinor_counts.append(len(all_chars))
-        chars_flat.extend(all_chars)
-        # Split extra characters: first n_lg are standard, rest are extra
-        n_lg = len(sir.get("op_indices", []))
-        extra = all_chars[n_lg:] if len(all_chars) > n_lg else []
+        chars_real = sir["characters"]
+        chars_imag = sir.get("characters_imag", [0.0] * len(chars_real))
+        if len(chars_real) != len(chars_imag):
+            raise ValueError(
+                f"spinor character length mismatch for SG{sir['sg']} "
+                f"{sir['ml_label']}: {len(chars_real)} real, {len(chars_imag)} imag"
+            )
+        spinor_counts.append(len(chars_real))
+        chars_flat.extend(chars_real)
         spin_extra_starts.append(len(spin_extra_flat))
-        spin_extra_counts.append(len(extra))
-        spin_extra_flat.extend(extra)
+        spin_extra_counts.append(len(chars_imag))
+        spin_extra_flat.extend(chars_imag)
         # No matrices for spinor irreps
         mat_starts.append(len(matrices_flat))
         mat_counts.append(0)
     if spinor_irreps:
-        n_with_extra = sum(1 for c in spin_extra_counts if c > 0)
-        print(f"  Added {len(spinor_irreps)} spinor irreps ({n_with_extra} with extra chars)")
+        n_complex = sum(
+            1 for sir in spinor_irreps
+            if any(abs(v) > 1e-12 for v in sir.get("characters_imag", []))
+        )
+        print(f"  Added {len(spinor_irreps)} spinor irreps ({n_complex} with complex chars)")
 
     # ── Spinor operation arrays ──
     spinor_ops_data = data.get("spinor_ops", {})
@@ -2454,9 +2460,8 @@ def generate_rust_data(data):
     lines.append("];")
     lines.append("")
 
-    # ── Spinor extra characters (Wigner test contributions) ──
-    lines.append("/// Extra character values for spinor irreps at BZ boundary k-points.")
-    lines.append("/// Sum over these values gives the Wigner indicator contribution.")
+    # ── Imaginary parts of spinor characters ──
+    lines.append("/// Imaginary parts of spinor irrep characters.")
     lines.append("/// Indexed by IrrepRecord._spin_extra_start / _spin_extra_count.")
     lines.append(f"pub static SPIN_EXTRA_CHARS: [f64; {len(spin_extra_flat)}] = [")
     for chunk_start in range(0, len(spin_extra_flat), 10):

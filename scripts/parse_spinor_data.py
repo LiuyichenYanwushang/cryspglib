@@ -8,7 +8,8 @@ space group:
   ~/.local/lib/python*/site-packages/irreptables/tables/irreps-SG=*-spin.dat
 
 Output format:
-- SG#, k-point label (GM, X, ...), coords, irrep label, dim, character table
+- SG#, k-point label (GM, X, ...), coords, irrep label, dim,
+  complex character table split into real and imaginary parts
 
 ## Bilbao SU(2) storage convention (verified by scripts/test_su2_closure.py)
 
@@ -123,11 +124,49 @@ def _round_char(x, eps=1e-8):
     r = round(x)
     if abs(x - r) < eps:
         return float(r)
+    # spin.dat phases are stored with five decimal places (e.g. 0.66667),
+    # so decoded trigonometric values need a correspondingly relaxed snap
+    # to the crystallographic character field Q(sqrt(2), sqrt(3)).
+    exact_candidates = set()
+    for n in range(-12, 13):
+        exact_candidates.add(n / 2.0)
+        exact_candidates.add(n / _SQRT2)
+        exact_candidates.add(n * _SQRT3 / 2.0)
+    for exact in exact_candidates:
+        if abs(x - exact) < 5e-5:
+            return exact
     for n in range(-12, 13):
         for d in (2, 3, 4, 6, 8):
             if abs(x - n / d) < eps:
                 return n / d
     return round(x, 10)
+
+
+def _decode_character_polar(values, n_ops):
+    """Decode a spin.dat character row.
+
+    Rows contain either ``n`` real characters, or ``n`` amplitudes followed
+    by ``n`` phases in units of pi.  The phase half was historically
+    misinterpreted as auxiliary Wigner data.
+    """
+    if len(values) == n_ops:
+        return ([_round_char(v) for v in values], [0.0] * n_ops)
+    if len(values) != 2 * n_ops:
+        raise ValueError(
+            f"invalid spinor character row: {len(values)} values for {n_ops} operations"
+        )
+
+    amplitudes = values[:n_ops]
+    phases = values[n_ops:]
+    real = [
+        _round_char(a * math.cos(math.pi * p))
+        for a, p in zip(amplitudes, phases)
+    ]
+    imag = [
+        _round_char(a * math.sin(math.pi * p))
+        for a, p in zip(amplitudes, phases)
+    ]
+    return real, imag
 
 
 def parse_spinor_file(filepath):
@@ -213,9 +252,8 @@ def parse_spinor_file(filepath):
             label = parts[0][1:]  # strip leading '-'
             dim = int(parts[1])
             chars_raw = [float(x) for x in parts[2:]]
-            # Characters are in order of the little group operations
-            # We need to store them in that order
-            chars = [_round_char(c) for c in chars_raw]
+            n_ops = len(current_op_indices or [])
+            chars_real, chars_imag = _decode_character_polar(chars_raw, n_ops)
 
             # Compute k-vector denominator from coords.
             # Use the SMALLEST common denominator so that spinor and scalar
@@ -257,7 +295,8 @@ def parse_spinor_file(filepath):
                 "kx": kx_i, "ky": ky_i, "kz": kz_i, "kd": kd,
                 "ml_label": label,
                 "dim": dim,
-                "characters": chars,  # full: standard + extra (if any)
+                "characters": chars_real,
+                "characters_imag": chars_imag,
                 "op_indices": current_op_indices,
             })
 

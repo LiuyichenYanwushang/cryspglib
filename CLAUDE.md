@@ -649,53 +649,83 @@ spglib port 的主要公共 API 已全部从 `Option<T>` 迁移到 `Result<T, Sy
 
 ---
 
-## Spinor Wigner 失败：当前状态与根因分析
+## Spinor Wigner：2026-06-18 根因修正与当前状态
 
-### 覆盖率
+### 结论
 
-标量 irrep（非 spinor）：**100%** 通过（Wigner test 对所有 4,777 irreps 正确分类 A/B/C）。
-Spinor irrep：**88.3%** 通过（7,119/8,064），**945 个失败**。
+此前“SU(2) 数据库缺少逐操作 central parity”不是已确认根因。真正确认的首要问题在
+`scripts/parse_spinor_data.py`：**spin.dat 的复数字符被错误解析**。
 
-### 失败特征
+spin.dat 的 irrep 行有两种格式：
 
-- 仅发生在 **立方空间群**（C₂ + C₃ 旋转组合）
-- 四方、三方、六方体系全部通过
-- 失败率最高的群：SG 195–230（高分 cubic 群）
-- 最简单的失败案例：SG 195 (P23) 的特定 k-point
+```text
+n 个实字符
+n 个幅值 + n 个相位（相位单位为 π）
+```
 
-### 已确认的根因
+旧解析器把第二种格式的前半段直接当作实字符，把后半段误认为
+`extra Wigner chars`。因此所有非零相位被丢失。例如：
 
-**SU(2) 数据库缺少逐操作的 central parity 数据。**
+```text
+SG3 A3:  1.0 1.0  0.0 -0.5
+```
 
-每个旋转 R 在 SU(2) 中有两个合法 lift（+U 和 -U）。数据库为每个 R 选定了一个，
-但未记录这个选定的 parity 属性。Wigner 公式计算 `(u_a₀ · u_h)²` 时，
-如果数据库的 lift 选择和 Wigner 公式需要的 lift 不一致，就会产生 sign mismatch。
+实际字符是 `χ=(1,-i)`，旧数据却保存为实字符 `[1,1]` 和所谓 extra
+`[0,-0.5]`。SG195 的 C₃ 字符同样应为
+`-1/2 ± i√3/2`，旧数据只保留了错误的幅值 `1`。这直接解释了失败为何集中在
+含 C₂+C₃ 组合的立方群。
 
-具体来说：`u_k = u_a₀ · u_h · u_a₀⁻¹ · u_h⁻¹` 应该是 ±I（属于中心），
-但数据库的 lift choice 可能导致 `u_k` 偏离 ±I，使得后续的 character matching
-失败（NONE 关系）。
+### 已完成并验证
 
-### 为什么标量 irrep 不受影响
+- `parse_spinor_data.py` 已按“幅值 + 相位/π”解码复数字符。
+- 生成数据中：
+  - `CHARACTERS` 保存 spinor 字符实部；
+  - `SPIN_EXTRA_CHARS` 现保存字符虚部（旧名称保留是为了减少数据结构改动）；
+  - `IrrepRecord::spin_character_imag()` 提供虚部。
+- `wigner_classify_spinor()` 的求和项已使用完整复数字符。
+- 已重新生成 `src/irrep/generated_data.rs`。
+- `cargo check --package cryspglib` 在加入 MSG-gauge 修复后通过（仅有既有 warnings）。
+- 针对性测试 `test_spinor_sg3_a3_grey_wigner` 在复数字符修复后通过。
 
-标量 irrep 的 Wigner test 不经过 SU(2)——它直接使用 `(a₀h)²` 的
-Seitz 表示计算 character `χ((a₀h)²)`。Seitz 的合成不涉及 gauge choice。
-只有 spinor 需要从 SU(2) 数据库读取 lift，因此只有 spinor 暴露了这个问题。
+### 第二个问题：坐标 setting/gauge 混用
 
-### 已排除的假说（ 11 项）
+代码审查还发现 `wigner_classify_spinor()` 虽然接收了 `unitary_mag_indices` 并构造
+`h_to_spin`，旧正式路径却没有使用它们。旧计算实际把：
 
-见上方 "错题集" → "✅ 已排除的问题"。
+- MSG/parent setting 中的 `a₀`
+- standalone H spin table setting 中的 `h`
 
-### 可能的解决路径
+直接做 SU(2) 合成。非平凡 subgroup embedding 下这不是同一个坐标 frame，立方群
+最容易暴露问题。
 
-1. **数据增强**（推荐但工程量大）：在数据生成阶段为每个 SU(2) 操作计算并存储
-   central parity（即该 lift 与"规范 lift"的相对符号）。需要理解 ISOTROPY 的
-   SU(2) 约定并修改 `generate_irrep_data.py`。
+当前工作树已加入一个 MSG-gauge 路径：
 
-2. **Runtime inference**（已尝试，效果有限）：
-   - `infer_eta_ebar()` 尝试推断 central parity → 总是 missing（0% fix）
-   - J-insertion `(JU)(JU)*` → 61% per-term fix 但 global 替换产生 regression
-   - Per-case fallback → 仅 22/945 fix
+1. 在 MSG setting 中选取 `a₀` 和每个 unitary `h`；
+2. 在 parent G 的 spin gauge 中合成 SU(2) lift；
+3. 将 `(a₀h)²` 映射回 H 的 canonical spin operation；
+4. 显式加入 spin-½ 的 `Θ²=Ē=-I`；
+5. grey group 使用纯 `Θ` 作为 `a₀`。
 
-3. **接受现状**：88.3% 覆盖率对于大多数应用已足够。
-   失败的 945 个 case 全部在立方 spinor，且每个 case 的物理分类
-   （A/B/C）仍可通过标量方法推断。
+### 验证状态
+
+- 历史基线仍是 **7,119/8,064 = 88.3%**，945 个失败；这个数字来自错误的实字符数据，
+  只能作为修复前基线，不能再代表当前实现。
+- 复数字符修复已完成并通过单例测试。
+- MSG-gauge/`Θ²` 路径已通过编译检查，但**尚未完成针对性和全量 Wigner 统计**。
+- 因此当前不能宣称已经达到 100%。下一步必须先运行：
+
+```bash
+cargo check --package cryspglib
+cargo test --package cryspglib test_spinor_sg3_a3_grey_wigner -- --nocapture
+cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
+cargo test --package cryspglib
+```
+
+### 后续清理
+
+- 将残留的 `spin_extra_chars()` 调用和诊断文案统一改为复数字符语义。
+- 更新 `diagnose_wigner_sources`：旧逻辑把“存在尾部数组”解释为 extra data，
+  已不再适用。
+- 全量统计剩余失败，并按 `mapping failure / SU(2) closure failure /
+  non-quantized sum` 重新分类。
+- 只有全量 8,064 个适用 spinor case 全部量子化为 A/B/C 后，才能记录 100%。

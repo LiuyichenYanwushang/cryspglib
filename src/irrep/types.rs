@@ -76,9 +76,9 @@ pub struct IrrepRecord {
     pub(crate) _spin_lg_op_start: u32,
     /// Number of little-group operation indices
     pub(crate) _spin_lg_op_count: u8,
-    /// Start index into [`SPIN_EXTRA_CHARS`] (0 if no extra)
+    /// Start index into [`SPIN_EXTRA_CHARS`] (imaginary spinor characters).
     pub(crate) _spin_extra_start: u32,
-    /// Number of extra character values (0 if no extra)
+    /// Number of imaginary spinor character values.
     pub(crate) _spin_extra_count: u16,
     /// Start index into [`CIR_COMPONENT_CHARS`] (0 if not compound)
     pub(crate) _cir_start: u32,
@@ -107,15 +107,20 @@ impl IrrepRecord {
         &super::generated_data::SPIN_LG_OP_INDICES[start..start + len]
     }
 
-    /// Extra character values for spinor Wigner test (Bilbao pre-computed).
-    /// Sum of these values gives the Wigner indicator.
-    pub fn spin_extra_chars(&self) -> &'static [f64] {
+    /// Imaginary parts of the spinor character table.
+    pub fn spin_character_imag(&self) -> &'static [f64] {
         if self._spin_extra_count == 0 {
             return &[];
         }
         let start = self._spin_extra_start as usize;
         let len = self._spin_extra_count as usize;
         &super::generated_data::SPIN_EXTRA_CHARS[start..start + len]
+    }
+
+    /// Compatibility alias for old callers.
+    #[deprecated(note = "spin.dat trailing values are character phases, not Wigner extras")]
+    pub fn spin_extra_chars(&self) -> &'static [f64] {
+        self.spin_character_imag()
     }
 
     /// Spin symmetry operations with SU(2) lifts for any space group.

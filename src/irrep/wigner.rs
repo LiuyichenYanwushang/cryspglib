@@ -1352,6 +1352,140 @@ pub fn diagnostic_extra_sum(extra: &[f64]) -> f64 {
     extra.iter().sum()
 }
 
+/// Spinor Wigner test evaluated in the magnetic-group coordinate setting.
+///
+/// The magnetic operation `a0` and every `h` must be composed in one common
+/// setting.  The previous implementation mixed `a0` from the MSG database
+/// with canonical `h` operations from the standalone H spin table.  That
+/// happens to work when the subgroup embedding is standard, but fails for
+/// non-trivial embeddings (most visibly for cubic C2/C3 combinations).
+fn wigner_classify_spinor_msg_gauge(
+    ctx: &SpinLiftContext,
+    spin_chars_real: &[f64],
+    spin_chars_imag: &[f64],
+    n_lg_ops: usize,
+    spin_lg_op_indices: &[u16],
+    unitary_mag_indices: &[usize],
+    mag_seitz: &[SeitzOp],
+    h_seitz: &[SeitzOp],
+    a0_idx: usize,
+    kx: i8, ky: i8, kz: i8, kd: i8,
+) -> Option<CorepType> {
+    let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
+    let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
+    let h_spin_seitz = build_spin_seitz(h_spin_rots, h_spin_trans);
+    let g_spin_seitz = build_spin_seitz(g_spin_rots, g_spin_trans);
+    if h_spin_seitz.is_empty() || g_spin_seitz.is_empty() {
+        return None;
+    }
+
+    let h_to_spin = build_h_to_spin_map(h_seitz, &h_spin_seitz, spin_lg_op_indices);
+    let global_to_local: std::collections::HashMap<usize, usize> =
+        spin_lg_op_indices.iter().enumerate()
+            .map(|(local, &global)| (global as usize, local))
+            .collect();
+
+    // Map each little-co-group character position to a concrete unitary MSG
+    // operation.  This is the coordinate frame in which a0 is defined.
+    let mut spin_to_mag = std::collections::HashMap::<usize, usize>::new();
+    for &mag_idx in unitary_mag_indices {
+        let h_match = find_seitz(
+            &mag_seitz[mag_idx].rot,
+            &mag_seitz[mag_idx].trans,
+            h_seitz,
+        )?;
+        if let Some(Some(spin_idx)) = h_to_spin.get(h_match.op_index) {
+            spin_to_mag.entry(*spin_idx).or_insert(mag_idx);
+        }
+    }
+    if spin_lg_op_indices.iter()
+        .any(|&idx| !spin_to_mag.contains_key(&(idx as usize)))
+    {
+        return None;
+    }
+
+    let a0_spatial = SeitzOp::new(
+        mag_seitz[a0_idx].rot,
+        mag_seitz[a0_idx].trans,
+        false,
+    );
+    let (a0_spin_idx, _) = find_spin_in_db(&a0_spatial, &g_spin_seitz)?;
+    let u_a0 = spin_su2_at(g_spin_su2, a0_spin_idx)?;
+    let eta_ebar = -1.0;
+    let mut w_sum = Complex64::ZERO;
+
+    for local in 0..n_lg_ops {
+        let global_spin_idx = spin_lg_op_indices[local] as usize;
+        let mag_idx = *spin_to_mag.get(&global_spin_idx)?;
+        let h_msg = SeitzOp::new(
+            mag_seitz[mag_idx].rot,
+            mag_seitz[mag_idx].trans,
+            false,
+        );
+
+        let (g0h, l1) = compose_seitz(&a0_spatial, &h_msg);
+        let (sq, lattice_sq) = square_seitz(&g0h);
+        let sq_h_match = find_seitz(&sq.rot, &sq.trans, h_seitz)?;
+        let sq_spin_idx = h_to_spin.get(sq_h_match.op_index).copied().flatten()?;
+        let sq_local_idx = *global_to_local.get(&sq_spin_idx)?;
+
+        // Use G's gauge for both factors, so closure is evaluated in one
+        // double group.  Compare the result to H's canonical lift associated
+        // with the character table.
+        let (h_g_idx, _) = find_spin_in_db(&h_msg, &g_spin_seitz)?;
+        let u_h_g = spin_su2_at(g_spin_su2, h_g_idx)?;
+        let u_g0h = su2_compose(&u_a0, &u_h_g);
+        let u_sq_spatial = su2_compose(&u_g0h, &u_g0h);
+        let u_sq_h = spin_su2_at(h_spin_su2, sq_spin_idx)?;
+        let spatial_central = su2_same_up_to_sign(&u_sq_spatial, &u_sq_h)?;
+
+        // For spin-1/2, Θ commutes with spatial rotations and Θ² = Ē = -I.
+        // Therefore (Θ g0 h)² carries one additional central element.
+        let central = !spatial_central;
+
+        let r_l1 = mat_vec_i32(&g0h.rot, &l1);
+        let total_lattice = add3(
+            &add3(&lattice_sq, &sq_h_match.lattice_shift),
+            &add3(&l1, &r_l1),
+        );
+        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
+        let chi0 = Complex64::new(
+            spin_chars_real[sq_local_idx],
+            spin_chars_imag.get(sq_local_idx).copied().unwrap_or(0.0),
+        );
+        let chi = if central { eta_ebar * chi0 } else { chi0 };
+        w_sum += chi * phase;
+    }
+
+    let w = w_sum / (n_lg_ops as f64);
+    let h_dim = spin_lg_op_indices.iter()
+        .enumerate()
+        .find_map(|(local, &global)| {
+            let op = h_spin_seitz.get(global as usize)?;
+            if op.rot == [[1, 0, 0], [0, 1, 0], [0, 0, 1]] {
+                spin_chars_real.get(local).map(|c| c.abs().round().max(1.0))
+            } else {
+                None
+            }
+        })
+        .unwrap_or(1.0);
+
+    let tol = 1e-6;
+    if (w.re - h_dim).abs() < tol && w.im.abs() < tol {
+        Some(CorepType::A)
+    } else if (w.re + h_dim).abs() < tol && w.im.abs() < tol {
+        Some(CorepType::B)
+    } else if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
+        Some(CorepType::A)
+    } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
+        Some(CorepType::B)
+    } else if w.norm() < tol {
+        Some(CorepType::C)
+    } else {
+        None
+    }
+}
+
 /// Wigner test for spinor (double-valued) irreps using SU(2) composition.
 ///
 /// Unlike scalar irreps, spinor irreps live in the double group where each
@@ -1370,7 +1504,8 @@ pub fn diagnostic_extra_sum(extra: &[f64]) -> f64 {
 /// `None` if spin ops are unavailable or result is non-quantized.
 pub fn wigner_classify_spinor(
     ctx: &SpinLiftContext,
-    spin_chars: &[f64],
+    spin_chars_real: &[f64],
+    spin_chars_imag: &[f64],
     n_lg_ops: usize,
     spin_lg_op_indices: &[u16],
     _unitary_mag_indices: &[usize],
@@ -1379,6 +1514,21 @@ pub fn wigner_classify_spinor(
     a0_idx: usize,
     kx: i8, ky: i8, kz: i8, kd: i8,
 ) -> Option<CorepType> {
+    if let Some(result) = wigner_classify_spinor_msg_gauge(
+        ctx,
+        spin_chars_real,
+        spin_chars_imag,
+        n_lg_ops,
+        spin_lg_op_indices,
+        _unitary_mag_indices,
+        mag_seitz,
+        h_seitz,
+        a0_idx,
+        kx, ky, kz, kd,
+    ) {
+        return Some(result);
+    }
+
     let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
     let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
 
@@ -1413,7 +1563,7 @@ pub fn wigner_classify_spinor(
     // Infer central parity eta_ebar = chi(Ebar)/chi(E) from the character table.
     // For genuine spinor irreps: -1.0.  For single-valued: +1.0.
     let eta_ebar = infer_eta_ebar(
-        spin_chars, spin_lg_op_indices, &h_spin_seitz, h_spin_su2,
+        spin_chars_real, spin_lg_op_indices, &h_spin_seitz, h_spin_su2,
     ).unwrap_or(-1.0);
 
     let a0 = &mag_seitz[a0_idx];
@@ -1605,10 +1755,13 @@ pub fn wigner_classify_spinor(
         let total_l = add3(&lattice_sq, &add3(&l1, &r_l1));
         let phase = bloch_phase(kx, ky, kz, kd, &total_l);
 
-        let chi0 = spin_chars[sq_local_idx];
+        let chi0 = Complex64::new(
+            spin_chars_real[sq_local_idx],
+            spin_chars_imag.get(sq_local_idx).copied().unwrap_or(0.0),
+        );
         let chi = if central { eta_ebar * chi0 } else { chi0 };
 
-        w_sum += Complex64::new(chi, 0.0) * phase;
+        w_sum += chi * phase;
     }
 
     // W = w_sum / |H₀|  (little co-group order = n_lg_ops)
@@ -1631,10 +1784,10 @@ pub fn wigner_classify_spinor(
                 return None;
             }
             let local = *global_to_local.get(&si)?;
-            spin_chars.get(local).map(|&c| c.abs().round().max(1.0))
+            spin_chars_real.get(local).map(|&c| c.abs().round().max(1.0))
         })
         .unwrap_or_else(|| {
-            spin_chars
+            spin_chars_real
                 .first()
                 .map(|&c| c.abs().round().max(1.0))
                 .unwrap_or(1.0)
