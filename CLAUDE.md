@@ -721,11 +721,65 @@ cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
 cargo test --package cryspglib
 ```
 
-### 后续清理
+### 后续清理（已完成 2026-06-18）
 
-- 将残留的 `spin_extra_chars()` 调用和诊断文案统一改为复数字符语义。
-- 更新 `diagnose_wigner_sources`：旧逻辑把“存在尾部数组”解释为 extra data，
-  已不再适用。
-- 全量统计剩余失败，并按 `mapping failure / SU(2) closure failure /
-  non-quantized sum` 重新分类。
-- 只有全量 8,064 个适用 spinor case 全部量子化为 A/B/C 后，才能记录 100%。
+- ✅ `spin_extra_chars()` → `spin_character_imag()`，内部字段 `_spin_extra_*` → `_spin_imag_*`，
+  生成数组 `SPIN_EXTRA_CHARS` → `SPIN_IMAG_CHARS`，Python 生成器同步更新
+- ✅ `diagnose_wigner_sources` 重写：按 `mapping_failure / complex_char_non_quantized / 
+  real_char_su2_closure_fail` 三类根因重新分类
+- ✅ 添加路径 triage 计数器（`MSG_GAUGE_OK/MAP_FAIL/W_FAIL`，`OLD_PATH_OK/FAIL`）
+- ✅ 添加 `build_h_to_spin_map` 失败分类（`H2S_OK/AMBIGUOUS/MISSING`）
+
+### 当前覆盖率（2026-06-18）
+
+全量 21,389 个 spinor irrep×UNI 对（注意：不是去重的 8,064 个 unique spinor case）：
+
+| 类别 | 数量 | 说明 |
+|------|------|------|
+| `spinor_complex_ok` | 18,225 | 复数字符 Wigner 通过 |
+| `spinor_complex_fail` | 3,164 | 剩余失败 |
+| `scalar_PIR` | 23,313 | 标量 PIR（不适用 spinor） |
+| `scalar_trivial_A` | 9,647 | 无反酉操作（平凡 Type A） |
+| `scalar_CIR` | 3,281 | 复合 CIR |
+
+路径分布：
+
+| 路径 | 数量 | 说明 |
+|------|------|------|
+| `MSG_GAUGE_OK` | 26,334 | MSG-gauge 直接成功 |
+| `MSG_GAUGE_MAP_FAIL` | 5,278 | spin→mag 映射不完整（非 fatal，仅诊断） |
+| `MSG_GAUGE_W_FAIL` | 875 | 映射完整但 W 不量子化 |
+| `OLD_PATH_OK` | 287 | 旧 fallback 挽回 |
+| `OLD_PATH_FAIL` | 583 | 两路全败 |
+
+### `spin→mag` 映射修复（2026-06-18）
+
+**根因**：Type-3（黑白）磁群 G = H' ∪ a₀H' 中，父群 H 包含反酉操作。
+`spin_lg_op_indices` 覆盖 H 的完整 little co-group，但 Wigner 求和只需 H₀ ∩ H'
+（酉操作）。旧代码要求所有 spin_lg_op 都有酉 MSG 映射 → 5,278 个 case 被拒绝。
+
+**修复**（`wigner.rs:1423-1503`）：不强制全部映射。Wigner 循环中跳过无法映射的条目，
+用 `n_mapped`（实际酉 little co-group 大小）而非 `n_lg_ops` 归一化。
+效果：**-1,523 失败**（4,687 → 3,164）。
+
+**`central = !spatial_central` 正确性验证**：
+- Θ² = Ē = -I（自旋 1/2）
+- U_{(Θ·h)²} = Ē · U_{spatial_square}
+- spatial=EBAR → Ē² = I → SAME → central=false
+- spatial=SAME → Ē → EBAR → central=true
+- ∴ central = !spatial_central ✓
+
+### `build_h_to_spin_map` 诊断结论
+
+| 计数器 | 值 | 含义 |
+|--------|-----|------|
+| `H2S_OK` | 342,606 | 成功映射 |
+| `H2S_AMBIGUOUS` | **0** | 不存在"同一旋转多个 spin 条目"问题 |
+| `H2S_MISSING` | 151,702 | 旋转不在 spin table 的 little co-group 中——这些是 H\H' 中的反酉操作 |
+
+### 剩余 3,164 个失败
+
+- **875 MSG_GAUGE_W_FAIL**：映射完整但 W 不量子化。典型 case（SG24 W 点）：所有
+  (a₀h)² 映射到 identity，W 退化仅依赖 Bloch 相位 → genuine 非量子化
+- **583 OLD_PATH_FAIL**：MSG-gauge 和旧 fallback 都无法处理
+- 需要逐 case 物理分析，不宜盲目修代码
