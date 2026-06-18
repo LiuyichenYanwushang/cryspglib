@@ -3363,4 +3363,54 @@ mod tests {
             break; // Only first matching irrep
         }
     }
+
+    #[test]
+    fn debug_direct_anti_setting_uni663() {
+        use crate::irrep::wigner;
+
+        let uni = 663;
+        let mag_ops = get_magnetic_operations(uni).expect("UNI663");
+        let mag_seitz = wigner::ops_to_seitz(&mag_ops);
+        let h_info = identify_unitary_subgroup_with_hall(uni).expect("H info");
+        let h_seitz = wigner::ops_to_seitz(&h_info.ops_from_msg);
+
+        println!(
+            "UNI663 parent=SG{} H=SG{} Hall{}",
+            parent_spatial_sg(uni).unwrap(),
+            h_info.sg,
+            h_info.hall
+        );
+        println!("H rotations:");
+        for (i, op) in h_seitz.iter().enumerate() {
+            println!("  H[{i}] R={:?} t={:?}", op.rot, op.trans);
+        }
+
+        let ir = crate::irrep::query::irreps_of(h_info.sg as u8)
+            .iter()
+            .find(|ir| ir.spinor && ir.k_label() == "B")
+            .expect("SG3 B spinor irrep");
+        let h_spin_seitz = wigner::build_spin_seitz(ir.spin_ops().0, ir.spin_ops().1);
+        println!("spin_lg={:?}", ir.spin_lg_op_indices());
+        for &idx in ir.spin_lg_op_indices() {
+            let op = &h_spin_seitz[idx as usize];
+            println!("  spin[{idx}] R={:?} t={:?}", op.rot, op.trans);
+        }
+
+        let mag_lg =
+            wigner::filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+        for idx in mag_lg {
+            if !mag_seitz[idx].timerev {
+                continue;
+            }
+            let (sq, lattice) = wigner::square_seitz(&mag_seitz[idx]);
+            println!(
+                "  anti[{idx}] R={:?} t={:?} -> sq R={:?} t={:?} L={:?}",
+                mag_seitz[idx].rot,
+                mag_seitz[idx].trans,
+                sq.rot,
+                sq.trans,
+                lattice
+            );
+        }
+    }
 }
