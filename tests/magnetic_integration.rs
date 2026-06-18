@@ -250,3 +250,73 @@ fn test_graphene_afm_z() {
         );
     }
 }
+
+/// Bilayer graphene: two sublattices at slightly different z-heights (0.51 vs 0.49).
+///
+/// This breaks the perfect mirror symmetry of planar graphene (#191 → lower symmetry).
+/// Three magnetic configurations are tested side-by-side to verify consistency.
+#[test]
+fn test_graphene_bilayer_z() {
+    let s3 = (3.0_f64).sqrt();
+    let lattice = [
+        [1.0, 0.5, 0.0],
+        [0.0, s3 / 2.0, 0.0],
+        [0.0, 0.0, 2.0],
+    ];
+    // Atom A at z=0.51, atom B at z=0.49 (fractional coords)
+    let positions = [
+        [0.0, 0.0, 0.51],
+        [1.0 / 3.0, 1.0 / 3.0, 0.49],
+    ];
+    let types = [6, 6];
+
+    // --- Non-magnetic ---
+    // Broken z-mirror: P6/mmm (#191) → P-3m1 (#164), 24→12 ops
+    {
+        let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec());
+        let r = cry.analyze().symprec(1e-5).magnetic_dataset()
+            .unwrap_or_else(|e| panic!("bilayer non-mag: {e:?}"));
+        assert_eq!(r.spacegroup_number, 164, "non-mag: P-3m1");
+        assert_eq!(r.hall_number, 456);
+        assert_eq!(r.num_operations, 12);
+        assert_eq!(r.magnetic_type, MagneticType::NonMagnetic);
+    }
+
+    // --- FM: both moments along +z ---
+    // Type-3 BlackWhite, UNI=1319, BNS=164.89
+    {
+        let moments = [
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0],
+        ];
+        let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
+            .with_magnetic(moments.to_vec());
+        let r = cry.analyze().symprec(1e-5).magnetic_dataset()
+            .unwrap_or_else(|e| panic!("bilayer FM: {e:?}"));
+        assert_eq!(r.spacegroup_number, 164);
+        assert_eq!(r.hall_number, 456);
+        assert_eq!(r.uni_number, 1319);
+        assert_eq!(r.bns_number.trim(), "164.89");
+        assert_eq!(r.magnetic_type, MagneticType::BlackWhite);
+        assert_eq!(r.num_operations, 12);
+    }
+
+    // --- AFM: one +z, one -z ---
+    // Type-3 BlackWhite, UNI=1318, BNS=164.88
+    {
+        let moments = [
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, -1.0],
+        ];
+        let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
+            .with_magnetic(moments.to_vec());
+        let r = cry.analyze().symprec(1e-5).magnetic_dataset()
+            .unwrap_or_else(|e| panic!("bilayer AFM: {e:?}"));
+        assert_eq!(r.spacegroup_number, 164);
+        assert_eq!(r.hall_number, 456);
+        assert_eq!(r.uni_number, 1318);
+        assert_eq!(r.bns_number.trim(), "164.88");
+        assert_eq!(r.magnetic_type, MagneticType::BlackWhite);
+        assert_eq!(r.num_operations, 12);
+    }
+}
