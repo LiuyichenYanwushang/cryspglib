@@ -3,6 +3,7 @@
 //! 组合原胞查找、空间群搜索和结构精细化，
 //! 通过递减容差的重试机制提高搜索成功率。
 
+use crate::SymError;
 use crate::cell::Cell;
 use crate::debug;
 use crate::primitive::{prm_get_primitive, Primitive};
@@ -32,15 +33,15 @@ pub fn det_determine_all(
     hall_number: i32,
     symprec: f64,
     angle_symprec: f64,
-) -> Option<DataContainer> {
+) -> Result<DataContainer, SymError> {
     if hall_number > 530 {
-        return None;
+        return Err(SymError::SpacegroupSearchFailed);
     }
 
     let mut tolerance = symprec;
     for _ in 0..NUM_ATTEMPT_OUTER {
         if let Some(mut container) =
-            get_spacegroup_and_primitive(cell, hall_number, tolerance, angle_symprec)
+            get_spacegroup_and_primitive(cell, hall_number, tolerance, angle_symprec).ok()
         {
             let exstr = {
                 let sg = container.spacegroup.as_mut().unwrap();
@@ -56,7 +57,7 @@ pub fn det_determine_all(
             };
             if let Some(exstr) = exstr {
                 container.exact_structure = Some(exstr);
-                return Some(container);
+                return Ok(container);
             }
             debug::debug_print(format_args!(
                 "spglib: ref_get_exact_structure_and_symmetry failed.\n"
@@ -65,7 +66,7 @@ pub fn det_determine_all(
         tolerance *= REDUCE_RATE_OUTER;
     }
 
-    None
+    Err(SymError::SpacegroupSearchFailed)
 }
 
 /// 在递减容差下寻找空间群和原胞。
@@ -74,7 +75,7 @@ fn get_spacegroup_and_primitive(
     hall_number: i32,
     symprec: f64,
     angle_symprec: f64,
-) -> Option<DataContainer> {
+) -> Result<DataContainer, SymError> {
     debug::debug_print(format_args!(
         "get_spacegroup_and_primitive (tolerance = {}):\n",
         symprec
@@ -98,7 +99,7 @@ fn get_spacegroup_and_primitive(
                 prim_angle_tol,
             ).ok();
             if let Some(spacegroup) = spacegroup {
-                return Some(DataContainer {
+                return Ok(DataContainer {
                     spacegroup: Some(spacegroup),
                     primitive: Some(primitive),
                     exact_structure: None,
@@ -117,7 +118,7 @@ fn get_spacegroup_and_primitive(
         }
     }
 
-    None
+    Err(SymError::SpacegroupSearchFailed)
 }
 
 #[cfg(test)]
@@ -130,6 +131,6 @@ mod tests {
     fn test_det_hall_number_out_of_range() {
         let cell = Cell::new(1, crate::cell::TensorRank::NoSpin);
         let result = det_determine_all(&cell, 999, 1e-5, -1.0);
-        assert!(result.is_none());
+        assert!(result.is_err());
     }
 }

@@ -793,8 +793,7 @@ fn get_dataset_inner(
     angle_tolerance: f64,
     hall_number: i32,
 ) -> Result<SpaceGroup, SymError> {
-    let container = det_determine_all(cell, hall_number, symprec, angle_tolerance)
-        .ok_or(SymError::SpacegroupSearchFailed)?;
+    let container = det_determine_all(cell, hall_number, symprec, angle_tolerance)?;
 
     let spacegroup = container
         .spacegroup

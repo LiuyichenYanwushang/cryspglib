@@ -1240,8 +1240,7 @@ fn get_dataset(
         }
     }
 
-    let container = det_determine_all(&cell, hall_number, symprec, angle_tolerance)
-        .ok_or(SymError::SpacegroupSearchFailed)?;
+    let container = det_determine_all(&cell, hall_number, symprec, angle_tolerance)?;
 
     let spacegroup = container.spacegroup.as_ref()
         .ok_or(SymError::SpacegroupSearchFailed)?;
