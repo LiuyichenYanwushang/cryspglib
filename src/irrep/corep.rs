@@ -1779,8 +1779,7 @@ mod tests {
     #[test]
     fn diagnose_wigner_sources() {
         let mut stats = std::collections::HashMap::<&str, usize>::new();
-        let mut extra_su2_agree = 0usize;
-        let mut extra_su2_mismatch = 0usize;
+        let mut failure_class = std::collections::HashMap::<&str, usize>::new();
 
         for uni in 1..=1651 {
             let mag_ops = match get_magnetic_operations(uni) {
@@ -1792,7 +1791,7 @@ mod tests {
                 None => continue,
             };
             let h_sg = h_info.sg as u8;
-            let h_ops = h_info.ops_from_msg; // Hall-corrected
+            let h_ops = h_info.ops_from_msg;
             let h_seitz = crate::irrep::wigner::ops_to_seitz(&h_ops);
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
 
@@ -1803,68 +1802,37 @@ mod tests {
                 let antiunitary: Vec<usize> = mag_lg.iter()
                     .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
 
-                // Determine which path would be used and its result
                 let key = if antiunitary.is_empty() {
                     "scalar_trivial_A"
                 } else if ir.cir_component_count() > 0 {
                     "scalar_CIR"
                 } else if ir.spinor {
-                    let imag = ir.spin_character_imag();
                     let unitary: Vec<usize> = mag_lg.iter()
                         .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
-                    if !imag.is_empty() {
-                        "spinor_complex"
-                    } else {
-                        // Check SU(2) fallback
-                        let spin_ops = ir.spin_ops();
-                        let h_spin = ir.spin_ops();
-                        let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
-                        let g_spin = if g_sg == h_sg { h_spin }
-                            else { IrrepRecord::spin_ops_for_sg(g_sg) };
-                        let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
-                        let su2_result = crate::irrep::wigner::wigner_classify_spinor(
-                            &ctx, ir.characters(), ir.spin_character_imag(),
-                            ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
-                            &unitary, &mag_seitz, &h_seitz, antiunitary[0],
-                            ir.kx, ir.ky, ir.kz, ir.kd,
-                        );
-                        match su2_result {
-                            Some(_) => "spinor_SU2_ok",
-                            None => "spinor_SU2_fail",
-                        }
+                    let has_imag = !ir.spin_character_imag().is_empty();
+                    // Always use wigner_classify_spinor — it handles both
+                    // real and complex characters internally.
+                    let h_spin = ir.spin_ops();
+                    let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
+                    let g_spin = if g_sg == h_sg { h_spin }
+                        else { IrrepRecord::spin_ops_for_sg(g_sg) };
+                    let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
+                    let su2_result = crate::irrep::wigner::wigner_classify_spinor(
+                        &ctx, ir.characters(), ir.spin_character_imag(),
+                        ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
+                        &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+                        ir.kx, ir.ky, ir.kz, ir.kd,
+                    );
+                    match (has_imag, su2_result.is_some()) {
+                        (true,  true)  => "spinor_complex_ok",
+                        (true,  false) => "spinor_complex_fail",
+                        (false, true)  => "spinor_real_su2_ok",
+                        (false, false) => "spinor_real_su2_fail",
                     }
                 } else {
                     "scalar_PIR"
                 };
                 *stats.entry(key).or_default() += 1;
-
-                // Cross-check: when both extra and SU2 paths succeed for the same irrep
-                if ir.spinor {
-                    let imag = ir.spin_character_imag();
-                    let unitary: Vec<usize> = mag_lg.iter()
-                        .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
-                    if !antiunitary.is_empty() && !imag.is_empty() {
-                        let spin_ops = ir.spin_ops();
-                        if !spin_ops.0.is_empty() {
-                            let _imag_sum = crate::irrep::wigner::diagnostic_imag_sum(imag);
-                            let h_spin = ir.spin_ops();
-                        let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
-                        let g_spin = if g_sg == h_sg { h_spin }
-                            else { IrrepRecord::spin_ops_for_sg(g_sg) };
-                        let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
-                            if let Some(_su2_ct) = crate::irrep::wigner::wigner_classify_spinor(
-                                &ctx, ir.characters(), ir.spin_character_imag(),
-                                ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
-                                &unitary, &mag_seitz, &h_seitz, antiunitary[0],
-                                ir.kx, ir.ky, ir.kz, ir.kd,
-                            ) {
-                                extra_su2_agree += 1; // SU(2) path succeeded
-                            } else {
-                                extra_su2_mismatch += 1; // SU(2) path failed
-                            }
-                        }
-                    }
-                }
             }
         }
 
@@ -1872,16 +1840,16 @@ mod tests {
         let mut sorted: Vec<_> = stats.iter().collect();
         sorted.sort_by_key(|(_, v)| -(**v as i64));
         for (key, count) in &sorted {
-            println!("  {:>20}  {:>6}", key, count);
+            println!("  {:>22}  {:>6}", key, count);
         }
-        println!("  extra↔SU2 agree: {}  mismatch: {} (diagnostic only, no assertion)",
-            extra_su2_agree, extra_su2_mismatch);
 
-        // Show specific SU(2) failure examples
-        println!("\n=== SU(2) failure examples (up to 15) ===");
-        let mut failures_shown = 0usize;
+        // ------------------------------------------------------------------
+        // Detailed failure triage: classify every failing spinor case
+        // ------------------------------------------------------------------
+        println!("\n=== Spinor failure triage (up to 30 examples) ===");
+        let mut shown = 0usize;
         for uni in 1..=1651 {
-            if failures_shown >= 15 { break; }
+            if shown >= 30 { break; }
             let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
             let h_info = match identify_unitary_subgroup_with_hall(uni) {
                 Some(i) => i, None => continue,
@@ -1892,9 +1860,8 @@ mod tests {
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
 
             for ir in crate::irrep::query::irreps_of(h_sg) {
-                if failures_shown >= 15 { break; }
+                if shown >= 30 { break; }
                 if !ir.spinor { continue; }
-                if !ir.spin_character_imag().is_empty() { continue; }
                 let mag_lg = crate::irrep::wigner::filter_little_group(
                     ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
                 let antiunitary: Vec<usize> = mag_lg.iter()
@@ -1902,24 +1869,27 @@ mod tests {
                 if antiunitary.is_empty() { continue; }
                 let unitary: Vec<usize> = mag_lg.iter()
                     .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
+                let has_imag = !ir.spin_character_imag().is_empty();
 
                 let spin_ops = ir.spin_ops();
-                if spin_ops.0.is_empty() { continue; }
+                if spin_ops.0.is_empty() {
+                    *failure_class.entry("no_spin_ops").or_default() += 1;
+                    continue;
+                }
                 let h_spin_seitz = crate::irrep::wigner::build_spin_seitz(spin_ops.0, spin_ops.1);
                 let h_to_spin = crate::irrep::wigner::build_h_to_spin_map(
                     &h_seitz, &h_spin_seitz, ir.spin_lg_op_indices());
 
-                // Diagnose why unitary ops fail to map
-                let unmapped: Vec<(usize, String)> = unitary.iter()
-                    .filter_map(|&i| {
+                // Count unmapped unitary ops (Seitz→spin mapping failures)
+                let unmapped: Vec<usize> = unitary.iter()
+                    .filter(|&&i| {
                         let h = &mag_seitz[i];
                         match crate::irrep::wigner::find_seitz(&h.rot, &h.trans, &h_seitz) {
-                            None => Some((i, "find_seitz_failed".to_string())),
-                            Some(m) => if h_to_spin[m.op_index].is_none() {
-                                Some((i, format!("rot_not_in_spin_lg h_idx={}", m.op_index)))
-                            } else { None },
+                            None => true,
+                            Some(m) => h_to_spin[m.op_index].is_none(),
                         }
                     })
+                    .copied()
                     .collect();
 
                 let h_spin = ir.spin_ops();
@@ -1934,21 +1904,30 @@ mod tests {
                     ir.kx, ir.ky, ir.kz, ir.kd,
                 ).is_some();
 
-                if !su2_ok {
-                    failures_shown += 1;
-                    // Show unmapped reasons
-                    let reasons: Vec<String> = unmapped.iter()
-                        .map(|(i, reason)| format!("{}:{}", reason,
-                            if *i < mag_ops.operations.len() { format!("{:?}", mag_ops.operations[*i].rotation) } else { "?".into() }))
-                        .collect();
-                    println!("  SG{} {} UNI{} dim={} n_lg={}/{}/{} unmapped={}/{}",
-                        h_sg, ir.k_label(), uni, ir.dim,
-                        unitary.len(), antiunitary.len(), unitary.len()+antiunitary.len(),
-                        unmapped.len(), unitary.len());
-                    println!("    spin_lg_idx={:?}", ir.spin_lg_op_indices());
-                    println!("    reasons={:?}", reasons);
-                }
+                if su2_ok { continue; }
+
+                // Classify this failure
+                let class = if !unmapped.is_empty() {
+                    "mapping_failure"
+                } else if has_imag {
+                    "complex_char_non_quantized"
+                } else {
+                    "real_char_su2_closure_fail"
+                };
+                *failure_class.entry(class).or_default() += 1;
+
+                shown += 1;
+                println!(
+                    "  SG{} {} UNI{} dim={} imag={} n_lg=U{}+A{} unmapped={} class={}",
+                    h_sg, ir.k_label(), uni, ir.dim, has_imag,
+                    unitary.len(), antiunitary.len(), unmapped.len(), class,
+                );
             }
+        }
+
+        println!("\n=== Failure classification ===");
+        for (class, count) in failure_class.iter() {
+            println!("  {:>30}  {:>6}", class, count);
         }
     }
 
