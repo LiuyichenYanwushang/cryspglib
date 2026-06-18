@@ -1799,6 +1799,9 @@ mod tests {
         reset_triage_counters();
         let mut stats = std::collections::HashMap::<&str, usize>::new();
         let mut failure_class = std::collections::HashMap::<&str, usize>::new();
+        let mut failure_by_sg = std::collections::HashMap::<(&str, u8), usize>::new();
+        let mut mapping_shape =
+            std::collections::HashMap::<(usize, usize), usize>::new();
 
         for uni in 1..=1651 {
             let mag_ops = match get_magnetic_operations(uni) {
@@ -1935,6 +1938,12 @@ mod tests {
                     "real_char_su2_closure_fail"
                 };
                 *failure_class.entry(class).or_default() += 1;
+                *failure_by_sg.entry((class, h_sg)).or_default() += 1;
+                if class == "mapping_failure" {
+                    *mapping_shape
+                        .entry((unmapped.len(), unitary.len()))
+                        .or_default() += 1;
+                }
 
                 if shown < 30 {
                     shown += 1;
@@ -1950,6 +1959,24 @@ mod tests {
         println!("\n=== Failure classification ===");
         for (class, count) in failure_class.iter() {
             println!("  {:>30}  {:>6}", class, count);
+        }
+
+        println!("\n=== Failure distribution by SG ===");
+        let mut failure_by_sg: Vec<_> = failure_by_sg.into_iter().collect();
+        failure_by_sg.sort_by_key(|((class, sg), count)| {
+            (std::cmp::Reverse(*count), *class, *sg)
+        });
+        for ((class, sg), count) in failure_by_sg {
+            println!("  {:>30}  SG{:>3}  {:>6}", class, sg, count);
+        }
+
+        println!("\n=== Mapping failure shapes (unmapped/unitary) ===");
+        let mut mapping_shape: Vec<_> = mapping_shape.into_iter().collect();
+        mapping_shape.sort_by_key(|((unmapped, unitary), count)| {
+            (std::cmp::Reverse(*count), *unmapped, *unitary)
+        });
+        for ((unmapped, unitary), count) in mapping_shape {
+            println!("  {:>3}/{:<3}  {:>6}", unmapped, unitary, count);
         }
 
         // Print MSG-gauge vs old-path triage counters for the full triage pass.
