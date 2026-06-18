@@ -63,7 +63,7 @@ pub fn msg_identify_with_parent_hall(
 
     // 标准路径: 从磁对称性中提取 FSG/XSG 并搜索空间群
     let (ref_sg, changed_symmetry, mut tmat, mut shift, msgtype_num) =
-        match get_reference_space_group(&prim_sym, symprec) {
+        match get_reference_space_group(lattice, &prim_sym, symprec) {
             Some(result) => {
                 result
             }
@@ -184,6 +184,7 @@ pub fn msg_identify_with_parent_hall(
 ///
 /// 对应 C 原版的 `get_reference_space_group`。
 fn get_reference_space_group(
+    lattice: &Mat3,
     magnetic_symmetry: &MagneticSymmetry,
     symprec: f64,
 ) -> Option<(Spacegroup, MagneticSymmetry, Mat3, Vec3, MagneticType)> {
@@ -218,8 +219,15 @@ fn get_reference_space_group(
         &mut fsg
     };
 
-    // 5. 计算 tmat 和 shift
-    let tmat = ref_sg.bravais_lattice;
+    // 5. 在真实笛卡尔度量下规整参考晶格，并计算
+    //    x_std = (tmat, shift) x。
+    let lattice_inv = mat_inverse_matrix_d3(lattice, 0.0).ok()?;
+    ref_sg.bravais_lattice =
+        mat_multiply_matrix_d3(lattice, &ref_sg.bravais_lattice);
+    ref_find_similar_bravais_lattice(ref_sg, symprec);
+    ref_sg.bravais_lattice =
+        mat_multiply_matrix_d3(&lattice_inv, &ref_sg.bravais_lattice);
+    let tmat = mat_inverse_matrix_d3(&ref_sg.bravais_lattice, 0.0).ok()?;
     let shift = ref_sg.origin_shift;
 
     // 6. 合成变换后的磁性对称操作
@@ -687,10 +695,10 @@ fn get_representative(magnetic_symmetry: &MagneticSymmetry) -> Option<MagneticSy
     Some(representative)
 }
 
-/// Apply transformation (tmat, shift) to magnetic symmetry, deduplicating.
+/// Apply `x_std = (tmat, shift) x` to magnetic symmetry, deduplicating.
 ///
-/// R' = T^-1 * R * T
-/// t' = T^-1 * (t + (R - I) * shift)
+/// R_std = T * R * T^-1
+/// t_std = shift - R_std * shift + T * t
 fn get_distinct_changed_magnetic_symmetry(
     tmat: &Mat3,
     shift: &Vec3,
@@ -702,10 +710,10 @@ fn get_distinct_changed_magnetic_symmetry(
     let mut size = 0usize;
 
     for i in 0..sym_msg.size {
-        // R' = T^-1 * R * T
+        // R_std = T * R * T^-1
         let rot_f64 = mat_cast_matrix_3i_to_3d(&sym_msg.rot[i]);
-        let tmp = mat_multiply_matrix_d3(&inv_tmat, &rot_f64);
-        let r_new = mat_multiply_matrix_d3(&tmp, tmat);
+        let tmp = mat_multiply_matrix_d3(tmat, &rot_f64);
+        let r_new = mat_multiply_matrix_d3(&tmp, &inv_tmat);
 
         // Round to integer rotation matrix
         let rot_i = [
@@ -714,18 +722,16 @@ fn get_distinct_changed_magnetic_symmetry(
             [mat_nint(r_new[2][0]), mat_nint(r_new[2][1]), mat_nint(r_new[2][2])],
         ];
 
-        // t' = T^-1 * (t + (R - I) * shift)
-        let mut tmp_rot = sym_msg.rot[i];
-        tmp_rot[0][0] -= 1;
-        tmp_rot[1][1] -= 1;
-        tmp_rot[2][2] -= 1;
-        let shift_term = mat_multiply_matrix_vector_id3(&tmp_rot, shift);
-
+        // t_std = shift - R_std * shift + T * t
+        let rotated_shift = mat_multiply_matrix_vector_id3(&rot_i, shift);
+        let transformed_trans =
+            mat_multiply_matrix_vector_d3(tmat, &sym_msg.trans[i]);
         let mut t_new = [0.0; 3];
         for j in 0..3 {
-            t_new[j] = sym_msg.trans[i][j] + shift_term[j];
+            t_new[j] = mat_dmod1(
+                shift[j] - rotated_shift[j] + transformed_trans[j],
+            );
         }
-        t_new = mat_multiply_matrix_vector_d3(&inv_tmat, &t_new);
 
         // Check for uniqueness (same rotation, same translation, same timerev)
         let mut is_dup = false;
@@ -1262,4 +1268,3 @@ mod tests {
         ).is_none());
     }
 }
-
