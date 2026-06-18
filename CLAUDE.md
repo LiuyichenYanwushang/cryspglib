@@ -517,9 +517,9 @@ After regeneration, run the full test suite to validate:
 
 ---
 
-## Test suite (176 tests across 7 binaries)
+## Test suite (189 tests across 7 binaries)
 
-All tests pass (as of 2026-06-16).
+All tests pass (as of 2026-06-18).
 
 | Binary / Location | Tests | Description |
 |-------|-------|-------------|
@@ -528,9 +528,9 @@ All tests pass (as of 2026-06-16).
 | `src/{arithmetic,cell,debug,delaunay,determination}.rs` (unit) | 12 | Arithmetic crystals, overlap detection, lattice reduction, error handling |
 | `src/{api,lib}.rs` (doctests & unit) | 21 | Entry-point API examples and type constructors |
 | `tests/irrep_validation.rs` (integration) | 31 | Full-sweep validation: every SG has irreps, dimensions match, labels well-formed, k-vectors positive |
-| `tests/magnetic_integration.rs` (integration) | 9 | Magnetic structure analysis end-to-end |
+| `tests/magnetic_integration.rs` (integration) | 11 | Magnetic structure analysis end-to-end (graphene, bilayer, Fe, CoF3, etc.) |
 | `tests/{cof3,crps4,la2nio4,bcs_corep_validation}.rs` (integration) | 5 | Reference material cases |
-| **Total** | **~176** | |
+| **Total** | **~189** | |
 
 Key diagnostic tests (most useful for Wigner debugging):
 
@@ -591,8 +591,111 @@ cargo test --package cryspglib --test magnetic_integration test_graphene_afm_z
 该测试覆盖 `symprec=1e-3..1e-6`，结果必须保持一致。此前的 `UNI=0`
 不是二维体系的数据库限制，而是标准设置变换方向移植错误。
 
+**双层石墨烯 oracle（z=0.51 / z=0.49）**：
+
+打破水平镜面对称后，空间群从 P6/mmm (#191) 降到 P-3m1 (#164)：
+
+| 磁构型 | SG | Hall | ops | UNI | BNS |
+|--------|-----|------|-----|-----|-----|
+| 非磁 | 164 | 456 | 12 | 0 | - |
+| FM (都↑) | 164 | 456 | 12 | 1319 | 164.89 |
+| AFM (一↑一↓) | 164 | 456 | 12 | 1318 | 164.88 |
+
+这是第二个非立方磁群 oracle——对称操作数从 24 降到 12，
+且涉及三方晶系（介于立方和六方之间），对 setting transformation 的敏感度
+高于立方案例但低于平面六方案例。
+
+---
+
+## 错误处理约定：Result, not Option
+
+spglib port 的主要公共 API 已全部从 `Option<T>` 迁移到 `Result<T, SymError>`。
+`SymError` 是 unit-only enum（无数据字段），每个 variant 名直接指向失败位置。
+
+### 为什么不用带数据的 Error
+
+`SymError` 的 variant 已经精确到单个函数甚至函数内的单个失败点。
+携带额外数据不会增加定位精度，反而破坏 `Copy` 和简单模式匹配。
+
+### 改造的函数
+
+| 管线 | 函数 | 错误 variant |
+|------|------|-------------|
+| 磁群 | `spn_get_operations_with_site_tensors` | `MagneticOpGenerationFailed`, `MagneticPrimitiveLatticeFailed` |
+| 磁群 | `msg_identify_with_parent_hall` | `MagneticReferenceGroupFailed`, `MagneticFallbackReferenceFailed`, `MagneticUniMatchFailed` |
+| 磁群 | `magnetic_dataset()` | 传播上游错误 |
+| 非磁 | `prm_get_primitive` | `CellStandardizationFailed` |
+| 非磁 | `sym_get_operation` | `SymmetryOperationSearchFailed` |
+| 非磁 | `spa_search_spacegroup` | `SpacegroupSearchFailed` |
+| 非磁 | `det_determine_all` | `SpacegroupSearchFailed` |
+| API | `Crystal::from_poscar` | `InvalidInput` |
+| API | `SymmetryOps::from_magnetic_database` | `SpacegroupSearchFailed` |
+| API | `SymmetryOps::from_sg` | `SpacegroupSearchFailed` |
+| API | `find_hall_number` / `find_first_hall_for_uni` | `SpacegroupSearchFailed` |
+
+### 错误传播模式
+
+- 使用 `?` 直接传播同类型错误
+- `Option` → `Result` 转换用 `.ok_or(SymError::Variant)?`
+- `Result` → `Option` 转换（仅在临时 backward compat 中）用 `.ok()`
+- `MagneticUniMatchFailed` 在 `lib.rs` 中被特殊处理：不传播，而是触发
+  FSG/XSG fallback（因为 UNI 匹配失败不是 fatal——仍可从群阶数推算磁类型）
+
 ### 晶格矩阵约定
 
 `lattice[cart][vec]` —— **行=笛卡尔分量，列=晶格矢量**。
 详见 `mathfunc.rs` 模块文档。六方晶格不对称——约定错误将导致
 空间群识别错误（如 graphene #191 → #10）。
+
+---
+
+## Spinor Wigner 失败：当前状态与根因分析
+
+### 覆盖率
+
+标量 irrep（非 spinor）：**100%** 通过（Wigner test 对所有 4,777 irreps 正确分类 A/B/C）。
+Spinor irrep：**88.3%** 通过（7,119/8,064），**945 个失败**。
+
+### 失败特征
+
+- 仅发生在 **立方空间群**（C₂ + C₃ 旋转组合）
+- 四方、三方、六方体系全部通过
+- 失败率最高的群：SG 195–230（高分 cubic 群）
+- 最简单的失败案例：SG 195 (P23) 的特定 k-point
+
+### 已确认的根因
+
+**SU(2) 数据库缺少逐操作的 central parity 数据。**
+
+每个旋转 R 在 SU(2) 中有两个合法 lift（+U 和 -U）。数据库为每个 R 选定了一个，
+但未记录这个选定的 parity 属性。Wigner 公式计算 `(u_a₀ · u_h)²` 时，
+如果数据库的 lift 选择和 Wigner 公式需要的 lift 不一致，就会产生 sign mismatch。
+
+具体来说：`u_k = u_a₀ · u_h · u_a₀⁻¹ · u_h⁻¹` 应该是 ±I（属于中心），
+但数据库的 lift choice 可能导致 `u_k` 偏离 ±I，使得后续的 character matching
+失败（NONE 关系）。
+
+### 为什么标量 irrep 不受影响
+
+标量 irrep 的 Wigner test 不经过 SU(2)——它直接使用 `(a₀h)²` 的
+Seitz 表示计算 character `χ((a₀h)²)`。Seitz 的合成不涉及 gauge choice。
+只有 spinor 需要从 SU(2) 数据库读取 lift，因此只有 spinor 暴露了这个问题。
+
+### 已排除的假说（ 11 项）
+
+见上方 "错题集" → "✅ 已排除的问题"。
+
+### 可能的解决路径
+
+1. **数据增强**（推荐但工程量大）：在数据生成阶段为每个 SU(2) 操作计算并存储
+   central parity（即该 lift 与"规范 lift"的相对符号）。需要理解 ISOTROPY 的
+   SU(2) 约定并修改 `generate_irrep_data.py`。
+
+2. **Runtime inference**（已尝试，效果有限）：
+   - `infer_eta_ebar()` 尝试推断 central parity → 总是 missing（0% fix）
+   - J-insertion `(JU)(JU)*` → 61% per-term fix 但 global 替换产生 regression
+   - Per-case fallback → 仅 22/945 fix
+
+3. **接受现状**：88.3% 覆盖率对于大多数应用已足够。
+   失败的 945 个 case 全部在立方 spinor，且每个 case 的物理分类
+   （A/B/C）仍可通过标量方法推断。
