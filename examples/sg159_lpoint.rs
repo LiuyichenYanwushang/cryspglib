@@ -76,7 +76,8 @@ fn main() {
                 .unwrap_or(antiunitary_lg[0]);
 
             let ct = wigner_classify_spinor(
-                &ctx, ir.characters(), n_lg, indices,
+                &ctx, ir.characters(), ir.spin_character_imag(),
+                n_lg, indices,
                 &unitary_lg, &mag_seitz, &h_seitz, a0_idx,
                 kx, ky, kz, kd,
             );
