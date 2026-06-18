@@ -1778,6 +1778,25 @@ mod tests {
     /// which is known to need further work on antiunitary gauge handling.
     #[test]
     fn diagnose_wigner_sources() {
+        use crate::irrep::wigner::{
+            H2S_AMBIGUOUS, H2S_MISSING, H2S_OK, MSG_GAUGE_MAP_FAIL,
+            MSG_GAUGE_OK, MSG_GAUGE_W_FAIL, OLD_PATH_FAIL, OLD_PATH_OK,
+        };
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let reset_counter = |counter: &AtomicUsize| counter.store(0, Ordering::Relaxed);
+        let reset_triage_counters = || {
+            reset_counter(&MSG_GAUGE_OK);
+            reset_counter(&MSG_GAUGE_MAP_FAIL);
+            reset_counter(&MSG_GAUGE_W_FAIL);
+            reset_counter(&OLD_PATH_OK);
+            reset_counter(&OLD_PATH_FAIL);
+            reset_counter(&H2S_OK);
+            reset_counter(&H2S_AMBIGUOUS);
+            reset_counter(&H2S_MISSING);
+        };
+
+        reset_triage_counters();
         let mut stats = std::collections::HashMap::<&str, usize>::new();
         let mut failure_class = std::collections::HashMap::<&str, usize>::new();
 
@@ -1844,12 +1863,14 @@ mod tests {
         }
 
         // ------------------------------------------------------------------
-        // Detailed failure triage: classify every failing spinor case
+        // Detailed failure triage: classify every failing spinor case.
+        // Reset first so path/H2S counters below describe exactly this pass,
+        // rather than accumulating both the statistics and triage passes.
         // ------------------------------------------------------------------
-        println!("\n=== Spinor failure triage (up to 30 examples) ===");
+        reset_triage_counters();
+        println!("\n=== Spinor failure triage (all cases; first 30 shown) ===");
         let mut shown = 0usize;
         for uni in 1..=1651 {
-            if shown >= 30 { break; }
             let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
             let h_info = match identify_unitary_subgroup_with_hall(uni) {
                 Some(i) => i, None => continue,
@@ -1860,7 +1881,6 @@ mod tests {
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
 
             for ir in crate::irrep::query::irreps_of(h_sg) {
-                if shown >= 30 { break; }
                 if !ir.spinor { continue; }
                 let mag_lg = crate::irrep::wigner::filter_little_group(
                     ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
@@ -1916,12 +1936,14 @@ mod tests {
                 };
                 *failure_class.entry(class).or_default() += 1;
 
-                shown += 1;
-                println!(
-                    "  SG{} {} UNI{} dim={} imag={} n_lg=U{}+A{} unmapped={} class={}",
-                    h_sg, ir.k_label(), uni, ir.dim, has_imag,
-                    unitary.len(), antiunitary.len(), unmapped.len(), class,
-                );
+                if shown < 30 {
+                    shown += 1;
+                    println!(
+                        "  SG{} {} UNI{} dim={} imag={} n_lg=U{}+A{} unmapped={} class={}",
+                        h_sg, ir.k_label(), uni, ir.dim, has_imag,
+                        unitary.len(), antiunitary.len(), unmapped.len(), class,
+                    );
+                }
             }
         }
 
@@ -1930,13 +1952,7 @@ mod tests {
             println!("  {:>30}  {:>6}", class, count);
         }
 
-        // Print MSG-gauge vs old-path triage counters
-        use crate::irrep::wigner::{
-            MSG_GAUGE_OK, MSG_GAUGE_MAP_FAIL, MSG_GAUGE_W_FAIL,
-            OLD_PATH_OK, OLD_PATH_FAIL,
-            H2S_OK, H2S_AMBIGUOUS, H2S_MISSING,
-        };
-        use std::sync::atomic::Ordering;
+        // Print MSG-gauge vs old-path triage counters for the full triage pass.
         println!("\n=== Path triage ===");
         println!("  MSG_GAUGE_OK:       {}", MSG_GAUGE_OK.load(Ordering::Relaxed));
         println!("  MSG_GAUGE_MAP_FAIL:  {}", MSG_GAUGE_MAP_FAIL.load(Ordering::Relaxed));
