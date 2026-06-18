@@ -433,31 +433,39 @@ pub fn filter_little_group(
         return (0..ops.len()).collect();
     }
 
+    (0..ops.len())
+        .filter(|&i| seitz_preserves_k(&ops[i].rotation, ops[i].time_reversal, kx, ky, kz, kd))
+        .collect()
+}
+
+fn seitz_preserves_k(
+    r: &Mat3I,
+    time_reversal: bool,
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
+) -> bool {
+    if kd == 0 {
+        return true;
+    }
     let kd_i = kd as i32;
     let kx_i = kx as i32;
     let ky_i = ky as i32;
     let kz_i = kz as i32;
+    let rx = r[0][0] * kx_i + r[0][1] * ky_i + r[0][2] * kz_i;
+    let ry = r[1][0] * kx_i + r[1][1] * ky_i + r[1][2] * kz_i;
+    let rz = r[2][0] * kx_i + r[2][1] * ky_i + r[2][2] * kz_i;
 
-    (0..ops.len())
-        .filter(|&i| {
-            let r = &ops[i].rotation;
-            let rx = r[0][0] as i32 * kx_i + r[0][1] as i32 * ky_i + r[0][2] as i32 * kz_i;
-            let ry = r[1][0] as i32 * kx_i + r[1][1] as i32 * ky_i + r[1][2] as i32 * kz_i;
-            let rz = r[2][0] as i32 * kx_i + r[2][1] as i32 * ky_i + r[2][2] as i32 * kz_i;
-
-            if ops[i].time_reversal {
-                // Anti-unitary: -R·k ≡ k (mod kd)
-                (-rx - kx_i) % kd_i == 0
-                    && (-ry - ky_i) % kd_i == 0
-                    && (-rz - kz_i) % kd_i == 0
-            } else {
-                // Unitary: R·k ≡ k (mod kd)
-                (rx - kx_i) % kd_i == 0
-                    && (ry - ky_i) % kd_i == 0
-                    && (rz - kz_i) % kd_i == 0
-            }
-        })
-        .collect()
+    if time_reversal {
+        (-rx - kx_i) % kd_i == 0
+            && (-ry - ky_i) % kd_i == 0
+            && (-rz - kz_i) % kd_i == 0
+    } else {
+        (rx - kx_i) % kd_i == 0
+            && (ry - ky_i) % kd_i == 0
+            && (rz - kz_i) % kd_i == 0
+    }
 }
 
 // ── Lattice arithmetic helpers ──────────────────────────────────────────────
@@ -1664,6 +1672,58 @@ fn wigner_classify_spinor_msg_gauge(
 /// # Returns
 /// `None` if spin ops are unavailable or result is non-quantized.
 pub fn wigner_classify_spinor(
+    ctx: &SpinLiftContext,
+    spin_chars_real: &[f64],
+    spin_chars_imag: &[f64],
+    n_lg_ops: usize,
+    spin_lg_op_indices: &[u16],
+    _unitary_mag_indices: &[usize],
+    mag_seitz: &[SeitzOp],
+    h_seitz: &[SeitzOp],
+    a0_idx: usize,
+    kx: i8, ky: i8, kz: i8, kd: i8,
+) -> Option<CorepType> {
+    if let Some(result) = wigner_classify_spinor_primary(
+        ctx,
+        spin_chars_real,
+        spin_chars_imag,
+        n_lg_ops,
+        spin_lg_op_indices,
+        _unitary_mag_indices,
+        mag_seitz,
+        h_seitz,
+        a0_idx,
+        kx,
+        ky,
+        kz,
+        kd,
+    ) {
+        return Some(result);
+    }
+
+    let anti_lg_indices: Vec<usize> = mag_seitz
+        .iter()
+        .enumerate()
+        .filter(|(_, op)| {
+            op.timerev && seitz_preserves_k(&op.rot, true, kx, ky, kz, kd)
+        })
+        .map(|(idx, _)| idx)
+        .collect();
+    wigner_classify_spinor_direct_anti(
+        ctx,
+        spin_chars_real,
+        spin_chars_imag,
+        spin_lg_op_indices,
+        &anti_lg_indices,
+        mag_seitz,
+        kx,
+        ky,
+        kz,
+        kd,
+    )
+}
+
+fn wigner_classify_spinor_primary(
     ctx: &SpinLiftContext,
     spin_chars_real: &[f64],
     spin_chars_imag: &[f64],
