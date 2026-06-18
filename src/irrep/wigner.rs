@@ -72,6 +72,12 @@ pub static MSG_GAUGE_MAP_FAIL: AtomicUsize = AtomicUsize::new(0);
 pub static MSG_GAUGE_W_FAIL: AtomicUsize = AtomicUsize::new(0);
 pub static OLD_PATH_OK: AtomicUsize = AtomicUsize::new(0);
 pub static OLD_PATH_FAIL: AtomicUsize = AtomicUsize::new(0);
+
+// build_h_to_spin_map failure classification (added 2026-06-18)
+pub static H2S_OK: AtomicUsize = AtomicUsize::new(0);
+pub static H2S_AMBIGUOUS: AtomicUsize = AtomicUsize::new(0);
+pub static H2S_MISSING: AtomicUsize = AtomicUsize::new(0);
+
 // det distribution for NONE
 static NONE_DET_A0_P1: AtomicUsize = AtomicUsize::new(0);
 static NONE_DET_A0_M1: AtomicUsize = AtomicUsize::new(0);
@@ -1320,7 +1326,11 @@ pub fn build_h_to_spin_map(
         let full = allowed.iter().copied().find(|&si| {
             spin_seitz.get(si).map_or(false, |sop| same_seitz_mod_lattice(h, sop))
         });
-        if let Some(si) = full { map.push(Some(si)); continue; }
+        if let Some(si) = full {
+            H2S_OK.fetch_add(1, Ordering::Relaxed);
+            map.push(Some(si));
+            continue;
+        }
 
         // 2. Rotation-only fallback — only when uniquely resolved
         let rots: Vec<usize> = allowed.iter().copied().filter(|&si| {
@@ -1328,8 +1338,13 @@ pub fn build_h_to_spin_map(
         }).collect();
 
         if rots.len() == 1 {
+            H2S_OK.fetch_add(1, Ordering::Relaxed);
             map.push(Some(rots[0]));
+        } else if rots.len() > 1 {
+            H2S_AMBIGUOUS.fetch_add(1, Ordering::Relaxed);
+            map.push(None);
         } else {
+            H2S_MISSING.fetch_add(1, Ordering::Relaxed);
             map.push(None);
         }
     }

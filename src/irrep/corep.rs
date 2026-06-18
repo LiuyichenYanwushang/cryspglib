@@ -1934,6 +1934,7 @@ mod tests {
         use crate::irrep::wigner::{
             MSG_GAUGE_OK, MSG_GAUGE_MAP_FAIL, MSG_GAUGE_W_FAIL,
             OLD_PATH_OK, OLD_PATH_FAIL,
+            H2S_OK, H2S_AMBIGUOUS, H2S_MISSING,
         };
         use std::sync::atomic::Ordering;
         println!("\n=== Path triage ===");
@@ -1942,6 +1943,10 @@ mod tests {
         println!("  MSG_GAUGE_W_FAIL:    {}", MSG_GAUGE_W_FAIL.load(Ordering::Relaxed));
         println!("  OLD_PATH_OK:         {}", OLD_PATH_OK.load(Ordering::Relaxed));
         println!("  OLD_PATH_FAIL:       {}", OLD_PATH_FAIL.load(Ordering::Relaxed));
+        println!("\n=== build_h_to_spin_map triage ===");
+        println!("  H2S_OK:         {}", H2S_OK.load(Ordering::Relaxed));
+        println!("  H2S_AMBIGUOUS:  {}  (same rot, multiple spin entries)", H2S_AMBIGUOUS.load(Ordering::Relaxed));
+        println!("  H2S_MISSING:    {}  (rotation not in spin table)", H2S_MISSING.load(Ordering::Relaxed));
     }
 
     /// Regression: SG3 A3 spinor Wigner test under grey group (a₀ = Θ).
