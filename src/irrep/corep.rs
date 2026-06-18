@@ -2004,7 +2004,7 @@ mod tests {
 
         println!("\n=== Direct anti-coset oracle ===");
         let mut direct_anti_stats: Vec<_> = direct_anti_stats.into_iter().collect();
-        direct_anti_stats.sort_by_key(|(key, count)| (std::cmp::Reverse(**count), **key));
+        direct_anti_stats.sort_by_key(|(key, count)| (std::cmp::Reverse(*count), *key));
         for (key, count) in direct_anti_stats {
             println!("  {:>30}  {:>6}", key, count);
         }
