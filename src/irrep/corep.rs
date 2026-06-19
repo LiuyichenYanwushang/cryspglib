@@ -2379,9 +2379,11 @@ mod tests {
                         reciprocal_set,
                     ));
                 }
-                if reciprocal_mismatch_examples.len() < 20 && reciprocal_set != expected {
+                if reciprocal_mismatch_examples.len() < 20
+                    && reciprocal_centered_set != expected
+                {
                     reciprocal_mismatch_examples.push(format!(
-                        "SG{} {} k=({},{},{})/{} expected={:?} R^-Tk={:?} extra={:?}",
+                        "SG{} {} k=({},{},{})/{} expected={:?} centered R^-Tk={:?} extra={:?} translations={:?}",
                         sg,
                         ir.ml,
                         ir.kx,
@@ -2389,8 +2391,9 @@ mod tests {
                         ir.kz,
                         ir.kd,
                         expected,
-                        reciprocal_set,
-                        reciprocal_set.difference(&expected).collect::<Vec<_>>(),
+                        reciprocal_centered_set,
+                        reciprocal_centered_set.difference(&expected).collect::<Vec<_>>(),
+                        pure_translations,
                     ));
                 }
             }
