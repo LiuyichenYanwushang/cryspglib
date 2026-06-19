@@ -1818,6 +1818,10 @@ mod tests {
                 None => continue,
             };
             let h_sg = h_info.sg as u8;
+            // Compute setting transform BEFORE moving ops_from_msg
+            let msg_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_msg.iter().map(|o| o.rotation).collect();
+            let hall_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_hall.iter().map(|o| o.rotation).collect();
+            let setting_xf = crate::irrep::wigner::find_setting_transform(&msg_rots, &hall_rots);
             let h_ops = h_info.ops_from_msg;
             let h_seitz = crate::irrep::wigner::ops_to_seitz(&h_ops);
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
@@ -1884,6 +1888,10 @@ mod tests {
                 Some(i) => i, None => continue,
             };
             let h_sg = h_info.sg as u8;
+            // Compute setting transform BEFORE moving ops_from_msg
+            let msg_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_msg.iter().map(|o| o.rotation).collect();
+            let hall_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_hall.iter().map(|o| o.rotation).collect();
+            let setting_xf = crate::irrep::wigner::find_setting_transform(&msg_rots, &hall_rots);
             let h_ops = h_info.ops_from_msg;
             let h_seitz = crate::irrep::wigner::ops_to_seitz(&h_ops);
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
@@ -1939,7 +1947,7 @@ mod tests {
                         ir.spin_lg_op_indices(),
                         &antiunitary,
                         &mag_seitz,
-                        None,
+                        setting_xf.as_ref(),
                         ir.kx,
                         ir.ky,
                         ir.kz,
