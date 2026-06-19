@@ -2283,20 +2283,24 @@ mod tests {
                     continue;
                 }
                 total_irreps += 1;
-                let expected: std::collections::HashSet<usize> =
+                let expected_indices: std::collections::HashSet<usize> =
                     ir.spin_lg_op_indices().iter().map(|&x| x as usize).collect();
+                let expected: std::collections::HashSet<[[i32; 3]; 3]> = expected_indices
+                    .iter()
+                    .filter_map(|&idx| spin_seitz.get(idx).map(|op| op.rot))
+                    .collect();
                 let k = [ir.kx as i32, ir.ky as i32, ir.kz as i32];
                 let kd = ir.kd as i32;
                 let mut direct_set = std::collections::HashSet::new();
                 let mut reciprocal_set = std::collections::HashSet::new();
 
-                for (idx, op) in spin_seitz.iter().enumerate() {
+                for op in &spin_seitz {
                     if preserves(&op.rot, k, kd) {
-                        direct_set.insert(idx);
+                        direct_set.insert(op.rot);
                     }
                     let rit = inverse_transpose(&op.rot);
                     if preserves(&rit, k, kd) {
-                        reciprocal_set.insert(idx);
+                        reciprocal_set.insert(op.rot);
                     }
                 }
 
