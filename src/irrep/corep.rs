@@ -295,6 +295,7 @@ pub fn compute_corepresentation(
         if let Some(ct) = wigner::wigner_classify_spinor(
             &ctx, h_chars, h_irrep.spin_character_imag(), n_lg, op_indices,
             &unitary, &mag_seitz, &h_seitz, a0_idx,
+            None,
             h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
         ) {
             (ct, WignerSource::SpinorSU2)
@@ -1852,6 +1853,7 @@ mod tests {
                         &ctx, ir.characters(), ir.spin_character_imag(),
                         ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                         &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+                        setting_xf.as_ref(),
                         ir.kx, ir.ky, ir.kz, ir.kd,
                     );
                     match (has_imag, su2_result.is_some()) {
@@ -1937,6 +1939,7 @@ mod tests {
                     &ctx, ir.characters(), ir.spin_character_imag(),
                     ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                     &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+                    setting_xf.as_ref(),
                     ir.kx, ir.ky, ir.kz, ir.kd,
                 );
                 let direct_diagnostic =
@@ -2125,6 +2128,7 @@ mod tests {
             &ctx, a3.characters(), a3.spin_character_imag(),
             a3.spin_lg_char_count(), a3.spin_lg_op_indices(),
             &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+            None,
             a3.kx, a3.ky, a3.kz, a3.kd,
         );
 
@@ -2333,6 +2337,7 @@ mod tests {
                 &ctx, ir.characters(), ir.spin_character_imag(),
                 ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                 &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+            None,
                 ir.kx, ir.ky, ir.kz, ir.kd,
             );
 
@@ -2400,6 +2405,7 @@ mod tests {
                     &ctx, ir.characters(), ir.spin_character_imag(),
                     ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                     &unitary, &mag_seitz, &h_seitz, a0_idx,
+            None,
                     ir.kx, ir.ky, ir.kz, ir.kd,
                 );
                 if result.is_some() { continue; }
@@ -2964,6 +2970,7 @@ mod tests {
             &ctx, chars, p5.spin_character_imag(), n_lg, indices,
             &mag_lg.iter().filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect::<Vec<_>>(),
             &mag_seitz, &h_seitz, a0_idx,
+            None,
             p5.kx, p5.ky, p5.kz, p5.kd,
         );
         // This used to be a known limitation (None), but may now succeed after
@@ -3369,6 +3376,7 @@ mod tests {
                 &ctx, ir.characters(), ir.spin_character_imag(),
                 ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                 &unitary, &mag_seitz, &h_seitz, antiunitary[0],
+            None,
                 ir.kx, ir.ky, ir.kz, ir.kd,
             );
             eprintln!("  Result: {:?}", ct);

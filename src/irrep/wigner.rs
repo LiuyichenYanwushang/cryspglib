@@ -1826,6 +1826,7 @@ pub fn wigner_classify_spinor(
     mag_seitz: &[SeitzOp],
     h_seitz: &[SeitzOp],
     a0_idx: usize,
+    setting_xf: Option<&SettingTransform>,
     kx: i8, ky: i8, kz: i8, kd: i8,
 ) -> Option<CorepType> {
     if let Some(result) = wigner_classify_spinor_primary(
@@ -1861,7 +1862,7 @@ pub fn wigner_classify_spinor(
         spin_lg_op_indices,
         &anti_lg_indices,
         mag_seitz,
-        None,
+        setting_xf,
         kx, ky, kz, kd,
     )
 }
