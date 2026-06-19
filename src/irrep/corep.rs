@@ -2086,6 +2086,145 @@ mod tests {
         println!("  XF_AMBIGUOUS:     {}", xf_ambig);
     }
 
+    /// Trace representative cases from each of the 4 failure categories.
+    #[test]
+    fn diagnose_679_failures_by_category() {
+        use crate::irrep::wigner;
+        use crate::irrep::wigner::DirectAntiFailure;
+        use crate::irrep::types::IrrepRecord;
+
+        // Track which categories we've shown
+        let mut shown_sq_not_spin = false;
+        let mut shown_spin_lookup = false;
+        let mut shown_outside_lg = false;
+        let mut shown_nonquant = 0usize; // show first 2
+
+        'outer: for uni in 1..=1651 {
+            let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
+            let h_info = match identify_unitary_subgroup_with_hall(uni) {
+                Some(i) => i, None => continue,
+            };
+            let h_sg = h_info.sg as u8;
+            let h_ops = h_info.ops_from_msg;
+            let h_seitz = wigner::ops_to_seitz(&h_ops);
+            let mag_seitz = wigner::ops_to_seitz(&mag_ops);
+
+            for ir in crate::irrep::query::irreps_of(h_sg) {
+                if !ir.spinor { continue; }
+                let mag_lg = wigner::filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+                let antiunitary: Vec<usize> = mag_lg.iter()
+                    .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
+                if antiunitary.is_empty() { continue; }
+
+                let h_spin = ir.spin_ops();
+                if h_spin.0.is_empty() { continue; }
+                let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
+                let g_spin = if g_sg == h_sg { h_spin }
+                    else { IrrepRecord::spin_ops_for_sg(g_sg) };
+                let ctx = wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
+
+                let diag = wigner::wigner_classify_spinor_direct_anti_diagnostic(
+                    &ctx, ir.characters(), ir.spin_character_imag(),
+                    ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
+                    None, ir.kx, ir.ky, ir.kz, ir.kd,
+                );
+
+                let stage = match diag {
+                    Err(e) => e,
+                    Ok(_) => continue,
+                };
+
+                let do_show = match stage {
+                    DirectAntiFailure::SquareNotInSpinTable if !shown_sq_not_spin => {
+                        shown_sq_not_spin = true; true
+                    }
+                    DirectAntiFailure::AntiunitarySpinLookup if !shown_spin_lookup => {
+                        shown_spin_lookup = true; true
+                    }
+                    DirectAntiFailure::SquareOutsideLittleGroup if !shown_outside_lg => {
+                        shown_outside_lg = true; true
+                    }
+                    DirectAntiFailure::NonQuantized if shown_nonquant < 2 => {
+                        shown_nonquant += 1; true
+                    }
+                    _ => false,
+                };
+                if !do_show { continue; }
+
+                // --- Detailed trace ---
+                println!("\n=== UNI{} SG{} irrep {} k=({},{},{})/{} dim={} stage={:?} ===",
+                    uni, h_sg, ir.ml, ir.kx, ir.ky, ir.kz, ir.kd, ir.dim, stage);
+
+                let (h_spin_rots, h_spin_trans, _h_spin_su2) = ctx.h;
+                let (g_spin_rots, _g_spin_trans, _g_spin_su2) = ctx.g;
+                let h_spin_seitz = wigner::build_spin_seitz(h_spin_rots, h_spin_trans);
+                let g_spin_seitz = wigner::build_spin_seitz(g_spin_rots, _g_spin_trans);
+
+                println!("  H spin ops ({} entries):", h_spin_seitz.len());
+                for (si, sop) in h_spin_seitz.iter().enumerate() {
+                    let in_lg = ir.spin_lg_op_indices().iter().any(|&idx| idx as usize == si);
+                    println!("    [{}] rot={:?} t=({:.3},{:.3},{:.3}) in_lg={}",
+                        si, sop.rot, sop.trans[0], sop.trans[1], sop.trans[2], in_lg);
+                }
+                println!("  spin_lg_op_indices={:?}", ir.spin_lg_op_indices());
+
+                println!("  G spin rotations ({} entries): {:?}",
+                    g_spin_seitz.len(),
+                    g_spin_seitz.iter().map(|s| s.rot).collect::<Vec<_>>());
+
+                println!("  Antiunitary ops in LG:");
+                for &b_idx in &antiunitary {
+                    let b = &mag_seitz[b_idx];
+                    let b_bilbao = {
+                        let (_, origin) = IrrepRecord::sg_setting(ctx.sg);
+                        let mut t = [
+                            b.trans[0] - ((1.0 - b.rot[0][0] as f64) * origin.get(0).copied().unwrap_or(0.0)
+                                + (-b.rot[0][1] as f64) * origin.get(1).copied().unwrap_or(0.0)
+                                + (-b.rot[0][2] as f64) * origin.get(2).copied().unwrap_or(0.0)),
+                            b.trans[1] - ((-b.rot[1][0] as f64) * origin.get(0).copied().unwrap_or(0.0)
+                                + (1.0 - b.rot[1][1] as f64) * origin.get(1).copied().unwrap_or(0.0)
+                                + (-b.rot[1][2] as f64) * origin.get(2).copied().unwrap_or(0.0)),
+                            b.trans[2] - ((-b.rot[2][0] as f64) * origin.get(0).copied().unwrap_or(0.0)
+                                + (-b.rot[2][1] as f64) * origin.get(1).copied().unwrap_or(0.0)
+                                + (1.0 - b.rot[2][2] as f64) * origin.get(2).copied().unwrap_or(0.0)),
+                        ];
+                        for i in 0..3 { t[i] = (t[i] % 1.0 + 1.0) % 1.0; }
+                        t
+                    };
+                    let (sq, lattice_sq) = {
+                        let b_op = wigner::SeitzOp::new(b.rot, b_bilbao, false);
+                        wigner::square_seitz(&b_op)
+                    };
+
+                    let b_in_g = g_spin_seitz.iter().position(|s| s.rot == b.rot);
+                    let b_in_g_neg = g_spin_seitz.iter().position(|s| {
+                        s.rot[0][0] == -b.rot[0][0] && s.rot[0][1] == -b.rot[0][1] && s.rot[0][2] == -b.rot[0][2]
+                        && s.rot[1][0] == -b.rot[1][0] && s.rot[1][1] == -b.rot[1][1] && s.rot[1][2] == -b.rot[1][2]
+                        && s.rot[2][0] == -b.rot[2][0] && s.rot[2][1] == -b.rot[2][1] && s.rot[2][2] == -b.rot[2][2]
+                    });
+                    let sq_in_h = h_spin_seitz.iter().position(|s| s.rot == sq.rot);
+                    let sq_in_h_lg = sq_in_h.map(|si| {
+                        (si, ir.spin_lg_op_indices().iter().any(|&idx| idx as usize == si))
+                    });
+
+                    println!("    b[{}] rot={:?} trans=({:.3},{:.3},{:.3})",
+                        b_idx, b.rot, b.trans[0], b.trans[1], b.trans[2]);
+                    println!("         b_bilbao=({:.3},{:.3},{:.3})",
+                        b_bilbao[0], b_bilbao[1], b_bilbao[2]);
+                    println!("         sq rot={:?} sq_trans=({:.3},{:.3},{:.3}) lattice_sq={:?}",
+                        sq.rot, sq.trans[0], sq.trans[1], sq.trans[2], lattice_sq);
+                    println!("         b in G spin: pos={:?}  (-R) pos={:?}", b_in_g, b_in_g_neg);
+                    println!("         sq in H spin: {:?}", sq_in_h_lg);
+                }
+
+                // Check if all categories done
+                if shown_sq_not_spin && shown_spin_lookup && shown_outside_lg && shown_nonquant >= 2 {
+                    break 'outer;
+                }
+            }
+        }
+    }
+
     /// Regression: SG3 A3 spinor Wigner test under grey group (a₀ = Θ).
     ///
     /// This explicitly verifies that the SU(2) path gives the correct
