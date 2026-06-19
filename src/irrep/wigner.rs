@@ -1488,10 +1488,31 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
             .ok_or(DirectAntiFailure::AntiunitarySu2Missing)?;
 
         // SU(2) central detection: U_b² vs canonical U_{b²}.
+        // Compute entirely in G frame to avoid cross-gauge comparison.
+        // b.rot is in G/MSG frame (untransformed), and G spin table is
+        // in G frame.  H spin table may use a different axis convention.
         let u_b_sq = su2_compose(&u_b, &u_b);
-        let u_sq = spin_su2_at(h_spin_su2, sq_spin_idx)
-            .ok_or(DirectAntiFailure::SquareSu2Missing)?;
-        let spatial_central = su2_same_up_to_sign(&u_b_sq, &u_sq)
+        let b_sq_rot_ms_g = crate::mathfunc::mat_multiply_matrix_i3(&b.rot, &b.rot);
+        let g_sq_idx = g_spin_seitz.iter().position(|s| s.rot == b_sq_rot_ms_g)
+            .or_else(|| {
+                // -R fallback for improper rotations
+                let neg: crate::mathfunc::Mat3I = [
+                    [-b_sq_rot_ms_g[0][0], -b_sq_rot_ms_g[0][1], -b_sq_rot_ms_g[0][2]],
+                    [-b_sq_rot_ms_g[1][0], -b_sq_rot_ms_g[1][1], -b_sq_rot_ms_g[1][2]],
+                    [-b_sq_rot_ms_g[2][0], -b_sq_rot_ms_g[2][1], -b_sq_rot_ms_g[2][2]],
+                ];
+                g_spin_seitz.iter().position(|s| s.rot == neg)
+            });
+        let u_sq_g = match g_sq_idx {
+            Some(idx) => spin_su2_at(g_spin_su2, idx)
+                .ok_or(DirectAntiFailure::SquareSu2Missing)?,
+            None => {
+                // Fall back to H-frame lookup if b² not in G spin table
+                spin_su2_at(h_spin_su2, sq_spin_idx)
+                    .ok_or(DirectAntiFailure::SquareSu2Missing)?
+            }
+        };
+        let spatial_central = su2_same_up_to_sign(&u_b_sq, &u_sq_g)
             .ok_or(DirectAntiFailure::Su2LiftMismatch)?;
         // b = Θg carries the additional spin-1/2 factor Θ² = Ē.
         let central = !spatial_central;
