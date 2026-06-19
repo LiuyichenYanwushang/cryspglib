@@ -91,7 +91,7 @@
 //! - Bilbao Crystallographic Server: <https://cryst.ehu.es/cgi-bin/cryst/programs/corepresentations.pl>
 
 use num_complex::Complex64;
-use crate::mathfunc::{Mat3I, Vec3};
+use crate::mathfunc::{mat_inverse_matrix_d3, Mat3I, Vec3};
 use crate::SymmetryOps;
 use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use super::types::IrrepRecord;
@@ -542,6 +542,38 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
         ops_from_msg,
         ops_from_hall,
     })
+}
+
+/// Standardize operations with spglib's primitive/conventional-cell pipeline.
+///
+/// The returned affine transform maps the input MSG coordinates into the
+/// detected standard Hall setting and supports rational basis matrices, so it
+/// also covers centered and supercell embeddings.
+fn standard_setting_transform(
+    ops: &SymmetryOps,
+    ignore_time_reversal: bool,
+) -> Option<(usize, usize, wigner::SettingTransform)> {
+    let mut magnetic = crate::symmetry::MagneticSymmetry::new(ops.len());
+    for (i, op) in ops.operations.iter().enumerate() {
+        magnetic.rot[i] = op.rotation;
+        magnetic.trans[i] = op.translation;
+        magnetic.timerev[i] = op.time_reversal;
+    }
+    let (spacegroup, _) =
+        crate::magnetic_spacegroup::get_space_group_with_magnetic_symmetry(
+            &magnetic,
+            ignore_time_reversal,
+            1e-5,
+        )?;
+    let basis = mat_inverse_matrix_d3(&spacegroup.bravais_lattice, 1e-10).ok()?;
+    Some((
+        spacegroup.number,
+        spacegroup.hall_number,
+        wigner::SettingTransform {
+            basis,
+            origin: spacegroup.origin_shift,
+        },
+    ))
 }
 
 /// BNS label → UNI number.
