@@ -33,7 +33,7 @@
 //! - Bilbao Crystallographic Server, *Co-representations of Magnetic Space Groups*
 
 use num_complex::Complex64;
-use crate::mathfunc::{mat_multiply_matrix_i3, Mat3I};
+use crate::mathfunc::{mat_get_determinant_i3, mat_multiply_matrix_i3, Mat3I};
 use crate::SymmetryOps;
 use super::corep::CorepType;
 
@@ -437,20 +437,22 @@ pub fn ops_to_seitz(ops: &SymmetryOps) -> Vec<SeitzOp> {
 /// Filter magnetic operations to those that preserve the wave-vector.
 ///
 /// For a **unitary** operation $$\{R|\mathbf{t}\}$$, the condition is
-/// $$R\mathbf{k} \equiv \mathbf{k} \pmod{\text{reciprocal lattice}}$$.
+/// $$R^{-T}\mathbf{k} \equiv \mathbf{k} \pmod{\text{reciprocal lattice}}$$.
 ///
 /// For an **anti-unitary** operation $$a = \mathcal{T}\{R|\mathbf{t}\}$$,
 /// time reversal sends $$\mathbf{k} \to -\mathbf{k}$$, so the condition is
-/// $$-R\mathbf{k} \equiv \mathbf{k} \pmod{\text{reciprocal lattice}}$$.
+/// $$-R^{-T}\mathbf{k} \equiv \mathbf{k} \pmod{\text{reciprocal lattice}}$$.
 ///
 /// In terms of integer components with denominator $$k_d$$:
 ///
 /// ```text
-/// unitary:     (R·k - k) ≡ 0  (mod kd)
-/// antiunitary: (-R·k - k) ≡ 0 (mod kd)
+/// unitary:     (R⁻ᵀ·k - k) ∈ reciprocal lattice
+/// antiunitary: (-R⁻ᵀ·k - k) ∈ reciprocal lattice
 /// ```
 ///
-/// Gamma point ($$k_d = 0$$): all operations trivially preserve k.
+/// For centered conventional cells, integer components alone are not
+/// sufficient: the reciprocal shift must also have integer phase against
+/// every pure translation in the unitary translation subgroup.
 pub fn filter_little_group(
     kx: i8, ky: i8, kz: i8, kd: i8,
     ops: &SymmetryOps,
@@ -459,14 +461,58 @@ pub fn filter_little_group(
         return (0..ops.len()).collect();
     }
 
+    let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let pure_translations: Vec<[f64; 3]> = ops
+        .operations
+        .iter()
+        .filter(|op| !op.time_reversal && op.rotation == identity)
+        .map(|op| op.translation)
+        .collect();
+
     (0..ops.len())
-        .filter(|&i| seitz_preserves_k(&ops[i].rotation, ops[i].time_reversal, kx, ky, kz, kd))
+        .filter(|&i| {
+            seitz_preserves_k(
+                &ops[i].rotation,
+                ops[i].time_reversal,
+                &pure_translations,
+                kx,
+                ky,
+                kz,
+                kd,
+            )
+        })
         .collect()
+}
+
+fn inverse_transpose_unimodular(r: &Mat3I) -> Option<Mat3I> {
+    let det = mat_get_determinant_i3(r);
+    if det != 1 && det != -1 {
+        return None;
+    }
+    let cofactors = [
+        [
+            r[1][1] * r[2][2] - r[1][2] * r[2][1],
+            -(r[1][0] * r[2][2] - r[1][2] * r[2][0]),
+            r[1][0] * r[2][1] - r[1][1] * r[2][0],
+        ],
+        [
+            -(r[0][1] * r[2][2] - r[0][2] * r[2][1]),
+            r[0][0] * r[2][2] - r[0][2] * r[2][0],
+            -(r[0][0] * r[2][1] - r[0][1] * r[2][0]),
+        ],
+        [
+            r[0][1] * r[1][2] - r[0][2] * r[1][1],
+            -(r[0][0] * r[1][2] - r[0][2] * r[1][0]),
+            r[0][0] * r[1][1] - r[0][1] * r[1][0],
+        ],
+    ];
+    Some(cofactors.map(|row| row.map(|value| value / det)))
 }
 
 fn seitz_preserves_k(
     r: &Mat3I,
     time_reversal: bool,
+    pure_translations: &[[f64; 3]],
     kx: i8,
     ky: i8,
     kz: i8,
@@ -475,23 +521,31 @@ fn seitz_preserves_k(
     if kd == 0 {
         return true;
     }
+    let Some(reciprocal_rotation) = inverse_transpose_unimodular(r) else {
+        return false;
+    };
     let kd_i = kd as i32;
-    let kx_i = kx as i32;
-    let ky_i = ky as i32;
-    let kz_i = kz as i32;
-    let rx = r[0][0] * kx_i + r[0][1] * ky_i + r[0][2] * kz_i;
-    let ry = r[1][0] * kx_i + r[1][1] * ky_i + r[1][2] * kz_i;
-    let rz = r[2][0] * kx_i + r[2][1] * ky_i + r[2][2] * kz_i;
-
-    if time_reversal {
-        (-rx - kx_i) % kd_i == 0
-            && (-ry - ky_i) % kd_i == 0
-            && (-rz - kz_i) % kd_i == 0
-    } else {
-        (rx - kx_i) % kd_i == 0
-            && (ry - ky_i) % kd_i == 0
-            && (rz - kz_i) % kd_i == 0
+    let k = [kx as i32, ky as i32, kz as i32];
+    let sign = if time_reversal { -1 } else { 1 };
+    let mut reciprocal_shift = [0i32; 3];
+    for i in 0..3 {
+        let transformed = sign
+            * (reciprocal_rotation[i][0] * k[0]
+                + reciprocal_rotation[i][1] * k[1]
+                + reciprocal_rotation[i][2] * k[2]);
+        let delta = transformed - k[i];
+        if delta % kd_i != 0 {
+            return false;
+        }
+        reciprocal_shift[i] = delta / kd_i;
     }
+
+    pure_translations.iter().all(|translation| {
+        let phase = reciprocal_shift[0] as f64 * translation[0]
+            + reciprocal_shift[1] as f64 * translation[1]
+            + reciprocal_shift[2] as f64 * translation[2];
+        (phase - phase.round()).abs() < 1e-8
+    })
 }
 
 // ── Lattice arithmetic helpers ──────────────────────────────────────────────
@@ -2061,11 +2115,26 @@ pub fn wigner_classify_spinor(
         return Some(result);
     }
 
+    let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let pure_translations: Vec<[f64; 3]> = mag_seitz
+        .iter()
+        .filter(|op| !op.timerev && op.rot == identity)
+        .map(|op| op.trans)
+        .collect();
     let anti_lg_indices: Vec<usize> = mag_seitz
         .iter()
         .enumerate()
         .filter(|(_, op)| {
-            op.timerev && seitz_preserves_k(&op.rot, true, kx, ky, kz, kd)
+            op.timerev
+                && seitz_preserves_k(
+                    &op.rot,
+                    true,
+                    &pure_translations,
+                    kx,
+                    ky,
+                    kz,
+                    kd,
+                )
         })
         .map(|(idx, _)| idx)
         .collect();
