@@ -399,7 +399,7 @@ fn get_maximal_subspace_symmetry(
 /// `ignore_time_reversal=false` → XSG (maximal subspace group, only ordinary ops)
 ///
 /// Returns (Spacegroup, Symmetry) pair.
-fn get_space_group_with_magnetic_symmetry(
+pub(crate) fn get_space_group_with_magnetic_symmetry(
     magnetic_symmetry: &MagneticSymmetry,
     ignore_time_reversal: bool,
     symprec: f64,
