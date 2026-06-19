@@ -2274,6 +2274,7 @@ mod tests {
         let mut reciprocal_fp = 0usize;
         let mut reciprocal_fn = 0usize;
         let mut examples = Vec::new();
+        let mut reciprocal_mismatch_examples = Vec::new();
 
         for sg in 1u8..=230 {
             let spin_ops = IrrepRecord::spin_ops_for_sg(sg);
@@ -2332,6 +2333,20 @@ mod tests {
                         reciprocal_set,
                     ));
                 }
+                if reciprocal_mismatch_examples.len() < 20 && reciprocal_set != expected {
+                    reciprocal_mismatch_examples.push(format!(
+                        "SG{} {} k=({},{},{})/{} expected={:?} R^-Tk={:?} extra={:?}",
+                        sg,
+                        ir.ml,
+                        ir.kx,
+                        ir.ky,
+                        ir.kz,
+                        ir.kd,
+                        expected,
+                        reciprocal_set,
+                        reciprocal_set.difference(&expected).collect::<Vec<_>>(),
+                    ));
+                }
             }
         }
 
@@ -2342,6 +2357,10 @@ mod tests {
         println!("  direct_fp/fn:       {direct_fp}/{direct_fn}");
         println!("  reciprocal_fp/fn:   {reciprocal_fp}/{reciprocal_fn}");
         for example in examples {
+            println!("  {example}");
+        }
+        println!("  reciprocal mismatch examples:");
+        for example in reciprocal_mismatch_examples {
             println!("  {example}");
         }
     }
