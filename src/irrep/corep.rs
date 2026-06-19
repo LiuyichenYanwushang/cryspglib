@@ -2266,19 +2266,54 @@ mod tests {
             })
         }
 
+        fn preserves_centered(
+            r: &[[i32; 3]; 3],
+            k: [i32; 3],
+            kd: i32,
+            pure_translations: &[[f64; 3]],
+        ) -> bool {
+            if kd == 0 {
+                return true;
+            }
+            let mut reciprocal_shift = [0i32; 3];
+            for i in 0..3 {
+                let rk: i32 = (0..3).map(|j| r[i][j] * k[j]).sum();
+                let delta = rk - k[i];
+                if delta % kd != 0 {
+                    return false;
+                }
+                reciprocal_shift[i] = delta / kd;
+            }
+            pure_translations.iter().all(|t| {
+                let phase = reciprocal_shift[0] as f64 * t[0]
+                    + reciprocal_shift[1] as f64 * t[1]
+                    + reciprocal_shift[2] as f64 * t[2];
+                (phase - phase.round()).abs() < 1e-8
+            })
+        }
+
         let mut total_irreps = 0usize;
         let mut direct_exact = 0usize;
         let mut reciprocal_exact = 0usize;
+        let mut reciprocal_centered_exact = 0usize;
         let mut direct_fp = 0usize;
         let mut direct_fn = 0usize;
         let mut reciprocal_fp = 0usize;
         let mut reciprocal_fn = 0usize;
+        let mut reciprocal_centered_fp = 0usize;
+        let mut reciprocal_centered_fn = 0usize;
         let mut examples = Vec::new();
         let mut reciprocal_mismatch_examples = Vec::new();
 
         for sg in 1u8..=230 {
             let spin_ops = IrrepRecord::spin_ops_for_sg(sg);
             let spin_seitz = crate::irrep::wigner::build_spin_seitz(spin_ops.0, spin_ops.1);
+            let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+            let pure_translations: Vec<[f64; 3]> = spin_seitz
+                .iter()
+                .filter(|op| op.rot == identity)
+                .map(|op| op.trans)
+                .collect();
             for ir in crate::irrep::query::irreps_of(sg) {
                 if !ir.spinor || ir.spin_lg_op_indices().is_empty() {
                     continue;
@@ -2294,6 +2329,7 @@ mod tests {
                 let kd = ir.kd as i32;
                 let mut direct_set = std::collections::HashSet::new();
                 let mut reciprocal_set = std::collections::HashSet::new();
+                let mut reciprocal_centered_set = std::collections::HashSet::new();
 
                 for op in &spin_seitz {
                     if preserves(&op.rot, k, kd) {
@@ -2303,6 +2339,9 @@ mod tests {
                     if preserves(&rit, k, kd) {
                         reciprocal_set.insert(op.rot);
                     }
+                    if preserves_centered(&rit, k, kd, &pure_translations) {
+                        reciprocal_centered_set.insert(op.rot);
+                    }
                 }
 
                 if direct_set == expected {
@@ -2311,10 +2350,15 @@ mod tests {
                 if reciprocal_set == expected {
                     reciprocal_exact += 1;
                 }
+                if reciprocal_centered_set == expected {
+                    reciprocal_centered_exact += 1;
+                }
                 direct_fp += direct_set.difference(&expected).count();
                 direct_fn += expected.difference(&direct_set).count();
                 reciprocal_fp += reciprocal_set.difference(&expected).count();
                 reciprocal_fn += expected.difference(&reciprocal_set).count();
+                reciprocal_centered_fp += reciprocal_centered_set.difference(&expected).count();
+                reciprocal_centered_fn += expected.difference(&reciprocal_centered_set).count();
 
                 if examples.len() < 20
                     && direct_set != expected
@@ -2354,8 +2398,12 @@ mod tests {
         println!("  total_irreps:       {total_irreps}");
         println!("  direct_exact:       {direct_exact}");
         println!("  reciprocal_exact:   {reciprocal_exact}");
+        println!("  reciprocal_centered_exact: {reciprocal_centered_exact}");
         println!("  direct_fp/fn:       {direct_fp}/{direct_fn}");
         println!("  reciprocal_fp/fn:   {reciprocal_fp}/{reciprocal_fn}");
+        println!(
+            "  reciprocal_centered_fp/fn: {reciprocal_centered_fp}/{reciprocal_centered_fn}"
+        );
         for example in examples {
             println!("  {example}");
         }
