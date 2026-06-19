@@ -3836,7 +3836,10 @@ mod tests {
             // Try each signed-permutation T
             let mut found = false;
             for t in &all_t {
-                let transform = SettingTransform { basis: *t, origin: [0.0; 3] };
+                let transform = SettingTransform {
+                    basis: t.map(|row| row.map(|value| value as f64)),
+                    origin: [0.0; 3],
+                };
                 let transformed: Vec<[[i32; 3]; 3]> = msg_rots.iter()
                     .map(|r| transform.transform_rotation(r))
                     .collect();
@@ -3886,7 +3889,10 @@ mod tests {
             let transform_status =
                 if rotation_multiset_eq(&msg_rots, &hall_rots) { "identity" }
                 else if all_t.iter().any(|t| {
-                    let tr = SettingTransform { basis: *t, origin: [0.0; 3] };
+                    let tr = SettingTransform {
+                        basis: t.map(|row| row.map(|value| value as f64)),
+                        origin: [0.0; 3],
+                    };
                     let xformed: Vec<_> = msg_rots.iter()
                         .map(|r| tr.transform_rotation(r)).collect();
                     rotation_multiset_eq(&xformed, &hall_rots)
@@ -3978,7 +3984,10 @@ fn phase1b_verify_transform_fix() {
         if rotation_multiset_eq(&msg_rots, &hall_rots) { continue; } // identity: no fix needed
 
         let t_found = all_t.iter().find(|t| {
-            let tr = SettingTransform { basis: **t, origin: [0.0; 3] };
+            let tr = SettingTransform {
+                basis: t.map(|row| row.map(|value| value as f64)),
+                origin: [0.0; 3],
+            };
             let xf: Vec<_> = msg_rots.iter().map(|r| tr.transform_rotation(r)).collect();
             rotation_multiset_eq(&xf, &hall_rots)
         });
@@ -3986,7 +3995,10 @@ fn phase1b_verify_transform_fix() {
             Some(t) => *t,
             None => continue,
         };
-        let transform = SettingTransform { basis: t, origin: [0.0; 3] };
+        let transform = SettingTransform {
+            basis: t.map(|row| row.map(|value| value as f64)),
+            origin: [0.0; 3],
+        };
 
         let h_sg = h_info.sg as u8;
         let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
