@@ -1165,10 +1165,12 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         // Hall-frame spin table lookup above.
         let b_spin_idx = g_spin_seitz.iter().position(|s| s.rot == b_rot)
             .or_else(|| {
+                // -R fallback must also use transformed rotation for
+                // consistency with the Hall-frame lookup above.
                 let r: Mat3I = [
-                    [-b.rot[0][0], -b.rot[0][1], -b.rot[0][2]],
-                    [-b.rot[1][0], -b.rot[1][1], -b.rot[1][2]],
-                    [-b.rot[2][0], -b.rot[2][1], -b.rot[2][2]],
+                    [-b_rot[0][0], -b_rot[0][1], -b_rot[0][2]],
+                    [-b_rot[1][0], -b_rot[1][1], -b_rot[1][2]],
+                    [-b_rot[2][0], -b_rot[2][1], -b_rot[2][2]],
                 ];
                 g_spin_seitz.iter().position(|s| s.rot == r)
             })

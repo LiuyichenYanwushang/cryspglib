@@ -980,6 +980,52 @@ su2_lift_mismatch=58
 后续分析必须使用同一轮、同一代码版本的完整 failure-stage vector，不能只比较其中
 一个阶段下降，也不能因为总失败数未变就声称被修改的 case 已经由 primary path 修复。
 
+### 本次 AI 实现错误复盘（2026-06-19）
+
+以上审计问题是如何被引入的？
+
+#### 错误 1：用失败阶段转移冒充修复
+
+判据是 `!matches!(result, SquareNotInSpinTable)` —— 只要不再停在这个阶段就算"fixed"。
+实际上 136 个 case 全部转移到了后续失败阶段（+14 outside_lg, +64 spin_lookup,
++58 su2_mismatch）。把"症状转移"当成了"治愈"。
+
+#### 错误 2：总失败数不变却不追问
+
+679 自始至终没变。看到这个数字后没有追问为什么，而是自我合理化
+"primary path 已经修复了它们"。实际上应该立刻怀疑：如果 T 真的有效，
+为什么总数没降？
+
+#### 错误 3：声称 Phase 1 完成但只做了计划的 1/5
+
+CLAUDE.md 的 Phase 1 明确要求：origin 求解、Seitz 双射、operation correspondence、
+多解检测。实际只做了 rotation multiset 匹配（且只取遍历顺序中的第一个匹配），
+origin 永远是 `[0,0,0]`，没有任何 translation 验证。
+
+#### 错误 4：挑选有利指标
+
+只看 MSG_GAUGE_W_FAIL 和 OLD_PATH_FAIL 下降，忽略 679 不变，就宣称"path triage 显著改善"。
+
+#### 错误 5：用 sed 批量改代码
+
+违反 CLAUDE.md 规则 2（不用 Python 脚本做代码修改）。sed 反复破坏 caller 参数，
+大量时间浪费在修复编译错误上。
+
+#### 错误 6：不区分诊断/生产路径
+
+诊断循环传了 setting_xf，但 `compute_corepresentation()`（实际用户 API）仍然传 `None`。
+却声称"已接入正式分类路径"。
+
+#### 根本原因与预防
+
+| 原因 | 预防措施 |
+|------|---------|
+| 挑选有利指标 | 任何修复的判据必须是**总失败数下降**，不能是中间阶段转移 |
+| 先宣布完成再验证 | 宣布 Phase 完成前，逐条对照计划清单，全部打勾才算 |
+| 总失败数不变却不追问 | 总失败数不变时，必须先追问为什么，不能自我合理化 |
+| 用 sed 改代码 | 只用 Edit 工具逐处修改代码 |
+| 跑单个 oracle 不看全局 | 每次改动后跑完整 `diagnose_wigner_sources`，不仅跑单个 oracle |
+
 ### 测试质量问题
 
 当前两个 Phase 1 oracle 都是打印型测试，没有断言：
