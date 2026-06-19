@@ -2515,6 +2515,89 @@ mod tests {
     /// the two plausible conventions:
     ///
     /// - direct multiplication: `R k ≡ k`
+    /// Trace antiunitary_spin_lookup failures: for each failing SG, show b.rot
+    /// vs G spin table rotations to understand why the lookup fails.
+    #[test]
+    fn diagnose_antiunitary_spin_lookup() {
+        use crate::irrep::wigner;
+        use crate::irrep::types::IrrepRecord;
+
+        let mut shown = std::collections::HashSet::new();
+        'outer: for uni in 1..=1651 {
+            let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
+            let h_info = match identify_unitary_subgroup_with_hall(uni) {
+                Some(i) => i, None => continue,
+            };
+            let h_sg = h_info.sg as u8;
+            // Extract rotations/translations BEFORE moving ops_from_msg
+            let msg_rots: Vec<_> = h_info.ops_from_msg.iter().map(|o| o.rotation).collect();
+            let msg_trans: Vec<_> = h_info.ops_from_msg.iter().map(|o| o.translation).collect();
+            let hall_rots: Vec<_> = h_info.ops_from_hall.iter().map(|o| o.rotation).collect();
+            let hall_trans: Vec<_> = h_info.ops_from_hall.iter().map(|o| o.translation).collect();
+            let setting_xfs = wigner::find_setting_transform(&msg_rots, &msg_trans, &hall_rots, &hall_trans);
+            let setting_xf = setting_xfs.first();
+
+            let h_ops = h_info.ops_from_msg;
+            let h_seitz = wigner::ops_to_seitz(&h_ops);
+            let mag_seitz = wigner::ops_to_seitz(&mag_ops);
+
+            for ir in crate::irrep::query::irreps_of(h_sg) {
+                if !ir.spinor { continue; }
+                let mag_lg = wigner::filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+                let antiunitary: Vec<usize> = mag_lg.iter()
+                    .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
+                if antiunitary.is_empty() { continue; }
+
+                let h_spin = ir.spin_ops();
+                if h_spin.0.is_empty() { continue; }
+                let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
+                let g_spin = if g_sg == h_sg { h_spin }
+                    else { IrrepRecord::spin_ops_for_sg(g_sg) };
+                let ctx = wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
+
+                let diag = wigner::wigner_classify_spinor_direct_anti_diagnostic(
+                    &ctx, ir.characters(), ir.spin_character_imag(),
+                    ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
+                    setting_xf, ir.kx, ir.ky, ir.kz, ir.kd,
+                );
+
+                if !matches!(diag, Err(wigner::DirectAntiFailure::AntiunitarySpinLookup)) {
+                    continue;
+                }
+                if !shown.insert(h_sg) { continue; }
+
+                let (g_spin_rots, _g_spin_trans, _g_spin_su2) = ctx.g;
+                let g_spin_seitz = wigner::build_spin_seitz(g_spin_rots, _g_spin_trans);
+
+                println!("\n=== UNI{} SG{} irrep {} k=({},{},{})/{} g_sg={} ===",
+                    uni, h_sg, ir.ml, ir.kx, ir.ky, ir.kz, ir.kd, g_sg);
+                println!("  G spin rotations:");
+                for (si, s) in g_spin_seitz.iter().enumerate() {
+                    println!("    [{}] rot={:?}", si, s.rot);
+                }
+                println!("  Antiunitary ops:");
+                for &b_idx in &antiunitary {
+                    let b = &mag_seitz[b_idx];
+                    let (b_rot, _b_trans) = if let Some(xf) = setting_xf {
+                        (xf.transform_rotation(&b.rot), xf.transform_translation(&b.rot, &b.trans))
+                    } else {
+                        (b.rot, b.trans)
+                    };
+                    let in_g = g_spin_seitz.iter().position(|s| s.rot == b_rot);
+                    let neg_rot: crate::mathfunc::Mat3I = [
+                        [-b_rot[0][0], -b_rot[0][1], -b_rot[0][2]],
+                        [-b_rot[1][0], -b_rot[1][1], -b_rot[1][2]],
+                        [-b_rot[2][0], -b_rot[2][1], -b_rot[2][2]],
+                    ];
+                    let neg_in_g = g_spin_seitz.iter().position(|s| s.rot == neg_rot);
+                    println!("    b[{}] rot={:?} → xf_rot={:?} inG={:?} -R_inG={:?}",
+                        b_idx, b.rot, b_rot, in_g, neg_in_g);
+                }
+                if shown.len() >= 3 { break 'outer; }
+            }
+        }
+    }
+
     /// - reciprocal action: `R^{-T} k ≡ k`
     ///
     /// This is diagnostic only and does not alter classification.

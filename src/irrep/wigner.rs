@@ -1467,18 +1467,21 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
 
         // SU(2) lift of b (rotation-only lookup in G spin ops — b may have
         // improper rotation from G \ H for Type III).
-        // Use b_rot (after setting transform) for consistency with the
-        // Hall-frame spin table lookup above.
-        let b_spin_idx = g_spin_seitz.iter().position(|s| s.rot == b_rot)
+        //
+        // IMPORTANT: G spin table is in the PARENT G's coordinate frame.
+        // The MSG embedding is also in G's frame (MSG ops come from
+        // msgdb_get_spacegroup_operations with parent's Hall number).
+        // Therefore G lookup must use the UNTRANSFORMED b.rot, NOT the
+        // H-Hall-transformed b_rot.  The setting transform maps MSG→H,
+        // but G spin is not in H's frame.
+        let b_spin_idx = g_spin_seitz.iter().position(|s| s.rot == b.rot)
             .or_else(|| {
-                // -R fallback must also use transformed rotation for
-                // consistency with the Hall-frame lookup above.
-                let r: Mat3I = [
-                    [-b_rot[0][0], -b_rot[0][1], -b_rot[0][2]],
-                    [-b_rot[1][0], -b_rot[1][1], -b_rot[1][2]],
-                    [-b_rot[2][0], -b_rot[2][1], -b_rot[2][2]],
+                let neg: Mat3I = [
+                    [-b.rot[0][0], -b.rot[0][1], -b.rot[0][2]],
+                    [-b.rot[1][0], -b.rot[1][1], -b.rot[1][2]],
+                    [-b.rot[2][0], -b.rot[2][1], -b.rot[2][2]],
                 ];
-                g_spin_seitz.iter().position(|s| s.rot == r)
+                g_spin_seitz.iter().position(|s| s.rot == neg)
             })
             .ok_or(DirectAntiFailure::AntiunitarySpinLookup)?;
         let u_b = spin_su2_at(g_spin_su2, b_spin_idx)
