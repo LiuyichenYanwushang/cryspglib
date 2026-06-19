@@ -2309,10 +2309,12 @@ mod tests {
             let spin_ops = IrrepRecord::spin_ops_for_sg(sg);
             let spin_seitz = crate::irrep::wigner::build_spin_seitz(spin_ops.0, spin_ops.1);
             let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-            let pure_translations: Vec<[f64; 3]> = spin_seitz
+            let parent_ops = get_parent_operations(sg);
+            let pure_translations: Vec<[f64; 3]> = parent_ops
+                .operations
                 .iter()
-                .filter(|op| op.rot == identity)
-                .map(|op| op.trans)
+                .filter(|op| op.rotation == identity)
+                .map(|op| op.translation)
                 .collect();
             for ir in crate::irrep::query::irreps_of(sg) {
                 if !ir.spinor || ir.spin_lg_op_indices().is_empty() {
