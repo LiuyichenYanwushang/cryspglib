@@ -457,23 +457,50 @@ pub fn filter_little_group(
     kx: i8, ky: i8, kz: i8, kd: i8,
     ops: &SymmetryOps,
 ) -> Vec<usize> {
+    filter_little_group_with_transform(kx, ky, kz, kd, ops, None)
+}
+
+/// Filter operations after mapping them into the canonical Hall setting in
+/// which the supplied k-vector is expressed.
+pub fn filter_little_group_with_transform(
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
+    ops: &SymmetryOps,
+    setting_xf: Option<&SettingTransform>,
+) -> Vec<usize> {
     if kd == 0 {
         return (0..ops.len()).collect();
     }
 
     let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-    let pure_translations: Vec<[f64; 3]> = ops
+    let transformed: Vec<(Mat3I, [f64; 3], bool)> = ops
         .operations
         .iter()
-        .filter(|op| !op.time_reversal && op.rotation == identity)
-        .map(|op| op.translation)
+        .map(|op| {
+            if let Some(xf) = setting_xf {
+                (
+                    xf.transform_rotation(&op.rotation),
+                    xf.transform_translation(&op.rotation, &op.translation),
+                    op.time_reversal,
+                )
+            } else {
+                (op.rotation, op.translation, op.time_reversal)
+            }
+        })
+        .collect();
+    let pure_translations: Vec<[f64; 3]> = transformed
+        .iter()
+        .filter(|(rotation, _, time_reversal)| !time_reversal && *rotation == identity)
+        .map(|(_, translation, _)| *translation)
         .collect();
 
     (0..ops.len())
         .filter(|&i| {
             seitz_preserves_k(
-                &ops[i].rotation,
-                ops[i].time_reversal,
+                &transformed[i].0,
+                transformed[i].2,
                 &pure_translations,
                 kx,
                 ky,
