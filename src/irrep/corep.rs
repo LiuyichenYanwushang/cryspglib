@@ -2075,6 +2075,15 @@ mod tests {
         println!("  H2S_OK:         {}", H2S_OK.load(Ordering::Relaxed));
         println!("  H2S_AMBIGUOUS:  {}  (same rot, multiple spin entries)", H2S_AMBIGUOUS.load(Ordering::Relaxed));
         println!("  H2S_MISSING:    {}  (rotation not in spin table)", H2S_MISSING.load(Ordering::Relaxed));
+        let (xf_called, xf_found, xf_identity, xf_non_id, xf_nz_origin, xf_ambig) =
+            crate::irrep::wigner::read_xf_counters();
+        println!("\n=== find_setting_transform diagnostics ===");
+        println!("  XF_CALLED:        {}", xf_called);
+        println!("  XF_FOUND:         {}", xf_found);
+        println!("  XF_IDENTITY:      {}", xf_identity);
+        println!("  XF_NON_IDENTITY:  {}", xf_non_id);
+        println!("  XF_NONZERO_ORIGIN: {}", xf_nz_origin);
+        println!("  XF_AMBIGUOUS:     {}", xf_ambig);
     }
 
     /// Regression: SG3 A3 spinor Wigner test under grey group (a₀ = Θ).

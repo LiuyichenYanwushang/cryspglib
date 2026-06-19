@@ -41,6 +41,32 @@ use super::corep::CorepType;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+// ── Diagnostic counters for setting-transform origin solving ─────────────────
+
+/// find_setting_transform was called
+static XF_CALLED: AtomicUsize = AtomicUsize::new(0);
+/// At least one valid (T,s) was found
+static XF_FOUND: AtomicUsize = AtomicUsize::new(0);
+/// Identity basis (T=I) worked
+static XF_IDENTITY: AtomicUsize = AtomicUsize::new(0);
+/// Non-identity basis (T≠I) worked
+static XF_NON_IDENTITY: AtomicUsize = AtomicUsize::new(0);
+/// Origin s is non-zero (|s| > 1e-8)
+static XF_NONZERO_ORIGIN: AtomicUsize = AtomicUsize::new(0);
+/// Multiple valid transforms found (ambiguous)
+static XF_AMBIGUOUS: AtomicUsize = AtomicUsize::new(0);
+
+pub fn read_xf_counters() -> (usize, usize, usize, usize, usize, usize) {
+    (
+        XF_CALLED.load(Ordering::Relaxed),
+        XF_FOUND.load(Ordering::Relaxed),
+        XF_IDENTITY.load(Ordering::Relaxed),
+        XF_NON_IDENTITY.load(Ordering::Relaxed),
+        XF_NONZERO_ORIGIN.load(Ordering::Relaxed),
+        XF_AMBIGUOUS.load(Ordering::Relaxed),
+    )
+}
+
 /// u_sq ≈ u_k  (same lift, no central element)
 static SU2_REL_SAME: AtomicUsize = AtomicUsize::new(0);
 /// u_sq ≈ -u_k (differs by Ebar = [-1,0,0,0])
@@ -877,6 +903,7 @@ pub fn find_setting_transform(
     hall_rots: &[[[i32; 3]; 3]],
     hall_trans: &[[f64; 3]],
 ) -> Vec<SettingTransform> {
+    XF_CALLED.fetch_add(1, Ordering::Relaxed);
     let mut results = Vec::new();
 
     // Try identity basis first.
@@ -885,6 +912,10 @@ pub fn find_setting_transform(
             &[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
             msg_rots, msg_trans, hall_rots, hall_trans,
         ) {
+            XF_FOUND.fetch_add(1, Ordering::Relaxed);
+            XF_IDENTITY.fetch_add(1, Ordering::Relaxed);
+            let origin_nz = s[0].abs() > 1e-8 || s[1].abs() > 1e-8 || s[2].abs() > 1e-8;
+            if origin_nz { XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed); }
             results.push(SettingTransform {
                 basis: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
                 origin: s,
@@ -893,6 +924,8 @@ pub fn find_setting_transform(
         }
         // Identity basis matches rotations but origin can't be solved —
         // still return identity as a fallback (it's the best we have).
+        XF_FOUND.fetch_add(1, Ordering::Relaxed);
+        XF_IDENTITY.fetch_add(1, Ordering::Relaxed);
         results.push(SettingTransform::identity());
         return results;
     }
@@ -909,8 +942,17 @@ pub fn find_setting_transform(
             continue;
         }
         if let Some(s) = solve_origin_for_t(t, msg_rots, msg_trans, hall_rots, hall_trans) {
+            XF_NON_IDENTITY.fetch_add(1, Ordering::Relaxed);
+            let origin_nz = s[0].abs() > 1e-8 || s[1].abs() > 1e-8 || s[2].abs() > 1e-8;
+            if origin_nz { XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed); }
             results.push(SettingTransform { basis: *t, origin: s });
         }
+    }
+    if !results.is_empty() {
+        XF_FOUND.fetch_add(1, Ordering::Relaxed);
+    }
+    if results.len() > 1 {
+        XF_AMBIGUOUS.fetch_add(1, Ordering::Relaxed);
     }
     results
 }
