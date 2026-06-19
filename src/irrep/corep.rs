@@ -2269,6 +2269,90 @@ mod tests {
         }
     }
 
+    #[test]
+    fn diagnose_spglib_standard_setting_transform() {
+        fn transformed_unique(
+            ops: &SymmetryOps,
+            transform: &wigner::SettingTransform,
+        ) -> Vec<wigner::SeitzOp> {
+            let mut result = Vec::new();
+            for op in ops.operations.iter().filter(|op| !op.time_reversal) {
+                let transformed = wigner::SeitzOp::new(
+                    transform.transform_rotation(&op.rotation),
+                    transform.transform_translation(&op.rotation, &op.translation),
+                    false,
+                );
+                if wigner::find_seitz(&transformed.rot, &transformed.trans, &result).is_none() {
+                    result.push(transformed);
+                }
+            }
+            result
+        }
+
+        fn same_group(a: &[wigner::SeitzOp], b: &[wigner::SeitzOp]) -> bool {
+            a.len() == b.len()
+                && a.iter()
+                    .all(|op| wigner::find_seitz(&op.rot, &op.trans, b).is_some())
+                && b.iter()
+                    .all(|op| wigner::find_seitz(&op.rot, &op.trans, a).is_some())
+        }
+
+        let mut total = 0usize;
+        let mut found = 0usize;
+        let mut sg_match = 0usize;
+        let mut detected_hall_exact = 0usize;
+        let mut data_hall_exact = 0usize;
+        let mut examples = Vec::new();
+
+        for uni in 1..=1651 {
+            let Some(mag_ops) = get_magnetic_operations(uni) else {
+                continue;
+            };
+            let Some(expected_sg) = identify_unitary_subgroup(uni) else {
+                continue;
+            };
+            total += 1;
+            let Some((sg, hall, transform)) =
+                standard_setting_transform(&mag_ops, false)
+            else {
+                continue;
+            };
+            found += 1;
+            if sg == expected_sg {
+                sg_match += 1;
+            }
+            let transformed = transformed_unique(&mag_ops, &transform);
+            let detected_target = get_parent_operations_by_hall(hall)
+                .map(|ops| wigner::ops_to_seitz(&ops))
+                .unwrap_or_default();
+            if same_group(&transformed, &detected_target) {
+                detected_hall_exact += 1;
+            } else if examples.len() < 10 {
+                examples.push(format!(
+                    "UNI{uni} SG{sg} hall={hall} transformed={} target={}",
+                    transformed.len(),
+                    detected_target.len(),
+                ));
+            }
+            let data_target = wigner::ops_to_seitz(
+                &crate::irrep::bridge::canonical_hall_ops(sg as u8),
+            );
+            if same_group(&transformed, &data_target) {
+                data_hall_exact += 1;
+            }
+        }
+
+        println!("\n=== spglib standard setting transform ===");
+        println!("  total:               {total}");
+        println!("  found:               {found}");
+        println!("  sg_match:            {sg_match}");
+        println!("  detected_hall_exact: {detected_hall_exact}");
+        println!("  data_hall_exact:     {data_hall_exact}");
+        for example in examples {
+            println!("  {example}");
+        }
+    }
+
     /// Oracle for the reciprocal-space action used by `spin_lg_op_indices`.
     ///
     /// Compares the generated canonical spin little-group membership against
