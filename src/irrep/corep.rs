@@ -1890,8 +1890,29 @@ mod tests {
             let msg_trans: Vec<[f64; 3]> = h_info.ops_from_msg.iter().map(|o| o.translation).collect();
             let hall_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_hall.iter().map(|o| o.rotation).collect();
             let hall_trans: Vec<[f64; 3]> = h_info.ops_from_hall.iter().map(|o| o.translation).collect();
+            // First try find_setting_transform (48 signed-permutation matrices + origin solving).
+            // If that fails, try spglib's own standard setting (supports rational bases).
+            let mut setting_xf_owned = None;
             let setting_xfs = crate::irrep::wigner::find_setting_transform(&msg_rots, &msg_trans, &hall_rots, &hall_trans);
-            let setting_xf = setting_xfs.first();
+            if let Some(xf) = setting_xfs.first() {
+                setting_xf_owned = Some((*xf).clone());
+            } else {
+                // Fall back to spglib standard setting.
+                let mut unitary_ops_list: Vec<crate::mathfunc::Mat3I> = Vec::new();
+                let mut unitary_trans_list: Vec<[f64; 3]> = Vec::new();
+                for op in &h_info.ops_from_msg.operations {
+                    if !op.time_reversal {
+                        unitary_ops_list.push(op.rotation);
+                        unitary_trans_list.push(op.translation);
+                    }
+                }
+                let all_false = vec![false; unitary_ops_list.len()];
+                let u_ops = crate::SymmetryOps::from_parallel(&unitary_ops_list, &unitary_trans_list, &all_false);
+                if let Some((_std_sg, _std_hall, xf)) = standard_setting_transform(&u_ops, false) {
+                    setting_xf_owned = Some(xf);
+                }
+            }
+            let setting_xf = setting_xf_owned.as_ref();
             let h_ops = h_info.ops_from_msg;
             let h_seitz = crate::irrep::wigner::ops_to_seitz(&h_ops);
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
@@ -1964,8 +1985,22 @@ mod tests {
             let msg_trans: Vec<[f64; 3]> = h_info.ops_from_msg.iter().map(|o| o.translation).collect();
             let hall_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_hall.iter().map(|o| o.rotation).collect();
             let hall_trans: Vec<[f64; 3]> = h_info.ops_from_hall.iter().map(|o| o.translation).collect();
+            let mut setting_xf_owned = None;
             let setting_xfs = crate::irrep::wigner::find_setting_transform(&msg_rots, &msg_trans, &hall_rots, &hall_trans);
-            let setting_xf = setting_xfs.first();
+            if let Some(xf) = setting_xfs.first() {
+                setting_xf_owned = Some((*xf).clone());
+            } else {
+                let mut u_rots: Vec<crate::mathfunc::Mat3I> = Vec::new();
+                let mut u_trans: Vec<[f64; 3]> = Vec::new();
+                for op in &h_info.ops_from_msg.operations {
+                    if !op.time_reversal { u_rots.push(op.rotation); u_trans.push(op.translation); }
+                }
+                let u_ops = crate::SymmetryOps::from_parallel(&u_rots, &u_trans, &vec![false; u_rots.len()]);
+                if let Some((_sg, _hall, xf)) = standard_setting_transform(&u_ops, false) {
+                    setting_xf_owned = Some(xf);
+                }
+            }
+            let setting_xf = setting_xf_owned.as_ref();
             let h_ops = h_info.ops_from_msg;
             let h_seitz = crate::irrep::wigner::ops_to_seitz(&h_ops);
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
