@@ -1510,3 +1510,187 @@ cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
 cargo test --package cryspglib diagnose_679_failures_by_category -- --nocapture
 cargo test --package cryspglib
 ```
+
+## Spinor Wigner 交接记录（2026-06-19，DeepSeek 从这里继续）
+
+> 本节覆盖前面“679 是当前基线”“Phase 1 完成”等旧结论。不要沿用旧分母或旧失败分类。
+> 当前代码停在提交 `d88d281`，工作树干净。
+
+### 已确认并修复的两个根因
+
+#### 1. spin.dat 三分之一/六分之一 k 点被错误生成成 Gamma
+
+`scripts/parse_spinor_data.py` 原先用 `1e-6` 判断十进制坐标能否化成
+`1/3`、`1/6`。源文件使用 `0.333333`，乘 3 后的误差可能略大于
+`1e-6`，导致 H/K 等 k 点最终回退为 `(0,0,0)/1`。
+
+已完成：
+
+- 新增 `_rationalize_kvector()`，容差按源数据精度改为 `5e-6`；
+- 无法落入支持分母 `{1,2,3,4,6}` 时直接报错，不再静默回退 Gamma；
+- 重新生成 `src/irrep/generated_data.rs`；
+- 234 个 spinor irrep 的错误 k 数据被纠正。
+
+相关提交：
+
+- `0186394 fix spinor third-coordinate rationalization`
+- `05a7a4c regenerate corrected spinor k vectors`
+
+#### 2. little-group 判定使用了错误的倒空间作用
+
+原实现检查 `R k`。分数坐标下的倒空间作用应为 `R^{-T} k`。
+中心化常规胞还不能只检查分量是否为整数：得到的 reciprocal shift
+必须对所有 unitary pure translations 给出整数相位。
+
+正确条件已经接入 `filter_little_group`：
+
+```text
+unitary:     R^{-T} k - k ∈ L*
+antiunitary: -R^{-T} k - k ∈ L*
+```
+
+验证 oracle 覆盖全部 3611 个 spinor irreps：
+
+```text
+reciprocal_centered_exact = 3611
+reciprocal_centered_fp/fn = 0/0
+```
+
+相关提交：
+
+- `60dfb99 fix reciprocal little-group filtering`
+- `982fcaf support setting-aware little-group filtering`
+
+### 当前有效基线
+
+最新成功运行的命令：
+
+```bash
+cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
+```
+
+结果：
+
+```text
+spinor_complex_ok   = 20,463
+spinor_complex_fail =    347
+```
+
+此前的 `21,389` 分母无效：其中一部分 case 来自错误 k 数据和错误
+little-group membership。修正后当前诊断实际进入 complex-spinor Wigner
+分类的 case 数是 `20,810`。
+
+347 个最终失败：
+
+| 阶段 | 数量 |
+|---|---:|
+| `non_quantized` | 180 |
+| `square_not_in_spin_table` | 89 |
+| `antiunitary_spin_lookup` | 72 |
+| `square_outside_little_group` | 6 |
+
+按旧 `find_setting_transform` 是否返回结果拆分：
+
+```text
+antiunitary_spin_lookup   xf_found=true   72
+non_quantized             xf_found=true  180
+square_not_in_spin_table  xf_found=false  89
+square_outside_little_group xf_found=false 6
+```
+
+因此“485 个是 k convention、122 个是 setting、72 个单独 lookup”的旧分类已经作废。
+
+### 尚未修复：不要误认为已经接入生产
+
+1. `compute_corepresentation()` 的 spinor 路径仍向
+   `wigner_classify_spinor()` 传 `setting_xf=None`。
+2. `find_setting_transform()` 仍不可信：
+   - rotation 使用 greedy pairing；
+   - modulo-1 方程被当普通实数 Gaussian elimination；
+   - identity basis 求解失败时仍返回 identity，并计入 `XF_FOUND`；
+   - ambiguous transform 仍直接取 `.first()`。
+3. `SettingTransform.basis` 已泛化为 `f64 Mat3`，但这是为 rational
+   basis 诊断准备的基础设施，不代表 setting 问题已经解决。
+4. `standard_setting_transform()` 和
+   `get_space_group_with_magnetic_symmetry()` 当前只用于诊断，没有进入生产分类。
+5. direct anti-coset 路径仍可能遍历同一 little co-group rotation 的多个
+   Seitz/中心化平移变体；`non_quantized=180` 不能直接解释为物理结果。
+
+### 当前最高优先级线索：磁群操作入口可能选错 Hall setting
+
+这是停止前刚发现的线索，**尚未完成验证，禁止直接当最终结论**。
+
+当前 `get_magnetic_operations()`：
+
+1. 用 `get_first_hall_for_uni()` 扫描 `msgdb_get_uni_candidates(hall)`；
+2. 将找到的 Hall 传给 `msgdb_get_spacegroup_operations(uni, hall)`。
+
+但 `msgdb_get_spacegroup_operations()` 自身明确支持 `hall=0`，
+表示该 UNI 映射表中的第一个合法 Hall offset。当前扫描逻辑是否等价尚未证明。
+
+异常证据：
+
+```text
+UNI187 被 identify_unitary_subgroup() 识别为 SG1，
+但 get_magnetic_operations(187) 的 unitary 操作包含：
+  I
+  mirror_y with t=(1/2,0,0)
+```
+
+这不可能是 SG1 的闭合 unitary subgroup。说明至少有一处出错：
+
+- Hall 选择错误；
+- `timerev` 语义/提取错误；
+- UNI→operation table offset 错误；
+- 或 subgroup identification 使用了错误操作集。
+
+DeepSeek 的第一步应是：
+
+1. 对 UNI187、UNI270/271、UNI663 比较：
+   - 当前 `get_first_hall_for_uni()` 返回的 Hall；
+   - `msgdb_get_spacegroup_operations(uni, 0)`；
+   - UNI mapping 表中的 `first_hall`；
+   - unitary 操作是否闭合；
+   - 识别出的 H/G 是否与 BNS/UNI 元数据一致。
+2. 在这个入口问题确认前，不要继续调整 Wigner phase、SU(2) lift 或 setting solver。
+
+### spglib standard-setting 诊断现状
+
+新增测试：
+
+```bash
+cargo test --package cryspglib diagnose_spglib_standard_setting_transform -- --nocapture
+```
+
+当前结果：
+
+```text
+total               = 1644
+found               = 1644
+sg_match            = 1644
+detected_hall_exact = 1450
+data_hall_exact     = 1450
+```
+
+194 个不 exact 的 case 很可能不是 affine transform 本身失败，而是输入的
+“unitary”操作已经异常。UNI187 是明确例子。因此不要先修这 194 个 transform。
+
+### 测试状态
+
+- `cargo check --package cryspglib`：通过（现有 warnings 未清理）。
+- `diagnose_spin_lg_k_convention`：通过，3611/3611。
+- `diagnose_wigner_sources`：通过，当前失败 347。
+- `diagnose_spglib_standard_setting_transform`：通过，输出上述 1450/1644。
+- `cargo test --package cryspglib --no-run`：当前仍失败，因为
+  `examples/sg159_lpoint.rs` 调用 `wigner_classify_spinor()` 时缺少新增的
+  `Option<&SettingTransform>` 参数。此问题尚未修。
+
+### 建议接手顺序
+
+1. 验证并修正 UNI→Hall→磁群操作入口，加入 unitary subgroup closure 回归测试。
+2. 重新运行 Wigner 基线；旧的 347 数量可能再次变化。
+3. 分别求 H 与 parent G 的标准 setting，禁止把 H transform 用于 G spin table。
+4. 用修正后的 setting 重新检查 72 个 `antiunitary_spin_lookup`。
+5. 对剩余 `non_quantized` 检查 anti-coset 是否按 little co-group 去重，并逐 term
+   验证 Bloch phase 和 SU(2) central sign。
+6. 只有 `spinor_complex_fail=0` 且全量测试通过后，才能声明 100%。
