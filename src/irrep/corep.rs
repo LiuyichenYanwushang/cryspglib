@@ -409,12 +409,8 @@ pub fn get_magnetic_operations(uni_number: usize) -> Option<SymmetryOps> {
 
 fn get_first_hall_for_uni(uni: usize) -> Option<usize> {
     if uni == 0 || uni > 1651 { return None; }
-    for hall in 1..=530 {
-        if let Some([lo, hi]) = crate::msg_database::msgdb_get_uni_candidates(hall) {
-            if uni >= lo && uni <= hi { return Some(hall); }
-        }
-    }
-    None
+    let first_hall = crate::msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1];
+    if first_hall > 0 { Some(first_hall as usize) } else { None }
 }
 
 /// Get the symmetry operations (rotation + translation) for a space group.
@@ -519,6 +515,18 @@ pub fn select_spinor_a0(antiunitary: &[usize], mag_seitz: &[crate::irrep::wigner
 /// first-Hall setting which may differ in origin/basis.
 pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitarySubgroupInfo> {
     let mag_ops = get_magnetic_operations(uni_number)?;
+    let msg_type = crate::MagneticSpaceGroupType::from_uni(uni_number);
+
+    // For Type I (Ordinary) and Type II (Grey), H = G = parent SG.
+    // Use the parent SG directly — no spglib classification needed.
+    let sg_from_metadata = match msg_type.type_ {
+        crate::MagneticType::Ordinary | crate::MagneticType::Grey => {
+            Some(msg_type.number as u8)
+        }
+        crate::MagneticType::BlackWhite | crate::MagneticType::AntiTranslation
+        | crate::MagneticType::NonMagnetic => None,
+    };
+
     let mut unitary_rots: Vec<Mat3I> = Vec::new();
     let mut unitary_trans: Vec<[f64; 3]> = Vec::new();
     for i in 0..mag_ops.len() {
@@ -528,16 +536,40 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
         }
     }
     if unitary_rots.is_empty() { return None; }
-    #[allow(deprecated)]
-    let hall = crate::spg_get_hall_number_from_symmetry(&unitary_rots, &unitary_trans, 1e-5).ok()?;
-    if hall == 0 || hall > 530 { return None; }
-    let sg_type = spgdb_get_spacegroup_type(hall);
-    let ops_from_hall = get_parent_operations_by_hall(hall)?;
+
     let n = unitary_rots.len();
     let timerev_from_msg = vec![false; n];
     let ops_from_msg = SymmetryOps::from_parallel(&unitary_rots, &unitary_trans, &timerev_from_msg);
+
+    let (sg, hall, ops_from_hall) = if let Some(s) = sg_from_metadata {
+        // Type I/II: use metadata SG directly.
+        let h = crate::api::find_hall_number(s).ok()?;
+        let oh = get_parent_operations_by_hall(h)?;
+        (s as usize, h, oh)
+    } else {
+        // Type III: try standard_setting_transform first, then fall back.
+        let unitary_ops = SymmetryOps::from_parallel(
+            &unitary_rots, &unitary_trans,
+            &vec![false; unitary_rots.len()],
+        );
+        if let Some((std_sg, std_hall, _xf)) = standard_setting_transform(&unitary_ops, false) {
+            let oh = get_parent_operations_by_hall(std_hall)
+                .or_else(|| get_parent_operations_by_hall(
+                    crate::api::find_hall_number(std_sg as u8).ok()?,
+                ))?;
+            (std_sg, std_hall, oh)
+        } else {
+            #[allow(deprecated)]
+            let h = crate::spg_get_hall_number_from_symmetry(&unitary_rots, &unitary_trans, 1e-5).ok()?;
+            if h == 0 || h > 530 { return None; }
+            let sg_type = spgdb_get_spacegroup_type(h);
+            let oh = get_parent_operations_by_hall(h)?;
+            (sg_type.number, h, oh)
+        }
+    };
+
     Some(UnitarySubgroupInfo {
-        sg: sg_type.number,
+        sg,
         hall,
         ops_from_msg,
         ops_from_hall,
@@ -2442,6 +2474,37 @@ mod tests {
                     println!("  msgdb(uni,0): {} ops ({}U)  msgdb(uni,{}): {} ops ({}U)  same_size={}",
                         sym0.size, h0_u, h, symh.size, hh_u, same_size);
                 }
+            }
+
+            // Check what standard_setting_transform gives for the unitary ops
+            let u_rots: Vec<crate::mathfunc::Mat3I> = mag_ops.operations.iter()
+                .filter(|o| !o.time_reversal)
+                .map(|o| o.rotation)
+                .collect();
+            let u_trans: Vec<[f64; 3]> = mag_ops.operations.iter()
+                .filter(|o| !o.time_reversal)
+                .map(|o| o.translation)
+                .collect();
+            let unitary_ops = SymmetryOps::from_parallel(
+                &u_rots,
+                &u_trans,
+                &vec![false; u_rots.len()],
+            );
+            if let Some((std_sg, std_hall, xf)) = standard_setting_transform(&unitary_ops, false) {
+                println!("  standard_setting: SG{} Hall{} basis={:?} origin=({:.3},{:.3},{:.3})",
+                    std_sg, std_hall, xf.basis, xf.origin[0], xf.origin[1], xf.origin[2]);
+                // Verify: apply transform to unitary ops, they should be in standard Hall
+                let xf_rots: Vec<_> = unitary_rots.iter()
+                    .map(|r| xf.transform_rotation(r))
+                    .collect();
+                let hall_ops = get_parent_operations_by_hall(std_hall);
+                if let Some(hop) = &hall_ops {
+                    let hall_rots: Vec<_> = hop.operations.iter().map(|o| o.rotation).collect();
+                    let match_count = xf_rots.iter().filter(|r| hall_rots.contains(r)).count();
+                    println!("  xf_rots in hall_ops: {}/{}", match_count, xf_rots.len());
+                }
+            } else {
+                println!("  standard_setting_transform: None");
             }
         }
     }
