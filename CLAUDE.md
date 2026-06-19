@@ -1133,13 +1133,15 @@ spinor irrep × UNI 对**。这和历史上去重后的 8,064 个 unique spinor 
 | `spinor_complex_fail` | **679** | **3.175%** |
 | 合计 | 21,389 | 100% |
 
-当前仍未达到 100%。剩余 679 个失败按 direct anti-coset 最终阶段分类：
+当前仍未达到 100%。剩余 679 个失败按 direct anti-coset 最终阶段分类
+（`diagnose_wigner_sources`，2026-06-19 最新）：
 
-| 失败阶段 | 数量 | 当前解释 |
-|----------|------|----------|
-| `non_quantized` | 315 | W sum 未量子化；这是症状，不能称为物理上的 genuine non-quantized |
-| `square_not_in_spin_table` | 194 | `b²` 的 rotation 无法在 canonical H spin table 中找到 |
-| `square_outside_little_group` | 170 | `b²` 匹配到 H spin op，但不在当前 canonical spin LG 索引中 |
+| 失败阶段 | 数量 | 说明 |
+|----------|------|------|
+| `non_quantized` | 315 | W sum 未量子化 |
+| `square_outside_little_group` | 170 | `b²` 匹配到 H spin op，但不在 spin_lg_op_indices 中 |
+| `square_not_in_spin_table` | 122 | `b²` 的 rotation 无法在 canonical H spin table 中找到 |
+| `antiunitary_spin_lookup` | 72 | 反酉操作 `b` 的 rotation 在 G spin table 中找不到 |
 
 ### 已完成修复及量化效果
 
@@ -1290,249 +1292,221 @@ UNI663 的 `C2z -> C2y` 就是反例。rotation-only matching 只能在已确认
 - character lookup 完全在 canonical H gauge 内计算；
 - 两者只通过已验证的空间操作 setting transform 对应，不直接比较不同 gauge 的 SU(2)。
 
-### 剩余失败的可能原因
+### 679 失败逐类分析（2026-06-19，`diagnose_679_failures_by_category`）
 
-以下是待验证假设，不是已经确认的根因。优先级按现有证据和可解释的失败数量排序。
+以下基于具体 case 的 trace 输出，不是假设。
 
-| 优先级 | 假设 | 主要影响阶段 | 证据与判断 |
-|--------|------|--------------|------------|
-| P0 | MSG 中嵌入的 H 与 canonical Hall H 之间缺少基底变换 `T` | `square_not_in_spin_table`、`square_outside_little_group` | UNI663 已直接证实；低 SG3/SG1/SG10/SG5 等 mapping failure 高度符合轴选择错误 |
-| P0 | canonical k 被直接用于 MSG 基底下的 rotation，导致 little-group 过滤错误 | `square_outside_little_group`、部分 `non_quantized` | 若 `x_can=T x_msg`，则 `k_msg=T^T k_can`；当前没有执行该变换。SG196/202/203/210/219 集中的 outside-LG 很可疑 |
-| P0 | `seitz_preserves_k` 使用了错误的直接/倒空间 rotation convention | `square_outside_little_group`、`non_quantized` | 若 spglib 的 `R` 作用于直接晶格分数坐标，则倒空间应使用 `R^-T k`，不是 `R k`；三方/六方非正交整数矩阵最容易暴露。必须用数据 oracle 确认，不能凭公式直接改 |
-| P0 | central parity 跨 G/H 两套 SU(2) gauge 比较 | `non_quantized` | 当前比较 parent G 中的 `U_b²` 和 canonical H 中的 `U_{b²}`；即使空间 rotation 对应，两套 lift gauge 也不保证可直接比较 |
-| P1 | origin shift `s` 或 centering/nonsymmorphic representative 未完整求解 | `non_quantized`、少量 mapping failure | direct fallback 已加入 fractional phase，但使用的操作仍未经过完整 `(T,s)` 共轭；trigonal/hexagonal SG144/145/151/152/154/179/190 集中失败符合相位错误 |
-| P1 | 只找到“群集合等价”的 `T`，但 operation correspondence 选错了群自同构 | 三类都可能 | 高对称群可能有多个 signed permutation 都把 rotation set 映射到同一集合；若选错，会置换 little-group operation 和 irrep character |
-| P1 | parent G spin table 本身和 MSG parent setting 也不一致 | `AntiunitarySpinLookup` 或错误 central sign，最终表现为 `non_quantized` | UNI663 中 G 恰好对齐，不能据此推广到全部 1,651 个 UNI；需要全量 G-side lookup oracle |
-| P2 | 所需基底变换不属于 48 个 signed permutation | signed-permutation oracle 无解的剩余 case | 单斜、三方、六方或不同 conventional setting 可能需要一般 unimodular/rational `T`，不能把首轮搜索范围当成最终模型 |
-| P2 | direct anti-coset 的求和域或归一化仍有 Type-III 特例 | 修正 setting 后仍 `non_quantized` | 应满足反酉 little-group coset 与 unitary little group 等势；当前 k-frame 错误会掩盖这个 invariant，需在修正后重新检查 |
-| P3 | 剩余 generated spin operation/character 对应关系仍有数据错误 | 修正全部坐标问题后的离散少量 case | 已修复 local/global index，但仍需用独立 closure、identity character、operation bijection 检查；当前没有证据支持先改数据 |
-| P3 | 浮点 tolerance 导致误判 | 极少量边界 case | rotation 和多数相位来自小分母离散数据；失败大规模按 SG 聚集，不像纯数值问题。只能在逻辑问题修完后检查 |
+#### 类别 1: NonQuantized (315 个) — 根因：little-group 过滤与数据库不一致
 
-不能采用的“修复”：
+**代表 case: UNI21 SG5 L2 (k=(1,1,1)/2)**
 
-- 不得把非量子化 W 强行 round 到最近的 A/B/C；
-- 不得仅凭 rotation set 相同就忽略 translation/origin；
-- 不得为了降低失败数混用 per-term convention；
-- 不得用一个未经全量验证的 `T` 覆盖所有同 SG 或同 crystal system；
-- 不得在 20,710 个现有成功 case 出现 regression 时继续叠加补丁。
+- H spin: 2 个条目 (I, C2y)，`spin_lg_op_indices=[0]` → |H₀| = 1
+- 反酉 LG 有 **4 个 Seitz 翻译变体**（C2y×2 + I×2），但 direct anti 循环全部收入
+- 归一化用 `n_anti=4`，而非 |H₀|=1
+- 所有 b²=I，但 Bloch 相位导致 C2y 项对消 (+1-1=0)，I 项叠加 (+1+1=2)
+- W = 2/4 = 0.5 → 不量子化
+
+**根因**：`seitz_preserves_k` 把反酉 Seitz 的所有翻译变体都收入 LG，但数据库的
+`spin_lg_op_indices` 只包含 co-group 元素。**k-vector filtering convention 不一致**
+导致：(a) 错误的归一化分母，(b) 跨 co-group 边界的额外项。
+
+**集中 SG**：SG154(24), SG179(24), SG152(21), SG145(20), SG144(18), SG190(16)
+— 主要为三方/六方晶系。
+
+#### 类别 2: SquareNotInSpinTable (122 个) — 根因：MSG/Hall basis mismatch
+
+**代表 case: UNI663 SG3 B3 (k=(0,0,1)/2)**
+
+- b 的 rotation = C4z（来自 parent G=C4 群）
+- b² = C2z (diag(-1,-1,1))
+- H=SG3 Hall3 的 spin table 只有 C2y (diag(-1,1,-1))
+- **C2z ≠ C2y** → lookup 失败
+
+**根因**：这就是 UNI663 basis mismatch。Setting transform T=swap(y,z) 能将 C2z→C2y。
+但当前 MSG-gauge 主路径 **不接收** setting_xf，direct anti fallback 在 diagnostic 中也传了
+None。
+
+**集中 SG**：SG1(32), SG5(30), SG3(16), SG12(20), SG8(10), SG15(14)
+
+#### 类别 3: SquareOutsideLittleGroup (170 个) — 根因：同类别 1
+
+**代表 case: UNI815 SG22 L2 (k=(1,1,1)/2)**
+
+- b²=C2z 在 H spin table 存在 (index=1)，但 index=1 不在 `spin_lg_op_indices` 中
+- 说明 runtime `seitz_preserves_k` 和数据库的 LG 定义不一致
+
+**根因**：同类别 1 — k-vector filtering convention mismatch。
+
+**集中 SG**：SG202(26), SG203(26), SG196(25), SG210(14), SG219(14) — 主要为立方晶系。
+
+#### 类别 4: AntiunitarySpinLookup (72 个) — 待追踪
+
+**集中 SG**：SG10(32), SG3(24), SG4(16)。疑似 basis mismatch 或 G spin table 覆盖不足。
+
+**集中 SG**：SG10(32), SG3(24), SG4(16)。`b.rot` 在 G spin table 中查不到。
+
+### 三个互联问题
+
+1. **k-vector LG filtering 不一致**（→ 315 NonQuantized + 170 OutsideLG = 485）
+2. **setting_xf 未接入 MSG-gauge 主路径**（→ 122 NotInSpinTable 可通过 T 修复但未生效）
+3. **G spin table lookup**（→ 72 AntiunitarySpinLookup）
+
+### 更新后的失败阶段表
+
+| 失败阶段 | 数量 | 根因 |
+|----------|------|------|
+| `non_quantized` | 315 | k-vector LG filtering 与数据库不一致 |
+| `square_outside_little_group` | 170 | 同上 — runtime/database LG 定义分歧 |
+| `square_not_in_spin_table` | 122 | MSG/Hall basis mismatch，setting_xf 可修但未接入 |
+| `antiunitary_spin_lookup` | 72 | G spin table lookup 失败（待进一步追踪） |
 
 ### 修正计划
 
 #### Phase 0：冻结可比较的基线 ✅
 
-基线已冻结（`diagnose_wigner_sources`，2026-06-19）：
+基线已冻结（`diagnose_wigner_sources`，2026-06-19，含完整 (T,s) 求解后）：
 
 ```text
 ok=20,710  (96.825%)
 fail=679   (3.175%)
 non_quantized=315
-square_not_in_spin_table=194
 square_outside_little_group=170
+square_not_in_spin_table=122
+antiunitary_spin_lookup=72
 ```
 
 分母统一使用 21,389（全量 spinor irrep×UNI 对）。
 
-#### Phase 1：setting-transform oracle → 验证 → 集成 ✅
+Path triage 基线：
+
+| 路径 | 数量 |
+|------|------|
+| MSG_GAUGE_OK | 18,972 |
+| MSG_GAUGE_MAP_FAIL | 2,390 |
+| MSG_GAUGE_W_FAIL | 596 |
+| OLD_PATH_OK | 210 |
+| OLD_PATH_FAIL | 386 |
+
+Setting transform 诊断：
+
+| 计数器 | 值 |
+|--------|-----|
+| XF_CALLED | 3,288 |
+| XF_FOUND | 2,808 |
+| XF_NONZERO_ORIGIN | 482 |
+| XF_AMBIGUOUS | 96 |
+
+#### Phase 1：setting-transform oracle → 验证 → 集成 ✅（已重做完整版）
+
+**Phase 1a（初版，已作废）**：仅 rotation multiset matching，origin 恒为 [0,0,0]。验证标准错误
+（阶段转移冒充修复），136/136 实为 0/136。详见"重要审计更正"。
+
+**Phase 1b（完整版，2026-06-19）**：
 
 **新增数据结构**（`wigner.rs`）：
 
 - `SettingTransform { basis: T, origin: s }` — 基底+原点变换
 - `transform_rotation()` / `transform_translation()` — 正向变换
 - `enumerate_signed_permutations()` — 48 个 signed-permutation 矩阵
-- `find_setting_transform(msg_rots, hall_rots)` — 自动搜索匹配的 T
+- `find_setting_transform(msg_rots, msg_trans, hall_rots, hall_trans) -> Vec<SettingTransform>` — 完整 (T,s) 求解
+- `solve_origin_for_t()` — 对给定 T，通过 Gaussian elimination + modulo-1 一致性求解 origin s
 - `rotation_multiset_eq()` — 顺序无关的 rotation multiset 比较
 
 **约定**：`x_hall = T·x_msg + s`，`R_hall = T·R_msg·T⁻¹`
 
-**Oracle 结果**（`phase1_setting_transform_oracle`，1,644 UNI）：
+**Origin solving 算法**：
+1. 用 greedy matching 建立 rotation 对应关系 (msg_idx → hall_idx)
+2. 对每对匹配操作，构建方程 `(I-R_hall)·s ≡ t_hall - T·t_msg (mod 1)`
+3. Gaussian elimination 求解 s ∈ [0,1)³
+4. 验证所有方程 modulo-1 一致性
 
-```text
-identity:     1,356 (82.5%)  — MSG 和 H 在同一基底下
-signed_perm:     72 (4.4%)   — 找到了轴置换
-not_found:      216 (13.1%)  — 48 个 signed-permutation 都不匹配
-```
+**诊断数据**（`diagnose_wigner_sources`，两轮 pass）：
 
-**验证结果**（`phase1b_verify_transform_fix`）：
-对 72 个 signed-perm UNI 的 136 个 `square_not_in_spin` 失败，
-应用 T 变换后 **136/136 (100%)** 修复。第一个确认案例：
-UNI663 SG3，T=swap(y,z)，C2z→C2y。
+| 计数器 | 值 | 含义 |
+|--------|-----|------|
+| `XF_CALLED` | 3,288 | 调用次数 (1644 UNI × 2) |
+| `XF_FOUND` | 2,808 | 找到至少一个有效变换 |
+| `XF_IDENTITY` | 2,712 | T=I |
+| `XF_NON_IDENTITY` | 1,408 | T≠I 的 signed-permutation |
+| `XF_NONZERO_ORIGIN` | 482 | origin s ≠ 0 |
+| `XF_AMBIGUOUS` | 96 | 多个有效变换 |
 
-**正式路径集成**（`wigner_classify_spinor`）：
-- 新增 `setting_xf: Option<&SettingTransform>` 参数
-- 传递给 direct anti-coset fallback
-- `diagnose_wigner_sources` 中从 `ops_from_msg`/`ops_from_hall` 自动计算 T
+Origin solving 工作正常，但总失败数未变（679）。
+**关键瓶颈**：`setting_xf` 只传到 direct anti-coset fallback，MSG-gauge 主路径未接收。
 
-**Path triage 影响**：
-- `MSG_GAUGE_W_FAIL`: 875 → 596 (**-279**)
-- `OLD_PATH_FAIL`: 583 → 386 (**-197**)
+#### Phase 2：修正 little-group filtering 一致性（k-vector convention）
 
-总失败数 679 未变——那 136 个 case 已被 primary 路径修复，不依赖 fallback。
+**目标**：修复 315 NonQuantized + 170 OutsideLG = 485 个失败
 
-#### Phase 2：修正 reciprocal k 和 little-group 过滤
+**问题**：`seitz_preserves_k` 在运行时过滤反酉 LG，但其 k-preservation 判断与
+数据库生成 `spin_lg_op_indices` 时使用的 convention 不一致。
 
-先确认 `R` 对 k 的作用约定。对每个 irrep，分别用：
+**Oracle**：对每个 irrep 的每个 k-vector，列出：
+1. `seitz_preserves_k(R, timerev, kx, ky, kz, kd)` 的结果
+2. `R` 是否在 `spin_lg_op_indices` 对应的 rotation 集合中
 
-```text
-k' = R k
-k' = R^-T k
-```
+按 SG 统计一致率。这是纯诊断，不改结果。
 
-重建 canonical H little co-group，并与生成数据中的 `spin_lg_op_indices` 对应的 rotation
-集合比较。按 SG 统计两种 convention 的 exact-match 数量。这个 oracle 必须先回答：
+**需要确认的 convention 问题**：
+- spglib 的 rotation 作用在 direct space 还是 reciprocal space？
+- k-preservation 条件应为 `Rk ≡ k` 还是 `R⁻ᵀk ≡ k` (mod reciprocal lattice)？
+- 反酉操作的 k-preservation 条件：`Rk ≡ -k` 还是 `R⁻ᵀk ≡ -k`？
 
-- spglib/Hall rotation 是直接空间还是倒空间表示；
-- spin.dat 的 k 和 operation rotation 使用哪一套 convention；
-- unitary 与 antiunitary 分支是否分别需要 `R^-T k` 和 `-R^-T k`。
+**预期**：若一致率 < 100%，需找到正确的 convention 并统一 runtime 和数据库的过滤逻辑。
 
-只有与数据全量一致的 convention 才能进入正式 `seitz_preserves_k`。禁止仅因某个单例
-通过就全局替换。
+#### Phase 3：接入 setting_xf 到 MSG-gauge 主路径
 
-优先把 MSG 操作变换到 canonical H 坐标，然后继续使用 irrep 表中的 canonical `k`。
-这样 character lookup、spin LG 和 k 全部处于同一 frame。
+**目标**：修复 122 个 SquareNotInSpinTable 失败
 
-若必须在 MSG frame 中过滤，则严格使用：
+**当前状态**：`find_setting_transform` 已返回完整 (T,s)，`setting_xf` 参数已在
+`wigner_classify_spinor` 中，但只有 direct anti-coset fallback 使用它。
+MSG-gauge 主路径 (`wigner_classify_spinor_msg_gauge`) 不接收 setting_xf。
 
-```text
-k_msg = T^T k_hall
-```
+**需要修改**：
+1. 给 `wigner_classify_spinor_msg_gauge` 添加 `setting_xf` 参数
+2. 在 MSG-gauge 路径的 `build_h_to_spin_map` 前，用 setting_xf 变换 h_seitz 中的操作
+3. 或在 caller 处预先变换 `h_ops`/`h_seitz`
 
-origin `s` 不改变 k，但会改变 Seitz translation 和 Bloch phase。
+**风险**：MSG-gauge 路径目前通过了 18,972 个，修改可能导致 regression。
+必须先在少量 UNI 上验证，确认不破坏已有成功 case。
 
-必须增加以下 invariant：
+#### Phase 4：追踪 AntiunitarySpinLookup
 
-- 变换前后的 little-group 大小一致；
-- 每个反酉 little-group 元素 `b` 都满足 `b² ∈ H_k`；
-- antiunitary little-group coset 与 unitary little group 等势；
-- canonical square mapping 必须落入 `spin_lg_op_indices`。
+**目标**：修复 72 个 G spin table lookup 失败
 
-预期优先消除 194 个 `square_not_in_spin_table` 和 170 个
-`square_outside_little_group`。若 mapping failure 不下降，说明 `(T,s)` 或 operation
-correspondence 仍然错误，不能继续调 central sign。
+**方法**：选取 SG10 的代表 case，trace `b.rot` 和 G spin table 的 rotation 集合，
+判断是 basis mismatch、G spin table 覆盖不足、还是 -R fallback 遗漏。
 
-#### Phase 3：拆分空间 character gauge 与 SU(2) central gauge
+#### 后续 Phase（延续原计划）
 
-每个反酉操作保留两种表示：
+- Phase 5：统一 translation / Bloch phase（处理三方/六方非正交晶系集中的 non_quantized）
+- Phase 6：最终 residual 逐 term 物理审计
+- Phase 7：接入生产路径、回归测试、收尾
 
-- `b_msg`：原始 MSG/parent G frame，用于 G spin lookup 和 central parity；
-- `b_hall`：经 `(T,s)` 变换后的 canonical H frame，用于 little-group 和 character lookup。
-
-central parity 完全在 parent G spin gauge 内计算：
-
-```text
-U_b        <- G spin table
-U_b_squared = U_b * U_b
-U_sq_G     <- G spin table 中的 canonical lift of b²
-spatial_central = relation(U_b_squared, U_sq_G)
-central = !spatial_central
-```
-
-禁止再把 `U_b²` 与 H spin table 的 `U_{b²}` 直接比较。H spin table 只提供
-character 对应的 operation index。
-
-同时增加 G-side oracle：
-
-```text
-g_b_lookup_ok
-g_square_lookup_ok
-g_su2_same
-g_su2_ebar
-g_su2_unrelated
-```
-
-目标是 `g_su2_unrelated=0`。若不为零，说明 parent G setting/lift 也需独立变换，
-不能靠 sign fallback 掩盖。
-
-#### Phase 4：统一 translation 与 Bloch phase
-
-所有 phase 必须从同一 canonical H frame 的 translation difference 得出：
-
-```text
-L = t_computed_hall - t_canonical_hall
-phase = exp(+2πi k_hall·L)
-```
-
-`L` 允许包含 centering/nonsymmorphic fractional component，不能提前 round 成整数。
-对每个 term 记录：
-
-```text
-b
-b²
-canonical H op
-L
-phase
-chi
-central sign
-contribution
-```
-
-Phase 4 后重点观察 315 个 `non_quantized`。如果它们按 trigonal/hexagonal SG 大幅下降，
-说明主因是 setting/origin/phase；若不下降，再进入下一阶段。
-
-#### Phase 5：处理非 signed-permutation setting
-
-对 `transform_not_found` 的 case：
-
-1. 按 crystal system 和 Hall choice 分组；
-2. 检查是否存在一般 `GL(3,Z)` unimodular basis；
-3. 必要时使用有界小整数矩阵搜索，但必须用 rotation conjugacy + full Seitz bijection
-   双重约束，不能无界 brute force；
-4. 若 conventional cell/centering 不同，允许 rational `T`，并验证体积比和纯平移子群；
-5. 优先复用磁群识别中已经验证过的 `x_std = T x + s` 变换逻辑，避免另写一套方向相反的公式。
-
-#### Phase 6：对最终 residual 做逐 term 物理审计
-
-只有坐标和 gauge invariant 全部通过后，才检查：
-
-- operation-to-character 是否被群自同构错误置换；
-- `spin_lg_op_indices` 是否包含正确的两个 central lifts；
-- Type-III 求和域和分母是否正确；
-- improper rotation 的 `R`/`-R` lookup 是否有歧义；
-- character identity 值、共轭关系和群乘 closure；
-- W 偏离量子值的模式是离散相位错误还是浮点残差。
-
-若 W 只在 `1e-12` 量级偏离，再调整 tolerance；在此之前禁止把 tolerance 当主修复。
-
-#### Phase 7：接入、回归和收尾
-
-每个可编译修改都独立 commit，并依次执行：
-
-```bash
-cd /home/liuyichen/TB_rs
-cargo check --package cryspglib
-cargo test --package cryspglib debug_direct_anti_setting_uni663 -- --nocapture
-cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
-```
-
-阶段性验收：
-
-1. 已有 20,710 个成功 case 不得 regression；
-2. 每次提交记录三类失败数量变化；
-3. 将 UNI663 debug test 转成无输出的 regression assertion；
-4. `spinor_complex_fail=0` 后运行：
-
-   ```bash
-   cargo test --package cryspglib
-   cargo test --package cryspglib --tests
-   ```
-
-5. 删除仅用于排查的噪声输出，保留可重复 oracle；
-6. 更新本节最终统计和根因，不保留未经验证的推测作为结论。
 
 ### 完成标准
 
 只有同时满足以下条件才能宣称 100%：
 
-- `diagnose_wigner_sources`：`spinor_complex_ok=21,389`、`spinor_complex_fail=0`；
-- 三类 failure stage 全部为 0；
-- setting transform、little-group、G-side SU(2) invariant 无 unresolved case；
-- 全量 unit/integration/doc tests 通过；
-- 无现有成功 case 被另一条启发式路径改变分类。
+1. `diagnose_wigner_sources`：`spinor_complex_ok=21,389`、`spinor_complex_fail=0`
+2. 四类 failure stage 全部为 0
+3. 全量 unit/integration/doc tests 通过
+4. 无现有成功 case 被另一条启发式路径改变分类
+5. k-vector LG filtering convention 与数据库生成一致
+6. setting_xf 正确接入所有路径（MSG-gauge + direct anti）
+
+### 新增诊断测试
+
+| 测试 | 用途 |
+|------|------|
+| `diagnose_wigner_sources` | 全量统计 + 失败 triage + XF counter |
+| `diagnose_679_failures_by_category` | 逐类别代表性 case 详细 trace |
 
 关键诊断命令：
 
 ```bash
 cd /home/liuyichen/TB_rs
-cargo test --package cryspglib debug_direct_anti_setting_uni663 -- --nocapture
 cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
+cargo test --package cryspglib diagnose_679_failures_by_category -- --nocapture
 cargo test --package cryspglib
 ```
