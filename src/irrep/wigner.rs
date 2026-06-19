@@ -33,7 +33,9 @@
 //! - Bilbao Crystallographic Server, *Co-representations of Magnetic Space Groups*
 
 use num_complex::Complex64;
-use crate::mathfunc::{mat_get_determinant_i3, mat_multiply_matrix_i3, Mat3I};
+use crate::mathfunc::{
+    mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_i3, Mat3, Mat3I,
+};
 use crate::SymmetryOps;
 use super::corep::CorepType;
 
@@ -876,14 +878,14 @@ pub fn wigner_classify_cir(
 /// ```
 #[derive(Debug, Clone)]
 pub struct SettingTransform {
-    pub basis: [[i32; 3]; 3],
+    pub basis: Mat3,
     pub origin: [f64; 3],
 }
 
 impl SettingTransform {
     pub fn identity() -> Self {
         SettingTransform {
-            basis: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
             origin: [0.0; 3],
         }
     }
@@ -891,9 +893,17 @@ impl SettingTransform {
     /// Apply the forward transform to a rotation matrix.
     pub fn transform_rotation(&self, r_msg: &Mat3I) -> Mat3I {
         let t = self.basis;
-        let t_inv = mat_inverse_3i(&t);
-        let tmp = mat_multiply_3i_3i(&t, r_msg);
-        mat_multiply_3i_3i(&tmp, &t_inv)
+        let t_inv = mat_inverse_matrix_d3(&t, 1e-10)
+            .expect("setting-transform basis must be invertible");
+        let mut transformed = [[0.0f64; 3]; 3];
+        for i in 0..3 {
+            for j in 0..3 {
+                transformed[i][j] = (0..3)
+                    .flat_map(|a| (0..3).map(move |b| t[i][a] * r_msg[a][b] as f64 * t_inv[b][j]))
+                    .sum();
+            }
+        }
+        transformed.map(|row| row.map(|value| value.round() as i32))
     }
 
     /// Apply the forward transform to a translation vector.
@@ -904,7 +914,7 @@ impl SettingTransform {
         let mut t_hall = [0.0f64; 3];
         for i in 0..3 {
             let rs: f64 = (0..3).map(|j| r_hall[i][j] as f64 * s[j]).sum();
-            let tt: f64 = (0..3).map(|j| self.basis[i][j] as f64 * t_msg[j]).sum();
+            let tt: f64 = (0..3).map(|j| self.basis[i][j] * t_msg[j]).sum();
             t_hall[i] = (s[i] - rs + tt) % 1.0;
             if t_hall[i] < 0.0 {
                 t_hall[i] += 1.0;
@@ -998,7 +1008,7 @@ pub fn find_setting_transform(
             let origin_nz = s[0].abs() > 1e-8 || s[1].abs() > 1e-8 || s[2].abs() > 1e-8;
             if origin_nz { XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed); }
             results.push(SettingTransform {
-                basis: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
                 origin: s,
             });
             return results;
@@ -1026,7 +1036,10 @@ pub fn find_setting_transform(
             XF_NON_IDENTITY.fetch_add(1, Ordering::Relaxed);
             let origin_nz = s[0].abs() > 1e-8 || s[1].abs() > 1e-8 || s[2].abs() > 1e-8;
             if origin_nz { XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed); }
-            results.push(SettingTransform { basis: *t, origin: s });
+            results.push(SettingTransform {
+                basis: t.map(|row| row.map(|value| value as f64)),
+                origin: s,
+            });
         }
     }
     if !results.is_empty() {
