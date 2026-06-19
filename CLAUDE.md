@@ -803,6 +803,276 @@ cargo test --package cryspglib
 
 ---
 
+## 重要审计更正：2026-06-19 Phase 1 不能视为完成
+
+> **给后续 AI 的强制阅读说明：**
+> 最近提交 `acb3b44`、`4a5956b`、`a7ef97f`、`b253cb1`、`678add3`
+> 和文档提交 `3660d44` 中，关于 setting transform 的排查方向部分正确，
+> 但验证标准、实现完整性和最终结论存在严重问题。
+> **不要继续沿用“Phase 1 已完成”“136/136 已修复”的结论。**
+> 应先修正本节列出的问题，再进入 reciprocal-k 等后续阶段。
+
+### 仍然成立的结论
+
+UNI663 是一个有效反例，已经证明以下事实：
+
+- `ops_from_msg` 中的 unitary H 仍处于 MSG/parent 的嵌入基底；
+- `ops_from_hall` 和 standalone H spin table 处于 canonical Hall 基底；
+- `spg_get_hall_number_from_symmetry()` 只做 Hall 分类，不负责把输入操作变换到
+  canonical Hall setting；
+- 直接跨这两个基底比较 rotation 会产生假的
+  `square_not_in_spin_table` / `square_outside_little_group`；
+- 一般 setting 变换必须满足
+  `R_hall = T R_msg T^-1`，不能声称 rotation 在所有 setting 下不变。
+
+因此，“必须显式求解并验证 MSG→Hall 的 setting transform”这个方向是正确的。
+错误在于当前代码并没有完成这个求解和验证。
+
+### 错误结论 1：“136/136 fixed”只表示失败阶段发生转移
+
+`phase1b_verify_transform_fix` 的所谓 fixed 判据是：
+
+```rust
+!matches!(
+    fixed_result,
+    Err(DirectAntiFailure::SquareNotInSpinTable)
+)
+```
+
+也就是说，只要结果不再停在 `SquareNotInSpinTable`，即使变成
+`SquareOutsideLittleGroup`、`AntiunitarySpinLookup`、`Su2LiftMismatch` 或
+`NonQuantized`，也会被计为 fixed。
+
+2026-06-19 复跑 `diagnose_wigner_sources` 得到：
+
+```text
+spinor_complex_ok   = 20,710
+spinor_complex_fail =    679
+
+Final failure stages:
+non_quantized                  315
+square_outside_little_group    184
+antiunitary_spin_lookup         64
+square_not_in_spin_table        58
+su2_lift_mismatch               58
+```
+
+与接入 setting transform 前记录的三类失败比较：
+
+```text
+before:
+non_quantized                  315
+square_not_in_spin_table       194
+square_outside_little_group    170
+total                          679
+
+after:
+non_quantized                  315
+square_not_in_spin_table        58   (-136)
+square_outside_little_group    184   (+14)
+antiunitary_spin_lookup         64   (+64)
+su2_lift_mismatch               58   (+58)
+total                          679
+```
+
+`14 + 64 + 58 = 136`。因此这 136 个 case 没有被最终修复，只是从第一道
+rotation lookup 失败转移到了后续失败阶段。
+
+**正确表述应是：**
+
+> 对原先 136 个 `square_not_in_spin_table` case，当前候选 T 能让 transformed square
+> 通过 H spin-table rotation lookup；但 136 个 case 全部仍在后续阶段失败。
+
+不得再称其为“136/136 修复”，也不能据此证明 T 是正确的完整 setting transform。
+
+### 错误结论 2：当前实现没有真正求出 `(T,s)`
+
+原 Phase 1 计划要求：
+
+1. rotation conjugacy；
+2. 使用全部操作联立求 origin `s`；
+3. 完整 Seitz set 双射；
+4. operation correspondence；
+5. 多解/群自同构歧义检测。
+
+当前 `find_setting_transform(msg_rots, hall_rots)` 实际只做：
+
+- 枚举 48 个 signed-permutation `T`；
+- 比较 `T R_msg T^-1` 与 Hall rotation multiset；
+- 找到第一个候选立即返回；
+- `origin` 永远固定为 `[0,0,0]`；
+- 不输入或比较 translation；
+- 不建立 MSG op → Hall op 的双射；
+- 不检测多个候选；
+- 不验证 irrep character operation correspondence。
+
+rotation multiset 匹配本身还存在必然歧义：若 `T` 是候选，则 `-T` 给出相同共轭，
+
+```text
+(-T) R (-T)^-1 = T R T^-1
+```
+
+高对称群还可能有更多 normalizer/automorphism 候选。因此“取枚举顺序中的第一个 T”
+不能证明它是正确的 setting transform。
+
+`SettingTransform` 虽然包含 `origin` 字段，但当前所有构造点都把它设为零。
+所以代码目前只实现了一个 **rotation-set candidate oracle**，不是完整 `(T,s)` 求解器。
+
+### 实现问题 1：没有接入真正的生产 API 路径
+
+`compute_corepresentation()` 是 `compute_coreps()` 和
+`IrrepRecord::corepresentation()` 使用的实际路径。它当前调用
+`wigner_classify_spinor()` 时仍显式传入：
+
+```rust
+setting_xf = None
+```
+
+只有 `diagnose_wigner_sources` 等诊断测试计算并传入 `setting_xf`。
+因此提交 `678add3 feat: wire setting_transform into wigner_classify_spinor primary path`
+的描述不准确：
+
+- 函数签名和 fallback 参数已经接线；
+- 诊断路径传入了候选 T；
+- 实际公共 corepresentation 路径没有计算或传入 T；
+- `wigner_classify_spinor_primary()` / MSG-gauge primary 本身也没有使用 `setting_xf`；
+- 只有 primary 返回 `None` 后的 direct anti-coset fallback 使用该参数。
+
+后续 AI 必须区分“诊断路径统计”和“用户实际 API 行为”，不能用前者代表后者。
+
+### 实现问题 2：G spin 的 `-R` fallback 混用了变换前后的基底
+
+direct anti-coset 中，首选 G-spin lookup 使用 transformed `b_rot`，但 improper
+rotation 的 `-R` fallback 仍从原始 `b.rot` 构造：
+
+```rust
+position(|s| s.rot == b_rot)
+    .or_else(|| {
+        let r = -b.rot; // 错：仍使用未变换的 rotation
+        ...
+    })
+```
+
+两条分支不在同一 coordinate frame。至少从实现一致性看，fallback 应使用
+`-b_rot`。但更根本的问题是：parent G spin table 是否与 transformed H Hall frame
+处于同一 setting 尚未验证，不能只改这一行后宣称 gauge 问题解决。
+
+### 实现问题 3：当前失败分类文档已经过期
+
+旧文档把 679 个失败写成：
+
+```text
+non_quantized=315
+square_not_in_spin_table=194
+square_outside_little_group=170
+```
+
+这是接入 rotation candidate 前的分类。当前总数仍是 679，但已经分成五类：
+
+```text
+non_quantized=315
+square_outside_little_group=184
+antiunitary_spin_lookup=64
+square_not_in_spin_table=58
+su2_lift_mismatch=58
+```
+
+后续分析必须使用同一轮、同一代码版本的完整 failure-stage vector，不能只比较其中
+一个阶段下降，也不能因为总失败数未变就声称被修改的 case 已经由 primary path 修复。
+
+### 测试质量问题
+
+当前两个 Phase 1 oracle 都是打印型测试，没有断言：
+
+- 预期 UNI 数量；
+- full Seitz match 数量；
+- ambiguous 数量；
+- 最终 `Ok(CorepType)` 增量；
+- 679 是否下降；
+- 原有成功 case 的类型是否保持不变。
+
+此外，`test_spinor_wigner_gauge_limitation_msg197_8` 中存在恒真断言：
+
+```rust
+assert!(result.is_some() || result.is_none())
+```
+
+这不能验证任何行为，应恢复为具体预期或删除。
+
+所以 `cargo test` 显示这些测试通过，只能说明代码执行完毕，不能证明 Phase 1 结论成立。
+
+### 后续 AI 必须采用的修正顺序
+
+1. **撤销结论，不必立即撤销代码：**
+   将当前 `find_setting_transform` 明确视为 rotation-only candidate finder，
+   不得视为生产可用的 setting transform。
+
+2. **先建立可比较基线：**
+   每轮记录完整 final failure vector：
+
+   ```text
+   ok
+   fail
+   non_quantized
+   square_not_in_spin_table
+   square_outside_little_group
+   antiunitary_spin_lookup
+   su2_lift_mismatch
+   其他所有 DirectAntiFailure
+   ```
+
+3. **真正求解并验证 `(T,s)`：**
+   - 枚举或构造候选 `T`；
+   - 为每个 rotation 建立所有可能的 operation correspondence；
+   - 从全部 Seitz translation 方程求 `s mod Z^3`；
+   - 用变换后的完整 Seitz multiset 验证双射；
+   - 报告 zero/one/multiple solutions；
+   - 多解时不能随意取第一个，必须用 translation、generator correspondence、
+     k-star 或 character-table operation correspondence继续消歧。
+
+4. **不要同时混用 MSG frame、canonical H frame 和 parent G spin frame：**
+   明确维护：
+   - `b_msg`：MSG/parent frame；
+   - `b_hall`：canonical H frame；
+   - `k_msg` / `k_hall`；
+   - H character lookup 使用的 operation；
+   - G-side SU(2) central parity 使用的 operation。
+
+5. **修正 little-group 前先验证坐标约定：**
+   比较 `R k` 与 `R^-T k` 两套 oracle，并和 `spin_lg_op_indices` 的实际 rotation
+   集合做全量 exact match。不要凭单例直接改公式。
+
+6. **用最终结果而不是阶段通过作为验收：**
+   一个 case 只有在返回正确、量子化的 `Ok(CorepType)` 时才算 fixed。
+   从一种 `DirectAntiFailure` 变成另一种不算修复。
+
+7. **生产路径和诊断路径必须同时验证：**
+   增加至少一个通过 `compute_corepresentation()` 或 `compute_coreps()` 的
+   nontrivial-setting regression，不能只直接调用内部 Wigner helper。
+
+8. **加入真实断言：**
+   - UNI663 的完整 `(T,s)` 和 Seitz bijection；
+   - candidate ambiguity 数量；
+   - final fail 严格下降；
+   - 现有 20,710 个成功 case 不减少且类型不改变；
+   - public API 与诊断路径结果一致。
+
+### 当前准确结论
+
+截至提交 `3660d44`：
+
+- setting mismatch 是已证实的真实根因之一；
+- UNI663 证明 rotation 必须经过 basis conjugation；
+- signed-permutation rotation candidate 能让 136 个 case 越过
+  `square_not_in_spin_table` 阶段；
+- 但这 136 个 case 全部仍失败，总失败数保持 679；
+- origin、translation、operation correspondence、candidate ambiguity、
+  reciprocal-k 和 G/H SU(2) gauge 均未解决；
+- setting transform 尚未接入实际公共 corepresentation 路径；
+- 因此 **Phase 1 未完成，不能进入“在已完成 Phase 1 基础上修 Phase 2”的状态。**
+
+---
+
 ## Spinor Wigner：2026-06-19 当前状态与错误复盘
 
 ### 当前覆盖率
