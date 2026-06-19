@@ -2225,6 +2225,123 @@ mod tests {
         }
     }
 
+    /// Oracle for the reciprocal-space action used by `spin_lg_op_indices`.
+    ///
+    /// Compares the generated canonical spin little-group membership against
+    /// the two plausible conventions:
+    ///
+    /// - direct multiplication: `R k ≡ k`
+    /// - reciprocal action: `R^{-T} k ≡ k`
+    ///
+    /// This is diagnostic only and does not alter classification.
+    #[test]
+    fn diagnose_spin_lg_k_convention() {
+        use crate::mathfunc::mat_get_determinant_i3;
+
+        fn inverse_transpose(r: &[[i32; 3]; 3]) -> [[i32; 3]; 3] {
+            let det = mat_get_determinant_i3(r);
+            assert!(det == 1 || det == -1, "rotation must be unimodular: {r:?}");
+            let mut out = [[0i32; 3]; 3];
+            // R^{-T} is the cofactor matrix divided by det.
+            for i in 0..3 {
+                for j in 0..3 {
+                    let rows: Vec<usize> = (0..3).filter(|&x| x != i).collect();
+                    let cols: Vec<usize> = (0..3).filter(|&x| x != j).collect();
+                    let minor = r[rows[0]][cols[0]] * r[rows[1]][cols[1]]
+                        - r[rows[0]][cols[1]] * r[rows[1]][cols[0]];
+                    let cofactor = if (i + j) % 2 == 0 { minor } else { -minor };
+                    out[i][j] = cofactor / det;
+                }
+            }
+            out
+        }
+
+        fn preserves(r: &[[i32; 3]; 3], k: [i32; 3], kd: i32) -> bool {
+            if kd == 0 {
+                return true;
+            }
+            (0..3).all(|i| {
+                let rk: i32 = (0..3).map(|j| r[i][j] * k[j]).sum();
+                (rk - k[i]) % kd == 0
+            })
+        }
+
+        let mut total_irreps = 0usize;
+        let mut direct_exact = 0usize;
+        let mut reciprocal_exact = 0usize;
+        let mut direct_fp = 0usize;
+        let mut direct_fn = 0usize;
+        let mut reciprocal_fp = 0usize;
+        let mut reciprocal_fn = 0usize;
+        let mut examples = Vec::new();
+
+        for sg in 1u8..=230 {
+            let spin_ops = IrrepRecord::spin_ops_for_sg(sg);
+            let spin_seitz = crate::irrep::wigner::build_spin_seitz(spin_ops.0, spin_ops.1);
+            for ir in crate::irrep::query::irreps_of(sg) {
+                if !ir.spinor || ir.spin_lg_op_indices().is_empty() {
+                    continue;
+                }
+                total_irreps += 1;
+                let expected: std::collections::HashSet<usize> =
+                    ir.spin_lg_op_indices().iter().map(|&x| x as usize).collect();
+                let k = [ir.kx as i32, ir.ky as i32, ir.kz as i32];
+                let kd = ir.kd as i32;
+                let mut direct_set = std::collections::HashSet::new();
+                let mut reciprocal_set = std::collections::HashSet::new();
+
+                for (idx, op) in spin_seitz.iter().enumerate() {
+                    if preserves(&op.rot, k, kd) {
+                        direct_set.insert(idx);
+                    }
+                    let rit = inverse_transpose(&op.rot);
+                    if preserves(&rit, k, kd) {
+                        reciprocal_set.insert(idx);
+                    }
+                }
+
+                if direct_set == expected {
+                    direct_exact += 1;
+                }
+                if reciprocal_set == expected {
+                    reciprocal_exact += 1;
+                }
+                direct_fp += direct_set.difference(&expected).count();
+                direct_fn += expected.difference(&direct_set).count();
+                reciprocal_fp += reciprocal_set.difference(&expected).count();
+                reciprocal_fn += expected.difference(&reciprocal_set).count();
+
+                if examples.len() < 20
+                    && direct_set != expected
+                    && reciprocal_set == expected
+                {
+                    examples.push(format!(
+                        "SG{} {} k=({},{},{})/{} expected={:?} Rk={:?} R^-Tk={:?}",
+                        sg,
+                        ir.ml,
+                        ir.kx,
+                        ir.ky,
+                        ir.kz,
+                        ir.kd,
+                        expected,
+                        direct_set,
+                        reciprocal_set,
+                    ));
+                }
+            }
+        }
+
+        println!("\n=== spin little-group k convention oracle ===");
+        println!("  total_irreps:       {total_irreps}");
+        println!("  direct_exact:       {direct_exact}");
+        println!("  reciprocal_exact:   {reciprocal_exact}");
+        println!("  direct_fp/fn:       {direct_fp}/{direct_fn}");
+        println!("  reciprocal_fp/fn:   {reciprocal_fp}/{reciprocal_fn}");
+        for example in examples {
+            println!("  {example}");
+        }
+    }
+
     /// Regression: SG3 A3 spinor Wigner test under grey group (a₀ = Θ).
     ///
     /// This explicitly verifies that the SU(2) path gives the correct
