@@ -756,6 +756,111 @@ pub fn wigner_classify_cir(
     }
 }
 
+// ── Phase 1: Setting-transform oracle (2026-06-19) ─────────────────────────
+
+/// A basis-origin transformation between coordinate frames.
+///
+/// Convention (matching `magnetic_spacegroup.rs`):
+///
+/// ```text
+/// x_hall = T · x_msg + s
+/// R_hall = T · R_msg · T⁻¹
+/// t_hall = s - R_hall·s + T·t_msg   (mod Z³)
+/// ```
+#[derive(Debug, Clone)]
+pub struct SettingTransform {
+    pub basis: [[i32; 3]; 3],
+    pub origin: [f64; 3],
+}
+
+impl SettingTransform {
+    pub fn identity() -> Self {
+        SettingTransform {
+            basis: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            origin: [0.0; 3],
+        }
+    }
+
+    /// Apply the forward transform to a rotation matrix.
+    pub fn transform_rotation(&self, r_msg: &Mat3I) -> Mat3I {
+        let t = self.basis;
+        let t_inv = mat_inverse_3i(&t);
+        let tmp = mat_multiply_3i_3i(&t, r_msg);
+        mat_multiply_3i_3i(&tmp, &t_inv)
+    }
+
+    /// Apply the forward transform to a translation vector.
+    pub fn transform_translation(&self, r_msg: &Mat3I, t_msg: &[f64; 3]) -> [f64; 3] {
+        let r_hall = self.transform_rotation(r_msg);
+        let s = self.origin;
+        // t_hall = s - R_hall·s + T·t_msg
+        let mut t_hall = [0.0f64; 3];
+        for i in 0..3 {
+            let rs: f64 = (0..3).map(|j| r_hall[i][j] as f64 * s[j]).sum();
+            let tt: f64 = (0..3).map(|j| self.basis[i][j] as f64 * t_msg[j]).sum();
+            t_hall[i] = (s[i] - rs + tt) % 1.0;
+            if t_hall[i] < 0.0 {
+                t_hall[i] += 1.0;
+            }
+        }
+        t_hall
+    }
+}
+
+/// Multiply two 3×3 i32 matrices: C = A·B.
+fn mat_multiply_3i_3i(a: &[[i32; 3]; 3], b: &[[i32; 3]; 3]) -> [[i32; 3]; 3] {
+    let mut c = [[0i32; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            c[i][j] = (0..3).map(|k| a[i][k] * b[k][j]).sum();
+        }
+    }
+    c
+}
+
+/// Inverse of a signed-permutation 3×3 matrix (det=±1, integer entries).
+fn mat_inverse_3i(m: &[[i32; 3]; 3]) -> [[i32; 3]; 3] {
+    let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+        - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+        + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    // For signed permutations, inverse = (1/det) * transpose of cofactor matrix.
+    // Since det = ±1 and entries are integers, the inverse is also integer.
+    let inv_det = det; // det = ±1
+    let mut inv = [[0i32; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            let a = m[(j + 1) % 3][(i + 1) % 3] * m[(j + 2) % 3][(i + 2) % 3]
+                - m[(j + 1) % 3][(i + 2) % 3] * m[(j + 2) % 3][(i + 1) % 3];
+            inv[i][j] = inv_det * a;
+        }
+    }
+    inv
+}
+
+/// Enumerate all 48 signed-permutation 3×3 matrices.
+///
+/// Each matrix has exactly one non-zero entry per row and column, with value ±1.
+/// These are the orthogonal unimodular matrices — the only 3×3 integer matrices
+/// with determinant ±1 whose inverse is also integer and whose rows are orthogonal.
+pub fn enumerate_signed_permutations() -> Vec<[[i32; 3]; 3]> {
+    let mut results = Vec::with_capacity(48);
+    let signs = [[1, 1, 1], [1, 1, -1], [1, -1, 1], [1, -1, -1],
+                 [-1, 1, 1], [-1, 1, -1], [-1, -1, 1], [-1, -1, -1]];
+    let perms: [[usize; 3]; 6] = [
+        [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0],
+    ];
+    for sign in &signs {
+        for perm in &perms {
+            let mut m = [[0i32; 3]; 3];
+            for (row, &col) in perm.iter().enumerate() {
+                m[row][col] = sign[row];
+            }
+            results.push(m);
+        }
+    }
+    results
+}
+
 /// Verify that `h_seitz` operation ordering matches the CIR character table.
 /// Prints all operations with their characters for manual inspection.
 #[cfg(test)]

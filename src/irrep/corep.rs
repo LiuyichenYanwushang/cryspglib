@@ -3413,4 +3413,159 @@ mod tests {
             );
         }
     }
+
+    /// Phase 1 oracle: enumerate signed-permutation basis transforms between
+    /// ops_from_msg (MSG embedding) and ops_from_hall (canonical H Hall setting).
+    ///
+    /// For each MSG we check whether any of the 48 signed-permutation matrices
+    /// can map the rotation multiset correctly.  This is a diagnostic only —
+    /// it does NOT change the classification path.
+    #[test]
+    fn phase1_setting_transform_oracle() {
+        use crate::irrep::wigner::{SettingTransform, enumerate_signed_permutations};
+
+        let all_t = enumerate_signed_permutations();
+        let mut stats = std::collections::HashMap::<&str, usize>::new();
+        let mut transform_hits: Vec<(usize, usize, [[i32; 3]; 3])> = Vec::new();
+
+        for uni in 1..=1651 {
+            let h_info = match identify_unitary_subgroup_with_hall(uni) {
+                Some(i) => i,
+                None => continue,
+            };
+            let msg_ops = &h_info.ops_from_msg;
+            let hall_ops = &h_info.ops_from_hall;
+
+            if msg_ops.is_empty() || hall_ops.is_empty() {
+                continue;
+            }
+
+            // Collect rotation multisets
+            let msg_rots: Vec<[[i32; 3]; 3]> = msg_ops.iter()
+                .map(|op| op.rotation).collect();
+            let hall_rots: Vec<[[i32; 3]; 3]> = hall_ops.iter()
+                .map(|op| op.rotation).collect();
+
+            // Check identity (T=I)
+            let identity_works = rotation_multiset_eq(&msg_rots, &hall_rots);
+            if identity_works {
+                *stats.entry("identity").or_default() += 1;
+                transform_hits.push((uni, h_info.hall, [[1,0,0],[0,1,0],[0,0,1]]));
+                continue;
+            }
+
+            // Try each signed-permutation T
+            let mut found = false;
+            for t in &all_t {
+                let transform = SettingTransform { basis: *t, origin: [0.0; 3] };
+                let transformed: Vec<[[i32; 3]; 3]> = msg_rots.iter()
+                    .map(|r| transform.transform_rotation(r))
+                    .collect();
+                if rotation_multiset_eq(&transformed, &hall_rots) {
+                    *stats.entry("signed_perm").or_default() += 1;
+                    transform_hits.push((uni, h_info.hall, *t));
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                *stats.entry("not_found").or_default() += 1;
+            }
+        }
+
+        println!("\n=== Phase 1: setting-transform oracle ===");
+        let total: usize = stats.values().sum();
+        println!("  Total UNI checked: {}", total);
+        for (key, count) in &stats {
+            println!("  {:>20}  {:>6}  ({:.1}%)", key, count, *count as f64 / total as f64 * 100.0);
+        }
+
+        // Show signed-permutation examples
+        println!("\n  Signed-permutation examples (first 10):");
+        let mut shown = 0;
+        for (uni, hall, t) in &transform_hits {
+            if *t == [[1,0,0],[0,1,0],[0,0,1]] { continue; }
+            if shown >= 10 { break; }
+            let st = crate::spg_database::spgdb_get_spacegroup_type(*hall);
+            println!("    UNI{} Hall{} SG{} T={:?}", uni, hall, st.number, t);
+            shown += 1;
+        }
+
+        // Cross-tab: transform status vs direct anti-coset failure stage
+        println!("\n  Cross-tab: transform status vs direct anti-coset failure stage");
+        let mut cross = std::collections::HashMap::<(&str, &str), usize>::new();
+        for uni in 1..=1651 {
+            let h_info = match identify_unitary_subgroup_with_hall(uni) {
+                Some(i) => i,
+                None => continue,
+            };
+            let msg_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_msg.iter()
+                .map(|op| op.rotation).collect();
+            let hall_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_hall.iter()
+                .map(|op| op.rotation).collect();
+
+            let transform_status =
+                if rotation_multiset_eq(&msg_rots, &hall_rots) { "identity" }
+                else if all_t.iter().any(|t| {
+                    let tr = SettingTransform { basis: *t, origin: [0.0; 3] };
+                    let xformed: Vec<_> = msg_rots.iter()
+                        .map(|r| tr.transform_rotation(r)).collect();
+                    rotation_multiset_eq(&xformed, &hall_rots)
+                }) { "signed_perm" }
+                else { "not_found" };
+
+            let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
+            let h_sg = h_info.sg as u8;
+            let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
+            let g_spin = IrrepRecord::spin_ops_for_sg(g_sg);
+
+            for ir in crate::irrep::query::irreps_of(h_sg) {
+                if !ir.spinor { continue; }
+                let mag_lg = crate::irrep::wigner::filter_little_group(
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+                let antiunitary: Vec<usize> = mag_lg.iter()
+                    .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
+                if antiunitary.is_empty() { continue; }
+
+                let h_spin = ir.spin_ops();
+                let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
+                let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
+
+                let diag = crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
+                    &ctx, ir.characters(), ir.spin_character_imag(),
+                    ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
+                    ir.kx, ir.ky, ir.kz, ir.kd,
+                );
+                let stage = match diag {
+                    Ok(_) => "ok",
+                    Err(e) => match e {
+                        crate::irrep::wigner::DirectAntiFailure::SquareNotInSpinTable => "square_not_in_spin",
+                        crate::irrep::wigner::DirectAntiFailure::SquareOutsideLittleGroup => "square_outside_lg",
+                        _ => "other",
+                    },
+                };
+                *cross.entry((transform_status, stage)).or_default() += 1;
+            }
+        }
+        println!("  {:>12} {:>24} {:>6}", "transform", "stage", "count");
+        let mut cross_sorted: Vec<_> = cross.iter().collect();
+        cross_sorted.sort_by_key(|((t, s), _)| (t.to_string(), s.to_string()));
+        for ((t, s), c) in &cross_sorted {
+            println!("  {:>12} {:>24} {:>6}", t, s, c);
+        }
+    }
+}
+
+/// Compare two rotation multisets for equality (order-independent).
+fn rotation_multiset_eq(a: &[[[i32; 3]; 3]], b: &[[[i32; 3]; 3]]) -> bool {
+    if a.len() != b.len() { return false; }
+    let mut b_used = vec![false; b.len()];
+    for ra in a {
+        let mut found = false;
+        for (j, rb) in b.iter().enumerate() {
+            if !b_used[j] && ra == rb { b_used[j] = true; found = true; break; }
+        }
+        if !found { return false; }
+    }
+    true
 }
