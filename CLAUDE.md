@@ -1002,64 +1002,55 @@ UNI663 的 `C2z -> C2y` 就是反例。rotation-only matching 只能在已确认
 
 ### 修正计划
 
-#### Phase 0：冻结可比较的基线
+#### Phase 0：冻结可比较的基线 ✅
 
-在继续修改正式路径前，让诊断固定输出：
+基线已冻结（`diagnose_wigner_sources`，2026-06-19）：
 
 ```text
-ok=20,710
-fail=679
+ok=20,710  (96.825%)
+fail=679   (3.175%)
 non_quantized=315
 square_not_in_spin_table=194
 square_outside_little_group=170
 ```
 
-同时按 `(failure_stage, H_SG, UNI, k_label)` 保存计数。每次修改必须使用同一轮、
-同一分母比较，不能混入历史 counter。
+分母统一使用 21,389（全量 spinor irrep×UNI 对）。
 
-#### Phase 1：只做 setting-transform oracle，不改变正式分类
+#### Phase 1：setting-transform oracle → 验证 → 集成 ✅
 
-新增明确的数据结构：
+**新增数据结构**（`wigner.rs`）：
 
-```text
-SettingTransform {
-    basis: T,
-    origin: s,
-}
-```
+- `SettingTransform { basis: T, origin: s }` — 基底+原点变换
+- `transform_rotation()` / `transform_translation()` — 正向变换
+- `enumerate_signed_permutations()` — 48 个 signed-permutation 矩阵
+- `find_setting_transform(msg_rots, hall_rots)` — 自动搜索匹配的 T
+- `rotation_multiset_eq()` — 顺序无关的 rotation multiset 比较
 
-采用约定：
+**约定**：`x_hall = T·x_msg + s`，`R_hall = T·R_msg·T⁻¹`
 
-```text
-x_hall = T x_msg + s
-R_hall = T R_msg T^-1
-t_hall = s - R_hall s + T t_msg
-```
-
-第一轮 oracle：
-
-1. 枚举 48 个 signed-permutation `T`；
-2. 要求变换后的 `ops_from_msg` rotation multiset 与 `ops_from_hall` 完全一致；
-3. 对每个候选 `T`，使用全部操作联立求解 origin `s`：
-
-   ```text
-   t_hall - T t_msg = (I - R_hall)s  mod Z^3
-   ```
-
-4. 用完整 Seitz set 验证双射，而不是只看 rotation set；
-5. 对多解记录 `ambiguous`，禁止随意取第一个；
-6. UNI663 必须得到能将 `C2z` 映射到 Hall3 `C2y` 的变换。
-
-新增统计：
+**Oracle 结果**（`phase1_setting_transform_oracle`，1,644 UNI）：
 
 ```text
-transform_full_match
-transform_rotation_only
-transform_ambiguous
-transform_not_found
+identity:     1,356 (82.5%)  — MSG 和 H 在同一基底下
+signed_perm:     72 (4.4%)   — 找到了轴置换
+not_found:      216 (13.1%)  — 48 个 signed-permutation 都不匹配
 ```
 
-按当前三类 failure 和 SG 交叉统计。只有 oracle 明显覆盖目标失败后才接入正式路径。
+**验证结果**（`phase1b_verify_transform_fix`）：
+对 72 个 signed-perm UNI 的 136 个 `square_not_in_spin` 失败，
+应用 T 变换后 **136/136 (100%)** 修复。第一个确认案例：
+UNI663 SG3，T=swap(y,z)，C2z→C2y。
+
+**正式路径集成**（`wigner_classify_spinor`）：
+- 新增 `setting_xf: Option<&SettingTransform>` 参数
+- 传递给 direct anti-coset fallback
+- `diagnose_wigner_sources` 中从 `ops_from_msg`/`ops_from_hall` 自动计算 T
+
+**Path triage 影响**：
+- `MSG_GAUGE_W_FAIL`: 875 → 596 (**-279**)
+- `OLD_PATH_FAIL`: 583 → 386 (**-197**)
+
+总失败数 679 未变——那 136 个 case 已被 primary 路径修复，不依赖 fallback。
 
 #### Phase 2：修正 reciprocal k 和 little-group 过滤
 
