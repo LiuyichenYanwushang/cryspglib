@@ -99,6 +99,29 @@ def _amp_phase_to_pauli(amp, phase):
     return [u0, u1, u2, u3]
 
 
+def _rationalize_kvector(coords):
+    """Convert decimal k coordinates to the smallest supported rational tuple.
+
+    spin.dat stores thirds and sixths with six decimal places (for example
+    0.333333), so their scaled roundoff can be slightly larger than 1e-6.
+    """
+    from math import gcd
+
+    tolerance = 5e-6
+    for kd in [1, 2, 3, 4, 6]:
+        numerators = [int(round(v * kd)) for v in coords]
+        if all(abs(v * kd - n) <= tolerance for v, n in zip(coords, numerators)):
+            g = kd
+            for n in numerators:
+                g = gcd(g, abs(n))
+            if g > 1:
+                numerators = [n // g for n in numerators]
+                kd //= g
+            return numerators[0], numerators[1], numerators[2], kd
+
+    raise ValueError(f"Unsupported spin.dat k-vector coordinates: {coords!r}")
+
+
 def find_tables_dir():
     """Locate the irrepTables data directory."""
     candidates = []
@@ -260,31 +283,7 @@ def parse_spinor_file(filepath):
             # irreps at the same k-point get the same (kx,ky,kz,kd) tuple
             # and are correctly grouped by kpoints_of().
             if current_kvec:
-                kx, ky, kz = current_kvec
-                from math import gcd
-                kd = 1
-                for d in [1, 2, 3, 4, 6]:
-                    ok = True
-                    for v in [kx, ky, kz]:
-                        v_scaled = v * d
-                        if abs(v_scaled - round(v_scaled)) > 1e-6:
-                            ok = False
-                            break
-                    if ok:
-                        kd = d
-                        break
-                kx_i = int(round(kx * kd))
-                ky_i = int(round(ky * kd))
-                kz_i = int(round(kz * kd))
-                # Reduce to simplest form
-                g = gcd(abs(kx_i), abs(ky_i))
-                g = gcd(g, abs(kz_i))
-                g = gcd(g, kd)
-                if g > 1:
-                    kx_i //= g
-                    ky_i //= g
-                    kz_i //= g
-                    kd //= g
+                kx_i, ky_i, kz_i, kd = _rationalize_kvector(current_kvec)
             else:
                 kx_i = ky_i = kz_i = 0
                 kd = 1
