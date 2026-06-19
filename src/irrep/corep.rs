@@ -1821,8 +1821,11 @@ mod tests {
             let h_sg = h_info.sg as u8;
             // Compute setting transform BEFORE moving ops_from_msg
             let msg_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_msg.iter().map(|o| o.rotation).collect();
+            let msg_trans: Vec<[f64; 3]> = h_info.ops_from_msg.iter().map(|o| o.translation).collect();
             let hall_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_hall.iter().map(|o| o.rotation).collect();
-            let setting_xf = crate::irrep::wigner::find_setting_transform(&msg_rots, &hall_rots);
+            let hall_trans: Vec<[f64; 3]> = h_info.ops_from_hall.iter().map(|o| o.translation).collect();
+            let setting_xfs = crate::irrep::wigner::find_setting_transform(&msg_rots, &msg_trans, &hall_rots, &hall_trans);
+            let setting_xf = setting_xfs.first();
             let h_ops = h_info.ops_from_msg;
             let h_seitz = crate::irrep::wigner::ops_to_seitz(&h_ops);
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
@@ -1853,7 +1856,7 @@ mod tests {
                         &ctx, ir.characters(), ir.spin_character_imag(),
                         ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                         &unitary, &mag_seitz, &h_seitz, antiunitary[0],
-                        setting_xf.as_ref(),
+                        setting_xf,
                         ir.kx, ir.ky, ir.kz, ir.kd,
                     );
                     match (has_imag, su2_result.is_some()) {
@@ -1892,8 +1895,11 @@ mod tests {
             let h_sg = h_info.sg as u8;
             // Compute setting transform BEFORE moving ops_from_msg
             let msg_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_msg.iter().map(|o| o.rotation).collect();
+            let msg_trans: Vec<[f64; 3]> = h_info.ops_from_msg.iter().map(|o| o.translation).collect();
             let hall_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_hall.iter().map(|o| o.rotation).collect();
-            let setting_xf = crate::irrep::wigner::find_setting_transform(&msg_rots, &hall_rots);
+            let hall_trans: Vec<[f64; 3]> = h_info.ops_from_hall.iter().map(|o| o.translation).collect();
+            let setting_xfs = crate::irrep::wigner::find_setting_transform(&msg_rots, &msg_trans, &hall_rots, &hall_trans);
+            let setting_xf = setting_xfs.first();
             let h_ops = h_info.ops_from_msg;
             let h_seitz = crate::irrep::wigner::ops_to_seitz(&h_ops);
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
@@ -1939,7 +1945,7 @@ mod tests {
                     &ctx, ir.characters(), ir.spin_character_imag(),
                     ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                     &unitary, &mag_seitz, &h_seitz, antiunitary[0],
-                    setting_xf.as_ref(),
+                    setting_xf,
                     ir.kx, ir.ky, ir.kz, ir.kd,
                 );
                 let direct_diagnostic =
@@ -1950,7 +1956,7 @@ mod tests {
                         ir.spin_lg_op_indices(),
                         &antiunitary,
                         &mag_seitz,
-                        setting_xf.as_ref(),
+                        setting_xf,
                         ir.kx,
                         ir.ky,
                         ir.kz,

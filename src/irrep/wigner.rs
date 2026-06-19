@@ -861,24 +861,194 @@ pub fn enumerate_signed_permutations() -> Vec<[[i32; 3]; 3]> {
     results
 }
 
-/// Find the signed-permutation basis transform T such that
-/// `T·R_msg·T⁻¹` maps the rotation multiset of `msg_rots` onto `hall_rots`.
+/// Find all setting transforms `(T, s)` that satisfy:
+///
+/// ```text
+/// x_hall = T · x_msg + s
+/// R_hall = T · R_msg · T⁻¹
+/// t_hall = s - R_hall·s + T·t_msg   (mod Z³)
+/// ```
+///
+/// Returns all valid `(T, s)` pairs.  If the rotation multisets already match
+/// without any basis change, the identity `T=I` is tried with origin solving.
 pub fn find_setting_transform(
     msg_rots: &[[[i32; 3]; 3]],
+    msg_trans: &[[f64; 3]],
     hall_rots: &[[[i32; 3]; 3]],
-) -> Option<SettingTransform> {
+    hall_trans: &[[f64; 3]],
+) -> Vec<SettingTransform> {
+    let mut results = Vec::new();
+
+    // Try identity basis first.
     if rotation_multiset_eq(msg_rots, hall_rots) {
-        return Some(SettingTransform::identity());
+        if let Some(s) = solve_origin_for_t(
+            &[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            msg_rots, msg_trans, hall_rots, hall_trans,
+        ) {
+            results.push(SettingTransform {
+                basis: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                origin: s,
+            });
+            return results;
+        }
+        // Identity basis matches rotations but origin can't be solved —
+        // still return identity as a fallback (it's the best we have).
+        results.push(SettingTransform::identity());
+        return results;
     }
+
     for t in &enumerate_signed_permutations() {
-        let xf = SettingTransform { basis: *t, origin: [0.0; 3] };
+        let t_inv = mat_inverse_3i(t);
         let xf_rots: Vec<[[i32; 3]; 3]> = msg_rots.iter()
-            .map(|r| xf.transform_rotation(r)).collect();
-        if rotation_multiset_eq(&xf_rots, hall_rots) {
-            return Some(xf);
+            .map(|r| {
+                let tmp = mat_multiply_3i_3i(t, r);
+                mat_multiply_3i_3i(&tmp, &t_inv)
+            })
+            .collect();
+        if !rotation_multiset_eq(&xf_rots, hall_rots) {
+            continue;
+        }
+        if let Some(s) = solve_origin_for_t(t, msg_rots, msg_trans, hall_rots, hall_trans) {
+            results.push(SettingTransform { basis: *t, origin: s });
         }
     }
-    None
+    results
+}
+
+/// For a given basis T, solve the origin s from the translation equations:
+///
+/// ```text
+/// (I - R_hall) · s  ≡  t_hall - T·t_msg   (mod Z³)
+/// ```
+///
+/// Builds a rotation correspondence (msg_idx → hall_idx) via greedy matching,
+/// then solves the over-determined modulo-1 linear system by Gaussian
+/// elimination over ℝ³ followed by a modulo-consistency check.
+fn solve_origin_for_t(
+    t: &[[i32; 3]; 3],
+    msg_rots: &[[[i32; 3]; 3]],
+    msg_trans: &[[f64; 3]],
+    hall_rots: &[[[i32; 3]; 3]],
+    hall_trans: &[[f64; 3]],
+) -> Option<[f64; 3]> {
+    // Build greedy rotation correspondence.
+    let t_inv = mat_inverse_3i(t);
+    let mut hall_used = vec![false; hall_rots.len()];
+    let mut pairs: Vec<(usize, usize)> = Vec::new(); // (msg_idx, hall_idx)
+
+    for (mi, mr) in msg_rots.iter().enumerate() {
+        let tmp = mat_multiply_3i_3i(t, mr);
+        let xf_r = mat_multiply_3i_3i(&tmp, &t_inv);
+        let pos = hall_rots.iter().enumerate()
+            .position(|(j, hr)| *hr == xf_r && !hall_used[j]);
+        if let Some(hi) = pos {
+            hall_used[hi] = true;
+            pairs.push((mi, hi));
+        }
+    }
+    if pairs.is_empty() {
+        return None;
+    }
+
+    // Collect scalar equations  A·s ≡ b (mod 1).
+    // Each operation pair gives up to 3 independent scalar rows.
+    let mut eqs: Vec<([f64; 3], f64)> = Vec::with_capacity(3 * pairs.len());
+
+    for &(msg_idx, hall_idx) in &pairs {
+        let rh = hall_rots[hall_idx];
+        let a_row0 = [1.0 - rh[0][0] as f64,      -rh[0][1] as f64,      -rh[0][2] as f64];
+        let a_row1 = [     -rh[1][0] as f64, 1.0 - rh[1][1] as f64,      -rh[1][2] as f64];
+        let a_row2 = [     -rh[2][0] as f64,      -rh[2][1] as f64, 1.0 - rh[2][2] as f64];
+
+        let th = hall_trans[hall_idx];
+        let tm = msg_trans[msg_idx];
+        let tt: [f64; 3] = [
+            t[0][0] as f64 * tm[0] + t[0][1] as f64 * tm[1] + t[0][2] as f64 * tm[2],
+            t[1][0] as f64 * tm[0] + t[1][1] as f64 * tm[1] + t[1][2] as f64 * tm[2],
+            t[2][0] as f64 * tm[0] + t[2][1] as f64 * tm[1] + t[2][2] as f64 * tm[2],
+        ];
+        let b = [th[0] - tt[0], th[1] - tt[1], th[2] - tt[2]];
+
+        // Only keep rows where A is not trivially zero (R ≠ I for that row).
+        // For the identity rotation, A = 0 and we get 0 ≡ b, which is a
+        // consistency condition rather than a constraint on s.
+        let keep_row = |a: &[f64; 3]| a[0].abs() > 1e-12 || a[1].abs() > 1e-12 || a[2].abs() > 1e-12;
+        if keep_row(&a_row0) { eqs.push((a_row0, b[0])); }
+        if keep_row(&a_row1) { eqs.push((a_row1, b[1])); }
+        if keep_row(&a_row2) { eqs.push((a_row2, b[2])); }
+    }
+
+    if eqs.is_empty() {
+        // No non-trivial constraints — any origin works.
+        return Some([0.0; 3]);
+    }
+
+    // Gaussian elimination over ℝ (augmented matrix: [A | b]).
+    let n = eqs.len();
+    let mut aug: Vec<[f64; 4]> = eqs.iter().map(|(a, b)| [a[0], a[1], a[2], *b]).collect();
+    let mut pivot_row = 0usize;
+
+    for col in 0..3 {
+        // Find pivot.
+        let mut best = None;
+        for r in pivot_row..n {
+            if aug[r][col].abs() > 1e-12 {
+                best = Some(r);
+                break;
+            }
+        }
+        let pr = match best {
+            Some(r) => r,
+            None => continue,
+        };
+        aug.swap(pivot_row, pr);
+
+        // Normalize pivot row.
+        let pv = aug[pivot_row][col];
+        for c in col..4 {
+            aug[pivot_row][c] /= pv;
+        }
+
+        // Eliminate other rows.
+        for r in 0..n {
+            if r == pivot_row { continue; }
+            let factor = aug[r][col];
+            if factor.abs() < 1e-12 { continue; }
+            for c in col..4 {
+                aug[r][c] -= factor * aug[pivot_row][c];
+            }
+        }
+        pivot_row += 1;
+    }
+
+    // Read solution: for each column 0..2, if there's a pivot row with a 1,
+    // read s[col] from the RHS; otherwise set to 0.
+    let mut s = [0.0f64; 3];
+    for col in 0..3 {
+        let pr = (0..pivot_row).find(|&r| (aug[r][col] - 1.0).abs() < 1e-12);
+        if let Some(r) = pr {
+            s[col] = aug[r][3];
+        }
+        // else: free variable, keep 0
+    }
+
+    // Verify: for every original equation, (A·s - b) must be integer.
+    for (a, b) in &eqs {
+        let residual = a[0] * s[0] + a[1] * s[1] + a[2] * s[2] - b;
+        let frac = residual - residual.round();
+        if frac.abs() > 1e-8 {
+            return None;
+        }
+    }
+
+    // Normalize s to [0, 1).
+    for i in 0..3 {
+        s[i] = (s[i] % 1.0 + 1.0) % 1.0;
+        if s[i].abs() < 1e-10 { s[i] = 0.0; }
+        if (s[i] - 1.0).abs() < 1e-10 { s[i] = 0.0; }
+    }
+
+    Some(s)
 }
 
 /// Compare two rotation multisets for equality (order-independent).
