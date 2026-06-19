@@ -2329,9 +2329,11 @@ mod tests {
                 detected_hall_exact += 1;
             } else if examples.len() < 10 {
                 examples.push(format!(
-                    "UNI{uni} SG{sg} hall={hall} transformed={} target={}",
-                    transformed.len(),
-                    detected_target.len(),
+                    "UNI{uni} SG{sg} hall={hall} basis={:?} origin={:?} transformed={:?} target={:?}",
+                    transform.basis,
+                    transform.origin,
+                    transformed.iter().map(|op| (op.rot, op.trans)).collect::<Vec<_>>(),
+                    detected_target.iter().map(|op| (op.rot, op.trans)).collect::<Vec<_>>(),
                 ));
             }
             let data_target = wigner::ops_to_seitz(
