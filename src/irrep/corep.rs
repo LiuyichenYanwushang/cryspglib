@@ -1808,6 +1808,8 @@ mod tests {
         let mut final_failure_reasons = std::collections::HashMap::<&str, usize>::new();
         let mut final_failure_by_sg =
             std::collections::HashMap::<(&str, u8), usize>::new();
+        let mut final_failure_by_transform =
+            std::collections::HashMap::<(&str, bool), usize>::new();
 
         for uni in 1..=1651 {
             let mag_ops = match get_magnetic_operations(uni) {
@@ -1969,6 +1971,9 @@ mod tests {
                         *final_failure_by_sg
                             .entry((reason.as_str(), h_sg))
                             .or_default() += 1;
+                        *final_failure_by_transform
+                            .entry((reason.as_str(), setting_xf.is_some()))
+                            .or_default() += 1;
                     }
                 }
                 let direct_result = direct_diagnostic.ok();
@@ -2062,6 +2067,13 @@ mod tests {
         });
         for ((reason, sg), count) in final_failure_by_sg {
             println!("  {:>30}  SG{:>3}  {:>6}", reason, sg, count);
+        }
+        println!("\n=== Final failure stages by setting transform ===");
+        let mut final_failure_by_transform: Vec<_> =
+            final_failure_by_transform.into_iter().collect();
+        final_failure_by_transform.sort_by_key(|((reason, found), _)| (*reason, *found));
+        for ((reason, found), count) in final_failure_by_transform {
+            println!("  {:>30}  xf_found={:<5}  {:>6}", reason, found, count);
         }
 
         // Print MSG-gauge vs old-path triage counters for the full triage pass.
