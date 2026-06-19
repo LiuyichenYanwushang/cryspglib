@@ -2355,6 +2355,97 @@ mod tests {
         }
     }
 
+    /// Oracle: check UNI→Hall→magnetic operations entry point for anomalous cases.
+    ///
+    /// For UNI187, UNI270, UNI271, UNI663: prints Hall selection, unitary
+    /// operation closure, and consistency with BNS/UNI metadata.
+    #[test]
+    fn diagnose_magnetic_entry_hall_anomalies() {
+        let test_unis = [187usize, 270, 271, 663];
+        for &uni in &test_unis {
+            println!("\n=== UNI{} ===", uni);
+            let msg_type = crate::MagneticSpaceGroupType::from_uni(uni);
+            println!("  BNS={} OG={} type={:?} number={}",
+                msg_type.bns_number.trim(), msg_type.og_number.trim(),
+                msg_type.type_, msg_type.number);
+
+            // Hall selection
+            let hall = get_first_hall_for_uni(uni);
+            println!("  get_first_hall_for_uni: {:?}", hall);
+
+            // Magnetic operations
+            let mag_ops = match get_magnetic_operations(uni) {
+                Some(ops) => ops,
+                None => { println!("  get_magnetic_operations: None"); continue; }
+            };
+            println!("  mag_ops: {} total", mag_ops.len());
+            let u_count = mag_ops.operations.iter().filter(|o| !o.time_reversal).count();
+            let a_count = mag_ops.operations.iter().filter(|o| o.time_reversal).count();
+            println!("  unitary={} antiunitary={}", u_count, a_count);
+
+            // Show unitary rotations
+            let id: crate::mathfunc::Mat3I = [[1,0,0],[0,1,0],[0,0,1]];
+            let unitary_rots: Vec<&crate::mathfunc::Mat3I> = mag_ops.operations.iter()
+                .filter(|o| !o.time_reversal)
+                .map(|o| &o.rotation)
+                .collect();
+            println!("  unitary rotations ({} distinct):",
+                unitary_rots.iter().collect::<std::collections::HashSet<_>>().len());
+            for (i, op) in mag_ops.operations.iter().enumerate() {
+                if op.time_reversal { continue; }
+                let is_id = op.rotation == id;
+                println!("    [{}] rot={:?} t=({:.3},{:.3},{:.3}){}",
+                    i, op.rotation, op.translation[0], op.translation[1], op.translation[2],
+                    if is_id { " ID" } else { "" });
+            }
+
+            // Identify unitary subgroup
+            let h_info = identify_unitary_subgroup_with_hall(uni);
+            if let Some(info) = &h_info {
+                println!("  identified: SG{} Hall{}", info.sg, info.hall);
+                // Check consistency
+                let seitz_msg = crate::irrep::wigner::ops_to_seitz(&info.ops_from_msg);
+                let seitz_hall = crate::irrep::wigner::ops_to_seitz(&info.ops_from_hall);
+                let mut rot_msg: Vec<_> = seitz_msg.iter().map(|s| s.rot).collect();
+                let mut rot_hall: Vec<_> = seitz_hall.iter().map(|s| s.rot).collect();
+                rot_msg.sort();
+                rot_hall.sort();
+                let rots_match = rot_msg == rot_hall;
+                println!("  rot multisets match: {}", rots_match);
+                if !rots_match {
+                    println!("    msg rots:  {:?}", rot_msg);
+                    println!("    hall rots: {:?}", rot_hall);
+                }
+                // Check closure: every product of two unitary ops should be in the set
+                let all_closed = unitary_rots.iter().all(|r1| {
+                    unitary_rots.iter().all(|r2| {
+                        let prod = crate::mathfunc::mat_multiply_matrix_i3(r1, r2);
+                        unitary_rots.iter().any(|r3| **r3 == prod)
+                    })
+                });
+                println!("  unitary rotation closure: {}", all_closed);
+                if !all_closed {
+                    println!("    WARNING: unitary rotations are NOT closed under multiplication!");
+                }
+            } else {
+                println!("  identify_unitary_subgroup_with_hall: None");
+            }
+
+            // Also check with hall=0 to see if the MSG database self-selects
+            if let Some(h) = hall {
+                let ops_h0 = crate::msg_database::msgdb_get_spacegroup_operations(uni, 0);
+                let ops_h = crate::msg_database::msgdb_get_spacegroup_operations(uni, h);
+                if let (Some(sym0), Some(symh)) = (ops_h0, ops_h) {
+                    let same_size = sym0.size == symh.size;
+                    let h0_u = (0..sym0.size).filter(|&i| !sym0.timerev[i]).count();
+                    let hh_u = (0..symh.size).filter(|&i| !symh.timerev[i]).count();
+                    println!("  msgdb(uni,0): {} ops ({}U)  msgdb(uni,{}): {} ops ({}U)  same_size={}",
+                        sym0.size, h0_u, h, symh.size, hh_u, same_size);
+                }
+            }
+        }
+    }
+
     /// Oracle for the reciprocal-space action used by `spin_lg_op_indices`.
     ///
     /// Compares the generated canonical spin little-group membership against
