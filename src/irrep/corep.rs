@@ -1597,8 +1597,8 @@ mod tests {
                     mag_ops.operations[i].rotation, mag_ops.operations[i].translation, false))
                 .collect();
             for ir in crate::irrep::query::irreps_of(h_sg) {
-                let mag_lg = crate::irrep::wigner::filter_little_group_with_transform(
-                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf);
+                let mag_lg = crate::irrep::wigner::filter_little_group(
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
                 let unitary_lg: Vec<_> = mag_lg.iter()
                     .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
                 if unitary_lg.len() <= 1 { continue; }
@@ -1660,8 +1660,8 @@ mod tests {
             for ir in crate::irrep::query::irreps_of(h_sg) {
                 if ir.spinor { continue; }
                 if shown >= max_show { break 'outer; }
-                let mag_lg = crate::irrep::wigner::filter_little_group_with_transform(
-                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf);
+                let mag_lg = crate::irrep::wigner::filter_little_group(
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
                 let unitary_lg: Vec<_> = mag_lg.iter()
                     .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
                 if unitary_lg.len() <= 1 { continue; }
@@ -1832,8 +1832,8 @@ mod tests {
 
             for ir in crate::irrep::query::irreps_of(h_sg) {
 
-                let mag_lg = crate::irrep::wigner::filter_little_group(
-                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+                let mag_lg = crate::irrep::wigner::filter_little_group_with_transform(
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf);
                 let antiunitary: Vec<usize> = mag_lg.iter()
                     .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
 
@@ -1906,8 +1906,8 @@ mod tests {
 
             for ir in crate::irrep::query::irreps_of(h_sg) {
                 if !ir.spinor { continue; }
-                let mag_lg = crate::irrep::wigner::filter_little_group(
-                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+                let mag_lg = crate::irrep::wigner::filter_little_group_with_transform(
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf);
                 let antiunitary: Vec<usize> = mag_lg.iter()
                     .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
                 if antiunitary.is_empty() { continue; }
