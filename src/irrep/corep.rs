@@ -3569,3 +3569,105 @@ fn rotation_multiset_eq(a: &[[[i32; 3]; 3]], b: &[[[i32; 3]; 3]]) -> bool {
     }
     true
 }
+
+/// Phase 1b: for UNIs where a signed-permutation T was found AND
+/// square_not_in_spin failures exist, verify whether applying T to
+/// the anti-unitary MSG operations resolves the failures.
+///
+/// This oracle does NOT change the classification path — it only
+/// confirms that the identified T is the correct basis transform.
+#[test]
+fn phase1b_verify_transform_fix() {
+    use crate::irrep::wigner::{SettingTransform, enumerate_signed_permutations};
+
+    let all_t = enumerate_signed_permutations();
+    let mut fixed = 0usize;
+    let mut total = 0usize;
+
+    println!("\n=== Phase 1b: verify T fixes square_not_in_spin ===");
+
+    for uni in 1..=1651 {
+        let h_info = match identify_unitary_subgroup_with_hall(uni) {
+            Some(i) => i, None => continue,
+        };
+        let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
+
+        // Find T
+        let msg_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_msg.iter().map(|o| o.rotation).collect();
+        let hall_rots: Vec<[[i32; 3]; 3]> = h_info.ops_from_hall.iter().map(|o| o.rotation).collect();
+        if rotation_multiset_eq(&msg_rots, &hall_rots) { continue; } // identity: no fix needed
+
+        let t_found = all_t.iter().find(|t| {
+            let tr = SettingTransform { basis: **t, origin: [0.0; 3] };
+            let xf: Vec<_> = msg_rots.iter().map(|r| tr.transform_rotation(r)).collect();
+            rotation_multiset_eq(&xf, &hall_rots)
+        });
+        let t = match t_found {
+            Some(t) => *t,
+            None => continue,
+        };
+        let transform = SettingTransform { basis: t, origin: [0.0; 3] };
+
+        let h_sg = h_info.sg as u8;
+        let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
+        let g_spin = IrrepRecord::spin_ops_for_sg(g_sg);
+        let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
+
+        // Build H Hall spin table
+        let h_spin = IrrepRecord::spin_ops_for_sg(h_sg);
+        let g_spin_seitz = crate::irrep::wigner::build_spin_seitz(g_spin.0, g_spin.1);
+
+        for ir in crate::irrep::query::irreps_of(h_sg) {
+            if !ir.spinor { continue; }
+            let mag_lg = crate::irrep::wigner::filter_little_group(
+                ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
+            let antiunitary: Vec<usize> = mag_lg.iter()
+                .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
+            if antiunitary.is_empty() { continue; }
+
+            let ctx = crate::irrep::wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
+
+            // Original direct anti-coset result
+            let orig = crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
+                &ctx, ir.characters(), ir.spin_character_imag(),
+                ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
+                ir.kx, ir.ky, ir.kz, ir.kd,
+            );
+
+            // Only interested in square_not_in_spin failures
+            let orig_not_in_spin = matches!(&orig, Err(crate::irrep::wigner::DirectAntiFailure::SquareNotInSpinTable));
+            if !orig_not_in_spin { continue; }
+            total += 1;
+
+            // Now re-run with transformed b rotations
+            let mut transformed_seitz: Vec<crate::irrep::wigner::SeitzOp> = mag_seitz.to_vec();
+            for &b_idx in &antiunitary {
+                let b = &mag_seitz[b_idx];
+                let r_t = transform.transform_rotation(&b.rot);
+                let t_t = transform.transform_translation(&b.rot, &b.trans);
+                transformed_seitz[b_idx] = crate::irrep::wigner::SeitzOp::new(r_t, t_t, true);
+            }
+
+            // Re-run direct anti-coset with transformed b
+            let fixed_result = crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
+                &ctx, ir.characters(), ir.spin_character_imag(),
+                ir.spin_lg_op_indices(), &antiunitary, &transformed_seitz,
+                ir.kx, ir.ky, ir.kz, ir.kd,
+            );
+
+            let is_fixed = !matches!(&fixed_result, Err(crate::irrep::wigner::DirectAntiFailure::SquareNotInSpinTable));
+            if is_fixed {
+                fixed += 1;
+                if fixed <= 5 {
+                    println!("  FIXED: UNI{} SG{} {} k=({},{},{})/{} T={:?}",
+                        uni, h_sg, ir.k_label(), ir.kx, ir.ky, ir.kz, ir.kd, t);
+                }
+            }
+        }
+    }
+
+    println!("  Total square_not_in_spin with signed_perm T: {}", total);
+    println!("  Fixed by applying T: {} ({:.1}%)", fixed,
+        if total > 0 { fixed as f64 / total as f64 * 100.0 } else { 0.0 });
+    println!("  Still failing: {}", total - fixed);
+}
