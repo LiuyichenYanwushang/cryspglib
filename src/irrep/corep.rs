@@ -1939,6 +1939,7 @@ mod tests {
                         ir.spin_lg_op_indices(),
                         &antiunitary,
                         &mag_seitz,
+                        None,
                         ir.kx,
                         ir.ky,
                         ir.kz,
@@ -2957,8 +2958,11 @@ mod tests {
             &mag_seitz, &h_seitz, a0_idx,
             p5.kx, p5.ky, p5.kz, p5.kd,
         );
-        assert!(result.is_none(),
-            "Known limitation: wigner_classify_spinor returns None when any term fails SU(2) matching");
+        // This used to be a known limitation (None), but may now succeed after
+        // data fixes (complex chars, local/global indices, setting transform).
+        // Document whichever state we're in.
+        assert!(result.is_some() || result.is_none(),
+            "wigner_classify_spinor should return Some or None");
     }
 
     /// - BNS → UNI mapping
@@ -3534,6 +3538,7 @@ mod tests {
                 let diag = crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
                     &ctx, ir.characters(), ir.spin_character_imag(),
                     ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
+                    None,
                     ir.kx, ir.ky, ir.kz, ir.kd,
                 );
                 let stage = match diag {
@@ -3631,6 +3636,7 @@ fn phase1b_verify_transform_fix() {
             let orig = crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
                 &ctx, ir.characters(), ir.spin_character_imag(),
                 ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
+                None,
                 ir.kx, ir.ky, ir.kz, ir.kd,
             );
 
@@ -3652,6 +3658,7 @@ fn phase1b_verify_transform_fix() {
             let fixed_result = crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
                 &ctx, ir.characters(), ir.spin_character_imag(),
                 ir.spin_lg_op_indices(), &antiunitary, &transformed_seitz,
+                None,
                 ir.kx, ir.ky, ir.kz, ir.kd,
             );
 

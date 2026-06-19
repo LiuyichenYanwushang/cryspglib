@@ -861,6 +861,40 @@ pub fn enumerate_signed_permutations() -> Vec<[[i32; 3]; 3]> {
     results
 }
 
+/// Find the signed-permutation basis transform T such that
+/// `T·R_msg·T⁻¹` maps the rotation multiset of `msg_rots` onto `hall_rots`.
+pub fn find_setting_transform(
+    msg_rots: &[[[i32; 3]; 3]],
+    hall_rots: &[[[i32; 3]; 3]],
+) -> Option<SettingTransform> {
+    if rotation_multiset_eq(msg_rots, hall_rots) {
+        return Some(SettingTransform::identity());
+    }
+    for t in &enumerate_signed_permutations() {
+        let xf = SettingTransform { basis: *t, origin: [0.0; 3] };
+        let xf_rots: Vec<[[i32; 3]; 3]> = msg_rots.iter()
+            .map(|r| xf.transform_rotation(r)).collect();
+        if rotation_multiset_eq(&xf_rots, hall_rots) {
+            return Some(xf);
+        }
+    }
+    None
+}
+
+/// Compare two rotation multisets for equality (order-independent).
+pub fn rotation_multiset_eq(a: &[[[i32; 3]; 3]], b: &[[[i32; 3]; 3]]) -> bool {
+    if a.len() != b.len() { return false; }
+    let mut b_used = vec![false; b.len()];
+    for ra in a {
+        let mut found = false;
+        for (j, rb) in b.iter().enumerate() {
+            if !b_used[j] && ra == rb { b_used[j] = true; found = true; break; }
+        }
+        if !found { return false; }
+    }
+    true
+}
+
 /// Verify that `h_seitz` operation ordering matches the CIR character table.
 /// Prints all operations with their characters for manual inspection.
 #[cfg(test)]
@@ -1021,19 +1055,14 @@ pub fn wigner_classify_spinor_direct_anti(
     spin_lg_op_indices: &[u16],
     anti_lg_indices: &[usize],
     mag_seitz: &[SeitzOp],
+    setting_xf: Option<&SettingTransform>,
     kx: i8, ky: i8, kz: i8, kd: i8,
 ) -> Option<CorepType> {
     wigner_classify_spinor_direct_anti_diagnostic(
-        ctx,
-        spin_chars_real,
-        spin_chars_imag,
-        spin_lg_op_indices,
-        anti_lg_indices,
-        mag_seitz,
-        kx,
-        ky,
-        kz,
-        kd,
+        ctx, spin_chars_real, spin_chars_imag,
+        spin_lg_op_indices, anti_lg_indices, mag_seitz,
+        setting_xf,
+        kx, ky, kz, kd,
     )
     .ok()
 }
@@ -1045,6 +1074,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     spin_lg_op_indices: &[u16],
     anti_lg_indices: &[usize],
     mag_seitz: &[SeitzOp],
+    setting_xf: Option<&SettingTransform>,
     kx: i8, ky: i8, kz: i8, kd: i8,
 ) -> Result<CorepType, DirectAntiFailure> {
     let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
@@ -1087,8 +1117,16 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     for &b_idx in anti_lg_indices {
         let b = &mag_seitz[b_idx];
 
+        // Apply setting transform if present: x_hall = T·x_msg + s.
+        // This corrects for MSG-embedding basis ≠ canonical Hall basis.
+        let (b_rot, b_trans) = if let Some(xf) = setting_xf {
+            (xf.transform_rotation(&b.rot), xf.transform_translation(&b.rot, &b.trans))
+        } else {
+            (b.rot, b.trans)
+        };
+
         // Convert b to Bilbao setting, then square.
-        let b_bilbao = SeitzOp::new(b.rot, to_bilbao(b.rot, b.trans), false);
+        let b_bilbao = SeitzOp::new(b_rot, to_bilbao(b_rot, b_trans), false);
         let (sq, lattice_sq) = square_seitz(&b_bilbao);
 
         // b² ∈ H₀ by group theory: b ∈ M_k ⇒ b² ∈ H_k ⇒ R_{b²} ∈ H₀.
@@ -1123,7 +1161,9 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
 
         // SU(2) lift of b (rotation-only lookup in G spin ops — b may have
         // improper rotation from G \ H for Type III).
-        let b_spin_idx = g_spin_seitz.iter().position(|s| s.rot == b.rot)
+        // Use b_rot (after setting transform) for consistency with the
+        // Hall-frame spin table lookup above.
+        let b_spin_idx = g_spin_seitz.iter().position(|s| s.rot == b_rot)
             .or_else(|| {
                 let r: Mat3I = [
                     [-b.rot[0][0], -b.rot[0][1], -b.rot[0][2]],
@@ -1821,10 +1861,8 @@ pub fn wigner_classify_spinor(
         spin_lg_op_indices,
         &anti_lg_indices,
         mag_seitz,
-        kx,
-        ky,
-        kz,
-        kd,
+        None,
+        kx, ky, kz, kd,
     )
 }
 
