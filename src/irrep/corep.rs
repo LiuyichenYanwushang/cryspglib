@@ -2368,11 +2368,15 @@ mod tests {
         ) -> Vec<wigner::SeitzOp> {
             let mut result = Vec::new();
             for op in ops.operations.iter().filter(|op| !op.time_reversal) {
-                let transformed = wigner::SeitzOp::new(
-                    transform.transform_rotation(&op.rotation),
-                    transform.transform_translation(&op.rotation, &op.translation),
-                    false,
-                );
+                let rot = match transform.transform_rotation(&op.rotation) {
+                    Some(r) => r,
+                    None => continue,
+                };
+                let trans = match transform.transform_translation(&op.rotation, &op.translation) {
+                    Some(t) => t,
+                    None => continue,
+                };
+                let transformed = wigner::SeitzOp::new(rot, trans, false);
                 if wigner::find_seitz(&transformed.rot, &transformed.trans, &result).is_none() {
                     result.push(transformed);
                 }
@@ -2554,7 +2558,7 @@ mod tests {
                     std_sg, std_hall, xf.basis, xf.origin[0], xf.origin[1], xf.origin[2]);
                 // Verify: apply transform to unitary ops, they should be in standard Hall
                 let xf_rots: Vec<_> = unitary_rots.iter()
-                    .map(|r| xf.transform_rotation(r))
+                    .filter_map(|r| xf.transform_rotation(r))
                     .collect();
                 let hall_ops = get_parent_operations_by_hall(std_hall);
                 if let Some(hop) = &hall_ops {
@@ -2642,7 +2646,9 @@ mod tests {
                 for &b_idx in &antiunitary {
                     let b = &mag_seitz[b_idx];
                     let (b_rot, _b_trans) = if let Some(xf) = setting_xf {
-                        (xf.transform_rotation(&b.rot), xf.transform_translation(&b.rot, &b.trans))
+                        let rot = xf.transform_rotation(&b.rot).unwrap_or(b.rot);
+                        let trans = xf.transform_translation(&b.rot, &b.trans).unwrap_or(b.trans);
+                        (rot, trans)
                     } else {
                         (b.rot, b.trans)
                     };
@@ -3783,7 +3789,9 @@ mod tests {
                 for &b_idx in &antiunitary {
                     let b = &mag_seitz[b_idx];
                     let (b_rot, b_trans) = if let Some(xf) = setting_xf {
-                        (xf.transform_rotation(&b.rot), xf.transform_translation(&b.rot, &b.trans))
+                        let rot = xf.transform_rotation(&b.rot).unwrap_or(b.rot);
+                        let trans = xf.transform_translation(&b.rot, &b.trans).unwrap_or(b.trans);
+                        (rot, trans)
                     } else { (b.rot, b.trans) };
 
                     let to_bilbao = |rot: crate::mathfunc::Mat3I, trans: [f64;3]| -> [f64;3] {
@@ -4133,7 +4141,7 @@ mod tests {
                     origin: [0.0; 3],
                 };
                 let transformed: Vec<[[i32; 3]; 3]> = msg_rots.iter()
-                    .map(|r| transform.transform_rotation(r))
+                    .filter_map(|r| transform.transform_rotation(r))
                     .collect();
                 if rotation_multiset_eq(&transformed, &hall_rots) {
                     *stats.entry("signed_perm").or_default() += 1;
@@ -4186,7 +4194,7 @@ mod tests {
                         origin: [0.0; 3],
                     };
                     let xformed: Vec<_> = msg_rots.iter()
-                        .map(|r| tr.transform_rotation(r)).collect();
+                        .filter_map(|r| tr.transform_rotation(r)).collect();
                     rotation_multiset_eq(&xformed, &hall_rots)
                 }) { "signed_perm" }
                 else { "not_found" };
@@ -4280,7 +4288,7 @@ fn phase1b_verify_transform_fix() {
                 basis: t.map(|row| row.map(|value| value as f64)),
                 origin: [0.0; 3],
             };
-            let xf: Vec<_> = msg_rots.iter().map(|r| tr.transform_rotation(r)).collect();
+            let xf: Vec<_> = msg_rots.iter().filter_map(|r| tr.transform_rotation(r)).collect();
             rotation_multiset_eq(&xf, &hall_rots)
         });
         let t = match t_found {
@@ -4328,8 +4336,8 @@ fn phase1b_verify_transform_fix() {
             let mut transformed_seitz: Vec<crate::irrep::wigner::SeitzOp> = mag_seitz.to_vec();
             for &b_idx in &antiunitary {
                 let b = &mag_seitz[b_idx];
-                let r_t = transform.transform_rotation(&b.rot);
-                let t_t = transform.transform_translation(&b.rot, &b.trans);
+                let Some(r_t) = transform.transform_rotation(&b.rot) else { continue; };
+                let Some(t_t) = transform.transform_translation(&b.rot, &b.trans) else { continue; };
                 transformed_seitz[b_idx] = crate::irrep::wigner::SeitzOp::new(r_t, t_t, true);
             }
 

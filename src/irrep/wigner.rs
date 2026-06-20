@@ -482,11 +482,9 @@ pub fn filter_little_group_with_transform(
         .iter()
         .map(|op| {
             if let Some(xf) = setting_xf {
-                (
-                    xf.transform_rotation(&op.rotation),
-                    xf.transform_translation(&op.rotation, &op.translation),
-                    op.time_reversal,
-                )
+                let rot = xf.transform_rotation(&op.rotation).unwrap_or(op.rotation);
+                let trans = xf.transform_translation(&op.rotation, &op.translation).unwrap_or(op.translation);
+                (rot, trans, op.time_reversal)
             } else {
                 (op.rotation, op.translation, op.time_reversal)
             }
@@ -891,7 +889,9 @@ impl SettingTransform {
     }
 
     /// Apply the forward transform to a rotation matrix.
-    pub fn transform_rotation(&self, r_msg: &Mat3I) -> Mat3I {
+    /// Returns `None` when the transform does not produce an integer rotation
+    /// (i.e. the setting transform is invalid for this MSG frame).
+    pub fn transform_rotation(&self, r_msg: &Mat3I) -> Option<Mat3I> {
         let t = self.basis;
         let t_inv = mat_inverse_matrix_d3(&t, 1e-10)
             .expect("setting-transform basis must be invertible");
@@ -908,17 +908,18 @@ impl SettingTransform {
             for j in 0..3 {
                 let rounded = transformed[i][j].round();
                 if (transformed[i][j] - rounded).abs() > 1e-8 {
-                    return *r_msg; // Transform invalid — return untransformed rotation
+                    return None;
                 }
                 result[i][j] = rounded as i32;
             }
         }
-        result
+        Some(result)
     }
 
     /// Apply the forward transform to a translation vector.
-    pub fn transform_translation(&self, r_msg: &Mat3I, t_msg: &[f64; 3]) -> [f64; 3] {
-        let r_hall = self.transform_rotation(r_msg);
+    /// Returns `None` when the rotation transform fails.
+    pub fn transform_translation(&self, r_msg: &Mat3I, t_msg: &[f64; 3]) -> Option<[f64; 3]> {
+        let r_hall = self.transform_rotation(r_msg)?;
         let s = self.origin;
         // t_hall = s - R_hall·s + T·t_msg
         let mut t_hall = [0.0f64; 3];
@@ -930,7 +931,15 @@ impl SettingTransform {
                 t_hall[i] += 1.0;
             }
         }
-        t_hall
+        Some(t_hall)
+    }
+
+    /// Transform a full Seitz operation (R|t).  Returns `None` when the
+    /// rotation part does not transform to an integer matrix.
+    pub fn transform_seitz(&self, rot: &Mat3I, trans: &[f64; 3]) -> Option<(Mat3I, [f64; 3])> {
+        let r_hall = self.transform_rotation(rot)?;
+        let t_hall = self.transform_translation(rot, trans)?;
+        Some((r_hall, t_hall))
     }
 }
 
@@ -1432,7 +1441,9 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         // Apply setting transform if present: x_hall = T·x_msg + s.
         // This corrects for MSG-embedding basis ≠ canonical Hall basis.
         let (b_rot, b_trans) = if let Some(xf) = setting_xf {
-            (xf.transform_rotation(&b.rot), xf.transform_translation(&b.rot, &b.trans))
+            let rot = xf.transform_rotation(&b.rot).unwrap_or(b.rot);
+            let trans = xf.transform_translation(&b.rot, &b.trans).unwrap_or(b.trans);
+            (rot, trans)
         } else {
             (b.rot, b.trans)
         };
