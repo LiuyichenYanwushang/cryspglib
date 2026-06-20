@@ -3415,9 +3415,9 @@ mod tests {
     /// and therefore does NOT belong to L*.  k ≠ -k.
     ///
     /// The test enumerates the full magnetic little group.  ALL 24 operations
-    /// passing the k-preservation filter are unitary; not just θ but every
-    /// antiunitary coset element θg fails the filter.  This is because
-    /// k ≠ -k implies that NO rotated copy of -k equals k modulo L*.
+    /// passing the k-preservation filter are unitary; every antiunitary
+    /// coset element θg fails the filter.  (The failure of θ alone does not
+    /// logically guarantee failure of all θg; the code explicitly tests each.)
     ///
     /// Consequence: the Wigner A/B/C test has no antiunitary coset to work
     /// with.  `compute_corepresentation` returns Type A via the
@@ -3465,6 +3465,10 @@ mod tests {
         let corep = p5.corepresentation(uni).unwrap();
         assert_eq!(corep.corep_type, CorepType::A,
             "API convention: empty antiunitary LG returns Type A");
+        assert_eq!(corep.source, WignerSource::TrivialNoAntiunitary,
+            "Source must be TrivialNoAntiunitary (not a real Wigner classification)");
+        assert_eq!(corep.antiunitary_order, 0,
+            "antiunitary_order must be 0 when LG has no antiunitary ops");
     }
 
     /// - BNS → UNI mapping
