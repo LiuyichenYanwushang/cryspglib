@@ -564,12 +564,14 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
     let ops_from_msg = SymmetryOps::from_parallel(&unitary_rots, &unitary_trans, &timerev_from_msg);
 
     let (sg, hall, ops_from_hall) = if let Some(s) = sg_from_metadata {
-        // Type I/II: use metadata SG directly.
+        // Type I/II: use metadata SG directly — H = G.
         let h = crate::api::find_hall_number(s).ok()?;
         let oh = get_parent_operations_by_hall(h)?;
         (s as usize, h, oh)
     } else {
-        // Type III: try standard_setting_transform first, then fall back.
+        // Type III BlackWhite / Type IV AntiTranslation:
+        // H is a proper subgroup of parent G.  Try to identify H from the
+        // unitary ops via spglib's standardisation pipeline.
         let unitary_ops = SymmetryOps::from_parallel(
             &unitary_rots, &unitary_trans,
             &vec![false; unitary_rots.len()],
@@ -589,6 +591,28 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
             (sg_type.number, h, oh)
         }
     };
+    // ── Sanity check: spglib may return SG1 for proper subgroups that it
+    // cannot recognise (e.g. UNI 890, 896, 902 — Type III BlackWhite groups
+    // with parent G=SG107/108/109 whose unitary subgroup H has non-trivial
+    // rotations).  When the identified SG is SG1 but the unitary ops contain
+    // non-identity rotations, fall back to the parent G.  The parent G spin
+    // table covers all H rotations (H ⊂ G), preventing square_not_in_spin_table
+    // failures.  This is not a full fix — H's irreps still come from G.
+    let ident = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let has_non_identity = unitary_rots.iter().any(|r| *r != ident);
+    if sg == 1 && has_non_identity {
+        let parent_sg = msg_type.number;
+        if let Ok(h) = crate::api::find_hall_number(parent_sg as u8) {
+            if let Some(oh) = get_parent_operations_by_hall(h) {
+                return Some(UnitarySubgroupInfo {
+                    sg: parent_sg as usize,
+                    hall: h,
+                    ops_from_msg,
+                    ops_from_hall: oh,
+                });
+            }
+        }
+    }
 
     Some(UnitarySubgroupInfo {
         sg,
