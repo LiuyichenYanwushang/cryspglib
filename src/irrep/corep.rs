@@ -3406,121 +3406,65 @@ mod tests {
         }
     }
 
-    /// BCS validation: MSG 197.8 (I231') at H-point k=(1,1,1)
+    /// MSG 197.8 (I231'): P-point little group has no antiunitary operations.
     ///
-    /// Data source: Bilbao Crystallographic Server
-    /// `k-Subgroupsmag_197(8).html` — Corepresentations page.
+    /// UNI 1510 is Type II (Grey, H=G=SG197).  At P-point k=(1,1,1)/2:
     ///
-    /// ## BCS reference data (magnetic little group):
+    /// Antiunitary k-preservation: -R⁻ᵀk - k ∈ L*.  For the I23 body-centred
+    /// reciprocal lattice (FCC: h+k+l even), -2k=(-1,-1,-1) has sum -3 (odd)
+    /// and therefore does NOT belong to L*.  k ≠ -k.
     ///
-    /// **Magnetic Space Group**: I231' (No. 197.8), UNI 1510
-    ///   - Grey group (Type-2): G = H ∪ θ·H
-    ///   - Unitary subgroup: I23 (No. 197), Hall 491
-    ///   - Magnetic little co-group: 231' (24 ops: 12 unitary + 12 anti-unitary)
-    ///   - Unitary little co-group: 23 (12 ops)
+    /// The test enumerates the full magnetic little group.  ALL 24 operations
+    /// passing the k-preservation filter are unitary; not just θ but every
+    /// antiunitary coset element θg fails the filter.  This is because
+    /// k ≠ -k implies that NO rotated copy of -k equals k modulo L*.
     ///
-    /// **Co-irreps of the magnetic little group** (BCS labels):
-    ///   H₁ (1D), H₂H₃ (2D paired), H₄ (3D), H̄₅ (2D spinor), H̄₆H̄₇ (4D paired)
-    ///
-    /// ## What our API computes (full space group co-reps):
-    ///
-    /// Our `compute_coreps` computes co-representations for the FULL magnetic
-    /// space group (not just the little group). Dimensions are therefore
-    /// multiplied by the star arms count. The spinor irreps may return
-    /// Unsupported when SU(2) Wigner data is unavailable for the full MSG.
-    ///
-    /// This test verifies:
-    /// Spinor Wigner gauge-choice limitation: MSG 197.8 (I231') P5 at P-point.
-    ///
-    /// ## Background
-    ///
-    /// The Wigner test classifies spinor irreps into Type A/B/C by computing
-    /// the antiunitary square sum W = (1/|H₀|) Σ χ̃(a₀h).  Each term requires:
-    ///   1. Computing (a₀h)² in SO(3) via Seitz composition → rotation R_sq
-    ///   2. Computing the SU(2) lift via (U_a₀ · U_h)² → u_sq
-    ///   3. Comparing u_sq against ±U_sq from the spin database
-    ///
-    /// ## What this test verifies
-    ///
-    /// This test documents that the rotation matching (step 1) works perfectly
-    /// — all 12 (a₀h)² rotations are found in the little-group spin ops.
-    /// However, the SU(2) matching (step 3) fails for 6 of 12 terms because
-    /// (U_a₀ · U_h)² produces a result that is neither +U_sq nor -U_sq.
-    ///
-    /// ## Failure pattern
-    ///
-    /// The 6 failing terms are precisely the 3 C₂ rotations ({2₀₀₁, 2₀₁₀, 2₁₀₀})
-    /// and 3 of the 8 C₃ rotations.  Neither the standard U² formula nor the
-    /// J-left formula ((J·U)·(J·U)*) can resolve these.
-    ///
-    /// The 6 passing terms include h=E, h=C₃⁻ (where sq=I and ±I always matches),
-    /// and specific C₃ rotations where the antiunitary square happens to land
-    /// on an SU(2) lift consistent with the database convention.
-    ///
-    /// ## Root cause
-    ///
-    /// For spin-1/2, the antiunitary operator is θ = J·K where J = -iσy and K
-    /// is complex conjugation.  The SU(2) database stores lifts of SPATIAL
-    /// rotations only — not the full antiunitary operator.  The gauge choice
-    /// (±U for each rotation) is fixed per operation in the database, but the
-    /// SU(2) composition of two lifts can produce a result in the opposite
-    /// gauge sector for certain combinations.  Without per-operation central
-    /// parity data (±1 indicating whether (a₀h)² = h' or h'Ē in the double
-    /// group), this cannot be resolved from the rotation data alone.
-    ///
-    /// ## Known status
-    ///
-    /// This is the same "Bug 6: Θ²=Ē" documented in CLAUDE.md (945 total
-    /// failures, 88.3% coverage).  J-insertion fixed 61% of NONE cases but
-    /// introduced regressions when applied globally.  The remaining failures
-    /// require per-operation antiunitary character data from the double group,
-    /// which the current ISOTROPY data format does not provide.
+    /// Consequence: the Wigner A/B/C test has no antiunitary coset to work
+    /// with.  `compute_corepresentation` returns Type A via the
+    /// `TrivialNoAntiunitary` path — this is a current-API convention, not a
+    /// BCS physical classification.  BCS reports Type C for these irreps
+    /// because the antiunitary operator connects k → -k (different star arm),
+    /// which requires a star-based co-representation construction not yet
+    /// implemented.
     #[test]
-    fn test_spinor_wigner_gauge_limitation_msg197_8() {
-        let uni = 1510usize; // 197.8
+    fn test_msg197_8_p_point_no_antiunitary_in_little_group() {
+        let uni = 1510usize;
         let mag_ops = get_magnetic_operations(uni).unwrap();
-        let h_info = identify_unitary_subgroup_with_hall(uni).unwrap();
-        let h_ops = h_info.ops_from_msg;
-        let h_sg = h_info.sg as u8;
 
-        // Get the spinor irrep P5
-        let h_irreps = crate::irrep::query::irreps_of(h_sg);
-        let p5 = h_irreps.iter()
+        // Verify MSG type
+        let msg_type = crate::MagneticSpaceGroupType::from_uni(uni);
+        assert_eq!(msg_type.type_, crate::MagneticType::Grey,
+            "UNI 1510 is Type II Grey, not Type III");
+        assert_eq!(msg_type.number, 197);
+
+        let n_u = mag_ops.operations.iter().filter(|o| !o.time_reversal).count();
+        let n_a = mag_ops.operations.iter().filter(|o| o.time_reversal).count();
+        assert_eq!(n_u, n_a, "Grey: equal unitary and antiunitary");
+
+        // P5 spinor irrep at P-point
+        let p5 = crate::irrep::query::irreps_of(197).iter()
             .find(|r| r.ml == "P5" && r.spinor)
+            .cloned()
             .expect("P5 spinor not found");
+        assert_eq!((p5.kx, p5.ky, p5.kz, p5.kd), (1, 1, 1, 2),
+            "P-point is k=(1,1,1)/2");
 
-        let (h_rots, h_trans, h_su2) = p5.spin_ops();
-        let h_spin_seitz = wigner::build_spin_seitz(h_rots, h_trans);
-        let n_lg = p5.spin_lg_char_count();
-        let indices = p5.spin_lg_op_indices();
-        let h_seitz = ops_to_seitz(&h_ops);
-        let mag_seitz = ops_to_seitz(&mag_ops);
+        // Magnetic little group at P-point
         let mag_lg = filter_little_group(p5.kx, p5.ky, p5.kz, p5.kd, &mag_ops);
-
         let antiunitary: Vec<usize> = mag_lg.iter()
             .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
-        // At the P-point of body-centered I23, k = (1,1,1)/2.
-        // Antiunitary k-preservation: -R⁻ᵀk - k ∈ L*.
-        // For a₀=θ (R=I): -2k = (-1,-1,-1). Body-centered reciprocal
-        // lattice (FCC): h+k+l even. (-3) is odd → -2k ∉ L*.
-        // Therefore k ≠ -k, and NO antiunitary ops are in the magnetic LG.
-        assert!(antiunitary.is_empty(),
-            "At P-point of I23: k≠-k, θ is not in the magnetic little group");
-
-        // With empty antiunitary LG, the Wigner test gives Type A
-        // (TrivialNoAntiunitary path). Type C requires k-star formalism.
         let unitary: Vec<usize> = mag_lg.iter()
             .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
+
+        assert!(antiunitary.is_empty(),
+            "At P-point of I23, k≠-k: every antiunitary op fails the k-preservation filter");
         assert!(!unitary.is_empty(),
             "Unitary little group at P-point should be non-empty");
 
-        // Verify compute_corepresentation correctly handles empty antiunitary
-        let corep = p5.corepresentation(uni);
-        assert!(corep.is_some(),
-            "Corepresentation should be computable even with empty antiunitary LG");
-        let corep = corep.unwrap();
+        // Current-API behaviour: empty antiunitary LG → TrivialNoAntiunitary → Type A
+        let corep = p5.corepresentation(uni).unwrap();
         assert_eq!(corep.corep_type, CorepType::A,
-            "Empty antiunitary LG → TrivialNoAntiunitary → Type A");
+            "API convention: empty antiunitary LG returns Type A");
     }
 
     /// - BNS → UNI mapping
@@ -3538,27 +3482,16 @@ mod tests {
         let uni = uni.unwrap();
         assert_eq!(uni, 1510, "BCS: 197.8 = UNI 1510");
 
-        // 2. Unitary subgroup (BCS: I23 = SG 197)
-        let h_info = identify_unitary_subgroup_with_hall(uni);
-        assert!(h_info.is_some());
-        let h_info = h_info.unwrap();
-        // BCS 197.8 is BlackWhite (Type III): H is index-2 subgroup of I23
-        // With metadata fix, H may differ from G=197
-        println!("BCS 197.8: identified H=SG{} (parent G=SG197, Type III)", h_info.sg);
-        assert!(h_info.sg > 0, "Should identify unitary subgroup");
+        // 2. Unitary subgroup: I231' is Type II Grey, H = G = SG197
+        let h_info = identify_unitary_subgroup_with_hall(uni).unwrap();
+        assert_eq!(h_info.sg, 197, "Unitary subgroup of I231' is SG197");
 
-        // 3. Magnetic operations exist and are well-formed
-        let mag_ops = get_magnetic_operations(uni);
-        assert!(mag_ops.is_some());
-        let mag_ops = mag_ops.unwrap();
+        // 3. Magnetic operations exist and are well-formed (Grey: 24U+24A=48)
+        let mag_ops = get_magnetic_operations(uni).unwrap();
         let n_unitary = mag_ops.iter().filter(|o| !o.time_reversal).count();
         let n_anti = mag_ops.iter().filter(|o| o.time_reversal).count();
-        assert!(n_unitary > 0 && n_anti > 0,
-            "197.8: should have both unitary and anti-unitary ops. \
-             Got {}U+{}A", n_unitary, n_anti);
-        // BCS: magnetic little group has 12U+12A=24
-        // Full MSG has 24U+24A=48
-        assert_eq!(n_unitary, n_anti, "Grey group: #unitary = #anti-unitary");
+        assert_eq!(n_unitary, 24);
+        assert_eq!(n_anti, 24);
 
         // 4. H's P-point irreps (BCS "H" = our "P" for body-centered)
         let h_sg = h_info.sg as u8;
@@ -3598,19 +3531,20 @@ mod tests {
             }
         }
 
-        // 7. Scalar co-irreps at P-point: Type A because k ≠ -k.
-        // k=(1,1,1)/2 in conventional basis. -2k=(-1,-1,-1) has
-        // h+k+l=-3 (odd) → not in FCC reciprocal lattice.
-        // No antiunitary ops in magnetic LG → Wigner test gives Type A.
-        // Type C (pairing) requires k-star {k, -k} formalism (not yet impl).
+        // 7. Scalar co-irreps at P-point: current API returns Type A.
+        // k=(1,1,1)/2 in body-centred I23: -2k=(-1,-1,-1), h+k+l=-3 odd
+        // → -2k ∉ L* (FCC).  No antiunitary ops in magnetic LG →
+        // TrivialNoAntiunitary → Type A.  This is the current-API
+        // convention; BCS reports Type C because the antiunitary connects
+        // k → -k (different star arm).  Star-based co-representation
+        // construction for that case is not yet implemented.
         let scalar_coreps: Vec<_> = coreps.iter()
             .filter(|(label, _)| p_scalar.iter().any(|ir| label.contains(&ir.ml[..2])))
             .collect();
-        for (label, c) in &scalar_coreps {
+        for (_label, c) in &scalar_coreps {
             if c.corep_type != CorepType::Unsupported {
-                println!("  {}: type={:?} dim={}", label, c.corep_type, c.dim);
                 assert_eq!(c.corep_type, CorepType::A,
-                    "At P-point k≠-k: {} should be Type A, got {:?}", label, c.corep_type);
+                    "API convention: empty antiunitary LG → Type A");
             }
         }
     }
