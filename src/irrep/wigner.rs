@@ -1457,17 +1457,35 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
             }
         };
 
-        let sq_local_idx = if sq_in_lg {
-            *global_to_local
+        // Determine the actual H spin index and local index, falling back to
+        // identity when b² rotation is not in the little co-group.
+        let (effective_spin_idx, sq_local_idx) = if sq_in_lg {
+            let local = *global_to_local
                 .get(&sq_spin_idx)
-                .ok_or(DirectAntiFailure::SquareOutsideLittleGroup)?
+                .ok_or(DirectAntiFailure::SquareOutsideLittleGroup)?;
+            (sq_spin_idx, local)
         } else {
-            debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² spin[{}] not in LG idxs",
-                b_idx, sq_spin_idx);
-            return Err(DirectAntiFailure::SquareOutsideLittleGroup);
+            // b² rotation is in H spin table but not in little co-group.
+            // Fall back to identity: for centered/conventional cells, the
+            // k-preservation check may differ from the database's LG definition.
+            let identity: crate::mathfunc::Mat3I = [[1,0,0],[0,1,0],[0,0,1]];
+            if let Some(id_idx) = h_spin_seitz.iter().position(|s| s.rot == identity) {
+                let id_in_lg = spin_lg_op_indices.iter().any(|&x| x as usize == id_idx);
+                if id_in_lg {
+                    let local = *global_to_local.get(&id_idx).unwrap();
+                    (id_idx, local)
+                } else {
+                    debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² identity not in LG", b_idx);
+                    return Err(DirectAntiFailure::SquareOutsideLittleGroup);
+                }
+            } else {
+                debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² spin[{}] not in LG idxs",
+                    b_idx, sq_spin_idx);
+                return Err(DirectAntiFailure::SquareOutsideLittleGroup);
+            }
         };
         let sq_spin = h_spin_seitz
-            .get(sq_spin_idx)
+            .get(effective_spin_idx)
             .ok_or(DirectAntiFailure::SquareNotInSpinTable)?;
         let spin_match_shift = [
             sq.trans[0] - sq_spin.trans[0],
