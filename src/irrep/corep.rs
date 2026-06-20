@@ -2599,10 +2599,14 @@ mod tests {
                     setting_xf, ir.kx, ir.ky, ir.kz, ir.kd,
                 );
 
-                if !matches!(diag, Err(wigner::DirectAntiFailure::AntiunitarySpinLookup)) {
-                    continue;
-                }
+                let is_sq_not_spin = matches!(diag, Err(wigner::DirectAntiFailure::SquareNotInSpinTable));
+                let is_au_lookup = matches!(diag, Err(wigner::DirectAntiFailure::AntiunitarySpinLookup));
+                if !is_sq_not_spin && !is_au_lookup { continue; }
+                if h_sg != 1 && is_sq_not_spin { continue; } // SG1 only for sq_not_spin
                 if !shown.insert(h_sg) { continue; }
+
+                println!("\n=== UNI{} SG{} irrep {} k=({},{},{})/{} g_sg={} stage={:?} ===",
+                    uni, h_sg, ir.ml, ir.kx, ir.ky, ir.kz, ir.kd, g_sg, diag.err().unwrap());
 
                 let (g_spin_rots, _g_spin_trans, _g_spin_su2) = ctx.g;
                 let g_spin_seitz = wigner::build_spin_seitz(g_spin_rots, _g_spin_trans);

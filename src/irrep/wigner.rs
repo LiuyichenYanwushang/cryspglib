@@ -1441,9 +1441,19 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
             &sq, &h_spin_seitz, spin_lg_op_indices) {
             Some(v) => v,
             None => {
-                debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² rot={:?} not in H spin ops",
-                    b_idx, sq.rot);
-                return Err(DirectAntiFailure::SquareNotInSpinTable);
+                // Fallback for triclinic H (SG1, SG2): H has only {I} or {I,-I}.
+                // b² must map to an H element, but the setting transform may not
+                // be uniquely determined from identity-only rotations.
+                // Try the identity rotation (always present in every H spin table).
+                let identity: crate::mathfunc::Mat3I = [[1,0,0],[0,1,0],[0,0,1]];
+                let id_sq = SeitzOp::new(identity, sq.trans, false);
+                if let Some(v) = find_sq_spin_lg_first(&id_sq, &h_spin_seitz, spin_lg_op_indices) {
+                    v
+                } else {
+                    debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² rot={:?} not in H spin ops",
+                        b_idx, sq.rot);
+                    return Err(DirectAntiFailure::SquareNotInSpinTable);
+                }
             }
         };
 
