@@ -583,6 +583,28 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
                 ))?;
             (std_sg, std_hall, oh)
         } else {
+            // ═══════════════════════════════════════════════════════════════
+            // KNOWN SPGLIB LIMITATION — subgroup identification
+            //
+            // spg_get_hall_number_from_symmetry receives valid unitary
+            // operations that form a proper subgroup H of parent G (e.g. for
+            // UNI 890, 8 ops forming an index-2 subgroup of I4mm #107).
+            // The rotations are correct, the translations are correct, and
+            // the operations are in G's standard frame (full-MSG
+            // standardisation succeeded — see diagnostics above).
+            // Nevertheless, spglib returns Hall 1 / SG 1 ("no symmetry").
+            //
+            // Hypothesis: spglib internally "completes" the subgroup to the
+            // parent space group, then rejects the result because the
+            // original input didn't include all parent operations.  This is
+            // a fundamental limitation of spglib's space-group detection
+            // pipeline, which searches for the SMALLEST supergroup, not for
+            // the identity of the given generating set.
+            //
+            // TODO: proper fix requires either (a) patching spglib to
+            // support subgroup identification, or (b) building a separate
+            // subgroup→Hall lookup from known group–subgroup relations.
+            // ═══════════════════════════════════════════════════════════════
             #[allow(deprecated)]
             let h = crate::spg_get_hall_number_from_symmetry(&unitary_rots, &unitary_trans, 1e-5).ok()?;
             if h == 0 || h > 530 { return None; }
@@ -591,13 +613,24 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
             (sg_type.number, h, oh)
         }
     };
-    // ── Sanity check: spglib may return SG1 for proper subgroups that it
-    // cannot recognise (e.g. UNI 890, 896, 902 — Type III BlackWhite groups
-    // with parent G=SG107/108/109 whose unitary subgroup H has non-trivial
-    // rotations).  When the identified SG is SG1 but the unitary ops contain
-    // non-identity rotations, fall back to the parent G.  The parent G spin
-    // table covers all H rotations (H ⊂ G), preventing square_not_in_spin_table
-    // failures.  This is not a full fix — H's irreps still come from G.
+    // ── WORKAROUND for the spglib subgroup-identification limitation ──
+    //
+    // If spglib returned SG1 (trivial) but the unitary ops contain
+    // non-identity rotations (e.g. UNI 890, 896, 902 — Type III BlackWhite
+    // groups with parent G=SG107/108/109), the identification is clearly
+    // wrong.  Fall back to the parent G, whose spin table covers all H
+    // rotations (H ⊂ G), preventing `square_not_in_spin_table` failures.
+    //
+    // Caveat: H's irreps still come from G, not the true subgroup.
+    // This is acceptable as a pragmatic fix because:
+    //   - SG1 irreps (only the trivial irrep) are certainly wrong
+    //   - G's irreps can be subduced to H (though the resulting
+    //     classification may not exactly match BCS)
+    //   - The spin table and character tables at least cover all
+    //     needed rotations
+    //
+    // TODO: replace with proper subduction or explicit subgroup→Hall
+    // lookup once spglib subgroup identification is available.
     let ident = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
     let has_non_identity = unitary_rots.iter().any(|r| *r != ident);
     if sg == 1 && has_non_identity {
