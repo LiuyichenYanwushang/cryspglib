@@ -459,11 +459,16 @@ pub fn filter_little_group(
     kx: i8, ky: i8, kz: i8, kd: i8,
     ops: &SymmetryOps,
 ) -> Vec<usize> {
-    filter_little_group_with_transform(kx, ky, kz, kd, ops, None)
+    filter_little_group_with_transform(kx, ky, kz, kd, ops, None, None)
 }
 
-/// Filter operations after mapping them into the canonical Hall setting in
-/// which the supplied k-vector is expressed.
+/// Filter operations that preserve the k-vector.
+///
+/// When `canonical_pure_translations` is provided (from the canonical H Hall
+/// setting), the k-preservation phase check uses the FULL translation subgroup.
+/// This is essential for centered groups (F/I/C/A) where the MSG-derived pure
+/// translations may be only a subset, causing antiunitary ops to incorrectly
+/// pass the filter.
 pub fn filter_little_group_with_transform(
     kx: i8,
     ky: i8,
@@ -471,6 +476,7 @@ pub fn filter_little_group_with_transform(
     kd: i8,
     ops: &SymmetryOps,
     setting_xf: Option<&SettingTransform>,
+    canonical_pure_translations: Option<&[[f64; 3]]>,
 ) -> Vec<usize> {
     if kd == 0 {
         return (0..ops.len()).collect();
@@ -490,7 +496,8 @@ pub fn filter_little_group_with_transform(
         if !all_ok {
             // Transform is not universally valid — use MSG frame.
             debug_log!("  LG filter: setting transform invalid, using MSG frame");
-            return filter_little_group_with_transform(kx, ky, kz, kd, ops, None);
+            return filter_little_group_with_transform(kx, ky, kz, kd, ops, None,
+                canonical_pure_translations);
         }
     }
 
@@ -509,11 +516,18 @@ pub fn filter_little_group_with_transform(
             }
         })
         .collect();
-    let pure_translations: Vec<[f64; 3]> = transformed
-        .iter()
-        .filter(|(rotation, _, time_reversal)| !time_reversal && *rotation == identity)
-        .map(|(_, translation, _)| *translation)
-        .collect();
+
+    // Use canonical H translation subgroup when available (centered groups).
+    // The MSG-derived pure translations may be a subset, causing weaker
+    // k-preservation filtering that incorrectly admits antiunitary ops.
+    let pure_translations: Vec<[f64; 3]> = match canonical_pure_translations {
+        Some(t) => t.to_vec(),
+        None => transformed
+            .iter()
+            .filter(|(rotation, _, time_reversal)| !time_reversal && *rotation == identity)
+            .map(|(_, translation, _)| *translation)
+            .collect(),
+    };
 
     (0..ops.len())
         .filter(|&i| {

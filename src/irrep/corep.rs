@@ -229,8 +229,16 @@ pub fn compute_corepresentation(
     }
 
     // 2. Filter to magnetic little group with setting transform.
+    // Pass canonical H translation subgroup for stricter k-preservation
+    // (essential for centered groups where MSG-derived pure translations
+    // are only a subset — see codex review Plan 1B).
+    let h_pure_translations: Vec<[f64; 3]> = h_ops.operations.iter()
+        .filter(|op| op.rotation == [[1,0,0],[0,1,0],[0,0,1]])
+        .map(|op| op.translation)
+        .collect();
     let mag_lg = filter_little_group_with_transform(
-        h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd, mag_ops, setting_xf);
+        h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd, mag_ops, setting_xf,
+        Some(&h_pure_translations));
     if mag_lg.is_empty() {
         return None;
     }
@@ -1942,7 +1950,7 @@ mod tests {
             for ir in crate::irrep::query::irreps_of(h_sg) {
 
                 let mag_lg = crate::irrep::wigner::filter_little_group_with_transform(
-                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf);
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf, None);
                 let antiunitary: Vec<usize> = mag_lg.iter()
                     .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
 
@@ -2031,7 +2039,7 @@ mod tests {
             for ir in crate::irrep::query::irreps_of(h_sg) {
                 if !ir.spinor { continue; }
                 let mag_lg = crate::irrep::wigner::filter_little_group_with_transform(
-                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf);
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf, None);
                 let antiunitary: Vec<usize> = mag_lg.iter()
                     .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
                 if antiunitary.is_empty() { continue; }
@@ -3744,7 +3752,7 @@ mod tests {
             for ir in crate::irrep::query::irreps_of(h_sg) {
                 if !ir.spinor { continue; }
                 let mag_lg = wigner::filter_little_group_with_transform(
-                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf);
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf, None);
                 let antiunitary: Vec<usize> = mag_lg.iter()
                     .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
                 if antiunitary.is_empty() { continue; }
