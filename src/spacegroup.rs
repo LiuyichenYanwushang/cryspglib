@@ -263,8 +263,13 @@ pub fn spa_search_spacegroup_with_symmetry(
     cell.position[0] = [0.0; 3];
     primitive.cell = Some(cell);
 
-    // Use all spacegroups (0-229)
-    let candidates = SPACEGROUP_TO_HALL_NUMBER.to_vec();
+    // Search ALL 530 Hall settings, not just the 230 preferred ones.
+    // The preferred-Hall fast path (SPACEGROUP_TO_HALL_NUMBER) can miss
+    // proper subgroups whose conventional setting differs from the parent
+    // group's preferred Hall (e.g. UNI 890: SG44 Imm2 vs Hall 215/216).
+    // A subgroup should be identifiable regardless of which Hall setting
+    // the input coordinates happen to match.
+    let candidates: Vec<i32> = (1..=530).collect();
 
     search_spacegroup_with_symmetry(&primitive, &candidates, symmetry, symprec, -1.0)
 }
