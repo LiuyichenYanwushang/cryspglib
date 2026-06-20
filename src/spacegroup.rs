@@ -487,6 +487,13 @@ fn iterative_search_hall_number(
             current_symmetry = sym_reduced;
         }
 
+        // Reject Hall 1 when the original symmetry had non-trivial
+        // operations — the tolerance retry must not reduce a genuine
+        // subgroup down to just identity and then claim "SG1".
+        if hall_number == 1 && symmetry.size > 1 {
+            hall_number = 0;
+        }
+
         if hall_number != 0 {
             break;
         }
