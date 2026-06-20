@@ -476,14 +476,33 @@ pub fn filter_little_group_with_transform(
         return (0..ops.len()).collect();
     }
 
+    // ── Atomic transform validation ──────────────────────────────────────
+    // Before building the transformed op list, verify that the setting
+    // transform is valid for ALL operations.  If any single operation fails
+    // to transform (non-integer rotation), reject the entire transform and
+    // fall back to the raw MSG-frame coordinates.  This prevents mixed-frame
+    // little groups where some ops are in Hall frame and others in MSG frame.
+    if let Some(xf) = setting_xf {
+        let all_ok = ops.operations.iter().all(|op| {
+            xf.transform_rotation(&op.rotation).is_some()
+                && xf.transform_translation(&op.rotation, &op.translation).is_some()
+        });
+        if !all_ok {
+            // Transform is not universally valid — use MSG frame.
+            debug_log!("  LG filter: setting transform invalid, using MSG frame");
+            return filter_little_group_with_transform(kx, ky, kz, kd, ops, None);
+        }
+    }
+
     let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
     let transformed: Vec<(Mat3I, [f64; 3], bool)> = ops
         .operations
         .iter()
         .map(|op| {
             if let Some(xf) = setting_xf {
-                let rot = xf.transform_rotation(&op.rotation).unwrap_or(op.rotation);
-                let trans = xf.transform_translation(&op.rotation, &op.translation).unwrap_or(op.translation);
+                // SAFETY: validated above that all ops transform successfully.
+                let rot = xf.transform_rotation(&op.rotation).unwrap();
+                let trans = xf.transform_translation(&op.rotation, &op.translation).unwrap();
                 (rot, trans, op.time_reversal)
             } else {
                 (op.rotation, op.translation, op.time_reversal)
@@ -1441,8 +1460,13 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         // Apply setting transform if present: x_hall = T·x_msg + s.
         // This corrects for MSG-embedding basis ≠ canonical Hall basis.
         let (b_rot, b_trans) = if let Some(xf) = setting_xf {
-            let rot = xf.transform_rotation(&b.rot).unwrap_or(b.rot);
-            let trans = xf.transform_translation(&b.rot, &b.trans).unwrap_or(b.trans);
+            // SAFETY: the caller (via filter_little_group_with_transform)
+            // validated atomically that the setting transform succeeds for
+            // ALL MSG ops, so it must succeed for this antiunitary op too.
+            let rot = xf.transform_rotation(&b.rot)
+                .expect("setting transform validated atomically upstream");
+            let trans = xf.transform_translation(&b.rot, &b.trans)
+                .expect("setting transform validated atomically upstream");
             (rot, trans)
         } else {
             (b.rot, b.trans)
