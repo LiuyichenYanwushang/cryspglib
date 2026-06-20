@@ -95,7 +95,7 @@ use crate::mathfunc::{mat_inverse_matrix_d3, Mat3I, Vec3};
 use crate::SymmetryOps;
 use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use super::types::IrrepRecord;
-use super::wigner::{self, filter_little_group, ops_to_seitz, SeitzOp,
+use super::wigner::{self, filter_little_group, filter_little_group_with_transform, ops_to_seitz, SeitzOp,
     compose_seitz, square_seitz, find_seitz, bloch_phase, mat_vec_i32, add3};
 
 macro_rules! debug_log {
@@ -200,18 +200,38 @@ pub fn compute_corepresentation(
         return None;
     }
 
-    // 1. Filter to magnetic little group
-    let mag_lg = filter_little_group(h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd, mag_ops);
-    if mag_lg.is_empty() {
+    // 1. Identify H first — needed for setting transform.
+    let h_info = identify_unitary_subgroup_with_hall(uni_number)?;
+    // Extract setting transform data.
+    let msg_rots: Vec<crate::mathfunc::Mat3I> = h_info.ops_from_msg.operations.iter().map(|o| o.rotation).collect();
+    let msg_trans: Vec<[f64; 3]> = h_info.ops_from_msg.operations.iter().map(|o| o.translation).collect();
+    let hall_rots: Vec<crate::mathfunc::Mat3I> = h_info.ops_from_hall.operations.iter().map(|o| o.rotation).collect();
+    let hall_trans: Vec<[f64; 3]> = h_info.ops_from_hall.operations.iter().map(|o| o.translation).collect();
+
+    // Compute setting transform for production path.
+    let xfs = wigner::find_setting_transform(&msg_rots, &msg_trans, &hall_rots, &hall_trans);
+    let mut xf_owned = xfs.first().cloned();
+    if xf_owned.is_none() {
+        let u_rots: Vec<crate::mathfunc::Mat3I> = h_info.ops_from_msg.iter()
+            .filter(|o| !o.time_reversal).map(|o| o.rotation).collect();
+        let u_trans: Vec<[f64; 3]> = h_info.ops_from_msg.iter()
+            .filter(|o| !o.time_reversal).map(|o| o.translation).collect();
+        let u_ops = crate::SymmetryOps::from_parallel(&u_rots, &u_trans, &vec![false; u_rots.len()]);
+        if let Some((_sg, _hall, xf)) = standard_setting_transform(&u_ops, false) {
+            xf_owned = Some(xf);
+        }
+    }
+    let setting_xf = xf_owned.as_ref();
+
+    let h_ops = &h_info.ops_from_msg;
+    if h_ops.is_empty() {
         return None;
     }
 
-    // 2. Get H's symmetry operations with correct Hall setting.
-    // Use identify_unitary_subgroup_with_hall instead of
-    // get_parent_operations(sg) which uses first-Hall setting.
-    let h_info = identify_unitary_subgroup_with_hall(uni_number)?;
-    let h_ops = h_info.ops_from_msg;  // correct Hall setting
-    if h_ops.is_empty() {
+    // 2. Filter to magnetic little group with setting transform.
+    let mag_lg = filter_little_group_with_transform(
+        h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd, mag_ops, setting_xf);
+    if mag_lg.is_empty() {
         return None;
     }
 
@@ -292,10 +312,11 @@ pub fn compute_corepresentation(
         let is_grey = crate::MagneticSpaceGroupType::from_uni(uni_number).type_
             == crate::MagneticType::Grey;
         let a0_idx = select_spinor_a0(&antiunitary, &mag_seitz, is_grey);
+
         if let Some(ct) = wigner::wigner_classify_spinor(
             &ctx, h_chars, h_irrep.spin_character_imag(), n_lg, op_indices,
             &unitary, &mag_seitz, &h_seitz, a0_idx,
-            None,
+            setting_xf,
             Some(&antiunitary),
             h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
         ) {
