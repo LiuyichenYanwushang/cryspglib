@@ -1786,10 +1786,21 @@ pub(crate) fn find_sq_spin_lg_first(
         return Some((rot_lg[0], true));
     }
 
-    // 3. Fallback: rotation-only in full database
+    // 3. Fallback: rotation-only in full database.
+    // For centered groups, the same rotation may appear at multiple indices
+    // (different centering translations). Prefer an LG entry when available.
     let global_idx = h_spin_seitz.iter().position(|s| s.rot == sq.rot)?;
     let in_lg = lg_cands.contains(&global_idx);
-    Some((global_idx, in_lg))
+    if in_lg {
+        return Some((global_idx, true));
+    }
+    // Rotation found but not in LG — check if another index with same rotation IS in LG
+    for (si, s) in h_spin_seitz.iter().enumerate() {
+        if s.rot == sq.rot && lg_cands.contains(&si) {
+            return Some((si, true));
+        }
+    }
+    Some((global_idx, false))
 }
 
 // ── Spinor (double-group) operations ───────────────────────────────────────
