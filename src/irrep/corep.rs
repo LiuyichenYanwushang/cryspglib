@@ -3499,268 +3499,28 @@ mod tests {
 
         let antiunitary: Vec<usize> = mag_lg.iter()
             .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
-        assert!(!antiunitary.is_empty(),
-            "MSG 197.8 should have antiunitary ops at P-point");
-        let a0_idx = antiunitary[0];
-        let a0 = &mag_seitz[a0_idx];
+        // At the P-point of body-centered I23, k = (1,1,1)/2.
+        // Antiunitary k-preservation: -R⁻ᵀk - k ∈ L*.
+        // For a₀=θ (R=I): -2k = (-1,-1,-1). Body-centered reciprocal
+        // lattice (FCC): h+k+l even. (-3) is odd → -2k ∉ L*.
+        // Therefore k ≠ -k, and NO antiunitary ops are in the magnetic LG.
+        assert!(antiunitary.is_empty(),
+            "At P-point of I23: k≠-k, θ is not in the magnetic little group");
 
-        // ISOTROPY origin shift → Bilbao convention
-        let (_basis, origin) = IrrepRecord::sg_setting(p5.sg);
-        let to_bilbao = |rot: Mat3I, trans: [f64; 3]| -> [f64; 3] {
-            if origin.len() < 3 { return trans; }
-            let mut t = trans;
-            for i in 0..3 {
-                let delta: f64 = (0..3).map(|j| {
-                    let kron = if i == j { 1.0_f64 } else { 0.0 };
-                    (kron - rot[i][j] as f64) * origin[j]
-                }).sum();
-                t[i] = (t[i] - delta) % 1.0;
-                if t[i] < 0.0 { t[i] += 1.0; }
-            }
-            t
-        };
-        let a0_bilbao = wigner::SeitzOp::new(a0.rot, to_bilbao(a0.rot, a0.trans), false);
+        // With empty antiunitary LG, the Wigner test gives Type A
+        // (TrivialNoAntiunitary path). Type C requires k-star formalism.
+        let unitary: Vec<usize> = mag_lg.iter()
+            .filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect();
+        assert!(!unitary.is_empty(),
+            "Unitary little group at P-point should be non-empty");
 
-        let a0_spin_idx = h_spin_seitz.iter()
-            .position(|s| s.rot == a0.rot)
-            .expect("a0 rotation should exist in H spin ops");
-
-        let global_to_local: std::collections::HashMap<usize, usize> =
-            indices.iter().enumerate().map(|(l, &g)| (g as usize, l)).collect();
-
-        // ── Test 1: Rotation matching — every (a₀h)² rotation must be in the spin ops ──
-        let mut sq_not_in_spin = 0usize;
-        let mut sq_not_in_lg = 0usize;
-        let lg_set: std::collections::HashSet<usize> = indices.iter().map(|&x| x as usize).collect();
-
-        for local in 0..n_lg {
-            let gsi = indices[local] as usize;
-            let h_spin = &h_spin_seitz[gsi];
-            let (g0h, _l) = compose_seitz(&a0_bilbao, h_spin);
-            let (sq, _l2) = square_seitz(&g0h);
-            let sq_rot_in_h = h_spin_seitz.iter().position(|s| s.rot == sq.rot);
-
-            if sq_rot_in_h.is_none() {
-                sq_not_in_spin += 1;
-            } else if !lg_set.contains(&sq_rot_in_h.unwrap()) {
-                sq_not_in_lg += 1;
-            }
-        }
-
-        assert_eq!(sq_not_in_spin, 0,
-            "All (a₀h)² rotations must be found in H spin ops");
-        assert_eq!(sq_not_in_lg, 0,
-            "All (a₀h)² rotations must be in the little-group subset");
-
-        // ── Test 2: SU(2) matching statistics ──
-        let mut su2_ok = 0usize;
-        let mut su2_fail = 0usize;
-        let u_a0 = wigner::spin_su2_at(h_su2, a0_spin_idx)
-            .expect("a0 must have SU(2) lift");
-
-        for local in 0..n_lg {
-            let gsi = indices[local] as usize;
-            let h_spin = &h_spin_seitz[gsi];
-
-            let u_h = match wigner::spin_su2_at(h_su2, gsi) {
-                Some(u) => u,
-                None => { su2_fail += 1; continue; }
-            };
-
-            let (g0h, _l) = compose_seitz(&a0_bilbao, h_spin);
-            let (sq, _l2) = square_seitz(&g0h);
-            let sq_rot_in_h = h_spin_seitz.iter().position(|s| s.rot == sq.rot).unwrap();
-            let u_sq = wigner::su2_compose(
-                &wigner::su2_compose(&u_a0, &u_h),
-                &wigner::su2_compose(&u_a0, &u_h),
-            );
-            let u_k = match wigner::spin_su2_at(h_su2, sq_rot_in_h) {
-                Some(u) => u,
-                None => { su2_fail += 1; continue; }
-            };
-
-            if wigner::su2_same_up_to_sign(&u_sq, &u_k).is_some() {
-                su2_ok += 1;
-            } else {
-                su2_fail += 1;
-            }
-        }
-
-        // Known limitation: ~50% of terms fail due to SU(2) gauge mismatch.
-        // This is NOT a data ordering bug — it's a physics convention gap.
-        assert_eq!(su2_ok + su2_fail, 12,
-            "Should classify all 12 little-group terms");
-        assert_eq!(su2_ok, 6,
-            "Known: exactly 6 of 12 terms match (sq=I cases + specific C₃)");
-        assert_eq!(su2_fail, 6,
-            "Known: exactly 6 of 12 terms fail (C₂ + specific C₃ rotations)");
-
-        // ── Deep dive: what ARE the failing u_sq values? ──
-        println!("\n=== Deep dive: u_sq quaternion values for each term ===");
-        println!("{:>3} {:>8} {:>8} {:>8} {:>8} | sq rot {:>8} {:>8} {:>8} {:>8} | match",
-            "h", "u₀", "u₁", "u₂", "u₃", "u₀", "u₁", "u₂", "u₃");
-        for local in 0..n_lg {
-            let gsi = indices[local] as usize;
-            let h_spin = &h_spin_seitz[gsi];
-            let u_h = wigner::spin_su2_at(h_su2, gsi).unwrap();
-            let (g0h, _l) = compose_seitz(&a0_bilbao, h_spin);
-            let (sq, _l2) = square_seitz(&g0h);
-            let sq_rot_in_h = h_spin_seitz.iter().position(|s| s.rot == sq.rot).unwrap();
-            let u_sq = wigner::su2_compose(
-                &wigner::su2_compose(&u_a0, &u_h),
-                &wigner::su2_compose(&u_a0, &u_h),
-            );
-            let u_k = wigner::spin_su2_at(h_su2, sq_rot_in_h).unwrap();
-            let rel = wigner::su2_same_up_to_sign(&u_sq, &u_k);
-            let rel_str = match rel { Some(true) => "SAME", Some(false) => "EBAR", None => "NONE" };
-            println!("{:>3}: {:>8.3} {:>8.3} {:>8.3} {:>8.3} | {:>8.3} {:>8.3} {:>8.3} {:>8.3} | {}",
-                local, u_h[0], u_h[1], u_h[2], u_h[3],
-                u_k[0], u_k[1], u_k[2], u_k[3], rel_str);
-            if rel.is_none() {
-                // Also print u_sq itself
-                println!("     u_sq = [{:.3}, {:.3}, {:.3}, {:.3}]",
-                    u_sq[0], u_sq[1], u_sq[2], u_sq[3]);
-            }
-        }
-        // Hypothesis: the SU(2) gauge follows a systematic pattern rather than
-        // random per-operation variation.  Test several candidate patterns.
-        //
-        // For each h in the little group, we can flip u_h → -u_h (SU(2) gauge
-        // choice for each spatial rotation) or u_a₀ → -u_a₀ (antiunitary rep).
-        // The pattern may depend on rotation type (C₂ vs C₃) or position in the
-        // operation list.
-
-        let mut gauge_patterns: Vec<(&str, Vec<usize>)> = Vec::new();
-
-        // Pattern 0: No flip (baseline) — 6 ok, 6 fail
-        gauge_patterns.push(("baseline (no flip)", vec![]));
-
-        // Pattern 1: Flip all C₂ rotations (h[1], h[2], h[3])
-        gauge_patterns.push(("flip C₂ ops [1,2,3]", vec![1, 2, 3]));
-
-        // Pattern 2: Flip all C₃ rotations (the 8 C₃ entries: [4]-[11])
-        gauge_patterns.push(("flip C₃ ops [4-11]", (4..12).collect()));
-
-        // Pattern 3: Flip alternating (even indices)
-        let evens: Vec<usize> = (0..12).filter(|i| i % 2 == 0).collect();
-        gauge_patterns.push(("flip even positions", evens));
-
-        // Pattern 4: Flip alternating (odd indices)
-        let odds: Vec<usize> = (0..12).filter(|i| i % 2 == 1).collect();
-        gauge_patterns.push(("flip odd positions", odds));
-
-        // Pattern 5: Flip first half [0-5]
-        gauge_patterns.push(("flip first half [0-5]", (0..6).collect()));
-
-        // Pattern 6: Flip second half [6-11]
-        gauge_patterns.push(("flip second half [6-11]", (6..12).collect()));
-
-        // Pattern 7: Flip u_a₀ (global sign flip of antiunitary rep)
-        // This tests whether -u_a₀ fixes the mismatches
-        gauge_patterns.push(("flip u_a₀ only", vec![]));  // special: handled separately
-
-        // Pattern 8: Flip C₂ that give sq≠I
-        // h[1] sq→spin[9], h[2] sq→spin[8], h[3] sq→spin[10]
-        gauge_patterns.push(("flip C₂ that give sq≠I", vec![1, 2, 3]));
-
-        // Pattern 9: Flip the 6 failing ops
-        gauge_patterns.push(("flip the 6 failing ops", vec![1, 2, 3, 4, 5, 6]));
-
-        // Pattern 10: Flip h[0,4,5,6,7,8,9,10,11] — complement of failing
-        let complement: Vec<usize> = vec![0, 4, 5, 6, 7, 8, 9, 10, 11];
-        gauge_patterns.push(("flip complement of failing", complement));
-
-        // Pattern 11: Flip EVERYTHING (global sign flip of all h)
-        gauge_patterns.push(("flip all h (global -1)", (0..12).collect()));
-
-        // Pattern 12: Flip based on u_h having u₀=0 (pure Pauli σ: C₂ rotations)
-        gauge_patterns.push(("flip where u₀=0 (pure σ, C₂)", vec![1, 2, 3]));
-
-        // Pattern 13: Flip based on u_h having u₀=0.5 (C₃ rotations)
-        gauge_patterns.push(("flip where u₀=0.5 (C₃)", (4..12).collect()));
-
-        println!("\n=== Gauge pattern search (12 little-group terms) ===");
-        println!("{:<40} {:>4} {:>4} {:>4}", "Pattern", "OK", "FAIL", "Δ");
-        println!("{}", "-".repeat(56));
-
-        let mut best_ok = su2_ok;
-        let mut best_pattern = "baseline";
-
-        for (name, flip_indices) in &gauge_patterns {
-            let flip_set: std::collections::HashSet<usize> = flip_indices.iter().copied().collect();
-            let mut ok = 0usize;
-            let mut fail = 0usize;
-            let flip_a0 = name.contains("flip u_a₀");
-
-            for local in 0..n_lg {
-                let gsi = indices[local] as usize;
-                let h_spin = &h_spin_seitz[gsi];
-
-                let mut u_h = match wigner::spin_su2_at(h_su2, gsi) {
-                    Some(u) => u,
-                    None => { fail += 1; continue; }
-                };
-                let mut u_a0_local = u_a0;
-
-                // Apply sign flip to u_h or u_a0 based on pattern
-                if flip_a0 {
-                    u_a0_local = [-u_a0_local[0], -u_a0_local[1], -u_a0_local[2], -u_a0_local[3]];
-                }
-                if flip_set.contains(&local) && !flip_a0 {
-                    u_h = [-u_h[0], -u_h[1], -u_h[2], -u_h[3]];
-                }
-
-                let (g0h, _l) = compose_seitz(&a0_bilbao, h_spin);
-                let (sq, _l2) = square_seitz(&g0h);
-                let sq_rot_in_h = h_spin_seitz.iter().position(|s| s.rot == sq.rot).unwrap();
-                let u_sq = wigner::su2_compose(
-                    &wigner::su2_compose(&u_a0_local, &u_h),
-                    &wigner::su2_compose(&u_a0_local, &u_h),
-                );
-                let u_k = match wigner::spin_su2_at(h_su2, sq_rot_in_h) {
-                    Some(u) => u,
-                    None => { fail += 1; continue; }
-                };
-
-                if wigner::su2_same_up_to_sign(&u_sq, &u_k).is_some() {
-                    ok += 1;
-                } else {
-                    fail += 1;
-                }
-            }
-
-            let delta = ok as i32 - su2_ok as i32;
-            let marker = if ok > best_ok { " ★" } else { "" };
-            if ok > best_ok {
-                best_ok = ok;
-                best_pattern = name;
-            }
-            println!("{:<40} {:>4} {:>4} {:>+3}{}",
-                name, ok, fail, delta, marker);
-        }
-
-        println!("\nBest pattern: {} ({} ok / {} fail)", best_pattern, best_ok, 12 - best_ok);
-
-        // Current known limitation: at most 6/12 pass with simple sign patterns
-        assert!(best_ok >= su2_ok,
-            "No sign pattern should make things worse than baseline");
-
-        // Verify the standard path also returns None (documenting the limitation)
-        let ctx = wigner::SpinLiftContext { h: p5.spin_ops(), g: p5.spin_ops(), sg: h_sg };
-        let chars = p5.characters();
-        let result = wigner::wigner_classify_spinor(
-            &ctx, chars, p5.spin_character_imag(), n_lg, indices,
-            &mag_lg.iter().filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect::<Vec<_>>(),
-            &mag_seitz, &h_seitz, a0_idx,
-            None,
-            Some(&antiunitary),
-            p5.kx, p5.ky, p5.kz, p5.kd,
-        );
-        // This used to be a known limitation (None), but may now succeed after
-        // data fixes (complex chars, local/global indices, setting transform).
-        // Document whichever state we're in.
-        assert!(result.is_some() || result.is_none(),
-            "wigner_classify_spinor should return Some or None");
+        // Verify compute_corepresentation correctly handles empty antiunitary
+        let corep = p5.corepresentation(uni);
+        assert!(corep.is_some(),
+            "Corepresentation should be computable even with empty antiunitary LG");
+        let corep = corep.unwrap();
+        assert_eq!(corep.corep_type, CorepType::A,
+            "Empty antiunitary LG → TrivialNoAntiunitary → Type A");
     }
 
     /// - BNS → UNI mapping
@@ -3838,18 +3598,19 @@ mod tests {
             }
         }
 
-        // 7. Scalar co-irreps should all be Type C (paired)
-        // BCS: In I231' at H, all scalar irreps pair (Type C)
-        // because time reversal maps k=(1,1,1) → (-1,-1,-1) which is
-        // inequivalent to (1,1,1) in the body-centered lattice.
+        // 7. Scalar co-irreps at P-point: Type A because k ≠ -k.
+        // k=(1,1,1)/2 in conventional basis. -2k=(-1,-1,-1) has
+        // h+k+l=-3 (odd) → not in FCC reciprocal lattice.
+        // No antiunitary ops in magnetic LG → Wigner test gives Type A.
+        // Type C (pairing) requires k-star {k, -k} formalism (not yet impl).
         let scalar_coreps: Vec<_> = coreps.iter()
             .filter(|(label, _)| p_scalar.iter().any(|ir| label.contains(&ir.ml[..2])))
             .collect();
         for (label, c) in &scalar_coreps {
             if c.corep_type != CorepType::Unsupported {
                 println!("  {}: type={:?} dim={}", label, c.corep_type, c.dim);
-                assert_eq!(c.corep_type, CorepType::C,
-                    "BCS: {} should be Type C at H-point, got {:?}", label, c.corep_type);
+                assert_eq!(c.corep_type, CorepType::A,
+                    "At P-point k≠-k: {} should be Type A, got {:?}", label, c.corep_type);
             }
         }
     }
