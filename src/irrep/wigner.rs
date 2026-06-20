@@ -1013,12 +1013,8 @@ pub fn find_setting_transform(
             });
             return results;
         }
-        // Identity basis matches rotations but origin can't be solved —
-        // still return identity as a fallback (it's the best we have).
-        XF_FOUND.fetch_add(1, Ordering::Relaxed);
-        XF_IDENTITY.fetch_add(1, Ordering::Relaxed);
-        results.push(SettingTransform::identity());
-        return results;
+        // Identity basis matches rotations but origin solving failed.
+        // Do NOT return an unvalidated identity — let the loop try other bases.
     }
 
     for t in &enumerate_signed_permutations() {
@@ -1417,26 +1413,10 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         t
     };
 
-    // Deduplicate: pick one antiunitary representative per co-group element
-    // (per distinct rotation in spin_lg_op_indices after setting transform).
-    // The Wigner sum is over little co-group elements, not all Seitz variants.
-    let mut seen_rots = std::collections::HashSet::new();
-    let mut representatives: Vec<usize> = Vec::new();
-    for &b_idx in anti_lg_indices {
-        let b = &mag_seitz[b_idx];
-        let b_rot = if let Some(xf) = setting_xf {
-            xf.transform_rotation(&b.rot)
-        } else {
-            b.rot
-        };
-        if seen_rots.insert(b_rot) {
-            representatives.push(b_idx);
-        }
-    }
-    let n_repr = representatives.len().max(1);
+    let n_anti = anti_lg_indices.len();
     let mut w_sum = Complex64::ZERO;
 
-    for &b_idx in &representatives {
+    for &b_idx in anti_lg_indices {
         let b = &mag_seitz[b_idx];
 
         // Apply setting transform if present: x_hall = T·x_msg + s.
@@ -1457,51 +1437,23 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
             &sq, &h_spin_seitz, spin_lg_op_indices) {
             Some(v) => v,
             None => {
-                // Fallback for triclinic H (SG1, SG2): H has only {I} or {I,-I}.
-                // b² must map to an H element, but the setting transform may not
-                // be uniquely determined from identity-only rotations.
-                // Try the identity rotation (always present in every H spin table).
-                let identity: crate::mathfunc::Mat3I = [[1,0,0],[0,1,0],[0,0,1]];
-                let id_sq = SeitzOp::new(identity, sq.trans, false);
-                if let Some(v) = find_sq_spin_lg_first(&id_sq, &h_spin_seitz, spin_lg_op_indices) {
-                    v
-                } else {
-                    debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² rot={:?} not in H spin ops",
-                        b_idx, sq.rot);
-                    return Err(DirectAntiFailure::SquareNotInSpinTable);
-                }
+                debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² rot={:?} not in H spin ops",
+                    b_idx, sq.rot);
+                return Err(DirectAntiFailure::SquareNotInSpinTable);
             }
         };
 
-        // Determine the actual H spin index and local index, falling back to
-        // identity when b² rotation is not in the little co-group.
-        let (effective_spin_idx, sq_local_idx) = if sq_in_lg {
-            let local = *global_to_local
+        let sq_local_idx = if sq_in_lg {
+            *global_to_local
                 .get(&sq_spin_idx)
-                .ok_or(DirectAntiFailure::SquareOutsideLittleGroup)?;
-            (sq_spin_idx, local)
+                .ok_or(DirectAntiFailure::SquareOutsideLittleGroup)?
         } else {
-            // b² rotation is in H spin table but not in little co-group.
-            // Fall back to identity: for centered/conventional cells, the
-            // k-preservation check may differ from the database's LG definition.
-            let identity: crate::mathfunc::Mat3I = [[1,0,0],[0,1,0],[0,0,1]];
-            if let Some(id_idx) = h_spin_seitz.iter().position(|s| s.rot == identity) {
-                let id_in_lg = spin_lg_op_indices.iter().any(|&x| x as usize == id_idx);
-                if id_in_lg {
-                    let local = *global_to_local.get(&id_idx).unwrap();
-                    (id_idx, local)
-                } else {
-                    debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² identity not in LG", b_idx);
-                    return Err(DirectAntiFailure::SquareOutsideLittleGroup);
-                }
-            } else {
-                debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² spin[{}] not in LG idxs",
-                    b_idx, sq_spin_idx);
-                return Err(DirectAntiFailure::SquareOutsideLittleGroup);
-            }
+            debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² spin[{}] not in LG idxs",
+                b_idx, sq_spin_idx);
+            return Err(DirectAntiFailure::SquareOutsideLittleGroup);
         };
         let sq_spin = h_spin_seitz
-            .get(effective_spin_idx)
+            .get(sq_spin_idx)
             .ok_or(DirectAntiFailure::SquareNotInSpinTable)?;
         let spin_match_shift = [
             sq.trans[0] - sq_spin.trans[0],
@@ -1578,7 +1530,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         w_sum += chi * phase;
     }
 
-    let w = w_sum / (n_repr as f64);
+    let w = w_sum / (n_anti as f64);
 
     // Dimension from identity canonical lift.
     let id_rot: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];

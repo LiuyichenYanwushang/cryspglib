@@ -3478,10 +3478,8 @@ mod tests {
 
         let antiunitary: Vec<usize> = mag_lg.iter()
             .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
-        if antiunitary.is_empty() {
-            println!("SKIP: no antiunitary ops — LG filtering changed with new code");
-            return;
-        }
+        assert!(!antiunitary.is_empty(),
+            "MSG 197.8 should have antiunitary ops at P-point");
         let a0_idx = antiunitary[0];
         let a0 = &mag_seitz[a0_idx];
 
@@ -3829,10 +3827,8 @@ mod tests {
         for (label, c) in &scalar_coreps {
             if c.corep_type != CorepType::Unsupported {
                 println!("  {}: type={:?} dim={}", label, c.corep_type, c.dim);
-                // Accept any valid classification — exact type depends on H identification
-                assert!(c.corep_type == CorepType::A || c.corep_type == CorepType::B
-                    || c.corep_type == CorepType::C,
-                    "BCS: {} should have valid corep type, got {:?}", label, c.corep_type);
+                assert_eq!(c.corep_type, CorepType::C,
+                    "BCS: {} should be Type C at H-point, got {:?}", label, c.corep_type);
             }
         }
     }
@@ -3918,15 +3914,15 @@ mod tests {
         println!("\nFull compute_corepresentation result: {:?}",
             corep.as_ref().map(|c| c.corep_type));
 
-        // For n_lg=1: check SU(2) relation (may be SAME or EBAR depending on gauge)
+        // For n_lg=1: U_a₀² vs U_k determines Wigner type
         let su2_rel = wigner::su2_same_up_to_sign(&u_sq_old, &u_k);
         println!("SU(2) relation: {:?}", su2_rel);
         assert!(su2_rel.is_some(), "SU(2) relation should be well-defined");
-        // Accept either Type B or reasonable failure — the exact type depends on
-        // setting/gauge which may vary with transform improvements.
-        if let Some(c) = corep {
-            println!("Corep type: {:?}", c.corep_type);
-        }
+        assert!(corep.is_some(), "Should classify n_lg=1 spinor case");
+        let ct = corep.unwrap().corep_type;
+        println!("Corep type: {:?}", ct);
+        assert!(ct == CorepType::A || ct == CorepType::B,
+            "Type should be A or B, got {:?}", ct);
     }
 
     /// Quick scan to find the simplest failing magnetic group.
