@@ -3984,6 +3984,166 @@ mod tests {
         assert!(!failures.is_empty(), "Should find at least one spinor Wigner failure");
     }
 
+    /// Per-term oracle: trace the Wigner sum for non-quantized cases.
+    /// Prints every term's contributions to identify why W ≠ ±dim.
+    #[test]
+    fn diagnose_non_quantized_per_term() {
+        use crate::irrep::wigner;
+        use crate::irrep::types::IrrepRecord;
+        use num_complex::Complex64;
+
+        let mut shown = 0usize;
+        'outer: for uni in 1..=1651 {
+            let mag_ops = match get_magnetic_operations(uni) { Some(m) => m, None => continue };
+            let h_info = match identify_unitary_subgroup_with_hall(uni) {
+                Some(i) => i, None => continue,
+            };
+            let h_sg = h_info.sg as u8;
+
+            let msg_rots: Vec<_> = h_info.ops_from_msg.iter().map(|o| o.rotation).collect();
+            let msg_trans: Vec<_> = h_info.ops_from_msg.iter().map(|o| o.translation).collect();
+            let hall_rots: Vec<_> = h_info.ops_from_hall.iter().map(|o| o.rotation).collect();
+            let hall_trans: Vec<_> = h_info.ops_from_hall.iter().map(|o| o.translation).collect();
+            let setting_xfs = wigner::find_setting_transform(&msg_rots, &msg_trans, &hall_rots, &hall_trans);
+            let mut xf_owned = setting_xfs.first().cloned();
+            if xf_owned.is_none() {
+                let u_rots: Vec<_> = h_info.ops_from_msg.iter().filter(|o| !o.time_reversal).map(|o| o.rotation).collect();
+                let u_trans: Vec<_> = h_info.ops_from_msg.iter().filter(|o| !o.time_reversal).map(|o| o.translation).collect();
+                let u_ops = crate::SymmetryOps::from_parallel(&u_rots, &u_trans, &vec![false; u_rots.len()]);
+                if let Some((_, _, xf)) = standard_setting_transform(&u_ops, false) {
+                    xf_owned = Some(xf);
+                }
+            }
+            let setting_xf = xf_owned.as_ref();
+            let h_ops = h_info.ops_from_msg;
+            let h_seitz = wigner::ops_to_seitz(&h_ops);
+            let mag_seitz = wigner::ops_to_seitz(&mag_ops);
+
+            for ir in crate::irrep::query::irreps_of(h_sg) {
+                if !ir.spinor { continue; }
+                let mag_lg = wigner::filter_little_group_with_transform(
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf);
+                let antiunitary: Vec<usize> = mag_lg.iter()
+                    .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
+                if antiunitary.is_empty() { continue; }
+
+                let h_spin = ir.spin_ops();
+                if h_spin.0.is_empty() { continue; }
+                let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
+                let g_spin = if g_sg == h_sg { h_spin }
+                    else { IrrepRecord::spin_ops_for_sg(g_sg) };
+                let ctx = wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
+
+                let diag = wigner::wigner_classify_spinor_direct_anti_diagnostic(
+                    &ctx, ir.characters(), ir.spin_character_imag(),
+                    ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
+                    setting_xf, ir.kx, ir.ky, ir.kz, ir.kd,
+                );
+
+                if !matches!(diag, Err(wigner::DirectAntiFailure::NonQuantized)) {
+                    continue;
+                }
+
+                shown += 1;
+                if shown > 3 { break 'outer; }
+
+                println!("\n=== UNI{} SG{} {} k=({},{},{})/{} dim={} ===",
+                    uni, h_sg, ir.ml, ir.kx, ir.ky, ir.kz, ir.kd, ir.dim);
+                println!("  n_lg_ops={} n_anti={} g_sg={}",
+                    ir.spin_lg_char_count(), antiunitary.len(), g_sg);
+
+                // Manually compute each term
+                let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
+                let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
+                let h_spin_seitz = wigner::build_spin_seitz(h_spin_rots, h_spin_trans);
+                let g_spin_seitz = wigner::build_spin_seitz(g_spin_rots, g_spin_trans);
+                let (_, origin) = IrrepRecord::sg_setting(ctx.sg);
+                let id_rot: crate::mathfunc::Mat3I = [[1,0,0],[0,1,0],[0,0,1]];
+
+                println!("  {:>3} {:>32} {:>32} {:>8} {:>8} {:>8} {:>8}",
+                    "b#", "b.rot", "b².rot", "χ_re", "χ_im", "central", "phase");
+
+                let mut w_sum = Complex64::ZERO;
+                for &b_idx in &antiunitary {
+                    let b = &mag_seitz[b_idx];
+                    let (b_rot, b_trans) = if let Some(xf) = setting_xf {
+                        (xf.transform_rotation(&b.rot), xf.transform_translation(&b.rot, &b.trans))
+                    } else { (b.rot, b.trans) };
+
+                    let to_bilbao = |rot: crate::mathfunc::Mat3I, trans: [f64;3]| -> [f64;3] {
+                        let mut t = trans;
+                        for i in 0..3 {
+                            let d: f64 = (0..3).map(|j| {
+                                let delta = if i == j { 1.0 } else { 0.0 };
+                                (delta - rot[i][j] as f64) * origin.get(j).copied().unwrap_or(0.0)
+                            }).sum();
+                            t[i] = (t[i] - d) % 1.0; if t[i] < 0.0 { t[i] += 1.0; }
+                        }
+                        t
+                    };
+                    let b_bilbao = wigner::SeitzOp::new(b_rot, to_bilbao(b_rot, b_trans), false);
+                    let (sq, lattice_sq) = wigner::square_seitz(&b_bilbao);
+
+                    // H lookup
+                    let (sq_spin_idx, chi0) = match wigner::find_sq_spin_lg_first(
+                        &sq, &h_spin_seitz, ir.spin_lg_op_indices()) {
+                        Some((idx, _)) => {
+                            let local = ir.spin_lg_op_indices().iter().position(|&x| x as usize == idx).unwrap_or(0);
+                            let re = ir.characters().get(local).copied().unwrap_or(0.0);
+                            let im = ir.spin_character_imag().get(local).copied().unwrap_or(0.0);
+                            (Some(idx), Complex64::new(re, im))
+                        }
+                        None => {
+                            // Fall back to identity
+                            if let Some(id_idx) = h_spin_seitz.iter().position(|s| s.rot == id_rot) {
+                                let local = ir.spin_lg_op_indices().iter().position(|&x| x as usize == id_idx).unwrap_or(0);
+                                let re = ir.characters().get(local).copied().unwrap_or(0.0);
+                                let im = ir.spin_character_imag().get(local).copied().unwrap_or(0.0);
+                                (Some(id_idx), Complex64::new(re, im))
+                            } else {
+                                (None, Complex64::ZERO)
+                            }
+                        }
+                    };
+
+                    // G lookup + central parity
+                    let b_spin_idx = g_spin_seitz.iter().position(|s| s.rot == b.rot);
+                    let central = if let Some(g_idx) = b_spin_idx {
+                        if let (Some(u_b), Some(u_sq)) =
+                            (wigner::spin_su2_at(g_spin_su2, g_idx),
+                             sq_spin_idx.and_then(|si| wigner::spin_su2_at(h_spin_su2, si))) {
+                            let u_b_sq = wigner::su2_compose(&u_b, &u_b);
+                            match wigner::su2_same_up_to_sign(&u_b_sq, &u_sq) {
+                                Some(spatial_central) => !spatial_central,
+                                None => false,
+                            }
+                        } else { false }
+                    } else { false };
+
+                    let total_t = [lattice_sq[0] as f64 + (sq.trans[0] - h_spin_seitz.get(sq_spin_idx.unwrap_or(0)).map(|s| s.trans[0]).unwrap_or(0.0)),
+                        lattice_sq[1] as f64 + (sq.trans[1] - h_spin_seitz.get(sq_spin_idx.unwrap_or(0)).map(|s| s.trans[1]).unwrap_or(0.0)),
+                        lattice_sq[2] as f64 + (sq.trans[2] - h_spin_seitz.get(sq_spin_idx.unwrap_or(0)).map(|s| s.trans[2]).unwrap_or(0.0))];
+                    let phase = Complex64::new(0.0,
+                        2.0 * std::f64::consts::PI *
+                        (ir.kx as f64 * total_t[0] + ir.ky as f64 * total_t[1] + ir.kz as f64 * total_t[2])
+                        / ir.kd as f64).exp();
+
+                    let chi = if central { -chi0 } else { chi0 };
+                    let contrib = chi * phase;
+                    w_sum += contrib;
+
+                    println!("  {:>3} {:?} {:?} {:>8.3} {:>8.3} {:>8} {:>8.3}",
+                        b_idx, b.rot, sq.rot, chi.re, chi.im, central,
+                        phase.re.round() as i8);
+                }
+                let w = w_sum / (antiunitary.len() as f64);
+                println!("  W = ({:.6}, {:.6}) / {} = ({:.6}, {:.6})  expected ±{}",
+                    w_sum.re, w_sum.im, antiunitary.len(), w.re, w.im, ir.dim);
+                println!("  |W| - dim = {:.6}", w.norm() - ir.dim as f64);
+            }
+        }
+    }
+
     /// Scan trigonal SG 143 (P3) grey group for SU(2) spinor Wigner failures.
     ///
     /// Trigonal groups contain C₃ rotations.

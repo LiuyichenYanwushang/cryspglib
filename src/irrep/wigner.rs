@@ -1417,10 +1417,26 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         t
     };
 
-    let n_anti = anti_lg_indices.len();
+    // Deduplicate: pick one antiunitary representative per co-group element
+    // (per distinct rotation in spin_lg_op_indices after setting transform).
+    // The Wigner sum is over little co-group elements, not all Seitz variants.
+    let mut seen_rots = std::collections::HashSet::new();
+    let mut representatives: Vec<usize> = Vec::new();
+    for &b_idx in anti_lg_indices {
+        let b = &mag_seitz[b_idx];
+        let b_rot = if let Some(xf) = setting_xf {
+            xf.transform_rotation(&b.rot)
+        } else {
+            b.rot
+        };
+        if seen_rots.insert(b_rot) {
+            representatives.push(b_idx);
+        }
+    }
+    let n_repr = representatives.len().max(1);
     let mut w_sum = Complex64::ZERO;
 
-    for &b_idx in anti_lg_indices {
+    for &b_idx in &representatives {
         let b = &mag_seitz[b_idx];
 
         // Apply setting transform if present: x_hall = T·x_msg + s.
@@ -1562,7 +1578,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         w_sum += chi * phase;
     }
 
-    let w = w_sum / (n_anti as f64);
+    let w = w_sum / (n_repr as f64);
 
     // Dimension from identity canonical lift.
     let id_rot: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
