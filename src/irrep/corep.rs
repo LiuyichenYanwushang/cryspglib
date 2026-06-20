@@ -598,6 +598,61 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
         }
     };
 
+    // ── Align ops_from_hall with ISOTROPY data-Hall frame ────────────────
+    // ISOTROPY irreps, characters, and spin tables are defined in a specific
+    // "data Hall" setting (SG_DATA_HALL[sg]).  When spglib identifies H in a
+    // different Hall setting of the same SG (e.g. SG44 detected as Hall 216
+    // but data is Hall 215), the rotation matrices differ by a signed-
+    // permutation axis convention.  Without correction, spin-table lookups
+    // fail because the square rotation R(b²) is expressed in the detected
+    // Hall frame but the spin database uses the data Hall frame.
+    //
+    // Compute the affine transform x_data = P·x_detected + s by comparing
+    // the two Hall settings' standard operations, then apply it to
+    // ops_from_hall so the entire Wigner H-path works in the data Hall frame.
+    let data_hall = crate::irrep::types::generated_data::SG_DATA_HALL
+        .get(sg).copied().unwrap_or(0) as usize;
+    if data_hall > 0 && data_hall != hall {
+        if let Some(data_ops) = get_parent_operations_by_hall(data_hall) {
+            // Build rotation/translation arrays for find_setting_transform.
+            let detected_rots: Vec<Mat3I> = ops_from_hall.operations.iter()
+                .map(|o| o.rotation).collect();
+            let detected_trans: Vec<[f64; 3]> = ops_from_hall.operations.iter()
+                .map(|o| o.translation).collect();
+            let data_rots: Vec<Mat3I> = data_ops.operations.iter()
+                .map(|o| o.rotation).collect();
+            let data_trans: Vec<[f64; 3]> = data_ops.operations.iter()
+                .map(|o| o.translation).collect();
+            let xfs = crate::irrep::wigner::find_setting_transform(
+                &detected_rots, &detected_trans, &data_rots, &data_trans);
+            // Validate: the transform must work for ALL operations.
+            if let Some(xf) = xfs.first() {
+                let all_ok = ops_from_hall.operations.iter().all(|op| {
+                    xf.transform_rotation(&op.rotation).is_some()
+                        && xf.transform_translation(&op.rotation, &op.translation).is_some()
+                });
+                if all_ok {
+                    // Transform ops_from_hall into the data Hall frame.
+                    let xf_rots: Vec<Mat3I> = ops_from_hall.operations.iter()
+                        .map(|op| xf.transform_rotation(&op.rotation).unwrap())
+                        .collect();
+                    let xf_trans: Vec<[f64; 3]> = ops_from_hall.operations.iter()
+                        .map(|op| xf.transform_translation(&op.rotation, &op.translation).unwrap())
+                        .collect();
+                    let xf_ops = SymmetryOps::from_parallel(
+                        &xf_rots, &xf_trans,
+                        &vec![false; xf_rots.len()]);
+                    return Some(UnitarySubgroupInfo {
+                        sg,
+                        hall: data_hall,
+                        ops_from_msg,
+                        ops_from_hall: xf_ops,
+                    });
+                }
+            }
+        }
+    }
+
     Some(UnitarySubgroupInfo {
         sg,
         hall,
