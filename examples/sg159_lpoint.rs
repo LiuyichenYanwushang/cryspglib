@@ -79,6 +79,7 @@ fn main() {
                 &ctx, ir.characters(), ir.spin_character_imag(),
                 n_lg, indices,
                 &unitary_lg, &mag_seitz, &h_seitz, a0_idx,
+                None,
                 kx, ky, kz, kd,
             );
 
