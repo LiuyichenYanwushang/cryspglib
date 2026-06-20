@@ -80,6 +80,7 @@ fn main() {
                 n_lg, indices,
                 &unitary_lg, &mag_seitz, &h_seitz, a0_idx,
                 None,
+                None,
                 kx, ky, kz, kd,
             );
 

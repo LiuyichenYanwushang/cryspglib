@@ -2159,6 +2159,7 @@ pub fn wigner_classify_spinor(
     h_seitz: &[SeitzOp],
     a0_idx: usize,
     setting_xf: Option<&SettingTransform>,
+    anti_lg_indices: Option<&[usize]>,
     kx: i8, ky: i8, kz: i8, kd: i8,
 ) -> Option<CorepType> {
     if let Some(result) = wigner_classify_spinor_primary(
@@ -2179,35 +2180,43 @@ pub fn wigner_classify_spinor(
         return Some(result);
     }
 
-    let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-    let pure_translations: Vec<[f64; 3]> = mag_seitz
-        .iter()
-        .filter(|op| !op.timerev && op.rot == identity)
-        .map(|op| op.trans)
-        .collect();
-    let anti_lg_indices: Vec<usize> = mag_seitz
-        .iter()
-        .enumerate()
-        .filter(|(_, op)| {
-            op.timerev
-                && seitz_preserves_k(
-                    &op.rot,
-                    true,
-                    &pure_translations,
-                    kx,
-                    ky,
-                    kz,
-                    kd,
-                )
-        })
-        .map(|(idx, _)| idx)
-        .collect();
+    // Use pre-computed setting-aware indices when available (caller already
+    // filtered with filter_little_group_with_transform).  Otherwise fall
+    // back to recomputing in raw MSG frame.
+    let indices: std::borrow::Cow<[usize]> = if let Some(ix) = anti_lg_indices {
+        std::borrow::Cow::Borrowed(ix)
+    } else {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let pure_translations: Vec<[f64; 3]> = mag_seitz
+            .iter()
+            .filter(|op| !op.timerev && op.rot == identity)
+            .map(|op| op.trans)
+            .collect();
+        let v: Vec<usize> = mag_seitz
+            .iter()
+            .enumerate()
+            .filter(|(_, op)| {
+                op.timerev
+                    && seitz_preserves_k(
+                        &op.rot,
+                        true,
+                        &pure_translations,
+                        kx,
+                        ky,
+                        kz,
+                        kd,
+                    )
+            })
+            .map(|(idx, _)| idx)
+            .collect();
+        std::borrow::Cow::Owned(v)
+    };
     wigner_classify_spinor_direct_anti(
         ctx,
         spin_chars_real,
         spin_chars_imag,
         spin_lg_op_indices,
-        &anti_lg_indices,
+        &indices,
         mag_seitz,
         setting_xf,
         kx, ky, kz, kd,

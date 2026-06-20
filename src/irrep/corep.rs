@@ -296,6 +296,7 @@ pub fn compute_corepresentation(
             &ctx, h_chars, h_irrep.spin_character_imag(), n_lg, op_indices,
             &unitary, &mag_seitz, &h_seitz, a0_idx,
             None,
+            Some(&antiunitary),
             h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd,
         ) {
             (ct, WignerSource::SpinorSU2)
@@ -1944,6 +1945,7 @@ mod tests {
                         ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                         &unitary, &mag_seitz, &h_seitz, antiunitary[0],
                         setting_xf,
+                        Some(&antiunitary),
                         ir.kx, ir.ky, ir.kz, ir.kd,
                     );
                     match (has_imag, su2_result.is_some()) {
@@ -2047,6 +2049,7 @@ mod tests {
                     ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                     &unitary, &mag_seitz, &h_seitz, antiunitary[0],
                     setting_xf,
+                    Some(&antiunitary),
                     ir.kx, ir.ky, ir.kz, ir.kd,
                 );
                 let direct_diagnostic =
@@ -2878,6 +2881,7 @@ mod tests {
             a3.spin_lg_char_count(), a3.spin_lg_op_indices(),
             &unitary, &mag_seitz, &h_seitz, antiunitary[0],
             None,
+            Some(&antiunitary),
             a3.kx, a3.ky, a3.kz, a3.kd,
         );
 
@@ -3087,6 +3091,7 @@ mod tests {
                 ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                 &unitary, &mag_seitz, &h_seitz, antiunitary[0],
             None,
+            Some(&antiunitary),
                 ir.kx, ir.ky, ir.kz, ir.kd,
             );
 
@@ -3155,6 +3160,7 @@ mod tests {
                     ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                     &unitary, &mag_seitz, &h_seitz, a0_idx,
             None,
+            Some(&antiunitary),
                     ir.kx, ir.ky, ir.kz, ir.kd,
                 );
                 if result.is_some() { continue; }
@@ -3724,6 +3730,7 @@ mod tests {
             &mag_lg.iter().filter(|&&i| !mag_ops.operations[i].time_reversal).copied().collect::<Vec<_>>(),
             &mag_seitz, &h_seitz, a0_idx,
             None,
+            Some(&antiunitary),
             p5.kx, p5.ky, p5.kz, p5.kd,
         );
         // This used to be a known limitation (None), but may now succeed after
@@ -4140,6 +4147,7 @@ mod tests {
                 ir.spin_lg_char_count(), ir.spin_lg_op_indices(),
                 &unitary, &mag_seitz, &h_seitz, antiunitary[0],
             None,
+            Some(&antiunitary),
                 ir.kx, ir.ky, ir.kz, ir.kd,
             );
             eprintln!("  Result: {:?}", ct);
