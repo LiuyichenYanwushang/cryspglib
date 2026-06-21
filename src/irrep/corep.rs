@@ -202,26 +202,10 @@ pub fn compute_corepresentation(
 
     // 1. Identify H first — needed for setting transform.
     let h_info = identify_unitary_subgroup_with_hall(uni_number)?;
-    // Extract setting transform data.
-    let msg_rots: Vec<crate::mathfunc::Mat3I> = h_info.ops_from_msg.operations.iter().map(|o| o.rotation).collect();
-    let msg_trans: Vec<[f64; 3]> = h_info.ops_from_msg.operations.iter().map(|o| o.translation).collect();
-    let hall_rots: Vec<crate::mathfunc::Mat3I> = h_info.ops_from_hall.operations.iter().map(|o| o.rotation).collect();
-    let hall_trans: Vec<[f64; 3]> = h_info.ops_from_hall.operations.iter().map(|o| o.translation).collect();
-
-    // Compute setting transform for production path.
-    let xfs = wigner::find_setting_transform(&msg_rots, &msg_trans, &hall_rots, &hall_trans);
-    let mut xf_owned = xfs.first().cloned();
-    if xf_owned.is_none() {
-        let u_rots: Vec<crate::mathfunc::Mat3I> = h_info.ops_from_msg.iter()
-            .filter(|o| !o.time_reversal).map(|o| o.rotation).collect();
-        let u_trans: Vec<[f64; 3]> = h_info.ops_from_msg.iter()
-            .filter(|o| !o.time_reversal).map(|o| o.translation).collect();
-        let u_ops = crate::SymmetryOps::from_parallel(&u_rots, &u_trans, &vec![false; u_rots.len()]);
-        if let Some((_sg, _hall, xf)) = standard_setting_transform(&u_ops, false) {
-            xf_owned = Some(xf);
-        }
-    }
-    let setting_xf = xf_owned.as_ref();
+    // Use the pre-computed MSG→data-Hall transform from H identification.
+    // This ensures the magnetic little group, Seitz composition, and spin
+    // table are all in the ISOTROPY data-Hall frame.
+    let setting_xf = h_info.msg_to_data.as_ref();
 
     let h_ops = &h_info.ops_from_msg;
     if h_ops.is_empty() {
@@ -650,27 +634,52 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
                     let xf_ops = SymmetryOps::from_parallel(
                         &xf_rots, &xf_trans,
                         &vec![false; xf_rots.len()]);
+                    // Compute MSG→data-Hall transform: needed for the Wigner
+                    // path to transform mag_ops into the same frame as the
+                    // spin table and characters.
+                    let msg_rots: Vec<Mat3I> = ops_from_msg.operations.iter().map(|o| o.rotation).collect();
+                    let msg_trans: Vec<[f64; 3]> = ops_from_msg.operations.iter().map(|o| o.translation).collect();
+                    let dhall_rots: Vec<Mat3I> = xf_ops.operations.iter().map(|o| o.rotation).collect();
+                    let dhall_trans: Vec<[f64; 3]> = xf_ops.operations.iter().map(|o| o.translation).collect();
+                    let msg_xfs = crate::irrep::wigner::find_setting_transform(&msg_rots, &msg_trans, &dhall_rots, &dhall_trans);
+                    let msg_to_data = msg_xfs.into_iter().next();
                     return Some(UnitarySubgroupInfo {
                         sg,
                         hall,
                         data_hall,
                         ops_from_msg,
                         ops_from_hall: xf_ops,
-                        msg_to_data: None, // FIXME: compose with msg_to_detected
+                        msg_to_data,
                     });
                 }
             }
         }
     }
 
+    // Compute the MSG→data-Hall transform: maps the MSG unitary ops into
+    // the ISOTROPY data-Hall frame.  This is the transform that the Wigner
+    // path should use for little-group filtering and Seitz composition,
+    // ensuring all operations are in the same frame as the spin table and
+    // characters.
+    let data_hall = crate::irrep::types::generated_data::SG_DATA_HALL
+        .get(sg).copied().unwrap_or(0) as usize;
+    let msg_to_data = if data_hall > 0 {
+        let msg_rots: Vec<Mat3I> = ops_from_msg.operations.iter().map(|o| o.rotation).collect();
+        let msg_trans: Vec<[f64; 3]> = ops_from_msg.operations.iter().map(|o| o.translation).collect();
+        let hall_rots: Vec<Mat3I> = ops_from_hall.operations.iter().map(|o| o.rotation).collect();
+        let hall_trans: Vec<[f64; 3]> = ops_from_hall.operations.iter().map(|o| o.translation).collect();
+        let xfs = crate::irrep::wigner::find_setting_transform(&msg_rots, &msg_trans, &hall_rots, &hall_trans);
+        // Pick the first candidate; ambiguous transforms are logged upstream.
+        xfs.into_iter().next()
+    } else { None };
+
     Some(UnitarySubgroupInfo {
         sg,
         hall,
-        data_hall: crate::irrep::types::generated_data::SG_DATA_HALL
-            .get(sg).copied().unwrap_or(0) as usize,
+        data_hall,
         ops_from_msg,
         ops_from_hall,
-        msg_to_data: None, // FIXME: populate from composed transforms
+        msg_to_data,
     })
 }
 
