@@ -232,13 +232,15 @@ pub fn compute_corepresentation(
     // Pass canonical H translation subgroup for stricter k-preservation
     // (essential for centered groups where MSG-derived pure translations
     // are only a subset — see codex review Plan 1B).
-    let h_pure_translations: Vec<[f64; 3]> = h_ops.operations.iter()
+    // NOTE: must use ops_from_hall (canonical H setting), NOT ops_from_msg
+    // (MSG unitary subgroup), because the MSG may lack centering translations.
+    let h_canonical_translations: Vec<[f64; 3]> = h_info.ops_from_hall.operations.iter()
         .filter(|op| op.rotation == [[1,0,0],[0,1,0],[0,0,1]])
         .map(|op| op.translation)
         .collect();
     let mag_lg = filter_little_group_with_transform(
         h_irrep.kx, h_irrep.ky, h_irrep.kz, h_irrep.kd, mag_ops, setting_xf,
-        Some(&h_pure_translations));
+        Some(&h_canonical_translations));
     if mag_lg.is_empty() {
         return None;
     }
