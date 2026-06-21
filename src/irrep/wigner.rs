@@ -2306,27 +2306,15 @@ pub fn wigner_classify_spinor(
     anti_lg_indices: Option<&[usize]>,
     kx: i8, ky: i8, kz: i8, kd: i8,
 ) -> Option<CorepType> {
-    if let Some(result) = wigner_classify_spinor_primary(
-        ctx,
-        spin_chars_real,
-        spin_chars_imag,
-        n_lg_ops,
-        spin_lg_op_indices,
-        _unitary_mag_indices,
-        mag_seitz,
-        h_seitz,
-        a0_idx,
-        kx,
-        ky,
-        kz,
-        kd,
-    ) {
-        return Some(result);
-    }
-
-    // Use pre-computed setting-aware indices when available (caller already
-    // filtered with filter_little_group_with_transform).  Otherwise fall
-    // back to recomputing in raw MSG frame.
+    // ── Direct anti-coset path (frame-aware, primary) ────────────────────
+    // This path uses setting_xf to transform all operations into the
+    // ISOTROPY data-Hall frame, matching the spin table and character
+    // conventions.  Tried first because the MSG-gauge primary path does
+    // not use the setting transform and can give wrong results when the
+    // MSG frame differs from the data Hall frame.
+    //
+    // Use pre-computed setting-aware indices when available (caller
+    // already filtered with filter_little_group_with_transform).
     let indices: std::borrow::Cow<[usize]> = if let Some(ix) = anti_lg_indices {
         std::borrow::Cow::Borrowed(ix)
     } else {
@@ -2345,17 +2333,14 @@ pub fn wigner_classify_spinor(
                         &op.rot,
                         true,
                         &pure_translations,
-                        kx,
-                        ky,
-                        kz,
-                        kd,
+                        kx, ky, kz, kd,
                     )
             })
             .map(|(idx, _)| idx)
             .collect();
         std::borrow::Cow::Owned(v)
     };
-    wigner_classify_spinor_direct_anti(
+    if let Some(result) = wigner_classify_spinor_direct_anti(
         ctx,
         spin_chars_real,
         spin_chars_imag,
@@ -2363,6 +2348,24 @@ pub fn wigner_classify_spinor(
         &indices,
         mag_seitz,
         setting_xf,
+        kx, ky, kz, kd,
+    ) {
+        return Some(result);
+    }
+
+    // ── Legacy MSG-gauge primary path (fallback) ─────────────────────────
+    // Used only when the frame-aware direct path cannot classify the case
+    // (e.g. missing spin data).  Does NOT use the setting transform.
+    wigner_classify_spinor_primary(
+        ctx,
+        spin_chars_real,
+        spin_chars_imag,
+        n_lg_ops,
+        spin_lg_op_indices,
+        _unitary_mag_indices,
+        mag_seitz,
+        h_seitz,
+        a0_idx,
         kx, ky, kz, kd,
     )
 }
