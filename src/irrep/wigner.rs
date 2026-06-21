@@ -1582,20 +1582,9 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
                 .get(&sq_spin_idx)
                 .ok_or(DirectAntiFailure::SquareOutsideLittleGroup)?
         } else {
-            // ── b²∉H₀ invariant skip ────────────────────────────────────
-            // b² ∈ H₀ is a group-theoretic identity: b ∈ M_k ⇒ b² ∈ H_k ⇒
-            // R(b²) ∈ H₀.  When the square rotation is NOT in the little
-            // co-group, the antiunitary operation b was INCORRECTLY included
-            // in the magnetic little group by the k-preservation filter
-            // (typically due to setting-transform axis permutation changing
-            // the rotation away from the ISOTROPY convention).
-            //
-            // Rather than failing the whole Wigner test, we skip this b term.
-            // This is mathematically safe: if b² ∉ H₀ then b ∉ M_k, so b
-            // should not contribute to the Wigner sum.
-            debug_log!("  SPINOR_DIRECT_ANTI skip: b[{}]² rot={:?} not in LG (filter false positive)",
-                b_idx, sq.rot);
-            continue;
+            debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² spin[{}] not in LG idxs",
+                b_idx, sq_spin_idx);
+            return Err(DirectAntiFailure::SquareOutsideLittleGroup);
         };
         let sq_spin = h_spin_seitz
             .get(sq_spin_idx)
