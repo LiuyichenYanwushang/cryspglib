@@ -1637,9 +1637,12 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
             Some(idx) => spin_su2_at(g_spin_su2, idx)
                 .ok_or(DirectAntiFailure::SquareSu2Missing)?,
             None => {
-                // Fall back to H-frame lookup if b² not in G spin table
-                spin_su2_at(h_spin_su2, sq_spin_idx)
-                    .ok_or(DirectAntiFailure::SquareSu2Missing)?
+                // b² rotation is not in the parent G spin table.  With the
+                // frame-unified pipeline both G spin table and MSG ops are
+                // in the same (parent G) frame, so this indicates a data
+                // gap, not a gauge mismatch.  Do NOT fall back to H-frame
+                // SU(2) — cross-gauge comparison gives wrong central signs.
+                return Err(DirectAntiFailure::SquareNotInSpinTable);
             }
         };
         let spatial_central = su2_same_up_to_sign(&u_b_sq, &u_sq_g)
