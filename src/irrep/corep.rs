@@ -653,6 +653,39 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
                     });
                 }
             }
+            // If find_setting_transform returned no candidates (e.g. monoclinic
+            // unique-axis Hall pairs like SG13 Hall73→72 where the zero-origin
+            // signed-permutation fallback still fails), try spglib's full
+            // standardisation pipeline as a last resort.
+            if xfs.is_empty() {
+                if let Some((_sg, _hall, xf)) = standard_setting_transform(&ops_from_hall, false) {
+                    let xf_rots: Vec<Mat3I> = ops_from_hall.operations.iter()
+                        .filter_map(|op| xf.transform_rotation(&op.rotation))
+                        .collect();
+                    let xf_trans: Vec<[f64; 3]> = ops_from_hall.operations.iter()
+                        .filter_map(|op| xf.transform_translation(&op.rotation, &op.translation))
+                        .collect();
+                    if xf_rots.len() == ops_from_hall.len() {
+                        let xf_ops = SymmetryOps::from_parallel(
+                            &xf_rots, &xf_trans,
+                            &vec![false; xf_rots.len()]);
+                        let msg_rots: Vec<Mat3I> = ops_from_msg.operations.iter().map(|o| o.rotation).collect();
+                        let msg_trans: Vec<[f64; 3]> = ops_from_msg.operations.iter().map(|o| o.translation).collect();
+                        let dhall_rots: Vec<Mat3I> = xf_ops.operations.iter().map(|o| o.rotation).collect();
+                        let dhall_trans: Vec<[f64; 3]> = xf_ops.operations.iter().map(|o| o.translation).collect();
+                        let msg_xfs = crate::irrep::wigner::find_setting_transform(&msg_rots, &msg_trans, &dhall_rots, &dhall_trans);
+                        let msg_to_data = msg_xfs.into_iter().next();
+                        return Some(UnitarySubgroupInfo {
+                            sg,
+                            hall,
+                            data_hall,
+                            ops_from_msg,
+                            ops_from_hall: xf_ops,
+                            msg_to_data,
+                        });
+                    }
+                }
+            }
         }
     }
 
