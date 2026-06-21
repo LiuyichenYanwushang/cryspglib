@@ -2340,7 +2340,12 @@ pub fn wigner_classify_spinor(
             .collect();
         std::borrow::Cow::Owned(v)
     };
-    if let Some(result) = wigner_classify_spinor_direct_anti(
+    // ── Direct anti-coset path (primary, frame-aware) ────────────────────
+    // Only MissingSpinData is allowed to fall back to the legacy path.
+    // All other errors (NonQuantized, Su2LiftMismatch, mapping failures)
+    // must propagate as None — the legacy path operates in MSG gauge and
+    // would silently mask frame/gauge errors with different results.
+    match wigner_classify_spinor_direct_anti_diagnostic(
         ctx,
         spin_chars_real,
         spin_chars_imag,
@@ -2350,12 +2355,13 @@ pub fn wigner_classify_spinor(
         setting_xf,
         kx, ky, kz, kd,
     ) {
-        return Some(result);
+        Ok(result) => return Some(result),
+        Err(DirectAntiFailure::MissingSpinData) => { /* fall through to legacy */ }
+        Err(_) => return None,
     }
 
     // ── Legacy MSG-gauge primary path (fallback) ─────────────────────────
-    // Used only when the frame-aware direct path cannot classify the case
-    // (e.g. missing spin data).  Does NOT use the setting transform.
+    // Used only when the frame-aware direct path lacks spin data.
     wigner_classify_spinor_primary(
         ctx,
         spin_chars_real,
