@@ -1119,6 +1119,52 @@ pub fn find_setting_transform(
             });
         }
     }
+    // If no candidate passed the origin solver, try zero-origin with full
+    // Seitz-set validation.  This catches Hall pairs where the rotation
+    // multisets match (same SG, same axis convention) but the origin solver
+    // fails due to identity-row consistency not being checked (see
+    // solve_origin_for_t).  For these cases, a zero origin may be correct
+    // if the only difference is trivial axis permutation.
+    if results.is_empty() {
+        let validate_xf = |xf: &SettingTransform| -> bool {
+            msg_rots.iter().zip(msg_trans.iter()).all(|(r, tm)| {
+                let Some(xf_r) = xf.transform_rotation(r) else { return false };
+                let Some(xf_t) = xf.transform_translation(r, tm) else { return false };
+                hall_rots.iter().zip(hall_trans.iter()).any(|(hr, ht)| {
+                    *hr == xf_r && {
+                        let d0 = xf_t[0] - ht[0];
+                        let d1 = xf_t[1] - ht[1];
+                        let d2 = xf_t[2] - ht[2];
+                        (d0 - d0.round()).abs() < 1e-9
+                            && (d1 - d1.round()).abs() < 1e-9
+                            && (d2 - d2.round()).abs() < 1e-9
+                    }
+                })
+            })
+        };
+        // Check if rotations already match (no permutation needed).
+        if rotation_multiset_eq(msg_rots, hall_rots) {
+            let xf = SettingTransform::identity();
+            if validate_xf(&xf) { results.push(xf); }
+        }
+        // Try all signed permutations with zero origin + full validation.
+        for t in &enumerate_signed_permutations() {
+            let t_inv = mat_inverse_3i(t);
+            let xf_rots: Vec<[[i32; 3]; 3]> = msg_rots.iter()
+                .map(|r| {
+                    let tmp = mat_multiply_3i_3i(t, r);
+                    mat_multiply_3i_3i(&tmp, &t_inv)
+                })
+                .collect();
+            if !rotation_multiset_eq(&xf_rots, hall_rots) { continue; }
+            let xf = SettingTransform {
+                basis: t.map(|row| row.map(|value| value as f64)),
+                origin: [0.0; 3],
+            };
+            if validate_xf(&xf) { results.push(xf); }
+        }
+    }
+
     if !results.is_empty() {
         XF_FOUND.fetch_add(1, Ordering::Relaxed);
     }
