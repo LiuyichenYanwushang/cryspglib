@@ -34,7 +34,8 @@
 
 use num_complex::Complex64;
 use crate::mathfunc::{
-    mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_i3, Mat3, Mat3I,
+    mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
+    mat_multiply_matrix_i3, Mat3, Mat3I,
 };
 use crate::SymmetryOps;
 use super::corep::CorepType;
@@ -919,6 +920,34 @@ impl SettingTransform {
             basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
             origin: [0.0; 3],
         }
+    }
+
+    /// Compose two transforms: `self` (A→B) followed by `other` (B→C),
+    /// giving A→C.  The formula follows from `x_B = P_1·x_A + s_1` and
+    /// `x_C = P_2·x_B + s_2`:
+    ///
+    /// ```text
+    /// P_total = P_2 · P_1
+    /// s_total = P_2 · s_1 + s_2   (mod Z³)
+    /// ```
+    ///
+    /// Translation components are taken modulo 1 since they represent
+    /// origin shifts in fractional coordinates.
+    pub fn then(&self, other: &SettingTransform) -> SettingTransform {
+        let p1 = self.basis;
+        let s1 = self.origin;
+        let p2 = other.basis;
+        let s2 = other.origin;
+        // P_total = P_2 · P_1
+        let basis = mat_multiply_matrix_d3(&p2, &p1);
+        // s_total = P_2 · s_1 + s_2 (mod Z³)
+        let mut origin = [0.0f64; 3];
+        for i in 0..3 {
+            let ps: f64 = (0..3).map(|j| p2[i][j] * s1[j]).sum();
+            origin[i] = (ps + s2[i]) % 1.0;
+            if origin[i] < 0.0 { origin[i] += 1.0; }
+        }
+        SettingTransform { basis, origin }
     }
 
     /// Apply the forward transform to a rotation matrix.

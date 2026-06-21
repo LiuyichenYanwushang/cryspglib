@@ -486,11 +486,17 @@ fn get_parent_operations(sg: u8) -> SymmetryOps {
 /// Identified unitary subgroup of a magnetic space group, with correct Hall setting.
 pub struct UnitarySubgroupInfo {
     pub sg: usize,
+    /// Hall setting identified by spglib (may differ from ISOTROPY data Hall).
     pub hall: usize,
-    /// Unitary ops extracted from the MSG itself.
+    /// ISOTROPY data Hall (= SG_DATA_HALL[sg]).
+    pub data_hall: usize,
+    /// Unitary ops extracted from the MSG itself (MSG frame).
     pub ops_from_msg: SymmetryOps,
-    /// Unitary ops reconstructed from the identified Hall setting.
+    /// Unitary ops in the ISOTROPY data-Hall frame.
     pub ops_from_hall: SymmetryOps,
+    /// Composed transform MSG frame → ISOTROPY data-Hall frame.
+    /// Computed as detected_to_data.then(&msg_to_detected).
+    pub msg_to_data: Option<wigner::SettingTransform>,
 }
 
 impl UnitarySubgroupInfo {
@@ -646,9 +652,11 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
                         &vec![false; xf_rots.len()]);
                     return Some(UnitarySubgroupInfo {
                         sg,
-                        hall: data_hall,
+                        hall,
+                        data_hall,
                         ops_from_msg,
                         ops_from_hall: xf_ops,
+                        msg_to_data: None, // FIXME: compose with msg_to_detected
                     });
                 }
             }
@@ -658,8 +666,11 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
     Some(UnitarySubgroupInfo {
         sg,
         hall,
+        data_hall: crate::irrep::types::generated_data::SG_DATA_HALL
+            .get(sg).copied().unwrap_or(0) as usize,
         ops_from_msg,
         ops_from_hall,
+        msg_to_data: None, // FIXME: populate from composed transforms
     })
 }
 
