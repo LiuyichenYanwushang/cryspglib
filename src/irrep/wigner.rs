@@ -1722,10 +1722,15 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
                 return Err(DirectAntiFailure::SquareNotInSpinTable);
             }
         };
-        let spatial_central = su2_same_up_to_sign(&u_b_sq, &u_sq_g)
+        // U_b² vs canonical U_{b²} in the G spin table.
+        //   LiftRelation::Same: U_b² = +U_{b²}  →  spatial square has NO Ē
+        //   LiftRelation::EBar: U_b² = -U_{b²}  →  spatial square IS Ē
+        // Since b = Θg carries Θ² = Ē for spin-1/2:
+        //   if the spatial square is NOT Ē, Θ² contributes an extra -1 → central=true
+        //   if the spatial square IS Ē, Θ² was already accounted → central=false
+        let spatial_central = su2_lift_relation(&u_b_sq, &u_sq_g)
             .ok_or(DirectAntiFailure::Su2LiftMismatch)?;
-        // b = Θg carries the additional spin-1/2 factor Θ² = Ē.
-        let central = !spatial_central;
+        let central = spatial_central == LiftRelation::Same;
 
         // Bloch phase includes both square reduction and the shift required
         // to match the canonical spin-table representative.
@@ -2073,7 +2078,19 @@ pub fn su2_compose(a: &[f64; 4], b: &[f64; 4]) -> [f64; 4] {
 ///
 /// Returns `Some(false)` if a ≈ b, `Some(true)` if a ≈ -b (central differs),
 /// `None` if they are unrelated.
-pub fn su2_same_up_to_sign(a: &[f64; 4], b: &[f64; 4]) -> Option<bool> {
+/// Relationship between two SU(2) lifts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiftRelation {
+    /// U_a = +U_b (same lift, no central element Ē)
+    Same,
+    /// U_a = -U_b (opposite lift, Ē = nontrivial central element)
+    EBar,
+}
+
+/// Compare two SU(2) lifts.  Returns `None` if the lifts are unrelated
+/// (cos ≠ ±1), or `Some(LiftRelation)` indicating whether they are the
+/// same lift or differ by the central element Ē = -I.
+pub fn su2_lift_relation(a: &[f64; 4], b: &[f64; 4]) -> Option<LiftRelation> {
     let dot = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
     let na = (a[0]*a[0] + a[1]*a[1] + a[2]*a[2] + a[3]*a[3]).sqrt();
     let nb = (b[0]*b[0] + b[1]*b[1] + b[2]*b[2] + b[3]*b[3]).sqrt();
@@ -2082,12 +2099,21 @@ pub fn su2_same_up_to_sign(a: &[f64; 4], b: &[f64; 4]) -> Option<bool> {
     }
     let cos = dot / (na * nb);
     if (cos - 1.0).abs() < 1e-6 {
-        Some(true)   // same lift, no central Ē
+        Some(LiftRelation::Same)
     } else if (cos + 1.0).abs() < 1e-6 {
-        Some(false)  // opposite lift, central Ē present
+        Some(LiftRelation::EBar)
     } else {
-        None  // unrelated
+        None
     }
+}
+
+/// Legacy wrapper.  Prefer [`su2_lift_relation`].
+/// Returns `Some(false)` for [`LiftRelation::Same`] and `Some(true)` for [`LiftRelation::EBar`].
+pub fn su2_same_up_to_sign(a: &[f64; 4], b: &[f64; 4]) -> Option<bool> {
+    su2_lift_relation(a, b).map(|r| match r {
+        LiftRelation::Same => false,
+        LiftRelation::EBar => true,
+    })
 }
 
 // ── Spinor (double-group) Wigner test ──────────────────────────────────────
