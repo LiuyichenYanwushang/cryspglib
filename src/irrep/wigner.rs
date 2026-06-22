@@ -215,6 +215,131 @@ pub fn read_j_oracle_counters() -> (usize, usize, usize, usize, usize) {
     )
 }
 
+/// G→H spin frame parity for signed-permutation setting transforms.
+///
+/// When the spatial coordinate transform has det(P) = -1, spin (axial vector)
+/// transforms under Q = det(P)·P ≠ P.  For a rotation R in G frame:
+///
+/// ```text
+/// R' = P·R·P⁻¹          (spatial transform to H frame)
+/// U_G→H = U_Q · U_G(R) · U_Q*   (spin lift in H frame)
+/// ε(R) = sign(U_H(R') · U_G→H)  (G→H parity, ±1)
+/// ```
+///
+/// This function computes ε(R) for a single rotation.  The Q matrix must
+/// be a signed-permutation with det=1 (so it represents a proper rotation).
+///
+/// Returns `None` if either spin table lacks the rotation.
+fn compute_signed_perm_spin_parity(
+    q: &[[i32; 3]; 3],          // Q = det(P)·P (proper rotation)
+    sq_rot: &[[i32; 3]; 3],     // b² rotation in G/MSG frame
+    g_spin_rots: &[i32],         // G spin table (9 per op)
+    g_spin_su2: &[f64],          // G spin SU(2) (4 per op)
+    h_spin_rots: &[i32],         // H spin table
+    h_spin_su2: &[f64],          // H spin SU(2)
+) -> Option<f64> {
+    let n_g = g_spin_rots.len() / 9;
+    let n_h = h_spin_rots.len() / 9;
+
+    // 1. Find U_G(sq_rot) in G spin table
+    let g_idx = (0..n_g).find(|&i| {
+        let off = i * 9;
+        g_spin_rots[off..off+9] == [
+            sq_rot[0][0], sq_rot[0][1], sq_rot[0][2],
+            sq_rot[1][0], sq_rot[1][1], sq_rot[1][2],
+            sq_rot[2][0], sq_rot[2][1], sq_rot[2][2],
+        ]
+    })?;
+    let u_g = &[
+        g_spin_su2[g_idx * 4],
+        g_spin_su2[g_idx * 4 + 1],
+        g_spin_su2[g_idx * 4 + 2],
+        g_spin_su2[g_idx * 4 + 3],
+    ];
+    // Also try -R (same rotation in SO(3), opposite lift in SU(2))
+    let neg_rot: [i32; 9] = [
+        -sq_rot[0][0], -sq_rot[0][1], -sq_rot[0][2],
+        -sq_rot[1][0], -sq_rot[1][1], -sq_rot[1][2],
+        -sq_rot[2][0], -sq_rot[2][1], -sq_rot[2][2],
+    ];
+
+    // P = det(P)·Q → since det(P) = -1, P = -Q
+    // P·R·P⁻¹ = (-Q)·R·(-Q)⁻¹ = Q·R·Q⁻¹ (the -1 factors cancel)
+    // For signed-permutation Q with det=1: Q⁻¹ = Q^T
+    let q_mat: [[i32; 3]; 3] = [[q[0][0], q[0][1], q[0][2]],
+                                  [q[1][0], q[1][1], q[1][2]],
+                                  [q[2][0], q[2][1], q[2][2]]];
+    let r_mat: [[i32; 3]; 3] = *sq_rot;
+    let q_inv: [[i32; 3]; 3] = [[q_mat[0][0], q_mat[1][0], q_mat[2][0]],
+                                  [q_mat[0][1], q_mat[1][1], q_mat[2][1]],
+                                  [q_mat[0][2], q_mat[1][2], q_mat[2][2]]];
+    let qr = crate::mathfunc::mat_multiply_matrix_i3(&q_mat, &r_mat);
+    let r_h = crate::mathfunc::mat_multiply_matrix_i3(&qr, &q_inv);
+
+    // 2. Find U_H(R') in H spin table
+    let h_idx = (0..n_h).find(|&i| {
+        let off = i * 9;
+        h_spin_rots[off..off+9] == [
+            r_h[0][0], r_h[0][1], r_h[0][2],
+            r_h[1][0], r_h[1][1], r_h[1][2],
+            r_h[2][0], r_h[2][1], r_h[2][2],
+        ]
+    })?;
+    let u_h = &[
+        h_spin_su2[h_idx * 4],
+        h_spin_su2[h_idx * 4 + 1],
+        h_spin_su2[h_idx * 4 + 2],
+        h_spin_su2[h_idx * 4 + 3],
+    ];
+
+    // 3. Compute U_Q — the SU(2) lift of the signed-permutation Q.
+    // Q is a signed-permutation with det=1.  For a rotation, the
+    // quaternion is (cos(θ/2), sin(θ/2)·axis).  The rotation angle
+    // is determined by tr(Q) = 1 + 2·cos(θ).
+    let tr = q[0][0] + q[1][1] + q[2][2];
+    // cosθ = (tr - 1) / 2
+    // cos(θ/2) = sqrt((1 + cosθ) / 2) = sqrt((tr + 1) / 4)
+    let cos_half = ((tr + 1) as f64 / 4.0).sqrt();
+    let sin_half = (1.0 - cos_half * cos_half).sqrt();
+    // Rotation axis: find the eigenvector with eigenvalue +1
+    // For 180° rotation (tr=-1, cos_half=0, sin_half=1): axis is any fixed direction
+    let axis: [f64; 3] = if tr == -1 {
+        // 180° rotation: find the coordinate that doesn't change sign
+        let mut ax = [0.0f64; 3];
+        for k in 0..3 {
+            if q[k][k] == 1 { ax[k] = 1.0; break; }
+        }
+        // Normalize
+        let n = (ax[0]*ax[0] + ax[1]*ax[1] + ax[2]*ax[2]).sqrt();
+        if n < 0.5 { return None; } // shouldn't happen for det=1
+        [ax[0]/n, ax[1]/n, ax[2]/n]
+    } else if tr == 3 {
+        // Identity: no rotation
+        [0.0, 0.0, 1.0] // axis irrelevant since sin_half = 0
+    } else {
+        // General case — extract axis from Q's antisymmetric part
+        // For a rotation matrix R: axis = (R32-R23, R13-R31, R21-R12) / (2sinθ)
+        let ax_x = (q[2][1] - q[1][2]) as f64;
+        let ax_y = (q[0][2] - q[2][0]) as f64;
+        let ax_z = (q[1][0] - q[0][1]) as f64;
+        let n = (ax_x*ax_x + ax_y*ax_y + ax_z*ax_z).sqrt();
+        if n < 0.5 { return None; }
+        [ax_x/n, ax_y/n, ax_z/n]
+    };
+    let u_q = [cos_half, sin_half * axis[0], sin_half * axis[1], sin_half * axis[2]];
+
+    // 4. Transform G lift: U_G→H = U_Q · U_G · U_Q*
+    let u_q_star = conj_pauli(&u_q);
+    let t1 = su2_compose(&u_q, u_g);
+    let u_g_to_h = su2_compose(&t1, &u_q_star);
+
+    // 5. Compare with H lift
+    su2_lift_relation(&u_g_to_h, u_h).map(|rel| match rel {
+        LiftRelation::Same => 1.0,
+        LiftRelation::EBar => -1.0,
+    })
+}
+
 /// Negate a Pauli coefficient vector (multiply by Ebar).
 #[inline]
 fn neg_pauli(v: &[f64; 4]) -> [f64; 4] {
@@ -1698,7 +1823,11 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         // Compute entirely in G frame to avoid cross-gauge comparison.
         // b.rot is in G/MSG frame (untransformed), and G spin table is
         // in G frame.  H spin table may use a different axis convention.
-        let u_b_sq = su2_compose(&u_b, &u_b);
+        // Antiunitary square for spin-1/2:
+        //   b = Θ·g  →  D(b)² = -D(g)²  (since Θ² = -1)
+        // Use neg_pauli(compose(U, U)) = -U² explicitly rather than
+        // relying on the spin-table gauge to detect the Θ² sign.
+        let u_b_sq = neg_pauli(&su2_compose(&u_b, &u_b));
         let b_sq_rot_ms_g = crate::mathfunc::mat_multiply_matrix_i3(&b.rot, &b.rot);
         let g_sq_idx = g_spin_seitz.iter().position(|s| s.rot == b_sq_rot_ms_g)
             .or_else(|| {
@@ -1730,7 +1859,61 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         //   if the spatial square IS Ē, Θ² was already accounted → central=false
         let spatial_central = su2_lift_relation(&u_b_sq, &u_sq_g)
             .ok_or(DirectAntiFailure::Su2LiftMismatch)?;
-        let central = spatial_central == LiftRelation::Same;
+        let mut central = spatial_central == LiftRelation::Same;
+
+        // ── G→H spin frame parity (signed-permutation oracle) ────────────
+        // When the setting transform P has det(P) = -1, spin is an axial
+        // vector and transforms under Q = det(P)·P ≠ P.  The canonical
+        // SU(2) lift in G frame differs from H frame by a sign ε(R) = ±1
+        // for each rotation R.  We correct central parity by ε(R).
+        //
+        // Currently implemented for signed-permutations (entries ∈ {0,±1}).
+        // For general rational bases, the full Z₂ cocycle / 1-cochain
+        // approach is needed (see codex review).
+        if let Some(xf) = setting_xf {
+            // Check if basis is signed-permutation with det = -1
+            let is_signed_perm = xf.basis.iter().all(|row| {
+                row.iter().all(|&v| {
+                    let r = v.round();
+                    r == -1.0 || r == 0.0 || r == 1.0
+                })
+            });
+            if is_signed_perm {
+                let p: [[i32; 3]; 3] = xf.basis.map(|row| {
+                    row.map(|v| v.round() as i32)
+                });
+                let det_p = p[0][0] * (p[1][1]*p[2][2] - p[1][2]*p[2][1])
+                          - p[0][1] * (p[1][0]*p[2][2] - p[1][2]*p[2][0])
+                          + p[0][2] * (p[1][0]*p[2][1] - p[1][1]*p[2][0]);
+                if det_p == -1 {
+                    // Q = det(P)·P maps G spin frame → H spin frame
+                    let q: [[i32; 3]; 3] = [
+                        [-p[0][0], -p[0][1], -p[0][2]],
+                        [-p[1][0], -p[1][1], -p[1][2]],
+                        [-p[2][0], -p[2][1], -p[2][2]],
+                    ];
+                    // SU(2) lift of Q (proper rotation, det=1).
+                    // For a signed-permutation, U_Q is computed from the
+                    // rotation axis and angle.  Q has at most one non-zero
+                    // per row/col; the rotation axis is determined by the
+                    // fixed coordinate.
+                    //
+                    // The parity ε(sq_rot) = sign(U_H(R') · U_Q · U_G(R) · U_Q*)
+                    // where R' = P·R·P⁻¹.
+                    //
+                    // Oracle: directly compare H spin table lift for sq_rot
+                    // (in H frame) with Q-transformed G lift.
+                    if let Some(g_to_h_parity) =
+                        compute_signed_perm_spin_parity(&q, &sq.rot, g_spin_rots, g_spin_su2,
+                            h_spin_rots, h_spin_su2)
+                    {
+                        if (g_to_h_parity - (-1.0)).abs() < 0.1 {
+                            central = !central;
+                        }
+                    }
+                }
+            }
+        }
 
         // Bloch phase includes both square reduction and the shift required
         // to match the canonical spin-table representative.
