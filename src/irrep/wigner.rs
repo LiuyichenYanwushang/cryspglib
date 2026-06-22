@@ -1861,17 +1861,15 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
             .ok_or(DirectAntiFailure::Su2LiftMismatch)?;
         let mut central = spatial_central == LiftRelation::Same;
 
-        // ── G→H spin frame parity (signed-permutation oracle) ────────────
-        // When the setting transform P has det(P) = -1, spin is an axial
-        // vector and transforms under Q = det(P)·P ≠ P.  The canonical
-        // SU(2) lift in G frame differs from H frame by a sign ε(R) = ±1
-        // for each rotation R.  We correct central parity by ε(R).
+        // ── G→H spin frame parity ────────────────────────────────────────
+        // Spin is an axial vector: under x_H = P·x_G + s, spin transforms
+        // under Q = det(P)·P.  The sign convention in the G spin table may
+        // differ from H's canonical lift by ε(R) = ±1 per rotation.
         //
-        // Currently implemented for signed-permutations (entries ∈ {0,±1}).
-        // For general rational bases, the full Z₂ cocycle / 1-cochain
-        // approach is needed (see codex review).
+        // For signed-permutations (entries ∈ {0,±1}), compute ε exactly
+        // via the SU(2) lift of Q.  For general rational bases, the full
+        // Z₂ cocycle / 1-cochain approach is needed (see codex review).
         if let Some(xf) = setting_xf {
-            // Check if basis is signed-permutation with det = -1
             let is_signed_perm = xf.basis.iter().all(|row| {
                 row.iter().all(|&v| {
                     let r = v.round();
@@ -1885,29 +1883,22 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
                 let det_p = p[0][0] * (p[1][1]*p[2][2] - p[1][2]*p[2][1])
                           - p[0][1] * (p[1][0]*p[2][2] - p[1][2]*p[2][0])
                           + p[0][2] * (p[1][0]*p[2][1] - p[1][1]*p[2][0]);
-                if det_p == -1 {
-                    // Q = det(P)·P maps G spin frame → H spin frame
-                    let q: [[i32; 3]; 3] = [
-                        [-p[0][0], -p[0][1], -p[0][2]],
-                        [-p[1][0], -p[1][1], -p[1][2]],
-                        [-p[2][0], -p[2][1], -p[2][2]],
-                    ];
-                    // SU(2) lift of Q (proper rotation, det=1).
-                    // For a signed-permutation, U_Q is computed from the
-                    // rotation axis and angle.  Q has at most one non-zero
-                    // per row/col; the rotation axis is determined by the
-                    // fixed coordinate.
-                    //
-                    // The parity ε(sq_rot) = sign(U_H(R') · U_Q · U_G(R) · U_Q*)
-                    // where R' = P·R·P⁻¹.
-                    //
-                    // Oracle: directly compare H spin table lift for sq_rot
-                    // (in H frame) with Q-transformed G lift.
-                    if let Some(g_to_h_parity) =
-                        compute_signed_perm_spin_parity(&q, &sq.rot, g_spin_rots, g_spin_su2,
-                            h_spin_rots, h_spin_su2)
+                // Q = det(P)·P maps spin frame G→H.  Q is always a proper
+                // rotation (det(Q) = det(P)⁴ = 1 for det(P)=±1).
+                let q: [[i32; 3]; 3] = if det_p == -1 {
+                    [[-p[0][0], -p[0][1], -p[0][2]],
+                     [-p[1][0], -p[1][1], -p[1][2]],
+                     [-p[2][0], -p[2][1], -p[2][2]]]
+                } else {
+                    p
+                };
+                // If Q is the identity (tr=3), no spin basis change needed
+                if q != [[1,0,0],[0,1,0],[0,0,1]] {
+                    if let Some(parity) =
+                        compute_signed_perm_spin_parity(&q, &sq.rot,
+                            g_spin_rots, g_spin_su2, h_spin_rots, h_spin_su2)
                     {
-                        if (g_to_h_parity - (-1.0)).abs() < 0.1 {
+                        if (parity - (-1.0)).abs() < 0.1 {
                             central = !central;
                         }
                     }
