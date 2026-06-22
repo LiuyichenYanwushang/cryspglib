@@ -1719,6 +1719,7 @@ pub fn wigner_classify_spinor_direct_anti(
         setting_xf,
         kx, ky, kz, kd,
         None,
+        &[],
     )
     .ok()
 }
@@ -1734,6 +1735,8 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     kx: i8, ky: i8, kz: i8, kd: i8,
     // Optional per-term trace collector (only filled when diagnosing failures)
     mut trace: Option<&mut Vec<PerTermTrace>>,
+    // Full translation lattice including centering vectors (from Hall group)
+    canonical_pure_translations: &[[f64; 3]],
 ) -> Result<CorepType, DirectAntiFailure> {
     let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
     let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
@@ -1772,12 +1775,11 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     let n_anti = anti_lg_indices.len();
     let mut w_sum = Complex64::ZERO;
 
-    // Canonical pure translations from H spin table (used for Seitz matching).
-    // These include centering vectors like (1/2,1/2,1/2) for I/F/C-centered groups.
-    let canonical_translations: Vec<[f64; 3]> = h_spin_seitz.iter()
-        .filter(|s| s.rot == [[1,0,0],[0,1,0],[0,0,1]])
-        .map(|s| s.trans)
-        .collect();
+    // Merge parameter translations with Z³ basis + spin table centering vectors
+    let z3: [[f64; 3]; 3] = [[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]];
+    let mut all_canon: Vec<[f64; 3]> = vec![[0.0,0.0,0.0]];
+    all_canon.extend_from_slice(&z3);
+    all_canon.extend_from_slice(canonical_pure_translations);
 
     for &b_idx in anti_lg_indices {
         let b = &mag_seitz[b_idx];
@@ -1804,7 +1806,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         // b² ∈ H₀ by group theory: b ∈ M_k ⇒ b² ∈ H_k ⇒ R_{b²} ∈ H₀.
         // Use LG-first matching to avoid picking a non-LG candidate.
         let (sq_spin_idx, sq_in_lg, match_kind) = match find_sq_spin_lg_first(
-            &sq, &h_spin_seitz, spin_lg_op_indices, &canonical_translations) {
+            &sq, &h_spin_seitz, spin_lg_op_indices, &all_canon) {
             Some(v) => v,
             None => {
                 debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² rot={:?} not in H spin ops",
@@ -2721,6 +2723,7 @@ pub fn wigner_classify_spinor(
         setting_xf,
         kx, ky, kz, kd,
         None,
+        &[],
     ) {
         Ok(result) => return Some(result),
         Err(DirectAntiFailure::MissingSpinData) => { /* fall through to legacy */ }
