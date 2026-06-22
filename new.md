@@ -1,178 +1,149 @@
 # 工作总结与后续计划（供 Codex Review）
 
-## 一、Baseline 变化
+## 一、Baseline 演变
 
-| 指标 | 本次开始 | 当前 | 变化 |
-|------|---------|------|------|
-| ok | 20,611 | **20,921** | +310 |
-| fail | 147 | **301** | +154 (诚实基线) |
-| `square_not_in_spin_table` | 26 | **0** | 消除 |
-| `square_outside_little_group` | 9 | **0** | 消除 |
-| `non_quantized` | 112 | **301** | +189 (诚实基线暴露) |
-| 全部测试 | 199 | **200** | +1 |
+| 阶段 | ok | fail | 改动 |
+|------|-----|------|------|
+| new.md 初始基线 | 20,921 | 301 | 诚实基线 (strict dispatcher) |
+| `enumerate_unimodular_bases()` | 21,015 | 201 | SG13/14 Hall73→72/82→81 (-100) |
+| 容差 1e-6→1e-4 | 21,079 | 137 | W≈0 浮点假阳性 (-64) |
+| **当前 (step 1-7 后)** | **21,127** | **89** | G→H spin parity oracle 修复 SG92/95 (-48) |
 
-fail 增加是因为 strict dispatcher 暴露了 198 个之前被 legacy MSG-gauge path 掩盖的 case。
+## 二、所有修改的提交
 
-## 二、所有修改的提交（15 个）
+### 扩增 candidate pool (`src/irrep/wigner.rs`)
+- `35be90f`：`enumerate_unimodular_bases()` — 生成所有 entries∈{-1,0,1}, det=±1 的 3×3 矩阵，替换 `enumerate_signed_permutations()` 用于 `find_setting_transform`
+- `d67f0fe`：`OnceLock<Vec<Mat3I>>` 缓存 unimodular bases，避免每次调用重新生成 6,960 个矩阵
 
-### spglib Hall 搜索修复（`src/spacegroup.rs`）
-- `028fd97`：`spa_search_spacegroup_with_symmetry` 搜索全部 530 Hall（之前只搜 230 个首选 Hall）
-- `a3589e0`：拒绝 tolerance retry 产生的 Hall1 假阳性
+### LiftRelation enum + 显式 -U² (`src/irrep/wigner.rs`)
+- `52c9800`：新增 `LiftRelation` enum (`Same`/`EBar`) 替代 `su2_same_up_to_sign` 的模糊 bool 语义。新增 `su2_lift_relation()` 为主 API，`su2_same_up_to_sign()` 保留为 legacy wrapper
+- `bde55f8`：反酉平方显式写为 `neg_pauli(&su2_compose(&u_b, &u_b))` = -U²，而非依赖 spin table gauge 隐式检测 Θ² = -1
 
-### SettingTransform 防御（`src/irrep/wigner.rs`）
-- `ee403dd`：`transform_rotation()`/`transform_translation()` → `Option` 返回；新增 `transform_seitz()`
-- `1cf4748`：`filter_little_group_with_transform` 使用 transform 前原子验证全部 ops
-- `3d24083`：`SettingTransform::then()` 组合方法 (P_total = P_2·P_1, s_total = P_2·s_1 + s_2)
-- `1cb3706`：Hall→data-Hall 对齐
-- `4fec731`：零原点 Seitz 验证 fallback（修复 Hall 210→209, 213→212 的 0 candidates）
-- `43fc047`：`standard_setting_transform` fallback
+### G→H spin frame parity (`src/irrep/wigner.rs`)
+- `bde55f8`：`compute_signed_perm_spin_parity()` — 对 signed-permutation setting transform，计算轴向向量变换 Q = det(P)·P 的 SU(2) 表示 U_Q，将 G spin table lift 变换到 H frame 后比较，输出 parity ε(R) = ±1
+- `bfac77d`：扩展 parity oracle 支持 det(P)=1（原本仅 det=-1）
+- parity 修正逻辑位置：`wigner_classify_spinor_direct_anti_diagnostic` 中 `central` 计算之后 (`:1737-1809`)
 
-### 帧统一（`src/irrep/corep.rs`）
-- `fef7573`+`4aafedf`：canonical H 平移子群（先错用 `ops_from_msg` → 修正为 `ops_from_hall`）
-- `8424b57`：`msg_to_data` 在 `identify_unitary_subgroup_with_hall` 中一次计算，`compute_corepresentation` 直接使用
-- `9632324`：**Codex frame pipeline 统一**（核心提交，详见第三节）
+### 容差与分类规则 (`src/irrep/wigner.rs`)
+- `0065378`：容差从 1e-4 收紧至 1e-5
+- `0065378`：删除 W=±dim 接受分支，仅保留 W=0, ±1（arXiv:2211.10740）
 
-### 路径修复
-- `224cdc0`：b²∉H₀ skip → **被 `9632324` 撤回**
-- `6c84bc5`：移除 G→H SU(2) cross-gauge fallback
-- `175d775`：direct anti-coset 路径优先于 msg-gauge primary
-- `23aa76a`：**strict dispatcher** — 仅 `MissingSpinData` 允许 legacy fallback，建立诚实基线
+### Per-term trace 诊断 (`src/irrep/corep.rs`)
+- `47ddfbc`：`PerTermTrace` struct — 记录每个 b 的完整数据流（旋转、SU(2) lift、parity、Bloch phase、contribution）
+- `bbdbc09`：`diagnose_nonquantized_per_term` test — 按 (SG, k-point) 聚类展示 per-term Wigner sum，含 SU(2) 数据
 
-## 三、Codex Frame Pipeline 统一（`9632324`）引入的关键模式
+## 三、codex review 后的修复路线与执行状态
 
-### 1. `transform_embeds_ops()` — 允许 subset 嵌入
-```rust
-fn transform_embeds_ops(xf, source, target) -> bool
-```
-验证 source ops 变换后是 target ops 的**子集**（不要求逐项等长）。
-中心化群 MSG 只有 8 个代表元，canonical Hall 有 16 个。
-位置：`corep.rs:532`
+codex review 指出根因不是"G spin table gauge 不一致"（(-U)²=U²，符号不影响平方），而是**缺少 G→H spin frame parity**。
 
-### 2. `transform_applies_to_all_ops()` — 原子验证
-所有 op 的 rotation 变换必须产生整数矩阵。
-位置：`corep.rs:554`
+### 建议执行顺序与完成状态
 
-### 3. 保留 `msg_to_detected`，不再丢弃 `_xf`
-```rust
-if let Some((std_sg, std_hall, xf)) = standard_setting_transform(...) {
-    (std_sg, std_hall, oh, Some(xf))  // xf saved, not discarded
-}
-```
-位置：`corep.rs:613`
+| # | 任务 | 状态 | 说明 |
+|---|------|------|------|
+| 1 | 撤回 4460be0，改用 LiftRelation enum | ✅ | `52c9800` |
+| 2 | 反酉平方显式写成 -U² | ✅ | `bde55f8` |
+| 3 | signed-permutation 轴向向量 quaternion oracle，验证 SG92/95 | ✅ | `bde55f8` — **SG92(24)+SG95(24)=48 eliminated** |
+| 4 | 通用 G→H Z₂ cocycle/1-cochain parity（非 signed-permutation） | ❌ | 剩余 89 个失败需要此步 |
+| 5 | 容差收紧为 1e-5 | ✅ | `0065378` |
+| 6 | 缓存 unimodular 候选和 Hall-pair 结果 | ✅ | `d67f0fe` — unimodular 已缓存 |
+| 7 | 删除 ±dim 接受规则 | ✅ | `0065378` |
+| 8 | 重新统计剩余失败 | ✅ | 89 个 |
 
-### 4. 正确组合顺序
-```rust
-let msg_to_data = msg_to_detected.then(detected_to_data);
-```
-位置：`corep.rs:668`
+## 四、SG92 具体修复验证
 
-### 5. 候选筛选用 `find()` 而非 `first()`
-```rust
-for detected_to_data in &xfs {
-    if !transform_embeds_ops(detected_to_data, &ops_from_hall, &data_ops) { continue; }
-    // ...
-}
-```
-位置：`corep.rs:662`
+UNI808: parent G = SG96, H = SG92, MSG→H basis P = diag(1,-1,1), det(P) = -1
 
-### 6. 诊断与生产路径统一
-诊断不再独立计算 `setting_xf`，直接使用 `h_info.msg_to_data` 和 canonical translations。
-位置：`corep.rs:2118`
+轴向向量变换：Q = det(P)·P = diag(-1,1,-1)（180° 绕 y 轴）
 
-### 7. 撤回 b²∉H₀ skip
-恢复 `SquareOutsideLittleGroup` 硬错误。frame 已统一，invariant 不再被违反。
-位置：`wigner.rs:1580`
+对 C2z (b²=180°绕z)：U_G(C2z) = -k → Q 变换后 → +k。H canonical lift = -k。ε(C2z) = -1。
 
-### 8. 新增回归测试
-`test_centered_type3_msg_to_data_transform_is_validated` — 覆盖 SG22/42/43/69/70 的中心化 Type III 群。
-位置：`corep.rs:1110`
+应用 ε = -1 后，8 个 term 全部贡献 -1 → W = -8/8 = -1 → Type B ✓
 
-## 四、当前状态（诚实基线）
+SG95 (P4₃2₂) 同理：P 也是 diag(1,-1,1) 或等价 signed-permutation。
 
-严格 dispatcher 禁止 NonQuantized/mapping/SU2 错误落入 legacy fallback 后：
-- **20,921 ok / 301 fail**
-- 全部 301 个为 direct-path `non_quantized`
-- Mapping failure = 0
-- 200 测试通过
+## 五、当前剩余 89 个 failure 的分布
 
-### 301 个 failure 的 SG 分布
+全部在体心/面心/高对称 cubic 群，具有非 signed-permutation 的 setting transform（含 1/2, 1/4 等剪切分量）：
 
-| SG | 数量 | 备注 |
+| SG | 数量 | 说明 |
 |----|------|------|
-| 13 | 64 | P2/c, Hall 73→72: 0 transform candidates |
-| 14 | 36 | P2₁/c, Hall 82→81: 0 transform candidates |
-| 92 | 24 | P4₁2₁2 |
-| 95 | 24 | P4₃2₂ |
-| 144 | 12 | |
-| 145 | 12 | |
-| 169 | 12 | |
-| 170 | 12 | |
-| 141 | 10 | |
-| 142 | 10 | |
-| 227 | 10 | Fd3m |
-| 228 | 10 | Fd3c |
-| 88 | 8 | |
-| 122 | 8 | |
-| 203 | 8 | |
-| 其他 | <8 each | |
+| 88 | 8 | I4₁/a，体心四方 |
+| 122 | 8 | I-42d，体心四方 |
+| 141 | 10 | I4₁/amd，体心四方 |
+| 142 | 10 | I4₁/acd，体心四方 |
+| 199 | 4 | I2₁3，体心立方 |
+| 201 | 4 | Pn-3，原始立方 |
+| 203 | 8 | Fd3，面心立方 |
+| 206 | 4 | Ia3，体心立方 |
+| 220 | 5 | I-43d，体心立方 |
+| 222 | 2 | Pn3n，原始立方 |
+| 224 | 6 | Pn3m，原始立方 |
+| 227 | 10 | Fd3m，面心立方 |
+| 228 | 10 | Fd3c，面心立方 |
 
-SG13+14 占 100/301 (33%)。
+## 六、关键代码位置
 
-## 五、已尝试但撤回的修改
+### 生产路径
 
-### G→H gauge parity（已撤回）
+| 功能 | 文件:行 |
+|------|--------|
+| `LiftRelation` enum | `wigner.rs:2076` |
+| `su2_lift_relation()` | `wigner.rs:2086` |
+| `su2_same_up_to_sign()` (legacy) | `wigner.rs:2106` |
+| `compute_signed_perm_spin_parity()` | `wigner.rs:226` |
+| G→H parity 应用 | `wigner.rs:1805-1840` |
+| 显式 -U² | `wigner.rs:1774` |
+| 容差 1e-5 | `wigner.rs:1864` |
+| `enumerate_unimodular_bases()` | `wigner.rs:1197` |
+| `UNIMODULAR_BASES` static | `wigner.rs:1194` |
+| `PerTermTrace` struct | `wigner.rs:1517` |
+| `wigner_classify_spinor_direct_anti_diagnostic` | `wigner.rs:1634` |
 
-尝试添加 Z₂ gauge mapping: ε(h) = U_h^(G) / U_h^(H) ∈ {+1,-1}
+### 诊断测试
 
-失败原因：比较了**不同帧中的不同旋转**的 SU(2) lifts：
-- `u_sq_g` 来自 `b.rot²`（G 帧，未变换）
-- `h_sq_lift` 来自 `sq.rot`（data-Hall 帧，变换后）
+| 测试 | 文件:行 |
+|------|--------|
+| `diagnose_wigner_sources` | `corep.rs:2078` |
+| `diagnose_nonquantized_per_term` | `corep.rs:3274` |
+| 运行命令 | `cargo test --package cryspglib --release diagnose_wigner_sources -- --nocapture` |
 
-当 `setting_xf` 改变旋转轴（signed-permutation）时，这两个旋转是**不同的**，比较它们的 SU(2) lifts 没有意义。
+## 七、尚未完成的工作
 
-修复方向：要么全在 H 帧内计算 `central`，要么全在 G 帧且显式变换到 H。
+1. **通用 G→H Z₂ cocycle/1-cochain parity**（codex step 4）：
+   - 对非 signed-permutation 的 rational basis，无法直接用 U_Q 变换 quaternion
+   - codex 建议：分别构造 G restricted-to-H 和 H spin table 的 Z₂ multiplication cocycle，求解连接两套 section 的 1-cochain ε(h)，用 ε(b²) 修正 central parity
+   - 位置：`wigner.rs:1805-1840`（当前仅处理 signed-permutation）
 
-## 六、尚未完成的工作
+2. **antiunitary_square_pauli() 顺序错误**（codex 指出）：
+   - 当前使用 `J U`（位置 `wigner.rs:234`），应为 `J U*`
+   - 影响：legacy path 可能受影响（但当前仅 direct path 用于生产）
 
-1. **h_seitz 仍来自 MSG frame**（`corep.rs:210`）：未切换到 canonical `ops_from_hall`
-2. **SG13/14 Hall 对**：`find_setting_transform` 返回 0 candidates。需要通用仿射求解器（非 signed-permutation）
-3. **LG filter 混帧 fallback**（`wigner.rs:497`）：transform 失败时回退 raw MSG 帧 + canonical translations
-4. **旧 `standard_setting_transform` fallback 不安全**（`corep.rs:711`）：未验证 target Hall，使用 `.next()`
-5. **G→H gauge parity**：需要在**同一帧内**计算 `central`，而非跨帧比较
-6. **301 个 non_quantized per-term trace**：按 (SG, k, b² rotation, W value) 聚类
+3. **Hall-pair transform 结果缓存**（codex 建议）：
+   - `find_setting_transform` 的 Hall-pair 结果可缓存以减少重复搜索
 
-## 七、后续计划
+4. **其他同级 `let tol = 1e-6` 实例**（`wigner.rs:808,884,2358,2780`）：
+   - 这些在 legacy path 中，暂不影响生产路径但需统一
 
-### 第一步：per-term Wigner trace for 301 non_quantized
+5. **`neg_rot` 未使用变量**（`wigner.rs:261`）：
+   - 在 `compute_signed_perm_spin_parity` 中声明但未使用
 
-在 direct anti-coset 路径添加诊断，对每个 failing case 记录：
-- SG, k-point, irrep label, dim
-- Per-term: b index, b.rot, b².rot, sq_spin_idx, local_idx
-- spin character χ₀, Bloch phase, term contribution
-- Cluster by W value pattern (e.g., W=0.5 vs W=±0.25 vs W=irrational)
+## 八、后续计划
 
-按 pattern 分组后，对每个 pattern 的 representative case 深入分析。
+### 第一步：通用 G→H parity（预计影响 89 个剩余失败中的大部分）
 
-### 第二步：修复 identified pattern
+对非 signed-permutation rational basis P：
+1. 构造 G restricted-to-H spin table 的 Z₂ multiplication cocycle μ_G(h₁,h₂)
+2. 构造 H spin table 的 Z₂ multiplication cocycle μ_H(h₁,h₂)
+3. 求解 1-cochain ε: G→{±1} 满足 μ_H = μ_G · δε
+4. 对每个 b² term：ε(b²) 修正 central parity
 
-根据第一步的模式针对性修复，而非盲目全局修改。
-
-### 第三步：修复 SG13/14 Hall 对（100 cases）
-
-需要通用仿射求解器（rational basis，非仅 signed-permutation）。
-优先级高因为占 1/3 的失败。
-
-### 第四步：h_seitz canonical frame + G→H gauge parity
-
-在帧完全统一后，重新实现 gauge parity（此时所有旋转在同一帧，比较有意义）。
-
-### 第五步：清理不安全 fallback
-
-- 移除 LG filter 混帧 fallback → Result 返回
-- 移除旧 `standard_setting_transform` 不安全 fallback
+### 第二步：清理遗留问题
+- 修复 `antiunitary_square_pauli` 顺序
+- 统一所有 `tol = 1e-6` 实例
+- 移除 `neg_rot` 未使用变量
 
 ### 验收标准
 - 总样本数不变
 - mapping failure = 0（已达成）
-- non_quantized → 0 或确认为物理上真正的非量子化
+- non_quantized → 0 或确认为物理上真正非量子化
 - 反酉 LG 非空时必须量子化为 0, ±1
