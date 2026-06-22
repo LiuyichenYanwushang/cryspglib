@@ -3285,6 +3285,8 @@ mod tests {
             n_anti: usize,
             w: f64,
             trace: Vec<PerTermTrace>,
+            xf_basis: [[f64; 3]; 3],
+            parent_sg: u8,
         }
         let mut cases: Vec<CaseInfo> = Vec::new();
 
@@ -3342,6 +3344,8 @@ mod tests {
                         kx: ir.kx, ky: ir.ky, kz: ir.kz, kd: ir.kd,
                         dim: ir.dim,
                         n_anti: antiunitary.len(),
+                        xf_basis: setting_xf.map(|xf| xf.basis).unwrap_or([[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]]),
+                        parent_sg: g_sg,
                         w,
                         trace,
                     });
@@ -3373,8 +3377,15 @@ mod tests {
         eprintln!("\n=== Per-term details (first case per cluster) ===");
         for ((sg, k_str), group) in &clusters {
             let c = group[0];
-            eprintln!("\n═══ SG{} UNI{} {} k={} dim={} n_anti={} W={:.4} ═══",
-                sg, c.uni, c.ml, k_str, c.dim, c.n_anti, c.w);
+            let is_signed_perm = c.xf_basis.iter().all(|row| {
+                row.iter().all(|&v| {
+                    let r = v.round();
+                    (r == -1.0 || r == 0.0 || r == 1.0) && (v-r).abs()<0.01
+                })
+            });
+            eprintln!("\n═══ SG{} UNI{} {} k={} dim={} n_anti={} W={:.4} parent={} xf=[{:?}] signd={} ═══",
+                sg, c.uni, c.ml, k_str, c.dim, c.n_anti, c.w, c.parent_sg,
+                c.xf_basis, is_signed_perm);
 
             // Show term summary line
             for (idx, t) in c.trace.iter().enumerate() {

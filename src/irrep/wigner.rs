@@ -231,6 +231,38 @@ pub fn read_j_oracle_counters() -> (usize, usize, usize, usize, usize) {
 /// be a signed-permutation with det=1 (so it represents a proper rotation).
 ///
 /// Returns `None` if either spin table lacks the rotation.
+/// SU(2) lift of a signed-permutation matrix Q (det=1, entries ∈ {0,±1}).
+/// Returns the unit quaternion [u0, u1, u2, u3] representing this rotation.
+fn signed_perm_to_quat(q: &[[i32; 3]; 3]) -> Option<[f64; 4]> {
+    let tr = q[0][0] + q[1][1] + q[2][2];
+    let cos_half = ((tr + 1) as f64 / 4.0).sqrt();
+    let sin_half = (1.0 - cos_half * cos_half).sqrt();
+    let axis: [f64; 3] = if tr == -1 {
+        // 180°: use first non-zero column of Q+I
+        let mut ax = [0.0f64; 3];
+        for j in 0..3 {
+            let v = if j == 0 { [q[0][j] as f64 + 1.0, q[1][j] as f64, q[2][j] as f64] }
+            else if j == 1 { [q[0][j] as f64, q[1][j] as f64 + 1.0, q[2][j] as f64] }
+            else { [q[0][j] as f64, q[1][j] as f64, q[2][j] as f64 + 1.0] };
+            let n = (v[0]*v[0] + v[1]*v[1] + v[2]*v[2]).sqrt();
+            if n > 0.5 { ax = [v[0]/n, v[1]/n, v[2]/n]; break; }
+        }
+        let n = (ax[0]*ax[0] + ax[1]*ax[1] + ax[2]*ax[2]).sqrt();
+        if n < 0.5 { return None; }
+        [ax[0]/n, ax[1]/n, ax[2]/n]
+    } else if tr == 3 {
+        [0.0, 0.0, 1.0]
+    } else {
+        let ax_x = (q[2][1] - q[1][2]) as f64;
+        let ax_y = (q[0][2] - q[2][0]) as f64;
+        let ax_z = (q[1][0] - q[0][1]) as f64;
+        let n = (ax_x*ax_x + ax_y*ax_y + ax_z*ax_z).sqrt();
+        if n < 0.5 { return None; }
+        [ax_x/n, ax_y/n, ax_z/n]
+    };
+    Some([cos_half, sin_half * axis[0], sin_half * axis[1], sin_half * axis[2]])
+}
+
 fn compute_signed_perm_spin_parity(
     q: &[[i32; 3]; 3],          // Q = det(P)·P (proper rotation)
     sq_rot: &[[i32; 3]; 3],     // b² rotation in G/MSG frame
@@ -257,13 +289,6 @@ fn compute_signed_perm_spin_parity(
         g_spin_su2[g_idx * 4 + 2],
         g_spin_su2[g_idx * 4 + 3],
     ];
-    // Also try -R (same rotation in SO(3), opposite lift in SU(2))
-    let neg_rot: [i32; 9] = [
-        -sq_rot[0][0], -sq_rot[0][1], -sq_rot[0][2],
-        -sq_rot[1][0], -sq_rot[1][1], -sq_rot[1][2],
-        -sq_rot[2][0], -sq_rot[2][1], -sq_rot[2][2],
-    ];
-
     // P = det(P)·Q → since det(P) = -1, P = -Q
     // P·R·P⁻¹ = (-Q)·R·(-Q)⁻¹ = Q·R·Q⁻¹ (the -1 factors cancel)
     // For signed-permutation Q with det=1: Q⁻¹ = Q^T
@@ -293,55 +318,14 @@ fn compute_signed_perm_spin_parity(
         h_spin_su2[h_idx * 4 + 3],
     ];
 
-    // 3. Compute U_Q — the SU(2) lift of the signed-permutation Q.
-    // Q is a signed-permutation with det=1.  For a rotation, the
-    // quaternion is (cos(θ/2), sin(θ/2)·axis).  The rotation angle
-    // is determined by tr(Q) = 1 + 2·cos(θ).
-    let tr = q[0][0] + q[1][1] + q[2][2];
-    // cosθ = (tr - 1) / 2
-    // cos(θ/2) = sqrt((1 + cosθ) / 2) = sqrt((tr + 1) / 4)
-    let cos_half = ((tr + 1) as f64 / 4.0).sqrt();
-    let sin_half = (1.0 - cos_half * cos_half).sqrt();
-    // Rotation axis: eigenvector of Q with eigenvalue +1.
-    // For θ=π (180°, tr=-1): Q+I = 2nnᵀ has rank 1 — any non-zero
-    // column of Q+I gives the axis direction.
-    // For θ≠π: antisymmetric part (Q-Qᵀ) gives axis·sin(θ).
-    let axis: [f64; 3] = if tr == -1 {
-        // 180°: use first non-zero column of Q+I to get axis
-        let mut ax = [0.0f64; 3];
-        for j in 0..3 {
-            let col = [q[0][j] as f64, q[1][j] as f64, q[2][j] as f64];
-            // Q+I: add 1 to diagonal
-            let v = if j == 0 { [col[0]+1.0, col[1], col[2]] }
-            else if j == 1 { [col[0], col[1]+1.0, col[2]] }
-            else { [col[0], col[1], col[2]+1.0] };
-            let n = (v[0]*v[0] + v[1]*v[1] + v[2]*v[2]).sqrt();
-            if n > 0.5 { ax = [v[0]/n, v[1]/n, v[2]/n]; break; }
-        }
-        let n = (ax[0]*ax[0] + ax[1]*ax[1] + ax[2]*ax[2]).sqrt();
-        if n < 0.5 { return None; }
-        [ax[0]/n, ax[1]/n, ax[2]/n]
-    } else if tr == 3 {
-        // Identity: no rotation (axis irrelevant, sin_half=0)
-        [0.0, 0.0, 1.0]
-    } else {
-        // General case — antisymmetric part
-        let ax_x = (q[2][1] - q[1][2]) as f64;
-        let ax_y = (q[0][2] - q[2][0]) as f64;
-        let ax_z = (q[1][0] - q[0][1]) as f64;
-        let n = (ax_x*ax_x + ax_y*ax_y + ax_z*ax_z).sqrt();
-        if n < 0.5 { return None; }
-        [ax_x/n, ax_y/n, ax_z/n]
-    };
-    let u_q = [cos_half, sin_half * axis[0], sin_half * axis[1], sin_half * axis[2]];
+    let u_q = signed_perm_to_quat(q)?;
 
-    // 4. Transform G lift: U_G→H = U_Q · U_G · U_Q⁻¹
-    // For unit quaternion, inverse = conjugate = [u0, -u1, -u2, -u3].
+    // Transform G lift: U_G→H = U_Q · U_G · U_Q⁻¹
     let u_q_inv = quat_conj(&u_q);
     let t1 = su2_compose(&u_q, u_g);
     let u_g_to_h = su2_compose(&t1, &u_q_inv);
 
-    // 5. Compare with H lift
+    // Compare with H lift
     su2_lift_relation(&u_g_to_h, u_h).map(|rel| match rel {
         LiftRelation::Same => 1.0,
         LiftRelation::EBar => -1.0,
@@ -1856,7 +1840,6 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         let b_sq_rot_ms_g = crate::mathfunc::mat_multiply_matrix_i3(&b.rot, &b.rot);
         let g_sq_idx = g_spin_seitz.iter().position(|s| s.rot == b_sq_rot_ms_g)
             .or_else(|| {
-                // -R fallback for improper rotations
                 let neg: crate::mathfunc::Mat3I = [
                     [-b_sq_rot_ms_g[0][0], -b_sq_rot_ms_g[0][1], -b_sq_rot_ms_g[0][2]],
                     [-b_sq_rot_ms_g[1][0], -b_sq_rot_ms_g[1][1], -b_sq_rot_ms_g[1][2]],
@@ -1867,14 +1850,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         let u_sq_g = match g_sq_idx {
             Some(idx) => spin_su2_at(g_spin_su2, idx)
                 .ok_or(DirectAntiFailure::SquareSu2Missing)?,
-            None => {
-                // b² rotation is not in the parent G spin table.  With the
-                // frame-unified pipeline both G spin table and MSG ops are
-                // in the same (parent G) frame, so this indicates a data
-                // gap, not a gauge mismatch.  Do NOT fall back to H-frame
-                // SU(2) — cross-gauge comparison gives wrong central signs.
-                return Err(DirectAntiFailure::SquareNotInSpinTable);
-            }
+            None => return Err(DirectAntiFailure::SquareNotInSpinTable),
         };
         // U_b² vs canonical U_{b²} in the G spin table.
         // Since u_b_sq = -U_b² (neg_pauli at :1842 accounts for Θ²=-1):
@@ -1887,16 +1863,9 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         let mut central = spatial_central == LiftRelation::EBar;
 
         // ── G→H spin frame parity ────────────────────────────────────────
-        // Spin is an axial vector: under x_H = P·x_G + s, spin transforms
-        // under Q = det(P)·P.  The sign convention in the G spin table may
-        // differ from H's canonical lift by ε(R) = ±1 per rotation.
-        //
-        // For signed-permutations (entries ∈ {0,±1}), compute ε exactly
-        // via the SU(2) lift of Q.  For general rational bases, the full
-        // Z₂ cocycle / 1-cochain approach is needed (see codex review).
+        // For G≠H with signed-permutation setting transform, apply the
+        // axial vector transform Q = det(P)·P via spin table comparison.
         if let Some(xf) = setting_xf {
-            // Validate that this is genuinely a signed-permutation matrix,
-            // not just a shear matrix that happens to have entries in {-1,0,1}.
             let rows_ok = xf.basis.iter().all(|row| {
                 let nonzeros = row.iter().filter(|&&v| v.abs() > 0.1).count();
                 nonzeros == 1 && row.iter().all(|&v| {
@@ -1904,36 +1873,25 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
                     r == -1.0 || r == 0.0 || r == 1.0
                 })
             });
-            // Check each column has exactly one non-zero (P is a permuted
-            // diagonal matrix with ±1 entries).
             let cols_ok = (0..3).all(|j| {
-                let nonzeros = (0..3).filter(|&i| xf.basis[i][j].abs() > 0.1).count();
-                nonzeros == 1
+                (0..3).filter(|&i| xf.basis[i][j].abs() > 0.1).count() == 1
             });
-            // Verify P·Pᵀ = I (orthogonality)
             let mut ppt = [[0i32; 3]; 3];
             let p_i32: [[i32; 3]; 3] = xf.basis.map(|row| row.map(|v| v.round() as i32));
             for i in 0..3 { for j in 0..3 {
                 ppt[i][j] = (0..3).map(|k| p_i32[i][k] * p_i32[j][k]).sum();
             }}
-            let is_orthogonal = ppt == [[1,0,0],[0,1,0],[0,0,1]];
-            if rows_ok && cols_ok && is_orthogonal {
+            if rows_ok && cols_ok && ppt == [[1,0,0],[0,1,0],[0,0,1]] {
                 let det_p = p_i32[0][0] * (p_i32[1][1]*p_i32[2][2] - p_i32[1][2]*p_i32[2][1])
                           - p_i32[0][1] * (p_i32[1][0]*p_i32[2][2] - p_i32[1][2]*p_i32[2][0])
                           + p_i32[0][2] * (p_i32[1][0]*p_i32[2][1] - p_i32[1][1]*p_i32[2][0]);
-                // Q = det(P)·P maps spin frame G→H.  Q is always a proper
-                // rotation (det(Q) = det(P)⁴ = 1 for det(P)=±1).
                 let q: [[i32; 3]; 3] = if det_p == -1 {
                     [[-p_i32[0][0], -p_i32[0][1], -p_i32[0][2]],
                      [-p_i32[1][0], -p_i32[1][1], -p_i32[1][2]],
                      [-p_i32[2][0], -p_i32[2][1], -p_i32[2][2]]]
-                } else {
-                    p_i32
-                };
-                // If Q is the identity (tr=3), no spin basis change needed
+                } else { p_i32 };
                 if q != [[1,0,0],[0,1,0],[0,0,1]] {
                     // Use b_sq_rot_ms_g (G frame) NOT sq.rot (H frame).
-                    // sq.rot has already been transformed by the setting xf.
                     if let Some(parity) =
                         compute_signed_perm_spin_parity(&q, &b_sq_rot_ms_g,
                             g_spin_rots, g_spin_su2, h_spin_rots, h_spin_su2)
