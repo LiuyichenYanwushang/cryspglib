@@ -329,10 +329,11 @@ fn compute_signed_perm_spin_parity(
     };
     let u_q = [cos_half, sin_half * axis[0], sin_half * axis[1], sin_half * axis[2]];
 
-    // 4. Transform G lift: U_G→H = U_Q · U_G · U_Q*
-    let u_q_star = conj_pauli(&u_q);
+    // 4. Transform G lift: U_G→H = U_Q · U_G · U_Q⁻¹
+    // For unit quaternion, inverse = conjugate = [u0, -u1, -u2, -u3].
+    let u_q_inv = quat_conj(&u_q);
     let t1 = su2_compose(&u_q, u_g);
-    let u_g_to_h = su2_compose(&t1, &u_q_star);
+    let u_g_to_h = su2_compose(&t1, &u_q_inv);
 
     // 5. Compare with H lift
     su2_lift_relation(&u_g_to_h, u_h).map(|rel| match rel {
@@ -352,6 +353,12 @@ fn neg_pauli(v: &[f64; 4]) -> [f64; 4] {
 #[inline]
 pub(crate) fn conj_pauli(v: &[f64; 4]) -> [f64; 4] {
     [v[0], -v[1], v[2], -v[3]]
+}
+
+/// Quaternion conjugate (inverse for unit quaternion): [u0, -u1, -u2, -u3].
+#[inline]
+fn quat_conj(v: &[f64; 4]) -> [f64; 4] {
+    [v[0], -v[1], -v[2], -v[3]]
 }
 
 /// Antiunitary square for spin-1/2: A = Theta U = J K U, A^2 = (J U)(J U)*.
@@ -1864,14 +1871,14 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
             }
         };
         // U_b² vs canonical U_{b²} in the G spin table.
-        //   LiftRelation::Same: U_b² = +U_{b²}  →  spatial square has NO Ē
-        //   LiftRelation::EBar: U_b² = -U_{b²}  →  spatial square IS Ē
-        // Since b = Θg carries Θ² = Ē for spin-1/2:
-        //   if the spatial square is NOT Ē, Θ² contributes an extra -1 → central=true
-        //   if the spatial square IS Ē, Θ² was already accounted → central=false
+        // Since u_b_sq = -U_b² (neg_pauli at :1842 accounts for Θ²=-1):
+        //   LiftRelation::Same: -U_b² = +U_{b²} → U_b² = -U_{b²}
+        //     → spatial square IS Ē → Θ² already compensated → central=false
+        //   LiftRelation::EBar: -U_b² = -U_{b²} → U_b² = +U_{b²}
+        //     → spatial square is NOT Ē → Θ² contributes alone → central=true
         let spatial_central = su2_lift_relation(&u_b_sq, &u_sq_g)
             .ok_or(DirectAntiFailure::Su2LiftMismatch)?;
-        let mut central = spatial_central == LiftRelation::Same;
+        let mut central = spatial_central == LiftRelation::EBar;
 
         // ── G→H spin frame parity ────────────────────────────────────────
         // Spin is an axial vector: under x_H = P·x_G + s, spin transforms
@@ -1882,32 +1889,47 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         // via the SU(2) lift of Q.  For general rational bases, the full
         // Z₂ cocycle / 1-cochain approach is needed (see codex review).
         if let Some(xf) = setting_xf {
-            let is_signed_perm = xf.basis.iter().all(|row| {
-                row.iter().all(|&v| {
+            // Validate that this is genuinely a signed-permutation matrix,
+            // not just a shear matrix that happens to have entries in {-1,0,1}.
+            let rows_ok = xf.basis.iter().all(|row| {
+                let nonzeros = row.iter().filter(|&&v| v.abs() > 0.1).count();
+                nonzeros == 1 && row.iter().all(|&v| {
                     let r = v.round();
                     r == -1.0 || r == 0.0 || r == 1.0
                 })
             });
-            if is_signed_perm {
-                let p: [[i32; 3]; 3] = xf.basis.map(|row| {
-                    row.map(|v| v.round() as i32)
-                });
-                let det_p = p[0][0] * (p[1][1]*p[2][2] - p[1][2]*p[2][1])
-                          - p[0][1] * (p[1][0]*p[2][2] - p[1][2]*p[2][0])
-                          + p[0][2] * (p[1][0]*p[2][1] - p[1][1]*p[2][0]);
+            // Check each column has exactly one non-zero (P is a permuted
+            // diagonal matrix with ±1 entries).
+            let cols_ok = (0..3).all(|j| {
+                let nonzeros = (0..3).filter(|&i| xf.basis[i][j].abs() > 0.1).count();
+                nonzeros == 1
+            });
+            // Verify P·Pᵀ = I (orthogonality)
+            let mut ppt = [[0i32; 3]; 3];
+            let p_i32: [[i32; 3]; 3] = xf.basis.map(|row| row.map(|v| v.round() as i32));
+            for i in 0..3 { for j in 0..3 {
+                ppt[i][j] = (0..3).map(|k| p_i32[i][k] * p_i32[j][k]).sum();
+            }}
+            let is_orthogonal = ppt == [[1,0,0],[0,1,0],[0,0,1]];
+            if rows_ok && cols_ok && is_orthogonal {
+                let det_p = p_i32[0][0] * (p_i32[1][1]*p_i32[2][2] - p_i32[1][2]*p_i32[2][1])
+                          - p_i32[0][1] * (p_i32[1][0]*p_i32[2][2] - p_i32[1][2]*p_i32[2][0])
+                          + p_i32[0][2] * (p_i32[1][0]*p_i32[2][1] - p_i32[1][1]*p_i32[2][0]);
                 // Q = det(P)·P maps spin frame G→H.  Q is always a proper
                 // rotation (det(Q) = det(P)⁴ = 1 for det(P)=±1).
                 let q: [[i32; 3]; 3] = if det_p == -1 {
-                    [[-p[0][0], -p[0][1], -p[0][2]],
-                     [-p[1][0], -p[1][1], -p[1][2]],
-                     [-p[2][0], -p[2][1], -p[2][2]]]
+                    [[-p_i32[0][0], -p_i32[0][1], -p_i32[0][2]],
+                     [-p_i32[1][0], -p_i32[1][1], -p_i32[1][2]],
+                     [-p_i32[2][0], -p_i32[2][1], -p_i32[2][2]]]
                 } else {
-                    p
+                    p_i32
                 };
                 // If Q is the identity (tr=3), no spin basis change needed
                 if q != [[1,0,0],[0,1,0],[0,0,1]] {
+                    // Use b_sq_rot_ms_g (G frame) NOT sq.rot (H frame).
+                    // sq.rot has already been transformed by the setting xf.
                     if let Some(parity) =
-                        compute_signed_perm_spin_parity(&q, &sq.rot,
+                        compute_signed_perm_spin_parity(&q, &b_sq_rot_ms_g,
                             g_spin_rots, g_spin_su2, h_spin_rots, h_spin_su2)
                     {
                         if (parity - (-1.0)).abs() < 0.1 {
