@@ -302,24 +302,30 @@ fn compute_signed_perm_spin_parity(
     // cos(θ/2) = sqrt((1 + cosθ) / 2) = sqrt((tr + 1) / 4)
     let cos_half = ((tr + 1) as f64 / 4.0).sqrt();
     let sin_half = (1.0 - cos_half * cos_half).sqrt();
-    // Rotation axis: find the eigenvector with eigenvalue +1
-    // For 180° rotation (tr=-1, cos_half=0, sin_half=1): axis is any fixed direction
+    // Rotation axis: eigenvector of Q with eigenvalue +1.
+    // For θ=π (180°, tr=-1): Q+I = 2nnᵀ has rank 1 — any non-zero
+    // column of Q+I gives the axis direction.
+    // For θ≠π: antisymmetric part (Q-Qᵀ) gives axis·sin(θ).
     let axis: [f64; 3] = if tr == -1 {
-        // 180° rotation: find the coordinate that doesn't change sign
+        // 180°: use first non-zero column of Q+I to get axis
         let mut ax = [0.0f64; 3];
-        for k in 0..3 {
-            if q[k][k] == 1 { ax[k] = 1.0; break; }
+        for j in 0..3 {
+            let col = [q[0][j] as f64, q[1][j] as f64, q[2][j] as f64];
+            // Q+I: add 1 to diagonal
+            let v = if j == 0 { [col[0]+1.0, col[1], col[2]] }
+            else if j == 1 { [col[0], col[1]+1.0, col[2]] }
+            else { [col[0], col[1], col[2]+1.0] };
+            let n = (v[0]*v[0] + v[1]*v[1] + v[2]*v[2]).sqrt();
+            if n > 0.5 { ax = [v[0]/n, v[1]/n, v[2]/n]; break; }
         }
-        // Normalize
         let n = (ax[0]*ax[0] + ax[1]*ax[1] + ax[2]*ax[2]).sqrt();
-        if n < 0.5 { return None; } // shouldn't happen for det=1
+        if n < 0.5 { return None; }
         [ax[0]/n, ax[1]/n, ax[2]/n]
     } else if tr == 3 {
-        // Identity: no rotation
-        [0.0, 0.0, 1.0] // axis irrelevant since sin_half = 0
+        // Identity: no rotation (axis irrelevant, sin_half=0)
+        [0.0, 0.0, 1.0]
     } else {
-        // General case — extract axis from Q's antisymmetric part
-        // For a rotation matrix R: axis = (R32-R23, R13-R31, R21-R12) / (2sinθ)
+        // General case — antisymmetric part
         let ax_x = (q[2][1] - q[1][2]) as f64;
         let ax_y = (q[0][2] - q[2][0]) as f64;
         let ax_z = (q[1][0] - q[0][1]) as f64;
@@ -3366,5 +3372,108 @@ mod tests {
                 "Wigner type depends on a₀ for {}: {:?}", ir.ml, types
             );
         }
+    }
+
+    /// Invariant: ε(I) = +1 for any Q (identity always has parity +1).
+    #[test]
+    fn test_spin_parity_identity_is_plus_one() {
+        // Test with Q = diag(-1,1,-1) (C2y, the SG92 case)
+        let q = [[-1i32, 0, 0], [0, 1, 0], [0, 0, -1]];
+        let i_rot = [[1i32, 0, 0], [0, 1, 0], [0, 0, 1]];
+        // G table: identity lift is (1,0,0,0) = +I
+        let g_rots: [i32; 9] = [1,0,0, 0,1,0, 0,0,1];
+        let g_su2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
+        // H table: identity lift also (1,0,0,0)
+        let h_rots: [i32; 9] = [1,0,0, 0,1,0, 0,0,1];
+        let h_su2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
+        let parity = compute_signed_perm_spin_parity(
+            &q, &i_rot, &g_rots, &g_su2, &h_rots, &h_su2,
+        ).expect("identity parity must be computable");
+        assert!((parity - 1.0).abs() < 0.1,
+            "ε(I) must be +1, got {}", parity);
+    }
+
+    /// Invariant: U_Q · U_I · U_Q⁻¹ = U_I for any Q.
+    #[test]
+    fn test_spin_parity_conjugating_identity_gives_identity() {
+        // Q = C2y = diag(-1,1,-1): 180° around y → quaternion (0,0,1,0)
+        // U_Q · (1,0,0,0) · U_Q⁻¹ = (1,0,0,0) always
+        let q = [[-1i32, 0, 0], [0, 1, 0], [0, 0, -1]];
+        let i_rot = [[1i32, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let g_rots: [i32; 9] = [1,0,0, 0,1,0, 0,0,1];
+        let g_su2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
+        let h_rots: [i32; 9] = [1,0,0, 0,1,0, 0,0,1];
+        let h_su2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
+        let parity = compute_signed_perm_spin_parity(
+            &q, &i_rot, &g_rots, &g_su2, &h_rots, &h_su2,
+        ).expect("conjugating identity must succeed");
+        assert!((parity - 1.0).abs() < 0.1,
+            "U_Q·U_I·U_Q⁻¹ = U_I, so ε(I) must be +1");
+    }
+
+    /// Invariant: for Q = diag(-1,1,-1) (C2y), C2z in G frame transforms
+    /// to C2z in H frame under Q·C2z·Q⁻¹.  With both tables using -k for
+    /// C2z, the parity captures whether Q flips the SU(2) lift sign.
+    ///
+    /// Q=C2y lifts as j=(0,0,1,0).  j·(-k)·conj(j) = +k.  Since H table
+    /// also uses -k for C2z, the two differ by sign → ε = -1.
+    #[test]
+    fn test_spin_parity_c2z_under_c2y() {
+        let q = [[-1i32, 0, 0], [0, 1, 0], [0, 0, -1]];
+        let c2z = [[-1i32, 0, 0], [0, -1, 0], [0, 0, 1]];
+        let g_rots: [i32; 18] = [
+            1,0,0, 0,1,0, 0,0,1,
+            -1,0,0, 0,-1,0, 0,0,1,
+        ];
+        let g_su2: [f64; 8] = [
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, -1.0,    // -k
+        ];
+        let h_rots: [i32; 18] = [
+            1,0,0, 0,1,0, 0,0,1,
+            -1,0,0, 0,-1,0, 0,0,1,
+        ];
+        let h_su2: [f64; 8] = [
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, -1.0,    // -k
+        ];
+        let parity = compute_signed_perm_spin_parity(
+            &q, &c2z, &g_rots, &g_su2, &h_rots, &h_su2,
+        ).expect("C2z parity must be computable");
+        // j·(-k)·conj(j) = +k.  H table = -k.  Parity = -1.
+        assert!((parity - (-1.0)).abs() < 0.1,
+            "C2z under C2y: j*(-k)*conj(j)=+k, H_table=-k, parity=-1. Got {}", parity);
+    }
+
+    /// Test: G table C2z = -k, H table C2z = +k.
+    /// Q-transformed G lift: j*(-k)*conj(j) = +k.  H lift = +k.
+    /// Same lift → ε = +1.
+    #[test]
+    fn test_spin_parity_c2z_opposite_lift() {
+        let q = [[-1i32, 0, 0], [0, 1, 0], [0, 0, -1]];
+        let c2z = [[-1i32, 0, 0], [0, -1, 0], [0, 0, 1]];
+        let g_rots: [i32; 18] = [
+            1,0,0, 0,1,0, 0,0,1,
+            -1,0,0, 0,-1,0, 0,0,1,
+        ];
+        let g_su2: [f64; 8] = [
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, -1.0,    // -k
+        ];
+        // H table: C2z = +k
+        let h_rots: [i32; 18] = [
+            1,0,0, 0,1,0, 0,0,1,
+            -1,0,0, 0,-1,0, 0,0,1,
+        ];
+        let h_su2: [f64; 8] = [
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 0.0, 0.0, 1.0,     // +k
+        ];
+        let parity = compute_signed_perm_spin_parity(
+            &q, &c2z, &g_rots, &g_su2, &h_rots, &h_su2,
+        ).expect("C2z parity must be computable");
+        // j*(-k)*conj(j) = +k.  H table = +k.  Same → ε = +1.
+        assert!((parity - 1.0).abs() < 0.1,
+            "C2z opposite lift: Q-transformed=+k, H_table=+k, parity=+1. Got {}", parity);
     }
 }
