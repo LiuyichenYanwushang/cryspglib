@@ -3378,12 +3378,16 @@ mod tests {
 
             // Show term summary line
             for (idx, t) in c.trace.iter().enumerate() {
-                let chi = if t.central { -1.0 } else { 1.0 };
+                let chi_sign = if t.central { -1.0 } else { 1.0 };
+                // Compute U_b² from U_b for diagnostics
+                let u_b_sq = crate::irrep::wigner::su2_compose(&t.u_b, &t.u_b);
+                // central parity: U_b² vs canonical U_sq in G table
+                let spatial_central = crate::irrep::wigner::su2_same_up_to_sign(&u_b_sq, &t.u_sq_g);
                 eprintln!(
                     "  [{:2}] rot=[{:3},{:3},{:3};{:3},{:3},{:3};{:3},{:3},{:3}] \
                      sq_rot=[{:3},{:3},{:3};{:3},{:3},{:3};{:3},{:3},{:3}] \
-                     sq_spin={:3} loc={} χ₀=({:5.2},{:5.2}) c={} φ=({:5.2},{:5.2}) \
-                     contrib=({:6.3},{:6.3})",
+                     sq_spin={:3} loc={} χ=({:5.2},{:5.2}) c={} spC={:?} φ=({:5.2},{:5.2}) \
+                     contrib=({:6.3},{:6.3}) | u_b=({:.3},{:.3},{:.3},{:.3}) u_b_sq=({:.3},{:.3},{:.3},{:.3}) u_sq_g=({:.3},{:.3},{:.3},{:.3})",
                     idx,
                     t.b_rot[0][0], t.b_rot[0][1], t.b_rot[0][2],
                     t.b_rot[1][0], t.b_rot[1][1], t.b_rot[1][2],
@@ -3392,10 +3396,14 @@ mod tests {
                     t.sq_rot[1][0], t.sq_rot[1][1], t.sq_rot[1][2],
                     t.sq_rot[2][0], t.sq_rot[2][1], t.sq_rot[2][2],
                     t.sq_spin_idx, t.sq_local_idx,
-                    t.chi0_re * chi, t.chi0_im * chi,
+                    t.chi0_re * chi_sign, t.chi0_im * chi_sign,
                     if t.central { "Y" } else { "N" },
+                    spatial_central,
                     t.phase_re, t.phase_im,
                     t.contrib_re, t.contrib_im,
+                    t.u_b[0], t.u_b[1], t.u_b[2], t.u_b[3],
+                    u_b_sq[0], u_b_sq[1], u_b_sq[2], u_b_sq[3],
+                    t.u_sq_g[0], t.u_sq_g[1], t.u_sq_g[2], t.u_sq_g[3],
                 );
             }
 

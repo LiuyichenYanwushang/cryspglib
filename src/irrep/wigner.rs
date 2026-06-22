@@ -2082,9 +2082,9 @@ pub fn su2_same_up_to_sign(a: &[f64; 4], b: &[f64; 4]) -> Option<bool> {
     }
     let cos = dot / (na * nb);
     if (cos - 1.0).abs() < 1e-6 {
-        Some(false)  // same lift
+        Some(true)   // same lift, no central Ē
     } else if (cos + 1.0).abs() < 1e-6 {
-        Some(true)   // opposite lift (central Ē)
+        Some(false)  // opposite lift, central Ē present
     } else {
         None  // unrelated
     }
