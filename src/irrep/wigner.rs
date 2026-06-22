@@ -1980,15 +1980,15 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         });
 
     // Tolerance for Wigner sum quantization checks.
-    // 1e-4 accommodates floating-point accumulation from irrational character
-    // values (e.g. √3/2 ≈ 0.866) summed over 3–16 terms.  The smallest
-    // genuinely non-quantized W we observe is 0.167, so 1e-4 is safe.
-    let tol = 1e-4;
-    if (w.re - h_dim).abs() < tol && w.im.abs() < tol {
-        Ok(CorepType::A)
-    } else if (w.re + h_dim).abs() < tol && w.im.abs() < tol {
-        Ok(CorepType::B)
-    } else if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
+    // 1e-5 is tight enough to reject true non-quantized results (W≥0.167)
+    // while accommodating floating-point accumulation from irrational
+    // character values (e.g. √3/2 ≈ 0.866) summed over ≤24 terms.
+    // Wigner criterion: the normalised sum W = (1/|H|) Σ χ((a₀h)²)
+    // must be 0 (type C), +1 (type A), or -1 (type B) for any irrep.
+    // The ±dim branches are INCORRECT — W is independent of dimension.
+    // See e.g. arXiv:2211.10740.
+    let tol = 1e-5;
+    if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
         Ok(CorepType::A)
     } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
         Ok(CorepType::B)
