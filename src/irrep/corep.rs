@@ -2265,6 +2265,7 @@ mod tests {
                         ir.ky,
                         ir.kz,
                         ir.kd,
+                        None,
                     );
                 if let Err(reason) = direct_diagnostic {
                     *direct_anti_failures.entry(reason.as_str()).or_default() += 1;
@@ -2441,6 +2442,7 @@ mod tests {
                     &ctx, ir.characters(), ir.spin_character_imag(),
                     ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
                     None, ir.kx, ir.ky, ir.kz, ir.kd,
+                    None,
                 );
 
                 let stage = match diag {
@@ -2801,6 +2803,7 @@ mod tests {
                     &ctx, ir.characters(), ir.spin_character_imag(),
                     ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
                     setting_xf, ir.kx, ir.ky, ir.kz, ir.kd,
+                    None,
                 );
 
                 let is_sq_not_spin = matches!(diag, Err(wigner::DirectAntiFailure::SquareNotInSpinTable));
@@ -3939,6 +3942,7 @@ mod tests {
                     &ctx, ir.characters(), ir.spin_character_imag(),
                     ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
                     setting_xf, ir.kx, ir.ky, ir.kz, ir.kd,
+                    None,
                 );
 
                 if !matches!(diag, Err(wigner::DirectAntiFailure::NonQuantized)) {
@@ -4400,6 +4404,7 @@ mod tests {
                     ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
                     None,
                     ir.kx, ir.ky, ir.kz, ir.kd,
+                    None,
                 );
                 let stage = match diag {
                     Ok(_) => "ok",
@@ -4504,6 +4509,7 @@ fn phase1b_verify_transform_fix() {
                 ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
                 None,
                 ir.kx, ir.ky, ir.kz, ir.kd,
+                None,
             );
 
             // Only interested in square_not_in_spin failures
@@ -4526,6 +4532,7 @@ fn phase1b_verify_transform_fix() {
                 ir.spin_lg_op_indices(), &antiunitary, &transformed_seitz,
                 None,
                 ir.kx, ir.ky, ir.kz, ir.kd,
+                None,
             );
 
             let is_fixed = !matches!(&fixed_result, Err(crate::irrep::wigner::DirectAntiFailure::SquareNotInSpinTable));

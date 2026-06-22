@@ -1509,6 +1509,48 @@ impl DirectAntiFailure {
     }
 }
 
+/// Per-term trace record for diagnosing non-quantized Wigner sums.
+///
+/// Each antiunitary coset element b ∈ a₀H produces one term in the Wigner sum:
+/// χ((a₀b)²) with SU(2) central parity and Bloch phase.
+#[derive(Debug, Clone)]
+pub struct PerTermTrace {
+    /// Index of this b in `mag_seitz`
+    pub b_idx: usize,
+    /// Rotation of b (in MSG frame)
+    pub b_rot: Mat3I,
+    /// Translation of b (in MSG frame)
+    pub b_trans: [f64; 3],
+    /// Rotation of b² = (a₀b)² (in Hall frame after setting transform)
+    pub sq_rot: Mat3I,
+    /// Translation of b²
+    pub sq_trans: [f64; 3],
+    /// Index of b² rotation in H spin table
+    pub sq_spin_idx: usize,
+    /// Local index in spin_lg_op_indices (for character lookup)
+    pub sq_local_idx: usize,
+    /// Spin character χ₀ at sq_local_idx (real part)
+    pub chi0_re: f64,
+    /// Spin character χ₀ at sq_local_idx (imag part, 0 if real-only)
+    pub chi0_im: f64,
+    /// true = central element (U_b² = -U_{b²}) → character sign flip
+    pub central: bool,
+    /// Bloch phase (real part)
+    pub phase_re: f64,
+    /// Bloch phase (imag part)
+    pub phase_im: f64,
+    /// Final term contribution = (central ? -χ₀ : χ₀) * exp(iφ) (real part)
+    pub contrib_re: f64,
+    /// Final term contribution (imag part)
+    pub contrib_im: f64,
+    /// Total translation used for Bloch phase (lattice + spin match shift)
+    pub bloch_total_trans: [f64; 3],
+    /// SU(2) lift of b: U_b = [a, b, c, d]
+    pub u_b: [f64; 4],
+    /// SU(2) lift of b² in G spin table
+    pub u_sq_g: [f64; 4],
+}
+
 pub fn wigner_classify_spinor_direct_anti(
     ctx: &SpinLiftContext,
     spin_chars_real: &[f64],
@@ -1524,6 +1566,7 @@ pub fn wigner_classify_spinor_direct_anti(
         spin_lg_op_indices, anti_lg_indices, mag_seitz,
         setting_xf,
         kx, ky, kz, kd,
+        None,
     )
     .ok()
 }
@@ -1537,6 +1580,8 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     mag_seitz: &[SeitzOp],
     setting_xf: Option<&SettingTransform>,
     kx: i8, ky: i8, kz: i8, kd: i8,
+    // Optional per-term trace collector (only filled when diagnosing failures)
+    mut trace: Option<&mut Vec<PerTermTrace>>,
 ) -> Result<CorepType, DirectAntiFailure> {
     let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
     let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
@@ -1696,7 +1741,32 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
             spin_chars_imag.get(sq_local_idx).copied().unwrap_or(0.0),
         );
         let chi = if central { -chi0 } else { chi0 };
-        w_sum += chi * phase;
+        let contrib = chi * phase;
+
+        // Record per-term trace if the caller requested diagnostics
+        if let Some(t) = trace.as_mut() {
+            t.push(PerTermTrace {
+                b_idx,
+                b_rot: b.rot,
+                b_trans: b.trans,
+                sq_rot: sq.rot,
+                sq_trans: sq.trans,
+                sq_spin_idx,
+                sq_local_idx,
+                chi0_re: chi0.re,
+                chi0_im: chi0.im,
+                central,
+                phase_re: phase.re,
+                phase_im: phase.im,
+                contrib_re: contrib.re,
+                contrib_im: contrib.im,
+                bloch_total_trans: total_translation,
+                u_b,
+                u_sq_g,
+            });
+        }
+
+        w_sum += contrib;
     }
 
     let w = w_sum / (n_anti as f64);
@@ -2386,6 +2456,7 @@ pub fn wigner_classify_spinor(
         mag_seitz,
         setting_xf,
         kx, ky, kz, kd,
+        None,
     ) {
         Ok(result) => return Some(result),
         Err(DirectAntiFailure::MissingSpinData) => { /* fall through to legacy */ }
