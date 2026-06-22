@@ -1772,6 +1772,13 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     let n_anti = anti_lg_indices.len();
     let mut w_sum = Complex64::ZERO;
 
+    // Canonical pure translations from H spin table (used for Seitz matching).
+    // These include centering vectors like (1/2,1/2,1/2) for I/F/C-centered groups.
+    let canonical_translations: Vec<[f64; 3]> = h_spin_seitz.iter()
+        .filter(|s| s.rot == [[1,0,0],[0,1,0],[0,0,1]])
+        .map(|s| s.trans)
+        .collect();
+
     for &b_idx in anti_lg_indices {
         let b = &mag_seitz[b_idx];
 
@@ -1797,7 +1804,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         // b² ∈ H₀ by group theory: b ∈ M_k ⇒ b² ∈ H_k ⇒ R_{b²} ∈ H₀.
         // Use LG-first matching to avoid picking a non-LG candidate.
         let (sq_spin_idx, sq_in_lg, match_kind) = match find_sq_spin_lg_first(
-            &sq, &h_spin_seitz, spin_lg_op_indices) {
+            &sq, &h_spin_seitz, spin_lg_op_indices, &canonical_translations) {
             Some(v) => v,
             None => {
                 debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² rot={:?} not in H spin ops",
@@ -2197,44 +2204,71 @@ fn cir_char_at(cir_chars: &[f64], op_idx: usize) -> Complex64 {
 ///
 /// Priority:
 /// 1. Full Seitz match (rotation + translation mod lattice) inside LG candidates
-/// 2. Unique rotation-only match inside LG candidates
-/// 3. Rotation-only match in full h_spin_seitz (fallback, may be outside LG)
+/// 2. Centering-equivalent: translation differs by a lattice vector
+///    (including centered-cell vectors like 1/2,1/2,1/2).
+///
+/// Rotation-only fallback is INTENTIONALLY REMOVED per codex review:
+/// same rotation with different translations are different group elements.
 pub(crate) fn find_sq_spin_lg_first(
     sq: &SeitzOp,
     h_spin_seitz: &[SeitzOp],
     spin_lg_op_indices: &[u16],
+    canonical_pure_translations: &[[f64; 3]],
 ) -> Option<(usize, bool, SpinMatchKind)> {
     let lg_cands: Vec<usize> = spin_lg_op_indices.iter().map(|&x| x as usize).collect();
 
-    // 1. Full Seitz match inside LG
+    /// Check if translation delta is in the lattice spanned by `canonical_translations`.
+    /// Delta is valid if it equals Σ n_i · T_i for integer n_i (|n_i| ≤ 3).
+    /// For primitive cells, T = {(1,0,0), (0,1,0), (0,0,1)} → δ ∈ Z³.
+    /// For centered cells, T includes vectors like (½,½,0) etc.
+    fn delta_in_lattice(delta: &[f64; 3], canonical: &[[f64; 3]]) -> bool {
+        // Try integer combinations n_i ∈ [-3, 3] for up to 4 translations
+        let n = canonical.len().min(4);
+        // Build candidate delta as Σ n_i * canonical[i]
+        let mut stack = vec![([0.0f64; 3], 0usize)];
+        while let Some((acc, depth)) = stack.pop() {
+            if depth >= n {
+                // Check if delta matches acc (mod Z³)
+                let ok = (0..3).all(|i| {
+                    let d = delta[i] - acc[i];
+                    (d - d.round()).abs() < 1e-9
+                });
+                if ok { return true; }
+                continue;
+            }
+            let t = canonical[depth];
+            for ni in -3..=3i32 {
+                let ni_f = ni as f64;
+                let mut new_acc = acc;
+                new_acc[0] += ni_f * t[0];
+                new_acc[1] += ni_f * t[1];
+                new_acc[2] += ni_f * t[2];
+                stack.push((new_acc, depth + 1));
+            }
+        }
+        false
+    }
+
+    // 1. Full Seitz match (translation mod Z³) inside LG
     for &si in &lg_cands {
         if let Some(sop) = h_spin_seitz.get(si) {
-            if same_seitz_mod_lattice(sq, sop) {
-                return Some((si, true, MATCH_EXACT));
+            if sop.rot == sq.rot {
+                let delta = [
+                    sq.trans[0] - sop.trans[0],
+                    sq.trans[1] - sop.trans[1],
+                    sq.trans[2] - sop.trans[2],
+                ];
+                if delta_in_lattice(&delta, canonical_pure_translations) {
+                    return Some((si, true, MATCH_EXACT));
+                }
             }
         }
     }
 
-    // 2. Unique rotation-only match inside LG
-    let rot_lg: Vec<usize> = lg_cands.iter().copied()
-        .filter(|&si| h_spin_seitz.get(si).map_or(false, |s| s.rot == sq.rot))
-        .collect();
-    if rot_lg.len() == 1 {
-        return Some((rot_lg[0], true, MATCH_ROTATION_ONLY));
-    }
-
-    // 3. Fallback: rotation-only in full database.
-    let global_idx = h_spin_seitz.iter().position(|s| s.rot == sq.rot)?;
-    let in_lg = lg_cands.contains(&global_idx);
-    if in_lg {
-        return Some((global_idx, true, MATCH_ROTATION_ONLY));
-    }
-    for (si, s) in h_spin_seitz.iter().enumerate() {
-        if s.rot == sq.rot && lg_cands.contains(&si) {
-            return Some((si, true, MATCH_ROTATION_ONLY));
-        }
-    }
-    Some((global_idx, false, MATCH_ROTATION_ONLY))
+    // 2. No rotation-only fallback.  Return None to signal
+    //    SquareNotInSpinTable — the caller should NOT compute a
+    //    Wigner sum with unmatched translations.
+    None
 }
 
 // ── Spinor (double-group) operations ───────────────────────────────────────
@@ -2840,8 +2874,11 @@ fn wigner_classify_spinor_primary(
         // Match square's rotation back to spin ops, preferring LG candidates first.
         // Priority: full Seitz in LG → unique rotation in LG → global rotation.
         // This avoids position() picking a non-LG candidate when an LG candidate exists.
+        let canon_t: Vec<[f64; 3]> = h_spin_seitz.iter()
+            .filter(|s| s.rot == [[1,0,0],[0,1,0],[0,0,1]])
+            .map(|s| s.trans).collect();
         let (sq_spin_idx, sq_in_lg, _match_kind) = match find_sq_spin_lg_first(
-            &sq, &h_spin_seitz, spin_lg_op_indices) {
+            &sq, &h_spin_seitz, spin_lg_op_indices, &canon_t) {
             Some(v) => v,
             None => {
                 eprintln!("  WIGNER_SPINOR: sq_rot not in spin ops, aborting case");

@@ -4159,8 +4159,11 @@ mod tests {
                     let (sq, lattice_sq) = wigner::square_seitz(&b_bilbao);
 
                     // H lookup
+                    let canon_t: Vec<[f64; 3]> = h_spin_seitz.iter()
+                        .filter(|s| s.rot == [[1,0,0],[0,1,0],[0,0,1]])
+                        .map(|s| s.trans).collect();
                     let (sq_spin_idx, chi0) = match wigner::find_sq_spin_lg_first(
-                        &sq, &h_spin_seitz, ir.spin_lg_op_indices()) {
+                        &sq, &h_spin_seitz, ir.spin_lg_op_indices(), &canon_t) {
                         Some((idx, _, _)) => {
                             let local = ir.spin_lg_op_indices().iter().position(|&x| x as usize == idx).unwrap_or(0);
                             let re = ir.characters().get(local).copied().unwrap_or(0.0);
