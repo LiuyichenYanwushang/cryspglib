@@ -3266,6 +3266,154 @@ mod tests {
         eprintln!("\n  (shown {} cases)", shown);
     }
 
+    /// Per-term Wigner trace for ALL non_quantized failures.
+    ///
+    /// Groups by (SG, k-point, W-value) and shows per-term breakdown
+    /// for a representative of each cluster.
+    #[test]
+    fn diagnose_nonquantized_per_term() {
+        use crate::irrep::wigner::{self, PerTermTrace};
+        use std::collections::BTreeMap;
+
+        // ── Collect all non_quantized cases with per-term traces ──────────
+        struct CaseInfo {
+            uni: usize,
+            h_sg: u8,
+            ml: String,
+            kx: i8, ky: i8, kz: i8, kd: i8,
+            dim: u8,
+            n_anti: usize,
+            w: f64,
+            trace: Vec<PerTermTrace>,
+        }
+        let mut cases: Vec<CaseInfo> = Vec::new();
+
+        for uni in 1..=1651 {
+            let mag_ops = match get_magnetic_operations(uni) {
+                Some(m) => m, None => continue,
+            };
+            let h_info = match identify_unitary_subgroup_with_hall(uni) {
+                Some(i) => i, None => continue,
+            };
+            let h_sg = h_info.sg as u8;
+            let setting_xf_owned = h_info.msg_to_data.clone();
+            let setting_xf = setting_xf_owned.as_ref();
+            let mag_seitz = wigner::ops_to_seitz(&mag_ops);
+            let g_sg = parent_spatial_sg(uni).unwrap_or(h_sg as usize) as u8;
+
+            for ir in crate::irrep::query::irreps_of(h_sg) {
+                if !ir.spinor { continue; }
+                let imag = ir.spin_character_imag();
+                if imag.is_empty() { continue; }
+
+                let canonical_pure_translations: Vec<[f64; 3]> = h_info.ops_from_hall.operations.iter()
+                    .filter(|op| op.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+                    .map(|op| op.translation)
+                    .collect();
+                let mag_lg = wigner::filter_little_group_with_transform(
+                    ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops, setting_xf,
+                    Some(&canonical_pure_translations));
+                let antiunitary: Vec<usize> = mag_lg.iter()
+                    .filter(|&&i| mag_ops.operations[i].time_reversal).copied().collect();
+                if antiunitary.is_empty() { continue; }
+
+                let h_spin = ir.spin_ops();
+                let g_spin = if g_sg == h_sg { h_spin }
+                    else { IrrepRecord::spin_ops_for_sg(g_sg) };
+                let ctx = wigner::SpinLiftContext { h: h_spin, g: g_spin, sg: h_sg };
+
+                let mut trace = Vec::new();
+                let diag = wigner::wigner_classify_spinor_direct_anti_diagnostic(
+                    &ctx, ir.characters(), ir.spin_character_imag(),
+                    ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
+                    setting_xf, ir.kx, ir.ky, ir.kz, ir.kd,
+                    Some(&mut trace),
+                );
+
+                if let Err(wigner::DirectAntiFailure::NonQuantized) = diag {
+                    // Compute W value from trace for clustering
+                    let w_sum_re: f64 = trace.iter().map(|t| t.contrib_re).sum();
+                    let w_sum_im: f64 = trace.iter().map(|t| t.contrib_im).sum();
+                    let w = (w_sum_re * w_sum_re + w_sum_im * w_sum_im).sqrt()
+                        / (antiunitary.len() as f64).max(1.0);
+                    cases.push(CaseInfo {
+                        uni, h_sg,
+                        ml: ir.ml.to_string(),
+                        kx: ir.kx, ky: ir.ky, kz: ir.kz, kd: ir.kd,
+                        dim: ir.dim,
+                        n_anti: antiunitary.len(),
+                        w,
+                        trace,
+                    });
+                }
+            }
+        }
+
+        eprintln!("\n=== Per-term Wigner trace for {} non_quantized cases ===", cases.len());
+
+        // ── Cluster by (SG, k-point string) ───────────────────────────────
+        let mut clusters: BTreeMap<(u8, String), Vec<&CaseInfo>> = BTreeMap::new();
+        for c in &cases {
+            let k_str = format!("({},{},{})/{}", c.kx, c.ky, c.kz, c.kd);
+            clusters.entry((c.h_sg, k_str)).or_default().push(c);
+        }
+
+        eprintln!("\n=== Clusters ===");
+        for ((sg, k_str), group) in &clusters {
+            // W value distribution within this cluster
+            let mut w_vals: Vec<f64> = group.iter().map(|c| c.w).collect();
+            w_vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let w_min = w_vals.first().unwrap();
+            let w_max = w_vals.last().unwrap();
+            eprintln!("  SG{} {} {} cases, W in [{:.4}, {:.4}]",
+                sg, k_str, group.len(), w_min, w_max);
+        }
+
+        // ── Show per-term tables for first case in each cluster ───────────
+        eprintln!("\n=== Per-term details (first case per cluster) ===");
+        for ((sg, k_str), group) in &clusters {
+            let c = group[0];
+            eprintln!("\n═══ SG{} UNI{} {} k={} dim={} n_anti={} W={:.4} ═══",
+                sg, c.uni, c.ml, k_str, c.dim, c.n_anti, c.w);
+
+            // Show term summary line
+            for (idx, t) in c.trace.iter().enumerate() {
+                let chi = if t.central { -1.0 } else { 1.0 };
+                eprintln!(
+                    "  [{:2}] rot=[{:3},{:3},{:3};{:3},{:3},{:3};{:3},{:3},{:3}] \
+                     sq_rot=[{:3},{:3},{:3};{:3},{:3},{:3};{:3},{:3},{:3}] \
+                     sq_spin={:3} loc={} χ₀=({:5.2},{:5.2}) c={} φ=({:5.2},{:5.2}) \
+                     contrib=({:6.3},{:6.3})",
+                    idx,
+                    t.b_rot[0][0], t.b_rot[0][1], t.b_rot[0][2],
+                    t.b_rot[1][0], t.b_rot[1][1], t.b_rot[1][2],
+                    t.b_rot[2][0], t.b_rot[2][1], t.b_rot[2][2],
+                    t.sq_rot[0][0], t.sq_rot[0][1], t.sq_rot[0][2],
+                    t.sq_rot[1][0], t.sq_rot[1][1], t.sq_rot[1][2],
+                    t.sq_rot[2][0], t.sq_rot[2][1], t.sq_rot[2][2],
+                    t.sq_spin_idx, t.sq_local_idx,
+                    t.chi0_re * chi, t.chi0_im * chi,
+                    if t.central { "Y" } else { "N" },
+                    t.phase_re, t.phase_im,
+                    t.contrib_re, t.contrib_im,
+                );
+            }
+
+            // Running sum
+            let mut running = (0.0f64, 0.0f64);
+            eprint!("  Running sum:");
+            for t in &c.trace {
+                running.0 += t.contrib_re;
+                running.1 += t.contrib_im;
+                eprint!(" ({:.3},{:.3})", running.0, running.1);
+            }
+            eprintln!();
+            eprintln!("  W = ({:.6}, {:.6}) / {} = {:.6}",
+                running.0, running.1, c.n_anti,
+                (running.0 * running.0 + running.1 * running.1).sqrt() / c.n_anti as f64);
+        }
+    }
+
     /// Diagnostic: detailed Wigner terms for one failing spinor case (SG2 T UNI69).
     #[test]
     fn diagnose_sg2_spinor_wigner_failure() {
