@@ -1647,6 +1647,14 @@ impl DirectAntiFailure {
 ///
 /// Each antiunitary coset element b ∈ a₀H produces one term in the Wigner sum:
 /// χ((a₀b)²) with SU(2) central parity and Bloch phase.
+
+/// How b² was matched to the H spin table.
+/// 0=Exact (Seitz mod Z³), 1=Centering, 2=RotationOnly
+pub type SpinMatchKind = u8;
+pub const MATCH_EXACT: SpinMatchKind = 0;
+pub const MATCH_CENTERING: SpinMatchKind = 1;
+pub const MATCH_ROTATION_ONLY: SpinMatchKind = 2;
+
 #[derive(Debug, Clone)]
 pub struct PerTermTrace {
     /// Index of this b in `mag_seitz`
@@ -1657,8 +1665,16 @@ pub struct PerTermTrace {
     pub b_trans: [f64; 3],
     /// Rotation of b² = (a₀b)² (in Hall frame after setting transform)
     pub sq_rot: Mat3I,
-    /// Translation of b²
+    /// Translation of b² (reduced to [0,1))
     pub sq_trans: [f64; 3],
+    /// Raw b² translation before reduction to [0,1)
+    pub sq_trans_raw: [f64; 3],
+    /// Translation of the matched H spin table entry
+    pub sq_spin_trans: [f64; 3],
+    /// Lattice difference: sq_raw - sq_spin_trans (rounded)
+    pub trans_delta: [f64; 3],
+    /// How the match was obtained
+    pub match_kind: SpinMatchKind,
     /// Index of b² rotation in H spin table
     pub sq_spin_idx: usize,
     /// Local index in spin_lg_op_indices (for character lookup)
@@ -1681,6 +1697,8 @@ pub struct PerTermTrace {
     pub bloch_total_trans: [f64; 3],
     /// SU(2) lift of b: U_b = [a, b, c, d]
     pub u_b: [f64; 4],
+    /// -U_b² (after neg_pauli, the actual value used for central parity)
+    pub u_b_sq_actual: [f64; 4],
     /// SU(2) lift of b² in G spin table
     pub u_sq_g: [f64; 4],
 }
@@ -1778,7 +1796,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
 
         // b² ∈ H₀ by group theory: b ∈ M_k ⇒ b² ∈ H_k ⇒ R_{b²} ∈ H₀.
         // Use LG-first matching to avoid picking a non-LG candidate.
-        let (sq_spin_idx, sq_in_lg) = match find_sq_spin_lg_first(
+        let (sq_spin_idx, sq_in_lg, match_kind) = match find_sq_spin_lg_first(
             &sq, &h_spin_seitz, spin_lg_op_indices) {
             Some(v) => v,
             None => {
@@ -1928,6 +1946,18 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
                 b_trans: b.trans,
                 sq_rot: sq.rot,
                 sq_trans: sq.trans,
+                sq_trans_raw: [
+                    sq.trans[0] + lattice_sq[0] as f64,
+                    sq.trans[1] + lattice_sq[1] as f64,
+                    sq.trans[2] + lattice_sq[2] as f64,
+                ],
+                sq_spin_trans: sq_spin.trans,
+                trans_delta: [
+                    sq.trans[0] + lattice_sq[0] as f64 - sq_spin.trans[0],
+                    sq.trans[1] + lattice_sq[1] as f64 - sq_spin.trans[1],
+                    sq.trans[2] + lattice_sq[2] as f64 - sq_spin.trans[2],
+                ],
+                match_kind,
                 sq_spin_idx,
                 sq_local_idx,
                 chi0_re: chi0.re,
@@ -1939,6 +1969,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
                 contrib_im: contrib.im,
                 bloch_total_trans: total_translation,
                 u_b,
+                u_b_sq_actual: u_b_sq,
                 u_sq_g,
             });
         }
@@ -2172,14 +2203,14 @@ pub(crate) fn find_sq_spin_lg_first(
     sq: &SeitzOp,
     h_spin_seitz: &[SeitzOp],
     spin_lg_op_indices: &[u16],
-) -> Option<(usize, bool)> {
+) -> Option<(usize, bool, SpinMatchKind)> {
     let lg_cands: Vec<usize> = spin_lg_op_indices.iter().map(|&x| x as usize).collect();
 
     // 1. Full Seitz match inside LG
     for &si in &lg_cands {
         if let Some(sop) = h_spin_seitz.get(si) {
             if same_seitz_mod_lattice(sq, sop) {
-                return Some((si, true));
+                return Some((si, true, MATCH_EXACT));
             }
         }
     }
@@ -2189,24 +2220,21 @@ pub(crate) fn find_sq_spin_lg_first(
         .filter(|&si| h_spin_seitz.get(si).map_or(false, |s| s.rot == sq.rot))
         .collect();
     if rot_lg.len() == 1 {
-        return Some((rot_lg[0], true));
+        return Some((rot_lg[0], true, MATCH_ROTATION_ONLY));
     }
 
     // 3. Fallback: rotation-only in full database.
-    // For centered groups, the same rotation may appear at multiple indices
-    // (different centering translations). Prefer an LG entry when available.
     let global_idx = h_spin_seitz.iter().position(|s| s.rot == sq.rot)?;
     let in_lg = lg_cands.contains(&global_idx);
     if in_lg {
-        return Some((global_idx, true));
+        return Some((global_idx, true, MATCH_ROTATION_ONLY));
     }
-    // Rotation found but not in LG — check if another index with same rotation IS in LG
     for (si, s) in h_spin_seitz.iter().enumerate() {
         if s.rot == sq.rot && lg_cands.contains(&si) {
-            return Some((si, true));
+            return Some((si, true, MATCH_ROTATION_ONLY));
         }
     }
-    Some((global_idx, false))
+    Some((global_idx, false, MATCH_ROTATION_ONLY))
 }
 
 // ── Spinor (double-group) operations ───────────────────────────────────────
@@ -2812,7 +2840,7 @@ fn wigner_classify_spinor_primary(
         // Match square's rotation back to spin ops, preferring LG candidates first.
         // Priority: full Seitz in LG → unique rotation in LG → global rotation.
         // This avoids position() picking a non-LG candidate when an LG candidate exists.
-        let (sq_spin_idx, sq_in_lg) = match find_sq_spin_lg_first(
+        let (sq_spin_idx, sq_in_lg, _match_kind) = match find_sq_spin_lg_first(
             &sq, &h_spin_seitz, spin_lg_op_indices) {
             Some(v) => v,
             None => {

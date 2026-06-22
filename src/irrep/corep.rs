@@ -4161,7 +4161,7 @@ mod tests {
                     // H lookup
                     let (sq_spin_idx, chi0) = match wigner::find_sq_spin_lg_first(
                         &sq, &h_spin_seitz, ir.spin_lg_op_indices()) {
-                        Some((idx, _)) => {
+                        Some((idx, _, _)) => {
                             let local = ir.spin_lg_op_indices().iter().position(|&x| x as usize == idx).unwrap_or(0);
                             let re = ir.characters().get(local).copied().unwrap_or(0.0);
                             let im = ir.spin_character_imag().get(local).copied().unwrap_or(0.0);
