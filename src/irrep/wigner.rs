@@ -43,6 +43,7 @@ use super::corep::CorepType;
 // ── Diagnostic counters for SU(2) central-element relation ──────────────────
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::OnceLock;
 
 // ── Diagnostic counters for setting-transform origin solving ─────────────────
 
@@ -1190,7 +1191,18 @@ pub fn enumerate_signed_permutations() -> Vec<[[i32; 3]; 3]> {
 /// transformations (GL(3,Z) shears).  These are needed for Hall-setting
 /// pairs that differ by more than axis permutation, e.g. monoclinic
 /// unique-axis conversions (Hall 73↔72 for P2/c).
-pub fn enumerate_unimodular_bases() -> Vec<[[i32; 3]; 3]> {
+/// Cached unimodular bases — computed once, reused across all
+/// `find_setting_transform` calls.  Avoids generating 6,960 matrices
+/// per call (the main performance regression noted by codex review).
+static UNIMODULAR_BASES: OnceLock<Vec<[[i32; 3]; 3]>> = OnceLock::new();
+
+pub fn enumerate_unimodular_bases() -> &'static Vec<[[i32; 3]; 3]> {
+    UNIMODULAR_BASES.get_or_init(|| {
+        compute_unimodular_bases()
+    })
+}
+
+fn compute_unimodular_bases() -> Vec<[[i32; 3]; 3]> {
     // Start with the 48 signed-permutations.
     let mut results = enumerate_signed_permutations();
     let seen: std::collections::HashSet<[[i32; 3]; 3]> = results.iter().copied().collect();
@@ -1254,7 +1266,7 @@ pub fn find_setting_transform(
     // GL(3,Z) shear matrices (e.g. [[-1,0,-1],[0,-1,0],[0,0,-1]] for
     // monoclinic Hall 73→72) have entries in {-1,0,1} and det=±1, and
     // are included in this expanded candidate pool.
-    for t in &enumerate_unimodular_bases() {
+    for t in enumerate_unimodular_bases() {
         let t_inv = mat_inverse_3i(t);
         let xf_rots: Vec<[[i32; 3]; 3]> = msg_rots.iter()
             .map(|r| {
@@ -1305,7 +1317,7 @@ pub fn find_setting_transform(
         }
         // Use enumerate_unimodular_bases() for the same reason as above:
         // GL(3,Z) shears are needed for monoclinic unique-axis conversions.
-        for t in &enumerate_unimodular_bases() {
+        for t in enumerate_unimodular_bases() {
             let t_inv = mat_inverse_3i(t);
             let xf_rots: Vec<[[i32; 3]; 3]> = msg_rots.iter()
                 .map(|r| {
