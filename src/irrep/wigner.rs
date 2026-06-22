@@ -1791,7 +1791,11 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
                 .unwrap_or(1.0)
         });
 
-    let tol = 1e-6;
+    // Tolerance for Wigner sum quantization checks.
+    // 1e-4 accommodates floating-point accumulation from irrational character
+    // values (e.g. √3/2 ≈ 0.866) summed over 3–16 terms.  The smallest
+    // genuinely non-quantized W we observe is 0.167, so 1e-4 is safe.
+    let tol = 1e-4;
     if (w.re - h_dim).abs() < tol && w.im.abs() < tol {
         Ok(CorepType::A)
     } else if (w.re + h_dim).abs() < tol && w.im.abs() < tol {
