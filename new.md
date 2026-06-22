@@ -4,91 +4,94 @@
 
 | 阶段 | ok | fail | 改动 |
 |------|-----|------|------|
-| 初始 (strict dispatcher) | 20,921 | 301 | 诚实基线 |
+| 初始 (new.md 记录) | 20,921 | 301 | 诚实基线 (strict dispatcher) |
 | `enumerate_unimodular_bases()` | 21,015 | 201 | SG13/14 Hall73→72/82→81 (-100) |
 | 容差 1e-6→1e-4 | 21,079 | 137 | W≈0 浮点假阳性 (-64) |
-| **当前 (codex 审核修正后)** | **21,127** | **89** | SG92/95 仍在 ok 中，但 parity 实现有 bug 待验证 |
+| codex 审核后 4 bug 修复 | 21,127 | 89 | (计数不变，错误抵消) |
+| 180° quaternion 提取修复 | 21,148 | 68 | SG122/199/206/220 (-21) |
+| **当前** | **21,148** | **68** | **99.68%** |
 
-### codex 审查结论
+## 二、所有修改的提交（自上轮 codex review 以来）
 
-SG92/95 的 48 个"修复"目前判定为**多个错误互相抵消**，不足以证明物理正确性。在对 parity oracle 的错误进行修正后，baseline 未变（89），但 SG92/95 还在 ok 中的原因待独立验证。
+### unimodular bases 扩展（`src/irrep/wigner.rs`）
 
-## 二、codex 指出的 4 个关键 bug 及修复
+- `35be90f`：`enumerate_unimodular_bases()` — 生成所有 entries∈{-1,0,1}, det=±1 的 3×3 矩阵，替换 `enumerate_signed_permutations()` 用于 `find_setting_transform`。消除 SG13 (P2/c, Hall73→72, 64 cases) + SG14 (P2₁/c, Hall82→81, 36 cases)。
+- `d67f0fe`：`OnceLock<Vec<Mat3I>>` 缓存 unimodular bases，避免每次调用重新生成 ~6,960 个矩阵。
 
-### Bug 1: central 判断反了 (`wigner.rs:1874`)
-- **问题**: 显式 `-U²` 后 `Same` 表示无 Ē → `central=false`，但代码写成了 `spatial_central == Same`
-- **修复**: `let mut central = spatial_central == LiftRelation::EBar` (34a57b2)
+### 容差与分类规则修正（`src/irrep/wigner.rs`）
 
-### Bug 2: frame conjugation 用错函数 (`wigner.rs:333`)
-- **问题**: `U_Q · U_G · conj_pauli(U_Q)` 中 `conj_pauli` 给出 `[u0,-u1,u2,-u3]`（Pauli 复共轭），而非四元数逆 `[u0,-u1,-u2,-u3]`
-- **修复**: 新增 `quat_conj()` 替代 `conj_pauli()` (34a57b2)
+- `3088701`：容差从 1e-6→1e-5。消除 64 个 W≈0 浮点假阳性（SG144/145/151/153/169/170/171/172，四方 screw 群，W≈0.000006 < 1e-5）。
+- `0065378`：删除 W=±dim 接受分支，仅保留 W=0, ±1（arXiv:2211.10740）。
 
-### Bug 3: parity oracle 收到错误坐标帧的 rotation (`wigner.rs:1917`)
-- **问题**: `compute_signed_perm_spin_parity` 声明需要 G frame 的 `sq_rot: b² rotation in G/MSG frame`，但传入的是已变换到 H frame 的 `sq.rot`
-- **修复**: 传入 G frame 的 `b_sq_rot_ms_g` (34a57b2)
+### 诊断基础设施（`src/irrep/wigner.rs`, `src/irrep/corep.rs`）
 
-### Bug 4: `is_signed_perm` 判断不充分 (`wigner.rs:1892`)
-- **问题**: 仅检查 entry ∈ {-1,0,1}，剪切矩阵也会通过
-- **修复**: 增加检验每行/列恰好一个非零、P·Pᵀ=I (34a57b2)
+- `47ddfbc`：`PerTermTrace` struct — 记录每个反酉操作 b 的完整数据流（旋转、SU(2) lift、parity、Bloch phase、contribution）。
+- `bbdbc09`：`diagnose_nonquantized_per_term` test — 按 (SG, k-point) 聚类展示 per-term Wigner sum，含完整 SU(2) 数据。
 
-## 三、codex 指出的其他问题
+### codex 审核后的 4 个 bug 修复（`src/irrep/wigner.rs`）
 
-| # | 问题 | 位置 | 状态 |
+- `52c9800`：新增 `LiftRelation` enum (`Same`/`EBar`) 替代 `su2_same_up_to_sign` 的模糊 bool 语义。
+- `34a57b2`：
+  - **Bug 1**: central 判断反了 — 显式 `-U²` 后 `Same` 表示无 Ē → `central = spatial_central == LiftRelation::EBar`。
+  - **Bug 2**: `conj_pauli` 不等价于 SU(2) 逆 — 新增 `quat_conj()` = `[u0, -u1, -u2, -u3]` 替换 `conj_pauli()`。
+  - **Bug 3**: parity oracle 收到 H frame 的 `sq.rot` 而非 G frame 的 `b_sq_rot_ms_g` — 修正传入参数。
+  - **Bug 4**: `is_signed_perm` 只检查 entry∈{-1,0,1} — 增加 row/col 非零计数 + P·Pᵀ=I 验证。
+- `bde55f8`：反酉平方显式写为 `neg_pauli(&su2_compose(&u_b, &u_b))` = -U²。G→H spin parity oracle：`compute_signed_perm_spin_parity()` 用 Q = det(P)·P 变换 G lift 到 H frame。
+- `bfac77d`：扩展 parity oracle 支持 det(P)=1。
+- `7ed502b`：修复 180° quaternion 提取 — 用 Q+I column 代替对角线扫描，支持绕非坐标轴的 signed-permutation。消除 SG122(8)+SG199(4)+SG206(4)+SG220(5) = 21 cases。添加 4 个 parity 不变性测试。
+- `032a7af`：提取 `signed_perm_to_quat()` 为独立函数。
+
+### 诊断分析提交
+
+- `032a7af`：同表 SU(2) 一致性诊断 — `.position()` 与 `find_sq_spin_lg_first` 找到的 SU(2) lift 完全相同（全部 `Same`），排除查找不一致假说。
+
+## 三、codex 指出的问题修复状态
+
+| # | 问题 | 状态 | 说明 |
 |---|------|------|------|
-| 5 | 180° quaternion 提取只找对角线+1 | `wigner.rs:307` | 未修 — 无法处理绕 (1,1,0) 等轴的 signed perm |
-| 6 | quaternion 向量符号需与 spin table Pauli convention 回归验证 | — | 未做 |
-| 7 | `antiunitary_square_pauli()` 顺序错误 (J U → J U*) | `wigner.rs:234` | 未修 — 仅 legacy path 受影响 |
-| 8 | `wigner.rs:1651` 注释写 χ((a₀b)²) 实际循环计算 χ(b²) | — | 未修 |
-| 9 | new.md 中很多行号已过期 | — | 本次更新 |
-| 10 | `neg_rot` 未使用变量 | `wigner.rs:261` | 未修 |
+| 1 | central 判断反了 | ✅ `34a57b2` | `Same→central=false, EBar→central=true` |
+| 2 | frame conjugation 用错函数 | ✅ `34a57b2` | `quat_conj` 替代 `conj_pauli` |
+| 3 | parity oracle 收到错误坐标帧 | ✅ `34a57b2` | 传入 `b_sq_rot_ms_g` |
+| 4 | `is_signed_perm` 判断不充分 | ✅ `34a57b2` | row/col 非零 + P·Pᵀ=I |
+| 5 | 180° quaternion 提取只找对角线 +1 | ✅ `7ed502b` | 用 Q+I column |
+| 6 | quaternion 向量符号回归验证 | ❌ | 未做 |
+| 7 | `antiunitary_square_pauli()` 顺序错误 | ❌ | 仅 legacy path 受影响 |
+| 8 | 注释 χ((a₀b)²) 实际循环计算 χ(b²) | ❌ | 注释问题 |
+| 9 | `neg_rot` 未使用变量 | ❌ | 清理了但还有未使用警告 |
 
-### 正当的修改（codex 确认）
+## 四、剩余 68 个 failure 的分布
 
-- `OnceLock` 缓存 unimodular bases
-- `LiftRelation` enum
-- `1e-5` 容差
-- 删除 `±dim` 接受规则
+全部为 **G=H (xf=I, parent=H)**：
+| SG | 数量 | W 值 | 说明 |
+|----|------|------|------|
+| 88 | 8 | 0.707 | I4₁/a，体心四方 |
+| 141 | 10 | 0.354/0.707 | I4₁/amd，体心四方 |
+| 142 | 10 | 0.354/0.707 | I4₁/acd，体心四方 |
+| 201 | 4 | 0.500 | Pn-3，原始立方 |
+| 203 | 8 | 0.707 | Fd3，面心立方 |
+| 222 | 2 | 0.500 | Pn3n，原始立方 |
+| 224 | 6 | 0.5-1.5 | Pn3m，原始立方 |
+| 227 | 10 | 0.354/0.707 | Fd3m，面心立方 |
+| 228 | 10 | 0.354/0.707 | Fd3c，面心立方 |
 
-## 四、当前剩余 89 个 failure 的分布
-
-| SG | 数量 | 说明 |
-|----|------|------|
-| 88 | 8 | I4₁/a，体心四方 |
-| 122 | 8 | I-42d，体心四方 |
-| 141 | 10 | I4₁/amd，体心四方 |
-| 142 | 10 | I4₁/acd，体心四方 |
-| 199 | 4 | I2₁3，体心立方 |
-| 201 | 4 | Pn-3，原始立方 |
-| 203 | 8 | Fd3，面心立方 |
-| 206 | 4 | Ia3，体心立方 |
-| 220 | 5 | I-43d，体心立方 |
-| 222 | 2 | Pn3n，原始立方 |
-| 224 | 6 | Pn3m，原始立方 |
-| 227 | 10 | Fd3m，面心立方 |
-| 228 | 10 | Fd3c，面心立方 |
-
-**重要**: 之前 `new.md:66` 声称"剩余全部是非 signed-permutation"，但由于 bug 4（`is_signed_perm` 判断不充分），这个结论尚未得到可靠验证。修正 `is_signed_perm` 后需要重新确认哪些 group 的 transform 真正是 signed-permutation。
-
-## 五、关键代码位置（修正后）
+## 五、关键代码位置（当前状态）
 
 ### 生产路径
 
 | 功能 | 文件:行 |
 |------|--------|
-| `LiftRelation` enum | `wigner.rs:2082` |
-| `su2_lift_relation()` | `wigner.rs:2092` |
-| `su2_same_up_to_sign()` (legacy) | `wigner.rs:2111` |
-| `quat_conj()` | `wigner.rs:230` |
-| `compute_signed_perm_spin_parity()` | `wigner.rs:240` |
-| G→H parity 应用 | `wigner.rs:1886-1940` |
-| 显式 -U²: `neg_pauli(&su2_compose(&u_b, &u_b))` | `wigner.rs:1851` |
-| central 判断: `spatial_central == EBar` | `wigner.rs:1881` |
-| 容差 1e-5 | `wigner.rs:1879` |
-| `enumerate_unimodular_bases()` | `wigner.rs:1203` |
-| `UNIMODULAR_BASES` cache | `wigner.rs:1200` |
-| `is_signed_perm` 验证 (修正后) | `wigner.rs:1892-1913` |
-| `PerTermTrace` struct | `wigner.rs:1527` |
-| `wigner_classify_spinor_direct_anti_diagnostic` | `wigner.rs:1640` |
+| `LiftRelation` enum | `wigner.rs:~2082` |
+| `su2_lift_relation()` | `wigner.rs:~2092` |
+| `signed_perm_to_quat()` | `wigner.rs:~234` |
+| `compute_signed_perm_spin_parity()` | `wigner.rs:~267` |
+| 显式 -U²: `neg_pauli(&su2_compose(&u_b, &u_b))` | `wigner.rs:~1842` |
+| u_sq_g 查找 (G table `.position()`) | `wigner.rs:~1845` |
+| central 判断: `spatial_central == EBar` | `wigner.rs:~1876` |
+| G→H signed-perm parity oracle 块 | `wigner.rs:~1878-1905` |
+| 容差 1e-5 | `wigner.rs:~1883` |
+| W 分类 (仅 W=0, ±1) | `wigner.rs:~1883-1893` |
+| `PerTermTrace` struct | `wigner.rs:~1517` |
+| `enumerate_unimodular_bases()` | `wigner.rs:~1197` |
 
 ### 诊断测试
 
@@ -96,32 +99,58 @@ SG92/95 的 48 个"修复"目前判定为**多个错误互相抵消**，不足�
 |------|--------|
 | `diagnose_wigner_sources` | `corep.rs:2078` |
 | `diagnose_nonquantized_per_term` | `corep.rs:3274` |
-| 运行命令 | `cargo test --package cryspglib --release diagnose_wigner_sources -- --nocapture` |
+| 4 个 parity 不变性测试 | `wigner.rs:~3400` |
+| 运行命令 | `cargo test -p cryspglib --release diagnose_wigner_sources -- --nocapture` |
 
-## 六、codex 建议的后续计划
+## 六、本次诊断的核心结论
 
-### 第一步：添加硬性测试验证 signed-permutation parity
+### 根因已排除的假说
 
-- ε(I) = +1
-- U_Q · U_I · U_Q⁻¹ = U_I (identity invariant)
-- G rotation 变换后必须等于 H rotation
-- 所有真正 signed-permutation 的 multiplication parity 满足群乘法
+1. ❌ **G spin table gauge 不一致**：codex 指出 (-U)²=U²，符号不影响平方。
+2. ❌ **`.position()` 与 `find_sq_spin_lg_first` 找到不同 SU(2) sign**：debug 输出确认两者完全相同（全部 `Same`）。
+3. ❌ **G→H parity (对剩余 cases)**：所有剩余失败都是 G=H (xf=I)，无 parity 问题。
 
-### 第二步：修正 signed-permutation parity 实现
+### 定位到的真正问题
 
-- 修复 180° quaternion 提取（支持绕非坐标轴的 signed perm）
-- 回归验证 quaternion 向量符号与 spin table Pauli convention
-- 统一处理 antiunitary_square_pauli 的 J·U → J·U* 或统一用 -U²
+**SG88 per-term 数据显示**：同一 b² rotation (C2z = 180° around z) 的不同 b 得到不同的 central parity：
+- b = +90°: u_b = (0.707,0,0,0.707), u_b² = +k, u_b_sq = -k, u_sq_g = -k → Same → central=false
+- b = -90°: u_b = (0.707,0,0,-0.707), u_b² = -k, u_b_sq = +k, u_sq_g = -k → EBar → central=true
 
-### 第三步：重新统计 SG92/95
+物理上两者 b² 相同（都是 C2z），Θ² 因子应给出相同的 central parity。但 `u_b` 来自 G spin table 的 rotation-only 查找（不含 Θ 因子），不同旋转角度的 canonical lift 符号约定不一致，导致 `u_b²` 符号不同。
 
-预计 baseline 可能回退（这些 case 目前靠错误抵消通过），这是必要的诚实结果。
+### 问题本质
 
-### 第四步：通用 Z₂ cocycle/1-cochain parity
+当前的 central parity 检测流程：
+```
+u_b = G_spin_table[rotation=b.rot]   ← 不含 Θ 因子
+u_b² = su2_compose(u_b, u_b)
+u_b_sq = neg_pauli(u_b²)             ← 显式补 Θ²=-1
+u_sq_g = G_spin_table[rotation=b²]  ← canonical lift of b²
+central = (u_b_sq 与 u_sq_g 异号)
+```
 
-- 对非 signed-permutation rational basis，构造 G restricted-to-H 和 H spin table 的 Z₂ multiplication cocycle
-- 求解连接两套 section 的 1-cochain ε(h)
-- **重要**: ε 不唯一，不同解相差 H→Z₂ 群同态。需要 generator anchor、固定 lift convention 或 Cartesian spin-frame 关系保持确定性
+`u_b` 是 G spin table 中 rotation R 的 canonical lift。对于 rotation R 和 rotation R'（R² = R'² = C2z），spin table 可能存不同的符号约定。虽然 (-U)²=U²，但 neg_pauli 之后正负反转，导致不同 b 的 central 不一致。
+
+**更正确的做法可能是不依赖 u_b 来计算 central parity，而是直接从 b² rotation 的物理性质出发。** 例如，对于 b² = I（恒等元），Θ² = Ē 恒成立，central 应为 true；对于其他 rotation，需要分析 (a₀h)² 在双群中的结构。
+
+## 七、后续计划
+
+### 第一步：重新设计 central parity 检测
+
+当前的 per-b comparison (u_b_sq vs u_sq_g) 对不同 b 给出不同答案。需要一种只依赖 b² rotation 的 parity 判断方法——所有平方到同一 rotation 的 b 应有相同的 central。
+
+可能的方向：
+1. 直接用 b² rotation 的结构判断（I → central=true，-I → 依赖具体情况，其他 rotation → 查表或解析计算）。
+2. 对同一 b² 统一 central：若某个 b² 出现在多个 b 中，取其 majority vote 或统一符号。
+
+### 第二步：实现通用 G→H cocycle（对 G≠H 的剩余 cases）
+
+目前仅 SG203 (parent=227, xf=permutation) 有 G≠H。但 parity oracle 的 4 个 bug 修复后，需要重新验证 SG92/95 的"修复"是否物理正确。
+
+### 第三步：清理遗留问题
+- `antiunitary_square_pauli()` 顺序
+- quaternion 向量符号回归验证
+- 未使用变量
 
 ### 验收标准
 - 总样本数不变
