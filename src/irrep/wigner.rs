@@ -1059,6 +1059,33 @@ pub fn enumerate_signed_permutations() -> Vec<[[i32; 3]; 3]> {
     results
 }
 
+/// All unimodular 3×3 integer matrices with entries in {-1, 0, 1}.
+///
+/// Includes the 48 signed-permutations plus crystallographic shear
+/// transformations (GL(3,Z) shears).  These are needed for Hall-setting
+/// pairs that differ by more than axis permutation, e.g. monoclinic
+/// unique-axis conversions (Hall 73↔72 for P2/c).
+pub fn enumerate_unimodular_bases() -> Vec<[[i32; 3]; 3]> {
+    // Start with the 48 signed-permutations.
+    let mut results = enumerate_signed_permutations();
+    let seen: std::collections::HashSet<[[i32; 3]; 3]> = results.iter().copied().collect();
+    // Generate all matrices with entries in {-1, 0, 1} and determinant ±1.
+    let vals = [-1i32, 0, 1];
+    for a00 in &vals { for a01 in &vals { for a02 in &vals {
+    for a10 in &vals { for a11 in &vals { for a12 in &vals {
+    for a20 in &vals { for a21 in &vals { for a22 in &vals {
+        let m = [[*a00, *a01, *a02], [*a10, *a11, *a12], [*a20, *a21, *a22]];
+        if seen.contains(&m) { continue; }
+        let det = m[0][0] * (m[1][1]*m[2][2] - m[1][2]*m[2][1])
+                - m[0][1] * (m[1][0]*m[2][2] - m[1][2]*m[2][0])
+                + m[0][2] * (m[1][0]*m[2][1] - m[1][1]*m[2][0]);
+        if det == 1 || det == -1 {
+            results.push(m);
+        }
+    }}}}}}}}}
+    results
+}
+
 /// Find all setting transforms `(T, s)` that satisfy:
 ///
 /// ```text
@@ -1098,7 +1125,11 @@ pub fn find_setting_transform(
         // Do NOT return an unvalidated identity — let the loop try other bases.
     }
 
-    for t in &enumerate_signed_permutations() {
+    // Use enumerate_unimodular_bases() instead of signed-permutations only.
+    // GL(3,Z) shear matrices (e.g. [[-1,0,-1],[0,-1,0],[0,0,-1]] for
+    // monoclinic Hall 73→72) have entries in {-1,0,1} and det=±1, and
+    // are included in this expanded candidate pool.
+    for t in &enumerate_unimodular_bases() {
         let t_inv = mat_inverse_3i(t);
         let xf_rots: Vec<[[i32; 3]; 3]> = msg_rots.iter()
             .map(|r| {
@@ -1147,8 +1178,9 @@ pub fn find_setting_transform(
             let xf = SettingTransform::identity();
             if validate_xf(&xf) { results.push(xf); }
         }
-        // Try all signed permutations with zero origin + full validation.
-        for t in &enumerate_signed_permutations() {
+        // Use enumerate_unimodular_bases() for the same reason as above:
+        // GL(3,Z) shears are needed for monoclinic unique-axis conversions.
+        for t in &enumerate_unimodular_bases() {
             let t_inv = mat_inverse_3i(t);
             let xf_rots: Vec<[[i32; 3]; 3]> = msg_rots.iter()
                 .map(|r| {
