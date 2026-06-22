@@ -2266,7 +2266,7 @@ mod tests {
                         ir.kz,
                         ir.kd,
                         None,
-                        &[],
+                        &canonical_pure_translations,
                     );
                 if let Err(reason) = direct_diagnostic {
                     *direct_anti_failures.entry(reason.as_str()).or_default() += 1;
@@ -3333,7 +3333,7 @@ mod tests {
                     ir.spin_lg_op_indices(), &antiunitary, &mag_seitz,
                     setting_xf, ir.kx, ir.ky, ir.kz, ir.kd,
                     Some(&mut trace),
-                    &[],
+                    &canonical_pure_translations,
                 );
 
                 if let Err(wigner::DirectAntiFailure::NonQuantized) = diag {

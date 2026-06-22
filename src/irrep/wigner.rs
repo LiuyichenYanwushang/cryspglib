@@ -2267,9 +2267,25 @@ pub(crate) fn find_sq_spin_lg_first(
         }
     }
 
-    // 2. No rotation-only fallback.  Return None to signal
-    //    SquareNotInSpinTable — the caller should NOT compute a
-    //    Wigner sum with unmatched translations.
+    // 2. No match.  Log first few failures for diagnosis.
+    {
+        static CNT: AtomicUsize = AtomicUsize::new(0);
+        let n = CNT.fetch_add(1, Ordering::Relaxed);
+        if n < 10 {
+            let best = lg_cands.iter().filter_map(|&si| h_spin_seitz.get(si))
+                .filter(|s| s.rot == sq.rot)
+                .map(|s| {
+                    let d = [sq.trans[0]-s.trans[0], sq.trans[1]-s.trans[1], sq.trans[2]-s.trans[2]];
+                    (d, (d[0]-d[0].round()).abs()+(d[1]-d[1].round()).abs()+(d[2]-d[2].round()).abs())
+                }).min_by(|a,b| a.1.partial_cmp(&b.1).unwrap());
+            if let Some((delta, err)) = best {
+                eprintln!("  SQ_FAIL #{n}: sq_t={:.4?} canon_T={:.4?} best_d={:.4?} err={:.2e}",
+                    sq.trans, canonical_pure_translations, delta, err);
+            } else {
+                eprintln!("  SQ_FAIL #{n}: sq_t={:.4?} NO rotation match in LG", sq.trans);
+            }
+        }
+    }
     None
 }
 
