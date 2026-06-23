@@ -1736,7 +1736,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     // Optional per-term trace collector (only filled when diagnosing failures)
     mut trace: Option<&mut Vec<PerTermTrace>>,
     // Full translation lattice including centering vectors (from Hall group)
-    canonical_pure_translations: &[[f64; 3]],
+    _canonical_pure_translations: &[[f64; 3]],
 ) -> Result<CorepType, DirectAntiFailure> {
     let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
     let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
@@ -1775,11 +1775,9 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     let n_anti = anti_lg_indices.len();
     let mut w_sum = Complex64::ZERO;
 
-    // Merge parameter translations with Z³ basis + spin table centering vectors
-    let z3: [[f64; 3]; 3] = [[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]];
-    let mut all_canon: Vec<[f64; 3]> = vec![[0.0,0.0,0.0]];
-    all_canon.extend_from_slice(&z3);
-    all_canon.extend_from_slice(canonical_pure_translations);
+    // Centering shifts: fractional translations that together with Z³
+    // span the full translation lattice (Body/I, Face/F, C, A, R, or empty for P).
+    let centering_shifts = centering_shifts_for_sg(ctx.sg);
 
     for &b_idx in anti_lg_indices {
         let b = &mag_seitz[b_idx];
@@ -1806,7 +1804,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         // b² ∈ H₀ by group theory: b ∈ M_k ⇒ b² ∈ H_k ⇒ R_{b²} ∈ H₀.
         // Use LG-first matching to avoid picking a non-LG candidate.
         let (sq_spin_idx, sq_in_lg, match_kind) = match find_sq_spin_lg_first(
-            &sq, &h_spin_seitz, spin_lg_op_indices, &all_canon) {
+            &sq, &h_spin_seitz, spin_lg_op_indices, centering_shifts) {
             Some(v) => v,
             None => {
                 debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² rot={:?} not in H spin ops",
@@ -2201,6 +2199,50 @@ fn cir_char_at(cir_chars: &[f64], op_idx: usize) -> Complex64 {
     }
 }
 
+/// Fractional lattice shifts (centering vectors) for non-primitive space groups.
+///
+/// Returns the set of translation vectors that, together with Z³, generate the
+/// full translation lattice. For primitive groups the list is empty.
+///
+/// | Centering | Shift vectors (fractional)                       |
+/// |-----------|---------------------------------------------------|
+/// | I (Body)  | (½,½,½)                                          |
+/// | F (Face)  | (0,½,½), (½,0,½), (½,½,0)                       |
+/// | C         | (½,½,0)                                          |
+/// | A         | (0,½,½)                                          |
+/// | R (hex)   | (⅔,⅓,⅓), (⅓,⅔,⅔)                             |
+/// | P         | (none)                                           |
+fn centering_shifts_for_sg(sg: u8) -> &'static [[f64; 3]] {
+    // Centering type is uniquely determined by the space group number.
+    match sg {
+        // I-centered (body-centered)
+        23|24|44|45|46|71|72|73|74|79|80|82|
+        87|88|97|98|107|108|109|110|119|120|121|122|
+        139|140|141|142|197|199|204|206|211|214|217|220|229|230 => {
+            &[[0.5, 0.5, 0.5]]
+        }
+        // F-centered (face-centered)
+        22|42|43|69|70|196|202|203|209|210|216|219|
+        225|226|227|228 => {
+            &[[0.0, 0.5, 0.5], [0.5, 0.0, 0.5], [0.5, 0.5, 0.0]]
+        }
+        // C-centered
+        5|8|9|12|15|21|35|36|37|63|64|65|66|67|68 => {
+            &[[0.5, 0.5, 0.0]]
+        }
+        // A-centered
+        20|38|39|40|41 => {
+            &[[0.0, 0.5, 0.5]]
+        }
+        // R-centered (hexagonal setting)
+        146|148|155|160|161|166|167 => {
+            &[[2.0/3.0, 1.0/3.0, 1.0/3.0], [1.0/3.0, 2.0/3.0, 2.0/3.0]]
+        }
+        // Primitive — all others
+        _ => &[],
+    }
+}
+
 /// Find the spin op index for a computed Seitz square `sq`, preferring
 /// candidates **inside** `spin_lg_op_indices` over the full database.
 ///
@@ -2215,40 +2257,53 @@ pub(crate) fn find_sq_spin_lg_first(
     sq: &SeitzOp,
     h_spin_seitz: &[SeitzOp],
     spin_lg_op_indices: &[u16],
-    canonical_pure_translations: &[[f64; 3]],
+    centering_shifts: &[[f64; 3]],
 ) -> Option<(usize, bool, SpinMatchKind)> {
     let lg_cands: Vec<usize> = spin_lg_op_indices.iter().map(|&x| x as usize).collect();
 
-    /// Check if translation delta is in the lattice spanned by `canonical_translations`.
-    /// Delta is valid if it equals Σ n_i · T_i for integer n_i (|n_i| ≤ 3).
-    /// For primitive cells, T = {(1,0,0), (0,1,0), (0,0,1)} → δ ∈ Z³.
-    /// For centered cells, T includes vectors like (½,½,0) etc.
-    fn delta_in_lattice(delta: &[f64; 3], canonical: &[[f64; 3]]) -> bool {
-        // Try integer combinations n_i ∈ [-3, 3] for up to 4 translations
-        let n = canonical.len().min(4);
-        // Build candidate delta as Σ n_i * canonical[i]
-        let mut stack = vec![([0.0f64; 3], 0usize)];
-        while let Some((acc, depth)) = stack.pop() {
-            if depth >= n {
-                // Check if delta matches acc (mod Z³)
-                let ok = (0..3).all(|i| {
-                    let d = delta[i] - acc[i];
-                    (d - d.round()).abs() < 1e-9
-                });
-                if ok { return true; }
-                continue;
-            }
-            let t = canonical[depth];
-            for ni in -3..=3i32 {
-                let ni_f = ni as f64;
-                let mut new_acc = acc;
-                new_acc[0] += ni_f * t[0];
-                new_acc[1] += ni_f * t[1];
-                new_acc[2] += ni_f * t[2];
-                stack.push((new_acc, depth + 1));
+    /// Check if translation delta is in Z³ + centering shifts.
+    ///
+    /// The translation lattice is spanned by integer vectors (Z³) plus
+    /// centering vectors for non-primitive groups (I, F, C, A, R).
+    /// `centering_shifts` must contain all fractional translations that,
+    /// together with Z³, generate the full lattice.
+    fn delta_in_lattice(delta: &[f64; 3], centering_shifts: &[[f64; 3]]) -> bool {
+        // Generate all combos mod 1 of centering shifts (finite group).
+        let mut shifts: Vec<[f64; 3]> = vec![[0.0, 0.0, 0.0]];
+        for &cs in centering_shifts {
+            if cs.iter().all(|&x| x.abs() < 1e-12) { continue; }
+            let n = shifts.len();
+            // Normalize current centering vector to [0,1)
+            let cs_norm = [
+                ((cs[0] % 1.0) + 1.0) % 1.0,
+                ((cs[1] % 1.0) + 1.0) % 1.0,
+                ((cs[2] % 1.0) + 1.0) % 1.0,
+            ];
+            for i in 0..n {
+                let mut new_shift = [
+                    (shifts[i][0] + cs_norm[0]) % 1.0,
+                    (shifts[i][1] + cs_norm[1]) % 1.0,
+                    (shifts[i][2] + cs_norm[2]) % 1.0,
+                ];
+                // Normalize to [0,1)
+                for k in 0..3 {
+                    if new_shift[k] < 0.0 { new_shift[k] += 1.0; }
+                }
+                shifts.push(new_shift);
             }
         }
-        false
+        // Fractional part of delta
+        let frac = [
+            ((delta[0] % 1.0) + 1.0) % 1.0,
+            ((delta[1] % 1.0) + 1.0) % 1.0,
+            ((delta[2] % 1.0) + 1.0) % 1.0,
+        ];
+        shifts.iter().any(|s| {
+            (0..3).all(|k| {
+                let d = (frac[k] - s[k]).abs();
+                d < 1e-9 || (d - 1.0).abs() < 1e-9
+            })
+        })
     }
 
     // 1. Full Seitz match (translation mod Z³) inside LG
@@ -2260,7 +2315,7 @@ pub(crate) fn find_sq_spin_lg_first(
                     sq.trans[1] - sop.trans[1],
                     sq.trans[2] - sop.trans[2],
                 ];
-                if delta_in_lattice(&delta, canonical_pure_translations) {
+                if delta_in_lattice(&delta, centering_shifts) {
                     return Some((si, true, MATCH_EXACT));
                 }
             }
@@ -2271,18 +2326,21 @@ pub(crate) fn find_sq_spin_lg_first(
     {
         static CNT: AtomicUsize = AtomicUsize::new(0);
         let n = CNT.fetch_add(1, Ordering::Relaxed);
-        if n < 10 {
+        if n < 20 {
             let best = lg_cands.iter().filter_map(|&si| h_spin_seitz.get(si))
                 .filter(|s| s.rot == sq.rot)
                 .map(|s| {
                     let d = [sq.trans[0]-s.trans[0], sq.trans[1]-s.trans[1], sq.trans[2]-s.trans[2]];
-                    (d, (d[0]-d[0].round()).abs()+(d[1]-d[1].round()).abs()+(d[2]-d[2].round()).abs())
-                }).min_by(|a,b| a.1.partial_cmp(&b.1).unwrap());
-            if let Some((delta, err)) = best {
-                eprintln!("  SQ_FAIL #{n}: sq_t={:.4?} canon_T={:.4?} best_d={:.4?} err={:.2e}",
-                    sq.trans, canonical_pure_translations, delta, err);
+                    (s.trans, d, (d[0]-d[0].round()).abs()+(d[1]-d[1].round()).abs()+(d[2]-d[2].round()).abs())
+                }).min_by(|a,b| a.2.partial_cmp(&b.2).unwrap());
+            if let Some((sp_trans, delta, err)) = best {
+                eprintln!("  SQ_FAIL #{n}: sq_rot={:?} sq_t=[{:.12}, {:.12}, {:.12}] sp_t=[{:.12}, {:.12}, {:.12}] d=[{:.12}, {:.12}, {:.12}] err={:.2e}",
+                    sq.rot, sq.trans[0], sq.trans[1], sq.trans[2],
+                    sp_trans[0], sp_trans[1], sp_trans[2],
+                    delta[0], delta[1], delta[2], err);
             } else {
-                eprintln!("  SQ_FAIL #{n}: sq_t={:.4?} NO rotation match in LG", sq.trans);
+                eprintln!("  SQ_FAIL #{n}: sq_rot={:?} sq_t=[{:.12}, {:.12}, {:.12}] NO rotation match in LG (n_lg={})",
+                    sq.rot, sq.trans[0], sq.trans[1], sq.trans[2], lg_cands.len());
             }
         }
     }
@@ -2893,11 +2951,9 @@ fn wigner_classify_spinor_primary(
         // Match square's rotation back to spin ops, preferring LG candidates first.
         // Priority: full Seitz in LG → unique rotation in LG → global rotation.
         // This avoids position() picking a non-LG candidate when an LG candidate exists.
-        let canon_t: Vec<[f64; 3]> = h_spin_seitz.iter()
-            .filter(|s| s.rot == [[1,0,0],[0,1,0],[0,0,1]])
-            .map(|s| s.trans).collect();
         let (sq_spin_idx, sq_in_lg, _match_kind) = match find_sq_spin_lg_first(
-            &sq, &h_spin_seitz, spin_lg_op_indices, &canon_t) {
+            &sq, &h_spin_seitz, spin_lg_op_indices,
+            centering_shifts_for_sg(ctx.sg)) {
             Some(v) => v,
             None => {
                 eprintln!("  WIGNER_SPINOR: sq_rot not in spin ops, aborting case");

@@ -2127,6 +2127,17 @@ mod tests {
                 .filter(|op| op.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
                 .map(|op| op.translation)
                 .collect();
+            // Diagnostic: print Hall identity translations for groups where count != 3
+            {
+                static CNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+                let n = CNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if canonical_pure_translations.len() != 3 && n < 10 {
+                    eprintln!("DIAG HallTrans: UNI={uni} SG={h_sg} Hall={} \
+                        n_identity={} translations={:.12?}",
+                        h_info.hall, canonical_pure_translations.len(),
+                        &canonical_pure_translations);
+                }
+            }
             let h_ops = h_info.ops_from_msg;
             let h_seitz = crate::irrep::wigner::ops_to_seitz(&h_ops);
             let mag_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
