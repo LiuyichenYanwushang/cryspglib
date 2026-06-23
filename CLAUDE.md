@@ -799,3 +799,90 @@ data_hall_exact     = 1450
 5. 对剩余 `non_quantized` 检查 anti-coset 是否按 little co-group 去重，并逐 term
    验证 Bloch phase 和 SU(2) central sign。
 6. 只有 `spinor_complex_fail=0` 且全量测试通过后，才能声明 100%。
+
+---
+
+## 2026-06-23 更新：centering-aware delta_in_lattice 修复
+
+### 当前基线
+
+```text
+spinor_complex_fail = 1,328 (全部 square_not_in_spin_table，全部 xf_found=true)
+```
+
+相比修复前的 2,698 减少了 1,370 (50.8%)。
+
+### 修复内容：`delta_in_lattice` 替换为 centering-aware 版本
+
+#### 问题
+
+旧的 `delta_in_lattice` 对 `canonical_pure_translations` 做 brute-force
+integer 组合枚举 (n_i ∈ [-3,3], max 4 vectors)，只能检查 Z³ 等价。
+对于 I (½,½,½)、F ((0,½,½)/(½,0,½)/(½,½,0))、C、A、R 中心化群，
+centering vectors 缺失导致所有半整数平移差被拒绝。
+
+更根本的问题：`ops_from_hall` 中**所有群都只有 1 个恒等操作 (0,0,0)**，
+不包含 centering 变体。翻译格点不能从操作列表中提取，必须根据 SG 的
+Bravais 类型推导。
+
+#### 新 `delta_in_lattice(delta, centering_shifts)`
+
+- Z³ 隐式处理（所有平移差 mod Z³）
+- `centering_shifts` 枚举所有 centering vector 组合（mod 1 去重）
+- 检查 `delta` 的小数部分是否匹配任何 centering 组合
+- 对于 F-centering：最多 2³=8 种组合，对于 P：0 种（trivially Z³ only）
+
+#### `centering_shifts_for_sg(sg: u8) -> &'static [[f64; 3]]`
+
+match 语句覆盖全部 81 个非原始群的 centering 向量：
+
+| Centering | SGs | Shifts |
+|-----------|-----|--------|
+| I (Body) | 23,24,44-46,71-74,79-80,82,87-88,97-98,107-110,119-122,139-142,197,199,204,206,211,214,217,220,229-230 | (½,½,½) |
+| F (Face) | 22,42-43,69-70,196,202-203,209-210,216,219,225-228 | (0,½,½), (½,0,½), (½,½,0) |
+| C | 5,8-9,12,15,21,35-37,63-68 | (½,½,0) |
+| A | 20,38-41 | (0,½,½) |
+| R (hex) | 146,148,155,160-161,166-167 | (⅔,⅓,⅓), (⅓,⅔,⅔) |
+| P | 其余 149 | (none) |
+
+#### 调用链改动
+
+1. `find_sq_spin_lg_first` 参数从 `canonical_pure_translations` 改为 `centering_shifts`
+2. `wigner_classify_spinor_direct_anti_diagnostic` 的 `all_canon` 替换为
+   `centering_shifts_for_sg(ctx.sg)`，移除 Z³ 和 `canonical_pure_translations`
+3. `wigner_classify_spinor_primary` 的第二调用点同样使用 `centering_shifts_for_sg(ctx.sg)`
+
+### 剩余 1,328 个失败：原始群 origin shift 问题
+
+**全部来自原始群 (P)**，如 SG85 P4/n, SG86 P4₂/n, SG125 P4/nbm 等。
+
+模式：
+- `sq_rot = C2z = [[-1,0,0],[0,-1,0],[0,0,1]]`
+- `sq_t = (0, 0, 0)`（after to_bilbao）
+- `sp_t = (0.5, 0.5, 0)`（spin table 中的 C2z 条目）
+- Delta = (-0.5, -0.5, 0)
+
+**不是 centering 问题**：对原始群，(-0.5, -0.5, 0) 不在 Z³ lattice 中。
+
+**`to_bilbao` 验证**：SG85 origin=[4,1,1]，对于 C2z：
+- `(I-R)*origin = [8, 2, 0]` → `t_bilbao = (-8,-2,0) mod 1 = (0,0,0)`
+- spin table 期望 `(0.5, 0.5, 0)`，无法通过 origin shift 得到
+
+**可能根因**：
+1. `to_bilbao` 只使用 origin shift，不使用 basis matrix（虽然所有 basis=I）
+2. `(a₀h)²` 的 Seitz 组合可能缺少 n-glide/screw 等非简单平移
+3. spin table 的 Bilbao 约定可能使用了与 spglib 不同的平移标准化规则
+
+**待做**：逐 case trace `(a₀h)²` 的计算过程，对比 spglib 和 Bilbao 的
+平移约定。剩余失败群列表：85, 86, 125, 126, 129, 130, 151, 179, 201 等。
+
+### 关键代码位置（更新）
+
+| 功能 | 文件:行 |
+|------|--------|
+| `centering_shifts_for_sg()` | `wigner.rs:~2208` |
+| `delta_in_lattice()` (新版) | `wigner.rs:~2226` (nested inside `find_sq_spin_lg_first`) |
+| `find_sq_spin_lg_first()` | `wigner.rs:~2256` |
+| Direct anti: centering 构建 | `wigner.rs:~1775` |
+| Primary path: centering 调用 | `wigner.rs:~2955` |
+| 诊断：Hall 翻译输出 | `corep.rs:~2130` |
