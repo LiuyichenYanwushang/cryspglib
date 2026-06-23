@@ -1807,6 +1807,36 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
             &sq, &h_spin_seitz, spin_lg_op_indices, centering_shifts) {
             Some(v) => v,
             None => {
+                // Detailed diagnostic for primitive-group translation failures
+                {
+                    static CNT: AtomicUsize = AtomicUsize::new(0);
+                    let n = CNT.fetch_add(1, Ordering::Relaxed);
+                    if n < 5 {
+                        eprintln!("=== SQ_FAIL_DETAIL #{n}: SG{} ===", ctx.sg);
+                        eprintln!("  b(before to_bilbao): rot={:?} trans=[{:.6},{:.6},{:.6}]",
+                            b_rot, b_trans[0], b_trans[1], b_trans[2]);
+                        eprintln!("  b_bilbao: rot={:?} trans=[{:.6},{:.6},{:.6}]",
+                            b_bilbao.rot, b_bilbao.trans[0], b_bilbao.trans[1], b_bilbao.trans[2]);
+                        eprintln!("  sq: rot={:?} trans=[{:.6},{:.6},{:.6}]",
+                            sq.rot, sq.trans[0], sq.trans[1], sq.trans[2]);
+                        // Show matching spin ops
+                        eprintln!("  Spin ops with matching rot:");
+                        let lg_ix: Vec<usize> = spin_lg_op_indices.iter().map(|&x| x as usize).collect();
+                        for si in 0..h_spin_seitz.len() {
+                            let sop = &h_spin_seitz[si];
+                            if sop.rot == sq.rot {
+                                let in_lg = lg_ix.contains(&si);
+                                eprintln!("    [{}] trans=[{:.6},{:.6},{:.6}] in_lg={}",
+                                    si, sop.trans[0], sop.trans[1], sop.trans[2], in_lg);
+                            }
+                        }
+                        eprintln!("  centering_shifts={:.6?}", centering_shifts);
+                        eprintln!("  sg_setting_origin={:.6?}", origin);
+                        // Show how to_bilbao transforms b
+                        let tb = to_bilbao(b_rot, b_trans);
+                        eprintln!("  to_bilbao(b): [{:.6},{:.6},{:.6}]", tb[0], tb[1], tb[2]);
+                    }
+                }
                 debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² rot={:?} not in H spin ops",
                     b_idx, sq.rot);
                 return Err(DirectAntiFailure::SquareNotInSpinTable);
