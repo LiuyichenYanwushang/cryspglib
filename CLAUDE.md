@@ -886,3 +886,38 @@ match 语句覆盖全部 81 个非原始群的 centering 向量：
 | Direct anti: centering 构建 | `wigner.rs:~1775` |
 | Primary path: centering 调用 | `wigner.rs:~2955` |
 | 诊断：Hall 翻译输出 | `corep.rs:~2130` |
+
+### SG85 详细诊断（2026-06-23）
+
+SQ_FAIL_DETAIL 输出揭示了剩余 1,328 个原始群失败的精确模式：
+
+**SG85 (P4/n) spin table (Bilbao 约定):**
+```
+[1] C4z+:  trans=(0.5, 0,   0)
+[2] C2z:   trans=(0.5, 0.5, 0)
+[3] C4z-:  trans=(0,   0.5, 0)
+```
+
+**我们的计算:**
+```
+b_bilbao: rot=C4z+  trans=(0.5, 0.5, 0)
+sq:       rot=C2z   trans=(0, 0, 0)
+centering_shifts=[]  sg_setting_origin=[4, 1, 1]
+```
+
+**一致性验证：**
+- spin table C4z+ at (0.5,0,0) → 平方 = C2z at (0.5,0.5,0) ✓ 内部一致
+- 我们 b_bilbao C4z+ at (0.5,0.5,0) → 平方 = C2z at (0,0,0) 也是内部一致
+- **但 b 的平移 (0.5,0.5,0) 与 spin table (0.5,0,0) 不同** — Δ=(0,0.5,0)
+
+**根因：**
+- `to_bilbao` 使用 `SG_SETTING_ORIGIN` 做 origin shift
+- SG85 origin=[4,1,1] mod 1 = (0,0,0) → (I-R)*origin 全是偶数 → 小数平移不变
+- `extract_sg_settings.py` 从 ISOTROPY iso.zip 提取 origin 值，但**未做任何单位转换**
+- 注释说 "fractions with denominator 1,2,4" 但代码未实现
+- 导致 origin 值对大多数群不产生非零平移修正
+
+**修复方向：**
+- **A**: 修复 origin 数据生成（理解 ISOTROPY 数据格式，正确转为 fractional）
+- **B**: Rotation-only match + Bloch 相位修正 `χ×exp(i·2π·k·delta)`（物理正确但恢复部分 fallback）
+- **C**: 放宽 delta 容差（hack，不推荐）
