@@ -793,7 +793,10 @@ pub fn find_seitz(
         let l1 = d1.round();
         let l2 = d2.round();
 
-        if (d0 - l0).abs() < 1e-9 && (d1 - l1).abs() < 1e-9 && (d2 - l2).abs() < 1e-9 {
+        if (d0 - l0).abs() < SEITZ_TRANS_TOL
+            && (d1 - l1).abs() < SEITZ_TRANS_TOL
+            && (d2 - l2).abs() < SEITZ_TRANS_TOL
+        {
             return Some(SeitzMatch {
                 op_index: idx,
                 lattice_shift: [l0 as i32, l1 as i32, l2 as i32],
@@ -1300,9 +1303,9 @@ pub fn find_setting_transform(
                         let d0 = xf_t[0] - ht[0];
                         let d1 = xf_t[1] - ht[1];
                         let d2 = xf_t[2] - ht[2];
-                        (d0 - d0.round()).abs() < 1e-9
-                            && (d1 - d1.round()).abs() < 1e-9
-                            && (d2 - d2.round()).abs() < 1e-9
+                        (d0 - d0.round()).abs() < SEITZ_TRANS_TOL
+                            && (d1 - d1.round()).abs() < SEITZ_TRANS_TOL
+                            && (d2 - d2.round()).abs() < SEITZ_TRANS_TOL
                     }
                 })
             })
@@ -1705,6 +1708,7 @@ pub struct PerTermTrace {
 
 static HALL_TO_SPIN_ORIGINS: OnceLock<[[f64; 3]; 231]> = OnceLock::new();
 static HALL_TRANSLATION_LATTICES: OnceLock<Vec<Vec<[f64; 3]>>> = OnceLock::new();
+const SEITZ_TRANS_TOL: f64 = 1e-5;
 
 fn hall_to_spin_origin_for_sg(sg: u8) -> [f64; 3] {
     HALL_TO_SPIN_ORIGINS.get_or_init(build_hall_to_spin_origins)[sg as usize]
@@ -1855,7 +1859,7 @@ fn normalize_translation(trans: [f64; 3]) -> [f64; 3] {
 fn translations_equal_mod_one(a: &[f64; 3], b: &[f64; 3]) -> bool {
     (0..3).all(|k| {
         let d = normalize_frac(a[k] - b[k]);
-        d < 1e-9 || (d - 1.0).abs() < 1e-9
+        d < SEITZ_TRANS_TOL || (d - 1.0).abs() < SEITZ_TRANS_TOL
     })
 }
 
@@ -1902,7 +1906,7 @@ fn translation_delta_in_lattice(delta: &[f64; 3], centering_shifts: &[[f64; 3]])
     shifts.iter().any(|s| {
         (0..3).all(|k| {
             let d = (frac[k] - s[k]).abs();
-            d < 1e-9 || (d - 1.0).abs() < 1e-9
+            d < SEITZ_TRANS_TOL || (d - 1.0).abs() < SEITZ_TRANS_TOL
         })
     })
 }
@@ -2314,7 +2318,7 @@ pub fn build_h_to_irrep_op_map(
                 && irrep_rots[roff+6] == h.rot[2][0]
                 && irrep_rots[roff+7] == h.rot[2][1]
                 && irrep_rots[roff+8] == h.rot[2][2]
-                && (0..3).all(|k| (h.trans[k] - irrep_trans[toff + k]).abs() < 1e-9)
+                && (0..3).all(|k| (h.trans[k] - irrep_trans[toff + k]).abs() < SEITZ_TRANS_TOL)
         });
         if aligned {
             return Some((0..n_ops).collect());
@@ -2348,7 +2352,7 @@ pub fn build_h_to_irrep_op_map(
             let toff = ir_idx * 3;
             let t_ok = (0..3).all(|k| {
                 let d = h.trans[k] - irrep_trans[toff + k];
-                (d - d.round()).abs() < 1e-9
+                (d - d.round()).abs() < SEITZ_TRANS_TOL
             });
             if t_ok {
                 if found.is_some() {
@@ -2625,7 +2629,7 @@ fn same_seitz_mod_lattice(a: &SeitzOp, b: &SeitzOp) -> bool {
     }
     for i in 0..3 {
         let d = a.trans[i] - b.trans[i];
-        if (d - d.round()).abs() > 1e-9 {
+        if (d - d.round()).abs() > SEITZ_TRANS_TOL {
             return false;
         }
     }
