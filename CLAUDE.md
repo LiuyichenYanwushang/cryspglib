@@ -290,8 +290,9 @@ Grey 群的 a₀ 必须是纯 θ (R=I)。取 `antiunitary[0]` 可能取到 θ·g
 spin 数据库不完整 ❌ | Pauli SU(2) 合成 ❌ | same-rotation lift 误选 ❌ | 
 UU* 公式 ❌ | det=-1 improper ❌ | global J-insertion ❌（regression）
 
-### 未排除
-H/G gauge mismatch — 跨 gauge SU(2) 比较仍需独立验证。
+### 当前主要问题
+P 群 origin shift — `to_bilbao` origin 数据不准确，导致 1,328 个 P 群 `square_not_in_spin_table`。
+见 2026-06-23 更新章节。
 
 ## Architecture overview
 
@@ -338,8 +339,6 @@ python3 scripts/generate_irrep_data.py
 # Full pipeline shell:
 bash scripts/regenerate_all.sh
 ```
-
-After regeneration, run the full test suite to validate:
 
 ### Diagnostic validation scripts
 
@@ -424,28 +423,43 @@ After regeneration, run the full test suite to validate:
 
 ---
 
-## Test suite (189 tests across 7 binaries)
+## Test suite (~205 tests across 8 binaries)
 
-All tests pass (as of 2026-06-18).
+All tests pass (as of 2026-06-26).
 
 | Binary / Location | Tests | Description |
 |-------|-------|-------------|
-| `src/irrep/corep.rs` (unit) | 25 | Wigner diagnostics, BCS validation, CIR-PIR cross-validation, self-consistency invariants |
-| `src/irrep/{query,types,corep,mod}.rs` (doctests) | 5 | API examples |
-| `src/{arithmetic,cell,debug,delaunay,determination}.rs` (unit) | 12 | Arithmetic crystals, overlap detection, lattice reduction, error handling |
-| `src/{api,lib}.rs` (doctests & unit) | 21 | Entry-point API examples and type constructors |
+| `src/irrep/corep.rs` (unit) | 132 | Wigner diagnostics, BCS validation, CIR-PIR cross-validation, setting transform oracles, H2S triage |
+| `src/irrep/query.rs` (unit) | 5 | API examples, character table formatting |
+| `src/{api,lib,arithmetic,cell,debug,delaunay,determination}.rs` (unit) | ~26 | Entry-point API, arithmetic crystals, overlap detection, lattice reduction, error handling |
 | `tests/irrep_validation.rs` (integration) | 31 | Full-sweep validation: every SG has irreps, dimensions match, labels well-formed, k-vectors positive |
 | `tests/magnetic_integration.rs` (integration) | 11 | Magnetic structure analysis end-to-end (graphene, bilayer, Fe, CoF3, etc.) |
-| `tests/{cof3,crps4,la2nio4,bcs_corep_validation}.rs` (integration) | 5 | Reference material cases |
-| **Total** | **~189** | |
+| `tests/{cof3,crps4,la2nio4,bcs_corep_validation}.rs` (integration) | 7 | Reference material cases |
+| **Total** | **~205** | |
 
 Key diagnostic tests (most useful for Wigner debugging):
 
 ```bash
+# Primary: full-sweep Wigner failure diagnosis (~217s)
 cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
+
+# Setting transform oracle (identity/signed_perm/unimodular/none x ok/other/square_not_in_spin)
+cargo test --package cryspglib phase1_setting_transform_oracle -- --nocapture
+
+# Per-term and per-case failure analysis
 cargo test --package cryspglib diagnose_spinor_wigner_per_term -- --nocapture
+cargo test --package cryspglib diagnose_nonquantized_per_term -- --nocapture
 cargo test --package cryspglib diagnose_none_examples -- --nocapture
+
+# CIR-PIR consistency and data integrity
 cargo test --package cryspglib test_cir_pir_cross_validation -- --nocapture
+
+# Magnetic entry point diagnostics
+cargo test --package cryspglib diagnose_magnetic_entry_hall_anomalies -- --nocapture
+cargo test --package cryspglib diagnose_spglib_standard_setting_transform -- --nocapture
+
+# k-convention oracle (3611 irreps)
+cargo test --package cryspglib diagnose_spin_lg_k_convention -- --nocapture
 ```
 
 Full validation sweep (integration tests, ~1 min):
@@ -666,7 +680,7 @@ reciprocal_centered_fp/fn = 0/0
 - `60dfb99 fix reciprocal little-group filtering`
 - `982fcaf support setting-aware little-group filtering`
 
-### 当前有效基线
+### 当前有效基线（2026-06-26）
 
 最新成功运行的命令：
 
@@ -674,131 +688,73 @@ reciprocal_centered_fp/fn = 0/0
 cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
 ```
 
-结果：
-
 ```text
 spinor_complex_ok   = 20,463
-spinor_complex_fail =    347
+spinor_complex_fail =  1,328  (全部 square_not_in_spin_table, 全部 xf_found=true)
 ```
 
-此前的 `21,389` 分母无效：其中一部分 case 来自错误 k 数据和错误
-little-group membership。修正后当前诊断实际进入 complex-spinor Wigner
-分类的 case 数是 `20,810`。
-
-347 个最终失败：
-
-| 阶段 | 数量 |
-|---|---:|
-| `non_quantized` | 180 |
-| `square_not_in_spin_table` | 89 |
-| `antiunitary_spin_lookup` | 72 |
-| `square_outside_little_group` | 6 |
-
-按旧 `find_setting_transform` 是否返回结果拆分：
+历史演进：
+- 2,698: centering fix 前（包含 I/F/C/A/R 中心化群的半整数平移被拒绝）
+- 1,328: centering-aware `delta_in_lattice` 后（2026-06-23，-1,370, 50.8%）
+- 1,328: 当前（全部 P 群 origin shift 问题，见 2026-06-23 更新章节）
 
 ```text
-antiunitary_spin_lookup   xf_found=true   72
-non_quantized             xf_found=true  180
-square_not_in_spin_table  xf_found=false  89
-square_outside_little_group xf_found=false 6
+=== Final failure stages by setting transform ===
+        square_not_in_spin_table  xf_found=true     1328
+
+=== build_h_to_spin_map triage ===
+  H2S_OK:         177916
+  H2S_AMBIGUOUS:  0
+  H2S_MISSING:    68076  (rotation not in spin table)
+
+=== find_setting_transform diagnostics ===
+  XF_CALLED:        1204
+  XF_FOUND:         1200
+  XF_IDENTITY:      688
+  XF_NON_IDENTITY:  3760
+  XF_NONZERO_ORIGIN: 964
+  XF_AMBIGUOUS:     512
 ```
 
-因此“485 个是 k convention、122 个是 setting、72 个单独 lookup”的旧分类已经作废。
+### 已接入生产（2026-06-26）
 
-### 尚未修复：不要误认为已经接入生产
+1. `centering_shifts_for_sg()` — centering-aware `delta_in_lattice` 已接入生产路径，消除了 I/F/C/A/R 群的半整数平移误判（-1,370 failures）。
+2. `find_setting_transform()` 候选池已从 48 signed-permutations 扩展到 unimodular bases (`entries ∈ {-1,0,1}, det=±1`)，大量 monoclinic Hall 变体被正确匹配。
+3. `SettingTransform.basis` 已泛化为 `f64 Mat3`，origin shift 通过 full (T,s) Gaussian elimination 求解。
 
-1. `compute_corepresentation()` 的 spinor 路径仍向
-   `wigner_classify_spinor()` 传 `setting_xf=None`。
-2. `find_setting_transform()` 仍不可信：
-   - rotation 使用 greedy pairing；
-   - modulo-1 方程被当普通实数 Gaussian elimination；
-   - identity basis 求解失败时仍返回 identity，并计入 `XF_FOUND`；
-   - ambiguous transform 仍直接取 `.first()`。
-3. `SettingTransform.basis` 已泛化为 `f64 Mat3`，但这是为 rational
-   basis 诊断准备的基础设施，不代表 setting 问题已经解决。
-4. `standard_setting_transform()` 和
-   `get_space_group_with_magnetic_symmetry()` 当前只用于诊断，没有进入生产分类。
-5. direct anti-coset 路径仍可能遍历同一 little co-group rotation 的多个
-   Seitz/中心化平移变体；`non_quantized=180` 不能直接解释为物理结果。
+### 仍待解决
 
-### 当前最高优先级线索：磁群操作入口可能选错 Hall setting
+1. **剩余 1,328 个 failure**：全部来自原始群 (P)，全部为 `square_not_in_spin_table`。
+   根因：`to_bilbao` origin shift 数据不准确 — `extract_sg_settings.py` 未将 ISOTROPY origin 值正确转为分数坐标。
+   详见下方”2026-06-23 更新”章节。
 
-这是停止前刚发现的线索，**尚未完成验证，禁止直接当最终结论**。
+2. **`find_setting_transform` 并非完全可靠**：
+   - rotation matching 使用 greedy pairing（非最优）；
+   - modulo-1 方程解法可改进；
+   - ambiguous transform 直接取 `.first()`（512 instances）。
 
-当前 `get_magnetic_operations()`：
-
-1. 用 `get_first_hall_for_uni()` 扫描 `msgdb_get_uni_candidates(hall)`；
-2. 将找到的 Hall 传给 `msgdb_get_spacegroup_operations(uni, hall)`。
-
-但 `msgdb_get_spacegroup_operations()` 自身明确支持 `hall=0`，
-表示该 UNI 映射表中的第一个合法 Hall offset。当前扫描逻辑是否等价尚未证明。
-
-异常证据：
-
-```text
-UNI187 被 identify_unitary_subgroup() 识别为 SG1，
-但 get_magnetic_operations(187) 的 unitary 操作包含：
-  I
-  mirror_y with t=(1/2,0,0)
-```
-
-这不可能是 SG1 的闭合 unitary subgroup。说明至少有一处出错：
-
-- Hall 选择错误；
-- `timerev` 语义/提取错误；
-- UNI→operation table offset 错误；
-- 或 subgroup identification 使用了错误操作集。
-
-DeepSeek 的第一步应是：
-
-1. 对 UNI187、UNI270/271、UNI663 比较：
-   - 当前 `get_first_hall_for_uni()` 返回的 Hall；
-   - `msgdb_get_spacegroup_operations(uni, 0)`；
-   - UNI mapping 表中的 `first_hall`；
-   - unitary 操作是否闭合；
-   - 识别出的 H/G 是否与 BNS/UNI 元数据一致。
-2. 在这个入口问题确认前，不要继续调整 Wigner phase、SU(2) lift 或 setting solver。
+3. **UNI→Hall→磁群操作入口**：`get_first_hall_for_uni()` vs `msgdb_get_spacegroup_operations(uni, 0)` 等价性尚未形式证明。UNI187 unitary 含 mirror_y 但被识别为 SG1，可能是 Hall entry 选择异常。
 
 ### spglib standard-setting 诊断现状
-
-新增测试：
 
 ```bash
 cargo test --package cryspglib diagnose_spglib_standard_setting_transform -- --nocapture
 ```
 
-当前结果：
-
 ```text
-total               = 1644
-found               = 1644
-sg_match            = 1644
-detected_hall_exact = 1450
-data_hall_exact     = 1450
+total = 1644, found = 1644, sg_match = 1644
+detected_hall_exact = 1450, data_hall_exact = 1450
 ```
 
-194 个不 exact 的 case 很可能不是 affine transform 本身失败，而是输入的
-“unitary”操作已经异常。UNI187 是明确例子。因此不要先修这 194 个 transform。
+194 个不 exact 的 case 可能来自异常的 unitary 操作（如 UNI187），
+不是 affine transform 本身失败。
 
-### 测试状态
+### 建议下一步
 
-- `cargo check --package cryspglib`：通过（现有 warnings 未清理）。
-- `diagnose_spin_lg_k_convention`：通过，3611/3611。
-- `diagnose_wigner_sources`：通过，当前失败 347。
-- `diagnose_spglib_standard_setting_transform`：通过，输出上述 1450/1644。
-- `cargo test --package cryspglib --no-run`：当前仍失败，因为
-  `examples/sg159_lpoint.rs` 调用 `wigner_classify_spinor()` 时缺少新增的
-  `Option<&SettingTransform>` 参数。此问题尚未修。
-
-### 建议接手顺序
-
-1. 验证并修正 UNI→Hall→磁群操作入口，加入 unitary subgroup closure 回归测试。
-2. 重新运行 Wigner 基线；旧的 347 数量可能再次变化。
-3. 分别求 H 与 parent G 的标准 setting，禁止把 H transform 用于 G spin table。
-4. 用修正后的 setting 重新检查 72 个 `antiunitary_spin_lookup`。
-5. 对剩余 `non_quantized` 检查 anti-coset 是否按 little co-group 去重，并逐 term
-   验证 Bloch phase 和 SU(2) central sign。
-6. 只有 `spinor_complex_fail=0` 且全量测试通过后，才能声明 100%。
+1. 修复 origin 数据生成（方案 A from the analysis）以消除剩余 1,328 个 P 群失败。
+2. 完成 UNI→Hall 入口验证和 unitary subgroup closure 回归测试。
+3. 独立求 H 与 parent G 的 setting，禁止将 H transform 用于 G spin table。
+4. 只有 `spinor_complex_fail=0` 且全量测试通过后，才能声明 100%。
 
 ---
 
@@ -876,15 +832,19 @@ match 语句覆盖全部 81 个非原始群的 centering 向量：
 **待做**：逐 case trace `(a₀h)²` 的计算过程，对比 spglib 和 Bilbao 的
 平移约定。剩余失败群列表：85, 86, 125, 126, 129, 130, 151, 179, 201 等。
 
-### 关键代码位置（更新）
+### 关键代码位置（更新 2026-06-26，wigner.rs = 3607 行）
 
 | 功能 | 文件:行 |
 |------|--------|
-| `centering_shifts_for_sg()` | `wigner.rs:~2208` |
-| `delta_in_lattice()` (新版) | `wigner.rs:~2226` (nested inside `find_sq_spin_lg_first`) |
-| `find_sq_spin_lg_first()` | `wigner.rs:~2256` |
-| Direct anti: centering 构建 | `wigner.rs:~1775` |
-| Primary path: centering 调用 | `wigner.rs:~2955` |
+| `find_setting_transform()` | `wigner.rs:1233` |
+| `centering_shifts_for_sg()` | `wigner.rs:2245` |
+| `delta_in_lattice()` (新版) | `wigner.rs:2300` (nested inside `find_sq_spin_lg_first`) |
+| `find_sq_spin_lg_first()` | `wigner.rs:2286` |
+| `wigner_classify_spinor_direct_anti()` (生产) | `wigner.rs:1706` |
+| `wigner_classify_spinor_direct_anti_diagnostic()` | `wigner.rs:1727` |
+| `wigner_classify_spinor_primary()` | `wigner.rs:2853` |
+| `diagnose_wigner_sources()` | `corep.rs:2078` |
+| `phase1_setting_transform_oracle()` | `corep.rs:4472` |
 | 诊断：Hall 翻译输出 | `corep.rs:~2130` |
 
 ### SG85 详细诊断（2026-06-23）
