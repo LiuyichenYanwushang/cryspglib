@@ -102,6 +102,7 @@ pub mod query;
 pub mod corep;
 pub mod wigner;
 pub mod bridge;
+pub mod magnetic_summary;
 
 pub mod triclinic;
 pub mod monoclinic;
