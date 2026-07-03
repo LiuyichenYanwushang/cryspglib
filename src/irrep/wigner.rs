@@ -1704,6 +1704,7 @@ pub struct PerTermTrace {
 }
 
 static HALL_TO_SPIN_ORIGINS: OnceLock<[[f64; 3]; 231]> = OnceLock::new();
+static HALL_TRANSLATION_LATTICES: OnceLock<Vec<Vec<[f64; 3]>>> = OnceLock::new();
 
 fn hall_to_spin_origin_for_sg(sg: u8) -> [f64; 3] {
     HALL_TO_SPIN_ORIGINS.get_or_init(build_hall_to_spin_origins)[sg as usize]
@@ -1800,6 +1801,64 @@ fn solve_hall_to_spin_origin_for_sg(sg: u8) -> Option<[f64; 3]> {
     if best_score == pairs.len() { best } else { None }
 }
 
+fn build_hall_translation_lattices() -> Vec<Vec<[f64; 3]>> {
+    let mut lattices = vec![Vec::new(); 231];
+    let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+
+    for sg in 1usize..=230 {
+        let Some(&hall) = super::generated_data::SG_DATA_HALL.get(sg) else {
+            continue;
+        };
+        if hall == 0 {
+            continue;
+        }
+        let Ok(hall_ops) = SymmetryOps::from_database(hall as usize) else {
+            continue;
+        };
+
+        let mut shifts = Vec::new();
+        for op in hall_ops.operations.iter().filter(|op| op.rotation == identity) {
+            let shift = normalize_translation(op.translation);
+            if !shifts
+                .iter()
+                .any(|existing| translations_equal_mod_one(existing, &shift))
+            {
+                shifts.push(shift);
+            }
+        }
+        lattices[sg] = shifts;
+    }
+
+    lattices
+}
+
+fn normalize_frac(value: f64) -> f64 {
+    let mut x = value % 1.0;
+    if x < 0.0 {
+        x += 1.0;
+    }
+    if x.abs() < 1e-10 || (x - 1.0).abs() < 1e-10 {
+        0.0
+    } else {
+        x
+    }
+}
+
+fn normalize_translation(trans: [f64; 3]) -> [f64; 3] {
+    [
+        normalize_frac(trans[0]),
+        normalize_frac(trans[1]),
+        normalize_frac(trans[2]),
+    ]
+}
+
+fn translations_equal_mod_one(a: &[f64; 3], b: &[f64; 3]) -> bool {
+    (0..3).all(|k| {
+        let d = normalize_frac(a[k] - b[k]);
+        d < 1e-9 || (d - 1.0).abs() < 1e-9
+    })
+}
+
 fn apply_spin_origin_shift(rot: Mat3I, trans: [f64; 3], origin: [f64; 3]) -> [f64; 3] {
     let mut t = trans;
     for i in 0..3 {
@@ -1809,13 +1868,7 @@ fn apply_spin_origin_shift(rot: Mat3I, trans: [f64; 3], origin: [f64; 3]) -> [f6
                 (delta - rot[i][j] as f64) * origin[j]
             })
             .sum();
-        t[i] = (t[i] - d) % 1.0;
-        if t[i] < 0.0 {
-            t[i] += 1.0;
-        }
-        if t[i].abs() < 1e-10 || (t[i] - 1.0).abs() < 1e-10 {
-            t[i] = 0.0;
-        }
+        t[i] = normalize_frac(t[i] - d);
     }
     t
 }
@@ -2373,48 +2426,18 @@ fn cir_char_at(cir_chars: &[f64], op_idx: usize) -> Complex64 {
     }
 }
 
-/// Fractional lattice shifts (centering vectors) for non-primitive space groups.
+/// Pure translations from the Hall setting used by the generated irrep data.
 ///
-/// Returns the set of translation vectors that, together with Z³, generate the
-/// full translation lattice. For primitive groups the list is empty.
-///
-/// | Centering | Shift vectors (fractional)                       |
-/// |-----------|---------------------------------------------------|
-/// | I (Body)  | (½,½,½)                                          |
-/// | F (Face)  | (0,½,½), (½,0,½), (½,½,0)                       |
-/// | C         | (½,½,0)                                          |
-/// | A         | (0,½,½)                                          |
-/// | R (hex)   | (⅔,⅓,⅓), (⅓,⅔,⅔)                             |
-/// | P         | (none)                                           |
+/// The centering type is not enough here: the selected Hall setting may permute
+/// conventional axes, so e.g. an A-centered ITA number can appear as a
+/// `(1/2, 1/2, 0)` pure translation in the data-Hall coordinates. Derive the
+/// finite translation lattice from the actual Hall operations instead.
 fn centering_shifts_for_sg(sg: u8) -> &'static [[f64; 3]] {
-    // Centering type is uniquely determined by the space group number.
-    match sg {
-        // I-centered (body-centered)
-        23|24|44|45|46|71|72|73|74|79|80|82|
-        87|88|97|98|107|108|109|110|119|120|121|122|
-        139|140|141|142|197|199|204|206|211|214|217|220|229|230 => {
-            &[[0.5, 0.5, 0.5]]
-        }
-        // F-centered (face-centered)
-        22|42|43|69|70|196|202|203|209|210|216|219|
-        225|226|227|228 => {
-            &[[0.0, 0.5, 0.5], [0.5, 0.0, 0.5], [0.5, 0.5, 0.0]]
-        }
-        // C-centered
-        5|8|9|12|15|21|35|36|37|63|64|65|66|67|68 => {
-            &[[0.5, 0.5, 0.0]]
-        }
-        // A-centered
-        20|38|39|40|41 => {
-            &[[0.0, 0.5, 0.5]]
-        }
-        // R-centered (hexagonal setting)
-        146|148|155|160|161|166|167 => {
-            &[[2.0/3.0, 1.0/3.0, 1.0/3.0], [1.0/3.0, 2.0/3.0, 2.0/3.0]]
-        }
-        // Primitive — all others
-        _ => &[],
-    }
+    HALL_TRANSLATION_LATTICES
+        .get_or_init(build_hall_translation_lattices)
+        .get(sg as usize)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
 }
 
 /// Find the spin op index for a computed Seitz square `sq`, preferring
@@ -2435,51 +2458,6 @@ pub(crate) fn find_sq_spin_lg_first(
 ) -> Option<(usize, bool, SpinMatchKind)> {
     let lg_cands: Vec<usize> = spin_lg_op_indices.iter().map(|&x| x as usize).collect();
 
-    /// Check if translation delta is in Z³ + centering shifts.
-    ///
-    /// The translation lattice is spanned by integer vectors (Z³) plus
-    /// centering vectors for non-primitive groups (I, F, C, A, R).
-    /// `centering_shifts` must contain all fractional translations that,
-    /// together with Z³, generate the full lattice.
-    fn delta_in_lattice(delta: &[f64; 3], centering_shifts: &[[f64; 3]]) -> bool {
-        // Generate all combos mod 1 of centering shifts (finite group).
-        let mut shifts: Vec<[f64; 3]> = vec![[0.0, 0.0, 0.0]];
-        for &cs in centering_shifts {
-            if cs.iter().all(|&x| x.abs() < 1e-12) { continue; }
-            let n = shifts.len();
-            // Normalize current centering vector to [0,1)
-            let cs_norm = [
-                ((cs[0] % 1.0) + 1.0) % 1.0,
-                ((cs[1] % 1.0) + 1.0) % 1.0,
-                ((cs[2] % 1.0) + 1.0) % 1.0,
-            ];
-            for i in 0..n {
-                let mut new_shift = [
-                    (shifts[i][0] + cs_norm[0]) % 1.0,
-                    (shifts[i][1] + cs_norm[1]) % 1.0,
-                    (shifts[i][2] + cs_norm[2]) % 1.0,
-                ];
-                // Normalize to [0,1)
-                for k in 0..3 {
-                    if new_shift[k] < 0.0 { new_shift[k] += 1.0; }
-                }
-                shifts.push(new_shift);
-            }
-        }
-        // Fractional part of delta
-        let frac = [
-            ((delta[0] % 1.0) + 1.0) % 1.0,
-            ((delta[1] % 1.0) + 1.0) % 1.0,
-            ((delta[2] % 1.0) + 1.0) % 1.0,
-        ];
-        shifts.iter().any(|s| {
-            (0..3).all(|k| {
-                let d = (frac[k] - s[k]).abs();
-                d < 1e-9 || (d - 1.0).abs() < 1e-9
-            })
-        })
-    }
-
     // 1. Full Seitz match (translation mod Z³) inside LG
     for &si in &lg_cands {
         if let Some(sop) = h_spin_seitz.get(si) {
@@ -2489,7 +2467,7 @@ pub(crate) fn find_sq_spin_lg_first(
                     sq.trans[1] - sop.trans[1],
                     sq.trans[2] - sop.trans[2],
                 ];
-                if delta_in_lattice(&delta, centering_shifts) {
+                if translation_delta_in_lattice(&delta, centering_shifts) {
                     return Some((si, true, MATCH_EXACT));
                 }
             }
