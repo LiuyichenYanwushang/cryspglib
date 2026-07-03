@@ -4,40 +4,340 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-## Irrep 终极目标与当前路线
+## Irrep 终极目标与详细实施计划
 
-最终目标：给定一个磁空间群（最好支持结构识别得到的 UNI，也支持直接输入 UNI/BNS），程序应能回答三件事：
+最终目标：给定一个磁空间群（结构识别得到的 UNI、直接输入 UNI、或 BNS/OG 标签），程序应能一次性回答：
 
-1. 这个磁群有哪些高对称 k 点/线/面，以及每个点的标准名称和坐标。
-2. 这个磁群在这些高对称点上的磁共表示（corepresentation）：来源的 H-irrep、corep type A/B/C、维数、字符、antiunitary 完整性、必要的 setting/Hall 约定。
-3. 每个磁共表示对应的可能 isotropy subgroup：普通 isotropy subgroup 和 magnetic isotropy subgroup 都要能追溯到对应的 irrep/corep、k 点、方向、domain/arm 信息。
+1. 这个磁群有哪些高对称 k 点/线/面，以及每个标签的标准名称和坐标。
+2. 这个磁群在这些 k 点上的磁共表示（corepresentation）：来源 H-irrep、corep type A/B/C、维数、字符、antiunitary 完整性、Hall/setting 约定。
+3. 每个磁共表示对应的可能 isotropy subgroup：普通 isotropy subgroup 和 magnetic isotropy subgroup 都要能追溯到 source irrep/corep、k 点、方向、domain/arm 信息。
 
 ### 当前完成度（2026-07-03）
 
 已完成或基本可用：
 
-- **非磁空间群 irrep 数据层**：`irreps_of(sg)`、`kpoints_of(sg)`、`IrrepRecord::k_label()` 已能列出 230 个 SG 的高对称 k 标签、坐标和 irreps。
-- **isotropy subgroup 数据层**：`IrrepRecord::subgroups()`、`IrrepRecord::magnetic_subgroups()`、`isotropy_subgroups_of(sg)`、`magnetic_isotropy_subgroups_of(sg)` 已能按 H-irrep 查询普通/磁 isotropy subgroup。
-- **磁群识别和操作层**：可从结构识别磁群，也可用 `SymmetryOps::from_magnetic_database(uni)` / BNS→UNI 路径取得磁群操作；`identify_unitary_subgroup_with_hall` 能给出 unitary subgroup H、Hall setting 和 MSG→data-Hall transform。
-- **磁共表示核心计算**：`compute_corepresentation` / `compute_coreps(bns, k_label)` 已实现 scalar PIR、scalar CIR、spinor SU(2) Wigner 分类。最新诊断中 spinor Wigner 关键失败已清零：`spinor_complex_ok = 21216`，无 `spinor_complex_fail`。
-- **corep 与 magnetic isotropy 的初步桥接**：`magnetic_isotropy_coreps_of_irrep` / `magnetic_isotropy_coreps_of_sg_k` 已能从 H-irrep 的 magnetic isotropy subgroup 继续计算对应 corep。
+- `src/irrep/query.rs`: `irreps_of(sg)`, `kpoints_of(sg)`, `IrrepRecord::k_label()` 已能列出 230 个 SG 的 ISOTROPY 高对称 k 标签、坐标和 irreps。
+- `src/irrep/types.rs` + `generated_data.rs`: `IrrepRecord::subgroups()` 和 `IrrepRecord::magnetic_subgroups()` 已保存普通/磁 isotropy subgroup 数据。
+- `src/irrep/corep.rs`: `compute_corepresentation()` / `compute_coreps(bns, k_label)` 已实现 scalar PIR、scalar CIR、spinor SU(2) Wigner 分类。
+- 最新 spinor Wigner 全扫诊断已清零失败：`cargo test --package cryspglib diagnose_wigner_sources -- --nocapture` 中 `spinor_complex_ok = 21216`，无 `spinor_complex_fail`。
+- `magnetic_isotropy_coreps_of_irrep()` / `magnetic_isotropy_coreps_of_sg_k()` 已有 corep 与 magnetic isotropy 的早期桥接，但还不是最终用户 API。
 
-还没完成或需要收敛：
+未完成的关键缺口：
 
-- **缺少最终用户 API**：目前能力分散在 `query.rs`、`corep.rs`、磁群识别 API 中；还没有一个 `magnetic_irrep_summary(uni)` 之类的统一入口，一次返回 k 点、coreps、isotropy subgroup。
-- **“磁群高对称点”语义还需固定**：现在 k 点主要来自 unitary subgroup H/普通 SG 的 ISOTROPY 数据；需要明确磁群的 antiunitary 操作是否合并 k-star、是否改变展示标签，以及输出中如何标记 magnetic little group。
-- **corep 命名/去重仍需整理**：Type-C 会把一对 H irreps 合成一个磁 corep；最终 API 不能简单把每个 H-irrep 都作为独立磁 corep 展示，必须有稳定的 pairing/dedup 和 BCS-like label 策略。
-- **corep → isotropy subgroup 的物理映射还需验证**：已有 isotropy 数据是按 H-irrep 存的；最终要确认 Type A/B/C corep、compound irrep、spinor irrep 与 magnetic isotropy subgroup 的对应规则，避免只做机械转发。
-- **character completeness 需要对外暴露**：Type-A antiunitary characters 有 `CharacterCompleteness` 标记；最终 API 必须清楚告诉用户哪些字符完整、哪些仍是 pending/unsupported。
+- 缺少一个面向用户的统一入口：当前能力分散在 `query.rs`, `corep.rs`, `api.rs`, `magnetic_spacegroup.rs`。
+- 磁群 k 点语义需要固定：第一版采用 unitary subgroup H 的 ISOTROPY k 点作为标准列表，同时显式返回 magnetic little group 的 unitary/antiunitary 阶数；后续再处理 antiunitary 合并 k-star 的展示策略。
+- Type-C corep 需要 pairing/dedup：不能把一对互为 antiunitary 共轭的 H irreps 重复展示成两个磁 coreps。
+- corep 到 isotropy subgroup 的映射要明确为“候选”：第一版把 source H-irrep 的 ordinary/magnetic isotropy subgroup 合并挂到 corep；后续再验证 Type-C/compound/spinor 的物理筛选规则。
 
-### 下一步计划
+### 目标 API（新增）
 
-1. **定义统一返回结构**：新增面向目标的 `MagneticIrrepSummary` / `MagneticKPointSummary` / `MagneticCorepSummary` / `CorepIsotropyCandidate`，输入至少支持 UNI 和 BNS，结构识别结果再接入同一入口。
-2. **先实现只读查询入口**：给定 UNI，内部确定 H、Hall setting、canonical translations；遍历 `kpoints_of(H.sg)`；对每个 k 点调用 `compute_corepresentation`，返回 k 标签、坐标、magnetic little group 大小、unitary/antiunitary 数、corep type 和完整性。
-3. **整理 Type-C pairing/dedup**：用 Wigner type-C 的 conjugate/antiunitary pairing 规则合并 H-irrep 对，避免重复展示同一个磁共表示；为每个 corep 保留来源 H-irrep 列表。
-4. **连接 isotropy subgroup**：先把 H-irrep 的 `subgroups()` / `magnetic_subgroups()` 作为候选挂到 corep；再为 Type-C/compound 情况做合并、去重和规则验证。
-5. **建立对照测试**：选 BCS/ISOTROPY 上可手查的代表磁群（Type I/II/III/IV、primitive/centered、scalar/spinor、Type A/B/C）做 snapshot/semantic tests，确认 k 点列表、corep 类型、维数、isotropy 候选都稳定。
-6. **最后做用户 API 和文档**：提供简单示例：输入 UNI/BNS/结构 → 打印高对称点 → 打印每个点 coreps → 打印每个 corep 的 isotropy candidates。
+新增文件：`src/irrep/magnetic_summary.rs`。
+
+对外入口：
+
+```rust
+pub fn magnetic_irrep_summary(input: MagneticIrrepInput)
+    -> Result<MagneticIrrepSummary, MagneticIrrepError>;
+
+pub fn magnetic_irrep_summary_by_uni(uni: usize)
+    -> Result<MagneticIrrepSummary, MagneticIrrepError>;
+
+pub fn magnetic_irrep_summary_by_bns(bns: &str)
+    -> Result<MagneticIrrepSummary, MagneticIrrepError>;
+
+pub fn magnetic_irrep_summary_from_ops(
+    uni: usize,
+    mag_ops: &crate::SymmetryOps,
+) -> Result<MagneticIrrepSummary, MagneticIrrepError>;
+```
+
+输入类型：
+
+```rust
+pub enum MagneticIrrepInput<'a> {
+    Uni(usize),
+    Bns(&'a str),
+    Operations { uni: usize, ops: &'a crate::SymmetryOps },
+}
+```
+
+核心返回结构：
+
+```rust
+pub struct MagneticIrrepSummary {
+    pub uni: usize,
+    pub bns_label: String,
+    pub magnetic_type: crate::MagneticType,
+    pub parent_sg: u8,
+    pub unitary_sg: u8,
+    pub unitary_hall: usize,
+    pub kpoints: Vec<MagneticKPointSummary>,
+}
+
+pub struct MagneticKPointSummary {
+    pub label: String,
+    pub coords: (i8, i8, i8, i8),
+    pub little_group_order: usize,
+    pub unitary_order: usize,
+    pub antiunitary_order: usize,
+    pub coreps: Vec<MagneticCorepSummary>,
+}
+
+pub struct MagneticCorepSummary {
+    pub label: String,
+    pub source_irreps: Vec<SourceIrrepSummary>,
+    pub corep_type: crate::irrep::corep::CorepType,
+    pub source: crate::irrep::corep::WignerSource,
+    pub dim: usize,
+    pub characters: Vec<f64>,
+    pub timerev: Vec<bool>,
+    pub completeness: crate::irrep::corep::CharacterCompleteness,
+    pub isotropy_candidates: Vec<CorepIsotropyCandidate>,
+}
+
+pub struct SourceIrrepSummary {
+    pub sg: u8,
+    pub ml: &'static str,
+    pub bc: &'static str,
+    pub dim: u8,
+    pub spinor: bool,
+}
+
+pub struct CorepIsotropyCandidate {
+    pub source_ml: &'static str,
+    pub ordinary: Vec<crate::irrep::types::IsotropyRecord>,
+    pub magnetic: Vec<crate::irrep::types::MagneticIsotropyRecord>,
+    pub relation: IsotropyCandidateRelation,
+}
+
+pub enum IsotropyCandidateRelation {
+    DirectSourceIrrep,
+    TypeCPairedSource,
+    CompoundSource,
+    SpinorNoIsotropyData,
+}
+```
+
+错误类型：
+
+```rust
+pub enum MagneticIrrepError {
+    InvalidUni(usize),
+    UnknownBns(String),
+    MissingMagneticOperations(usize),
+    MissingUnitarySubgroup(usize),
+    MissingIrrepData { sg: u8 },
+    CorepComputationFailed { uni: usize, sg: u8, k_label: String },
+}
+```
+
+Re-export 路径：
+
+- `src/irrep/mod.rs`: `pub mod magnetic_summary;`
+- `src/irrep/mod.rs`: re-export 常用类型，或要求用户显式 `use cryspglib::irrep::magnetic_summary::*;`
+- `src/lib.rs`: 暂不顶层 re-export，等 API 稳定后再决定是否暴露到 crate root。
+
+### 实现顺序与路径
+
+#### Phase 1: 只读 summary API 骨架
+
+路径：`src/irrep/magnetic_summary.rs`, `src/irrep/mod.rs`。
+
+实现方法：
+
+1. 新增上面的 public structs/enums。
+2. `magnetic_irrep_summary_by_uni(uni)`:
+   - 校验 `1 <= uni <= 1651`。
+   - `let mag_ops = SymmetryOps::from_magnetic_database(uni)?`。
+   - 调用 `magnetic_irrep_summary_from_ops(uni, &mag_ops)`。
+3. `magnetic_irrep_summary_by_bns(bns)`:
+   - 复用 `corep.rs` 现有 BNS→UNI helper；若 helper 当前私有，移动/改为 `pub(crate)`。
+   - 转入 `magnetic_irrep_summary_by_uni(uni)`。
+4. `magnetic_irrep_summary_from_ops(uni, mag_ops)`:
+   - 调用 `identify_unitary_subgroup_with_hall(uni)` 取得 H 信息。
+   - 记录 `unitary_sg`, `unitary_hall`, `msg_to_data`。
+   - 遍历 `query::kpoints_of(unitary_sg)` 生成 `MagneticKPointSummary`。
+
+验收测试：
+
+- `magnetic_summary_by_uni_smoke`: UNI 1599 或 BNS `221.97` 返回非空 kpoints。
+- `magnetic_summary_by_bns_matches_uni`: BNS 和 UNI 两条路径返回相同 `uni/unitary_sg/kpoints.len()`。
+
+#### Phase 2: magnetic little group 元数据
+
+路径：`src/irrep/magnetic_summary.rs`，复用 `src/irrep/wigner.rs`。
+
+实现方法：
+
+1. 提取 helper:
+
+```rust
+fn canonical_pure_translations(h_ops: &crate::SymmetryOps) -> Vec<[f64; 3]>;
+
+fn magnetic_little_group_indices(
+    k: (i8, i8, i8, i8),
+    mag_ops: &crate::SymmetryOps,
+    setting_xf: Option<&crate::irrep::wigner::SettingTransform>,
+    canonical_translations: &[[f64; 3]],
+) -> Vec<usize>;
+```
+
+2. 对每个 k 点调用 `filter_little_group_with_transform`。
+3. 填充 `little_group_order`, `unitary_order`, `antiunitary_order`。
+4. 第一版 k 点列表保持 H 的 ISOTROPY k 点，不试图减少/合并 magnetic star；API 文档明确这一点。
+
+验收测试：
+
+- grey group: 每个有 antiunitary 的 k 点 `antiunitary_order > 0`。
+- nonmag/type-I equivalent: `antiunitary_order == 0` 时 corep type 应走 trivial A。
+
+#### Phase 3: corep 计算接入 summary
+
+路径：`src/irrep/magnetic_summary.rs`, 必要时调整 `src/irrep/corep.rs` helper 可见性。
+
+实现方法：
+
+1. 对每个 `KPointSummary.irreps` 找到 H 的 `IrrepRecord`。
+2. 调用：
+
+```rust
+corep::compute_corepresentation(ir, uni, mag_ops)
+```
+
+3. 把 `Corepresentation` 转成 `MagneticCorepSummary`。
+4. `label` 第一版使用 source ML label；Type-C dedup 完成后改为组合 label。
+5. 保留 `CharacterCompleteness`，不隐藏 pending/unsupported。
+
+验收测试：
+
+- `128.406` at `Z`: 至少返回 Type-C 和 Type-A coreps，维数符合现有 corep tests。
+- `221.97` at `GM`: 返回非空 coreps，identity character 等于 dim。
+
+#### Phase 4: Type-C pairing/dedup
+
+路径：`src/irrep/magnetic_summary.rs`，必要时在 `src/irrep/corep.rs` 增加 `pub(crate)` helper。
+
+新增内部类型：
+
+```rust
+struct CorepDedupKey {
+    corep_type: CorepType,
+    dim: usize,
+    rounded_characters: Vec<i64>,
+    timerev: Vec<bool>,
+}
+```
+
+实现方法：
+
+1. 第一版 dedup 使用 `corep_type + dim + rounded characters + timerev`，字符按 `1e-8` 量化。
+2. Type-C 合并时 `source_irreps` 追加两个 H-irrep。
+3. `label` 规则：
+   - 单 source: `"GM4-"`。
+   - Type-C pair: `"Z1Z4 + Z2Z3"` 或按 ML 排序 join。
+   - compound source 保留原 compound ML label。
+4. 后续增强：用 antiunitary conjugation 显式找 partner，而不是只靠 character key。
+
+验收测试：
+
+- `test_type_c_coreps_are_deduplicated` 的语义迁移到 summary API：Type-C pair 不重复。
+- 每个 `MagneticCorepSummary.source_irreps` 非空；Type-C 至少能出现两个 source 的 case。
+
+#### Phase 5: isotropy candidates 挂接
+
+路径：`src/irrep/magnetic_summary.rs`。
+
+实现方法：
+
+1. 对每个 `source_irrep` 收集：
+   - `ir.subgroups()` → ordinary candidates。
+   - `ir.magnetic_subgroups()` → magnetic candidates。
+2. 普通 subgroup 去重 key:
+
+```rust
+(sg, symbol, direction, domains, arms)
+```
+
+3. 磁 subgroup 去重 key:
+
+```rust
+(mag_sg, bns_label, direction)
+```
+
+4. `relation` 规则：
+   - 单 source scalar: `DirectSourceIrrep`
+   - Type-C 合并 source: `TypeCPairedSource`
+   - `cir_component_count() > 0`: `CompoundSource`
+   - spinor 且没有 isotropy 数据: `SpinorNoIsotropyData`
+5. 第一版只声明 candidates，不声明这些 subgroup 已按 corep order parameter 方向完成物理筛选。
+
+验收测试：
+
+- SG 221 GM4- 路径能返回包含 ordinary/magnetic subgroup 的 candidates。
+- Type-C 合并后 candidates 去重稳定，不因 source 顺序变化而重复。
+
+#### Phase 6: 格式化与示例
+
+路径：`src/irrep/magnetic_summary.rs`, `README.md` 或 `examples/`。
+
+新增格式化 API：
+
+```rust
+pub fn format_magnetic_irrep_summary(summary: &MagneticIrrepSummary) -> String;
+pub fn format_magnetic_kpoint_summary(kpoint: &MagneticKPointSummary) -> String;
+```
+
+示例文件：
+
+- `examples/magnetic_irrep_summary.rs`
+
+示例目标：
+
+```rust
+let summary = magnetic_irrep_summary_by_bns("221.97")?;
+for kp in &summary.kpoints {
+    println!("{} {:?}", kp.label, kp.coords);
+    for c in &kp.coreps {
+        println!("  {} {:?} dim={}", c.label, c.corep_type, c.dim);
+    }
+}
+```
+
+验收测试：
+
+- example 能编译运行。
+- 格式化输出不依赖 HashMap 随机顺序。
+
+### 推荐提交顺序
+
+1. `feat: add magnetic irrep summary types`
+2. `feat: summarize magnetic k-points by UNI`
+3. `feat: attach corepresentations to magnetic summary`
+4. `feat: deduplicate type-c magnetic coreps`
+5. `feat: attach isotropy candidates to magnetic coreps`
+6. `docs: add magnetic irrep summary example`
+
+每个提交前运行：
+
+```bash
+cd /home/liuyichen/TB_rs
+cargo check --package cryspglib
+```
+
+关键节点额外运行：
+
+```bash
+cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
+cargo test --package cryspglib test_type_c_coreps_are_deduplicated -- --nocapture
+cargo test --package cryspglib --tests
+```
+
+### 非目标（先不要做）
+
+- 不在第一版里重新生成 ISOTROPY 数据。
+- 不在第一版里发明新的磁 k 点命名系统；先复用 H 的 k labels，并暴露 magnetic little group 元数据。
+- 不在第一版里声称 isotropy candidates 已完成 order-parameter 方向的唯一筛选；先返回可追溯候选。
+- 不把 summary API 暴露到 crate root；先稳定在 `cryspglib::irrep::magnetic_summary`。
 
 ---
 
@@ -328,8 +628,9 @@ spin 数据库不完整 ❌ | Pauli SU(2) 合成 ❌ | same-rotation lift 误选
 UU* 公式 ❌ | det=-1 improper ❌ | global J-insertion ❌（regression）
 
 ### 当前主要问题
-P 群 origin shift — `to_bilbao` origin 数据不准确，导致 1,328 个 P 群 `square_not_in_spin_table`。
-见 2026-06-23 更新章节。
+Spinor Wigner 的 `square_not_in_spin_table` 主线已经在 2026-07-03 清零。
+当前 irrep 方向的主要问题是产品化入口：把 H-irrep/k-point/corep/isotropy
+这些已经分散可用的数据组织成稳定的 `magnetic_summary` API。
 
 ## Architecture overview
 
@@ -462,7 +763,8 @@ bash scripts/regenerate_all.sh
 
 ## Test suite (~205 tests across 8 binaries)
 
-All tests pass (as of 2026-06-26).
+Core irrep diagnostics pass as of 2026-07-03.  The full spinor Wigner sweep reports
+`spinor_complex_ok = 21216` with no `spinor_complex_fail`.
 
 | Binary / Location | Tests | Description |
 |-------|-------|-------------|
@@ -664,257 +966,3 @@ spglib port 的主要公共 API 已全部从 `Option<T>` 迁移到 `Result<T, Sy
 4. **100% 通过后仍追问边界**：reciprocal_exact=3611 后仍发现 centered cell 问题
 5. **入口数据出错时停止下游修复**：UNI187 的 unitary 操作本身错了
 6. **穷举 convention，让数据说话**：不确定 Rk vs R⁻ᵀk 时两个都算，比较 exact match
-
----
-
-## Spinor Wigner 交接记录（2026-06-19，DeepSeek 从这里继续）
-
-> 本节覆盖前面“679 是当前基线”“Phase 1 完成”等旧结论。不要沿用旧分母或旧失败分类。
-> 当前代码停在提交 `d88d281`，工作树干净。
-
-### 已确认并修复的两个根因
-
-#### 1. spin.dat 三分之一/六分之一 k 点被错误生成成 Gamma
-
-`scripts/parse_spinor_data.py` 原先用 `1e-6` 判断十进制坐标能否化成
-`1/3`、`1/6`。源文件使用 `0.333333`，乘 3 后的误差可能略大于
-`1e-6`，导致 H/K 等 k 点最终回退为 `(0,0,0)/1`。
-
-已完成：
-
-- 新增 `_rationalize_kvector()`，容差按源数据精度改为 `5e-6`；
-- 无法落入支持分母 `{1,2,3,4,6}` 时直接报错，不再静默回退 Gamma；
-- 重新生成 `src/irrep/generated_data.rs`；
-- 234 个 spinor irrep 的错误 k 数据被纠正。
-
-相关提交：
-
-- `0186394 fix spinor third-coordinate rationalization`
-- `05a7a4c regenerate corrected spinor k vectors`
-
-#### 2. little-group 判定使用了错误的倒空间作用
-
-原实现检查 `R k`。分数坐标下的倒空间作用应为 `R^{-T} k`。
-中心化常规胞还不能只检查分量是否为整数：得到的 reciprocal shift
-必须对所有 unitary pure translations 给出整数相位。
-
-正确条件已经接入 `filter_little_group`：
-
-```text
-unitary:     R^{-T} k - k ∈ L*
-antiunitary: -R^{-T} k - k ∈ L*
-```
-
-验证 oracle 覆盖全部 3611 个 spinor irreps：
-
-```text
-reciprocal_centered_exact = 3611
-reciprocal_centered_fp/fn = 0/0
-```
-
-相关提交：
-
-- `60dfb99 fix reciprocal little-group filtering`
-- `982fcaf support setting-aware little-group filtering`
-
-### 当前有效基线（2026-06-26）
-
-最新成功运行的命令：
-
-```bash
-cargo test --package cryspglib diagnose_wigner_sources -- --nocapture
-```
-
-```text
-spinor_complex_ok   = 20,463
-spinor_complex_fail =  1,328  (全部 square_not_in_spin_table, 全部 xf_found=true)
-```
-
-历史演进：
-- 2,698: centering fix 前（包含 I/F/C/A/R 中心化群的半整数平移被拒绝）
-- 1,328: centering-aware `delta_in_lattice` 后（2026-06-23，-1,370, 50.8%）
-- 1,328: 当前（全部 P 群 origin shift 问题，见 2026-06-23 更新章节）
-
-```text
-=== Final failure stages by setting transform ===
-        square_not_in_spin_table  xf_found=true     1328
-
-=== build_h_to_spin_map triage ===
-  H2S_OK:         177916
-  H2S_AMBIGUOUS:  0
-  H2S_MISSING:    68076  (rotation not in spin table)
-
-=== find_setting_transform diagnostics ===
-  XF_CALLED:        1204
-  XF_FOUND:         1200
-  XF_IDENTITY:      688
-  XF_NON_IDENTITY:  3760
-  XF_NONZERO_ORIGIN: 964
-  XF_AMBIGUOUS:     512
-```
-
-### 已接入生产（2026-06-26）
-
-1. `centering_shifts_for_sg()` — centering-aware `delta_in_lattice` 已接入生产路径，消除了 I/F/C/A/R 群的半整数平移误判（-1,370 failures）。
-2. `find_setting_transform()` 候选池已从 48 signed-permutations 扩展到 unimodular bases (`entries ∈ {-1,0,1}, det=±1`)，大量 monoclinic Hall 变体被正确匹配。
-3. `SettingTransform.basis` 已泛化为 `f64 Mat3`，origin shift 通过 full (T,s) Gaussian elimination 求解。
-
-### 仍待解决
-
-1. **剩余 1,328 个 failure**：全部来自原始群 (P)，全部为 `square_not_in_spin_table`。
-   根因：`to_bilbao` origin shift 数据不准确 — `extract_sg_settings.py` 未将 ISOTROPY origin 值正确转为分数坐标。
-   详见下方”2026-06-23 更新”章节。
-
-2. **`find_setting_transform` 并非完全可靠**：
-   - rotation matching 使用 greedy pairing（非最优）；
-   - modulo-1 方程解法可改进；
-   - ambiguous transform 直接取 `.first()`（512 instances）。
-
-3. **UNI→Hall→磁群操作入口**：`get_first_hall_for_uni()` vs `msgdb_get_spacegroup_operations(uni, 0)` 等价性尚未形式证明。UNI187 unitary 含 mirror_y 但被识别为 SG1，可能是 Hall entry 选择异常。
-
-### spglib standard-setting 诊断现状
-
-```bash
-cargo test --package cryspglib diagnose_spglib_standard_setting_transform -- --nocapture
-```
-
-```text
-total = 1644, found = 1644, sg_match = 1644
-detected_hall_exact = 1450, data_hall_exact = 1450
-```
-
-194 个不 exact 的 case 可能来自异常的 unitary 操作（如 UNI187），
-不是 affine transform 本身失败。
-
-### 建议下一步
-
-1. 修复 origin 数据生成（方案 A from the analysis）以消除剩余 1,328 个 P 群失败。
-2. 完成 UNI→Hall 入口验证和 unitary subgroup closure 回归测试。
-3. 独立求 H 与 parent G 的 setting，禁止将 H transform 用于 G spin table。
-4. 只有 `spinor_complex_fail=0` 且全量测试通过后，才能声明 100%。
-
----
-
-## 2026-06-23 更新：centering-aware delta_in_lattice 修复
-
-### 当前基线
-
-```text
-spinor_complex_fail = 1,328 (全部 square_not_in_spin_table，全部 xf_found=true)
-```
-
-相比修复前的 2,698 减少了 1,370 (50.8%)。
-
-### 修复内容：`delta_in_lattice` 替换为 centering-aware 版本
-
-#### 问题
-
-旧的 `delta_in_lattice` 对 `canonical_pure_translations` 做 brute-force
-integer 组合枚举 (n_i ∈ [-3,3], max 4 vectors)，只能检查 Z³ 等价。
-对于 I (½,½,½)、F ((0,½,½)/(½,0,½)/(½,½,0))、C、A、R 中心化群，
-centering vectors 缺失导致所有半整数平移差被拒绝。
-
-更根本的问题：`ops_from_hall` 中**所有群都只有 1 个恒等操作 (0,0,0)**，
-不包含 centering 变体。翻译格点不能从操作列表中提取，必须根据 SG 的
-Bravais 类型推导。
-
-#### 新 `delta_in_lattice(delta, centering_shifts)`
-
-- Z³ 隐式处理（所有平移差 mod Z³）
-- `centering_shifts` 枚举所有 centering vector 组合（mod 1 去重）
-- 检查 `delta` 的小数部分是否匹配任何 centering 组合
-- 对于 F-centering：最多 2³=8 种组合，对于 P：0 种（trivially Z³ only）
-
-#### `centering_shifts_for_sg(sg: u8) -> &'static [[f64; 3]]`
-
-match 语句覆盖全部 81 个非原始群的 centering 向量：
-
-| Centering | SGs | Shifts |
-|-----------|-----|--------|
-| I (Body) | 23,24,44-46,71-74,79-80,82,87-88,97-98,107-110,119-122,139-142,197,199,204,206,211,214,217,220,229-230 | (½,½,½) |
-| F (Face) | 22,42-43,69-70,196,202-203,209-210,216,219,225-228 | (0,½,½), (½,0,½), (½,½,0) |
-| C | 5,8-9,12,15,21,35-37,63-68 | (½,½,0) |
-| A | 20,38-41 | (0,½,½) |
-| R (hex) | 146,148,155,160-161,166-167 | (⅔,⅓,⅓), (⅓,⅔,⅔) |
-| P | 其余 149 | (none) |
-
-#### 调用链改动
-
-1. `find_sq_spin_lg_first` 参数从 `canonical_pure_translations` 改为 `centering_shifts`
-2. `wigner_classify_spinor_direct_anti_diagnostic` 的 `all_canon` 替换为
-   `centering_shifts_for_sg(ctx.sg)`，移除 Z³ 和 `canonical_pure_translations`
-3. `wigner_classify_spinor_primary` 的第二调用点同样使用 `centering_shifts_for_sg(ctx.sg)`
-
-### 剩余 1,328 个失败：原始群 origin shift 问题
-
-**全部来自原始群 (P)**，如 SG85 P4/n, SG86 P4₂/n, SG125 P4/nbm 等。
-
-模式：
-- `sq_rot = C2z = [[-1,0,0],[0,-1,0],[0,0,1]]`
-- `sq_t = (0, 0, 0)`（after to_bilbao）
-- `sp_t = (0.5, 0.5, 0)`（spin table 中的 C2z 条目）
-- Delta = (-0.5, -0.5, 0)
-
-**不是 centering 问题**：对原始群，(-0.5, -0.5, 0) 不在 Z³ lattice 中。
-
-**`to_bilbao` 验证**：SG85 origin=[4,1,1]，对于 C2z：
-- `(I-R)*origin = [8, 2, 0]` → `t_bilbao = (-8,-2,0) mod 1 = (0,0,0)`
-- spin table 期望 `(0.5, 0.5, 0)`，无法通过 origin shift 得到
-
-**可能根因**：
-1. `to_bilbao` 只使用 origin shift，不使用 basis matrix（虽然所有 basis=I）
-2. `(a₀h)²` 的 Seitz 组合可能缺少 n-glide/screw 等非简单平移
-3. spin table 的 Bilbao 约定可能使用了与 spglib 不同的平移标准化规则
-
-**待做**：逐 case trace `(a₀h)²` 的计算过程，对比 spglib 和 Bilbao 的
-平移约定。剩余失败群列表：85, 86, 125, 126, 129, 130, 151, 179, 201 等。
-
-### 关键代码位置（更新 2026-06-26，wigner.rs = 3607 行）
-
-| 功能 | 文件:行 |
-|------|--------|
-| `find_setting_transform()` | `wigner.rs:1233` |
-| `centering_shifts_for_sg()` | `wigner.rs:2245` |
-| `delta_in_lattice()` (新版) | `wigner.rs:2300` (nested inside `find_sq_spin_lg_first`) |
-| `find_sq_spin_lg_first()` | `wigner.rs:2286` |
-| `wigner_classify_spinor_direct_anti()` (生产) | `wigner.rs:1706` |
-| `wigner_classify_spinor_direct_anti_diagnostic()` | `wigner.rs:1727` |
-| `wigner_classify_spinor_primary()` | `wigner.rs:2853` |
-| `diagnose_wigner_sources()` | `corep.rs:2078` |
-| `phase1_setting_transform_oracle()` | `corep.rs:4472` |
-| 诊断：Hall 翻译输出 | `corep.rs:~2130` |
-
-### SG85 详细诊断（2026-06-23）
-
-SQ_FAIL_DETAIL 输出揭示了剩余 1,328 个原始群失败的精确模式：
-
-**SG85 (P4/n) spin table (Bilbao 约定):**
-```
-[1] C4z+:  trans=(0.5, 0,   0)
-[2] C2z:   trans=(0.5, 0.5, 0)
-[3] C4z-:  trans=(0,   0.5, 0)
-```
-
-**我们的计算:**
-```
-b_bilbao: rot=C4z+  trans=(0.5, 0.5, 0)
-sq:       rot=C2z   trans=(0, 0, 0)
-centering_shifts=[]  sg_setting_origin=[4, 1, 1]
-```
-
-**一致性验证：**
-- spin table C4z+ at (0.5,0,0) → 平方 = C2z at (0.5,0.5,0) ✓ 内部一致
-- 我们 b_bilbao C4z+ at (0.5,0.5,0) → 平方 = C2z at (0,0,0) 也是内部一致
-- **但 b 的平移 (0.5,0.5,0) 与 spin table (0.5,0,0) 不同** — Δ=(0,0.5,0)
-
-**根因：**
-- `to_bilbao` 使用 `SG_SETTING_ORIGIN` 做 origin shift
-- SG85 origin=[4,1,1] mod 1 = (0,0,0) → (I-R)*origin 全是偶数 → 小数平移不变
-- `extract_sg_settings.py` 从 ISOTROPY iso.zip 提取 origin 值，但**未做任何单位转换**
-- 注释说 "fractions with denominator 1,2,4" 但代码未实现
-- 导致 origin 值对大多数群不产生非零平移修正
-
-**修复方向：**
-- **A**: 修复 origin 数据生成（理解 ISOTROPY 数据格式，正确转为 fractional）
-- **B**: Rotation-only match + Bloch 相位修正 `χ×exp(i·2π·k·delta)`（物理正确但恢复部分 fallback）
-- **C**: 放宽 delta 容差（hack，不推荐）
