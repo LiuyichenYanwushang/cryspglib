@@ -1703,6 +1703,157 @@ pub struct PerTermTrace {
     pub u_sq_g: [f64; 4],
 }
 
+static HALL_TO_SPIN_ORIGINS: OnceLock<[[f64; 3]; 231]> = OnceLock::new();
+
+fn hall_to_spin_origin_for_sg(sg: u8) -> [f64; 3] {
+    HALL_TO_SPIN_ORIGINS.get_or_init(build_hall_to_spin_origins)[sg as usize]
+}
+
+fn build_hall_to_spin_origins() -> [[f64; 3]; 231] {
+    let mut origins = [[0.0; 3]; 231];
+    for sg in 1u8..=230 {
+        origins[sg as usize] = solve_hall_to_spin_origin_for_sg(sg).unwrap_or([0.0; 3]);
+    }
+    origins
+}
+
+fn solve_hall_to_spin_origin_for_sg(sg: u8) -> Option<[f64; 3]> {
+    let hall = *super::generated_data::SG_DATA_HALL.get(sg as usize)? as usize;
+    if hall == 0 {
+        return None;
+    }
+
+    let hall_ops = SymmetryOps::from_database(hall).ok()?;
+    let (spin_rots, spin_trans, _) = super::types::IrrepRecord::spin_ops_for_sg(sg);
+    let spin_seitz = build_spin_seitz(spin_rots, spin_trans);
+    if hall_ops.is_empty() || spin_seitz.is_empty() {
+        return None;
+    }
+
+    let mut pairs: Vec<(SeitzOp, SeitzOp)> = Vec::new();
+    if spin_seitz.len() <= hall_ops.len()
+        && spin_seitz
+            .iter()
+            .enumerate()
+            .all(|(i, spin)| hall_ops.operations.get(i).map_or(false, |hall| hall.rotation == spin.rot))
+    {
+        for (i, spin) in spin_seitz.iter().enumerate() {
+            let hall = &hall_ops.operations[i];
+            pairs.push((
+                SeitzOp::new(hall.rotation, hall.translation, false),
+                spin.clone(),
+            ));
+        }
+    } else {
+        let mut used = vec![false; hall_ops.len()];
+        for spin in &spin_seitz {
+            if let Some((idx, hall)) = hall_ops
+                .operations
+                .iter()
+                .enumerate()
+                .find(|(idx, hall)| !used[*idx] && hall.rotation == spin.rot)
+            {
+                used[idx] = true;
+                pairs.push((
+                    SeitzOp::new(hall.rotation, hall.translation, false),
+                    spin.clone(),
+                ));
+            }
+        }
+    }
+
+    if pairs.is_empty() {
+        return None;
+    }
+
+    let centering_shifts = centering_shifts_for_sg(sg);
+    let denom = 24.0;
+    let mut best = None;
+    let mut best_score = 0usize;
+
+    for ix in 0..24 {
+        for iy in 0..24 {
+            for iz in 0..24 {
+                let origin = [ix as f64 / denom, iy as f64 / denom, iz as f64 / denom];
+                let score = pairs
+                    .iter()
+                    .filter(|(hall, spin)| {
+                        let transformed = apply_spin_origin_shift(hall.rot, hall.trans, origin);
+                        translation_delta_in_lattice(&[
+                            transformed[0] - spin.trans[0],
+                            transformed[1] - spin.trans[1],
+                            transformed[2] - spin.trans[2],
+                        ], centering_shifts)
+                    })
+                    .count();
+                if score > best_score {
+                    best_score = score;
+                    best = Some(origin);
+                    if score == pairs.len() {
+                        return best;
+                    }
+                }
+            }
+        }
+    }
+
+    if best_score == pairs.len() { best } else { None }
+}
+
+fn apply_spin_origin_shift(rot: Mat3I, trans: [f64; 3], origin: [f64; 3]) -> [f64; 3] {
+    let mut t = trans;
+    for i in 0..3 {
+        let d: f64 = (0..3)
+            .map(|j| {
+                let delta = if i == j { 1.0 } else { 0.0 };
+                (delta - rot[i][j] as f64) * origin[j]
+            })
+            .sum();
+        t[i] = (t[i] - d) % 1.0;
+        if t[i] < 0.0 {
+            t[i] += 1.0;
+        }
+        if t[i].abs() < 1e-10 || (t[i] - 1.0).abs() < 1e-10 {
+            t[i] = 0.0;
+        }
+    }
+    t
+}
+
+fn translation_delta_in_lattice(delta: &[f64; 3], centering_shifts: &[[f64; 3]]) -> bool {
+    let mut shifts: Vec<[f64; 3]> = vec![[0.0, 0.0, 0.0]];
+    for &cs in centering_shifts {
+        if cs.iter().all(|&x| x.abs() < 1e-12) {
+            continue;
+        }
+        let n = shifts.len();
+        let cs_norm = [
+            ((cs[0] % 1.0) + 1.0) % 1.0,
+            ((cs[1] % 1.0) + 1.0) % 1.0,
+            ((cs[2] % 1.0) + 1.0) % 1.0,
+        ];
+        for i in 0..n {
+            shifts.push([
+                (shifts[i][0] + cs_norm[0]) % 1.0,
+                (shifts[i][1] + cs_norm[1]) % 1.0,
+                (shifts[i][2] + cs_norm[2]) % 1.0,
+            ]);
+        }
+    }
+
+    let frac = [
+        ((delta[0] % 1.0) + 1.0) % 1.0,
+        ((delta[1] % 1.0) + 1.0) % 1.0,
+        ((delta[2] % 1.0) + 1.0) % 1.0,
+    ];
+    shifts.iter().any(|s| {
+        (0..3).all(|k| {
+            let d = (frac[k] - s[k]).abs();
+            d < 1e-9 || (d - 1.0).abs() < 1e-9
+        })
+    })
+}
+
 pub fn wigner_classify_spinor_direct_anti(
     ctx: &SpinLiftContext,
     spin_chars_real: &[f64],
@@ -1756,20 +1907,13 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         .map(|(l, &g)| (g as usize, l))
         .collect();
 
-    // ISOTROPY origin shift: spglib → Bilbao (same as in wigner_classify_spinor).
-    let (_, origin) = super::types::IrrepRecord::sg_setting(ctx.sg);
+    // Data-Hall → spin-table origin shift. Spin ops are rotation-reordered
+    // into `SG_DATA_HALL[sg]` order but retain Bilbao/spin translations, so
+    // the origin has to be solved from Hall ops vs spin ops, not taken from
+    // `isotropy_origin` subgroup records.
+    let origin = hall_to_spin_origin_for_sg(ctx.sg);
     let to_bilbao = |rot: Mat3I, trans: [f64; 3]| -> [f64; 3] {
-        if origin.len() < 3 { return trans; }
-        let mut t = trans;
-        for i in 0..3 {
-            let d: f64 = (0..3).map(|j| {
-                let delta = if i == j { 1.0 } else { 0.0 };
-                (delta - rot[i][j] as f64) * origin[j]
-            }).sum();
-            t[i] = (t[i] - d) % 1.0;
-            if t[i] < 0.0 { t[i] += 1.0; }
-        }
-        t
+        apply_spin_origin_shift(rot, trans, origin)
     };
 
     let n_anti = anti_lg_indices.len();
@@ -2936,22 +3080,11 @@ fn wigner_classify_spinor_primary(
         })?;
     let u_a0 = spin_su2_at(g_spin_su2, a0_match)?;
 
-    // ISOTROPY origin shift: spglib → Bilbao.  t_B = t_S - (I - R)·origin.
-    // a₀ comes from spglib/MSG → needs conversion.
-    // h is from spin_seitz (already Bilbao) → no conversion needed.
-    let (_, origin) = super::types::IrrepRecord::sg_setting(ctx.sg);
+    // Data-Hall → spin-table origin shift. a₀ comes from MSG/data-Hall and
+    // needs conversion; h is from spin_seitz and is already in spin convention.
+    let origin = hall_to_spin_origin_for_sg(ctx.sg);
     let to_bilbao = |rot: Mat3I, trans: [f64; 3]| -> [f64; 3] {
-        if origin.len() < 3 { return trans; }
-        let mut t = trans;
-        for i in 0..3 {
-            let d: f64 = (0..3).map(|j| {
-                let delta = if i == j { 1.0 } else { 0.0 };
-                (delta - rot[i][j] as f64) * origin[j]
-            }).sum();
-            t[i] = (t[i] - d) % 1.0;
-            if t[i] < 0.0 { t[i] += 1.0; }
-        }
-        t
+        apply_spin_origin_shift(rot, trans, origin)
     };
 
     let a0_bilbao = SeitzOp::new(a0.rot, to_bilbao(a0.rot, a0.trans), false);
