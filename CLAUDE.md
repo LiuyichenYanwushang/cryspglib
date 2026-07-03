@@ -4,6 +4,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## Irrep 终极目标与当前路线
+
+最终目标：给定一个磁空间群（最好支持结构识别得到的 UNI，也支持直接输入 UNI/BNS），程序应能回答三件事：
+
+1. 这个磁群有哪些高对称 k 点/线/面，以及每个点的标准名称和坐标。
+2. 这个磁群在这些高对称点上的磁共表示（corepresentation）：来源的 H-irrep、corep type A/B/C、维数、字符、antiunitary 完整性、必要的 setting/Hall 约定。
+3. 每个磁共表示对应的可能 isotropy subgroup：普通 isotropy subgroup 和 magnetic isotropy subgroup 都要能追溯到对应的 irrep/corep、k 点、方向、domain/arm 信息。
+
+### 当前完成度（2026-07-03）
+
+已完成或基本可用：
+
+- **非磁空间群 irrep 数据层**：`irreps_of(sg)`、`kpoints_of(sg)`、`IrrepRecord::k_label()` 已能列出 230 个 SG 的高对称 k 标签、坐标和 irreps。
+- **isotropy subgroup 数据层**：`IrrepRecord::subgroups()`、`IrrepRecord::magnetic_subgroups()`、`isotropy_subgroups_of(sg)`、`magnetic_isotropy_subgroups_of(sg)` 已能按 H-irrep 查询普通/磁 isotropy subgroup。
+- **磁群识别和操作层**：可从结构识别磁群，也可用 `SymmetryOps::from_magnetic_database(uni)` / BNS→UNI 路径取得磁群操作；`identify_unitary_subgroup_with_hall` 能给出 unitary subgroup H、Hall setting 和 MSG→data-Hall transform。
+- **磁共表示核心计算**：`compute_corepresentation` / `compute_coreps(bns, k_label)` 已实现 scalar PIR、scalar CIR、spinor SU(2) Wigner 分类。最新诊断中 spinor Wigner 关键失败已清零：`spinor_complex_ok = 21216`，无 `spinor_complex_fail`。
+- **corep 与 magnetic isotropy 的初步桥接**：`magnetic_isotropy_coreps_of_irrep` / `magnetic_isotropy_coreps_of_sg_k` 已能从 H-irrep 的 magnetic isotropy subgroup 继续计算对应 corep。
+
+还没完成或需要收敛：
+
+- **缺少最终用户 API**：目前能力分散在 `query.rs`、`corep.rs`、磁群识别 API 中；还没有一个 `magnetic_irrep_summary(uni)` 之类的统一入口，一次返回 k 点、coreps、isotropy subgroup。
+- **“磁群高对称点”语义还需固定**：现在 k 点主要来自 unitary subgroup H/普通 SG 的 ISOTROPY 数据；需要明确磁群的 antiunitary 操作是否合并 k-star、是否改变展示标签，以及输出中如何标记 magnetic little group。
+- **corep 命名/去重仍需整理**：Type-C 会把一对 H irreps 合成一个磁 corep；最终 API 不能简单把每个 H-irrep 都作为独立磁 corep 展示，必须有稳定的 pairing/dedup 和 BCS-like label 策略。
+- **corep → isotropy subgroup 的物理映射还需验证**：已有 isotropy 数据是按 H-irrep 存的；最终要确认 Type A/B/C corep、compound irrep、spinor irrep 与 magnetic isotropy subgroup 的对应规则，避免只做机械转发。
+- **character completeness 需要对外暴露**：Type-A antiunitary characters 有 `CharacterCompleteness` 标记；最终 API 必须清楚告诉用户哪些字符完整、哪些仍是 pending/unsupported。
+
+### 下一步计划
+
+1. **定义统一返回结构**：新增面向目标的 `MagneticIrrepSummary` / `MagneticKPointSummary` / `MagneticCorepSummary` / `CorepIsotropyCandidate`，输入至少支持 UNI 和 BNS，结构识别结果再接入同一入口。
+2. **先实现只读查询入口**：给定 UNI，内部确定 H、Hall setting、canonical translations；遍历 `kpoints_of(H.sg)`；对每个 k 点调用 `compute_corepresentation`，返回 k 标签、坐标、magnetic little group 大小、unitary/antiunitary 数、corep type 和完整性。
+3. **整理 Type-C pairing/dedup**：用 Wigner type-C 的 conjugate/antiunitary pairing 规则合并 H-irrep 对，避免重复展示同一个磁共表示；为每个 corep 保留来源 H-irrep 列表。
+4. **连接 isotropy subgroup**：先把 H-irrep 的 `subgroups()` / `magnetic_subgroups()` 作为候选挂到 corep；再为 Type-C/compound 情况做合并、去重和规则验证。
+5. **建立对照测试**：选 BCS/ISOTROPY 上可手查的代表磁群（Type I/II/III/IV、primitive/centered、scalar/spinor、Type A/B/C）做 snapshot/semantic tests，确认 k 点列表、corep 类型、维数、isotropy 候选都稳定。
+6. **最后做用户 API 和文档**：提供简单示例：输入 UNI/BNS/结构 → 打印高对称点 → 打印每个点 coreps → 打印每个 corep 的 isotropy candidates。
+
+---
+
 ## Workspace context
 
 This crate is a **workspace member** inside `/home/liuyichen/TB_rs`. All cargo commands must be run from the workspace root:
