@@ -976,7 +976,7 @@ pub fn wigner_classify(
     ky: i8,
     kz: i8,
     kd: i8,
-) -> CorepType {
+) -> Result<CorepType, WignerClassificationError> {
     let a0 = &mag_seitz[a0_idx];
     debug_assert!(a0.timerev, "a₀ must be anti-unitary");
 
@@ -1040,17 +1040,20 @@ pub fn wigner_classify(
     );
     let tol = 1e-6;
     if (w - 1.0).abs() < tol {
-        CorepType::A
+        Ok(CorepType::A)
     } else if (w + 1.0).abs() < tol {
-        CorepType::B
+        Ok(CorepType::B)
     } else if w.abs() < tol {
-        CorepType::C
+        Ok(CorepType::C)
     } else {
         debug_log!(
             "  Non-quantized Wigner indicator W={:.8}; expected 0, +1, or -1.",
             w
         );
-        CorepType::Unsupported
+        Err(WignerClassificationError::with_value(
+            "Wigner indicator is non-quantized; expected 0, +1, or -1",
+            w,
+        ))
     }
 }
 
@@ -1082,7 +1085,7 @@ pub fn wigner_classify_cir(
     ky: i8,
     kz: i8,
     kd: i8,
-) -> CorepType {
+) -> Result<CorepType, WignerClassificationError> {
     let a0 = &mag_seitz[a0_idx];
     let mut w_sum = Complex64::new(0.0, 0.0);
     let mut n_plus = 0u32;
@@ -1135,17 +1138,16 @@ pub fn wigner_classify_cir(
 
     let tol = 1e-6;
     if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
-        CorepType::A
+        Ok(CorepType::A)
     } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
-        CorepType::B
+        Ok(CorepType::B)
     } else if w.norm() < tol {
-        CorepType::C
+        Ok(CorepType::C)
     } else {
-        panic!(
-            "Non-quantized Wigner indicator W=({:.8},{:.8}); expected 0, +1, or -1. \
-             Check Seitz matching, character table ordering, and a₀ coset coverage.",
-            w.re, w.im
-        );
+        Err(WignerClassificationError::with_value(
+            "Non-quantized Wigner indicator; expected 0, +1, or -1",
+            w.norm(),
+        ))
     }
 }
 
@@ -2189,7 +2191,7 @@ pub fn wigner_classify_spinor_direct_anti(
     ky: i8,
     kz: i8,
     kd: i8,
-) -> Option<CorepType> {
+) -> Result<CorepType, WignerClassificationError> {
     wigner_classify_spinor_direct_anti_diagnostic(
         ctx,
         spin_chars_real,
@@ -2205,7 +2207,10 @@ pub fn wigner_classify_spinor_direct_anti(
         None,
         &[],
     )
-    .ok()
+    .map_err(|e| WignerClassificationError::with_value(
+        format!("direct anti path failed: {:?}", e),
+        0.0,
+    ))
 }
 
 pub fn wigner_classify_spinor_direct_anti_diagnostic(
@@ -3134,13 +3139,13 @@ fn wigner_classify_spinor_msg_gauge(
     ky: i8,
     kz: i8,
     kd: i8,
-) -> Option<CorepType> {
+) -> Result<CorepType, WignerClassificationError> {
     let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
     let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
     let h_spin_seitz = build_spin_seitz(h_spin_rots, h_spin_trans);
     let g_spin_seitz = build_spin_seitz(g_spin_rots, g_spin_trans);
     if h_spin_seitz.is_empty() || g_spin_seitz.is_empty() {
-        return None;
+        return Err(WignerClassificationError::new("msg_gauge: missing spin data"));
     }
 
     let h_to_spin = build_h_to_spin_map(h_seitz, &h_spin_seitz, spin_lg_op_indices);
@@ -3150,23 +3155,14 @@ fn wigner_classify_spinor_msg_gauge(
         .map(|(local, &global)| (global as usize, local))
         .collect();
 
-    // Map each little-co-group character position to a concrete unitary MSG
-    // operation.  This is the coordinate frame in which a0 is defined.
-    //
-    // NOTE: spin_lg_op_indices covers the little co-group of the FULL parent
-    // space group H.  For Type-3 (black-white) MSGs, some elements of H are
-    // anti-unitary in the MSG (they belong to the a₀·H' coset) and therefore
-    // have no unitary MSG counterpart.  These elements are NOT part of the
-    // Wigner sum H₀ ∩ H' — they should be excluded, not cause a failure.
-    // See commit 8478ce2 for the H2S diagnostic that confirmed this.
     let mut spin_to_mag = std::collections::HashMap::<usize, usize>::new();
     for &mag_idx in unitary_mag_indices {
-        let h_match = find_seitz(&mag_seitz[mag_idx].rot, &mag_seitz[mag_idx].trans, h_seitz)?;
+        let h_match = find_seitz(&mag_seitz[mag_idx].rot, &mag_seitz[mag_idx].trans, h_seitz)
+            .ok_or_else(|| WignerClassificationError::new("msg_gauge: unitary mag op not found in H seitz"))?;
         if let Some(Some(spin_idx)) = h_to_spin.get(h_match.op_index) {
             spin_to_mag.entry(*spin_idx).or_insert(mag_idx);
         }
     }
-    // Track whether any spin_lg_op is unmapped (diagnostic, not fatal).
     let has_unmapped = spin_lg_op_indices
         .iter()
         .any(|&idx| !spin_to_mag.contains_key(&(idx as usize)));
@@ -3175,17 +3171,16 @@ fn wigner_classify_spinor_msg_gauge(
     }
 
     let a0_spatial = SeitzOp::new(mag_seitz[a0_idx].rot, mag_seitz[a0_idx].trans, false);
-    let (a0_spin_idx, _) = find_spin_in_db(&a0_spatial, &g_spin_seitz)?;
-    let u_a0 = spin_su2_at(g_spin_su2, a0_spin_idx)?;
+    let (a0_spin_idx, _) = find_spin_in_db(&a0_spatial, &g_spin_seitz)
+        .ok_or_else(|| WignerClassificationError::new("msg_gauge: a0 not found in G spin"))?;
+    let u_a0 = spin_su2_at(g_spin_su2, a0_spin_idx)
+        .ok_or_else(|| WignerClassificationError::new("msg_gauge: a0 SU(2) lift missing"))?;
     let eta_ebar = -1.0;
     let mut w_sum = Complex64::ZERO;
     let mut n_mapped: usize = 0;
 
     for local in 0..n_lg_ops {
         let global_spin_idx = spin_lg_op_indices[local] as usize;
-        // Skip little-co-group elements that have no unitary MSG counterpart.
-        // These belong to H\H' (the anti-unitary coset in the MSG) and
-        // are not part of the unitary little co-group H₀ ∩ H'.
         let mag_idx = match spin_to_mag.get(&global_spin_idx) {
             Some(&m) => m,
             None => continue,
@@ -3194,23 +3189,24 @@ fn wigner_classify_spinor_msg_gauge(
 
         let (g0h, l1) = compose_seitz(&a0_spatial, &h_msg);
         let (sq, lattice_sq) = square_seitz(&g0h);
-        let sq_h_match = find_seitz(&sq.rot, &sq.trans, h_seitz)?;
-        let sq_spin_idx = h_to_spin.get(sq_h_match.op_index).copied().flatten()?;
-        let sq_local_idx = *global_to_local.get(&sq_spin_idx)?;
+        let sq_h_match = find_seitz(&sq.rot, &sq.trans, h_seitz)
+            .ok_or_else(|| WignerClassificationError::new("msg_gauge: square not found in H seitz"))?;
+        let sq_spin_idx = h_to_spin.get(sq_h_match.op_index).copied().flatten()
+            .ok_or_else(|| WignerClassificationError::new("msg_gauge: square not in H→spin map"))?;
+        let sq_local_idx = *global_to_local.get(&sq_spin_idx)
+            .ok_or_else(|| WignerClassificationError::new("msg_gauge: spin→local lookup missing"))?;
 
-        // Use G's gauge for both factors, so closure is evaluated in one
-        // double group.  Compare the result to H's canonical lift associated
-        // with the character table.
-        let (h_g_idx, _) = find_spin_in_db(&h_msg, &g_spin_seitz)?;
-        let u_h_g = spin_su2_at(g_spin_su2, h_g_idx)?;
+        let (h_g_idx, _) = find_spin_in_db(&h_msg, &g_spin_seitz)
+            .ok_or_else(|| WignerClassificationError::new("msg_gauge: h not found in G spin"))?;
+        let u_h_g = spin_su2_at(g_spin_su2, h_g_idx)
+            .ok_or_else(|| WignerClassificationError::new("msg_gauge: h SU(2) lift missing"))?;
         let u_g0h = su2_compose(&u_a0, &u_h_g);
         let u_sq_spatial = su2_compose(&u_g0h, &u_g0h);
-        let u_sq_h = spin_su2_at(h_spin_su2, sq_spin_idx)?;
-        let spatial_central = su2_same_up_to_sign(&u_sq_spatial, &u_sq_h)?;
+        let u_sq_h = spin_su2_at(h_spin_su2, sq_spin_idx)
+            .ok_or_else(|| WignerClassificationError::new("msg_gauge: sq SU(2) lift missing"))?;
+        let spatial_central = su2_same_up_to_sign(&u_sq_spatial, &u_sq_h)
+            .ok_or_else(|| WignerClassificationError::new("msg_gauge: SU(2) sign comparison failed"))?;
 
-        // For spin-1/2: U_{(Θ·h)²} = Θ² · U_{(g₀h)²} = Ē · U_{spatial_square}.
-        //   spatial_central=true  (EBAR) → spatial already flipped → Θ²·Ē = I → SAME → no sign flip
-        //   spatial_central=false (SAME) → spatial is canonical → Θ² = Ē → EBAR → sign flip
         let central = !spatial_central;
 
         let r_l1 = mat_vec_i32(&g0h.rot, &l1);
@@ -3229,10 +3225,8 @@ fn wigner_classify_spinor_msg_gauge(
     }
 
     if n_mapped == 0 {
-        return None;
+        return Err(WignerClassificationError::new("msg_gauge: no spin ops mapped to MSG"));
     }
-    // Normalize by |H₀ ∩ H'| — the number of little-co-group elements
-    // that actually have unitary MSG counterparts, not the full |H₀|.
     let w = w_sum / (n_mapped as f64);
     let h_dim = spin_lg_op_indices
         .iter()
@@ -3250,22 +3244,21 @@ fn wigner_classify_spinor_msg_gauge(
     let tol = 1e-6;
     if (w.re - h_dim).abs() < tol && w.im.abs() < tol {
         MSG_GAUGE_OK.fetch_add(1, Ordering::Relaxed);
-        Some(CorepType::A)
+        Ok(CorepType::A)
     } else if (w.re + h_dim).abs() < tol && w.im.abs() < tol {
         MSG_GAUGE_OK.fetch_add(1, Ordering::Relaxed);
-        Some(CorepType::B)
+        Ok(CorepType::B)
     } else if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
         MSG_GAUGE_OK.fetch_add(1, Ordering::Relaxed);
-        Some(CorepType::A)
+        Ok(CorepType::A)
     } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
         MSG_GAUGE_OK.fetch_add(1, Ordering::Relaxed);
-        Some(CorepType::B)
+        Ok(CorepType::B)
     } else if w.norm() < tol {
         MSG_GAUGE_OK.fetch_add(1, Ordering::Relaxed);
-        Some(CorepType::C)
+        Ok(CorepType::C)
     } else {
         let count = MSG_GAUGE_W_FAIL.fetch_add(1, Ordering::Relaxed);
-        // Print per-term detail for the first 3 W failures
         if count < 3 {
             eprintln!(
                 "  W_FAIL#{}: sg={} k=({}/{},{}/{},{}/{}) dim={:.0} n_mapped={} w=({:.6},{:.6}) |w|={:.6}",
@@ -3284,7 +3277,10 @@ fn wigner_classify_spinor_msg_gauge(
                 w.norm()
             );
         }
-        None
+        Err(WignerClassificationError::with_value(
+            "msg_gauge: non-quantized Wigner indicator for spinor",
+            w.norm(),
+        ))
     }
 }
 
@@ -3320,7 +3316,7 @@ pub fn wigner_classify_spinor(
     ky: i8,
     kz: i8,
     kd: i8,
-) -> Option<CorepType> {
+) -> Result<CorepType, WignerClassificationError> {
     // ── Direct anti-coset path (frame-aware, primary) ────────────────────
     // This path uses setting_xf to transform all operations into the
     // ISOTROPY data-Hall frame, matching the spin table and character
@@ -3351,9 +3347,7 @@ pub fn wigner_classify_spinor(
     };
     // ── Direct anti-coset path (primary, frame-aware) ────────────────────
     // Only MissingSpinData is allowed to fall back to the legacy path.
-    // All other errors (NonQuantized, Su2LiftMismatch, mapping failures)
-    // must propagate as None — the legacy path operates in MSG gauge and
-    // would silently mask frame/gauge errors with different results.
+    // All other errors must propagate as classification errors.
     match wigner_classify_spinor_direct_anti_diagnostic(
         ctx,
         spin_chars_real,
@@ -3369,9 +3363,11 @@ pub fn wigner_classify_spinor(
         None,
         &[],
     ) {
-        Ok(result) => return Some(result),
+        Ok(result) => return Ok(result),
         Err(DirectAntiFailure::MissingSpinData) => { /* fall through to legacy */ }
-        Err(_) => return None,
+        Err(e) => return Err(WignerClassificationError::new(
+            format!("spinor direct anti path failed: {:?}", e),
+        )),
     }
 
     // ── Legacy MSG-gauge primary path (fallback) ─────────────────────────
@@ -3407,9 +3403,9 @@ fn wigner_classify_spinor_primary(
     ky: i8,
     kz: i8,
     kd: i8,
-) -> Option<CorepType> {
+) -> Result<CorepType, WignerClassificationError> {
     // Try MSG-gauge path first (correct coordinate frame).
-    if let Some(result) = wigner_classify_spinor_msg_gauge(
+    if let Ok(result) = wigner_classify_spinor_msg_gauge(
         ctx,
         spin_chars_real,
         spin_chars_imag,
@@ -3424,7 +3420,7 @@ fn wigner_classify_spinor_primary(
         kz,
         kd,
     ) {
-        return Some(result);
+        return Ok(result);
     }
 
     let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
@@ -3439,13 +3435,13 @@ fn wigner_classify_spinor_primary(
         || n_lg_ops == 0
         || spin_lg_op_indices.is_empty()
     {
-        return None;
+        return Err(WignerClassificationError::new("spinor primary: missing spin data"));
     }
 
     // Spin Seitz ops in Bilbao setting — canonical little co-group representatives.
     let h_spin_seitz = build_spin_seitz(h_spin_rots, h_spin_trans);
     if h_spin_seitz.is_empty() {
-        return None;
+        return Err(WignerClassificationError::new("spinor primary: empty spin Seitz ops"));
     }
 
     // H_op → spin global index mapping (for matching (a₀h)² back to spin ops)
@@ -3487,8 +3483,10 @@ fn wigner_classify_spinor_primary(
                 [-a0.rot[2][0], -a0.rot[2][1], -a0.rot[2][2]],
             ];
             g_spin_seitz.iter().position(|s| s.rot == r)
-        })?;
-    let u_a0 = spin_su2_at(g_spin_su2, a0_match)?;
+        })
+        .ok_or_else(|| WignerClassificationError::new("spinor primary: a0 not found in G spin"))?;
+    let u_a0 = spin_su2_at(g_spin_su2, a0_match)
+        .ok_or_else(|| WignerClassificationError::new("spinor primary: a0 SU(2) lift missing"))?;
 
     // Data-Hall → spin-table origin shift. a₀ comes from MSG/data-Hall and
     // needs conversion; h is from spin_seitz and is already in spin convention.
@@ -3514,7 +3512,8 @@ fn wigner_classify_spinor_primary(
 
         // Canonical h in Bilbao (already in the correct setting).
         let h_spin = &h_spin_seitz[global_spin_idx];
-        let u_h = spin_su2_at(h_spin_su2, global_spin_idx)?;
+        let u_h = spin_su2_at(h_spin_su2, global_spin_idx)
+            .ok_or_else(|| WignerClassificationError::new("spinor primary: h SU(2) lift missing"))?;
 
         // Spatial: (a₀ h)² in Bilbao.
         let (g0h, l1) = compose_seitz(&a0_bilbao, h_spin);
@@ -3532,14 +3531,15 @@ fn wigner_classify_spinor_primary(
             Some(v) => v,
             None => {
                 eprintln!("  WIGNER_SPINOR: sq_rot not in spin ops, aborting case");
-                return None;
+                return Err(WignerClassificationError::new("spinor primary: sq_rot not in spin ops"));
             }
         };
 
         // SU(2): (U_a₀·U_h)² vs canonical U_{(a₀h)²}.
         let u_g0h = su2_compose(&u_a0, &u_h);
         let u_sq = SquareKernel::OldU2.apply(&u_g0h);
-        let u_k = spin_su2_at(h_spin_su2, sq_spin_idx)?;
+        let u_k = spin_su2_at(h_spin_su2, sq_spin_idx)
+            .ok_or_else(|| WignerClassificationError::new("spinor primary: sq SU(2) lift missing"))?;
 
         // Central element detection.
         // central=true: u_sq ≈ -u_k (differs by Ebar)
@@ -3692,20 +3692,23 @@ fn wigner_classify_spinor_primary(
                 } else {
                     GGAUGE_H_LOOKUP_FAIL.fetch_add(1, Ordering::Relaxed);
                 }
-                return None;
+                return Err(WignerClassificationError::new(
+                    "spinor primary: SU(2) square not comparable to canonical lift",
+                ));
             }
         };
 
         // Character from LG table (if sq ∈ LG) or from extended table.
         let sq_local_idx = if sq_in_lg {
-            *global_to_local.get(&sq_spin_idx)?
+            *global_to_local.get(&sq_spin_idx)
+                .ok_or_else(|| WignerClassificationError::new("spinor primary: spin→local lookup missing"))?
         } else {
             // sq outside LG: need extended character, abort case.
             eprintln!(
                 "  WIGNER_SPINOR: sq[{}] not in LG idxs, aborting case",
                 sq_spin_idx
             );
-            return None;
+            return Err(WignerClassificationError::new("spinor primary: square not in LG"));
         };
 
         // Bloch phase from total lattice shift.
@@ -3758,22 +3761,25 @@ fn wigner_classify_spinor_primary(
     let tol = 1e-6;
     if (w.re - h_dim).abs() < tol && w.im.abs() < tol {
         OLD_PATH_OK.fetch_add(1, Ordering::Relaxed);
-        Some(CorepType::A)
+        Ok(CorepType::A)
     } else if (w.re + h_dim).abs() < tol && w.im.abs() < tol {
         OLD_PATH_OK.fetch_add(1, Ordering::Relaxed);
-        Some(CorepType::B)
+        Ok(CorepType::B)
     } else if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
         OLD_PATH_OK.fetch_add(1, Ordering::Relaxed);
-        Some(CorepType::A)
+        Ok(CorepType::A)
     } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
         OLD_PATH_OK.fetch_add(1, Ordering::Relaxed);
-        Some(CorepType::B)
+        Ok(CorepType::B)
     } else if w.norm() < tol {
         OLD_PATH_OK.fetch_add(1, Ordering::Relaxed);
-        Some(CorepType::C)
+        Ok(CorepType::C)
     } else {
         OLD_PATH_FAIL.fetch_add(1, Ordering::Relaxed);
-        None // non-quantized → Unsupported
+        Err(WignerClassificationError::with_value(
+            "spinor primary: non-quantized Wigner indicator",
+            w.norm(),
+        ))
     }
 }
 
@@ -3870,10 +3876,6 @@ pub fn build_corep_chars(
     partner_chars: Option<&[f64]>, // for Type C: character table of paired irrep
     au_chars: Option<&[f64]>,      // for Type A: pre-computed antiunitary chars
 ) -> Result<Vec<f64>, &'static str> {
-    if *corep_type == CorepType::Unsupported {
-        return Err("cannot build a character table for Unsupported corep type");
-    }
-
     let n_lg = mag_lg_indices.len();
     let mut chars = vec![0.0; n_lg];
 
@@ -3923,9 +3925,6 @@ pub fn build_corep_chars(
                     chars[out_idx] = chi_i + chi_partner;
                 }
             }
-            CorepType::Unsupported => {
-                unreachable!("Unsupported is rejected before character construction")
-            }
         }
     }
 
@@ -3943,7 +3942,6 @@ pub fn corep_dim(corep_type: &CorepType, h_dim: usize) -> usize {
     match corep_type {
         CorepType::A => h_dim,
         CorepType::B | CorepType::C => h_dim * 2,
-        CorepType::Unsupported => 0,
     }
 }
 
@@ -4063,7 +4061,7 @@ mod tests {
             0,
             1, // Gamma point
         );
-        assert_eq!(result, CorepType::A);
+        assert_eq!(result, Ok(CorepType::A));
     }
 
     /// Type A: result should not double dimension.
@@ -4130,8 +4128,10 @@ mod tests {
                 );
                 types.push(ty);
             }
+            // Only compare successful classifications
+            let oks: Vec<_> = types.iter().filter_map(|r| r.as_ref().ok()).collect();
             assert!(
-                types.iter().all(|&x| x == types[0]),
+                oks.iter().all(|&&x| x == *oks[0]),
                 "Wigner type depends on a₀ for {}: {:?}",
                 ir.ml,
                 types

@@ -122,10 +122,6 @@ pub enum CorepType {
     B,
     /// W = 0: D ≁ D*.
     C,
-    /// Wigner indicator is non-quantized — missing data or algorithm
-    /// limitation (e.g. spinor without imaginary chars and SU(2) fallback
-    /// not yet converging).
-    Unsupported,
 }
 
 /// Which computational path produced the Wigner classification.
@@ -139,8 +135,6 @@ pub enum WignerSource {
     ScalarCIR,
     /// Spinor irrep classified via SU(2) double-group composition.
     SpinorSU2,
-    /// Could not classify (returned Unsupported).
-    Unsupported,
 }
 
 impl CorepType {
@@ -149,7 +143,6 @@ impl CorepType {
             CorepType::A => "type-a: D ~ D*, real (W=+1)",
             CorepType::B => "type-b: D ~ D*, pseudo-real (W=-1)",
             CorepType::C => "type-c: D ≁ D* (W=0)",
-            CorepType::Unsupported => "unsupported: non-quantized Wigner indicator",
         }
     }
 }
@@ -426,9 +419,15 @@ pub fn compute_corepresentation(
                 h_irrep.kz,
                 h_irrep.kd,
             );
-            if ct == CorepType::C {
-                any_c = true;
-                break;
+            match ct {
+                Ok(CorepType::C) => {
+                    any_c = true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    // CIR component classification failed
+                }
             }
         }
         if any_c {
@@ -458,7 +457,7 @@ pub fn compute_corepresentation(
             crate::MagneticSpaceGroupType::from_uni(uni_number).type_ == crate::MagneticType::Grey;
         let a0_idx = select_spinor_a0(&antiunitary, &mag_seitz, is_grey);
 
-        if let Some(ct) = wigner::wigner_classify_spinor(
+        match wigner::wigner_classify_spinor(
             &ctx,
             h_chars,
             h_irrep.spin_character_imag(),
@@ -475,16 +474,20 @@ pub fn compute_corepresentation(
             h_irrep.kz,
             h_irrep.kd,
         ) {
-            Ok((ct, WignerSource::SpinorSU2))
-        } else {
-            // SU(2) path failed.
-            // The Bilbao extra sum is NOT a valid Wigner indicator and is
-            // not used for classification.
-            Err(CorepComputationError::UnsupportedClassification {
-                uni: uni_number,
-                source_irrep: h_irrep.ml.to_string(),
-                reason: "spinor SU(2) Wigner classification did not produce A/B/C".to_string(),
-            })
+            Ok(ct) => Ok((ct, WignerSource::SpinorSU2)),
+            Err(e) => {
+                // SU(2) path failed.
+                // The Bilbao extra sum is NOT a valid Wigner indicator and is
+                // not used for classification.
+                Err(CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "spinor SU(2) Wigner classification did not produce A/B/C: {}",
+                        e
+                    ),
+                })
+            }
         }
     } else {
         // Non-compound scalar: PIR path with full Seitz matching.
@@ -515,7 +518,12 @@ pub fn compute_corepresentation(
                 h_irrep.ky,
                 h_irrep.kz,
                 h_irrep.kd,
-            );
+            )
+            .map_err(|e| CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!("scalar PIR Wigner classification failed: {}", e),
+            })?;
             Ok((ct, WignerSource::ScalarPIR))
         } else {
             Err(CorepComputationError::UnsupportedClassification {
@@ -525,17 +533,6 @@ pub fn compute_corepresentation(
             })
         }
     }?;
-
-    if corep_type == CorepType::Unsupported {
-        return Err(CorepComputationError::UnsupportedClassification {
-            uni: uni_number,
-            source_irrep: h_irrep.ml.to_string(),
-            reason: format!(
-                "Wigner classification via {:?} returned Unsupported",
-                source
-            ),
-        });
-    }
 
     // 8. Compute Type A antiunitary characters
     let au_chars = if corep_type == CorepType::A && !antiunitary.is_empty() {
@@ -1363,9 +1360,6 @@ mod tests {
         assert!(!coreps.is_empty(), "Should have at least one corep");
 
         for (label, c) in &coreps {
-            if c.corep_type == CorepType::Unsupported {
-                continue;
-            }
             assert!(c.dim > 0, "dim > 0 for {}", label);
             assert!(
                 (c.characters[0] - c.dim as f64).abs() < 0.01,
@@ -2065,16 +2059,11 @@ mod tests {
                 CorepType::A => "A",
                 CorepType::B => "B",
                 CorepType::C => "C",
-                CorepType::Unsupported => "?",
             };
             println!(
                 "{:<8} {:<4} {:<8} {:<8.1}",
                 label, c.dim, type_str, c.characters[0]
             );
-
-            if c.corep_type == CorepType::Unsupported {
-                continue; // skip invariants for unsupported (spinor, etc.)
-            }
 
             // Basic invariants
             assert!(c.characters[0] > 0.0, "χ(id) must be > 0 for {}", label);
@@ -2177,21 +2166,18 @@ mod tests {
                     CorepType::A => "A",
                     CorepType::B => "B",
                     CorepType::C => "C",
-                    CorepType::Unsupported => "?",
                 };
                 println!(
                     "  {}: dim={} type={} χ(id)={:.1}",
                     ir.ml, c.dim, type_str, c.characters[0]
                 );
 
-                if c.corep_type != CorepType::Unsupported {
-                    assert!(c.dim > 0);
-                    assert!(
-                        (c.characters[0] - c.dim as f64).abs() < 0.01,
-                        "χ(id) should equal dim for {}",
-                        ir.ml
-                    );
-                }
+                assert!(c.dim > 0);
+                assert!(
+                    (c.characters[0] - c.dim as f64).abs() < 0.01,
+                    "χ(id) should equal dim for {}",
+                    ir.ml
+                );
             }
         }
     }
@@ -3029,7 +3015,8 @@ mod tests {
                         ir.ky,
                         ir.kz,
                         ir.kd,
-                    );
+                    )
+                    .ok();
                     match (has_imag, su2_result.is_some()) {
                         (true, true) => "spinor_complex_ok",
                         (true, false) => "spinor_complex_fail",
@@ -3162,7 +3149,8 @@ mod tests {
                     ir.ky,
                     ir.kz,
                     ir.kd,
-                );
+                )
+                .ok();
                 let direct_diagnostic =
                     crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
                         &ctx,
@@ -4242,7 +4230,7 @@ mod tests {
         //   h=E:  (ΘE)² = Θ² = Ē → χ(Ē) = -χ(E) = -1
         //   h=C₂: (ΘC₂)² = Θ²C₂² = (-1)(-1) = E → χ(E) = +1
         //   W = (-1 + 1)/2 = 0 → Type C
-        assert!(ct.is_some(), "SU(2) path should succeed for grey group");
+        assert!(ct.is_ok(), "SU(2) path should succeed for grey group");
         let ct = ct.unwrap();
         assert_eq!(
             ct,
@@ -4966,7 +4954,7 @@ mod tests {
                     ir.kz,
                     ir.kd,
                 );
-                if result.is_some() {
+                if result.is_ok() {
                     continue;
                 }
 
@@ -5473,17 +5461,15 @@ mod tests {
 
         // 6. χ(E) = dim for all valid co-irreps
         for (label, c) in &coreps {
-            if c.corep_type != CorepType::Unsupported {
-                assert!(
-                    (c.characters[0] - c.dim as f64).abs() < 0.01,
-                    "χ(E)={:.4} ≠ dim={} for {}",
-                    c.characters[0],
-                    c.dim,
-                    label
-                );
-                // χ(E) must be positive
-                assert!(c.characters[0] > 0.0, "χ(E) <= 0 for {}", label);
-            }
+            assert!(
+                (c.characters[0] - c.dim as f64).abs() < 0.01,
+                "χ(E)={:.4} ≠ dim={} for {}",
+                c.characters[0],
+                c.dim,
+                label
+            );
+            // χ(E) must be positive
+            assert!(c.characters[0] > 0.0, "χ(E) <= 0 for {}", label);
         }
 
         // 7. Scalar co-irreps at P-point: current API returns Type A.
@@ -5498,13 +5484,11 @@ mod tests {
             .filter(|(label, _)| p_scalar.iter().any(|ir| label.contains(&ir.ml[..2])))
             .collect();
         for (_label, c) in &scalar_coreps {
-            if c.corep_type != CorepType::Unsupported {
-                assert_eq!(
-                    c.corep_type,
-                    CorepType::A,
-                    "API convention: empty antiunitary LG → Type A"
-                );
-            }
+            assert_eq!(
+                c.corep_type,
+                CorepType::A,
+                "API convention: empty antiunitary LG → Type A"
+            );
         }
     }
 
