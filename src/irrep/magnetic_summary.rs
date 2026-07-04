@@ -452,6 +452,100 @@ pub fn magnetic_irrep_summary_from_ops(
     })
 }
 
+// ── Formatting ─────────────────────────────────────────────────────────────────
+
+/// Format a full magnetic irrep summary as human-readable text.
+pub fn format_magnetic_irrep_summary(summary: &MagneticIrrepSummary) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "Magnetic space group: UNI={}  BNS={}  type={:?}",
+        summary.uni, summary.bns_label, summary.magnetic_type
+    ));
+    lines.push(format!(
+        "  parent SG: {}  unitary subgroup H: {}  Hall: {}",
+        summary.parent_sg, summary.unitary_sg, summary.unitary_hall
+    ));
+    lines.push(format!("  {} k-points", summary.kpoints.len()));
+
+    for kp in &summary.kpoints {
+        lines.push(String::new());
+        lines.push(format_magnetic_kpoint_summary(kp));
+    }
+
+    lines.join("\n")
+}
+
+/// Format a single k-point summary as human-readable text.
+pub fn format_magnetic_kpoint_summary(kpoint: &MagneticKPointSummary) -> String {
+    let mut lines = Vec::new();
+    let (kx, ky, kz, kd) = kpoint.coords;
+    lines.push(format!(
+        "k-point {}  ({}/{}, {}/{}, {}/{})  |LG|= {}  ({}U + {}A)",
+        kpoint.label,
+        kx,
+        kd,
+        ky,
+        kd,
+        kz,
+        kd,
+        kpoint.little_group_order,
+        kpoint.unitary_order,
+        kpoint.antiunitary_order
+    ));
+
+    if kpoint.coreps.is_empty() {
+        lines.push("  (no coreps)".to_string());
+        return lines.join("\n");
+    }
+
+    for c in &kpoint.coreps {
+        let src_labels: Vec<&str> = c.source_irreps.iter().map(|s| s.ml).collect();
+        lines.push(format!(
+            "  {}  type={:?}  source={:?}  dim={}  src=[{}]",
+            c.label,
+            c.corep_type,
+            c.source,
+            c.dim,
+            src_labels.join(", ")
+        ));
+        // Show first few characters.
+        let char_preview: Vec<String> = c
+            .characters
+            .iter()
+            .take(6)
+            .map(|&ch| {
+                if ch.abs() < 1e-12 {
+                    "0".to_string()
+                } else {
+                    format!("{:.2}", ch)
+                }
+            })
+            .collect();
+        let char_str = if c.characters.len() > 6 {
+            format!("[{}...]", char_preview.join(", "))
+        } else {
+            format!("[{}]", char_preview.join(", "))
+        };
+        lines.push(format!("    chars: {}", char_str));
+
+        // Isotropy candidates summary.
+        if !c.isotropy_candidates.is_empty() {
+            for ic in &c.isotropy_candidates {
+                let n_ord = ic.ordinary.len();
+                let n_mag = ic.magnetic.len();
+                if n_ord > 0 || n_mag > 0 {
+                    lines.push(format!(
+                        "    isotropy ({} {:?}): {} ordinary + {} magnetic subgroups",
+                        ic.source_ml, ic.relation, n_ord, n_mag
+                    ));
+                }
+            }
+        }
+    }
+
+    lines.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
