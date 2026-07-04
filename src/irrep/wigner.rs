@@ -40,6 +40,34 @@ use crate::mathfunc::{
 use crate::SymmetryOps;
 use num_complex::Complex64;
 
+/// Error returned when Wigner's test cannot classify a co-representation
+/// as A, B, or C.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WignerClassificationError {
+    pub reason: String,
+    pub wigner_value: Option<f64>,
+}
+
+impl WignerClassificationError {
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self { reason: reason.into(), wigner_value: None }
+    }
+
+    pub fn with_value(reason: impl Into<String>, w: f64) -> Self {
+        Self { reason: reason.into(), wigner_value: Some(w) }
+    }
+}
+
+impl std::fmt::Display for WignerClassificationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(w) = self.wigner_value {
+            write!(f, "{} (W = {:.6})", self.reason, w)
+        } else {
+            write!(f, "{}", self.reason)
+        }
+    }
+}
+
 // ── Diagnostic counters for SU(2) central-element relation ──────────────────
 
 use std::sync::atomic::{AtomicUsize, Ordering};
