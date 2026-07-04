@@ -382,6 +382,28 @@ git add -A && git commit -m "描述"
 
 替换类型时，先在文件头部添加 `use crate::NewType;`，再把文件中所有 `crate::NewType` 替换为 `NewType`。
 
+### 规则 5: 先验证输入数据语义，再调算法
+
+当大量 case 出现同一症状时，根因通常是**对输入数据语义的共同错误假设**，
+而不是算法本身的多个独立 bug。**在动任何公式之前**，先问：
+
+> "这个输入字段对我的场景语义正确吗？它的含义真的是我以为的那样吗？"
+
+具体做法：
+1. **从一级数据推导，不信任二级元数据。** Hall ops 和 spin ops 是一级数据；
+   isotropy subgroup 的 origin 字段和手维的 SG→centering 表是二级数据（可能
+   对当前 setting 是错的）。
+2. **用命名常量定义容差**（如 `const SEITZ_TRANS_TOL: f64 = 1e-5`），
+   不要到处撒 `1e-9`。容差取值基于管线中浮点误差累积的预期量级，不是越紧越好。
+3. **如果修了 2 次问题反而恶化，说明假设错误。** 停止调算法，回头检查输入数据语义。
+4. **提取共享 helper**——如果同一 inline 逻辑出现在多个调用点，提取一次，统一使用。
+
+**历史案例：** spinor Wigner square mismatch (679→0) 是 Codex 用 3 个 commit
+解决的，完全没有动 Wigner 公式本身：(1) isotropy 来源的 origin 对 Wigner square
+是错的 → 从 Hall vs spin ops 直接求解；(2) 按 SG 号手列的 centering 表不考虑
+Hall setting 坐标轴排列 → 从 Hall 纯平移自动推导；(3) `1e-9` 对 translation
+浮点误差太紧 → 改为 `1e-5` 命名常量。三个都是数据语义问题，不是算法问题。
+
 ---
 
 ## ISOTROPY 数据格式知识
