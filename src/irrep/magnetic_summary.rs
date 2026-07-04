@@ -8,6 +8,8 @@
 //! 3. Source H-irreps with Miller-Love / Bradley-Cracknell labels
 //! 4. Isotropy subgroup candidates (ordinary and magnetic)
 
+use std::collections::BTreeSet;
+
 use crate::SymmetryOps;
 
 // ── Error type ─────────────────────────────────────────────────────────────────
@@ -135,7 +137,7 @@ pub struct CorepIsotropyCandidate {
 }
 
 /// How an isotropy candidate relates to the source irrep(s).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IsotropyCandidateRelation {
     /// Directly from a single source irrep.
     DirectSourceIrrep,
@@ -207,6 +209,102 @@ fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> 
 /// Round character values to integers for dedup comparison.
 fn round_chars(chars: &[f64]) -> Vec<i64> {
     chars.iter().map(|&c| (c * 1e8).round() as i64).collect()
+}
+
+// ── Isotropy candidates ────────────────────────────────────────────────────────
+
+/// Attach isotropy subgroup candidates to each corep.
+fn attach_isotropy_candidates(
+    coreps: Vec<MagneticCorepSummary>,
+    h_irreps: &[crate::irrep::types::IrrepRecord],
+) -> Vec<MagneticCorepSummary> {
+    coreps
+        .into_iter()
+        .map(|mut c| {
+            let multi_source = c.source_irreps.len() > 1;
+            let mut candidates: Vec<CorepIsotropyCandidate> = Vec::new();
+
+            for src in &c.source_irreps {
+                // Find the original IrrepRecord.
+                let ir = h_irreps
+                    .iter()
+                    .find(|r| r.sg == src.sg && r.ml == src.ml);
+
+                let relation = if src.spinor {
+                    IsotropyCandidateRelation::SpinorNoIsotropyData
+                } else if multi_source {
+                    IsotropyCandidateRelation::TypeCPairedSource
+                } else if ir.map_or(false, |r| r.cir_component_count() > 0) {
+                    IsotropyCandidateRelation::CompoundSource
+                } else {
+                    IsotropyCandidateRelation::DirectSourceIrrep
+                };
+
+                let (ordinary, magnetic) = match ir {
+                    Some(rec) if !src.spinor => (
+                        rec.subgroups().to_vec(),
+                        rec.magnetic_subgroups().to_vec(),
+                    ),
+                    _ => (Vec::new(), Vec::new()),
+                };
+
+                if !ordinary.is_empty() || !magnetic.is_empty() || !src.spinor {
+                    candidates.push(CorepIsotropyCandidate {
+                        source_ml: src.ml,
+                        ordinary,
+                        magnetic,
+                        relation,
+                    });
+                }
+            }
+
+            // Dedup candidates by key.
+            candidates = dedup_isotropy_candidates(candidates);
+            c.isotropy_candidates = candidates;
+            c
+        })
+        .collect()
+}
+
+/// Deduplicate isotropy candidates: keep the one with the richest data per source_ml.
+fn dedup_isotropy_candidates(
+    candidates: Vec<CorepIsotropyCandidate>,
+) -> Vec<CorepIsotropyCandidate> {
+    // Group by (source_ml, relation) and merge ordinary/magnetic sets.
+    let mut seen: BTreeSet<(String, IsotropyCandidateRelation)> = BTreeSet::new();
+    let mut result: Vec<CorepIsotropyCandidate> = Vec::new();
+
+    for cand in candidates {
+        let key = (cand.source_ml.to_string(), cand.relation);
+        if seen.contains(&key) {
+            // Merge into existing entry.
+            if let Some(existing) = result.iter_mut().find(|e| {
+                e.source_ml == cand.source_ml && e.relation == cand.relation
+            }) {
+                existing.ordinary.extend(cand.ordinary);
+                existing.magnetic.extend(cand.magnetic);
+            }
+        } else {
+            seen.insert(key);
+            result.push(cand);
+        }
+    }
+
+    // Dedup ordinary subgroups by (sg, symbol, direction, domains, arms).
+    for cand in &mut result {
+        let mut ord_seen: BTreeSet<(usize, &str, &str, usize, usize)> = BTreeSet::new();
+        cand.ordinary.retain(|s| {
+            ord_seen.insert((s.sg, s.symbol, s.direction, s.domains, s.arms))
+        });
+
+        // Dedup magnetic subgroups by (mag_sg, bns_label, direction).
+        let mut mag_seen: BTreeSet<(usize, &str, &str)> = BTreeSet::new();
+        cand.magnetic.retain(|s| {
+            mag_seen.insert((s.mag_sg, s.bns_label, s.direction))
+        });
+    }
+
+    result
 }
 
 // ── Entry points ───────────────────────────────────────────────────────────────
@@ -330,6 +428,7 @@ pub fn magnetic_irrep_summary_from_ops(
                 })
                 .collect();
             let coreps = dedup_coreps(raw_coreps);
+            let coreps = attach_isotropy_candidates(coreps, h_irreps);
 
             MagneticKPointSummary {
                 label: kp.label,
@@ -417,6 +516,27 @@ mod tests {
                 "ordinary group: k-point {} should have no antiunitary ops",
                 kp.label
             );
+        }
+    }
+
+    #[test]
+    fn isotropy_candidates_attached_to_coreps() {
+        // BNS 128.406 (UNI 1066): verify isotropy candidates are populated.
+        let s = magnetic_irrep_summary_by_bns("128.406").unwrap();
+        // Z1Z4 is a compound irrep with CIR components → CompoundSource.
+        let z_kp = s.kpoints.iter().find(|k| k.label == "Z").unwrap();
+        for c in &z_kp.coreps {
+            if c.label == "Z1Z4" {
+                assert!(
+                    !c.isotropy_candidates.is_empty(),
+                    "Z1Z4 should have isotropy candidates"
+                );
+                let has_compound = c
+                    .isotropy_candidates
+                    .iter()
+                    .any(|ic| ic.relation == IsotropyCandidateRelation::CompoundSource);
+                assert!(has_compound, "Z1Z4 should have CompoundSource relation");
+            }
         }
     }
 
