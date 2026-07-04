@@ -50,7 +50,10 @@ pub enum MagneticIrrepInput<'a> {
 
 // ── Summary output types ───────────────────────────────────────────────────────
 
-/// Complete magnetic irrep summary for a magnetic space group.
+/// Little-group corep summary for a magnetic space group.
+///
+/// This covers fixed-k little-group co-representations.  Star-based
+/// (full Brillouin zone) co-representations are not yet implemented.
 #[derive(Debug, Clone)]
 pub struct MagneticIrrepSummary {
     /// UNI number (1–1651).
@@ -754,5 +757,84 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Regression: BNS 128.406 GM/A k-points must have individual Unsupported
+    /// entries — never merged into a combined label by dedup_coreps.
+    #[test]
+    fn unsupported_coreps_not_merged() {
+        let s = magnetic_irrep_summary_by_bns("128.406").unwrap();
+        // Check GM point: GM1–GM5 are all Unsupported, dim=0.
+        let gm = s.kpoints.iter().find(|k| k.label == "GM").unwrap();
+        let unsupported: Vec<_> = gm
+            .coreps
+            .iter()
+            .filter(|c| c.corep_type == crate::irrep::corep::CorepType::Unsupported)
+            .collect();
+        assert!(
+            unsupported.len() >= 5,
+            "GM: expected >=5 Unsupported coreps, got {}",
+            unsupported.len()
+        );
+        // No label should contain " + " (merging).
+        for c in &gm.coreps {
+            assert!(
+                !c.label.contains(" + "),
+                "GM corep '{}' should not be merged",
+                c.label
+            );
+        }
+
+        // Check A point similarly.
+        let a = s.kpoints.iter().find(|k| k.label == "A").unwrap();
+        let a_unsupported: Vec<_> = a
+            .coreps
+            .iter()
+            .filter(|c| c.corep_type == crate::irrep::corep::CorepType::Unsupported)
+            .collect();
+        assert!(
+            a_unsupported.len() >= 3,
+            "A: expected >=3 Unsupported coreps, got {}",
+            a_unsupported.len()
+        );
+        for c in &a.coreps {
+            assert!(
+                !c.label.contains(" + "),
+                "A corep '{}' should not be merged",
+                c.label
+            );
+        }
+    }
+
+    /// Regression: the Z6+Z7 Type-C merged corep at 128.406 must carry two
+    /// SpinorNoIsotropyData candidates (one per source spinor irrep).
+    #[test]
+    fn spinor_coreps_have_spinor_no_isotropy_data() {
+        let s = magnetic_irrep_summary_by_bns("128.406").unwrap();
+        let z = s.kpoints.iter().find(|k| k.label == "Z").unwrap();
+        // Z6 and Z7 form a Type-C pair — dedup merges them into "Z6 + Z7".
+        let c = z
+            .coreps
+            .iter()
+            .find(|c| c.label.contains("Z6") && c.label.contains("Z7"))
+            .expect("missing merged Z6+Z7 corep");
+        assert!(
+            c.source_irreps.iter().any(|s| s.ml == "Z6" && s.spinor),
+            "Z6+Z7: Z6 should be a spinor source"
+        );
+        assert!(
+            c.source_irreps.iter().any(|s| s.ml == "Z7" && s.spinor),
+            "Z6+Z7: Z7 should be a spinor source"
+        );
+        let spinor_candidates: Vec<_> = c
+            .isotropy_candidates
+            .iter()
+            .filter(|ic| ic.relation == IsotropyCandidateRelation::SpinorNoIsotropyData)
+            .collect();
+        assert_eq!(
+            spinor_candidates.len(),
+            2,
+            "Z6+Z7: should have exactly 2 SpinorNoIsotropyData candidates"
+        );
     }
 }
