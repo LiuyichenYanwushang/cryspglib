@@ -32,13 +32,13 @@
 //! - Bradley & Cracknell (1972), *The Mathematical Theory of Symmetry in Solids*
 //! - Bilbao Crystallographic Server, *Co-representations of Magnetic Space Groups*
 
-use num_complex::Complex64;
+use super::corep::CorepType;
 use crate::mathfunc::{
-    mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
-    mat_multiply_matrix_i3, Mat3, Mat3I,
+    mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_multiply_matrix_i3,
+    Mat3, Mat3I,
 };
 use crate::SymmetryOps;
-use super::corep::CorepType;
+use num_complex::Complex64;
 
 // ── Diagnostic counters for SU(2) central-element relation ──────────────────
 
@@ -241,35 +241,51 @@ fn signed_perm_to_quat(q: &[[i32; 3]; 3]) -> Option<[f64; 4]> {
         // 180°: use first non-zero column of Q+I
         let mut ax = [0.0f64; 3];
         for j in 0..3 {
-            let v = if j == 0 { [q[0][j] as f64 + 1.0, q[1][j] as f64, q[2][j] as f64] }
-            else if j == 1 { [q[0][j] as f64, q[1][j] as f64 + 1.0, q[2][j] as f64] }
-            else { [q[0][j] as f64, q[1][j] as f64, q[2][j] as f64 + 1.0] };
-            let n = (v[0]*v[0] + v[1]*v[1] + v[2]*v[2]).sqrt();
-            if n > 0.5 { ax = [v[0]/n, v[1]/n, v[2]/n]; break; }
+            let v = if j == 0 {
+                [q[0][j] as f64 + 1.0, q[1][j] as f64, q[2][j] as f64]
+            } else if j == 1 {
+                [q[0][j] as f64, q[1][j] as f64 + 1.0, q[2][j] as f64]
+            } else {
+                [q[0][j] as f64, q[1][j] as f64, q[2][j] as f64 + 1.0]
+            };
+            let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            if n > 0.5 {
+                ax = [v[0] / n, v[1] / n, v[2] / n];
+                break;
+            }
         }
-        let n = (ax[0]*ax[0] + ax[1]*ax[1] + ax[2]*ax[2]).sqrt();
-        if n < 0.5 { return None; }
-        [ax[0]/n, ax[1]/n, ax[2]/n]
+        let n = (ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]).sqrt();
+        if n < 0.5 {
+            return None;
+        }
+        [ax[0] / n, ax[1] / n, ax[2] / n]
     } else if tr == 3 {
         [0.0, 0.0, 1.0]
     } else {
         let ax_x = (q[2][1] - q[1][2]) as f64;
         let ax_y = (q[0][2] - q[2][0]) as f64;
         let ax_z = (q[1][0] - q[0][1]) as f64;
-        let n = (ax_x*ax_x + ax_y*ax_y + ax_z*ax_z).sqrt();
-        if n < 0.5 { return None; }
-        [ax_x/n, ax_y/n, ax_z/n]
+        let n = (ax_x * ax_x + ax_y * ax_y + ax_z * ax_z).sqrt();
+        if n < 0.5 {
+            return None;
+        }
+        [ax_x / n, ax_y / n, ax_z / n]
     };
-    Some([cos_half, sin_half * axis[0], sin_half * axis[1], sin_half * axis[2]])
+    Some([
+        cos_half,
+        sin_half * axis[0],
+        sin_half * axis[1],
+        sin_half * axis[2],
+    ])
 }
 
 fn compute_signed_perm_spin_parity(
-    q: &[[i32; 3]; 3],          // Q = det(P)·P (proper rotation)
-    sq_rot: &[[i32; 3]; 3],     // b² rotation in G/MSG frame
-    g_spin_rots: &[i32],         // G spin table (9 per op)
-    g_spin_su2: &[f64],          // G spin SU(2) (4 per op)
-    h_spin_rots: &[i32],         // H spin table
-    h_spin_su2: &[f64],          // H spin SU(2)
+    q: &[[i32; 3]; 3],      // Q = det(P)·P (proper rotation)
+    sq_rot: &[[i32; 3]; 3], // b² rotation in G/MSG frame
+    g_spin_rots: &[i32],    // G spin table (9 per op)
+    g_spin_su2: &[f64],     // G spin SU(2) (4 per op)
+    h_spin_rots: &[i32],    // H spin table
+    h_spin_su2: &[f64],     // H spin SU(2)
 ) -> Option<f64> {
     let n_g = g_spin_rots.len() / 9;
     let n_h = h_spin_rots.len() / 9;
@@ -277,11 +293,18 @@ fn compute_signed_perm_spin_parity(
     // 1. Find U_G(sq_rot) in G spin table
     let g_idx = (0..n_g).find(|&i| {
         let off = i * 9;
-        g_spin_rots[off..off+9] == [
-            sq_rot[0][0], sq_rot[0][1], sq_rot[0][2],
-            sq_rot[1][0], sq_rot[1][1], sq_rot[1][2],
-            sq_rot[2][0], sq_rot[2][1], sq_rot[2][2],
-        ]
+        g_spin_rots[off..off + 9]
+            == [
+                sq_rot[0][0],
+                sq_rot[0][1],
+                sq_rot[0][2],
+                sq_rot[1][0],
+                sq_rot[1][1],
+                sq_rot[1][2],
+                sq_rot[2][0],
+                sq_rot[2][1],
+                sq_rot[2][2],
+            ]
     })?;
     let u_g = &[
         g_spin_su2[g_idx * 4],
@@ -292,24 +315,28 @@ fn compute_signed_perm_spin_parity(
     // P = det(P)·Q → since det(P) = -1, P = -Q
     // P·R·P⁻¹ = (-Q)·R·(-Q)⁻¹ = Q·R·Q⁻¹ (the -1 factors cancel)
     // For signed-permutation Q with det=1: Q⁻¹ = Q^T
-    let q_mat: [[i32; 3]; 3] = [[q[0][0], q[0][1], q[0][2]],
-                                  [q[1][0], q[1][1], q[1][2]],
-                                  [q[2][0], q[2][1], q[2][2]]];
+    let q_mat: [[i32; 3]; 3] = [
+        [q[0][0], q[0][1], q[0][2]],
+        [q[1][0], q[1][1], q[1][2]],
+        [q[2][0], q[2][1], q[2][2]],
+    ];
     let r_mat: [[i32; 3]; 3] = *sq_rot;
-    let q_inv: [[i32; 3]; 3] = [[q_mat[0][0], q_mat[1][0], q_mat[2][0]],
-                                  [q_mat[0][1], q_mat[1][1], q_mat[2][1]],
-                                  [q_mat[0][2], q_mat[1][2], q_mat[2][2]]];
+    let q_inv: [[i32; 3]; 3] = [
+        [q_mat[0][0], q_mat[1][0], q_mat[2][0]],
+        [q_mat[0][1], q_mat[1][1], q_mat[2][1]],
+        [q_mat[0][2], q_mat[1][2], q_mat[2][2]],
+    ];
     let qr = crate::mathfunc::mat_multiply_matrix_i3(&q_mat, &r_mat);
     let r_h = crate::mathfunc::mat_multiply_matrix_i3(&qr, &q_inv);
 
     // 2. Find U_H(R') in H spin table
     let h_idx = (0..n_h).find(|&i| {
         let off = i * 9;
-        h_spin_rots[off..off+9] == [
-            r_h[0][0], r_h[0][1], r_h[0][2],
-            r_h[1][0], r_h[1][1], r_h[1][2],
-            r_h[2][0], r_h[2][1], r_h[2][2],
-        ]
+        h_spin_rots[off..off + 9]
+            == [
+                r_h[0][0], r_h[0][1], r_h[0][2], r_h[1][0], r_h[1][1], r_h[1][2], r_h[2][0],
+                r_h[2][1], r_h[2][2],
+            ]
     })?;
     let u_h = &[
         h_spin_su2[h_idx * 4],
@@ -382,12 +409,18 @@ impl SquareKernel {
 /// Returns `(index, is_minus_r_fallback)`.
 pub(crate) fn find_spin_in_db(op: &SeitzOp, spin_seitz: &[SeitzOp]) -> Option<(usize, bool)> {
     // 1. Full Seitz match
-    if let Some(idx) = spin_seitz.iter().position(|s| same_seitz_mod_lattice(op, s)) {
+    if let Some(idx) = spin_seitz
+        .iter()
+        .position(|s| same_seitz_mod_lattice(op, s))
+    {
         return Some((idx, false));
     }
     // 2. Unique rotation match
-    let rot_matches: Vec<usize> = spin_seitz.iter().enumerate()
-        .filter_map(|(i, s)| if s.rot == op.rot { Some(i) } else { None }).collect();
+    let rot_matches: Vec<usize> = spin_seitz
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| if s.rot == op.rot { Some(i) } else { None })
+        .collect();
     if rot_matches.len() == 1 {
         return Some((rot_matches[0], false));
     }
@@ -397,8 +430,11 @@ pub(crate) fn find_spin_in_db(op: &SeitzOp, spin_seitz: &[SeitzOp]) -> Option<(u
         [-op.rot[1][0], -op.rot[1][1], -op.rot[1][2]],
         [-op.rot[2][0], -op.rot[2][1], -op.rot[2][2]],
     ];
-    let minus_matches: Vec<usize> = spin_seitz.iter().enumerate()
-        .filter_map(|(i, s)| if s.rot == r_minus { Some(i) } else { None }).collect();
+    let minus_matches: Vec<usize> = spin_seitz
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| if s.rot == r_minus { Some(i) } else { None })
+        .collect();
     if minus_matches.len() == 1 {
         return Some((minus_matches[0], true));
     }
@@ -427,7 +463,9 @@ pub fn infer_eta_ebar(
     for (local, &global) in spin_lg_op_indices.iter().enumerate() {
         let si = global as usize;
         let sop = h_spin_seitz.get(si)?;
-        if sop.rot != id_rot { continue; }
+        if sop.rot != id_rot {
+            continue;
+        }
         let u = spin_su2_at(h_spin_su2, si)?;
 
         if su2_same_up_to_sign(&u, &u_e) == Some(false) {
@@ -441,9 +479,13 @@ pub fn infer_eta_ebar(
     match (chi_e, chi_ebar) {
         (Some(e), Some(eb)) if e.abs() > 1e-9 => {
             let eta = eb / e;
-            if (eta - 1.0).abs() < 1e-6 { Some(1.0) }
-            else if (eta + 1.0).abs() < 1e-6 { Some(-1.0) }
-            else { None }
+            if (eta - 1.0).abs() < 1e-6 {
+                Some(1.0)
+            } else if (eta + 1.0).abs() < 1e-6 {
+                Some(-1.0)
+            } else {
+                None
+            }
         }
         _ => None,
     }
@@ -503,10 +545,16 @@ impl SeitzOp {
             trans[2] - trans[2].floor(),
         ];
         // Handle -0.0
-        let t = [if t[0] < 0.0 { t[0] + 1.0 } else { t[0] },
-                  if t[1] < 0.0 { t[1] + 1.0 } else { t[1] },
-                  if t[2] < 0.0 { t[2] + 1.0 } else { t[2] }];
-        SeitzOp { rot, trans: t, timerev }
+        let t = [
+            if t[0] < 0.0 { t[0] + 1.0 } else { t[0] },
+            if t[1] < 0.0 { t[1] + 1.0 } else { t[1] },
+            if t[2] < 0.0 { t[2] + 1.0 } else { t[2] },
+        ];
+        SeitzOp {
+            rot,
+            trans: t,
+            timerev,
+        }
     }
 }
 
@@ -535,10 +583,20 @@ pub fn compose_seitz(g1: &SeitzOp, g2: &SeitzOp) -> (SeitzOp, [i32; 3]) {
         let floor = raw.floor();
         lattice[i] = floor as i32;
         t[i] = raw - floor;
-        if t[i] < 0.0 { t[i] += 1.0; lattice[i] -= 1; }
+        if t[i] < 0.0 {
+            t[i] += 1.0;
+            lattice[i] -= 1;
+        }
     }
 
-    (SeitzOp { rot, trans: t, timerev }, lattice)
+    (
+        SeitzOp {
+            rot,
+            trans: t,
+            timerev,
+        },
+        lattice,
+    )
 }
 
 /// Square a Seitz operation: g² = g ∘ g.
@@ -579,10 +637,7 @@ pub fn ops_to_seitz(ops: &SymmetryOps) -> Vec<SeitzOp> {
 /// For centered conventional cells, integer components alone are not
 /// sufficient: the reciprocal shift must also have integer phase against
 /// every pure translation in the unitary translation subgroup.
-pub fn filter_little_group(
-    kx: i8, ky: i8, kz: i8, kd: i8,
-    ops: &SymmetryOps,
-) -> Vec<usize> {
+pub fn filter_little_group(kx: i8, ky: i8, kz: i8, kd: i8, ops: &SymmetryOps) -> Vec<usize> {
     filter_little_group_with_transform(kx, ky, kz, kd, ops, None, None)
 }
 
@@ -615,13 +670,22 @@ pub fn filter_little_group_with_transform(
     if let Some(xf) = setting_xf {
         let all_ok = ops.operations.iter().all(|op| {
             xf.transform_rotation(&op.rotation).is_some()
-                && xf.transform_translation(&op.rotation, &op.translation).is_some()
+                && xf
+                    .transform_translation(&op.rotation, &op.translation)
+                    .is_some()
         });
         if !all_ok {
             // Transform is not universally valid — use MSG frame.
             debug_log!("  LG filter: setting transform invalid, using MSG frame");
-            return filter_little_group_with_transform(kx, ky, kz, kd, ops, None,
-                canonical_pure_translations);
+            return filter_little_group_with_transform(
+                kx,
+                ky,
+                kz,
+                kd,
+                ops,
+                None,
+                canonical_pure_translations,
+            );
         }
     }
 
@@ -633,7 +697,9 @@ pub fn filter_little_group_with_transform(
             if let Some(xf) = setting_xf {
                 // SAFETY: validated above that all ops transform successfully.
                 let rot = xf.transform_rotation(&op.rotation).unwrap();
-                let trans = xf.transform_translation(&op.rotation, &op.translation).unwrap();
+                let trans = xf
+                    .transform_translation(&op.rotation, &op.translation)
+                    .unwrap();
                 (rot, trans, op.time_reversal)
             } else {
                 (op.rotation, op.translation, op.time_reversal)
@@ -771,15 +837,17 @@ pub struct SeitzMatch {
 /// For non-symmorphic groups, multiple operations can share the same
 /// rotation but have different translations.  The first one whose
 /// translation difference is integer (component-wise) is returned.
-pub fn find_seitz(
-    rot: &Mat3I,
-    trans: &[f64; 3],
-    ops: &[SeitzOp],
-) -> Option<SeitzMatch> {
+pub fn find_seitz(rot: &Mat3I, trans: &[f64; 3], ops: &[SeitzOp]) -> Option<SeitzMatch> {
     for (idx, op) in ops.iter().enumerate() {
-        if op.rot[0][0] != rot[0][0] || op.rot[0][1] != rot[0][1] || op.rot[0][2] != rot[0][2]
-        || op.rot[1][0] != rot[1][0] || op.rot[1][1] != rot[1][1] || op.rot[1][2] != rot[1][2]
-        || op.rot[2][0] != rot[2][0] || op.rot[2][1] != rot[2][1] || op.rot[2][2] != rot[2][2]
+        if op.rot[0][0] != rot[0][0]
+            || op.rot[0][1] != rot[0][1]
+            || op.rot[0][2] != rot[0][2]
+            || op.rot[1][0] != rot[1][0]
+            || op.rot[1][1] != rot[1][1]
+            || op.rot[1][2] != rot[1][2]
+            || op.rot[2][0] != rot[2][0]
+            || op.rot[2][1] != rot[2][1]
+            || op.rot[2][2] != rot[2][2]
         {
             continue;
         }
@@ -818,31 +886,20 @@ pub fn bloch_phase(kx: i8, ky: i8, kz: i8, kd: i8, lattice: &[i32; 3]) -> Comple
         ky,
         kz,
         kd,
-        &[
-            lattice[0] as f64,
-            lattice[1] as f64,
-            lattice[2] as f64,
-        ],
+        &[lattice[0] as f64, lattice[1] as f64, lattice[2] as f64],
     )
 }
 
 /// Compute the Bloch phase for a general translation, including fractional
 /// centering and nonsymmorphic shifts between equivalent operation
 /// representatives.
-pub fn bloch_phase_f64(
-    kx: i8,
-    ky: i8,
-    kz: i8,
-    kd: i8,
-    translation: &[f64; 3],
-) -> Complex64 {
+pub fn bloch_phase_f64(kx: i8, ky: i8, kz: i8, kd: i8, translation: &[f64; 3]) -> Complex64 {
     if kd == 0 {
         return Complex64::new(1.0, 0.0);
     }
-    let theta = 2.0 * std::f64::consts::PI
-        * (kx as f64 * translation[0]
-           + ky as f64 * translation[1]
-           + kz as f64 * translation[2])
+    let theta = 2.0
+        * std::f64::consts::PI
+        * (kx as f64 * translation[0] + ky as f64 * translation[1] + kz as f64 * translation[2])
         / (kd as f64);
     Complex64::new(theta.cos(), theta.sin())
 }
@@ -887,7 +944,10 @@ pub fn wigner_classify(
     mag_seitz: &[SeitzOp],
     h_seitz: &[SeitzOp],
     a0_idx: usize,
-    kx: i8, ky: i8, kz: i8, kd: i8,
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
 ) -> CorepType {
     let a0 = &mag_seitz[a0_idx];
     debug_assert!(a0.timerev, "a₀ must be anti-unitary");
@@ -907,21 +967,32 @@ pub fn wigner_classify(
             if m.op_index < h_chars.len() {
                 // Total lattice shift = L_sq + L_match + L1 + R_{g0h}·L1
                 let r_l1 = mat_vec_i32(&g0h.rot, &l1);
-                let total_lattice = add3(
-                    &add3(&lattice_sq, &m.lattice_shift),
-                    &add3(&l1, &r_l1),
-                );
+                let total_lattice = add3(&add3(&lattice_sq, &m.lattice_shift), &add3(&l1, &r_l1));
                 let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
                 let contrib = h_chars[m.op_index] * phase.re;
                 w_sum += contrib;
-                debug_log!("    wigner: h[{}]→H[{}] sq=H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
-                    h_mag_idx, "?", m.op_index, total_lattice, phase.re,
-                    h_chars[m.op_index], contrib);
+                debug_log!(
+                    "    wigner: h[{}]→H[{}] sq=H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
+                    h_mag_idx,
+                    "?",
+                    m.op_index,
+                    total_lattice,
+                    phase.re,
+                    h_chars[m.op_index],
+                    contrib
+                );
             }
         } else {
-            debug_log!("    wigner: h[{}] sq R=[{},{},{};...] t=({:.3},{:.3},{:.3}) NOT FOUND",
-                h_mag_idx, sq.rot[0][0],sq.rot[0][1],sq.rot[0][2],
-                sq.trans[0],sq.trans[1],sq.trans[2]);
+            debug_log!(
+                "    wigner: h[{}] sq R=[{},{},{};...] t=({:.3},{:.3},{:.3}) NOT FOUND",
+                h_mag_idx,
+                sq.rot[0][0],
+                sq.rot[0][1],
+                sq.rot[0][2],
+                sq.trans[0],
+                sq.trans[1],
+                sq.trans[2]
+            );
         }
     }
 
@@ -929,8 +1000,16 @@ pub fn wigner_classify(
     let w = w_sum / n;
 
     // Strict classification: W must be quantized to 0, +1, or -1.
-    debug_log!("DEBUG wigner_classify: w_sum={:.4} n_unitary={} W={:.4} k=({},{},{})/{}",
-        w_sum, unitary_mag_indices.len(), w, kx, ky, kz, kd);
+    debug_log!(
+        "DEBUG wigner_classify: w_sum={:.4} n_unitary={} W={:.4} k=({},{},{})/{}",
+        w_sum,
+        unitary_mag_indices.len(),
+        w,
+        kx,
+        ky,
+        kz,
+        kd
+    );
     let tol = 1e-6;
     if (w - 1.0).abs() < tol {
         CorepType::A
@@ -939,7 +1018,10 @@ pub fn wigner_classify(
     } else if w.abs() < tol {
         CorepType::C
     } else {
-        debug_log!("  Non-quantized Wigner indicator W={:.8}; expected 0, +1, or -1.", w);
+        debug_log!(
+            "  Non-quantized Wigner indicator W={:.8}; expected 0, +1, or -1.",
+            w
+        );
         CorepType::Unsupported
     }
 }
@@ -963,12 +1045,15 @@ pub fn wigner_classify(
 /// where $$\chi_{\text{CIR}}$$ is complex-valued.  W is complex; we
 /// classify by $$|W| < 0.01$$ → Type C, Re(W) > 0 → Type A, else Type B.
 pub fn wigner_classify_cir(
-    cir_chars: &[f64],  // (re, im) pairs for one CIR component
+    cir_chars: &[f64], // (re, im) pairs for one CIR component
     unitary_mag_indices: &[usize],
     mag_seitz: &[SeitzOp],
     h_seitz: &[SeitzOp],
     a0_idx: usize,
-    kx: i8, ky: i8, kz: i8, kd: i8,
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
 ) -> CorepType {
     let a0 = &mag_seitz[a0_idx];
     let mut w_sum = Complex64::new(0.0, 0.0);
@@ -984,28 +1069,41 @@ pub fn wigner_classify_cir(
 
         if let Some(m) = find_seitz(&sq.rot, &sq.trans, h_seitz) {
             let r_l1 = mat_vec_i32(&g0h.rot, &l1);
-            let total_lattice = add3(
-                &add3(&lattice_sq, &m.lattice_shift),
-                &add3(&l1, &r_l1),
-            );
+            let total_lattice = add3(&add3(&lattice_sq, &m.lattice_shift), &add3(&l1, &r_l1));
             let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
             let chi = cir_char_at(cir_chars, m.op_index);
             w_sum += chi * phase;
             // Phase parity stats
-            if phase.re > 0.5 { n_plus += 1; }
-            else if phase.re < -0.5 { n_minus += 1; }
-            debug_log!("    cir: h[{}]→H[{}] Lz_par={} ph={:.2} χ={:.2} → {:.2}",
-                h_mag_idx, m.op_index,
+            if phase.re > 0.5 {
+                n_plus += 1;
+            } else if phase.re < -0.5 {
+                n_minus += 1;
+            }
+            debug_log!(
+                "    cir: h[{}]→H[{}] Lz_par={} ph={:.2} χ={:.2} → {:.2}",
+                h_mag_idx,
+                m.op_index,
                 ((total_lattice[2] % 2) + 2) % 2,
-                phase, chi, chi * phase);
+                phase,
+                chi,
+                chi * phase
+            );
         }
     }
 
     debug_log!("    phase stats: +={} -={}", n_plus, n_minus);
     let n = (unitary_mag_indices.len() as f64).max(1.0);
     let w = w_sum / n;
-    debug_log!("DEBUG wigner_classify_cir: W=({:.8},{:.8}) |W|={:.4} k=({},{},{})/{}",
-        w.re, w.im, w.norm(), kx, ky, kz, kd);
+    debug_log!(
+        "DEBUG wigner_classify_cir: W=({:.8},{:.8}) |W|={:.4} k=({},{},{})/{}",
+        w.re,
+        w.im,
+        w.norm(),
+        kx,
+        ky,
+        kz,
+        kd
+    );
 
     let tol = 1e-6;
     if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
@@ -1071,7 +1169,9 @@ impl SettingTransform {
         for i in 0..3 {
             let ps: f64 = (0..3).map(|j| p2[i][j] * s1[j]).sum();
             origin[i] = (ps + s2[i]) % 1.0;
-            if origin[i] < 0.0 { origin[i] += 1.0; }
+            if origin[i] < 0.0 {
+                origin[i] += 1.0;
+            }
         }
         SettingTransform { basis, origin }
     }
@@ -1081,8 +1181,8 @@ impl SettingTransform {
     /// (i.e. the setting transform is invalid for this MSG frame).
     pub fn transform_rotation(&self, r_msg: &Mat3I) -> Option<Mat3I> {
         let t = self.basis;
-        let t_inv = mat_inverse_matrix_d3(&t, 1e-10)
-            .expect("setting-transform basis must be invertible");
+        let t_inv =
+            mat_inverse_matrix_d3(&t, 1e-10).expect("setting-transform basis must be invertible");
         let mut transformed = [[0.0f64; 3]; 3];
         for i in 0..3 {
             for j in 0..3 {
@@ -1168,10 +1268,23 @@ fn mat_inverse_3i(m: &[[i32; 3]; 3]) -> [[i32; 3]; 3] {
 /// with determinant ±1 whose inverse is also integer and whose rows are orthogonal.
 pub fn enumerate_signed_permutations() -> Vec<[[i32; 3]; 3]> {
     let mut results = Vec::with_capacity(48);
-    let signs = [[1, 1, 1], [1, 1, -1], [1, -1, 1], [1, -1, -1],
-                 [-1, 1, 1], [-1, 1, -1], [-1, -1, 1], [-1, -1, -1]];
+    let signs = [
+        [1, 1, 1],
+        [1, 1, -1],
+        [1, -1, 1],
+        [1, -1, -1],
+        [-1, 1, 1],
+        [-1, 1, -1],
+        [-1, -1, 1],
+        [-1, -1, -1],
+    ];
     let perms: [[usize; 3]; 6] = [
-        [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0],
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
     ];
     for sign in &signs {
         for perm in &perms {
@@ -1197,9 +1310,7 @@ pub fn enumerate_signed_permutations() -> Vec<[[i32; 3]; 3]> {
 static UNIMODULAR_BASES: OnceLock<Vec<[[i32; 3]; 3]>> = OnceLock::new();
 
 pub fn enumerate_unimodular_bases() -> &'static Vec<[[i32; 3]; 3]> {
-    UNIMODULAR_BASES.get_or_init(|| {
-        compute_unimodular_bases()
-    })
+    UNIMODULAR_BASES.get_or_init(|| compute_unimodular_bases())
 }
 
 fn compute_unimodular_bases() -> Vec<[[i32; 3]; 3]> {
@@ -1208,18 +1319,38 @@ fn compute_unimodular_bases() -> Vec<[[i32; 3]; 3]> {
     let seen: std::collections::HashSet<[[i32; 3]; 3]> = results.iter().copied().collect();
     // Generate all matrices with entries in {-1, 0, 1} and determinant ±1.
     let vals = [-1i32, 0, 1];
-    for a00 in &vals { for a01 in &vals { for a02 in &vals {
-    for a10 in &vals { for a11 in &vals { for a12 in &vals {
-    for a20 in &vals { for a21 in &vals { for a22 in &vals {
-        let m = [[*a00, *a01, *a02], [*a10, *a11, *a12], [*a20, *a21, *a22]];
-        if seen.contains(&m) { continue; }
-        let det = m[0][0] * (m[1][1]*m[2][2] - m[1][2]*m[2][1])
-                - m[0][1] * (m[1][0]*m[2][2] - m[1][2]*m[2][0])
-                + m[0][2] * (m[1][0]*m[2][1] - m[1][1]*m[2][0]);
-        if det == 1 || det == -1 {
-            results.push(m);
+    for a00 in &vals {
+        for a01 in &vals {
+            for a02 in &vals {
+                for a10 in &vals {
+                    for a11 in &vals {
+                        for a12 in &vals {
+                            for a20 in &vals {
+                                for a21 in &vals {
+                                    for a22 in &vals {
+                                        let m = [
+                                            [*a00, *a01, *a02],
+                                            [*a10, *a11, *a12],
+                                            [*a20, *a21, *a22],
+                                        ];
+                                        if seen.contains(&m) {
+                                            continue;
+                                        }
+                                        let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+                                            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+                                            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+                                        if det == 1 || det == -1 {
+                                            results.push(m);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-    }}}}}}}}}
+    }
     results
 }
 
@@ -1246,12 +1377,17 @@ pub fn find_setting_transform(
     if rotation_multiset_eq(msg_rots, hall_rots) {
         if let Some(s) = solve_origin_for_t(
             &[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-            msg_rots, msg_trans, hall_rots, hall_trans,
+            msg_rots,
+            msg_trans,
+            hall_rots,
+            hall_trans,
         ) {
             XF_FOUND.fetch_add(1, Ordering::Relaxed);
             XF_IDENTITY.fetch_add(1, Ordering::Relaxed);
             let origin_nz = s[0].abs() > 1e-8 || s[1].abs() > 1e-8 || s[2].abs() > 1e-8;
-            if origin_nz { XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed); }
+            if origin_nz {
+                XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed);
+            }
             results.push(SettingTransform {
                 basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
                 origin: s,
@@ -1268,7 +1404,8 @@ pub fn find_setting_transform(
     // are included in this expanded candidate pool.
     for t in enumerate_unimodular_bases() {
         let t_inv = mat_inverse_3i(t);
-        let xf_rots: Vec<[[i32; 3]; 3]> = msg_rots.iter()
+        let xf_rots: Vec<[[i32; 3]; 3]> = msg_rots
+            .iter()
             .map(|r| {
                 let tmp = mat_multiply_3i_3i(t, r);
                 mat_multiply_3i_3i(&tmp, &t_inv)
@@ -1280,7 +1417,9 @@ pub fn find_setting_transform(
         if let Some(s) = solve_origin_for_t(t, msg_rots, msg_trans, hall_rots, hall_trans) {
             XF_NON_IDENTITY.fetch_add(1, Ordering::Relaxed);
             let origin_nz = s[0].abs() > 1e-8 || s[1].abs() > 1e-8 || s[2].abs() > 1e-8;
-            if origin_nz { XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed); }
+            if origin_nz {
+                XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed);
+            }
             results.push(SettingTransform {
                 basis: t.map(|row| row.map(|value| value as f64)),
                 origin: s,
@@ -1296,8 +1435,12 @@ pub fn find_setting_transform(
     if results.is_empty() {
         let validate_xf = |xf: &SettingTransform| -> bool {
             msg_rots.iter().zip(msg_trans.iter()).all(|(r, tm)| {
-                let Some(xf_r) = xf.transform_rotation(r) else { return false };
-                let Some(xf_t) = xf.transform_translation(r, tm) else { return false };
+                let Some(xf_r) = xf.transform_rotation(r) else {
+                    return false;
+                };
+                let Some(xf_t) = xf.transform_translation(r, tm) else {
+                    return false;
+                };
                 hall_rots.iter().zip(hall_trans.iter()).any(|(hr, ht)| {
                     *hr == xf_r && {
                         let d0 = xf_t[0] - ht[0];
@@ -1313,24 +1456,31 @@ pub fn find_setting_transform(
         // Check if rotations already match (no permutation needed).
         if rotation_multiset_eq(msg_rots, hall_rots) {
             let xf = SettingTransform::identity();
-            if validate_xf(&xf) { results.push(xf); }
+            if validate_xf(&xf) {
+                results.push(xf);
+            }
         }
         // Use enumerate_unimodular_bases() for the same reason as above:
         // GL(3,Z) shears are needed for monoclinic unique-axis conversions.
         for t in enumerate_unimodular_bases() {
             let t_inv = mat_inverse_3i(t);
-            let xf_rots: Vec<[[i32; 3]; 3]> = msg_rots.iter()
+            let xf_rots: Vec<[[i32; 3]; 3]> = msg_rots
+                .iter()
                 .map(|r| {
                     let tmp = mat_multiply_3i_3i(t, r);
                     mat_multiply_3i_3i(&tmp, &t_inv)
                 })
                 .collect();
-            if !rotation_multiset_eq(&xf_rots, hall_rots) { continue; }
+            if !rotation_multiset_eq(&xf_rots, hall_rots) {
+                continue;
+            }
             let xf = SettingTransform {
                 basis: t.map(|row| row.map(|value| value as f64)),
                 origin: [0.0; 3],
             };
-            if validate_xf(&xf) { results.push(xf); }
+            if validate_xf(&xf) {
+                results.push(xf);
+            }
         }
     }
 
@@ -1367,7 +1517,9 @@ fn solve_origin_for_t(
     for (mi, mr) in msg_rots.iter().enumerate() {
         let tmp = mat_multiply_3i_3i(t, mr);
         let xf_r = mat_multiply_3i_3i(&tmp, &t_inv);
-        let pos = hall_rots.iter().enumerate()
+        let pos = hall_rots
+            .iter()
+            .enumerate()
             .position(|(j, hr)| *hr == xf_r && !hall_used[j]);
         if let Some(hi) = pos {
             hall_used[hi] = true;
@@ -1384,9 +1536,9 @@ fn solve_origin_for_t(
 
     for &(msg_idx, hall_idx) in &pairs {
         let rh = hall_rots[hall_idx];
-        let a_row0 = [1.0 - rh[0][0] as f64,      -rh[0][1] as f64,      -rh[0][2] as f64];
-        let a_row1 = [     -rh[1][0] as f64, 1.0 - rh[1][1] as f64,      -rh[1][2] as f64];
-        let a_row2 = [     -rh[2][0] as f64,      -rh[2][1] as f64, 1.0 - rh[2][2] as f64];
+        let a_row0 = [1.0 - rh[0][0] as f64, -rh[0][1] as f64, -rh[0][2] as f64];
+        let a_row1 = [-rh[1][0] as f64, 1.0 - rh[1][1] as f64, -rh[1][2] as f64];
+        let a_row2 = [-rh[2][0] as f64, -rh[2][1] as f64, 1.0 - rh[2][2] as f64];
 
         let th = hall_trans[hall_idx];
         let tm = msg_trans[msg_idx];
@@ -1400,10 +1552,17 @@ fn solve_origin_for_t(
         // Only keep rows where A is not trivially zero (R ≠ I for that row).
         // For the identity rotation, A = 0 and we get 0 ≡ b, which is a
         // consistency condition rather than a constraint on s.
-        let keep_row = |a: &[f64; 3]| a[0].abs() > 1e-12 || a[1].abs() > 1e-12 || a[2].abs() > 1e-12;
-        if keep_row(&a_row0) { eqs.push((a_row0, b[0])); }
-        if keep_row(&a_row1) { eqs.push((a_row1, b[1])); }
-        if keep_row(&a_row2) { eqs.push((a_row2, b[2])); }
+        let keep_row =
+            |a: &[f64; 3]| a[0].abs() > 1e-12 || a[1].abs() > 1e-12 || a[2].abs() > 1e-12;
+        if keep_row(&a_row0) {
+            eqs.push((a_row0, b[0]));
+        }
+        if keep_row(&a_row1) {
+            eqs.push((a_row1, b[1]));
+        }
+        if keep_row(&a_row2) {
+            eqs.push((a_row2, b[2]));
+        }
     }
 
     if eqs.is_empty() {
@@ -1439,9 +1598,13 @@ fn solve_origin_for_t(
 
         // Eliminate other rows.
         for r in 0..n {
-            if r == pivot_row { continue; }
+            if r == pivot_row {
+                continue;
+            }
             let factor = aug[r][col];
-            if factor.abs() < 1e-12 { continue; }
+            if factor.abs() < 1e-12 {
+                continue;
+            }
             for c in col..4 {
                 aug[r][c] -= factor * aug[pivot_row][c];
             }
@@ -1472,8 +1635,12 @@ fn solve_origin_for_t(
     // Normalize s to [0, 1).
     for i in 0..3 {
         s[i] = (s[i] % 1.0 + 1.0) % 1.0;
-        if s[i].abs() < 1e-10 { s[i] = 0.0; }
-        if (s[i] - 1.0).abs() < 1e-10 { s[i] = 0.0; }
+        if s[i].abs() < 1e-10 {
+            s[i] = 0.0;
+        }
+        if (s[i] - 1.0).abs() < 1e-10 {
+            s[i] = 0.0;
+        }
     }
 
     Some(s)
@@ -1481,14 +1648,22 @@ fn solve_origin_for_t(
 
 /// Compare two rotation multisets for equality (order-independent).
 pub fn rotation_multiset_eq(a: &[[[i32; 3]; 3]], b: &[[[i32; 3]; 3]]) -> bool {
-    if a.len() != b.len() { return false; }
+    if a.len() != b.len() {
+        return false;
+    }
     let mut b_used = vec![false; b.len()];
     for ra in a {
         let mut found = false;
         for (j, rb) in b.iter().enumerate() {
-            if !b_used[j] && ra == rb { b_used[j] = true; found = true; break; }
+            if !b_used[j] && ra == rb {
+                b_used[j] = true;
+                found = true;
+                break;
+            }
         }
-        if !found { return false; }
+        if !found {
+            return false;
+        }
     }
     true
 }
@@ -1501,17 +1676,35 @@ pub fn debug_char_order(cir_chars: &[f64], h_seitz: &[SeitzOp], label: &str) {
     for (i, op) in h_seitz.iter().enumerate() {
         let re = cir_chars.get(2 * i).copied().unwrap_or(999.0);
         let im = cir_chars.get(2 * i + 1).copied().unwrap_or(999.0);
-        let is_id = op.rot[0][0] == 1 && op.rot[0][1] == 0 && op.rot[0][2] == 0
-                 && op.rot[1][0] == 0 && op.rot[1][1] == 1 && op.rot[1][2] == 0
-                 && op.rot[2][0] == 0 && op.rot[2][1] == 0 && op.rot[2][2] == 1
-                 && op.trans[0].abs() < 0.01 && op.trans[1].abs() < 0.01 && op.trans[2].abs() < 0.01;
-        debug_log!("  H[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3}) chi=({:.3},{:.3}){}",
+        let is_id = op.rot[0][0] == 1
+            && op.rot[0][1] == 0
+            && op.rot[0][2] == 0
+            && op.rot[1][0] == 0
+            && op.rot[1][1] == 1
+            && op.rot[1][2] == 0
+            && op.rot[2][0] == 0
+            && op.rot[2][1] == 0
+            && op.rot[2][2] == 1
+            && op.trans[0].abs() < 0.01
+            && op.trans[1].abs() < 0.01
+            && op.trans[2].abs() < 0.01;
+        debug_log!(
+            "  H[{}]: R=[{},{},{};{},{},{};{},{},{}] t=({:.3},{:.3},{:.3}) chi=({:.3},{:.3}){}",
             i,
-            op.rot[0][0],op.rot[0][1],op.rot[0][2],
-            op.rot[1][0],op.rot[1][1],op.rot[1][2],
-            op.rot[2][0],op.rot[2][1],op.rot[2][2],
-            op.trans[0], op.trans[1], op.trans[2],
-            re, im,
+            op.rot[0][0],
+            op.rot[0][1],
+            op.rot[0][2],
+            op.rot[1][0],
+            op.rot[1][1],
+            op.rot[1][2],
+            op.rot[2][0],
+            op.rot[2][1],
+            op.rot[2][2],
+            op.trans[0],
+            op.trans[1],
+            op.trans[2],
+            re,
+            im,
             if is_id { " ← ID" } else { "" },
         );
     }
@@ -1525,7 +1718,10 @@ pub fn debug_unwrapped_square(
     a0_idx: usize,
     mag_seitz: &[SeitzOp],
     h_seitz: &[SeitzOp],
-    kx: i8, ky: i8, kz: i8, kd: i8,
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
 ) {
     let a0 = &mag_seitz[a0_idx];
     let h = &mag_seitz[h_mag_idx];
@@ -1533,12 +1729,20 @@ pub fn debug_unwrapped_square(
     // Step 1: g₀h raw (no normalization)
     let rc = mat_multiply_matrix_i3(&a0.rot, &h.rot);
     let r0_th = mat_vec_f64(&a0.rot, &h.trans);
-    let tc_raw = [a0.trans[0] + r0_th[0], a0.trans[1] + r0_th[1], a0.trans[2] + r0_th[2]];
+    let tc_raw = [
+        a0.trans[0] + r0_th[0],
+        a0.trans[1] + r0_th[1],
+        a0.trans[2] + r0_th[2],
+    ];
 
     // Step 2: (g₀h)² raw
     let rsq = mat_multiply_matrix_i3(&rc, &rc);
     let rc_tc = mat_vec_f64(&rc, &tc_raw);
-    let tsq_raw = [tc_raw[0] + rc_tc[0], tc_raw[1] + rc_tc[1], tc_raw[2] + rc_tc[2]];
+    let tsq_raw = [
+        tc_raw[0] + rc_tc[0],
+        tc_raw[1] + rc_tc[1],
+        tc_raw[2] + rc_tc[2],
+    ];
 
     debug_log!("=== unwrapped square: h[{}] ===", h_mag_idx);
     debug_log!("  a0: R={:?}, t={:?}", a0.rot, a0.trans);
@@ -1562,8 +1766,16 @@ pub fn debug_unwrapped_square(
         let phase = bloch_phase(kx, ky, kz, kd, &l_direct);
 
         debug_log!("  matched H[{}]: t_stored={:?}", m.op_index, stored_t);
-        debug_log!("  L_direct={:?} Lz_par={} phase={:.2}", l_direct, lz_par, phase);
-        debug_log!("  m.lattice_shift={:?} (from normalized match)", m.lattice_shift);
+        debug_log!(
+            "  L_direct={:?} Lz_par={} phase={:.2}",
+            l_direct,
+            lz_par,
+            phase
+        );
+        debug_log!(
+            "  m.lattice_shift={:?} (from normalized match)",
+            m.lattice_shift
+        );
     } else {
         debug_log!("  NOT FOUND in h_seitz");
     }
@@ -1578,7 +1790,10 @@ pub fn wigner_direct_anti_coset(
     anti_lg_indices: &[usize],
     mag_seitz: &[SeitzOp],
     h_seitz: &[SeitzOp],
-    kx: i8, ky: i8, kz: i8, kd: i8,
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
 ) -> Complex64 {
     let mut sum = Complex64::ZERO;
     let mut n_plus = 0u32;
@@ -1596,11 +1811,21 @@ pub fn wigner_direct_anti_coset(
         let contrib = chi * phase;
         sum += contrib;
 
-        if phase.re > 0.5 { n_plus += 1; }
-        else if phase.re < -0.5 { n_minus += 1; }
+        if phase.re > 0.5 {
+            n_plus += 1;
+        } else if phase.re < -0.5 {
+            n_minus += 1;
+        }
 
-        debug_log!("  direct: b[{}]^2→H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
-            b_idx, m.op_index, total_lattice, phase, chi, contrib);
+        debug_log!(
+            "  direct: b[{}]^2→H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
+            b_idx,
+            m.op_index,
+            total_lattice,
+            phase,
+            chi,
+            contrib
+        );
     }
     let w = sum / (anti_lg_indices.len() as f64);
     debug_log!("  direct anti stats: +={} -={} W={:.4}", n_plus, n_minus, w);
@@ -1737,10 +1962,12 @@ fn solve_hall_to_spin_origin_for_sg(sg: u8) -> Option<[f64; 3]> {
 
     let mut pairs: Vec<(SeitzOp, SeitzOp)> = Vec::new();
     if spin_seitz.len() <= hall_ops.len()
-        && spin_seitz
-            .iter()
-            .enumerate()
-            .all(|(i, spin)| hall_ops.operations.get(i).map_or(false, |hall| hall.rotation == spin.rot))
+        && spin_seitz.iter().enumerate().all(|(i, spin)| {
+            hall_ops
+                .operations
+                .get(i)
+                .map_or(false, |hall| hall.rotation == spin.rot)
+        })
     {
         for (i, spin) in spin_seitz.iter().enumerate() {
             let hall = &hall_ops.operations[i];
@@ -1784,11 +2011,14 @@ fn solve_hall_to_spin_origin_for_sg(sg: u8) -> Option<[f64; 3]> {
                     .iter()
                     .filter(|(hall, spin)| {
                         let transformed = apply_spin_origin_shift(hall.rot, hall.trans, origin);
-                        translation_delta_in_lattice(&[
-                            transformed[0] - spin.trans[0],
-                            transformed[1] - spin.trans[1],
-                            transformed[2] - spin.trans[2],
-                        ], centering_shifts)
+                        translation_delta_in_lattice(
+                            &[
+                                transformed[0] - spin.trans[0],
+                                transformed[1] - spin.trans[1],
+                                transformed[2] - spin.trans[2],
+                            ],
+                            centering_shifts,
+                        )
                     })
                     .count();
                 if score > best_score {
@@ -1802,7 +2032,11 @@ fn solve_hall_to_spin_origin_for_sg(sg: u8) -> Option<[f64; 3]> {
         }
     }
 
-    if best_score == pairs.len() { best } else { None }
+    if best_score == pairs.len() {
+        best
+    } else {
+        None
+    }
 }
 
 fn build_hall_translation_lattices() -> Vec<Vec<[f64; 3]>> {
@@ -1821,7 +2055,11 @@ fn build_hall_translation_lattices() -> Vec<Vec<[f64; 3]>> {
         };
 
         let mut shifts = Vec::new();
-        for op in hall_ops.operations.iter().filter(|op| op.rotation == identity) {
+        for op in hall_ops
+            .operations
+            .iter()
+            .filter(|op| op.rotation == identity)
+        {
             let shift = normalize_translation(op.translation);
             if !shifts
                 .iter()
@@ -1919,13 +2157,23 @@ pub fn wigner_classify_spinor_direct_anti(
     anti_lg_indices: &[usize],
     mag_seitz: &[SeitzOp],
     setting_xf: Option<&SettingTransform>,
-    kx: i8, ky: i8, kz: i8, kd: i8,
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
 ) -> Option<CorepType> {
     wigner_classify_spinor_direct_anti_diagnostic(
-        ctx, spin_chars_real, spin_chars_imag,
-        spin_lg_op_indices, anti_lg_indices, mag_seitz,
+        ctx,
+        spin_chars_real,
+        spin_chars_imag,
+        spin_lg_op_indices,
+        anti_lg_indices,
+        mag_seitz,
         setting_xf,
-        kx, ky, kz, kd,
+        kx,
+        ky,
+        kz,
+        kd,
         None,
         &[],
     )
@@ -1940,7 +2188,10 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     anti_lg_indices: &[usize],
     mag_seitz: &[SeitzOp],
     setting_xf: Option<&SettingTransform>,
-    kx: i8, ky: i8, kz: i8, kd: i8,
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
     // Optional per-term trace collector (only filled when diagnosing failures)
     mut trace: Option<&mut Vec<PerTermTrace>>,
     // Full translation lattice including centering vectors (from Hall group)
@@ -1960,7 +2211,8 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     }
 
     let global_to_local: std::collections::HashMap<usize, usize> = spin_lg_op_indices
-        .iter().enumerate()
+        .iter()
+        .enumerate()
         .map(|(l, &g)| (g as usize, l))
         .collect();
 
@@ -1969,9 +2221,8 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     // the origin has to be solved from Hall ops vs spin ops, not taken from
     // `isotropy_origin` subgroup records.
     let origin = hall_to_spin_origin_for_sg(ctx.sg);
-    let to_bilbao = |rot: Mat3I, trans: [f64; 3]| -> [f64; 3] {
-        apply_spin_origin_shift(rot, trans, origin)
-    };
+    let to_bilbao =
+        |rot: Mat3I, trans: [f64; 3]| -> [f64; 3] { apply_spin_origin_shift(rot, trans, origin) };
 
     let n_anti = anti_lg_indices.len();
     let mut w_sum = Complex64::ZERO;
@@ -1989,9 +2240,11 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
             // SAFETY: the caller (via filter_little_group_with_transform)
             // validated atomically that the setting transform succeeds for
             // ALL MSG ops, so it must succeed for this antiunitary op too.
-            let rot = xf.transform_rotation(&b.rot)
+            let rot = xf
+                .transform_rotation(&b.rot)
                 .expect("setting transform validated atomically upstream");
-            let trans = xf.transform_translation(&b.rot, &b.trans)
+            let trans = xf
+                .transform_translation(&b.rot, &b.trans)
                 .expect("setting transform validated atomically upstream");
             (rot, trans)
         } else {
@@ -2004,53 +2257,71 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
 
         // b² ∈ H₀ by group theory: b ∈ M_k ⇒ b² ∈ H_k ⇒ R_{b²} ∈ H₀.
         // Use LG-first matching to avoid picking a non-LG candidate.
-        let (sq_spin_idx, sq_in_lg, match_kind) = match find_sq_spin_lg_first(
-            &sq, &h_spin_seitz, spin_lg_op_indices, centering_shifts) {
-            Some(v) => v,
-            None => {
-                // Detailed diagnostic for primitive-group translation failures
-                {
-                    static CNT: AtomicUsize = AtomicUsize::new(0);
-                    let n = CNT.fetch_add(1, Ordering::Relaxed);
-                    if n < 5 {
-                        eprintln!("=== SQ_FAIL_DETAIL #{n}: SG{} ===", ctx.sg);
-                        eprintln!("  b(before to_bilbao): rot={:?} trans=[{:.6},{:.6},{:.6}]",
-                            b_rot, b_trans[0], b_trans[1], b_trans[2]);
-                        eprintln!("  b_bilbao: rot={:?} trans=[{:.6},{:.6},{:.6}]",
-                            b_bilbao.rot, b_bilbao.trans[0], b_bilbao.trans[1], b_bilbao.trans[2]);
-                        eprintln!("  sq: rot={:?} trans=[{:.6},{:.6},{:.6}]",
-                            sq.rot, sq.trans[0], sq.trans[1], sq.trans[2]);
-                        // Show matching spin ops
-                        eprintln!("  Spin ops with matching rot:");
-                        let lg_ix: Vec<usize> = spin_lg_op_indices.iter().map(|&x| x as usize).collect();
-                        for si in 0..h_spin_seitz.len() {
-                            let sop = &h_spin_seitz[si];
-                            if sop.rot == sq.rot {
-                                let in_lg = lg_ix.contains(&si);
-                                eprintln!("    [{}] trans=[{:.6},{:.6},{:.6}] in_lg={}",
-                                    si, sop.trans[0], sop.trans[1], sop.trans[2], in_lg);
+        let (sq_spin_idx, sq_in_lg, match_kind) =
+            match find_sq_spin_lg_first(&sq, &h_spin_seitz, spin_lg_op_indices, centering_shifts) {
+                Some(v) => v,
+                None => {
+                    // Detailed diagnostic for primitive-group translation failures
+                    {
+                        static CNT: AtomicUsize = AtomicUsize::new(0);
+                        let n = CNT.fetch_add(1, Ordering::Relaxed);
+                        if n < 5 {
+                            eprintln!("=== SQ_FAIL_DETAIL #{n}: SG{} ===", ctx.sg);
+                            eprintln!(
+                                "  b(before to_bilbao): rot={:?} trans=[{:.6},{:.6},{:.6}]",
+                                b_rot, b_trans[0], b_trans[1], b_trans[2]
+                            );
+                            eprintln!(
+                                "  b_bilbao: rot={:?} trans=[{:.6},{:.6},{:.6}]",
+                                b_bilbao.rot,
+                                b_bilbao.trans[0],
+                                b_bilbao.trans[1],
+                                b_bilbao.trans[2]
+                            );
+                            eprintln!(
+                                "  sq: rot={:?} trans=[{:.6},{:.6},{:.6}]",
+                                sq.rot, sq.trans[0], sq.trans[1], sq.trans[2]
+                            );
+                            // Show matching spin ops
+                            eprintln!("  Spin ops with matching rot:");
+                            let lg_ix: Vec<usize> =
+                                spin_lg_op_indices.iter().map(|&x| x as usize).collect();
+                            for si in 0..h_spin_seitz.len() {
+                                let sop = &h_spin_seitz[si];
+                                if sop.rot == sq.rot {
+                                    let in_lg = lg_ix.contains(&si);
+                                    eprintln!(
+                                        "    [{}] trans=[{:.6},{:.6},{:.6}] in_lg={}",
+                                        si, sop.trans[0], sop.trans[1], sop.trans[2], in_lg
+                                    );
+                                }
                             }
+                            eprintln!("  centering_shifts={:.6?}", centering_shifts);
+                            eprintln!("  sg_setting_origin={:.6?}", origin);
+                            // Show how to_bilbao transforms b
+                            let tb = to_bilbao(b_rot, b_trans);
+                            eprintln!("  to_bilbao(b): [{:.6},{:.6},{:.6}]", tb[0], tb[1], tb[2]);
                         }
-                        eprintln!("  centering_shifts={:.6?}", centering_shifts);
-                        eprintln!("  sg_setting_origin={:.6?}", origin);
-                        // Show how to_bilbao transforms b
-                        let tb = to_bilbao(b_rot, b_trans);
-                        eprintln!("  to_bilbao(b): [{:.6},{:.6},{:.6}]", tb[0], tb[1], tb[2]);
                     }
+                    debug_log!(
+                        "  SPINOR_DIRECT_ANTI fail: b[{}]² rot={:?} not in H spin ops",
+                        b_idx,
+                        sq.rot
+                    );
+                    return Err(DirectAntiFailure::SquareNotInSpinTable);
                 }
-                debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² rot={:?} not in H spin ops",
-                    b_idx, sq.rot);
-                return Err(DirectAntiFailure::SquareNotInSpinTable);
-            }
-        };
+            };
 
         let sq_local_idx = if sq_in_lg {
             *global_to_local
                 .get(&sq_spin_idx)
                 .ok_or(DirectAntiFailure::SquareOutsideLittleGroup)?
         } else {
-            debug_log!("  SPINOR_DIRECT_ANTI fail: b[{}]² spin[{}] not in LG idxs",
-                b_idx, sq_spin_idx);
+            debug_log!(
+                "  SPINOR_DIRECT_ANTI fail: b[{}]² spin[{}] not in LG idxs",
+                b_idx,
+                sq_spin_idx
+            );
             return Err(DirectAntiFailure::SquareOutsideLittleGroup);
         };
         let sq_spin = h_spin_seitz
@@ -2071,7 +2342,9 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         // Therefore G lookup must use the UNTRANSFORMED b.rot, NOT the
         // H-Hall-transformed b_rot.  The setting transform maps MSG→H,
         // but G spin is not in H's frame.
-        let b_spin_idx = g_spin_seitz.iter().position(|s| s.rot == b.rot)
+        let b_spin_idx = g_spin_seitz
+            .iter()
+            .position(|s| s.rot == b.rot)
             .or_else(|| {
                 let neg: Mat3I = [
                     [-b.rot[0][0], -b.rot[0][1], -b.rot[0][2]],
@@ -2081,8 +2354,8 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
                 g_spin_seitz.iter().position(|s| s.rot == neg)
             })
             .ok_or(DirectAntiFailure::AntiunitarySpinLookup)?;
-        let u_b = spin_su2_at(g_spin_su2, b_spin_idx)
-            .ok_or(DirectAntiFailure::AntiunitarySu2Missing)?;
+        let u_b =
+            spin_su2_at(g_spin_su2, b_spin_idx).ok_or(DirectAntiFailure::AntiunitarySu2Missing)?;
 
         // SU(2) central detection: U_b² vs canonical U_{b²}.
         // Compute entirely in G frame to avoid cross-gauge comparison.
@@ -2094,18 +2367,31 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         // relying on the spin-table gauge to detect the Θ² sign.
         let u_b_sq = neg_pauli(&su2_compose(&u_b, &u_b));
         let b_sq_rot_ms_g = crate::mathfunc::mat_multiply_matrix_i3(&b.rot, &b.rot);
-        let g_sq_idx = g_spin_seitz.iter().position(|s| s.rot == b_sq_rot_ms_g)
+        let g_sq_idx = g_spin_seitz
+            .iter()
+            .position(|s| s.rot == b_sq_rot_ms_g)
             .or_else(|| {
                 let neg: crate::mathfunc::Mat3I = [
-                    [-b_sq_rot_ms_g[0][0], -b_sq_rot_ms_g[0][1], -b_sq_rot_ms_g[0][2]],
-                    [-b_sq_rot_ms_g[1][0], -b_sq_rot_ms_g[1][1], -b_sq_rot_ms_g[1][2]],
-                    [-b_sq_rot_ms_g[2][0], -b_sq_rot_ms_g[2][1], -b_sq_rot_ms_g[2][2]],
+                    [
+                        -b_sq_rot_ms_g[0][0],
+                        -b_sq_rot_ms_g[0][1],
+                        -b_sq_rot_ms_g[0][2],
+                    ],
+                    [
+                        -b_sq_rot_ms_g[1][0],
+                        -b_sq_rot_ms_g[1][1],
+                        -b_sq_rot_ms_g[1][2],
+                    ],
+                    [
+                        -b_sq_rot_ms_g[2][0],
+                        -b_sq_rot_ms_g[2][1],
+                        -b_sq_rot_ms_g[2][2],
+                    ],
                 ];
                 g_spin_seitz.iter().position(|s| s.rot == neg)
             });
         let u_sq_g = match g_sq_idx {
-            Some(idx) => spin_su2_at(g_spin_su2, idx)
-                .ok_or(DirectAntiFailure::SquareSu2Missing)?,
+            Some(idx) => spin_su2_at(g_spin_su2, idx).ok_or(DirectAntiFailure::SquareSu2Missing)?,
             None => return Err(DirectAntiFailure::SquareNotInSpinTable),
         };
         // U_b² vs canonical U_{b²} in the G spin table.
@@ -2114,8 +2400,8 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         //     → spatial square IS Ē → Θ² already compensated → central=false
         //   LiftRelation::EBar: -U_b² = -U_{b²} → U_b² = +U_{b²}
         //     → spatial square is NOT Ē → Θ² contributes alone → central=true
-        let spatial_central = su2_lift_relation(&u_b_sq, &u_sq_g)
-            .ok_or(DirectAntiFailure::Su2LiftMismatch)?;
+        let spatial_central =
+            su2_lift_relation(&u_b_sq, &u_sq_g).ok_or(DirectAntiFailure::Su2LiftMismatch)?;
         let mut central = spatial_central == LiftRelation::EBar;
 
         // ── G→H spin frame parity ────────────────────────────────────────
@@ -2124,34 +2410,44 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         if let Some(xf) = setting_xf {
             let rows_ok = xf.basis.iter().all(|row| {
                 let nonzeros = row.iter().filter(|&&v| v.abs() > 0.1).count();
-                nonzeros == 1 && row.iter().all(|&v| {
-                    let r = v.round();
-                    r == -1.0 || r == 0.0 || r == 1.0
-                })
+                nonzeros == 1
+                    && row.iter().all(|&v| {
+                        let r = v.round();
+                        r == -1.0 || r == 0.0 || r == 1.0
+                    })
             });
-            let cols_ok = (0..3).all(|j| {
-                (0..3).filter(|&i| xf.basis[i][j].abs() > 0.1).count() == 1
-            });
+            let cols_ok =
+                (0..3).all(|j| (0..3).filter(|&i| xf.basis[i][j].abs() > 0.1).count() == 1);
             let mut ppt = [[0i32; 3]; 3];
             let p_i32: [[i32; 3]; 3] = xf.basis.map(|row| row.map(|v| v.round() as i32));
-            for i in 0..3 { for j in 0..3 {
-                ppt[i][j] = (0..3).map(|k| p_i32[i][k] * p_i32[j][k]).sum();
-            }}
-            if rows_ok && cols_ok && ppt == [[1,0,0],[0,1,0],[0,0,1]] {
-                let det_p = p_i32[0][0] * (p_i32[1][1]*p_i32[2][2] - p_i32[1][2]*p_i32[2][1])
-                          - p_i32[0][1] * (p_i32[1][0]*p_i32[2][2] - p_i32[1][2]*p_i32[2][0])
-                          + p_i32[0][2] * (p_i32[1][0]*p_i32[2][1] - p_i32[1][1]*p_i32[2][0]);
+            for i in 0..3 {
+                for j in 0..3 {
+                    ppt[i][j] = (0..3).map(|k| p_i32[i][k] * p_i32[j][k]).sum();
+                }
+            }
+            if rows_ok && cols_ok && ppt == [[1, 0, 0], [0, 1, 0], [0, 0, 1]] {
+                let det_p = p_i32[0][0] * (p_i32[1][1] * p_i32[2][2] - p_i32[1][2] * p_i32[2][1])
+                    - p_i32[0][1] * (p_i32[1][0] * p_i32[2][2] - p_i32[1][2] * p_i32[2][0])
+                    + p_i32[0][2] * (p_i32[1][0] * p_i32[2][1] - p_i32[1][1] * p_i32[2][0]);
                 let q: [[i32; 3]; 3] = if det_p == -1 {
-                    [[-p_i32[0][0], -p_i32[0][1], -p_i32[0][2]],
-                     [-p_i32[1][0], -p_i32[1][1], -p_i32[1][2]],
-                     [-p_i32[2][0], -p_i32[2][1], -p_i32[2][2]]]
-                } else { p_i32 };
-                if q != [[1,0,0],[0,1,0],[0,0,1]] {
+                    [
+                        [-p_i32[0][0], -p_i32[0][1], -p_i32[0][2]],
+                        [-p_i32[1][0], -p_i32[1][1], -p_i32[1][2]],
+                        [-p_i32[2][0], -p_i32[2][1], -p_i32[2][2]],
+                    ]
+                } else {
+                    p_i32
+                };
+                if q != [[1, 0, 0], [0, 1, 0], [0, 0, 1]] {
                     // Use b_sq_rot_ms_g (G frame) NOT sq.rot (H frame).
-                    if let Some(parity) =
-                        compute_signed_perm_spin_parity(&q, &b_sq_rot_ms_g,
-                            g_spin_rots, g_spin_su2, h_spin_rots, h_spin_su2)
-                    {
+                    if let Some(parity) = compute_signed_perm_spin_parity(
+                        &q,
+                        &b_sq_rot_ms_g,
+                        g_spin_rots,
+                        g_spin_su2,
+                        h_spin_rots,
+                        h_spin_su2,
+                    ) {
                         if (parity - (-1.0)).abs() < 0.1 {
                             central = !central;
                         }
@@ -2220,15 +2516,22 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     // Dimension from identity canonical lift.
     let id_rot: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
     let u_id = [1.0, 0.0, 0.0, 0.0];
-    let h_dim = spin_lg_op_indices.iter()
+    let h_dim = spin_lg_op_indices
+        .iter()
         .map(|&x| x as usize)
         .find_map(|si| {
             let sop = h_spin_seitz.get(si)?;
-            if sop.rot != id_rot { return None; }
+            if sop.rot != id_rot {
+                return None;
+            }
             let u = spin_su2_at(h_spin_su2, si)?;
-            if su2_same_up_to_sign(&u, &u_id) != Some(false) { return None; }
+            if su2_same_up_to_sign(&u, &u_id) != Some(false) {
+                return None;
+            }
             let local = *global_to_local.get(&si)?;
-            spin_chars_real.get(local).map(|&c| c.abs().round().max(1.0))
+            spin_chars_real
+                .get(local)
+                .map(|&c| c.abs().round().max(1.0))
         })
         .unwrap_or_else(|| {
             spin_chars_real
@@ -2276,7 +2579,10 @@ fn reduce01_with_lattice(t: &[f64; 3]) -> ([f64; 3], [i32; 3]) {
         let fl = t[i].floor();
         l[i] = fl as i32;
         tr[i] = t[i] - fl;
-        if tr[i] < 0.0 { tr[i] += 1.0; l[i] -= 1; }
+        if tr[i] < 0.0 {
+            tr[i] += 1.0;
+            l[i] -= 1;
+        }
     }
     (tr, l)
 }
@@ -2310,14 +2616,14 @@ pub fn build_h_to_irrep_op_map(
             let toff = i * 3;
             roff + 8 < irrep_rots.len()
                 && irrep_rots[roff] == h.rot[0][0]
-                && irrep_rots[roff+1] == h.rot[0][1]
-                && irrep_rots[roff+2] == h.rot[0][2]
-                && irrep_rots[roff+3] == h.rot[1][0]
-                && irrep_rots[roff+4] == h.rot[1][1]
-                && irrep_rots[roff+5] == h.rot[1][2]
-                && irrep_rots[roff+6] == h.rot[2][0]
-                && irrep_rots[roff+7] == h.rot[2][1]
-                && irrep_rots[roff+8] == h.rot[2][2]
+                && irrep_rots[roff + 1] == h.rot[0][1]
+                && irrep_rots[roff + 2] == h.rot[0][2]
+                && irrep_rots[roff + 3] == h.rot[1][0]
+                && irrep_rots[roff + 4] == h.rot[1][1]
+                && irrep_rots[roff + 5] == h.rot[1][2]
+                && irrep_rots[roff + 6] == h.rot[2][0]
+                && irrep_rots[roff + 7] == h.rot[2][1]
+                && irrep_rots[roff + 8] == h.rot[2][2]
                 && (0..3).all(|k| (h.trans[k] - irrep_trans[toff + k]).abs() < SEITZ_TRANS_TOL)
         });
         if aligned {
@@ -2339,16 +2645,18 @@ pub fn build_h_to_irrep_op_map(
                 let off = ir_idx * 9;
                 off + 8 < irrep_rots.len()
                     && irrep_rots[off] == h.rot[0][0]
-                    && irrep_rots[off+1] == h.rot[0][1]
-                    && irrep_rots[off+2] == h.rot[0][2]
-                    && irrep_rots[off+3] == h.rot[1][0]
-                    && irrep_rots[off+4] == h.rot[1][1]
-                    && irrep_rots[off+5] == h.rot[1][2]
-                    && irrep_rots[off+6] == h.rot[2][0]
-                    && irrep_rots[off+7] == h.rot[2][1]
-                    && irrep_rots[off+8] == h.rot[2][2]
+                    && irrep_rots[off + 1] == h.rot[0][1]
+                    && irrep_rots[off + 2] == h.rot[0][2]
+                    && irrep_rots[off + 3] == h.rot[1][0]
+                    && irrep_rots[off + 4] == h.rot[1][1]
+                    && irrep_rots[off + 5] == h.rot[1][2]
+                    && irrep_rots[off + 6] == h.rot[2][0]
+                    && irrep_rots[off + 7] == h.rot[2][1]
+                    && irrep_rots[off + 8] == h.rot[2][2]
             };
-            if !r_match { continue; }
+            if !r_match {
+                continue;
+            }
             let toff = ir_idx * 3;
             let t_ok = (0..3).all(|k| {
                 let d = h.trans[k] - irrep_trans[toff + k];
@@ -2378,23 +2686,44 @@ pub fn build_h_to_cir_map(h_seitz: &[SeitzOp], cir_rots: &[i32]) -> Option<Vec<u
     }
     let mut map = vec![0usize; n_ops];
 
-    debug_log!("build_h_to_cir_map: n_ops={} n_cir_ops={}", n_ops, n_cir_ops);
+    debug_log!(
+        "build_h_to_cir_map: n_ops={} n_cir_ops={}",
+        n_ops,
+        n_cir_ops
+    );
     for h_idx in 0..n_ops {
         let h_op = &h_seitz[h_idx];
         let r = &h_op.rot;
         let found = (0..n_cir_ops).find(|&c| {
             let off = c * 9;
             off + 8 < cir_rots.len()
-            && cir_rots[off] == r[0][0] && cir_rots[off+1] == r[0][1] && cir_rots[off+2] == r[0][2]
-            && cir_rots[off+3] == r[1][0] && cir_rots[off+4] == r[1][1] && cir_rots[off+5] == r[1][2]
-            && cir_rots[off+6] == r[2][0] && cir_rots[off+7] == r[2][1] && cir_rots[off+8] == r[2][2]
+                && cir_rots[off] == r[0][0]
+                && cir_rots[off + 1] == r[0][1]
+                && cir_rots[off + 2] == r[0][2]
+                && cir_rots[off + 3] == r[1][0]
+                && cir_rots[off + 4] == r[1][1]
+                && cir_rots[off + 5] == r[1][2]
+                && cir_rots[off + 6] == r[2][0]
+                && cir_rots[off + 7] == r[2][1]
+                && cir_rots[off + 8] == r[2][2]
         });
         match found {
             Some(c) => map[h_idx] = c,
             None => {
-                debug_log!("build_h_to_cir_map: H[{}] R=[{},{},{};{},{},{};{},{},{}] not found in rots ({} ops)",
-                    h_idx, r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2],
-                    n_cir_ops);
+                debug_log!(
+                    "build_h_to_cir_map: H[{}] R=[{},{},{};{},{},{};{},{},{}] not found in rots ({} ops)",
+                    h_idx,
+                    r[0][0],
+                    r[0][1],
+                    r[0][2],
+                    r[1][0],
+                    r[1][1],
+                    r[1][2],
+                    r[2][0],
+                    r[2][1],
+                    r[2][2],
+                    n_cir_ops
+                );
                 return None;
             }
         }
@@ -2483,20 +2812,49 @@ pub(crate) fn find_sq_spin_lg_first(
         static CNT: AtomicUsize = AtomicUsize::new(0);
         let n = CNT.fetch_add(1, Ordering::Relaxed);
         if n < 20 {
-            let best = lg_cands.iter().filter_map(|&si| h_spin_seitz.get(si))
+            let best = lg_cands
+                .iter()
+                .filter_map(|&si| h_spin_seitz.get(si))
                 .filter(|s| s.rot == sq.rot)
                 .map(|s| {
-                    let d = [sq.trans[0]-s.trans[0], sq.trans[1]-s.trans[1], sq.trans[2]-s.trans[2]];
-                    (s.trans, d, (d[0]-d[0].round()).abs()+(d[1]-d[1].round()).abs()+(d[2]-d[2].round()).abs())
-                }).min_by(|a,b| a.2.partial_cmp(&b.2).unwrap());
+                    let d = [
+                        sq.trans[0] - s.trans[0],
+                        sq.trans[1] - s.trans[1],
+                        sq.trans[2] - s.trans[2],
+                    ];
+                    (
+                        s.trans,
+                        d,
+                        (d[0] - d[0].round()).abs()
+                            + (d[1] - d[1].round()).abs()
+                            + (d[2] - d[2].round()).abs(),
+                    )
+                })
+                .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
             if let Some((sp_trans, delta, err)) = best {
-                eprintln!("  SQ_FAIL #{n}: sq_rot={:?} sq_t=[{:.12}, {:.12}, {:.12}] sp_t=[{:.12}, {:.12}, {:.12}] d=[{:.12}, {:.12}, {:.12}] err={:.2e}",
-                    sq.rot, sq.trans[0], sq.trans[1], sq.trans[2],
-                    sp_trans[0], sp_trans[1], sp_trans[2],
-                    delta[0], delta[1], delta[2], err);
+                eprintln!(
+                    "  SQ_FAIL #{n}: sq_rot={:?} sq_t=[{:.12}, {:.12}, {:.12}] sp_t=[{:.12}, {:.12}, {:.12}] d=[{:.12}, {:.12}, {:.12}] err={:.2e}",
+                    sq.rot,
+                    sq.trans[0],
+                    sq.trans[1],
+                    sq.trans[2],
+                    sp_trans[0],
+                    sp_trans[1],
+                    sp_trans[2],
+                    delta[0],
+                    delta[1],
+                    delta[2],
+                    err
+                );
             } else {
-                eprintln!("  SQ_FAIL #{n}: sq_rot={:?} sq_t=[{:.12}, {:.12}, {:.12}] NO rotation match in LG (n_lg={})",
-                    sq.rot, sq.trans[0], sq.trans[1], sq.trans[2], lg_cands.len());
+                eprintln!(
+                    "  SQ_FAIL #{n}: sq_rot={:?} sq_t=[{:.12}, {:.12}, {:.12}] NO rotation match in LG (n_lg={})",
+                    sq.rot,
+                    sq.trans[0],
+                    sq.trans[1],
+                    sq.trans[2],
+                    lg_cands.len()
+                );
             }
         }
     }
@@ -2557,9 +2915,9 @@ pub enum LiftRelation {
 /// (cos ≠ ±1), or `Some(LiftRelation)` indicating whether they are the
 /// same lift or differ by the central element Ē = -I.
 pub fn su2_lift_relation(a: &[f64; 4], b: &[f64; 4]) -> Option<LiftRelation> {
-    let dot = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
-    let na = (a[0]*a[0] + a[1]*a[1] + a[2]*a[2] + a[3]*a[3]).sqrt();
-    let nb = (b[0]*b[0] + b[1]*b[1] + b[2]*b[2] + b[3]*b[3]).sqrt();
+    let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    let na = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2] + a[3] * a[3]).sqrt();
+    let nb = (b[0] * b[0] + b[1] * b[1] + b[2] * b[2] + b[3] * b[3]).sqrt();
     if na < 1e-10 || nb < 1e-10 {
         return None;
     }
@@ -2601,11 +2959,27 @@ fn spin_seitz_at(idx: usize, spin_op_rots: &[i32], spin_op_trans: &[f64]) -> Opt
         return None;
     }
     let r = [
-        [spin_op_rots[9 * idx + 0], spin_op_rots[9 * idx + 1], spin_op_rots[9 * idx + 2]],
-        [spin_op_rots[9 * idx + 3], spin_op_rots[9 * idx + 4], spin_op_rots[9 * idx + 5]],
-        [spin_op_rots[9 * idx + 6], spin_op_rots[9 * idx + 7], spin_op_rots[9 * idx + 8]],
+        [
+            spin_op_rots[9 * idx + 0],
+            spin_op_rots[9 * idx + 1],
+            spin_op_rots[9 * idx + 2],
+        ],
+        [
+            spin_op_rots[9 * idx + 3],
+            spin_op_rots[9 * idx + 4],
+            spin_op_rots[9 * idx + 5],
+        ],
+        [
+            spin_op_rots[9 * idx + 6],
+            spin_op_rots[9 * idx + 7],
+            spin_op_rots[9 * idx + 8],
+        ],
     ];
-    let t = [spin_op_trans[3 * idx], spin_op_trans[3 * idx + 1], spin_op_trans[3 * idx + 2]];
+    let t = [
+        spin_op_trans[3 * idx],
+        spin_op_trans[3 * idx + 1],
+        spin_op_trans[3 * idx + 2],
+    ];
     Some(SeitzOp::new(r, t, false))
 }
 
@@ -2657,7 +3031,9 @@ pub fn build_h_to_spin_map(
     for h in h_seitz {
         // 1. Full Seitz matching
         let full = allowed.iter().copied().find(|&si| {
-            spin_seitz.get(si).map_or(false, |sop| same_seitz_mod_lattice(h, sop))
+            spin_seitz
+                .get(si)
+                .map_or(false, |sop| same_seitz_mod_lattice(h, sop))
         });
         if let Some(si) = full {
             H2S_OK.fetch_add(1, Ordering::Relaxed);
@@ -2666,9 +3042,11 @@ pub fn build_h_to_spin_map(
         }
 
         // 2. Rotation-only fallback — only when uniquely resolved
-        let rots: Vec<usize> = allowed.iter().copied().filter(|&si| {
-            spin_seitz.get(si).map_or(false, |sop| sop.rot == h.rot)
-        }).collect();
+        let rots: Vec<usize> = allowed
+            .iter()
+            .copied()
+            .filter(|&si| spin_seitz.get(si).map_or(false, |sop| sop.rot == h.rot))
+            .collect();
 
         if rots.len() == 1 {
             H2S_OK.fetch_add(1, Ordering::Relaxed);
@@ -2724,7 +3102,10 @@ fn wigner_classify_spinor_msg_gauge(
     mag_seitz: &[SeitzOp],
     h_seitz: &[SeitzOp],
     a0_idx: usize,
-    kx: i8, ky: i8, kz: i8, kd: i8,
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
 ) -> Option<CorepType> {
     let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
     let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
@@ -2735,10 +3116,11 @@ fn wigner_classify_spinor_msg_gauge(
     }
 
     let h_to_spin = build_h_to_spin_map(h_seitz, &h_spin_seitz, spin_lg_op_indices);
-    let global_to_local: std::collections::HashMap<usize, usize> =
-        spin_lg_op_indices.iter().enumerate()
-            .map(|(local, &global)| (global as usize, local))
-            .collect();
+    let global_to_local: std::collections::HashMap<usize, usize> = spin_lg_op_indices
+        .iter()
+        .enumerate()
+        .map(|(local, &global)| (global as usize, local))
+        .collect();
 
     // Map each little-co-group character position to a concrete unitary MSG
     // operation.  This is the coordinate frame in which a0 is defined.
@@ -2751,27 +3133,20 @@ fn wigner_classify_spinor_msg_gauge(
     // See commit 8478ce2 for the H2S diagnostic that confirmed this.
     let mut spin_to_mag = std::collections::HashMap::<usize, usize>::new();
     for &mag_idx in unitary_mag_indices {
-        let h_match = find_seitz(
-            &mag_seitz[mag_idx].rot,
-            &mag_seitz[mag_idx].trans,
-            h_seitz,
-        )?;
+        let h_match = find_seitz(&mag_seitz[mag_idx].rot, &mag_seitz[mag_idx].trans, h_seitz)?;
         if let Some(Some(spin_idx)) = h_to_spin.get(h_match.op_index) {
             spin_to_mag.entry(*spin_idx).or_insert(mag_idx);
         }
     }
     // Track whether any spin_lg_op is unmapped (diagnostic, not fatal).
-    let has_unmapped = spin_lg_op_indices.iter()
+    let has_unmapped = spin_lg_op_indices
+        .iter()
         .any(|&idx| !spin_to_mag.contains_key(&(idx as usize)));
     if has_unmapped {
         MSG_GAUGE_MAP_FAIL.fetch_add(1, Ordering::Relaxed);
     }
 
-    let a0_spatial = SeitzOp::new(
-        mag_seitz[a0_idx].rot,
-        mag_seitz[a0_idx].trans,
-        false,
-    );
+    let a0_spatial = SeitzOp::new(mag_seitz[a0_idx].rot, mag_seitz[a0_idx].trans, false);
     let (a0_spin_idx, _) = find_spin_in_db(&a0_spatial, &g_spin_seitz)?;
     let u_a0 = spin_su2_at(g_spin_su2, a0_spin_idx)?;
     let eta_ebar = -1.0;
@@ -2787,11 +3162,7 @@ fn wigner_classify_spinor_msg_gauge(
             Some(&m) => m,
             None => continue,
         };
-        let h_msg = SeitzOp::new(
-            mag_seitz[mag_idx].rot,
-            mag_seitz[mag_idx].trans,
-            false,
-        );
+        let h_msg = SeitzOp::new(mag_seitz[mag_idx].rot, mag_seitz[mag_idx].trans, false);
 
         let (g0h, l1) = compose_seitz(&a0_spatial, &h_msg);
         let (sq, lattice_sq) = square_seitz(&g0h);
@@ -2835,7 +3206,8 @@ fn wigner_classify_spinor_msg_gauge(
     // Normalize by |H₀ ∩ H'| — the number of little-co-group elements
     // that actually have unitary MSG counterparts, not the full |H₀|.
     let w = w_sum / (n_mapped as f64);
-    let h_dim = spin_lg_op_indices.iter()
+    let h_dim = spin_lg_op_indices
+        .iter()
         .enumerate()
         .find_map(|(local, &global)| {
             let op = h_spin_seitz.get(global as usize)?;
@@ -2867,8 +3239,22 @@ fn wigner_classify_spinor_msg_gauge(
         let count = MSG_GAUGE_W_FAIL.fetch_add(1, Ordering::Relaxed);
         // Print per-term detail for the first 3 W failures
         if count < 3 {
-            eprintln!("  W_FAIL#{}: sg={} k=({}/{},{}/{},{}/{}) dim={:.0} n_mapped={} w=({:.6},{:.6}) |w|={:.6}",
-                count, ctx.sg, kx, kd, ky, kd, kz, kd, h_dim, n_mapped, w.re, w.im, w.norm());
+            eprintln!(
+                "  W_FAIL#{}: sg={} k=({}/{},{}/{},{}/{}) dim={:.0} n_mapped={} w=({:.6},{:.6}) |w|={:.6}",
+                count,
+                ctx.sg,
+                kx,
+                kd,
+                ky,
+                kd,
+                kz,
+                kd,
+                h_dim,
+                n_mapped,
+                w.re,
+                w.im,
+                w.norm()
+            );
         }
         None
     }
@@ -2902,7 +3288,10 @@ pub fn wigner_classify_spinor(
     a0_idx: usize,
     setting_xf: Option<&SettingTransform>,
     anti_lg_indices: Option<&[usize]>,
-    kx: i8, ky: i8, kz: i8, kd: i8,
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
 ) -> Option<CorepType> {
     // ── Direct anti-coset path (frame-aware, primary) ────────────────────
     // This path uses setting_xf to transform all operations into the
@@ -2926,13 +3315,7 @@ pub fn wigner_classify_spinor(
             .iter()
             .enumerate()
             .filter(|(_, op)| {
-                op.timerev
-                    && seitz_preserves_k(
-                        &op.rot,
-                        true,
-                        &pure_translations,
-                        kx, ky, kz, kd,
-                    )
+                op.timerev && seitz_preserves_k(&op.rot, true, &pure_translations, kx, ky, kz, kd)
             })
             .map(|(idx, _)| idx)
             .collect();
@@ -2951,7 +3334,10 @@ pub fn wigner_classify_spinor(
         &indices,
         mag_seitz,
         setting_xf,
-        kx, ky, kz, kd,
+        kx,
+        ky,
+        kz,
+        kd,
         None,
         &[],
     ) {
@@ -2972,7 +3358,10 @@ pub fn wigner_classify_spinor(
         mag_seitz,
         h_seitz,
         a0_idx,
-        kx, ky, kz, kd,
+        kx,
+        ky,
+        kz,
+        kd,
     )
 }
 
@@ -2986,7 +3375,10 @@ fn wigner_classify_spinor_primary(
     mag_seitz: &[SeitzOp],
     h_seitz: &[SeitzOp],
     a0_idx: usize,
-    kx: i8, ky: i8, kz: i8, kd: i8,
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
 ) -> Option<CorepType> {
     // Try MSG-gauge path first (correct coordinate frame).
     if let Some(result) = wigner_classify_spinor_msg_gauge(
@@ -2999,7 +3391,10 @@ fn wigner_classify_spinor_primary(
         mag_seitz,
         h_seitz,
         a0_idx,
-        kx, ky, kz, kd,
+        kx,
+        ky,
+        kz,
+        kd,
     ) {
         return Some(result);
     }
@@ -3038,14 +3433,19 @@ fn wigner_classify_spinor_primary(
     // Infer central parity eta_ebar = chi(Ebar)/chi(E) from the character table.
     // For genuine spinor irreps: -1.0.  For single-valued: +1.0.
     let eta_ebar = infer_eta_ebar(
-        spin_chars_real, spin_lg_op_indices, &h_spin_seitz, h_spin_su2,
-    ).unwrap_or(-1.0);
+        spin_chars_real,
+        spin_lg_op_indices,
+        &h_spin_seitz,
+        h_spin_su2,
+    )
+    .unwrap_or(-1.0);
 
     let a0 = &mag_seitz[a0_idx];
 
     // a₀ SU(2) lift: rotation-only lookup in G's spin ops.
     let g_spin_seitz = build_spin_seitz(g_spin_rots, g_spin_trans);
-    let a0_match = g_spin_seitz.iter()
+    let a0_match = g_spin_seitz
+        .iter()
         .position(|s| s.rot == a0.rot)
         .or_else(|| {
             // For improper rotations (det=-1, e.g. mirrors) that aren't
@@ -3065,9 +3465,8 @@ fn wigner_classify_spinor_primary(
     // Data-Hall → spin-table origin shift. a₀ comes from MSG/data-Hall and
     // needs conversion; h is from spin_seitz and is already in spin convention.
     let origin = hall_to_spin_origin_for_sg(ctx.sg);
-    let to_bilbao = |rot: Mat3I, trans: [f64; 3]| -> [f64; 3] {
-        apply_spin_origin_shift(rot, trans, origin)
-    };
+    let to_bilbao =
+        |rot: Mat3I, trans: [f64; 3]| -> [f64; 3] { apply_spin_origin_shift(rot, trans, origin) };
 
     let a0_bilbao = SeitzOp::new(a0.rot, to_bilbao(a0.rot, a0.trans), false);
 
@@ -3097,8 +3496,11 @@ fn wigner_classify_spinor_primary(
         // Priority: full Seitz in LG → unique rotation in LG → global rotation.
         // This avoids position() picking a non-LG candidate when an LG candidate exists.
         let (sq_spin_idx, sq_in_lg, _match_kind) = match find_sq_spin_lg_first(
-            &sq, &h_spin_seitz, spin_lg_op_indices,
-            centering_shifts_for_sg(ctx.sg)) {
+            &sq,
+            &h_spin_seitz,
+            spin_lg_op_indices,
+            centering_shifts_for_sg(ctx.sg),
+        ) {
             Some(v) => v,
             None => {
                 eprintln!("  WIGNER_SPINOR: sq_rot not in spin ops, aborting case");
@@ -3115,8 +3517,14 @@ fn wigner_classify_spinor_primary(
         // central=true: u_sq ≈ -u_k (differs by Ebar)
         // central=false: u_sq ≈ u_k (same lift)
         let central = match su2_same_up_to_sign(&u_sq, &u_k) {
-            Some(false) => { SU2_REL_SAME.fetch_add(1, Ordering::Relaxed); false }
-            Some(true) => { SU2_REL_EBAR.fetch_add(1, Ordering::Relaxed); true }
+            Some(false) => {
+                SU2_REL_SAME.fetch_add(1, Ordering::Relaxed);
+                false
+            }
+            Some(true) => {
+                SU2_REL_EBAR.fetch_add(1, Ordering::Relaxed);
+                true
+            }
             None => {
                 SU2_REL_NONE.fetch_add(1, Ordering::Relaxed);
                 // Scan same-rotation candidates
@@ -3126,49 +3534,85 @@ fn wigner_classify_spinor_primary(
                 let mut matched_other_global = false;
                 let mut has_cand = false;
                 for (ci, cs) in h_spin_seitz.iter().enumerate() {
-                    if cs.rot != sq.rot || ci == sq_spin_idx { continue; }
+                    if cs.rot != sq.rot || ci == sq_spin_idx {
+                        continue;
+                    }
                     has_cand = true;
                     if let Some(uc) = spin_su2_at(h_spin_su2, ci) {
                         if su2_same_up_to_sign(&u_sq, &uc).is_some() {
-                            if lg_set.contains(&ci) { matched_other_lg = true; }
-                            else { matched_other_global = true; }
+                            if lg_set.contains(&ci) {
+                                matched_other_lg = true;
+                            } else {
+                                matched_other_global = true;
+                            }
                         }
                     }
                 }
-                if matched_other_lg { NONE_MATCH_OTHER_LG.fetch_add(1, Ordering::Relaxed); }
-                else if matched_other_global { NONE_MATCH_OTHER_GLOBAL.fetch_add(1, Ordering::Relaxed); }
-                else if has_cand { NONE_NO_MATCH_HAS_CAND.fetch_add(1, Ordering::Relaxed); }
-                else { NONE_NO_CANDIDATE.fetch_add(1, Ordering::Relaxed); }
+                if matched_other_lg {
+                    NONE_MATCH_OTHER_LG.fetch_add(1, Ordering::Relaxed);
+                } else if matched_other_global {
+                    NONE_MATCH_OTHER_GLOBAL.fetch_add(1, Ordering::Relaxed);
+                } else if has_cand {
+                    NONE_NO_MATCH_HAS_CAND.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    NONE_NO_CANDIDATE.fetch_add(1, Ordering::Relaxed);
+                }
                 // Det distribution
-                let det_a0 = a0.rot[0][0]*(a0.rot[1][1]*a0.rot[2][2]-a0.rot[1][2]*a0.rot[2][1])
-                    - a0.rot[0][1]*(a0.rot[1][0]*a0.rot[2][2]-a0.rot[1][2]*a0.rot[2][0])
-                    + a0.rot[0][2]*(a0.rot[1][0]*a0.rot[2][1]-a0.rot[1][1]*a0.rot[2][0]);
-                if det_a0 > 0 { NONE_DET_A0_P1.fetch_add(1, Ordering::Relaxed); }
-                else { NONE_DET_A0_M1.fetch_add(1, Ordering::Relaxed); }
-                let det_g0h = g0h.rot[0][0]*(g0h.rot[1][1]*g0h.rot[2][2]-g0h.rot[1][2]*g0h.rot[2][1])
-                    - g0h.rot[0][1]*(g0h.rot[1][0]*g0h.rot[2][2]-g0h.rot[1][2]*g0h.rot[2][0])
-                    + g0h.rot[0][2]*(g0h.rot[1][0]*g0h.rot[2][1]-g0h.rot[1][1]*g0h.rot[2][0]);
-                if det_g0h > 0 { NONE_DET_G0H_P1.fetch_add(1, Ordering::Relaxed); }
-                else { NONE_DET_G0H_M1.fetch_add(1, Ordering::Relaxed); }
+                let det_a0 = a0.rot[0][0]
+                    * (a0.rot[1][1] * a0.rot[2][2] - a0.rot[1][2] * a0.rot[2][1])
+                    - a0.rot[0][1] * (a0.rot[1][0] * a0.rot[2][2] - a0.rot[1][2] * a0.rot[2][0])
+                    + a0.rot[0][2] * (a0.rot[1][0] * a0.rot[2][1] - a0.rot[1][1] * a0.rot[2][0]);
+                if det_a0 > 0 {
+                    NONE_DET_A0_P1.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    NONE_DET_A0_M1.fetch_add(1, Ordering::Relaxed);
+                }
+                let det_g0h = g0h.rot[0][0]
+                    * (g0h.rot[1][1] * g0h.rot[2][2] - g0h.rot[1][2] * g0h.rot[2][1])
+                    - g0h.rot[0][1]
+                        * (g0h.rot[1][0] * g0h.rot[2][2] - g0h.rot[1][2] * g0h.rot[2][0])
+                    + g0h.rot[0][2]
+                        * (g0h.rot[1][0] * g0h.rot[2][1] - g0h.rot[1][1] * g0h.rot[2][0]);
+                if det_g0h > 0 {
+                    NONE_DET_G0H_P1.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    NONE_DET_G0H_M1.fetch_add(1, Ordering::Relaxed);
+                }
                 // Test 6 alternative antiunitary square formulas
                 let u_cj = conj_pauli(&u_g0h);
                 let alts = [
-                    su2_compose(&u_g0h, &u_g0h),           // U^2 (raw)
+                    su2_compose(&u_g0h, &u_g0h),             // U^2 (raw)
                     neg_pauli(&su2_compose(&u_g0h, &u_g0h)), // -U^2
-                    su2_compose(&u_g0h, &u_cj),             // U U*
-                    neg_pauli(&su2_compose(&u_g0h, &u_cj)), // -U U*
-                    su2_compose(&u_cj, &u_g0h),             // U* U
-                    neg_pauli(&su2_compose(&u_cj, &u_g0h)), // -U* U
+                    su2_compose(&u_g0h, &u_cj),              // U U*
+                    neg_pauli(&su2_compose(&u_g0h, &u_cj)),  // -U U*
+                    su2_compose(&u_cj, &u_g0h),              // U* U
+                    neg_pauli(&su2_compose(&u_cj, &u_g0h)),  // -U* U
                 ];
-                let matches: Vec<bool> = alts.iter()
-                    .map(|a| su2_same_up_to_sign(a, &u_k).is_some()).collect();
-                if matches[0] { NONE_ALT_RAW.fetch_add(1, Ordering::Relaxed); }
-                if matches[1] { NONE_ALT_NEG_RAW.fetch_add(1, Ordering::Relaxed); }
-                if matches[2] { NONE_ALT_UUSTAR.fetch_add(1, Ordering::Relaxed); }
-                if matches[3] { NONE_ALT_NEG_UUSTAR.fetch_add(1, Ordering::Relaxed); }
-                if matches[4] { NONE_ALT_STARU.fetch_add(1, Ordering::Relaxed); }
-                if matches[5] { NONE_ALT_NEG_STARU.fetch_add(1, Ordering::Relaxed); }
-                if !matches.iter().any(|&m| m) { NONE_ALT_NONE.fetch_add(1, Ordering::Relaxed); }
+                let matches: Vec<bool> = alts
+                    .iter()
+                    .map(|a| su2_same_up_to_sign(a, &u_k).is_some())
+                    .collect();
+                if matches[0] {
+                    NONE_ALT_RAW.fetch_add(1, Ordering::Relaxed);
+                }
+                if matches[1] {
+                    NONE_ALT_NEG_RAW.fetch_add(1, Ordering::Relaxed);
+                }
+                if matches[2] {
+                    NONE_ALT_UUSTAR.fetch_add(1, Ordering::Relaxed);
+                }
+                if matches[3] {
+                    NONE_ALT_NEG_UUSTAR.fetch_add(1, Ordering::Relaxed);
+                }
+                if matches[4] {
+                    NONE_ALT_STARU.fetch_add(1, Ordering::Relaxed);
+                }
+                if matches[5] {
+                    NONE_ALT_NEG_STARU.fetch_add(1, Ordering::Relaxed);
+                }
+                if !matches.iter().any(|&m| m) {
+                    NONE_ALT_NONE.fetch_add(1, Ordering::Relaxed);
+                }
                 // J-insertion antiunitary square: J = i*sigma_y = [0,0,1,0]
                 let j = [0.0, 0.0, 1.0, 0.0];
                 let ju = su2_compose(&j, &u_g0h);
@@ -3181,11 +3625,21 @@ fn wigner_classify_spinor_primary(
                     su2_same_up_to_sign(&sq_uj, &u_k).is_some(),
                     su2_same_up_to_sign(&neg_pauli(&sq_uj), &u_k).is_some(),
                 ];
-                if j_matches[0] { NONE_JU_JU_STAR.fetch_add(1, Ordering::Relaxed); }
-                if j_matches[1] { NONE_NEG_JU_JU_STAR.fetch_add(1, Ordering::Relaxed); }
-                if j_matches[2] { NONE_UJ_UJ_STAR.fetch_add(1, Ordering::Relaxed); }
-                if j_matches[3] { NONE_NEG_UJ_UJ_STAR.fetch_add(1, Ordering::Relaxed); }
-                if !j_matches.iter().any(|&m| m) { NONE_J_NONE.fetch_add(1, Ordering::Relaxed); }
+                if j_matches[0] {
+                    NONE_JU_JU_STAR.fetch_add(1, Ordering::Relaxed);
+                }
+                if j_matches[1] {
+                    NONE_NEG_JU_JU_STAR.fetch_add(1, Ordering::Relaxed);
+                }
+                if j_matches[2] {
+                    NONE_UJ_UJ_STAR.fetch_add(1, Ordering::Relaxed);
+                }
+                if j_matches[3] {
+                    NONE_NEG_UJ_UJ_STAR.fetch_add(1, Ordering::Relaxed);
+                }
+                if !j_matches.iter().any(|&m| m) {
+                    NONE_J_NONE.fetch_add(1, Ordering::Relaxed);
+                }
                 // G-gauge oracle: all SU(2) in G spin database
                 if let Some((h_g_idx, _)) = find_spin_in_db(h_spin, &g_spin_seitz) {
                     if let Some((sq_g_idx, _)) = find_spin_in_db(&sq, &g_spin_seitz) {
@@ -3198,10 +3652,18 @@ fn wigner_classify_spinor_primary(
                                     Some(true) => GGAUGE_EBAR.fetch_add(1, Ordering::Relaxed),
                                     None => GGAUGE_NONE.fetch_add(1, Ordering::Relaxed),
                                 };
-                            } else { GGAUGE_NONE.fetch_add(1, Ordering::Relaxed); }
-                        } else { GGAUGE_NONE.fetch_add(1, Ordering::Relaxed); }
-                    } else { GGAUGE_SQ_LOOKUP_FAIL.fetch_add(1, Ordering::Relaxed); }
-                } else { GGAUGE_H_LOOKUP_FAIL.fetch_add(1, Ordering::Relaxed); }
+                            } else {
+                                GGAUGE_NONE.fetch_add(1, Ordering::Relaxed);
+                            }
+                        } else {
+                            GGAUGE_NONE.fetch_add(1, Ordering::Relaxed);
+                        }
+                    } else {
+                        GGAUGE_SQ_LOOKUP_FAIL.fetch_add(1, Ordering::Relaxed);
+                    }
+                } else {
+                    GGAUGE_H_LOOKUP_FAIL.fetch_add(1, Ordering::Relaxed);
+                }
                 return None;
             }
         };
@@ -3211,7 +3673,10 @@ fn wigner_classify_spinor_primary(
             *global_to_local.get(&sq_spin_idx)?
         } else {
             // sq outside LG: need extended character, abort case.
-            eprintln!("  WIGNER_SPINOR: sq[{}] not in LG idxs, aborting case", sq_spin_idx);
+            eprintln!(
+                "  WIGNER_SPINOR: sq[{}] not in LG idxs, aborting case",
+                sq_spin_idx
+            );
             return None;
         };
 
@@ -3249,7 +3714,9 @@ fn wigner_classify_spinor_primary(
                 return None;
             }
             let local = *global_to_local.get(&si)?;
-            spin_chars_real.get(local).map(|&c| c.abs().round().max(1.0))
+            spin_chars_real
+                .get(local)
+                .map(|&c| c.abs().round().max(1.0))
         })
         .unwrap_or_else(|| {
             spin_chars_real
@@ -3282,7 +3749,6 @@ fn wigner_classify_spinor_primary(
     }
 }
 
-
 /// Find the partner irrep for Type C by comparing conjugate characters.
 ///
 /// For each irrep Δ_j of H at the same k-point, compute the overlap
@@ -3297,7 +3763,7 @@ fn wigner_classify_spinor_primary(
 /// no clear partner is found (Type A/B case).
 pub fn find_partner(
     conj_chars: &[f64],
-    candidate_chars: &[&[f64]],  // character tables of candidate irreps
+    candidate_chars: &[&[f64]], // character tables of candidate irreps
 ) -> Option<usize> {
     let n_ops = conj_chars.len();
     if n_ops == 0 || candidate_chars.is_empty() {
@@ -3313,12 +3779,14 @@ pub fn find_partner(
     let mut best_overlap = 0.0f64;
 
     for (j, chars_j) in candidate_chars.iter().enumerate() {
-        if chars_j.len() < n_ops { continue; }
+        if chars_j.len() < n_ops {
+            continue;
+        }
         // Dimension must match: Δⱼ ∼ Δᵢ^{a₀} ⇒ same dimension
-        if (chars_j[0].abs() - conj_dim).abs() > 0.01 { continue; }
-        let overlap: f64 = (0..n_ops)
-            .map(|h| conj_chars[h] * chars_j[h])
-            .sum();
+        if (chars_j[0].abs() - conj_dim).abs() > 0.01 {
+            continue;
+        }
+        let overlap: f64 = (0..n_ops).map(|h| conj_chars[h] * chars_j[h]).sum();
         let overlap_norm = overlap.abs() * norm;
 
         if overlap_norm > best_overlap {
@@ -3371,9 +3839,13 @@ pub fn build_corep_chars(
     mag_lg_indices: &[usize],
     op_map: &[Option<usize>],
     h_chars: &[f64],
-    partner_chars: Option<&[f64]>,  // for Type C: character table of paired irrep
-    au_chars: Option<&[f64]>,       // for Type A: pre-computed antiunitary chars
-) -> Vec<f64> {
+    partner_chars: Option<&[f64]>, // for Type C: character table of paired irrep
+    au_chars: Option<&[f64]>,      // for Type A: pre-computed antiunitary chars
+) -> Result<Vec<f64>, &'static str> {
+    if *corep_type == CorepType::Unsupported {
+        return Err("cannot build a character table for Unsupported corep type");
+    }
+
     let n_lg = mag_lg_indices.len();
     let mut chars = vec![0.0; n_lg];
 
@@ -3385,10 +3857,14 @@ pub fn build_corep_chars(
             CorepType::A => {
                 if is_anti {
                     if let Some(ac) = au_chars {
-                        if out_idx < ac.len() { chars[out_idx] = ac[out_idx]; }
+                        if out_idx < ac.len() {
+                            chars[out_idx] = ac[out_idx];
+                        }
                     }
                 } else if let Some(hi) = h_idx {
-                    if hi < h_chars.len() { chars[out_idx] = h_chars[hi]; }
+                    if hi < h_chars.len() {
+                        chars[out_idx] = h_chars[hi];
+                    }
                 }
             }
             CorepType::B => {
@@ -3408,7 +3884,11 @@ pub fn build_corep_chars(
                 } else if let Some(hi) = h_idx {
                     let chi_i = if hi < h_chars.len() { h_chars[hi] } else { 0.0 };
                     let chi_partner = if let Some(pc) = partner_chars {
-                        if hi < pc.len() { pc[hi] } else { 0.0 }
+                        if hi < pc.len() {
+                            pc[hi]
+                        } else {
+                            0.0
+                        }
                     } else {
                         chi_i
                     };
@@ -3416,12 +3896,12 @@ pub fn build_corep_chars(
                 }
             }
             CorepType::Unsupported => {
-                chars[out_idx] = f64::NAN;
+                unreachable!("Unsupported is rejected before character construction")
             }
         }
     }
 
-    chars
+    Ok(chars)
 }
 
 // ── Corep dimension ─────────────────────────────────────────────────────────
@@ -3448,7 +3928,7 @@ mod tests {
     /// Seitz composition: identity ∘ identity = identity.
     #[test]
     fn test_compose_identity() {
-        let id = SeitzOp::new([[1,0,0],[0,1,0],[0,0,1]], [0.0,0.0,0.0], false);
+        let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0, 0.0, 0.0], false);
         let (result, lattice) = compose_seitz(&id, &id);
         assert_eq!(result.rot, id.rot);
         assert_eq!(result.trans, [0.0, 0.0, 0.0]);
@@ -3459,29 +3939,21 @@ mod tests {
     /// Seitz composition: timerev XOR.
     #[test]
     fn test_compose_timerev() {
-        let id = SeitzOp::new([[1,0,0],[0,1,0],[0,0,1]], [0.0,0.0,0.0], false);
-        let a0 = SeitzOp::new([[1,0,0],[0,1,0],[0,0,1]], [0.0,0.0,0.0], true);
-        let (r1, _) = compose_seitz(&a0, &id);  // anti ∘ unitary = anti
+        let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0, 0.0, 0.0], false);
+        let a0 = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0, 0.0, 0.0], true);
+        let (r1, _) = compose_seitz(&a0, &id); // anti ∘ unitary = anti
         assert!(r1.timerev);
-        let (r2, _) = compose_seitz(&a0, &a0);   // anti ∘ anti = unitary
+        let (r2, _) = compose_seitz(&a0, &a0); // anti ∘ anti = unitary
         assert!(!r2.timerev);
-        let (r3, _) = compose_seitz(&id, &a0);   // unitary ∘ anti = anti
+        let (r3, _) = compose_seitz(&id, &a0); // unitary ∘ anti = anti
         assert!(r3.timerev);
     }
 
     /// Seitz composition: translation arithmetic.
     #[test]
     fn test_compose_translation() {
-        let g1 = SeitzOp::new(
-            [[0,-1,0],[1,0,0],[0,0,1]],
-            [0.0, 0.0, 0.5],
-            false,
-        );
-        let g2 = SeitzOp::new(
-            [[1,0,0],[0,1,0],[0,0,1]],
-            [0.5, 0.0, 0.0],
-            false,
-        );
+        let g1 = SeitzOp::new([[0, -1, 0], [1, 0, 0], [0, 0, 1]], [0.0, 0.0, 0.5], false);
+        let g2 = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.5, 0.0, 0.0], false);
         let (result, lattice) = compose_seitz(&g1, &g2);
         // R = [[0,-1,0],[1,0,0],[0,0,1]]
         // t = [0,0,0.5] + R·[0.5,0,0] = [0,0,0.5] + [0,0.5,0] = [0, 0.5, 0.5]
@@ -3492,16 +3964,8 @@ mod tests {
     /// Seitz composition with lattice overflow.
     #[test]
     fn test_compose_lattice_shift() {
-        let g1 = SeitzOp::new(
-            [[1,0,0],[0,1,0],[0,0,1]],
-            [0.7, 0.0, 0.0],
-            false,
-        );
-        let g2 = SeitzOp::new(
-            [[1,0,0],[0,1,0],[0,0,1]],
-            [0.5, 0.0, 0.0],
-            false,
-        );
+        let g1 = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.7, 0.0, 0.0], false);
+        let g2 = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.5, 0.0, 0.0], false);
         let (result, lattice) = compose_seitz(&g1, &g2);
         // t = 0.7 + 0.5 = 1.2 → 0.2 with lattice shift [1,0,0]
         assert!((result.trans[0] - 0.2).abs() < 1e-9);
@@ -3515,8 +3979,10 @@ mod tests {
         // Anti-unitary op with R = [[0,-1,0],[1,0,0],[0,0,-1]] (4' about 001)
         // R·(0,0,1) = (0,0,-1), so -R·k - k = (0,0,1) - (0,0,1) = (0,0,0) ≡ 0 ✓
         let ops = SymmetryOps::from_parallel_owned(
-            vec![[[0,-1,0],[1,0,0],[0,0,-1]],
-                 [[1,0,0],[0,1,0],[0,0,1]]],
+            vec![
+                [[0, -1, 0], [1, 0, 0], [0, 0, -1]],
+                [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            ],
             vec![[0.0; 3], [0.0; 3]],
             vec![true, false],
         );
@@ -3533,8 +3999,10 @@ mod tests {
         // Anti-unitary op with R = [[1,0,0],[0,-1,0],[0,0,-1]]
         // -R·k = (-1,0,0) ≡ (7,0,0) mod 8, -R·k - k = (6,0,0) ≠ 0 → NOT in LG
         let ops = SymmetryOps::from_parallel_owned(
-            vec![[[-1,0,0],[0,1,0],[0,0,1]],
-                 [[1,0,0],[0,-1,0],[0,0,-1]]],
+            vec![
+                [[-1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                [[1, 0, 0], [0, -1, 0], [0, 0, -1]],
+            ],
             vec![[0.0; 3], [0.0; 3]],
             vec![true, true],
         );
@@ -3548,15 +4016,24 @@ mod tests {
         // a₀ = θ (anti-unitary identity), h = id
         // (a₀·id)² = id² = id, χ(id)=1.0 → W=1.0 → type A
         let mag_seitz = vec![
-            SeitzOp::new([[1,0,0],[0,1,0],[0,0,1]], [0.0,0.0,0.0], false), // id
-            SeitzOp::new([[1,0,0],[0,1,0],[0,0,1]], [0.0,0.0,0.0], true),  // θ
+            SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0, 0.0, 0.0], false), // id
+            SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0, 0.0, 0.0], true),  // θ
         ];
-        let h_seitz = vec![
-            SeitzOp::new([[1,0,0],[0,1,0],[0,0,1]], [0.0,0.0,0.0], false),
-        ];
+        let h_seitz = vec![SeitzOp::new(
+            [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            [0.0, 0.0, 0.0],
+            false,
+        )];
         let result = wigner_classify(
-            &[1.0], &[0], &mag_seitz, &h_seitz, 1,
-            0, 0, 0, 1, // Gamma point
+            &[1.0],
+            &[0],
+            &mag_seitz,
+            &h_seitz,
+            1,
+            0,
+            0,
+            0,
+            1, // Gamma point
         );
         assert_eq!(result, CorepType::A);
     }
@@ -3595,24 +4072,41 @@ mod tests {
         let h_irreps = crate::irrep::query::irreps_of(h_sg as u8);
         for ir in h_irreps.iter().filter(|r| r.k_label() == "Z" && !r.spinor) {
             let mag_lg = filter_little_group(ir.kx, ir.ky, ir.kz, ir.kd, &mag_ops);
-            let unitary: Vec<usize> = mag_lg.iter().copied()
-                .filter(|&i| !mag_ops[i].time_reversal).collect();
-            let anti: Vec<usize> = mag_lg.iter().copied()
-                .filter(|&i| mag_ops[i].time_reversal).collect();
+            let unitary: Vec<usize> = mag_lg
+                .iter()
+                .copied()
+                .filter(|&i| !mag_ops[i].time_reversal)
+                .collect();
+            let anti: Vec<usize> = mag_lg
+                .iter()
+                .copied()
+                .filter(|&i| mag_ops[i].time_reversal)
+                .collect();
 
-            if anti.len() <= 1 { continue; }
+            if anti.len() <= 1 {
+                continue;
+            }
 
             let mut types = Vec::new();
             for &a0 in &anti {
                 let ty = wigner_classify(
-                    ir.characters(), &unitary, &mag_seitz, &h_seitz, a0,
-                    ir.kx, ir.ky, ir.kz, ir.kd,
+                    ir.characters(),
+                    &unitary,
+                    &mag_seitz,
+                    &h_seitz,
+                    a0,
+                    ir.kx,
+                    ir.ky,
+                    ir.kz,
+                    ir.kd,
                 );
                 types.push(ty);
             }
             assert!(
                 types.iter().all(|&x| x == types[0]),
-                "Wigner type depends on a₀ for {}: {:?}", ir.ml, types
+                "Wigner type depends on a₀ for {}: {:?}",
+                ir.ml,
+                types
             );
         }
     }
@@ -3624,16 +4118,18 @@ mod tests {
         let q = [[-1i32, 0, 0], [0, 1, 0], [0, 0, -1]];
         let i_rot = [[1i32, 0, 0], [0, 1, 0], [0, 0, 1]];
         // G table: identity lift is (1,0,0,0) = +I
-        let g_rots: [i32; 9] = [1,0,0, 0,1,0, 0,0,1];
+        let g_rots: [i32; 9] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
         let g_su2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
         // H table: identity lift also (1,0,0,0)
-        let h_rots: [i32; 9] = [1,0,0, 0,1,0, 0,0,1];
+        let h_rots: [i32; 9] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
         let h_su2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
-        let parity = compute_signed_perm_spin_parity(
-            &q, &i_rot, &g_rots, &g_su2, &h_rots, &h_su2,
-        ).expect("identity parity must be computable");
-        assert!((parity - 1.0).abs() < 0.1,
-            "ε(I) must be +1, got {}", parity);
+        let parity = compute_signed_perm_spin_parity(&q, &i_rot, &g_rots, &g_su2, &h_rots, &h_su2)
+            .expect("identity parity must be computable");
+        assert!(
+            (parity - 1.0).abs() < 0.1,
+            "ε(I) must be +1, got {}",
+            parity
+        );
     }
 
     /// Invariant: U_Q · U_I · U_Q⁻¹ = U_I for any Q.
@@ -3643,15 +4139,16 @@ mod tests {
         // U_Q · (1,0,0,0) · U_Q⁻¹ = (1,0,0,0) always
         let q = [[-1i32, 0, 0], [0, 1, 0], [0, 0, -1]];
         let i_rot = [[1i32, 0, 0], [0, 1, 0], [0, 0, 1]];
-        let g_rots: [i32; 9] = [1,0,0, 0,1,0, 0,0,1];
+        let g_rots: [i32; 9] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
         let g_su2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
-        let h_rots: [i32; 9] = [1,0,0, 0,1,0, 0,0,1];
+        let h_rots: [i32; 9] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
         let h_su2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
-        let parity = compute_signed_perm_spin_parity(
-            &q, &i_rot, &g_rots, &g_su2, &h_rots, &h_su2,
-        ).expect("conjugating identity must succeed");
-        assert!((parity - 1.0).abs() < 0.1,
-            "U_Q·U_I·U_Q⁻¹ = U_I, so ε(I) must be +1");
+        let parity = compute_signed_perm_spin_parity(&q, &i_rot, &g_rots, &g_su2, &h_rots, &h_su2)
+            .expect("conjugating identity must succeed");
+        assert!(
+            (parity - 1.0).abs() < 0.1,
+            "U_Q·U_I·U_Q⁻¹ = U_I, so ε(I) must be +1"
+        );
     }
 
     /// Invariant: for Q = diag(-1,1,-1) (C2y), C2z in G frame transforms
@@ -3664,28 +4161,22 @@ mod tests {
     fn test_spin_parity_c2z_under_c2y() {
         let q = [[-1i32, 0, 0], [0, 1, 0], [0, 0, -1]];
         let c2z = [[-1i32, 0, 0], [0, -1, 0], [0, 0, 1]];
-        let g_rots: [i32; 18] = [
-            1,0,0, 0,1,0, 0,0,1,
-            -1,0,0, 0,-1,0, 0,0,1,
-        ];
+        let g_rots: [i32; 18] = [1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, 0, 0, -1, 0, 0, 0, 1];
         let g_su2: [f64; 8] = [
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, -1.0,    // -k
+            1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, // -k
         ];
-        let h_rots: [i32; 18] = [
-            1,0,0, 0,1,0, 0,0,1,
-            -1,0,0, 0,-1,0, 0,0,1,
-        ];
+        let h_rots: [i32; 18] = [1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, 0, 0, -1, 0, 0, 0, 1];
         let h_su2: [f64; 8] = [
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, -1.0,    // -k
+            1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, // -k
         ];
-        let parity = compute_signed_perm_spin_parity(
-            &q, &c2z, &g_rots, &g_su2, &h_rots, &h_su2,
-        ).expect("C2z parity must be computable");
+        let parity = compute_signed_perm_spin_parity(&q, &c2z, &g_rots, &g_su2, &h_rots, &h_su2)
+            .expect("C2z parity must be computable");
         // j·(-k)·conj(j) = +k.  H table = -k.  Parity = -1.
-        assert!((parity - (-1.0)).abs() < 0.1,
-            "C2z under C2y: j*(-k)*conj(j)=+k, H_table=-k, parity=-1. Got {}", parity);
+        assert!(
+            (parity - (-1.0)).abs() < 0.1,
+            "C2z under C2y: j*(-k)*conj(j)=+k, H_table=-k, parity=-1. Got {}",
+            parity
+        );
     }
 
     /// Test: G table C2z = -k, H table C2z = +k.
@@ -3695,28 +4186,22 @@ mod tests {
     fn test_spin_parity_c2z_opposite_lift() {
         let q = [[-1i32, 0, 0], [0, 1, 0], [0, 0, -1]];
         let c2z = [[-1i32, 0, 0], [0, -1, 0], [0, 0, 1]];
-        let g_rots: [i32; 18] = [
-            1,0,0, 0,1,0, 0,0,1,
-            -1,0,0, 0,-1,0, 0,0,1,
-        ];
+        let g_rots: [i32; 18] = [1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, 0, 0, -1, 0, 0, 0, 1];
         let g_su2: [f64; 8] = [
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, -1.0,    // -k
+            1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, // -k
         ];
         // H table: C2z = +k
-        let h_rots: [i32; 18] = [
-            1,0,0, 0,1,0, 0,0,1,
-            -1,0,0, 0,-1,0, 0,0,1,
-        ];
+        let h_rots: [i32; 18] = [1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, 0, 0, -1, 0, 0, 0, 1];
         let h_su2: [f64; 8] = [
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 0.0, 0.0, 1.0,     // +k
+            1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, // +k
         ];
-        let parity = compute_signed_perm_spin_parity(
-            &q, &c2z, &g_rots, &g_su2, &h_rots, &h_su2,
-        ).expect("C2z parity must be computable");
+        let parity = compute_signed_perm_spin_parity(&q, &c2z, &g_rots, &g_su2, &h_rots, &h_su2)
+            .expect("C2z parity must be computable");
         // j*(-k)*conj(j) = +k.  H table = +k.  Same → ε = +1.
-        assert!((parity - 1.0).abs() < 0.1,
-            "C2z opposite lift: Q-transformed=+k, H_table=+k, parity=+1. Got {}", parity);
+        assert!(
+            (parity - 1.0).abs() < 0.1,
+            "C2z opposite lift: Q-transformed=+k, H_table=+k, parity=+1. Got {}",
+            parity
+        );
     }
 }

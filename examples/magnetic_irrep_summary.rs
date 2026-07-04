@@ -6,30 +6,11 @@
 use cryspglib::irrep::magnetic_summary::*;
 
 fn main() {
-    // ── BNS 128.406 (black-white, Type III) ──
+    // ── BNS 128.406 (currently exposes an unsupported scalar path) ──
     println!("=== BNS 128.406 ===");
-    let summary = magnetic_irrep_summary_by_bns("128.406").unwrap();
-    println!("{}", format_magnetic_irrep_summary(&summary));
-
-    // Show details for Z point
-    if let Some(z) = summary.kpoints.iter().find(|k| k.label == "Z") {
-        println!();
-        println!("--- Z point details ---");
-        for c in &z.coreps {
-            println!(
-                "  {}  type={:?}  dim={}  source={:?}",
-                c.label, c.corep_type, c.dim, c.source
-            );
-            for ic in &c.isotropy_candidates {
-                println!(
-                    "    isotropy from {} ({:?}): {} ordinary + {} magnetic",
-                    ic.source_ml,
-                    ic.relation,
-                    ic.ordinary.len(),
-                    ic.magnetic.len()
-                );
-            }
-        }
+    match magnetic_irrep_summary_by_bns("128.406") {
+        Ok(summary) => println!("{}", format_magnetic_irrep_summary(&summary)),
+        Err(err) => println!("corep summary failed: {:?}", err),
     }
 
     // ── UNI 2 (grey P1, Type II) ──

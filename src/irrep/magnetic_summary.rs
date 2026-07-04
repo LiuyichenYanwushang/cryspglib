@@ -11,13 +11,13 @@
 //!
 //! # Example
 //!
-//! Query BNS 52.318 (a black-white orthorhombic magnetic group) and list its
-//! high-symmetry k-points with their co-representations:
+//! Query UNI 2 / BNS 1.2 (grey P1) and list its high-symmetry k-points
+//! with their co-representations:
 //!
 //! ```
 //! use cryspglib::irrep::magnetic_summary::*;
 //!
-//! let s = magnetic_irrep_summary_by_bns("52.318").unwrap();
+//! let s = magnetic_irrep_summary_by_uni(2).unwrap();
 //! println!("BNS {}  UNI={}  type={:?}  H=SG{}",
 //!     s.bns_label, s.uni, s.magnetic_type, s.unitary_sg);
 //!
@@ -34,10 +34,6 @@
 //!         let chi0 = c.characters.first().map_or("N/A".to_string(), |v| format!("{:.0}", v));
 //!         println!("  {:20}  type={:?}  dim={}  χ(E)={}  src=[{}]",
 //!             c.label, c.corep_type, c.dim, chi0, srcs.join(", "));
-//!     }
-//!
-//!     if !kp.failed_coreps.is_empty() {
-//!         println!("  (failed: {})", kp.failed_coreps.join(", "));
 //!     }
 //! }
 //! ```
@@ -61,11 +57,13 @@ pub enum MagneticIrrepError {
     MissingUnitarySubgroup(usize),
     /// No irrep data available for this space group.
     MissingIrrepData { sg: u8 },
-    /// Corep computation failed for a specific case.
+    /// Corep computation failed for a specific source H-irrep.
     CorepComputationFailed {
         uni: usize,
         sg: u8,
         k_label: String,
+        source_irrep: String,
+        reason: String,
     },
 }
 
@@ -120,9 +118,6 @@ pub struct MagneticKPointSummary {
     pub antiunitary_order: usize,
     /// Magnetic co-representations at this k-point.
     pub coreps: Vec<MagneticCorepSummary>,
-    /// H-irrep ML labels for which corep computation returned None.
-    /// Non-empty here means data is missing, not that the k-point has no coreps.
-    pub failed_coreps: Vec<String>,
 }
 
 /// A single magnetic co-representation (corep).
@@ -132,7 +127,7 @@ pub struct MagneticCorepSummary {
     pub label: String,
     /// Source H-irreps that compose this corep.
     pub source_irreps: Vec<SourceIrrepSummary>,
-    /// Wigner classification: A, B, C, or Unsupported.
+    /// Wigner classification for successful coreps: A, B, or C.
     pub corep_type: crate::irrep::corep::CorepType,
     /// Which computational path produced the classification.
     pub source: crate::irrep::corep::WignerSource,
@@ -194,8 +189,8 @@ pub enum IsotropyCandidateRelation {
 /// Deduplicate coreps by `(corep_type, dim, rounded characters, timerev)`.
 ///
 /// Only Type-C coreps with finite character values are eligible for merging.
-/// Unsupported, non-Type-C, and coreps with NaN/infinity characters pass
-/// through without deduplication.
+/// Other valid coreps pass through without deduplication. Unsupported and
+/// non-finite coreps should be rejected before this function is called.
 fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> {
     let mut groups: Vec<Vec<MagneticCorepSummary>> = Vec::new();
 
@@ -205,16 +200,12 @@ fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> 
             && c.dim > 0
             && c.characters.iter().all(|&ch| ch.is_finite());
         if !can_dedup {
-            // Pass through — never merge Unsupported, non-C, or NaN entries.
+            // Pass through — never merge non-C entries.
             groups.push(vec![c]);
             continue;
         }
 
-        let key = (
-            c.dim,
-            round_chars(&c.characters),
-            c.timerev.clone(),
-        );
+        let key = (c.dim, round_chars(&c.characters), c.timerev.clone());
         let found = groups.iter_mut().find(|g| {
             let first = &g[0];
             first.corep_type == crate::irrep::corep::CorepType::C
@@ -236,17 +227,11 @@ fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> 
             }
             // Type-C pair: merge source_irreps and update label.
             let mut merged = group.remove(0);
-            let mut extra_sources: Vec<_> = group
-                .into_iter()
-                .flat_map(|c| c.source_irreps)
-                .collect();
+            let mut extra_sources: Vec<_> =
+                group.into_iter().flat_map(|c| c.source_irreps).collect();
             merged.source_irreps.append(&mut extra_sources);
             // Build combined label: sort source ML labels and join with " + ".
-            let mut labels: Vec<&str> = merged
-                .source_irreps
-                .iter()
-                .map(|s| s.ml)
-                .collect();
+            let mut labels: Vec<&str> = merged.source_irreps.iter().map(|s| s.ml).collect();
             labels.sort();
             merged.label = labels.join(" + ");
             merged
@@ -274,9 +259,7 @@ fn attach_isotropy_candidates(
 
             for src in &c.source_irreps {
                 // Find the original IrrepRecord.
-                let ir = h_irreps
-                    .iter()
-                    .find(|r| r.sg == src.sg && r.ml == src.ml);
+                let ir = h_irreps.iter().find(|r| r.sg == src.sg && r.ml == src.ml);
 
                 let relation = if src.spinor {
                     IsotropyCandidateRelation::SpinorNoIsotropyData
@@ -289,10 +272,9 @@ fn attach_isotropy_candidates(
                 };
 
                 let (ordinary, magnetic) = match ir {
-                    Some(rec) if !src.spinor => (
-                        rec.subgroups().to_vec(),
-                        rec.magnetic_subgroups().to_vec(),
-                    ),
+                    Some(rec) if !src.spinor => {
+                        (rec.subgroups().to_vec(), rec.magnetic_subgroups().to_vec())
+                    }
                     _ => (Vec::new(), Vec::new()),
                 };
 
@@ -326,9 +308,10 @@ fn dedup_isotropy_candidates(
         let key = (cand.source_ml.to_string(), cand.relation);
         if seen.contains(&key) {
             // Merge into existing entry.
-            if let Some(existing) = result.iter_mut().find(|e| {
-                e.source_ml == cand.source_ml && e.relation == cand.relation
-            }) {
+            if let Some(existing) = result
+                .iter_mut()
+                .find(|e| e.source_ml == cand.source_ml && e.relation == cand.relation)
+            {
                 existing.ordinary.extend(cand.ordinary);
                 existing.magnetic.extend(cand.magnetic);
             }
@@ -341,15 +324,13 @@ fn dedup_isotropy_candidates(
     // Dedup ordinary subgroups by (sg, symbol, direction, domains, arms).
     for cand in &mut result {
         let mut ord_seen: BTreeSet<(usize, &str, &str, usize, usize)> = BTreeSet::new();
-        cand.ordinary.retain(|s| {
-            ord_seen.insert((s.sg, s.symbol, s.direction, s.domains, s.arms))
-        });
+        cand.ordinary
+            .retain(|s| ord_seen.insert((s.sg, s.symbol, s.direction, s.domains, s.arms)));
 
         // Dedup magnetic subgroups by (mag_sg, bns_label, direction).
         let mut mag_seen: BTreeSet<(usize, &str, &str)> = BTreeSet::new();
-        cand.magnetic.retain(|s| {
-            mag_seen.insert((s.mag_sg, s.bns_label, s.direction))
-        });
+        cand.magnetic
+            .retain(|s| mag_seen.insert((s.mag_sg, s.bns_label, s.direction)));
     }
 
     result
@@ -364,9 +345,7 @@ pub fn magnetic_irrep_summary(
     match input {
         MagneticIrrepInput::Uni(uni) => magnetic_irrep_summary_by_uni(uni),
         MagneticIrrepInput::Bns(bns) => magnetic_irrep_summary_by_bns(bns),
-        MagneticIrrepInput::Operations { uni, ops } => {
-            magnetic_irrep_summary_from_ops(uni, ops)
-        }
+        MagneticIrrepInput::Operations { uni, ops } => magnetic_irrep_summary_from_ops(uni, ops),
     }
 }
 
@@ -434,7 +413,7 @@ pub fn magnetic_irrep_summary_from_ops(
     let h_irreps = crate::irrep::query::irreps_of(h_info.sg as u8);
 
     // 6. Build k-point summaries with little group metadata and coreps.
-    let kpoints: Vec<MagneticKPointSummary> = h_kpoints
+    let kpoints: Result<Vec<MagneticKPointSummary>, MagneticIrrepError> = h_kpoints
         .into_iter()
         .map(|kp| {
             let (kx, ky, kz, kd) = kp.coords;
@@ -458,11 +437,10 @@ pub fn magnetic_irrep_summary_from_ops(
 
             // Compute coreps for each irrep at this k-point.
             let mut raw_coreps: Vec<MagneticCorepSummary> = Vec::new();
-            let mut failed_coreps: Vec<String> = Vec::new();
             for &idx in &kp.irreps {
                 let ir = &h_irreps[idx];
                 match crate::irrep::corep::compute_corepresentation(ir, uni, mag_ops) {
-                    Some(c) => raw_coreps.push(MagneticCorepSummary {
+                    Ok(c) => raw_coreps.push(MagneticCorepSummary {
                         label: ir.ml.to_string(),
                         source_irreps: vec![SourceIrrepSummary {
                             sg: ir.sg,
@@ -479,25 +457,31 @@ pub fn magnetic_irrep_summary_from_ops(
                         completeness: c.completeness,
                         isotropy_candidates: Vec::new(),
                     }),
-                    None => {
-                        failed_coreps.push(ir.ml.to_string());
+                    Err(err) => {
+                        return Err(MagneticIrrepError::CorepComputationFailed {
+                            uni,
+                            sg: ir.sg,
+                            k_label: kp.label.clone(),
+                            source_irrep: ir.ml.to_string(),
+                            reason: err.to_string(),
+                        });
                     }
                 }
             }
             let coreps = dedup_coreps(raw_coreps);
             let coreps = attach_isotropy_candidates(coreps, h_irreps);
 
-            MagneticKPointSummary {
+            Ok(MagneticKPointSummary {
                 label: kp.label,
                 coords: kp.coords,
                 little_group_order: mag_lg.len(),
                 unitary_order,
                 antiunitary_order,
                 coreps,
-                failed_coreps,
-            }
+            })
         })
         .collect();
+    let kpoints = kpoints?;
 
     Ok(MagneticIrrepSummary {
         uni,
@@ -551,13 +535,6 @@ pub fn format_magnetic_kpoint_summary(kpoint: &MagneticKPointSummary) -> String 
         kpoint.antiunitary_order
     ));
 
-    if !kpoint.failed_coreps.is_empty() {
-        lines.push(format!(
-            "  failed coreps: {}",
-            kpoint.failed_coreps.join(", ")
-        ));
-    }
-
     if kpoint.coreps.is_empty() {
         lines.push("  (no coreps)".to_string());
         return lines.join("\n");
@@ -600,7 +577,10 @@ pub fn format_magnetic_kpoint_summary(kpoint: &MagneticKPointSummary) -> String 
                 let n_mag = ic.magnetic.len();
                 // Always show spinor entries (with 0 subgroups) so users can
                 // distinguish "no data" from "data not checked".
-                if n_ord > 0 || n_mag > 0 || ic.relation == IsotropyCandidateRelation::SpinorNoIsotropyData {
+                if n_ord > 0
+                    || n_mag > 0
+                    || ic.relation == IsotropyCandidateRelation::SpinorNoIsotropyData
+                {
                     lines.push(format!(
                         "    isotropy ({} {:?}): {} ordinary + {} magnetic subgroups",
                         ic.source_ml, ic.relation, n_ord, n_mag
@@ -682,56 +662,53 @@ mod tests {
 
     #[test]
     fn isotropy_candidates_attached_to_coreps() {
-        // BNS 128.406 (UNI 1066): verify isotropy candidates are populated.
-        let s = magnetic_irrep_summary_by_bns("128.406").unwrap();
-        // Z1Z4 is a compound irrep with CIR components → CompoundSource.
-        let z_kp = s.kpoints.iter().find(|k| k.label == "Z").unwrap();
-        for c in &z_kp.coreps {
-            if c.label == "Z1Z4" {
-                assert!(
-                    !c.isotropy_candidates.is_empty(),
-                    "Z1Z4 should have isotropy candidates"
-                );
-                let has_compound = c
-                    .isotropy_candidates
-                    .iter()
-                    .any(|ic| ic.relation == IsotropyCandidateRelation::CompoundSource);
-                assert!(has_compound, "Z1Z4 should have CompoundSource relation");
-            }
-        }
+        // UNI 2 = BNS 1.2 (grey P1): fully classified and includes spinor
+        // sources, whose isotropy data should be explicitly marked unavailable.
+        let s = magnetic_irrep_summary_by_uni(2).unwrap();
+        let spinor_corep = s
+            .kpoints
+            .iter()
+            .flat_map(|kp| kp.coreps.iter())
+            .find(|c| c.source_irreps.iter().any(|src| src.spinor))
+            .expect("UNI 2 should have at least one spinor corep");
+        assert!(
+            spinor_corep
+                .isotropy_candidates
+                .iter()
+                .any(|ic| ic.relation == IsotropyCandidateRelation::SpinorNoIsotropyData),
+            "spinor corep should explicitly report missing isotropy data"
+        );
     }
 
     #[test]
-    fn coreps_at_z_for_128_406() {
-        // BNS 128.406 (UNI 1066) at Z: verified against Bilbao BCS.
-        // Expected: Z1Z4 (C), Z2Z3 (C), Z5 (A, currently Unsupported),
-        // Z6 (C spinor), Z7 (C spinor).
-        let s = magnetic_irrep_summary_by_bns("128.406").unwrap();
-        let z_kp = s
-            .kpoints
-            .iter()
-            .find(|kp| kp.label == "Z")
-            .expect("should have Z k-point");
-        assert!(!z_kp.coreps.is_empty(), "should have coreps at Z");
-
-        // Type-C coreps come from the scalar CIR path (Z1Z4, Z2Z3).
-        let has_type_c = z_kp
-            .coreps
-            .iter()
-            .any(|c| c.corep_type == crate::irrep::corep::CorepType::C);
-        assert!(has_type_c, "should have at least one Type-C corep at Z");
-
-        // Every corep should have non-empty source_irreps.
-        for c in &z_kp.coreps {
-            assert!(!c.source_irreps.is_empty(), "corep {} has no source irrep", c.label);
+    fn unsupported_128_406_returns_error() {
+        // BNS 128.406 currently contains source irreps that the scalar path
+        // cannot classify. The strict summary API must report an error rather
+        // than emit fake Unsupported coreps with NaN characters.
+        let err = magnetic_irrep_summary_by_bns("128.406").unwrap_err();
+        match err {
+            MagneticIrrepError::CorepComputationFailed {
+                uni,
+                sg,
+                k_label,
+                source_irrep,
+                reason,
+            } => {
+                assert_eq!(uni, 1066);
+                assert_eq!(sg, 118);
+                assert_eq!(k_label, "GM");
+                assert!(source_irrep.starts_with("GM"));
+                assert!(reason.to_lowercase().contains("unsupported"));
+            }
+            other => panic!("expected CorepComputationFailed, got {:?}", other),
         }
     }
 
     #[test]
     fn no_duplicate_coreps_at_any_kpoint() {
-        // For 128.406, each k-point should have no duplicate coreps
+        // For a fully classified group, each k-point should have no duplicate coreps
         // (duplicated = same type + dim + rounded characters + timerev).
-        let s = magnetic_irrep_summary_by_bns("128.406").unwrap();
+        let s = magnetic_irrep_summary_by_uni(2).unwrap();
         for kp in &s.kpoints {
             for c in &kp.coreps {
                 assert!(
@@ -740,18 +717,11 @@ mod tests {
                     kp.label
                 );
             }
-            // Check no duplicates among meaningful (non-Unsupported) coreps.
-            // Unsupported entries are computation-failure placeholders, not
-            // real coreps; identical keys among them are expected.
+            // Check no duplicates among computed coreps.
             for i in 0..kp.coreps.len() {
                 for j in (i + 1)..kp.coreps.len() {
                     let ci = &kp.coreps[i];
                     let cj = &kp.coreps[j];
-                    if ci.corep_type == crate::irrep::corep::CorepType::Unsupported
-                        || cj.corep_type == crate::irrep::corep::CorepType::Unsupported
-                    {
-                        continue;
-                    }
                     let same_type = ci.corep_type == cj.corep_type;
                     let same_dim = ci.dim == cj.dim;
                     let same_chars = round_chars(&ci.characters) == round_chars(&cj.characters);
@@ -759,7 +729,11 @@ mod tests {
                     assert!(
                         !(same_type && same_dim && same_chars && same_tr),
                         "k-point {}: duplicate coreps {} and {} at indices {} and {}",
-                        kp.label, ci.label, cj.label, i, j
+                        kp.label,
+                        ci.label,
+                        cj.label,
+                        i,
+                        j
                     );
                 }
             }
@@ -792,73 +766,30 @@ mod tests {
         }
     }
 
-    /// Regression: BNS 128.406 GM/A k-points must have individual Unsupported
-    /// entries — never merged into a combined label by dedup_coreps.
+    /// Regression: unsupported classifications must be errors, not partial
+    /// summary rows with NaN character tables.
     #[test]
-    fn unsupported_coreps_not_merged() {
-        let s = magnetic_irrep_summary_by_bns("128.406").unwrap();
-        // Check GM point: GM1–GM5 are all Unsupported, dim=0.
-        let gm = s.kpoints.iter().find(|k| k.label == "GM").unwrap();
-        let unsupported: Vec<_> = gm
-            .coreps
-            .iter()
-            .filter(|c| c.corep_type == crate::irrep::corep::CorepType::Unsupported)
-            .collect();
+    fn unsupported_coreps_return_error_not_nan_rows() {
+        let err = magnetic_irrep_summary_by_bns("52.318").unwrap_err();
         assert!(
-            unsupported.len() >= 5,
-            "GM: expected >=5 Unsupported coreps, got {}",
-            unsupported.len()
+            matches!(err, MagneticIrrepError::CorepComputationFailed { .. }),
+            "expected CorepComputationFailed, got {:?}",
+            err
         );
-        // No label should contain " + " (merging).
-        for c in &gm.coreps {
-            assert!(
-                !c.label.contains(" + "),
-                "GM corep '{}' should not be merged",
-                c.label
-            );
-        }
-
-        // Check A point similarly.
-        let a = s.kpoints.iter().find(|k| k.label == "A").unwrap();
-        let a_unsupported: Vec<_> = a
-            .coreps
-            .iter()
-            .filter(|c| c.corep_type == crate::irrep::corep::CorepType::Unsupported)
-            .collect();
-        assert!(
-            a_unsupported.len() >= 3,
-            "A: expected >=3 Unsupported coreps, got {}",
-            a_unsupported.len()
-        );
-        for c in &a.coreps {
-            assert!(
-                !c.label.contains(" + "),
-                "A corep '{}' should not be merged",
-                c.label
-            );
-        }
     }
 
-    /// Regression: the Z6+Z7 Type-C merged corep at 128.406 must carry two
-    /// SpinorNoIsotropyData candidates (one per source spinor irrep).
+    /// Regression: spinor coreps must carry SpinorNoIsotropyData candidates
+    /// when no isotropy data is available for spinor source irreps.
     #[test]
     fn spinor_coreps_have_spinor_no_isotropy_data() {
-        let s = magnetic_irrep_summary_by_bns("128.406").unwrap();
-        let z = s.kpoints.iter().find(|k| k.label == "Z").unwrap();
-        // Z6 and Z7 form a Type-C pair — dedup merges them into "Z6 + Z7".
-        let c = z
-            .coreps
+        let s = magnetic_irrep_summary_by_uni(2).unwrap();
+        let c = s
+            .kpoints
             .iter()
-            .find(|c| c.label.contains("Z6") && c.label.contains("Z7"))
-            .expect("missing merged Z6+Z7 corep");
-        assert!(
-            c.source_irreps.iter().any(|s| s.ml == "Z6" && s.spinor),
-            "Z6+Z7: Z6 should be a spinor source"
-        );
-        assert!(
-            c.source_irreps.iter().any(|s| s.ml == "Z7" && s.spinor),
-            "Z6+Z7: Z7 should be a spinor source"
-        );
+            .flat_map(|kp| kp.coreps.iter())
+            .find(|c| c.source_irreps.iter().any(|src| src.spinor))
+            .expect("missing spinor corep");
+        let n_spinor_sources = c.source_irreps.iter().filter(|src| src.spinor).count();
         let spinor_candidates: Vec<_> = c
             .isotropy_candidates
             .iter()
@@ -866,17 +797,17 @@ mod tests {
             .collect();
         assert_eq!(
             spinor_candidates.len(),
-            2,
-            "Z6+Z7: should have exactly 2 SpinorNoIsotropyData candidates"
+            n_spinor_sources,
+            "spinor corep should have one SpinorNoIsotropyData candidate per spinor source"
         );
     }
 
-    /// Interactive demo: print the full BNS 52.318 summary.
+    /// Interactive demo: print the full UNI 2 summary.
     ///
     /// Run with `-- --nocapture` to see the output.
     #[test]
-    fn demo_bns_52_318() {
-        let s = magnetic_irrep_summary_by_bns("52.318").unwrap();
+    fn demo_uni2_summary() {
+        let s = magnetic_irrep_summary_by_uni(2).unwrap();
         println!(
             "BNS {}  UNI={}  type={:?}  H=SG{}",
             s.bns_label, s.uni, s.magnetic_type, s.unitary_sg
@@ -912,9 +843,6 @@ mod tests {
                     chi0,
                     srcs.join(", ")
                 );
-            }
-            if !kp.failed_coreps.is_empty() {
-                println!("  (failed: {})", kp.failed_coreps.join(", "));
             }
         }
     }

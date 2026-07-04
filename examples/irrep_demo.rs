@@ -6,8 +6,8 @@
 //! 3. 格式化特征标表
 
 use cryspglib::irrep::query::*;
-use cryspglib::SymmetryOps;
 use cryspglib::Crystal;
+use cryspglib::SymmetryOps;
 
 fn main() {
     // ━━━ 方式一: 通过 Crystal 桥接 API ━━━
@@ -15,7 +15,12 @@ fn main() {
 
     let al = Crystal::new(
         [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
-        vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.5, 0.0, 0.5], [0.0, 0.5, 0.5]],
+        vec![
+            [0.0, 0.0, 0.0],
+            [0.5, 0.5, 0.0],
+            [0.5, 0.0, 0.5],
+            [0.0, 0.5, 0.5],
+        ],
         vec![13, 13, 13, 13],
     );
     let ds = al.analyze().symprec(1e-5).dataset().unwrap();
@@ -38,20 +43,27 @@ fn main() {
     println!("  idx  χ(GM4-)");
     println!("  ---  -------");
     for i in 0..ops.len().min(6) {
-        println!("  {:3}  {:6.1}", i, chars.get(i).copied().unwrap_or(f64::NAN));
+        match chars.get(i) {
+            Some(value) => println!("  {:3}  {:6.1}", i, value),
+            None => println!("  {:3}  missing", i),
+        }
     }
 
     // ━━━ 方式二: 直接按 SG 编号查询 (不需要 Crystal) ━━━
     // 适合: 已知空间群编号, 直接查 irrep 数据
 
     let irreps = irreps_of(221);
-    let gm4m_direct = irreps.iter()
+    let gm4m_direct = irreps
+        .iter()
         .filter(|r| r.k_label() == "GM")
-        .find(|r| r.ml == "GM4-").unwrap();
+        .find(|r| r.ml == "GM4-")
+        .unwrap();
 
     // characters() 返回 spglib Hall 顺序的特征标 (100% 覆盖)
-    println!("\n  Direct lookup characters: {:?}",
-        &gm4m_direct.characters()[..gm4m_direct.characters().len().min(6)]);
+    println!(
+        "\n  Direct lookup characters: {:?}",
+        &gm4m_direct.characters()[..gm4m_direct.characters().len().min(6)]
+    );
 
     // ━━━ 方式三: 格式化特征标表 (人类可读) ━━━
     println!("\n{}", format_character_table(221, 0, 0, 0, 1));
@@ -59,15 +71,28 @@ fn main() {
     // ━━━ 查询 isotropy subgroup ━━━
     println!("Isotropy subgroups of GM4-:");
     for sub in gm4m_direct.subgroups() {
-        println!("  SG #{} {}  direction={} domains={}",
-            sub.sg, sub.symbol, sub.direction, sub.domains);
+        println!(
+            "  SG #{} {}  direction={} domains={}",
+            sub.sg, sub.symbol, sub.direction, sub.domains
+        );
     }
 
     // ━━━ 磁共表示 (corepresentation) ━━━
     let corep = gm4m_direct.corepresentation(1599);
-    if let Some(c) = corep {
-        println!("\nMagnetic corep for 221.97 (UNI 1599) at GM:");
-        println!("  type={:?}, dim={}, χ̃(id)={:.2}", c.corep_type, c.dim, c.characters[0]);
+    match corep {
+        Ok(c) => {
+            println!("\nMagnetic corep for 221.97 (UNI 1599) at GM:");
+            println!(
+                "  type={:?}, dim={}, χ̃(id)={:.2}",
+                c.corep_type, c.dim, c.characters[0]
+            );
+        }
+        Err(err) => {
+            println!(
+                "\nMagnetic corep for 221.97 (UNI 1599) at GM failed: {}",
+                err
+            );
+        }
     }
 
     // ━━━ 遍历所有 k 点 ━━━

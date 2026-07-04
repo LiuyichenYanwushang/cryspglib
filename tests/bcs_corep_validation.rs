@@ -15,7 +15,7 @@ use cryspglib::SymmetryOps;
 ///
 /// Source: k-Subgroupsmag.html (corepresentations_out.pl)
 #[test]
-fn bcs_sg128_406_z_character_table() {
+fn bcs_sg128_406_z_no_nan_or_silent_failure() {
     let uni: usize = 1066;
 
     // ── BCS reference: magnetic little co-group character table ──
@@ -73,57 +73,72 @@ fn bcs_sg128_406_z_character_table() {
 
     // ── Verify: Z-point irreps exist for parent SG 128 ──
     let sg128 = irreps_of(128);
-    let z_irreps: Vec<&IrrepRecord> = sg128.iter()
-        .filter(|r| r.k_label() == "Z")
-        .collect();
+    let z_irreps: Vec<&IrrepRecord> = sg128.iter().filter(|r| r.k_label() == "Z").collect();
     assert!(!z_irreps.is_empty(), "SG 128 should have irreps at Z");
 
-    // ── Corepresentation type check ──
-    // Z1Z2: formed from Z1 and Z2 (complex conjugate pair) → type-c corep
-    // Z3Z4: formed from Z3 and Z4 → type-c corep
-    // Z5: already real → type-a corep
-    // Z̄6Z̄7: spinor compound → type-c corep
+    // ── Corepresentation result boundary ──
+    //
+    // These BCS rows are the target data.  Some entries already compute through
+    // the scalar CIR path; entries whose operation map is still unresolved must
+    // return a structured error, not a fake Unsupported corep with NaN chars.
+    let mut ok_count = 0usize;
+    let mut err_count = 0usize;
     for ir in &z_irreps {
-        let corep = ir.corepresentation(uni);
-        assert!(corep.is_some(), "Corep should compute for {}", ir.ml);
-        let c = corep.unwrap();
-        // Identity character should be positive (skip NaN from spglib reorder)
-        if c.characters[0].is_nan() {
-            eprintln!("WARNING: {} corep characters[0] is NaN (reorder artifact)", ir.ml);
-            continue;
+        match ir.corepresentation(uni) {
+            Ok(corep) => {
+                ok_count += 1;
+                assert_ne!(
+                    corep.corep_type,
+                    CorepType::Unsupported,
+                    "{} returned Unsupported as a successful result",
+                    ir.ml
+                );
+                assert!(
+                    corep.dim > 0,
+                    "{} successful corep has zero dimension",
+                    ir.ml
+                );
+                assert!(
+                    corep.characters.iter().all(|c| c.is_finite()),
+                    "{} successful corep contains non-finite characters: {:?}",
+                    ir.ml,
+                    corep.characters
+                );
+                assert!(
+                    corep.characters[0] > 0.0,
+                    "{} identity character should be positive, got {}",
+                    ir.ml,
+                    corep.characters[0]
+                );
+            }
+            Err(CorepComputationError::UnsupportedClassification {
+                uni: error_uni,
+                source_irrep,
+                reason,
+            }) => {
+                err_count += 1;
+                assert_eq!(error_uni, uni);
+                assert_eq!(source_irrep, ir.ml);
+                assert!(
+                    !reason.is_empty(),
+                    "{} returned unexpected reason: {}",
+                    ir.ml,
+                    reason
+                );
+            }
+            other => {
+                panic!(
+                    "{} should either compute finite chars or return UnsupportedClassification, got {:?}",
+                    ir.ml, other
+                );
+            }
         }
-        assert!(c.characters[0] > 0.0,
-            "Identity char should be >0 for {}, got {}", ir.ml, c.characters[0]);
     }
-
-    // ── Verify character values as multisets ──
-    // Since spglib and BCS may order operations differently, we compare
-    // character values as sorted multisets rather than position-by-position.
-
-    // Collect character values into sorted vectors for comparison
-    for ir in &z_irreps {
-        if let Some(corep) = ir.corepresentation(uni) {
-            if corep.characters[0].is_nan() { continue; }
-            let mut ours: Vec<i64> = corep.characters.iter()
-                .filter(|c| !c.is_nan())
-                .map(|&c| (c * 100.0).round() as i64)
-                .collect();
-            ours.sort();
-
-            // BCS doesn't have exact 1:1 correspondence for full group irreps
-            // (BCS Z1Z2 etc. are little group irreps, ours are full group).
-            // Verify basic properties instead:
-            // - Identity character should be positive
-            assert!(corep.characters[0] > 0.0,
-                "{} identity character should be positive, got {}", ir.ml, corep.characters[0]);
-
-            // - Non-zero characters should be symmetric (come in ± pairs for type-c)
-            let max_char = corep.characters.iter().map(|c| c.abs()).fold(0.0, f64::max);
-            assert!(max_char <= corep.dim as f64 * 2.0 + 0.1,
-                "{} max |χ| {} should be <= 2*dim = {}",
-                ir.ml, max_char, corep.dim * 2);
-        }
-    }
+    assert!(ok_count > 0, "at least one 128.406@Z corep should compute");
+    assert!(
+        err_count > 0,
+        "this regression should keep unresolved 128.406@Z entries visible"
+    );
 
     // ── Verify BCS characters are consistent with our non-magnetic data ──
     // For Z1 (2D): BCS shows no matching full-group irrep directly
@@ -132,15 +147,25 @@ fn bcs_sg128_406_z_character_table() {
     for ir in &z_irreps {
         let chars = ir.characters();
         let non_zero: Vec<f64> = chars.iter().filter(|&&c| c.abs() > 0.01).copied().collect();
-        assert!(!non_zero.is_empty(),
-            "{} should have non-zero characters (little group ops)", ir.ml);
+        assert!(
+            !non_zero.is_empty(),
+            "{} should have non-zero characters (little group ops)",
+            ir.ml
+        );
         // Identity character must equal dimension
-        assert!((chars[0] - ir.dim as f64).abs() < 0.01,
-            "{} χ(id)={} should equal dim={}", ir.ml, chars[0], ir.dim);
+        assert!(
+            (chars[0] - ir.dim as f64).abs() < 0.01,
+            "{} χ(id)={} should equal dim={}",
+            ir.ml,
+            chars[0],
+            ir.dim
+        );
     }
 
-    println!("\n=== BCS comparison complete ===");
-    println!("Character tables verified: identity = dim, valid ranges, non-zero LG chars present.");
+    println!("\n=== BCS comparison target recorded ===");
+    println!(
+        "Current implementation: {ok_count} finite result(s), {err_count} structured error(s)."
+    );
     println!("BCS reference (magnetic little group):");
     println!("  Z1Z2:  {:?}", &bcs_z1z2[..]);
     println!("  Z3Z4:  {:?}", &bcs_z3z4[..]);
