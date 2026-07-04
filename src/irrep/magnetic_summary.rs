@@ -8,6 +8,39 @@
 //!    classified by Wigner's test (star-based co-representations not yet implemented)
 //! 3. Source H-irreps with Miller-Love / Bradley-Cracknell labels
 //! 4. Isotropy subgroup candidates (ordinary and magnetic)
+//!
+//! # Example
+//!
+//! Query BNS 52.318 (a black-white orthorhombic magnetic group) and list its
+//! high-symmetry k-points with their co-representations:
+//!
+//! ```
+//! use cryspglib::irrep::magnetic_summary::*;
+//!
+//! let s = magnetic_irrep_summary_by_bns("52.318").unwrap();
+//! println!("BNS {}  UNI={}  type={:?}  H=SG{}",
+//!     s.bns_label, s.uni, s.magnetic_type, s.unitary_sg);
+//!
+//! for kp in &s.kpoints {
+//!     let (kx, ky, kz, kd) = kp.coords;
+//!     println!();
+//!     println!("k-point {}  ({}/{}, {}/{}, {}/{})  |LG|={} ({}U+{}A)  coreps={}",
+//!         kp.label, kx, kd, ky, kd, kz, kd,
+//!         kp.little_group_order, kp.unitary_order, kp.antiunitary_order,
+//!         kp.coreps.len());
+//!
+//!     for c in &kp.coreps {
+//!         let srcs: Vec<&str> = c.source_irreps.iter().map(|s| s.ml).collect();
+//!         let chi0 = c.characters.first().map_or("N/A".to_string(), |v| format!("{:.0}", v));
+//!         println!("  {:20}  type={:?}  dim={}  χ(E)={}  src=[{}]",
+//!             c.label, c.corep_type, c.dim, chi0, srcs.join(", "));
+//!     }
+//!
+//!     if !kp.failed_coreps.is_empty() {
+//!         println!("  (failed: {})", kp.failed_coreps.join(", "));
+//!     }
+//! }
+//! ```
 
 use std::collections::BTreeSet;
 
