@@ -147,6 +147,68 @@ pub enum IsotropyCandidateRelation {
     SpinorNoIsotropyData,
 }
 
+// ── Type-C dedup ───────────────────────────────────────────────────────────────
+
+/// Deduplicate coreps by `(corep_type, dim, rounded characters, timerev)`.
+///
+/// Type-C coreps from two antiunitary-conjugate H-irreps produce identical
+/// character tables.  We merge them into a single entry with combined labels
+/// and source_irreps, rather than showing the same magnetic corep twice.
+fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> {
+    let mut groups: Vec<Vec<MagneticCorepSummary>> = Vec::new();
+
+    for c in coreps {
+        let key = (
+            c.corep_type,
+            c.dim,
+            round_chars(&c.characters),
+            c.timerev.clone(),
+        );
+        // Find existing group with matching key.
+        let found = groups.iter_mut().find(|g| {
+            let first = &g[0];
+            key.0 == first.corep_type
+                && key.1 == first.dim
+                && key.2 == round_chars(&first.characters)
+                && key.3 == first.timerev
+        });
+        match found {
+            Some(group) => group.push(c),
+            None => groups.push(vec![c]),
+        }
+    }
+
+    groups
+        .into_iter()
+        .map(|mut group| {
+            if group.len() == 1 {
+                return group.remove(0);
+            }
+            // Type-C pair: merge source_irreps and update label.
+            let mut merged = group.remove(0);
+            let mut extra_sources: Vec<_> = group
+                .into_iter()
+                .flat_map(|c| c.source_irreps)
+                .collect();
+            merged.source_irreps.append(&mut extra_sources);
+            // Build combined label: sort source ML labels and join with " + ".
+            let mut labels: Vec<&str> = merged
+                .source_irreps
+                .iter()
+                .map(|s| s.ml)
+                .collect();
+            labels.sort();
+            merged.label = labels.join(" + ");
+            merged
+        })
+        .collect()
+}
+
+/// Round character values to integers for dedup comparison.
+fn round_chars(chars: &[f64]) -> Vec<i64> {
+    chars.iter().map(|&c| (c * 1e8).round() as i64).collect()
+}
+
 // ── Entry points ───────────────────────────────────────────────────────────────
 
 /// Compute magnetic irrep summary from any input type.
@@ -242,7 +304,7 @@ pub fn magnetic_irrep_summary_from_ops(
                 .count();
 
             // Compute coreps for each irrep at this k-point.
-            let coreps: Vec<MagneticCorepSummary> = kp
+            let raw_coreps: Vec<MagneticCorepSummary> = kp
                 .irreps
                 .iter()
                 .filter_map(|&idx| {
@@ -267,6 +329,7 @@ pub fn magnetic_irrep_summary_from_ops(
                     })
                 })
                 .collect();
+            let coreps = dedup_coreps(raw_coreps);
 
             MagneticKPointSummary {
                 label: kp.label,
@@ -380,6 +443,38 @@ mod tests {
         // Every corep should have non-empty source_irreps.
         for c in &z_kp.coreps {
             assert!(!c.source_irreps.is_empty(), "corep {} has no source irrep", c.label);
+        }
+    }
+
+    #[test]
+    fn no_duplicate_coreps_at_any_kpoint() {
+        // For 128.406, each k-point should have no duplicate coreps
+        // (duplicated = same type + dim + rounded characters + timerev).
+        let s = magnetic_irrep_summary_by_bns("128.406").unwrap();
+        for kp in &s.kpoints {
+            for c in &kp.coreps {
+                assert!(
+                    !c.source_irreps.is_empty(),
+                    "k-point {}: corep has no source irrep",
+                    kp.label
+                );
+            }
+            // Check no duplicates.
+            for i in 0..kp.coreps.len() {
+                for j in (i + 1)..kp.coreps.len() {
+                    let ci = &kp.coreps[i];
+                    let cj = &kp.coreps[j];
+                    let same_type = ci.corep_type == cj.corep_type;
+                    let same_dim = ci.dim == cj.dim;
+                    let same_chars = round_chars(&ci.characters) == round_chars(&cj.characters);
+                    let same_tr = ci.timerev == cj.timerev;
+                    assert!(
+                        !(same_type && same_dim && same_chars && same_tr),
+                        "k-point {}: duplicate coreps {} and {} at indices {} and {}",
+                        kp.label, ci.label, cj.label, i, j
+                    );
+                }
+            }
         }
     }
 
