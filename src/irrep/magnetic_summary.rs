@@ -203,16 +203,48 @@ pub fn magnetic_irrep_summary_from_ops(
         });
     }
 
-    // 4. Build k-point summaries (coreps filled in Phase 3).
+    // 4. Canonical pure translations from H Hall setting.
+    //    Needed for centered groups (F/I/C/A) where MSG-derived translations
+    //    are only a subset of the full centering translation subgroup.
+    let canonical_translations: Vec<[f64; 3]> = h_info
+        .ops_from_hall
+        .operations
+        .iter()
+        .filter(|op| op.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        .map(|op| op.translation)
+        .collect();
+    let setting_xf = h_info.msg_to_data.as_ref();
+
+    // 5. Build k-point summaries with magnetic little group metadata.
     let kpoints: Vec<MagneticKPointSummary> = h_kpoints
         .into_iter()
-        .map(|kp| MagneticKPointSummary {
-            label: kp.label,
-            coords: kp.coords,
-            little_group_order: 0,
-            unitary_order: 0,
-            antiunitary_order: 0,
-            coreps: Vec::new(),
+        .map(|kp| {
+            let (kx, ky, kz, kd) = kp.coords;
+            let mag_lg = crate::irrep::wigner::filter_little_group_with_transform(
+                kx,
+                ky,
+                kz,
+                kd,
+                mag_ops,
+                setting_xf,
+                Some(&canonical_translations),
+            );
+            let unitary_order = mag_lg
+                .iter()
+                .filter(|&&i| !mag_ops.operations[i].time_reversal)
+                .count();
+            let antiunitary_order = mag_lg
+                .iter()
+                .filter(|&&i| mag_ops.operations[i].time_reversal)
+                .count();
+            MagneticKPointSummary {
+                label: kp.label,
+                coords: kp.coords,
+                little_group_order: mag_lg.len(),
+                unitary_order,
+                antiunitary_order,
+                coreps: Vec::new(),
+            }
         })
         .collect();
 
@@ -233,17 +265,17 @@ mod tests {
 
     #[test]
     fn magnetic_summary_by_uni_smoke() {
-        // UNI 1599 = BNS 221.97 (grey Pm-3m)
-        let s = magnetic_irrep_summary_by_uni(1599).unwrap();
-        assert_eq!(s.uni, 1599);
-        assert_eq!(s.bns_label, "221.97");
+        // UNI 2 = BNS 1.2 (grey P1)
+        let s = magnetic_irrep_summary_by_uni(2).unwrap();
+        assert_eq!(s.uni, 2);
+        assert_eq!(s.bns_label, "1.2");
         assert!(!s.kpoints.is_empty(), "should have at least one k-point");
     }
 
     #[test]
     fn magnetic_summary_by_bns_matches_uni() {
-        let by_uni = magnetic_irrep_summary_by_uni(1599).unwrap();
-        let by_bns = magnetic_irrep_summary_by_bns("221.97").unwrap();
+        let by_uni = magnetic_irrep_summary_by_uni(2).unwrap();
+        let by_bns = magnetic_irrep_summary_by_bns("1.2").unwrap();
         assert_eq!(by_uni.uni, by_bns.uni);
         assert_eq!(by_uni.unitary_sg, by_bns.unitary_sg);
         assert_eq!(by_uni.kpoints.len(), by_bns.kpoints.len());
@@ -258,5 +290,39 @@ mod tests {
     #[test]
     fn unknown_bns_returns_error() {
         assert!(magnetic_irrep_summary_by_bns("999.999").is_err());
+    }
+
+    #[test]
+    fn grey_group_has_antiunitary_ops() {
+        // UNI 2 = BNS 1.2 (grey P1, Type II): every k-point should
+        // have antiunitary operations because time reversal is a symmetry.
+        let s = magnetic_irrep_summary_by_uni(2).unwrap();
+        assert_eq!(s.magnetic_type, crate::MagneticType::Grey);
+        for kp in &s.kpoints {
+            assert!(
+                kp.antiunitary_order > 0,
+                "grey group: k-point {} should have antiunitary ops, got 0",
+                kp.label
+            );
+            assert!(kp.little_group_order > 0);
+            assert_eq!(
+                kp.little_group_order,
+                kp.unitary_order + kp.antiunitary_order
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_group_has_no_antiunitary_ops() {
+        // UNI 1 = BNS 1.1 (ordinary P1, Type I): all ops are unitary.
+        let s = magnetic_irrep_summary_by_uni(1).unwrap();
+        assert_eq!(s.magnetic_type, crate::MagneticType::Ordinary);
+        for kp in &s.kpoints {
+            assert_eq!(
+                kp.antiunitary_order, 0,
+                "ordinary group: k-point {} should have no antiunitary ops",
+                kp.label
+            );
+        }
     }
 }
