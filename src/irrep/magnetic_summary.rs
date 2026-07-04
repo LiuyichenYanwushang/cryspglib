@@ -215,7 +215,10 @@ pub fn magnetic_irrep_summary_from_ops(
         .collect();
     let setting_xf = h_info.msg_to_data.as_ref();
 
-    // 5. Build k-point summaries with magnetic little group metadata.
+    // 5. Get H's irreps for corep computation.
+    let h_irreps = crate::irrep::query::irreps_of(h_info.sg as u8);
+
+    // 6. Build k-point summaries with little group metadata and coreps.
     let kpoints: Vec<MagneticKPointSummary> = h_kpoints
         .into_iter()
         .map(|kp| {
@@ -237,13 +240,41 @@ pub fn magnetic_irrep_summary_from_ops(
                 .iter()
                 .filter(|&&i| mag_ops.operations[i].time_reversal)
                 .count();
+
+            // Compute coreps for each irrep at this k-point.
+            let coreps: Vec<MagneticCorepSummary> = kp
+                .irreps
+                .iter()
+                .filter_map(|&idx| {
+                    let ir = &h_irreps[idx];
+                    let c = crate::irrep::corep::compute_corepresentation(ir, uni, mag_ops)?;
+                    Some(MagneticCorepSummary {
+                        label: ir.ml.to_string(),
+                        source_irreps: vec![SourceIrrepSummary {
+                            sg: ir.sg,
+                            ml: ir.ml,
+                            bc: ir.bc,
+                            dim: ir.dim,
+                            spinor: ir.spinor,
+                        }],
+                        corep_type: c.corep_type,
+                        source: c.source,
+                        dim: c.dim,
+                        characters: c.characters,
+                        timerev: c.timerev,
+                        completeness: c.completeness,
+                        isotropy_candidates: Vec::new(),
+                    })
+                })
+                .collect();
+
             MagneticKPointSummary {
                 label: kp.label,
                 coords: kp.coords,
                 little_group_order: mag_lg.len(),
                 unitary_order,
                 antiunitary_order,
-                coreps: Vec::new(),
+                coreps,
             }
         })
         .collect();
@@ -323,6 +354,58 @@ mod tests {
                 "ordinary group: k-point {} should have no antiunitary ops",
                 kp.label
             );
+        }
+    }
+
+    #[test]
+    fn coreps_at_z_for_128_406() {
+        // BNS 128.406 (UNI 1066) at Z: verified against Bilbao BCS.
+        // Expected: Z1Z4 (C), Z2Z3 (C), Z5 (A, currently Unsupported),
+        // Z6 (C spinor), Z7 (C spinor).
+        let s = magnetic_irrep_summary_by_bns("128.406").unwrap();
+        let z_kp = s
+            .kpoints
+            .iter()
+            .find(|kp| kp.label == "Z")
+            .expect("should have Z k-point");
+        assert!(!z_kp.coreps.is_empty(), "should have coreps at Z");
+
+        // Type-C coreps come from the scalar CIR path (Z1Z4, Z2Z3).
+        let has_type_c = z_kp
+            .coreps
+            .iter()
+            .any(|c| c.corep_type == crate::irrep::corep::CorepType::C);
+        assert!(has_type_c, "should have at least one Type-C corep at Z");
+
+        // Every corep should have non-empty source_irreps.
+        for c in &z_kp.coreps {
+            assert!(!c.source_irreps.is_empty(), "corep {} has no source irrep", c.label);
+        }
+    }
+
+    #[test]
+    fn coreps_at_gm_for_grey_p1() {
+        // UNI 2 = BNS 1.2 (grey P1): time reversal is a symmetry.
+        let s = magnetic_irrep_summary_by_uni(2).unwrap();
+        let gm_kp = s
+            .kpoints
+            .iter()
+            .find(|kp| kp.label == "GM")
+            .expect("should have GM k-point");
+        assert!(!gm_kp.coreps.is_empty(), "should have coreps at GM");
+        for c in &gm_kp.coreps {
+            assert!(c.dim > 0, "corep {} has zero dimension", c.label);
+            // Identity character (first) should be close to dim.
+            if !c.characters.is_empty() {
+                let chi_e = c.characters[0];
+                assert!(
+                    (chi_e - c.dim as f64).abs() < 1e-6,
+                    "corep {}: χ(E)={} != dim={}",
+                    c.label,
+                    chi_e,
+                    c.dim
+                );
+            }
         }
     }
 }
