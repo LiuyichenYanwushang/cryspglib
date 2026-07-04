@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `src/irrep/query.rs`: `irreps_of(sg)`, `kpoints_of(sg)`, `IrrepRecord::k_label()` 已能列出 230 个 SG 的 ISOTROPY 高对称 k 标签、坐标和 irreps。
 - `src/irrep/types.rs` + `generated_data.rs`: `IrrepRecord::subgroups()` 和 `IrrepRecord::magnetic_subgroups()` 已保存普通/磁 isotropy subgroup 数据。
-- `src/irrep/corep.rs`: `compute_corepresentation()` / `compute_coreps(bns, k_label)` 已实现 scalar PIR、scalar CIR、spinor SU(2) Wigner 分类。
+- `src/irrep/corep.rs`: `compute_corepresentation()` / `compute_coreps(bns, k_label)` 已实现 scalar PIR、scalar CIR、spinor SU(2) Wigner 分类；corep 计算 API 使用 `Result`，无法分类/非有限字符必须返回结构化错误，不能用 `Option` 或 `NaN` 占位。
 - 最新 spinor Wigner 全扫诊断已清零失败：`cargo test --package cryspglib diagnose_wigner_sources -- --nocapture` 中 `spinor_complex_ok = 21216`，无 `spinor_complex_fail`。
 - `magnetic_isotropy_coreps_of_irrep()` / `magnetic_isotropy_coreps_of_sg_k()` 已有 corep 与 magnetic isotropy 的早期桥接，但还不是最终用户 API。
 
@@ -206,11 +206,11 @@ corep::compute_corepresentation(ir, uni, mag_ops)
 
 3. 把 `Corepresentation` 转成 `MagneticCorepSummary`。
 4. `label` 第一版使用 source ML label；Type-C dedup 完成后改为组合 label。
-5. 保留 `CharacterCompleteness`，不隐藏 pending/unsupported。
+5. 保留 `CharacterCompleteness`；无法分类/unsupported 必须返回 `Err`，不生成带 `NaN` 的伪 corep。
 
 验收测试：
 
-- `128.406` at `Z`: 至少返回 Type-C 和 Type-A coreps，维数符合现有 corep tests。
+- 当前 unresolved case（例如 `128.406` 的部分 k 点/source irrep）应返回结构化 `CorepComputationFailed`，不能输出 `Unsupported` + `NaN` 作为结果。
 - `221.97` at `GM`: 返回非空 coreps，identity character 等于 dim。
 
 #### Phase 4: Type-C pairing/dedup
@@ -359,6 +359,12 @@ cargo check --package cryspglib
 ### 规则 1: 每完成一个可编译的修改就立即 commit
 
 **每次 `cargo check` 成功后必须立即 commit**，然后再做下一个修改。不要连续做多个修改才 commit。
+
+提交前必须格式化：
+
+```bash
+cargo fmt --package cryspglib
+```
 
 ```bash
 git add -A && git commit -m "描述"
