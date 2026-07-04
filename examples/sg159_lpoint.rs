@@ -158,7 +158,7 @@ fn main() {
             );
 
             // Debug: trace why None
-            if ct.is_none() {
+            if ct.is_err() {
                 let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
                 let g_spin_seitz = build_spin_seitz(g_spin_rots, g_spin_trans);
                 let a0 = &mag_seitz[a0_idx];
