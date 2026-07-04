@@ -870,4 +870,52 @@ mod tests {
             "Z6+Z7: should have exactly 2 SpinorNoIsotropyData candidates"
         );
     }
+
+    /// Interactive demo: print the full BNS 52.318 summary.
+    ///
+    /// Run with `-- --nocapture` to see the output.
+    #[test]
+    fn demo_bns_52_318() {
+        let s = magnetic_irrep_summary_by_bns("52.318").unwrap();
+        println!(
+            "BNS {}  UNI={}  type={:?}  H=SG{}",
+            s.bns_label, s.uni, s.magnetic_type, s.unitary_sg
+        );
+        for kp in &s.kpoints {
+            let (kx, ky, kz, kd) = kp.coords;
+            println!();
+            println!(
+                "k-point {}  ({}/{}, {}/{}, {}/{})  |LG|={} ({}U+{}A)  coreps={}",
+                kp.label,
+                kx,
+                kd,
+                ky,
+                kd,
+                kz,
+                kd,
+                kp.little_group_order,
+                kp.unitary_order,
+                kp.antiunitary_order,
+                kp.coreps.len()
+            );
+            for c in &kp.coreps {
+                let srcs: Vec<&str> = c.source_irreps.iter().map(|s| s.ml).collect();
+                let chi0 = c
+                    .characters
+                    .first()
+                    .map_or("N/A".to_string(), |v| format!("{:.0}", v));
+                println!(
+                    "  {:20}  type={:?}  dim={}  χ(E)={}  src=[{}]",
+                    c.label,
+                    c.corep_type,
+                    c.dim,
+                    chi0,
+                    srcs.join(", ")
+                );
+            }
+            if !kp.failed_coreps.is_empty() {
+                println!("  (failed: {})", kp.failed_coreps.join(", "));
+            }
+        }
+    }
 }
