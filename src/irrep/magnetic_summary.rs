@@ -1,10 +1,11 @@
 //! Magnetic irrep summary — unified entry point for magnetic space group irreps.
 //!
 //! Given a magnetic space group (by UNI number, BNS label, or explicit operations),
-//! this module returns a complete summary of:
+//! this module returns a little-group corep summary of:
 //!
 //! 1. High-symmetry k-points with labels and fractional coordinates
-//! 2. Magnetic co-representations (coreps) classified by Wigner's test
+//! 2. Magnetic co-representations (coreps) at the little-group level,
+//!    classified by Wigner's test (star-based co-representations not yet implemented)
 //! 3. Source H-irreps with Miller-Love / Bradley-Cracknell labels
 //! 4. Isotropy subgroup candidates (ordinary and magnetic)
 
@@ -83,6 +84,9 @@ pub struct MagneticKPointSummary {
     pub antiunitary_order: usize,
     /// Magnetic co-representations at this k-point.
     pub coreps: Vec<MagneticCorepSummary>,
+    /// H-irrep ML labels for which corep computation returned None.
+    /// Non-empty here means data is missing, not that the k-point has no coreps.
+    pub failed_coreps: Vec<String>,
 }
 
 /// A single magnetic co-representation (corep).
@@ -153,26 +157,34 @@ pub enum IsotropyCandidateRelation {
 
 /// Deduplicate coreps by `(corep_type, dim, rounded characters, timerev)`.
 ///
-/// Type-C coreps from two antiunitary-conjugate H-irreps produce identical
-/// character tables.  We merge them into a single entry with combined labels
-/// and source_irreps, rather than showing the same magnetic corep twice.
+/// Only Type-C coreps with finite character values are eligible for merging.
+/// Unsupported, non-Type-C, and coreps with NaN/infinity characters pass
+/// through without deduplication.
 fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> {
     let mut groups: Vec<Vec<MagneticCorepSummary>> = Vec::new();
 
     for c in coreps {
+        // Only Type-C with finite characters can be deduplicated.
+        let can_dedup = c.corep_type == crate::irrep::corep::CorepType::C
+            && c.dim > 0
+            && c.characters.iter().all(|&ch| ch.is_finite());
+        if !can_dedup {
+            // Pass through — never merge Unsupported, non-C, or NaN entries.
+            groups.push(vec![c]);
+            continue;
+        }
+
         let key = (
-            c.corep_type,
             c.dim,
             round_chars(&c.characters),
             c.timerev.clone(),
         );
-        // Find existing group with matching key.
         let found = groups.iter_mut().find(|g| {
             let first = &g[0];
-            key.0 == first.corep_type
-                && key.1 == first.dim
-                && key.2 == round_chars(&first.characters)
-                && key.3 == first.timerev
+            first.corep_type == crate::irrep::corep::CorepType::C
+                && first.dim == key.0
+                && round_chars(&first.characters) == key.1
+                && first.timerev == key.2
         });
         match found {
             Some(group) => group.push(c),
@@ -248,14 +260,14 @@ fn attach_isotropy_candidates(
                     _ => (Vec::new(), Vec::new()),
                 };
 
-                if !ordinary.is_empty() || !magnetic.is_empty() || !src.spinor {
-                    candidates.push(CorepIsotropyCandidate {
-                        source_ml: src.ml,
-                        ordinary,
-                        magnetic,
-                        relation,
-                    });
-                }
+                // Always push a candidate so spinor sources are explicitly
+                // marked SpinorNoIsotropyData rather than silently absent.
+                candidates.push(CorepIsotropyCandidate {
+                    source_ml: src.ml,
+                    ordinary,
+                    magnetic,
+                    relation,
+                });
             }
 
             // Dedup candidates by key.
@@ -343,7 +355,14 @@ pub fn magnetic_irrep_summary_by_bns(
     magnetic_irrep_summary_by_uni(uni)
 }
 
-/// Compute magnetic irrep summary from explicit symmetry operations and UNI number.
+/// Compute magnetic irrep summary using explicit magnetic operations.
+///
+/// `ops` overrides the magnetic symmetry operations (e.g. from a custom
+/// magnetic structure analysis), but the unitary subgroup H is still
+/// identified from the UNI database metadata.  The caller must ensure that
+/// `ops` is consistent with `uni`; this function does not validate the
+/// match.  For the common case where database operations are acceptable,
+/// prefer [`magnetic_irrep_summary_by_uni`].
 pub fn magnetic_irrep_summary_from_ops(
     uni: usize,
     mag_ops: &SymmetryOps,
@@ -402,13 +421,12 @@ pub fn magnetic_irrep_summary_from_ops(
                 .count();
 
             // Compute coreps for each irrep at this k-point.
-            let raw_coreps: Vec<MagneticCorepSummary> = kp
-                .irreps
-                .iter()
-                .filter_map(|&idx| {
-                    let ir = &h_irreps[idx];
-                    let c = crate::irrep::corep::compute_corepresentation(ir, uni, mag_ops)?;
-                    Some(MagneticCorepSummary {
+            let mut raw_coreps: Vec<MagneticCorepSummary> = Vec::new();
+            let mut failed_coreps: Vec<String> = Vec::new();
+            for &idx in &kp.irreps {
+                let ir = &h_irreps[idx];
+                match crate::irrep::corep::compute_corepresentation(ir, uni, mag_ops) {
+                    Some(c) => raw_coreps.push(MagneticCorepSummary {
                         label: ir.ml.to_string(),
                         source_irreps: vec![SourceIrrepSummary {
                             sg: ir.sg,
@@ -424,9 +442,12 @@ pub fn magnetic_irrep_summary_from_ops(
                         timerev: c.timerev,
                         completeness: c.completeness,
                         isotropy_candidates: Vec::new(),
-                    })
-                })
-                .collect();
+                    }),
+                    None => {
+                        failed_coreps.push(ir.ml.to_string());
+                    }
+                }
+            }
             let coreps = dedup_coreps(raw_coreps);
             let coreps = attach_isotropy_candidates(coreps, h_irreps);
 
@@ -437,6 +458,7 @@ pub fn magnetic_irrep_summary_from_ops(
                 unitary_order,
                 antiunitary_order,
                 coreps,
+                failed_coreps,
             }
         })
         .collect();
@@ -493,6 +515,13 @@ pub fn format_magnetic_kpoint_summary(kpoint: &MagneticKPointSummary) -> String 
         kpoint.antiunitary_order
     ));
 
+    if !kpoint.failed_coreps.is_empty() {
+        lines.push(format!(
+            "  failed coreps: {}",
+            kpoint.failed_coreps.join(", ")
+        ));
+    }
+
     if kpoint.coreps.is_empty() {
         lines.push("  (no coreps)".to_string());
         return lines.join("\n");
@@ -533,7 +562,9 @@ pub fn format_magnetic_kpoint_summary(kpoint: &MagneticKPointSummary) -> String 
             for ic in &c.isotropy_candidates {
                 let n_ord = ic.ordinary.len();
                 let n_mag = ic.magnetic.len();
-                if n_ord > 0 || n_mag > 0 {
+                // Always show spinor entries (with 0 subgroups) so users can
+                // distinguish "no data" from "data not checked".
+                if n_ord > 0 || n_mag > 0 || ic.relation == IsotropyCandidateRelation::SpinorNoIsotropyData {
                     lines.push(format!(
                         "    isotropy ({} {:?}): {} ordinary + {} magnetic subgroups",
                         ic.source_ml, ic.relation, n_ord, n_mag
@@ -673,11 +704,18 @@ mod tests {
                     kp.label
                 );
             }
-            // Check no duplicates.
+            // Check no duplicates among meaningful (non-Unsupported) coreps.
+            // Unsupported entries are computation-failure placeholders, not
+            // real coreps; identical keys among them are expected.
             for i in 0..kp.coreps.len() {
                 for j in (i + 1)..kp.coreps.len() {
                     let ci = &kp.coreps[i];
                     let cj = &kp.coreps[j];
+                    if ci.corep_type == crate::irrep::corep::CorepType::Unsupported
+                        || cj.corep_type == crate::irrep::corep::CorepType::Unsupported
+                    {
+                        continue;
+                    }
                     let same_type = ci.corep_type == cj.corep_type;
                     let same_dim = ci.dim == cj.dim;
                     let same_chars = round_chars(&ci.characters) == round_chars(&cj.characters);

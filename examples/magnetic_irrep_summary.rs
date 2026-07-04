@@ -1,6 +1,6 @@
 //! # Magnetic irrep summary example
 //!
-//! Demonstrates querying the complete magnetic irrep summary for a magnetic
+//! Demonstrates querying the little-group corep summary for a magnetic
 //! space group by BNS label or UNI number.
 
 use cryspglib::irrep::magnetic_summary::*;
