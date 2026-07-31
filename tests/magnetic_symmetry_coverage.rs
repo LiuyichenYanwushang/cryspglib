@@ -9,8 +9,8 @@ use std::collections::{BTreeMap, HashSet};
 
 use cryspglib::mathfunc::{Mat3, Mat3I, mat_get_determinant_i3, mat_multiply_matrix_i3};
 use cryspglib::msg_database::{
-    MAGNETIC_SPACEGROUP_TYPES, MAGNETIC_SPACEGROUP_UNI_MAPPING, msgdb_get_spacegroup_operations,
-    msgdb_get_uni_candidates,
+    ALTERNATIVE_TRANSFORMATIONS, MAGNETIC_SPACEGROUP_TYPES, MAGNETIC_SPACEGROUP_UNI_MAPPING,
+    msgdb_get_spacegroup_operations, msgdb_get_std_transformations, msgdb_get_uni_candidates,
 };
 use cryspglib::{MagneticType, SymError, magnetic_spacegroup, msg_database, spg_database};
 
@@ -577,8 +577,54 @@ fn enantiomorphic_magnetic_settings_preserve_handedness() {
 }
 
 #[test]
-#[ignore = "diagnostic baseline; becomes a strict gate after identification failures are fixed"]
-fn diagnose_first_hall_database_round_trips() {
+fn all_alternative_setting_transformations_are_loaded() {
+    let mut hall_pair_count = 0usize;
+    let mut nontrivial_setting_count = 0usize;
+
+    for uni in 1usize..=1651 {
+        let num_halls = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][0] as usize;
+        let first_hall = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
+
+        for hall_offset in 0..num_halls {
+            hall_pair_count += 1;
+            let hall = first_hall + hall_offset;
+            let encoded = &ALTERNATIVE_TRANSFORMATIONS[uni][hall_offset];
+            let encoded_count = encoded.iter().take_while(|&&value| value != 0).count();
+
+            assert!(
+                encoded[encoded_count..].iter().all(|&value| value == 0),
+                "UNI {uni} Hall {hall} has a nonzero transformation after its sentinel"
+            );
+            if encoded_count > 0 {
+                nontrivial_setting_count += 1;
+            }
+
+            let transformations = msgdb_get_std_transformations(uni, hall)
+                .unwrap_or_else(|| panic!("missing transformations for UNI {uni} Hall {hall}"));
+            assert_eq!(
+                transformations.size,
+                encoded_count + 1,
+                "wrong transformation count for UNI {uni} Hall {hall}"
+            );
+            assert_eq!(transformations.rot[0], IDENTITY_ROTATION);
+            assert_eq!(transformations.trans[0], [0.0; 3]);
+        }
+    }
+
+    // Upstream spglib v2.5.0 has 450 nontrivial UNI/Hall rows. The old
+    // converter retained only the two rows whose C initializers had all seven
+    // integers and silently discarded the other 448 partial initializers.
+    assert_eq!(hall_pair_count, 4479);
+    assert_eq!(nontrivial_setting_count, 450);
+
+    let transformations = msgdb_get_std_transformations(132, 116).unwrap();
+    assert_eq!(transformations.size, 2);
+    assert_eq!(transformations.rot[1], [[0, -1, 0], [-1, 0, 0], [0, 0, -1]]);
+    assert_eq!(transformations.trans[1], [0.0, 0.0, 0.25]);
+}
+
+#[test]
+fn all_first_hall_database_round_trips_with_parent_hint() {
     let mut audit = Audit::default();
     let mut exact_matches = 0usize;
 
@@ -637,5 +683,55 @@ fn diagnose_first_hall_database_round_trips() {
     }
 
     println!("Exact first-Hall round-trips: {exact_matches} / 1651");
-    audit.report("first-Hall round-trip failures");
+    assert_eq!(exact_matches, 1651);
+    audit.assert_clean();
+}
+
+#[test]
+fn automatic_round_trips_match_upstream_ambiguity_baseline() {
+    for uni in 1usize..=1651 {
+        let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let first_hall = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
+        let magnetic = msgdb_get_spacegroup_operations(uni, first_hall)
+            .unwrap_or_else(|| panic!("missing operations for UNI {uni} Hall {first_hall}"));
+        let lattice = invariant_lattice(&magnetic.rot[..magnetic.size])
+            .unwrap_or_else(|| panic!("invariant lattice failed for UNI {uni}"));
+        let result =
+            magnetic_spacegroup::msg_identify_magnetic_space_group_type(&lattice, &magnetic, 1e-5);
+
+        // With this deliberately symmetry-averaged metric, upstream spglib
+        // v2.5.0 has the same three Type-IV XSG ambiguities. The explicit
+        // parent-Hall API above resolves all three; the automatic API must
+        // remain exact everywhere that the input itself is non-degenerate.
+        match uni {
+            282 => {
+                let dataset = result.expect("UNI 282 should map to its Hall-176 XSG analogue");
+                assert_eq!(dataset.uni_number, 275);
+                assert_eq!(dataset.msg_type, metadata.type_);
+            }
+            283 => assert!(
+                matches!(result, Err(SymError::MagneticUniMatchFailed)),
+                "UNI 283 should retain the upstream ambiguity baseline"
+            ),
+            284 => {
+                let dataset = result.expect("UNI 284 should map to its Hall-176 XSG analogue");
+                assert_eq!(dataset.uni_number, 277);
+                assert_eq!(dataset.msg_type, metadata.type_);
+            }
+            _ => {
+                let dataset = result.unwrap_or_else(|error| {
+                    panic!(
+                        "automatic round-trip failed for UNI {uni} BNS {} Hall {first_hall}: {error:?}",
+                        metadata.bns_number
+                    )
+                });
+                assert_eq!(
+                    dataset.uni_number, uni,
+                    "automatic round-trip crossed UNI {uni} BNS {} Hall {first_hall}",
+                    metadata.bns_number
+                );
+                assert_eq!(dataset.msg_type, metadata.type_);
+            }
+        }
+    }
 }

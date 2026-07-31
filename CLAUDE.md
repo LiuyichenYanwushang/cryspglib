@@ -146,19 +146,65 @@ round-trip 提升为：
 恢复严格等阶/全集比较后，`tests/magnetic_integration.rs` 的 11 个结构入口全部通过，
 包括 BCC AFM `[111]` 的 UNI 1338 和 FCC FM `[111]` 的 UNI 1331。
 
-当前剩余的 36 个 Rust 特有失败集中在正交 setting 的轴/原点标准化；首例 UNI
-`132`（BNS `20.34`）官方得到单位基变换和 `z=-1/2` 原点移动，而 Rust 当前得到
-轴交换/反向基和 `z=3/4`，导致标准变换表无法匹配。下一步逐段对齐
-`ref_find_similar_bravais_lattice` 及正交 Hall 原点修正。
+### 2026-07-31 替代 setting 数据恢复与 1651 strict gate
+
+官方 debug oracle 证明 UNI `132` 的 reference transform 与 Rust 在修正前完全一致；
+差异实际发生在后续 alternative setting correction。机器比较
+`alternative_transformations[][18][7]` 后确认：
+
+- 官方 spglib v2.5.0 有 `450` 个非平凡 `(UNI, Hall)` 替代变换行；
+- Rust 生成表只保留 `2` 行，共静默漏掉 `448` 行；
+- 旧转换器只接受“显式写满 7 个整数”的 C 初始化器，而 C 大量使用
+  `{66459, 0}` 这类 partial initializer，缺省元素按 C 语义应补零，不能丢弃。
+
+现已新增 `scripts/sync_msg_alternative_transformations.py`，对 UNI、Hall 和每行
+7 个编码分别做维度校验及零填充，并从官方 C 数据恢复完整表。新增 strict gate
+`all_alternative_setting_transformations_are_loaded`，逐项覆盖全部 `4479` 个
+setting，固定非平凡行数为 `450`，并验证 UNI `132` / Hall `116` 解码得到官方的
+轴交换与 `c/4` 原点平移。
+
+恢复后，不带母群提示的生产识别路径从 `1613 / 1651` 提升为官方基线
+`1648 / 1651`；此前 36 个 Rust 特有 `MagneticUniMatchFailed` 全部清零。余下三例
+是官方在对称平均退化度量下也存在的 Type-IV XSG 歧义：
+
+- UNI `282` 映到 Hall-176 analogue UNI `275`；
+- UNI `283` 返回 `MagneticUniMatchFailed`；
+- UNI `284` 映到 Hall-176 analogue UNI `277`。
+
+Rust 的 `msg_identify_with_parent_hall` 已有显式 family/母群 Hall 信息，因此新增
+严格 canonical-operation 快路径：只在输入完整磁 Seitz 集合与该 Hall 的某个
+数据库 UNI 完全相等时采用提示，否则继续原标准化算法。这样 UNI `282–284` 可被
+安全消歧，且不放宽一般匹配。当前正式 gate：
+
+- `all_first_hall_database_round_trips_with_parent_hint`：`1651 / 1651` 精确返回原 UNI；
+- `automatic_round_trips_match_upstream_ambiguity_baseline`：无提示路径除上述官方三例
+  外 `1648 / 1648` 全部精确，三例行为也逐项锁定；
+- `all_magnetic_database_operations_form_expected_groups`：`1651` UNI、`4479`
+  settings 的群代数及 Type I–IV 结构全部通过。
+
+本轮最终验证：
+
+```bash
+cargo check --package cryspglib
+cargo test --package cryspglib --test magnetic_symmetry_coverage -- --nocapture
+cargo test --package cryspglib --test magnetic_integration -- --nocapture
+cargo test --package cryspglib --tests
+```
+
+- 磁 symmetry strict gate：`6 passed / 0 failed`；
+- 结构磁矩入口：`11 passed / 0 failed`；
+- 全部 test targets：`198 passed / 0 failed / 2 ignored`（其中 lib tests
+  `145 passed`，两个 ignored 均为显式诊断项）；
+- `cargo check` 通过；现有 warning 未在本轮扩散处理。
 
 ### 已确认的问题
 
 1. `primitive.rs` 曾无条件输出 `reduced=...`，1651 群扫描产生大量噪声。
 2. `hall_symbol.rs` 曾对 Hall 497 无条件输出内部匹配跟踪。
 3. 数据库/群代数/磁类型层已由 4479-pair strict gate 清零。
-4. 数据库磁操作 `→` 磁群识别 `→` 原 UNI 的首 Hall round-trip 当前为
-   `1613 / 1651`；剩余 36 个显式匹配失败，以及 2 个官方同样混淆的 Type-IV
-   UNI，正在修复。
+4. 数据库磁操作 `→` 磁群识别 `→` 原 UNI 的首 Hall round-trip 在显式母群
+   Hall 下为 `1651 / 1651`；无提示自动路径为官方基线 `1648 / 1651`，仅保留
+   已明确记录的 UNI `282–284` 退化歧义。
 5. 现有 setting oracle 仍有 32 个 SG 路径不一致、54 个 detected-Hall
    Seitz 不一致和 201 个 data-Hall Seitz 不一致，需按“合法 setting 等价”和
    “真实识别错误”重新分类。

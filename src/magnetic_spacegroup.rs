@@ -5,25 +5,25 @@
 
 use crate::MagneticType;
 use crate::SymError;
+use crate::hall_symbol::hal_match_hall_symbol_db;
 use crate::mathfunc::{
-    mat_cast_matrix_3i_to_3d, mat_check_identity_matrix_i3,
-    mat_dmod1, mat_get_determinant_d3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
-    mat_multiply_matrix_i3, mat_multiply_matrix_id3,
-    mat_multiply_matrix_vector_d3, mat_multiply_matrix_vector_id3, mat_nint, Mat3, Mat3I, Vec3,
+    Mat3, Mat3I, Vec3, mat_cast_matrix_3i_to_3d, mat_check_identity_matrix_i3, mat_dmod1,
+    mat_get_determinant_d3, mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_multiply_matrix_i3,
+    mat_multiply_matrix_id3, mat_multiply_matrix_vector_d3, mat_multiply_matrix_vector_id3,
+    mat_nint,
 };
 use crate::msg_database::{
     msgdb_get_magnetic_spacegroup_type, msgdb_get_spacegroup_operations,
     msgdb_get_std_transformations, msgdb_get_uni_candidates,
 };
-use crate::hall_symbol::hal_match_hall_symbol_db;
 use crate::pointgroup::ptg_get_transformation_matrix;
 use crate::primitive::prm_get_primitive_symmetry;
 use crate::refinement::ref_find_similar_bravais_lattice;
 use crate::spacegroup::{
-    get_centering, get_initial_conventional_symmetry,
-    spa_search_spacegroup_with_symmetry, Spacegroup,
+    Spacegroup, get_centering, get_initial_conventional_symmetry,
+    spa_search_spacegroup_with_symmetry,
 };
-use crate::spg_database::{spgdb_get_spacegroup_type, Centering};
+use crate::spg_database::{Centering, spgdb_get_spacegroup_type};
 use crate::symmetry::{MagneticSymmetry, Symmetry};
 
 const MAX_DENOMINATOR: f64 = 100.0;
@@ -41,8 +41,8 @@ pub struct MagneticDataset {
 /// 识别磁性空间群类型。
 ///
 /// 给定晶格和磁性对称操作，返回识别出的磁性数据集。
-/// 如果标准路径失败（磁对称性为非完整空间群），在 `parent_hall_number` 提供时
-/// 使用非磁母空间群的 Hall 编号作为 fallback。
+/// 如果提供 `parent_hall_number`，先用它消除 family space group 与 Type-IV
+/// maximal subspace group 之间的歧义；标准路径失败时也用它作为 fallback。
 pub fn msg_identify_magnetic_space_group_type(
     lattice: &Mat3,
     magnetic_symmetry: &MagneticSymmetry,
@@ -52,13 +52,20 @@ pub fn msg_identify_magnetic_space_group_type(
 }
 
 /// 与 [`msg_identify_magnetic_space_group_type`] 相同，但可指定非磁母空间群的
-/// Hall 编号作为 fallback，适用于磁对称性显著低于母空间群的场景。
+/// Hall 编号。规范数据库 setting 的严格匹配优先于自动标准化，避免 Type-IV
+/// 空间群被其 maximal subspace group 的同构表示误判；否则该编号作为 fallback。
 pub fn msg_identify_with_parent_hall(
     lattice: &Mat3,
     magnetic_symmetry: &MagneticSymmetry,
     parent_hall_number: Option<usize>,
     symprec: f64,
 ) -> Result<MagneticDataset, SymError> {
+    if let Some(hall_number) = parent_hall_number {
+        if let Some(dataset) = match_exact_parent_setting(magnetic_symmetry, hall_number, symprec) {
+            return Ok(dataset);
+        }
+    }
+
     // 标准路径: 从磁对称性中提取 FSG/XSG 并搜索空间群
     let (ref_sg, changed_symmetry, mut tmat, mut shift, msgtype_num) =
         match get_reference_space_group(lattice, magnetic_symmetry, symprec) {
@@ -120,7 +127,9 @@ pub fn msg_identify_with_parent_hall(
                 let tmat_cor_d = mat_cast_matrix_3i_to_3d(&tmat_cor);
 
                 let symmetry_cor = get_distinct_changed_magnetic_symmetry(
-                    &tmat_cor_d, &shift_cor, &changed_symmetry,
+                    &tmat_cor_d,
+                    &shift_cor,
+                    &changed_symmetry,
                 );
 
                 let symmetry_cor = match symmetry_cor {
@@ -176,6 +185,42 @@ pub fn msg_identify_with_parent_hall(
     Ok(ret)
 }
 
+/// Match an already-canonical magnetic operation set within an explicitly
+/// supplied family-space-group setting.
+///
+/// This exact fast path is needed for Type-IV groups whose XSG standardizes to
+/// a different nonmagnetic space-group number. Without the family Hall hint,
+/// e.g. UNI 282--284 are indistinguishable from the corresponding Hall-176
+/// representations after XSG standardization. A full operation-set equality
+/// check keeps the hint authoritative without weakening general matching.
+fn match_exact_parent_setting(
+    magnetic_symmetry: &MagneticSymmetry,
+    hall_number: usize,
+    symprec: f64,
+) -> Option<MagneticDataset> {
+    let [min_uni, max_uni] = msgdb_get_uni_candidates(hall_number)?;
+    for uni_number in min_uni..=max_uni {
+        let Some(database_symmetry) = msgdb_get_spacegroup_operations(uni_number, hall_number)
+        else {
+            continue;
+        };
+        if !is_equal(magnetic_symmetry, &database_symmetry, symprec) {
+            continue;
+        }
+
+        let msg_type = msgdb_get_magnetic_spacegroup_type(uni_number).type_;
+        return Some(MagneticDataset {
+            uni_number,
+            msg_type,
+            hall_number,
+            transformation_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            origin_shift: [0.0; 3],
+            std_rotation_matrix: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        });
+    }
+    None
+}
+
 /// 获取参考空间群和变换后的磁性对称操作。
 /// 从磁性对称中获取参考空间群、变换后的磁性对称操作、变换矩阵和类型。
 ///
@@ -204,8 +249,7 @@ fn get_reference_space_group(
         };
 
     // 3. 确定 MSG 类型 + 获取代表元
-    let msgtype_num =
-        get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.size, sym_xsg.size)?;
+    let msgtype_num = get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.size, sym_xsg.size)?;
     let representatives = build_representatives(msgtype_num, magnetic_symmetry)?;
 
     // 4. 选择参考设置: type-4 用 XSG, 其他用 FSG
@@ -221,19 +265,21 @@ fn get_reference_space_group(
     //    not retain upstream's complete orig_lattice context, so this second
     //    refinement is required for non-cubic structure inputs.
     let lattice_inv = mat_inverse_matrix_d3(lattice, 0.0).ok()?;
-    ref_sg.bravais_lattice =
-        mat_multiply_matrix_d3(lattice, &ref_sg.bravais_lattice);
+    ref_sg.bravais_lattice = mat_multiply_matrix_d3(lattice, &ref_sg.bravais_lattice);
     ref_find_similar_bravais_lattice(ref_sg, symprec);
-    ref_sg.bravais_lattice =
-        mat_multiply_matrix_d3(&lattice_inv, &ref_sg.bravais_lattice);
+    ref_sg.bravais_lattice = mat_multiply_matrix_d3(&lattice_inv, &ref_sg.bravais_lattice);
     let tmat = mat_inverse_matrix_d3(&ref_sg.bravais_lattice, 0.0).ok()?;
     let shift = ref_sg.origin_shift;
 
     // 6. 合成变换后的磁性对称操作
     //    (C 原版: get_changed_magnetic_symmetry 分解 + 重合成)
     let changed_symmetry = get_changed_magnetic_symmetry(
-        &tmat, &shift, &representatives, &sym_xsg,
-        magnetic_symmetry, symprec,
+        &tmat,
+        &shift,
+        &representatives,
+        &sym_xsg,
+        magnetic_symmetry,
+        symprec,
     )?;
 
     // 7. 复制 ref_sg 用于返回
@@ -256,8 +302,7 @@ fn build_fallback_reference(
     let sym_xsg = extract_symmetry(magnetic_symmetry, false, symprec)?;
 
     // 2. 确定磁性类型
-    let msgtype_num =
-        get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.size, sym_xsg.size)?;
+    let msgtype_num = get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.size, sym_xsg.size)?;
 
     // 3. 用非磁 Hall 编号构建参考 Spacegroup
     let spg_type = spgdb_get_spacegroup_type(parent_hall_number);
@@ -279,8 +324,12 @@ fn build_fallback_reference(
     let shift = ref_sg.origin_shift;
     let representatives = build_representatives(msgtype_num, magnetic_symmetry)?;
     let changed_symmetry = get_changed_magnetic_symmetry(
-        &tmat, &shift, &representatives, &sym_xsg,
-        magnetic_symmetry, symprec,
+        &tmat,
+        &shift,
+        &representatives,
+        &sym_xsg,
+        magnetic_symmetry,
+        symprec,
     )?;
 
     // 5. 复制 ref_sg 用于返回
@@ -360,11 +409,7 @@ pub(crate) fn extract_symmetry(
         sym = dedup;
     }
 
-    if sym.size == 0 {
-        None
-    } else {
-        Some(sym)
-    }
+    if sym.size == 0 { None } else { Some(sym) }
 }
 
 /// Get family space group (FSG) and its symmetry.
@@ -482,8 +527,7 @@ pub(crate) fn get_space_group_with_magnetic_symmetry(
         Ok(sg) => sg,
         Err(_) => {
             // 标准空间群搜索失败 → 使用 fallback
-            return find_spacegroup_by_symmetry(&sym, &unit_lat, symprec)
-                .map(|sg| (sg, sym));
+            return find_spacegroup_by_symmetry(&sym, &unit_lat, symprec).map(|sg| (sg, sym));
         }
     };
 
@@ -690,20 +734,29 @@ fn get_distinct_changed_magnetic_symmetry(
 
         // Round to integer rotation matrix
         let rot_i = [
-            [mat_nint(r_new[0][0]), mat_nint(r_new[0][1]), mat_nint(r_new[0][2])],
-            [mat_nint(r_new[1][0]), mat_nint(r_new[1][1]), mat_nint(r_new[1][2])],
-            [mat_nint(r_new[2][0]), mat_nint(r_new[2][1]), mat_nint(r_new[2][2])],
+            [
+                mat_nint(r_new[0][0]),
+                mat_nint(r_new[0][1]),
+                mat_nint(r_new[0][2]),
+            ],
+            [
+                mat_nint(r_new[1][0]),
+                mat_nint(r_new[1][1]),
+                mat_nint(r_new[1][2]),
+            ],
+            [
+                mat_nint(r_new[2][0]),
+                mat_nint(r_new[2][1]),
+                mat_nint(r_new[2][2]),
+            ],
         ];
 
         // t_std = shift - R_std * shift + T * t
         let rotated_shift = mat_multiply_matrix_vector_id3(&rot_i, shift);
-        let transformed_trans =
-            mat_multiply_matrix_vector_d3(tmat, &sym_msg.trans[i]);
+        let transformed_trans = mat_multiply_matrix_vector_d3(tmat, &sym_msg.trans[i]);
         let mut t_new = [0.0; 3];
         for j in 0..3 {
-            t_new[j] = mat_dmod1(
-                shift[j] - rotated_shift[j] + transformed_trans[j],
-            );
+            t_new[j] = mat_dmod1(shift[j] - rotated_shift[j] + transformed_trans[j]);
         }
 
         // Check for uniqueness (same rotation, same translation, same timerev)
@@ -756,7 +809,9 @@ fn is_contained_vec(v: &Vec3, trans: &[Vec3], symprec: f64) -> bool {
                 break;
             }
         }
-        if eq { return true; }
+        if eq {
+            return true;
+        }
     }
     false
 }
@@ -776,7 +831,11 @@ fn get_changed_pure_translations(
     if (det - 1.0).abs() <= symprec {
         for pt in pure_trans {
             let trans = mat_multiply_matrix_vector_d3(tmat, pt);
-            changed.push([mat_dmod1(trans[0]), mat_dmod1(trans[1]), mat_dmod1(trans[2])]);
+            changed.push([
+                mat_dmod1(trans[0]),
+                mat_dmod1(trans[1]),
+                mat_dmod1(trans[2]),
+            ]);
         }
     } else {
         // 查找转动矩阵元素的最小公分母
@@ -794,28 +853,31 @@ fn get_changed_pure_translations(
                         break;
                     }
                 }
-                if !ok { break; }
+                if !ok {
+                    break;
+                }
             }
-            if ok { break; }
+            if ok {
+                break;
+            }
             denominator += 1;
             if denominator as f64 > MAX_DENOMINATOR {
                 return None;
             }
         }
 
-
         // 为每个纯平移尝试额外的晶格矢量以恢复常规晶胞中的平移
         for n0 in 0..=denominator {
             for n1 in 0..=denominator {
                 for n2 in 0..=denominator {
                     for pt in pure_trans {
-                        let shifted = [
-                            pt[0] + n0 as f64,
-                            pt[1] + n1 as f64,
-                            pt[2] + n2 as f64,
-                        ];
+                        let shifted = [pt[0] + n0 as f64, pt[1] + n1 as f64, pt[2] + n2 as f64];
                         let trans = mat_multiply_matrix_vector_d3(tmat, &shifted);
-                        let t_mod = [mat_dmod1(trans[0]), mat_dmod1(trans[1]), mat_dmod1(trans[2])];
+                        let t_mod = [
+                            mat_dmod1(trans[0]),
+                            mat_dmod1(trans[1]),
+                            mat_dmod1(trans[2]),
+                        ];
 
                         if !is_contained_vec(&t_mod, &changed, symprec) {
                             changed.push(t_mod);
@@ -858,9 +920,7 @@ fn get_changed_magnetic_symmetry(
     let pure_trans = match crate::spin::spn_collect_pure_translations_from_magnetic_symmetry(
         magnetic_symmetry,
     ) {
-        Some(p) => {
-            p
-        }
+        Some(p) => p,
         None => return None,
     };
     let changed_pure_trans = match get_changed_pure_translations(tmat, &pure_trans, symprec) {
@@ -881,11 +941,10 @@ fn get_changed_magnetic_symmetry(
         num_factors += 1;
     }
     factors.size = num_factors;
-    let changed_factors =
-        match get_distinct_changed_magnetic_symmetry(tmat, shift, &factors) {
-            Some(f) => f,
-            None => return None,
-        };
+    let changed_factors = match get_distinct_changed_magnetic_symmetry(tmat, shift, &factors) {
+        Some(f) => f,
+        None => return None,
+    };
 
     // 4. 合成: (I, ti)(Pj, tj)(Pk, tk) = (Pj * Pk, Pj * tk + tj + ti)
     let size = changed_representatives.size * changed_pure_trans.len() * num_factors;
@@ -907,8 +966,7 @@ fn get_changed_magnetic_symmetry(
                     &changed_factors.trans[k],
                 );
                 for s in 0..3 {
-                    trans[s] += changed_representatives.trans[j][s]
-                        + changed_pure_trans[i][s];
+                    trans[s] += changed_representatives.trans[j][s] + changed_pure_trans[i][s];
                     trans[s] = mat_dmod1(trans[s]);
                 }
                 changed.trans[num_sym] = trans;
@@ -928,11 +986,7 @@ fn get_changed_magnetic_symmetry(
 }
 
 /// 检查两个磁对称操作集合是否在周期平移意义下完全相等。
-fn is_equal(
-    sym1: &MagneticSymmetry,
-    sym2: &MagneticSymmetry,
-    symprec: f64,
-) -> bool {
+fn is_equal(sym1: &MagneticSymmetry, sym2: &MagneticSymmetry, symprec: f64) -> bool {
     if sym1.size != sym2.size {
         return false;
     }
@@ -969,12 +1023,7 @@ fn is_equal(
 }
 
 /// 计算刚性旋转矩阵。
-fn get_rigid_rotation(
-    rigid_rot: &mut Mat3,
-    lattice: &Mat3,
-    tmat: &Mat3,
-    ref_sg: &Spacegroup,
-) {
+fn get_rigid_rotation(rigid_rot: &mut Mat3, lattice: &Mat3, tmat: &Mat3, ref_sg: &Spacegroup) {
     let inv_tmat = mat_inverse_matrix_d3(tmat, 0.0).ok();
     if let Some(inv) = inv_tmat {
         let tmp = mat_multiply_matrix_d3(&ref_sg.bravais_lattice, &inv);
@@ -1026,13 +1075,14 @@ mod tests {
     fn test_db_type1() {
         let ops = pm3m_ops();
         let mag_sym = make_mag_sym(&vec![false; ops.len()], &ops);
-        let ds = super::msg_identify_magnetic_space_group_type(
-            &cubic_lattice(), &mag_sym, SYMPREC,
-        )
-        .expect("must match");
+        let ds = super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC)
+            .expect("must match");
         assert_eq!(ds.msg_type, MagneticType::Ordinary);
         assert_eq!(ds.hall_number, 517);
-        assert_eq!(msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_, MagneticType::Ordinary);
+        assert_eq!(
+            msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_,
+            MagneticType::Ordinary
+        );
     }
 
     /// Type-2 (Grey): 每个操作加倍 (timerev=false + timerev=true)
@@ -1049,13 +1099,14 @@ mod tests {
             mag_sym.trans[i + n] = *t;
             mag_sym.timerev[i + n] = true;
         }
-        let ds = super::msg_identify_magnetic_space_group_type(
-            &cubic_lattice(), &mag_sym, SYMPREC,
-        )
-        .expect("must match");
+        let ds = super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC)
+            .expect("must match");
         assert_eq!(ds.msg_type, MagneticType::Grey);
         assert_eq!(ds.hall_number, 517);
-        assert_eq!(msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_, MagneticType::Grey);
+        assert_eq!(
+            msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_,
+            MagneticType::Grey
+        );
     }
 
     /// Type-3 (BlackWhite): 非正当旋转带 timerev=true
@@ -1064,22 +1115,24 @@ mod tests {
         let ops = pm3m_ops();
         let timerev: Vec<bool> = ops.iter().map(|(r, _)| !is_proper(r)).collect();
         let mag_sym = make_mag_sym(&timerev, &ops);
-        let ds = super::msg_identify_magnetic_space_group_type(
-            &cubic_lattice(), &mag_sym, SYMPREC,
-        )
-        .expect("must match");
+        let ds = super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC)
+            .expect("must match");
         assert_eq!(ds.msg_type, MagneticType::BlackWhite);
         assert_eq!(ds.hall_number, 517);
-        assert_eq!(msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_, MagneticType::BlackWhite);
+        assert_eq!(
+            msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_,
+            MagneticType::BlackWhite
+        );
     }
 
     /// 空对称操作 → 返回 None
     #[test]
     fn test_empty_symmetry() {
         let mag_sym = MagneticSymmetry::new(0);
-        assert!(super::msg_identify_magnetic_space_group_type(
-            &cubic_lattice(), &mag_sym, SYMPREC,
-        ).is_err());
+        assert!(
+            super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC,)
+                .is_err()
+        );
     }
 
     /// 缺少单位操作 → 返回 Err
@@ -1089,9 +1142,10 @@ mod tests {
         mag_sym.rot[0] = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
         mag_sym.trans[0] = [0.0; 3];
         mag_sym.timerev[0] = false;
-        assert!(super::msg_identify_magnetic_space_group_type(
-            &cubic_lattice(), &mag_sym, SYMPREC,
-        ).is_err());
+        assert!(
+            super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC,)
+                .is_err()
+        );
     }
 
     #[test]
@@ -1099,8 +1153,7 @@ mod tests {
     fn diagnose_selected_database_reference_groups() {
         for uni in [132usize, 282, 667, 751, 890, 1338] {
             let hall = crate::msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
-            let magnetic =
-                crate::msg_database::msgdb_get_spacegroup_operations(uni, hall).unwrap();
+            let magnetic = crate::msg_database::msgdb_get_spacegroup_operations(uni, hall).unwrap();
             let (fsg, sym_fsg) =
                 super::get_family_space_group_with_magnetic_symmetry(&magnetic, SYMPREC).unwrap();
             let (xsg, sym_xsg) =
@@ -1147,6 +1200,5 @@ mod tests {
                 Err(error) => eprintln!("  result error {error:?}"),
             }
         }
-
     }
 }
