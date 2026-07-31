@@ -7,12 +7,12 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use cryspglib::mathfunc::{Mat3I, mat_get_determinant_i3, mat_multiply_matrix_i3};
+use cryspglib::mathfunc::{Mat3, Mat3I, mat_get_determinant_i3, mat_multiply_matrix_i3};
 use cryspglib::msg_database::{
     MAGNETIC_SPACEGROUP_TYPES, MAGNETIC_SPACEGROUP_UNI_MAPPING, msgdb_get_spacegroup_operations,
     msgdb_get_uni_candidates,
 };
-use cryspglib::{MagneticType, msg_database, spg_database};
+use cryspglib::{MagneticType, SymError, magnetic_spacegroup, msg_database, spg_database};
 
 const TRANSLATION_DENOMINATOR: f64 = 12.0;
 const TRANSLATION_TOLERANCE: f64 = 1e-8;
@@ -52,7 +52,19 @@ impl Audit {
             return;
         }
 
-        eprintln!("magnetic symmetry audit failures:");
+        self.report("magnetic symmetry audit failures");
+        panic!(
+            "magnetic symmetry audit found {} failure categories",
+            self.counts.len()
+        );
+    }
+
+    fn report(&self, heading: &str) {
+        eprintln!("{heading}:");
+        if self.counts.is_empty() {
+            eprintln!("  none");
+            return;
+        }
         for (category, count) in &self.counts {
             eprintln!("  {category}: {count}");
             if let Some(examples) = self.examples.get(category) {
@@ -61,10 +73,6 @@ impl Audit {
                 }
             }
         }
-        panic!(
-            "magnetic symmetry audit found {} failure categories",
-            self.counts.len()
-        );
     }
 }
 
@@ -180,6 +188,75 @@ fn rotation_multiset<'a>(rotations: impl Iterator<Item = &'a Mat3I>) -> BTreeMap
         *result.entry(flatten_rotation(rotation)).or_default() += 1;
     }
     result
+}
+
+fn invariant_lattice(rotations: &[Mat3I]) -> Option<Mat3> {
+    if rotations.is_empty() {
+        return None;
+    }
+
+    // Average R^T R over the finite point group. The result is a positive
+    // definite metric G satisfying R^T G R = G for every point operation.
+    let mut metric = [[0.0; 3]; 3];
+    for rotation in rotations {
+        for row in 0..3 {
+            for column in 0..3 {
+                for cartesian in 0..3 {
+                    metric[row][column] +=
+                        (rotation[cartesian][row] * rotation[cartesian][column]) as f64;
+                }
+            }
+        }
+    }
+    let scale = rotations.len() as f64;
+    for row in &mut metric {
+        for value in row {
+            *value /= scale;
+        }
+    }
+
+    // Cholesky G = C C^T, then lattice A = C^T so A^T A = G.
+    let c00 = metric[0][0].sqrt();
+    if !c00.is_finite() || c00 <= 0.0 {
+        return None;
+    }
+    let c10 = metric[1][0] / c00;
+    let c20 = metric[2][0] / c00;
+    let c11_squared = metric[1][1] - c10 * c10;
+    if c11_squared <= 0.0 {
+        return None;
+    }
+    let c11 = c11_squared.sqrt();
+    let c21 = (metric[2][1] - c20 * c10) / c11;
+    let c22_squared = metric[2][2] - c20 * c20 - c21 * c21;
+    if c22_squared <= 0.0 {
+        return None;
+    }
+    let c22 = c22_squared.sqrt();
+
+    Some([[c00, c10, c20], [0.0, c11, c21], [0.0, 0.0, c22]])
+}
+
+fn identification_error_category(error: SymError) -> &'static str {
+    match error {
+        SymError::Success => "error_success",
+        SymError::SpacegroupSearchFailed => "error_spacegroup_search",
+        SymError::CellStandardizationFailed => "error_cell_standardization",
+        SymError::SymmetryOperationSearchFailed => "error_symmetry_operation_search",
+        SymError::AtomsTooClose => "error_atoms_too_close",
+        SymError::PointgroupNotFound => "error_pointgroup_not_found",
+        SymError::NiggliFailed => "error_niggli",
+        SymError::DelaunayFailed => "error_delaunay",
+        SymError::ArraySizeShortage => "error_array_size",
+        SymError::InvalidInput => "error_invalid_input",
+        SymError::MathFailed => "error_math",
+        SymError::MagneticOpGenerationFailed => "error_magnetic_op_generation",
+        SymError::MagneticReferenceGroupFailed => "error_magnetic_reference_group",
+        SymError::MagneticFallbackReferenceFailed => "error_magnetic_fallback_reference",
+        SymError::MagneticUniCandidatesNotFound => "error_magnetic_uni_candidates",
+        SymError::MagneticUniMatchFailed => "error_magnetic_uni_match",
+        SymError::MagneticPrimitiveLatticeFailed => "error_magnetic_primitive_lattice",
+    }
 }
 
 #[test]
@@ -473,4 +550,68 @@ fn all_magnetic_database_operations_form_expected_groups() {
 
     println!("Audited all 1651 UNI groups across {hall_pair_count} UNI/Hall settings");
     audit.assert_clean();
+}
+
+#[test]
+#[ignore = "diagnostic baseline; becomes a strict gate after identification failures are fixed"]
+fn diagnose_first_hall_database_round_trips() {
+    let mut audit = Audit::default();
+    let mut exact_matches = 0usize;
+
+    for uni in 1usize..=1651 {
+        let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let first_hall = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
+        let context = format!("UNI {uni} BNS {} Hall {first_hall}", metadata.bns_number);
+        let Some(magnetic) = msgdb_get_spacegroup_operations(uni, first_hall) else {
+            audit.record("missing_magnetic_operations", context);
+            continue;
+        };
+        let rotations = magnetic.rot[..magnetic.size].to_vec();
+        let Some(lattice) = invariant_lattice(&rotations) else {
+            audit.record("invariant_lattice_failed", context);
+            continue;
+        };
+
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            magnetic_spacegroup::msg_identify_with_parent_hall(
+                &lattice,
+                &magnetic,
+                Some(first_hall),
+                1e-5,
+            )
+        }));
+        match outcome {
+            Ok(Ok(dataset)) if dataset.uni_number == uni && dataset.msg_type == metadata.type_ => {
+                exact_matches += 1;
+            }
+            Ok(Ok(dataset)) => {
+                let returned = msg_database::msgdb_get_magnetic_spacegroup_type(dataset.uni_number);
+                let category = if dataset.msg_type == metadata.type_ {
+                    "wrong_uni_same_type"
+                } else {
+                    "wrong_uni_wrong_type"
+                };
+                audit.record(
+                    category,
+                    format!(
+                        "{context}: returned UNI {} BNS {} type {:?} Hall {}",
+                        dataset.uni_number,
+                        returned.bns_number,
+                        dataset.msg_type,
+                        dataset.hall_number
+                    ),
+                );
+            }
+            Ok(Err(error)) => {
+                audit.record(
+                    identification_error_category(error),
+                    format!("{context}: {error:?}"),
+                );
+            }
+            Err(_) => audit.record("identification_panicked", context),
+        }
+    }
+
+    println!("Exact first-Hall round-trips: {exact_matches} / 1651");
+    audit.report("first-Hall round-trip failures");
 }

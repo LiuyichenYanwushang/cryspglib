@@ -57,13 +57,32 @@ space group；幺正子群 H 在 doubled magnetic cell 中可能有不同的国�
 例如 BNS `37.184`、`37.186` 的 H 不能通过与 SG 37 Hall 平移逐项相等来验收。
 这不是数据库错误，H 的 SG/Hall 必须在下一层独立识别。
 
+### 2026-07-31 round-trip 初始基线
+
+新增 ignored 诊断 `diagnose_first_hall_database_round_trips`。它从每个数据库磁群的
+完整点操作构造不变正定度量和相容晶格，再调用生产路径
+`msg_identify_with_parent_hall`，避免用不相容的单位立方晶格制造假失败。
+
+首个 Hall setting 的结果：
+
+- 返回原 UNI 且磁类型正确：`1053 / 1651`。
+- `MagneticFallbackReferenceFailed`：`22`。
+- `MagneticUniMatchFailed`：`88`。
+- 返回错误 UNI、但类型相同：`56`。
+- 返回错误 UNI、且类型错误：`432`。
+
+已定位的第一项真实根因：`reduce_to_primitive_magsym` 把非零 anti-translation
+当成普通晶格平移消去，并把操作的 time reversal 与该“平移”的 time reversal
+做 XOR。这样最简单的 Type-IV BNS `1.3` 会丢失反平移并被识别成 Type-I
+BNS `1.1`。下一步先修复该降类型错误，再重新统计剩余 setting/UNI 匹配失败。
+
 ### 已确认的问题
 
 1. `primitive.rs` 曾无条件输出 `reduced=...`，1651 群扫描产生大量噪声。
 2. `hall_symbol.rs` 曾对 Hall 497 无条件输出内部匹配跟踪。
 3. 数据库/群代数/磁类型层已由 4479-pair strict gate 清零。
 4. 尚未实现数据库磁操作 `→` 磁群识别 `→` 原 UNI 的 1651 群严格 round-trip；
-   这是当前下一项。
+   当前首 Hall 基线为 `1053 / 1651`，正在修复。
 5. 现有 setting oracle 仍有 32 个 SG 路径不一致、54 个 detected-Hall
    Seitz 不一致和 201 个 data-Hall Seitz 不一致，需按“合法 setting 等价”和
    “真实识别错误”重新分类。
