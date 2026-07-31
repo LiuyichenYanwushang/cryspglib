@@ -36,14 +36,38 @@ cargo test --package cryspglib diagnose_spglib_standard_setting_transform -- --n
 旋转行列式和 `ok > 1600`。unitary subgroup 识别失败会被静默跳过，因此它的
 “1651/1651 OK”不能作为磁 symmetry 正确性的验收结果。
 
+### 2026-07-31 数据库/群代数严格 gate
+
+新增 `tests/magnetic_symmetry_coverage.rs`，不再只取每个 UNI 的第一个 Hall
+setting，也不允许静默跳过。已严格扫描：
+
+- UNI 总数：`1651 / 1651`。
+- `(UNI, Hall)` 总数：`4479 / 4479`。
+- metadata：UNI 索引、BNS、OG、Litvin 编号均完整且唯一。
+- 原始 Seitz 操作：旋转行列式、`1/12` 平移量化、唯一性、单位元、闭包、
+  逆元和 `time_reversal` XOR 全部通过。
+- Type I/II/III/IV：unitary/antiunitary 阶数、纯时间反演/反平移和 coset
+  结构全部通过。
+- Type I–III 忽略 time reversal 后与 parent Hall Seitz 集合完全相等；
+  Type IV 的 H 使用 doubled magnetic cell，平移集合不一定等于 family Hall，
+  因此严格检查其旋转多重集、阶数和反平移扩张关系，全部通过。
+
+本次确认了一个重要语义边界：Type IV 的 BNS 首号及 Hall mapping 描述 family
+space group；幺正子群 H 在 doubled magnetic cell 中可能有不同的国际空间群号。
+例如 BNS `37.184`、`37.186` 的 H 不能通过与 SG 37 Hall 平移逐项相等来验收。
+这不是数据库错误，H 的 SG/Hall 必须在下一层独立识别。
+
 ### 已确认的问题
 
 1. `primitive.rs` 曾无条件输出 `reduced=...`，1651 群扫描产生大量噪声。
 2. `hall_symbol.rs` 曾对 Hall 497 无条件输出内部匹配跟踪。
-3. 尚未对每个 UNI 的所有 Hall setting 验证群公理、time-reversal coset 和
-   parent family group 一致性。
-4. 尚未实现数据库磁操作 `→` 磁群识别 `→` 原 UNI 的 1651 群严格 round-trip。
-5. `magnetic_summary` 仍有已知 unsupported scalar 路径，例如 BNS `128.406`
+3. 数据库/群代数/磁类型层已由 4479-pair strict gate 清零。
+4. 尚未实现数据库磁操作 `→` 磁群识别 `→` 原 UNI 的 1651 群严格 round-trip；
+   这是当前下一项。
+5. 现有 setting oracle 仍有 32 个 SG 路径不一致、54 个 detected-Hall
+   Seitz 不一致和 201 个 data-Hall Seitz 不一致，需按“合法 setting 等价”和
+   “真实识别错误”重新分类。
+6. `magnetic_summary` 仍有已知 unsupported scalar 路径，例如 BNS `128.406`
    和 `52.318`；这属于后续上层验收，不能与底层 symmetry 覆盖混为一谈。
 
 ### 分层验收标准
@@ -53,7 +77,9 @@ cargo test --package cryspglib diagnose_spglib_standard_setting_transform -- --n
 1. **数据库层**：全部 UNI/Hall pair 均有合法 metadata 和非空操作。
 2. **群代数层**：单位元、唯一性、闭包、逆元、`time_reversal` XOR 同态全部通过。
 3. **磁类型层**：Type I/II/III/IV 的 unitary/antiunitary 阶数与 coset 结构正确。
-4. **family group 层**：忽略 time reversal 后与对应 parent Hall 的 Seitz 集合完全一致。
+4. **family group 层**：Type I–III 忽略 time reversal 后与对应 parent Hall
+   的 Seitz 集合完全一致；Type IV 必须按 doubled magnetic cell 验证 family
+   扩张，不能错误要求 H 的平移逐项等于 family Hall。
 5. **unitary subgroup 层**：H 的 SG/Hall/setting transform 可复现且操作集合完全一致。
 6. **round-trip 层**：数据库操作经公开/生产识别路径返回原 UNI，而不只是相同 type。
 7. **结构入口层**：代表性非正交、非零 origin、中心化和 Type IV 结构走

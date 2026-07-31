@@ -1,0 +1,476 @@
+//! Exhaustive magnetic-symmetry database invariants.
+//!
+//! These tests deliberately cover every supported `(UNI, Hall)` pair rather
+//! than only the first Hall setting of each UNI.  They validate the raw
+//! magnetic Seitz groups independently of the higher-level identification and
+//! corepresentation pipelines.
+
+use std::collections::{BTreeMap, HashSet};
+
+use cryspglib::mathfunc::{Mat3I, mat_get_determinant_i3, mat_multiply_matrix_i3};
+use cryspglib::msg_database::{
+    MAGNETIC_SPACEGROUP_TYPES, MAGNETIC_SPACEGROUP_UNI_MAPPING, msgdb_get_spacegroup_operations,
+    msgdb_get_uni_candidates,
+};
+use cryspglib::{MagneticType, msg_database, spg_database};
+
+const TRANSLATION_DENOMINATOR: f64 = 12.0;
+const TRANSLATION_TOLERANCE: f64 = 1e-8;
+const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+
+#[derive(Debug, Clone, Copy)]
+struct TestOp {
+    rotation: Mat3I,
+    translation: [f64; 3],
+    time_reversal: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct OpKey {
+    rotation: [i32; 9],
+    translation_twelfths: [i32; 3],
+    time_reversal: bool,
+}
+
+#[derive(Default)]
+struct Audit {
+    counts: BTreeMap<&'static str, usize>,
+    examples: BTreeMap<&'static str, Vec<String>>,
+}
+
+impl Audit {
+    fn record(&mut self, category: &'static str, message: impl Into<String>) {
+        *self.counts.entry(category).or_default() += 1;
+        let examples = self.examples.entry(category).or_default();
+        if examples.len() < 8 {
+            examples.push(message.into());
+        }
+    }
+
+    fn assert_clean(&self) {
+        if self.counts.is_empty() {
+            return;
+        }
+
+        eprintln!("magnetic symmetry audit failures:");
+        for (category, count) in &self.counts {
+            eprintln!("  {category}: {count}");
+            if let Some(examples) = self.examples.get(category) {
+                for example in examples {
+                    eprintln!("    {example}");
+                }
+            }
+        }
+        panic!(
+            "magnetic symmetry audit found {} failure categories",
+            self.counts.len()
+        );
+    }
+}
+
+fn flatten_rotation(rotation: &Mat3I) -> [i32; 9] {
+    [
+        rotation[0][0],
+        rotation[0][1],
+        rotation[0][2],
+        rotation[1][0],
+        rotation[1][1],
+        rotation[1][2],
+        rotation[2][0],
+        rotation[2][1],
+        rotation[2][2],
+    ]
+}
+
+fn quantize_translation(translation: &[f64; 3]) -> Option<[i32; 3]> {
+    let mut result = [0; 3];
+    for axis in 0..3 {
+        if !translation[axis].is_finite() {
+            return None;
+        }
+        let scaled = translation[axis] * TRANSLATION_DENOMINATOR;
+        let rounded = scaled.round();
+        if (scaled - rounded).abs() > TRANSLATION_TOLERANCE {
+            return None;
+        }
+        result[axis] = (rounded as i32).rem_euclid(TRANSLATION_DENOMINATOR as i32);
+    }
+    Some(result)
+}
+
+fn op_key(op: &TestOp) -> Option<OpKey> {
+    Some(OpKey {
+        rotation: flatten_rotation(&op.rotation),
+        translation_twelfths: quantize_translation(&op.translation)?,
+        time_reversal: op.time_reversal,
+    })
+}
+
+fn compose(left: &TestOp, right: &TestOp) -> TestOp {
+    let rotation = mat_multiply_matrix_i3(&left.rotation, &right.rotation);
+    let mut translation = left.translation;
+    for axis in 0..3 {
+        translation[axis] += left.rotation[axis][0] as f64 * right.translation[0]
+            + left.rotation[axis][1] as f64 * right.translation[1]
+            + left.rotation[axis][2] as f64 * right.translation[2];
+    }
+    TestOp {
+        rotation,
+        translation,
+        time_reversal: left.time_reversal ^ right.time_reversal,
+    }
+}
+
+fn inverse_rotation(rotation: &Mat3I) -> Option<Mat3I> {
+    let determinant = mat_get_determinant_i3(rotation);
+    if determinant != 1 && determinant != -1 {
+        return None;
+    }
+
+    let a = rotation[0][0];
+    let b = rotation[0][1];
+    let c = rotation[0][2];
+    let d = rotation[1][0];
+    let e = rotation[1][1];
+    let f = rotation[1][2];
+    let g = rotation[2][0];
+    let h = rotation[2][1];
+    let i = rotation[2][2];
+    Some([
+        [
+            (e * i - f * h) / determinant,
+            (c * h - b * i) / determinant,
+            (b * f - c * e) / determinant,
+        ],
+        [
+            (f * g - d * i) / determinant,
+            (a * i - c * g) / determinant,
+            (c * d - a * f) / determinant,
+        ],
+        [
+            (d * h - e * g) / determinant,
+            (b * g - a * h) / determinant,
+            (a * e - b * d) / determinant,
+        ],
+    ])
+}
+
+fn inverse(op: &TestOp) -> Option<TestOp> {
+    let rotation = inverse_rotation(&op.rotation)?;
+    let mut translation = [0.0; 3];
+    for axis in 0..3 {
+        translation[axis] = -(rotation[axis][0] as f64 * op.translation[0]
+            + rotation[axis][1] as f64 * op.translation[1]
+            + rotation[axis][2] as f64 * op.translation[2]);
+    }
+    Some(TestOp {
+        rotation,
+        translation,
+        time_reversal: op.time_reversal,
+    })
+}
+
+fn is_zero_translation(translation: &[f64; 3]) -> bool {
+    quantize_translation(translation) == Some([0, 0, 0])
+}
+
+fn rotation_multiset<'a>(rotations: impl Iterator<Item = &'a Mat3I>) -> BTreeMap<[i32; 9], usize> {
+    let mut result = BTreeMap::new();
+    for rotation in rotations {
+        *result.entry(flatten_rotation(rotation)).or_default() += 1;
+    }
+    result
+}
+
+#[test]
+fn all_magnetic_database_metadata_is_complete_and_unique() {
+    let mut bns_labels = HashSet::new();
+    let mut og_labels = HashSet::new();
+    let mut litvin_numbers = HashSet::new();
+
+    for uni in 1usize..=1651 {
+        let metadata = &MAGNETIC_SPACEGROUP_TYPES[uni];
+        assert_eq!(
+            metadata.uni_number, uni,
+            "UNI {uni}: metadata index mismatch"
+        );
+        assert!(
+            (1..=230).contains(&metadata.number),
+            "UNI {uni}: invalid parent SG {}",
+            metadata.number
+        );
+        assert!(
+            metadata.type_ != MagneticType::NonMagnetic,
+            "UNI {uni}: invalid non-magnetic type"
+        );
+        assert!(
+            !metadata.bns_number.is_empty() && bns_labels.insert(metadata.bns_number),
+            "UNI {uni}: empty or duplicate BNS label {}",
+            metadata.bns_number
+        );
+        assert!(
+            !metadata.og_number.is_empty() && og_labels.insert(metadata.og_number),
+            "UNI {uni}: empty or duplicate OG label {}",
+            metadata.og_number
+        );
+        assert!(
+            (1..=1651).contains(&metadata.litvin_number)
+                && litvin_numbers.insert(metadata.litvin_number),
+            "UNI {uni}: invalid or duplicate Litvin number {}",
+            metadata.litvin_number
+        );
+
+        let [num_halls, first_hall] = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni];
+        assert!(num_halls > 0, "UNI {uni}: no Hall settings");
+        let last_hall = first_hall + num_halls - 1;
+        assert!(
+            first_hall >= 1 && last_hall <= 530,
+            "UNI {uni}: invalid Hall range {first_hall}..={last_hall}"
+        );
+    }
+
+    assert_eq!(bns_labels.len(), 1651);
+    assert_eq!(og_labels.len(), 1651);
+    assert_eq!(litvin_numbers.len(), 1651);
+}
+
+#[test]
+fn all_magnetic_database_operations_form_expected_groups() {
+    let mut audit = Audit::default();
+    let mut hall_pair_count = 0usize;
+
+    for uni in 1usize..=1651 {
+        let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let [num_halls, first_hall] = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni];
+
+        for hall in first_hall as usize..(first_hall + num_halls) as usize {
+            hall_pair_count += 1;
+            let context = format!("UNI {uni} BNS {} Hall {hall}", metadata.bns_number);
+
+            let Some([candidate_min, candidate_max]) = msgdb_get_uni_candidates(hall) else {
+                audit.record("missing_hall_candidate_range", context);
+                continue;
+            };
+            if !(candidate_min..=candidate_max).contains(&uni) {
+                audit.record(
+                    "uni_outside_hall_candidate_range",
+                    format!("{context}: candidates={candidate_min}..={candidate_max}"),
+                );
+            }
+
+            let hall_type = spg_database::spgdb_get_spacegroup_type(hall);
+            if hall_type.number != metadata.number {
+                audit.record(
+                    "parent_sg_mismatch",
+                    format!(
+                        "{context}: metadata SG{} but Hall belongs to SG{}",
+                        metadata.number, hall_type.number
+                    ),
+                );
+            }
+
+            let Some(magnetic) = msgdb_get_spacegroup_operations(uni, hall) else {
+                audit.record("missing_magnetic_operations", context);
+                continue;
+            };
+            if magnetic.size == 0 {
+                audit.record("empty_magnetic_operations", context);
+                continue;
+            }
+
+            let operations: Vec<TestOp> = (0..magnetic.size)
+                .map(|index| TestOp {
+                    rotation: magnetic.rot[index],
+                    translation: magnetic.trans[index],
+                    time_reversal: magnetic.timerev[index],
+                })
+                .collect();
+
+            let mut keys = HashSet::with_capacity(operations.len());
+            for (index, op) in operations.iter().enumerate() {
+                if mat_get_determinant_i3(&op.rotation).abs() != 1 {
+                    audit.record(
+                        "invalid_rotation",
+                        format!("{context} op {index}: rotation={:?}", op.rotation),
+                    );
+                }
+                match op_key(op) {
+                    Some(key) => {
+                        if !keys.insert(key) {
+                            audit.record(
+                                "duplicate_operation",
+                                format!("{context} op {index}: {op:?}"),
+                            );
+                        }
+                    }
+                    None => audit.record(
+                        "invalid_translation",
+                        format!("{context} op {index}: {:?}", op.translation),
+                    ),
+                }
+            }
+
+            let identity = OpKey {
+                rotation: flatten_rotation(&IDENTITY_ROTATION),
+                translation_twelfths: [0, 0, 0],
+                time_reversal: false,
+            };
+            if !keys.contains(&identity) {
+                audit.record("missing_identity", context.clone());
+            }
+
+            for (left_index, left) in operations.iter().enumerate() {
+                let Some(inverse_key) = inverse(left).as_ref().and_then(op_key) else {
+                    audit.record(
+                        "missing_inverse",
+                        format!("{context} op {left_index}: cannot construct inverse"),
+                    );
+                    continue;
+                };
+                if !keys.contains(&inverse_key) {
+                    audit.record(
+                        "missing_inverse",
+                        format!("{context} op {left_index}: inverse={inverse_key:?}"),
+                    );
+                }
+
+                for (right_index, right) in operations.iter().enumerate() {
+                    let Some(product_key) = op_key(&compose(left, right)) else {
+                        audit.record(
+                            "invalid_composed_translation",
+                            format!("{context}: product {left_index}*{right_index}"),
+                        );
+                        continue;
+                    };
+                    if !keys.contains(&product_key) {
+                        audit.record(
+                            "not_closed",
+                            format!(
+                                "{context}: product {left_index}*{right_index}={product_key:?}"
+                            ),
+                        );
+                    }
+                }
+            }
+
+            let n_unitary = operations
+                .iter()
+                .filter(|operation| !operation.time_reversal)
+                .count();
+            let n_antiunitary = operations.len() - n_unitary;
+            let anti_identity_zero = operations.iter().any(|operation| {
+                operation.time_reversal
+                    && operation.rotation == IDENTITY_ROTATION
+                    && is_zero_translation(&operation.translation)
+            });
+            let anti_identity_nonzero = operations.iter().any(|operation| {
+                operation.time_reversal
+                    && operation.rotation == IDENTITY_ROTATION
+                    && !is_zero_translation(&operation.translation)
+            });
+
+            let Some(parent) = spg_database::spgdb_get_spacegroup_operations(hall) else {
+                audit.record("missing_parent_operations", context);
+                continue;
+            };
+            let parent_keys: HashSet<OpKey> = (0..parent.size)
+                .filter_map(|index| {
+                    op_key(&TestOp {
+                        rotation: parent.rot[index],
+                        translation: parent.trans[index],
+                        time_reversal: false,
+                    })
+                })
+                .collect();
+            let family_keys: HashSet<OpKey> = operations
+                .iter()
+                .filter_map(|operation| {
+                    op_key(&TestOp {
+                        time_reversal: false,
+                        ..*operation
+                    })
+                })
+                .collect();
+            let unitary_keys: HashSet<OpKey> = operations
+                .iter()
+                .filter(|operation| !operation.time_reversal)
+                .filter_map(op_key)
+                .collect();
+            let reference_matches = if metadata.type_ == MagneticType::AntiTranslation {
+                // For Type IV, the Hall mapping names the family space
+                // group. H uses the doubled magnetic cell, so its
+                // translations need not equal the parent Hall translations
+                // and H can have a different international number.
+                rotation_multiset(
+                    operations
+                        .iter()
+                        .filter(|operation| !operation.time_reversal)
+                        .map(|operation| &operation.rotation),
+                ) == rotation_multiset((0..parent.size).map(|index| &parent.rot[index]))
+            } else {
+                family_keys == parent_keys
+            };
+            if !reference_matches {
+                audit.record(
+                    "reference_group_mismatch",
+                    format!(
+                        "{context}: family={} unitary={} parent={}",
+                        family_keys.len(),
+                        unitary_keys.len(),
+                        parent_keys.len()
+                    ),
+                );
+            }
+
+            let expected_family_order = parent_keys.len();
+            let type_is_consistent = match metadata.type_ {
+                MagneticType::Ordinary => {
+                    operations.len() == expected_family_order
+                        && n_unitary == expected_family_order
+                        && n_antiunitary == 0
+                        && !anti_identity_zero
+                        && !anti_identity_nonzero
+                }
+                MagneticType::Grey => {
+                    operations.len() == 2 * expected_family_order
+                        && n_unitary == expected_family_order
+                        && n_antiunitary == expected_family_order
+                        && anti_identity_zero
+                }
+                MagneticType::BlackWhite => {
+                    operations.len() == expected_family_order
+                        && 2 * n_unitary == expected_family_order
+                        && n_antiunitary == n_unitary
+                        && !anti_identity_zero
+                        && !anti_identity_nonzero
+                }
+                MagneticType::AntiTranslation => {
+                    operations.len() == 2 * expected_family_order
+                        && n_unitary == expected_family_order
+                        && n_antiunitary == n_unitary
+                        && !anti_identity_zero
+                        && anti_identity_nonzero
+                }
+                MagneticType::NonMagnetic => false,
+            };
+            if !type_is_consistent {
+                audit.record(
+                    "magnetic_type_structure_mismatch",
+                    format!(
+                        "{context}: type={:?} parent={} total={} U={} A={} theta={} anti-translation={}",
+                        metadata.type_,
+                        expected_family_order,
+                        operations.len(),
+                        n_unitary,
+                        n_antiunitary,
+                        anti_identity_zero,
+                        anti_identity_nonzero
+                    ),
+                );
+            }
+        }
+    }
+
+    println!("Audited all 1651 UNI groups across {hall_pair_count} UNI/Hall settings");
+    audit.assert_clean();
+}
