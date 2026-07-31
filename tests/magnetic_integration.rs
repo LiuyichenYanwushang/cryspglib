@@ -1,6 +1,6 @@
 //! 磁性空间群集成测试。
 //!
-//! 所有测试走公共 API `Crystal` + `SymmetryAnalysis`，覆盖 Type-1/2/3 真实物理系统。
+//! 所有测试走公共 API `Crystal` + `SymmetryAnalysis`，覆盖 Type-1/2/3/4 真实物理系统。
 
 use cryspglib::{
     Crystal, MagneticSpaceGroupType, MagneticType,
@@ -130,7 +130,8 @@ fn test_fe_sc_100() {
 }
 
 /// Fe BCC AFM [111]: 2 个 Fe 在 [0,0,0] 和 [0.5,0.5,0.5], 磁矩相反沿 [111]
-/// 预期: R-3m (#166) type-3, BNS=166.101, UNI=1331
+/// 反幺正体心平移 (I|1/2,1/2,1/2)' 使其成为 type-4:
+/// R-3c (#167), BNS=167.108, UNI=1338。
 #[test]
 fn test_fe_bcc_afm_111() {
     let lattice = cubic_lattice();
@@ -144,12 +145,14 @@ fn test_fe_bcc_afm_111() {
     let r = run_dataset("Fe BCC AFM [111]", &lattice, &positions, &types, Some(&moments));
     assert_eq!(r.spacegroup_number, 229, "non-mag: Im-3m");
     assert!(r.uni_number > 0, "AFM [111] must match a DB entry");
-    assert_eq!(r.magnetic_type, MagneticType::BlackWhite);
-    assert_eq!(r.bns_number.trim(), "166.101");
-    assert_eq!(r.uni_number, 1331);
+    assert_eq!(r.magnetic_type, MagneticType::AntiTranslation);
+    assert_eq!(r.bns_number.trim(), "167.108");
+    assert_eq!(r.uni_number, 1338);
 }
 
 /// FCC FM [001]: 4 个原子, 全部磁矩沿 [001]
+/// FCC 中心化在四方标准 setting 中变为 I-centered:
+/// I4/mmm (#139) type-3, BNS=139.537, UNI=1197。
 #[test]
 fn test_fcc_fm_001() {
     let lattice = cubic_lattice();
@@ -169,8 +172,8 @@ fn test_fcc_fm_001() {
     let r = run_dataset("FCC FM [001]", &lattice, &positions, &types, Some(&moments));
     assert_eq!(r.spacegroup_number, 225, "non-mag: Fm-3m");
     assert_eq!(r.magnetic_type, MagneticType::BlackWhite);
-    assert_eq!(r.uni_number, 1005);
-    assert_eq!(r.bns_number.trim(), "123.345");
+    assert_eq!(r.uni_number, 1197);
+    assert_eq!(r.bns_number.trim(), "139.537");
 }
 
 /// FCC FM [111]: 4 个原子, 全部磁矩沿 [111]

@@ -59,12 +59,9 @@ pub fn msg_identify_with_parent_hall(
     parent_hall_number: Option<usize>,
     symprec: f64,
 ) -> Result<MagneticDataset, SymError> {
-    // 先约化到原胞表示（去除纯平移导致的冗余操作）
-    let prim_sym = reduce_to_primitive_magsym(magnetic_symmetry, symprec);
-
     // 标准路径: 从磁对称性中提取 FSG/XSG 并搜索空间群
     let (ref_sg, changed_symmetry, mut tmat, mut shift, msgtype_num) =
-        match get_reference_space_group(lattice, &prim_sym, symprec) {
+        match get_reference_space_group(lattice, magnetic_symmetry, symprec) {
             Some(result) => result,
             None => {
                 // 标准路径失败 → 尝试 fallback（用母空间群的 Hall 编号）
@@ -208,7 +205,7 @@ fn get_reference_space_group(
 
     // 3. 确定 MSG 类型 + 获取代表元
     let msgtype_num =
-        get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.size, sym_xsg.size, symprec)?;
+        get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.size, sym_xsg.size)?;
     let representatives = build_representatives(msgtype_num, magnetic_symmetry)?;
 
     // 4. 选择参考设置: type-4 用 XSG, 其他用 FSG
@@ -258,7 +255,7 @@ fn build_fallback_reference(
 
     // 2. 确定磁性类型
     let msgtype_num =
-        get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.size, sym_xsg.size, symprec)?;
+        get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.size, sym_xsg.size)?;
 
     // 3. 用非磁 Hall 编号构建参考 Spacegroup
     let spg_type = spgdb_get_spacegroup_type(parent_hall_number);
@@ -599,7 +596,6 @@ fn get_magnetic_space_group_type(
     magnetic_symmetry: &MagneticSymmetry,
     num_sym_fsg: usize,
     num_sym_xsg: usize,
-    symprec: f64,
 ) -> Option<MagneticType> {
     let identity: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
@@ -615,29 +611,14 @@ fn get_magnetic_space_group_type(
             None
         }
     } else if num_sym_fsg == 2 * num_sym_xsg {
-        // Check if anti-operation is translation (type-IV) or rotation (type-III)
-        // Note: in the reduced (primitive) representation, a genuine anti-translation
-        // (I|t, timerev=true) with |t| ≈ 0 is a coset representative.  A centering+TR
-        // combination (I|t, timerev=true) with |t| > 0 must be reduced to the primitive
-        // cell to check — otherwise BCC AFM centering ops would be misclassified as
-        // Type-IV.  The caller is responsible for passing already-reduced ops.
-        let has_anti_translation = magnetic_symmetry
-            .rot
-            .iter()
-            .zip(magnetic_symmetry.trans.iter())
-            .zip(magnetic_symmetry.timerev.iter())
-            .any(|((rot, trans), &timerev)| {
-                mat_check_identity_matrix_i3(&identity, rot)
-                    && trans[0].abs() < symprec
-                    && trans[1].abs() < symprec
-                    && trans[2].abs() < symprec
-                    && timerev
-            });
-
-        if has_anti_translation {
-            Some(MagneticType::AntiTranslation) // Type-IV: anti-translation
+        let representative = get_representative(magnetic_symmetry)?;
+        if representative.size != 2 {
+            return None;
+        }
+        if mat_check_identity_matrix_i3(&identity, &representative.rot[1]) {
+            Some(MagneticType::AntiTranslation)
         } else {
-            Some(MagneticType::BlackWhite) // Type-III: anti-rotation
+            Some(MagneticType::BlackWhite)
         }
     } else {
         None
@@ -656,15 +637,11 @@ fn get_representative(magnetic_symmetry: &MagneticSymmetry) -> Option<MagneticSy
     representative.trans[0] = [0.0; 3];
     representative.timerev[0] = false;
 
-    // Type-IV: anti-translation with identity rotation AND zero translation.
-    // Centering translations with timerev=1 (e.g. in AFM structures) must NOT be
-    // captured here — they belong to pure translations, not to the coset representative.
+    // A primed operation with identity linear part is the Type-IV
+    // anti-translation representative. Its translation is generally nonzero.
     for i in 0..magnetic_symmetry.size {
         if mat_check_identity_matrix_i3(&identity, &magnetic_symmetry.rot[i])
             && magnetic_symmetry.timerev[i]
-            && magnetic_symmetry.trans[i][0].abs() < 1e-5
-            && magnetic_symmetry.trans[i][1].abs() < 1e-5
-            && magnetic_symmetry.trans[i][2].abs() < 1e-5
         {
             representative.rot[1] = magnetic_symmetry.rot[i];
             representative.trans[1] = magnetic_symmetry.trans[i];
@@ -674,14 +651,10 @@ fn get_representative(magnetic_symmetry: &MagneticSymmetry) -> Option<MagneticSy
         }
     }
 
-    // Type-III: anti-rotation.  Skip identity rotations — those with timerev=1
-    // and non-zero translation are centering translations, not coset representatives.
+    // Otherwise any antiunitary operation represents the Type-III coset.
     for i in 0..magnetic_symmetry.size {
         if !magnetic_symmetry.timerev[i] {
             continue;
-        }
-        if mat_check_identity_matrix_i3(&identity, &magnetic_symmetry.rot[i]) {
-            continue; // skip identity rotations (centering translations with timerev)
         }
         representative.rot[1] = magnetic_symmetry.rot[i];
         representative.trans[1] = magnetic_symmetry.trans[i];
@@ -690,9 +663,7 @@ fn get_representative(magnetic_symmetry: &MagneticSymmetry) -> Option<MagneticSy
         return Some(representative);
     }
 
-    // Type-I or II: no anti-operations
-    representative.size = 1;
-    Some(representative)
+    None
 }
 
 /// Apply `x_std = (tmat, shift) x` to magnetic symmetry, deduplicating.
@@ -967,96 +938,6 @@ fn get_changed_magnetic_symmetry(
 
     changed.size = num_sym;
     Some(changed)
-}
-
-/// 检查两个磁性对称操作集合是否等价。
-/// 用纯平移将磁对称操作约化到原胞表示。
-/// 收集 identity 旋转的操作为晶格平移（非零 timerev=1 的平移也用于约化，
-/// 但零平移 timerev=1 除外，避免破坏 Type-2 结构）。
-pub(crate) fn reduce_to_primitive_magsym(sym: &MagneticSymmetry, symprec: f64) -> MagneticSymmetry {
-    let identity: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-    let n_in = sym.size;
-
-    // 1. 收集纯平移（identity 旋转）。
-    //    timerev=1 的零平移 identity 是 Type-2 结构的一部分，不能用作约化平移。
-    //    只有 timerev=1 且非零平移的（如 BCC AFM 中的 (0.5,0.5,0.5)）才用于约化。
-    let mut lat_trans: Vec<(Vec3, bool)> = vec![([0.0; 3], false)];
-    for i in 0..n_in {
-        if mat_check_identity_matrix_i3(&identity, &sym.rot[i]) {
-            let t = sym.trans[i];
-            let tr = sym.timerev[i];
-            if tr && t[0].abs() < symprec && t[1].abs() < symprec && t[2].abs() < symprec {
-                continue;
-            }
-            let mut dup = false;
-            for (lt, ltr) in &lat_trans {
-                let mut d = 0.0;
-                for k in 0..3 {
-                    let mut x = t[k] - lt[k];
-                    x -= x.round();
-                    d += x.abs();
-                }
-                if d < symprec && *ltr == tr { dup = true; break; }
-            }
-            if !dup { lat_trans.push((t, tr)); }
-        }
-    }
-
-    // 如果没有多余平移, 返回原样
-    if lat_trans.len() <= 1 { return sym.clone(); }
-
-    // 2. 约化和去重: 对每个操作, 尝试所有 lat_trans (±), 选最短 translation
-    let mut out = MagneticSymmetry::new(n_in);
-    let mut n = 0usize;
-
-    'next: for i in 0..n_in {
-        let rot_i = &sym.rot[i];
-        let t_i = sym.trans[i];
-        let tr_i = sym.timerev[i];
-
-        let mut best_t = t_i;
-        let mut best_tr = tr_i;
-        let mut best_n2 = t_i[0] * t_i[0] + t_i[1] * t_i[1] + t_i[2] * t_i[2];
-        for (lt, ltr) in &lat_trans {
-            // 减去晶格平移: (R, t, tr) → (R, t - lt, tr XOR ltr)
-            let cand = [t_i[0] - lt[0], t_i[1] - lt[1], t_i[2] - lt[2]];
-            let n2 = cand[0] * cand[0] + cand[1] * cand[1] + cand[2] * cand[2];
-            let new_tr = tr_i != *ltr;
-            if n2 < best_n2 - 1e-10 || (n2 < best_n2 + 1e-10 && !new_tr && best_tr) {
-                best_t = cand;
-                best_n2 = n2;
-                best_tr = new_tr;
-            }
-        }
-
-        // 去重
-        for j in 0..n {
-            if out.timerev[j] != best_tr { continue; }
-            if !mat_check_identity_matrix_i3(&out.rot[j], rot_i) { continue; }
-            let mut d = 0.0;
-            for k in 0..3 {
-                let mut x = out.trans[j][k] - best_t[k];
-                x -= x.round();
-                d += x.abs();
-            }
-            if d < symprec { continue 'next; }
-        }
-
-        out.rot[n] = *rot_i;
-        out.trans[n] = best_t;
-        out.timerev[n] = best_tr;
-        n += 1;
-    }
-    out.size = n;
-
-    // 3. 收缩到实际大小
-    let mut final_sym = MagneticSymmetry::new(n);
-    for i in 0..n {
-        final_sym.rot[i] = out.rot[i];
-        final_sym.trans[i] = out.trans[i];
-        final_sym.timerev[i] = out.timerev[i];
-    }
-    final_sym
 }
 
 /// 子集检查: sym1 的所有操作是否都能在 sym2 中找到。

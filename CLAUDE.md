@@ -74,15 +74,47 @@ space group；幺正子群 H 在 doubled magnetic cell 中可能有不同的国�
 已定位的第一项真实根因：`reduce_to_primitive_magsym` 把非零 anti-translation
 当成普通晶格平移消去，并把操作的 time reversal 与该“平移”的 time reversal
 做 XOR。这样最简单的 Type-IV BNS `1.3` 会丢失反平移并被识别成 Type-I
-BNS `1.1`。下一步先修复该降类型错误，再重新统计剩余 setting/UNI 匹配失败。
+BNS `1.1`。
+
+### 2026-07-31 Type-IV 根因修复
+
+已逐行对照官方 spglib v2.5.0（commit `e4531bb`）的
+`src/magnetic_spacegroup.c`，确认 Rust 端的预先磁原胞约化不是官方算法的一部分。
+FSG/XSG 必须各自在 reference-group 搜索中按普通、非反幺正纯平移约化；不能把
+anti-translation 当晶格平移并 XOR 掉 time reversal。Type III/IV 应从
+antiunitary coset representative 的线性部分判定：
+
+- `(I|t)'`（通常 `t != 0`）是 Type IV；
+- 其余反幺正代表元是 Type III。
+
+删除错误的 `reduce_to_primitive_magsym` 预处理、恢复上述判定后，首 Hall setting
+round-trip 提升为：
+
+- 返回原 UNI 且磁类型正确：`1536 / 1651`（原 `1053 / 1651`）。
+- `MagneticUniMatchFailed`：`36`（原 `88`）。
+- 返回错误 UNI、但类型相同：`79`（原 `56`）。
+- 错误磁类型：`0`（原 `432`）。
+- fallback reference 失败：`0`（原 `22`）。
+
+结构入口也用同一官方 C API 作了独立 oracle 核对：
+
+- BCC AFM `[111]` 含 `(I|1/2,1/2,1/2)'`，正确结果是 Type IV、
+  UNI `1338`、BNS `167.108`，不是旧测试中的 Type III / UNI `1331`。
+- FCC FM `[001]` 保留中心化并转到 I-centered tetragonal setting，正确结果是
+  Type III、UNI `1197`、BNS `139.537`，不是旧测试中的 primitive
+  tetragonal UNI `1005`。
+
+剩余 `115` 个首 Hall round-trip 问题已全部限制在“相同磁类型内的 UNI/setting
+匹配”。下一步对齐官方的等阶、全操作集合相等判据，移除当前 Rust 端的宽松 subset
+匹配，并继续区分 enantiomorphic/alternate settings。
 
 ### 已确认的问题
 
 1. `primitive.rs` 曾无条件输出 `reduced=...`，1651 群扫描产生大量噪声。
 2. `hall_symbol.rs` 曾对 Hall 497 无条件输出内部匹配跟踪。
 3. 数据库/群代数/磁类型层已由 4479-pair strict gate 清零。
-4. 尚未实现数据库磁操作 `→` 磁群识别 `→` 原 UNI 的 1651 群严格 round-trip；
-   当前首 Hall 基线为 `1053 / 1651`，正在修复。
+4. 数据库磁操作 `→` 磁群识别 `→` 原 UNI 的首 Hall round-trip 当前为
+   `1536 / 1651`；剩余 36 个显式匹配失败和 79 个同类型错误 UNI，正在修复。
 5. 现有 setting oracle 仍有 32 个 SG 路径不一致、54 个 detected-Hall
    Seitz 不一致和 201 个 data-Hall Seitz 不一致，需按“合法 setting 等价”和
    “真实识别错误”重新分类。
