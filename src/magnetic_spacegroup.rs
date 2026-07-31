@@ -7,7 +7,7 @@ use crate::MagneticType;
 use crate::SymError;
 use crate::mathfunc::{
     mat_cast_matrix_3i_to_3d, mat_check_identity_matrix_i3,
-    mat_get_determinant_d3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
+    mat_dmod1, mat_get_determinant_d3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
     mat_multiply_matrix_i3, mat_multiply_matrix_id3,
     mat_multiply_matrix_vector_d3, mat_multiply_matrix_vector_id3, mat_nint, Mat3, Mat3I, Vec3,
 };
@@ -103,7 +103,7 @@ pub fn msg_identify_with_parent_hall(
                 Some(u) => u,
                 None => continue,
             };
-            if changed_symmetry.size > msg_uni.size {
+            if changed_symmetry.size != msg_uni.size {
                 continue;
             }
 
@@ -128,7 +128,7 @@ pub fn msg_identify_with_parent_hall(
                     None => continue,
                 };
 
-                let matched = is_subset(&symmetry_cor, &msg_uni, symprec);
+                let matched = is_equal(&symmetry_cor, &msg_uni, symprec);
                 if matched {
                     same = true;
                     tmat = mat_multiply_matrix_d3(&tmat_cor_d, &tmat);
@@ -216,8 +216,10 @@ fn get_reference_space_group(
         &mut fsg
     };
 
-    // 5. 在真实笛卡尔度量下规整参考晶格，并计算
-    //    x_std = (tmat, shift) x。
+    // 5. Refine the reference basis against the physical Cartesian metric,
+    //    then form x_std = (tmat, shift) x. The Rust space-group search does
+    //    not retain upstream's complete orig_lattice context, so this second
+    //    refinement is required for non-cubic structure inputs.
     let lattice_inv = mat_inverse_matrix_d3(lattice, 0.0).ok()?;
     ref_sg.bravais_lattice =
         mat_multiply_matrix_d3(lattice, &ref_sg.bravais_lattice);
@@ -734,12 +736,6 @@ fn get_distinct_changed_magnetic_symmetry(
     Some(changed)
 }
 
-/// `a - round(a)`, 结果在 [0, 1)。
-fn mat_dmod1(a: f64) -> f64 {
-    let b = a - a.round();
-    if b < 0.0 { b + 1.0 } else { b }
-}
-
 /// 检查旋转矩阵 `a` 是否已包含在 `sym_msg.rot[0..size]` 中。
 fn is_contained_mat(a: &Mat3I, sym_msg: &MagneticSymmetry, size: usize) -> bool {
     for i in 0..size {
@@ -831,16 +827,7 @@ fn get_changed_pure_translations(
     }
 
     if changed.len() != size {
-        // Fallback: just transform each pure_trans directly, mod1, and dedup
-        changed.clear();
-        for pt in pure_trans {
-            let trans = mat_multiply_matrix_vector_d3(tmat, pt);
-            let t_mod = [mat_dmod1(trans[0]), mat_dmod1(trans[1]), mat_dmod1(trans[2])];
-            if !is_contained_vec(&t_mod, &changed, symprec) {
-                changed.push(t_mod);
-            }
-        }
-        // Accept whatever we got (may be more or less than expected due to basis change)
+        return None;
     }
 
     Some(changed)
@@ -940,49 +927,7 @@ fn get_changed_magnetic_symmetry(
     Some(changed)
 }
 
-/// 子集检查: sym1 的所有操作是否都能在 sym2 中找到。
-/// sym1 可以是 sym2 的子集（size 不要求相等）。
-fn is_subset(
-    sym1: &MagneticSymmetry,
-    sym2: &MagneticSymmetry,
-    symprec: f64,
-) -> bool {
-    if sym1.size > sym2.size {
-        return false; // sym1 不可能是 sym2 的子集
-    }
-
-    let mut found = vec![false; sym2.size];
-    for i in 0..sym1.size {
-        let mut matched = false;
-        for j in 0..sym2.size {
-            if found[j] {
-                continue;
-            }
-            if !mat_check_identity_matrix_i3(&sym1.rot[i], &sym2.rot[j]) {
-                continue;
-            }
-            if sym1.timerev[i] != sym2.timerev[j] {
-                continue;
-            }
-            let mut diff = [0.0; 3];
-            for k in 0..3 {
-                diff[k] = sym1.trans[i][k] - sym2.trans[j][k];
-                diff[k] -= mat_nint(diff[k]) as f64;
-            }
-            if diff[0].abs() < symprec && diff[1].abs() < symprec && diff[2].abs() < symprec {
-                found[j] = true;
-                matched = true;
-                break;
-            }
-        }
-        if !matched {
-            return false;
-        }
-    }
-    true
-}
-
-#[allow(dead_code)]
+/// 检查两个磁对称操作集合是否在周期平移意义下完全相等。
 fn is_equal(
     sym1: &MagneticSymmetry,
     sym2: &MagneticSymmetry,
@@ -1147,5 +1092,61 @@ mod tests {
         assert!(super::msg_identify_magnetic_space_group_type(
             &cubic_lattice(), &mag_sym, SYMPREC,
         ).is_err());
+    }
+
+    #[test]
+    #[ignore = "focused upstream-comparison diagnostic"]
+    fn diagnose_selected_database_reference_groups() {
+        for uni in [132usize, 282, 667, 751, 890, 1338] {
+            let hall = crate::msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
+            let magnetic =
+                crate::msg_database::msgdb_get_spacegroup_operations(uni, hall).unwrap();
+            let (fsg, sym_fsg) =
+                super::get_family_space_group_with_magnetic_symmetry(&magnetic, SYMPREC).unwrap();
+            let (xsg, sym_xsg) =
+                super::get_maximal_subspace_group_with_magnetic_symmetry(&magnetic, SYMPREC)
+                    .unwrap();
+            let reference =
+                super::get_reference_space_group(&cubic_lattice(), &magnetic, SYMPREC).unwrap();
+            let result = super::msg_identify_with_parent_hall(
+                &cubic_lattice(),
+                &magnetic,
+                Some(hall),
+                SYMPREC,
+            );
+
+            eprintln!(
+                "UNI {uni} input Hall {hall}: FSG Hall {} SG{} order {} P {:?} p {:?}; \
+                 XSG Hall {} SG{} order {} P {:?} p {:?}; \
+                 ref Hall {} type {:?} changed {} tmat {:?} shift {:?}",
+                fsg.hall_number,
+                fsg.number,
+                sym_fsg.size,
+                fsg.bravais_lattice,
+                fsg.origin_shift,
+                xsg.hall_number,
+                xsg.number,
+                sym_xsg.size,
+                xsg.bravais_lattice,
+                xsg.origin_shift,
+                reference.0.hall_number,
+                reference.4,
+                reference.1.size,
+                reference.2,
+                reference.3,
+            );
+            match result {
+                Ok(dataset) => eprintln!(
+                    "  result UNI {} type {:?} Hall {} tmat {:?} shift {:?}",
+                    dataset.uni_number,
+                    dataset.msg_type,
+                    dataset.hall_number,
+                    dataset.transformation_matrix,
+                    dataset.origin_shift,
+                ),
+                Err(error) => eprintln!("  result error {error:?}"),
+            }
+        }
+
     }
 }

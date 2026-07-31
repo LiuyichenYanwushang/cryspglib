@@ -720,6 +720,7 @@ fn laue_one_axis(axes: &mut [usize; 3], pointsym: &PointSymmetry, rot_order: i32
     let mut tmp_axes = [0; 3];
     tmp_axes[1] = usize::MAX; // Placeholder
     tmp_axes[2] = axes[2];
+    let mut axes_found = false;
 
     for i in 0..num_ortho_axis {
         tmp_axes[0] = ortho_axes[i];
@@ -748,14 +749,25 @@ fn laue_one_axis(axes: &mut [usize; 3], pointsym: &PointSymmetry, rot_order: i32
         if det < 4 {
             axes[0] = tmp_axes[0];
             axes[1] = tmp_axes[1];
-
-
-            return true;
+            axes_found = true;
+            break;
         }
     }
 
-    debug::warning_print(format_args!("spglib: Secondary axis is not found.\n"));
-    false
+    if !axes_found {
+        debug::warning_print(format_args!("spglib: Secondary axis is not found.\n"));
+        return false;
+    }
+
+    // Keep the conventional basis right-handed. This handedness correction
+    // is essential for distinguishing enantiomorphic Hall settings.
+    let mut t_mat = [[0; 3]; 3];
+    set_transformation_matrix(&mut t_mat, axes);
+    if mat_get_determinant_i3(&t_mat) < 0 {
+        axes.swap(0, 1);
+    }
+
+    true
 }
 
 fn lauennn(

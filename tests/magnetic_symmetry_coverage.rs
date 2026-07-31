@@ -553,6 +553,30 @@ fn all_magnetic_database_operations_form_expected_groups() {
 }
 
 #[test]
+fn enantiomorphic_magnetic_settings_preserve_handedness() {
+    for uni in [667usize, 679] {
+        let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let first_hall = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
+        let magnetic = msgdb_get_spacegroup_operations(uni, first_hall).unwrap();
+        let lattice = invariant_lattice(&magnetic.rot[..magnetic.size]).unwrap();
+        let dataset = magnetic_spacegroup::msg_identify_with_parent_hall(
+            &lattice,
+            &magnetic,
+            Some(first_hall),
+            1e-5,
+        )
+        .unwrap();
+
+        assert_eq!(
+            dataset.uni_number, uni,
+            "BNS {} crossed to its enantiomorphic setting",
+            metadata.bns_number
+        );
+        assert_eq!(dataset.hall_number, first_hall);
+    }
+}
+
+#[test]
 #[ignore = "diagnostic baseline; becomes a strict gate after identification failures are fixed"]
 fn diagnose_first_hall_database_round_trips() {
     let mut audit = Audit::default();

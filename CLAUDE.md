@@ -105,8 +105,51 @@ round-trip 提升为：
   tetragonal UNI `1005`。
 
 剩余 `115` 个首 Hall round-trip 问题已全部限制在“相同磁类型内的 UNI/setting
-匹配”。下一步对齐官方的等阶、全操作集合相等判据，移除当前 Rust 端的宽松 subset
-匹配，并继续区分 enantiomorphic/alternate settings。
+匹配”。
+
+### 2026-07-31 官方 oracle 与 setting 手性修复
+
+已在 `/tmp` 独立构建官方 spglib v2.5.0，并用完全相同的 1651 UNI 操作和不变
+正定度量逐项调用官方识别 API。官方基线为：
+
+- 精确返回原 UNI：`1648 / 1651`。
+- UNI `282`（BNS `37.184`）返回 UNI `275`；
+- UNI `283`（BNS `37.185`）识别失败；
+- UNI `284`（BNS `37.186`）返回 UNI `277`。
+
+同时机器比较官方 C 数据与 Rust 生成数据：
+
+- 76,683 个编码磁操作逐项完全相等；
+- Hall mapping 和 UNI mapping 完全相等。
+
+因此额外偏差不在磁数据库，而在普通空间群 setting 标准化。随后恢复了两处官方
+语义：
+
+1. UNI 候选必须等阶并做完整磁 Seitz 集合相等比较，不能接受 subset；
+2. `pointgroup::laue_one_axis` 找到四方/三方/六方常规轴后必须检查基变换的
+   行列式；若为负，交换前两轴得到右手基。Rust 移植此前在此检查前提前返回，
+   会把 enantiomorphic Hall setting 互换，例如 BNS `76.*` 被识别成 `78.*`。
+
+右手化修复后首 Hall round-trip 为：
+
+- 返回原 UNI 且磁类型正确：`1613 / 1651`（修复前 `1536 / 1651`）。
+- `MagneticUniMatchFailed`：`36`。
+- 返回错误 UNI、但类型相同：`2`（仅官方 oracle 同样混淆的 UNI 282、284）。
+- 错误磁类型、fallback 失败、panic：均为 `0`。
+
+完整集合比较一度暴露出结构入口仍依赖旧 subset 匹配：BCC AFM `[111]` 从 24 个
+输入操作变换到 rhombohedral Hall 460 时，本应因 `det(T)=1/3` 恢复 3 个纯平移、
+合成 72 个操作，Rust 却只生成 24 个。根因是 `magnetic_spacegroup.rs` 的私有
+`mat_dmod1` 没有官方 `ZERO_PREC` 容差，把 `-1e-16` 映成接近 `1` 而不是 `0`，
+使平移去重计数失败；随后非官方弱 fallback 又静默退回 1 个平移。现已统一使用
+`mathfunc::mat_dmod1`，并在计数不符时严格失败，不再产生可被 subset 掩盖的残缺群。
+恢复严格等阶/全集比较后，`tests/magnetic_integration.rs` 的 11 个结构入口全部通过，
+包括 BCC AFM `[111]` 的 UNI 1338 和 FCC FM `[111]` 的 UNI 1331。
+
+当前剩余的 36 个 Rust 特有失败集中在正交 setting 的轴/原点标准化；首例 UNI
+`132`（BNS `20.34`）官方得到单位基变换和 `z=-1/2` 原点移动，而 Rust 当前得到
+轴交换/反向基和 `z=3/4`，导致标准变换表无法匹配。下一步逐段对齐
+`ref_find_similar_bravais_lattice` 及正交 Hall 原点修正。
 
 ### 已确认的问题
 
@@ -114,7 +157,8 @@ round-trip 提升为：
 2. `hall_symbol.rs` 曾对 Hall 497 无条件输出内部匹配跟踪。
 3. 数据库/群代数/磁类型层已由 4479-pair strict gate 清零。
 4. 数据库磁操作 `→` 磁群识别 `→` 原 UNI 的首 Hall round-trip 当前为
-   `1536 / 1651`；剩余 36 个显式匹配失败和 79 个同类型错误 UNI，正在修复。
+   `1613 / 1651`；剩余 36 个显式匹配失败，以及 2 个官方同样混淆的 Type-IV
+   UNI，正在修复。
 5. 现有 setting oracle 仍有 32 个 SG 路径不一致、54 个 detected-Hall
    Seitz 不一致和 201 个 data-Hall Seitz 不一致，需按“合法 setting 等价”和
    “真实识别错误”重新分类。
