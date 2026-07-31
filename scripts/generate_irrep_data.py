@@ -516,13 +516,16 @@ def _parse_cir_characters(needed_labels=None):
             continue
 
         dim = int(after_line[0])
-        irtype = int(after_line[1]) if len(after_line) > 1 else 1  # 1=real, 2=complex
-        pmkcount = int(after_line[3])
+        star_count = int(after_line[2]) if len(after_line) > 2 else 1
+        little_dim = dim // star_count if star_count > 0 and dim % star_count == 0 else dim
         opcount = int(after_line[4])
-        has_conjugate = (irtype == 2)  # complex CIR irreps have conjugate data after ordinary
 
-        # Skip k-vector data
-        kvec_remaining = pmkcount * 16
+        # CIR stores one augmented 4x4 k-vector record per star arm.  The
+        # fourth header field is the number of physically irreducible k
+        # vectors, not an additional multiplier.  Using that field here leaves
+        # a star-arm record in the stream whenever the two counts differ, where
+        # it is then mistaken for the identity operation.
+        kvec_remaining = star_count * 16
         while kvec_remaining > 0 and i < len(lines) - 1:
             i += 1
             if i >= len(lines):
@@ -531,7 +534,9 @@ def _parse_cir_characters(needed_labels=None):
 
         # Read operator matrices + complex irrep matrices
         chars = []
+        little_chars = []  # trace of the first (stored-k) star-arm block
         rots = []         # rotation matrices: list of [r00,r01,r02,r10,r11,r12,r20,r21,r22]
+        trans = []        # fractional translations: list of [t0,t1,t2]
         all_matrices = []  # flattened complex matrix elements for all ops
         store_matrices = (needed_labels is None) or ((sg, label) in needed_labels)
 
@@ -556,6 +561,11 @@ def _parse_cir_characters(needed_labels=None):
                             r10 = op_nums[4] // denom; r11 = op_nums[5] // denom; r12 = op_nums[6] // denom
                             r20 = op_nums[8] // denom; r21 = op_nums[9] // denom; r22 = op_nums[10] // denom
                             rots.append([r00, r01, r02, r10, r11, r12, r20, r21, r22])
+                            trans.append([
+                                float(op_nums[3]) / float(denom),
+                                float(op_nums[7]) / float(denom),
+                                float(op_nums[11]) / float(denom),
+                            ])
                         except ValueError:
                             pass
                     break
@@ -564,12 +574,22 @@ def _parse_cir_characters(needed_labels=None):
             if i >= len(lines):
                 break
 
-            # Move to complex irrep matrix line (ordinary values)
+            # Move to the optional irtranslation / complex irrep matrix line.
             i += 1
             if i >= len(lines):
                 break
 
-            # CIR has no irtranslation
+            # CIR records may contain a four-integer irtranslation even at
+            # labels traditionally regarded as special k-points.  Complex
+            # matrix values are always written as ``(real,imag)``, so this is
+            # unambiguous and does not need a label heuristic.
+            next_parts = lines[i].strip().split()
+            if (len(next_parts) == 4
+                    and all(re.fullmatch(r'-?\d+', value) for value in next_parts)):
+                i += 1
+                if i >= len(lines):
+                    break
+
             # Read complex matrix: dim² complex numbers as (real,imag) pairs
             complex_vals = []  # list of (real, imag)
             needed = dim * dim
@@ -597,27 +617,26 @@ def _parse_cir_characters(needed_labels=None):
 
             chars.append((trace_re, trace_im, _round_char(trace_re)))
 
-            # Skip conjugate complex matrix if present (complex irreps only).
-            # Conjugate has the same number of values (dim²) as ordinary.
-            if has_conjugate:
-                conj_needed = dim * dim
-                conj_read = 0
-                while conj_read < conj_needed and i < len(lines):
-                    for token in lines[i].strip().split():
-                        conj_read += 1
-                        if conj_read >= conj_needed:
-                            break
-                    if conj_read >= conj_needed:
-                        break
-                    i += 1
+            little_trace_re = 0.0
+            little_trace_im = 0.0
+            for d in range(little_dim):
+                idx = d * dim + d
+                if idx < len(complex_vals):
+                    little_trace_re += complex_vals[idx][0]
+                    little_trace_im += complex_vals[idx][1]
+            little_chars.append((little_trace_re, little_trace_im))
 
         key = (sg, label)
         if key not in cir_chars:
             cir_chars[key] = {
                 'dim': dim,
+                'star_count': star_count,
+                'little_dim': little_dim,
                 'opcount': opcount,
                 'chars': chars,  # list of (re, im, rounded_re)
+                'little_chars': little_chars,
                 'rots': rots,   # list of [r00..r22], 9 ints per op
+                'trans': trans, # list of [t0,t1,t2], fractional per op
             }
             if store_matrices:
                 cir_matrices[key] = all_matrices
@@ -1556,9 +1575,10 @@ def _reorder_to_spglib_order(
         sg, ml, chars_flat, char_starts, char_counts,
         matrices_flat, mat_starts, mat_counts,
         pir_rots_flat, pir_rot_starts, rots_map,
+        little_chars_real=None, little_chars_imag=None, little_chars_valid=None,
         pir_trans_flat=None, pir_trans_starts=None,
         spinor_irreps=None, spinor_starts=None, spinor_counts=None,
-        cir_comp_flat=None, cir_comp_rots=None,
+        cir_comp_flat=None, cir_comp_rots=None, cir_comp_trans=None,
         cir_comp_starts=None, cir_comp_counts=None, cir_comp_ops=None,
         kvec_map=None):
     """Reorder per-irrep data from ISOTROPY order into spglib Hall order.
@@ -1575,6 +1595,7 @@ def _reorder_to_spglib_order(
 
     n_scalar = len(ml)
     reorder_results = []
+    hall_targets = [None] * n_scalar  # per scalar irrep: (Hall rotations, translations)
     sg_hall_choice = {}  # sg → mapping list
     orig_char_counts = list(char_counts)  # Save ISOTROPY sizes before reorder
 
@@ -1594,61 +1615,109 @@ def _reorder_to_spglib_order(
         hall_candidates = sg_halls.get(sg_num, [])
 
         best_mapping = None
+        best_hall_target = None
+        best_hall_num = None
+        best_exact_count = -1
+        pir_trans = []
+        if pir_trans_flat is not None and pir_trans_starts is not None:
+            trans_start = pir_trans_starts[i]
+            raw_trans = pir_trans_flat[trans_start:trans_start + n_ops * 3]
+            pir_trans = [raw_trans[j:j + 3] for j in range(0, len(raw_trans), 3)]
         for hall_num, hall_rots, hall_trans in hall_candidates:
             if len(hall_rots) == 0:
                 continue
             mapping = []
             rot_cache = {}  # rotation_tuple → ISOTROPY index
-            for h_rot in hall_rots:
+            exact_count = 0
+            for h_rot, h_trans in zip(hall_rots, hall_trans):
                 rot_key = tuple(h_rot)
-                if rot_key in rot_cache:
-                    mapping.append(rot_cache[rot_key])
-                    continue
-                found = None
-                for p_idx, p_rot in enumerate(pir_rots):
-                    if len(p_rot) != 9 or len(h_rot) != 9:
-                        continue
-                    if all(h_rot[d] == p_rot[d] for d in range(9)):
-                        found = p_idx
-                        break
+                rotation_matches = [
+                    p_idx for p_idx, p_rot in enumerate(pir_rots)
+                    if len(p_rot) == 9 and len(h_rot) == 9
+                    and all(h_rot[d] == p_rot[d] for d in range(9))
+                ]
+                exact_matches = [
+                    p_idx for p_idx in rotation_matches
+                    if p_idx < len(pir_trans)
+                    and all(
+                        abs((h_trans[axis] - pir_trans[p_idx][axis])
+                            - round(h_trans[axis] - pir_trans[p_idx][axis]))
+                        < 1e-8
+                        for axis in range(3)
+                    )
+                ]
+                if exact_matches:
+                    found = exact_matches[0]
+                    exact_count += 1
+                elif rot_key in rot_cache:
+                    # Centered Hall tables can contain several translations
+                    # for one rotation while a primitive source table stores
+                    # only one representative.  Reuse its canonical source
+                    # operation; Phase C expands the missing cosets.
+                    found = rot_cache[rot_key]
+                else:
+                    found = rotation_matches[0] if rotation_matches else None
                 if found is not None:
                     rot_cache[rot_key] = found
                 mapping.append(found)
-            if sg_num == 9 and ml[i] == 'M1M2':
-                print(f"  DEBUG SG9 M1M2 mapping: {mapping}")
-                print(f"    hall_rots: {[r[:6] for r in hall_rots]}")
-                print(f"    pir_rots (first 4): {[r[:6] for r in pir_rots[:4]]}")
             mapped_op_count = sum(1 for m in mapping if m is not None)
-            if mapped_op_count == len(hall_rots):
+            # Several Hall settings can have the same rotation multiset but
+            # different origins.  Prefer the one whose full Seitz operations
+            # match the PIR source table most closely.  This removes the
+            # origin-setting ambiguity deterministically and preserves the
+            # projective multiplication phases at Brillouin-zone boundaries.
+            if mapped_op_count == len(hall_rots) and exact_count > best_exact_count:
                 best_mapping = mapping
-                break
+                best_hall_target = (hall_rots, hall_trans)
+                best_hall_num = hall_num
+                best_exact_count = exact_count
 
         if best_mapping:
-            if sg_num == 9 and ml[i] == 'M1M2':
-                cs = char_starts[i]
-                print(f"  DEBUG before reorder: n_ops={n_ops} char_start={cs}")
-                for op in range(min(n_ops, 8)):
-                    print(f"    ISO[{op}] = {chars_flat[cs + op]:.4f}")
-            _apply_reorder(chars_flat, char_starts[i], n_ops, best_mapping, 1)
-            if sg_num == 9 and ml[i] == 'M1M2':
-                cs = char_starts[i]; cc = len(best_mapping)
-                print(f"  DEBUG after reorder: char_start={cs} count={cc}")
-                for op in range(cc):
-                    print(f"    PIR[{op}] = {chars_flat[cs + op]:.4f} (from ISO[{best_mapping[op]}])")
-            dim_sq = mat_counts[i] // n_ops if n_ops else 1
-            if dim_sq > 0 and mat_counts[i] > 0:
-                _apply_reorder(matrices_flat, mat_starts[i], n_ops, best_mapping, dim_sq)
-            if n_ops > 0:
-                _apply_reorder(pir_rots_flat, pir_rot_starts[i], n_ops, best_mapping, 9)
-                if pir_trans_flat is not None and pir_trans_starts is not None:
-                    current_trans = len(pir_trans_flat) - pir_trans_starts[i]
-                    needed_trans = n_ops * 3
-                    if current_trans < needed_trans:
-                        pir_trans_flat[pir_trans_starts[i]:] = []  # truncate
-                        pir_trans_flat.extend([0.0] * needed_trans)
-                    _apply_reorder(pir_trans_flat, pir_trans_starts[i], n_ops, best_mapping, 3)
+            hall_targets[i] = best_hall_target
+            needs_resize = len(best_mapping) != n_ops
+            # A centered conventional Hall group can contain more operation
+            # representatives than the primitive ISOTROPY table.  Defer all
+            # mutations in that case: applying only the first n targets would
+            # overwrite source entries that the later expansion still needs.
+            if not needs_resize:
+                _apply_reorder(chars_flat, char_starts[i], n_ops, best_mapping, 1)
+                if little_chars_real is not None:
+                    start = char_starts[i]
+                    old_re = little_chars_real[start:start + n_ops]
+                    old_im = little_chars_imag[start:start + n_ops]
+                    old_valid = little_chars_valid[start:start + n_ops]
+                    old_trans = pir_trans_flat[
+                        pir_trans_starts[i]:pir_trans_starts[i] + n_ops * 3]
+                    hall_trans = best_hall_target[1]
+                    kx, ky, kz, kd = _lookup_kvec(kvec_map, sg_num, ml[i])
+                    for h, source in enumerate(best_mapping):
+                        if source is None or source >= n_ops:
+                            little_chars_valid[start + h] = 0
+                            continue
+                        delta = [
+                            hall_trans[h][axis] - old_trans[source * 3 + axis]
+                            for axis in range(3)
+                        ]
+                        theta = 2.0 * math.pi * (
+                            kx * delta[0] + ky * delta[1] + kz * delta[2]) / kd
+                        phase_re = math.cos(theta)
+                        phase_im = math.sin(theta)
+                        little_chars_real[start + h] = (
+                            old_re[source] * phase_re - old_im[source] * phase_im)
+                        little_chars_imag[start + h] = (
+                            old_re[source] * phase_im + old_im[source] * phase_re)
+                        little_chars_valid[start + h] = old_valid[source]
+            if not needs_resize:
+                dim_sq = mat_counts[i] // n_ops if n_ops else 1
+                if dim_sq > 0 and mat_counts[i] > 0:
+                    _apply_reorder(matrices_flat, mat_starts[i], n_ops, best_mapping, dim_sq)
+                if n_ops > 0:
+                    _apply_reorder(pir_rots_flat, pir_rot_starts[i], n_ops, best_mapping, 9)
+                    if pir_trans_flat is not None and pir_trans_starts is not None:
+                        _apply_reorder(
+                            pir_trans_flat, pir_trans_starts[i], n_ops, best_mapping, 3)
             char_counts[i] = len(best_mapping)
-            sg_hall_choice[sg_num] = (hall_num, best_mapping, hall_trans)
+            sg_hall_choice[sg_num] = (best_hall_num, best_mapping, best_hall_target[1])
             reorder_results.append(best_mapping)
             mapped_count += 1
         else:
@@ -1666,22 +1735,40 @@ def _reorder_to_spglib_order(
             if cir_ops == 0:
                 continue
             cir_start = cir_comp_starts[i] if i < len(cir_comp_starts) else 0
-            if cir_start == 0:
-                continue
 
             mapping = reorder_results[i]
             if mapping is None:
                 continue
+            if len(mapping) != cir_ops:
+                # Centered Hall expansion is handled in Phase C.  Mutating
+                # only the first `cir_ops` destinations here would overwrite
+                # source entries that the later full-size expansion still
+                # needs (the same deferred-mutation rule as PIR data above).
+                continue
 
-            # Reorder CIR data for ALL components using PIR mapping.
-            # No Bloch phase needed for the first cir_ops positions:
-            # both PIR and CIR share the same ISOTROPY translations,
-            # so simple permutation preserves PIR=CIR_sum consistency.
+            # Reorder selected-arm CIR data for every component.  Full Seitz
+            # representatives can differ by a lattice vector between source
+            # and Hall tables, so the corresponding Bloch phase is mandatory.
+            hall_trans = hall_targets[i][1]
+            kvec = _lookup_kvec(kvec_map, sg[i], ml[i])
             for comp in range(n_comp):
                 comp_char_start = cir_start + comp * cir_ops * 2
-                _apply_reorder(cir_comp_flat, comp_char_start, cir_ops, mapping, 2)
+                comp_trans_start = (cir_start // 2) * 3 + comp * cir_ops * 3
+                old_chars = cir_comp_flat[
+                    comp_char_start:comp_char_start + cir_ops * 2]
+                old_trans = cir_comp_trans[
+                    comp_trans_start:comp_trans_start + cir_ops * 3]
+                for h, source in enumerate(mapping):
+                    source_value = complex(
+                        old_chars[source * 2], old_chars[source * 2 + 1])
+                    source_translation = old_trans[source * 3:source * 3 + 3]
+                    value = _phase_character(
+                        source_value, hall_trans[h], source_translation, kvec)
+                    cir_comp_flat[comp_char_start + h * 2] = value.real
+                    cir_comp_flat[comp_char_start + h * 2 + 1] = value.imag
                 comp_rot_start = (cir_start // 2) * 9 + comp * cir_ops * 9
                 _apply_reorder(cir_comp_rots, comp_rot_start, cir_ops, mapping, 9)
+                _apply_reorder(cir_comp_trans, comp_trans_start, cir_ops, mapping, 3)
             cir_reordered += 1
 
     if cir_reordered > 0:
@@ -1703,7 +1790,7 @@ def _reorder_to_spglib_order(
 
     print(f"  Spglib reorder: {mapped_count} mapped, {unmapped_count} unmapped "
           f"(of {len(reorder_results)} irreps, {len(sg_halls)} SGs)")
-    return reorder_results, sg_hall_choice, orig_char_counts
+    return reorder_results, sg_hall_choice, orig_char_counts, hall_targets
 
 
 def _build_padding_plans(sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops,
@@ -1798,31 +1885,86 @@ def _apply_reorder(arr, start, count, mapping, stride):
                 arr[dst + d] = old[offset + d]
 
 
+def _translations_equal_mod_lattice(left, right, tolerance=1e-8):
+    """Whether two fractional translations differ by an integer lattice vector."""
+    return len(left) == len(right) == 3 and all(
+        abs((left[axis] - right[axis]) - round(left[axis] - right[axis])) < tolerance
+        for axis in range(3)
+    )
+
+
+def _phase_character(value, target_translation, source_translation, kvec):
+    """Move a complex Bloch character between equivalent Seitz representatives."""
+    kx, ky, kz, kd = kvec
+    delta = [
+        target_translation[axis] - source_translation[axis]
+        for axis in range(3)
+    ]
+    theta = 2.0 * math.pi * (
+        kx * delta[0] + ky * delta[1] + kz * delta[2]) / kd
+    phase = complex(math.cos(theta), math.sin(theta))
+    return value * phase
+
+
+def _align_cir_characters(values, source_rots, source_trans,
+                          target_rots, target_trans, kvec):
+    """Align one CIR character row to a target full-Seitz operation order."""
+    if not (len(values) == len(source_rots) == len(source_trans)):
+        return None
+    if len(target_rots) != len(target_trans) or len(values) != len(target_rots):
+        return None
+
+    aligned = []
+    used = set()
+    for target_rotation, target_translation in zip(target_rots, target_trans):
+        matches = [
+            index
+            for index, (source_rotation, source_translation)
+            in enumerate(zip(source_rots, source_trans))
+            if index not in used
+            and source_rotation == target_rotation
+            and _translations_equal_mod_lattice(
+                source_translation, target_translation)
+        ]
+        if len(matches) != 1:
+            return None
+        source = matches[0]
+        used.add(source)
+        aligned.append(_phase_character(
+            values[source], target_translation, source_trans[source], kvec))
+    return aligned
+
+
 def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
+                          little_chars_real, little_chars_imag, little_chars_valid,
+                          sg, ml, kvec_map,
                           matrices_flat, mat_starts, mat_counts,
                           pir_rots_flat, pir_rot_starts,
-                          cir_comp_flat, cir_comp_rots, cir_comp_starts, cir_comp_counts, cir_comp_ops,
+                          pir_trans_flat, pir_trans_starts,
+                          cir_comp_flat, cir_comp_rots, cir_comp_trans,
+                          cir_comp_starts, cir_comp_counts, cir_comp_ops,
                           spinor_starts, spinor_counts,
                           reorder_map_per_irrep=None,
-                          orig_char_counts=None):
+                          orig_char_counts=None,
+                          hall_targets=None):
     """Rebuild flat arrays with padded entries for compound irreps expanded to Hall size."""
     n_scalar = len(char_starts)
     plans_by_idx = {i: (hall_ops, cir_to_hall) for i, hall_ops, cir_to_hall in padding_plans}
 
-    def _needs_expand(i):
-        """True if mapped entry needs Hall-size expansion."""
+    def _needs_resize(i):
+        """True if a mapped entry changes operation count in Hall order."""
         if reorder_map_per_irrep is None or orig_char_counts is None:
             return False
         m = reorder_map_per_irrep[i]
         if m is None:
             return False
-        return len(m) > orig_char_counts[i]
+        return len(m) != orig_char_counts[i]
 
-    # Build expand plans for mapped entries needing expansion
-    expand_plans = {}
+    # Build resize plans for mapped entries whose Hall and source sizes differ.
+    resize_plans = {}
     for i in range(n_scalar):
-        if i not in plans_by_idx and _needs_expand(i):
-            expand_plans[i] = reorder_map_per_irrep[i]
+        if i not in plans_by_idx and _needs_resize(i):
+            resize_plans[i] = reorder_map_per_irrep[i]
 
     # Rebuild chars_flat
     new_chars = []
@@ -1846,10 +1988,10 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
             new_char_counts.append(hall_ops)
         else:
             n = char_counts[i]
-            if i in expand_plans:
+            if i in resize_plans:
                 old_n = orig_char_counts[i]
                 old = chars_flat[char_starts[i]:char_starts[i] + old_n]
-                mapping = expand_plans[i]
+                mapping = resize_plans[i]
                 for h in range(n):
                     ci = mapping[h]
                     if ci is not None and ci < old_n:
@@ -1859,6 +2001,61 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
             else:
                 new_chars.extend(chars_flat[char_starts[i]:char_starts[i] + n])
             new_char_counts.append(n)
+
+    def _rebuild_parallel_character_array(values, fill):
+        rebuilt = []
+        for i in range(n_scalar):
+            if i in plans_by_idx:
+                hall_ops, cir_to_hall = plans_by_idx[i]
+                old = values[char_starts[i]:char_starts[i] + char_counts[i]]
+                for h in range(hall_ops):
+                    ci = next(
+                        (cii for cii, hi in enumerate(cir_to_hall) if hi == h), None)
+                    rebuilt.append(old[ci] if ci is not None and ci < len(old) else fill)
+            elif i in resize_plans:
+                old_n = orig_char_counts[i]
+                old = values[char_starts[i]:char_starts[i] + old_n]
+                for source in resize_plans[i]:
+                    rebuilt.append(
+                        old[source] if source is not None and source < old_n else fill)
+            else:
+                n = char_counts[i]
+                rebuilt.extend(values[char_starts[i]:char_starts[i] + n])
+        return rebuilt
+
+    new_little_real = _rebuild_parallel_character_array(little_chars_real, 0.0)
+    new_little_imag = _rebuild_parallel_character_array(little_chars_imag, 0.0)
+    new_little_valid = _rebuild_parallel_character_array(little_chars_valid, 0)
+    for i, mapping in resize_plans.items():
+        target = hall_targets[i] if hall_targets is not None else None
+        if target is None:
+            continue
+        _hall_rots, hall_trans = target
+        old_n = orig_char_counts[i]
+        old_re = little_chars_real[char_starts[i]:char_starts[i] + old_n]
+        old_im = little_chars_imag[char_starts[i]:char_starts[i] + old_n]
+        old_valid = little_chars_valid[char_starts[i]:char_starts[i] + old_n]
+        old_trans = pir_trans_flat[
+            pir_trans_starts[i]:pir_trans_starts[i] + old_n * 3]
+        kx, ky, kz, kd = _lookup_kvec(kvec_map, sg[i], ml[i])
+        new_start = new_char_starts[i]
+        for h, source in enumerate(mapping):
+            if source is None or source >= old_n:
+                new_little_valid[new_start + h] = 0
+                continue
+            delta = [
+                hall_trans[h][axis] - old_trans[source * 3 + axis]
+                for axis in range(3)
+            ]
+            theta = 2.0 * math.pi * (
+                kx * delta[0] + ky * delta[1] + kz * delta[2]) / kd
+            phase_re = math.cos(theta)
+            phase_im = math.sin(theta)
+            new_little_real[new_start + h] = (
+                old_re[source] * phase_re - old_im[source] * phase_im)
+            new_little_imag[new_start + h] = (
+                old_re[source] * phase_im + old_im[source] * phase_re)
+            new_little_valid[new_start + h] = old_valid[source]
 
     # Rebuild matrices_flat
     new_mats = []
@@ -1883,9 +2080,24 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                     new_mats.extend([0.0] * max(dim_sq, 0))
             new_mat_counts.append(hall_ops * max(dim_sq, 1))
         else:
-            n = mat_counts[i]
-            new_mats.extend(matrices_flat[mat_starts[i]:mat_starts[i] + n])
-            new_mat_counts.append(n)
+            if i in resize_plans:
+                old_ops = orig_char_counts[i]
+                mapping = resize_plans[i]
+                old_m = matrices_flat[mat_starts[i]:mat_starts[i] + mat_counts[i]]
+                dim_sq = mat_counts[i] // old_ops if old_ops else 0
+                if dim_sq > 0:
+                    for source in mapping:
+                        if source is not None and source < old_ops:
+                            new_mats.extend(old_m[source * dim_sq:(source + 1) * dim_sq])
+                        else:
+                            new_mats.extend([0.0] * dim_sq)
+                    new_mat_counts.append(len(mapping) * dim_sq)
+                else:
+                    new_mat_counts.append(0)
+            else:
+                n = mat_counts[i]
+                new_mats.extend(matrices_flat[mat_starts[i]:mat_starts[i] + n])
+                new_mat_counts.append(n)
 
     # Rebuild pir_rots_flat
     new_rots = []
@@ -1908,12 +2120,54 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                     new_rots.extend(old_r[ci * 9:(ci + 1) * 9])
                 else:
                     new_rots.extend([0] * 9)
+        elif i < n_scalar and i in resize_plans:
+            mapping = resize_plans[i]
+            old_ops = orig_char_counts[i]
+            old_r = pir_rots_flat[pir_rot_starts[i]:pir_rot_starts[i] + old_ops * 9]
+            for source in mapping:
+                if source is not None and source < old_ops:
+                    new_rots.extend(old_r[source * 9:(source + 1) * 9])
+                else:
+                    new_rots.extend([0] * 9)
         else:
             new_rots.extend(pir_rots_flat[pir_rot_starts[i]:orig_end])
+
+    # Rebuild scalar PIR translations in lockstep with PIR rotations.  This is
+    # deliberately separate from the rotation offsets: Phase-C expansion can
+    # change their lengths, and deriving one flat-array offset from the other
+    # is valid only when every scalar record remains exactly aligned.
+    new_trans = []
+    new_trans_starts = []
+    for i in range(n_scalar):
+        new_trans_starts.append(len(new_trans))
+        old_end = (pir_trans_starts[i + 1]
+                   if i + 1 < n_scalar else len(pir_trans_flat))
+        if i in plans_by_idx:
+            hall_ops, cir_to_hall = plans_by_idx[i]
+            old_ops = len(cir_to_hall)
+            old_t = pir_trans_flat[pir_trans_starts[i]:pir_trans_starts[i] + old_ops * 3]
+            for h in range(hall_ops):
+                ci = next((cii for cii, hi in enumerate(cir_to_hall) if hi == h), None)
+                if ci is not None and ci < old_ops:
+                    new_trans.extend(old_t[ci * 3:(ci + 1) * 3])
+                else:
+                    new_trans.extend([0.0] * 3)
+        elif i in resize_plans:
+            target = hall_targets[i] if hall_targets is not None else None
+            if target is None:
+                raise ValueError(f"missing Hall target for resized irrep {i}")
+            _hall_rots, hall_trans = target
+            if len(hall_trans) != len(resize_plans[i]):
+                raise ValueError(f"Hall translation count mismatch for irrep {i}")
+            for translation in hall_trans:
+                new_trans.extend(translation)
+        else:
+            new_trans.extend(pir_trans_flat[pir_trans_starts[i]:old_end])
 
     # Rebuild cir_comp_flat and cir_comp_rots
     new_cir_flat = []
     new_cir_rots = []
+    new_cir_trans = []
     new_cir_starts = []
     for i in range(len(cir_comp_starts)):
         n_comp = cir_comp_counts[i]
@@ -1927,6 +2181,7 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
             for comp in range(n_comp):
                 old_start = cir_comp_starts[i] + comp * old_ops * 2
                 old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
+                old_trans_start = (cir_comp_starts[i] // 2) * 3 + comp * old_ops * 3
                 for h in range(hall_ops):
                     ci = None
                     for cii, hi in enumerate(cir_to_hall):
@@ -1937,29 +2192,45 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                         new_cir_flat.append(cir_comp_flat[old_start + ci * 2])
                         new_cir_flat.append(cir_comp_flat[old_start + ci * 2 + 1])
                         new_cir_rots.extend(cir_comp_rots[old_rot_start + ci * 9:old_rot_start + (ci + 1) * 9])
+                        new_cir_trans.extend(cir_comp_trans[old_trans_start + ci * 3:old_trans_start + (ci + 1) * 3])
                     else:
                         new_cir_flat.append(0.0)
                         new_cir_flat.append(0.0)
                         new_cir_rots.extend([0] * 9)
+                        new_cir_trans.extend([0.0] * 3)
             cir_comp_ops[i] = hall_ops
         else:
             # Check if this mapped entry needs CIR expansion too
-            if i in expand_plans:
-                mapping = expand_plans[i]
+            if i in resize_plans:
+                mapping = resize_plans[i]
                 hall_ops = len(mapping)
+                target = hall_targets[i] if hall_targets is not None else None
+                if target is None:
+                    raise ValueError(f"missing Hall target for resized CIR irrep {i}")
+                hall_rots, hall_trans = target
+                kvec = _lookup_kvec(kvec_map, sg[i], ml[i])
                 for comp in range(n_comp):
                     old_start = cir_comp_starts[i] + comp * old_ops * 2
                     old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
+                    old_trans_start = (cir_comp_starts[i] // 2) * 3 + comp * old_ops * 3
                     for h in range(hall_ops):
                         ci = mapping[h]
                         if ci is not None and ci < old_ops:
-                            new_cir_flat.append(cir_comp_flat[old_start + ci * 2])
-                            new_cir_flat.append(cir_comp_flat[old_start + ci * 2 + 1])
-                            new_cir_rots.extend(cir_comp_rots[old_rot_start + ci * 9:old_rot_start + (ci + 1) * 9])
+                            source_value = complex(
+                                cir_comp_flat[old_start + ci * 2],
+                                cir_comp_flat[old_start + ci * 2 + 1])
+                            source_translation = cir_comp_trans[
+                                old_trans_start + ci * 3:old_trans_start + (ci + 1) * 3]
+                            value = _phase_character(
+                                source_value, hall_trans[h], source_translation, kvec)
+                            new_cir_flat.extend([value.real, value.imag])
+                            new_cir_rots.extend(hall_rots[h])
+                            new_cir_trans.extend(hall_trans[h])
                         else:
                             new_cir_flat.append(0.0)
                             new_cir_flat.append(0.0)
                             new_cir_rots.extend([0] * 9)
+                            new_cir_trans.extend([0.0] * 3)
                 cir_comp_ops[i] = hall_ops
             else:
                 old_start = cir_comp_starts[i]
@@ -1968,6 +2239,10 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                 old_rot_start = (cir_comp_starts[i] // 2) * 9
                 total_rots = n_comp * old_ops * 9
                 new_cir_rots.extend(cir_comp_rots[old_rot_start:old_rot_start + total_rots])
+                old_trans_start = (cir_comp_starts[i] // 2) * 3
+                total_trans = n_comp * old_ops * 3
+                new_cir_trans.extend(
+                    cir_comp_trans[old_trans_start:old_trans_start + total_trans])
 
     # Copy back, preserving spinor data at the end.
     # Use spinor_starts[0] as the true scalar/spinor boundary, because
@@ -1983,6 +2258,9 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
         if old_spinor_start >= old_scalar_chars_len:
             spinor_starts[j] = new_scalar_chars_len + (old_spinor_start - old_scalar_chars_len)
     chars_flat[:] = new_chars + spinor_chars_tail
+    little_chars_real[:] = new_little_real
+    little_chars_imag[:] = new_little_imag
+    little_chars_valid[:] = new_little_valid
     char_starts[:] = new_char_starts
     char_counts[:] = new_char_counts
 
@@ -1997,8 +2275,11 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
 
     pir_rots_flat[:] = new_rots
     pir_rot_starts[:] = new_rot_starts
+    pir_trans_flat[:] = new_trans
+    pir_trans_starts[:] = new_trans_starts
     cir_comp_flat[:] = new_cir_flat
     cir_comp_rots[:] = new_cir_rots
+    cir_comp_trans[:] = new_cir_trans
     cir_comp_starts[:] = new_cir_starts
 
 
@@ -2030,6 +2311,9 @@ def generate_rust_data(data):
 
     # ── Build flat CHARACTERS array and per-irrep start/count ──
     chars_flat = []
+    little_chars_real = []
+    little_chars_imag = []
+    little_chars_valid = []
     char_starts = []
     char_counts = []
     missing_chars = 0
@@ -2044,12 +2328,53 @@ def generate_rust_data(data):
         char_starts.append(len(chars_flat))
         char_counts.append(len(ch))
         chars_flat.extend(ch)
+        cir_entry = cir_data.get((sg[i], ml[i]))
+        little_cir = cir_entry.get('little_chars', []) if cir_entry else []
+        cir_rots = cir_entry.get('rots', []) if cir_entry else []
+        cir_trans = cir_entry.get('trans', []) if cir_entry else []
+        pir_rots = rots_map.get((sg[i], ml[i]), [])
+        pir_trans = data.get("pir_trans_map", {}).get((sg[i], ml[i]), [])
+        little = []
+        if (len(little_cir) == len(cir_rots) == len(cir_trans)
+                == len(pir_rots) == len(pir_trans) == len(ch)
+                and len(ch) > 0):
+            for pir_rotation, pir_translation in zip(pir_rots, pir_trans):
+                matches = [
+                    index
+                    for index, (cir_rotation, cir_translation)
+                    in enumerate(zip(cir_rots, cir_trans))
+                    if cir_rotation == pir_rotation
+                    and all(
+                        abs((cir_translation[axis] - pir_translation[axis])
+                            - round(cir_translation[axis] - pir_translation[axis]))
+                        < 1e-8
+                        for axis in range(3)
+                    )
+                ]
+                if len(matches) != 1:
+                    little = []
+                    break
+                little.append(little_cir[matches[0]])
+        valid = len(little) == len(ch) and len(ch) > 0
+        if valid:
+            little_chars_real.extend(value[0] for value in little)
+            little_chars_imag.extend(value[1] for value in little)
+            little_chars_valid.extend([1] * len(ch))
+        else:
+            little_chars_real.extend([0.0] * len(ch))
+            little_chars_imag.extend([0.0] * len(ch))
+            little_chars_valid.extend([0] * len(ch))
         if not ch:
             missing_chars += 1
     if missing_chars > 0:
         print(f"  Warning: {missing_chars}/{len(ml)} irreps have no character data")
     if cir_filled > 0:
         print(f"  (CIR fallback filled {cir_filled} character tables)")
+    valid_little_tables = sum(
+        1 for i in range(len(ml))
+        if char_counts[i] > 0 and little_chars_valid[char_starts[i]] == 1
+    )
+    print(f"  CIR selected-arm characters: {valid_little_tables}/{len(ml)} tables")
 
     # ── Build flat MATRICES array and per-irrep start/count ──
     cir_mat = data.get("cir_matrices", {})
@@ -2105,6 +2430,7 @@ def generate_rust_data(data):
     # complex character tables as (re, im) pairs.  Used for Wigner test.
     cir_comp_flat = []   # (re, im) pairs, flattened
     cir_comp_rots = []   # rotation matrices (9 ints per op), same order as chars
+    cir_comp_trans = []  # translations (3 floats per op), generation-time only
     cir_comp_starts = []  # per-irrep start index (0 = not compound)
     cir_comp_counts = []  # number of CIR components (0 = not compound)
     cir_comp_ops = []     # operations per CIR component
@@ -2114,80 +2440,94 @@ def generate_rust_data(data):
         parts = _decompose_compound_label(ml[i])
         if parts and len(parts) >= 2:
             comp_chars = []
+            comp_full_chars = []
             comp_rots = []
+            comp_trans = []
             n_ops = 0
-            for p_idx, part in enumerate(parts):
-                pk = (sg[i], part)
-                if pk in cir_data:
-                    entry = cir_data[pk]
-                    n_ops = entry['opcount']
-                    # For same-label compounds (e.g. P3P3 = P3 ⊕ P3*),
-                    # conjugate the second occurrence so imaginary parts cancel.
-                    # PIR irreps are always real; the CIR sum must be real.
-                    conjugate_this = (p_idx > 0 and part == parts[0])
-                    for (re_val, im_val, _) in entry['chars']:
-                        comp_chars.append(re_val)
-                        if conjugate_this:
-                            comp_chars.append(-im_val)
-                        else:
-                            comp_chars.append(im_val)
-                    # Rotation matrices (if available)
-                    rots = entry.get('rots', [])
-                    for r9 in rots:
-                        comp_rots.extend(r9)
-                else:
-                    comp_chars = []
-                    break
+            entries = [cir_data.get((sg[i], part)) for part in parts]
+            if all(entry is not None for entry in entries):
+                n_ops = entries[0]['opcount']
+            if (not entries or any(entry is None for entry in entries)
+                    or any(entry['opcount'] != n_ops for entry in entries)):
+                entries = []
 
-            # ── Full character table validation ──
-            # For same-label compounds (e.g. P3P3), try both:
-            #   A: straight sum  χ + χ
-            #   B: conjugate sum χ + χ*  (imaginary parts cancel)
-            # For different-label compounds, only straight sum.
-            # Accept only if ALL operations match the PIR character table.
+            # Prefer the compound PIR's exact Seitz order.  A small number of
+            # compound records have no PIR operator list; their first CIR
+            # component is the canonical source order and is copied into the
+            # PIR parallel arrays below.
+            target_rots = rots_map.get((sg[i], ml[i]), [])
+            target_trans = pir_trans_map.get((sg[i], ml[i]), [])
+            uses_pir_order = (
+                len(target_rots) == len(target_trans) == n_ops and n_ops > 0)
+            if entries and not uses_pir_order:
+                target_rots = entries[0].get('rots', [])
+                target_trans = entries[0].get('trans', [])
+            if not (len(target_rots) == len(target_trans) == n_ops and n_ops > 0):
+                entries = []
+
+            kvec = _lookup_kvec(kvec_map, sg[i], ml[i])
+            if entries:
+                for p_idx, (part, entry) in enumerate(zip(parts, entries)):
+                    little_values = [complex(re_val, im_val)
+                                     for re_val, im_val in entry['little_chars']]
+                    full_values = [complex(re_val, im_val)
+                                   for re_val, im_val, _ in entry['chars']]
+                    aligned_little = _align_cir_characters(
+                        little_values, entry.get('rots', []), entry.get('trans', []),
+                        target_rots, target_trans, kvec)
+                    aligned_full = _align_cir_characters(
+                        full_values, entry.get('rots', []), entry.get('trans', []),
+                        target_rots, target_trans, kvec)
+                    if aligned_little is None or aligned_full is None:
+                        comp_chars = []
+                        comp_full_chars = []
+                        break
+
+                    # Repeated CIR labels denote a representation together
+                    # with its complex conjugate (for example P3P3).
+                    if p_idx > 0 and part == parts[0]:
+                        aligned_little = [value.conjugate() for value in aligned_little]
+                        aligned_full = [value.conjugate() for value in aligned_full]
+
+                    for value in aligned_little:
+                        comp_chars.extend([value.real, value.imag])
+                    comp_full_chars.append(aligned_full)
+                    for rotation, translation in zip(target_rots, target_trans):
+                        comp_rots.extend(rotation)
+                        comp_trans.extend(translation)
+
+            # Validate the stored selected-arm rows against their dimensions,
+            # and the corresponding full CIR sums against every PIR character.
             valid = False
             if comp_chars:
                 pir_ch = _lookup_chars(chars_map, sg[i], ml[i], kvec_map)
-                if pir_ch and len(pir_ch) > 0 and len(pir_ch) == n_ops:
-                    all_same = all(p == parts[0] for p in parts)
-                    use_conjugate = False  # which candidate was selected
-
-                    # Candidate 1: straight sum
-                    straight_ok = True
-                    for op in range(n_ops):
-                        s_re = 0.0; s_im = 0.0
-                        for p_idx in range(len(parts)):
-                            s_re += comp_chars[2 * (p_idx * n_ops + op)]
-                            s_im += comp_chars[2 * (p_idx * n_ops + op) + 1]
-                        if abs(s_re - pir_ch[op]) > 0.01 or abs(s_im) > 0.01:
-                            straight_ok = False
+                identity_rotation = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+                identities = [
+                    op for op, (rotation, translation)
+                    in enumerate(zip(target_rots, target_trans))
+                    if rotation == identity_rotation
+                    and all(abs(value - round(value)) < 1e-8 for value in translation)
+                ]
+                identity_ok = len(identities) == 1
+                if identity_ok:
+                    identity = identities[0]
+                    for component, entry in enumerate(entries):
+                        value = complex(
+                            comp_chars[2 * (component * n_ops + identity)],
+                            comp_chars[2 * (component * n_ops + identity) + 1])
+                        if (abs(value.real - entry['little_dim']) > 0.01
+                                or abs(value.imag) > 0.01):
+                            identity_ok = False
                             break
-                    if straight_ok:
-                        valid = True
 
-                    # Candidate 2: conjugate second (only for same-label 2-part)
-                    if not valid and all_same and len(parts) == 2:
-                        conj_ok = True
-                        for op in range(n_ops):
-                            s_re = comp_chars[2 * op] + comp_chars[2 * (n_ops + op)]
-                            s_im = comp_chars[2 * op + 1] - comp_chars[2 * (n_ops + op) + 1]
-                            if abs(s_re - pir_ch[op]) > 0.01 or abs(s_im) > 0.01:
-                                conj_ok = False
-                                break
-                        if conj_ok:
-                            valid = True
-                            use_conjugate = True
-
-                    # Apply conjugation to comp_chars if that candidate won
-                    if use_conjugate:
-                        new_chars = []
-                        for op in range(n_ops):
-                            new_chars.append(comp_chars[2 * op])
-                            new_chars.append(comp_chars[2 * op + 1])
-                        for op in range(n_ops):
-                            new_chars.append(comp_chars[2 * (n_ops + op)])
-                            new_chars.append(-comp_chars[2 * (n_ops + op) + 1])
-                        comp_chars = new_chars
+                full_sum_ok = bool(pir_ch) and len(pir_ch) == n_ops
+                if full_sum_ok:
+                    for op in range(n_ops):
+                        value = sum(component[op] for component in comp_full_chars)
+                        if abs(value.real - pir_ch[op]) > 0.01 or abs(value.imag) > 0.01:
+                            full_sum_ok = False
+                            break
+                valid = identity_ok and full_sum_ok
 
             if comp_chars and valid:
                 cir_comp_starts.append(len(cir_comp_flat))
@@ -2200,6 +2540,22 @@ def generate_rust_data(data):
                     cir_comp_rots.extend(comp_rots)
                 else:
                     cir_comp_rots.extend([0] * total_rots_needed)
+                total_trans_needed = len(parts) * n_ops * 3
+                if len(comp_trans) == total_trans_needed:
+                    cir_comp_trans.extend(comp_trans)
+                else:
+                    cir_comp_trans.extend([0.0] * total_trans_needed)
+
+                # Make previously rotation-less compound PIR records part of
+                # the same Hall-order pipeline as every other scalar record.
+                if not uses_pir_order and char_counts[i] == n_ops:
+                    rots_map[(sg[i], ml[i])] = [list(rotation) for rotation in target_rots]
+                    rot_start = pir_rot_starts[i]
+                    trans_start = pir_trans_starts[i]
+                    for op, (rotation, translation) in enumerate(
+                            zip(target_rots, target_trans)):
+                        pir_rots_flat[rot_start + op * 9:rot_start + (op + 1) * 9] = rotation
+                        pir_trans_flat[trans_start + op * 3:trans_start + (op + 1) * 3] = translation
                 cir_comp_total += 1
             else:
                 cir_comp_starts.append(0); cir_comp_counts.append(0); cir_comp_ops.append(0)
@@ -2294,20 +2650,25 @@ def generate_rust_data(data):
         spin_lg_op_indices_flat.extend(ops)
 
     # ── Reorder characters/matrices/rots from ISOTROPY order to spglib order ──
-    reorder_map_per_irrep, sg_hall_choice, orig_char_counts = _reorder_to_spglib_order(
+    reorder_map_per_irrep, sg_hall_choice, orig_char_counts, hall_targets = _reorder_to_spglib_order(
         sg, ml, chars_flat, char_starts, char_counts,
         matrices_flat, mat_starts, mat_counts,
         pir_rots_flat, pir_rot_starts, rots_map,
+        little_chars_real=little_chars_real,
+        little_chars_imag=little_chars_imag,
+        little_chars_valid=little_chars_valid,
         pir_trans_flat=pir_trans_flat, pir_trans_starts=pir_trans_starts,
         spinor_irreps=spinor_irreps, spinor_starts=spinor_starts,
         spinor_counts=spinor_counts,
         cir_comp_flat=cir_comp_flat, cir_comp_rots=cir_comp_rots,
+        cir_comp_trans=cir_comp_trans,
         cir_comp_starts=cir_comp_starts, cir_comp_counts=cir_comp_counts,
         cir_comp_ops=cir_comp_ops,
         kvec_map=kvec_map)
     # CIR component data is also reordered in-place.
-    # CIR components are used by the Wigner CIR path which matches rotations
-    # at runtime via build_h_to_cir_map().  The characters stay in ISOTROPY order.
+    # CIR components are selected-arm complex characters in data-Hall order.
+    # Runtime consumes this order directly; CIR rotations remain as an older-
+    # generated-data compatibility fallback.
     # reorder_map_per_irrep[i] = None (unmapped) or list[h_idx→pir_idx] (mapped)
     # For spinor irreps: entries past len(ml) are the spinor reorder maps
 
@@ -2315,22 +2676,30 @@ def generate_rust_data(data):
     padding_plans = _build_padding_plans(
         sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops, cir_comp_rots,
         reorder_map_per_irrep)
-    # CIR data is reordered in-place by _reorder_to_spglib_order above.
-    # No expansion: CIR characters depend only on rotation, and CIR covers
-    # only distinct rotation types (fewer ops than full little group).
-    # PIR = Σ CIR_i * exp(i*k·t) accounts for translation differences;
-    # CIR stays at the little co-group size.
+    # Data already mapped in Phase B stays in place.  Centered conventional
+    # Hall groups are expanded here, with Bloch phases applied for every
+    # changed Seitz representative.
 
-    if padding_plans:
-        print(f"  CIR padding: {len(padding_plans)} entries expanded to Hall size")
+    resize_count = sum(
+        1 for i, mapping in enumerate(reorder_map_per_irrep[:len(ml)])
+        if mapping is not None and len(mapping) != orig_char_counts[i]
+    )
+    if padding_plans or resize_count:
+        print(f"  CIR padding: {len(padding_plans)} entries; "
+              f"Hall resize: {resize_count} entries")
         _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
+                             little_chars_real, little_chars_imag, little_chars_valid,
+                             sg, ml, kvec_map,
                              matrices_flat, mat_starts, mat_counts,
                              pir_rots_flat, pir_rot_starts,
-                             cir_comp_flat, cir_comp_rots, cir_comp_starts,
+                             pir_trans_flat, pir_trans_starts,
+                             cir_comp_flat, cir_comp_rots, cir_comp_trans,
+                             cir_comp_starts,
                              cir_comp_counts, cir_comp_ops,
                              spinor_starts, spinor_counts,
                              reorder_map_per_irrep=reorder_map_per_irrep,
-                             orig_char_counts=orig_char_counts)
+                             orig_char_counts=orig_char_counts,
+                             hall_targets=hall_targets)
 
     # ── Phase D: Reorder SPIN_OP data to spglib Hall order ──
     sg_bilbao_to_new = _reorder_spin_ops_to_hall(
@@ -2403,6 +2772,25 @@ def generate_rust_data(data):
     lines.append("];")
     lines.append("")
 
+    lines.append("/// Complex characters of the first/stored k-star arm for scalar PIRs.")
+    lines.append("/// Indices are PIR operation indices (`_pir_rot_start / 9`), not CHARACTERS indices.")
+    lines.append(f"pub static SCALAR_LITTLE_CHARS_REAL: [f64; {len(little_chars_real)}] = [")
+    for chunk_start in range(0, len(little_chars_real), 10):
+        chunk = little_chars_real[chunk_start:chunk_start + 10]
+        lines.append(f"    {', '.join(_fmt_char(v) for v in chunk)},")
+    lines.append("];")
+    lines.append(f"pub static SCALAR_LITTLE_CHARS_IMAG: [f64; {len(little_chars_imag)}] = [")
+    for chunk_start in range(0, len(little_chars_imag), 10):
+        chunk = little_chars_imag[chunk_start:chunk_start + 10]
+        lines.append(f"    {', '.join(_fmt_char(v) for v in chunk)},")
+    lines.append("];")
+    lines.append(f"pub static SCALAR_LITTLE_CHARS_VALID: [u8; {len(little_chars_valid)}] = [")
+    for chunk_start in range(0, len(little_chars_valid), 20):
+        chunk = little_chars_valid[chunk_start:chunk_start + 20]
+        lines.append(f"    {', '.join(str(v) for v in chunk)},")
+    lines.append("];")
+    lines.append("")
+
     # ── MATRICES flat array ──
     lines.append("/// Flat array of all irrep matrix elements, indexed by IrrepRecord._mat_start.")
     lines.append(f"pub static MATRICES: [f64; {len(matrices_flat)}] = [")
@@ -2436,9 +2824,8 @@ def generate_rust_data(data):
     lines.append("")
 
     # ── CIR component complex characters ──
-    lines.append("/// Complex character tables for CIR components of compound irreps.")
-    lines.append("/// Stored as (re, im) pairs.  Used by Wigner test for correct")
-    lines.append("/// Type C classification of magnetic co-representations.")
+    lines.append("/// Selected-arm complex character tables for CIR components of compound irreps.")
+    lines.append("/// Stored as (re, im) pairs in data-Hall order and used by the Wigner test.")
     lines.append(f"pub static CIR_COMPONENT_CHARS: [f64; {len(cir_comp_flat)}] = [")
     for chunk_start in range(0, len(cir_comp_flat), 10):
         chunk = cir_comp_flat[chunk_start:chunk_start + 10]

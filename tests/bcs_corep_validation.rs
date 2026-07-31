@@ -1,170 +1,78 @@
-//! Validation against Bilbao Crystallographic Server corep data.
+//! Regression tests against Bilbao Crystallographic Server corep metadata.
 //!
-//! Reference: https://cryst.ehu.es/cgi-bin/cryst/programs/corepresentations.pl
-//! Magnetic SG 128.406 (P4'/m'nc', UNI 1066), Z point = (0, 0, 1/2)
+//! Reference magnetic group: BNS 128.406 (`P4'/m'nc'`, UNI 1066).
+//! Its unitary subgroup is SG 118 (`P-4n2`).  At Z, BCS lists four magnetic
+//! corepresentations with dimensions 2, 2, 2, and 4.
 
-use cryspglib::irrep::corep::*;
-use cryspglib::irrep::query::irreps_of;
-use cryspglib::irrep::types::IrrepRecord;
-use cryspglib::SymmetryOps;
+use cryspglib::irrep::corep::{CharacterCompleteness, CorepType};
+use cryspglib::irrep::magnetic_summary::{
+    format_magnetic_character_table, format_magnetic_character_table_by_class,
+    magnetic_irrep_summary_by_bns,
+};
 
-/// Character table from BCS for SG 128.406 Z-point magnetic little co-group.
-///
-/// 16 operations (8 unitary + 8 anti-unitary).
-/// Irreps: Z1Z2(2D), Z3Z4(2D), Z5(2D), Z̄6Z̄7(4D)
-///
-/// Source: k-Subgroupsmag.html (corepresentations_out.pl)
 #[test]
-fn bcs_sg128_406_z_no_nan_or_silent_failure() {
-    let uni: usize = 1066;
+fn bcs_sg128_406_z_is_complete_and_has_official_dimensions() {
+    let summary = magnetic_irrep_summary_by_bns("128.406")
+        .expect("BNS 128.406 must have a complete magnetic-irrep summary");
+    assert_eq!(summary.uni, 1066);
+    assert_eq!(summary.parent_sg, 128);
+    assert_eq!(summary.unitary_sg, 118);
 
-    // ── BCS reference: magnetic little co-group character table ──
-    // χ(g) = Tr(D(g)) for each of the 16 operations.
-    // Operations in BCS order:
-    //   0: {1|0,0,0}
-    //   1: {2_001|0,0,0}
-    //   2: {2_110|1/2,1/2,1/2}
-    //   3: {2_1-10|1/2,1/2,1/2}
-    //   4: {4̄+_001|0,0,0}
-    //   5: {4̄-_001|0,0,0}
-    //   6: {m_010|1/2,1/2,1/2}
-    //   7: {m_100|1/2,1/2,1/2}
-    //   8: {4'+_001|0,0,0}       [θ]
-    //   9: {4'-_001|0,0,0}       [θ]
-    //  10: {2'_010|1/2,1/2,1/2} [θ]
-    //  11: {2'_100|1/2,1/2,1/2} [θ]
-    //  12: {1̄'|0,0,0}           [θ]
-    //  13: {m'_001|0,0,0}       [θ]
-    //  14: {m'_110|1/2,1/2,1/2} [θ]
-    //  15: {m'_1-10|1/2,1/2,1/2} [θ]
+    let z = summary
+        .kpoints
+        .iter()
+        .find(|kpoint| kpoint.label == "Z")
+        .expect("BNS 128.406 must contain the Z high-symmetry point");
+    assert_eq!(z.coords, (0, 0, 1, 2));
+    assert_eq!(z.little_group_order, 16);
+    assert_eq!(z.unitary_order, 8);
+    assert_eq!(z.antiunitary_order, 8);
+    assert_eq!(z.operations.len(), 16);
 
-    #[rustfmt::skip]
-    let bcs_z1z2: [f64; 16] = [
-         2.0, -2.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  // unitary
-         0.0,  0.0,  0.0,  0.0, -2.0,  0.0,  0.0,  0.0,  // anti-unitary
+    let identity = z
+        .operations
+        .iter()
+        .position(|operation| {
+            !operation.time_reversal
+                && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+                && operation
+                    .translation
+                    .iter()
+                    .all(|value| (value - value.round()).abs() < 1e-8)
+        })
+        .expect("magnetic little group must contain identity");
+
+    let expected = [
+        ("Z1Z4", CorepType::C, 2usize),
+        ("Z2Z3", CorepType::C, 2usize),
+        ("Z5", CorepType::A, 2usize),
+        ("Z6 + Z7", CorepType::C, 4usize),
     ];
-    #[rustfmt::skip]
-    let bcs_z3z4: [f64; 16] = [
-         2.0, -2.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  // unitary
-         0.0,  0.0,  0.0,  0.0,  2.0,  0.0,  0.0,  0.0,  // anti-unitary
-    ];
-    #[rustfmt::skip]
-    let bcs_z5: [f64; 16] = [
-         2.0,  2.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  // unitary
-         0.0,  0.0,  0.0,  0.0,  2.0,  2.0,  0.0,  0.0,  // anti-unitary
-    ];
-    #[rustfmt::skip]
-    let bcs_z6z7: [f64; 16] = [
-         4.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  0.0,  // unitary
-         0.0,  0.0,  0.0,  0.0, -4.0,  0.0,  0.0,  0.0,  // anti-unitary
-    ];
-
-    // ── Get our magnetic SG operations ──
-    let ops = SymmetryOps::from_magnetic_database(uni as usize);
-    assert!(ops.is_ok(), "Should get operations for UNI 1073");
-    let ops = ops.unwrap();
-    assert_eq!(ops.len(), 16, "Full magnetic group should have 16 ops");
-
-    // ── Verify: operations have the right structure ──
-    let n_u = ops.operations.iter().filter(|op| !op.time_reversal).count();
-    let n_a = ops.operations.iter().filter(|op| op.time_reversal).count();
-    assert_eq!(n_u, 8, "Should have 8 unitary ops");
-    assert_eq!(n_a, 8, "Should have 8 anti-unitary ops");
-
-    // ── Verify: Z-point irreps exist for parent SG 128 ──
-    let sg128 = irreps_of(128);
-    let z_irreps: Vec<&IrrepRecord> = sg128.iter().filter(|r| r.k_label() == "Z").collect();
-    assert!(!z_irreps.is_empty(), "SG 128 should have irreps at Z");
-
-    // ── Corepresentation result boundary ──
-    //
-    // These BCS rows are the target data.  Some entries already compute through
-    // the scalar CIR path; entries whose operation map is still unresolved must
-    // return a structured error, not a fake Unsupported corep with NaN chars.
-    let mut ok_count = 0usize;
-    let mut err_count = 0usize;
-    for ir in &z_irreps {
-        match ir.corepresentation(uni) {
-            Ok(corep) => {
-                ok_count += 1;
-                assert!(
-                    corep.dim > 0,
-                    "{} successful corep has zero dimension",
-                    ir.ml
-                );
-                assert!(
-                    corep.characters.iter().all(|c| c.is_finite()),
-                    "{} successful corep contains non-finite characters: {:?}",
-                    ir.ml,
-                    corep.characters
-                );
-                assert!(
-                    corep.characters[0] > 0.0,
-                    "{} identity character should be positive, got {}",
-                    ir.ml,
-                    corep.characters[0]
-                );
-            }
-            Err(CorepComputationError::UnsupportedClassification {
-                uni: error_uni,
-                source_irrep,
-                reason,
-            }) => {
-                err_count += 1;
-                assert_eq!(error_uni, uni);
-                assert_eq!(source_irrep, ir.ml);
-                assert!(
-                    !reason.is_empty(),
-                    "{} returned unexpected reason: {}",
-                    ir.ml,
-                    reason
-                );
-            }
-            other => {
-                panic!(
-                    "{} should either compute finite chars or return UnsupportedClassification, got {:?}",
-                    ir.ml, other
-                );
-            }
-        }
-    }
-    assert!(ok_count > 0, "at least one 128.406@Z corep should compute");
-    assert!(
-        err_count > 0,
-        "this regression should keep unresolved 128.406@Z entries visible"
-    );
-
-    // ── Verify BCS characters are consistent with our non-magnetic data ──
-    // For Z1 (2D): BCS shows no matching full-group irrep directly
-    // For Z3Z4 (4D compound): our Z3Z4 characters should have
-    //   values consistent with BCS Z3+Z4 (after accounting for compound)
-    for ir in &z_irreps {
-        let chars = ir.characters();
-        let non_zero: Vec<f64> = chars.iter().filter(|&&c| c.abs() > 0.01).copied().collect();
-        assert!(
-            !non_zero.is_empty(),
-            "{} should have non-zero characters (little group ops)",
-            ir.ml
-        );
-        // Identity character must equal dimension
-        assert!(
-            (chars[0] - ir.dim as f64).abs() < 0.01,
-            "{} χ(id)={} should equal dim={}",
-            ir.ml,
-            chars[0],
-            ir.dim
-        );
+    assert_eq!(z.coreps.len(), expected.len());
+    for (label, corep_type, dimension) in expected {
+        let corep = z
+            .coreps
+            .iter()
+            .find(|corep| corep.label == label)
+            .unwrap_or_else(|| panic!("missing Z-point corep {label}"));
+        assert_eq!(corep.corep_type, corep_type, "{label}");
+        assert_eq!(corep.dim, dimension, "{label}");
+        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+        assert_eq!(corep.characters.len(), z.operations.len());
+        assert_eq!(corep.timerev.len(), z.operations.len());
+        assert!(corep.characters.iter().all(|value| value.is_finite()));
+        assert!((corep.characters[identity] - dimension as f64).abs() < 1e-8);
     }
 
-    println!("\n=== BCS comparison target recorded ===");
-    println!(
-        "Current implementation: {ok_count} finite result(s), {err_count} structured error(s)."
-    );
-    println!("BCS reference (magnetic little group):");
-    println!("  Z1Z2:  {:?}", &bcs_z1z2[..]);
-    println!("  Z3Z4:  {:?}", &bcs_z3z4[..]);
-    println!("  Z5:    {:?}", &bcs_z5[..]);
-    println!("  Z̄6Z̄7:  {:?}", &bcs_z6z7[..]);
-    println!("Note: BCS shows LITTLE GROUP coreps, ours are FULL GROUP irreps.");
-    println!("Direct positional comparison requires SG118→SG128 setting transform.");
+    // The public formatter is a formal table: every operation is a column,
+    // followed by an explicit Seitz-operation legend.  No six-column preview
+    // or ellipsis is allowed.
+    let operation_table = format_magnetic_character_table(z);
+    assert!(operation_table.contains("| g16 |"));
+    assert!(operation_table.contains("Seitz operation (data-Hall frame)"));
+    assert!(!operation_table.contains("..."));
+
+    let class_table = format_magnetic_character_table_by_class(z);
+    assert!(class_table.contains("member operation columns"));
+    assert!(class_table.contains("| C1"));
 }

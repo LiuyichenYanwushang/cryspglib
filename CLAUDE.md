@@ -254,8 +254,32 @@ centered-cell 允许的严格 Seitz embedding 后，`detected_hall_embed=1651`�
 5. irrep/ISOTROPY setting oracle 的 unitary-SG 和 detected-Hall 严格 embedding
    均为 `1651 / 1651`；54 个 detected exact 差异已确认是合法 centering 展开，
    data-Hall 严格 embedding 也已达到 `1651 / 1651`。
-6. `magnetic_summary` 仍有已知 unsupported scalar 路径，例如 BNS `128.406`
-   和 `52.318`；这属于后续上层验收，不能与底层 symmetry 覆盖混为一谈。
+6. `magnetic_summary` 原有的 BNS `128.406` / `52.318` unsupported scalar
+   路径已清零（2026-07-31）：MSG 操作、H/PIR/CIR 和 k 向量现在统一进入
+   ISOTROPY data-Hall frame；多星臂标量 PIR 从完整诱导矩阵抽取所选 k 星臂块，
+   不再用整颗星的维数和 trace 做 little-group Wigner 判别。两群的全部列均满足
+   有限值、列/操作对齐和 `χ(E)=dim` 的 release 回归。
+7. CIR 生成链路已按完整文件结构重写并通过严格校验：`CIR_data.txt` 的 k 记录数
+   使用 `star_count * 16`，接受可选四整数 `irtranslation`，不再为 `irtype=2`
+   虚构额外矩阵；现可连续解析全部 `11202` 条 CIR。672 个 compound PIR 均保存
+   第一星臂的复 CIR trace，并在 Seitz/Hall 重排及 centered-cell 扩张时同步施加
+   Bloch 相位。PIR 中 `P1P1`/`P1PA1` 一类标签歧义统一走 `_lookup_kvec`，避免把
+   边界 k 点误当作 Γ。生成日志为 `672 compound / 0 rejected`、`8388 mapped /
+   0 unmapped`。
+8. `128.406@Z` 的 compound 维数重复加倍已修复：Wigner 分类以一个不可约复 CIR
+   分量为起点，再按 Type-C 构造共表示，当前四行维数严格为 `2, 2, 2, 4`；旧的
+   “必须仍返回 structured error” 集成测试已改为 BCS 成功契约。
+9. 特征标格式化不再截断为前 6 项：默认 Markdown 表以全部 magnetic little-group
+   操作为列，并附 MSG 索引、unitary/antiunitary 标记和 data-Hall Seitz 定义；另有
+   按 character-compatible 共轭类分列的正式表格入口。`128.406@Z` 回归明确要求
+   `g1..g16` 全部出现且不得含省略号。
+10. 最新 release 全量 summary gate：`success=1651`、`failure=0`、`kpoints=10390`、
+    `coreps=54458`。gate 对每个结果验证 operation/character 列数、共轭类分割、
+    有限值及 `χ(E)=dim`，不是只检查 API 返回 `Ok`。
+11. 最终 `cargo test --release --package cryspglib --tests`：lib `150 passed / 0
+    failed / 3 ignored`，七个 integration binaries 合计 `53 passed / 0 failed`；
+    即常规 release suite 总计 `203 passed / 0 failed`。1651 全量审计作为 ignored
+    release gate 另行执行并通过。
 
 ### 分层验收标准
 
@@ -360,6 +384,8 @@ pub struct MagneticKPointSummary {
     pub little_group_order: usize,
     pub unitary_order: usize,
     pub antiunitary_order: usize,
+    pub operations: Vec<MagneticLittleGroupOperation>,
+    pub conjugacy_classes: Vec<MagneticConjugacyClass>,
     pub coreps: Vec<MagneticCorepSummary>,
 }
 
@@ -490,7 +516,8 @@ corep::compute_corepresentation(ir, uni, mag_ops)
 
 验收测试：
 
-- 当前 unresolved case（例如 `128.406` 的部分 k 点/source irrep）应返回结构化 `CorepComputationFailed`，不能输出 `Unsupported` + `NaN` 作为结果。
+- `128.406` 和 `52.318` 必须完整成功；其他真正 unresolved case 仍应返回结构化
+  `CorepComputationFailed`，不能输出 `Unsupported` + `NaN` 作为结果。
 - `221.97` at `GM`: 返回非空 coreps，identity character 等于 dim。
 
 #### Phase 4: Type-C pairing/dedup
@@ -565,7 +592,18 @@ struct CorepDedupKey {
 ```rust
 pub fn format_magnetic_irrep_summary(summary: &MagneticIrrepSummary) -> String;
 pub fn format_magnetic_kpoint_summary(kpoint: &MagneticKPointSummary) -> String;
+pub fn format_magnetic_character_table(kpoint: &MagneticKPointSummary) -> String;
+pub fn format_magnetic_character_table_by_class(kpoint: &MagneticKPointSummary) -> String;
+pub fn format_magnetic_character_table_with_columns(
+    kpoint: &MagneticKPointSummary,
+    columns: MagneticCharacterTableColumns,
+) -> String;
 ```
+
+格式化器不再只预览前 6 个特征标。默认输出完整逐操作 Markdown 表，并附每列的
+MSG 原始操作索引、unitary/antiunitary 类型及 data-Hall Seitz 操作；另一入口按
+磁 Seitz 共轭类输出。若 Bloch/projective 字符在原始类内不恒定，类表会按完整
+corep character signature 自动细分，禁止错误合并。
 
 示例文件：
 

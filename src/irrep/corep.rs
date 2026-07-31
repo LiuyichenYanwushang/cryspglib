@@ -39,7 +39,7 @@
 //! | Case | Condition | Corep dimension | Unitary characters | Anti-unitary characters |
 //! |------|-----------|----------------|-------------------|------------------------|
 //! | **Type A** | $$\Delta_i^{a_0} \sim \Delta_i$$, $$W = +1$$ | $$d_i$$ | $$\chi_{\Delta_i}(h)$$ | $$\chi_{\Delta_i}(a_0 h)$$ (real) |
-//! | **Type B** | $$\Delta_i^{a_0} \sim \Delta_i$$, $$W = -1$$ | $$2d_i$$ (Kramers) | $$\chi_{\Delta_i}(h)$$ | $$-\chi_{\Delta_i}(a_0 h)$$ (pseudo-real) |
+//! | **Type B** | $$\Delta_i^{a_0} \sim \Delta_i$$, $$W = -1$$ | $$2d_i$$ (Kramers) | $$2\chi_{\Delta_i}(h)$$ | $$0$$ |
 //! | **Type C** | $$\Delta_i^{a_0} \nsim \Delta_i$$, $$W = 0$$ | $$2d_i$$ | $$2\,\mathrm{Re}[\chi_{\Delta_i}(h)]$$ | $$0$$ |
 //!
 //! **Type C** pairs two inequivalent irreps $$\Delta_i, \Delta_j$$ of $$H$$
@@ -72,7 +72,8 @@
 //! - Magnetic SG: $$P4'/m'nc'$$ (No. 128.406, UNI 1066)
 //! - Unitary subgroup: $$P\bar{4}n2$$ (No. 118)
 //! - k-vector: $$Z = (0, 0, 1/2)$$
-//! - Magnetic little co-group: $$4'/m'mm'$$ (12 ops: 8 unitary + 4 anti-unitary)
+//! - Magnetic little group in the conventional data-Hall cell: 16 operation
+//!   representatives (8 unitary + 8 anti-unitary)
 //!
 //! From H = SG 118's Z-point irreps:
 //!
@@ -95,14 +96,14 @@
 
 use super::types::IrrepRecord;
 use super::wigner::{
-    self, add3, bloch_phase, compose_seitz, filter_little_group,
+    self, SeitzOp, add3, bloch_phase, compose_seitz, filter_little_group,
     filter_little_group_with_transform, find_seitz, mat_vec_i32, ops_to_seitz, square_seitz,
-    SeitzOp,
 };
-use crate::mathfunc::{mat_inverse_matrix_d3, Mat3I, Vec3};
-use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use crate::SymmetryOps;
+use crate::mathfunc::{Mat3I, Vec3, mat_inverse_matrix_d3};
+use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use num_complex::Complex64;
+use std::collections::BTreeSet;
 
 macro_rules! debug_log {
     ($($arg:tt)*) => {
@@ -112,6 +113,317 @@ macro_rules! debug_log {
 }
 
 use debug_log;
+
+/// Scalar PIR data restricted to the block belonging to the stored k-vector.
+///
+/// ISO-IR stores a full space-group representation induced over every arm of
+/// the star. Its matrices are block matrices, with the first block belonging
+/// to the first k-vector in the record (the one exposed by `IrrepRecord`). A
+/// magnetic little-group corepresentation must use that block rather than the
+/// trace and dimension of the full induced representation.
+struct ScalarLittleIrrepData {
+    /// Characters in canonical H-operation order. Entries outside H_k are
+    /// harmless zeroes and are never consumed by the little-group formulas.
+    characters: Vec<f64>,
+    /// Same selected-arm characters with their CIR imaginary parts retained.
+    complex_characters: Vec<Complex64>,
+    /// Matrices in canonical H-operation order, one `dim * dim` block per H
+    /// operation. Empty only when ISO-IR matrix data is unavailable.
+    matrices: Vec<f64>,
+    dim: usize,
+}
+
+fn scalar_little_irrep_data(
+    irrep: &IrrepRecord,
+    h_seitz: &[SeitzOp],
+    little_h_indices: &[usize],
+    h_to_pir: &[usize],
+) -> Option<ScalarLittleIrrepData> {
+    if h_seitz.is_empty() || little_h_indices.is_empty() || h_to_pir.len() != h_seitz.len() {
+        return None;
+    }
+
+    let identity_rotation = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let pure_translations: Vec<_> = h_seitz
+        .iter()
+        .filter(|operation| operation.rot == identity_rotation)
+        .map(|operation| operation.trans)
+        .collect();
+    if pure_translations.is_empty() || h_seitz.len() % pure_translations.len() != 0 {
+        return None;
+    }
+    let equivalent_mod_translation_subgroup = |left: &SeitzOp, right: &SeitzOp| {
+        left.rot == right.rot
+            && pure_translations.iter().any(|shift| {
+                (0..3).all(|axis| {
+                    let delta = left.trans[axis] - right.trans[axis] - shift[axis];
+                    (delta - delta.round()).abs() < 1e-8
+                })
+            })
+    };
+    let mut little_coset_representatives = Vec::new();
+    for &h_idx in little_h_indices {
+        let operation = h_seitz.get(h_idx)?;
+        if !little_coset_representatives.iter().any(|&representative| {
+            equivalent_mod_translation_subgroup(operation, &h_seitz[representative])
+        }) {
+            little_coset_representatives.push(h_idx);
+        }
+    }
+    let effective_h_order = h_seitz.len() / pure_translations.len();
+    let effective_little_order = little_coset_representatives.len();
+    if effective_little_order == 0 || effective_h_order % effective_little_order != 0 {
+        return None;
+    }
+    let star_size = effective_h_order / effective_little_order;
+    let full_dim = irrep.dim as usize;
+    if star_size == 0 || full_dim == 0 || full_dim % star_size != 0 {
+        return None;
+    }
+    let dim = full_dim / star_size;
+    let pir_chars = irrep.characters();
+    let pir_matrices = irrep.matrices();
+    let full_block = full_dim * full_dim;
+    let little_block = dim * dim;
+    let n_pir_ops = irrep.pir_rotations().len() / 9;
+    if h_to_pir
+        .iter()
+        .any(|&pir_idx| pir_idx >= n_pir_ops || pir_idx >= pir_chars.len())
+    {
+        return None;
+    }
+    let (stored_little_real, stored_little_imag) = irrep.scalar_little_characters();
+    let stored_little_available =
+        stored_little_real.len() == n_pir_ops && stored_little_imag.len() == n_pir_ops;
+    let mapped_stored_characters = stored_little_available.then(|| {
+        h_to_pir
+            .iter()
+            .map(|&pir_idx| {
+                Complex64::new(stored_little_real[pir_idx], stored_little_imag[pir_idx])
+            })
+            .collect::<Vec<_>>()
+    });
+
+    // Locate the identity instead of assuming a particular Hall ordering.
+    let identity = h_seitz.iter().position(|op| {
+        op.rot == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+            && op.trans.iter().all(|x| (x - x.round()).abs() < 1e-8)
+    })?;
+
+    // The CIR-derived selected-arm characters are authoritative for a
+    // multi-arm physical PIR. Its real matrices may be a realification in
+    // which conjugate arm subspaces cannot be split over R (for example a
+    // 2D rotation representing two conjugate 1D K-point irreps).
+    if star_size > 1
+        && let Some(complex_characters) = &mapped_stored_characters
+    {
+        if (complex_characters[identity] - Complex64::new(dim as f64, 0.0)).norm() > 1e-6 {
+            debug_log!(
+                "scalar selected CIR characters: SG{} {} H identity={} PIR identity={} value={} expected={} (star={}, stored ops={}, first={:?})",
+                irrep.sg,
+                irrep.ml,
+                identity,
+                h_to_pir[identity],
+                complex_characters[identity],
+                dim,
+                star_size,
+                stored_little_real.len(),
+                complex_characters.iter().take(8).collect::<Vec<_>>()
+            );
+            return None;
+        }
+        let complex_characters = complex_characters.clone();
+        return Some(ScalarLittleIrrepData {
+            characters: complex_characters.iter().map(|value| value.re).collect(),
+            complex_characters,
+            matrices: Vec::new(),
+            dim,
+        });
+    }
+    if star_size > 1 && mapped_stored_characters.is_none() {
+        debug_log!(
+            "scalar selected CIR characters unavailable: SG{} {} PIR ops={} stored real={} imag={}",
+            irrep.sg,
+            irrep.ml,
+            n_pir_ops,
+            stored_little_real.len(),
+            stored_little_imag.len()
+        );
+    }
+
+    // At a one-arm point, reordered characters remain useful even if a legacy
+    // record has no matrices.
+    if pir_matrices.len() < n_pir_ops * full_block {
+        let complex_characters = mapped_stored_characters.unwrap_or_else(|| {
+            h_to_pir
+                .iter()
+                .map(|&idx| Complex64::new(pir_chars[idx], 0.0))
+                .collect()
+        });
+        return Some(ScalarLittleIrrepData {
+            characters: complex_characters.iter().map(|value| value.re).collect(),
+            complex_characters,
+            matrices: Vec::new(),
+            dim,
+        });
+    }
+
+    let mut is_little = vec![false; h_seitz.len()];
+    for (h_idx, operation) in h_seitz.iter().enumerate() {
+        is_little[h_idx] = little_coset_representatives.iter().any(|&representative| {
+            equivalent_mod_translation_subgroup(operation, &h_seitz[representative])
+        });
+    }
+
+    // ISO-IR guarantees one invariant block per star arm, but the basis
+    // vectors of a block are not always contiguous (notably repeated/physical
+    // labels such as W1W1). Recover the first arm as the invariant connectivity
+    // component containing basis vector 0, adding further disconnected
+    // components in basis order only when the little representation itself is
+    // reducible. This reduces to the usual top-left block for contiguous data.
+    let mut adjacency = vec![false; full_block];
+    for (h_idx, &pir_idx) in h_to_pir.iter().enumerate() {
+        if !is_little[h_idx] || pir_idx >= n_pir_ops {
+            continue;
+        }
+        let source = &pir_matrices[pir_idx * full_block..(pir_idx + 1) * full_block];
+        for row in 0..full_dim {
+            adjacency[row * full_dim + row] = true;
+            for col in 0..full_dim {
+                if source[row * full_dim + col].abs() > 1e-8 {
+                    adjacency[row * full_dim + col] = true;
+                    adjacency[col * full_dim + row] = true;
+                }
+            }
+        }
+    }
+    let mut seen_basis = vec![false; full_dim];
+    let mut components = Vec::<Vec<usize>>::new();
+    for start in 0..full_dim {
+        if seen_basis[start] {
+            continue;
+        }
+        seen_basis[start] = true;
+        let mut component = Vec::new();
+        let mut frontier = vec![start];
+        while let Some(row) = frontier.pop() {
+            component.push(row);
+            for col in 0..full_dim {
+                if adjacency[row * full_dim + col] && !seen_basis[col] {
+                    seen_basis[col] = true;
+                    frontier.push(col);
+                }
+            }
+        }
+        component.sort_unstable();
+        components.push(component);
+    }
+    components.sort_by_key(|component| component[0]);
+    let first_component = components
+        .iter()
+        .position(|component| component.contains(&0))?;
+    components.swap(0, first_component);
+    let mut selected_basis = Vec::with_capacity(dim);
+    for component in components {
+        if selected_basis.len() == dim {
+            break;
+        }
+        if selected_basis.len() + component.len() > dim {
+            debug_log!(
+                "scalar block extraction: SG{} {} invariant component {} would exceed selected dimension {}",
+                irrep.sg,
+                irrep.ml,
+                component.len(),
+                dim
+            );
+            return None;
+        }
+        selected_basis.extend(component);
+    }
+    if selected_basis.len() != dim {
+        return None;
+    }
+    selected_basis.sort_unstable();
+    let mut basis_is_selected = vec![false; full_dim];
+    for &basis in &selected_basis {
+        basis_is_selected[basis] = true;
+    }
+
+    let mut characters = vec![0.0; h_seitz.len()];
+    let mut matrices = vec![0.0; h_seitz.len() * little_block];
+    for (h_idx, &pir_idx) in h_to_pir.iter().enumerate() {
+        if pir_idx >= n_pir_ops {
+            return None;
+        }
+        let source = &pir_matrices[pir_idx * full_block..(pir_idx + 1) * full_block];
+
+        // An operation of H_k must preserve the selected star-arm subspace.
+        if is_little[h_idx] {
+            for row in 0..full_dim {
+                for col in 0..full_dim {
+                    if basis_is_selected[row] == basis_is_selected[col] {
+                        continue;
+                    }
+                    if source[row * full_dim + col].abs() > 1e-8 {
+                        debug_log!(
+                            "scalar block extraction: SG{} {} H[{}] PIR[{}] couples ({},{})={} (full_dim={}, little_dim={}, star={})",
+                            irrep.sg,
+                            irrep.ml,
+                            h_idx,
+                            pir_idx,
+                            row,
+                            col,
+                            source[row * full_dim + col],
+                            full_dim,
+                            dim,
+                            star_size
+                        );
+                        return None;
+                    }
+                }
+            }
+        }
+
+        let target = &mut matrices[h_idx * little_block..(h_idx + 1) * little_block];
+        let mut trace = 0.0;
+        for (row, &source_row) in selected_basis.iter().enumerate() {
+            for (col, &source_col) in selected_basis.iter().enumerate() {
+                target[row * dim + col] = source[source_row * full_dim + source_col];
+            }
+            trace += source[source_row * full_dim + source_row];
+        }
+        characters[h_idx] = if trace.abs() < 1e-12 { 0.0 } else { trace };
+    }
+
+    if !is_little[identity] || (characters[identity] - dim as f64).abs() > 1e-6 {
+        debug_log!(
+            "scalar block extraction: SG{} {} identity H[{}] is_little={} trace={} expected={} (effective H={}, little={}, centering={})",
+            irrep.sg,
+            irrep.ml,
+            identity,
+            is_little[identity],
+            characters[identity],
+            dim,
+            effective_h_order,
+            effective_little_order,
+            pure_translations.len()
+        );
+        return None;
+    }
+
+    let complex_characters = mapped_stored_characters.unwrap_or_else(|| {
+        characters
+            .iter()
+            .map(|&value| Complex64::new(value, 0.0))
+            .collect()
+    });
+    Some(ScalarLittleIrrepData {
+        characters: complex_characters.iter().map(|value| value.re).collect(),
+        complex_characters,
+        matrices,
+        dim,
+    })
+}
 
 /// Co-representation type from Wigner's test.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -298,10 +610,25 @@ pub fn compute_corepresentation(
     // table are all in the ISOTROPY data-Hall frame.
     let setting_xf = h_info.msg_to_data.as_ref();
 
-    let h_ops = &h_info.ops_from_msg;
+    let h_ops = &h_info.ops_from_hall;
     if h_ops.is_empty() {
         return Err(CorepComputationError::EmptyUnitaryOperations { uni: uni_number });
     }
+
+    // Every representation datum (k vector, PIR/CIR operation order, spin
+    // table) is expressed in the ISOTROPY data-Hall frame.  Keep the magnetic
+    // operation indices stable, but transform their Seitz parts into that
+    // same frame before little-group filtering, composition, and character
+    // lookup.  Mixing MSG-frame operations with data-Hall PIR rotations was
+    // the common cause of the former 128.406 and 52.318 scalar-map failures.
+    let mag_ops_data = operations_in_data_hall_frame(mag_ops, setting_xf).ok_or_else(|| {
+        CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: "MSG operation could not be transformed to the ISOTROPY data-Hall frame"
+                .to_string(),
+        }
+    })?;
 
     // 2. Filter to magnetic little group with setting transform.
     // Pass canonical H translation subgroup for stricter k-preservation
@@ -321,8 +648,8 @@ pub fn compute_corepresentation(
         h_irrep.ky,
         h_irrep.kz,
         h_irrep.kd,
-        mag_ops,
-        setting_xf,
+        &mag_ops_data,
+        None,
         Some(&h_canonical_translations),
     );
     if mag_lg.is_empty() {
@@ -333,14 +660,18 @@ pub fn compute_corepresentation(
     }
 
     // 3. Convert to SeitzOps for proper composition
-    let mag_seitz = ops_to_seitz(mag_ops);
+    let mag_seitz = ops_to_seitz(&mag_ops_data);
+    // The spinor Wigner path needs both frames: it transforms MSG operations
+    // to H's data-Hall frame for b² lookup, but looks up the antiunitary
+    // spatial rotation in the parent-G spin table in the original MSG frame.
+    let mag_seitz_msg = ops_to_seitz(mag_ops);
     let h_seitz = ops_to_seitz(&h_ops);
 
     // 3a. Map unitary magnetic ops to H ops via full Seitz matching
     // (rotation + translation), not rotation-only.
     let op_map: Vec<Option<usize>> = (0..mag_ops.len())
         .map(|i| {
-            if mag_ops.operations[i].time_reversal {
+            if mag_ops_data.operations[i].time_reversal {
                 None
             } else {
                 let mop = &mag_seitz[i];
@@ -352,7 +683,7 @@ pub fn compute_corepresentation(
     if op_map
         .iter()
         .enumerate()
-        .any(|(i, m)| !mag_ops.operations[i].time_reversal && m.is_none())
+        .any(|(i, m)| !mag_ops_data.operations[i].time_reversal && m.is_none())
     {
         return Err(CorepComputationError::UnmappedUnitaryOperation {
             uni: uni_number,
@@ -361,36 +692,92 @@ pub fn compute_corepresentation(
     }
 
     // 4. H's irrep characters
-    let h_chars = h_irrep.characters();
-    let h_dim = h_irrep.dim as usize;
-    if h_irrep.ml == "Z1Z4" {
-        debug_log!(
-            "DEBUG compute_corep Z1Z4: sg={} h_chars={:?} h_ops.len={} mag_ops.len={}",
-            h_irrep.sg,
-            &h_chars[..h_chars.len().min(8)],
-            h_ops.len(),
-            mag_ops.len()
-        );
-    }
-
+    let mut h_chars = h_irrep.characters().to_vec();
+    let mut h_complex_chars = None;
+    let mut h_dim = h_irrep.dim as usize;
+    let mut h_matrices_ordered = Vec::new();
     // 5. Separate unitary / anti-unitary in little group
     let unitary: Vec<usize> = mag_lg
         .iter()
-        .filter(|&&i| !mag_ops.operations[i].time_reversal)
+        .filter(|&&i| !mag_ops_data.operations[i].time_reversal)
         .copied()
         .collect();
     let antiunitary: Vec<usize> = mag_lg
         .iter()
-        .filter(|&&i| mag_ops.operations[i].time_reversal)
+        .filter(|&&i| mag_ops_data.operations[i].time_reversal)
         .copied()
         .collect();
+
+    // Restrict scalar, non-compound ISO-IR representations from the full
+    // induced star representation to the selected k-arm. Spinor records are
+    // already little-group data, while compound PIRs are classified through
+    // their stored complex components below.
+    if !h_irrep.spinor && h_irrep.cir_component_count() == 0 {
+        let pir_rots = h_irrep.pir_rotations();
+        let pir_trans = h_irrep.pir_translations();
+        let map = if pir_trans.len() == pir_rots.len() / 9 * 3 {
+            wigner::build_h_to_irrep_op_map(&h_seitz, pir_rots, pir_trans)
+        } else {
+            wigner::build_h_to_cir_map(&h_seitz, pir_rots)
+        }
+        .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: format!(
+                "scalar PIR operation map could not be built (H ops={}, PIR ops={}, PIR translations={})",
+                h_seitz.len(),
+                pir_rots.len() / 9,
+                pir_trans.len() / 3
+            ),
+        })?;
+        let little_h_indices: Vec<usize> = unitary
+            .iter()
+            .filter_map(|&mag_idx| op_map[mag_idx])
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let little = scalar_little_irrep_data(h_irrep, &h_seitz, &little_h_indices, &map)
+            .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!(
+                    "selected k-arm block could not be extracted from the scalar PIR (H ops={}, H_k mapped ops={}, PIR dim={})",
+                    h_seitz.len(),
+                    little_h_indices.len(),
+                    h_irrep.dim
+                ),
+            })?;
+        h_chars = little.characters;
+        h_complex_chars = Some(little.complex_characters);
+        h_dim = little.dim;
+        h_matrices_ordered = little.matrices;
+    }
 
     // 7. Wigner test: dispatch by irrep type
     let (corep_type, source) = if antiunitary.is_empty() {
         Ok((CorepType::A, WignerSource::TrivialNoAntiunitary))
     } else if h_irrep.cir_component_count() > 0 {
-        // Compound irrep: test each CIR component.
-        let mut any_c = false;
+        // A compound real PIR such as Z1Z4 is already the direct sum of two
+        // conjugate complex irreps.  Wigner's test must start from ONE of
+        // those complex components; using the compound PIR dimension and
+        // then applying the Type-C doubling would count the pair twice.
+        let identity_rotation = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let identity = h_seitz
+            .iter()
+            .position(|operation| {
+                operation.rot == identity_rotation
+                    && operation
+                        .trans
+                        .iter()
+                        .all(|value| (value - value.round()).abs() < 1e-8)
+            })
+            .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: "unitary subgroup has no identity operation".to_string(),
+            })?;
+        let mut selected: Option<(CorepType, Vec<f64>, usize)> = None;
+        let mut component_errors = Vec::new();
         debug_log!(
             "DEBUG CIR path: {} n_comp={}",
             h_irrep.ml,
@@ -402,39 +789,83 @@ pub fn compute_corepresentation(
                 continue;
             }
             let cir_rots = h_irrep.cir_rotations(comp);
-            let cir_reordered =
-                if let Some(h_to_cir) = wigner::build_h_to_cir_map(&h_seitz, cir_rots) {
-                    wigner::reorder_cir_chars(cir, &h_to_cir)
-                } else {
-                    cir.to_vec()
-                };
-            let ct = wigner::wigner_classify_cir(
+            // Generated CIR components are stored in the selected data-Hall
+            // order.  Prefer that exact order, especially for centered groups
+            // where several Seitz operations can share one rotation.  The
+            // rotation-only map remains a compatibility fallback for older
+            // generated tables with a different operation count.
+            let cir_reordered = if cir.len() == 2 * h_seitz.len() {
+                cir.to_vec()
+            } else if let Some(h_to_cir) = wigner::build_h_to_cir_map(&h_seitz, cir_rots) {
+                wigner::reorder_cir_chars(cir, &h_to_cir)
+            } else {
+                return Err(CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "CIR component {} operation map could not be built (H ops={}, CIR ops={})",
+                        comp,
+                        h_seitz.len(),
+                        cir.len() / 2
+                    ),
+                });
+            };
+            let ct = match wigner::wigner_classify_cir_direct(
                 &cir_reordered,
-                &unitary,
+                &antiunitary,
                 &mag_seitz,
                 &h_seitz,
-                antiunitary[0],
                 h_irrep.kx,
                 h_irrep.ky,
                 h_irrep.kz,
                 h_irrep.kd,
-            );
-            match ct {
-                Ok(CorepType::C) => {
-                    any_c = true;
-                    break;
+            ) {
+                Ok(corep_type) => corep_type,
+                Err(error) => {
+                    component_errors.push(format!("component {}: {}", comp, error));
+                    continue;
                 }
-                Ok(_) => {}
-                Err(_) => {
-                    // CIR component classification failed
-                }
+            };
+
+            let identity_character =
+                Complex64::new(cir_reordered[2 * identity], cir_reordered[2 * identity + 1]);
+            let rounded_dim = identity_character.re.round();
+            if identity_character.im.abs() > 1e-6
+                || rounded_dim < 1.0
+                || (identity_character.re - rounded_dim).abs() > 1e-6
+            {
+                return Err(CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "CIR component {} has invalid identity character ({:.8},{:.8})",
+                        comp, identity_character.re, identity_character.im
+                    ),
+                });
             }
+            let component_chars: Vec<f64> = cir_reordered
+                .chunks_exact(2)
+                .map(|value| value[0])
+                .collect();
+            // Wigner's construction begins with one irreducible complex
+            // constituent Δ. Repeated labels such as P1P1 contain a
+            // synthesized conjugate copy whose first-arm convention need not
+            // be classified a second time.
+            selected = Some((ct, component_chars, rounded_dim as usize));
+            break;
         }
-        if any_c {
-            Ok((CorepType::C, WignerSource::ScalarCIR))
-        } else {
-            Ok((CorepType::A, WignerSource::ScalarCIR))
-        }
+        let (corep_type, component_chars, component_dim) =
+            selected.ok_or_else(|| CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!(
+                    "compound irrep contains no classifiable CIR component ({})",
+                    component_errors.join("; ")
+                ),
+            })?;
+        h_chars = component_chars;
+        h_dim = component_dim;
+        Ok((corep_type, WignerSource::ScalarCIR))
     } else if h_irrep.spinor {
         // Spinor: SU(2) Wigner test is the primary path.
         // Bilbao imaginary chars are NOT term-by-term Wigner summands
@@ -459,12 +890,12 @@ pub fn compute_corepresentation(
 
         match wigner::wigner_classify_spinor(
             &ctx,
-            h_chars,
+            &h_chars,
             h_irrep.spin_character_imag(),
             n_lg,
             op_indices,
             &unitary,
-            &mag_seitz,
+            &mag_seitz_msg,
             &h_seitz,
             a0_idx,
             setting_xf,
@@ -490,26 +921,25 @@ pub fn compute_corepresentation(
             }
         }
     } else {
-        // Non-compound scalar: PIR path with full Seitz matching.
-        let pir_rots = h_irrep.pir_rotations();
-        let pir_trans = h_irrep.pir_translations();
-        let h_to_pir = if pir_trans.len() == pir_rots.len() / 9 * 3 {
-            wigner::build_h_to_irrep_op_map(&h_seitz, pir_rots, pir_trans)
+        // Non-compound scalar: PIR path in the selected star-arm block.
+        let classification = if let Some(complex_characters) = &h_complex_chars {
+            let pairs = complex_characters
+                .iter()
+                .flat_map(|value| [value.re, value.im])
+                .collect::<Vec<_>>();
+            wigner::wigner_classify_cir_direct(
+                &pairs,
+                &antiunitary,
+                &mag_seitz,
+                &h_seitz,
+                h_irrep.kx,
+                h_irrep.ky,
+                h_irrep.kz,
+                h_irrep.kd,
+            )
         } else {
-            // Fallback to rotation-only for data without translations
-            wigner::build_h_to_cir_map(&h_seitz, pir_rots)
-        };
-        if let Some(h_to_pir) = h_to_pir {
-            let doubled = wigner::reorder_cir_chars(
-                &h_chars
-                    .iter()
-                    .flat_map(|&c| [c, 0.0f64])
-                    .collect::<Vec<_>>(),
-                &h_to_pir,
-            );
-            let h_chars_reordered: Vec<f64> = (0..h_to_pir.len()).map(|i| doubled[2 * i]).collect();
-            let ct = wigner::wigner_classify(
-                &h_chars_reordered,
+            wigner::wigner_classify(
+                &h_chars,
                 &unitary,
                 &mag_seitz,
                 &h_seitz,
@@ -519,30 +949,28 @@ pub fn compute_corepresentation(
                 h_irrep.kz,
                 h_irrep.kd,
             )
-            .map_err(|e| CorepComputationError::UnsupportedClassification {
-                uni: uni_number,
-                source_irrep: h_irrep.ml.to_string(),
-                reason: format!("scalar PIR Wigner classification failed: {}", e),
-            })?;
-            Ok((ct, WignerSource::ScalarPIR))
-        } else {
-            Err(CorepComputationError::UnsupportedClassification {
-                uni: uni_number,
-                source_irrep: h_irrep.ml.to_string(),
-                reason: "scalar PIR operation map could not be built".to_string(),
-            })
-        }
+        };
+        let ct = classification.map_err(|e| CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: format!("scalar PIR Wigner classification failed: {}", e),
+        })?;
+        Ok((ct, WignerSource::ScalarPIR))
     }?;
 
     // 8. Compute Type A antiunitary characters
-    let au_chars = if corep_type == CorepType::A && !antiunitary.is_empty() {
-        let h_dim = h_chars.first().map(|&c| c.round() as usize).unwrap_or(1);
+    let au_chars = if h_irrep.spinor {
+        // The stored spinor data contains little-group characters but no
+        // representation matrices/intertwiner for anti-linear operations.
+        // Never feed its local character order into the scalar H-order path.
+        None
+    } else if corep_type == CorepType::A && !antiunitary.is_empty() {
         if h_dim == 1 {
             wigner::type_a_antiunitary_chars(
                 &mag_seitz,
                 &mag_lg,
                 &op_map,
-                h_chars,
+                &h_chars,
                 &h_seitz,
                 antiunitary[0],
                 h_irrep.kx,
@@ -552,24 +980,36 @@ pub fn compute_corepresentation(
             )
             .map(|(chars, _u)| chars)
         } else {
-            let mats = h_irrep.matrices();
-            let rots = h_irrep.pir_rotations();
-            if mats.is_empty() || rots.is_empty() {
-                None
-            } else {
-                wigner::type_a_antiunitary_chars_high_dim(
+            if !h_matrices_ordered.is_empty() {
+                wigner::type_a_antiunitary_chars_high_dim_ordered(
                     &mag_seitz,
                     &mag_lg,
-                    h_chars,
+                    &h_chars,
                     &h_seitz,
                     antiunitary[0],
-                    h_irrep.kx,
-                    h_irrep.ky,
-                    h_irrep.kz,
-                    h_irrep.kd,
-                    mats,
-                    rots,
+                    &h_matrices_ordered,
+                    h_dim,
                 )
+            } else {
+                let matrices = h_irrep.matrices();
+                let rotations = h_irrep.pir_rotations();
+                if matrices.is_empty() || rotations.is_empty() {
+                    None
+                } else {
+                    wigner::type_a_antiunitary_chars_high_dim(
+                        &mag_seitz,
+                        &mag_lg,
+                        &h_chars,
+                        &h_seitz,
+                        antiunitary[0],
+                        h_irrep.kx,
+                        h_irrep.ky,
+                        h_irrep.kz,
+                        h_irrep.kd,
+                        matrices,
+                        rotations,
+                    )
+                }
             }
         }
     } else {
@@ -579,10 +1019,10 @@ pub fn compute_corepresentation(
     // 9. Build corep character table
     let characters = wigner::build_corep_chars(
         &corep_type,
-        mag_ops,
+        &mag_ops_data,
         &mag_lg,
         &op_map,
-        h_chars,
+        &h_chars,
         None,
         au_chars.as_deref(),
     )
@@ -613,7 +1053,7 @@ pub fn compute_corepresentation(
         characters,
         timerev: mag_lg
             .iter()
-            .map(|&i| mag_ops.operations[i].time_reversal)
+            .map(|&i| mag_ops_data.operations[i].time_reversal)
             .collect(),
         corep_type,
         source,
@@ -625,6 +1065,32 @@ pub fn compute_corepresentation(
 }
 
 // ── Magnetic operations ──────────────────────────────────────────────────────
+
+/// Transform magnetic operations into the ISOTROPY data-Hall frame while
+/// preserving their database indices and time-reversal flags.
+pub(crate) fn operations_in_data_hall_frame(
+    operations: &SymmetryOps,
+    setting: Option<&wigner::SettingTransform>,
+) -> Option<SymmetryOps> {
+    let Some(setting) = setting else {
+        return Some(operations.clone());
+    };
+    let mut rotations = Vec::with_capacity(operations.len());
+    let mut translations = Vec::with_capacity(operations.len());
+    let mut time_reversals = Vec::with_capacity(operations.len());
+    for operation in &operations.operations {
+        let (rotation, translation) =
+            setting.transform_seitz(&operation.rotation, &operation.translation)?;
+        rotations.push(rotation);
+        translations.push(translation);
+        time_reversals.push(operation.time_reversal);
+    }
+    Some(SymmetryOps::from_parallel_owned(
+        rotations,
+        translations,
+        time_reversals,
+    ))
+}
 
 /// Get the magnetic space group symmetry operations.
 pub fn get_magnetic_operations(uni_number: usize) -> Option<SymmetryOps> {
@@ -950,8 +1416,7 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
             // actual MSG unitary representatives directly against the data
             // Hall frame, regardless of whether a MSG→detected transform was
             // available, and validate the candidate on the full MSG.
-            let msg_rots: Vec<Mat3I> =
-                ops_from_msg.operations.iter().map(|o| o.rotation).collect();
+            let msg_rots: Vec<Mat3I> = ops_from_msg.operations.iter().map(|o| o.rotation).collect();
             let msg_trans: Vec<[f64; 3]> = ops_from_msg
                 .operations
                 .iter()
@@ -1474,10 +1939,17 @@ mod tests {
         assert!(identify_unitary_subgroup(2).is_some(), "UNI 2 should work");
     }
 
-    /// Cross-validate: for all compound irreps, PIR χ = Σ CIR component χ.
+    /// Cross-validate compound CIR data against its full-star PIR dimension.
+    ///
+    /// The stored CIR rows contain the selected arm and include Hall-setting
+    /// Bloch phases.  The full real PIR rows use induced-representation traces,
+    /// so the universal invariant after setting conversion is the dimension
+    /// relation `dim(PIR) = star_size * Σ dim(CIR_little)`.
     #[test]
     fn test_cir_pir_cross_validation() {
         let mut checked = 0usize;
+        let mut one_arm = 0usize;
+        let mut multi_arm = 0usize;
         let mut mismatches = 0usize;
         // Iterate over all SGs
         for sg in 1u8..=230 {
@@ -1493,9 +1965,7 @@ mod tests {
                     continue;
                 }
 
-                // Sum CIR component characters.
-                // CIR covers only distinct rotation types (little co-group),
-                // which may be fewer ops than PIR (full little group).
+                // Sum selected-arm CIR component characters.
                 let cir_ops = (0..n_comp)
                     .map(|c| ir.cir_component_chars(c).len() / 2)
                     .min()
@@ -1503,36 +1973,53 @@ mod tests {
                 if cir_ops == 0 {
                     continue; // No CIR data
                 }
-                let n_cmp = n_ops.min(cir_ops);
-                let mut cir_sum_re = vec![0.0f64; n_cmp];
-                let mut cir_sum_im = vec![0.0f64; n_cmp];
+                if cir_ops != n_ops {
+                    mismatches += 1;
+                    eprintln!(
+                        "MISMATCH SG{} {}: PIR ops={} CIR ops={}",
+                        sg, ir.ml, n_ops, cir_ops
+                    );
+                    continue;
+                }
+                let mut cir_sum_re = vec![0.0f64; n_ops];
+                let mut cir_sum_im = vec![0.0f64; n_ops];
                 for c in 0..n_comp {
                     let cir = ir.cir_component_chars(c);
-                    for op in 0..n_cmp {
+                    for op in 0..n_ops {
                         cir_sum_re[op] += cir[2 * op];
                         cir_sum_im[op] += cir[2 * op + 1];
                     }
                 }
 
-                for op in 0..n_cmp {
-                    let diff_re = (pir[op] - cir_sum_re[op]).abs();
-                    let diff_im = cir_sum_im[op].abs();
-                    if diff_re > 0.01 || diff_im > 0.01 {
-                        mismatches += 1;
-                        eprintln!(
-                            "MISMATCH SG{} {} op{}: PIR={:.4} CIR_sum=({:.4},{:.4})",
-                            sg, ir.ml, op, pir[op], cir_sum_re[op], cir_sum_im[op]
-                        );
-                    }
+                let full_dim = ir.dim as f64;
+                let little_dim = cir_sum_re[0];
+                let star_size = full_dim / little_dim;
+                if little_dim <= 0.0
+                    || cir_sum_im[0].abs() > 0.01
+                    || (star_size - star_size.round()).abs() > 0.01
+                    || star_size < 1.0
+                {
+                    mismatches += 1;
+                    eprintln!(
+                        "MISMATCH SG{} {} dimensions: PIR={} selected CIR sum=({:.4},{:.4})",
+                        sg, ir.ml, full_dim, little_dim, cir_sum_im[0]
+                    );
+                    continue;
+                }
+
+                if (star_size - 1.0).abs() < 0.01 {
+                    one_arm += 1;
+                } else {
+                    multi_arm += 1;
                 }
                 checked += 1;
             }
         }
         println!(
-            "CIR↔PIR cross-check: {} compound irreps, {} mismatches",
-            checked, mismatches
+            "CIR↔PIR cross-check: {} compound irreps ({} one-arm, {} multi-arm), {} mismatches",
+            checked, one_arm, multi_arm, mismatches
         );
-        assert_eq!(mismatches, 0, "All CIR sums must match PIR characters");
+        assert_eq!(mismatches, 0, "All compound CIR records must be consistent");
         assert!(
             checked > 500,
             "Should cover at least 500 compound irreps, got {}",
@@ -1622,9 +2109,10 @@ mod tests {
     /// Corep table (from BCS corepresentations_out.pl):
     ///   Z1Z2(2D, type C), Z3Z4(2D, type C), Z5(2D, type A), Z̄6Z̄7(4D spinor, type C)
     ///
-    /// Our computation uses H = SG 118's PIR irreps at Z:
+    /// Our computation uses H = SG 118's irreps at Z:
     ///   Z1Z4, Z2Z3, Z5 (scalar), Z6, Z7 (spinor)
-    /// Type C doubles the dimension: 2D PIR → 4D corep.
+    /// The compound 2D PIRs split into 1D complex CIR components before the
+    /// Type-C construction, producing the 2D coreps listed by BCS.
     ///
     /// Character order: verify h_seitz[0] is identity with CIR χ=dim.
     #[test]
@@ -3625,8 +4113,7 @@ mod tests {
             if data_exact {
                 data_hall_exact += 1;
             }
-            let data_embedded = if data_exact
-                && transform_applies_to_all_ops(&transform, &mag_ops)
+            let data_embedded = if data_exact && transform_applies_to_all_ops(&transform, &mag_ops)
             {
                 true
             } else if let Some(h_info) = identify_unitary_subgroup_with_hall(uni) {
@@ -6369,7 +6856,7 @@ mod tests {
     /// it does NOT change the classification path.
     #[test]
     fn phase1_setting_transform_oracle() {
-        use crate::irrep::wigner::{enumerate_signed_permutations, SettingTransform};
+        use crate::irrep::wigner::{SettingTransform, enumerate_signed_permutations};
 
         let all_t = enumerate_signed_permutations();
         let mut stats = std::collections::HashMap::<&str, usize>::new();
@@ -6580,7 +7067,7 @@ fn rotation_multiset_eq(a: &[[[i32; 3]; 3]], b: &[[[i32; 3]; 3]]) -> bool {
 /// confirms that the identified T is the correct basis transform.
 #[test]
 fn phase1b_verify_transform_fix() {
-    use crate::irrep::wigner::{enumerate_signed_permutations, SettingTransform};
+    use crate::irrep::wigner::{SettingTransform, enumerate_signed_permutations};
 
     let all_t = enumerate_signed_permutations();
     let mut fixed = 0usize;

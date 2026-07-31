@@ -6,10 +6,17 @@
 use cryspglib::irrep::magnetic_summary::*;
 
 fn main() {
-    // ── BNS 128.406 (currently exposes an unsupported scalar path) ──
+    // ── BNS 128.406: complete operation-column tables at every k-point ──
     println!("=== BNS 128.406 ===");
     match magnetic_irrep_summary_by_bns("128.406") {
-        Ok(summary) => println!("{}", format_magnetic_irrep_summary(&summary)),
+        Ok(summary) => {
+            println!("{}", format_magnetic_irrep_summary(&summary));
+            if let Some(z) = summary.kpoints.iter().find(|kpoint| kpoint.label == "Z") {
+                println!();
+                println!("=== Z table grouped by conjugacy class ===");
+                println!("{}", format_magnetic_character_table_by_class(z));
+            }
+        }
         Err(err) => println!("corep summary failed: {:?}", err),
     }
 

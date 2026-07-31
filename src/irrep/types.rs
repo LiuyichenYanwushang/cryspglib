@@ -60,8 +60,9 @@ pub struct IrrepRecord {
     pub(crate) _spin_lg_count: u8,
     /// Start index into [`MATRICES`] (u32: ~1M entries total)
     pub(crate) _mat_start: u32,
-    /// Number of matrix elements = opcount × dim² (fits in u16: max ~27648)
-    pub(crate) _mat_count: u16,
+    /// Number of matrix elements = opcount × dim². Centered conventional
+    /// Hall expansion can exceed `u16` for the largest induced irreps.
+    pub(crate) _mat_count: u32,
     /// Start index into [`ISOTROPY_SUBGROUPS`]
     pub(crate) _iso_start: u16,
     /// Number of isotropy subgroups for this irrep
@@ -126,7 +127,9 @@ impl IrrepRecord {
     /// Basis is always identity (same axes as ITA), origin has 205/230 non-trivial.
     pub fn sg_setting(sg: u8) -> (&'static [f64], &'static [f64]) {
         let idx = sg.saturating_sub(1) as usize;
-        if idx >= 230 { return (&[], &[]); }
+        if idx >= 230 {
+            return (&[], &[]);
+        }
         let b_start = idx * 9;
         let o_start = idx * 3;
         (
@@ -192,7 +195,9 @@ impl IrrepRecord {
     /// Together with [`Self::pir_rotations`], enables full Seitz matching.
     pub fn pir_translations(&self) -> &'static [f64] {
         let char_count = self._char_count as usize;
-        if char_count == 0 { return &[]; }
+        if char_count == 0 {
+            return &[];
+        }
         let start = (self._pir_rot_start as usize) / 9 * 3;
         let len = char_count * 3;
         let total = super::generated_data::PIR_TRANS.len();
@@ -215,6 +220,31 @@ impl IrrepRecord {
         &super::generated_data::PIR_ROTS[start..start + len]
     }
 
+    /// Complex characters of the first (stored-k) star-arm block.
+    ///
+    /// These are generated from the complex ISO-IR matrices and are needed
+    /// when a physically irreducible real PIR combines conjugate k arms. The
+    /// returned slices are empty when no aligned CIR matrix was available.
+    pub fn scalar_little_characters(&self) -> (&'static [f64], &'static [f64]) {
+        if self.spinor || self._char_count == 0 {
+            return (&[], &[]);
+        }
+        let start = self._pir_rot_start as usize / 9;
+        let len = self._char_count as usize;
+        let end = start + len;
+        if end > super::generated_data::SCALAR_LITTLE_CHARS_VALID.len()
+            || super::generated_data::SCALAR_LITTLE_CHARS_VALID[start..end]
+                .iter()
+                .any(|&valid| valid == 0)
+        {
+            return (&[], &[]);
+        }
+        (
+            &super::generated_data::SCALAR_LITTLE_CHARS_REAL[start..end],
+            &super::generated_data::SCALAR_LITTLE_CHARS_IMAG[start..end],
+        )
+    }
+
     /// Number of CIR (complex) components this PIR irrep decomposes into.
     /// 0 = non-compound, 2 = compound like Z1Z4 = Z1 ⊕ Z4.
     pub fn cir_component_count(&self) -> usize {
@@ -223,9 +253,8 @@ impl IrrepRecord {
 
     /// Complex character table for a specific CIR component.
     ///
-    /// Returns `(re, im)` pairs in CIR/ISOTROPY operation order.
-    /// Use `cir_rotation_at()` for the corresponding operation rotations
-    /// and `build_cir_index_map()` to map to H_ops order.
+    /// Returns `(re, im)` pairs in the generated data-Hall operation order.
+    /// [`Self::cir_rotations`] contains the corresponding rotations.
     pub fn cir_component_chars(&self, comp: usize) -> &'static [f64] {
         if comp >= self._cir_count as usize {
             return &[];
@@ -281,7 +310,7 @@ impl IrrepRecord {
             return &[];
         }
         &self::generated_data::MATRICES
-            [self._mat_start as usize..(self._mat_start + self._mat_count as u32) as usize]
+            [self._mat_start as usize..(self._mat_start + self._mat_count) as usize]
     }
 
     /// Full irrep matrices reordered to match spglib H_ops order.
@@ -309,11 +338,12 @@ impl IrrepRecord {
                 if h_count == 0 {
                     return mats.to_vec();
                 }
-                crate::irrep::wigner::build_h_to_cir_map(&h_seitz[..h_count], rots)
-                    .unwrap_or_else(|| {
+                crate::irrep::wigner::build_h_to_cir_map(&h_seitz[..h_count], rots).unwrap_or_else(
+                    || {
                         // Last resort: identity mapping for first n_pir_ops
                         (0..n_pir_ops).collect()
-                    })
+                    },
+                )
             }
         };
 
@@ -386,7 +416,9 @@ impl IrrepRecord {
     /// - `"DT1"` → `"DT"` (Δ line)
     pub fn k_label(&self) -> &'static str {
         let body = self.ml.trim_end_matches(|c: char| c == '+' || c == '-');
-        let end = body.find(|c: char| c.is_ascii_digit()).unwrap_or(body.len());
+        let end = body
+            .find(|c: char| c.is_ascii_digit())
+            .unwrap_or(body.len());
         &body[..end]
     }
 
@@ -397,25 +429,35 @@ impl IrrepRecord {
         // Points have short prefixes (GM, X, M, R, A, H, K, L, etc.)
         k.len() <= 2 && !matches!(k, "GP")
     }
-
 }
 
 impl IsotropyRecord {
     /// Human-readable one-line description.
     pub fn describe(&self) -> String {
-        format!("#{} {} ({}), domains={}, arms={}", self.sg, self.symbol, self.schoenflies, self.domains, self.arms)
+        format!(
+            "#{} {} ({}), domains={}, arms={}",
+            self.sg, self.symbol, self.schoenflies, self.domains, self.arms
+        )
     }
 }
 
 impl std::fmt::Display for IsotropyRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#{} {} dir={} domains={} arms={}", self.sg, self.symbol, self.direction, self.domains, self.arms)
+        write!(
+            f,
+            "#{} {} dir={} domains={} arms={}",
+            self.sg, self.symbol, self.direction, self.domains, self.arms
+        )
     }
 }
 
 impl std::fmt::Display for MagneticIsotropyRecord {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "UNI {} ({}) dir={}", self.mag_sg, self.bns_label, self.direction)
+        write!(
+            f,
+            "UNI {} ({}) dir={}",
+            self.mag_sg, self.bns_label, self.direction
+        )
     }
 }
 

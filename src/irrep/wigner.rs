@@ -33,11 +33,11 @@
 //! - Bilbao Crystallographic Server, *Co-representations of Magnetic Space Groups*
 
 use super::corep::CorepType;
-use crate::mathfunc::{
-    mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_multiply_matrix_i3,
-    Mat3, Mat3I,
-};
 use crate::SymmetryOps;
+use crate::mathfunc::{
+    Mat3, Mat3I, mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
+    mat_multiply_matrix_i3,
+};
 use num_complex::Complex64;
 
 /// Error returned when Wigner's test cannot classify a co-representation
@@ -50,11 +50,17 @@ pub struct WignerClassificationError {
 
 impl WignerClassificationError {
     pub fn new(reason: impl Into<String>) -> Self {
-        Self { reason: reason.into(), wigner_value: None }
+        Self {
+            reason: reason.into(),
+            wigner_value: None,
+        }
     }
 
     pub fn with_value(reason: impl Into<String>, w: f64) -> Self {
-        Self { reason: reason.into(), wigner_value: Some(w) }
+        Self {
+            reason: reason.into(),
+            wigner_value: Some(w),
+        }
     }
 }
 
@@ -70,8 +76,8 @@ impl std::fmt::Display for WignerClassificationError {
 
 // ── Diagnostic counters for SU(2) central-element relation ──────────────────
 
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // ── Diagnostic counters for setting-transform origin solving ─────────────────
 
@@ -1151,6 +1157,83 @@ pub fn wigner_classify_cir(
     }
 }
 
+/// Wigner test evaluated directly over the antiunitary little-group coset.
+///
+/// This is algebraically equivalent to the `a0 * H` form used by
+/// [`wigner_classify_cir`], but it avoids choosing a coset representative and
+/// repeatedly reducing the intermediate product.  That distinction matters
+/// for nonsymmorphic boundary points, where losing an intermediate lattice
+/// translation changes the Bloch phase.
+pub fn wigner_classify_cir_direct(
+    cir_chars: &[f64],
+    antiunitary_mag_indices: &[usize],
+    mag_seitz: &[SeitzOp],
+    h_seitz: &[SeitzOp],
+    kx: i8,
+    ky: i8,
+    kz: i8,
+    kd: i8,
+) -> Result<CorepType, WignerClassificationError> {
+    if antiunitary_mag_indices.is_empty() {
+        return Err(WignerClassificationError::new(
+            "antiunitary little-group coset is empty",
+        ));
+    }
+    if cir_chars.len() != 2 * h_seitz.len() {
+        return Err(WignerClassificationError::new(format!(
+            "CIR character count {} does not match unitary little-group order {}",
+            cir_chars.len() / 2,
+            h_seitz.len()
+        )));
+    }
+
+    let mut sum = Complex64::ZERO;
+    for &b_idx in antiunitary_mag_indices {
+        let b = mag_seitz.get(b_idx).ok_or_else(|| {
+            WignerClassificationError::new(format!(
+                "antiunitary operation index {} is out of range",
+                b_idx
+            ))
+        })?;
+        let (square, square_lattice) = square_seitz(b);
+        let matched = find_seitz(&square.rot, &square.trans, h_seitz).ok_or_else(|| {
+            WignerClassificationError::new(format!(
+                "square of antiunitary operation {} is absent from the unitary little group",
+                b_idx
+            ))
+        })?;
+        let total_lattice = add3(&square_lattice, &matched.lattice_shift);
+        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
+        sum += cir_char_at(cir_chars, matched.op_index) * phase;
+    }
+
+    let w = sum / antiunitary_mag_indices.len() as f64;
+    debug_log!(
+        "DEBUG wigner_classify_cir_direct: W=({:.8},{:.8}) |W|={:.4} k=({},{},{})/{}",
+        w.re,
+        w.im,
+        w.norm(),
+        kx,
+        ky,
+        kz,
+        kd
+    );
+
+    let tol = 1e-6;
+    if (w.re - 1.0).abs() < tol && w.im.abs() < tol {
+        Ok(CorepType::A)
+    } else if (w.re + 1.0).abs() < tol && w.im.abs() < tol {
+        Ok(CorepType::B)
+    } else if w.norm() < tol {
+        Ok(CorepType::C)
+    } else {
+        Err(WignerClassificationError::with_value(
+            "Non-quantized direct antiunitary-coset Wigner indicator; expected 0, +1, or -1",
+            w.norm(),
+        ))
+    }
+}
+
 // ── Phase 1: Setting-transform oracle (2026-06-19) ─────────────────────────
 
 /// A basis-origin transformation between coordinate frames.
@@ -1423,6 +1506,35 @@ pub fn find_setting_transform(
         })
     };
 
+    // The alternate-origin Hall pairs selected by the generated ISO-IR data
+    // use eighth-cell fractions (quarters and 3/8 are the common cases). The
+    // linear solver below assumes a greedy one-to-one pairing of equal
+    // rotations; that pairing is underdetermined for centered settings and
+    // can reject a perfectly valid origin. Keep this small exact grid as a
+    // deterministic fallback for the identity-basis case.
+    let identity_grid_origin = || -> Option<[f64; 3]> {
+        let denominator = 8.0;
+        for ix in 0..8 {
+            for iy in 0..8 {
+                for iz in 0..8 {
+                    let origin = [
+                        ix as f64 / denominator,
+                        iy as f64 / denominator,
+                        iz as f64 / denominator,
+                    ];
+                    let xf = SettingTransform {
+                        basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                        origin,
+                    };
+                    if validate_xf(&xf) {
+                        return Some(origin);
+                    }
+                }
+            }
+        }
+        None
+    };
+
     // Try identity basis first.
     if rotation_multiset_eq(msg_rots, hall_rots) {
         if let Some(s) = solve_origin_for_t(
@@ -1446,6 +1558,18 @@ pub fn find_setting_transform(
                 results.push(xf);
                 return results;
             }
+        }
+        if let Some(s) = identity_grid_origin() {
+            XF_FOUND.fetch_add(1, Ordering::Relaxed);
+            XF_IDENTITY.fetch_add(1, Ordering::Relaxed);
+            if s.iter().any(|value| value.abs() > 1e-8) {
+                XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed);
+            }
+            results.push(SettingTransform {
+                basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                origin: s,
+            });
+            return results;
         }
         // Identity basis matches rotations but either origin solving or the
         // full Seitz-set validation failed. Let the loop try other bases.
@@ -2214,10 +2338,9 @@ pub fn wigner_classify_spinor_direct_anti(
         None,
         &[],
     )
-    .map_err(|e| WignerClassificationError::with_value(
-        format!("direct anti path failed: {:?}", e),
-        0.0,
-    ))
+    .map_err(|e| {
+        WignerClassificationError::with_value(format!("direct anti path failed: {:?}", e), 0.0)
+    })
 }
 
 pub fn wigner_classify_spinor_direct_anti_diagnostic(
@@ -2392,8 +2515,19 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
                     [-b.rot[2][0], -b.rot[2][1], -b.rot[2][2]],
                 ];
                 g_spin_seitz.iter().position(|s| s.rot == neg)
-            })
-            .ok_or(DirectAntiFailure::AntiunitarySpinLookup)?;
+            });
+        let Some(b_spin_idx) = b_spin_idx else {
+            debug_log!(
+                "  SPINOR_DIRECT_ANTI AntiunitarySpinLookup: H SG{} b_idx={} b.rot={:?} b_rot(H)={:?} G spin ops={} rotations={:?}",
+                ctx.sg,
+                b_idx,
+                b.rot,
+                b_rot,
+                g_spin_seitz.len(),
+                g_spin_seitz.iter().map(|op| op.rot).collect::<Vec<_>>()
+            );
+            return Err(DirectAntiFailure::AntiunitarySpinLookup);
+        };
         let u_b =
             spin_su2_at(g_spin_su2, b_spin_idx).ok_or(DirectAntiFailure::AntiunitarySu2Missing)?;
 
@@ -2643,6 +2777,12 @@ pub fn build_h_to_irrep_op_map(
 ) -> Option<Vec<usize>> {
     let n_ops = h_seitz.len();
     let n_ir_ops = irrep_rots.len() / 9;
+    debug_log!(
+        "build_h_to_irrep_op_map: H ops={} irrep ops={} translations={}",
+        n_ops,
+        n_ir_ops,
+        irrep_trans.len() / 3
+    );
     if n_ir_ops == 0 {
         return None;
     }
@@ -2677,6 +2817,7 @@ pub fn build_h_to_irrep_op_map(
         return build_h_to_cir_map(h_seitz, irrep_rots);
     }
     let mut map = Vec::with_capacity(n_ops);
+    let mut exact_failed = false;
     for h_idx in 0..n_ops {
         let h = &h_seitz[h_idx];
         let mut found = None;
@@ -2704,14 +2845,78 @@ pub fn build_h_to_irrep_op_map(
             });
             if t_ok {
                 if found.is_some() {
-                    return None; // ambiguous
+                    debug_log!(
+                        "build_h_to_irrep_op_map: H[{h_idx}] has duplicate exact PIR matches"
+                    );
+                    exact_failed = true;
+                    break;
                 }
                 found = Some(ir_idx);
             }
         }
-        map.push(found?);
+        if exact_failed {
+            break;
+        }
+        if found.is_none() {
+            debug_log!(
+                "build_h_to_irrep_op_map: no PIR match for H[{h_idx}] R={:?} t={:?}",
+                h.rot,
+                h.trans
+            );
+            exact_failed = true;
+            break;
+        }
+        map.push(found.expect("checked above"));
     }
-    Some(map)
+    if !exact_failed {
+        return Some(map);
+    }
+
+    // Older generated files did not retain the independent PIR translation
+    // offset, so `IrrepRecord::pir_translations()` can be unavailable or
+    // misaligned even while the rotation order is exact. Rotation-only
+    // fallback is safe only for an equal-size bijection in which every PIR
+    // rotation is unique. In particular, do not guess between centered-cell
+    // representatives that share a rotation but carry different Bloch phases.
+    if n_ops != n_ir_ops {
+        return None;
+    }
+    let mut rotation_map = Vec::with_capacity(n_ops);
+    let mut used = vec![false; n_ir_ops];
+    let pir_rotations_unique = (0..n_ir_ops).all(|left| {
+        ((left + 1)..n_ir_ops)
+            .all(|right| irrep_rots[left * 9..left * 9 + 9] != irrep_rots[right * 9..right * 9 + 9])
+    });
+    if !pir_rotations_unique {
+        return None;
+    }
+    for h in h_seitz {
+        let matches: Vec<_> = (0..n_ir_ops)
+            .filter(|&ir_idx| {
+                let off = ir_idx * 9;
+                irrep_rots[off] == h.rot[0][0]
+                    && irrep_rots[off + 1] == h.rot[0][1]
+                    && irrep_rots[off + 2] == h.rot[0][2]
+                    && irrep_rots[off + 3] == h.rot[1][0]
+                    && irrep_rots[off + 4] == h.rot[1][1]
+                    && irrep_rots[off + 5] == h.rot[1][2]
+                    && irrep_rots[off + 6] == h.rot[2][0]
+                    && irrep_rots[off + 7] == h.rot[2][1]
+                    && irrep_rots[off + 8] == h.rot[2][2]
+            })
+            .collect();
+        if matches.len() != 1 {
+            return None;
+        }
+        used[matches[0]] = true;
+        rotation_map.push(matches[0]);
+    }
+    if used.iter().all(|used| *used) {
+        debug_log!("build_h_to_irrep_op_map: using unique-PIR-rotation fallback");
+        Some(rotation_map)
+    } else {
+        None
+    }
 }
 
 /// Build mapping from H_ops to PIR/CIR operations using rotation-only matching.
@@ -3152,7 +3357,9 @@ fn wigner_classify_spinor_msg_gauge(
     let h_spin_seitz = build_spin_seitz(h_spin_rots, h_spin_trans);
     let g_spin_seitz = build_spin_seitz(g_spin_rots, g_spin_trans);
     if h_spin_seitz.is_empty() || g_spin_seitz.is_empty() {
-        return Err(WignerClassificationError::new("msg_gauge: missing spin data"));
+        return Err(WignerClassificationError::new(
+            "msg_gauge: missing spin data",
+        ));
     }
 
     let h_to_spin = build_h_to_spin_map(h_seitz, &h_spin_seitz, spin_lg_op_indices);
@@ -3165,7 +3372,9 @@ fn wigner_classify_spinor_msg_gauge(
     let mut spin_to_mag = std::collections::HashMap::<usize, usize>::new();
     for &mag_idx in unitary_mag_indices {
         let h_match = find_seitz(&mag_seitz[mag_idx].rot, &mag_seitz[mag_idx].trans, h_seitz)
-            .ok_or_else(|| WignerClassificationError::new("msg_gauge: unitary mag op not found in H seitz"))?;
+            .ok_or_else(|| {
+                WignerClassificationError::new("msg_gauge: unitary mag op not found in H seitz")
+            })?;
         if let Some(Some(spin_idx)) = h_to_spin.get(h_match.op_index) {
             spin_to_mag.entry(*spin_idx).or_insert(mag_idx);
         }
@@ -3196,12 +3405,17 @@ fn wigner_classify_spinor_msg_gauge(
 
         let (g0h, l1) = compose_seitz(&a0_spatial, &h_msg);
         let (sq, lattice_sq) = square_seitz(&g0h);
-        let sq_h_match = find_seitz(&sq.rot, &sq.trans, h_seitz)
-            .ok_or_else(|| WignerClassificationError::new("msg_gauge: square not found in H seitz"))?;
-        let sq_spin_idx = h_to_spin.get(sq_h_match.op_index).copied().flatten()
+        let sq_h_match = find_seitz(&sq.rot, &sq.trans, h_seitz).ok_or_else(|| {
+            WignerClassificationError::new("msg_gauge: square not found in H seitz")
+        })?;
+        let sq_spin_idx = h_to_spin
+            .get(sq_h_match.op_index)
+            .copied()
+            .flatten()
             .ok_or_else(|| WignerClassificationError::new("msg_gauge: square not in H→spin map"))?;
-        let sq_local_idx = *global_to_local.get(&sq_spin_idx)
-            .ok_or_else(|| WignerClassificationError::new("msg_gauge: spin→local lookup missing"))?;
+        let sq_local_idx = *global_to_local.get(&sq_spin_idx).ok_or_else(|| {
+            WignerClassificationError::new("msg_gauge: spin→local lookup missing")
+        })?;
 
         let (h_g_idx, _) = find_spin_in_db(&h_msg, &g_spin_seitz)
             .ok_or_else(|| WignerClassificationError::new("msg_gauge: h not found in G spin"))?;
@@ -3211,8 +3425,9 @@ fn wigner_classify_spinor_msg_gauge(
         let u_sq_spatial = su2_compose(&u_g0h, &u_g0h);
         let u_sq_h = spin_su2_at(h_spin_su2, sq_spin_idx)
             .ok_or_else(|| WignerClassificationError::new("msg_gauge: sq SU(2) lift missing"))?;
-        let spatial_central = su2_same_up_to_sign(&u_sq_spatial, &u_sq_h)
-            .ok_or_else(|| WignerClassificationError::new("msg_gauge: SU(2) sign comparison failed"))?;
+        let spatial_central = su2_same_up_to_sign(&u_sq_spatial, &u_sq_h).ok_or_else(|| {
+            WignerClassificationError::new("msg_gauge: SU(2) sign comparison failed")
+        })?;
 
         let central = !spatial_central;
 
@@ -3232,7 +3447,9 @@ fn wigner_classify_spinor_msg_gauge(
     }
 
     if n_mapped == 0 {
-        return Err(WignerClassificationError::new("msg_gauge: no spin ops mapped to MSG"));
+        return Err(WignerClassificationError::new(
+            "msg_gauge: no spin ops mapped to MSG",
+        ));
     }
     let w = w_sum / (n_mapped as f64);
     let h_dim = spin_lg_op_indices
@@ -3372,9 +3589,12 @@ pub fn wigner_classify_spinor(
     ) {
         Ok(result) => return Ok(result),
         Err(DirectAntiFailure::MissingSpinData) => { /* fall through to legacy */ }
-        Err(e) => return Err(WignerClassificationError::new(
-            format!("spinor direct anti path failed: {:?}", e),
-        )),
+        Err(e) => {
+            return Err(WignerClassificationError::new(format!(
+                "spinor direct anti path failed: {:?}",
+                e
+            )));
+        }
     }
 
     // ── Legacy MSG-gauge primary path (fallback) ─────────────────────────
@@ -3442,13 +3662,17 @@ fn wigner_classify_spinor_primary(
         || n_lg_ops == 0
         || spin_lg_op_indices.is_empty()
     {
-        return Err(WignerClassificationError::new("spinor primary: missing spin data"));
+        return Err(WignerClassificationError::new(
+            "spinor primary: missing spin data",
+        ));
     }
 
     // Spin Seitz ops in Bilbao setting — canonical little co-group representatives.
     let h_spin_seitz = build_spin_seitz(h_spin_rots, h_spin_trans);
     if h_spin_seitz.is_empty() {
-        return Err(WignerClassificationError::new("spinor primary: empty spin Seitz ops"));
+        return Err(WignerClassificationError::new(
+            "spinor primary: empty spin Seitz ops",
+        ));
     }
 
     // H_op → spin global index mapping (for matching (a₀h)² back to spin ops)
@@ -3519,8 +3743,9 @@ fn wigner_classify_spinor_primary(
 
         // Canonical h in Bilbao (already in the correct setting).
         let h_spin = &h_spin_seitz[global_spin_idx];
-        let u_h = spin_su2_at(h_spin_su2, global_spin_idx)
-            .ok_or_else(|| WignerClassificationError::new("spinor primary: h SU(2) lift missing"))?;
+        let u_h = spin_su2_at(h_spin_su2, global_spin_idx).ok_or_else(|| {
+            WignerClassificationError::new("spinor primary: h SU(2) lift missing")
+        })?;
 
         // Spatial: (a₀ h)² in Bilbao.
         let (g0h, l1) = compose_seitz(&a0_bilbao, h_spin);
@@ -3538,15 +3763,18 @@ fn wigner_classify_spinor_primary(
             Some(v) => v,
             None => {
                 eprintln!("  WIGNER_SPINOR: sq_rot not in spin ops, aborting case");
-                return Err(WignerClassificationError::new("spinor primary: sq_rot not in spin ops"));
+                return Err(WignerClassificationError::new(
+                    "spinor primary: sq_rot not in spin ops",
+                ));
             }
         };
 
         // SU(2): (U_a₀·U_h)² vs canonical U_{(a₀h)²}.
         let u_g0h = su2_compose(&u_a0, &u_h);
         let u_sq = SquareKernel::OldU2.apply(&u_g0h);
-        let u_k = spin_su2_at(h_spin_su2, sq_spin_idx)
-            .ok_or_else(|| WignerClassificationError::new("spinor primary: sq SU(2) lift missing"))?;
+        let u_k = spin_su2_at(h_spin_su2, sq_spin_idx).ok_or_else(|| {
+            WignerClassificationError::new("spinor primary: sq SU(2) lift missing")
+        })?;
 
         // Central element detection.
         // central=true: u_sq ≈ -u_k (differs by Ebar)
@@ -3707,15 +3935,18 @@ fn wigner_classify_spinor_primary(
 
         // Character from LG table (if sq ∈ LG) or from extended table.
         let sq_local_idx = if sq_in_lg {
-            *global_to_local.get(&sq_spin_idx)
-                .ok_or_else(|| WignerClassificationError::new("spinor primary: spin→local lookup missing"))?
+            *global_to_local.get(&sq_spin_idx).ok_or_else(|| {
+                WignerClassificationError::new("spinor primary: spin→local lookup missing")
+            })?
         } else {
             // sq outside LG: need extended character, abort case.
             eprintln!(
                 "  WIGNER_SPINOR: sq[{}] not in LG idxs, aborting case",
                 sq_spin_idx
             );
-            return Err(WignerClassificationError::new("spinor primary: square not in LG"));
+            return Err(WignerClassificationError::new(
+                "spinor primary: square not in LG",
+            ));
         };
 
         // Bloch phase from total lattice shift.
@@ -3838,11 +4069,7 @@ pub fn find_partner(
 
     // Return partner if overlap is significantly above noise.
     // For n-dimensional irrep, overlap ≈ d²/|H| per operation.
-    if best_overlap > 0.1 {
-        best_idx
-    } else {
-        None
-    }
+    if best_overlap > 0.1 { best_idx } else { None }
 }
 
 // ── Type A intertwiner + matrix utilities ────────────────────────────────────
@@ -3921,11 +4148,7 @@ pub fn build_corep_chars(
                 } else if let Some(hi) = h_idx {
                     let chi_i = if hi < h_chars.len() { h_chars[hi] } else { 0.0 };
                     let chi_partner = if let Some(pc) = partner_chars {
-                        if hi < pc.len() {
-                            pc[hi]
-                        } else {
-                            0.0
-                        }
+                        if hi < pc.len() { pc[hi] } else { 0.0 }
                     } else {
                         chi_i
                     };
@@ -4012,12 +4235,10 @@ mod tests {
         // rotations and suggest T=I even though the full Seitz sets differ.
         let source = SymmetryOps::from_database(23).unwrap();
         let target = SymmetryOps::from_database(21).unwrap();
-        let source_rots: Vec<Mat3I> =
-            source.operations.iter().map(|op| op.rotation).collect();
+        let source_rots: Vec<Mat3I> = source.operations.iter().map(|op| op.rotation).collect();
         let source_trans: Vec<[f64; 3]> =
             source.operations.iter().map(|op| op.translation).collect();
-        let target_rots: Vec<Mat3I> =
-            target.operations.iter().map(|op| op.rotation).collect();
+        let target_rots: Vec<Mat3I> = target.operations.iter().map(|op| op.rotation).collect();
         let target_trans: Vec<[f64; 3]> =
             target.operations.iter().map(|op| op.translation).collect();
         let target_seitz = ops_to_seitz(&target);
@@ -4025,9 +4246,11 @@ mod tests {
         let candidates =
             find_setting_transform(&source_rots, &source_trans, &target_rots, &target_trans);
         assert!(!candidates.is_empty());
-        assert!(candidates
-            .iter()
-            .all(|candidate| candidate.basis != SettingTransform::identity().basis));
+        assert!(
+            candidates
+                .iter()
+                .all(|candidate| candidate.basis != SettingTransform::identity().basis)
+        );
         for candidate in candidates {
             for op in &source.operations {
                 let (rotation, translation) = candidate

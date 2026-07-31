@@ -38,7 +38,7 @@
 //! }
 //! ```
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::SymmetryOps;
 
@@ -55,6 +55,8 @@ pub enum MagneticIrrepError {
     MissingMagneticOperations(usize),
     /// Could not identify the unitary subgroup H for this UNI.
     MissingUnitarySubgroup(usize),
+    /// Magnetic operations could not be transformed to H's data-Hall frame.
+    OperationSettingTransformFailed(usize),
     /// No irrep data available for this space group.
     MissingIrrepData { sg: u8 },
     /// Corep computation failed for a specific source H-irrep.
@@ -116,8 +118,52 @@ pub struct MagneticKPointSummary {
     pub unitary_order: usize,
     /// Number of anti-unitary operations in the magnetic little group.
     pub antiunitary_order: usize,
+    /// Ordered magnetic little-group operations. Character entry `i` in every
+    /// corep is the character of `operations[i]`.
+    pub operations: Vec<MagneticLittleGroupOperation>,
+    /// Ordinary Seitz conjugacy classes modulo lattice translations. The
+    /// class formatter may refine these when projective/Bloch characters are
+    /// not constant on a raw class.
+    pub conjugacy_classes: Vec<MagneticConjugacyClass>,
     /// Magnetic co-representations at this k-point.
     pub coreps: Vec<MagneticCorepSummary>,
+}
+
+/// One column of a magnetic little-group character table.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MagneticLittleGroupOperation {
+    /// Zero-based character-table column.
+    pub column: usize,
+    /// Index in the full magnetic operation list supplied to the summary API.
+    pub magnetic_operation_index: usize,
+    /// Rotation in the ISOTROPY data-Hall frame used by the calculation.
+    pub rotation: [[i32; 3]; 3],
+    /// Fractional translation in the same data-Hall frame.
+    pub translation: [f64; 3],
+    /// Whether the operation is anti-unitary (contains time reversal).
+    pub time_reversal: bool,
+}
+
+/// A conjugacy class of magnetic little-group operation columns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MagneticConjugacyClass {
+    /// Zero-based class number.
+    pub class: usize,
+    /// Representative operation column.
+    pub representative: usize,
+    /// Operation columns belonging to this class.
+    pub members: Vec<usize>,
+    /// Whether all members are anti-unitary (conjugation preserves this flag).
+    pub time_reversal: bool,
+}
+
+/// Column layout for the formal character-table formatter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MagneticCharacterTableColumns {
+    /// One column for every magnetic little-group operation.
+    Operations,
+    /// One column per character-compatible conjugacy class.
+    ConjugacyClasses,
 }
 
 /// A single magnetic co-representation (corep).
@@ -336,6 +382,133 @@ fn dedup_isotropy_candidates(
     result
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct OperationKey {
+    rotation: [[i32; 3]; 3],
+    translation: [i64; 3],
+    time_reversal: bool,
+}
+
+fn periodic_translation_key(value: f64) -> i64 {
+    const SCALE: f64 = 1_000_000_000.0;
+    let mut key = (value.rem_euclid(1.0) * SCALE).round() as i64;
+    if key == SCALE as i64 {
+        key = 0;
+    }
+    key
+}
+
+fn operation_key(operation: &crate::irrep::wigner::SeitzOp) -> OperationKey {
+    OperationKey {
+        rotation: operation.rot,
+        translation: operation.trans.map(periodic_translation_key),
+        time_reversal: operation.timerev,
+    }
+}
+
+fn singleton_conjugacy_classes(
+    operations: &[MagneticLittleGroupOperation],
+) -> Vec<MagneticConjugacyClass> {
+    operations
+        .iter()
+        .map(|operation| MagneticConjugacyClass {
+            class: operation.column,
+            representative: operation.column,
+            members: vec![operation.column],
+            time_reversal: operation.time_reversal,
+        })
+        .collect()
+}
+
+fn magnetic_conjugacy_classes(
+    operations: &[MagneticLittleGroupOperation],
+) -> Vec<MagneticConjugacyClass> {
+    use crate::irrep::wigner::{SeitzOp, compose_seitz};
+
+    let n = operations.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let seitz: Vec<_> = operations
+        .iter()
+        .map(|operation| {
+            SeitzOp::new(
+                operation.rotation,
+                operation.translation,
+                operation.time_reversal,
+            )
+        })
+        .collect();
+    let lookup: HashMap<_, _> = seitz
+        .iter()
+        .enumerate()
+        .map(|(index, operation)| (operation_key(operation), index))
+        .collect();
+    if lookup.len() != n {
+        return singleton_conjugacy_classes(operations);
+    }
+
+    let mut multiplication = vec![0usize; n * n];
+    for left in 0..n {
+        for right in 0..n {
+            let (product, _) = compose_seitz(&seitz[left], &seitz[right]);
+            let Some(&index) = lookup.get(&operation_key(&product)) else {
+                // A numerically non-closed operation set must never be merged
+                // into purported conjugacy classes.
+                return singleton_conjugacy_classes(operations);
+            };
+            multiplication[left * n + right] = index;
+        }
+    }
+
+    let identity_rotation = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let Some(identity) = seitz.iter().position(|operation| {
+        operation.rot == identity_rotation
+            && !operation.timerev
+            && operation
+                .trans
+                .iter()
+                .all(|value| periodic_translation_key(*value) == 0)
+    }) else {
+        return singleton_conjugacy_classes(operations);
+    };
+    let mut inverses = vec![usize::MAX; n];
+    for element in 0..n {
+        if let Some(inverse) =
+            (0..n).find(|&candidate| multiplication[element * n + candidate] == identity)
+        {
+            inverses[element] = inverse;
+        } else {
+            return singleton_conjugacy_classes(operations);
+        }
+    }
+
+    let mut visited = vec![false; n];
+    let mut classes = Vec::new();
+    for representative in 0..n {
+        if visited[representative] {
+            continue;
+        }
+        let mut members = BTreeSet::new();
+        for conjugator in 0..n {
+            let left = multiplication[conjugator * n + representative];
+            let conjugate = multiplication[left * n + inverses[conjugator]];
+            members.insert(conjugate);
+        }
+        let members: Vec<_> = members.into_iter().collect();
+        for &member in &members {
+            visited[member] = true;
+        }
+        classes.push(MagneticConjugacyClass {
+            class: classes.len(),
+            representative: members[0],
+            time_reversal: operations[members[0]].time_reversal,
+            members,
+        });
+    }
+    classes
+}
+
 // ── Entry points ───────────────────────────────────────────────────────────────
 
 /// Compute magnetic irrep summary from any input type.
@@ -408,6 +581,8 @@ pub fn magnetic_irrep_summary_from_ops(
         .map(|op| op.translation)
         .collect();
     let setting_xf = h_info.msg_to_data.as_ref();
+    let mag_ops_data = crate::irrep::corep::operations_in_data_hall_frame(mag_ops, setting_xf)
+        .ok_or(MagneticIrrepError::OperationSettingTransformFailed(uni))?;
 
     // 5. Get H's irreps for corep computation.
     let h_irreps = crate::irrep::query::irreps_of(h_info.sg as u8);
@@ -422,18 +597,33 @@ pub fn magnetic_irrep_summary_from_ops(
                 ky,
                 kz,
                 kd,
-                mag_ops,
-                setting_xf,
+                &mag_ops_data,
+                None,
                 Some(&canonical_translations),
             );
             let unitary_order = mag_lg
                 .iter()
-                .filter(|&&i| !mag_ops.operations[i].time_reversal)
+                .filter(|&&i| !mag_ops_data.operations[i].time_reversal)
                 .count();
             let antiunitary_order = mag_lg
                 .iter()
-                .filter(|&&i| mag_ops.operations[i].time_reversal)
+                .filter(|&&i| mag_ops_data.operations[i].time_reversal)
                 .count();
+            let operations: Vec<_> = mag_lg
+                .iter()
+                .enumerate()
+                .map(|(column, &magnetic_operation_index)| {
+                    let operation = &mag_ops_data.operations[magnetic_operation_index];
+                    MagneticLittleGroupOperation {
+                        column,
+                        magnetic_operation_index,
+                        rotation: operation.rotation,
+                        translation: operation.translation,
+                        time_reversal: operation.time_reversal,
+                    }
+                })
+                .collect();
+            let conjugacy_classes = magnetic_conjugacy_classes(&operations);
 
             // Compute coreps for each irrep at this k-point.
             let mut raw_coreps: Vec<MagneticCorepSummary> = Vec::new();
@@ -468,6 +658,27 @@ pub fn magnetic_irrep_summary_from_ops(
                     }
                 }
             }
+            for corep in &raw_coreps {
+                let aligned = corep.characters.len() == operations.len()
+                    && corep.timerev.len() == operations.len()
+                    && corep
+                        .timerev
+                        .iter()
+                        .zip(&operations)
+                        .all(|(time_reversal, operation)| {
+                            *time_reversal == operation.time_reversal
+                        });
+                if !aligned {
+                    return Err(MagneticIrrepError::CorepComputationFailed {
+                        uni,
+                        sg: h_info.sg as u8,
+                        k_label: kp.label.clone(),
+                        source_irrep: corep.label.clone(),
+                        reason: "character columns are not aligned with magnetic little-group operations"
+                            .to_string(),
+                    });
+                }
+            }
             let coreps = dedup_coreps(raw_coreps);
             let coreps = attach_isotropy_candidates(coreps, h_irreps);
 
@@ -477,6 +688,8 @@ pub fn magnetic_irrep_summary_from_ops(
                 little_group_order: mag_lg.len(),
                 unitary_order,
                 antiunitary_order,
+                operations,
+                conjugacy_classes,
                 coreps,
             })
         })
@@ -517,6 +730,236 @@ pub fn format_magnetic_irrep_summary(summary: &MagneticIrrepSummary) -> String {
     lines.join("\n")
 }
 
+fn format_fraction(value: f64) -> String {
+    let value = value.rem_euclid(1.0);
+    let value = if (1.0 - value).abs() < 1e-9 {
+        0.0
+    } else {
+        value
+    };
+    for denominator in 1..=48i64 {
+        let numerator = (value * denominator as f64).round() as i64;
+        if (value - numerator as f64 / denominator as f64).abs() < 1e-9 {
+            return if denominator == 1 {
+                numerator.to_string()
+            } else {
+                format!("{numerator}/{denominator}")
+            };
+        }
+    }
+    let rendered = format!("{value:.8}");
+    rendered
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+
+fn format_operation(operation: &MagneticLittleGroupOperation) -> String {
+    let rotation = operation.rotation;
+    let translation = operation.translation.map(format_fraction);
+    let prefix = if operation.time_reversal { "θ·" } else { "" };
+    format!(
+        "{prefix}{{R=[[{},{},{}],[{},{},{}],[{},{},{}]]; t=({},{},{})}}",
+        rotation[0][0],
+        rotation[0][1],
+        rotation[0][2],
+        rotation[1][0],
+        rotation[1][1],
+        rotation[1][2],
+        rotation[2][0],
+        rotation[2][1],
+        rotation[2][2],
+        translation[0],
+        translation[1],
+        translation[2]
+    )
+}
+
+fn format_character(value: f64) -> String {
+    if value.abs() < 1e-10 {
+        return "0".to_string();
+    }
+    let integer = value.round();
+    if (value - integer).abs() < 1e-9 {
+        return format!("{integer:.0}");
+    }
+    let rendered = format!("{value:.8}");
+    rendered
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+
+fn completeness_label(completeness: &crate::irrep::corep::CharacterCompleteness) -> String {
+    match completeness {
+        crate::irrep::corep::CharacterCompleteness::Complete => "complete".to_string(),
+        crate::irrep::corep::CharacterCompleteness::TypeAAntiunitaryPending { count } => {
+            format!("antiunitary-pending({count})")
+        }
+    }
+}
+
+fn same_character_signature(kpoint: &MagneticKPointSummary, left: usize, right: usize) -> bool {
+    kpoint.coreps.iter().all(|corep| {
+        corep
+            .characters
+            .get(left)
+            .zip(corep.characters.get(right))
+            .is_some_and(|(left, right)| (left - right).abs() < 1e-8)
+    })
+}
+
+/// Return conjugacy classes refined only when the computed (possibly
+/// projective) character rows are not constant on a raw Seitz class.
+fn character_compatible_classes(kpoint: &MagneticKPointSummary) -> Vec<(String, Vec<usize>)> {
+    let raw_classes = if kpoint.conjugacy_classes.is_empty() {
+        singleton_conjugacy_classes(&kpoint.operations)
+    } else {
+        kpoint.conjugacy_classes.clone()
+    };
+    let mut result = Vec::new();
+    for raw_class in raw_classes {
+        let mut buckets: Vec<Vec<usize>> = Vec::new();
+        for member in raw_class.members {
+            if let Some(bucket) = buckets
+                .iter_mut()
+                .find(|bucket| same_character_signature(kpoint, bucket[0], member))
+            {
+                bucket.push(member);
+            } else {
+                buckets.push(vec![member]);
+            }
+        }
+        let split = buckets.len() > 1;
+        for (part, members) in buckets.into_iter().enumerate() {
+            let label = if split {
+                format!("C{}.{}", raw_class.class + 1, part + 1)
+            } else {
+                format!("C{}", raw_class.class + 1)
+            };
+            result.push((label, members));
+        }
+    }
+    result
+}
+
+/// Format a complete magnetic character table with a selectable column layout.
+///
+/// No character values are truncated. Operation columns follow
+/// [`MagneticKPointSummary::operations`] exactly. Conjugacy-class columns use
+/// raw magnetic Seitz classes, refined when Bloch/projective characters are not
+/// constant on a raw class.
+pub fn format_magnetic_character_table_with_columns(
+    kpoint: &MagneticKPointSummary,
+    columns: MagneticCharacterTableColumns,
+) -> String {
+    if kpoint.operations.is_empty() {
+        return "(no magnetic little-group operations)".to_string();
+    }
+
+    let display_columns: Vec<(String, Vec<usize>)> = match columns {
+        MagneticCharacterTableColumns::Operations => kpoint
+            .operations
+            .iter()
+            .map(|operation| (format!("g{}", operation.column + 1), vec![operation.column]))
+            .collect(),
+        MagneticCharacterTableColumns::ConjugacyClasses => character_compatible_classes(kpoint),
+    };
+
+    let mut lines = Vec::new();
+    let mut header = vec![
+        "corep".to_string(),
+        "type".to_string(),
+        "dim".to_string(),
+        "status".to_string(),
+    ];
+    header.extend(display_columns.iter().map(|(label, members)| {
+        if members.len() == 1 {
+            label.clone()
+        } else {
+            format!("{label} (×{})", members.len())
+        }
+    }));
+    lines.push(format!("| {} |", header.join(" | ")));
+    lines.push(format!(
+        "| {} |",
+        std::iter::repeat_n("---", header.len())
+            .collect::<Vec<_>>()
+            .join(" | ")
+    ));
+    for corep in &kpoint.coreps {
+        let mut row = vec![
+            corep.label.clone(),
+            format!("{:?}", corep.corep_type),
+            corep.dim.to_string(),
+            completeness_label(&corep.completeness),
+        ];
+        row.extend(display_columns.iter().map(|(_, members)| {
+            corep
+                .characters
+                .get(members[0])
+                .map_or_else(|| "?".to_string(), |value| format_character(*value))
+        }));
+        lines.push(format!("| {} |", row.join(" | ")));
+    }
+
+    lines.push(String::new());
+    lines.push("Column definitions:".to_string());
+    match columns {
+        MagneticCharacterTableColumns::Operations => {
+            lines.push(
+                "| column | MSG op index | kind | Seitz operation (data-Hall frame) |".to_string(),
+            );
+            lines.push("| --- | ---: | --- | --- |".to_string());
+            for operation in &kpoint.operations {
+                lines.push(format!(
+                    "| g{} | {} | {} | {} |",
+                    operation.column + 1,
+                    operation.magnetic_operation_index,
+                    if operation.time_reversal {
+                        "antiunitary"
+                    } else {
+                        "unitary"
+                    },
+                    format_operation(operation)
+                ));
+            }
+        }
+        MagneticCharacterTableColumns::ConjugacyClasses => {
+            lines.push("| class | size | member operation columns | representative |".to_string());
+            lines.push("| --- | ---: | --- | --- |".to_string());
+            for (label, members) in &display_columns {
+                let member_labels = members
+                    .iter()
+                    .map(|member| format!("g{}", member + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                lines.push(format!(
+                    "| {label} | {} | {member_labels} | {} |",
+                    members.len(),
+                    format_operation(&kpoint.operations[members[0]])
+                ));
+            }
+        }
+    }
+    lines.join("\n")
+}
+
+/// Format the complete table with one column per magnetic little-group
+/// operation.
+pub fn format_magnetic_character_table(kpoint: &MagneticKPointSummary) -> String {
+    format_magnetic_character_table_with_columns(kpoint, MagneticCharacterTableColumns::Operations)
+}
+
+/// Format the complete table with character-compatible conjugacy classes as
+/// columns.
+pub fn format_magnetic_character_table_by_class(kpoint: &MagneticKPointSummary) -> String {
+    format_magnetic_character_table_with_columns(
+        kpoint,
+        MagneticCharacterTableColumns::ConjugacyClasses,
+    )
+}
+
 /// Format a single k-point summary as human-readable text.
 pub fn format_magnetic_kpoint_summary(kpoint: &MagneticKPointSummary) -> String {
     let mut lines = Vec::new();
@@ -540,37 +983,10 @@ pub fn format_magnetic_kpoint_summary(kpoint: &MagneticKPointSummary) -> String 
         return lines.join("\n");
     }
 
-    for c in &kpoint.coreps {
-        let src_labels: Vec<&str> = c.source_irreps.iter().map(|s| s.ml).collect();
-        lines.push(format!(
-            "  {}  type={:?}  source={:?}  dim={}  src=[{}]",
-            c.label,
-            c.corep_type,
-            c.source,
-            c.dim,
-            src_labels.join(", ")
-        ));
-        // Show first few characters.
-        let char_preview: Vec<String> = c
-            .characters
-            .iter()
-            .take(6)
-            .map(|&ch| {
-                if ch.abs() < 1e-12 {
-                    "0".to_string()
-                } else {
-                    format!("{:.2}", ch)
-                }
-            })
-            .collect();
-        let char_str = if c.characters.len() > 6 {
-            format!("[{}...]", char_preview.join(", "))
-        } else {
-            format!("[{}]", char_preview.join(", "))
-        };
-        lines.push(format!("    chars: {}", char_str));
+    lines.push(String::new());
+    lines.push(format_magnetic_character_table(kpoint));
 
-        // Isotropy candidates summary.
+    for c in &kpoint.coreps {
         if !c.isotropy_candidates.is_empty() {
             for ic in &c.isotropy_candidates {
                 let n_ord = ic.ordinary.len();
@@ -582,8 +998,8 @@ pub fn format_magnetic_kpoint_summary(kpoint: &MagneticKPointSummary) -> String 
                     || ic.relation == IsotropyCandidateRelation::SpinorNoIsotropyData
                 {
                     lines.push(format!(
-                        "    isotropy ({} {:?}): {} ordinary + {} magnetic subgroups",
-                        ic.source_ml, ic.relation, n_ord, n_mag
+                        "isotropy (corep {}, source {} {:?}): {} ordinary + {} magnetic subgroups",
+                        c.label, ic.source_ml, ic.relation, n_ord, n_mag
                     ));
                 }
             }
@@ -680,28 +1096,89 @@ mod tests {
         );
     }
 
-    #[test]
-    fn unsupported_128_406_returns_error() {
-        // BNS 128.406 currently contains source irreps that the scalar path
-        // cannot classify. The strict summary API must report an error rather
-        // than emit fake Unsupported coreps with NaN characters.
-        let err = magnetic_irrep_summary_by_bns("128.406").unwrap_err();
-        match err {
-            MagneticIrrepError::CorepComputationFailed {
-                uni,
-                sg,
-                k_label,
-                source_irrep,
-                reason,
-            } => {
-                assert_eq!(uni, 1066);
-                assert_eq!(sg, 118);
-                assert_eq!(k_label, "GM");
-                assert!(source_irrep.starts_with("GM"));
-                assert!(reason.to_lowercase().contains("unsupported"));
+    fn assert_well_formed_summary(summary: &MagneticIrrepSummary) {
+        for kpoint in &summary.kpoints {
+            assert_eq!(kpoint.operations.len(), kpoint.little_group_order);
+            for (column, operation) in kpoint.operations.iter().enumerate() {
+                assert_eq!(operation.column, column);
             }
-            other => panic!("expected CorepComputationFailed, got {:?}", other),
+
+            let mut class_members = kpoint
+                .conjugacy_classes
+                .iter()
+                .flat_map(|class| class.members.iter().copied())
+                .collect::<Vec<_>>();
+            class_members.sort_unstable();
+            assert_eq!(
+                class_members,
+                (0..kpoint.operations.len()).collect::<Vec<_>>()
+            );
+
+            let identity = kpoint
+                .operations
+                .iter()
+                .position(|operation| {
+                    !operation.time_reversal
+                        && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+                        && operation
+                            .translation
+                            .iter()
+                            .all(|value| periodic_translation_key(*value) == 0)
+                })
+                .expect("little group must contain identity");
+            for corep in &kpoint.coreps {
+                assert_eq!(corep.characters.len(), kpoint.operations.len());
+                assert_eq!(corep.timerev.len(), kpoint.operations.len());
+                assert!(corep.characters.iter().all(|value| value.is_finite()));
+                assert!(
+                    (corep.characters[identity] - corep.dim as f64).abs() < 1e-6,
+                    "{} {}: χ(E)={} != dim={}",
+                    kpoint.label,
+                    corep.label,
+                    corep.characters[identity],
+                    corep.dim
+                );
+            }
         }
+    }
+
+    #[test]
+    fn bns_128_406_is_fully_supported() {
+        let summary = magnetic_irrep_summary_by_bns("128.406").unwrap();
+        assert_eq!(summary.uni, 1066);
+        assert_eq!(summary.unitary_sg, 118);
+        assert_well_formed_summary(&summary);
+
+        // Regression for the full-star/little-representation distinction:
+        // ISO-IR stores X1 as a 4D two-arm induced representation, whereas
+        // the fixed-X little-group representation is 2D.
+        let x = summary
+            .kpoints
+            .iter()
+            .find(|kpoint| kpoint.label == "X")
+            .expect("missing X point");
+        let x1 = x
+            .coreps
+            .iter()
+            .find(|corep| corep.label == "X1")
+            .expect("missing X1 corep");
+        assert_eq!(x1.dim, 2);
+
+        // BCS 128.406@Z: two scalar Type-C pairs (2D), one scalar Type-A
+        // corep (2D), and one spinor Type-C pair (4D).  In particular, the
+        // compound H irreps Z1Z4/Z2Z3 must not be doubled twice.
+        let z = summary
+            .kpoints
+            .iter()
+            .find(|kpoint| kpoint.label == "Z")
+            .expect("missing Z point");
+        let mut dimensions: Vec<_> = z.coreps.iter().map(|corep| corep.dim).collect();
+        dimensions.sort_unstable();
+        assert_eq!(dimensions, vec![2, 2, 2, 4]);
+        assert!(z.coreps.iter().all(|corep| {
+            corep.characters.len() == 16
+                && corep.completeness == crate::irrep::corep::CharacterCompleteness::Complete
+        }));
     }
 
     #[test]
@@ -766,15 +1243,121 @@ mod tests {
         }
     }
 
-    /// Regression: unsupported classifications must be errors, not partial
-    /// summary rows with NaN character tables.
     #[test]
-    fn unsupported_coreps_return_error_not_nan_rows() {
-        let err = magnetic_irrep_summary_by_bns("52.318").unwrap_err();
+    fn bns_52_318_is_fully_supported() {
+        let summary = magnetic_irrep_summary_by_bns("52.318").unwrap();
+        assert_eq!(summary.uni, 416);
+        assert_eq!(summary.unitary_sg, 52);
+        assert_well_formed_summary(&summary);
+    }
+
+    #[test]
+    fn formal_formatters_emit_every_operation_and_class_column() {
+        let summary = magnetic_irrep_summary_by_bns("128.406").unwrap();
+        let z = summary
+            .kpoints
+            .iter()
+            .find(|kpoint| kpoint.label == "Z")
+            .expect("missing Z point");
+        assert_eq!(z.operations.len(), 16);
+
+        let operations = format_magnetic_character_table(z);
+        assert!(operations.contains("| corep | type | dim | status | g1 |"));
+        assert!(operations.contains("| g16 |"));
+        assert!(operations.contains("Seitz operation (data-Hall frame)"));
         assert!(
-            matches!(err, MagneticIrrepError::CorepComputationFailed { .. }),
-            "expected CorepComputationFailed, got {:?}",
-            err
+            !operations.contains("..."),
+            "formatter must not truncate rows"
+        );
+
+        let classes = format_magnetic_character_table_by_class(z);
+        assert!(classes.contains("member operation columns"));
+        assert!(classes.contains("| C1"));
+    }
+
+    /// Exhaustive release-only audit for the strict summary boundary.
+    ///
+    /// Run with:
+    /// `cargo test --release --package cryspglib audit_all_1651_magnetic_summaries -- --ignored --nocapture`
+    #[test]
+    #[ignore = "exhaustive 1651-UNI magnetic summary audit"]
+    fn audit_all_1651_magnetic_summaries() {
+        let selected_uni = std::env::var("CRYSPGLIB_AUDIT_UNI")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok());
+        let unis: Vec<_> = selected_uni.map_or_else(|| (1..=1651).collect(), |uni| vec![uni]);
+        let mut failures = Vec::new();
+        let mut kpoint_count = 0usize;
+        let mut corep_count = 0usize;
+        for &uni in &unis {
+            match magnetic_irrep_summary_by_uni(uni) {
+                Ok(summary) => {
+                    assert_well_formed_summary(&summary);
+                    kpoint_count += summary.kpoints.len();
+                    corep_count += summary
+                        .kpoints
+                        .iter()
+                        .map(|kpoint| kpoint.coreps.len())
+                        .sum::<usize>();
+                }
+                Err(error) => failures.push((uni, error)),
+            }
+        }
+        eprintln!(
+            "magnetic summary audit: success={} failure={} kpoints={} coreps={}",
+            unis.len() - failures.len(),
+            failures.len(),
+            kpoint_count,
+            corep_count
+        );
+        let mut categories = std::collections::BTreeMap::<&str, usize>::new();
+        for (_, error) in &failures {
+            let category = match error {
+                MagneticIrrepError::CorepComputationFailed { reason, .. }
+                    if reason.contains("scalar PIR operation map") =>
+                {
+                    "scalar PIR operation map"
+                }
+                MagneticIrrepError::CorepComputationFailed { reason, .. }
+                    if reason.contains("selected k-arm block") =>
+                {
+                    "selected k-arm block"
+                }
+                MagneticIrrepError::CorepComputationFailed { reason, .. }
+                    if reason.contains("AntiunitarySpinLookup") =>
+                {
+                    "spinor AntiunitarySpinLookup"
+                }
+                MagneticIrrepError::CorepComputationFailed { reason, .. }
+                    if reason.contains("spinor SU(2)") =>
+                {
+                    "other spinor SU(2)"
+                }
+                MagneticIrrepError::CorepComputationFailed { reason, .. }
+                    if reason.contains("scalar PIR Wigner") =>
+                {
+                    "scalar PIR Wigner"
+                }
+                MagneticIrrepError::CorepComputationFailed { .. } => "other corep",
+                _ => "summary setup",
+            };
+            *categories.entry(category).or_default() += 1;
+        }
+        for (category, count) in categories {
+            eprintln!("  category {category}: {count}");
+        }
+        let failure_limit = if std::env::var_os("CRYSPGLIB_AUDIT_VERBOSE").is_some() {
+            usize::MAX
+        } else {
+            50
+        };
+        for (uni, error) in failures.iter().take(failure_limit) {
+            eprintln!("  UNI {uni}: {error:?}");
+        }
+        assert!(
+            failures.is_empty(),
+            "{} UNI summaries failed",
+            failures.len()
         );
     }
 
