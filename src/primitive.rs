@@ -241,7 +241,6 @@ fn get_primitive_lattice_vectors(
         if let Some(found) = find_primitive_lattice_vectors(&vectors, cell, tolerance) {
             let lattice_copy = found;
             if let Some(reduced) = if cell.aperiodic_axis.is_none() {
-                println!("reduced={:?}",del_delaunay_reduce(&lattice_copy, symprec));
                 del_delaunay_reduce(&lattice_copy, symprec)
             } else {
                 del_layer_delaunay_reduce(&lattice_copy, cell.aperiodic_axis, symprec)

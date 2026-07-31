@@ -4,6 +4,73 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## 磁 symmetry 全覆盖实时账本（2026-07-31 起）
+
+用户当前优先目标：先覆盖并修正全部 1–1651 UNI 的磁对称性，再继续上层
+corep/summary 产品化。每次全扫、根因确认和修复后都必须更新本节；不能只在
+对话中报告。
+
+### 远端与起始点
+
+- 2026-07-31 已把本地 `main` 的 161 个提交推到 `origin/main`。
+- 本轮起始提交：`4b3f208`。
+
+### 2026-07-31 初始基线
+
+已运行：
+
+```bash
+cargo test --package cryspglib test_all_magnetic_sgs_have_valid_operations -- --nocapture
+cargo test --package cryspglib diagnose_spglib_standard_setting_transform -- --nocapture
+```
+
+结果：
+
+- 数据库操作可读取：`1651 / 1651`。
+- `standard_setting_transform` 返回结果：`1651 / 1651`。
+- 两条 unitary-SG 识别路径结果一致：`1619 / 1651`，尚有 **32** 个不一致。
+- 变换后操作与 detected Hall 完全相等：`1597 / 1651`，尚有 **54** 个不一致。
+- 变换后操作与 ISOTROPY data Hall 完全相等：`1450 / 1651`，尚有 **201** 个不一致。
+
+重要：旧测试 `test_all_magnetic_sgs_have_valid_operations` 只检查数据库非空、
+旋转行列式和 `ok > 1600`。unitary subgroup 识别失败会被静默跳过，因此它的
+“1651/1651 OK”不能作为磁 symmetry 正确性的验收结果。
+
+### 已确认的问题
+
+1. `primitive.rs` 曾无条件输出 `reduced=...`，1651 群扫描产生大量噪声。
+2. `hall_symbol.rs` 曾对 Hall 497 无条件输出内部匹配跟踪。
+3. 尚未对每个 UNI 的所有 Hall setting 验证群公理、time-reversal coset 和
+   parent family group 一致性。
+4. 尚未实现数据库磁操作 `→` 磁群识别 `→` 原 UNI 的 1651 群严格 round-trip。
+5. `magnetic_summary` 仍有已知 unsupported scalar 路径，例如 BNS `128.406`
+   和 `52.318`；这属于后续上层验收，不能与底层 symmetry 覆盖混为一谈。
+
+### 分层验收标准
+
+必须按以下顺序清零，不能用后层成功掩盖前层失败：
+
+1. **数据库层**：全部 UNI/Hall pair 均有合法 metadata 和非空操作。
+2. **群代数层**：单位元、唯一性、闭包、逆元、`time_reversal` XOR 同态全部通过。
+3. **磁类型层**：Type I/II/III/IV 的 unitary/antiunitary 阶数与 coset 结构正确。
+4. **family group 层**：忽略 time reversal 后与对应 parent Hall 的 Seitz 集合完全一致。
+5. **unitary subgroup 层**：H 的 SG/Hall/setting transform 可复现且操作集合完全一致。
+6. **round-trip 层**：数据库操作经公开/生产识别路径返回原 UNI，而不只是相同 type。
+7. **结构入口层**：代表性非正交、非零 origin、中心化和 Type IV 结构走
+   `Crystal::magnetic_dataset()` 得到一致结果。
+8. **上层表示层**：所有可支持的 k 点/corep/summary 不产生静默跳过、`NaN`
+   或伪 `Unsupported` 行；真正未实现项必须返回结构化错误。
+
+### 工作纪律补充
+
+- 全扫必须报告总样本数和每个失败类别；不接受 `>1600` 之类宽松阈值。
+- 诊断测试可以暂时记录基线，但正式 gate 最终必须要求零失败。
+- 当前全仓库 `cargo fmt --check` 会在超大生成数据上构造巨型 diff 并 OOM；
+  修改手写 Rust 文件时保持改动 hunk 的 rustfmt 风格，运行 `cargo check` 和
+  相关测试。生成数据格式问题单独处理，不能因此跳过编译与测试。
+
+---
+
 ## Irrep 终极目标与详细实施计划
 
 最终目标：给定一个磁空间群（结构识别得到的 UNI、直接输入 UNI、或 BNS/OG 标签），程序应能一次性回答：

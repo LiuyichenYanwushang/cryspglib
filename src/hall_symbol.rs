@@ -7959,46 +7959,30 @@ fn is_hall_symbol(
         return false;
     }
 
-    let op_count_i32 = op_count as i32;
     if op_count != symmetry.size {
         return false;
     }
 
-    // DEBUG: trace for hall 497 (Pm-3m)
-    let trace = hall_number == 497;
-    if trace { eprintln!("    is_hall_symbol(hall={}): op_count={}, symmetry.size={}", hall_number, op_count_i32, symmetry.size); }
-
     let mut rot = [[[0; 3]; 3]; 3];
     rot = unpack_generators(generators);
-    if trace { eprintln!("    is_hall_symbol: generators unpacked, rot[0]={:?}, rot[1]={:?}, rot[2]={:?}", rot[0], rot[1], rot[2]); }
 
     let mut trans = [[0.0; 3]; 3];
     if !get_translations(&mut trans, symmetry, &rot) {
-        if trace { eprintln!("    is_hall_symbol: get_translations failed"); }
         return false;
     }
-    if trace { eprintln!("    is_hall_symbol: trans = {:?}", trans); }
 
-    if get_origin_shift(shift, hall_number, &rot, &trans, centering, vspu) {
-        if trace { eprintln!("    is_hall_symbol: get_origin_shift succeeded, shift={:?}", shift); }
-        if is_match_database(
-            hall_number,
-            shift,
-            primitive_lattice,
-            centering,
-            symmetry,
-            _symprec,
-        ) {
-            if trace { eprintln!("    is_hall_symbol: is_match_database succeeded!"); }
-            return true;
-        } else {
-            if trace { eprintln!("    is_hall_symbol: is_match_database failed"); }
-        }
-    } else {
-        if trace { eprintln!("    is_hall_symbol: get_origin_shift failed"); }
+    if !get_origin_shift(shift, hall_number, &rot, &trans, centering, vspu) {
+        return false;
     }
 
-    false
+    is_match_database(
+        hall_number,
+        shift,
+        primitive_lattice,
+        centering,
+        symmetry,
+        _symprec,
+    )
 }
 
 /// 从扁平生成元数组解包为 3×3×3 旋转矩阵数组。
