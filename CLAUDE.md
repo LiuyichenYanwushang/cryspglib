@@ -10,6 +10,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 corep/summary 产品化。每次全扫、根因确认和修复后都必须更新本节；不能只在
 对话中报告。
 
+### 当前最终状态（2026-07-31）
+
+本轮磁 symmetry/corep 主线已经完成并推送到 `origin/main`，交付提交为
+`3878bbc feat: complete magnetic corep character tables`。后续开发和回归应以
+下面这组结论为当前基线，而不是再沿用早期“部分磁群不支持”或“只预览 6 个
+特征标”的判断。
+
+| 层级 | 当前结果 |
+|---|---|
+| 磁数据库与群代数 | `UNI 1..=1651` 全覆盖；数据库内 `4479/4479` 个 UNI–Hall setting 均通过严格群闭包、逆元、恒等元、陪集及类型一致性检查。 |
+| setting 识别与消歧 | 给定 parent/family Hall 时 `4479/4479` 精确回环；仅凭操作自动识别时有 `4461` 个唯一结果和 `18` 个显式 `MagneticUniAmbiguous`，歧义只涉及 `{275,282}`、`{277,284}` 两组，`UNI 283` 唯一。程序不得猜选候选，必须用 parent Hall/setting 上下文消歧。 |
+| ISOTROPY/Hall 嵌入 | `1651/1651` 个 unitary subgroup、detected Hall 与 data Hall setting 已完成一致嵌入。 |
+| 高对称点与 corep | 用户可按 UNI、BNS 或磁操作输入磁群，取得高对称点列表；选定高对称点后可得到 fixed-`k` magnetic little-group coreps、维数、Wigner 类型和特征标。全库审计共覆盖 `10,390` 个高对称点、`54,458` 个 coreps。 |
+| 正式特征标表 | 已提供“每个磁操作一列”和“每个共轭类一列”两种 Markdown 正式表格；不再截断到前 6 个特征标，并附操作/列标签图例。入口为 `format_magnetic_character_table` 与 `format_magnetic_character_table_by_class`。 |
+| 目标磁群回归 | `BNS 128.406` 与 `BNS 52.318` 已不再返回“计算不支持”；`128.406@Z` 稳定给出维数 `2,2,2,4` 的四个 coreps，正式操作表包含 `g1..g16` 全部 16 列。 |
+| CIR 数据生成 | CIR 解析器支持复合反幺正矩阵：`11,202` 个原始 coreps 中复合反幺正项 `672` 个、拒绝 `0`；`8,388` 个可映射到磁数据库的 coreps 中未映射 `0`。 |
+| 验证 | 全 `1651` UNI release 审计：成功 `1651`、失败 `0`；release 测试套件：通过 `203`、失败 `0`、忽略 `3`。 |
+
+必须保留以下语义边界：
+
+- 上述 `18` 个 operation-only 歧义是缺少 setting 上下文时的真实不可判定性，
+  不能简单归类为“官方识别错误”；有 parent/family Hall 后都能唯一确定。
+- 当前 summary API 的对象是选定 `k` 点的 magnetic little group corep，不等同于
+  full-star 共表示；若将来增加 full-star API，必须使用独立名称和输出语义。
+- 个别 Type-A corep 在缺少可构造的 intertwiner/matrix 时，反幺正列会明确显示
+  `antiunitary-pending(...)`，不能伪造为已完成的物理特征标；本轮指定的
+  `128.406`、`52.318` 回归表不受此问题影响。
+
 ### 远端与起始点
 
 - 2026-07-31 已把本地 `main` 的 161 个提交推到 `origin/main`。
