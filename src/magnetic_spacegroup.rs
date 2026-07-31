@@ -3,6 +3,9 @@
 //! 使用磁性对称操作数据库识别磁性空间群类型。
 //! 参考: Litvin, "Magnetic Group Tables" 2013
 
+use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
+
 use crate::MagneticType;
 use crate::SymError;
 use crate::hall_symbol::hal_match_hall_symbol_db;
@@ -27,6 +30,9 @@ use crate::spg_database::{Centering, spgdb_get_spacegroup_type};
 use crate::symmetry::{MagneticSymmetry, Symmetry};
 
 const MAX_DENOMINATOR: f64 = 100.0;
+const DATABASE_TRANSLATION_DENOMINATOR: i32 = 12;
+const DATABASE_CANONICAL_SYMPREC: f64 = 1e-5;
+const UNIT_LATTICE: Mat3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
 /// 磁性空间群识别结果的中间数据结构。
 pub struct MagneticDataset {
@@ -38,11 +44,51 @@ pub struct MagneticDataset {
     pub std_rotation_matrix: Mat3,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+struct DatabaseMagneticOperationKey {
+    rotation: [i32; 9],
+    translation_twelfths: [i32; 3],
+    time_reversal: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct CanonicalMagneticKey {
+    reference_hall_number: usize,
+    operations: Vec<DatabaseMagneticOperationKey>,
+}
+
+#[derive(Clone)]
+struct CanonicalizedMagneticSymmetry {
+    key: CanonicalMagneticKey,
+    reference_spacegroup: Spacegroup,
+    transformation_matrix: Mat3,
+    origin_shift: Vec3,
+    msg_type: MagneticType,
+}
+
+#[derive(Clone)]
+struct CanonicalDatabaseSetting {
+    uni_number: usize,
+    hall_number: usize,
+    transformation_matrix: Mat3,
+    origin_shift: Vec3,
+}
+
+#[derive(Clone)]
+struct CanonicalDatabaseMatch {
+    input: CanonicalizedMagneticSymmetry,
+    candidates: Vec<CanonicalDatabaseSetting>,
+}
+
+static TYPE_IV_CANONICAL_INDEX: OnceLock<
+    HashMap<CanonicalMagneticKey, Vec<CanonicalDatabaseSetting>>,
+> = OnceLock::new();
+
 /// 识别磁性空间群类型。
 ///
 /// 给定晶格和磁性对称操作，返回识别出的磁性数据集。
-/// 如果提供 `parent_hall_number`，先用它消除 family space group 与 Type-IV
-/// maximal subspace group 之间的歧义；标准路径失败时也用它作为 fallback。
+/// 对只靠磁操作无法区分的 Type-IV BNS parent，返回
+/// [`SymError::MagneticUniAmbiguous`]，而不是静默选择某个 UNI。
 pub fn msg_identify_magnetic_space_group_type(
     lattice: &Mat3,
     magnetic_symmetry: &MagneticSymmetry,
@@ -52,8 +98,8 @@ pub fn msg_identify_magnetic_space_group_type(
 }
 
 /// 与 [`msg_identify_magnetic_space_group_type`] 相同，但可指定非磁母空间群的
-/// Hall 编号。规范数据库 setting 的严格匹配优先于自动标准化，避免 Type-IV
-/// 空间群被其 maximal subspace group 的同构表示误判；否则该编号作为 fallback。
+/// Hall 编号。规范数据库 setting 的严格匹配优先于自动标准化；对一般基变换和
+/// 原点移动后的输入，则用母群空间群号筛选完整的 Type-IV 规范等价类。
 pub fn msg_identify_with_parent_hall(
     lattice: &Mat3,
     magnetic_symmetry: &MagneticSymmetry,
@@ -66,6 +112,80 @@ pub fn msg_identify_with_parent_hall(
         }
     }
 
+    // Type-IV standardization is not injective: distinct BNS parent groups
+    // can have the same standardized XSG representation.  Build the complete
+    // equivalence class from the database before the legacy single-Hall
+    // search discards that information.  A supplied parent Hall filters the
+    // class by its non-magnetic parent space-group number; without that hint,
+    // a cross-UNI class is a genuine ambiguity and must not be guessed.
+    let canonical_match = match_type_iv_canonical_class(magnetic_symmetry, symprec);
+    let mut canonical_fallback = None;
+    if let Some(canonical_match) = canonical_match {
+        let mut candidates = canonical_match.candidates.clone();
+        if let Some(parent_hall) = parent_hall_number {
+            let parent_number = spgdb_get_spacegroup_type(parent_hall).number;
+            let parent_candidates: Vec<_> = candidates
+                .iter()
+                .filter(|candidate| {
+                    msgdb_get_magnetic_spacegroup_type(candidate.uni_number).number == parent_number
+                })
+                .cloned()
+                .collect();
+            if !parent_candidates.is_empty() {
+                candidates = parent_candidates;
+            }
+        }
+
+        let distinct_unis: HashSet<_> = candidates
+            .iter()
+            .map(|candidate| candidate.uni_number)
+            .collect();
+        if distinct_unis.len() > 1 {
+            return Err(SymError::MagneticUniAmbiguous);
+        }
+
+        if let Some(candidate) =
+            choose_canonical_candidate(&candidates, magnetic_symmetry, parent_hall_number, symprec)
+        {
+            canonical_fallback = dataset_from_canonical_candidate(
+                lattice,
+                magnetic_symmetry,
+                &canonical_match.input,
+                &candidate,
+                symprec,
+            );
+            if parent_hall_number.is_some() {
+                if let Some(dataset) = canonical_fallback {
+                    return Ok(dataset);
+                }
+            }
+        }
+    }
+
+    let standardized = identify_in_single_reference_setting(
+        lattice,
+        magnetic_symmetry,
+        parent_hall_number,
+        symprec,
+    );
+
+    match (standardized, canonical_fallback) {
+        (Ok(dataset), Some(canonical)) if dataset.uni_number != canonical.uni_number => {
+            Ok(canonical)
+        }
+        (Ok(dataset), _) => Ok(dataset),
+        (Err(_), Some(canonical)) => Ok(canonical),
+        (Err(error), None) => Err(error),
+    }
+}
+
+/// Original spglib-compatible single-reference-setting identification path.
+fn identify_in_single_reference_setting(
+    lattice: &Mat3,
+    magnetic_symmetry: &MagneticSymmetry,
+    parent_hall_number: Option<usize>,
+    symprec: f64,
+) -> Result<MagneticDataset, SymError> {
     // 标准路径: 从磁对称性中提取 FSG/XSG 并搜索空间群
     let (ref_sg, changed_symmetry, mut tmat, mut shift, msgtype_num) =
         match get_reference_space_group(lattice, magnetic_symmetry, symprec) {
@@ -188,11 +308,9 @@ pub fn msg_identify_with_parent_hall(
 /// Match an already-canonical magnetic operation set within an explicitly
 /// supplied family-space-group setting.
 ///
-/// This exact fast path is needed for Type-IV groups whose XSG standardizes to
-/// a different nonmagnetic space-group number. Without the family Hall hint,
-/// e.g. UNI 282--284 are indistinguishable from the corresponding Hall-176
-/// representations after XSG standardization. A full operation-set equality
-/// check keeps the hint authoritative without weakening general matching.
+/// This exact fast path preserves the caller's parent setting before Type-IV
+/// XSG standardization. The general changed-basis path below performs the same
+/// disambiguation through the database-derived canonical equivalence classes.
 fn match_exact_parent_setting(
     magnetic_symmetry: &MagneticSymmetry,
     hall_number: usize,
@@ -219,6 +337,218 @@ fn match_exact_parent_setting(
         });
     }
     None
+}
+
+fn flatten_rotation(rotation: &Mat3I) -> [i32; 9] {
+    [
+        rotation[0][0],
+        rotation[0][1],
+        rotation[0][2],
+        rotation[1][0],
+        rotation[1][1],
+        rotation[1][2],
+        rotation[2][0],
+        rotation[2][1],
+        rotation[2][2],
+    ]
+}
+
+fn quantize_database_translation(value: f64, symprec: f64) -> Option<i32> {
+    if !value.is_finite() {
+        return None;
+    }
+
+    let normalized = mat_dmod1(value);
+    let scaled = normalized * DATABASE_TRANSLATION_DENOMINATOR as f64;
+    let rounded = scaled.round();
+    let nearest = rounded / DATABASE_TRANSLATION_DENOMINATOR as f64;
+    let mut difference = normalized - nearest;
+    difference -= difference.round();
+    if difference.abs() >= symprec.max(1e-8) {
+        return None;
+    }
+
+    Some((rounded as i32).rem_euclid(DATABASE_TRANSLATION_DENOMINATOR))
+}
+
+fn canonical_magnetic_key(
+    reference_hall_number: usize,
+    magnetic_symmetry: &MagneticSymmetry,
+    symprec: f64,
+) -> Option<CanonicalMagneticKey> {
+    let mut operations = Vec::with_capacity(magnetic_symmetry.size);
+    for operation in 0..magnetic_symmetry.size {
+        let mut translation_twelfths = [0; 3];
+        for (axis, value) in magnetic_symmetry.trans[operation]
+            .iter()
+            .copied()
+            .enumerate()
+        {
+            translation_twelfths[axis] = quantize_database_translation(value, symprec)?;
+        }
+        operations.push(DatabaseMagneticOperationKey {
+            rotation: flatten_rotation(&magnetic_symmetry.rot[operation]),
+            translation_twelfths,
+            time_reversal: magnetic_symmetry.timerev[operation],
+        });
+    }
+    operations.sort();
+
+    Some(CanonicalMagneticKey {
+        reference_hall_number,
+        operations,
+    })
+}
+
+fn canonicalize_magnetic_symmetry_for_database(
+    magnetic_symmetry: &MagneticSymmetry,
+    symprec: f64,
+) -> Option<CanonicalizedMagneticSymmetry> {
+    let (reference_spacegroup, changed_symmetry, transformation_matrix, origin_shift, msg_type) =
+        get_reference_space_group(&UNIT_LATTICE, magnetic_symmetry, symprec)?;
+    let key = canonical_magnetic_key(reference_spacegroup.hall_number, &changed_symmetry, symprec)?;
+
+    Some(CanonicalizedMagneticSymmetry {
+        key,
+        reference_spacegroup,
+        transformation_matrix,
+        origin_shift,
+        msg_type,
+    })
+}
+
+fn type_iv_canonical_index() -> &'static HashMap<CanonicalMagneticKey, Vec<CanonicalDatabaseSetting>>
+{
+    TYPE_IV_CANONICAL_INDEX.get_or_init(|| {
+        let mut index: HashMap<CanonicalMagneticKey, Vec<CanonicalDatabaseSetting>> =
+            HashMap::new();
+
+        for uni_number in 1usize..=1651 {
+            let metadata = msgdb_get_magnetic_spacegroup_type(uni_number);
+            if metadata.type_ != MagneticType::AntiTranslation {
+                continue;
+            }
+            let [num_halls, first_hall] =
+                crate::msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING[uni_number];
+            for hall_number in first_hall as usize..(first_hall + num_halls) as usize {
+                let Some(database_symmetry) =
+                    msgdb_get_spacegroup_operations(uni_number, hall_number)
+                else {
+                    continue;
+                };
+                let Some(canonical) = canonicalize_magnetic_symmetry_for_database(
+                    &database_symmetry,
+                    DATABASE_CANONICAL_SYMPREC,
+                ) else {
+                    continue;
+                };
+                index
+                    .entry(canonical.key)
+                    .or_default()
+                    .push(CanonicalDatabaseSetting {
+                        uni_number,
+                        hall_number,
+                        transformation_matrix: canonical.transformation_matrix,
+                        origin_shift: canonical.origin_shift,
+                    });
+            }
+        }
+
+        for candidates in index.values_mut() {
+            candidates.sort_by_key(|candidate| (candidate.uni_number, candidate.hall_number));
+        }
+        index
+    })
+}
+
+fn match_type_iv_canonical_class(
+    magnetic_symmetry: &MagneticSymmetry,
+    symprec: f64,
+) -> Option<CanonicalDatabaseMatch> {
+    let input = canonicalize_magnetic_symmetry_for_database(magnetic_symmetry, symprec)?;
+    if input.msg_type != MagneticType::AntiTranslation {
+        return None;
+    }
+    let candidates = type_iv_canonical_index().get(&input.key)?.clone();
+    Some(CanonicalDatabaseMatch { input, candidates })
+}
+
+fn choose_canonical_candidate(
+    candidates: &[CanonicalDatabaseSetting],
+    magnetic_symmetry: &MagneticSymmetry,
+    parent_hall_number: Option<usize>,
+    symprec: f64,
+) -> Option<CanonicalDatabaseSetting> {
+    if let Some(parent_hall) = parent_hall_number {
+        if let Some(candidate) = candidates
+            .iter()
+            .find(|candidate| candidate.hall_number == parent_hall)
+        {
+            return Some(candidate.clone());
+        }
+    }
+
+    for candidate in candidates {
+        let Some(database_symmetry) =
+            msgdb_get_spacegroup_operations(candidate.uni_number, candidate.hall_number)
+        else {
+            continue;
+        };
+        if is_equal(magnetic_symmetry, &database_symmetry, symprec) {
+            return Some(candidate.clone());
+        }
+    }
+
+    candidates.first().cloned()
+}
+
+fn dataset_from_canonical_candidate(
+    lattice: &Mat3,
+    magnetic_symmetry: &MagneticSymmetry,
+    input: &CanonicalizedMagneticSymmetry,
+    candidate: &CanonicalDatabaseSetting,
+    symprec: f64,
+) -> Option<MagneticDataset> {
+    let inverse_candidate = mat_inverse_matrix_d3(&candidate.transformation_matrix, 0.0).ok()?;
+    let transformation_matrix =
+        mat_multiply_matrix_d3(&inverse_candidate, &input.transformation_matrix);
+    let shift_difference = [
+        input.origin_shift[0] - candidate.origin_shift[0],
+        input.origin_shift[1] - candidate.origin_shift[1],
+        input.origin_shift[2] - candidate.origin_shift[2],
+    ];
+    let mut origin_shift = mat_multiply_matrix_vector_d3(&inverse_candidate, &shift_difference);
+    for value in &mut origin_shift {
+        *value = mat_dmod1(*value);
+    }
+
+    let transformed = get_distinct_changed_magnetic_symmetry(
+        &transformation_matrix,
+        &origin_shift,
+        magnetic_symmetry,
+    )?;
+    let database_symmetry =
+        msgdb_get_spacegroup_operations(candidate.uni_number, candidate.hall_number)?;
+    if !is_equal(&transformed, &database_symmetry, symprec) {
+        return None;
+    }
+
+    let mut std_rotation_matrix = [[0.0; 3]; 3];
+    get_rigid_rotation(
+        &mut std_rotation_matrix,
+        lattice,
+        &input.transformation_matrix,
+        &input.reference_spacegroup,
+    );
+
+    Some(MagneticDataset {
+        uni_number: candidate.uni_number,
+        msg_type: msgdb_get_magnetic_spacegroup_type(candidate.uni_number).type_,
+        hall_number: candidate.hall_number,
+        transformation_matrix,
+        origin_shift,
+        std_rotation_matrix,
+    })
 }
 
 /// 获取参考空间群和变换后的磁性对称操作。
@@ -1146,6 +1476,82 @@ mod tests {
             super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC,)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn type_iv_parent_hall_disambiguates_a_changed_basis_and_origin() {
+        let database = crate::msg_database::msgdb_get_spacegroup_operations(282, 182).unwrap();
+        let input_transform = [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, -1.0]];
+        let input_shift = [0.137, 0.219, 0.311];
+        let input = super::get_distinct_changed_magnetic_symmetry(
+            &input_transform,
+            &input_shift,
+            &database,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &input, SYMPREC),
+            Err(crate::SymError::MagneticUniAmbiguous)
+        ));
+
+        let bns_37 =
+            super::msg_identify_with_parent_hall(&cubic_lattice(), &input, Some(182), SYMPREC)
+                .unwrap();
+        assert_eq!(bns_37.uni_number, 282);
+
+        let bns_36 =
+            super::msg_identify_with_parent_hall(&cubic_lattice(), &input, Some(176), SYMPREC)
+                .unwrap();
+        assert_eq!(bns_36.uni_number, 275);
+    }
+
+    #[test]
+    fn type_iv_database_has_only_two_cross_uni_canonical_classes() {
+        let mut cross_uni_classes = Vec::new();
+        for candidates in super::type_iv_canonical_index().values() {
+            let mut unis: Vec<_> = candidates
+                .iter()
+                .map(|candidate| candidate.uni_number)
+                .collect();
+            unis.sort_unstable();
+            unis.dedup();
+            if unis.len() > 1 {
+                cross_uni_classes.push(unis);
+            }
+        }
+        cross_uni_classes.sort();
+        cross_uni_classes.dedup();
+
+        assert_eq!(cross_uni_classes, vec![vec![275, 282], vec![277, 284]]);
+    }
+
+    #[test]
+    fn type_iv_orthorhombic_metric_recovers_unique_283_and_reports_real_ambiguities() {
+        let lattice = [[1.0, 0.0, 0.0], [0.0, 1.3, 0.0], [0.0, 0.0, 1.7]];
+
+        for uni in [282usize, 283, 284] {
+            for hall in 182usize..=184 {
+                let magnetic =
+                    crate::msg_database::msgdb_get_spacegroup_operations(uni, hall).unwrap();
+                let automatic =
+                    super::msg_identify_magnetic_space_group_type(&lattice, &magnetic, SYMPREC);
+                if uni == 283 {
+                    assert_eq!(automatic.unwrap().uni_number, 283, "input Hall {hall}");
+                } else {
+                    assert!(
+                        matches!(automatic, Err(crate::SymError::MagneticUniAmbiguous)),
+                        "UNI {uni} Hall {hall} must not be silently mapped to its analogue"
+                    );
+                }
+
+                let with_parent =
+                    super::msg_identify_with_parent_hall(&lattice, &magnetic, Some(hall), SYMPREC)
+                        .unwrap();
+                assert_eq!(with_parent.uni_number, uni);
+                assert_eq!(with_parent.hall_number, hall);
+            }
+        }
     }
 
     #[test]

@@ -192,11 +192,14 @@ pub enum SymError {
     #[error("no UNI candidates for Hall number")]
     MagneticUniCandidatesNotFound = 14,
     /// UNI 候选匹配全部失败
-    #[error("all UNI candidates failed is_subset matching")]
+    #[error("all UNI candidates failed full magnetic Seitz-set matching")]
     MagneticUniMatchFailed = 15,
     /// 磁原胞晶格确定失败
     #[error("magnetic primitive lattice determination failed")]
     MagneticPrimitiveLatticeFailed = 16,
+    /// 完整磁对称操作对应多个不同的 UNI；需要母群 Hall 信息消歧
+    #[error("magnetic symmetry has multiple UNI candidates; parent Hall number is required")]
+    MagneticUniAmbiguous = 17,
 }
 
 // ---------------------------------------------------------------------------
@@ -423,7 +426,10 @@ impl MagneticSpaceGroupType {
     ///
     /// `time_reversals` can be `None` (treated as all-false / ordinary operations).
     ///
-    /// Returns a default (UNI=0, NonMagnetic) when identification fails.
+    /// Returns a default (UNI=0, NonMagnetic) when identification fails or
+    /// when the operations alone correspond to multiple BNS parent groups.
+    /// Use [`crate::magnetic_spacegroup::msg_identify_with_parent_hall`] when
+    /// the non-magnetic parent Hall number is known.
     ///
     /// # Examples
     ///

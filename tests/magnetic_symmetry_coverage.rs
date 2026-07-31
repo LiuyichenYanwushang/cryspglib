@@ -256,6 +256,7 @@ fn identification_error_category(error: SymError) -> &'static str {
         SymError::MagneticUniCandidatesNotFound => "error_magnetic_uni_candidates",
         SymError::MagneticUniMatchFailed => "error_magnetic_uni_match",
         SymError::MagneticPrimitiveLatticeFailed => "error_magnetic_primitive_lattice",
+        SymError::MagneticUniAmbiguous => "error_magnetic_uni_ambiguous",
     }
 }
 
@@ -697,10 +698,10 @@ fn all_database_settings_round_trip_with_parent_hint() {
 }
 
 #[test]
-fn automatic_all_setting_round_trips_match_upstream_ambiguity_baseline() {
+fn automatic_all_setting_round_trips_are_unique_or_explicitly_ambiguous() {
     let mut setting_count = 0usize;
     let mut exact_matches = 0usize;
-    let mut expected_ambiguities = 0usize;
+    let mut explicit_ambiguities = 0usize;
 
     for uni in 1usize..=1651 {
         let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
@@ -717,37 +718,8 @@ fn automatic_all_setting_round_trips_match_upstream_ambiguity_baseline() {
                 &lattice, &magnetic, 1e-5,
             );
 
-            // With this deliberately symmetry-averaged metric, upstream
-            // spglib v2.5.0 has the same three Type-IV XSG ambiguities in all
-            // three orthorhombic settings. The explicit parent-Hall API above
-            // resolves all nine cases.
-            match uni {
-                282 => {
-                    let dataset = result.expect("UNI 282 should map to its Hall-176 XSG analogue");
-                    assert_eq!(dataset.uni_number, 275, "input Hall {hall}");
-                    assert_eq!(dataset.msg_type, metadata.type_);
-                    expected_ambiguities += 1;
-                }
-                283 => {
-                    assert!(
-                        matches!(result, Err(SymError::MagneticUniMatchFailed)),
-                        "UNI 283 Hall {hall} should retain the upstream ambiguity baseline"
-                    );
-                    expected_ambiguities += 1;
-                }
-                284 => {
-                    let dataset = result.expect("UNI 284 should map to its Hall-176 XSG analogue");
-                    assert_eq!(dataset.uni_number, 277, "input Hall {hall}");
-                    assert_eq!(dataset.msg_type, metadata.type_);
-                    expected_ambiguities += 1;
-                }
-                _ => {
-                    let dataset = result.unwrap_or_else(|error| {
-                        panic!(
-                            "automatic round-trip failed for UNI {uni} BNS {} Hall {hall}: {error:?}",
-                            metadata.bns_number
-                        )
-                    });
+            match result {
+                Ok(dataset) => {
                     assert_eq!(
                         dataset.uni_number, uni,
                         "automatic round-trip crossed UNI {uni} BNS {} Hall {hall}",
@@ -756,11 +728,25 @@ fn automatic_all_setting_round_trips_match_upstream_ambiguity_baseline() {
                     assert_eq!(dataset.msg_type, metadata.type_);
                     exact_matches += 1;
                 }
+                Err(SymError::MagneticUniAmbiguous) => {
+                    assert!(
+                        matches!(uni, 275 | 277 | 282 | 284),
+                        "unexpected ambiguity for UNI {uni} BNS {} Hall {hall}",
+                        metadata.bns_number
+                    );
+                    explicit_ambiguities += 1;
+                }
+                Err(error) => {
+                    panic!(
+                        "automatic round-trip failed for UNI {uni} BNS {} Hall {hall}: {error:?}",
+                        metadata.bns_number
+                    );
+                }
             }
         }
     }
 
     assert_eq!(setting_count, 4479);
-    assert_eq!(exact_matches, 4470);
-    assert_eq!(expected_ambiguities, 9);
+    assert_eq!(exact_matches, 4461);
+    assert_eq!(explicit_ambiguities, 18);
 }

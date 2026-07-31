@@ -164,40 +164,64 @@ setting，固定非平凡行数为 `450`，并验证 UNI `132` / Hall `116` 解�
 轴交换与 `c/4` 原点平移。
 
 恢复后，不带母群提示的生产识别路径从 `1613 / 1651` 提升为官方基线
-`1648 / 1651`；此前 36 个 Rust 特有 `MagneticUniMatchFailed` 全部清零。余下三例
-是官方在对称平均退化度量下也存在的 Type-IV XSG 歧义：
+`1648 / 1651`；此前 36 个 Rust 特有 `MagneticUniMatchFailed` 全部清零。官方余下
+结果是 UNI `282→275`、UNI `283` 失败、UNI `284→277`。后续完整等价类审计证明，
+不能把三者统一称为“退化度量歧义”，详见下一节。
 
-- UNI `282` 映到 Hall-176 analogue UNI `275`；
-- UNI `283` 返回 `MagneticUniMatchFailed`；
-- UNI `284` 映到 Hall-176 analogue UNI `277`。
+### 2026-07-31 Type-IV 跨 parent 等价类与显式消歧
 
-Rust 的 `msg_identify_with_parent_hall` 已有显式 family/母群 Hall 信息，因此新增
-严格 canonical-operation 快路径：只在输入完整磁 Seitz 集合与该 Hall 的某个
-数据库 UNI 完全相等时采用提示，否则继续原标准化算法。这样 UNI `282–284` 可被
-安全消歧，且不放宽一般匹配。当前正式 gate：
+使用官方数据库操作在单位度量和非退化正交度量 `diag(1, 1.3, 1.7)` 下复测，官方
+v2.5.0 的 `282→275`、`283→失败`、`284→277` 完全不变，因此问题不由
+`a=b=c` 的度量退化触发。进一步对全部 `4479` 个 `(UNI, Hall)` setting 做原始
+Seitz 集合和 Type-IV 规范化集合分组，得到两个不同层次的结论：
+
+- 原始完整磁 Seitz 集合已有跨 UNI 的逐项完全重复：UNI `275` Hall
+  `177/179/181` 分别等于 UNI `282` Hall `182/183/184`；只给操作和同一晶格时，
+  这三对不可能唯一确定 BNS parent。
+- 对全部 Type-IV setting 做同一规范化后，跨 UNI 等价类只有
+  `{275, 282}` 和 `{277, 284}` 两类；没有第三类，也没有散落在其他 UNI 的遗漏。
+- UNI `283` 的规范类唯一。官方识别失败是单一 XSG Hall 候选裁剪造成的可修复错误；
+  官方对 `282/284` 静默返回 `275/277` 则是在真实等价类中擅自选择一个代表，API
+  应报告歧义而不是把代表当成唯一答案。
+
+生产实现现在从数据库自动构造完整 Type-IV 规范类索引，不写 UNI 特例：
+
+1. 无母群提示时，跨 UNI 类返回新的 `MagneticUniAmbiguous`；唯一类继续返回 UNI，
+   因而 UNI `283` 的 Hall `182–184` 均可正确恢复。
+2. 提供 parent Hall 时，按其非磁母群空间群号筛选规范类，再组合输入和数据库的
+   规范化变换，支持一般基变换和任意原点移动，不再局限于 canonical-operation
+   快路径。
+3. 所有候选仍必须经过完整、等阶、双向磁 Seitz 集合相等验证；不恢复 subset 匹配。
+
+当前正式 gate：
 
 - `all_database_settings_round_trip_with_parent_hint`：全部 `4479 / 4479`
   `(UNI, Hall)` setting 精确返回原 UNI、原 Hall 和原磁类型；
-- `automatic_all_setting_round_trips_match_upstream_ambiguity_baseline`：无提示路径
-  `4470 / 4479` 精确；9 个差异恰为 UNI `282–284` 在 Hall `182–184` 三种
-  orthorhombic setting 中的展开，逐项锁定为官方同类 XSG 歧义；
+- `automatic_all_setting_round_trips_are_unique_or_explicitly_ambiguous`：无提示路径
+  `4461 / 4479` 唯一且精确，另有 `18 / 4479` 明确返回 ambiguity；18 项恰为
+  UNI `275/277` 的各 6 个 setting 与 UNI `282/284` 的各 3 个 setting，合计仍严格
+  覆盖 `4479 / 4479`，没有失败或静默错配；
+- `type_iv_parent_hall_disambiguates_a_changed_basis_and_origin`：任意原点移动和右手
+  轴变换后的同一 Type-IV 集合，可由 parent SG 36/37 分别稳定选择 UNI 275/282；
+- `type_iv_orthorhombic_metric_recovers_unique_283_and_reports_real_ambiguities`：非退化
+  正交度量下 UNI 283 唯一恢复，282/284 显式报告歧义；
 - `all_magnetic_database_operations_form_expected_groups`：`1651` UNI、`4479`
   settings 的群代数及 Type I–IV 结构全部通过。
 
 本轮最终验证：
 
 ```bash
-cargo check --package cryspglib
-cargo test --package cryspglib --test magnetic_symmetry_coverage -- --nocapture
-cargo test --package cryspglib --test magnetic_integration -- --nocapture
-cargo test --package cryspglib --tests
+cargo check --release --package cryspglib
+cargo test --release --package cryspglib --test magnetic_symmetry_coverage -- --nocapture
+cargo test --release --package cryspglib --test magnetic_integration -- --nocapture
+cargo test --release --package cryspglib --tests
 ```
 
 - 磁 symmetry strict gate：`6 passed / 0 failed`；
 - 结构磁矩入口：`11 passed / 0 failed`；
-- 全部 test targets：`199 passed / 0 failed / 2 ignored`（其中 lib tests
-  `146 passed`，两个 ignored 均为显式诊断项）；
-- `cargo check` 通过；现有 warning 未在本轮扩散处理。
+- 全部 test targets：`202 passed / 0 failed / 2 ignored`（其中 lib tests
+  `149 passed`，两个 ignored 均为显式诊断项）；
+- `cargo check --release` 通过；现有 warning 未在本轮扩散处理。
 
 重新运行 `diagnose_spglib_standard_setting_transform` 后的当前上层 setting
 oracle 为：`total=1651`、`found=1651`、`sg_match=1651`、
@@ -224,8 +248,9 @@ centered-cell 允许的严格 Seitz embedding 后，`detected_hall_embed=1651`�
 2. `hall_symbol.rs` 曾对 Hall 497 无条件输出内部匹配跟踪。
 3. 数据库/群代数/磁类型层已由 4479-pair strict gate 清零。
 4. 数据库磁操作 `→` 磁群识别 `→` 原 UNI 的全部 setting round-trip 在显式母群
-   Hall 下为 `4479 / 4479`；无提示自动路径为 `4470 / 4479`，仅保留已明确记录的
-   UNI `282–284` × Hall `182–184` 九个退化 XSG 歧义。
+   Hall 下为 `4479 / 4479`；无提示自动路径为 `4461` 个唯一精确结果加 `18` 个
+   `MagneticUniAmbiguous`，完整覆盖 `4479 / 4479`。歧义只来自数据库自动导出的
+   `{275,282}`、`{277,284}` 两个跨 parent Type-IV 等价类；UNI 283 已唯一恢复。
 5. irrep/ISOTROPY setting oracle 的 unitary-SG 和 detected-Hall 严格 embedding
    均为 `1651 / 1651`；54 个 detected exact 差异已确认是合法 centering 展开，
    data-Hall 严格 embedding 也已达到 `1651 / 1651`。
