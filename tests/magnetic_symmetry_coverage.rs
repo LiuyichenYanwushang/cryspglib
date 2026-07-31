@@ -624,114 +624,143 @@ fn all_alternative_setting_transformations_are_loaded() {
 }
 
 #[test]
-fn all_first_hall_database_round_trips_with_parent_hint() {
+fn all_database_settings_round_trip_with_parent_hint() {
     let mut audit = Audit::default();
     let mut exact_matches = 0usize;
 
     for uni in 1usize..=1651 {
         let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let num_halls = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][0] as usize;
         let first_hall = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
-        let context = format!("UNI {uni} BNS {} Hall {first_hall}", metadata.bns_number);
-        let Some(magnetic) = msgdb_get_spacegroup_operations(uni, first_hall) else {
-            audit.record("missing_magnetic_operations", context);
-            continue;
-        };
-        let rotations = magnetic.rot[..magnetic.size].to_vec();
-        let Some(lattice) = invariant_lattice(&rotations) else {
-            audit.record("invariant_lattice_failed", context);
-            continue;
-        };
+        for hall_offset in 0..num_halls {
+            let hall = first_hall + hall_offset;
+            let context = format!("UNI {uni} BNS {} Hall {hall}", metadata.bns_number);
+            let Some(magnetic) = msgdb_get_spacegroup_operations(uni, hall) else {
+                audit.record("missing_magnetic_operations", context);
+                continue;
+            };
+            let rotations = magnetic.rot[..magnetic.size].to_vec();
+            let Some(lattice) = invariant_lattice(&rotations) else {
+                audit.record("invariant_lattice_failed", context);
+                continue;
+            };
 
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            magnetic_spacegroup::msg_identify_with_parent_hall(
-                &lattice,
-                &magnetic,
-                Some(first_hall),
-                1e-5,
-            )
-        }));
-        match outcome {
-            Ok(Ok(dataset)) if dataset.uni_number == uni && dataset.msg_type == metadata.type_ => {
-                exact_matches += 1;
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                magnetic_spacegroup::msg_identify_with_parent_hall(
+                    &lattice,
+                    &magnetic,
+                    Some(hall),
+                    1e-5,
+                )
+            }));
+            match outcome {
+                Ok(Ok(dataset))
+                    if dataset.uni_number == uni
+                        && dataset.msg_type == metadata.type_
+                        && dataset.hall_number == hall =>
+                {
+                    exact_matches += 1;
+                }
+                Ok(Ok(dataset)) => {
+                    let returned =
+                        msg_database::msgdb_get_magnetic_spacegroup_type(dataset.uni_number);
+                    let category = if dataset.msg_type == metadata.type_ {
+                        "wrong_uni_same_type"
+                    } else {
+                        "wrong_uni_wrong_type"
+                    };
+                    audit.record(
+                        category,
+                        format!(
+                            "{context}: returned UNI {} BNS {} type {:?} Hall {}",
+                            dataset.uni_number,
+                            returned.bns_number,
+                            dataset.msg_type,
+                            dataset.hall_number
+                        ),
+                    );
+                }
+                Ok(Err(error)) => {
+                    audit.record(
+                        identification_error_category(error),
+                        format!("{context}: {error:?}"),
+                    );
+                }
+                Err(_) => audit.record("identification_panicked", context),
             }
-            Ok(Ok(dataset)) => {
-                let returned = msg_database::msgdb_get_magnetic_spacegroup_type(dataset.uni_number);
-                let category = if dataset.msg_type == metadata.type_ {
-                    "wrong_uni_same_type"
-                } else {
-                    "wrong_uni_wrong_type"
-                };
-                audit.record(
-                    category,
-                    format!(
-                        "{context}: returned UNI {} BNS {} type {:?} Hall {}",
-                        dataset.uni_number,
-                        returned.bns_number,
-                        dataset.msg_type,
-                        dataset.hall_number
-                    ),
-                );
-            }
-            Ok(Err(error)) => {
-                audit.record(
-                    identification_error_category(error),
-                    format!("{context}: {error:?}"),
-                );
-            }
-            Err(_) => audit.record("identification_panicked", context),
         }
     }
 
-    println!("Exact first-Hall round-trips: {exact_matches} / 1651");
-    assert_eq!(exact_matches, 1651);
+    println!("Exact all-setting round-trips: {exact_matches} / 4479");
+    assert_eq!(exact_matches, 4479);
     audit.assert_clean();
 }
 
 #[test]
-fn automatic_round_trips_match_upstream_ambiguity_baseline() {
+fn automatic_all_setting_round_trips_match_upstream_ambiguity_baseline() {
+    let mut setting_count = 0usize;
+    let mut exact_matches = 0usize;
+    let mut expected_ambiguities = 0usize;
+
     for uni in 1usize..=1651 {
         let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let num_halls = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][0] as usize;
         let first_hall = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
-        let magnetic = msgdb_get_spacegroup_operations(uni, first_hall)
-            .unwrap_or_else(|| panic!("missing operations for UNI {uni} Hall {first_hall}"));
-        let lattice = invariant_lattice(&magnetic.rot[..magnetic.size])
-            .unwrap_or_else(|| panic!("invariant lattice failed for UNI {uni}"));
-        let result =
-            magnetic_spacegroup::msg_identify_magnetic_space_group_type(&lattice, &magnetic, 1e-5);
+        for hall_offset in 0..num_halls {
+            setting_count += 1;
+            let hall = first_hall + hall_offset;
+            let magnetic = msgdb_get_spacegroup_operations(uni, hall)
+                .unwrap_or_else(|| panic!("missing operations for UNI {uni} Hall {hall}"));
+            let lattice = invariant_lattice(&magnetic.rot[..magnetic.size])
+                .unwrap_or_else(|| panic!("invariant lattice failed for UNI {uni} Hall {hall}"));
+            let result = magnetic_spacegroup::msg_identify_magnetic_space_group_type(
+                &lattice, &magnetic, 1e-5,
+            );
 
-        // With this deliberately symmetry-averaged metric, upstream spglib
-        // v2.5.0 has the same three Type-IV XSG ambiguities. The explicit
-        // parent-Hall API above resolves all three; the automatic API must
-        // remain exact everywhere that the input itself is non-degenerate.
-        match uni {
-            282 => {
-                let dataset = result.expect("UNI 282 should map to its Hall-176 XSG analogue");
-                assert_eq!(dataset.uni_number, 275);
-                assert_eq!(dataset.msg_type, metadata.type_);
-            }
-            283 => assert!(
-                matches!(result, Err(SymError::MagneticUniMatchFailed)),
-                "UNI 283 should retain the upstream ambiguity baseline"
-            ),
-            284 => {
-                let dataset = result.expect("UNI 284 should map to its Hall-176 XSG analogue");
-                assert_eq!(dataset.uni_number, 277);
-                assert_eq!(dataset.msg_type, metadata.type_);
-            }
-            _ => {
-                let dataset = result.unwrap_or_else(|error| {
-                    panic!(
-                        "automatic round-trip failed for UNI {uni} BNS {} Hall {first_hall}: {error:?}",
+            // With this deliberately symmetry-averaged metric, upstream
+            // spglib v2.5.0 has the same three Type-IV XSG ambiguities in all
+            // three orthorhombic settings. The explicit parent-Hall API above
+            // resolves all nine cases.
+            match uni {
+                282 => {
+                    let dataset = result.expect("UNI 282 should map to its Hall-176 XSG analogue");
+                    assert_eq!(dataset.uni_number, 275, "input Hall {hall}");
+                    assert_eq!(dataset.msg_type, metadata.type_);
+                    expected_ambiguities += 1;
+                }
+                283 => {
+                    assert!(
+                        matches!(result, Err(SymError::MagneticUniMatchFailed)),
+                        "UNI 283 Hall {hall} should retain the upstream ambiguity baseline"
+                    );
+                    expected_ambiguities += 1;
+                }
+                284 => {
+                    let dataset = result.expect("UNI 284 should map to its Hall-176 XSG analogue");
+                    assert_eq!(dataset.uni_number, 277, "input Hall {hall}");
+                    assert_eq!(dataset.msg_type, metadata.type_);
+                    expected_ambiguities += 1;
+                }
+                _ => {
+                    let dataset = result.unwrap_or_else(|error| {
+                        panic!(
+                            "automatic round-trip failed for UNI {uni} BNS {} Hall {hall}: {error:?}",
+                            metadata.bns_number
+                        )
+                    });
+                    assert_eq!(
+                        dataset.uni_number, uni,
+                        "automatic round-trip crossed UNI {uni} BNS {} Hall {hall}",
                         metadata.bns_number
-                    )
-                });
-                assert_eq!(
-                    dataset.uni_number, uni,
-                    "automatic round-trip crossed UNI {uni} BNS {} Hall {first_hall}",
-                    metadata.bns_number
-                );
-                assert_eq!(dataset.msg_type, metadata.type_);
+                    );
+                    assert_eq!(dataset.msg_type, metadata.type_);
+                    exact_matches += 1;
+                }
             }
         }
     }
+
+    assert_eq!(setting_count, 4479);
+    assert_eq!(exact_matches, 4470);
+    assert_eq!(expected_ambiguities, 9);
 }

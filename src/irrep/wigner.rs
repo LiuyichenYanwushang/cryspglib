@@ -1402,6 +1402,26 @@ pub fn find_setting_transform(
 ) -> Vec<SettingTransform> {
     XF_CALLED.fetch_add(1, Ordering::Relaxed);
     let mut results = Vec::new();
+    let validate_xf = |xf: &SettingTransform| -> bool {
+        msg_rots.iter().zip(msg_trans.iter()).all(|(r, tm)| {
+            let Some(xf_r) = xf.transform_rotation(r) else {
+                return false;
+            };
+            let Some(xf_t) = xf.transform_translation(r, tm) else {
+                return false;
+            };
+            hall_rots.iter().zip(hall_trans.iter()).any(|(hr, ht)| {
+                *hr == xf_r && {
+                    let d0 = xf_t[0] - ht[0];
+                    let d1 = xf_t[1] - ht[1];
+                    let d2 = xf_t[2] - ht[2];
+                    (d0 - d0.round()).abs() < SEITZ_TRANS_TOL
+                        && (d1 - d1.round()).abs() < SEITZ_TRANS_TOL
+                        && (d2 - d2.round()).abs() < SEITZ_TRANS_TOL
+                }
+            })
+        })
+    };
 
     // Try identity basis first.
     if rotation_multiset_eq(msg_rots, hall_rots) {
@@ -1412,20 +1432,23 @@ pub fn find_setting_transform(
             hall_rots,
             hall_trans,
         ) {
-            XF_FOUND.fetch_add(1, Ordering::Relaxed);
-            XF_IDENTITY.fetch_add(1, Ordering::Relaxed);
-            let origin_nz = s[0].abs() > 1e-8 || s[1].abs() > 1e-8 || s[2].abs() > 1e-8;
-            if origin_nz {
-                XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed);
-            }
-            results.push(SettingTransform {
+            let xf = SettingTransform {
                 basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
                 origin: s,
-            });
-            return results;
+            };
+            if validate_xf(&xf) {
+                XF_FOUND.fetch_add(1, Ordering::Relaxed);
+                XF_IDENTITY.fetch_add(1, Ordering::Relaxed);
+                let origin_nz = s[0].abs() > 1e-8 || s[1].abs() > 1e-8 || s[2].abs() > 1e-8;
+                if origin_nz {
+                    XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed);
+                }
+                results.push(xf);
+                return results;
+            }
         }
-        // Identity basis matches rotations but origin solving failed.
-        // Do NOT return an unvalidated identity — let the loop try other bases.
+        // Identity basis matches rotations but either origin solving or the
+        // full Seitz-set validation failed. Let the loop try other bases.
     }
 
     // Use enumerate_unimodular_bases() instead of signed-permutations only.
@@ -1445,15 +1468,19 @@ pub fn find_setting_transform(
             continue;
         }
         if let Some(s) = solve_origin_for_t(t, msg_rots, msg_trans, hall_rots, hall_trans) {
+            let xf = SettingTransform {
+                basis: t.map(|row| row.map(|value| value as f64)),
+                origin: s,
+            };
+            if !validate_xf(&xf) {
+                continue;
+            }
             XF_NON_IDENTITY.fetch_add(1, Ordering::Relaxed);
             let origin_nz = s[0].abs() > 1e-8 || s[1].abs() > 1e-8 || s[2].abs() > 1e-8;
             if origin_nz {
                 XF_NONZERO_ORIGIN.fetch_add(1, Ordering::Relaxed);
             }
-            results.push(SettingTransform {
-                basis: t.map(|row| row.map(|value| value as f64)),
-                origin: s,
-            });
+            results.push(xf);
         }
     }
     // If no candidate passed the origin solver, try zero-origin with full
@@ -1463,26 +1490,6 @@ pub fn find_setting_transform(
     // solve_origin_for_t).  For these cases, a zero origin may be correct
     // if the only difference is trivial axis permutation.
     if results.is_empty() {
-        let validate_xf = |xf: &SettingTransform| -> bool {
-            msg_rots.iter().zip(msg_trans.iter()).all(|(r, tm)| {
-                let Some(xf_r) = xf.transform_rotation(r) else {
-                    return false;
-                };
-                let Some(xf_t) = xf.transform_translation(r, tm) else {
-                    return false;
-                };
-                hall_rots.iter().zip(hall_trans.iter()).any(|(hr, ht)| {
-                    *hr == xf_r && {
-                        let d0 = xf_t[0] - ht[0];
-                        let d1 = xf_t[1] - ht[1];
-                        let d2 = xf_t[2] - ht[2];
-                        (d0 - d0.round()).abs() < SEITZ_TRANS_TOL
-                            && (d1 - d1.round()).abs() < SEITZ_TRANS_TOL
-                            && (d2 - d2.round()).abs() < SEITZ_TRANS_TOL
-                    }
-                })
-            })
-        };
         // Check if rotations already match (no permutation needed).
         if rotation_multiset_eq(msg_rots, hall_rots) {
             let xf = SettingTransform::identity();
@@ -3996,6 +4003,39 @@ mod tests {
         // t = 0.7 + 0.5 = 1.2 → 0.2 with lattice shift [1,0,0]
         assert!((result.trans[0] - 0.2).abs() < 1e-9);
         assert_eq!(lattice, [1, 0, 0]);
+    }
+
+    #[test]
+    fn setting_transform_rejects_invalid_identity_origin_candidate() {
+        // SG7 Hall 23 and Hall 21 have the same rotation multiset but
+        // different glide translations.  A greedy origin solve can pair the
+        // rotations and suggest T=I even though the full Seitz sets differ.
+        let source = SymmetryOps::from_database(23).unwrap();
+        let target = SymmetryOps::from_database(21).unwrap();
+        let source_rots: Vec<Mat3I> =
+            source.operations.iter().map(|op| op.rotation).collect();
+        let source_trans: Vec<[f64; 3]> =
+            source.operations.iter().map(|op| op.translation).collect();
+        let target_rots: Vec<Mat3I> =
+            target.operations.iter().map(|op| op.rotation).collect();
+        let target_trans: Vec<[f64; 3]> =
+            target.operations.iter().map(|op| op.translation).collect();
+        let target_seitz = ops_to_seitz(&target);
+
+        let candidates =
+            find_setting_transform(&source_rots, &source_trans, &target_rots, &target_trans);
+        assert!(!candidates.is_empty());
+        assert!(candidates
+            .iter()
+            .all(|candidate| candidate.basis != SettingTransform::identity().basis));
+        for candidate in candidates {
+            for op in &source.operations {
+                let (rotation, translation) = candidate
+                    .transform_seitz(&op.rotation, &op.translation)
+                    .unwrap();
+                assert!(find_seitz(&rotation, &translation, &target_seitz).is_some());
+            }
+        }
     }
 
     /// filter_little_group: antiunitary ops use -Rk ≡ k.

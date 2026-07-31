@@ -932,27 +932,68 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
                             msg_to_data: Some(msg_to_data),
                         });
                     }
-                } else {
-                    // No explicit MSG→detected transform was available.
-                    // Retain the old direct search, but validate it as an
-                    // embedding because centered operation counts may differ.
-                    let msg_rots: Vec<Mat3I> =
-                        ops_from_msg.operations.iter().map(|o| o.rotation).collect();
-                    let msg_trans: Vec<[f64; 3]> = ops_from_msg
-                        .operations
-                        .iter()
-                        .map(|o| o.translation)
-                        .collect();
-                    let msg_xfs = crate::irrep::wigner::find_setting_transform(
-                        &msg_rots,
-                        &msg_trans,
-                        &data_rots,
-                        &data_trans,
-                    );
-                    if let Some(msg_to_data) = msg_xfs.into_iter().find(|candidate| {
-                        transform_embeds_ops(candidate, &ops_from_msg, &data_ops)
-                            && transform_applies_to_all_ops(candidate, &mag_ops)
-                    }) {
+                } else if transform_embeds_ops(detected_to_data, &ops_from_msg, &data_ops)
+                    && transform_applies_to_all_ops(detected_to_data, &mag_ops)
+                {
+                    return Some(UnitarySubgroupInfo {
+                        sg,
+                        hall,
+                        data_hall,
+                        ops_from_msg,
+                        ops_from_hall: data_ops,
+                        msg_to_data: Some(detected_to_data.clone()),
+                    });
+                }
+            }
+            // A subgroup-based standardisation can leave basis/origin freedom
+            // that is incompatible with the antiunitary coset.  Search the
+            // actual MSG unitary representatives directly against the data
+            // Hall frame, regardless of whether a MSG→detected transform was
+            // available, and validate the candidate on the full MSG.
+            let msg_rots: Vec<Mat3I> =
+                ops_from_msg.operations.iter().map(|o| o.rotation).collect();
+            let msg_trans: Vec<[f64; 3]> = ops_from_msg
+                .operations
+                .iter()
+                .map(|o| o.translation)
+                .collect();
+            let msg_xfs = crate::irrep::wigner::find_setting_transform(
+                &msg_rots,
+                &msg_trans,
+                &data_rots,
+                &data_trans,
+            );
+            if let Some(msg_to_data) = msg_xfs.into_iter().find(|candidate| {
+                transform_embeds_ops(candidate, &ops_from_msg, &data_ops)
+                    && transform_applies_to_all_ops(candidate, &mag_ops)
+            }) {
+                return Some(UnitarySubgroupInfo {
+                    sg,
+                    hall,
+                    data_hall,
+                    ops_from_msg,
+                    ops_from_hall: data_ops,
+                    msg_to_data: Some(msg_to_data),
+                });
+            }
+            // The finite unimodular search cannot represent every rational
+            // conventional/primitive-cell transform.  Try spglib's full
+            // standardisation pipeline, but accept it only when it lands in
+            // the requested data Hall and validates against the full MSG.
+            if let Some((std_sg, std_hall, detected_to_data)) =
+                standard_setting_transform(&ops_from_hall, false)
+            {
+                if std_sg == sg
+                    && std_hall == data_hall
+                    && transform_embeds_ops(&detected_to_data, &ops_from_hall, &data_ops)
+                {
+                    let msg_to_data = msg_to_detected
+                        .as_ref()
+                        .map(|candidate| candidate.then(&detected_to_data))
+                        .unwrap_or(detected_to_data);
+                    if transform_embeds_ops(&msg_to_data, &ops_from_msg, &data_ops)
+                        && transform_applies_to_all_ops(&msg_to_data, &mag_ops)
+                    {
                         return Some(UnitarySubgroupInfo {
                             sg,
                             hall,
@@ -964,58 +1005,10 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
                     }
                 }
             }
-            // If find_setting_transform returned no candidates (e.g. monoclinic
-            // unique-axis Hall pairs like SG13 Hall73→72 where the zero-origin
-            // signed-permutation fallback still fails), try spglib's full
-            // standardisation pipeline as a last resort.
-            if xfs.is_empty() {
-                if let Some((_sg, _hall, xf)) = standard_setting_transform(&ops_from_hall, false) {
-                    let xf_rots: Vec<Mat3I> = ops_from_hall
-                        .operations
-                        .iter()
-                        .filter_map(|op| xf.transform_rotation(&op.rotation))
-                        .collect();
-                    let xf_trans: Vec<[f64; 3]> = ops_from_hall
-                        .operations
-                        .iter()
-                        .filter_map(|op| xf.transform_translation(&op.rotation, &op.translation))
-                        .collect();
-                    if xf_rots.len() == ops_from_hall.len() {
-                        let xf_ops = SymmetryOps::from_parallel(
-                            &xf_rots,
-                            &xf_trans,
-                            &vec![false; xf_rots.len()],
-                        );
-                        let msg_rots: Vec<Mat3I> =
-                            ops_from_msg.operations.iter().map(|o| o.rotation).collect();
-                        let msg_trans: Vec<[f64; 3]> = ops_from_msg
-                            .operations
-                            .iter()
-                            .map(|o| o.translation)
-                            .collect();
-                        let dhall_rots: Vec<Mat3I> =
-                            xf_ops.operations.iter().map(|o| o.rotation).collect();
-                        let dhall_trans: Vec<[f64; 3]> =
-                            xf_ops.operations.iter().map(|o| o.translation).collect();
-                        let msg_xfs = crate::irrep::wigner::find_setting_transform(
-                            &msg_rots,
-                            &msg_trans,
-                            &dhall_rots,
-                            &dhall_trans,
-                        );
-                        let msg_to_data = msg_xfs.into_iter().next();
-                        return Some(UnitarySubgroupInfo {
-                            sg,
-                            hall,
-                            data_hall,
-                            ops_from_msg,
-                            ops_from_hall: xf_ops,
-                            msg_to_data,
-                        });
-                    }
-                }
-            }
         }
+        // Never expose a detected-Hall operation set as if it were in the
+        // data-Hall frame.  Callers need a verified common frame.
+        return None;
     }
 
     // Compute the MSG→data-Hall transform: maps the MSG unitary ops into
@@ -3577,12 +3570,21 @@ mod tests {
                     .all(|op| wigner::find_seitz(&op.rot, &op.trans, a).is_some())
         }
 
+        fn embeds_group(source: &[wigner::SeitzOp], target: &[wigner::SeitzOp]) -> bool {
+            source
+                .iter()
+                .all(|op| wigner::find_seitz(&op.rot, &op.trans, target).is_some())
+        }
+
         let mut total = 0usize;
         let mut found = 0usize;
         let mut sg_match = 0usize;
         let mut detected_hall_exact = 0usize;
+        let mut detected_hall_embedded = 0usize;
         let mut data_hall_exact = 0usize;
+        let mut data_hall_embedded = 0usize;
         let mut examples = Vec::new();
+        let mut data_examples = Vec::new();
 
         for uni in 1..=1651 {
             let Some(mag_ops) = get_magnetic_operations(uni) else {
@@ -3605,19 +3607,52 @@ mod tests {
                 .unwrap_or_default();
             if same_group(&transformed, &detected_target) {
                 detected_hall_exact += 1;
+            }
+            if embeds_group(&transformed, &detected_target) {
+                detected_hall_embedded += 1;
             } else if examples.len() < 10 {
                 examples.push(format!(
-                    "UNI{uni} SG{sg} hall={hall} basis={:?} origin={:?} transformed={:?} target={:?}",
+                    "UNI{uni} SG{sg} hall={hall} basis={:?} origin={:?} source_order={} target_order={}",
                     transform.basis,
                     transform.origin,
-                    transformed.iter().map(|op| (op.rot, op.trans)).collect::<Vec<_>>(),
-                    detected_target.iter().map(|op| (op.rot, op.trans)).collect::<Vec<_>>(),
+                    transformed.len(),
+                    detected_target.len(),
                 ));
             }
-            let data_target =
-                wigner::ops_to_seitz(&crate::irrep::bridge::canonical_hall_ops(sg as u8));
-            if same_group(&transformed, &data_target) {
+            let data_target_ops = crate::irrep::bridge::canonical_hall_ops(sg as u8);
+            let data_target = wigner::ops_to_seitz(&data_target_ops);
+            let data_exact = same_group(&transformed, &data_target);
+            if data_exact {
                 data_hall_exact += 1;
+            }
+            let data_embedded = if data_exact
+                && transform_applies_to_all_ops(&transform, &mag_ops)
+            {
+                true
+            } else if let Some(h_info) = identify_unitary_subgroup_with_hall(uni) {
+                let identity = wigner::SettingTransform::identity();
+                let msg_to_data = h_info.msg_to_data.as_ref().unwrap_or(&identity);
+                let embedded =
+                    transform_embeds_ops(msg_to_data, &h_info.ops_from_msg, &data_target_ops)
+                        && transform_applies_to_all_ops(msg_to_data, &mag_ops);
+                if !embedded {
+                    data_examples.push(format!(
+                        "UNI{uni} SG{sg} detected_hall={hall} data_hall={} msg_order={} data_order={} transform={:?}",
+                        h_info.data_hall,
+                        h_info.ops_from_msg.len(),
+                        data_target_ops.len(),
+                        h_info.msg_to_data,
+                    ));
+                }
+                embedded
+            } else {
+                data_examples.push(format!(
+                    "UNI{uni} SG{sg} detected_hall={hall}: unitary subgroup info missing"
+                ));
+                false
+            };
+            if data_embedded {
+                data_hall_embedded += 1;
             }
         }
 
@@ -3626,10 +3661,20 @@ mod tests {
         println!("  found:               {found}");
         println!("  sg_match:            {sg_match}");
         println!("  detected_hall_exact: {detected_hall_exact}");
+        println!("  detected_hall_embed: {detected_hall_embedded}");
         println!("  data_hall_exact:     {data_hall_exact}");
+        println!("  data_hall_embed:     {data_hall_embedded}");
         for example in examples {
             println!("  {example}");
         }
+        for example in data_examples {
+            println!("  data mismatch: {example}");
+        }
+        assert_eq!(total, 1651);
+        assert_eq!(found, total);
+        assert_eq!(sg_match, total);
+        assert_eq!(detected_hall_embedded, total);
+        assert_eq!(data_hall_embedded, total);
     }
 
     /// Oracle: check UNI→Hall→magnetic operations entry point for anomalous cases.

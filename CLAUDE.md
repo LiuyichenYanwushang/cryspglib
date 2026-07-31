@@ -176,9 +176,11 @@ Rust 的 `msg_identify_with_parent_hall` 已有显式 family/母群 Hall 信息�
 数据库 UNI 完全相等时采用提示，否则继续原标准化算法。这样 UNI `282–284` 可被
 安全消歧，且不放宽一般匹配。当前正式 gate：
 
-- `all_first_hall_database_round_trips_with_parent_hint`：`1651 / 1651` 精确返回原 UNI；
-- `automatic_round_trips_match_upstream_ambiguity_baseline`：无提示路径除上述官方三例
-  外 `1648 / 1648` 全部精确，三例行为也逐项锁定；
+- `all_database_settings_round_trip_with_parent_hint`：全部 `4479 / 4479`
+  `(UNI, Hall)` setting 精确返回原 UNI、原 Hall 和原磁类型；
+- `automatic_all_setting_round_trips_match_upstream_ambiguity_baseline`：无提示路径
+  `4470 / 4479` 精确；9 个差异恰为 UNI `282–284` 在 Hall `182–184` 三种
+  orthorhombic setting 中的展开，逐项锁定为官方同类 XSG 歧义；
 - `all_magnetic_database_operations_form_expected_groups`：`1651` UNI、`4479`
   settings 的群代数及 Type I–IV 结构全部通过。
 
@@ -193,21 +195,40 @@ cargo test --package cryspglib --tests
 
 - 磁 symmetry strict gate：`6 passed / 0 failed`；
 - 结构磁矩入口：`11 passed / 0 failed`；
-- 全部 test targets：`198 passed / 0 failed / 2 ignored`（其中 lib tests
-  `145 passed`，两个 ignored 均为显式诊断项）；
+- 全部 test targets：`199 passed / 0 failed / 2 ignored`（其中 lib tests
+  `146 passed`，两个 ignored 均为显式诊断项）；
 - `cargo check` 通过；现有 warning 未在本轮扩散处理。
+
+重新运行 `diagnose_spglib_standard_setting_transform` 后的当前上层 setting
+oracle 为：`total=1651`、`found=1651`、`sg_match=1651`、
+`detected_hall_exact=1597`、`data_hall_exact=1450`。因此旧基线中的 32 个
+unitary-SG 路径不一致已经清零。进一步把错误的“等阶全集相等”检查改为
+centered-cell 允许的严格 Seitz embedding 后，`detected_hall_embed=1651`：
+54 个 detected Hall exact 差异全部只是 primitive 代表元嵌入 C/F/I-centered
+常规胞时的合法操作数展开。对 ISOTROPY data-Hall 复合 frame 做同一严格检查，
+最终 `data_hall_embed=1651 / 1651`。修复包含两个通用问题：
+
+- 禁止在 data-Hall 复合失败后把 MSG→detected 变换误标成 MSG→data 变换，
+  并始终尝试经完整磁操作验证的直接 MSG→data 搜索；
+- `find_setting_transform` 的 origin solver 候选现在必须通过完整 Seitz 集验证
+  才能返回，不能再把 SG7 Hall `22/23→21` 错误短路成单位变换；正确轴交换/shear
+  会继续被枚举，UNI `296/312` 的 4→2 primitive embedding 也由复合变换覆盖。
+
+聚焦回归 `setting_transform_rejects_invalid_identity_origin_candidate` 固定 Hall
+`23→21` 不得返回伪单位变换；全库 oracle 同时严格断言 `total`、`found`、
+`sg_match`、`detected_hall_embed`、`data_hall_embed` 均为 `1651`。
 
 ### 已确认的问题
 
 1. `primitive.rs` 曾无条件输出 `reduced=...`，1651 群扫描产生大量噪声。
 2. `hall_symbol.rs` 曾对 Hall 497 无条件输出内部匹配跟踪。
 3. 数据库/群代数/磁类型层已由 4479-pair strict gate 清零。
-4. 数据库磁操作 `→` 磁群识别 `→` 原 UNI 的首 Hall round-trip 在显式母群
-   Hall 下为 `1651 / 1651`；无提示自动路径为官方基线 `1648 / 1651`，仅保留
-   已明确记录的 UNI `282–284` 退化歧义。
-5. 现有 setting oracle 仍有 32 个 SG 路径不一致、54 个 detected-Hall
-   Seitz 不一致和 201 个 data-Hall Seitz 不一致，需按“合法 setting 等价”和
-   “真实识别错误”重新分类。
+4. 数据库磁操作 `→` 磁群识别 `→` 原 UNI 的全部 setting round-trip 在显式母群
+   Hall 下为 `4479 / 4479`；无提示自动路径为 `4470 / 4479`，仅保留已明确记录的
+   UNI `282–284` × Hall `182–184` 九个退化 XSG 歧义。
+5. irrep/ISOTROPY setting oracle 的 unitary-SG 和 detected-Hall 严格 embedding
+   均为 `1651 / 1651`；54 个 detected exact 差异已确认是合法 centering 展开，
+   data-Hall 严格 embedding 也已达到 `1651 / 1651`。
 6. `magnetic_summary` 仍有已知 unsupported scalar 路径，例如 BNS `128.406`
    和 `52.318`；这属于后续上层验收，不能与底层 symmetry 覆盖混为一谈。
 
