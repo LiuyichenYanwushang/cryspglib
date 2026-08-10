@@ -3,7 +3,9 @@
 //! 提供高效的原子重叠判断，用于在对称性检测中确认
 //! 两个原子位置是否在给定精度下等价。
 
-use crate::cell::{AperiodicAxis, Cell};
+use crate::cell::Cell;
+#[cfg(test)]
+use crate::cell::AperiodicAxis;
 use crate::mathfunc::{
     Mat3, Vec3, mat_multiply_matrix_vector_d3, mat_multiply_matrix_vector_id3,
     mat_nint, mat_norm_squared_d3,
@@ -124,8 +126,8 @@ impl OverlapChecker {
                 self.pos_temp_1[i] = mat_multiply_matrix_vector_id3(rot, &self.pos_sorted[i]);
             }
 
-            for k in 0..3 {
-                self.pos_temp_1[i][k] += test_trans[k];
+            for (coordinate, offset) in self.pos_temp_1[i].iter_mut().zip(test_trans) {
+                *coordinate += offset;
             }
         }
 
@@ -174,8 +176,8 @@ impl OverlapChecker {
             } else {
                 self.pos_temp_1[i] = mat_multiply_matrix_vector_id3(rot, &self.pos_sorted[i]);
             }
-            for k in 0..3 {
-                self.pos_temp_1[i][k] += test_trans[k];
+            for (coordinate, offset) in self.pos_temp_1[i].iter_mut().zip(test_trans) {
+                *coordinate += offset;
             }
         }
 
@@ -198,7 +200,6 @@ impl OverlapChecker {
             &self.pos_temp_2,
             &self.types_sorted,
             &self.types_sorted,
-            self.size,
             &self.periodic_axes,
             symprec,
         )
@@ -432,10 +433,10 @@ fn check_layer_total_overlap_for_sorted(
     pos_rotated: &[Vec3],
     types_original: &[i32],
     types_rotated: &[i32],
-    num_pos: usize,
     periodic_axes: &[usize; 2],
     symprec: f64,
 ) -> i32 {
+    let num_pos = pos_original.len();
     let mut found = vec![false; num_pos];
     let mut search_start = 0;
 

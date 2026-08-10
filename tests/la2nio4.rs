@@ -2,9 +2,7 @@
 //!
 //! 四方 P4₂/ncm (#138)，D₄ₕ 点群。晶胞含 8 La + 4 Ni + 16 O = 28 原子。
 
-use cryspglib::{
-    Crystal, SpaceGroupType, spg_get_pointgroup,
-};
+use cryspglib::{Crystal, SpaceGroupType, pointgroup_from_rotations};
 
 const SYMPREC: f64 = 1e-5;
 
@@ -76,7 +74,7 @@ fn test_la2nio4() {
 
     // 点群: 4/mmm (D₄ₕ) = point group number 15
     let (_symbol, _transform, pg_number) =
-        spg_get_pointgroup(&dataset.rotations).expect("spg_get_pointgroup failed");
+        pointgroup_from_rotations(&dataset.rotations).expect("point-group lookup failed");
     assert_eq!(pg_number, 15, "point group should be 4/mmm (D4h)");
 
     // D₄ₕ 点群: 16 个对称操作

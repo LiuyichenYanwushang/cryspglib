@@ -131,10 +131,6 @@ pub fn warning_memory(what: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    // 使用 Mutex 防止并行测试时环境变量冲突
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     // 注意：由于使用了 OnceLock 缓存，环境变量只会在第一次调用时读取。
     // 为了测试不同的环境变量状态，我们需要在测试中模拟或重置（但在 Rust 标准库中重置 OnceLock 是不安全的/不支持的）。

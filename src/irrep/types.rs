@@ -23,6 +23,25 @@ pub enum MatrixReorderError {
     OperationMappingFailed,
 }
 
+/// Rational high-symmetry wave vector in reciprocal-lattice coordinates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KVector {
+    /// Cartesian reciprocal-coordinate numerators.
+    pub numerators: [i8; 3],
+    /// Common denominator for all three components.
+    pub denominator: i8,
+}
+
+impl KVector {
+    /// Construct a rational reciprocal vector.
+    pub const fn new(numerators: [i8; 3], denominator: i8) -> Self {
+        Self {
+            numerators,
+            denominator,
+        }
+    }
+}
+
 /// Compact irrep record for the generated flat array.
 ///
 /// Field names are abbreviated to keep the generated code size manageable.
@@ -99,6 +118,11 @@ pub struct IrrepRecord {
 }
 
 impl IrrepRecord {
+    /// Rational wave vector associated with this irrep.
+    pub const fn k_vector(&self) -> KVector {
+        KVector::new([self.kx, self.ky, self.kz], self.kd)
+    }
+
     /// For spinor irreps: number of characters corresponding to the little-group
     /// operations (the first `n` values in [`Self::characters`]).
     /// Returns 0 for scalar irreps.
@@ -242,9 +266,7 @@ impl IrrepRecord {
         let len = self._char_count as usize;
         let end = start + len;
         if end > super::generated_data::SCALAR_LITTLE_CHARS_VALID.len()
-            || super::generated_data::SCALAR_LITTLE_CHARS_VALID[start..end]
-                .iter()
-                .any(|&valid| valid == 0)
+            || super::generated_data::SCALAR_LITTLE_CHARS_VALID[start..end].contains(&0)
         {
             return (&[], &[]);
         }
@@ -360,8 +382,7 @@ impl IrrepRecord {
         };
 
         let mut reordered = vec![0.0f64; mats.len()];
-        for h_idx in 0..h_to_pir.len().min(n_pir_ops) {
-            let pir_idx = h_to_pir[h_idx];
+        for (h_idx, &pir_idx) in h_to_pir.iter().take(n_pir_ops).enumerate() {
             if pir_idx >= n_pir_ops {
                 continue;
             }
@@ -427,7 +448,7 @@ impl IrrepRecord {
     /// - `"X3-"` → `"X"`
     /// - `"DT1"` → `"DT"` (Δ line)
     pub fn k_label(&self) -> &'static str {
-        let body = self.ml.trim_end_matches(|c: char| c == '+' || c == '-');
+        let body = self.ml.trim_end_matches(['+', '-']);
         let end = body
             .find(|c: char| c.is_ascii_digit())
             .unwrap_or(body.len());

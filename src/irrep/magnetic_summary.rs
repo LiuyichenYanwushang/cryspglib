@@ -313,7 +313,7 @@ fn attach_isotropy_candidates(
                     IsotropyCandidateRelation::SpinorNoIsotropyData
                 } else if multi_source {
                     IsotropyCandidateRelation::TypeCPairedSource
-                } else if ir.map_or(false, |r| r.cir_component_count() > 0) {
+                } else if ir.is_some_and(|r| r.cir_component_count() > 0) {
                     IsotropyCandidateRelation::CompoundSource
                 } else {
                     IsotropyCandidateRelation::DirectSourceIrrep

@@ -3,9 +3,7 @@
 //! 单斜晶系 C2 (#5)。POSCAR 含 8 Cr + 8 P + 32 S = 48 原子。
 //! PPOSCAR 原胞含 2 Cr + 2 P + 8 S = 12 原子（约化因子 4）。
 
-use cryspglib::{
-    Crystal, SpaceGroupType, spg_get_pointgroup,
-};
+use cryspglib::{Crystal, SpaceGroupType, pointgroup_from_rotations};
 
 const SYMPREC: f64 = 1e-5;
 
@@ -100,7 +98,7 @@ fn test_crps4() {
 
     // 点群: 2 (C₂) = point group number 3
     let (_symbol, _transform, pg_number) =
-        spg_get_pointgroup(&dataset.rotations).expect("spg_get_pointgroup failed");
+        pointgroup_from_rotations(&dataset.rotations).expect("point-group lookup failed");
     assert_eq!(pg_number, 3, "point group should be 2 (C2)");
 
     // C2 底心: 2 个点群操作 × 4 个底心平移 = 8 个对称操作

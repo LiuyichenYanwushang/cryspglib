@@ -26,24 +26,26 @@ fn run_dataset(
     let result = cry.analyze().symprec(SYMPREC).magnetic_dataset()
         .unwrap_or_else(|e| panic!("{}: magnetic_dataset failed: {:?}", label, e));
     eprintln!("=== {} ===", label);
-    eprintln!("{}", result.to_string());
+    eprintln!("{}", result);
     result
 }
 
 // ====================================================================
-// 公共 API: spg_get_magnetic_spacegroup_type_from_symmetry
+// Public Rust API: MagneticSpaceGroupType::classify
 // ====================================================================
 
 fn pm3m_ops() -> (Vec<[[i32; 3]; 3]>, Vec<[f64; 3]>) {
-    let (count, start) = cryspglib::spg_database::spgdb_get_operation_index(517);
-    let mut rots = Vec::with_capacity(count);
-    let mut trans = Vec::with_capacity(count);
-    for i in 0..count {
-        if let Some((r, t)) = cryspglib::spg_database::spgdb_get_operation_by_index(start + i) {
-            rots.push(r);
-            trans.push(t);
-        }
-    }
+    let operations = SymmetryOps::from_database(517).unwrap();
+    let rots = operations
+        .operations
+        .iter()
+        .map(|operation| operation.rotation)
+        .collect();
+    let trans = operations
+        .operations
+        .iter()
+        .map(|operation| operation.translation)
+        .collect();
     (rots, trans)
 }
 
@@ -133,20 +135,6 @@ fn test_from_uni_accepts_database_boundaries() {
     assert_eq!(last.bns_number.trim(), "230.149");
     assert_eq!(last.number, 230);
     assert_eq!(last.type_, MagneticType::BlackWhite);
-}
-
-#[test]
-#[allow(deprecated)]
-fn test_legacy_from_uni_wrapper_preserves_sentinel_behavior() {
-    for uni in [0, 1652, usize::MAX] {
-        let legacy = cryspglib::spg_get_magnetic_spacegroup_type(uni);
-        assert_eq!(legacy.uni_number, 0);
-        assert_eq!(legacy.type_, MagneticType::NonMagnetic);
-    }
-
-    let valid = cryspglib::spg_get_magnetic_spacegroup_type(1651);
-    assert_eq!(valid.uni_number, 1651);
-    assert_eq!(valid.bns_number.trim(), "230.149");
 }
 
 #[test]

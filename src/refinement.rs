@@ -10,13 +10,12 @@ use crate::mathfunc::{
     Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d,
     mat_check_identity_matrix_d3, mat_check_identity_matrix_i3,
     mat_cross_product_d3, mat_dmod1, mat_get_determinant_i3, mat_get_metric,
-    mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_multiply_matrix_di3,
-    mat_multiply_matrix_id3, mat_multiply_matrix_vector_d3,
-    mat_multiply_matrix_vector_id3, mat_nint, mat_norm_squared_d3,
+    mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_multiply_matrix_di3, mat_multiply_matrix_vector_d3,
+    mat_multiply_matrix_vector_id3, mat_norm_squared_d3,
     mat_transpose_matrix_d3,
 };
 use crate::pointgroup::{ptg_get_pointgroup, Holohedry};
-use crate::site_symmetry::ssm_get_exact_positions;
+use crate::site_symmetry::{ssm_get_exact_positions, ExactPositions};
 use crate::spacegroup::Spacegroup;
 use crate::spg_database::spgdb_get_spacegroup_operations;
 use crate::symmetry::Symmetry;
@@ -36,6 +35,21 @@ pub struct ExactStructure {
     pub crystallographic_orbits: Vec<i32>,
     pub std_mapping_to_primitive: Vec<i32>,
     pub rotation: Mat3,
+}
+
+struct WyckoffOutput<'a> {
+    wyckoffs: &'a mut [i32],
+    site_symmetry_symbols: &'a mut [String],
+    equivalent_atoms: &'a mut [i32],
+    crystallographic_orbits: &'a mut [i32],
+    std_mapping_to_primitive: &'a mut [i32],
+}
+
+struct BravaisExpansionOutput<'a> {
+    wyckoffs: &'a mut [i32],
+    site_symmetry_symbols: &'a mut [String],
+    equivalent_atoms: &'a mut [i32],
+    std_mapping_to_primitive: &'a mut [i32],
 }
 
 /// 精细化结构并获取完整对称信息。
@@ -63,11 +77,13 @@ pub fn ref_get_exact_structure_and_symmetry(
     let mut std_mapping_to_primitive = vec![0i32; primitive.size * 4];
 
     let bravais = get_wyckoff_positions(
-        &mut wyckoffs,
-        &mut site_symmetry_symbols,
-        &mut equivalent_atoms,
-        &mut crystallographic_orbits,
-        &mut std_mapping_to_primitive,
+        WyckoffOutput {
+            wyckoffs: &mut wyckoffs,
+            site_symmetry_symbols: &mut site_symmetry_symbols,
+            equivalent_atoms: &mut equivalent_atoms,
+            crystallographic_orbits: &mut crystallographic_orbits,
+            std_mapping_to_primitive: &mut std_mapping_to_primitive,
+        },
         primitive,
         cell,
         spacegroup,
@@ -76,8 +92,7 @@ pub fn ref_get_exact_structure_and_symmetry(
         symprec,
     )?;
 
-    let mut rotation = [[0.0; 3]; 3];
-    rotation = measure_rigid_rotation(&spacegroup.bravais_lattice, &bravais.lattice);
+    let rotation = measure_rigid_rotation(&spacegroup.bravais_lattice, &bravais.lattice);
 
     Some(ExactStructure {
         bravais,
@@ -93,11 +108,7 @@ pub fn ref_get_exact_structure_and_symmetry(
 
 /// 获取 Wyckoff 位置（内部函数）。
 fn get_wyckoff_positions(
-    wyckoffs: &mut [i32],
-    site_symmetry_symbols: &mut [String],
-    equiv_atoms: &mut [i32],
-    crystallographic_orbits: &mut [i32],
-    std_mapping_to_primitive: &mut [i32],
+    output: WyckoffOutput<'_>,
     primitive: &Cell,
     cell: &Cell,
     spacegroup: &Spacegroup,
@@ -116,7 +127,7 @@ fn get_wyckoff_positions(
         &mut wyckoffs_bravais,
         &mut site_sym_symbols_bravais,
         &mut equiv_atoms_bravais,
-        std_mapping_to_primitive,
+        output.std_mapping_to_primitive,
         spacegroup,
         primitive,
         symprec,
@@ -124,13 +135,14 @@ fn get_wyckoff_positions(
 
     // Map bravais-level data to cell-level
     for i in 0..cell.size {
-        wyckoffs[i] = wyckoffs_bravais[mapping_table[i] as usize];
-        site_symmetry_symbols[i] = site_sym_symbols_bravais[mapping_table[i] as usize].clone();
+        output.wyckoffs[i] = wyckoffs_bravais[mapping_table[i] as usize];
+        output.site_symmetry_symbols[i] =
+            site_sym_symbols_bravais[mapping_table[i] as usize].clone();
     }
 
     // Set crystallographic orbits
     if !set_crystallographic_orbits(
-        crystallographic_orbits,
+        output.crystallographic_orbits,
         primitive,
         cell,
         &equiv_atoms_bravais,
@@ -148,16 +160,15 @@ fn get_wyckoff_positions(
 
     if cell.size * num_prim_sym as usize != symmetry.size * primitive.size {
         set_equivalent_atoms_broken_symmetry(
-            equiv_atoms,
+            output.equivalent_atoms,
             cell,
             symmetry,
             mapping_table,
             symprec,
         );
     } else {
-        for i in 0..cell.size {
-            equiv_atoms[i] = crystallographic_orbits[i];
-        }
+        output.equivalent_atoms[..cell.size]
+            .copy_from_slice(&output.crystallographic_orbits[..cell.size]);
     }
 
     Some(bravais)
@@ -189,8 +200,12 @@ fn get_bravais_exact_positions_and_lattice(
     conv_prim.aperiodic_axis = if spacegroup.hall_number > 0 { None } else { Some(AperiodicAxis::Z) };
 
     // Get exact positions via site symmetry
-    let (exact_positions, wyckoffs_prim, equiv_atoms_prim, site_symmetry_symbols_prim) =
-        ssm_get_exact_positions(
+    let ExactPositions {
+        positions: exact_positions,
+        wyckoffs: wyckoffs_prim,
+        equivalent_atoms: equiv_atoms_prim,
+        site_symmetry_symbols: site_symmetry_symbols_prim,
+    } = ssm_get_exact_positions(
             &conv_prim,
             &conv_sym,
             num_pure_trans,
@@ -199,16 +214,16 @@ fn get_bravais_exact_positions_and_lattice(
         )?;
 
     // Copy exact positions back to conv_prim
-    for i in 0..conv_prim.size {
-        conv_prim.position[i] = exact_positions[i];
-    }
+    conv_prim.position[..conv_prim.size].copy_from_slice(&exact_positions[..conv_prim.size]);
 
     // Expand positions to Bravais cell
     let bravais = expand_positions_in_bravais(
-        wyckoffs,
-        site_symmetry_symbols,
-        equiv_atoms,
-        std_mapping_to_primitive,
+        BravaisExpansionOutput {
+            wyckoffs,
+            site_symmetry_symbols,
+            equivalent_atoms: equiv_atoms,
+            std_mapping_to_primitive,
+        },
         &conv_prim,
         &conv_sym,
         num_pure_trans,
@@ -222,10 +237,7 @@ fn get_bravais_exact_positions_and_lattice(
 
 /// 将原胞中的位置扩展到完整 Bravais 格子。
 fn expand_positions_in_bravais(
-    wyckoffs: &mut [i32],
-    site_symmetry_symbols: &mut [String],
-    equiv_atoms: &mut [i32],
-    std_mapping_to_primitive: &mut [i32],
+    output: BravaisExpansionOutput<'_>,
     conv_prim: &Cell,
     conv_sym: &Symmetry,
     num_pure_trans: i32,
@@ -245,10 +257,10 @@ fn expand_positions_in_bravais(
                 for k in 0..3 {
                     bravais.position[num_atom][k] += conv_sym.trans[i][k];
                 }
-                wyckoffs[num_atom] = wyckoffs_prim[j];
-                site_symmetry_symbols[num_atom] = site_symmetry_symbols_prim[j].clone();
-                equiv_atoms[num_atom] = equiv_atoms_prim[j];
-                std_mapping_to_primitive[num_atom] = j as i32;
+                output.wyckoffs[num_atom] = wyckoffs_prim[j];
+                output.site_symmetry_symbols[num_atom] = site_symmetry_symbols_prim[j].clone();
+                output.equivalent_atoms[num_atom] = equiv_atoms_prim[j];
+                output.std_mapping_to_primitive[num_atom] = j as i32;
                 num_atom += 1;
             }
         }
@@ -563,9 +575,9 @@ fn set_crystallographic_orbits(
 ) -> bool {
     let mut equiv_atoms = vec![0i32; primitive.size];
 
-    for i in 0..primitive.size {
-        for j in 0..cell.size {
-            if mapping_table[j] == equiv_atoms_prim[i] {
+    for (i, &equiv_atom_prim) in equiv_atoms_prim.iter().take(primitive.size).enumerate() {
+        for (j, &mapped_atom) in mapping_table.iter().take(cell.size).enumerate() {
+            if mapped_atom == equiv_atom_prim {
                 equiv_atoms[i] = j as i32;
                 break;
             }
@@ -586,14 +598,15 @@ fn set_equivalent_atoms_broken_symmetry(
     mapping_table: &[i32],
     symprec: f64,
 ) {
-    if cell.aperiodic_axis.is_none() {
+    if let Some(aperiodic) = cell.aperiodic_axis {
         for i in 0..cell.size {
             equiv_atoms_cell[i] = i as i32;
             for j in 0..cell.size {
                 if mapping_table[i] == mapping_table[j] {
                     if i == j {
-                        equiv_atoms_cell[i] =
-                            equiv_atoms_cell[search_equivalent_atom(i, cell, symmetry, symprec) as usize];
+                        equiv_atoms_cell[i] = equiv_atoms_cell[search_layer_equivalent_atom(
+                            i, cell, symmetry, aperiodic, symprec,
+                        )];
                     } else {
                         equiv_atoms_cell[i] = equiv_atoms_cell[j];
                     }
@@ -602,15 +615,13 @@ fn set_equivalent_atoms_broken_symmetry(
             }
         }
     } else {
-        let aperiodic = cell.aperiodic_axis.unwrap();
         for i in 0..cell.size {
             equiv_atoms_cell[i] = i as i32;
             for j in 0..cell.size {
                 if mapping_table[i] == mapping_table[j] {
                     if i == j {
-                        equiv_atoms_cell[i] = equiv_atoms_cell[search_layer_equivalent_atom(
-                            i, cell, symmetry, aperiodic, symprec,
-                        ) as usize];
+                        equiv_atoms_cell[i] =
+                            equiv_atoms_cell[search_equivalent_atom(i, cell, symmetry, symprec)];
                     } else {
                         equiv_atoms_cell[i] = equiv_atoms_cell[j];
                     }
@@ -629,8 +640,8 @@ fn search_equivalent_atom(
 ) -> usize {
     for i in 0..symmetry.size {
         let mut pos_rot = mat_multiply_matrix_vector_id3(&symmetry.rot[i], &cell.position[atom_index]);
-        for j in 0..3 {
-            pos_rot[j] += symmetry.trans[i][j];
+        for (coordinate, translation) in pos_rot.iter_mut().zip(&symmetry.trans[i]) {
+            *coordinate += translation;
         }
         for j in 0..atom_index {
             if cel_is_overlap_with_same_type(
@@ -657,8 +668,8 @@ fn search_layer_equivalent_atom(
 ) -> usize {
     for i in 0..symmetry.size {
         let mut pos_rot = mat_multiply_matrix_vector_id3(&symmetry.rot[i], &cell.position[atom_index]);
-        for j in 0..3 {
-            pos_rot[j] += symmetry.trans[i][j];
+        for (coordinate, translation) in pos_rot.iter_mut().zip(&symmetry.trans[i]) {
+            *coordinate += translation;
         }
         for j in 0..atom_index {
             if cel_layer_is_overlap_with_same_type(
@@ -686,8 +697,8 @@ fn set_translation_with_origin_shift(conv_sym: &mut Symmetry, origin_shift: &Vec
         tmp_mat[1][1] -= 1;
         tmp_mat[2][2] -= 1;
         let tmp_vec = mat_multiply_matrix_vector_id3(&tmp_mat, origin_shift);
-        for j in 0..3 {
-            conv_sym.trans[i][j] += tmp_vec[j];
+        for (translation, shift) in conv_sym.trans[i].iter_mut().zip(tmp_vec) {
+            *translation += shift;
         }
     }
 }
@@ -722,10 +733,8 @@ fn get_primitive_db_symmetry(t_mat: &Mat3, conv_sym: &Symmetry) -> Option<Symmet
 
     let num_op = r_prim.len();
     let mut prim_sym = Symmetry::new(num_op);
-    for i in 0..num_op {
-        prim_sym.rot[i] = r_prim[i];
-        prim_sym.trans[i] = t_prim[i];
-    }
+    prim_sym.rot[..num_op].copy_from_slice(&r_prim[..num_op]);
+    prim_sym.trans[..num_op].copy_from_slice(&t_prim[..num_op]);
 
     Some(prim_sym)
 }
@@ -739,12 +748,12 @@ fn get_surrounding_frame(t_mat: &Mat3I) -> [i32; 3] {
     for i_axis in 0..3 {
         let mut max = corners[i_axis][0];
         let mut min = corners[i_axis][0];
-        for j in 1..8 {
-            if max < corners[i_axis][j] {
-                max = corners[i_axis][j];
+        for &corner in corners[i_axis].iter().skip(1) {
+            if max < corner {
+                max = corner;
             }
-            if min > corners[i_axis][j] {
-                min = corners[i_axis][j];
+            if min > corner {
+                min = corner;
             }
         }
         frame[i_axis] = max - min;
@@ -754,8 +763,7 @@ fn get_surrounding_frame(t_mat: &Mat3I) -> [i32; 3] {
 
 fn get_corners(t_mat: &Mat3I) -> [[i32; 8]; 3] {
     let mut corners = [[0i32; 8]; 3];
-    // O
-    for i in 0..3 { corners[i][0] = 0; }
+    // O is already initialized to zero.
     // a, b, c
     for i in 0..3 {
         for j in 0..3 { corners[j][i + 1] = t_mat[j][i]; }
@@ -781,8 +789,7 @@ fn recover_symmetry_in_original_cell(
     aperiodic_axis: Option<AperiodicAxis>,
     symprec: f64,
 ) -> Option<Symmetry> {
-    let mut frame = [0i32; 3];
-    frame = get_surrounding_frame(t_mat);
+    let frame = get_surrounding_frame(t_mat);
 
     let t_mat_d = mat_cast_matrix_3i_to_3d(t_mat);
     let inv_tmat = mat_inverse_matrix_d3(&t_mat_d, 0.0).ok()?;
@@ -823,16 +830,16 @@ fn remove_overlapping_lattice_points(
 ) -> Option<Vec<Vec3>> {
     let mut pure_trans: Vec<Vec3> = Vec::new();
 
-    for i in 0..lattice_trans.len() {
+    for lattice_point in lattice_trans {
         let mut is_found = false;
-        for j in 0..pure_trans.len() {
-            if cel_is_overlap(&lattice_trans[i], &pure_trans[j], lattice, symprec) {
+        for pure_translation in &pure_trans {
+            if cel_is_overlap(lattice_point, pure_translation, lattice, symprec) {
                 is_found = true;
                 break;
             }
         }
         if !is_found {
-            pure_trans.push(lattice_trans[i]);
+            pure_trans.push(*lattice_point);
         }
     }
 
@@ -896,13 +903,13 @@ fn copy_symmetry_upon_lattice_points(
     let total = pure_trans.len() * size_sym_orig;
     let mut symmetry = Symmetry::new(total);
 
-    for i in 0..pure_trans.len() {
+    for (i, pure_translation) in pure_trans.iter().enumerate() {
         for j in 0..size_sym_orig {
             let idx = size_sym_orig * i + j;
             symmetry.rot[idx] = t_sym.rot[j];
             symmetry.trans[idx] = t_sym.trans[j];
-            for k in 0..3 {
-                symmetry.trans[idx][k] += pure_trans[i][k];
+            for (k, &offset) in pure_translation.iter().enumerate() {
+                symmetry.trans[idx][k] += offset;
                 if k as i32 != aperiodic_axis.map_or(-1, |ap| ap.axis_index() as i32) {
                     symmetry.trans[idx][k] = mat_dmod1(symmetry.trans[idx][k]);
                 }
@@ -925,8 +932,7 @@ pub fn ref_find_similar_bravais_lattice(spacegroup: &mut Spacegroup, symprec: f6
         None => return false,
     };
 
-    let mut std_lattice = [[0.0; 3]; 3];
-    std_lattice = ref_get_conventional_lattice(spacegroup);
+    let std_lattice = ref_get_conventional_lattice(spacegroup);
 
     // Find best rotation
     let mut min_length2 = 0.0;
@@ -986,8 +992,8 @@ pub fn ref_find_similar_bravais_lattice(spacegroup: &mut Spacegroup, symprec: f6
             let length = mat_norm_squared_d3(&p).sqrt();
             if length < min_len - symprec {
                 min_len = length;
-                for j in 0..lattice_rank as usize {
-                    p[j] = mat_dmod1(p[j]);
+                for coordinate in p.iter_mut().take(lattice_rank as usize) {
+                    *coordinate = mat_dmod1(*coordinate);
                 }
                 shortest_p = p;
             }
@@ -1019,10 +1025,10 @@ fn get_orthonormal_basis(lattice: &Mat3) -> Mat3 {
     basis_t[2] = mat_cross_product_d3(&lattice_t[0], &lattice_t[1]);
     basis_t[1] = mat_cross_product_d3(&basis_t[2], &lattice_t[0]);
 
-    for i in 0..3 {
-        let length = mat_norm_squared_d3(&basis_t[i]).sqrt();
-        for j in 0..3 {
-            basis_t[i][j] /= length;
+    for basis in &mut basis_t {
+        let length = mat_norm_squared_d3(basis).sqrt();
+        for coordinate in basis {
+            *coordinate /= length;
         }
     }
 

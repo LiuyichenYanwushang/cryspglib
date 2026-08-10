@@ -107,11 +107,10 @@ pub fn msg_identify_with_parent_hall(
     parent_hall_number: Option<usize>,
     symprec: f64,
 ) -> Result<MagneticDataset, SymError> {
-    if let Some(hall_number) = parent_hall_number {
-        if let Some(dataset) = match_exact_parent_setting(magnetic_symmetry, hall_number, symprec) {
+    if let Some(hall_number) = parent_hall_number
+        && let Some(dataset) = match_exact_parent_setting(magnetic_symmetry, hall_number, symprec) {
             return Ok(dataset);
         }
-    }
 
     // Type-IV standardization is not injective: distinct BNS parent groups
     // can have the same standardized XSG representation.  Build the complete
@@ -155,11 +154,10 @@ pub fn msg_identify_with_parent_hall(
                 &candidate,
                 symprec,
             );
-            if parent_hall_number.is_some() {
-                if let Some(dataset) = canonical_fallback {
+            if parent_hall_number.is_some()
+                && let Some(dataset) = canonical_fallback {
                     return Ok(dataset);
                 }
-            }
         }
     }
 
@@ -480,14 +478,13 @@ fn choose_canonical_candidate(
     parent_hall_number: Option<usize>,
     symprec: f64,
 ) -> Option<CanonicalDatabaseSetting> {
-    if let Some(parent_hall) = parent_hall_number {
-        if let Some(candidate) = candidates
+    if let Some(parent_hall) = parent_hall_number
+        && let Some(candidate) = candidates
             .iter()
             .find(|candidate| candidate.hall_number == parent_hall)
         {
             return Some(candidate.clone());
         }
-    }
 
     for candidate in candidates {
         let Some(database_symmetry) =
@@ -756,15 +753,6 @@ fn get_maximal_subspace_group_with_magnetic_symmetry(
     symprec: f64,
 ) -> Option<(Spacegroup, Symmetry)> {
     get_space_group_with_magnetic_symmetry(magnetic_symmetry, false, symprec)
-}
-
-/// Get maximal subspace group symmetry (XSG) — 仅提取对称操作, 不搜索空间群.
-/// 保留作为 fallback 和其他不需要空间群搜索的场景。
-fn get_maximal_subspace_symmetry(
-    magnetic_symmetry: &MagneticSymmetry,
-    symprec: f64,
-) -> Option<Symmetry> {
-    extract_symmetry(magnetic_symmetry, false, symprec)
 }
 
 /// Get space group from magnetic symmetry.
@@ -1097,12 +1085,11 @@ fn get_distinct_changed_magnetic_symmetry(
                     diff[k] = changed.trans[j][k] - t_new[k];
                     diff[k] -= mat_nint(diff[k]) as f64;
                 }
-                if diff[0].abs() < 1e-5 && diff[1].abs() < 1e-5 && diff[2].abs() < 1e-5 {
-                    if changed.timerev[j] == sym_msg.timerev[i] {
+                if diff[0].abs() < 1e-5 && diff[1].abs() < 1e-5 && diff[2].abs() < 1e-5
+                    && changed.timerev[j] == sym_msg.timerev[i] {
                         is_dup = true;
                         break;
                     }
-                }
             }
         }
 
@@ -1191,19 +1178,16 @@ fn get_changed_pure_translations(
         let mut denominator = 1;
         loop {
             let mut ok = true;
-            for s in 0..3 {
-                for t in 0..3 {
-                    if (tmat[s][t] * denominator as f64
-                        - mat_nint(tmat[s][t] * denominator as f64) as f64)
+            'matrix: for row in tmat {
+                for &value in row {
+                    if (value * denominator as f64
+                        - mat_nint(value * denominator as f64) as f64)
                         .abs()
                         > symprec
                     {
                         ok = false;
-                        break;
+                        break 'matrix;
                     }
-                }
-                if !ok {
-                    break;
                 }
             }
             if ok {
@@ -1260,22 +1244,13 @@ fn get_changed_magnetic_symmetry(
 ) -> Option<MagneticSymmetry> {
     // 1. 代表元在参考设置下的形式
     let changed_representatives =
-        match get_distinct_changed_magnetic_symmetry(tmat, shift, representatives) {
-            Some(r) => r,
-            None => return None,
-        };
+        get_distinct_changed_magnetic_symmetry(tmat, shift, representatives)?;
 
     // 2. 收集原始磁性对称中的纯平移（仅 timerev=0），变换到参考设置
-    let pure_trans = match crate::spin::spn_collect_pure_translations_from_magnetic_symmetry(
+    let pure_trans = crate::spin::spn_collect_pure_translations_from_magnetic_symmetry(
         magnetic_symmetry,
-    ) {
-        Some(p) => p,
-        None => return None,
-    };
-    let changed_pure_trans = match get_changed_pure_translations(tmat, &pure_trans, symprec) {
-        Some(p) => p,
-        None => return None,
-    };
+    )?;
+    let changed_pure_trans = get_changed_pure_translations(tmat, &pure_trans, symprec)?;
 
     // 3. 从 XSG 对称性中收集因子群（仅去重旋转部分，timerev=0）
     let mut factors = MagneticSymmetry::new(sym_xsg.size);
@@ -1290,17 +1265,14 @@ fn get_changed_magnetic_symmetry(
         num_factors += 1;
     }
     factors.size = num_factors;
-    let changed_factors = match get_distinct_changed_magnetic_symmetry(tmat, shift, &factors) {
-        Some(f) => f,
-        None => return None,
-    };
+    let changed_factors = get_distinct_changed_magnetic_symmetry(tmat, shift, &factors)?;
 
     // 4. 合成: (I, ti)(Pj, tj)(Pk, tk) = (Pj * Pk, Pj * tk + tj + ti)
     let size = changed_representatives.size * changed_pure_trans.len() * num_factors;
     let mut changed = MagneticSymmetry::new(size);
     let mut num_sym = 0;
 
-    for i in 0..changed_pure_trans.len() {
+    for pure_translation in &changed_pure_trans {
         for j in 0..changed_representatives.size {
             for k in 0..num_factors {
                 // R = Pj * Pk
@@ -1314,9 +1286,9 @@ fn get_changed_magnetic_symmetry(
                     &changed_representatives.rot[j],
                     &changed_factors.trans[k],
                 );
-                for s in 0..3 {
-                    trans[s] += changed_representatives.trans[j][s] + changed_pure_trans[i][s];
-                    trans[s] = mat_dmod1(trans[s]);
+                for (s, value) in trans.iter_mut().enumerate() {
+                    *value += changed_representatives.trans[j][s] + pure_translation[s];
+                    *value = mat_dmod1(*value);
                 }
                 changed.trans[num_sym] = trans;
 
@@ -1343,8 +1315,8 @@ fn is_equal(sym1: &MagneticSymmetry, sym2: &MagneticSymmetry, symprec: f64) -> b
     let mut found = vec![false; sym2.size];
     for i in 0..sym1.size {
         let mut matched = false;
-        for j in 0..sym2.size {
-            if found[j] {
+        for (j, already_found) in found.iter_mut().enumerate() {
+            if *already_found {
                 continue;
             }
             if !mat_check_identity_matrix_i3(&sym1.rot[i], &sym2.rot[j]) {
@@ -1354,12 +1326,12 @@ fn is_equal(sym1: &MagneticSymmetry, sym2: &MagneticSymmetry, symprec: f64) -> b
                 continue;
             }
             let mut diff = [0.0; 3];
-            for k in 0..3 {
-                diff[k] = sym1.trans[i][k] - sym2.trans[j][k];
-                diff[k] -= mat_nint(diff[k]) as f64;
+            for (k, value) in diff.iter_mut().enumerate() {
+                *value = sym1.trans[i][k] - sym2.trans[j][k];
+                *value -= mat_nint(*value) as f64;
             }
             if diff[0].abs() < symprec && diff[1].abs() < symprec && diff[2].abs() < symprec {
-                found[j] = true;
+                *already_found = true;
                 matched = true;
                 break;
             }

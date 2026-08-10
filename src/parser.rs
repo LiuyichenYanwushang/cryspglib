@@ -2,7 +2,15 @@
 
 use crate::mathfunc::{Mat3, Vec3};
 
-/// Parse a POSCAR-format string into `(lattice, positions, types, magnetic_moments)`.
+/// Parsed contents of a POSCAR-like structure file.
+pub struct ParsedPoscar {
+    pub lattice: Mat3,
+    pub positions: Vec<Vec3>,
+    pub types: Vec<i32>,
+    pub magnetic_moments: Option<Vec<Vec3>>,
+}
+
+/// Parse a POSCAR-format string into [`ParsedPoscar`].
 ///
 /// Format:
 /// ```text
@@ -18,7 +26,7 @@ use crate::mathfunc::{Mat3, Vec3};
 /// ```
 ///
 /// Returns `None` on malformed input.
-pub fn parse_poscar(data: &str) -> Option<(Mat3, Vec<Vec3>, Vec<i32>, Option<Vec<[f64; 3]>>)> {
+pub fn parse_poscar(data: &str) -> Option<ParsedPoscar> {
     let lines: Vec<&str> = data.lines().collect();
     if lines.len() < 6 {
         return None;
@@ -44,9 +52,9 @@ pub fn parse_poscar(data: &str) -> Option<(Mat3, Vec<Vec3>, Vec<i32>, Option<Vec
         }
     }
     if scale != 1.0 {
-        for i in 0..3 {
-            for j in 0..3 {
-                lattice[i][j] *= scale;
+        for row in &mut lattice {
+            for value in row {
+                *value *= scale;
             }
         }
     }
@@ -109,14 +117,18 @@ pub fn parse_poscar(data: &str) -> Option<(Mat3, Vec<Vec3>, Vec<i32>, Option<Vec
 
     if is_cartesian {
         let inv_lat = crate::mathfunc::mat_inverse_matrix_d3(&lattice, 1e-10).ok()?;
-        for i in 0..n_atoms {
-            let frac = crate::mathfunc::mat_multiply_matrix_vector_d3(&inv_lat, &positions[i]);
-            positions[i] = frac;
+        for position in positions.iter_mut().take(n_atoms) {
+            *position = crate::mathfunc::mat_multiply_matrix_vector_d3(&inv_lat, position);
         }
     }
 
     let mag_opt = if has_moments { Some(moments) } else { None };
-    Some((lattice, positions, types, mag_opt))
+    Some(ParsedPoscar {
+        lattice,
+        positions,
+        types,
+        magnetic_moments: mag_opt,
+    })
 }
 
 fn element_to_number(symbol: &str) -> i32 {
@@ -197,8 +209,8 @@ mod tests {
         let parsed = super::parse_poscar(&poscar_with_counts("0 2", "0 0 0\n0.5 0.5 0.5"))
             .expect("a zero-count species does not make the structure empty");
 
-        assert_eq!(parsed.1.len(), 2);
-        assert_eq!(parsed.2, vec![2, 2]);
+        assert_eq!(parsed.positions.len(), 2);
+        assert_eq!(parsed.types, vec![2, 2]);
     }
 
     #[test]
@@ -209,8 +221,11 @@ mod tests {
         ))
         .unwrap();
 
-        assert_eq!(parsed.1.len(), 2);
-        assert_eq!(parsed.2, vec![1, 2]);
-        assert_eq!(parsed.3, Some(vec![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]));
+        assert_eq!(parsed.positions.len(), 2);
+        assert_eq!(parsed.types, vec![1, 2]);
+        assert_eq!(
+            parsed.magnetic_moments,
+            Some(vec![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
+        );
     }
 }

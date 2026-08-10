@@ -8851,16 +8851,16 @@ pub fn spgdb_decode_symmetry(encoded: i32) -> (Mat3I, Vec3) {
     let mut trans = [0.0; 3];
     let r = encoded % 19683; // 19683 = 3^9
     let mut degit = 6561; // 3^8
-    for i in 0..3 {
-        for j in 0..3 {
-            rot[i][j] = (r % (degit * 3)) / degit - 1;
+    for row in &mut rot {
+        for value in row {
+            *value = (r % (degit * 3)) / degit - 1;
             degit /= 3;
         }
     }
     let t = encoded / 19683;
     let mut degit = 144;
-    for i in 0..3 {
-        trans[i] = ((t % (degit * 12)) / degit) as f64 / 12.0;
+    for value in &mut trans {
+        *value = ((t % (degit * 12)) / degit) as f64 / 12.0;
         degit /= 12;
     }
     (rot, trans)
@@ -8933,7 +8933,7 @@ fn spgdb_remove_space(s: &mut String) {
 }
 
 /// 将 Hall 符号中的 '=' 替换为 '"'
-fn replace_equal_char(s: &mut String) {
+fn replace_equal_char(s: &mut str) {
     // 由于字符串是 UTF-8 安全的，'=' 和 '"' 都是单字节，可以直接操作字节
     // 但为了简单，使用 chars_mut 需要 unsafe，这里采用 as_bytes_mut
     unsafe {

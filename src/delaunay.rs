@@ -9,7 +9,7 @@
 use crate::cell::AperiodicAxis;
 use crate::debug;
 use crate::mathfunc::{
-    Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i,
+    Mat3, mat_cast_matrix_3d_to_3i,
     mat_get_determinant_d3, mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
     mat_norm_squared_d3,
 };
@@ -20,11 +20,10 @@ const ZERO_PREC: f64 = 1e-10;
 /// 获取最大尝试次数，从环境变量 SPGLIB_NUM_ATTEMPTS 读取，默认为 1000
 fn get_num_attempts() -> i32 {
     if let Ok(val_str) = env::var("SPGLIB_NUM_ATTEMPTS") {
-        if let Ok(val) = val_str.parse::<i32>() {
-            if val > 0 {
+        if let Ok(val) = val_str.parse::<i32>()
+            && val > 0 {
                 return val;
             }
-        }
         debug::warning_print(format_args!(
             "spglib: Could not parse SPGLIB_NUM_ATTEMPTS={}\n",
             val_str
@@ -38,7 +37,7 @@ fn get_num_attempts() -> i32 {
 /// min_lattice: 输出的约化后晶格
 /// lattice: 输入晶格
 /// symprec: 对称性判定精度
-pub fn del_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Option<Mat3> {
+pub(crate) fn del_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Option<Mat3> {
     debug::debug_print(format_args!(
         "del_delaunay_reduce (tolerance = {}):\n",
         symprec
@@ -48,7 +47,7 @@ pub fn del_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Option<Mat3> {
 
 /// 层状结构的 Delaunay 约化
 /// aperiodic_axis: 非周期轴
-pub fn del_layer_delaunay_reduce(
+pub(crate) fn del_layer_delaunay_reduce(
     lattice: &Mat3,
     aperiodic_axis: Option<AperiodicAxis>,
     symprec: f64,
@@ -68,8 +67,7 @@ fn delaunay_reduce(
     aperiodic_axis: i32,
     symprec: f64,
 ) -> Option<Mat3> {
-    let mut orig_lattice = [[0.0; 3]; 3];
-    orig_lattice = *lattice;
+    let orig_lattice = *lattice;
 
     // 扩展基 basis[4][3]
     let mut basis: [[f64; 3]; 4] = [[0.0; 3]; 4];
@@ -109,11 +107,9 @@ fn delaunay_reduce(
     // 如果是层状结构 (rank=2) 且非周期轴不是 Z 轴 (2)，需要把非周期轴移回原来的方向
     if lattice_rank == 2 && aperiodic_axis != 2 {
         let axis = aperiodic_axis as usize;
-        for i in 0..3 {
+        for row in &mut red_lattice {
             // 交换第 axis 列和第 2 列
-            let temp = red_lattice[i][axis];
-            red_lattice[i][axis] = red_lattice[i][2]; // basis[2] 是之前暂存非周期轴的地方
-            red_lattice[i][2] = temp;
+            row.swap(axis, 2);
         }
     }
 
@@ -125,9 +121,9 @@ fn delaunay_reduce(
 
     // 保持体积为正（右手系）
     if volume < 0.0 {
-        for i in 0..3 {
-            for j in 0..3 {
-                red_lattice[i][j] = -red_lattice[i][j];
+        for row in &mut red_lattice {
+            for value in row {
+                *value = -*value;
             }
         }
     }
@@ -185,9 +181,7 @@ fn get_delaunay_shortest_vectors(basis: &mut [[f64; 3]; 4], lattice_rank: usize,
         for _ in 0..6 {
             for j in 0..6 {
                 if mat_norm_squared_d3(&b[j]) > mat_norm_squared_d3(&b[j + 1]) + ZERO_PREC {
-                    let tmp = b[j];
-                    b[j] = b[j + 1];
-                    b[j + 1] = tmp;
+                    b.swap(j, j + 1);
                 }
             }
         }
@@ -196,9 +190,7 @@ fn get_delaunay_shortest_vectors(basis: &mut [[f64; 3]; 4], lattice_rank: usize,
         for _ in 0..2 {
             for j in 0..2 {
                 if mat_norm_squared_d3(&b[j]) > mat_norm_squared_d3(&b[j + 1]) + ZERO_PREC {
-                    let tmp = b[j];
-                    b[j] = b[j + 1];
-                    b[j + 1] = tmp;
+                    b.swap(j, j + 1);
                 }
             }
         }
@@ -206,9 +198,7 @@ fn get_delaunay_shortest_vectors(basis: &mut [[f64; 3]; 4], lattice_rank: usize,
         for _ in 3..6 {  // 外层循环 3 次，对应 C 的 for (i = 3; i <= 5; i++)
             for j in 3..6 {
                 if mat_norm_squared_d3(&b[j]) > mat_norm_squared_d3(&b[j + 1]) + ZERO_PREC {
-                    let tmp = b[j];
-                    b[j] = b[j + 1];
-                    b[j + 1] = tmp;
+                    b.swap(j, j + 1);
                 }
             }
         }
@@ -240,25 +230,27 @@ fn get_delaunay_shortest_vectors(basis: &mut [[f64; 3]; 4], lattice_rank: usize,
 fn delaunay_reduce_basis(basis: &mut [[f64; 3]; 4], lattice_rank: usize, symprec: f64) -> bool {
     for i in 0..3 {
         for j in (i + 1)..4 {
-            let mut dot_product = 0.0;
-            for k in 0..3 {
-                dot_product += basis[i][k] * basis[j][k];
-            }
+            let dot_product: f64 = basis[i]
+                .iter()
+                .zip(&basis[j])
+                .map(|(&left, &right)| left * right)
+                .sum();
 
             if dot_product > symprec {
                 if i < lattice_rank {
                     // 执行 Selling 变换
                     // b_k = b_k + b_i for k != i, j
-                    for k in 0..4 {
+                    let basis_i = basis[i];
+                    for (k, row) in basis.iter_mut().enumerate() {
                         if k != i && k != j {
-                            for l in 0..3 {
-                                basis[k][l] += basis[i][l];
+                            for (value, &addend) in row.iter_mut().zip(&basis_i) {
+                                *value += addend;
                             }
                         }
                     }
                     // b_i = -b_i
-                    for k in 0..3 {
-                        basis[i][k] = -basis[i][k];
+                    for value in &mut basis[i] {
+                        *value = -*value;
                     }
                     return false; // 发生了修改，需要重新迭代
                 } else {
@@ -319,14 +311,14 @@ fn get_extended_basis(basis: &mut [[f64; 3]; 4], lattice: &Mat3, aperiodic_axis:
 // --- 2D Delaunay Reduction Functions ---
 
 /// 2D 层状结构的 Delaunay 约化
-pub fn del_layer_delaunay_reduce_2D(
+pub(crate) fn del_layer_delaunay_reduce_2d(
     red_lattice: &mut Mat3,
     lattice: &Mat3,
     unique_axis: i32,
     aperiodic_axis: i32,
     symprec: f64,
 ) -> bool {
-    debug::debug_print(format_args!("del_layer_delaunay_reduce_2D:\n"));
+    debug::debug_print(format_args!("del_layer_delaunay_reduce_2d:\n"));
 
     let mut j = -1;
     let mut k = -1;
@@ -408,8 +400,8 @@ pub fn del_layer_delaunay_reduce_2D(
     }
 
     if volume < 0.0 {
-        for i in 0..3 {
-            red_lattice[i][unique_axis] = -red_lattice[i][unique_axis];
+        for row in &mut *red_lattice {
+            row[unique_axis] = -row[unique_axis];
         }
     }
 
@@ -419,23 +411,25 @@ pub fn del_layer_delaunay_reduce_2D(
 fn delaunay_reduce_basis_2d(basis: &mut [[f64; 3]; 3], lattice_rank: usize, symprec: f64) -> bool {
     for i in 0..2 {
         for j in (i + 1)..3 {
-            let mut dot_product = 0.0;
-            for k in 0..3 {
-                dot_product += basis[i][k] * basis[j][k];
-            }
+            let dot_product: f64 = basis[i]
+                .iter()
+                .zip(&basis[j])
+                .map(|(&left, &right)| left * right)
+                .sum();
 
             if dot_product > symprec {
                 if i < lattice_rank {
-                    for k in 0..3 {
+                    let basis_i = basis[i];
+                    for (k, row) in basis.iter_mut().enumerate() {
                         if k != i && k != j {
-                            for l in 0..3 {
-                                basis[k][l] += 2.0 * basis[i][l];
+                            for (value, &addend) in row.iter_mut().zip(&basis_i) {
+                                *value += 2.0 * addend;
                             }
                             break; // 2D 只有 3 个向量，找到第三个即可
                         }
                     }
-                    for k in 0..3 {
-                        basis[i][k] = -basis[i][k];
+                    for value in &mut basis[i] {
+                        *value = -*value;
                     }
                     return false;
                 } else {
@@ -461,9 +455,7 @@ fn get_delaunay_shortest_vectors_2d(
     let mut b: [[f64; 3]; 4] = [[0.0; 3]; 4];
 
     // b[0..3] = basis[0..3]
-    for i in 0..3 {
-        b[i] = basis[i];
-    }
+    b[..3].copy_from_slice(basis);
     // b[3] = basis[0] + basis[1]
     for i in 0..3 {
         b[3][i] = basis[0][i] + basis[1][i];
@@ -475,9 +467,7 @@ fn get_delaunay_shortest_vectors_2d(
     for _ in start_idx..3 {
         for j in start_idx..3 {
             if mat_norm_squared_d3(&b[j]) > mat_norm_squared_d3(&b[j + 1]) + ZERO_PREC {
-                let tmp = b[j];
-                b[j] = b[j + 1];
-                b[j + 1] = tmp;
+                b.swap(j, j + 1);
             }
         }
     }

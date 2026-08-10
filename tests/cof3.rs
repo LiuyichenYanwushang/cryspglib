@@ -3,9 +3,7 @@
 //! CoF₃ 是六方 R-3c (#167) 结构，含 18 F + 6 Cr = 24 原子。
 //! 所有测试只使用公共 API。
 
-use cryspglib::{
-    Crystal, SpaceGroupType, spg_get_pointgroup, MagneticType,
-};
+use cryspglib::{Crystal, MagneticType, SpaceGroupType, pointgroup_from_rotations};
 
 const SYMPREC: f64 = 1e-5;
 
@@ -67,7 +65,7 @@ fn test_cof3_nonmagnetic() {
 
     // 点群 -3m (D3d) = point group number 20
     let (_symbol, _transform, pg_number) =
-        spg_get_pointgroup(&dataset.rotations).expect("spg_get_pointgroup failed");
+        pointgroup_from_rotations(&dataset.rotations).expect("point-group lookup failed");
     assert_eq!(pg_number, 20, "point group should be -3m (D3d)");
 }
 
@@ -132,7 +130,7 @@ fn test_cof3_magnetic() {
         .magnetic_dataset()
         .expect("spg_get_magnetic_dataset must succeed");
 
-    eprintln!("{}", result.to_string());
+    eprintln!("{}", result);
 
     assert_eq!(result.spacegroup_number, 167, "non-mag: R-3c");
     assert_eq!(result.uni_number, 1333, "UNI=1333");

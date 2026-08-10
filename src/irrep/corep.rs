@@ -150,7 +150,7 @@ fn scalar_little_irrep_data(
         .filter(|operation| operation.rot == identity_rotation)
         .map(|operation| operation.trans)
         .collect();
-    if pure_translations.is_empty() || h_seitz.len() % pure_translations.len() != 0 {
+    if pure_translations.is_empty() || !h_seitz.len().is_multiple_of(pure_translations.len()) {
         return None;
     }
     let equivalent_mod_translation_subgroup = |left: &SeitzOp, right: &SeitzOp| {
@@ -173,12 +173,12 @@ fn scalar_little_irrep_data(
     }
     let effective_h_order = h_seitz.len() / pure_translations.len();
     let effective_little_order = little_coset_representatives.len();
-    if effective_little_order == 0 || effective_h_order % effective_little_order != 0 {
+    if effective_little_order == 0 || !effective_h_order.is_multiple_of(effective_little_order) {
         return None;
     }
     let star_size = effective_h_order / effective_little_order;
     let full_dim = irrep.dim as usize;
-    if star_size == 0 || full_dim == 0 || full_dim % star_size != 0 {
+    if star_size == 0 || full_dim == 0 || !full_dim.is_multiple_of(star_size) {
         return None;
     }
     let dim = full_dim / star_size;
@@ -666,7 +666,7 @@ pub fn compute_corepresentation(
     // to H's data-Hall frame for b² lookup, but looks up the antiunitary
     // spatial rotation in the parent-G spin table in the original MSG frame.
     let mag_seitz_msg = ops_to_seitz(mag_ops);
-    let h_seitz = ops_to_seitz(&h_ops);
+    let h_seitz = ops_to_seitz(h_ops);
 
     // 3a. Map unitary magnetic ops to H ops via full Seitz matching
     // (rotation + translation), not rotation-only.
@@ -822,10 +822,7 @@ pub fn compute_corepresentation(
                 &antiunitary,
                 &mag_seitz,
                 &h_seitz,
-                h_irrep.kx,
-                h_irrep.ky,
-                h_irrep.kz,
-                h_irrep.kd,
+                h_irrep.k_vector(),
             ) {
                 Ok(corep_type) => corep_type,
                 Err(error) => {
@@ -889,7 +886,6 @@ pub fn compute_corepresentation(
             g: g_spin,
             sg: h_irrep.sg,
         };
-        let n_lg = h_irrep.spin_lg_char_count();
         let op_indices = h_irrep.spin_lg_op_indices();
         let is_grey = crate::MagneticSpaceGroupType::from_uni(uni_number)
             .map_err(|_| CorepComputationError::InvalidUni { uni: uni_number })?
@@ -899,20 +895,20 @@ pub fn compute_corepresentation(
 
         match wigner::wigner_classify_spinor(
             &ctx,
-            &h_chars,
-            h_irrep.spin_character_imag(),
-            n_lg,
-            op_indices,
-            &unitary,
-            &mag_seitz_msg,
-            &h_seitz,
-            a0_idx,
+            wigner::SpinorWignerInput {
+                characters_real: &h_chars,
+                characters_imag: h_irrep.spin_character_imag(),
+                operation_indices: op_indices,
+                k_vector: h_irrep.k_vector(),
+            },
+            wigner::WignerGroupContext {
+                unitary_indices: &unitary,
+                magnetic_ops: &mag_seitz_msg,
+                unitary_ops: &h_seitz,
+                antiunitary_representative: a0_idx,
+            },
             setting_xf,
             Some(&antiunitary),
-            h_irrep.kx,
-            h_irrep.ky,
-            h_irrep.kz,
-            h_irrep.kd,
         ) {
             Ok(ct) => Ok((ct, WignerSource::SpinorSU2)),
             Err(e) => {
@@ -941,22 +937,18 @@ pub fn compute_corepresentation(
                 &antiunitary,
                 &mag_seitz,
                 &h_seitz,
-                h_irrep.kx,
-                h_irrep.ky,
-                h_irrep.kz,
-                h_irrep.kd,
+                h_irrep.k_vector(),
             )
         } else {
             wigner::wigner_classify(
                 &h_chars,
-                &unitary,
-                &mag_seitz,
-                &h_seitz,
-                antiunitary[0],
-                h_irrep.kx,
-                h_irrep.ky,
-                h_irrep.kz,
-                h_irrep.kd,
+                wigner::WignerGroupContext {
+                    unitary_indices: &unitary,
+                    magnetic_ops: &mag_seitz,
+                    unitary_ops: &h_seitz,
+                    antiunitary_representative: antiunitary[0],
+                },
+                h_irrep.k_vector(),
             )
         };
         let ct = classification.map_err(|e| CorepComputationError::UnsupportedClassification {
@@ -978,14 +970,10 @@ pub fn compute_corepresentation(
             wigner::type_a_antiunitary_chars(
                 &mag_seitz,
                 &mag_lg,
-                &op_map,
                 &h_chars,
                 &h_seitz,
                 antiunitary[0],
-                h_irrep.kx,
-                h_irrep.ky,
-                h_irrep.kz,
-                h_irrep.kd,
+                h_irrep.k_vector(),
             )
             .map(|(chars, _u)| chars)
         } else {
@@ -1011,10 +999,6 @@ pub fn compute_corepresentation(
                         &h_chars,
                         &h_seitz,
                         antiunitary[0],
-                        h_irrep.kx,
-                        h_irrep.ky,
-                        h_irrep.kz,
-                        h_irrep.kd,
                         matrices,
                         rotations,
                     )
@@ -1319,10 +1303,10 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
 
     let mut unitary_rots: Vec<Mat3I> = Vec::new();
     let mut unitary_trans: Vec<[f64; 3]> = Vec::new();
-    for i in 0..mag_ops.len() {
-        if !mag_ops.operations[i].time_reversal {
-            unitary_rots.push(mag_ops.operations[i].rotation);
-            unitary_trans.push(mag_ops.operations[i].translation);
+    for operation in &mag_ops.operations {
+        if !operation.time_reversal {
+            unitary_rots.push(operation.rotation);
+            unitary_trans.push(operation.translation);
         }
     }
     if unitary_rots.is_empty() {
@@ -1351,8 +1335,7 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
             })?;
             (std_sg, std_hall, oh, Some(xf))
         } else {
-            #[allow(deprecated)]
-            let h = crate::spg_get_hall_number_from_symmetry(&unitary_rots, &unitary_trans, 1e-5)
+            let h = crate::hall_number_from_symmetry(&unitary_rots, &unitary_trans, 1e-5)
                 .ok()?;
             if h == 0 || h > 530 {
                 return None;
@@ -1472,8 +1455,7 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
             // the requested data Hall and validates against the full MSG.
             if let Some((std_sg, std_hall, detected_to_data)) =
                 standard_setting_transform(&ops_from_hall, false)
-            {
-                if std_sg == sg
+                && std_sg == sg
                     && std_hall == data_hall
                     && transform_embeds_ops(&detected_to_data, &ops_from_hall, &data_ops)
                 {
@@ -1494,7 +1476,6 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
                         });
                     }
                 }
-            }
         }
         // Never expose a detected-Hall operation set as if it were in the
         // data-Hall frame.  Callers need a verified common frame.
@@ -1511,8 +1492,8 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
         .copied()
         .unwrap_or(0) as usize;
     let msg_to_data = if data_hall > 0 {
-        if data_hall == hall {
-            if let Some(xf) = msg_to_detected.filter(|candidate| {
+        if data_hall == hall
+            && let Some(xf) = msg_to_detected.filter(|candidate| {
                 transform_embeds_ops(candidate, &ops_from_msg, &ops_from_hall)
                     && transform_applies_to_all_ops(candidate, &mag_ops)
             }) {
@@ -1525,7 +1506,6 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
                     msg_to_data: Some(xf),
                 });
             }
-        }
         let msg_rots: Vec<Mat3I> = ops_from_msg.operations.iter().map(|o| o.rotation).collect();
         let msg_trans: Vec<[f64; 3]> = ops_from_msg
             .operations
@@ -1643,7 +1623,7 @@ pub fn compute_coreps(
     }
 
     let mut results = Vec::with_capacity(k_irreps.len());
-    for (_i, ir) in k_irreps.iter().enumerate() {
+    for ir in k_irreps.iter() {
         let c = compute_corepresentation(ir, uni, &mag_ops)?;
         // For Type C, partner finding for better character tables is still
         // pending. The characters from compute_corepresentation are used
@@ -1704,36 +1684,6 @@ impl IrrepRecord {
         compute_corepresentation(self, uni_number, &mag_ops)
     }
 }
-
-// ── High-level API ───────────────────────────────────────────────────────────
-
-/// Compute all corepresentations for a magnetic space group at a k-point.
-///
-/// This is the primary entry point: given a BNS label and k-point label,
-/// it automatically:
-/// 1. Looks up the UNI number from the BNS label
-/// 2. Identifies the unitary subgroup H
-/// 3. Retrieves H's irreps at the k-point
-/// 4. Computes the magnetic corepresentation for each H irrep
-///
-/// # Arguments
-/// * `bns` — BNS label, e.g. `"1.2"`
-/// * `k_label` — k-point label, e.g. `"Z"` or `"GM"`
-///
-/// # Returns
-/// Vector of `(h_irrep_label, Corepresentation)` pairs, sorted by irrep label.
-///
-/// # Example
-/// ```
-/// use cryspglib::irrep::corep::compute_coreps;
-///
-/// let coreps = compute_coreps("1.2", "GM")?;
-/// for (label, c) in coreps {
-///     println!("{}: dim={}, type={:?}, χ(id)={:.1}",
-///         label, c.dim, c.corep_type, c.characters[0]);
-/// }
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
 
 // ── Magnetic isotropy → corepresentation bridge ────────────────────────────
 
@@ -1902,9 +1852,9 @@ mod tests {
         // ── 1. Full group (ignore θ) should identify as parent SG 128 ──
         let ops_rots: Vec<_> = ops.operations.iter().map(|o| o.rotation).collect();
         let ops_trans: Vec<_> = ops.operations.iter().map(|o| o.translation).collect();
-        let hall_full = crate::spg_get_hall_number_from_symmetry(&ops_rots, &ops_trans, 1e-5);
+        let hall_full = crate::hall_number_from_symmetry(&ops_rots, &ops_trans, 1e-5);
         assert!(hall_full.is_ok(), "Should identify full group");
-        let sg_full = crate::spg_get_spacegroup_type(hall_full.unwrap()).unwrap();
+        let sg_full = crate::SpaceGroupType::from_hall(hall_full.unwrap()).unwrap();
         assert_eq!(
             sg_full.number, 128,
             "Full ops should identify as SG 128, got SG {}",
@@ -2156,7 +2106,7 @@ mod tests {
     #[test]
     fn test_char_order_sg118() {
         let uni = 1066usize;
-        let mag_ops = get_magnetic_operations(uni).unwrap();
+        let _mag_ops = get_magnetic_operations(uni).unwrap();
         let h_sg = identify_unitary_subgroup(uni).unwrap();
         let h_ops = get_parent_operations(h_sg as u8).unwrap();
         let h_seitz = ops_to_seitz(&h_ops);
@@ -2430,7 +2380,7 @@ mod tests {
                 let h_h = op_map[h_mag_idx];
 
                 // g₀h
-                let (g0h, l1) = compose_seitz(
+                let (g0h, _l1) = compose_seitz(
                     &SeitzOp::new(a0.rot, a0.trans, false),
                     &SeitzOp::new(h.rot, h.trans, false),
                 );
@@ -2500,19 +2450,25 @@ mod tests {
             // Unwrapped square diagnostic for h[4] and h[7]
             if ir.ml == "Z1Z4" {
                 let a0_idx = anti_lg[0];
+                let group = wigner::WignerGroupContext {
+                    unitary_indices: &unitary_lg,
+                    magnetic_ops: &mag_seitz,
+                    unitary_ops: &h_seitz,
+                    antiunitary_representative: a0_idx,
+                };
                 wigner::debug_unwrapped_square(
-                    4, a0_idx, &mag_seitz, &h_seitz, ir.kx, ir.ky, ir.kz, ir.kd,
+                    4, group, ir.k_vector(),
                 )
                 .expect("diagnostic square indices must be valid");
                 wigner::debug_unwrapped_square(
-                    7, a0_idx, &mag_seitz, &h_seitz, ir.kx, ir.ky, ir.kz, ir.kd,
+                    7, group, ir.k_vector(),
                 )
                 .expect("diagnostic square indices must be valid");
 
                 // Direct anti-coset Wigner sum
                 let cir = ir.cir_component_chars(0);
                 let w_direct = wigner::wigner_direct_anti_coset(
-                    cir, &anti_lg, &mag_seitz, &h_seitz, ir.kx, ir.ky, ir.kz, ir.kd,
+                    cir, &anti_lg, &mag_seitz, &h_seitz, ir.k_vector(),
                 )
                 .expect("diagnostic direct anti-coset sum must be well formed");
                 println!("  Direct anti-coset W = {:.4}", w_direct);
@@ -2875,7 +2831,7 @@ mod tests {
             if let Some(ops) = get_magnetic_operations(uni) {
                 assert!(!ops.is_empty(), "UNI {} has empty ops", uni);
                 let n_u = ops.operations.iter().filter(|o| !o.time_reversal).count();
-                let n_a = ops.operations.iter().filter(|o| o.time_reversal).count();
+                let _n_a = ops.operations.iter().filter(|o| o.time_reversal).count();
                 assert!(n_u > 0, "UNI {} has no unitary ops", uni);
                 // Every magnetic op must have a valid rotation (det = ±1)
                 for i in 0..ops.len() {
@@ -2894,7 +2850,7 @@ mod tests {
                 // Verify unitary subgroup can be identified (may fail for some edge cases)
                 if let Some(h_sg) = identify_unitary_subgroup(uni) {
                     assert!(
-                        h_sg >= 1 && h_sg <= 230,
+                        (1..=230).contains(&h_sg),
                         "UNI {} unitary SG={} out of range",
                         uni,
                         h_sg
@@ -2947,7 +2903,7 @@ mod tests {
                     chars[0]
                 );
                 // Spin ops should exist
-                let (rots, trans, su2) = ir.spin_ops();
+                let (rots, _trans, _su2) = ir.spin_ops();
                 if ir.spin_lg_char_count() > 0 {
                     assert!(
                         !rots.is_empty(),
@@ -3105,8 +3061,8 @@ mod tests {
                 Some(s) => s as u8,
                 None => continue,
             };
-            let h_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
-            let h_seitz_unitary: Vec<_> = (0..mag_ops.len())
+            let _h_seitz = crate::irrep::wigner::ops_to_seitz(&mag_ops);
+            let _h_seitz_unitary: Vec<_> = (0..mag_ops.len())
                 .filter(|&i| !mag_ops.operations[i].time_reversal)
                 .map(|i| {
                     crate::irrep::wigner::SeitzOp::new(
@@ -3315,7 +3271,7 @@ mod tests {
                 if !chars.is_empty() && rots.len() == chars.len() * 9 {
                     let mut g: std::collections::BTreeMap<[i32; 9], Vec<usize>> =
                         std::collections::BTreeMap::new();
-                    for i in 0..chars.len() {
+                    for (i, _) in chars.iter().enumerate() {
                         let r = [
                             rots[9 * i],
                             rots[9 * i + 1],
@@ -3329,7 +3285,7 @@ mod tests {
                         ];
                         g.entry(r).or_default().push(i);
                     }
-                    for (r, idxs) in &g {
+                    for idxs in g.values() {
                         if idxs.len() <= 1 {
                             continue;
                         }
@@ -3380,7 +3336,7 @@ mod tests {
                         ];
                         g.entry(r).or_default().push(i);
                     }
-                    for (_r, idxs) in &g {
+                    for idxs in g.values() {
                         if idxs.len() <= 1 {
                             continue;
                         }
@@ -3479,7 +3435,7 @@ mod tests {
                         n_identity={} translations={:.12?}",
                         h_info.hall,
                         canonical_pure_translations.len(),
-                        &canonical_pure_translations
+                        canonical_pure_translations
                     );
                 }
             }
@@ -3530,20 +3486,20 @@ mod tests {
                     };
                     let su2_result = crate::irrep::wigner::wigner_classify_spinor(
                         &ctx,
-                        ir.characters(),
-                        ir.spin_character_imag(),
-                        ir.spin_lg_char_count(),
-                        ir.spin_lg_op_indices(),
-                        &unitary,
-                        &mag_seitz,
-                        &h_seitz,
-                        antiunitary[0],
+                        wigner::SpinorWignerInput {
+                            characters_real: ir.characters(),
+                            characters_imag: ir.spin_character_imag(),
+                            operation_indices: ir.spin_lg_op_indices(),
+                            k_vector: ir.k_vector(),
+                        },
+                        wigner::WignerGroupContext {
+                            unitary_indices: &unitary,
+                            magnetic_ops: &mag_seitz,
+                            unitary_ops: &h_seitz,
+                            antiunitary_representative: antiunitary[0],
+                        },
                         setting_xf,
                         Some(&antiunitary),
-                        ir.kx,
-                        ir.ky,
-                        ir.kz,
-                        ir.kd,
                     )
                     .ok();
                     match (has_imag, su2_result.is_some()) {
@@ -3664,37 +3620,35 @@ mod tests {
                 };
                 let su2_result = crate::irrep::wigner::wigner_classify_spinor(
                     &ctx,
-                    ir.characters(),
-                    ir.spin_character_imag(),
-                    ir.spin_lg_char_count(),
-                    ir.spin_lg_op_indices(),
-                    &unitary,
-                    &mag_seitz,
-                    &h_seitz,
-                    antiunitary[0],
+                    wigner::SpinorWignerInput {
+                        characters_real: ir.characters(),
+                        characters_imag: ir.spin_character_imag(),
+                        operation_indices: ir.spin_lg_op_indices(),
+                        k_vector: ir.k_vector(),
+                    },
+                    wigner::WignerGroupContext {
+                        unitary_indices: &unitary,
+                        magnetic_ops: &mag_seitz,
+                        unitary_ops: &h_seitz,
+                        antiunitary_representative: antiunitary[0],
+                    },
                     setting_xf,
                     Some(&antiunitary),
-                    ir.kx,
-                    ir.ky,
-                    ir.kz,
-                    ir.kd,
                 )
                 .ok();
                 let direct_diagnostic =
                     crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
                         &ctx,
-                        ir.characters(),
-                        ir.spin_character_imag(),
-                        ir.spin_lg_op_indices(),
+                        wigner::SpinorWignerInput {
+                            characters_real: ir.characters(),
+                            characters_imag: ir.spin_character_imag(),
+                            operation_indices: ir.spin_lg_op_indices(),
+                            k_vector: ir.k_vector(),
+                        },
                         &antiunitary,
                         &mag_seitz,
                         setting_xf,
-                        ir.kx,
-                        ir.ky,
-                        ir.kz,
-                        ir.kd,
                         None,
-                        &canonical_pure_translations,
                     );
                 if let Err(reason) = direct_diagnostic {
                     *direct_anti_failures.entry(reason.as_str()).or_default() += 1;
@@ -3881,7 +3835,7 @@ mod tests {
             };
             let h_sg = h_info.sg as u8;
             let h_ops = h_info.ops_from_msg;
-            let h_seitz = wigner::ops_to_seitz(&h_ops);
+            let _h_seitz = wigner::ops_to_seitz(&h_ops);
             let mag_seitz = wigner::ops_to_seitz(&mag_ops);
 
             for ir in crate::irrep::query::irreps_of(h_sg) {
@@ -3916,18 +3870,16 @@ mod tests {
 
                 let diag = wigner::wigner_classify_spinor_direct_anti_diagnostic(
                     &ctx,
-                    ir.characters(),
-                    ir.spin_character_imag(),
-                    ir.spin_lg_op_indices(),
+                    wigner::SpinorWignerInput {
+                        characters_real: ir.characters(),
+                        characters_imag: ir.spin_character_imag(),
+                        operation_indices: ir.spin_lg_op_indices(),
+                        k_vector: ir.k_vector(),
+                    },
                     &antiunitary,
                     &mag_seitz,
                     None,
-                    ir.kx,
-                    ir.ky,
-                    ir.kz,
-                    ir.kd,
                     None,
-                    &[],
                 );
 
                 let stage = match diag {
@@ -3996,26 +3948,26 @@ mod tests {
                         let mut t = [
                             b.trans[0]
                                 - ((1.0 - b.rot[0][0] as f64)
-                                    * origin.get(0).copied().unwrap_or(0.0)
+                                    * origin.first().copied().unwrap_or(0.0)
                                     + (-b.rot[0][1] as f64)
                                         * origin.get(1).copied().unwrap_or(0.0)
                                     + (-b.rot[0][2] as f64)
                                         * origin.get(2).copied().unwrap_or(0.0)),
                             b.trans[1]
-                                - ((-b.rot[1][0] as f64) * origin.get(0).copied().unwrap_or(0.0)
+                                - ((-b.rot[1][0] as f64) * origin.first().copied().unwrap_or(0.0)
                                     + (1.0 - b.rot[1][1] as f64)
                                         * origin.get(1).copied().unwrap_or(0.0)
                                     + (-b.rot[1][2] as f64)
                                         * origin.get(2).copied().unwrap_or(0.0)),
                             b.trans[2]
-                                - ((-b.rot[2][0] as f64) * origin.get(0).copied().unwrap_or(0.0)
+                                - ((-b.rot[2][0] as f64) * origin.first().copied().unwrap_or(0.0)
                                     + (-b.rot[2][1] as f64)
                                         * origin.get(1).copied().unwrap_or(0.0)
                                     + (1.0 - b.rot[2][2] as f64)
                                         * origin.get(2).copied().unwrap_or(0.0)),
                         ];
-                        for i in 0..3 {
-                            t[i] = (t[i] % 1.0 + 1.0) % 1.0;
+                        for value in &mut t {
+                            *value = (*value % 1.0 + 1.0) % 1.0;
                         }
                         t
                     };
@@ -4372,12 +4324,8 @@ mod tests {
 
     /// Oracle for the reciprocal-space action used by `spin_lg_op_indices`.
     ///
-    /// Compares the generated canonical spin little-group membership against
-    /// the two plausible conventions:
-    ///
-    /// - direct multiplication: `R k ≡ k`
-    /// Trace antiunitary_spin_lookup failures: for each failing SG, show b.rot
-    /// vs G spin table rotations to understand why the lookup fails.
+    /// Traces antiunitary spin-lookup failures by comparing each failing
+    /// operation with the parent spin table rotations.
     #[test]
     fn diagnose_antiunitary_spin_lookup() {
         use crate::irrep::types::IrrepRecord;
@@ -4404,7 +4352,7 @@ mod tests {
             let setting_xf = setting_xfs.first();
 
             let h_ops = h_info.ops_from_msg;
-            let h_seitz = wigner::ops_to_seitz(&h_ops);
+            let _h_seitz = wigner::ops_to_seitz(&h_ops);
             let mag_seitz = wigner::ops_to_seitz(&mag_ops);
 
             for ir in crate::irrep::query::irreps_of(h_sg) {
@@ -4439,18 +4387,16 @@ mod tests {
 
                 let diag = wigner::wigner_classify_spinor_direct_anti_diagnostic(
                     &ctx,
-                    ir.characters(),
-                    ir.spin_character_imag(),
-                    ir.spin_lg_op_indices(),
+                    wigner::SpinorWignerInput {
+                        characters_real: ir.characters(),
+                        characters_imag: ir.spin_character_imag(),
+                        operation_indices: ir.spin_lg_op_indices(),
+                        k_vector: ir.k_vector(),
+                    },
                     &antiunitary,
                     &mag_seitz,
                     setting_xf,
-                    ir.kx,
-                    ir.ky,
-                    ir.kz,
-                    ir.kd,
                     None,
-                    &[],
                 );
 
                 let is_sq_not_spin =
@@ -4534,14 +4480,14 @@ mod tests {
             assert!(det == 1 || det == -1, "rotation must be unimodular: {r:?}");
             let mut out = [[0i32; 3]; 3];
             // R^{-T} is the cofactor matrix divided by det.
-            for i in 0..3 {
-                for j in 0..3 {
+            for (i, row) in out.iter_mut().enumerate() {
+                for (j, value) in row.iter_mut().enumerate() {
                     let rows: Vec<usize> = (0..3).filter(|&x| x != i).collect();
                     let cols: Vec<usize> = (0..3).filter(|&x| x != j).collect();
                     let minor = r[rows[0]][cols[0]] * r[rows[1]][cols[1]]
                         - r[rows[0]][cols[1]] * r[rows[1]][cols[0]];
                     let cofactor = if (i + j) % 2 == 0 { minor } else { -minor };
-                    out[i][j] = cofactor / det;
+                    *value = cofactor / det;
                 }
             }
             out
@@ -4567,13 +4513,13 @@ mod tests {
                 return true;
             }
             let mut reciprocal_shift = [0i32; 3];
-            for i in 0..3 {
+            for (i, value) in reciprocal_shift.iter_mut().enumerate() {
                 let rk: i32 = (0..3).map(|j| r[i][j] * k[j]).sum();
                 let delta = rk - k[i];
                 if delta % kd != 0 {
                     return false;
                 }
-                reciprocal_shift[i] = delta / kd;
+                *value = delta / kd;
             }
             pure_translations.iter().all(|t| {
                 let phase = reciprocal_shift[0] as f64 * t[0]
@@ -4790,20 +4736,20 @@ mod tests {
         };
         let ct = wigner::wigner_classify_spinor(
             &ctx,
-            a3.characters(),
-            a3.spin_character_imag(),
-            a3.spin_lg_char_count(),
-            a3.spin_lg_op_indices(),
-            &unitary,
-            &mag_seitz,
-            &h_seitz,
-            antiunitary[0],
+            wigner::SpinorWignerInput {
+                characters_real: a3.characters(),
+                characters_imag: a3.spin_character_imag(),
+                operation_indices: a3.spin_lg_op_indices(),
+                k_vector: a3.k_vector(),
+            },
+            wigner::WignerGroupContext {
+                unitary_indices: &unitary,
+                magnetic_ops: &mag_seitz,
+                unitary_ops: &h_seitz,
+                antiunitary_representative: antiunitary[0],
+            },
             None,
             Some(&antiunitary),
-            a3.kx,
-            a3.ky,
-            a3.kz,
-            a3.kd,
         );
 
         // For grey group spin-½ at this k-point:
@@ -5162,18 +5108,16 @@ mod tests {
                 let mut trace = Vec::new();
                 let diag = wigner::wigner_classify_spinor_direct_anti_diagnostic(
                     &ctx,
-                    ir.characters(),
-                    ir.spin_character_imag(),
-                    ir.spin_lg_op_indices(),
+                    wigner::SpinorWignerInput {
+                        characters_real: ir.characters(),
+                        characters_imag: ir.spin_character_imag(),
+                        operation_indices: ir.spin_lg_op_indices(),
+                        k_vector: ir.k_vector(),
+                    },
                     &antiunitary,
                     &mag_seitz,
                     setting_xf,
-                    ir.kx,
-                    ir.ky,
-                    ir.kz,
-                    ir.kd,
                     Some(&mut trace),
-                    &canonical_pure_translations,
                 );
 
                 if let Err(wigner::DirectAntiFailure::NonQuantized) = diag {
@@ -5388,20 +5332,20 @@ mod tests {
 
             let ct = wigner::wigner_classify_spinor(
                 &ctx,
-                ir.characters(),
-                ir.spin_character_imag(),
-                ir.spin_lg_char_count(),
-                ir.spin_lg_op_indices(),
-                &unitary,
-                &mag_seitz,
-                &h_seitz,
-                antiunitary[0],
+                wigner::SpinorWignerInput {
+                    characters_real: ir.characters(),
+                    characters_imag: ir.spin_character_imag(),
+                    operation_indices: ir.spin_lg_op_indices(),
+                    k_vector: ir.k_vector(),
+                },
+                wigner::WignerGroupContext {
+                    unitary_indices: &unitary,
+                    magnetic_ops: &mag_seitz,
+                    unitary_ops: &h_seitz,
+                    antiunitary_representative: antiunitary[0],
+                },
                 None,
                 Some(&antiunitary),
-                ir.kx,
-                ir.ky,
-                ir.kz,
-                ir.kd,
             );
 
             println!(
@@ -5450,7 +5394,7 @@ mod tests {
             return None;
         }
         Some([
-            spin_op_su2[4 * idx + 0],
+            spin_op_su2[4 * idx],
             spin_op_su2[4 * idx + 1],
             spin_op_su2[4 * idx + 2],
             spin_op_su2[4 * idx + 3],
@@ -5519,20 +5463,20 @@ mod tests {
 
                 let result = crate::irrep::wigner::wigner_classify_spinor(
                     &ctx,
-                    ir.characters(),
-                    ir.spin_character_imag(),
-                    ir.spin_lg_char_count(),
-                    ir.spin_lg_op_indices(),
-                    &unitary,
-                    &mag_seitz,
-                    &h_seitz,
-                    a0_idx,
+                    wigner::SpinorWignerInput {
+                        characters_real: ir.characters(),
+                        characters_imag: ir.spin_character_imag(),
+                        operation_indices: ir.spin_lg_op_indices(),
+                        k_vector: ir.k_vector(),
+                    },
+                    wigner::WignerGroupContext {
+                        unitary_indices: &unitary,
+                        magnetic_ops: &mag_seitz,
+                        unitary_ops: &h_seitz,
+                        antiunitary_representative: a0_idx,
+                    },
                     None,
                     Some(&antiunitary),
-                    ir.kx,
-                    ir.ky,
-                    ir.kz,
-                    ir.kd,
                 );
                 if result.is_ok() {
                     continue;
@@ -5578,8 +5522,8 @@ mod tests {
                     .collect();
 
                 let mut sq_all_in_lg = true;
-                for local in 0..n_lg {
-                    let gsi = indices[local] as usize;
+                for &index in indices.iter().take(n_lg) {
+                    let gsi = index as usize;
                     let h_spin = &h_spin_seitz[gsi];
                     let (g0h, _l1) = crate::irrep::wigner::compose_seitz(&a0_bilbao, h_spin);
                     let (sq, _lsq) = crate::irrep::wigner::square_seitz(&g0h);
@@ -5640,8 +5584,8 @@ mod tests {
                     format!("[{:7.4},{:7.4},{:7.4},{:7.4}]", v[0], v[1], v[2], v[3])
                 };
 
-                for local in 0..n_lg {
-                    let gsi = indices[local] as usize;
+                for (local, &index) in indices.iter().take(n_lg).enumerate() {
+                    let gsi = index as usize;
                     let h_spin = &h_spin_seitz[gsi];
                     let u_h = crate::irrep::wigner::spin_su2_at(h_su2, gsi);
                     let (g0h, _l1) = crate::irrep::wigner::compose_seitz(&a0_bilbao, h_spin);
@@ -6216,19 +6160,16 @@ mod tests {
                     continue;
                 }
                 let bns = msg.bns_number.trim().to_string();
-                match ir.corepresentation(uni) {
-                    Err(CorepComputationError::UnsupportedClassification {
+                if let Err(CorepComputationError::UnsupportedClassification {
                         source_irrep, ..
-                    }) => {
-                        failures.push((
-                            uni,
-                            h_sg as usize,
-                            n_lg as u8,
-                            bns.clone(),
-                            format!("{}/{}", source_irrep, ir.ml),
-                        ));
-                    }
-                    Err(_) | Ok(_) => {}
+                    }) = ir.corepresentation(uni) {
+                    failures.push((
+                        uni,
+                        h_sg as usize,
+                        n_lg as u8,
+                        bns.clone(),
+                        format!("{}/{}", source_irrep, ir.ml),
+                    ));
                 }
             }
         }
@@ -6247,12 +6188,11 @@ mod tests {
             if msg.type_ != crate::MagneticType::Grey {
                 continue;
             }
-            if let Some(h) = identify_unitary_subgroup_with_hall(uni) {
-                if h.sg == 123 {
+            if let Some(h) = identify_unitary_subgroup_with_hall(uni)
+                && h.sg == 123 {
                     sg123_uni = uni;
                     break;
                 }
-            }
         }
         println!(
             "\nSG 123 grey group: UNI {} BNS {}",
@@ -6320,7 +6260,7 @@ mod tests {
             }
             let setting_xf = xf_owned.as_ref();
             let h_ops = h_info.ops_from_msg;
-            let h_seitz = wigner::ops_to_seitz(&h_ops);
+            let _h_seitz = wigner::ops_to_seitz(&h_ops);
             let mag_seitz = wigner::ops_to_seitz(&mag_ops);
 
             for ir in crate::irrep::query::irreps_of(h_sg) {
@@ -6357,18 +6297,16 @@ mod tests {
 
                 let diag = wigner::wigner_classify_spinor_direct_anti_diagnostic(
                     &ctx,
-                    ir.characters(),
-                    ir.spin_character_imag(),
-                    ir.spin_lg_op_indices(),
+                    wigner::SpinorWignerInput {
+                        characters_real: ir.characters(),
+                        characters_imag: ir.spin_character_imag(),
+                        operation_indices: ir.spin_lg_op_indices(),
+                        k_vector: ir.k_vector(),
+                    },
                     &antiunitary,
                     &mag_seitz,
                     setting_xf,
-                    ir.kx,
-                    ir.ky,
-                    ir.kz,
-                    ir.kd,
                     None,
-                    &[],
                 );
 
                 if !matches!(diag, Err(wigner::DirectAntiFailure::NonQuantized)) {
@@ -6568,12 +6506,11 @@ mod tests {
             if msg.type_ != crate::MagneticType::Grey {
                 continue;
             }
-            if let Some(h) = identify_unitary_subgroup_with_hall(u) {
-                if h.sg == 143 {
+            if let Some(h) = identify_unitary_subgroup_with_hall(u)
+                && h.sg == 143 {
                     uni = u;
                     break;
                 }
-            }
         }
         assert!(uni > 0);
         let mag_ops = get_magnetic_operations(uni).unwrap();
@@ -6610,8 +6547,8 @@ mod tests {
             let u_a0 = wigner::spin_su2_at(h_su2, a0_spin.unwrap()).unwrap();
             let mut ok = 0usize;
             let mut fail = 0usize;
-            for local in 0..n_lg {
-                let gsi = indices[local] as usize;
+            for &index in indices.iter().take(n_lg) {
+                let gsi = index as usize;
                 let u_h = match wigner::spin_su2_at(h_su2, gsi) {
                     Some(u) => u,
                     None => {
@@ -6831,20 +6768,20 @@ mod tests {
 
             let ct = wigner::wigner_classify_spinor(
                 &ctx,
-                ir.characters(),
-                ir.spin_character_imag(),
-                ir.spin_lg_char_count(),
-                ir.spin_lg_op_indices(),
-                &unitary,
-                &mag_seitz,
-                &h_seitz,
-                antiunitary[0],
+                wigner::SpinorWignerInput {
+                    characters_real: ir.characters(),
+                    characters_imag: ir.spin_character_imag(),
+                    operation_indices: ir.spin_lg_op_indices(),
+                    k_vector: ir.k_vector(),
+                },
+                wigner::WignerGroupContext {
+                    unitary_indices: &unitary,
+                    magnetic_ops: &mag_seitz,
+                    unitary_ops: &h_seitz,
+                    antiunitary_representative: antiunitary[0],
+                },
                 None,
                 Some(&antiunitary),
-                ir.kx,
-                ir.ky,
-                ir.kz,
-                ir.kd,
             );
             eprintln!("  Result: {:?}", ct);
             break; // Only first matching irrep
@@ -7048,18 +6985,16 @@ mod tests {
 
                 let diag = crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
                     &ctx,
-                    ir.characters(),
-                    ir.spin_character_imag(),
-                    ir.spin_lg_op_indices(),
+                    wigner::SpinorWignerInput {
+                        characters_real: ir.characters(),
+                        characters_imag: ir.spin_character_imag(),
+                        operation_indices: ir.spin_lg_op_indices(),
+                        k_vector: ir.k_vector(),
+                    },
                     &antiunitary,
                     &mag_seitz,
                     None,
-                    ir.kx,
-                    ir.ky,
-                    ir.kz,
-                    ir.kd,
                     None,
-                    &[],
                 );
                 let stage = match diag {
                     Ok(_) => "ok",
@@ -7086,6 +7021,7 @@ mod tests {
 }
 
 /// Compare two rotation multisets for equality (order-independent).
+#[cfg(test)]
 fn rotation_multiset_eq(a: &[[[i32; 3]; 3]], b: &[[[i32; 3]; 3]]) -> bool {
     if a.len() != b.len() {
         return false;
@@ -7168,7 +7104,7 @@ fn phase1b_verify_transform_fix() {
 
         // Build H Hall spin table
         let h_spin = IrrepRecord::spin_ops_for_sg(h_sg);
-        let g_spin_seitz = crate::irrep::wigner::build_spin_seitz(g_spin.0, g_spin.1);
+        let _g_spin_seitz = crate::irrep::wigner::build_spin_seitz(g_spin.0, g_spin.1);
 
         for ir in crate::irrep::query::irreps_of(h_sg) {
             if !ir.spinor {
@@ -7194,18 +7130,16 @@ fn phase1b_verify_transform_fix() {
             // Original direct anti-coset result
             let orig = crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
                 &ctx,
-                ir.characters(),
-                ir.spin_character_imag(),
-                ir.spin_lg_op_indices(),
+                wigner::SpinorWignerInput {
+                    characters_real: ir.characters(),
+                    characters_imag: ir.spin_character_imag(),
+                    operation_indices: ir.spin_lg_op_indices(),
+                    k_vector: ir.k_vector(),
+                },
                 &antiunitary,
                 &mag_seitz,
                 None,
-                ir.kx,
-                ir.ky,
-                ir.kz,
-                ir.kd,
                 None,
-                &[],
             );
 
             // Only interested in square_not_in_spin failures
@@ -7234,18 +7168,16 @@ fn phase1b_verify_transform_fix() {
             // Re-run direct anti-coset with transformed b
             let fixed_result = crate::irrep::wigner::wigner_classify_spinor_direct_anti_diagnostic(
                 &ctx,
-                ir.characters(),
-                ir.spin_character_imag(),
-                ir.spin_lg_op_indices(),
+                wigner::SpinorWignerInput {
+                    characters_real: ir.characters(),
+                    characters_imag: ir.spin_character_imag(),
+                    operation_indices: ir.spin_lg_op_indices(),
+                    k_vector: ir.k_vector(),
+                },
                 &antiunitary,
                 &transformed_seitz,
                 None,
-                ir.kx,
-                ir.ky,
-                ir.kz,
-                ir.kd,
                 None,
-                &[],
             );
 
             let is_fixed = !matches!(

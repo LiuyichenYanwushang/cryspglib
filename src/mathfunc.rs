@@ -246,12 +246,12 @@ pub fn mat_cast_matrix_3d_to_3i(a: &Mat3) -> Mat3I {
 /// 计算逆矩阵 m = a^-1。
 ///
 /// # Errors
-/// 行列式绝对值小于 `precision` 时返回 [`SpglibError::MathFailed`]。
-pub fn mat_inverse_matrix_d3(a: &Mat3, precision: f64) -> Result<Mat3, crate::SpglibError> {
+/// 行列式绝对值小于 `precision` 时返回 [`crate::SymError::MathFailed`]。
+pub fn mat_inverse_matrix_d3(a: &Mat3, precision: f64) -> Result<Mat3, crate::SymError> {
     let det = mat_get_determinant_d3(a);
     if det.abs() < precision {
         debug::debug_print(format_args!("spglib: No inverse matrix (det={})\n", det));
-        return Err(crate::SpglibError::MathFailed);
+        return Err(crate::SymError::MathFailed);
     }
 
     let mut c = [[0.0; 3]; 3];
@@ -271,8 +271,8 @@ pub fn mat_inverse_matrix_d3(a: &Mat3, precision: f64) -> Result<Mat3, crate::Sp
 /// 计算相似矩阵 m = b^-1 a b。
 ///
 /// # Errors
-/// `b` 不可逆时返回 [`SpglibError::MathFailed`]。
-pub fn mat_get_similar_matrix_d3(a: &Mat3, b: &Mat3, precision: f64) -> Result<Mat3, crate::SpglibError> {
+/// `b` 不可逆时返回 [`crate::SymError::MathFailed`]。
+pub fn mat_get_similar_matrix_d3(a: &Mat3, b: &Mat3, precision: f64) -> Result<Mat3, crate::SymError> {
     let inv_b = mat_inverse_matrix_d3(b, precision)?;
     let temp = mat_multiply_matrix_d3(a, b);
     Ok(mat_multiply_matrix_d3(&inv_b, &temp))
@@ -364,14 +364,9 @@ pub fn mat_rem1(a: f64) -> f64 {
 
 /// 检查矩阵是否为整数矩阵（在误差范围内）
 pub fn mat_is_int_matrix(mat: &Mat3, symprec: f64) -> bool {
-    for i in 0..3 {
-        for j in 0..3 {
-            if (mat_nint(mat[i][j]) as f64 - mat[i][j]).abs() > symprec {
-                return false;
-            }
-        }
-    }
-    true
+    mat.iter()
+        .flatten()
+        .all(|&value| (mat_nint(value) as f64 - value).abs() <= symprec)
 }
 
 // --- 动态数组结构体封装 (对应 C 的 MatINT 和 VecDBL) ---

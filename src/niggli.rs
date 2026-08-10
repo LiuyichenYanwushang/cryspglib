@@ -52,11 +52,10 @@ impl NiggliParams {
 /// 获取最大尝试次数
 fn get_num_attempts() -> i32 {
     if let Ok(val_str) = env::var("SPGLIB_NUM_ATTEMPTS") {
-        if let Ok(val) = val_str.parse::<i32>() {
-            if val > 0 {
+        if let Ok(val) = val_str.parse::<i32>()
+            && val > 0 {
                 return val;
             }
-        }
         debug::warning_print(format_args!(
             "spglib: Could not parse SPGLIB_NUM_ATTEMPTS={}\n",
             val_str

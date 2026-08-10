@@ -117,8 +117,8 @@ fn op_key(op: &TestOp) -> Option<OpKey> {
 fn compose(left: &TestOp, right: &TestOp) -> TestOp {
     let rotation = mat_multiply_matrix_i3(&left.rotation, &right.rotation);
     let mut translation = left.translation;
-    for axis in 0..3 {
-        translation[axis] += left.rotation[axis][0] as f64 * right.translation[0]
+    for (axis, coordinate) in translation.iter_mut().enumerate() {
+        *coordinate += left.rotation[axis][0] as f64 * right.translation[0]
             + left.rotation[axis][1] as f64 * right.translation[1]
             + left.rotation[axis][2] as f64 * right.translation[2];
     }
@@ -201,9 +201,9 @@ fn invariant_lattice(rotations: &[Mat3I]) -> Option<Mat3> {
     for rotation in rotations {
         for row in 0..3 {
             for column in 0..3 {
-                for cartesian in 0..3 {
+                for rotation_row in rotation {
                     metric[row][column] +=
-                        (rotation[cartesian][row] * rotation[cartesian][column]) as f64;
+                        (rotation_row[row] * rotation_row[column]) as f64;
                 }
             }
         }
@@ -317,9 +317,13 @@ fn all_magnetic_database_operations_form_expected_groups() {
     let mut audit = Audit::default();
     let mut hall_pair_count = 0usize;
 
-    for uni in 1usize..=1651 {
+    for (uni, &[num_halls, first_hall]) in MAGNETIC_SPACEGROUP_UNI_MAPPING
+        .iter()
+        .enumerate()
+        .take(1652)
+        .skip(1)
+    {
         let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
-        let [num_halls, first_hall] = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni];
 
         for hall in first_hall as usize..(first_hall + num_halls) as usize {
             hall_pair_count += 1;
@@ -582,14 +586,22 @@ fn all_alternative_setting_transformations_are_loaded() {
     let mut hall_pair_count = 0usize;
     let mut nontrivial_setting_count = 0usize;
 
-    for uni in 1usize..=1651 {
-        let num_halls = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][0] as usize;
-        let first_hall = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
+    for (uni, &[num_halls, first_hall]) in MAGNETIC_SPACEGROUP_UNI_MAPPING
+        .iter()
+        .enumerate()
+        .take(1652)
+        .skip(1)
+    {
+        let num_halls = num_halls as usize;
+        let first_hall = first_hall as usize;
 
-        for hall_offset in 0..num_halls {
+        for (hall_offset, encoded) in ALTERNATIVE_TRANSFORMATIONS[uni]
+            .iter()
+            .take(num_halls)
+            .enumerate()
+        {
             hall_pair_count += 1;
             let hall = first_hall + hall_offset;
-            let encoded = &ALTERNATIVE_TRANSFORMATIONS[uni][hall_offset];
             let encoded_count = encoded.iter().take_while(|&&value| value != 0).count();
 
             assert!(
@@ -629,10 +641,15 @@ fn all_database_settings_round_trip_with_parent_hint() {
     let mut audit = Audit::default();
     let mut exact_matches = 0usize;
 
-    for uni in 1usize..=1651 {
+    for (uni, &[num_halls, first_hall]) in MAGNETIC_SPACEGROUP_UNI_MAPPING
+        .iter()
+        .enumerate()
+        .take(1652)
+        .skip(1)
+    {
         let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
-        let num_halls = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][0] as usize;
-        let first_hall = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
+        let num_halls = num_halls as usize;
+        let first_hall = first_hall as usize;
         for hall_offset in 0..num_halls {
             let hall = first_hall + hall_offset;
             let context = format!("UNI {uni} BNS {} Hall {hall}", metadata.bns_number);
@@ -703,10 +720,15 @@ fn automatic_all_setting_round_trips_are_unique_or_explicitly_ambiguous() {
     let mut exact_matches = 0usize;
     let mut explicit_ambiguities = 0usize;
 
-    for uni in 1usize..=1651 {
+    for (uni, &[num_halls, first_hall]) in MAGNETIC_SPACEGROUP_UNI_MAPPING
+        .iter()
+        .enumerate()
+        .take(1652)
+        .skip(1)
+    {
         let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
-        let num_halls = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][0] as usize;
-        let first_hall = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
+        let num_halls = num_halls as usize;
+        let first_hall = first_hall as usize;
         for hall_offset in 0..num_halls {
             setting_count += 1;
             let hall = first_hall + hall_offset;

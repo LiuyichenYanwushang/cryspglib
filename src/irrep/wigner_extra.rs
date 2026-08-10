@@ -32,8 +32,8 @@ fn mat_inv(m: &[Complex64], dim: usize) -> Option<Vec<Complex64>> {
         }
         let piv_val = a[col * n + col];
         for j in 0..n {
-            a[col * n + j] = a[col * n + j] / piv_val;
-            inv[col * n + j] = inv[col * n + j] / piv_val;
+            a[col * n + j] /= piv_val;
+            inv[col * n + j] /= piv_val;
         }
         for row in 0..n {
             if row == col {
@@ -62,7 +62,7 @@ fn mat_mul(a: &[Complex64], b: &[Complex64], dim: usize) -> Vec<Complex64> {
                 continue;
             }
             for j in 0..n {
-                c[i * n + j] = c[i * n + j] + aik * b[k * n + j];
+                c[i * n + j] += aik * b[k * n + j];
             }
         }
     }
@@ -108,15 +108,13 @@ fn consquare_root(m: &[Complex64], dim: usize) -> Option<Vec<Complex64>> {
 pub fn type_a_antiunitary_chars(
     mag_seitz: &[SeitzOp],
     mag_lg_indices: &[usize],
-    _op_map: &[Option<usize>],
     h_chars: &[f64],
     h_seitz: &[SeitzOp],
     a0_idx: usize,
-    kx: i8,
-    ky: i8,
-    kz: i8,
-    kd: i8,
+    k_vector: KVector,
 ) -> Option<(Vec<f64>, Complex64)> {
+    let [kx, ky, kz] = k_vector.numerators;
+    let kd = k_vector.denominator;
     if a0_idx >= mag_seitz.len()
         || !mag_seitz[a0_idx].timerev
         || mag_lg_indices.iter().any(|&index| index >= mag_seitz.len())
@@ -147,11 +145,10 @@ pub fn type_a_antiunitary_chars(
         }
         let mop = &mag_seitz[mag_idx];
         let mop_spatial = SeitzOp::new(mop.rot, mop.trans, false);
-        if let Some(m) = find_seitz(&mop_spatial.rot, &mop_spatial.trans, h_seitz) {
-            if m.op_index < h_chars.len() {
+        if let Some(m) = find_seitz(&mop_spatial.rot, &mop_spatial.trans, h_seitz)
+            && m.op_index < h_chars.len() {
                 au_chars[out_idx] = (u_val * h_chars[m.op_index]).re;
             }
-        }
     }
     Some((au_chars, u_val))
 }
@@ -163,10 +160,6 @@ pub fn type_a_antiunitary_chars_high_dim(
     h_chars: &[f64],
     h_seitz: &[SeitzOp],
     a0_idx: usize,
-    _kx: i8,
-    _ky: i8,
-    _kz: i8,
-    _kd: i8,
     pir_mats: &[f64],
     pir_rots: &[i32],
 ) -> Option<Vec<f64>> {
@@ -236,7 +229,7 @@ pub fn type_a_antiunitary_chars_high_dim(
                 let mut tr = Complex64::new(0.0, 0.0);
                 for i in 0..h_dim {
                     for j in 0..h_dim {
-                        tr = tr + u[i * h_dim + j] * Complex64::new(h_mat[j * h_dim + i], 0.0);
+                        tr += u[i * h_dim + j] * Complex64::new(h_mat[j * h_dim + i], 0.0);
                     }
                 }
                 au_chars[out_idx] = tr.re;

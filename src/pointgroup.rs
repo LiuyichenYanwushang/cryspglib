@@ -8,6 +8,7 @@ use crate::mathfunc::{
     mat_multiply_matrix_vector_i3, mat_norm_squared_i3,
 };
 use crate::symmetry::PointSymmetry;
+use crate::SymError;
 
 const NUM_ROT_AXES: usize = 73;
 
@@ -379,6 +380,20 @@ pub(crate) static ROT_AXES: [[i32; 3]; NUM_ROT_AXES] = [
 /// # Returns
 /// `(transform_mat, pointgroup)` — `transform_mat` 将旋转操作变换到标准方向，
 /// `pointgroup` 包含点群编号、符号等信息。若无法识别点群则 `pointgroup.number == 0`。
+/// Identify a crystallographic point group from rotation operations.
+///
+/// Returns the international symbol, the conventional-basis transformation,
+/// and the crystallographic point-group number.
+pub fn pointgroup_from_rotations(
+    rotations: &[Mat3I],
+) -> Result<(String, Mat3I, usize), SymError> {
+    let (transform, pointgroup) = ptg_get_transformation_matrix(rotations, None);
+    if pointgroup.number == 0 {
+        return Err(SymError::PointgroupNotFound);
+    }
+    Ok((pointgroup.symbol, transform, pointgroup.number))
+}
+
 pub fn ptg_get_transformation_matrix(
     rotations: &[Mat3I],
     aperiodic_axis: Option<AperiodicAxis>,
@@ -405,7 +420,7 @@ pub fn ptg_get_transformation_matrix(
 }
 
 pub fn ptg_get_pointgroup(pointgroup_number: usize) -> Pointgroup {
-    let idx = pointgroup_number as usize;
+    let idx = pointgroup_number;
     let pg_type = &POINTGROUP_DATA[idx];
 
     Pointgroup {
@@ -459,15 +474,8 @@ fn get_pointgroup_number(pointsym: &PointSymmetry) -> i32 {
         return 0;
     }
 
-    for i in 1..33 {
-        let pg_type = &POINTGROUP_DATA[i];
-        let mut counter = 0;
-        for j in 0..10 {
-            if pg_type.table[j] == table[j] {
-                counter += 1;
-            }
-        }
-        if counter == 10 {
+    for (i, pg_type) in POINTGROUP_DATA.iter().enumerate().take(33).skip(1) {
+        if pg_type.table == table {
             debug::debug_print(format_args!(" {}\n", i));
             return i as i32;
         }
@@ -478,9 +486,7 @@ fn get_pointgroup_number(pointsym: &PointSymmetry) -> i32 {
 }
 
 fn get_pointgroup_class_table(table: &mut [i32; 10], pointsym: &PointSymmetry) -> bool {
-    for i in 0..10 {
-        table[i] = 0;
-    }
+    table.fill(0);
     for i in 0..pointsym.size {
         let rot_type = get_rotation_type(&pointsym.rot[i]);
         if rot_type == -1 {
@@ -558,12 +564,11 @@ fn laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry) -> bool {
     // C code: axes[1] = get_rotation_axis
     for i in 0..pointsym.size {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
-        if mat_get_trace_i3(&prop_rot) == -1 {
-            if let Some(axis) = get_rotation_axis(&prop_rot) {
+        if mat_get_trace_i3(&prop_rot) == -1
+            && let Some(axis) = get_rotation_axis(&prop_rot) {
                 axes[1] = axis;
                 break;
             }
-        }
     }
 
     let mut ortho_axes = [0; NUM_ROT_AXES];
@@ -608,12 +613,11 @@ fn layer_laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry, aperiodic_axis:
 
     for i in 0..pointsym.size {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
-        if mat_get_trace_i3(&prop_rot) == -1 {
-            if let Some(axis) = get_rotation_axis(&prop_rot) {
+        if mat_get_trace_i3(&prop_rot) == -1
+            && let Some(axis) = get_rotation_axis(&prop_rot) {
                 axes[0] = axis;
                 break;
             }
-        }
     }
 
     let mut ortho_axes = [0; NUM_ROT_AXES];
@@ -703,12 +707,11 @@ fn laue_one_axis(axes: &mut [usize; 3], pointsym: &PointSymmetry, rot_order: i32
     for i in 0..pointsym.size {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
         let trace = mat_get_trace_i3(&prop_rot);
-        if (rot_order == 4 && trace == 1) || (rot_order == 3 && trace == 0) {
-            if let Some(axis) = get_rotation_axis(&prop_rot) {
+        if ((rot_order == 4 && trace == 1) || (rot_order == 3 && trace == 0))
+            && let Some(axis) = get_rotation_axis(&prop_rot) {
                 axes[2] = axis;
                 break;
             }
-        }
     }
 
     let mut ortho_axes = [0; NUM_ROT_AXES];
@@ -722,19 +725,19 @@ fn laue_one_axis(axes: &mut [usize; 3], pointsym: &PointSymmetry, rot_order: i32
     tmp_axes[2] = axes[2];
     let mut axes_found = false;
 
-    for i in 0..num_ortho_axis {
-        tmp_axes[0] = ortho_axes[i];
+    for &ortho_axis in ortho_axes.iter().take(num_ortho_axis) {
+        tmp_axes[0] = ortho_axis;
         let axis_vec = mat_multiply_matrix_vector_i3(&prop_rot, &ROT_AXES[tmp_axes[0]]);
 
         let mut is_found = 0;
-        for j in 0..num_ortho_axis {
-            is_found = is_exist_axis(&axis_vec, ortho_axes[j]);
+        for &candidate_axis in ortho_axes.iter().take(num_ortho_axis) {
+            is_found = is_exist_axis(&axis_vec, candidate_axis);
             if is_found == 1 {
-                tmp_axes[1] = ortho_axes[j];
+                tmp_axes[1] = candidate_axis;
                 break;
             }
             if is_found == -1 {
-                tmp_axes[1] = ortho_axes[j] + NUM_ROT_AXES;
+                tmp_axes[1] = candidate_axis + NUM_ROT_AXES;
                 break;
             }
         }
@@ -776,9 +779,7 @@ fn lauennn(
     rot_order: i32,
     aperiodic_axis: i32,
 ) -> bool {
-    for i in 0..3 {
-        axes[i] = usize::MAX;
-    } // Using MAX as -1
+    axes.fill(usize::MAX); // Using MAX as -1
 
     let mut count = 0;
     let mut prop_rot = [[0; 3]; 3];
@@ -787,14 +788,12 @@ fn lauennn(
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
         let trace = mat_get_trace_i3(&prop_rot);
 
-        if (trace == -1 && rot_order == 2) || (trace == 1 && rot_order == 4) {
-            if let Some(axis) = get_rotation_axis(&prop_rot) {
-                if axis != axes[0] && axis != axes[1] && axis != axes[2] {
+        if ((trace == -1 && rot_order == 2) || (trace == 1 && rot_order == 4))
+            && let Some(axis) = get_rotation_axis(&prop_rot)
+                && axis != axes[0] && axis != axes[1] && axis != axes[2] {
                     axes[count] = axis;
                     count += 1;
                 }
-            }
-        }
     }
 
     if aperiodic_axis == -1 {
@@ -810,9 +809,9 @@ fn get_rotation_axis(proper_rot: &Mat3I) -> Option<usize> {
         return None;
     }
 
-    for i in 0..NUM_ROT_AXES {
-        let vec = mat_multiply_matrix_vector_i3(proper_rot, &ROT_AXES[i]);
-        if vec == ROT_AXES[i] {
+    for (i, axis) in ROT_AXES.iter().enumerate().take(NUM_ROT_AXES) {
+        let vec = mat_multiply_matrix_vector_i3(proper_rot, axis);
+        if vec == *axis {
             return Some(i);
         }
     }
@@ -831,8 +830,8 @@ fn get_orthogonal_axis(ortho_axes: &mut [usize], proper_rot: &Mat3I, rot_order: 
         sum_rot = temp;
     }
 
-    for i in 0..NUM_ROT_AXES {
-        let vec = mat_multiply_matrix_vector_i3(&sum_rot, &ROT_AXES[i]);
+    for (i, axis) in ROT_AXES.iter().enumerate().take(NUM_ROT_AXES) {
+        let vec = mat_multiply_matrix_vector_i3(&sum_rot, axis);
         if vec == [0, 0, 0] {
             ortho_axes[num_ortho_axis] = i;
             num_ortho_axis += 1;
@@ -921,8 +920,6 @@ fn layer_check_and_sort_axes(axes: &mut [usize; 3], aperiodic_axis: i32) {
         }
     } else {
         debug::warning_print(format_args!("spglib: Invalid axes were found\n"));
-        for i in 0..3 {
-            axes[i] = 0;
-        }
+        axes.fill(0);
     }
 }

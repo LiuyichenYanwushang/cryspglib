@@ -17,13 +17,12 @@
 use crate::SymError;
 use crate::cell::{AperiodicAxis, Cell, TensorRank, cel_trim_cell};
 use crate::debug;
-use crate::delaunay::del_layer_delaunay_reduce_2D;
+use crate::delaunay::del_layer_delaunay_reduce_2d;
 
 use crate::hall_symbol::hal_match_hall_symbol_db;
 use crate::mathfunc::{
     Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d,
-    mat_check_identity_matrix_d3, mat_check_identity_matrix_id3,
-    mat_dabs, mat_get_determinant_d3, mat_get_determinant_i3, mat_get_metric,
+    mat_get_determinant_d3, mat_get_determinant_i3,
     mat_get_similar_matrix_d3, mat_inverse_matrix_d3, mat_is_int_matrix, mat_multiply_matrix_d3,
     mat_multiply_matrix_di3, mat_multiply_matrix_id3, mat_multiply_matrix_vector_d3,
 };
@@ -38,7 +37,6 @@ use crate::symmetry::{Symmetry, sym_get_operation, sym_reduce_operation};
 const REDUCE_RATE: f64 = 0.95;
 const NUM_ATTEMPT: i32 = 100;
 const INT_PREC: f64 = 0.1;
-const ZERO_PREC: f64 = 1e-10;
 
 // --- Static Data (Matrices) ---
 
@@ -48,17 +46,6 @@ pub static M_AC: Mat3I = [[1, 0, 0], [0, 1, 1], [0, -1, 1]];
 pub static M_BC: Mat3I = [[1, 0, 1], [0, 1, 0], [-1, 0, 1]];
 pub static M_CC: Mat3I = [[1, -1, 0], [1, 1, 0], [0, 0, 1]];
 pub static M_RC: Mat3I = [[1, 0, 1], [-1, 1, 1], [0, -1, 1]];
-
-static M_BCC_INV: Mat3 = [[-0.5, 0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, -0.5]];
-static M_FCC_INV: Mat3 = [[0.0, 0.5, 0.5], [0.5, 0.0, 0.5], [0.5, 0.5, 0.0]];
-static M_AC_INV: Mat3 = [[1.0, 0.0, 0.0], [0.0, 0.5, -0.5], [0.0, 0.5, 0.5]];
-static M_BC_INV: Mat3 = [[0.5, 0.0, -0.5], [0.0, 1.0, 0.0], [0.5, 0.0, 0.5]];
-static M_CC_INV: Mat3 = [[0.5, 0.5, 0.0], [-0.5, 0.5, 0.0], [0.0, 0.0, 1.0]];
-static M_RC_INV: Mat3 = [
-    [2. / 3., -1. / 3., -1. / 3.],
-    [1. / 3., 1. / 3., -2. / 3.],
-    [1. / 3., 1. / 3., 1. / 3.],
-];
 
 static IDENTITY: Mat3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 static MONOCLI_I2C: Mat3 = [[1.0, 0.0, -1.0], [0.0, 1.0, 0.0], [1.0, 0.0, 0.0]];
@@ -207,6 +194,12 @@ pub struct Spacegroup {
     pub origin_shift: Vec3,
 }
 
+impl Default for Spacegroup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Spacegroup {
     pub fn new() -> Self {
         Spacegroup {
@@ -281,21 +274,17 @@ pub fn spa_transform_to_primitive(
     centering: Centering,
     symprec: f64,
 ) -> Option<Cell> {
-    let tmat_inv = match mat_inverse_matrix_d3(trans_mat, symprec).ok() {
-        Some(m) => m,
-        None => return None,
-    };
+    let tmat_inv = mat_inverse_matrix_d3(trans_mat, symprec).ok()?;
 
-    let mut tmat = [[0.0; 3]; 3];
-    match centering {
-        Centering::Primitive => tmat = tmat_inv,
-        Centering::AFace => tmat = mat_multiply_matrix_d3(&tmat_inv, &A_MAT),
-        Centering::CFace => tmat = mat_multiply_matrix_d3(&tmat_inv, &C_MAT),
-        Centering::Face => tmat = mat_multiply_matrix_d3(&tmat_inv, &F_MAT),
-        Centering::Body => tmat = mat_multiply_matrix_d3(&tmat_inv, &I_MAT),
-        Centering::RCenter => tmat = mat_multiply_matrix_d3(&tmat_inv, &R_MAT),
+    let tmat = match centering {
+        Centering::Primitive => tmat_inv,
+        Centering::AFace => mat_multiply_matrix_d3(&tmat_inv, &A_MAT),
+        Centering::CFace => mat_multiply_matrix_d3(&tmat_inv, &C_MAT),
+        Centering::Face => mat_multiply_matrix_d3(&tmat_inv, &F_MAT),
+        Centering::Body => mat_multiply_matrix_d3(&tmat_inv, &I_MAT),
+        Centering::RCenter => mat_multiply_matrix_d3(&tmat_inv, &R_MAT),
         _ => return None,
-    }
+    };
 
     let prim_lat = mat_multiply_matrix_d3(&cell.lattice, &tmat);
 
@@ -354,20 +343,22 @@ pub fn spa_transform_from_primitive(
         num_atom += 1;
     }
 
-    for i in 0..(multi - 1) {
+    for centering_shift in shift.iter().take(multi - 1) {
         for j in 0..primitive.size {
             let src_pos = std_cell.position[j];
             std_cell.position[num_atom] = src_pos;
-            for k in 0..3 {
-                std_cell.position[num_atom][k] += shift[i][k];
+            for (coordinate, offset) in std_cell.position[num_atom]
+                .iter_mut()
+                .zip(centering_shift)
+            {
+                *coordinate += offset;
             }
             std_cell.types[num_atom] = std_cell.types[j];
             num_atom += 1;
         }
     }
 
-    let trimmed_cell = cel_trim_cell(&mut mapping_table, &std_cell.lattice, &std_cell, symprec);
-    trimmed_cell
+    cel_trim_cell(&mut mapping_table, &std_cell.lattice, &std_cell, symprec)
 }
 
 // --- Internal Functions ---
@@ -519,14 +510,12 @@ fn search_hall_number(
         return 0;
     }
 
-    let mut conv_lattice_tmp = [[0.0; 3]; 3];
-
     if pointgroup.laue == Laue::Laue1 || pointgroup.laue == Laue::Laue2M {
-        conv_lattice_tmp =
+        let conv_lattice_tmp =
             mat_multiply_matrix_di3(&primitive.cell.as_ref().unwrap().lattice, &tmat_int);
 
-        if pointgroup.laue == Laue::Laue1 {
-            if !change_basis_tricli(
+        if pointgroup.laue == Laue::Laue1
+            && !change_basis_tricli(
                 &mut tmat_int,
                 &conv_lattice_tmp,
                 &primitive.cell.as_ref().unwrap().lattice,
@@ -535,10 +524,9 @@ fn search_hall_number(
             ) {
                 return 0;
             }
-        }
 
-        if pointgroup.laue == Laue::Laue2M {
-            if !change_basis_monocli(
+        if pointgroup.laue == Laue::Laue2M
+            && !change_basis_monocli(
                 &mut tmat_int,
                 &conv_lattice_tmp,
                 &primitive.cell.as_ref().unwrap().lattice,
@@ -547,7 +535,6 @@ fn search_hall_number(
             ) {
                 return 0;
             }
-        }
     }
 
     let mut correction_mat = [[0.0; 3]; 3];
@@ -567,17 +554,20 @@ fn search_hall_number(
 
     let holohedry = pointgroup.holohedry;
     let pg_number = pointgroup.number;
+    let match_context = HallMatchContext {
+        pointgroup_number: pg_number,
+        holohedry,
+        centering,
+        conventional_symmetry: &conv_symmetry,
+        symprec,
+    };
 
     for &cand in candidates {
         if match_hall_symbol_db(
             origin_shift,
             conv_lattice,
             cand,
-            pg_number,
-            holohedry,
-            centering,
-            &conv_symmetry,
-            symprec,
+            &match_context,
         ) {
             debug::debug_print(format_args!("origin shift\n"));
             return cand;
@@ -602,9 +592,9 @@ fn change_basis_tricli(
 
     let mut smallest_lattice = niggli_cell;
     if mat_get_determinant_d3(&smallest_lattice) < 0.0 {
-        for i in 0..3 {
-            for j in 0..3 {
-                smallest_lattice[i][j] = -smallest_lattice[i][j];
+        for row in &mut smallest_lattice {
+            for value in row {
+                *value = -*value;
             }
         }
     }
@@ -627,19 +617,19 @@ fn change_basis_monocli(
     let mut aperiodic_axis_conv: i32 = -1;
     let unique_axis;
 
-    if aperiodic_axis_prim.is_none() {
-        unique_axis = 1;
-    } else {
-        let ap_idx = aperiodic_axis_prim.unwrap().axis_index();
-        for i in 0..3 {
-            if tmat_int[ap_idx][i] != 0 {
+    if let Some(aperiodic_axis) = aperiodic_axis_prim {
+        let ap_idx = aperiodic_axis.axis_index();
+        for (i, &value) in tmat_int[ap_idx].iter().enumerate() {
+            if value != 0 {
                 aperiodic_axis_conv = i as i32;
             }
         }
         unique_axis = 0;
+    } else {
+        unique_axis = 1;
     }
 
-    if !del_layer_delaunay_reduce_2D(
+    if !del_layer_delaunay_reduce_2d(
         &mut smallest_lattice,
         conv_lattice,
         unique_axis,
@@ -712,13 +702,18 @@ fn get_conventional_symmetry(
     let multi = get_centering_shifts(&mut shift, centering);
 
     if centering != Centering::Primitive {
-        for i in 0..(multi - 1) {
+        for (i, centering_shift) in shift.iter().take(multi - 1).enumerate() {
             for j in 0..size {
                 //mat_copy_matrix_i3(&mut symmetry.rot[(i + 1) * size + j], &symmetry.rot[j]);
                 let src_rot = symmetry.rot[j];
                 symmetry.rot[(i + 1) * size + j] = src_rot;
-                for k in 0..3 {
-                    symmetry.trans[(i + 1) * size + j][k] = symmetry.trans[j][k] + shift[i][k];
+                let source_translation = symmetry.trans[j];
+                for ((coordinate, source), offset) in symmetry.trans[(i + 1) * size + j]
+                    .iter_mut()
+                    .zip(source_translation)
+                    .zip(centering_shift)
+                {
+                    *coordinate = source + offset;
                 }
             }
         }
@@ -758,8 +753,7 @@ pub(crate) fn get_centering(correction_mat: &mut Mat3, tmat: &Mat3I, laue: Laue)
             centering
         }
         3 => {
-            let mut trans_corr_mat = [[0.0; 3]; 3];
-            trans_corr_mat = mat_multiply_matrix_id3(tmat, &RHOMBO_OBVERSE);
+            let mut trans_corr_mat = mat_multiply_matrix_id3(tmat, &RHOMBO_OBVERSE);
             if mat_is_int_matrix(&trans_corr_mat, INT_PREC) {
                 *correction_mat = RHOMBO_OBVERSE;
                 debug::debug_print(format_args!("R-center observe setting\n"));
@@ -782,22 +776,22 @@ fn get_base_center(tmat: &Mat3I) -> Centering {
     debug::debug_print(format_args!("lat_get_base_center\n"));
 
     // C center
-    for i in 0..3 {
-        if tmat[i][0] == 0 && tmat[i][1] == 0 && tmat[i][2].abs() == 1 {
+    for row in tmat.iter().take(3) {
+        if row[0] == 0 && row[1] == 0 && row[2].abs() == 1 {
             return Centering::CFace;
         }
     }
 
     // A center
-    for i in 0..3 {
-        if tmat[i][0].abs() == 1 && tmat[i][1] == 0 && tmat[i][2] == 0 {
+    for row in tmat.iter().take(3) {
+        if row[0].abs() == 1 && row[1] == 0 && row[2] == 0 {
             return Centering::AFace;
         }
     }
 
     // B center
-    for i in 0..3 {
-        if tmat[i][0] == 0 && tmat[i][1].abs() == 1 && tmat[i][2] == 0 {
+    for row in tmat.iter().take(3) {
+        if row[0] == 0 && row[1].abs() == 1 && row[2] == 0 {
             return Centering::BFace;
         }
     }
@@ -816,15 +810,11 @@ fn get_base_center(tmat: &Mat3I) -> Centering {
 
 fn get_centering_shifts(shift: &mut [[f64; 3]; 3], centering: Centering) -> usize {
     let mut multi = 1;
-    for i in 0..3 {
-        shift[i] = [0.0; 3];
-    }
+    shift.fill([0.0; 3]);
 
     if centering != Centering::Primitive {
         if centering != Centering::Face && centering != Centering::RCenter {
-            for i in 0..3 {
-                shift[0][i] = 0.5;
-            } // BODY
+            shift[0].fill(0.5); // BODY
             if centering == Centering::AFace {
                 shift[0][0] = 0.0;
             }
@@ -863,60 +853,6 @@ fn get_centering_shifts(shift: &mut [[f64; 3]; 3], centering: Centering) -> usiz
     multi
 }
 
-fn is_equivalent_lattice(
-    tmat: &mut Mat3,
-    mode: i32,
-    lattice: &Mat3,
-    orig_lattice: &Mat3,
-    symprec: f64,
-) -> bool {
-    if (mat_get_determinant_d3(lattice) - mat_get_determinant_d3(orig_lattice)).abs() > symprec {
-        return false;
-    }
-
-    let mut inv_lat = [[0.0; 3]; 3];
-    if mat_inverse_matrix_d3(lattice, symprec).is_err() {
-        return false;
-    }
-
-    // orig_lattice == lattice @ tmat
-    *tmat = mat_multiply_matrix_d3(&inv_lat, orig_lattice);
-
-    match mode {
-        0 => {
-            if mat_check_identity_matrix_d3(&IDENTITY, tmat, symprec) {
-                return true;
-            }
-        }
-        1 => {
-            let mut tmat_abs = [[0.0; 3]; 3];
-            for i in 0..3 {
-                for j in 0..3 {
-                    tmat_abs[i][j] = mat_dabs(tmat[i][j]);
-                }
-            }
-            if mat_check_identity_matrix_d3(&IDENTITY, &tmat_abs, symprec) {
-                return true;
-            }
-        }
-        2 => {
-            let tmat_int = mat_cast_matrix_3d_to_3i(tmat);
-            if mat_check_identity_matrix_id3(&tmat_int, tmat, symprec) {
-                if mat_get_determinant_i3(&tmat_int) == 1 {
-                    let orig_metric = mat_get_metric(orig_lattice);
-                    let metric = mat_get_metric(lattice);
-                    if mat_check_identity_matrix_d3(&orig_metric, &metric, symprec) {
-                        return true;
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-
-    false
-}
-
 // ============================================================================
 // match_hall_symbol_db family — ported from C spacegroup.c:991-1679
 // ============================================================================
@@ -947,12 +883,12 @@ fn match_hall_symbol_db_change_of_basis_loop(
         else {
             continue;
         };
-        let mut changed_lat = mat_multiply_matrix_d3(&*conv_lattice, cob);
+        let changed_lat = mat_multiply_matrix_d3(&*conv_lattice, cob);
         // Pass original `centering` (not `centering_for_symmetry`) to matching:
         // for RCenter this means the DB expects RCenter operations.
         if hal_match_hall_symbol_db(
             origin_shift,
-            &mut changed_lat,
+            &changed_lat,
             hall_number,
             centering,
             &changed_sym,
@@ -1004,37 +940,47 @@ fn match_hall_symbol_db_rhombo(
 
 /// Top-level Hall symbol dispatcher with point-group filter and holohedry routing.
 /// C: `match_hall_symbol_db`, spacegroup.c:991
+struct HallMatchContext<'a> {
+    pointgroup_number: usize,
+    holohedry: Holohedry,
+    centering: Centering,
+    conventional_symmetry: &'a Symmetry,
+    symprec: f64,
+}
+
 fn match_hall_symbol_db(
     origin_shift: &mut Vec3,
     conv_lattice: &mut Mat3,
     hall_number: i32,
-    pointgroup_number: usize,
-    holohedry: Holohedry,
-    centering: Centering,
-    conv_symmetry: &Symmetry,
-    symprec: f64,
+    context: &HallMatchContext<'_>,
 ) -> bool {
     // Point-group filter: skip Hall numbers whose point group doesn't match.
     let spg_type = spgdb_get_spacegroup_type(hall_number as usize);
-    if pointgroup_number != spg_type.pointgroup_number {
+    if context.pointgroup_number != spg_type.pointgroup_number {
         return false;
     }
 
     // Dispatch: rhombohedral RCenter cases get centering expansion;
     // all others delegate to hal_match_hall_symbol_db directly (as before).
-    if holohedry == Holohedry::Trigo
-        && centering == Centering::RCenter
+    if context.holohedry == Holohedry::Trigo
+        && context.centering == Centering::RCenter
         && RHOMBO_HEX_SETTING.contains(&hall_number)
     {
-        match_hall_symbol_db_rhombo(origin_shift, conv_lattice, hall_number, conv_symmetry, symprec)
+        match_hall_symbol_db_rhombo(
+            origin_shift,
+            conv_lattice,
+            hall_number,
+            context.conventional_symmetry,
+            context.symprec,
+        )
     } else {
         hal_match_hall_symbol_db(
             origin_shift,
             conv_lattice,
             hall_number,
-            centering,
-            conv_symmetry,
-            symprec,
+            context.centering,
+            context.conventional_symmetry,
+            context.symprec,
         )
     }
 }

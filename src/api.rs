@@ -209,11 +209,11 @@ impl Crystal {
     pub fn from_poscar(data: &str) -> Result<Self, crate::SymError> {
         crate::parser::parse_poscar(data)
             .ok_or(crate::SymError::InvalidInput)
-            .map(|(lattice, positions, types, moments)| Crystal {
-                lattice,
-                positions,
-                types,
-                moments,
+            .map(|parsed| Crystal {
+                lattice: parsed.lattice,
+                positions: parsed.positions,
+                types: parsed.types,
+                moments: parsed.magnetic_moments,
                 aperiodic_axis: None,
             },
         )
@@ -357,9 +357,8 @@ impl<'a> SymmetryAnalysis<'a> {
     /// inconsistent positions/types/moments lengths. Other symmetry and
     /// magnetic-space-group identification errors, including
     /// [`crate::SymError::MagneticUniMatchFailed`], are propagated unchanged.
-    #[allow(deprecated)]
     pub fn magnetic_dataset(&self) -> Result<MagneticSymmetry, crate::SymError> {
-        crate::spg_get_magnetic_dataset(
+        crate::magnetic_symmetry_from_crystal(
             &self.crystal.lattice,
             &self.crystal.positions,
             &self.crystal.types,
@@ -374,9 +373,65 @@ impl<'a> SymmetryAnalysis<'a> {
 use std::fmt;
 
 impl fmt::Display for MagneticSymmetry {
-    #[allow(deprecated)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", crate::spg_format_magnetic_symmetry(self))
+        writeln!(f, "--- Space group ---")?;
+        writeln!(f, "  Number:          {}", self.spacegroup_number)?;
+        writeln!(f, "  International:   {}", self.international_short)?;
+        writeln!(f, "  Hall number:     {}", self.hall_number)?;
+        writeln!(f, "  Hall symbol:     {}", self.hall_symbol)?;
+
+        if self.magnetic_type != crate::MagneticType::NonMagnetic {
+            let type_name = match self.magnetic_type {
+                crate::MagneticType::Ordinary => "Type-1 (ordinary, no time reversal)",
+                crate::MagneticType::Grey => "Type-2 (grey, with pure 1')",
+                crate::MagneticType::BlackWhite => "Type-3 (black-white, anti-rotation)",
+                crate::MagneticType::AntiTranslation => {
+                    "Type-4 (black-white, anti-translation)"
+                }
+                crate::MagneticType::NonMagnetic => "none",
+            };
+            writeln!(f, "--- Magnetic space group ---")?;
+            writeln!(f, "  UNI number:      {}", self.uni_number)?;
+            writeln!(
+                f,
+                "  Magnetic type:   {} ({type_name})",
+                self.magnetic_type as i32
+            )?;
+            writeln!(f, "  BNS symbol:      {}", self.bns_number)?;
+            writeln!(f, "  OG number:       {}", self.og_number)?;
+        } else {
+            writeln!(f, "  (non-magnetic)")?;
+        }
+
+        writeln!(f, "--- Symmetry operations ({}) ---", self.num_operations)?;
+        for (index, ((rotation, translation), &time_reversal)) in self
+            .rotations
+            .iter()
+            .zip(&self.translations)
+            .zip(&self.time_reversals)
+            .enumerate()
+        {
+            let prime = if time_reversal { "'" } else { " " };
+            writeln!(
+                f,
+                "  {}. rot=[{:2},{:2},{:2};{:2},{:2},{:2};{:2},{:2},{:2}] trans=[{:.3},{:.3},{:.3}]{}",
+                index + 1,
+                rotation[0][0],
+                rotation[0][1],
+                rotation[0][2],
+                rotation[1][0],
+                rotation[1][1],
+                rotation[1][2],
+                rotation[2][0],
+                rotation[2][1],
+                rotation[2][2],
+                translation[0],
+                translation[1],
+                translation[2],
+                prime,
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -748,7 +803,7 @@ pub fn dense_bz_grid_points_by_rotations(
         rot.mat[i] = *r;
     }
     let mut rot_grid_points = vec![0usize; rot_reciprocal.len()];
-    crate::kpoint::kpt_get_dense_BZ_grid_points_by_rotations(
+    crate::kpoint::kpt_get_dense_bz_grid_points_by_rotations(
         &mut rot_grid_points,
         &address_orig,
         &rot,
@@ -942,11 +997,11 @@ fn standardize_primitive_inner(
     )
     .ok_or(SymError::CellStandardizationFailed)?;
 
-    for i in 0..primitive.size {
-        if mapping_table[i] != i {
+    for (i, &mapped) in mapping_table.iter().take(primitive.size).enumerate() {
+        if mapped != i {
             debug::warning_print(format_args!(
                 "spglib: spa_transform_to_primitive failed ({} != {})\n",
-                mapping_table[i], i
+                mapped, i
             ));
             return Err(SymError::CellStandardizationFailed);
         }
@@ -987,11 +1042,14 @@ fn standardize_cell_inner(
         )
         .ok_or(SymError::CellStandardizationFailed)?;
 
-        for i in 0..num_atom {
-            if mapping_table[i] != dataset.mapping_to_primitive[i] as usize {
+        for (&mapped, &expected) in mapping_table
+            .iter()
+            .zip(&dataset.mapping_to_primitive)
+        {
+            if mapped != expected as usize {
                 debug::warning_print(format_args!(
                     "spglib: spa_transform_to_primitive failed ({} != {})\n",
-                    mapping_table[i], dataset.mapping_to_primitive[i]
+                    mapped, expected
                 ));
                 return Err(SymError::CellStandardizationFailed);
             }
@@ -1017,11 +1075,14 @@ fn standardize_cell_inner(
         )
         .ok_or(SymError::CellStandardizationFailed)?;
 
-        for i in 0..num_atom {
-            if mapping_table[i] != dataset.mapping_to_primitive[i] as usize {
+        for (&mapped, &expected) in mapping_table
+            .iter()
+            .zip(&dataset.mapping_to_primitive)
+        {
+            if mapped != expected as usize {
                 debug::warning_print(format_args!(
                     "spglib: spa_transform_to_primitive failed ({} != {})\n",
-                    mapping_table[i], dataset.mapping_to_primitive[i]
+                    mapped, expected
                 ));
                 return Err(SymError::CellStandardizationFailed);
             }

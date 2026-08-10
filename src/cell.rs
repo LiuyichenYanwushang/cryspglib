@@ -114,10 +114,10 @@ impl Cell {
     pub fn set_cell(&mut self, lattice: &Mat3, position: &[Vec3], types: &[i32]) {
         self.lattice = *lattice;
         for i in 0..self.size {
-            for j in 0..3 {
+            for (dst, &src) in self.position[i].iter_mut().zip(&position[i]) {
                 // 确保位置在 [-0.5, 0.5) 区间内，或者 [0, 1) 取决于 mat_nint 实现
                 // C 代码逻辑：position - Nint(position)
-                self.position[i][j] = position[i][j] - mat_nint(position[i][j]) as f64;
+                *dst = src - mat_nint(src) as f64;
             }
             self.types[i] = types[i];
         }
@@ -134,11 +134,11 @@ impl Cell {
     ) {
         self.lattice = *lattice;
         for i in 0..self.size {
-            for j in 0..3 {
-                if aperiodic_axis.map_or(true, |ap| j != ap.axis_index()) {
-                    self.position[i][j] = position[i][j] - mat_nint(position[i][j]) as f64;
+            for (j, dst) in self.position[i].iter_mut().enumerate() {
+                if aperiodic_axis.is_none_or(|ap| j != ap.axis_index()) {
+                    *dst = position[i][j] - mat_nint(position[i][j]) as f64;
                 } else {
-                    self.position[i][j] = position[i][j];
+                    *dst = position[i][j];
                 }
             }
             self.types[i] = types[i];
@@ -336,7 +336,7 @@ fn trim_cell(
     }
 
     // 检查原子数是否能被比率整除
-    if cell.size % ratio as usize != 0 {
+    if !cell.size.is_multiple_of(ratio as usize) {
         debug::info_print(format_args!("spglib: atom number ratio is inconsistent.\n"));
         return None;
     }
@@ -455,7 +455,7 @@ fn set_positions_and_tensors(
     for i in 0..trimmed_cell.size {
         for j in 0..3 {
             trimmed_cell.position[i][j] /= multi;
-            if trimmed_cell.aperiodic_axis.map_or(true, |ap| j != ap.axis_index()) {
+            if trimmed_cell.aperiodic_axis.is_none_or(|ap| j != ap.axis_index()) {
                 trimmed_cell.position[i][j] = mat_dmod1(trimmed_cell.position[i][j]);
             }
         }
@@ -483,7 +483,7 @@ fn translate_atoms_in_trimmed_lattice(cell: &Cell, tmat_p_i: &[[i32; 3]; 3]) -> 
         // 假设 mat_multiply_matrix_vector_id3 返回计算后的向量
         position.vec[i] = mat_multiply_matrix_vector_id3(tmat_p_i, &cell.position[i]);
         for j in 0..3 {
-            if cell.aperiodic_axis.map_or(true, |ap| j != ap.axis_index()) {
+            if cell.aperiodic_axis.is_none_or(|ap| j != ap.axis_index()) {
                 position.vec[i][j] = mat_dmod1(position.vec[i][j]);
             }
         }
@@ -534,12 +534,11 @@ fn get_overlap_table(
                         )
                     };
 
-                    if is_overlap {
-                        if overlap_table[j] == j {
+                    if is_overlap
+                        && overlap_table[j] == j {
                             overlap_table[i] = j;
                             break;
                         }
-                    }
                 }
             }
         }
@@ -554,12 +553,7 @@ fn get_overlap_table(
                 continue;
             }
 
-            let mut num_overlap = 0;
-            for j in 0..cell_size {
-                if i == overlap_table[j] {
-                    num_overlap += 1;
-                }
-            }
+            let num_overlap = overlap_table.iter().filter(|&&mapped| mapped == i).count();
 
             if num_overlap == ratio {
                 continue;

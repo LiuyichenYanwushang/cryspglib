@@ -141,20 +141,20 @@ fn main() {
 
             let ct = wigner_classify_spinor(
                 &ctx,
-                ir.characters(),
-                ir.spin_character_imag(),
-                n_lg,
-                indices,
-                &unitary_lg,
-                &mag_seitz,
-                &h_seitz,
-                a0_idx,
+                SpinorWignerInput {
+                    characters_real: ir.characters(),
+                    characters_imag: ir.spin_character_imag(),
+                    operation_indices: indices,
+                    k_vector: ir.k_vector(),
+                },
+                WignerGroupContext {
+                    unitary_indices: &unitary_lg,
+                    magnetic_ops: &mag_seitz,
+                    unitary_ops: &h_seitz,
+                    antiunitary_representative: a0_idx,
+                },
                 None,
                 None,
-                kx,
-                ky,
-                kz,
-                kd,
             );
 
             // Debug: trace why None
@@ -176,12 +176,12 @@ fn main() {
                     let u_a0 = spin_su2_at(g_spin_su2, am);
                     println!("      u_a0={:?}", u_a0);
                     // Try per-term: does (a0*h)^2 match back?
-                    let (_, origin) = IrrepRecord::sg_setting(ctx.sg);
+                    let (_, _origin) = IrrepRecord::sg_setting(ctx.sg);
                     let a0_bilbao =
                         SeitzOp::new(a0.rot, [a0.trans[0], a0.trans[1], a0.trans[2]], false);
                     let h_spin_seitz = build_spin_seitz(ctx.h.0, ctx.h.1);
-                    for local in 0..n_lg {
-                        let gsi = indices[local] as usize;
+                    for (local, &index) in indices.iter().take(n_lg).enumerate() {
+                        let gsi = index as usize;
                         let h_spin = &h_spin_seitz[gsi];
                         let (g0h, _l1) = compose_seitz(&a0_bilbao, h_spin);
                         let (sq, _lsq) = square_seitz(&g0h);

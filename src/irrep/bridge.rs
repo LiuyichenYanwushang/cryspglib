@@ -27,24 +27,6 @@ pub fn canonical_hall_ops(sg: u8) -> Result<SymmetryOps, crate::SymError> {
     SymmetryOps::from_database(hall).or_else(|_| SymmetryOps::from_sg(sg))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn canonical_hall_ops_reports_invalid_space_group() {
-        assert!(matches!(
-            canonical_hall_ops(0),
-            Err(crate::SymError::SpacegroupSearchFailed)
-        ));
-        assert!(matches!(
-            canonical_hall_ops(231),
-            Err(crate::SymError::SpacegroupSearchFailed)
-        ));
-        assert_eq!(canonical_hall_ops(221).unwrap().len(), 48);
-    }
-}
-
 impl SpaceGroup {
     /// All irreducible representations for this space group.
     pub fn irreps(&self) -> &'static [IrrepRecord] {
@@ -135,5 +117,23 @@ impl SpaceGroup {
                 (ir, desc)
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_hall_ops_reports_invalid_space_group() {
+        assert!(matches!(
+            canonical_hall_ops(0),
+            Err(crate::SymError::SpacegroupSearchFailed)
+        ));
+        assert!(matches!(
+            canonical_hall_ops(231),
+            Err(crate::SymError::SpacegroupSearchFailed)
+        ));
+        assert_eq!(canonical_hall_ops(221).unwrap().len(), 48);
     }
 }

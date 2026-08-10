@@ -40,8 +40,7 @@ pub fn det_determine_all(
 
     let mut tolerance = symprec;
     for _ in 0..NUM_ATTEMPT_OUTER {
-        if let Some(mut container) =
-            get_spacegroup_and_primitive(cell, hall_number, tolerance, angle_symprec).ok()
+        if let Ok(mut container) = get_spacegroup_and_primitive(cell, hall_number, tolerance, angle_symprec)
         {
             let exstr = {
                 let sg = container.spacegroup.as_mut().unwrap();
@@ -125,7 +124,6 @@ fn get_spacegroup_and_primitive(
 mod tests {
     use super::*;
     use crate::cell::Cell;
-    use crate::mathfunc::Mat3;
 
     #[test]
     fn test_det_hall_number_out_of_range() {

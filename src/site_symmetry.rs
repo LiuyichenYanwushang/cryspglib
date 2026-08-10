@@ -15,23 +15,44 @@ use crate::symmetry::Symmetry;
 const INCREASE_RATE: f64 = 1.05;
 const NUM_ATTEMPT: i32 = 5;
 
+pub(crate) struct ExactPositions {
+    pub positions: Vec<Vec3>,
+    pub wyckoffs: Vec<i32>,
+    pub equivalent_atoms: Vec<i32>,
+    pub site_symmetry_symbols: Vec<String>,
+}
+
+struct ExactSiteData {
+    positions: Vec<Vec3>,
+    equivalent_atoms: Vec<i32>,
+}
+
+struct SiteEquivalenceContext<'a> {
+    positions: &'a [Vec3],
+    independent_atoms: &'a [usize],
+    primitive: &'a Cell,
+    symmetry: &'a Symmetry,
+    symprec: f64,
+}
+
 /// 获取精确的原子位置和 Wyckoff 标记。
 ///
 /// # Returns
-/// `Option<(positions, wyckoffs, equiv_atoms, site_sym_symbols)>`
-pub fn ssm_get_exact_positions(
+/// A complete set of exact positions, Wyckoff labels, equivalent atoms, and
+/// site-symmetry symbols.
+pub(crate) fn ssm_get_exact_positions(
     conv_prim: &Cell,
     conv_sym: &Symmetry,
     num_pure_trans: i32,
     hall_number: usize,
     symprec: f64,
-) -> Option<(Vec<Vec3>, Vec<i32>, Vec<i32>, Vec<String>)> {
+) -> Option<ExactPositions> {
     let mut tolerance = symprec;
     for i in 0..NUM_ATTEMPT {
-        let (positions, equiv_atoms) = match get_exact_positions(conv_prim, conv_sym, tolerance) {
-            Some(v) => v,
-            None => return None,
-        };
+        let ExactSiteData {
+            positions,
+            equivalent_atoms: equiv_atoms,
+        } = get_exact_positions(conv_prim, conv_sym, tolerance)?;
 
         let (wyckoffs, symbols) = match set_wyckoffs_labels(
             &positions, &equiv_atoms, conv_prim, conv_sym,
@@ -47,7 +68,12 @@ pub fn ssm_get_exact_positions(
             }
         };
 
-        return Some((positions, wyckoffs, equiv_atoms, symbols));
+        return Some(ExactPositions {
+            positions,
+            wyckoffs,
+            equivalent_atoms: equiv_atoms,
+            site_symmetry_symbols: symbols,
+        });
     }
 
     None
@@ -59,7 +85,7 @@ fn get_exact_positions(
     conv_prim: &Cell,
     conv_sym: &Symmetry,
     symprec: f64,
-) -> Option<(Vec<Vec3>, Vec<i32>)> {
+) -> Option<ExactSiteData> {
     debug::debug_print(format_args!("get_exact_positions\n"));
 
     let n = conv_prim.size;
@@ -67,11 +93,44 @@ fn get_exact_positions(
     let mut equiv_atoms = vec![0i32; n];
     let mut indep_atoms: Vec<usize> = Vec::with_capacity(n);
 
-    if conv_prim.aperiodic_axis.is_none() {
+    if let Some(aperiodic) = conv_prim.aperiodic_axis {
+        for i in 0..n {
+            if !set_layer_equivalent_atom(
+                &SiteEquivalenceContext {
+                    positions: &positions,
+                    independent_atoms: &indep_atoms,
+                    primitive: conv_prim,
+                    symmetry: conv_sym,
+                    symprec,
+                },
+                &mut equiv_atoms,
+                i,
+                aperiodic,
+            ) {
+                equiv_atoms[i] = i as i32;
+                indep_atoms.push(i);
+                positions[i] = conv_prim.position[i];
+                set_layer_exact_location(
+                    &mut positions[i],
+                    conv_sym,
+                    &conv_prim.lattice,
+                    aperiodic,
+                    symprec,
+                );
+            }
+        }
+    } else {
         for i in 0..n {
             if !set_equivalent_atom(
-                &positions, &mut equiv_atoms, i,
-                &indep_atoms, conv_prim, conv_sym, symprec,
+                &SiteEquivalenceContext {
+                    positions: &positions,
+                    independent_atoms: &indep_atoms,
+                    primitive: conv_prim,
+                    symmetry: conv_sym,
+                    symprec,
+                },
+                &mut equiv_atoms,
+                i,
             ) {
                 equiv_atoms[i] = i as i32;
                 indep_atoms.push(i);
@@ -79,45 +138,35 @@ fn get_exact_positions(
                 set_exact_location(&mut positions[i], conv_sym, &conv_prim.lattice, symprec);
             }
         }
-    } else {
-        let aperiodic = conv_prim.aperiodic_axis.unwrap();
-        for i in 0..n {
-            if !set_layer_equivalent_atom(
-                &positions, &mut equiv_atoms, i,
-                &indep_atoms, conv_prim, conv_sym, symprec, aperiodic,
-            ) {
-                equiv_atoms[i] = i as i32;
-                indep_atoms.push(i);
-                positions[i] = conv_prim.position[i];
-                set_layer_exact_location(&mut positions[i], conv_sym, &conv_prim.lattice, aperiodic, symprec);
-            }
-        }
     }
 
-    Some((positions, equiv_atoms))
+    Some(ExactSiteData {
+        positions,
+        equivalent_atoms: equiv_atoms,
+    })
 }
 
 /// 检查原子 i 是否与已有独立原子等价。
 /// 如果是，设置 positions[i] 和 equiv_atoms[i] 并返回 true。
 fn set_equivalent_atom(
-    positions: &[[f64; 3]],
+    context: &SiteEquivalenceContext<'_>,
     equiv_atoms: &mut [i32],
     i: usize,
-    indep_atoms: &[usize],
-    conv_prim: &Cell,
-    conv_sym: &Symmetry,
-    symprec: f64,
 ) -> bool {
-    for &j in indep_atoms {
-        for k in 0..conv_sym.size {
-            let mut pos = mat_multiply_matrix_vector_id3(&conv_sym.rot[k], &positions[j]);
-            for l in 0..3 {
-                pos[l] += conv_sym.trans[k][l];
+    for &j in context.independent_atoms {
+        for k in 0..context.symmetry.size {
+            let mut pos =
+                mat_multiply_matrix_vector_id3(&context.symmetry.rot[k], &context.positions[j]);
+            for (coordinate, translation) in pos.iter_mut().zip(&context.symmetry.trans[k]) {
+                *coordinate += translation;
             }
             if cel_is_overlap_with_same_type(
-                &pos, &conv_prim.position[i],
-                conv_prim.types[j], conv_prim.types[i],
-                &conv_prim.lattice, symprec,
+                &pos,
+                &context.primitive.position[i],
+                context.primitive.types[j],
+                context.primitive.types[i],
+                &context.primitive.lattice,
+                context.symprec,
             ) {
                 equiv_atoms[i] = j as i32;
                 // positions is &mut in the caller, here we can't mutate it
@@ -143,16 +192,18 @@ fn set_exact_location(
 
     for i in 0..conv_sym.size {
         let mut pos = mat_multiply_matrix_vector_id3(&conv_sym.rot[i], position);
-        for j in 0..3 {
-            pos[j] += conv_sym.trans[i][j];
+        for (coordinate, translation) in pos.iter_mut().zip(&conv_sym.trans[i]) {
+            *coordinate += translation;
         }
 
         if cel_is_overlap(&pos, position, bravais_lattice, symprec) {
-            for j in 0..3 {
-                for k in 0..3 {
-                    sum_rot[j][k] += conv_sym.rot[i][j][k] as f64;
+            for (j, (sum_row, sum_translation)) in
+                sum_rot.iter_mut().zip(&mut sum_trans).enumerate()
+            {
+                for (sum_value, &rotation) in sum_row.iter_mut().zip(&conv_sym.rot[i][j]) {
+                    *sum_value += rotation as f64;
                 }
-                sum_trans[j] +=
+                *sum_translation +=
                     conv_sym.trans[i][j] - (pos[j] - position[j]).round();
             }
             num_site_sym += 1;
@@ -161,41 +212,42 @@ fn set_exact_location(
 
     if num_site_sym > 0 {
         let n = num_site_sym as f64;
-        for j in 0..3 {
-            sum_trans[j] /= n;
-            for k in 0..3 {
-                sum_rot[j][k] /= n;
+        for (sum_row, sum_translation) in sum_rot.iter_mut().zip(&mut sum_trans) {
+            *sum_translation /= n;
+            for value in sum_row {
+                *value /= n;
             }
         }
 
         *position = mat_multiply_matrix_vector_d3(&sum_rot, position);
-        for j in 0..3 {
-            position[j] += sum_trans[j];
+        for (coordinate, translation) in position.iter_mut().zip(sum_trans) {
+            *coordinate += translation;
         }
     }
 }
 
 /// 层状结构的等价原子检查。
 fn set_layer_equivalent_atom(
-    positions: &[[f64; 3]],
+    context: &SiteEquivalenceContext<'_>,
     equiv_atoms: &mut [i32],
     i: usize,
-    indep_atoms: &[usize],
-    conv_prim: &Cell,
-    conv_sym: &Symmetry,
-    symprec: f64,
     aperiodic: AperiodicAxis,
 ) -> bool {
-    for &j in indep_atoms {
-        for k in 0..conv_sym.size {
-            let mut pos = mat_multiply_matrix_vector_id3(&conv_sym.rot[k], &positions[j]);
-            for l in 0..3 {
-                pos[l] += conv_sym.trans[k][l];
+    for &j in context.independent_atoms {
+        for k in 0..context.symmetry.size {
+            let mut pos =
+                mat_multiply_matrix_vector_id3(&context.symmetry.rot[k], &context.positions[j]);
+            for (coordinate, translation) in pos.iter_mut().zip(&context.symmetry.trans[k]) {
+                *coordinate += translation;
             }
             if cel_layer_is_overlap_with_same_type(
-                &pos, &conv_prim.position[i],
-                conv_prim.types[j], conv_prim.types[i],
-                &conv_prim.lattice, aperiodic, symprec,
+                &pos,
+                &context.primitive.position[i],
+                context.primitive.types[j],
+                context.primitive.types[i],
+                &context.primitive.lattice,
+                aperiodic,
+                context.symprec,
             ) {
                 equiv_atoms[i] = j as i32;
                 return true;
@@ -219,16 +271,18 @@ fn set_layer_exact_location(
 
     for i in 0..conv_sym.size {
         let mut pos = mat_multiply_matrix_vector_id3(&conv_sym.rot[i], position);
-        for j in 0..3 {
-            pos[j] += conv_sym.trans[i][j];
+        for (coordinate, translation) in pos.iter_mut().zip(&conv_sym.trans[i]) {
+            *coordinate += translation;
         }
 
         if cel_layer_is_overlap(&pos, position, bravais_lattice, aperiodic, symprec) {
-            for j in 0..3 {
-                for k in 0..3 {
-                    sum_rot[j][k] += conv_sym.rot[i][j][k] as f64;
+            for (j, (sum_row, sum_translation)) in
+                sum_rot.iter_mut().zip(&mut sum_trans).enumerate()
+            {
+                for (sum_value, &rotation) in sum_row.iter_mut().zip(&conv_sym.rot[i][j]) {
+                    *sum_value += rotation as f64;
                 }
-                sum_trans[j] +=
+                *sum_translation +=
                     conv_sym.trans[i][j] - (pos[j] - position[j]).round();
             }
             num_site_sym += 1;
@@ -237,16 +291,16 @@ fn set_layer_exact_location(
 
     if num_site_sym > 0 {
         let n = num_site_sym as f64;
-        for j in 0..3 {
-            sum_trans[j] /= n;
-            for k in 0..3 {
-                sum_rot[j][k] /= n;
+        for (sum_row, sum_translation) in sum_rot.iter_mut().zip(&mut sum_trans) {
+            *sum_translation /= n;
+            for value in sum_row {
+                *value /= n;
             }
         }
 
         *position = mat_multiply_matrix_vector_d3(&sum_rot, position);
-        for j in 0..3 {
-            position[j] += sum_trans[j];
+        for (coordinate, translation) in position.iter_mut().zip(sum_trans) {
+            *coordinate += translation;
         }
     }
 }
@@ -338,10 +392,10 @@ fn get_wyckoff_notation(
 
     // 计算所有对称操作作用在 position 上的结果
     let mut pos_rot: Vec<Vec3> = vec![[0.0; 3]; n];
-    for i in 0..n {
-        pos_rot[i] = mat_multiply_matrix_vector_id3(&conv_sym.rot[i], position);
-        for j in 0..3 {
-            pos_rot[i][j] += conv_sym.trans[i][j];
+    for (i, rotated_position) in pos_rot.iter_mut().enumerate().take(n) {
+        *rotated_position = mat_multiply_matrix_vector_id3(&conv_sym.rot[i], position);
+        for (coordinate, translation) in rotated_position.iter_mut().zip(&conv_sym.trans[i]) {
+            *coordinate += translation;
         }
     }
 
@@ -394,10 +448,10 @@ fn get_layer_wyckoff_notation(
     let n = conv_sym.size;
 
     let mut pos_rot: Vec<Vec3> = vec![[0.0; 3]; n];
-    for i in 0..n {
-        pos_rot[i] = mat_multiply_matrix_vector_id3(&conv_sym.rot[i], position);
-        for j in 0..3 {
-            pos_rot[i][j] += conv_sym.trans[i][j];
+    for (i, rotated_position) in pos_rot.iter_mut().enumerate().take(n) {
+        *rotated_position = mat_multiply_matrix_vector_id3(&conv_sym.rot[i], position);
+        for (coordinate, translation) in rotated_position.iter_mut().zip(&conv_sym.trans[i]) {
+            *coordinate += translation;
         }
     }
 

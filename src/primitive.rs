@@ -57,9 +57,7 @@ pub fn prm_get_primitive_with_pure_trans(
 
     if pure_trans.len() == 1 {
         primitive.cell = get_cell_with_smallest_lattice(cell, symprec);
-        if primitive.cell.is_none() {
-            return None;
-        }
+        primitive.cell.as_ref()?;
         for i in 0..cell.size {
             primitive.mapping_table[i] = i as i32;
         }
@@ -72,11 +70,9 @@ pub fn prm_get_primitive_with_pure_trans(
             symprec,
             angle_tolerance,
         );
-        if primitive.cell.is_none() {
-            return None;
-        }
-        for i in 0..cell.size {
-            primitive.mapping_table[i] = mapping_table_usize[i] as i32;
+        primitive.cell.as_ref()?;
+        for (output, &mapped) in primitive.mapping_table.iter_mut().zip(&mapping_table_usize) {
+            *output = mapped as i32;
         }
     }
 
@@ -153,8 +149,8 @@ fn get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Prim
 
     for attempt in 0..NUM_ATTEMPT {
         debug::debug_print(format_args!("get_primitive (attempt = {}):\n", attempt));
-        if let Some(pure_trans) = sym_get_pure_translation(cell, tolerance) {
-            if let Some(primitive) = prm_get_primitive_with_pure_trans(
+        if let Some(pure_trans) = sym_get_pure_translation(cell, tolerance)
+            && let Some(primitive) = prm_get_primitive_with_pure_trans(
                 cell,
                 &pure_trans,
                 tolerance,
@@ -162,7 +158,6 @@ fn get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Prim
             ) {
                 return Ok(primitive);
             }
-        }
 
         tolerance *= REDUCE_RATE;
         debug::debug_print(format_args!("spglib: Reduce tolerance to {} ", tolerance));
@@ -192,7 +187,7 @@ fn get_cell_with_smallest_lattice(cell: &Cell, symprec: f64) -> Option<Cell> {
         smallest_cell.types[i] = cell.types[i];
         smallest_cell.position[i] = mat_multiply_matrix_vector_d3(&trans_mat, &cell.position[i]);
         for j in 0..3 {
-            if aperiodic_axis.map_or(false, |ap| j == ap.axis_index()) {
+            if aperiodic_axis.is_some_and(|ap| j == ap.axis_index()) {
                 smallest_cell.aperiodic_axis = aperiodic_axis;
             } else {
                 smallest_cell.position[i][j] = mat_dmod1(smallest_cell.position[i][j]);
@@ -242,31 +237,26 @@ fn get_primitive_lattice_vectors(
         let vectors = get_translation_candidates(&pure_trans_reduced);
 
         if let Some(found) = find_primitive_lattice_vectors(&vectors, cell, tolerance) {
-            let lattice_copy = found;
-            if let Some(reduced) = if cell.aperiodic_axis.is_none() {
-                del_delaunay_reduce(&lattice_copy, symprec)
+            let reduced = if cell.aperiodic_axis.is_none() {
+                del_delaunay_reduce(&found, symprec)
             } else {
-                del_layer_delaunay_reduce(&lattice_copy, cell.aperiodic_axis, symprec)
-            } {
-                return Some((reduced, multi));
-            } else {
-                return None;
-            }
+                del_layer_delaunay_reduce(&found, cell.aperiodic_axis, symprec)
+            }?;
+            return Some((reduced, multi));
         } else {
-            if let Some(reduced) =
-                sym_reduce_pure_translation(cell, &pure_trans_reduced, tolerance, angle_tolerance)
-            {
-                pure_trans_reduced = reduced;
-                debug::debug_print(format_args!(
-                    "spglib: Tolerance is reduced to {} ({}), num_pure_trans = {}\n",
-                    tolerance,
-                    attempt,
-                    pure_trans_reduced.len()
-                ));
-                tolerance *= REDUCE_RATE;
-            } else {
-                return None;
-            }
+            pure_trans_reduced = sym_reduce_pure_translation(
+                cell,
+                &pure_trans_reduced,
+                tolerance,
+                angle_tolerance,
+            )?;
+            debug::debug_print(format_args!(
+                "spglib: Tolerance is reduced to {} ({}), num_pure_trans = {}\n",
+                tolerance,
+                attempt,
+                pure_trans_reduced.len()
+            ));
+            tolerance *= REDUCE_RATE;
         }
     }
     None
@@ -295,20 +285,19 @@ fn find_primitive_lattice_vectors(
                     tmp_lattice[2] = mat_multiply_matrix_vector_d3(&cell.lattice, &vectors[k]);
 
                     let volume = mat_dabs(mat_get_determinant_d3(&tmp_lattice));
-                    if volume > symprec {
-                        if mat_nint(initial_volume / volume) == (size - 2) as i32 {
+                    if volume > symprec
+                        && mat_nint(initial_volume / volume) == (size - 2) as i32 {
                             min_vectors[0] = vectors[i];
                             min_vectors[1] = vectors[j];
                             min_vectors[2] = vectors[k];
                             found = true;
                             break 'outer;
                         }
-                    }
                 }
             }
         }
-    } else {
-        let ap_idx = aperiodic_axis.unwrap().axis_index();
+    } else if let Some(aperiodic) = aperiodic_axis {
+        let ap_idx = aperiodic.axis_index();
         let k_idx = size + ap_idx - 3;
         'outer_layer: for i in 0..size {
             for j in (i + 1)..size {
@@ -319,8 +308,8 @@ fn find_primitive_lattice_vectors(
                     tmp_lattice[2] = mat_multiply_matrix_vector_d3(&cell.lattice, &vectors[k_idx]);
 
                     let volume = mat_dabs(mat_get_determinant_d3(&tmp_lattice));
-                    if volume > symprec {
-                        if mat_nint(initial_volume / volume) == (size - 2) as i32 {
+                    if volume > symprec
+                        && mat_nint(initial_volume / volume) == (size - 2) as i32 {
                             min_vectors[0] = vectors[i];
                             min_vectors[1] = vectors[j];
                             if ap_idx == 2 {
@@ -332,7 +321,6 @@ fn find_primitive_lattice_vectors(
                             found = true;
                             break 'outer_layer;
                         }
-                    }
                 }
             }
         }
@@ -424,9 +412,9 @@ fn get_primitive_in_translation_space(
     }
 
     let mut cell = Cell::new(pure_trans.len(), crate::cell::TensorRank::NoSpin);
-    for i in 0..pure_trans.len() {
+    for (i, &translation) in pure_trans.iter().enumerate() {
         cell.types[i] = 1;
-        cell.position[i] = pure_trans[i];
+        cell.position[i] = translation;
     }
     cell.lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 

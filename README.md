@@ -14,16 +14,16 @@ Starting from the C source, the AI-assisted porting effort delivered:
 - Automatic conversion of the **530 Hall symbol database** and **1,651 magnetic space group (UNI) entries**
 - Complete identification pipelines for both **non-magnetic space groups** (230) and **magnetic space groups** (1,651 UNI numbers)
 - Space group search, primitive cell reduction, Bravais lattice classification, Wyckoff position refinement, and more
-- 70 unit tests + 1 doc test, covering cubic, hexagonal, tetragonal, monoclinic systems and multiple magnetic structures
+- 254 regular release tests + 26 doc tests, covering all 1,651 magnetic groups and representative crystallographic systems
 
 ## Features
 
 ### Non-magnetic space group identification
 
 - Lattice + positions + types → space group (1–230), Hall symbol, international symbol
-- Primitive cell finding (`spg_find_primitive`)
-- Cell standardization (`spg_standardize_cell`)
-- Wyckoff position refinement (`spg_refine_cell`)
+- Primitive cell finding (`crystal.analyze().primitive_cell()`)
+- Cell standardization (`crystal.analyze().standardize(...)`)
+- Refined Wyckoff positions in `crystal.analyze().dataset()`
 - Delaunay / Niggli lattice reduction
 - k-point grid generation (Monkhorst-Pack)
 
@@ -123,15 +123,15 @@ let result = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
 # This crate is part of a workspace; run from workspace root:
 cd /home/liuyichen/TB_rs
 cargo build --package cryspglib
-cargo test --package cryspglib   # 57 unit + 13 integration + 5 doc tests
+cargo test --package cryspglib --release
 ```
 
 ## Relationship to upstream spglib
 
 - cryspglib is **not a fork or a replacement** — it is a companion port that aims to make spglib's functionality available to the Rust ecosystem without requiring a C compiler or FFI bindings
 - Algorithms and databases are kept identical to spglib 2.x and will track upstream updates
-- Naming conventions preserve the `spg_` prefix with snake_case variants for easy migration
-- Rust type safety: `Option<T>` replaces NULL returns, `Vec` replaces malloc/free, automatic memory management
+- The public API is Rust-native: builders and methods replace C-style `spg_*` wrappers
+- Rust type safety: fallible operations return `Result`, owned collections replace output pointers, and invalid input never uses sentinel scientific results
 
 ## Acknowledgments
 

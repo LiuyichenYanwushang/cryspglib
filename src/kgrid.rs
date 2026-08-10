@@ -45,7 +45,7 @@ pub(crate) fn validate_shift(is_shift: &[i32; 3]) -> Result<(), SymError> {
 /// # Arguments
 /// * `grid_address` - 输出参数，用于存储网格点坐标。大小必须 >= `mesh[0]*mesh[1]*mesh[2]`。
 /// * `mesh` - 定义 k 点网格的尺寸 [Nx, Ny, Nz]。
-pub fn kgd_get_all_grid_addresses(
+pub(crate) fn kgd_get_all_grid_addresses(
     grid_address: &mut [[i32; 3]],
     mesh: &[i32; 3],
 ) -> Result<(), SymError> {
@@ -85,7 +85,7 @@ pub fn kgd_get_all_grid_addresses(
 /// 获取双倍网格下的线性索引
 ///
 /// 对应 C: kgd_get_grid_point_double_mesh
-pub fn kgd_get_grid_point_double_mesh(
+pub(crate) fn kgd_get_grid_point_double_mesh(
     address_double: &[i32; 3],
     mesh: &[i32; 3],
 ) -> Result<usize, SymError> {
@@ -97,7 +97,7 @@ pub fn kgd_get_grid_point_double_mesh(
 ///
 /// 对应 C: kgd_get_dense_grid_point_double_mesh
 /// 在当前实现中，逻辑与 kgd_get_grid_point_double_mesh 相同
-pub fn kgd_get_dense_grid_point_double_mesh(
+pub(crate) fn kgd_get_dense_grid_point_double_mesh(
     address_double: &[i32; 3],
     mesh: &[i32; 3],
 ) -> Result<usize, SymError> {
@@ -114,7 +114,7 @@ pub fn kgd_get_dense_grid_point_double_mesh(
 /// * `address` - 输入：原始网格坐标
 /// * `mesh` - 原始网格尺寸
 /// * `is_shift` - 是否有半网格位移 (0 或 1)
-pub fn kgd_get_grid_address_double_mesh(
+pub(crate) fn kgd_get_grid_address_double_mesh(
     address_double: &mut [i32; 3],
     address: &[i32; 3],
     mesh: &[i32; 3],
@@ -162,14 +162,12 @@ fn get_grid_point_single_mesh(address: &[i32; 3], mesh: &[i32; 3]) -> usize {
         + (address[0] as usize)
 }
 
-/// 内部函数：对向量取模，确保结果为正
-#[inline]
-fn modulo_i3(v: &mut [i32; 3], m: &[i32; 3]) {
-    for i in 0..3 {
-        v[i] = v[i] % m[i];
-        // Rust 的 % 是求余而非取模，负数求余仍为负，需修正
-        if v[i] < 0 {
-            v[i] += m[i];
+#[cfg(test)]
+fn modulo_i3(values: &mut [i32; 3], modulus: &[i32; 3]) {
+    for (value, &base) in values.iter_mut().zip(modulus) {
+        *value %= base;
+        if *value < 0 {
+            *value += base;
         }
     }
 }
@@ -184,20 +182,6 @@ fn reduce_grid_address(address: &mut [i32; 3], mesh: &[i32; 3]) {
         // C: address[i] -= mesh[i] * (address[i] > mesh[i] / 2);
         if address[i] > mesh[i] / 2 {
             address[i] -= mesh[i];
-        }
-    }
-}
-
-/// 内部函数：双倍网格坐标约化
-///
-/// 将坐标映射到 (-mesh, mesh] 区间
-/// 对应 C 中的 #ifndef GRID_BOUNDARY_AS_NEGATIVE 分支
-#[inline]
-fn reduce_grid_address_double(address: &mut [i32; 3], mesh: &[i32; 3]) {
-    for i in 0..3 {
-        // C: address[i] -= 2 * mesh[i] * (address[i] > mesh[i]);
-        if address[i] > mesh[i] {
-            address[i] -= 2 * mesh[i];
         }
     }
 }

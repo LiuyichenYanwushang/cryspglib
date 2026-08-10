@@ -14,49 +14,62 @@ use crate::symmetry::{MagneticSymmetry, Symmetry};
 
 static IDENTITY: [[i32; 3]; 3] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
-/// 获取磁性对称操作
-/// equivalent_atoms: 输出参数，等价原子映射表
-/// permutations: 输出参数，对称操作的原子排列
-/// prim_lattice: 输出参数，原胞晶格
-pub fn spn_get_operations_with_site_tensors(
-    equivalent_atoms: &mut Vec<i32>,
-    permutations: &mut Vec<i32>,
-    prim_lattice: &mut Mat3,
-    sym_nonspin: &Symmetry,
-    cell: &Cell,
-    with_time_reversal: bool,
-    is_axial: bool,
-    symprec: f64,
-    angle_tolerance: f64,
-    mag_symprec_: f64,
+pub(crate) struct MagneticOperationSearch<'a> {
+    pub symmetry: &'a Symmetry,
+    pub cell: &'a Cell,
+    pub with_time_reversal: bool,
+    pub is_axial: bool,
+    pub symprec: f64,
+    pub angle_tolerance: f64,
+    pub magnetic_symprec: f64,
+}
+
+/// Compute magnetic symmetry operations from a validated search context.
+pub(crate) fn operations_with_site_tensors(
+    search: MagneticOperationSearch<'_>,
 ) -> Result<MagneticSymmetry, crate::SymError> {
-    let mag_symprec = if mag_symprec_ < 0.0 {
-        symprec
+    let mag_symprec = if search.magnetic_symprec < 0.0 {
+        search.symprec
     } else {
-        mag_symprec_
+        search.magnetic_symprec
     };
 
     let magnetic_symmetry = get_operations(
-        sym_nonspin, cell, with_time_reversal, is_axial, symprec, mag_symprec,
+        search.symmetry,
+        search.cell,
+        search.with_time_reversal,
+        search.is_axial,
+        search.symprec,
+        mag_symprec,
     ).ok_or(crate::SymError::MagneticOpGenerationFailed)?;
 
-    *permutations = get_symmetry_permutations(
-        &magnetic_symmetry, cell, with_time_reversal, is_axial, symprec, mag_symprec,
+    let permutations = get_symmetry_permutations(
+        &magnetic_symmetry,
+        search.cell,
+        search.with_time_reversal,
+        search.is_axial,
+        search.symprec,
+        mag_symprec,
     ).ok_or(crate::SymError::MagneticOpGenerationFailed)?;
 
-    *equivalent_atoms = get_orbits(permutations, magnetic_symmetry.size, cell.size)
+    let _equivalent_atoms = get_orbits(
+        &permutations,
+        magnetic_symmetry.size,
+        search.cell.size,
+    )
         .ok_or(crate::SymError::MagneticOpGenerationFailed)?;
 
     let pure_trans = spn_collect_pure_translations_from_magnetic_symmetry(&magnetic_symmetry)
         .ok_or(crate::SymError::MagneticOpGenerationFailed)?;
 
-    let Some((found_lattice, multi)) = prm_get_primitive_lattice_vectors(
-        cell, &pure_trans, symprec, angle_tolerance,
+    let Some((_primitive_lattice, multi)) = prm_get_primitive_lattice_vectors(
+        search.cell,
+        &pure_trans,
+        search.symprec,
+        search.angle_tolerance,
     ) else {
         return Err(crate::SymError::MagneticPrimitiveLatticeFailed);
     };
-
-    *prim_lattice = found_lattice;
 
     if multi != pure_trans.len() {
         return Err(crate::SymError::MagneticPrimitiveLatticeFailed);
@@ -119,18 +132,17 @@ pub fn spn_get_idealized_cell(
 
             let j = inv_perm[i]; // p-th operation maps site-j to site-i
 
-            let mut pos_tmp = [0.0; 3];
-            pos_tmp = apply_symmetry_to_position(
+            let pos_tmp = apply_symmetry_to_position(
                 &cell.position[j],
                 &magnetic_symmetry.rot[p],
                 &magnetic_symmetry.trans[p],
             );
 
-            for s in 0..3 {
+            for (s, position_sum) in pos_res.iter_mut().enumerate() {
                 // To minimize rounding error, subtract by the original position[i][s].
                 // `pos_tmp[s] - cell->position[i][s]` should be close to integer.
                 let diff = pos_tmp[s] - cell.position[i][s];
-                pos_res[s] += diff - mat_nint(diff) as f64;
+                *position_sum += diff - mat_nint(diff) as f64;
             }
 
             if cell.tensor_rank == TensorRank::Collinear {
@@ -153,15 +165,18 @@ pub fn spn_get_idealized_cell(
                     with_time_reversal,
                     is_axial,
                 );
-                for s in 0..3 {
-                    vector_res[s] += vector_tmp[s] - cell.tensors[3 * i + s];
+                for (s, vector_sum) in vector_res.iter_mut().enumerate() {
+                    *vector_sum += vector_tmp[s] - cell.tensors[3 * i + s];
                 }
             }
         }
 
-        for s in 0..3 {
-            exact_cell.position[i][s] =
-                cell.position[i][s] + pos_res[s] / magnetic_symmetry.size as f64;
+        for ((coordinate, source), sum) in exact_cell.position[i]
+            .iter_mut()
+            .zip(cell.position[i])
+            .zip(pos_res)
+        {
+            *coordinate = source + sum / magnetic_symmetry.size as f64;
         }
 
         debug::debug_print(format_args!("Idealize position\n"));
@@ -174,9 +189,12 @@ pub fn spn_get_idealized_cell(
             debug::debug_print(format_args!("{}\n", cell.tensors[i]));
             debug::debug_print(format_args!("{}\n", exact_cell.tensors[i]));
         } else if cell.tensor_rank == TensorRank::NonCollinear {
-            for s in 0..3 {
-                exact_cell.tensors[3 * i + s] =
-                    cell.tensors[3 * i + s] + vector_res[s] / magnetic_symmetry.size as f64;
+            for ((destination, source), sum) in exact_cell.tensors[3 * i..3 * i + 3]
+                .iter_mut()
+                .zip(&cell.tensors[3 * i..3 * i + 3])
+                .zip(vector_res)
+            {
+                *destination = source + sum / magnetic_symmetry.size as f64;
             }
         }
     }
@@ -200,24 +218,27 @@ fn get_operations(
 
     let inv_lat = mat_inverse_matrix_d3(&cell.lattice, 0.0).ok()?;
 
-    for i in 0..sym_nonspin.size {
+    for (i, rotation_cart) in rotations_cart
+        .iter_mut()
+        .enumerate()
+        .take(sym_nonspin.size)
+    {
         // rot_cart = lattice @ rot @ lattice^-1
         let temp = mat_multiply_matrix_id3(&sym_nonspin.rot[i], &inv_lat);
-        rotations_cart[i] = mat_multiply_matrix_d3(&cell.lattice, &temp);
+        *rotation_cart = mat_multiply_matrix_d3(&cell.lattice, &temp);
     }
 
     let mut rotations = Vec::new();
     let mut trans = Vec::new();
     let mut spin_flips = Vec::new();
 
-    for i in 0..sym_nonspin.size {
+    for (i, rotation_cart) in rotations_cart.iter().enumerate().take(sym_nonspin.size) {
         let mut found = true;
         let mut determined = false;
         let mut sign = 0;
 
         for j in 0..cell.size {
-            let mut pos = [0.0; 3];
-            pos = apply_symmetry_to_position(
+            let pos = apply_symmetry_to_position(
                 &cell.position[j],
                 &sym_nonspin.rot[i],
                 &sym_nonspin.trans[i],
@@ -248,15 +269,14 @@ fn get_operations(
             }
 
             // Skip if relevant tensors are zeros
-            if cell.tensor_rank == TensorRank::Collinear {
-                if is_zero(cell.tensors[j], 0.5 * mag_symprec)
+            if cell.tensor_rank == TensorRank::Collinear
+                && is_zero(cell.tensors[j], 0.5 * mag_symprec)
                     && is_zero(cell.tensors[k], 0.5 * mag_symprec)
                 {
                     continue;
                 }
-            }
-            if cell.tensor_rank == TensorRank::NonCollinear {
-                if is_zero(cell.tensors[j * 3], 0.5 * mag_symprec)
+            if cell.tensor_rank == TensorRank::NonCollinear
+                && is_zero(cell.tensors[j * 3], 0.5 * mag_symprec)
                     && is_zero(cell.tensors[j * 3 + 1], 0.5 * mag_symprec)
                     && is_zero(cell.tensors[j * 3 + 2], 0.5 * mag_symprec)
                     && is_zero(cell.tensors[k * 3], 0.5 * mag_symprec)
@@ -265,14 +285,13 @@ fn get_operations(
                 {
                     continue;
                 }
-            }
 
             if !determined {
                 if cell.tensor_rank == TensorRank::Collinear {
                     sign = get_operation_sign_on_scalar(
                         cell.tensors[j],
                         cell.tensors[k],
-                        &rotations_cart[i],
+                        rotation_cart,
                         with_time_reversal,
                         is_axial,
                         mag_symprec,
@@ -297,8 +316,8 @@ fn get_operations(
                 }
             } else {
                 // Check consistency
-                if cell.tensor_rank == TensorRank::Collinear {
-                    if get_operation_sign_on_scalar(
+                if cell.tensor_rank == TensorRank::Collinear
+                    && get_operation_sign_on_scalar(
                         cell.tensors[j],
                         cell.tensors[k],
                         &rotations_cart[i],
@@ -310,9 +329,8 @@ fn get_operations(
                         found = false;
                         break;
                     }
-                }
-                if cell.tensor_rank == TensorRank::NonCollinear {
-                    if get_operation_sign_on_vector(
+                if cell.tensor_rank == TensorRank::NonCollinear
+                    && get_operation_sign_on_vector(
                         j,
                         k,
                         &cell.tensors,
@@ -325,7 +343,6 @@ fn get_operations(
                         found = false;
                         break;
                     }
-                }
             }
         }
 
@@ -387,8 +404,7 @@ fn get_symmetry_permutations(
 
     for p in 0..magnetic_symmetry.size {
         for i in 0..cell.size {
-            let mut pos = [0.0; 3];
-            pos = apply_symmetry_to_position(
+            let pos = apply_symmetry_to_position(
                 &cell.position[i],
                 &magnetic_symmetry.rot[p],
                 &magnetic_symmetry.trans[p],
@@ -581,19 +597,17 @@ fn apply_symmetry_to_site_vector(
     is_axial: bool,
 ) {
     let mut vec = [0.0; 3];
-    for s in 0..3 {
-        vec[s] = tensors[3 * idx + s];
-    }
+    vec.copy_from_slice(&tensors[3 * idx..3 * idx + 3]);
 
     let det = mat_get_determinant_d3(rot_cart);
     *dst = crate::mathfunc::mat_multiply_matrix_vector_d3(rot_cart, &vec);
 
-    for s in 0..3 {
+    for value in dst.iter_mut() {
         if with_time_reversal && timerev {
-            dst[s] *= -1.0;
+            *value *= -1.0;
         }
         if is_axial {
-            dst[s] *= det;
+            *value *= det;
         }
     }
 }
@@ -605,10 +619,14 @@ fn set_rotations_in_cartesian(
 ) {
     let inv_lat = mat_inverse_matrix_d3(lattice, 0.0).ok().unwrap_or([[0.0; 3]; 3]);
 
-    for i in 0..magnetic_symmetry.size {
+    for (i, rotation_cart) in rotations_cart
+        .iter_mut()
+        .enumerate()
+        .take(magnetic_symmetry.size)
+    {
         // rot_cart = lattice @ rot @ lattice^-1
         let temp = mat_multiply_matrix_id3(&magnetic_symmetry.rot[i], &inv_lat);
-        rotations_cart[i] = mat_multiply_matrix_d3(lattice, &temp);
+        *rotation_cart = mat_multiply_matrix_d3(lattice, &temp);
     }
 }
 
@@ -617,10 +635,5 @@ fn is_zero(a: f64, mag_symprec: f64) -> bool {
 }
 
 fn is_zero_d3(a: &[f64; 3], mag_symprec: f64) -> bool {
-    for i in 0..3 {
-        if !is_zero(a[i], mag_symprec) {
-            return false;
-        }
-    }
-    true
+    a.iter().all(|&value| is_zero(value, mag_symprec))
 }

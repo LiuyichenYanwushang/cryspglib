@@ -12,11 +12,11 @@ corep/summary 产品化。每次全扫、根因确认和修复后都必须更新
 
 ### 当前最终状态（更新至 2026-08-10）
 
-磁 symmetry/corep 主线的上一轮交付已推送到 `origin/main`，提交为
-`3878bbc feat: complete magnetic corep character tables`；2026-08-10 的 API 安全化、
-查询错误传播、完整输入校验与 lint 修正目前仍在工作树中，尚未提交或推送。后续
-开发和回归应以下面这组最新结论为基线，而不是再沿用早期“部分磁群不支持”或
-“只预览 6 个特征标”的判断。
+磁 symmetry/corep 主线与第一轮 API 安全化已提交为
+`e8610d3 fix: harden magnetic symmetry APIs`，本地 `main` 当前领先远端一个提交；
+2026-08-10 的 Rust-native API 收口与 clippy 清零仍在工作树中，尚未提交或推送。
+后续开发和回归应以下面这组最新结论为基线，而不是再沿用早期“部分磁群不支持”
+或“只预览 6 个特征标”的判断。
 
 | 层级 | 当前结果 |
 |---|---|
@@ -27,7 +27,7 @@ corep/summary 产品化。每次全扫、根因确认和修复后都必须更新
 | 正式特征标表 | 已提供“每个磁操作一列”和“每个共轭类一列”两种 Markdown 正式表格；不再截断到前 6 个特征标，并附操作/列标签图例。入口为 `format_magnetic_character_table` 与 `format_magnetic_character_table_by_class`。 |
 | 目标磁群回归 | `BNS 128.406` 与 `BNS 52.318` 已不再返回“计算不支持”；`128.406@Z` 稳定给出维数 `2,2,2,4` 的四个 coreps，正式操作表包含 `g1..g16` 全部 16 列。 |
 | CIR 数据生成 | CIR 解析器支持复合反幺正矩阵：`11,202` 个原始 coreps 中复合反幺正项 `672` 个、拒绝 `0`；`8,388` 个可映射到磁数据库的 coreps 中未映射 `0`。 |
-| 验证 | 全 `1651` UNI release summary 审计：成功 `1651`、失败 `0`；常规 release 测试：通过 `255`、失败 `0`、忽略 `3`，另有 doc-tests `27/27` 通过；全 targets release clippy 为 `0 error`。 |
+| 验证 | 全 `1651` UNI release summary 审计：成功 `1651`、失败 `0`、`10,390` k 点、`54,717` coreps；常规 release 测试：通过 `254`、失败 `0`、忽略 `3`，另有 doc-tests `26/26` 通过；`cargo clippy -p cryspglib --all-targets --release -- -D warnings` 为零警告。 |
 
 必须保留以下语义边界：
 
@@ -47,8 +47,9 @@ corep/summary 产品化。每次全扫、根因确认和修复后都必须更新
 - 新接口在进入识别算法前检查操作数组非空以及 rotations、translations、
   time-reversals 长度一致；非法输入返回 `SymError::InvalidInput`，不发生索引
   panic。
-- deprecated `spg_get_magnetic_spacegroup_type_from_symmetry()` 暂时保留原返回类型
-  和 `UNI=0` sentinel 行为以兼容旧调用；新代码不得再使用它。
+- C 风格 `spg_get_magnetic_spacegroup_type_from_symmetry()` 已删除；公共入口只保留
+  Rust-native `MagneticSpaceGroupType::classify() -> Result<_, SymError>`，不存在
+  `UNI=0` sentinel 兼容旁路。
 - release 验证：operation-only/structure 集成测试 `13/13` 通过，完整测试套件
   `205 passed / 0 failed / 3 ignored`，doc-tests `27 passed / 0 failed`。
 
@@ -60,15 +61,15 @@ API、磁/空间群内核、irrep/corep，并由主线程回查高优先级源�
 
 #### P0：可能返回看似有效但实际错误的科学结果
 
-- **已修复**：`Crystal::magnetic_dataset()` / `spg_get_magnetic_dataset()` 不再在
+- **已修复**：`Crystal::magnetic_dataset()` 与其 crate-private 识别实现不再在
   `MagneticUniMatchFailed` 时用操作数比例猜测磁类型并返回 `Ok(UNI=0)`；所有磁群
   识别错误现在原样传播，并有稳定的错误传播回归测试。
-- **已修复**：`spg_get_magnetic_dataset()` 现在拒绝空结构、positions/types 不等长
+- **已修复**：磁结构识别入口现在拒绝空结构、positions/types 不等长
   以及长度不等于原子数的 `Some(moments)`，统一返回
   `SymError::InvalidInput`；不再静默当成非磁结构或进入索引 panic。
 - **已修复**：`MagneticSpaceGroupType::from_uni()` 现在返回 `Result`；`0`、
   `>1651`（包括 `usize::MAX`）统一返回 `SymError::InvalidInput`，不再伪装成
-  `UNI=0 / NonMagnetic`。deprecated C 风格兼容函数明确保留旧 sentinel 语义。
+  `UNI=0 / NonMagnetic`。旧 C 风格 sentinel 兼容函数已删除。
 - **已修复**：`wigner_classify()` / `wigner_classify_cir()` 不再把空 unitary
   little group 归为 Type-C，也不再跳过字符缺失、越界索引、错误的 time-reversal
   角色或缺失 Seitz 平方匹配；这些情况统一返回
@@ -76,7 +77,7 @@ API、磁/空间群内核、irrep/corep，并由主线程回查高优先级源�
 
 #### P1：公共或数据相关输入可触发 panic/异常分配
 
-- **已修复**：`spg_get_hall_number_from_symmetry()` 现在拒绝空操作和
+- **已修复**：crate-private Hall 识别实现现在拒绝空操作和
   rotations/translations 不等长，返回 `SymError::InvalidInput`；不再发生越界
   panic 或静默丢弃多余 translations。
 - **已修复**：普通 `Crystal` 分析现在在 `to_cell()` 边界拒绝空结构以及公开字段
@@ -93,8 +94,8 @@ API、磁/空间群内核、irrep/corep，并由主线程回查高优先级源�
 - **已修复（POSCAR）**：原子计数现在逐 token 严格解析为 `usize`，用
   `checked_add` 求和，并在任何容量分配前按实际坐标行拒绝负数、畸形、溢出、
   空结构、超大或截断输入；不再发生 release 整数回绕、容量溢出或 OOM。
-- **已修复（k-mesh）**：Rust 风格高层 API、公开 `kpt_*`/`kgd_*` 低层入口和
-  deprecated `spg_*` 包装统一用 `Result` 拒绝零/负 mesh、非 0/1 shift、checked
+- **已修复（k-mesh）**：Rust 风格高层 API 与 crate-private `kpt_*`/`kgd_*` 内核
+  统一用 `Result` 拒绝零/负 mesh、非 0/1 shift、checked
   product 超限、输出 slice 过短、BZ map 过短和奇异 reciprocal lattice；地址翻倍
   改用有符号扩展与 Euclidean reduction，`i32::MIN` 不再溢出。分配型网格限制为
   最多 `1,000,000` 点，错误分别为 `InvalidInput` / `ArraySizeShortage`，不再以
@@ -133,13 +134,21 @@ API、磁/空间群内核、irrep/corep，并由主线程回查高优先级源�
   `MatrixReorderError` 拒绝无法建立的操作映射，不再把 PIR 原顺序冒充 H_ops 顺序。
   字符表格式化器会把操作读取失败写成明确诊断文本。对应 release 回归测试覆盖
   无效 SG、有效操作数/顺序，以及 SG 139 P 点成功与不可映射两条矩阵路径。
-- **已修复 clippy error gate**：`generated_data.rs` 此前被 `irrep/mod.rs` 与
+- **已修复 Rust-native API 与 clippy 严格门禁**：`generated_data.rs` 此前被 `irrep/mod.rs` 与
   `types.rs` 重复编译，只有后者带生成代码 lint policy；现改为单一模块加 re-export，
   `cargo clippy -p cryspglib --all-targets --release` 从 `16,572` 个
-  `approx_constant` error 降为 **0 error**。同时删除无效的 `parallel` cfg 脚手架、
-  两处磁群死初始化、整理测试专用 import，并完成少量安全 idiom 修正。仍保留
-  约 `338` 个 lib warning（lib-test 汇总 `378`），多为旧循环风格、诊断变量与
-  C 兼容命名，后续应分批清理，不能用 blanket allow 掩盖。
+  `approx_constant` error 降为零。随后删除根模块全部公开 `spg_*`/`spgat_*`
+  wrapper、`Spglib*` aliases、`SPGLIB_*` constants 与 sentinel 返回路径，将仍需的
+  C-port 内核降为 crate-private；Wigner 多参数接口收口为 `KVector`、
+  `WignerGroupContext` 与 `SpinorWignerInput`。循环、slice copy、无效初始化、死代码、
+  feature-only 变量等警告均已逐项修正，没有使用 blanket lint allow。当前严格命令
+  `cargo clippy -p cryspglib --all-targets --release -- -D warnings` 通过，项目警告为零。
+  最后一轮使用只读 v4 Flash 审查剩余高参数函数，确认 `WyckoffOutput`、
+  `BravaisExpansionOutput`、`SiteEquivalenceContext`、`HallMatchContext` 与
+  `MagneticOperationSearch` 的聚合边界；所有修改和验证仍由主线程完成。
+- **仍待处理（非 clippy）**：仓库历史源码尚未统一 rustfmt，
+  `cargo fmt -p cryspglib -- --check` 会报告大范围既有格式差异；本轮没有为追求格式
+  一致性制造全仓机械 diff。该项不影响上述严格 clippy、release tests 或数值审计。
 
 ### 远端与起始点
 
@@ -407,11 +416,12 @@ centered-cell 允许的严格 Seitz embedding 后，`detected_hall_embed=1651`�
 10. 最新 release 全量 summary gate：`success=1651`、`failure=0`、`kpoints=10390`、
     `coreps=54717`。gate 对每个结果验证 operation/character 列数、共轭类分割、
     有限值及 `χ(E)=dim`，不是只检查 API 返回 `Ok`。
-11. 2026-08-10 最终 `cargo test --package cryspglib --release`：lib `196 passed / 0
-    failed / 3 ignored`，七个 integration binaries 合计 `59 passed / 0 failed`，
-    doc-tests `27 passed / 0 failed`；即常规 release tests 共 `255 passed`，外加
-    `27` 个 doctests。1651 全量 summary 审计作为 ignored release gate 另行执行并
-    通过。
+11. 2026-08-10 Rust-native API 收口后 `cargo test --package cryspglib --release`：
+    lib `196 passed / 0 failed / 3 ignored`，七个 integration binaries 合计
+    `58 passed / 0 failed`，doc-tests `26 passed / 0 failed`；即常规 release tests
+    共 `254 passed`，外加 `26` 个 doctests。减少的一项 integration test 与一个
+    doctest 均属于已删除的 C 风格 sentinel wrapper，不是功能覆盖退化。1651 全量
+    summary ignored release gate 另行执行并通过。
 
 ### 分层验收标准
 
@@ -1178,11 +1188,13 @@ bash scripts/regenerate_all.sh
 | `SymmetryOps` | `api.rs` | Ordered set of `{R\|t}` + time_reversal, with `from_database(hall_number)` |
 | `SymmetryOp` | `api.rs` | Single `{R\|t}` with rotation, translation, time_reversal |
 | `SpaceGroup` | `lib.rs` | SG number, Hall number, ops, Wyckoff positions, standard cell |
-| `MagneticDataset` | `lib.rs` | MSG result: UNI number, type, rotations, translations, time_reversals |
 | `MagneticSymmetry` | `lib.rs` | MSG + symmetry ops combined (implements `Display`) |
 | `MagneticSpaceGroupType` | `lib.rs` | MSG type lookup: `.from_uni()`, `.classify()` |
 | `SpaceGroupType` | `lib.rs` | SG type lookup: `.from_hall()` |
 | `IrrepRecord` | `irrep/types.rs` | Irrep: labels, dim, k-vector, characters, matrices, subgroups, corepresentations |
+| `KVector` | `irrep/types.rs` | Rational reciprocal-space vector with three numerators and one denominator |
+| `WignerGroupContext` | `irrep/wigner.rs` | Unitary/magnetic operation slices and antiunitary representative for Wigner classification |
+| `SpinorWignerInput` | `irrep/wigner.rs` | Spinor character table, operation indices and rational k-vector |
 | `SpinLiftContext` | `irrep/wigner.rs` | H and G spin ops for Wigner test |
 | `SeitzOp` | `irrep/wigner.rs` | `{R\|t}` with optional time reversal |
 | `CorepType` | `irrep/corep.rs` | A/B/C/Unsupported |
@@ -1196,7 +1208,7 @@ bash scripts/regenerate_all.sh
 | Module | Role |
 |--------|------|
 | `api.rs` | `Crystal` (entry point), `SymmetryAnalysis` (builder), `SymmetryOps`, `SymmetryOp` |
-| `lib.rs` | `SpaceGroup`, `SpaceGroupType`, `MagneticDataset`, `MagneticSymmetry`, `MagneticSpaceGroupType`, `SymError` |
+| `lib.rs` | `SpaceGroup`, `SpaceGroupType`, `MagneticSymmetry`, `MagneticSpaceGroupType`, `SymError` |
 | `cell.rs` | `Cell` (lattice + positions + types + optional tensors) |
 | `symmetry.rs` | `Symmetry` (raw symmetry operations, N×rot+trans arrays) |
 | `spacegroup.rs` | `Spacegroup`, `spa_search_spacegroup*` |
@@ -1248,11 +1260,11 @@ Core irrep diagnostics pass as of 2026-07-03.  The full spinor Wigner sweep repo
 |-------|-------|-------------|
 | `src/lib.rs`（全部 unit modules） | `196 passed / 3 ignored` | Wigner、BCS、API、输入契约、setting 与磁群回归 |
 | `tests/irrep_validation.rs` | `31 passed` | Full-sweep validation: every SG has irreps, dimensions match, labels well-formed, k-vectors positive |
-| `tests/magnetic_integration.rs` | `17 passed` | Magnetic structure analysis and Result/error contracts end-to-end |
+| `tests/magnetic_integration.rs` | `16 passed` | Magnetic structure analysis and Result/error contracts end-to-end |
 | `tests/magnetic_symmetry_coverage.rs` | `6 passed` | 1651 UNI / 4479 setting group algebra, round-trip and ambiguity policy |
 | `tests/{cof3,crps4,la2nio4,bcs_corep_validation}.rs` | `5 passed` | Reference material cases |
-| doc-tests | `27 passed` | Public Rust API examples compile and run |
-| **常规 release 总计** | **`255 tests + 27 doctests passed; 3 ignored`** | 另行执行的 1651 summary audit 也通过 |
+| doc-tests | `26 passed` | Public Rust API examples compile and run |
+| **常规 release 总计** | **`254 tests + 26 doctests passed; 3 ignored`** | 另行执行的 1651 summary audit 也通过 |
 
 Key diagnostic tests (most useful for Wigner debugging):
 
