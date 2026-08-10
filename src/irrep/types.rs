@@ -14,6 +14,15 @@
 
 // ── Compact record types (flat-array storage) ───────────────────────────────
 
+/// Error returned when stored irrep matrices cannot be aligned with a supplied
+/// symmetry-operation order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum MatrixReorderError {
+    /// No unambiguous rotation mapping exists between the two operation lists.
+    #[error("could not map supplied symmetry operations to stored irrep rotations")]
+    OperationMappingFailed,
+}
+
 /// Compact irrep record for the generated flat array.
 ///
 /// Field names are abbreviated to keep the generated code size manageable.
@@ -317,12 +326,19 @@ impl IrrepRecord {
     ///
     /// Only those H_ops that match a PIR operation (via rotation matrix)
     /// get matrix data.  Unmatched ops get zero-filled blocks.
-    /// Returns an empty `Vec` if matrices or rotation data are unavailable.
-    pub fn matrices_reordered(&self, h_seitz: &[crate::irrep::wigner::SeitzOp]) -> Vec<f64> {
+    /// Returns an empty `Vec` if no matrix data are stored. Returns an error
+    /// instead of silently treating PIR order as H_ops order when mapping fails.
+    pub fn matrices_reordered(
+        &self,
+        h_seitz: &[crate::irrep::wigner::SeitzOp],
+    ) -> Result<Vec<f64>, MatrixReorderError> {
         let mats = self.matrices();
         let rots = self.pir_rotations();
-        if mats.is_empty() || rots.is_empty() {
-            return mats.to_vec();
+        if mats.is_empty() {
+            return Ok(Vec::new());
+        }
+        if rots.is_empty() {
+            return Err(MatrixReorderError::OperationMappingFailed);
         }
         let dim = self.dim as usize;
         let n_pir_ops = self._char_count as usize;
@@ -336,14 +352,10 @@ impl IrrepRecord {
                 let n_cir = rots.len() / 9;
                 let h_count = h_seitz.len().min(n_cir);
                 if h_count == 0 {
-                    return mats.to_vec();
+                    return Err(MatrixReorderError::OperationMappingFailed);
                 }
-                crate::irrep::wigner::build_h_to_cir_map(&h_seitz[..h_count], rots).unwrap_or_else(
-                    || {
-                        // Last resort: identity mapping for first n_pir_ops
-                        (0..n_pir_ops).collect()
-                    },
-                )
+                crate::irrep::wigner::build_h_to_cir_map(&h_seitz[..h_count], rots)
+                    .ok_or(MatrixReorderError::OperationMappingFailed)?
             }
         };
 
@@ -360,7 +372,7 @@ impl IrrepRecord {
                     .copy_from_slice(&mats[src_start..src_start + block_size]);
             }
         }
-        reordered
+        Ok(reordered)
     }
 
     /// Isotropy subgroups for this irrep — no index arithmetic needed.

@@ -96,11 +96,14 @@
 
 use super::types::IrrepRecord;
 use super::wigner::{
-    self, SeitzOp, add3, bloch_phase, compose_seitz, filter_little_group,
-    filter_little_group_with_transform, find_seitz, mat_vec_i32, ops_to_seitz, square_seitz,
+    self, SeitzOp, filter_little_group_with_transform, ops_to_seitz,
+};
+#[cfg(test)]
+use super::wigner::{
+    add3, bloch_phase, compose_seitz, filter_little_group, find_seitz, mat_vec_i32, square_seitz,
 };
 use crate::SymmetryOps;
-use crate::mathfunc::{Mat3I, Vec3, mat_inverse_matrix_d3};
+use crate::mathfunc::{Mat3I, mat_inverse_matrix_d3};
 use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
 use num_complex::Complex64;
 use std::collections::BTreeSet;
@@ -111,8 +114,6 @@ macro_rules! debug_log {
         eprintln!($($arg)*);
     };
 }
-
-use debug_log;
 
 /// Scalar PIR data restricted to the block belonging to the stored k-vector.
 ///
@@ -797,7 +798,13 @@ pub fn compute_corepresentation(
             let cir_reordered = if cir.len() == 2 * h_seitz.len() {
                 cir.to_vec()
             } else if let Some(h_to_cir) = wigner::build_h_to_cir_map(&h_seitz, cir_rots) {
-                wigner::reorder_cir_chars(cir, &h_to_cir)
+                wigner::reorder_cir_chars(cir, &h_to_cir).map_err(|error| {
+                    CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!("CIR component {comp} reorder failed: {error}"),
+                    }
+                })?
             } else {
                 return Err(CorepComputationError::UnsupportedClassification {
                     uni: uni_number,
@@ -884,8 +891,10 @@ pub fn compute_corepresentation(
         };
         let n_lg = h_irrep.spin_lg_char_count();
         let op_indices = h_irrep.spin_lg_op_indices();
-        let is_grey =
-            crate::MagneticSpaceGroupType::from_uni(uni_number).type_ == crate::MagneticType::Grey;
+        let is_grey = crate::MagneticSpaceGroupType::from_uni(uni_number)
+            .map_err(|_| CorepComputationError::InvalidUni { uni: uni_number })?
+            .type_
+            == crate::MagneticType::Grey;
         let a0_idx = select_spinor_a0(&antiunitary, &mag_seitz, is_grey);
 
         match wigner::wigner_classify_spinor(
@@ -1016,12 +1025,35 @@ pub fn compute_corepresentation(
         None
     };
 
+    // Spinor character tables are stored in little-group-local order, while
+    // op_map contains indices into the complete H operation list. Convert the
+    // index domain explicitly; leaving a missing entry as None lets the strict
+    // character builder report corrupted or inconsistent data.
+    let character_op_map = if h_irrep.spinor {
+        let h_spin = h_irrep.spin_ops();
+        let h_spin_seitz = wigner::build_spin_seitz(h_spin.0, h_spin.1);
+        let h_to_spin =
+            wigner::build_h_to_spin_map(&h_seitz, &h_spin_seitz, h_irrep.spin_lg_op_indices());
+        op_map
+            .iter()
+            .map(|h_index| {
+                let spin_index = h_to_spin.get((*h_index)?).copied().flatten()?;
+                h_irrep
+                    .spin_lg_op_indices()
+                    .iter()
+                    .position(|&index| index as usize == spin_index)
+            })
+            .collect::<Vec<_>>()
+    } else {
+        op_map.clone()
+    };
+
     // 9. Build corep character table
     let characters = wigner::build_corep_chars(
         &corep_type,
         &mag_ops_data,
         &mag_lg,
-        &op_map,
+        &character_op_map,
         &h_chars,
         None,
         au_chars.as_deref(),
@@ -1128,10 +1160,10 @@ fn get_first_hall_for_uni(uni: usize) -> Option<usize> {
 /// # Example
 /// ```
 /// use cryspglib::irrep::corep::symmetry_operations_of;
-/// let ops = symmetry_operations_of(139);
+/// let ops = symmetry_operations_of(139).unwrap();
 /// println!("SG 139: {} operations", ops.len());
 /// ```
-pub fn symmetry_operations_of(sg: u8) -> SymmetryOps {
+pub fn symmetry_operations_of(sg: u8) -> Result<SymmetryOps, crate::SymError> {
     get_parent_operations(sg)
 }
 
@@ -1148,14 +1180,9 @@ fn get_parent_operations_by_hall(hall: usize) -> Option<SymmetryOps> {
     Some(SymmetryOps::from_parallel(&rot, &trans, &timerev))
 }
 
-fn get_parent_operations(sg: u8) -> SymmetryOps {
-    let hall = crate::api::find_hall_number(sg).ok();
-    if let Some(h) = hall {
-        if let Some(ops) = get_parent_operations_by_hall(h) {
-            return ops;
-        }
-    }
-    SymmetryOps::default()
+fn get_parent_operations(sg: u8) -> Result<SymmetryOps, crate::SymError> {
+    let hall = crate::api::find_hall_number(sg)?;
+    get_parent_operations_by_hall(hall).ok_or(crate::SymError::SymmetryOperationSearchFailed)
 }
 
 // ── High-level API ───────────────────────────────────────────────────────────
@@ -1204,11 +1231,9 @@ pub fn identify_unitary_subgroup(uni_number: usize) -> Option<usize> {
 /// For black-white (Type III) MSGs, $$G \supset H$$ is a proper supergroup.
 /// For grey (Type II) and ordinary (Type I) groups, G = H.
 pub fn parent_spatial_sg(uni_number: usize) -> Option<usize> {
-    let msg = crate::MagneticSpaceGroupType::from_uni(uni_number);
-    if msg.uni_number == 0 {
-        return None;
-    }
-    Some(msg.number)
+    crate::MagneticSpaceGroupType::from_uni(uni_number)
+        .ok()
+        .map(|msg| msg.number)
 }
 
 /// Pick the correct a₀ (canonical antiunitary coset representative) for spinor Wigner.
@@ -1281,7 +1306,7 @@ fn transform_applies_to_all_ops(xf: &wigner::SettingTransform, ops: &SymmetryOps
 /// first-Hall setting which may differ in origin/basis.
 pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitarySubgroupInfo> {
     let mag_ops = get_magnetic_operations(uni_number)?;
-    let msg_type = crate::MagneticSpaceGroupType::from_uni(uni_number);
+    let msg_type = crate::MagneticSpaceGroupType::from_uni(uni_number).ok()?;
 
     // For Type I (Ordinary) and Type II (Grey), H = G = parent SG.
     // Use the parent SG directly — no spglib classification needed.
@@ -1802,6 +1827,19 @@ pub fn magnetic_isotropy_coreps_of_sg_k(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn symmetry_operations_query_reports_invalid_space_group() {
+        assert!(matches!(
+            symmetry_operations_of(0),
+            Err(crate::SymError::SpacegroupSearchFailed)
+        ));
+        assert!(matches!(
+            symmetry_operations_of(231),
+            Err(crate::SymError::SpacegroupSearchFailed)
+        ));
+        assert_eq!(symmetry_operations_of(139).unwrap().len(), 32);
+    }
     use crate::irrep::query::irreps_of;
 
     #[test]
@@ -1886,7 +1924,7 @@ mod tests {
         println!("Unitary subgroup: SG 118 (P-4n2) ✓");
 
         // ── 3. Verify: all 16 magnetic rotations are in parent SG 128 ──
-        let parent_ops = get_parent_operations(128);
+        let parent_ops = get_parent_operations(128).unwrap();
         let parent_rots: Vec<_> = parent_ops.operations.iter().map(|o| o.rotation).collect();
         let all_match = ops
             .operations
@@ -2120,7 +2158,7 @@ mod tests {
         let uni = 1066usize;
         let mag_ops = get_magnetic_operations(uni).unwrap();
         let h_sg = identify_unitary_subgroup(uni).unwrap();
-        let h_ops = get_parent_operations(h_sg as u8);
+        let h_ops = get_parent_operations(h_sg as u8).unwrap();
         let h_seitz = ops_to_seitz(&h_ops);
         let h_irreps = crate::irrep::query::irreps_of(h_sg as u8);
 
@@ -2175,7 +2213,7 @@ mod tests {
         let uni = 1066usize;
         let mag_ops = get_magnetic_operations(uni).unwrap();
         let h_sg = identify_unitary_subgroup(uni).unwrap();
-        let h_ops = get_parent_operations(h_sg as u8);
+        let h_ops = get_parent_operations(h_sg as u8).unwrap();
         let mag_seitz = ops_to_seitz(&mag_ops);
         let h_seitz = ops_to_seitz(&h_ops);
         let a0_idx = mag_ops
@@ -2238,7 +2276,7 @@ mod tests {
         let h_irreps = crate::irrep::query::irreps_of(h_sg as u8);
 
         // Compare magnetic ops with SG 118 standard ops — check for origin shift
-        let h_ops_sg118 = get_parent_operations(h_sg as u8);
+        let h_ops_sg118 = get_parent_operations(h_sg as u8).unwrap();
         println!("\n=== Magnetic ops vs SG 118 standard ops ===");
         println!("Unitary magnetic ops:");
         for i in 0..mag_ops.len() {
@@ -2464,16 +2502,19 @@ mod tests {
                 let a0_idx = anti_lg[0];
                 wigner::debug_unwrapped_square(
                     4, a0_idx, &mag_seitz, &h_seitz, ir.kx, ir.ky, ir.kz, ir.kd,
-                );
+                )
+                .expect("diagnostic square indices must be valid");
                 wigner::debug_unwrapped_square(
                     7, a0_idx, &mag_seitz, &h_seitz, ir.kx, ir.ky, ir.kz, ir.kd,
-                );
+                )
+                .expect("diagnostic square indices must be valid");
 
                 // Direct anti-coset Wigner sum
                 let cir = ir.cir_component_chars(0);
                 let w_direct = wigner::wigner_direct_anti_coset(
                     cir, &anti_lg, &mag_seitz, &h_seitz, ir.kx, ir.ky, ir.kz, ir.kd,
-                );
+                )
+                .expect("diagnostic direct anti-coset sum must be well formed");
                 println!("  Direct anti-coset W = {:.4}", w_direct);
 
                 // Try all antiunitary ops as a₀
@@ -2717,9 +2758,9 @@ mod tests {
             let mats = p1.matrices();
             if !mats.is_empty() {
                 println!("  {}: {} matrix elements", p1.ml, mats.len());
-                let h_ops = get_parent_operations(sg);
+                let h_ops = get_parent_operations(sg).unwrap();
                 let h_seitz = ops_to_seitz(&h_ops);
-                let reordered = p1.matrices_reordered(&h_seitz);
+                let reordered = p1.matrices_reordered(&h_seitz).unwrap();
                 assert_eq!(
                     reordered.len(),
                     mats.len(),
@@ -2735,6 +2776,13 @@ mod tests {
                     );
                 }
                 println!("  Matrix reordering OK ({} elements)", reordered.len());
+
+                let mut unmappable = h_seitz.clone();
+                unmappable[0].rot = [[2, 0, 0], [0, 2, 0], [0, 0, 2]];
+                assert_eq!(
+                    p1.matrices_reordered(&unmappable),
+                    Err(crate::irrep::types::MatrixReorderError::OperationMappingFailed)
+                );
             }
         }
     }
@@ -4107,7 +4155,7 @@ mod tests {
                     detected_target.len(),
                 ));
             }
-            let data_target_ops = crate::irrep::bridge::canonical_hall_ops(sg as u8);
+            let data_target_ops = crate::irrep::bridge::canonical_hall_ops(sg as u8).unwrap();
             let data_target = wigner::ops_to_seitz(&data_target_ops);
             let data_exact = same_group(&transformed, &data_target);
             if data_exact {
@@ -4173,7 +4221,7 @@ mod tests {
         let test_unis = [187usize, 270, 271, 663];
         for &uni in &test_unis {
             println!("\n=== UNI{} ===", uni);
-            let msg_type = crate::MagneticSpaceGroupType::from_uni(uni);
+            let msg_type = crate::MagneticSpaceGroupType::from_uni(uni).unwrap();
             println!(
                 "  BNS={} OG={} type={:?} number={}",
                 msg_type.bns_number.trim(),
@@ -4552,7 +4600,7 @@ mod tests {
             let spin_ops = IrrepRecord::spin_ops_for_sg(sg);
             let spin_seitz = crate::irrep::wigner::build_spin_seitz(spin_ops.0, spin_ops.1);
             let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-            let parent_ops = get_parent_operations(sg);
+            let parent_ops = get_parent_operations(sg).unwrap();
             let pure_translations: Vec<[f64; 3]> = parent_ops
                 .operations
                 .iter()
@@ -5852,7 +5900,7 @@ mod tests {
         let mag_ops = get_magnetic_operations(uni).unwrap();
 
         // Verify MSG type
-        let msg_type = crate::MagneticSpaceGroupType::from_uni(uni);
+        let msg_type = crate::MagneticSpaceGroupType::from_uni(uni).unwrap();
         assert_eq!(
             msg_type.type_,
             crate::MagneticType::Grey,

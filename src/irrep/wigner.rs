@@ -983,54 +983,80 @@ pub fn wigner_classify(
     kz: i8,
     kd: i8,
 ) -> Result<CorepType, WignerClassificationError> {
-    let a0 = &mag_seitz[a0_idx];
-    debug_assert!(a0.timerev, "a₀ must be anti-unitary");
+    if unitary_mag_indices.is_empty() {
+        return Err(WignerClassificationError::new(
+            "unitary little group is empty; Wigner indicator is undefined",
+        ));
+    }
+    if h_chars.len() != h_seitz.len() {
+        return Err(WignerClassificationError::new(format!(
+            "character table length {} does not match unitary little-group order {}",
+            h_chars.len(),
+            h_seitz.len()
+        )));
+    }
+    let a0 = mag_seitz.get(a0_idx).ok_or_else(|| {
+        WignerClassificationError::new(format!(
+            "antiunitary representative index {} is out of range",
+            a0_idx
+        ))
+    })?;
+    if !a0.timerev {
+        return Err(WignerClassificationError::new(
+            "antiunitary representative must have time reversal",
+        ));
+    }
 
     let mut w_sum: f64 = 0.0;
 
     for &h_mag_idx in unitary_mag_indices {
-        let h = &mag_seitz[h_mag_idx];
-        debug_assert!(!h.timerev, "h must be unitary");
+        let h = mag_seitz.get(h_mag_idx).ok_or_else(|| {
+            WignerClassificationError::new(format!(
+                "unitary operation index {} is out of range",
+                h_mag_idx
+            ))
+        })?;
+        if h.timerev {
+            return Err(WignerClassificationError::new(format!(
+                "operation index {} must be unitary for the Wigner sum",
+                h_mag_idx
+            )));
+        }
 
         let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
         let h_spatial = SeitzOp::new(h.rot, h.trans, false);
         let (g0h, l1) = compose_seitz(&g0_spatial, &h_spatial);
         let (sq, lattice_sq) = square_seitz(&g0h);
 
-        if let Some(m) = find_seitz(&sq.rot, &sq.trans, h_seitz) {
-            if m.op_index < h_chars.len() {
-                // Total lattice shift = L_sq + L_match + L1 + R_{g0h}·L1
-                let r_l1 = mat_vec_i32(&g0h.rot, &l1);
-                let total_lattice = add3(&add3(&lattice_sq, &m.lattice_shift), &add3(&l1, &r_l1));
-                let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
-                let contrib = h_chars[m.op_index] * phase.re;
-                w_sum += contrib;
-                debug_log!(
-                    "    wigner: h[{}]→H[{}] sq=H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
-                    h_mag_idx,
-                    "?",
-                    m.op_index,
-                    total_lattice,
-                    phase.re,
-                    h_chars[m.op_index],
-                    contrib
-                );
-            }
-        } else {
-            debug_log!(
-                "    wigner: h[{}] sq R=[{},{},{};...] t=({:.3},{:.3},{:.3}) NOT FOUND",
-                h_mag_idx,
-                sq.rot[0][0],
-                sq.rot[0][1],
-                sq.rot[0][2],
-                sq.trans[0],
-                sq.trans[1],
-                sq.trans[2]
-            );
-        }
+        let matched = find_seitz(&sq.rot, &sq.trans, h_seitz).ok_or_else(|| {
+            WignerClassificationError::new(format!(
+                "square of (a0·h) for unitary operation index {} is absent from the unitary little group",
+                h_mag_idx
+            ))
+        })?;
+        debug_assert!(matched.op_index < h_chars.len());
+
+        // Total lattice shift = L_sq + L_match + L1 + R_{g0h}·L1
+        let r_l1 = mat_vec_i32(&g0h.rot, &l1);
+        let total_lattice = add3(
+            &add3(&lattice_sq, &matched.lattice_shift),
+            &add3(&l1, &r_l1),
+        );
+        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
+        let contrib = h_chars[matched.op_index] * phase.re;
+        w_sum += contrib;
+        debug_log!(
+            "    wigner: h[{}]→H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
+            h_mag_idx,
+            matched.op_index,
+            total_lattice,
+            phase.re,
+            h_chars[matched.op_index],
+            contrib
+        );
     }
 
-    let n = (unitary_mag_indices.len() as f64).max(1.0);
+    let n = unitary_mag_indices.len() as f64;
     let w = w_sum / n;
 
     // Strict classification: W must be quantized to 0, +1, or -1.
@@ -1071,8 +1097,11 @@ pub fn wigner_classify(
 /// irreps Z1, Z4 are complex and may individually give Type C under
 /// the antiunitary operation, even though the combined PIR gives Type A.
 ///
-/// This function is called once per CIR component.  The caller (in
-/// `compute_corepresentation`) should:
+/// This function classifies one CIR component using a selected antiunitary
+/// representative. Callers that already have the full antiunitary little-group
+/// coset should prefer [`wigner_classify_cir_direct`].
+///
+/// A component-based caller should:
 /// 1. Check `irrep.cir_component_count() > 0`
 /// 2. Loop over components, call this function for each
 /// 3. If any component gives Type C, the overall corep is Type C
@@ -1092,44 +1121,84 @@ pub fn wigner_classify_cir(
     kz: i8,
     kd: i8,
 ) -> Result<CorepType, WignerClassificationError> {
-    let a0 = &mag_seitz[a0_idx];
+    if unitary_mag_indices.is_empty() {
+        return Err(WignerClassificationError::new(
+            "unitary little group is empty; Wigner indicator is undefined",
+        ));
+    }
+    if cir_chars.len() != 2 * h_seitz.len() {
+        return Err(WignerClassificationError::new(format!(
+            "CIR character count {} does not match unitary little-group order {}",
+            cir_chars.len() / 2,
+            h_seitz.len()
+        )));
+    }
+    let a0 = mag_seitz.get(a0_idx).ok_or_else(|| {
+        WignerClassificationError::new(format!(
+            "antiunitary representative index {} is out of range",
+            a0_idx
+        ))
+    })?;
+    if !a0.timerev {
+        return Err(WignerClassificationError::new(
+            "antiunitary representative must have time reversal",
+        ));
+    }
     let mut w_sum = Complex64::new(0.0, 0.0);
     let mut n_plus = 0u32;
     let mut n_minus = 0u32;
 
     for &h_mag_idx in unitary_mag_indices {
-        let h = &mag_seitz[h_mag_idx];
+        let h = mag_seitz.get(h_mag_idx).ok_or_else(|| {
+            WignerClassificationError::new(format!(
+                "unitary operation index {} is out of range",
+                h_mag_idx
+            ))
+        })?;
+        if h.timerev {
+            return Err(WignerClassificationError::new(format!(
+                "operation index {} must be unitary for the Wigner sum",
+                h_mag_idx
+            )));
+        }
         let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
         let h_spatial = SeitzOp::new(h.rot, h.trans, false);
         let (g0h, l1) = compose_seitz(&g0_spatial, &h_spatial);
         let (sq, lattice_sq) = square_seitz(&g0h);
 
-        if let Some(m) = find_seitz(&sq.rot, &sq.trans, h_seitz) {
-            let r_l1 = mat_vec_i32(&g0h.rot, &l1);
-            let total_lattice = add3(&add3(&lattice_sq, &m.lattice_shift), &add3(&l1, &r_l1));
-            let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
-            let chi = cir_char_at(cir_chars, m.op_index);
-            w_sum += chi * phase;
-            // Phase parity stats
-            if phase.re > 0.5 {
-                n_plus += 1;
-            } else if phase.re < -0.5 {
-                n_minus += 1;
-            }
-            debug_log!(
-                "    cir: h[{}]→H[{}] Lz_par={} ph={:.2} χ={:.2} → {:.2}",
-                h_mag_idx,
-                m.op_index,
-                ((total_lattice[2] % 2) + 2) % 2,
-                phase,
-                chi,
-                chi * phase
-            );
+        let matched = find_seitz(&sq.rot, &sq.trans, h_seitz).ok_or_else(|| {
+            WignerClassificationError::new(format!(
+                "square of (a0·h) for unitary operation index {} is absent from the unitary little group",
+                h_mag_idx
+            ))
+        })?;
+        let r_l1 = mat_vec_i32(&g0h.rot, &l1);
+        let total_lattice = add3(
+            &add3(&lattice_sq, &matched.lattice_shift),
+            &add3(&l1, &r_l1),
+        );
+        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
+        let chi = cir_char_at(cir_chars, matched.op_index);
+        w_sum += chi * phase;
+        // Phase parity stats
+        if phase.re > 0.5 {
+            n_plus += 1;
+        } else if phase.re < -0.5 {
+            n_minus += 1;
         }
+        debug_log!(
+            "    cir: h[{}]→H[{}] Lz_par={} ph={:.2} χ={:.2} → {:.2}",
+            h_mag_idx,
+            matched.op_index,
+            ((total_lattice[2] % 2) + 2) % 2,
+            phase,
+            chi,
+            chi * phase
+        );
     }
 
     debug_log!("    phase stats: +={} -={}", n_plus, n_minus);
-    let n = (unitary_mag_indices.len() as f64).max(1.0);
+    let n = unitary_mag_indices.len() as f64;
     let w = w_sum / n;
     debug_log!(
         "DEBUG wigner_classify_cir: W=({:.8},{:.8}) |W|={:.4} k=({},{},{})/{}",
@@ -1290,12 +1359,12 @@ impl SettingTransform {
     }
 
     /// Apply the forward transform to a rotation matrix.
-    /// Returns `None` when the transform does not produce an integer rotation
-    /// (i.e. the setting transform is invalid for this MSG frame).
+    /// Returns `None` when the setting-transform basis is not invertible, or
+    /// when the transform does not produce an integer rotation (i.e. the
+    /// setting transform is invalid for this MSG frame).
     pub fn transform_rotation(&self, r_msg: &Mat3I) -> Option<Mat3I> {
         let t = self.basis;
-        let t_inv =
-            mat_inverse_matrix_d3(&t, 1e-10).expect("setting-transform basis must be invertible");
+        let t_inv = mat_inverse_matrix_d3(&t, 1e-10).ok()?;
         let mut transformed = [[0.0f64; 3]; 3];
         for i in 0..3 {
             for j in 0..3 {
@@ -1335,8 +1404,8 @@ impl SettingTransform {
         Some(t_hall)
     }
 
-    /// Transform a full Seitz operation (R|t).  Returns `None` when the
-    /// rotation part does not transform to an integer matrix.
+    /// Transform a full Seitz operation (R|t). Returns `None` when the basis
+    /// is not invertible or the rotation does not transform to an integer matrix.
     pub fn transform_seitz(&self, rot: &Mat3I, trans: &[f64; 3]) -> Option<(Mat3I, [f64; 3])> {
         let r_hall = self.transform_rotation(rot)?;
         let t_hall = self.transform_translation(rot, trans)?;
@@ -1883,9 +1952,18 @@ pub fn debug_unwrapped_square(
     ky: i8,
     kz: i8,
     kd: i8,
-) {
-    let a0 = &mag_seitz[a0_idx];
-    let h = &mag_seitz[h_mag_idx];
+) -> Result<(), WignerClassificationError> {
+    let a0 = mag_seitz.get(a0_idx).ok_or_else(|| {
+        WignerClassificationError::new("diagnostic a0 operation index is out of range")
+    })?;
+    let h = mag_seitz.get(h_mag_idx).ok_or_else(|| {
+        WignerClassificationError::new("diagnostic H operation index is out of range")
+    })?;
+    if !a0.timerev || h.timerev {
+        return Err(WignerClassificationError::new(
+            "diagnostic operations have incorrect unitary/antiunitary roles",
+        ));
+    }
 
     // Step 1: g₀h raw (no normalization)
     let rc = mat_multiply_matrix_i3(&a0.rot, &h.rot);
@@ -1940,6 +2018,7 @@ pub fn debug_unwrapped_square(
     } else {
         debug_log!("  NOT FOUND in h_seitz");
     }
+    Ok(())
 }
 
 /// Diagnostic: direct anti-coset Wigner sum.
@@ -1955,7 +2034,30 @@ pub fn wigner_direct_anti_coset(
     ky: i8,
     kz: i8,
     kd: i8,
-) -> Complex64 {
+) -> Result<Complex64, WignerClassificationError> {
+    let expected_chars = h_seitz
+        .len()
+        .checked_mul(2)
+        .ok_or_else(|| WignerClassificationError::new("CIR character length overflow"))?;
+    if anti_lg_indices.is_empty() {
+        return Err(WignerClassificationError::new(
+            "antiunitary little-group coset is empty",
+        ));
+    }
+    if cir_chars.len() != expected_chars || cir_chars.iter().any(|value| !value.is_finite()) {
+        return Err(WignerClassificationError::new(
+            "CIR character table does not match H operations",
+        ));
+    }
+    if anti_lg_indices
+        .iter()
+        .any(|&index| index >= mag_seitz.len())
+    {
+        return Err(WignerClassificationError::new(
+            "antiunitary operation index is out of range",
+        ));
+    }
+
     let mut sum = Complex64::ZERO;
     let mut n_plus = 0u32;
     let mut n_minus = 0u32;
@@ -1963,8 +2065,11 @@ pub fn wigner_direct_anti_coset(
     for &b_idx in anti_lg_indices {
         let b = &mag_seitz[b_idx];
         let (sq, lattice_sq) = square_seitz(b);
-        let m = find_seitz(&sq.rot, &sq.trans, h_seitz)
-            .unwrap_or_else(|| panic!("direct anti: b[{}]^2 not found in H", b_idx));
+        let m = find_seitz(&sq.rot, &sq.trans, h_seitz).ok_or_else(|| {
+            WignerClassificationError::new(format!(
+                "direct antiunitary square b[{b_idx}]² was not found in H"
+            ))
+        })?;
 
         let total_lattice = add3(&lattice_sq, &m.lattice_shift);
         let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
@@ -1990,7 +2095,7 @@ pub fn wigner_direct_anti_coset(
     }
     let w = sum / (anti_lg_indices.len() as f64);
     debug_log!("  direct anti stats: +={} -={} W={:.4}", n_plus, n_minus, w);
-    w
+    Ok(w)
 }
 
 /// Spinor version of [`wigner_direct_anti_coset`]: directly iterates over
@@ -2006,6 +2111,10 @@ pub fn wigner_direct_anti_coset(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DirectAntiFailure {
     MissingSpinData,
+    IndexOutOfRange,
+    CharacterTableMismatch,
+    SpinTableMismatch,
+    SettingTransformFailed,
     SquareNotInSpinTable,
     SquareOutsideLittleGroup,
     SquareTranslationMismatch,
@@ -2020,6 +2129,10 @@ impl DirectAntiFailure {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::MissingSpinData => "missing_spin_data",
+            Self::IndexOutOfRange => "index_out_of_range",
+            Self::CharacterTableMismatch => "character_table_mismatch",
+            Self::SpinTableMismatch => "spin_table_mismatch",
+            Self::SettingTransformFailed => "setting_transform_failed",
             Self::SquareNotInSpinTable => "square_not_in_spin_table",
             Self::SquareOutsideLittleGroup => "square_outside_little_group",
             Self::SquareTranslationMismatch => "square_translation_mismatch",
@@ -2366,11 +2479,35 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     if h_spin_rots.is_empty() || h_spin_su2.is_empty() || anti_lg_indices.is_empty() {
         return Err(DirectAntiFailure::MissingSpinData);
     }
+    if h_spin_rots.len() % 9 != 0
+        || h_spin_trans.len() != h_spin_rots.len() / 3
+        || h_spin_su2.len() != (h_spin_rots.len() / 9) * 4
+        || g_spin_rots.len() % 9 != 0
+        || g_spin_trans.len() != g_spin_rots.len() / 3
+        || g_spin_su2.len() != (g_spin_rots.len() / 9) * 4
+    {
+        return Err(DirectAntiFailure::SpinTableMismatch);
+    }
+    if spin_chars_real.len() < spin_lg_op_indices.len() {
+        return Err(DirectAntiFailure::CharacterTableMismatch);
+    }
+    if anti_lg_indices
+        .iter()
+        .any(|&index| index >= mag_seitz.len())
+    {
+        return Err(DirectAntiFailure::IndexOutOfRange);
+    }
 
     let h_spin_seitz = build_spin_seitz(h_spin_rots, h_spin_trans);
     let g_spin_seitz = build_spin_seitz(g_spin_rots, g_spin_trans);
     if h_spin_seitz.is_empty() {
         return Err(DirectAntiFailure::MissingSpinData);
+    }
+    if spin_lg_op_indices
+        .iter()
+        .any(|&index| index as usize >= h_spin_seitz.len())
+    {
+        return Err(DirectAntiFailure::IndexOutOfRange);
     }
 
     let global_to_local: std::collections::HashMap<usize, usize> = spin_lg_op_indices
@@ -2405,10 +2542,10 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
             // ALL MSG ops, so it must succeed for this antiunitary op too.
             let rot = xf
                 .transform_rotation(&b.rot)
-                .expect("setting transform validated atomically upstream");
+                .ok_or(DirectAntiFailure::SettingTransformFailed)?;
             let trans = xf
                 .transform_translation(&b.rot, &b.trans)
-                .expect("setting transform validated atomically upstream");
+                .ok_or(DirectAntiFailure::SettingTransformFailed)?;
             (rot, trans)
         } else {
             (b.rot, b.trans)
@@ -2640,7 +2777,9 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         let phase = bloch_phase_f64(kx, ky, kz, kd, &total_translation);
 
         let chi0 = Complex64::new(
-            spin_chars_real[sq_local_idx],
+            *spin_chars_real
+                .get(sq_local_idx)
+                .ok_or(DirectAntiFailure::CharacterTableMismatch)?,
             spin_chars_imag.get(sq_local_idx).copied().unwrap_or(0.0),
         );
         let chi = if central { -chi0 } else { chi0 };
@@ -2980,17 +3119,37 @@ pub fn build_h_to_cir_map(h_seitz: &[SeitzOp], cir_rots: &[i32]) -> Option<Vec<u
 ///
 /// After reordering, `out[2*h_idx]` and `out[2*h_idx+1]` give the (re, im)
 /// character for the operation at `h_seitz[h_idx]`.
-pub fn reorder_cir_chars(cir_chars: &[f64], h_to_cir: &[usize]) -> Vec<f64> {
+pub fn reorder_cir_chars(
+    cir_chars: &[f64],
+    h_to_cir: &[usize],
+) -> Result<Vec<f64>, WignerClassificationError> {
+    if cir_chars.len() % 2 != 0 || cir_chars.iter().any(|value| !value.is_finite()) {
+        return Err(WignerClassificationError::new(
+            "CIR characters must be finite complex pairs",
+        ));
+    }
     let n_ops = h_to_cir.len();
-    let mut reordered = vec![0.0f64; n_ops * 2];
+    let output_len = n_ops
+        .checked_mul(2)
+        .ok_or_else(|| WignerClassificationError::new("CIR reorder length overflow"))?;
+    let mut reordered = vec![0.0f64; output_len];
     for h_idx in 0..n_ops {
         let c_idx = h_to_cir[h_idx];
-        if 2 * c_idx + 1 < cir_chars.len() {
-            reordered[2 * h_idx] = cir_chars[2 * c_idx];
-            reordered[2 * h_idx + 1] = cir_chars[2 * c_idx + 1];
+        let source = c_idx
+            .checked_mul(2)
+            .ok_or_else(|| WignerClassificationError::new("CIR operation index overflow"))?;
+        let source_imag = source
+            .checked_add(1)
+            .ok_or_else(|| WignerClassificationError::new("CIR operation index overflow"))?;
+        if source_imag >= cir_chars.len() {
+            return Err(WignerClassificationError::new(
+                "CIR operation map contains an out-of-range index",
+            ));
         }
+        reordered[2 * h_idx] = cir_chars[source];
+        reordered[2 * h_idx + 1] = cir_chars[source_imag];
     }
-    reordered
+    Ok(reordered)
 }
 
 /// Helper: read a complex character from (re, im) pair array.
@@ -3315,6 +3474,16 @@ pub fn build_spin_seitz(spin_op_rots: &[i32], spin_op_trans: &[f64]) -> Vec<Seit
         .collect()
 }
 
+fn spin_table_is_well_formed(
+    rotations: &[i32],
+    translations: &[f64],
+    su2: &[f64],
+) -> bool {
+    rotations.len() % 9 == 0
+        && translations.len() == rotations.len() / 3
+        && su2.len() == (rotations.len() / 9) * 4
+}
+
 /// **DIAGNOSTIC ONLY — not an authoritative Wigner test.**
 ///
 /// Bilbao spin.dat may contain extra character-like values at some k-points.
@@ -3541,6 +3710,54 @@ pub fn wigner_classify_spinor(
     kz: i8,
     kd: i8,
 ) -> Result<CorepType, WignerClassificationError> {
+    let (h_spin_rots, h_spin_trans, h_spin_su2) = ctx.h;
+    let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
+    if !spin_table_is_well_formed(h_spin_rots, h_spin_trans, h_spin_su2)
+        || !spin_table_is_well_formed(g_spin_rots, g_spin_trans, g_spin_su2)
+    {
+        return Err(WignerClassificationError::new(
+            "spinor operation tables have inconsistent lengths",
+        ));
+    }
+    if n_lg_ops == 0
+        || n_lg_ops != spin_lg_op_indices.len()
+        || spin_chars_real.len() < n_lg_ops
+        || (!spin_chars_imag.is_empty() && spin_chars_imag.len() < n_lg_ops)
+    {
+        return Err(WignerClassificationError::new(
+            "spinor little-group indices and characters have inconsistent lengths",
+        ));
+    }
+    let h_spin_count = h_spin_rots.len() / 9;
+    if spin_lg_op_indices
+        .iter()
+        .any(|&index| index as usize >= h_spin_count)
+    {
+        return Err(WignerClassificationError::new(
+            "spinor little-group operation index is out of range",
+        ));
+    }
+    if a0_idx >= mag_seitz.len()
+        || !mag_seitz[a0_idx].timerev
+        || _unitary_mag_indices
+            .iter()
+            .any(|&index| index >= mag_seitz.len() || mag_seitz[index].timerev)
+    {
+        return Err(WignerClassificationError::new(
+            "magnetic operation index is out of range or has the wrong time-reversal role",
+        ));
+    }
+    if let Some(indices) = anti_lg_indices {
+        if indices
+            .iter()
+            .any(|&index| index >= mag_seitz.len() || !mag_seitz[index].timerev)
+        {
+            return Err(WignerClassificationError::new(
+                "antiunitary little-group operation index is out of range or unitary",
+            ));
+        }
+    }
+
     // ── Direct anti-coset path (frame-aware, primary) ────────────────────
     // This path uses setting_xf to transform all operations into the
     // ISOTROPY data-Hall frame, matching the spin table and character
@@ -4111,6 +4328,15 @@ pub fn build_corep_chars(
     au_chars: Option<&[f64]>,      // for Type A: pre-computed antiunitary chars
 ) -> Result<Vec<f64>, &'static str> {
     let n_lg = mag_lg_indices.len();
+    if mag_lg_indices
+        .iter()
+        .any(|&index| index >= mag_ops.len() || index >= op_map.len())
+    {
+        return Err("magnetic little-group operation index is out of range");
+    }
+    if corep_type == &CorepType::A && au_chars.is_some_and(|chars| chars.len() < n_lg) {
+        return Err("Type-A antiunitary character table is shorter than the magnetic little group");
+    }
     let mut chars = vec![0.0; n_lg];
 
     for (out_idx, &mag_idx) in mag_lg_indices.iter().enumerate() {
@@ -4125,30 +4351,37 @@ pub fn build_corep_chars(
                             chars[out_idx] = ac[out_idx];
                         }
                     }
-                } else if let Some(hi) = h_idx {
-                    if hi < h_chars.len() {
-                        chars[out_idx] = h_chars[hi];
-                    }
+                } else {
+                    let hi = h_idx.ok_or("unitary magnetic operation is missing its H mapping")?;
+                    chars[out_idx] = *h_chars
+                        .get(hi)
+                        .ok_or("H-operation mapping exceeds the character table")?;
                 }
             }
             CorepType::B => {
                 // Kramers doubling: dimension 2d
                 if is_anti {
                     chars[out_idx] = 0.0;
-                } else if let Some(hi) = h_idx {
-                    if hi < h_chars.len() {
-                        chars[out_idx] = 2.0 * h_chars[hi];
-                    }
+                } else {
+                    let hi = h_idx.ok_or("unitary magnetic operation is missing its H mapping")?;
+                    chars[out_idx] = 2.0
+                        * h_chars
+                            .get(hi)
+                            .ok_or("H-operation mapping exceeds the character table")?;
                 }
             }
             CorepType::C => {
                 // Paired with conjugate irrep: dimension 2d
                 if is_anti {
                     chars[out_idx] = 0.0;
-                } else if let Some(hi) = h_idx {
-                    let chi_i = if hi < h_chars.len() { h_chars[hi] } else { 0.0 };
+                } else {
+                    let hi = h_idx.ok_or("unitary magnetic operation is missing its H mapping")?;
+                    let chi_i = *h_chars
+                        .get(hi)
+                        .ok_or("H-operation mapping exceeds the character table")?;
                     let chi_partner = if let Some(pc) = partner_chars {
-                        if hi < pc.len() { pc[hi] } else { 0.0 }
+                        *pc.get(hi)
+                            .ok_or("partner character table is shorter than the H mapping")?
                     } else {
                         chi_i
                     };
@@ -4226,6 +4459,60 @@ mod tests {
         // t = 0.7 + 0.5 = 1.2 → 0.2 with lattice shift [1,0,0]
         assert!((result.trans[0] - 0.2).abs() < 1e-9);
         assert_eq!(lattice, [1, 0, 0]);
+    }
+
+    #[test]
+    fn setting_transform_singular_basis_returns_none() {
+        let transform = SettingTransform {
+            basis: [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            origin: [0.25, 0.0, 0.0],
+        };
+        let rotation = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
+        let translation = [0.5, 0.0, 0.0];
+
+        assert!(transform.transform_rotation(&rotation).is_none());
+        assert!(
+            transform
+                .transform_translation(&rotation, &translation)
+                .is_none()
+        );
+        assert!(transform.transform_seitz(&rotation, &translation).is_none());
+    }
+
+    #[test]
+    fn setting_transform_near_singular_basis_returns_none() {
+        let transform = SettingTransform {
+            basis: [[1e-6, 0.0, 0.0], [0.0, 1e-6, 0.0], [0.0, 0.0, 1e-6]],
+            origin: [0.0; 3],
+        };
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+
+        assert!(transform.transform_rotation(&identity).is_none());
+    }
+
+    #[test]
+    fn setting_transform_nontrivial_valid_control() {
+        let transform = SettingTransform {
+            basis: [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]],
+            origin: [0.25, 0.0, 0.0],
+        };
+        let rotation = [[1, 0, 0], [0, -1, 0], [0, 0, -1]];
+        let translation = [0.5, 0.0, 0.0];
+        let expected_rotation = [[-1, 0, 0], [0, 1, 0], [0, 0, -1]];
+        let expected_translation = [0.5, 0.5, 0.0];
+
+        assert_eq!(
+            transform.transform_rotation(&rotation),
+            Some(expected_rotation)
+        );
+        assert_eq!(
+            transform.transform_translation(&rotation, &translation),
+            Some(expected_translation)
+        );
+        assert_eq!(
+            transform.transform_seitz(&rotation, &translation),
+            Some((expected_rotation, expected_translation))
+        );
     }
 
     #[test]
@@ -4327,6 +4614,375 @@ mod tests {
         assert_eq!(result, Ok(CorepType::A));
     }
 
+    #[test]
+    fn test_scalar_wigner_rejects_empty_and_incomplete_inputs() {
+        let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], false);
+        let theta = SeitzOp::new(id.rot, [0.0; 3], true);
+        let mag = vec![id.clone(), theta];
+        let h = vec![id];
+
+        let real_empty = wigner_classify(&[1.0], &[], &mag, &h, 1, 0, 0, 0, 1).unwrap_err();
+        assert!(real_empty.reason.contains("unitary little group is empty"));
+        let cir_empty = wigner_classify_cir(&[1.0, 0.0], &[], &mag, &h, 1, 0, 0, 0, 1).unwrap_err();
+        assert!(cir_empty.reason.contains("unitary little group is empty"));
+
+        let h_two = vec![
+            mag[0].clone(),
+            SeitzOp::new([[-1, 0, 0], [0, -1, 0], [0, 0, 1]], [0.0; 3], false),
+        ];
+        let real_short = wigner_classify(&[1.0], &[0], &mag, &h_two, 1, 0, 0, 0, 1).unwrap_err();
+        assert!(real_short.reason.contains("character table length"));
+        let cir_short =
+            wigner_classify_cir(&[1.0, 0.0], &[0], &mag, &h_two, 1, 0, 0, 0, 1).unwrap_err();
+        assert!(cir_short.reason.contains("CIR character count"));
+    }
+
+    #[test]
+    fn test_scalar_wigner_rejects_invalid_indices_and_roles() {
+        let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], false);
+        let theta = SeitzOp::new(id.rot, [0.0; 3], true);
+        let mag = vec![id.clone(), theta];
+        let h = vec![id];
+
+        for result in [
+            wigner_classify(&[1.0], &[0], &mag, &h, 2, 0, 0, 0, 1),
+            wigner_classify(&[1.0], &[2], &mag, &h, 1, 0, 0, 0, 1),
+            wigner_classify(&[1.0], &[1], &mag, &h, 1, 0, 0, 0, 1),
+        ] {
+            assert!(result.is_err());
+        }
+        for result in [
+            wigner_classify_cir(&[1.0, 0.0], &[0], &mag, &h, 2, 0, 0, 0, 1),
+            wigner_classify_cir(&[1.0, 0.0], &[2], &mag, &h, 1, 0, 0, 0, 1),
+            wigner_classify_cir(&[1.0, 0.0], &[1], &mag, &h, 1, 0, 0, 0, 1),
+        ] {
+            assert!(result.is_err());
+        }
+    }
+
+    #[test]
+    fn test_scalar_wigner_rejects_missing_square_match() {
+        let id_rot = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let c4z_rot = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
+        let id = SeitzOp::new(id_rot, [0.0; 3], false);
+        let mag = vec![id.clone(), SeitzOp::new(c4z_rot, [0.0; 3], true)];
+        let h = vec![id];
+
+        let real = wigner_classify(&[1.0], &[0], &mag, &h, 1, 0, 0, 0, 1).unwrap_err();
+        assert!(real.reason.contains("absent from the unitary little group"));
+        let cir = wigner_classify_cir(&[1.0, 0.0], &[0], &mag, &h, 1, 0, 0, 0, 1).unwrap_err();
+        assert!(cir.reason.contains("absent from the unitary little group"));
+    }
+
+    #[test]
+    fn direct_anti_coset_rejects_bad_indices_and_characters() {
+        let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], false);
+        let theta = SeitzOp::new(id.rot, [0.0; 3], true);
+        let mag = vec![theta];
+        let h = vec![id];
+
+        assert!(
+            wigner_direct_anti_coset(&[1.0, 0.0], &[1], &mag, &h, 0, 0, 0, 1)
+                .is_err()
+        );
+        assert!(wigner_direct_anti_coset(&[1.0], &[0], &mag, &h, 0, 0, 0, 1).is_err());
+        assert!(wigner_direct_anti_coset(&[1.0, 0.0], &[], &mag, &h, 0, 0, 0, 1).is_err());
+    }
+
+    #[test]
+    fn direct_anti_coset_valid_type_a_control() {
+        let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], false);
+        let theta = SeitzOp::new(id.rot, [0.0; 3], true);
+        let value =
+            wigner_direct_anti_coset(&[1.0, 0.0], &[0], &[theta], &[id], 0, 0, 0, 1)
+                .unwrap();
+
+        assert!((value.re - 1.0).abs() < 1e-12);
+        assert!(value.im.abs() < 1e-12);
+    }
+
+    #[test]
+    fn spinor_direct_anti_rejects_index_and_character_mismatches() {
+        static ROTATIONS: [i32; 9] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+        static TRANSLATIONS: [f64; 3] = [0.0; 3];
+        static SU2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
+        let ctx = SpinLiftContext {
+            h: (&ROTATIONS, &TRANSLATIONS, &SU2),
+            g: (&ROTATIONS, &TRANSLATIONS, &SU2),
+            sg: 1,
+        };
+        let anti = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], true);
+
+        assert_eq!(
+            wigner_classify_spinor_direct_anti_diagnostic(
+                &ctx,
+                &[1.0],
+                &[],
+                &[0],
+                &[1],
+                &[anti.clone()],
+                None,
+                0,
+                0,
+                0,
+                1,
+                None,
+                &[],
+            ),
+            Err(DirectAntiFailure::IndexOutOfRange)
+        );
+        assert_eq!(
+            wigner_classify_spinor_direct_anti_diagnostic(
+                &ctx,
+                &[],
+                &[],
+                &[0],
+                &[0],
+                &[anti.clone()],
+                None,
+                0,
+                0,
+                0,
+                1,
+                None,
+                &[],
+            ),
+            Err(DirectAntiFailure::CharacterTableMismatch)
+        );
+
+        let singular = SettingTransform {
+            basis: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]],
+            origin: [0.0; 3],
+        };
+        assert_eq!(
+            wigner_classify_spinor_direct_anti_diagnostic(
+                &ctx,
+                &[1.0],
+                &[],
+                &[0],
+                &[0],
+                &[anti],
+                Some(&singular),
+                0,
+                0,
+                0,
+                1,
+                None,
+                &[],
+            ),
+            Err(DirectAntiFailure::SettingTransformFailed)
+        );
+    }
+
+    #[test]
+    fn spinor_classifier_rejects_legacy_fallback_index_contract_violations() {
+        static ROTATIONS: [i32; 9] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+        static TRANSLATIONS: [f64; 3] = [0.0; 3];
+        static SU2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
+        let ctx = SpinLiftContext {
+            h: (&ROTATIONS, &TRANSLATIONS, &SU2),
+            g: (&ROTATIONS, &TRANSLATIONS, &SU2),
+            sg: 1,
+        };
+        let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], false);
+        let theta = SeitzOp::new(id.rot, [0.0; 3], true);
+        let mag = vec![id.clone(), theta];
+        let h = vec![id];
+
+        let classify = |n_lg_ops, spin_indices: &[u16], unitary: &[usize], a0_idx| {
+            wigner_classify_spinor(
+                &ctx,
+                &[1.0],
+                &[],
+                n_lg_ops,
+                spin_indices,
+                unitary,
+                &mag,
+                &h,
+                a0_idx,
+                None,
+                Some(&[1]),
+                0,
+                0,
+                0,
+                1,
+            )
+        };
+
+        assert!(classify(2, &[0], &[0], 1).is_err());
+        assert!(classify(1, &[1], &[0], 1).is_err());
+        assert!(classify(1, &[0], &[99], 1).is_err());
+        assert!(classify(1, &[0], &[0], usize::MAX).is_err());
+        assert!(classify(1, &[0], &[1], 1).is_err());
+    }
+
+    #[test]
+    fn corep_character_builder_rejects_invalid_parallel_indices_and_maps() {
+        let id = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let mag_ops = SymmetryOps::from_parallel_owned(
+            vec![id, id],
+            vec![[0.0; 3], [0.0; 3]],
+            vec![false, true],
+        );
+
+        assert!(
+            build_corep_chars(
+                &CorepType::A,
+                &mag_ops,
+                &[2],
+                &[Some(0), None],
+                &[1.0],
+                None,
+                Some(&[0.0]),
+            )
+            .is_err()
+        );
+        assert!(
+            build_corep_chars(
+                &CorepType::A,
+                &mag_ops,
+                &[0],
+                &[],
+                &[1.0],
+                None,
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            build_corep_chars(
+                &CorepType::A,
+                &mag_ops,
+                &[0, 1],
+                &[Some(0), None],
+                &[1.0],
+                None,
+                Some(&[]),
+            )
+            .is_err()
+        );
+
+        let valid = build_corep_chars(
+            &CorepType::B,
+            &mag_ops,
+            &[0, 1],
+            &[Some(0), None],
+            &[1.0],
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(valid, vec![2.0, 0.0]);
+    }
+
+    #[test]
+    fn type_a_character_helpers_reject_invalid_magnetic_indices() {
+        let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], false);
+        let mag = vec![id.clone()];
+
+        assert!(
+            type_a_antiunitary_chars(&mag, &[0], &[], &[1.0], &[id.clone()], 0, 0, 0, 0, 1)
+                .is_none()
+        );
+        assert!(
+            type_a_antiunitary_chars_high_dim(
+                &mag,
+                &[99],
+                &[2.0],
+                &[id.clone()],
+                99,
+                0,
+                0,
+                0,
+                1,
+                &[],
+                &[],
+            )
+            .is_none()
+        );
+        assert!(
+            type_a_antiunitary_chars_high_dim_ordered(
+                &mag,
+                &[99],
+                &[2.0],
+                &[id],
+                usize::MAX,
+                &[],
+                2,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn diagnostic_square_and_cir_reorder_reject_invalid_indices() {
+        let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], false);
+        let theta = SeitzOp::new(id.rot, [0.0; 3], true);
+
+        assert!(
+            debug_unwrapped_square(99, 1, &[id.clone(), theta], &[id], 0, 0, 0, 1)
+                .is_err()
+        );
+        assert!(reorder_cir_chars(&[1.0, 0.0], &[1]).is_err());
+        assert!(reorder_cir_chars(&[1.0, 0.0], &[usize::MAX]).is_err());
+        assert!(reorder_cir_chars(&[1.0], &[0]).is_err());
+    }
+
+    #[test]
+    fn cir_reorder_valid_control_preserves_complex_pairs() {
+        let reordered = reorder_cir_chars(&[1.0, 0.0, -1.0, 0.5], &[1, 0]).unwrap();
+        assert_eq!(reordered, vec![-1.0, 0.5, 1.0, 0.0]);
+    }
+
+    #[test]
+    fn test_scalar_wigner_known_b_and_c_remain_quantized() {
+        let id_rot = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let c4_rot = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
+        let c2_rot = [[-1, 0, 0], [0, -1, 0], [0, 0, 1]];
+        let c4_cubed_rot = [[0, 1, 0], [-1, 0, 0], [0, 0, 1]];
+
+        let h_b = vec![
+            SeitzOp::new(id_rot, [0.0; 3], false),
+            SeitzOp::new(c2_rot, [0.0; 3], false),
+        ];
+        let mag_b = vec![
+            h_b[0].clone(),
+            h_b[1].clone(),
+            SeitzOp::new(c4_rot, [0.0; 3], true),
+        ];
+        assert_eq!(
+            wigner_classify(&[1.0, -1.0], &[0, 1], &mag_b, &h_b, 2, 0, 0, 0, 1),
+            Ok(CorepType::B)
+        );
+        assert_eq!(
+            wigner_classify_cir(&[1.0, 0.0, -1.0, 0.0], &[0, 1], &mag_b, &h_b, 2, 0, 0, 0, 1,),
+            Ok(CorepType::B)
+        );
+
+        let h_c = vec![
+            SeitzOp::new(id_rot, [0.0; 3], false),
+            SeitzOp::new(c4_rot, [0.0; 3], false),
+            SeitzOp::new(c2_rot, [0.0; 3], false),
+            SeitzOp::new(c4_cubed_rot, [0.0; 3], false),
+        ];
+        let mut mag_c = h_c.clone();
+        mag_c.push(SeitzOp::new(id_rot, [0.0; 3], true));
+        assert_eq!(
+            wigner_classify(
+                &[2.0, 0.0, -2.0, 0.0],
+                &[0, 1, 2, 3],
+                &mag_c,
+                &h_c,
+                4,
+                0,
+                0,
+                0,
+                1,
+            ),
+            Ok(CorepType::C)
+        );
+    }
+
     /// Type A: result should not double dimension.
     #[test]
     fn test_corep_dim_type_a() {
@@ -4393,6 +5049,12 @@ mod tests {
             }
             // Only compare successful classifications
             let oks: Vec<_> = types.iter().filter_map(|r| r.as_ref().ok()).collect();
+            assert!(
+                !oks.is_empty(),
+                "no Wigner classification succeeded for {}: {:?}",
+                ir.ml,
+                types
+            );
             assert!(
                 oks.iter().all(|&&x| x == *oks[0]),
                 "Wigner type depends on a₀ for {}: {:?}",

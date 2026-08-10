@@ -51,7 +51,7 @@
 //! | [`SymmetryOp`] | 单个对称操作 `{R\|t}` + `time_reversal` |
 //! | [`SymmetryOps`] | 对称操作集合，支持 [`SymmetryOps::from_database`] |
 //! | [`MagneticSymmetry`] | 磁空间群分析结果，实现 `Display` trait |
-//! | [`MagneticSpaceGroupType`] | 磁空间群类型，支持 `.from_uni()` 和 `.classify()` |
+//! | [`MagneticSpaceGroupType`] | 磁空间群类型，支持返回 `Result` 的 `.from_uni()` 和 `.classify()` |
 //! | [`SpaceGroupType`] | 空间群类型信息，支持 `.from_hall()` |
 //! | [`IrMesh`] | 不可约 k 点网格 |
 //! | [`StabilizedMesh`] | 稳定化倒易网格（含 q 点） |
@@ -395,39 +395,52 @@ pub struct MagneticSpaceGroupType {
 impl MagneticSpaceGroupType {
     /// Look up a magnetic space group type by UNI number (1–1651).
     ///
+    /// # Errors
+    ///
+    /// Returns [`SymError::InvalidInput`] when `uni_number` is outside
+    /// `1..=1651`.
+    ///
     /// # Examples
     ///
     /// ```
     /// use cryspglib::{MagneticSpaceGroupType, MagneticType};
     ///
     /// // UNI 1331 = BNS 166.101 (Type-3 black-white, parent R-3m)
-    /// let msg = MagneticSpaceGroupType::from_uni(1331);
+    /// let msg = MagneticSpaceGroupType::from_uni(1331).unwrap();
     /// assert_eq!(msg.uni_number, 1331);
     /// assert_eq!(msg.bns_number.trim(), "166.101");
     /// assert_eq!(msg.type_, MagneticType::BlackWhite);
     ///
     /// // UNI 1005 = BNS 123.345 (Type-3, ferromagnetic along [001])
-    /// let msg = MagneticSpaceGroupType::from_uni(1005);
+    /// let msg = MagneticSpaceGroupType::from_uni(1005).unwrap();
     /// assert_eq!(msg.bns_number.trim(), "123.345");
+    ///
+    /// assert!(MagneticSpaceGroupType::from_uni(0).is_err());
+    /// assert!(MagneticSpaceGroupType::from_uni(1652).is_err());
     /// ```
-    pub fn from_uni(uni_number: usize) -> Self {
+    pub fn from_uni(uni_number: usize) -> Result<Self, SymError> {
+        if !(1..=1651).contains(&uni_number) {
+            return Err(SymError::InvalidInput);
+        }
         let msgtype = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni_number);
-        MagneticSpaceGroupType {
+        Ok(MagneticSpaceGroupType {
             uni_number: msgtype.uni_number,
             litvin_number: msgtype.litvin_number,
             bns_number: msgtype.bns_number.to_string(),
             og_number: msgtype.og_number.to_string(),
             number: msgtype.number,
             type_: msgtype.type_,
-        }
+        })
     }
 
     /// Classify magnetic space group type from a set of symmetry operations.
     ///
     /// `time_reversals` can be `None` (treated as all-false / ordinary operations).
     ///
-    /// Returns a default (UNI=0, NonMagnetic) when identification fails or
-    /// when the operations alone correspond to multiple BNS parent groups.
+    /// Returns the identification error, including
+    /// [`SymError::MagneticUniAmbiguous`], instead of disguising failure as a
+    /// default `UNI=0` non-magnetic result.
+    ///
     /// Use [`crate::magnetic_spacegroup::msg_identify_with_parent_hall`] when
     /// the non-magnetic parent Hall number is known.
     ///
@@ -443,7 +456,9 @@ impl MagneticSpaceGroupType {
     /// let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
     ///
     /// // Without time reversal → Type-1 (ordinary)
-    /// let msg = MagneticSpaceGroupType::classify(&rots, &trans, None, &lattice, 1e-5);
+    /// let msg = MagneticSpaceGroupType::classify(
+    ///     &rots, &trans, None, &lattice, 1e-5,
+    /// ).unwrap();
     /// assert_eq!(msg.type_, MagneticType::Ordinary);
     /// assert!(msg.uni_number > 0);
     /// ```
@@ -453,11 +468,28 @@ impl MagneticSpaceGroupType {
         time_reversals: Option<&[bool]>,
         lattice: &Mat3,
         symprec: f64,
-    ) -> Self {
-        #[allow(deprecated)]
-        spg_get_magnetic_spacegroup_type_from_symmetry(
-            rotations, translations, time_reversals, lattice, symprec,
-        )
+    ) -> Result<Self, SymError> {
+        let n_ops = rotations.len();
+        if n_ops == 0
+            || translations.len() != n_ops
+            || time_reversals.map_or(false, |values| values.len() != n_ops)
+        {
+            return Err(SymError::InvalidInput);
+        }
+
+        let mut magnetic_symmetry = crate::symmetry::MagneticSymmetry::new(n_ops);
+        for i in 0..n_ops {
+            magnetic_symmetry.rot[i] = rotations[i];
+            magnetic_symmetry.trans[i] = translations[i];
+            magnetic_symmetry.timerev[i] = time_reversals.map_or(false, |values| values[i]);
+        }
+
+        let dataset = crate::magnetic_spacegroup::msg_identify_magnetic_space_group_type(
+            lattice,
+            &magnetic_symmetry,
+            symprec,
+        )?;
+        Self::from_uni(dataset.uni_number)
     }
 }
 
@@ -514,7 +546,12 @@ pub fn spg_get_symmetry_from_database(hall_number: usize) -> Result<Symmetry, Sp
 /// 从对称操作确定 Hall 编号。
 ///
 /// 给定一组旋转和平移操作，搜索匹配的空间群 Hall 编号。
-/// 返回 `None` 表示未找到匹配。
+///
+/// # Errors
+///
+/// `rotations` 和 `translations` 必须非空且长度相等；否则返回
+/// [`SymError::InvalidInput`]。操作集合无法匹配到空间群时返回
+/// [`SymError::SpacegroupSearchFailed`]。
 pub fn spg_get_hall_number_from_symmetry(
     rotations: &[Mat3I],
     translations: &[Vec3],
@@ -648,25 +685,31 @@ pub fn spg_get_pointgroup(
 
 /// 获取磁性空间群类型。
 ///
-/// 根据 UNI 编号查询磁性空间群类型信息。返回默认值（全零）表示未找到。
+/// 根据 UNI 编号查询磁性空间群类型信息。
+///
+/// 为兼容旧 API，无效 UNI（`0` 或 `>1651`）仍返回全零的
+/// [`MagneticType::NonMagnetic`] sentinel，因而无法区分无效输入。新代码应使用
+/// 返回 `Result` 的 [`MagneticSpaceGroupType::from_uni`]。
 #[deprecated(since = "0.2.0", note = "use `MagneticSpaceGroupType::from_uni(uni_number)` instead")]
 pub fn spg_get_magnetic_spacegroup_type(
     uni_number: usize,
 ) -> MagneticSpaceGroupType {
-    let msgtype = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni_number);
-    MagneticSpaceGroupType {
-        uni_number: msgtype.uni_number,
-        litvin_number: msgtype.litvin_number,
-        bns_number: msgtype.bns_number.to_string(),
-        og_number: msgtype.og_number.to_string(),
-        number: msgtype.number,
-        type_: msgtype.type_,
-    }
+    MagneticSpaceGroupType::from_uni(uni_number).unwrap_or(MagneticSpaceGroupType {
+        uni_number: 0,
+        litvin_number: 0,
+        bns_number: String::new(),
+        og_number: String::new(),
+        number: 0,
+        type_: MagneticType::NonMagnetic,
+    })
 }
 
 /// 获取磁性空间群类型（从对称操作）。
 ///
 /// `time_reversals` 为 `None` 时全部视为 0（无时间反演）。
+///
+/// 此兼容接口会把识别错误折叠成 `UNI=0`。新代码应使用返回
+/// `Result` 的 [`MagneticSpaceGroupType::classify`]。
 #[deprecated(since = "0.2.0", note = "use `MagneticSpaceGroupType::classify(rotations, translations, time_reversals, lattice, symprec)` instead")]
 pub fn spg_get_magnetic_spacegroup_type_from_symmetry(
     rotations: &[Mat3I],
@@ -675,18 +718,14 @@ pub fn spg_get_magnetic_spacegroup_type_from_symmetry(
     lattice: &Mat3,
     symprec: f64,
 ) -> MagneticSpaceGroupType {
-    let n_ops = rotations.len();
-    let mut mag_sym = crate::symmetry::MagneticSymmetry::new(n_ops);
-    for i in 0..n_ops {
-        mag_sym.rot[i] = rotations[i];
-        mag_sym.trans[i] = translations[i];
-        mag_sym.timerev[i] = time_reversals.map_or(false, |tr| tr[i]);
-    }
-
-    match crate::magnetic_spacegroup::msg_identify_magnetic_space_group_type(
-        lattice, &mag_sym, symprec,
+    match MagneticSpaceGroupType::classify(
+        rotations,
+        translations,
+        time_reversals,
+        lattice,
+        symprec,
     ) {
-        Ok(dataset) => MagneticSpaceGroupType::from_uni(dataset.uni_number),
+        Ok(msg_type) => msg_type,
         Err(_) => MagneticSpaceGroupType {
             uni_number: 0,
             litvin_number: 0,
@@ -732,6 +771,13 @@ pub struct MagneticSymmetry {
 /// 每个原子的磁矩为 3 分量 `[mx, my, mz]`。
 ///
 /// 返回包含非磁空间群、磁空间群、对称操作的结构。
+///
+/// # Errors
+///
+/// Returns [`SymError::InvalidInput`] for an empty structure or inconsistent
+/// positions/types/moments lengths. Other symmetry and magnetic-space-group
+/// identification errors, including [`SymError::MagneticUniMatchFailed`], are
+/// propagated unchanged.
 #[deprecated(since = "0.2.0", note = "use `Crystal::new(lat, pos, types).with_magnetic(moments).analyze().symprec(prec).magnetic_dataset()` instead")]
 ///
 /// # 示例
@@ -750,9 +796,15 @@ pub fn spg_get_magnetic_dataset(
     symprec: f64,
 ) -> Result<MagneticSymmetry, SymError> {
     let n_atoms = positions.len();
+    if n_atoms == 0 || types.len() != n_atoms {
+        return Err(SymError::InvalidInput);
+    }
+    if magnetic_moments.map_or(false, |moments| moments.len() != n_atoms) {
+        return Err(SymError::InvalidInput);
+    }
 
     // --- 构建 Cell ---
-    let has_mag = magnetic_moments.is_some() && magnetic_moments.unwrap().len() == n_atoms;
+    let has_mag = magnetic_moments.is_some();
     let tensor_rank = if has_mag {
         crate::cell::TensorRank::NonCollinear
     } else {
@@ -848,40 +900,14 @@ pub fn spg_get_magnetic_dataset(
     // 用已求得的非磁 Hall 编号作为 parent_hall_number fallback。
     // 当 FSG 空间群搜索失败时（如多原子磁细胞的原胞约化限制），
     // fallback 直接使用非磁母空间群来搜索 UNI 候选。
-    let ds = crate::magnetic_spacegroup::msg_identify_with_parent_hall(
+    let identification = crate::magnetic_spacegroup::msg_identify_with_parent_hall(
         lattice,
         &final_mag_sym,
         Some(hall_number),
         symprec,
     );
-    let (uni_number, magnetic_type, bns_number, og_number) = match ds {
-        Ok(ds) => {
-            let mt = crate::msg_database::msgdb_get_magnetic_spacegroup_type(ds.uni_number);
-            (ds.uni_number, mt.type_, mt.bns_number.to_string(), mt.og_number.to_string())
-        }
-        Err(SymError::MagneticUniMatchFailed) => {
-            // 未匹配 DB 条目, 从 FSG/XSG 计算磁类型
-            let sym_all = crate::magnetic_spacegroup::extract_symmetry(
-                &final_mag_sym, true, symprec,
-            );
-            let sym_ord = crate::magnetic_spacegroup::extract_symmetry(
-                &final_mag_sym, false, symprec,
-            );
-            let fallback_type = match (sym_all, sym_ord) {
-                (Some(fsg), Some(xsg)) => {
-                    let n_fsg = fsg.size;
-                    let n_xsg = xsg.size;
-                    let n_msg = final_mag_sym.size;
-                    if n_fsg == n_xsg {
-                        if n_msg == n_fsg { MagneticType::Ordinary } else if n_msg == 2 * n_fsg { MagneticType::Grey } else { MagneticType::NonMagnetic }
-                    } else if n_fsg == 2 * n_xsg { MagneticType::BlackWhite } else { MagneticType::NonMagnetic }
-                }
-                _ => MagneticType::NonMagnetic,
-            };
-            (0, fallback_type, String::new(), String::new())
-        }
-        Err(e) => return Err(e),
-    };
+    let (uni_number, magnetic_type, bns_number, og_number) =
+        magnetic_identification_metadata(identification)?;
 
     let spg_type = crate::spg_database::spgdb_get_spacegroup_type(hall_number);
     let rot_out = (0..final_mag_sym.size).map(|i| final_mag_sym.rot[i]).collect();
@@ -902,6 +928,133 @@ pub fn spg_get_magnetic_dataset(
         translations: trans_out,
         time_reversals: tr_out,
     })
+}
+
+type MagneticIdentificationMetadata = (usize, MagneticType, String, String);
+
+fn magnetic_identification_metadata(
+    identification: Result<crate::magnetic_spacegroup::MagneticDataset, SymError>,
+) -> Result<MagneticIdentificationMetadata, SymError> {
+    let dataset = identification?;
+    let msg_type =
+        crate::msg_database::msgdb_get_magnetic_spacegroup_type(dataset.uni_number);
+    Ok((
+        dataset.uni_number,
+        msg_type.type_,
+        msg_type.bns_number.to_string(),
+        msg_type.og_number.to_string(),
+    ))
+}
+
+#[cfg(test)]
+mod magnetic_dataset_contract_tests {
+    #![allow(deprecated)]
+
+    use super::*;
+
+    fn cubic_lattice() -> Mat3 {
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    }
+
+    #[test]
+    fn magnetic_dataset_propagates_uni_match_failed() {
+        let result = magnetic_identification_metadata(Err(SymError::MagneticUniMatchFailed));
+
+        assert_eq!(result.unwrap_err(), SymError::MagneticUniMatchFailed);
+    }
+
+    #[test]
+    fn magnetic_dataset_rejects_empty_structure() {
+        let lattice = cubic_lattice();
+
+        assert!(matches!(
+            spg_get_magnetic_dataset(&lattice, &[], &[], None, 1e-5),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            spg_get_magnetic_dataset(&lattice, &[], &[], Some(&[]), 1e-5),
+            Err(SymError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn magnetic_dataset_rejects_parallel_array_length_mismatches() {
+        let lattice = cubic_lattice();
+        let positions = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]];
+        let types = [26, 26];
+        let one_moment = [[1.0, 0.0, 0.0]];
+        let three_moments = [
+            [1.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ];
+
+        for bad_types in [&[26][..], &[26, 26, 26][..]] {
+            assert!(matches!(
+                spg_get_magnetic_dataset(&lattice, &positions, bad_types, None, 1e-5),
+                Err(SymError::InvalidInput)
+            ));
+        }
+        for bad_moments in [&[][..], &one_moment[..], &three_moments[..]] {
+            assert!(matches!(
+                spg_get_magnetic_dataset(
+                    &lattice,
+                    &positions,
+                    &types,
+                    Some(bad_moments),
+                    1e-5,
+                ),
+                Err(SymError::InvalidInput)
+            ));
+        }
+    }
+}
+
+#[cfg(test)]
+mod hall_number_from_symmetry_contract_tests {
+    use super::*;
+
+    const IDENTITY: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+
+    #[test]
+    fn hall_number_rejects_empty_and_mismatched_parallel_slices() {
+        let one_rotation = [IDENTITY];
+        let two_rotations = [IDENTITY, IDENTITY];
+        let one_translation = [[0.0; 3]];
+        let two_translations = [[0.0; 3], [0.5, 0.0, 0.0]];
+
+        for (rotations, translations) in [
+            (&[][..], &[][..]),
+            (&[][..], &one_translation[..]),
+            (&one_rotation[..], &[][..]),
+            (&one_rotation[..], &two_translations[..]),
+            (&two_rotations[..], &one_translation[..]),
+        ] {
+            assert!(matches!(
+                spg_get_hall_number_from_symmetry(rotations, translations, 1e-5),
+                Err(SymError::InvalidInput)
+            ));
+        }
+    }
+
+    #[test]
+    fn hall_number_identifies_valid_database_operations() {
+        let operations = SymmetryOps::from_database(517).unwrap();
+        let rotations: Vec<_> = operations
+            .operations
+            .iter()
+            .map(|operation| operation.rotation)
+            .collect();
+        let translations: Vec<_> = operations
+            .operations
+            .iter()
+            .map(|operation| operation.translation)
+            .collect();
+
+        let hall = spg_get_hall_number_from_symmetry(&rotations, &translations, 1e-5).unwrap();
+        assert_eq!(hall, 517);
+        assert_eq!(SpaceGroupType::from_hall(hall).unwrap().number, 221);
+    }
 }
 
 /// 手动计算磁矩变换的 timerev 标记 (fallback)。
@@ -1103,7 +1256,10 @@ pub fn spg_niggli_reduce(lattice: &Mat3, symprec: f64) -> Result<Mat3, SpglibErr
 
 /// 从网格地址获取网格点索引。
 #[deprecated(since = "0.2.0", note = "use `grid_point_from_address(grid_address, mesh)` instead")]
-pub fn spg_get_grid_point_from_address(grid_address: &[i32; 3], mesh: &[i32; 3]) -> usize {
+pub fn spg_get_grid_point_from_address(
+    grid_address: &[i32; 3],
+    mesh: &[i32; 3],
+) -> Result<usize, SpglibError> {
     grid_point_from_address(*grid_address, *mesh)
 }
 
@@ -1160,12 +1316,18 @@ pub fn spg_get_stabilized_reciprocal_mesh(
     is_time_reversal: bool,
     rotations: &[Mat3I],
     qpoints: &[[f64; 3]],
-) -> usize {
-    let result = stabilized_reciprocal_mesh(*mesh, *is_shift, is_time_reversal, rotations, qpoints);
+) -> Result<usize, SpglibError> {
+    let result =
+        stabilized_reciprocal_mesh(*mesh, *is_shift, is_time_reversal, rotations, qpoints)?;
+    if grid_address.len() < result.grid_addresses.len()
+        || ir_mapping_table.len() < result.mapping_table.len()
+    {
+        return Err(SymError::ArraySizeShortage);
+    }
     let n = result.num_ir;
     grid_address[..result.grid_addresses.len()].copy_from_slice(&result.grid_addresses);
     ir_mapping_table[..result.mapping_table.len()].copy_from_slice(&result.mapping_table);
-    n
+    Ok(n)
 }
 
 /// 通过旋转矩阵获取密集网格点。
@@ -1176,9 +1338,14 @@ pub fn spg_get_dense_grid_points_by_rotations(
     rot_reciprocal: &[Mat3I],
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
-) {
-    let result = dense_grid_points_by_rotations(*address_orig, rot_reciprocal, *mesh, *is_shift);
+) -> Result<(), SpglibError> {
+    let result =
+        dense_grid_points_by_rotations(*address_orig, rot_reciprocal, *mesh, *is_shift)?;
+    if rot_grid_points.len() < result.len() {
+        return Err(SymError::ArraySizeShortage);
+    }
     rot_grid_points[..result.len()].copy_from_slice(&result);
+    Ok(())
 }
 
 /// 通过旋转矩阵获取 BZ 网格点。
@@ -1190,9 +1357,19 @@ pub fn spg_get_dense_BZ_grid_points_by_rotations(
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
     bz_map: &[usize],
-) {
-    let result = dense_bz_grid_points_by_rotations(*address_orig, rot_reciprocal, *mesh, *is_shift, bz_map);
+) -> Result<(), SpglibError> {
+    let result = dense_bz_grid_points_by_rotations(
+        *address_orig,
+        rot_reciprocal,
+        *mesh,
+        *is_shift,
+        bz_map,
+    )?;
+    if rot_grid_points.len() < result.len() {
+        return Err(SymError::ArraySizeShortage);
+    }
     rot_grid_points[..result.len()].copy_from_slice(&result);
+    Ok(())
 }
 
 /// 将网格点重新定位到第一布里渊区。
@@ -1206,12 +1383,15 @@ pub fn spg_relocate_BZ_grid_address(
     mesh: &[i32; 3],
     rec_lattice: &Mat3,
     is_shift: &[i32; 3],
-) -> usize {
-    let result = relocate_bz_grid_address(grid_address, *mesh, rec_lattice, *is_shift);
+) -> Result<usize, SpglibError> {
+    let result = relocate_bz_grid_address(grid_address, *mesh, rec_lattice, *is_shift)?;
+    if bz_grid_address.len() < result.grid_addresses.len() || bz_map.len() < result.bz_map.len() {
+        return Err(SymError::ArraySizeShortage);
+    }
     let n = result.num_bz;
     bz_grid_address[..result.grid_addresses.len()].copy_from_slice(&result.grid_addresses);
     bz_map[..result.bz_map.len()].copy_from_slice(&result.bz_map);
-    n
+    Ok(n)
 }
 
 // ========================================================================
@@ -1491,6 +1671,9 @@ fn get_hall_number_from_symmetry(
     symprec: f64,
 ) -> Result<usize, SpglibError> {
     let num_ops = rotations.len();
+    if num_ops == 0 || translations.len() != num_ops {
+        return Err(SymError::InvalidInput);
+    }
     let mut symmetry = Symmetry::new(num_ops);
     for i in 0..num_ops {
         symmetry.rot[i] = rotations[i];
@@ -1563,7 +1746,7 @@ fn get_ir_reciprocal_mesh(
     ).ok_or(SymError::SpacegroupSearchFailed)?;
     let num_ir = crate::kpoint::kpt_get_irreducible_reciprocal_mesh(
         grid_address, ir_mapping_table, mesh, is_shift, &rot_reciprocal,
-    );
+    )?;
     Ok(num_ir)
 }
 
@@ -1593,6 +1776,6 @@ fn get_dense_ir_reciprocal_mesh(
     ).ok_or(SymError::SpacegroupSearchFailed)?;
     let num_ir = crate::kpoint::kpt_get_dense_irreducible_reciprocal_mesh(
         grid_address, ir_mapping_table, mesh, is_shift, &rot_reciprocal,
-    );
+    )?;
     Ok(num_ir)
 }

@@ -52,15 +52,21 @@ pub fn parse_poscar(data: &str) -> Option<(Mat3, Vec<Vec3>, Vec<i32>, Option<Vec
     }
 
     let type_line = lines.get(5)?;
-    let counts: Vec<i32> = lines
+    let counts: Vec<usize> = lines
         .get(6)?
         .split_whitespace()
-        .filter_map(|x| x.parse().ok())
-        .collect();
+        .map(str::parse::<usize>)
+        .collect::<Result<_, _>>()
+        .ok()?;
     if counts.is_empty() {
         return None;
     }
-    let n_atoms: usize = counts.iter().map(|&c| c as usize).sum();
+    let n_atoms = counts
+        .iter()
+        .try_fold(0usize, |total, count| total.checked_add(*count))?;
+    if n_atoms == 0 || n_atoms > lines.len().saturating_sub(8) {
+        return None;
+    }
 
     let type_names: Vec<&str> = type_line.split_whitespace().collect();
     let mut types = Vec::with_capacity(n_atoms);
@@ -139,5 +145,72 @@ fn element_to_number(symbol: &str) -> i32 {
         "Ds" => 110, "Rg" => 111, "Cn" => 112, "Nh" => 113, "Fl" => 114, "Mc" => 115,
         "Lv" => 116, "Ts" => 117, "Og" => 118,
         _ => 1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    fn poscar_with_counts(counts: &str, coordinates: &str) -> String {
+        format!(
+            "test\n\
+             1.0\n\
+             1 0 0\n\
+             0 1 0\n\
+             0 0 1\n\
+             H He\n\
+             {counts}\n\
+             Direct\n\
+             {coordinates}"
+        )
+    }
+
+    #[test]
+    fn poscar_rejects_negative_and_malformed_counts() {
+        for counts in ["-1", "2 -1", "-2147483648", "2 x 1", "2 1.5", "1e3"] {
+            let input = poscar_with_counts(counts, "0 0 0\n0.5 0.5 0.5");
+            assert!(super::parse_poscar(&input).is_none(), "counts={counts}");
+        }
+    }
+
+    #[test]
+    fn poscar_rejects_count_overflow_before_allocation() {
+        for counts in [
+            "18446744073709551615",
+            "18446744073709551616",
+            "18446744073709551615 1",
+        ] {
+            let input = poscar_with_counts(counts, "0 0 0");
+            assert!(super::parse_poscar(&input).is_none(), "counts={counts}");
+        }
+    }
+
+    #[test]
+    fn poscar_rejects_zero_total_and_truncated_coordinates() {
+        assert!(super::parse_poscar(&poscar_with_counts("0 0", "")).is_none());
+        assert!(
+            super::parse_poscar(&poscar_with_counts("3", "0 0 0\n0.5 0.5 0.5")).is_none()
+        );
+    }
+
+    #[test]
+    fn poscar_accepts_zero_species_count_when_total_is_nonzero() {
+        let parsed = super::parse_poscar(&poscar_with_counts("0 2", "0 0 0\n0.5 0.5 0.5"))
+            .expect("a zero-count species does not make the structure empty");
+
+        assert_eq!(parsed.1.len(), 2);
+        assert_eq!(parsed.2, vec![2, 2]);
+    }
+
+    #[test]
+    fn poscar_valid_input_preserves_types_and_moments() {
+        let parsed = super::parse_poscar(&poscar_with_counts(
+            "1 1",
+            "0 0 0 1 2 3\n0.5 0.5 0.5 4 5 6",
+        ))
+        .unwrap();
+
+        assert_eq!(parsed.1.len(), 2);
+        assert_eq!(parsed.2, vec![1, 2]);
+        assert_eq!(parsed.3, Some(vec![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]));
     }
 }

@@ -128,7 +128,16 @@ impl Crystal {
 
     // ── Internal: convert to Cell ──────────────────────────────────────────
 
-    pub(crate) fn to_cell(&self) -> Cell {
+    pub(crate) fn to_cell(&self) -> Result<Cell, SymError> {
+        if self.positions.is_empty()
+            || self.types.len() != self.positions.len()
+            || self
+                .moments
+                .as_ref()
+                .is_some_and(|moments| moments.len() != self.positions.len())
+        {
+            return Err(SymError::InvalidInput);
+        }
         let tensor_rank = self.tensor_rank();
         let mut cell = Cell::new(self.positions.len(), tensor_rank);
         if self.aperiodic_axis().is_none() {
@@ -145,7 +154,7 @@ impl Crystal {
             let tensors: Vec<f64> = moments.iter().flat_map(|m| [m[0], m[1], m[2]]).collect();
             cell.set_cell_with_tensors(&self.lattice, &self.positions, &self.types, &tensors);
         }
-        cell
+        Ok(cell)
     }
 
     pub(crate) fn tensor_rank(&self) -> TensorRank {
@@ -249,7 +258,7 @@ impl<'a> SymmetryAnalysis<'a> {
 
     /// Full space group dataset.
     pub fn dataset(&self) -> Result<SpaceGroup, SymError> {
-        let cell = self.crystal.to_cell();
+        let cell = self.crystal.to_cell()?;
         get_dataset_inner(&cell, self.symprec, self.angle_tolerance, 0)
     }
 
@@ -268,14 +277,14 @@ impl<'a> SymmetryAnalysis<'a> {
 
     /// Primitive cell.
     pub fn primitive_cell(&self) -> Result<Crystal, SymError> {
-        let cell = self.crystal.to_cell();
+        let cell = self.crystal.to_cell()?;
         let prim_cell = standardize_primitive_inner(&cell, self.symprec, self.angle_tolerance)?;
         Ok(cell_to_crystal(&prim_cell))
     }
 
     /// Standardize cell: `to_primitive` returns primitive cell; `no_idealize` skips position idealization.
     pub fn standardize(&self, to_primitive: bool, no_idealize: bool) -> Result<Crystal, SymError> {
-        let cell = self.crystal.to_cell();
+        let cell = self.crystal.to_cell()?;
         let cc = standardize_cell_inner(&cell, to_primitive, no_idealize, self.symprec, self.angle_tolerance)?;
         Ok(cell_to_crystal(&cc))
     }
@@ -303,6 +312,8 @@ impl<'a> SymmetryAnalysis<'a> {
         is_shift: [i32; 3],
         time_reversal: bool,
     ) -> Result<IrMesh, SymError> {
+        let total = crate::kgrid::validate_mesh(&mesh)?;
+        crate::kgrid::validate_shift(&is_shift)?;
         let ds = self.dataset()?;
         use crate::mathfunc::MatINT;
         let mut rotations = MatINT::new(ds.n_operations);
@@ -316,7 +327,6 @@ impl<'a> SymmetryAnalysis<'a> {
         )
         .ok_or(SymError::SpacegroupSearchFailed)?;
 
-        let total = (mesh[0] as usize) * (mesh[1] as usize) * (mesh[2] as usize);
         let mut grid_address = vec![[0i32; 3]; total];
         let mut mapping_table = vec![0usize; total];
 
@@ -326,7 +336,7 @@ impl<'a> SymmetryAnalysis<'a> {
             &mesh,
             &is_shift,
             &rot_reciprocal,
-        );
+        )?;
 
         Ok(IrMesh {
             grid_addresses: grid_address,
@@ -337,7 +347,16 @@ impl<'a> SymmetryAnalysis<'a> {
 
     /// Magnetic space group dataset.
     ///
-    /// Requires the crystal to have magnetic moments set via [`Crystal::with_magnetic`].
+    /// With magnetic moments set via [`Crystal::with_magnetic`], identifies the
+    /// magnetic group. Without moments, returns the corresponding non-magnetic
+    /// symmetry result.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::SymError::InvalidInput`] for an empty structure or
+    /// inconsistent positions/types/moments lengths. Other symmetry and
+    /// magnetic-space-group identification errors, including
+    /// [`crate::SymError::MagneticUniMatchFailed`], are propagated unchanged.
     #[allow(deprecated)]
     pub fn magnetic_dataset(&self) -> Result<MagneticSymmetry, crate::SymError> {
         crate::spg_get_magnetic_dataset(
@@ -375,15 +394,9 @@ pub struct SymmetryOp {
 }
 
 /// Ordered set of symmetry operations.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SymmetryOps {
     pub operations: Vec<SymmetryOp>,
-}
-
-impl Default for SymmetryOps {
-    fn default() -> Self {
-        Self { operations: vec![] }
-    }
 }
 
 impl SymmetryOps {
@@ -527,10 +540,11 @@ pub fn find_first_hall_for_uni(uni: usize) -> Result<usize, crate::SymError> {
         return Err(crate::SymError::SpacegroupSearchFailed);
     }
     for hall in 1..=530 {
-        if let Some([lo, hi]) = crate::msg_database::msgdb_get_uni_candidates(hall) {
-            if uni >= lo && uni <= hi {
-                return Ok(hall);
-            }
+        if let Some([lo, hi]) = crate::msg_database::msgdb_get_uni_candidates(hall)
+            && uni >= lo
+            && uni <= hi
+        {
+            return Ok(hall);
         }
     }
     Err(crate::SymError::SpacegroupSearchFailed)
@@ -581,13 +595,21 @@ pub struct BzMesh {
 /// use cryspglib::grid_point_from_address;
 ///
 /// // Γ point is always index 0
-/// let idx = grid_point_from_address([0, 0, 0], [4, 4, 4]);
+/// let idx = grid_point_from_address([0, 0, 0], [4, 4, 4]).unwrap();
 /// assert_eq!(idx, 0);
 /// ```
-pub fn grid_point_from_address(grid_address: [i32; 3], mesh: [i32; 3]) -> usize {
+pub fn grid_point_from_address(
+    grid_address: [i32; 3],
+    mesh: [i32; 3],
+) -> Result<usize, SymError> {
     let mut address_double = [0i32; 3];
     let is_shift = [0i32; 3];
-    crate::kgrid::kgd_get_grid_address_double_mesh(&mut address_double, &grid_address, &mesh, &is_shift);
+    crate::kgrid::kgd_get_grid_address_double_mesh(
+        &mut address_double,
+        &grid_address,
+        &mesh,
+        &is_shift,
+    )?;
     crate::kgrid::kgd_get_dense_grid_point_double_mesh(&address_double, &mesh)
 }
 
@@ -613,7 +635,7 @@ pub fn grid_point_from_address(grid_address: [i32; 3], mesh: [i32; 3]) -> usize 
 ///     true,  // time-reversal symmetry
 ///     &ds.rotations,
 ///     &[[0.0, 0.0, 0.0]],  // q-points (Γ only)
-/// );
+/// ).unwrap();
 /// assert!(sm.num_ir > 0);
 /// assert!(sm.num_ir <= 8); // 8 total points in 2x2x2 mesh
 /// ```
@@ -623,13 +645,14 @@ pub fn stabilized_reciprocal_mesh(
     is_time_reversal: bool,
     rotations: &[Mat3I],
     qpoints: &[[f64; 3]],
-) -> StabilizedMesh {
+) -> Result<StabilizedMesh, SymError> {
+    let total = crate::kgrid::validate_mesh(&mesh)?;
+    crate::kgrid::validate_shift(&is_shift)?;
     use crate::mathfunc::MatINT;
     let mut rot = MatINT::new(rotations.len());
     for (i, r) in rotations.iter().enumerate() {
         rot.mat[i] = *r;
     }
-    let total = (mesh[0] as usize) * (mesh[1] as usize) * (mesh[2] as usize);
     let mut grid_address = vec![[0i32; 3]; total];
     let mut mapping_table = vec![0usize; total];
     let num_ir = crate::kpoint::kpt_get_stabilized_reciprocal_mesh(
@@ -640,8 +663,8 @@ pub fn stabilized_reciprocal_mesh(
         if is_time_reversal { 1 } else { 0 },
         &rot,
         qpoints,
-    );
-    StabilizedMesh { grid_addresses: grid_address, mapping_table, num_ir }
+    )?;
+    Ok(StabilizedMesh { grid_addresses: grid_address, mapping_table, num_ir })
 }
 
 /// Apply rotations to a grid address, returning rotated grid point indices.
@@ -659,7 +682,7 @@ pub fn stabilized_reciprocal_mesh(
 ///     &rots,
 ///     [4, 4, 4],
 ///     [0, 0, 0],
-/// );
+/// ).unwrap();
 /// // All rotations of Γ point map to index 0
 /// for p in &points {
 ///     assert_eq!(*p, 0);
@@ -670,7 +693,9 @@ pub fn dense_grid_points_by_rotations(
     rot_reciprocal: &[Mat3I],
     mesh: [i32; 3],
     is_shift: [i32; 3],
-) -> Vec<usize> {
+) -> Result<Vec<usize>, SymError> {
+    crate::kgrid::validate_mesh(&mesh)?;
+    crate::kgrid::validate_shift(&is_shift)?;
     use crate::mathfunc::MatINT;
     let mut rot = MatINT::new(rot_reciprocal.len());
     for (i, r) in rot_reciprocal.iter().enumerate() {
@@ -683,8 +708,8 @@ pub fn dense_grid_points_by_rotations(
         &rot,
         &mesh,
         &is_shift,
-    );
-    rot_grid_points
+    )?;
+    Ok(rot_grid_points)
 }
 
 /// Apply rotations to a grid address, returning BZ-mapped grid point indices.
@@ -705,7 +730,7 @@ pub fn dense_grid_points_by_rotations(
 ///     [2, 2, 2],
 ///     [0, 0, 0],
 ///     &bz_map,
-/// );
+/// ).unwrap();
 /// assert_eq!(points.len(), rots.len());
 /// ```
 pub fn dense_bz_grid_points_by_rotations(
@@ -714,7 +739,9 @@ pub fn dense_bz_grid_points_by_rotations(
     mesh: [i32; 3],
     is_shift: [i32; 3],
     bz_map: &[usize],
-) -> Vec<usize> {
+) -> Result<Vec<usize>, SymError> {
+    crate::kgrid::validate_mesh(&mesh)?;
+    crate::kgrid::validate_shift(&is_shift)?;
     use crate::mathfunc::MatINT;
     let mut rot = MatINT::new(rot_reciprocal.len());
     for (i, r) in rot_reciprocal.iter().enumerate() {
@@ -728,8 +755,8 @@ pub fn dense_bz_grid_points_by_rotations(
         &mesh,
         &is_shift,
         bz_map,
-    );
-    rot_grid_points
+    )?;
+    Ok(rot_grid_points)
 }
 
 /// Relocate grid addresses into the first Brillouin zone.
@@ -755,7 +782,7 @@ pub fn dense_bz_grid_points_by_rotations(
 ///     [2, 2, 2],
 ///     &reciprocal_lattice,
 ///     [0, 0, 0],
-/// );
+/// ).unwrap();
 /// assert!(bz.num_bz > 0);
 /// ```
 pub fn relocate_bz_grid_address(
@@ -763,8 +790,10 @@ pub fn relocate_bz_grid_address(
     mesh: [i32; 3],
     rec_lattice: &Mat3,
     is_shift: [i32; 3],
-) -> BzMesh {
-    let num_bz_map = (mesh[0] * mesh[1] * mesh[2]) as usize * 8;
+) -> Result<BzMesh, SymError> {
+    let total = crate::kgrid::validate_mesh(&mesh)?;
+    crate::kgrid::validate_shift(&is_shift)?;
+    let num_bz_map = total.checked_mul(8).ok_or(SymError::ArraySizeShortage)?;
     let mut bz_grid_address = vec![[0i32; 3]; num_bz_map];
     let mut bz_map = vec![0usize; num_bz_map];
     let num_bz = crate::kpoint::kpt_relocate_bz_grid_address(
@@ -774,8 +803,8 @@ pub fn relocate_bz_grid_address(
         &mesh,
         rec_lattice,
         &is_shift,
-    );
-    BzMesh { grid_addresses: bz_grid_address, bz_map, num_bz }
+    )?;
+    Ok(BzMesh { grid_addresses: bz_grid_address, bz_map, num_bz })
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
@@ -1012,5 +1041,188 @@ fn standardize_cell_inner(
             cc.position[i] = dataset.std_positions[i];
         }
         Ok(cc)
+    }
+}
+
+#[cfg(test)]
+mod ordinary_input_contract_tests {
+    use super::*;
+
+    fn cubic_lattice() -> Mat3 {
+        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    }
+
+    #[test]
+    fn ordinary_analysis_rejects_empty_crystal_across_terminal_methods() {
+        let empty = Crystal::new(cubic_lattice(), vec![], vec![]);
+        let analysis = empty.analyze();
+
+        assert!(matches!(analysis.dataset(), Err(SymError::InvalidInput)));
+        assert!(matches!(analysis.symmetry(), Err(SymError::InvalidInput)));
+        assert!(matches!(analysis.primitive_cell(), Err(SymError::InvalidInput)));
+        assert!(matches!(
+            analysis.standardize(true, false),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(analysis.hall_number(), Err(SymError::InvalidInput)));
+        assert!(matches!(analysis.international(), Err(SymError::InvalidInput)));
+        assert!(matches!(
+            analysis.irreducible_mesh([2, 2, 2], [0, 0, 0], true),
+            Err(SymError::InvalidInput)
+        ));
+
+        let empty_layer = Crystal::new(cubic_lattice(), vec![], vec![])
+            .with_layer(AperiodicAxis::Z);
+        assert!(matches!(
+            empty_layer.analyze().dataset(),
+            Err(SymError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn ordinary_analysis_rejects_mutated_parallel_fields() {
+        let mut empty_positions = Crystal::new(
+            cubic_lattice(),
+            vec![[0.0, 0.0, 0.0]],
+            vec![14],
+        );
+        empty_positions.positions.clear();
+        assert!(matches!(
+            empty_positions.analyze().dataset(),
+            Err(SymError::InvalidInput)
+        ));
+
+        let mut missing_type = Crystal::new(
+            cubic_lattice(),
+            vec![[0.0, 0.0, 0.0]],
+            vec![14],
+        );
+        missing_type.types.clear();
+        assert!(matches!(
+            missing_type.analyze().primitive_cell(),
+            Err(SymError::InvalidInput)
+        ));
+
+        let mut short_moments = Crystal::new(
+            cubic_lattice(),
+            vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
+            vec![14, 14],
+        );
+        short_moments.moments = Some(vec![[0.0; 3]]);
+        assert!(matches!(
+            short_moments.analyze().standardize(false, false),
+            Err(SymError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn ordinary_analysis_valid_control_still_succeeds() {
+        let crystal = Crystal::new(
+            cubic_lattice(),
+            vec![[0.0, 0.0, 0.0]],
+            vec![14],
+        );
+        let dataset = crystal.analyze().dataset().unwrap();
+        assert_eq!(dataset.spacegroup_number, 221);
+    }
+
+    #[test]
+    fn mesh_apis_reject_invalid_meshes_and_shifts() {
+        let identity = [[[1, 0, 0], [0, 1, 0], [0, 0, 1]]];
+        for mesh in [[0, 2, 2], [-1, 2, 2], [i32::MIN, 1, 1]] {
+            assert!(matches!(
+                grid_point_from_address([0, 0, 0], mesh),
+                Err(SymError::InvalidInput)
+            ));
+            assert!(matches!(
+                stabilized_reciprocal_mesh(mesh, [0, 0, 0], true, &identity, &[]),
+                Err(SymError::InvalidInput)
+            ));
+        }
+
+        assert!(matches!(
+            stabilized_reciprocal_mesh([2, 2, 2], [0, 0, 2], true, &identity, &[]),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            dense_grid_points_by_rotations(
+                [0, 0, 0],
+                &identity,
+                [2, 2, 2],
+                [0, -1, 0],
+            ),
+            Err(SymError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn allocating_mesh_apis_reject_unsafe_sizes_and_short_buffers() {
+        let identity = [[[1, 0, 0], [0, 1, 0], [0, 0, 1]]];
+        assert!(matches!(
+            stabilized_reciprocal_mesh(
+                [1291, 1291, 1291],
+                [0, 0, 0],
+                true,
+                &identity,
+                &[],
+            ),
+            Err(SymError::ArraySizeShortage)
+        ));
+        assert!(matches!(
+            dense_bz_grid_points_by_rotations(
+                [0, 0, 0],
+                &identity,
+                [2, 2, 2],
+                [0, 0, 0],
+                &[],
+            ),
+            Err(SymError::ArraySizeShortage)
+        ));
+        assert!(matches!(
+            relocate_bz_grid_address(
+                &[],
+                [2, 2, 2],
+                &cubic_lattice(),
+                [0, 0, 0],
+            ),
+            Err(SymError::ArraySizeShortage)
+        ));
+    }
+
+    #[test]
+    fn mesh_valid_controls_keep_existing_results() {
+        let identity = [[[1, 0, 0], [0, 1, 0], [0, 0, 1]]];
+        assert_eq!(
+            grid_point_from_address([1, 2, 3], [4, 4, 4]).unwrap(),
+            57
+        );
+        assert_eq!(
+            grid_point_from_address([-1, 0, 0], [4, 4, 4]).unwrap(),
+            3
+        );
+        assert_eq!(
+            grid_point_from_address([i32::MIN, 0, 0], [4, 4, 4]).unwrap(),
+            0
+        );
+
+        let points = dense_grid_points_by_rotations(
+            [0, 0, 0],
+            &identity,
+            [4, 4, 4],
+            [0, 0, 0],
+        )
+        .unwrap();
+        assert_eq!(points, vec![0]);
+
+        let stabilized = stabilized_reciprocal_mesh(
+            [2, 2, 2],
+            [0, 0, 0],
+            true,
+            &identity,
+            &[[0.0, 0.0, 0.0]],
+        )
+        .unwrap();
+        assert_eq!(stabilized.num_ir, 8);
+        assert_eq!(stabilized.grid_addresses.len(), 8);
     }
 }

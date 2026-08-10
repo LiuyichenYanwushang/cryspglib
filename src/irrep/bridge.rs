@@ -15,18 +15,34 @@ use crate::SymmetryOps;
 ///
 /// For most SGs this matches the spglib default Hall setting.
 /// Use this to avoid runtime rotation-matching when the data and H_ops are aligned.
-pub fn canonical_hall_ops(sg: u8) -> SymmetryOps {
+pub fn canonical_hall_ops(sg: u8) -> Result<SymmetryOps, crate::SymError> {
     if sg == 0 || sg > 230 {
-        return SymmetryOps::default();
+        return Err(crate::SymError::SpacegroupSearchFailed);
     }
     let hall = SG_DATA_HALL[sg as usize] as usize;
     if hall == 0 {
         // No canonical Hall recorded — fall back to SG-based lookup
-        return SymmetryOps::from_sg(sg).unwrap_or_default();
+        return SymmetryOps::from_sg(sg);
     }
-    SymmetryOps::from_database(hall).unwrap_or_else(|_| {
-        SymmetryOps::from_sg(sg).unwrap_or_default()
-    })
+    SymmetryOps::from_database(hall).or_else(|_| SymmetryOps::from_sg(sg))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_hall_ops_reports_invalid_space_group() {
+        assert!(matches!(
+            canonical_hall_ops(0),
+            Err(crate::SymError::SpacegroupSearchFailed)
+        ));
+        assert!(matches!(
+            canonical_hall_ops(231),
+            Err(crate::SymError::SpacegroupSearchFailed)
+        ));
+        assert_eq!(canonical_hall_ops(221).unwrap().len(), 48);
+    }
 }
 
 impl SpaceGroup {

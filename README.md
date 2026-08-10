@@ -115,7 +115,7 @@ let result = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
 | `.magnetic_dataset()` | Magnetic space group |
 | `.irreducible_mesh(mesh, shift, tr)` | Irreducible k-point grid |
 | `SpaceGroupType::from_hall(n)` | Look up space group type by Hall number |
-| `MagneticSpaceGroupType::from_uni(n)` | Look up magnetic SG type by UNI number |
+| `MagneticSpaceGroupType::from_uni(n)` | Look up magnetic SG type by UNI number (`Result`) |
 
 ## Build
 

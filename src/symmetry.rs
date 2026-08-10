@@ -376,6 +376,9 @@ fn is_overlap_all_atoms(
 }
 
 fn get_index_with_least_atoms(cell: &Cell) -> i32 {
+    if cell.size == 0 {
+        return -1;
+    }
     let mut mapping = vec![0; cell.size];
     for i in 0..cell.size {
         for j in 0..cell.size {
@@ -831,5 +834,11 @@ mod tests {
         let has_half = t.iter().any(|v| (v[0] - 0.5).abs() < 1e-5);
         assert!(has_zero);
         assert!(has_half);
+    }
+
+    #[test]
+    fn test_empty_cell_has_no_pure_translation() {
+        let cell = Cell::new(0, TensorRank::NoSpin);
+        assert!(sym_get_pure_translation(&cell, 1e-5).is_none());
     }
 }

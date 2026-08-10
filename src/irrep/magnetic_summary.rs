@@ -53,6 +53,8 @@ pub enum MagneticIrrepError {
     UnknownBns(String),
     /// Could not retrieve magnetic symmetry operations for this UNI.
     MissingMagneticOperations(usize),
+    /// Explicit operations do not match this UNI's standard BNS setting.
+    OperationsInconsistentWithUni { uni: usize, reason: String },
     /// Could not identify the unitary subgroup H for this UNI.
     MissingUnitarySubgroup(usize),
     /// Magnetic operations could not be transformed to H's data-Hall frame.
@@ -545,22 +547,26 @@ pub fn magnetic_irrep_summary_by_bns(
 
 /// Compute magnetic irrep summary using explicit magnetic operations.
 ///
-/// `ops` overrides the magnetic symmetry operations (e.g. from a custom
-/// magnetic structure analysis), but the unitary subgroup H is still
-/// identified from the UNI database metadata.  The caller must ensure that
-/// `ops` is consistent with `uni`; this function does not validate the
-/// match.  For the common case where database operations are acceptable,
-/// prefer [`magnetic_irrep_summary_by_uni`].
+/// `ops` must be the complete operation set in the UNI database's first-Hall
+/// BNS setting. Operation order and integer lattice shifts of translations are
+/// ignored, while rotations and time-reversal flags must match exactly.
+/// Setting-equivalent operation sets in another Hall frame are rejected because
+/// the corepresentation pipeline consumes first-Hall coordinates. This strict
+/// frame-specific contract also distinguishes database first-Hall sets that an
+/// operation-only classifier may find equivalent after a setting transform.
 pub fn magnetic_irrep_summary_from_ops(
     uni: usize,
     mag_ops: &SymmetryOps,
 ) -> Result<MagneticIrrepSummary, MagneticIrrepError> {
+    validate_operations_for_uni(uni, mag_ops)?;
+
     // 1. Identify H (unitary subgroup) with Hall setting information.
     let h_info = crate::irrep::corep::identify_unitary_subgroup_with_hall(uni)
         .ok_or(MagneticIrrepError::MissingUnitarySubgroup(uni))?;
 
     // 2. Get MSG metadata.
-    let msg = crate::MagneticSpaceGroupType::from_uni(uni);
+    let msg = crate::MagneticSpaceGroupType::from_uni(uni)
+        .map_err(|_| MagneticIrrepError::InvalidUni(uni))?;
 
     // 3. Get k-points from H's irrep data.
     let h_kpoints = crate::irrep::query::kpoints_of(h_info.sg as u8);
@@ -705,6 +711,90 @@ pub fn magnetic_irrep_summary_from_ops(
         unitary_hall: h_info.hall,
         kpoints,
     })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct MagneticOperationKey {
+    rotation: [i32; 9],
+    translation_twelfths: [i32; 3],
+    time_reversal: bool,
+}
+
+fn magnetic_operation_keys(
+    uni: usize,
+    ops: &SymmetryOps,
+) -> Result<Vec<MagneticOperationKey>, MagneticIrrepError> {
+    const TRANSLATION_TOLERANCE: f64 = 1e-5;
+    let mut keys = Vec::with_capacity(ops.len());
+    for (index, operation) in ops.operations.iter().enumerate() {
+        let mut translation_twelfths = [0; 3];
+        for (axis, value) in operation.translation.iter().copied().enumerate() {
+            if !value.is_finite() {
+                return Err(MagneticIrrepError::OperationsInconsistentWithUni {
+                    uni,
+                    reason: format!("operation {index} has a non-finite translation"),
+                });
+            }
+            let reduced = value.rem_euclid(1.0);
+            let scaled = reduced * 12.0;
+            let rounded = scaled.round();
+            if (scaled - rounded).abs() / 12.0 > TRANSLATION_TOLERANCE {
+                return Err(MagneticIrrepError::OperationsInconsistentWithUni {
+                    uni,
+                    reason: format!(
+                        "operation {index} translation is not quantized in twelfths"
+                    ),
+                });
+            }
+            translation_twelfths[axis] = (rounded as i32).rem_euclid(12);
+        }
+        keys.push(MagneticOperationKey {
+            rotation: [
+                operation.rotation[0][0],
+                operation.rotation[0][1],
+                operation.rotation[0][2],
+                operation.rotation[1][0],
+                operation.rotation[1][1],
+                operation.rotation[1][2],
+                operation.rotation[2][0],
+                operation.rotation[2][1],
+                operation.rotation[2][2],
+            ],
+            translation_twelfths,
+            time_reversal: operation.time_reversal,
+        });
+    }
+    keys.sort_unstable();
+    Ok(keys)
+}
+
+fn validate_operations_for_uni(
+    uni: usize,
+    ops: &SymmetryOps,
+) -> Result<(), MagneticIrrepError> {
+    if uni == 0 || uni > 1651 {
+        return Err(MagneticIrrepError::InvalidUni(uni));
+    }
+    let database = SymmetryOps::from_magnetic_database(uni)
+        .map_err(|_| MagneticIrrepError::MissingMagneticOperations(uni))?;
+    if ops.len() != database.len() {
+        return Err(MagneticIrrepError::OperationsInconsistentWithUni {
+            uni,
+            reason: format!(
+                "operation count {} does not match database count {}",
+                ops.len(),
+                database.len()
+            ),
+        });
+    }
+    if magnetic_operation_keys(uni, ops)? != magnetic_operation_keys(uni, &database)? {
+        return Err(MagneticIrrepError::OperationsInconsistentWithUni {
+            uni,
+            reason: "full magnetic Seitz multiset does not match the UNI first-Hall setting"
+                .to_string(),
+        });
+    }
+    Ok(())
 }
 
 // ── Formatting ─────────────────────────────────────────────────────────────────
@@ -1035,6 +1125,81 @@ mod tests {
     fn invalid_uni_returns_error() {
         assert!(magnetic_irrep_summary_by_uni(0).is_err());
         assert!(magnetic_irrep_summary_by_uni(1652).is_err());
+    }
+
+    #[test]
+    fn explicit_ops_validate_uni_before_summary_metadata() {
+        let empty = SymmetryOps::default();
+        assert!(matches!(
+            magnetic_irrep_summary_from_ops(0, &empty),
+            Err(MagneticIrrepError::InvalidUni(0))
+        ));
+        assert!(matches!(
+            magnetic_irrep_summary_from_ops(1652, &empty),
+            Err(MagneticIrrepError::InvalidUni(1652))
+        ));
+        assert!(matches!(
+            magnetic_irrep_summary_from_ops(2, &empty),
+            Err(MagneticIrrepError::OperationsInconsistentWithUni { uni: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn explicit_ops_accept_reordering_and_integer_lattice_shifts() {
+        let database = SymmetryOps::from_magnetic_database(2).unwrap();
+        let mut reordered = database.clone();
+        reordered.operations.reverse();
+        validate_operations_for_uni(2, &reordered).unwrap();
+
+        let summary = magnetic_irrep_summary_from_ops(2, &reordered).unwrap();
+        assert_eq!(summary.uni, 2);
+        assert_eq!(summary.bns_label, "1.2");
+
+        let mut shifted = database;
+        for (index, operation) in shifted.operations.iter_mut().enumerate() {
+            operation.translation[0] += 1.0;
+            operation.translation[1] -= (index % 2) as f64;
+            operation.translation[2] += 2.0;
+        }
+        validate_operations_for_uni(2, &shifted).unwrap();
+    }
+
+    #[test]
+    fn explicit_ops_reject_wrong_uni_flags_missing_and_duplicate_operations() {
+        let ops_282 = SymmetryOps::from_magnetic_database(282).unwrap();
+        assert!(matches!(
+            validate_operations_for_uni(283, &ops_282),
+            Err(MagneticIrrepError::OperationsInconsistentWithUni { uni: 283, .. })
+        ));
+
+        let mut wrong_flag = ops_282.clone();
+        wrong_flag.operations[0].time_reversal = !wrong_flag.operations[0].time_reversal;
+        assert!(validate_operations_for_uni(282, &wrong_flag).is_err());
+
+        let mut incomplete = ops_282.clone();
+        incomplete.operations.pop();
+        assert!(validate_operations_for_uni(282, &incomplete).is_err());
+
+        let mut duplicate = ops_282.clone();
+        duplicate.operations[0] = duplicate.operations[1];
+        assert!(validate_operations_for_uni(282, &duplicate).is_err());
+    }
+
+    #[test]
+    fn explicit_ops_distinguish_uni_277_and_284_in_first_hall_frame() {
+        let ops_277 = SymmetryOps::from_magnetic_database(277).unwrap();
+        let ops_284 = SymmetryOps::from_magnetic_database(284).unwrap();
+        assert_ne!(
+            magnetic_operation_keys(277, &ops_277).unwrap(),
+            magnetic_operation_keys(284, &ops_284).unwrap()
+        );
+        assert!(validate_operations_for_uni(277, &ops_284).is_err());
+        assert!(validate_operations_for_uni(284, &ops_277).is_err());
+
+        assert!(validate_operations_for_uni(275, &ops_277).is_err());
+        let ops_283 = SymmetryOps::from_magnetic_database(283).unwrap();
+        validate_operations_for_uni(283, &ops_283).unwrap();
+        assert!(validate_operations_for_uni(283, &ops_284).is_err());
     }
 
     #[test]

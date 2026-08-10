@@ -231,6 +231,9 @@ fn get_primitive_lattice_vectors(
     symprec: f64,
     angle_tolerance: f64,
 ) -> Option<(Mat3, usize)> {
+    if pure_trans.is_empty() {
+        return None;
+    }
     let mut tolerance = symprec;
     let mut pure_trans_reduced = pure_trans.to_vec();
 
@@ -467,4 +470,32 @@ fn collect_primitive_symmetry(symmetry: &Symmetry, primsym_size: usize) -> Optio
     }
 
     Some(prim_symmetry)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cell::TensorRank;
+
+    fn one_atom_cell() -> Cell {
+        let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let mut cell = Cell::new(1, TensorRank::NoSpin);
+        cell.set_cell(&lattice, &[[0.0; 3]], &[1]);
+        cell
+    }
+
+    #[test]
+    fn primitive_lattice_rejects_empty_pure_translation_set() {
+        let cell = one_atom_cell();
+        assert!(prm_get_primitive_lattice_vectors(&cell, &[], 1e-5, -1.0).is_none());
+        assert!(prm_get_primitive_with_pure_trans(&cell, &[], 1e-5, -1.0).is_none());
+    }
+
+    #[test]
+    fn primitive_lattice_accepts_identity_translation() {
+        let cell = one_atom_cell();
+        assert!(
+            prm_get_primitive_lattice_vectors(&cell, &[[0.0; 3]], 1e-5, -1.0).is_some()
+        );
+    }
 }

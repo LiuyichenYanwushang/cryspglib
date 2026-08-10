@@ -96,7 +96,7 @@
 //! [`cubic`]: crate::irrep::cubic
 
 pub mod types;
-pub mod generated_data;
+pub use types::generated_data;
 pub mod preamble;
 pub mod query;
 pub mod corep;

@@ -117,6 +117,12 @@ pub fn type_a_antiunitary_chars(
     kz: i8,
     kd: i8,
 ) -> Option<(Vec<f64>, Complex64)> {
+    if a0_idx >= mag_seitz.len()
+        || !mag_seitz[a0_idx].timerev
+        || mag_lg_indices.iter().any(|&index| index >= mag_seitz.len())
+    {
+        return None;
+    }
     let h_dim = h_chars.first().map(|&c| c.round() as usize).unwrap_or(1);
     if h_dim != 1 {
         return None;
@@ -164,13 +170,20 @@ pub fn type_a_antiunitary_chars_high_dim(
     pir_mats: &[f64],
     pir_rots: &[i32],
 ) -> Option<Vec<f64>> {
+    if a0_idx >= mag_seitz.len()
+        || !mag_seitz[a0_idx].timerev
+        || mag_lg_indices.iter().any(|&index| index >= mag_seitz.len())
+    {
+        return None;
+    }
     let h_dim = h_chars.first().map(|&c| c.round() as usize).unwrap_or(1);
     if h_dim <= 1 {
         return None;
     }
-    let block = h_dim * h_dim;
+    let block = h_dim.checked_mul(h_dim)?;
     let n_pir_ops = pir_rots.len() / 9;
-    if n_pir_ops == 0 || pir_mats.len() < n_pir_ops * block {
+    let matrix_len = n_pir_ops.checked_mul(block)?;
+    if n_pir_ops == 0 || pir_mats.len() < matrix_len {
         return None;
     }
     let h_to_pir = build_h_to_cir_map(h_seitz, pir_rots)?;
@@ -245,11 +258,18 @@ pub fn type_a_antiunitary_chars_high_dim_ordered(
     h_matrices: &[f64],
     h_dim: usize,
 ) -> Option<Vec<f64>> {
+    if a0_idx >= mag_seitz.len()
+        || !mag_seitz[a0_idx].timerev
+        || mag_lg_indices.iter().any(|&index| index >= mag_seitz.len())
+    {
+        return None;
+    }
     if h_dim <= 1 || h_chars.len() < h_seitz.len() {
         return None;
     }
-    let block = h_dim * h_dim;
-    if h_matrices.len() < h_seitz.len() * block {
+    let block = h_dim.checked_mul(h_dim)?;
+    let matrix_len = h_seitz.len().checked_mul(block)?;
+    if h_matrices.len() < matrix_len {
         return None;
     }
 

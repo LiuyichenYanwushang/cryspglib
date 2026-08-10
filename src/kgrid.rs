@@ -2,6 +2,41 @@
 //!
 //! 生成 Monkhorst-Pack 风格的 k 点网格地址，用于能带计算和布里渊区采样。
 
+use crate::SymError;
+
+/// Upper bound used by allocating high-level grid APIs (20 MiB for one
+/// address-plus-mapping pair, and at most 160 MiB for an eightfold BZ buffer).
+pub(crate) const MAX_GRID_POINTS: usize = 1_000_000;
+
+pub(crate) fn mesh_size(mesh: &[i32; 3]) -> Result<usize, SymError> {
+    if mesh.iter().any(|&component| component <= 0) {
+        return Err(SymError::InvalidInput);
+    }
+
+    mesh.iter()
+        .try_fold(1usize, |product, &component| {
+            product.checked_mul(component as usize)
+        })
+        .ok_or(SymError::ArraySizeShortage)
+}
+
+pub(crate) fn validate_mesh(mesh: &[i32; 3]) -> Result<usize, SymError> {
+    let total = mesh_size(mesh)?;
+    if total <= MAX_GRID_POINTS {
+        Ok(total)
+    } else {
+        Err(SymError::ArraySizeShortage)
+    }
+}
+
+pub(crate) fn validate_shift(is_shift: &[i32; 3]) -> Result<(), SymError> {
+    if is_shift.iter().all(|&shift| shift == 0 || shift == 1) {
+        Ok(())
+    } else {
+        Err(SymError::InvalidInput)
+    }
+}
+
 /// 获取所有网格点的地址 (Monkhorst-Pack Grid Generation)
 ///
 /// 该函数遍历由 `mesh` 定义的倒易空间网格，计算每个点的线性索引，
@@ -10,13 +45,14 @@
 /// # Arguments
 /// * `grid_address` - 输出参数，用于存储网格点坐标。大小必须 >= `mesh[0]*mesh[1]*mesh[2]`。
 /// * `mesh` - 定义 k 点网格的尺寸 [Nx, Ny, Nz]。
-pub fn kgd_get_all_grid_addresses(grid_address: &mut [[i32; 3]], mesh: &[i32; 3]) {
-    // 预先检查 buffer 大小，避免在循环中进行不必要的边界检查或 Panic
-    let total_size = mesh[0] as usize * mesh[1] as usize * mesh[2] as usize;
-    assert!(
-        grid_address.len() >= total_size,
-        "grid_address buffer is too small"
-    );
+pub fn kgd_get_all_grid_addresses(
+    grid_address: &mut [[i32; 3]],
+    mesh: &[i32; 3],
+) -> Result<(), SymError> {
+    let total_size = validate_mesh(mesh)?;
+    if grid_address.len() < total_size {
+        return Err(SymError::ArraySizeShortage);
+    }
 
     let mut address = [0; 3];
 
@@ -43,21 +79,29 @@ pub fn kgd_get_all_grid_addresses(grid_address: &mut [[i32; 3]], mesh: &[i32; 3]
             }
         }
     }
+    Ok(())
 }
 
 /// 获取双倍网格下的线性索引
 ///
 /// 对应 C: kgd_get_grid_point_double_mesh
-pub fn kgd_get_grid_point_double_mesh(address_double: &[i32; 3], mesh: &[i32; 3]) -> usize {
-    get_grid_point_double_mesh(address_double, mesh)
+pub fn kgd_get_grid_point_double_mesh(
+    address_double: &[i32; 3],
+    mesh: &[i32; 3],
+) -> Result<usize, SymError> {
+    mesh_size(mesh)?;
+    Ok(get_grid_point_double_mesh(address_double, mesh))
 }
 
 /// 获取双倍网格下的线性索引 (Dense 版本)
 ///
 /// 对应 C: kgd_get_dense_grid_point_double_mesh
 /// 在当前实现中，逻辑与 kgd_get_grid_point_double_mesh 相同
-pub fn kgd_get_dense_grid_point_double_mesh(address_double: &[i32; 3], mesh: &[i32; 3]) -> usize {
-    get_grid_point_double_mesh(address_double, mesh)
+pub fn kgd_get_dense_grid_point_double_mesh(
+    address_double: &[i32; 3],
+    mesh: &[i32; 3],
+) -> Result<usize, SymError> {
+    kgd_get_grid_point_double_mesh(address_double, mesh)
 }
 
 /// 计算双倍网格地址
@@ -75,13 +119,19 @@ pub fn kgd_get_grid_address_double_mesh(
     address: &[i32; 3],
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
-) {
+) -> Result<(), SymError> {
+    mesh_size(mesh)?;
+    validate_shift(is_shift)?;
     for i in 0..3 {
-        // C logic: address[i] * 2 + (is_shift[i] != 0)
-        // Rust bool 不能直接转 int，需显式判断
-        address_double[i] = address[i] * 2 + if is_shift[i] != 0 { 1 } else { 0 };
+        let period = i64::from(mesh[i]) * 2;
+        let mut reduced = (i64::from(address[i]) * 2 + i64::from(is_shift[i]))
+            .rem_euclid(period);
+        if reduced > i64::from(mesh[i]) {
+            reduced -= period;
+        }
+        address_double[i] = reduced as i32;
     }
-    reduce_grid_address_double(address_double, mesh);
+    Ok(())
 }
 
 // --- Internal Helper Functions ---
@@ -94,14 +144,10 @@ fn get_grid_point_double_mesh(address_double: &[i32; 3], mesh: &[i32; 3]) -> usi
         // 模拟整数除法的向下取整逻辑，还原原始网格坐标
         // 如果是偶数：val / 2
         // 如果是奇数：(val - 1) / 2
-        if address_double[i] % 2 == 0 {
-            address[i] = address_double[i] / 2;
-        } else {
-            address[i] = (address_double[i] - 1) / 2;
-        }
+        address[i] = i64::from(address_double[i])
+            .div_euclid(2)
+            .rem_euclid(i64::from(mesh[i])) as i32;
     }
-    // 处理周期性边界条件
-    modulo_i3(&mut address, mesh);
     get_grid_point_single_mesh(&address, mesh)
 }
 
@@ -165,7 +211,7 @@ mod tests {
         let mesh = [2, 2, 1];
         // Total size = 4
         let mut addresses = vec![[0; 3]; 4];
-        kgd_get_all_grid_addresses(&mut addresses, &mesh);
+        kgd_get_all_grid_addresses(&mut addresses, &mesh).unwrap();
 
         // Expected:
         // (0,0,0) -> idx 0

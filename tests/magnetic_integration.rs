@@ -3,7 +3,7 @@
 //! 所有测试走公共 API `Crystal` + `SymmetryAnalysis`，覆盖 Type-1/2/3/4 真实物理系统。
 
 use cryspglib::{
-    Crystal, MagneticSpaceGroupType, MagneticType,
+    Crystal, MagneticSpaceGroupType, MagneticType, SymError, SymmetryOps,
 };
 
 const SYMPREC: f64 = 1e-5;
@@ -52,7 +52,7 @@ fn test_api_type1() {
     let (rots, trans) = pm3m_ops();
     let result = MagneticSpaceGroupType::classify(
         &rots, &trans, None, &cubic_lattice(), SYMPREC,
-    );
+    ).unwrap();
     assert_eq!(result.type_, MagneticType::Ordinary);
     assert!(result.uni_number > 0);
 }
@@ -66,7 +66,7 @@ fn test_api_type2() {
     let timerev: Vec<bool> = (0..n).map(|_| false).chain((0..n).map(|_| true)).collect();
     let result = MagneticSpaceGroupType::classify(
         &all_rots, &all_trans, Some(&timerev), &cubic_lattice(), SYMPREC,
-    );
+    ).unwrap();
     assert_eq!(result.type_, MagneticType::Grey);
     assert!(result.uni_number > 0);
 }
@@ -77,9 +77,113 @@ fn test_api_type3() {
     let timerev: Vec<bool> = rots.iter().map(|r| !cryspglib::mathfunc::is_proper(r)).collect();
     let result = MagneticSpaceGroupType::classify(
         &rots, &trans, Some(&timerev), &cubic_lattice(), SYMPREC,
-    );
+    ).unwrap();
     assert_eq!(result.type_, MagneticType::BlackWhite);
     assert!(result.uni_number > 0);
+}
+
+#[test]
+fn test_api_reports_operation_only_ambiguity() {
+    let ops = SymmetryOps::from_magnetic_database(282).unwrap();
+    let rotations: Vec<_> = ops.operations.iter().map(|op| op.rotation).collect();
+    let translations: Vec<_> = ops.operations.iter().map(|op| op.translation).collect();
+    let time_reversals: Vec<_> = ops.operations.iter().map(|op| op.time_reversal).collect();
+    let lattice = [[1.0, 0.0, 0.0], [0.0, 1.3, 0.0], [0.0, 0.0, 1.7]];
+
+    let result = MagneticSpaceGroupType::classify(
+        &rotations, &translations, Some(&time_reversals), &lattice, SYMPREC,
+    );
+
+    assert!(matches!(result, Err(SymError::MagneticUniAmbiguous)));
+}
+
+#[test]
+fn test_api_rejects_mismatched_operation_lengths() {
+    let result = MagneticSpaceGroupType::classify(
+        &[[[1, 0, 0], [0, 1, 0], [0, 0, 1]]],
+        &[],
+        None,
+        &cubic_lattice(),
+        SYMPREC,
+    );
+
+    assert!(matches!(result, Err(SymError::InvalidInput)));
+}
+
+#[test]
+fn test_from_uni_rejects_invalid_identifiers() {
+    for uni in [0, 1652, usize::MAX] {
+        assert!(matches!(
+            MagneticSpaceGroupType::from_uni(uni),
+            Err(SymError::InvalidInput)
+        ));
+    }
+}
+
+#[test]
+fn test_from_uni_accepts_database_boundaries() {
+    let first = MagneticSpaceGroupType::from_uni(1).unwrap();
+    assert_eq!(first.uni_number, 1);
+    assert_eq!(first.bns_number.trim(), "1.1");
+    assert_eq!(first.number, 1);
+    assert_eq!(first.type_, MagneticType::Ordinary);
+
+    let last = MagneticSpaceGroupType::from_uni(1651).unwrap();
+    assert_eq!(last.uni_number, 1651);
+    assert_eq!(last.bns_number.trim(), "230.149");
+    assert_eq!(last.number, 230);
+    assert_eq!(last.type_, MagneticType::BlackWhite);
+}
+
+#[test]
+#[allow(deprecated)]
+fn test_legacy_from_uni_wrapper_preserves_sentinel_behavior() {
+    for uni in [0, 1652, usize::MAX] {
+        let legacy = cryspglib::spg_get_magnetic_spacegroup_type(uni);
+        assert_eq!(legacy.uni_number, 0);
+        assert_eq!(legacy.type_, MagneticType::NonMagnetic);
+    }
+
+    let valid = cryspglib::spg_get_magnetic_spacegroup_type(1651);
+    assert_eq!(valid.uni_number, 1651);
+    assert_eq!(valid.bns_number.trim(), "230.149");
+}
+
+#[test]
+fn test_magnetic_dataset_rejects_mutated_public_fields() {
+    let lattice = cubic_lattice();
+
+    let mut mismatched_types = Crystal::new(
+        lattice,
+        vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
+        vec![26, 26],
+    );
+    mismatched_types.types.pop();
+    assert!(matches!(
+        mismatched_types.analyze().symprec(SYMPREC).magnetic_dataset(),
+        Err(SymError::InvalidInput)
+    ));
+
+    let mut mismatched_moments = Crystal::new(
+        lattice,
+        vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
+        vec![26, 26],
+    )
+    .with_magnetic(vec![[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]]);
+    mismatched_moments.moments = Some(vec![[1.0, 0.0, 0.0]]);
+    assert!(matches!(
+        mismatched_moments
+            .analyze()
+            .symprec(SYMPREC)
+            .magnetic_dataset(),
+        Err(SymError::InvalidInput)
+    ));
+
+    let empty = Crystal::new(lattice, vec![], vec![]);
+    assert!(matches!(
+        empty.analyze().symprec(SYMPREC).magnetic_dataset(),
+        Err(SymError::InvalidInput)
+    ));
 }
 
 // ====================================================================

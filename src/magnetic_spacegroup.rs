@@ -30,6 +30,7 @@ use crate::spg_database::{Centering, spgdb_get_spacegroup_type};
 use crate::symmetry::{MagneticSymmetry, Symmetry};
 
 const MAX_DENOMINATOR: f64 = 100.0;
+const MAX_CHANGED_PURE_TRANSLATIONS: usize = 1_000_000;
 const DATABASE_TRANSLATION_DENOMINATOR: i32 = 12;
 const DATABASE_CANONICAL_SYMPREC: f64 = 1e-5;
 const UNIT_LATTICE: Mat3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
@@ -613,8 +614,7 @@ fn get_reference_space_group(
     )?;
 
     // 7. 复制 ref_sg 用于返回
-    let mut ref_sg_copy = Spacegroup::new();
-    ref_sg_copy = ref_sg.clone();
+    let ref_sg_copy = ref_sg.clone();
 
     Some((ref_sg_copy, changed_symmetry, tmat, shift, msgtype_num))
 }
@@ -882,7 +882,6 @@ fn find_spacegroup_by_symmetry(
     symprec: f64,
 ) -> Option<Spacegroup> {
     let mut origin_shift = [0.0; 3];
-    let mut conv_lattice = [[0.0; 3]; 3];
 
     let (tmat_int, pointgroup) = ptg_get_transformation_matrix(&symmetry.rot, None);
     if pointgroup.number == 0 {
@@ -896,7 +895,7 @@ fn find_spacegroup_by_symmetry(
     }
 
     let tmat = mat_multiply_matrix_id3(&tmat_int, &correction_mat);
-    conv_lattice = mat_multiply_matrix_d3(lattice, &tmat);
+    let conv_lattice = mat_multiply_matrix_d3(lattice, &tmat);
 
     let conv_symmetry = get_initial_conventional_symmetry(centering, &tmat, symmetry)?;
 
@@ -1154,11 +1153,31 @@ fn get_changed_pure_translations(
     symprec: f64,
 ) -> Option<Vec<Vec3>> {
     let det = mat_get_determinant_d3(tmat);
-    let size = mat_nint(pure_trans.len() as f64 / det.abs()) as usize;
+    if !det.is_finite() || det == 0.0 {
+        return None;
+    }
 
-    let mut changed: Vec<Vec3> = Vec::with_capacity(size);
+    let size_f = pure_trans.len() as f64 / det.abs();
+    let rounded_size = size_f.round();
+    let rounding_tolerance = symprec.max(16.0 * f64::EPSILON * size_f.abs());
+    if !size_f.is_finite()
+        || (size_f - rounded_size).abs() > rounding_tolerance
+        || rounded_size < 0.0
+        || rounded_size > MAX_CHANGED_PURE_TRANSLATIONS as f64
+    {
+        return None;
+    }
+    let size = rounded_size as usize;
 
-    if (det - 1.0).abs() <= symprec {
+    let mut changed: Vec<Vec3> = Vec::new();
+    changed.try_reserve_exact(size).ok()?;
+
+    let is_integer_unimodular = (det.abs() - 1.0).abs() <= symprec
+        && tmat
+            .iter()
+            .flatten()
+            .all(|value| value.is_finite() && (value - value.round()).abs() <= symprec);
+    if is_integer_unimodular {
         for pt in pure_trans {
             let trans = mat_multiply_matrix_vector_d3(tmat, pt);
             changed.push([
@@ -1398,6 +1417,90 @@ mod tests {
             sym.timerev[i] = tr;
         }
         sym
+    }
+
+    #[test]
+    fn changed_pure_translations_rejects_unsafe_determinants() {
+        let translations = [[0.0, 0.0, 0.0]];
+        let singular = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]];
+        let nan = [
+            [f64::NAN, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
+        let infinite = [
+            [f64::INFINITY, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        ];
+        let tiny = [[1e-12, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+        for transform in [singular, nan, infinite, tiny] {
+            assert!(
+                super::get_changed_pure_translations(&transform, &translations, SYMPREC)
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn changed_pure_translations_handles_negative_determinants() {
+        let translations = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]];
+        let reflection = [[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let doubled = [[-2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+        let reflected =
+            super::get_changed_pure_translations(&reflection, &translations, SYMPREC).unwrap();
+        assert_eq!(reflected.len(), 2);
+        assert!(super::is_contained_vec(
+            &[0.5, 0.0, 0.0],
+            &reflected,
+            SYMPREC
+        ));
+
+        let collapsed =
+            super::get_changed_pure_translations(&doubled, &translations, SYMPREC).unwrap();
+        assert_eq!(collapsed, vec![[0.0, 0.0, 0.0]]);
+    }
+
+    #[test]
+    fn changed_pure_translations_expands_fractional_basis() {
+        let translations = [[0.0, 0.0, 0.0]];
+        let halved = [[0.5, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let expanded =
+            super::get_changed_pure_translations(&halved, &translations, SYMPREC).unwrap();
+
+        assert_eq!(expanded.len(), 2);
+        assert!(super::is_contained_vec(
+            &[0.0, 0.0, 0.0],
+            &expanded,
+            SYMPREC
+        ));
+        assert!(super::is_contained_vec(
+            &[0.5, 0.0, 0.0],
+            &expanded,
+            SYMPREC
+        ));
+    }
+
+    #[test]
+    fn changed_pure_translations_rejects_nonintegral_multiplicity() {
+        let translations = [[0.0, 0.0, 0.0]];
+        let transform = [[0.3, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+        assert!(
+            super::get_changed_pure_translations(&transform, &translations, SYMPREC).is_none()
+        );
+    }
+
+    #[test]
+    fn changed_pure_translations_rejects_incompatible_fractional_unit_determinant() {
+        let translations = [[0.0, 0.0, 0.0]];
+        let transform = [[2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.5]];
+
+        assert!(
+            super::get_changed_pure_translations(&transform, &translations, SYMPREC).is_none()
+        );
     }
 
     /// Type-1 (Ordinary): 所有 timerev=false

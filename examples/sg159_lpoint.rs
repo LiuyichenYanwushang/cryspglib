@@ -10,7 +10,7 @@ use cryspglib::MagneticSpaceGroupType;
 
 fn main() {
     let uni = 1293;
-    let msg = MagneticSpaceGroupType::from_uni(uni);
+    let msg = MagneticSpaceGroupType::from_uni(uni).unwrap();
     println!(
         "=== UNI{}: {} ({}), type={:?} ===",
         uni,

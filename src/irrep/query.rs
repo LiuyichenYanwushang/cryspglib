@@ -18,7 +18,7 @@
 //! println!("{}", format_character_table(221, 0, 0, 0, 1));
 //!
 //! // Get symmetry operations {R|t} for the space group
-//! let ops = symmetry_operations_of(221);
+//! let ops = symmetry_operations_of(221).unwrap();
 //!
 //! // Look up space group info
 //! let (hm, schoenflies) = sg_info(221).unwrap();
@@ -48,7 +48,7 @@ use super::preamble;
 /// - `"DT1"` → `"DT"` (Δ line)
 /// - `"LD2"` → `"LD"` (Λ line)
 pub fn kpoint_label(ml: &str) -> &str {
-    let body = ml.trim_end_matches(|c: char| c == '+' || c == '-');
+    let body = ml.trim_end_matches(['+', '-']);
     let prefix_end = body
         .find(|c: char| c.is_ascii_digit())
         .unwrap_or(body.len());
@@ -168,7 +168,12 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
     }
 
     // Get symmetry operations for column headers
-    let ops = symmetry_operations_of(sg);
+    let ops = match symmetry_operations_of(sg) {
+        Ok(ops) => ops,
+        Err(error) => {
+            return format!("// Failed to load symmetry operations for SG {sg}: {error}");
+        }
+    };
 
     // Format operation as compact string
     let fmt_op = |i: usize| -> String {
@@ -197,7 +202,7 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
     let mut lines = Vec::new();
     let header: Vec<String> = std::iter::once("ML".to_string())
         .chain(std::iter::once("BC".to_string()))
-        .chain((0..max_ops).map(|i| fmt_op(i)))
+        .chain((0..max_ops).map(fmt_op))
         .collect();
     lines.push(format!("| {} |", header.join(" | ")));
 
@@ -227,7 +232,7 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
         matching.len()
     );
     std::iter::once(header_line)
-        .chain(lines.into_iter())
+        .chain(lines)
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -268,8 +273,8 @@ fn format_value(v: f64) -> String {
 /// Get symmetry operations for a space group number.
 ///
 /// Returns [`crate::SymmetryOps`] which derefs to `&[SymmetryOp]`.
-pub fn symmetry_operations_of(sg: u8) -> crate::SymmetryOps {
-    crate::SymmetryOps::from_sg(sg).unwrap_or_else(|_| crate::SymmetryOps::default())
+pub fn symmetry_operations_of(sg: u8) -> Result<crate::SymmetryOps, crate::SymError> {
+    crate::SymmetryOps::from_sg(sg)
 }
 
 // ── Isotropy subgroup queries ───────────────────────────────────────────────
@@ -469,7 +474,7 @@ pub fn format_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
         matching.iter().map(|ir| ir.subgroups().len()).sum::<usize>(),
     );
     std::iter::once(header_line)
-        .chain(lines.into_iter())
+        .chain(lines)
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -522,7 +527,7 @@ pub fn format_magnetic_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) ->
         matching.iter().map(|ir| ir.magnetic_subgroups().len()).sum::<usize>(),
     );
     std::iter::once(header_line)
-        .chain(lines.into_iter())
+        .chain(lines)
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -655,22 +660,28 @@ mod tests {
     #[test]
     fn test_symmetry_operations_of() {
         // SG 1 (P1) has only the identity operation
-        let ops = symmetry_operations_of(1);
+        let ops = symmetry_operations_of(1).unwrap();
         assert_eq!(ops.len(), 1);
 
         // SG 221 (Pm-3m) has 48 symmetry operations
-        let ops_221 = symmetry_operations_of(221);
+        let ops_221 = symmetry_operations_of(221).unwrap();
         assert_eq!(ops_221.len(), 48);
 
         // Invalid SG
-        assert!(symmetry_operations_of(0).is_empty());
-        assert!(symmetry_operations_of(231).is_empty());
+        assert!(matches!(
+            symmetry_operations_of(0),
+            Err(crate::SymError::SpacegroupSearchFailed)
+        ));
+        assert!(matches!(
+            symmetry_operations_of(231),
+            Err(crate::SymError::SpacegroupSearchFailed)
+        ));
     }
 
     #[test]
     fn test_symmetry_operations_preserves_order() {
         // Verify that the identity is the first operation for a known space group
-        let ops = symmetry_operations_of(225); // Fm-3m
+        let ops = symmetry_operations_of(225).unwrap(); // Fm-3m
         assert!(!ops.is_empty());
         // The first operation should be identity (or close)
         let rot = &ops[0].rotation;
