@@ -1933,7 +1933,7 @@ pub fn rotation_multiset_eq(a: &[[[i32; 3]; 3]], b: &[[[i32; 3]; 3]]) -> bool {
 /// Prints all operations with their characters for manual inspection.
 #[cfg(test)]
 pub fn debug_char_order(cir_chars: &[f64], h_seitz: &[SeitzOp], _label: &str) {
-    debug_log!("=== Character order check: {} ===", label);
+    debug_log!("=== Character order check: {} ===", _label);
     for (i, op) in h_seitz.iter().enumerate() {
         let _re = cir_chars.get(2 * i).copied().unwrap_or(999.0);
         let _im = cir_chars.get(2 * i + 1).copied().unwrap_or(999.0);
@@ -1964,9 +1964,9 @@ pub fn debug_char_order(cir_chars: &[f64], h_seitz: &[SeitzOp], _label: &str) {
             op.trans[0],
             op.trans[1],
             op.trans[2],
-            re,
-            im,
-            if is_id { " ← ID" } else { "" },
+            _re,
+            _im,
+            if _is_id { " ← ID" } else { "" },
         );
     }
 }
@@ -2776,10 +2776,10 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
                         g_spin_su2,
                         h_spin_rots,
                         h_spin_su2,
-                    )
-                        && (parity - (-1.0)).abs() < 0.1 {
-                            central = !central;
-                        }
+                    ) && (parity - (-1.0)).abs() < 0.1
+                    {
+                        central = !central;
+                    }
                 }
             }
         }
@@ -3219,16 +3219,17 @@ pub(crate) fn find_sq_spin_lg_first(
     // 1. Full Seitz match (translation mod Z³) inside LG
     for &si in &lg_cands {
         if let Some(sop) = h_spin_seitz.get(si)
-            && sop.rot == sq.rot {
-                let delta = [
-                    sq.trans[0] - sop.trans[0],
-                    sq.trans[1] - sop.trans[1],
-                    sq.trans[2] - sop.trans[2],
-                ];
-                if translation_delta_in_lattice(&delta, centering_shifts) {
-                    return Some((si, true, MATCH_EXACT));
-                }
+            && sop.rot == sq.rot
+        {
+            let delta = [
+                sq.trans[0] - sop.trans[0],
+                sq.trans[1] - sop.trans[1],
+                sq.trans[2] - sop.trans[2],
+            ];
+            if translation_delta_in_lattice(&delta, centering_shifts) {
+                return Some((si, true, MATCH_EXACT));
             }
+        }
     }
 
     // 2. No match.  Log first few failures for diagnosis.
@@ -3494,11 +3495,7 @@ pub fn build_spin_seitz(spin_op_rots: &[i32], spin_op_trans: &[f64]) -> Vec<Seit
         .collect()
 }
 
-fn spin_table_is_well_formed(
-    rotations: &[i32],
-    translations: &[f64],
-    su2: &[f64],
-) -> bool {
+fn spin_table_is_well_formed(rotations: &[i32], translations: &[f64], su2: &[f64]) -> bool {
     rotations.len().is_multiple_of(9)
         && translations.len() == rotations.len() / 3
         && su2.len() == (rotations.len() / 9) * 4
@@ -3775,11 +3772,11 @@ pub fn wigner_classify_spinor(
         && indices
             .iter()
             .any(|&index| index >= mag_seitz.len() || !mag_seitz[index].timerev)
-        {
-            return Err(WignerClassificationError::new(
-                "antiunitary little-group operation index is out of range or unitary",
-            ));
-        }
+    {
+        return Err(WignerClassificationError::new(
+            "antiunitary little-group operation index is out of range or unitary",
+        ));
+    }
 
     // ── Direct anti-coset path (frame-aware, primary) ────────────────────
     // This path uses setting_xf to transform all operations into the
@@ -3813,12 +3810,7 @@ pub fn wigner_classify_spinor(
     // Only MissingSpinData is allowed to fall back to the legacy path.
     // All other errors must propagate as classification errors.
     match wigner_classify_spinor_direct_anti_diagnostic(
-        ctx,
-        input,
-        &indices,
-        mag_seitz,
-        setting_xf,
-        None,
+        ctx, input, &indices, mag_seitz, setting_xf, None,
     ) {
         Ok(result) => return Ok(result),
         Err(DirectAntiFailure::MissingSpinData) => { /* fall through to legacy */ }
@@ -3880,8 +3872,7 @@ fn wigner_classify_spinor_primary(
 
     // H_op → spin global index mapping (for matching (a₀h)² back to spin ops)
     #[cfg(any(test, feature = "debug-corep"))]
-    let _h_to_spin =
-        build_h_to_spin_map(group.unitary_ops, &h_spin_seitz, spin_lg_op_indices);
+    let _h_to_spin = build_h_to_spin_map(group.unitary_ops, &h_spin_seitz, spin_lg_op_indices);
 
     // global spin op index → local character table position
     let global_to_local: std::collections::HashMap<usize, usize> = spin_lg_op_indices
@@ -4007,13 +3998,14 @@ fn wigner_classify_spinor_primary(
                     }
                     has_cand = true;
                     if let Some(uc) = spin_su2_at(h_spin_su2, ci)
-                        && su2_same_up_to_sign(&u_sq, &uc).is_some() {
-                            if lg_set.contains(&ci) {
-                                matched_other_lg = true;
-                            } else {
-                                matched_other_global = true;
-                            }
+                        && su2_same_up_to_sign(&u_sq, &uc).is_some()
+                    {
+                        if lg_set.contains(&ci) {
+                            matched_other_lg = true;
+                        } else {
+                            matched_other_global = true;
                         }
+                    }
                 }
                 if matched_other_lg {
                     NONE_MATCH_OTHER_LG.fetch_add(1, Ordering::Relaxed);
@@ -4334,9 +4326,10 @@ pub fn build_corep_chars(
             CorepType::A => {
                 if is_anti {
                     if let Some(ac) = au_chars
-                        && out_idx < ac.len() {
-                            chars[out_idx] = ac[out_idx];
-                        }
+                        && out_idx < ac.len()
+                    {
+                        chars[out_idx] = ac[out_idx];
+                    }
                 } else {
                     let hi = h_idx.ok_or("unitary magnetic operation is missing its H mapping")?;
                     chars[out_idx] = *h_chars
@@ -4617,11 +4610,7 @@ mod tests {
             [0.0, 0.0, 0.0],
             false,
         )];
-        let result = wigner_classify(
-            &[1.0],
-            group(&[0], &mag_seitz, &h_seitz, 1),
-            gamma(),
-        );
+        let result = wigner_classify(&[1.0], group(&[0], &mag_seitz, &h_seitz, 1), gamma());
         assert_eq!(result, Ok(CorepType::A));
     }
 
@@ -4646,8 +4635,7 @@ mod tests {
             wigner_classify(&[1.0], group(&[0], &mag, &h_two, 1), gamma()).unwrap_err();
         assert!(real_short.reason.contains("character table length"));
         let cir_short =
-            wigner_classify_cir(&[1.0, 0.0], group(&[0], &mag, &h_two, 1), gamma())
-                .unwrap_err();
+            wigner_classify_cir(&[1.0, 0.0], group(&[0], &mag, &h_two, 1), gamma()).unwrap_err();
         assert!(cir_short.reason.contains("CIR character count"));
     }
 
@@ -4684,12 +4672,7 @@ mod tests {
 
         let real = wigner_classify(&[1.0], group(&[0], &mag, &h, 1), gamma()).unwrap_err();
         assert!(real.reason.contains("absent from the unitary little group"));
-        let cir = wigner_classify_cir(
-            &[1.0, 0.0],
-            group(&[0], &mag, &h, 1),
-            gamma(),
-        )
-        .unwrap_err();
+        let cir = wigner_classify_cir(&[1.0, 0.0], group(&[0], &mag, &h, 1), gamma()).unwrap_err();
         assert!(cir.reason.contains("absent from the unitary little group"));
     }
 
@@ -4700,10 +4683,7 @@ mod tests {
         let mag = vec![theta];
         let h = vec![id];
 
-        assert!(
-            wigner_direct_anti_coset(&[1.0, 0.0], &[1], &mag, &h, gamma())
-                .is_err()
-        );
+        assert!(wigner_direct_anti_coset(&[1.0, 0.0], &[1], &mag, &h, gamma()).is_err());
         assert!(wigner_direct_anti_coset(&[1.0], &[0], &mag, &h, gamma()).is_err());
         assert!(wigner_direct_anti_coset(&[1.0, 0.0], &[], &mag, &h, gamma()).is_err());
     }
@@ -4712,9 +4692,7 @@ mod tests {
     fn direct_anti_coset_valid_type_a_control() {
         let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], false);
         let theta = SeitzOp::new(id.rot, [0.0; 3], true);
-        let value =
-            wigner_direct_anti_coset(&[1.0, 0.0], &[0], &[theta], &[id], gamma())
-                .unwrap();
+        let value = wigner_direct_anti_coset(&[1.0, 0.0], &[0], &[theta], &[id], gamma()).unwrap();
 
         assert!((value.re - 1.0).abs() < 1e-12);
         assert!(value.im.abs() < 1e-12);
@@ -4826,16 +4804,7 @@ mod tests {
             .is_err()
         );
         assert!(
-            build_corep_chars(
-                &CorepType::A,
-                &mag_ops,
-                &[0],
-                &[],
-                &[1.0],
-                None,
-                None,
-            )
-            .is_err()
+            build_corep_chars(&CorepType::A, &mag_ops, &[0], &[], &[1.0], None, None,).is_err()
         );
         assert!(
             build_corep_chars(
@@ -4869,14 +4838,7 @@ mod tests {
         let mag = vec![id.clone()];
 
         assert!(
-            type_a_antiunitary_chars(
-                &mag,
-                &[0],
-                &[1.0],
-                std::slice::from_ref(&id),
-                0,
-                gamma(),
-            )
+            type_a_antiunitary_chars(&mag, &[0], &[1.0], std::slice::from_ref(&id), 0, gamma(),)
                 .is_none()
         );
         assert!(

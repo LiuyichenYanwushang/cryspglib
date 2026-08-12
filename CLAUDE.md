@@ -39,6 +39,30 @@ corep/summary 产品化。每次全扫、根因确认和修复后都必须更新
   `antiunitary-pending(...)`，不能伪造为已完成的物理特征标；本轮指定的
   `128.406`、`52.318` 回归表不受此问题影响。
 
+### 2026-08-12 Rustb 可复用磁操作层
+
+为 Rustb 的 Hamiltonian 对称性检查与强制对称化新增
+`src/operation_group.rs`，公共 Rust-native API 为：
+
+- `ValidatedMagneticOperationSet::try_from_symmetry_ops`：验证非空、有限平移、
+  `det(W)=±1`、模晶格唯一性、非加撇恒等元、双侧逆元和完整乘法闭包；错误携带
+  operation/product witness，不使用 sentinel 或 panic。
+- `ValidatedMagneticOperationSet::identify`：从磁操作自身的空间投影推导 family
+  Hall，再做 setting-aware UNI/BNS/OG 识别；调用方给出的 structural-supergroup
+  Hall 只记录 provenance，绝不能冒充降低后磁群的 family Hall。
+- `axial_spin_half_lift`：把笛卡尔轴矢量旋转提升为 spin-1/2 quaternion，供 Rustb
+  构造 `U(W)` 与反幺正 `U(W)iσ_yK`。
+
+`MagneticGroupIdentification` 同时返回 UNI/Litvin/BNS/OG/type、识别 Hall、派生
+family Hall、structural provenance Hall，以及完整 setting transform。必须保留
+这些字段，不能再折叠成仅有 UNI 的便捷返回。
+
+边界语义：该层只验证/命名调用方给出的完整有限磁操作群，不理解 TB 轨道、
+Wannier gauge 或 Hamiltonian。Rustb 负责从 Atom 结构生成候选、验证 localized
+basis corepresentation、计算 H 的幸存群或 Reynolds 投影；cryspglib 只负责严格群
+代数与命名。完整 release 回归为 `210 passed / 0 failed / 3 ignored`，全部集成测试
+与 `26/26` doctests 通过；严格 all-target release clippy 为零警告。
+
 ### 2026-08-09 operation-only API 安全化
 
 - `MagneticSpaceGroupType::classify()` 现在返回

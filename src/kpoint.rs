@@ -2,14 +2,12 @@
 //!
 //! 在不可约布里渊区内生成 k 点坐标和权重，用于态密度和能带计算。
 
-use crate::kgrid;
 use crate::SymError;
+use crate::kgrid;
 use crate::mathfunc::{
-    MatINT, mat_check_identity_matrix_i3, mat_dabs,
-    mat_get_determinant_d3,
-    mat_multiply_matrix_i3, mat_multiply_matrix_vector_d3,
-    mat_multiply_matrix_vector_i3, mat_multiply_matrix_vector_id3, mat_nint, mat_norm_squared_d3,
-    mat_transpose_matrix_i3,
+    MatINT, mat_check_identity_matrix_i3, mat_dabs, mat_get_determinant_d3, mat_multiply_matrix_i3,
+    mat_multiply_matrix_vector_d3, mat_multiply_matrix_vector_i3, mat_multiply_matrix_vector_id3,
+    mat_nint, mat_norm_squared_d3, mat_transpose_matrix_i3,
 };
 
 const KPT_NUM_BZ_SEARCH_SPACE: usize = 125;
@@ -205,7 +203,7 @@ pub(crate) fn kpt_get_stabilized_reciprocal_mesh(
     // 计算容差
     let mesh_sum = i64::from(mesh[0]) + i64::from(mesh[1]) + i64::from(mesh[2]);
     let tolerance = 0.01 / mesh_sum as f64;
-    
+
     // 获取稳定化 q 点后的点群
     let rot_reciprocal_q = get_point_group_reciprocal_with_q(&rot_reciprocal, tolerance, qpoints)
         .ok_or(SymError::ArraySizeShortage)?;
@@ -231,9 +229,7 @@ pub(crate) fn kpt_relocate_bz_grid_address(
     let total = kgrid::validate_mesh(mesh)?;
     kgrid::validate_shift(is_shift)?;
     let num_bz_map = total.checked_mul(8).ok_or(SymError::ArraySizeShortage)?;
-    if bz_grid_address.len() < num_bz_map
-        || bz_map.len() < num_bz_map
-        || grid_address.len() < total
+    if bz_grid_address.len() < num_bz_map || bz_map.len() < num_bz_map || grid_address.len() < total
     {
         return Err(SymError::ArraySizeShortage);
     }
@@ -270,8 +266,7 @@ pub(crate) fn kpt_get_dense_grid_points_by_rotations(
 ) -> Result<(), SymError> {
     kgrid::validate_mesh(mesh)?;
     kgrid::validate_shift(is_shift)?;
-    if rot_reciprocal.size > rot_reciprocal.mat.len()
-        || rot_grid_points.len() < rot_reciprocal.size
+    if rot_reciprocal.size > rot_reciprocal.mat.len() || rot_grid_points.len() < rot_reciprocal.size
     {
         return Err(SymError::ArraySizeShortage);
     }
@@ -287,8 +282,7 @@ pub(crate) fn kpt_get_dense_grid_points_by_rotations(
         .zip(&rot_reciprocal.mat)
         .take(rot_reciprocal.size)
     {
-        let address_double =
-            mat_multiply_matrix_vector_i3(rotation, &address_double_orig);
+        let address_double = mat_multiply_matrix_vector_i3(rotation, &address_double_orig);
         *output = kgrid::kgd_get_dense_grid_point_double_mesh(&address_double, mesh)?;
     }
     Ok(())
@@ -329,10 +323,8 @@ pub(crate) fn kpt_get_dense_bz_grid_points_by_rotations(
         .zip(&rot_reciprocal.mat)
         .take(rot_reciprocal.size)
     {
-        let address_double =
-            mat_multiply_matrix_vector_i3(rotation, &address_double_orig);
-        let bz_index =
-            kgrid::kgd_get_dense_grid_point_double_mesh(&address_double, &bzmesh)?;
+        let address_double = mat_multiply_matrix_vector_i3(rotation, &address_double_orig);
+        let bz_index = kgrid::kgd_get_dense_grid_point_double_mesh(&address_double, &bzmesh)?;
         *output = bz_map[bz_index];
     }
     Ok(())
@@ -557,8 +549,7 @@ fn get_dense_ir_reciprocal_mesh_distortion(
         for j in 0..rot_reciprocal.size {
             let mut long_address_double_rot = [0i64; 3];
             for (k, rotated) in long_address_double_rot.iter_mut().enumerate() {
-                *rotated = rot_reciprocal.mat[j][k][0] as i64
-                    * long_address_double[0]
+                *rotated = rot_reciprocal.mat[j][k][0] as i64 * long_address_double[0]
                     + rot_reciprocal.mat[j][k][1] as i64 * long_address_double[1]
                     + rot_reciprocal.mat[j][k][2] as i64 * long_address_double[2];
             }
@@ -599,10 +590,7 @@ fn get_dense_ir_reciprocal_mesh_distortion(
 }
 
 /// 统计不可约点数量并进行路径压缩
-fn get_dense_num_ir(
-    ir_mapping_table: &mut [usize],
-    total_pts: usize,
-) -> Result<usize, SymError> {
+fn get_dense_num_ir(ir_mapping_table: &mut [usize], total_pts: usize) -> Result<usize, SymError> {
     if ir_mapping_table.len() < total_pts {
         return Err(SymError::ArraySizeShortage);
     }
@@ -614,10 +602,15 @@ fn get_dense_num_ir(
         }
     }
 
-    // 路径压缩：确保每个点直接指向其最终的代表元
+    // Full path compression: a single lookup is insufficient when symmetry
+    // discovery creates chains such as 5 -> 3 -> 1 -> 0.
     let representatives = ir_mapping_table[..total_pts].to_vec();
     for representative in &mut ir_mapping_table[..total_pts] {
-        *representative = representatives[*representative];
+        let mut root = *representative;
+        while representatives[root] != root {
+            root = representatives[root];
+        }
+        *representative = root;
     }
 
     Ok(num_ir)
@@ -667,11 +660,10 @@ fn relocate_dense_bz_grid_address(
         for (j, value) in distance.iter_mut().enumerate() {
             let mut q_vector = [0.0; 3];
             for k in 0..3 {
-                let coordinate = i64::from(address[k])
-                    + i64::from(BZ_SEARCH_SPACE[j][k]) * i64::from(mesh[k]);
-                q_vector[k] = (coordinate * 2 + i64::from(is_shift[k])) as f64
-                    / (mesh[k] as f64)
-                    / 2.0;
+                let coordinate =
+                    i64::from(address[k]) + i64::from(BZ_SEARCH_SPACE[j][k]) * i64::from(mesh[k]);
+                q_vector[k] =
+                    (coordinate * 2 + i64::from(is_shift[k])) as f64 / (mesh[k] as f64) / 2.0;
             }
             let q_vec_rec = mat_multiply_matrix_vector_d3(rec_lattice, &q_vector);
             *value = mat_norm_squared_d3(&q_vec_rec);
@@ -740,7 +732,7 @@ fn get_tolerance_for_bz_reduction(rec_lattice: &[[f64; 3]; 3], mesh: &[i32; 3]) 
 }
 
 /// 检查网格对称性
-/// 
+///
 /// 注意：提供的 C 代码中此函数存在复制粘贴错误（重复检查 column 0）。
 /// 本 Rust 实现已修正此问题，正确检查 column 0, 1, 2 分别对应 a=b, b=c, c=a 的对称性。
 fn check_mesh_symmetry(mesh: &[i32; 3], is_shift: &[i32; 3], rot_reciprocal: &MatINT) -> bool {
@@ -819,14 +811,9 @@ mod tests {
         let mut grid_address = vec![[0; 3]; 8];
         let mut map = vec![0; 8];
 
-        let num_ir = kpt_get_irreducible_reciprocal_mesh(
-            &mut grid_address,
-            &mut map,
-            &mesh,
-            &shift,
-            &rot,
-        )
-        .unwrap();
+        let num_ir =
+            kpt_get_irreducible_reciprocal_mesh(&mut grid_address, &mut map, &mesh, &shift, &rot)
+                .unwrap();
 
         // 由于只有恒等操作，每个点都是不可约的
         assert_eq!(num_ir, 8);
@@ -845,26 +832,22 @@ mod tests {
         let mut short_grid = vec![[0; 3]; 7];
         let mut map = vec![0; 8];
         assert!(matches!(
-            kpt_get_irreducible_reciprocal_mesh(
-                &mut short_grid,
-                &mut map,
-                &mesh,
-                &shift,
-                &rot,
-            ),
+            kpt_get_irreducible_reciprocal_mesh(&mut short_grid, &mut map, &mesh, &shift, &rot,),
             Err(SymError::ArraySizeShortage)
         ));
 
         let mut no_points = [];
         assert!(matches!(
-            kpt_get_dense_grid_points_by_rotations(
-                &mut no_points,
-                &[0, 0, 0],
-                &rot,
-                &mesh,
-                &shift,
-            ),
+            kpt_get_dense_grid_points_by_rotations(&mut no_points, &[0, 0, 0], &rot, &mesh, &shift,),
             Err(SymError::ArraySizeShortage)
         ));
+    }
+
+    #[test]
+    fn irreducible_mapping_is_fully_path_compressed() {
+        let mut mapping = vec![0, 0, 1, 2, 4, 4];
+        let count = get_dense_num_ir(&mut mapping, 6).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(mapping, vec![0, 0, 0, 0, 4, 4]);
     }
 }

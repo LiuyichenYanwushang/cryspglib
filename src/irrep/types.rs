@@ -457,10 +457,28 @@ impl IrrepRecord {
 
     /// Whether this is a special k-point (not a line or plane).
     pub fn is_point(&self) -> bool {
-        let k = self.k_label();
-        // Lines and planes have longer prefixes (DT, LD, SM, etc.)
-        // Points have short prefixes (GM, X, M, R, A, H, K, L, etc.)
-        k.len() <= 2 && !matches!(k, "GP")
+        k_label_is_point(self.k_label())
+    }
+}
+
+fn k_label_is_point(label: &str) -> bool {
+    // Generated Miller–Love point labels are single-letter labels plus GM
+    // for Gamma. Two-letter labels such as DT, LD, and SM denote lines, while
+    // GP denotes a general-position manifold.
+    label == "GM" || label.len() == 1
+}
+
+#[cfg(test)]
+mod point_label_tests {
+    use super::k_label_is_point;
+
+    #[test]
+    fn two_letter_line_labels_are_not_points() {
+        assert!(k_label_is_point("GM"));
+        assert!(k_label_is_point("X"));
+        for label in ["DT", "LD", "SM", "GP"] {
+            assert!(!k_label_is_point(label), "{label}");
+        }
     }
 }
 

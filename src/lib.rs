@@ -65,23 +65,24 @@
 //! The public surface is Rust-native: owned outputs, typed errors, methods,
 //! and domain types replace C-style output parameters and sentinel values.
 
-pub mod arithmetic;
 pub mod api;
+pub mod arithmetic;
 pub mod cell;
-pub mod irrep;
 pub mod debug;
 pub mod delaunay;
 pub mod determination;
 pub mod hall_symbol;
+pub mod irrep;
 pub mod kgrid;
 pub mod kpoint;
 pub mod magnetic_spacegroup;
 pub mod mathfunc;
 pub mod msg_database;
 pub mod niggli;
+pub mod operation_group;
 pub mod overlap;
-pub mod pointgroup;
 pub mod parser;
+pub mod pointgroup;
 pub mod primitive;
 pub mod refinement;
 pub mod site_symmetry;
@@ -91,7 +92,7 @@ pub mod spg_database;
 pub mod spin;
 pub mod symmetry;
 
-use crate::mathfunc::{mat_inverse_matrix_d3, mat_multiply_matrix_d3, Mat3, Mat3I, Vec3};
+use crate::mathfunc::{Mat3, Mat3I, Vec3, mat_inverse_matrix_d3, mat_multiply_matrix_d3};
 use crate::pointgroup::ptg_get_pointgroup;
 use crate::primitive::prm_get_primitive_symmetry;
 use crate::spacegroup::spa_search_spacegroup_with_symmetry;
@@ -100,9 +101,13 @@ use crate::symmetry::Symmetry;
 
 // Re-export the new Rust-idiomatic API
 pub use api::{
-    BzMesh, Crystal, IrMesh, StabilizedMesh, SymmetryAnalysis, SymmetryOp, SymmetryOps,
-    dense_bz_grid_points_by_rotations, dense_grid_points_by_rotations,
+    BzMesh, Crystal, ExternalFields, IrMesh, StabilizedMesh, SymmetryAnalysis, SymmetryOp,
+    SymmetryOps, dense_bz_grid_points_by_rotations, dense_grid_points_by_rotations,
     grid_point_from_address, relocate_bz_grid_address, stabilized_reciprocal_mesh,
+};
+pub use operation_group::{
+    MagneticGroupIdentification, MagneticOperationSetError, SpinLiftError,
+    ValidatedMagneticOperationSet, axial_spin_half_lift,
 };
 pub use pointgroup::pointgroup_from_rotations;
 
@@ -438,9 +443,7 @@ pub(crate) fn hall_number_from_symmetry(
     symprec: f64,
 ) -> Result<usize, SymError> {
     let lattice: Mat3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-    let hall_number = identify_hall_number(
-        rotations, translations, &lattice, false, symprec,
-    )?;
+    let hall_number = identify_hall_number(rotations, translations, &lattice, false, symprec)?;
     if hall_number > 0 {
         Ok(hall_number)
     } else {
@@ -450,11 +453,15 @@ pub(crate) fn hall_number_from_symmetry(
 
 /// 磁空间群 + 对称操作的完整分析结果。
 pub struct MagneticSymmetry {
-    /// 空间群编号 (1-230)
+    /// 磁矩约束之前检测到的非磁结构母空间群编号 (1-230)。
+    ///
+    /// 这不一定等于磁群的 family-space-group 编号；后者应从
+    /// [`ValidatedMagneticOperationSet::identify`] 的
+    /// `MagneticGroupIdentification::spacegroup_number` 读取。
     pub spacegroup_number: usize,
     /// 国际符号（短）
     pub international_short: String,
-    /// Hall 编号 (1-530)
+    /// 非磁结构母空间群的 Hall setting (1-530)，用于记录输入坐标系。
     pub hall_number: usize,
     /// Hall 符号
     pub hall_symbol: String,
@@ -536,7 +543,9 @@ pub(crate) fn magnetic_symmetry_from_crystal(
     if !has_mag {
         // 无磁矩: 只返回非磁结果
         let rot = (0..nonspin_sym.size).map(|i| nonspin_sym.rot[i]).collect();
-        let trans = (0..nonspin_sym.size).map(|i| nonspin_sym.trans[i]).collect();
+        let trans = (0..nonspin_sym.size)
+            .map(|i| nonspin_sym.trans[i])
+            .collect();
         let timerev = vec![false; nonspin_sym.size];
         let spg_type = crate::spg_database::spgdb_get_spacegroup_type(hall_number);
         return Ok(MagneticSymmetry {
@@ -556,8 +565,8 @@ pub(crate) fn magnetic_symmetry_from_crystal(
     }
 
     // --- 3. 磁对称操作 (从磁矩计算 timerev 标记) ---
-    let mag_sym = crate::spin::operations_with_site_tensors(
-        crate::spin::MagneticOperationSearch {
+    let mag_sym =
+        crate::spin::operations_with_site_tensors(crate::spin::MagneticOperationSearch {
             symmetry: &nonspin_sym,
             cell: &cell,
             with_time_reversal: true,
@@ -565,8 +574,7 @@ pub(crate) fn magnetic_symmetry_from_crystal(
             symprec,
             angle_tolerance: -1.0,
             magnetic_symprec: -1.0,
-        },
-    )?;
+        })?;
 
     // 如果有磁矩但磁对称操作数为 0，尝试用简单方法
     // (operations_with_site_tensors 可能因原胞匹配失败)
@@ -577,7 +585,13 @@ pub(crate) fn magnetic_symmetry_from_crystal(
             .collect();
         let moments = magnetic_moments.unwrap();
         let tr = manual_compute_timerev(positions, moments, &crystal_ops, symprec);
-        let valid: Vec<usize> = tr.iter().cloned().enumerate().filter(|(_, t)| *t != -1).map(|(i, _)| i).collect();
+        let valid: Vec<usize> = tr
+            .iter()
+            .cloned()
+            .enumerate()
+            .filter(|(_, t)| *t != -1)
+            .map(|(i, _)| i)
+            .collect();
         let n = valid.len();
         if n == 0 {
             return Err(SymError::MagneticOpGenerationFailed);
@@ -607,9 +621,15 @@ pub(crate) fn magnetic_symmetry_from_crystal(
         magnetic_identification_metadata(identification)?;
 
     let spg_type = crate::spg_database::spgdb_get_spacegroup_type(hall_number);
-    let rot_out = (0..final_mag_sym.size).map(|i| final_mag_sym.rot[i]).collect();
-    let trans_out = (0..final_mag_sym.size).map(|i| final_mag_sym.trans[i]).collect();
-    let tr_out = (0..final_mag_sym.size).map(|i| final_mag_sym.timerev[i]).collect();
+    let rot_out = (0..final_mag_sym.size)
+        .map(|i| final_mag_sym.rot[i])
+        .collect();
+    let trans_out = (0..final_mag_sym.size)
+        .map(|i| final_mag_sym.trans[i])
+        .collect();
+    let tr_out = (0..final_mag_sym.size)
+        .map(|i| final_mag_sym.timerev[i])
+        .collect();
 
     Ok(MagneticSymmetry {
         spacegroup_number: spg.number,
@@ -633,8 +653,7 @@ fn magnetic_identification_metadata(
     identification: Result<crate::magnetic_spacegroup::MagneticDataset, SymError>,
 ) -> Result<MagneticIdentificationMetadata, SymError> {
     let dataset = identification?;
-    let msg_type =
-        crate::msg_database::msgdb_get_magnetic_spacegroup_type(dataset.uni_number);
+    let msg_type = crate::msg_database::msgdb_get_magnetic_spacegroup_type(dataset.uni_number);
     Ok((
         dataset.uni_number,
         msg_type.type_,
@@ -678,11 +697,7 @@ mod magnetic_dataset_contract_tests {
         let positions = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]];
         let types = [26, 26];
         let one_moment = [[1.0, 0.0, 0.0]];
-        let three_moments = [
-            [1.0, 0.0, 0.0],
-            [-1.0, 0.0, 0.0],
-            [1.0, 0.0, 0.0],
-        ];
+        let three_moments = [[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [1.0, 0.0, 0.0]];
 
         for bad_types in [&[26][..], &[26, 26, 26][..]] {
             assert!(matches!(
@@ -773,21 +788,27 @@ fn manual_compute_timerev(
 
             for i in 0..positions.len() {
                 let p_new = [
-                    snap((rot[0][0] as f64 * positions[i][0]
-                        + rot[0][1] as f64 * positions[i][1]
-                        + rot[0][2] as f64 * positions[i][2]
-                        + trans[0])
-                    .rem_euclid(1.0)),
-                    snap((rot[1][0] as f64 * positions[i][0]
-                        + rot[1][1] as f64 * positions[i][1]
-                        + rot[1][2] as f64 * positions[i][2]
-                        + trans[1])
-                    .rem_euclid(1.0)),
-                    snap((rot[2][0] as f64 * positions[i][0]
-                        + rot[2][1] as f64 * positions[i][1]
-                        + rot[2][2] as f64 * positions[i][2]
-                        + trans[2])
-                    .rem_euclid(1.0)),
+                    snap(
+                        (rot[0][0] as f64 * positions[i][0]
+                            + rot[0][1] as f64 * positions[i][1]
+                            + rot[0][2] as f64 * positions[i][2]
+                            + trans[0])
+                            .rem_euclid(1.0),
+                    ),
+                    snap(
+                        (rot[1][0] as f64 * positions[i][0]
+                            + rot[1][1] as f64 * positions[i][1]
+                            + rot[1][2] as f64 * positions[i][2]
+                            + trans[1])
+                            .rem_euclid(1.0),
+                    ),
+                    snap(
+                        (rot[2][0] as f64 * positions[i][0]
+                            + rot[2][1] as f64 * positions[i][1]
+                            + rot[2][2] as f64 * positions[i][2]
+                            + trans[2])
+                            .rem_euclid(1.0),
+                    ),
                 ];
 
                 let j = snapped_pos.iter().position(|sp| {
@@ -845,7 +866,7 @@ fn manual_compute_timerev(
 // ========================================================================
 
 /// 从对称操作获取 Hall 编号。
-fn identify_hall_number(
+pub(crate) fn identify_hall_number(
     rotations: &[Mat3I],
     translations: &[Vec3],
     lattice: &Mat3,
@@ -860,11 +881,12 @@ fn identify_hall_number(
     symmetry.rot[..num_ops].copy_from_slice(&rotations[..num_ops]);
     symmetry.trans[..num_ops].copy_from_slice(&translations[..num_ops]);
 
-    let (t_mat, prim_sym) = prm_get_primitive_symmetry(&symmetry, symprec)
-        .ok_or(SymError::SpacegroupSearchFailed)?;
+    let (t_mat, prim_sym) =
+        prm_get_primitive_symmetry(&symmetry, symprec).ok_or(SymError::SpacegroupSearchFailed)?;
 
     let prim_lat = if transform_lattice_by_tmat {
-        let t_mat_inv = mat_inverse_matrix_d3(&t_mat, symprec).ok()
+        let t_mat_inv = mat_inverse_matrix_d3(&t_mat, symprec)
+            .ok()
             .ok_or(SymError::SpacegroupSearchFailed)?;
         mat_multiply_matrix_d3(lattice, &t_mat_inv)
     } else {

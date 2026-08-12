@@ -19,7 +19,9 @@ use crate::cell::{AperiodicAxis, Cell, TensorRank};
 use crate::debug;
 use crate::delaunay::del_delaunay_reduce;
 use crate::determination::det_determine_all;
-use crate::mathfunc::{Mat3, Mat3I, Vec3};
+use crate::mathfunc::{
+    Mat3, Mat3I, Vec3, mat_get_determinant_d3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
+};
 use crate::niggli::niggli_reduce;
 use crate::pointgroup::ptg_get_pointgroup;
 use crate::primitive::Primitive;
@@ -108,6 +110,8 @@ impl Crystal {
             crystal: self,
             symprec: 1e-5,
             angle_tolerance: -1.0,
+            external_fields: ExternalFields::default(),
+            field_tolerance: 1e-10,
         }
     }
 
@@ -215,8 +219,7 @@ impl Crystal {
                 types: parsed.types,
                 moments: parsed.magnetic_moments,
                 aperiodic_axis: None,
-            },
-        )
+            })
     }
 }
 
@@ -239,6 +242,8 @@ pub struct SymmetryAnalysis<'a> {
     crystal: &'a Crystal,
     symprec: f64,
     angle_tolerance: f64,
+    external_fields: ExternalFields,
+    field_tolerance: f64,
 }
 
 impl<'a> SymmetryAnalysis<'a> {
@@ -251,6 +256,24 @@ impl<'a> SymmetryAnalysis<'a> {
     /// Set angle tolerance in radians (default `-1.0` = auto).
     pub fn angle_tolerance(mut self, val: f64) -> Self {
         self.angle_tolerance = val;
+        self
+    }
+
+    /// Supply the uniform electric and magnetic fields already present in the
+    /// Hamiltonian being analyzed.
+    ///
+    /// These fields do not modify the crystal structure. They only constrain
+    /// the operations returned by [`Self::effective_symmetry`] (and can also
+    /// be applied to magnetic operations with
+    /// [`SymmetryOps::preserving_fields`]).
+    pub fn external_fields(mut self, fields: ExternalFields) -> Self {
+        self.external_fields = fields;
+        self
+    }
+
+    /// Set the Cartesian vector-comparison tolerance used for external fields.
+    pub fn field_tolerance(mut self, tolerance: f64) -> Self {
+        self.field_tolerance = tolerance;
         self
     }
 
@@ -275,6 +298,20 @@ impl<'a> SymmetryAnalysis<'a> {
         Ok(SymmetryOps { operations: ops })
     }
 
+    /// Structural operations that also preserve the explicitly supplied
+    /// uniform external fields.
+    ///
+    /// [`Self::symmetry`] always returns the symmetry of the atomic crystal.
+    /// This method returns the effective subset appropriate for a Hamiltonian
+    /// containing the fields configured with [`Self::external_fields`].
+    pub fn effective_symmetry(&self) -> Result<SymmetryOps, SymError> {
+        self.symmetry()?.preserving_fields(
+            &self.crystal.lattice,
+            self.external_fields,
+            self.field_tolerance,
+        )
+    }
+
     /// Primitive cell.
     pub fn primitive_cell(&self) -> Result<Crystal, SymError> {
         let cell = self.crystal.to_cell()?;
@@ -285,7 +322,13 @@ impl<'a> SymmetryAnalysis<'a> {
     /// Standardize cell: `to_primitive` returns primitive cell; `no_idealize` skips position idealization.
     pub fn standardize(&self, to_primitive: bool, no_idealize: bool) -> Result<Crystal, SymError> {
         let cell = self.crystal.to_cell()?;
-        let cc = standardize_cell_inner(&cell, to_primitive, no_idealize, self.symprec, self.angle_tolerance)?;
+        let cc = standardize_cell_inner(
+            &cell,
+            to_primitive,
+            no_idealize,
+            self.symprec,
+            self.angle_tolerance,
+        )?;
         Ok(cell_to_crystal(&cc))
     }
 
@@ -385,9 +428,7 @@ impl fmt::Display for MagneticSymmetry {
                 crate::MagneticType::Ordinary => "Type-1 (ordinary, no time reversal)",
                 crate::MagneticType::Grey => "Type-2 (grey, with pure 1')",
                 crate::MagneticType::BlackWhite => "Type-3 (black-white, anti-rotation)",
-                crate::MagneticType::AntiTranslation => {
-                    "Type-4 (black-white, anti-translation)"
-                }
+                crate::MagneticType::AntiTranslation => "Type-4 (black-white, anti-translation)",
                 crate::MagneticType::NonMagnetic => "none",
             };
             writeln!(f, "--- Magnetic space group ---")?;
@@ -437,6 +478,39 @@ impl fmt::Display for MagneticSymmetry {
 
 // ── New output types ─────────────────────────────────────────────────────────
 
+/// Uniform Cartesian fields that are present in the Hamiltonian but are not
+/// encoded by the crystal's atomic positions.
+///
+/// An electric field is a time-even polar vector. A magnetic field is a
+/// time-odd axial vector. `None` means that the corresponding field is absent.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ExternalFields {
+    pub electric: Option<Vec3>,
+    pub magnetic: Option<Vec3>,
+}
+
+impl ExternalFields {
+    /// Whether neither external field was supplied.
+    pub fn is_empty(self) -> bool {
+        self.electric.is_none() && self.magnetic.is_none()
+    }
+
+    fn validate(self, tolerance: f64) -> Result<(), SymError> {
+        if !tolerance.is_finite() || tolerance <= 0.0 {
+            return Err(SymError::InvalidInput);
+        }
+        if [self.electric, self.magnetic]
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|component| !component.is_finite())
+        {
+            return Err(SymError::InvalidInput);
+        }
+        Ok(())
+    }
+}
+
 /// A single symmetry operation {R|t}[θ] with optional time reversal.
 #[derive(Debug, Clone, Copy)]
 pub struct SymmetryOp {
@@ -470,14 +544,86 @@ impl SymmetryOps {
         self.operations.iter()
     }
 
+    /// Return the operations compatible with uniform external fields.
+    ///
+    /// `lattice` follows cryspglib's `[cart][vec]` convention. Fractional
+    /// rotations are converted to Cartesian rotations before testing a polar
+    /// electric field and an axial, time-odd magnetic field.
+    pub fn preserving_fields(
+        &self,
+        lattice: &Mat3,
+        fields: ExternalFields,
+        tolerance: f64,
+    ) -> Result<Self, SymError> {
+        fields.validate(tolerance)?;
+        // Field comparison tolerance should not decide whether a perfectly
+        // valid, but small-volume, lattice is invertible.
+        let inverse_lattice = mat_inverse_matrix_d3(lattice, 1e-14)?;
+        let mut operations = Vec::with_capacity(self.operations.len());
+
+        for &operation in &self.operations {
+            let fractional_rotation = operation.rotation.map(|row| row.map(f64::from));
+            let cartesian_rotation = mat_multiply_matrix_d3(
+                &mat_multiply_matrix_d3(lattice, &fractional_rotation),
+                &inverse_lattice,
+            );
+            let determinant = mat_get_determinant_d3(&cartesian_rotation);
+            if !determinant.is_finite() {
+                return Err(SymError::MathFailed);
+            }
+
+            let preserves_electric = fields.electric.is_none_or(|field| {
+                vector_close(
+                    transform_vector(&cartesian_rotation, field, 1.0),
+                    field,
+                    tolerance,
+                )
+            });
+            let time_sign = if operation.time_reversal { -1.0 } else { 1.0 };
+            let magnetic_sign = determinant.signum() * time_sign;
+            let preserves_magnetic = fields.magnetic.is_none_or(|field| {
+                vector_close(
+                    transform_vector(&cartesian_rotation, field, magnetic_sign),
+                    field,
+                    tolerance,
+                )
+            });
+            if preserves_electric && preserves_magnetic {
+                operations.push(operation);
+            }
+        }
+
+        Ok(Self { operations })
+    }
+
+    /// Build the grey-group extension `G + G·1'` of an ordinary operation
+    /// set.
+    ///
+    /// This is useful when a caller explicitly knows that the Hamiltonian is
+    /// time-reversal symmetric before external fields are applied. Supplying
+    /// operations that are already anti-unitary is rejected to avoid silently
+    /// duplicating a magnetic group with the wrong semantics.
+    pub fn grey_extension(&self) -> Result<Self, SymError> {
+        if self
+            .operations
+            .iter()
+            .any(|operation| operation.time_reversal)
+        {
+            return Err(SymError::InvalidInput);
+        }
+        let mut operations = Vec::with_capacity(self.operations.len() * 2);
+        operations.extend(self.operations.iter().copied());
+        operations.extend(self.operations.iter().copied().map(|mut operation| {
+            operation.time_reversal = true;
+            operation
+        }));
+        Ok(Self { operations })
+    }
+
     /// Build from parallel arrays (structure-of-arrays form).
     ///
     /// Panics if the three slices have different lengths.
-    pub fn from_parallel(
-        rot: &[Mat3I],
-        trans: &[Vec3],
-        timerev: &[bool],
-    ) -> Self {
+    pub fn from_parallel(rot: &[Mat3I], trans: &[Vec3], timerev: &[bool]) -> Self {
         assert_eq!(rot.len(), trans.len(), "rot and trans length mismatch");
         assert_eq!(rot.len(), timerev.len(), "rot and timerev length mismatch");
         let n = rot.len();
@@ -492,11 +638,7 @@ impl SymmetryOps {
     }
 
     /// Build from owned parallel vectors.
-    pub fn from_parallel_owned(
-        rot: Vec<Mat3I>,
-        trans: Vec<Vec3>,
-        timerev: Vec<bool>,
-    ) -> Self {
+    pub fn from_parallel_owned(rot: Vec<Mat3I>, trans: Vec<Vec3>, timerev: Vec<bool>) -> Self {
         let n = rot.len();
         assert_eq!(trans.len(), n, "length mismatch");
         assert_eq!(timerev.len(), n, "length mismatch");
@@ -543,10 +685,24 @@ impl SymmetryOps {
     /// Look up magnetic symmetry operations from the MSG database by UNI number.
     ///
     /// Returns operations with `time_reversal` flags set from the magnetic
-    /// space group database (1–1651).
+    /// space group database (1–1651). When a UNI number has multiple compatible
+    /// Hall settings, this convenience method selects the first one. Call
+    /// [`Self::from_magnetic_database_with_hall`] when the setting is known.
     pub fn from_magnetic_database(uni_number: usize) -> Result<Self, crate::SymError> {
         let hall = find_first_hall_for_uni(uni_number)?;
-        let sym = crate::msg_database::msgdb_get_spacegroup_operations(uni_number, hall)
+        Self::from_magnetic_database_with_hall(uni_number, hall)
+    }
+
+    /// Look up magnetic operations for an explicit `(UNI, Hall)` setting.
+    ///
+    /// This form preserves setting context and rejects an incompatible pair,
+    /// avoiding the ambiguity of selecting a Hall setting from operations or
+    /// from a UNI number alone.
+    pub fn from_magnetic_database_with_hall(
+        uni_number: usize,
+        hall_number: usize,
+    ) -> Result<Self, crate::SymError> {
+        let sym = crate::msg_database::msgdb_get_spacegroup_operations(uni_number, hall_number)
             .ok_or(crate::SymError::SpacegroupSearchFailed)?;
         let n = sym.size;
         let ops: Vec<SymmetryOp> = (0..n)
@@ -558,6 +714,22 @@ impl SymmetryOps {
             .collect();
         Ok(SymmetryOps { operations: ops })
     }
+}
+
+fn transform_vector(rotation: &Mat3, vector: Vec3, sign: f64) -> Vec3 {
+    std::array::from_fn(|i| {
+        sign * rotation[i]
+            .iter()
+            .zip(vector)
+            .map(|(coefficient, component)| coefficient * component)
+            .sum::<f64>()
+    })
+}
+
+fn vector_close(actual: Vec3, expected: Vec3, tolerance: f64) -> bool {
+    actual.into_iter().zip(expected).all(|(actual, expected)| {
+        (actual - expected).abs() <= tolerance * actual.abs().max(expected.abs()).max(1.0)
+    })
 }
 
 impl std::ops::Index<usize> for SymmetryOps {
@@ -653,10 +825,7 @@ pub struct BzMesh {
 /// let idx = grid_point_from_address([0, 0, 0], [4, 4, 4]).unwrap();
 /// assert_eq!(idx, 0);
 /// ```
-pub fn grid_point_from_address(
-    grid_address: [i32; 3],
-    mesh: [i32; 3],
-) -> Result<usize, SymError> {
+pub fn grid_point_from_address(grid_address: [i32; 3], mesh: [i32; 3]) -> Result<usize, SymError> {
     let mut address_double = [0i32; 3];
     let is_shift = [0i32; 3];
     crate::kgrid::kgd_get_grid_address_double_mesh(
@@ -719,7 +888,11 @@ pub fn stabilized_reciprocal_mesh(
         &rot,
         qpoints,
     )?;
-    Ok(StabilizedMesh { grid_addresses: grid_address, mapping_table, num_ir })
+    Ok(StabilizedMesh {
+        grid_addresses: grid_address,
+        mapping_table,
+        num_ir,
+    })
 }
 
 /// Apply rotations to a grid address, returning rotated grid point indices.
@@ -859,7 +1032,11 @@ pub fn relocate_bz_grid_address(
         rec_lattice,
         &is_shift,
     )?;
-    Ok(BzMesh { grid_addresses: bz_grid_address, bz_map, num_bz })
+    Ok(BzMesh {
+        grid_addresses: bz_grid_address,
+        bz_map,
+        num_bz,
+    })
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
@@ -936,8 +1113,7 @@ fn build_dataset(
         pointgroup_symbol: String::new(),
     };
 
-    let inv_lat =
-        crate::mathfunc::mat_inverse_matrix_d3(&spacegroup.bravais_lattice, 0.0).ok()?;
+    let inv_lat = crate::mathfunc::mat_inverse_matrix_d3(&spacegroup.bravais_lattice, 0.0).ok()?;
     dataset.transformation_matrix =
         crate::mathfunc::mat_multiply_matrix_d3(&inv_lat, &cell.lattice);
 
@@ -1042,10 +1218,7 @@ fn standardize_cell_inner(
         )
         .ok_or(SymError::CellStandardizationFailed)?;
 
-        for (&mapped, &expected) in mapping_table
-            .iter()
-            .zip(&dataset.mapping_to_primitive)
-        {
+        for (&mapped, &expected) in mapping_table.iter().zip(&dataset.mapping_to_primitive) {
             if mapped != expected as usize {
                 debug::warning_print(format_args!(
                     "spglib: spa_transform_to_primitive failed ({} != {})\n",
@@ -1075,10 +1248,7 @@ fn standardize_cell_inner(
         )
         .ok_or(SymError::CellStandardizationFailed)?;
 
-        for (&mapped, &expected) in mapping_table
-            .iter()
-            .zip(&dataset.mapping_to_primitive)
-        {
+        for (&mapped, &expected) in mapping_table.iter().zip(&dataset.mapping_to_primitive) {
             if mapped != expected as usize {
                 debug::warning_print(format_args!(
                     "spglib: spa_transform_to_primitive failed ({} != {})\n",
@@ -1120,20 +1290,29 @@ mod ordinary_input_contract_tests {
 
         assert!(matches!(analysis.dataset(), Err(SymError::InvalidInput)));
         assert!(matches!(analysis.symmetry(), Err(SymError::InvalidInput)));
-        assert!(matches!(analysis.primitive_cell(), Err(SymError::InvalidInput)));
+        assert!(matches!(
+            analysis.primitive_cell(),
+            Err(SymError::InvalidInput)
+        ));
         assert!(matches!(
             analysis.standardize(true, false),
             Err(SymError::InvalidInput)
         ));
-        assert!(matches!(analysis.hall_number(), Err(SymError::InvalidInput)));
-        assert!(matches!(analysis.international(), Err(SymError::InvalidInput)));
+        assert!(matches!(
+            analysis.hall_number(),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            analysis.international(),
+            Err(SymError::InvalidInput)
+        ));
         assert!(matches!(
             analysis.irreducible_mesh([2, 2, 2], [0, 0, 0], true),
             Err(SymError::InvalidInput)
         ));
 
-        let empty_layer = Crystal::new(cubic_lattice(), vec![], vec![])
-            .with_layer(AperiodicAxis::Z);
+        let empty_layer =
+            Crystal::new(cubic_lattice(), vec![], vec![]).with_layer(AperiodicAxis::Z);
         assert!(matches!(
             empty_layer.analyze().dataset(),
             Err(SymError::InvalidInput)
@@ -1142,22 +1321,14 @@ mod ordinary_input_contract_tests {
 
     #[test]
     fn ordinary_analysis_rejects_mutated_parallel_fields() {
-        let mut empty_positions = Crystal::new(
-            cubic_lattice(),
-            vec![[0.0, 0.0, 0.0]],
-            vec![14],
-        );
+        let mut empty_positions = Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]);
         empty_positions.positions.clear();
         assert!(matches!(
             empty_positions.analyze().dataset(),
             Err(SymError::InvalidInput)
         ));
 
-        let mut missing_type = Crystal::new(
-            cubic_lattice(),
-            vec![[0.0, 0.0, 0.0]],
-            vec![14],
-        );
+        let mut missing_type = Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]);
         missing_type.types.clear();
         assert!(matches!(
             missing_type.analyze().primitive_cell(),
@@ -1178,13 +1349,122 @@ mod ordinary_input_contract_tests {
 
     #[test]
     fn ordinary_analysis_valid_control_still_succeeds() {
-        let crystal = Crystal::new(
-            cubic_lattice(),
-            vec![[0.0, 0.0, 0.0]],
-            vec![14],
-        );
+        let crystal = Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]);
         let dataset = crystal.analyze().dataset().unwrap();
         assert_eq!(dataset.spacegroup_number, 221);
+    }
+
+    #[test]
+    fn external_fields_filter_structural_operations_without_changing_dataset() {
+        let crystal = Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]);
+        let fields = ExternalFields {
+            electric: Some([0.0, 0.0, 1.0]),
+            magnetic: None,
+        };
+        let analysis = crystal.analyze().external_fields(fields);
+        let dataset = analysis.dataset().unwrap();
+        let effective = analysis.effective_symmetry().unwrap();
+        let inversion = [[-1, 0, 0], [0, -1, 0], [0, 0, -1]];
+
+        assert_eq!(dataset.spacegroup_number, 221);
+        assert_eq!(dataset.n_operations, 48);
+        assert!(effective.len() < dataset.n_operations);
+        assert!(
+            !effective
+                .iter()
+                .any(|operation| operation.rotation == inversion)
+        );
+    }
+
+    #[test]
+    fn magnetic_field_is_axial_and_time_odd() {
+        let inversion = SymmetryOp {
+            rotation: [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
+            translation: [0.0; 3],
+            time_reversal: false,
+        };
+        let pure_time_reversal = SymmetryOp {
+            rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            translation: [0.0; 3],
+            time_reversal: true,
+        };
+        let fields = ExternalFields {
+            electric: None,
+            magnetic: Some([0.0, 0.0, 1.0]),
+        };
+        let effective = SymmetryOps {
+            operations: vec![inversion, pure_time_reversal],
+        }
+        .preserving_fields(&cubic_lattice(), fields, 1e-10)
+        .unwrap();
+
+        assert_eq!(effective.len(), 1);
+        assert!(!effective[0].time_reversal);
+        assert_eq!(effective[0].rotation, inversion.rotation);
+    }
+
+    #[test]
+    fn grey_extension_can_keep_combined_antiunitary_field_symmetries() {
+        let ordinary = SymmetryOps {
+            operations: vec![
+                SymmetryOp {
+                    rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                    translation: [0.0; 3],
+                    time_reversal: false,
+                },
+                SymmetryOp {
+                    rotation: [[1, 0, 0], [0, -1, 0], [0, 0, -1]],
+                    translation: [0.0; 3],
+                    time_reversal: false,
+                },
+            ],
+        };
+        let fields = ExternalFields {
+            electric: None,
+            magnetic: Some([0.0, 0.0, 1.0]),
+        };
+        let effective = ordinary
+            .grey_extension()
+            .unwrap()
+            .preserving_fields(&cubic_lattice(), fields, 1e-10)
+            .unwrap();
+
+        assert!(effective.iter().any(|operation| operation.time_reversal));
+        assert!(!effective.iter().any(|operation| {
+            operation.time_reversal && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        }));
+    }
+
+    #[test]
+    fn invalid_field_context_is_rejected() {
+        let ops = SymmetryOps::default();
+        assert!(matches!(
+            ops.preserving_fields(
+                &cubic_lattice(),
+                ExternalFields {
+                    electric: Some([f64::NAN, 0.0, 0.0]),
+                    magnetic: None,
+                },
+                1e-10,
+            ),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            ops.preserving_fields(&cubic_lattice(), ExternalFields::default(), 0.0),
+            Err(SymError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn explicit_magnetic_database_setting_rejects_incompatible_hall() {
+        let hall = find_first_hall_for_uni(1).unwrap();
+        let implicit = SymmetryOps::from_magnetic_database(1).unwrap();
+        let explicit = SymmetryOps::from_magnetic_database_with_hall(1, hall).unwrap();
+        assert_eq!(implicit.len(), explicit.len());
+        assert!(matches!(
+            SymmetryOps::from_magnetic_database_with_hall(1, 530),
+            Err(SymError::SpacegroupSearchFailed)
+        ));
     }
 
     #[test]
@@ -1206,12 +1486,7 @@ mod ordinary_input_contract_tests {
             Err(SymError::InvalidInput)
         ));
         assert!(matches!(
-            dense_grid_points_by_rotations(
-                [0, 0, 0],
-                &identity,
-                [2, 2, 2],
-                [0, -1, 0],
-            ),
+            dense_grid_points_by_rotations([0, 0, 0], &identity, [2, 2, 2], [0, -1, 0],),
             Err(SymError::InvalidInput)
         ));
     }
@@ -1220,32 +1495,15 @@ mod ordinary_input_contract_tests {
     fn allocating_mesh_apis_reject_unsafe_sizes_and_short_buffers() {
         let identity = [[[1, 0, 0], [0, 1, 0], [0, 0, 1]]];
         assert!(matches!(
-            stabilized_reciprocal_mesh(
-                [1291, 1291, 1291],
-                [0, 0, 0],
-                true,
-                &identity,
-                &[],
-            ),
+            stabilized_reciprocal_mesh([1291, 1291, 1291], [0, 0, 0], true, &identity, &[],),
             Err(SymError::ArraySizeShortage)
         ));
         assert!(matches!(
-            dense_bz_grid_points_by_rotations(
-                [0, 0, 0],
-                &identity,
-                [2, 2, 2],
-                [0, 0, 0],
-                &[],
-            ),
+            dense_bz_grid_points_by_rotations([0, 0, 0], &identity, [2, 2, 2], [0, 0, 0], &[],),
             Err(SymError::ArraySizeShortage)
         ));
         assert!(matches!(
-            relocate_bz_grid_address(
-                &[],
-                [2, 2, 2],
-                &cubic_lattice(),
-                [0, 0, 0],
-            ),
+            relocate_bz_grid_address(&[], [2, 2, 2], &cubic_lattice(), [0, 0, 0],),
             Err(SymError::ArraySizeShortage)
         ));
     }
@@ -1253,36 +1511,20 @@ mod ordinary_input_contract_tests {
     #[test]
     fn mesh_valid_controls_keep_existing_results() {
         let identity = [[[1, 0, 0], [0, 1, 0], [0, 0, 1]]];
-        assert_eq!(
-            grid_point_from_address([1, 2, 3], [4, 4, 4]).unwrap(),
-            57
-        );
-        assert_eq!(
-            grid_point_from_address([-1, 0, 0], [4, 4, 4]).unwrap(),
-            3
-        );
+        assert_eq!(grid_point_from_address([1, 2, 3], [4, 4, 4]).unwrap(), 57);
+        assert_eq!(grid_point_from_address([-1, 0, 0], [4, 4, 4]).unwrap(), 3);
         assert_eq!(
             grid_point_from_address([i32::MIN, 0, 0], [4, 4, 4]).unwrap(),
             0
         );
 
-        let points = dense_grid_points_by_rotations(
-            [0, 0, 0],
-            &identity,
-            [4, 4, 4],
-            [0, 0, 0],
-        )
-        .unwrap();
+        let points =
+            dense_grid_points_by_rotations([0, 0, 0], &identity, [4, 4, 4], [0, 0, 0]).unwrap();
         assert_eq!(points, vec![0]);
 
-        let stabilized = stabilized_reciprocal_mesh(
-            [2, 2, 2],
-            [0, 0, 0],
-            true,
-            &identity,
-            &[[0.0, 0.0, 0.0]],
-        )
-        .unwrap();
+        let stabilized =
+            stabilized_reciprocal_mesh([2, 2, 2], [0, 0, 0], true, &identity, &[[0.0, 0.0, 0.0]])
+                .unwrap();
         assert_eq!(stabilized.num_ir, 8);
         assert_eq!(stabilized.grid_addresses.len(), 8);
     }
