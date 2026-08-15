@@ -8927,7 +8927,7 @@ pub struct SpacegroupType {
 }
 
 /// 去除字符串尾部的空格（原地修改字符串）
-fn spgdb_remove_space(s: &mut String) {
+fn trim_end_in_place(s: &mut String) {
     let len = s.trim_end().len();
     s.truncate(len);
 }
@@ -8941,18 +8941,18 @@ pub fn get_spacegroup_type(hall_number: usize) -> SpacegroupType {
     };
     // 复制字段，并清理
     let mut schoenflies = raw.schoenflies.to_string();
-    spgdb_remove_space(&mut schoenflies);
+    trim_end_in_place(&mut schoenflies);
     let mut hall_symbol = raw.hall_symbol.to_string();
-    spgdb_remove_space(&mut hall_symbol);
+    trim_end_in_place(&mut hall_symbol);
     hall_symbol = hall_symbol.replace('=', "\"");
     let mut international = raw.international.to_string();
-    spgdb_remove_space(&mut international);
+    trim_end_in_place(&mut international);
     let mut international_full = raw.international_full.to_string();
-    spgdb_remove_space(&mut international_full);
+    trim_end_in_place(&mut international_full);
     let mut international_short = raw.international_short.to_string();
-    spgdb_remove_space(&mut international_short);
+    trim_end_in_place(&mut international_short);
     let mut choice = raw.choice.to_string();
-    spgdb_remove_space(&mut choice);
+    trim_end_in_place(&mut choice);
     SpacegroupType {
         number: raw.number,
         schoenflies,

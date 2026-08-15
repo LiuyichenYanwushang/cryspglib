@@ -47,7 +47,7 @@ pub fn get_spacegroup_operations(
     let mut sym = MagneticSymmetry::new(order as usize);
     for i in 0..order {
         let idx = (start + i) as usize;
-        let (rot, trans, timerev) = msgdb_get_magnetic_operation(idx);
+        let (rot, trans, timerev) = decode_magnetic_operation(idx);
         sym.rot[i as usize] = rot;
         sym.trans[i as usize] = trans;
         sym.timerev[i as usize] = timerev;
@@ -85,7 +85,7 @@ pub fn get_std_transformations(
 }
 
 /// 解码磁性对称操作。
-fn msgdb_get_magnetic_operation(op_number: usize) -> (Mat3I, [f64; 3], bool) {
+fn decode_magnetic_operation(op_number: usize) -> (Mat3I, [f64; 3], bool) {
     let enc = MAGNETIC_SYMMETRY_OPERATIONS[op_number];
     // timerev=true for anti operation, false for ordinary operation
     // 34012224 = 3^9 * 12^3
