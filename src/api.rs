@@ -1303,15 +1303,26 @@ mod ordinary_input_contract_tests {
     fn symmetry_ops_from_parallel_rejects_mismatched_lengths() {
         let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
         let translation = [0.0; 3];
-        assert!(SymmetryOps::from_parallel(&[identity], &[], &[false]).is_err());
-        assert!(SymmetryOps::from_parallel(&[identity], &[translation], &[]).is_err());
-        assert!(
-            SymmetryOps::from_parallel_owned(vec![identity], vec![translation], vec![]).is_err()
-        );
-        assert!(
-            SymmetryOps::from_parallel_owned(vec![identity; 2], vec![translation], vec![false; 2])
-                .is_err()
-        );
+        assert!(matches!(
+            SymmetryOps::from_parallel(&[identity], &[], &[false]),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            SymmetryOps::from_parallel(&[identity], &[translation], &[]),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            SymmetryOps::from_parallel_owned(vec![identity], vec![translation], vec![]),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            SymmetryOps::from_parallel_owned(
+                vec![identity; 2],
+                vec![translation],
+                vec![false; 2]
+            ),
+            Err(SymError::InvalidInput)
+        ));
     }
 
     #[test]

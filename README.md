@@ -61,7 +61,7 @@ let al = Crystal::new(
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
     vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.5, 0.0, 0.5], [0.0, 0.5, 0.5]],
     vec![13, 13, 13, 13],
-);
+)?;
 let ds = al.analyze().symprec(1e-5).dataset()?;
 // → SpaceGroup { spacegroup_number: 225, international_symbol: "Fm-3m", ... }
 # Ok::<(), cryspglib::SymError>(())
@@ -78,10 +78,11 @@ let fe = Crystal::new(
     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
     vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
     vec![26, 26],
-).with_magnetic(vec![
+)?
+.with_magnetic(vec![
     [1.0/n, 1.0/n, 1.0/n],
     [-1.0/n, -1.0/n, -1.0/n],
-]);
+])?;
 
 let result = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
 // → MagneticSymmetry {
@@ -92,6 +93,7 @@ let result = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
 //     num_operations: 24,
 //     ...
 //   }
+# Ok::<(), cryspglib::SymError>(())
 ```
 
 ### Key API
