@@ -3,6 +3,7 @@
 //! 提供高效的原子重叠判断，用于在对称性检测中确认
 //! 两个原子位置是否在给定精度下等价。
 
+use crate::SymError;
 use crate::cell::Cell;
 #[cfg(test)]
 use crate::cell::AperiodicAxis;
@@ -120,10 +121,10 @@ impl OverlapChecker {
         rot: &[[i32; 3]; 3],
         symprec: f64,
         is_identity: bool,
-    ) -> i32 {
+    ) -> Result<bool, SymError> {
         // 快速检查
         if !self.check_possible_overlap(test_trans, rot, symprec) {
-            return 0;
+            return Ok(false);
         }
 
         // 计算旋转和平移后的位置
@@ -148,13 +149,13 @@ impl OverlapChecker {
             &mut self.distance_temp,
             &mut self.argsort_work,
         ) {
-            return -1;
+            return Err(SymError::MathFailed);
         }
 
         self.pos_temp_2 = permute_vec3(&self.pos_temp_1, &self.perm_temp);
 
         // 检查排序后的重叠
-        check_total_overlap_for_sorted(
+        Ok(check_total_overlap_for_sorted(
             &self.lattice,
             &self.pos_sorted,
             &self.pos_temp_2,
@@ -162,7 +163,7 @@ impl OverlapChecker {
             &self.types_sorted,
             self.len(),
             symprec,
-        )
+        ))
     }
 
     /// 检查层状结构的完全重叠
@@ -173,9 +174,9 @@ impl OverlapChecker {
         rot: &[[i32; 3]; 3],
         symprec: f64,
         is_identity: bool,
-    ) -> i32 {
+    ) -> Result<bool, SymError> {
         if !self.check_possible_overlap(test_trans, rot, symprec) {
-            return 0;
+            return Ok(false);
         }
 
         for i in 0..self.len() {
@@ -197,12 +198,12 @@ impl OverlapChecker {
             &mut self.distance_temp,
             &mut self.argsort_work,
         ) {
-            return -1;
+            return Err(SymError::MathFailed);
         }
 
         self.pos_temp_2 = permute_vec3(&self.pos_temp_1, &self.perm_temp);
 
-        check_layer_total_overlap_for_sorted(
+        Ok(check_layer_total_overlap_for_sorted(
             &self.lattice,
             &self.pos_sorted,
             &self.pos_temp_2,
@@ -210,7 +211,7 @@ impl OverlapChecker {
             &self.types_sorted,
             &self.periodic_axes,
             symprec,
-        )
+        ))
     }
 
     /// 快速预检查
@@ -396,7 +397,7 @@ fn check_total_overlap_for_sorted(
     types_rotated: &[i32],
     num_pos: usize,
     symprec: f64,
-) -> i32 {
+) -> bool {
     let mut found = vec![false; num_pos];
     let mut search_start = 0;
 
@@ -427,10 +428,10 @@ fn check_total_overlap_for_sorted(
         }
 
         if !matched {
-            return 0;
+            return false;
         }
     }
-    1
+    true
 }
 
 /// 检查两个已排序的原子列表是否重叠 (层状结构)
@@ -443,7 +444,7 @@ fn check_layer_total_overlap_for_sorted(
     types_rotated: &[i32],
     periodic_axes: &[usize; 2],
     symprec: f64,
-) -> i32 {
+) -> bool {
     let num_pos = pos_original.len();
     let mut found = vec![false; num_pos];
     let mut search_start = 0;
@@ -475,10 +476,10 @@ fn check_layer_total_overlap_for_sorted(
         }
 
         if !matched {
-            return 0;
+            return false;
         }
     }
-    1
+    true
 }
 
 #[cfg(test)]
@@ -568,12 +569,12 @@ mod tests {
 
         // 恒等操作应返回 1 (True)
         let result = checker.check_total_overlap(&zero_trans, &identity_rot, 1e-5, true);
-        assert_eq!(result, 1);
+        assert_eq!(result, Ok(true));
 
         // 一个非对称平移应返回 0
         let bad_trans = [0.5, 0.5, 0.5];
         let result = checker.check_total_overlap(&bad_trans, &identity_rot, 1e-5, true);
-        assert_eq!(result, 0);
+        assert_eq!(result, Ok(false));
     }
 
     #[test]
@@ -585,12 +586,12 @@ mod tests {
         let identity_rot = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
         let half_trans = [0.5, 0.0, 0.0];
         let result = checker.check_total_overlap(&half_trans, &identity_rot, 1e-5, true);
-        assert_eq!(result, 1);
+        assert_eq!(result, Ok(true));
 
         // 恒等平移也应是对称的
         let zero_trans = [0.0, 0.0, 0.0];
         let result = checker.check_total_overlap(&zero_trans, &identity_rot, 1e-5, true);
-        assert_eq!(result, 1);
+        assert_eq!(result, Ok(true));
     }
 
     #[test]
@@ -602,11 +603,11 @@ mod tests {
         let identity_rot = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
         let z_trans = [0.0, 0.0, 0.5];
         let result = checker.check_layer_total_overlap(&z_trans, &identity_rot, 1e-5, true);
-        assert_eq!(result, 0); // 预期不是对称操作
+        assert_eq!(result, Ok(false)); // 预期不是对称操作
 
         // 沿 x 方向平移整数倍应是周期性的
         let x_trans = [1.0, 0.0, 0.0];
         let result = checker.check_layer_total_overlap(&x_trans, &identity_rot, 1e-5, true);
-        assert_eq!(result, 1);
+        assert_eq!(result, Ok(true));
     }
 }

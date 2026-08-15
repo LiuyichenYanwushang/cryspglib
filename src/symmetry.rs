@@ -260,7 +260,7 @@ fn reduce_operations(
                     primitive,
                     symprec,
                     false,
-                ) == 1
+                ) == Ok(true)
                 {
                     rot_list.push(symmetry.rot[j]);
                     trans_list.push(symmetry.trans[j]);
@@ -278,12 +278,10 @@ fn reduce_operations(
 fn get_translation(rot: &Mat3I, cell: &Cell, symprec: f64, is_identity: bool) -> Option<Vec<Vec3>> {
     debug::debug_print(format_args!("get_translation (tolerance = {}):\n", symprec));
 
-    let min_atom_index = get_index_with_least_atoms(cell);
-    if min_atom_index == -1 {
+    let Some(min_atom_index) = get_index_with_least_atoms(cell) else {
         debug::debug_print(format_args!("spglib: get_index_with_least_atoms failed.\n"));
         return None;
-    }
-    let min_atom_index = min_atom_index as usize;
+    };
 
     let origin = mat_multiply_matrix_vector_id3(rot, &cell.position[min_atom_index]);
 
@@ -340,15 +338,16 @@ fn search_translation_part(
             trans[j] = cell.position[i][j] - origin[j];
         }
 
-        let is_overlap = checker.check_total_overlap(&trans, rot, symprec, is_identity);
-        if is_overlap == -1 {
-            return None;
-        } else if is_overlap == 1 {
-            atoms_found[i] = true;
-            num_trans += 1;
-            if is_identity {
-                num_trans += search_pure_translations(&mut atoms_found, cell, &trans, symprec);
+        match checker.check_total_overlap(&trans, rot, symprec, is_identity) {
+            Err(_) => return None,
+            Ok(true) => {
+                atoms_found[i] = true;
+                num_trans += 1;
+                if is_identity {
+                    num_trans += search_pure_translations(&mut atoms_found, cell, &trans, symprec);
+                }
             }
+            Ok(false) => {}
         }
     }
     Some((atoms_found, num_trans))
@@ -406,10 +405,10 @@ fn is_overlap_all_atoms(
     cell: &Cell,
     symprec: f64,
     is_identity: bool,
-) -> i32 {
+) -> Result<bool, SymError> {
     let mut checker = match OverlapChecker::new(cell) {
         Some(c) => c,
-        None => return -1,
+        None => return Err(SymError::MathFailed),
     };
 
     if cell.aperiodic_axis.is_none() {
@@ -419,9 +418,9 @@ fn is_overlap_all_atoms(
     }
 }
 
-fn get_index_with_least_atoms(cell: &Cell) -> i32 {
+fn get_index_with_least_atoms(cell: &Cell) -> Option<usize> {
     if cell.is_empty() {
-        return -1;
+        return None;
     }
     let mut mapping = vec![0; cell.len()];
     for i in 0..cell.len() {
@@ -441,7 +440,7 @@ fn get_index_with_least_atoms(cell: &Cell) -> i32 {
             min_index = i;
         }
     }
-    min_index as i32
+    Some(min_index)
 }
 
 fn get_layer_translation(
@@ -452,12 +451,10 @@ fn get_layer_translation(
 ) -> Option<Vec<Vec3>> {
     debug::debug_print(format_args!("get_translation (tolerance = {}):\n", symprec));
 
-    let min_atom_index = get_index_with_least_atoms(cell);
-    if min_atom_index == -1 {
+    let Some(min_atom_index) = get_index_with_least_atoms(cell) else {
         debug::debug_print(format_args!("spglib: get_index_with_least_atoms failed.\n"));
         return None;
-    }
-    let min_atom_index = min_atom_index as usize;
+    };
 
     let origin = mat_multiply_matrix_vector_id3(rot, &cell.position[min_atom_index]);
 
@@ -515,22 +512,23 @@ fn search_layer_translation_part(
             trans[j] = cell.position[i][j] - origin[j];
         }
 
-        let is_overlap = checker.check_layer_total_overlap(&trans, rot, symprec, is_identity);
-        if is_overlap == -1 {
-            return None;
-        } else if is_overlap == 1 {
-            atoms_found[i] = true;
-            num_trans += 1;
-            if is_identity {
-                let aperiodic = cell.aperiodic_axis.unwrap();
-                num_trans += search_layer_pure_translations(
-                    &mut atoms_found,
-                    cell,
-                    &trans,
-                    aperiodic,
-                    symprec,
-                );
+        match checker.check_layer_total_overlap(&trans, rot, symprec, is_identity) {
+            Err(_) => return None,
+            Ok(true) => {
+                atoms_found[i] = true;
+                num_trans += 1;
+                if is_identity {
+                    let aperiodic = cell.aperiodic_axis.unwrap();
+                    num_trans += search_layer_pure_translations(
+                        &mut atoms_found,
+                        cell,
+                        &trans,
+                        aperiodic,
+                        symprec,
+                    );
+                }
             }
+            Ok(false) => {}
         }
     }
     Some((atoms_found, num_trans))
