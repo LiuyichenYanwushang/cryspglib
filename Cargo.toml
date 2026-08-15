@@ -12,6 +12,7 @@ exclude = [
     "isotropy_subgroup/*.html",
     "scripts/",
     "docs/",
+    "*.md",
 ]
 
 [dependencies]
