@@ -180,30 +180,49 @@ pub enum SymError {
 // Public data structures
 // ---------------------------------------------------------------------------
 
-/// A Wyckoff letter `a`–`z`, validated at construction so downstream code
-/// can never observe an out-of-range or placeholder value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A Wyckoff letter. Indices 0–25 map to `a`–`z`; index 26 maps to `α`,
+/// the 27th Wyckoff position present in a few space groups (e.g. Pmmm).
+/// Validated at construction so downstream code can never observe an
+/// out-of-range or placeholder value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct WyckoffLetter(u8);
 
 impl WyckoffLetter {
-    /// Builds a Wyckoff letter from a 0-based index (0 = `a`, 25 = `z`).
+    /// Builds a Wyckoff letter from a 0-based index (0 = `a`, 25 = `z`, 26 = `α`).
     pub fn from_index(value: i32) -> Result<Self, SymError> {
         let index = u8::try_from(value).map_err(|_| SymError::InvalidInput)?;
-        if index > 25 {
+        if index > 26 {
             return Err(SymError::InvalidInput);
         }
-        Ok(Self(b'a' + index))
+        Ok(Self(index))
     }
 
-    /// The letter as an ASCII `char`.
+    /// The letter as a `char` (`a`–`z`, or `α` for index 26).
     pub fn as_char(self) -> char {
-        self.0 as char
+        if self.0 <= 25 {
+            (b'a' + self.0) as char
+        } else {
+            'α'
+        }
     }
 }
 
-impl Default for WyckoffLetter {
-    fn default() -> Self {
-        Self(b'a')
+#[cfg(test)]
+mod wyckoff_letter_tests {
+    use super::WyckoffLetter;
+
+    #[test]
+    fn covers_a_to_z_and_alpha() {
+        assert_eq!(WyckoffLetter::from_index(0).unwrap().as_char(), 'a');
+        assert_eq!(WyckoffLetter::from_index(25).unwrap().as_char(), 'z');
+        assert_eq!(WyckoffLetter::from_index(26).unwrap().as_char(), 'α');
+    }
+
+    #[test]
+    fn rejects_out_of_range() {
+        assert!(WyckoffLetter::from_index(27).is_err());
+        assert!(WyckoffLetter::from_index(-1).is_err());
+        assert!(WyckoffLetter::from_index(i32::MAX).is_err());
     }
 }
 
@@ -235,7 +254,7 @@ pub struct SpaceGroup {
     pub translations: Vec<Vec3>,
     /// 原子数
     pub n_atoms: usize,
-    /// Wyckoff 字母编码 (0=a, 1=b, ..., 26=z)
+    /// Wyckoff 位置字母（`a`–`z` 加 `α`）
     pub wyckoffs: Vec<WyckoffLetter>,
     /// 位点对称性符号
     pub site_symmetry_symbols: Vec<String>,

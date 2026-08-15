@@ -425,7 +425,7 @@ fn get_wyckoff_notation(
                 // 数据库是反序的 (gfedcba), wyckoff 按 a=0, b=1, c=2... 排列
                 let wyckoff_letter = indices_wyc_count - i - 1;
                 let symbol = ssmdb_get_site_symmetry_symbol(idx);
-                return Some((crate::WyckoffLetter::from_index(wyckoff_letter).expect("wyckoff letter index out of 0..=25"), symbol));
+                return Some((crate::WyckoffLetter::from_index(wyckoff_letter).ok()?, symbol));
             }
         }
     }
@@ -483,7 +483,7 @@ fn get_layer_wyckoff_notation(
             {
                 let wyckoff_letter = indices_wyc_count - i - 1;
                 let symbol = ssmdb_get_site_symmetry_symbol(idx);
-                return Some((crate::WyckoffLetter::from_index(wyckoff_letter).expect("wyckoff letter index out of 0..=25"), symbol));
+                return Some((crate::WyckoffLetter::from_index(wyckoff_letter).ok()?, symbol));
             }
         }
     }
