@@ -651,6 +651,7 @@ mod tests {
     fn set_cell_rejects_length_mismatches_without_partial_writes() {
         let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let mut cell = Cell::new(2, TensorRank::NoSpin);
+        let empty_snapshot = cell.clone();
 
         assert!(matches!(
             cell.set_cell(&lattice, &[[0.0; 3]], &[1, 1]),
@@ -664,8 +665,16 @@ mod tests {
             cell.set_layer_cell(&lattice, &[[0.0; 3]], &[1, 1], Some(AperiodicAxis::Z)),
             Err(SymError::InvalidInput)
         ));
+        assert_eq!(cell.lattice, empty_snapshot.lattice);
+        assert_eq!(cell.position, empty_snapshot.position);
+        assert_eq!(cell.types, empty_snapshot.types);
+        assert_eq!(cell.tensors, empty_snapshot.tensors);
+        assert_eq!(cell.tensor_rank, empty_snapshot.tensor_rank);
+        assert_eq!(cell.aperiodic_axis, empty_snapshot.aperiodic_axis);
 
         let positions = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]];
+        let other_lattice = [[2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let other_positions = [[0.8, 0.8, 0.8], [0.9, 0.9, 0.9]];
         let mut magnetic = Cell::new(2, TensorRank::NonCollinear);
         magnetic
             .set_cell_with_tensors(&lattice, &positions, &[1, 1], &[0.5; 6])
@@ -673,7 +682,12 @@ mod tests {
         let snapshot = magnetic.clone();
 
         assert!(matches!(
-            magnetic.set_cell_with_tensors(&lattice, &positions, &[1, 1], &[0.0; 5]),
+            magnetic.set_cell_with_tensors(
+                &other_lattice,
+                &other_positions,
+                &[6, 6],
+                &[0.0; 5]
+            ),
             Err(SymError::InvalidInput)
         ));
         assert!(matches!(
