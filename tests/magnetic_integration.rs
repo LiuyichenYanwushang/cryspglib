@@ -19,9 +19,9 @@ fn run_dataset(
     types: &[i32],
     moments: Option<&[[f64; 3]]>,
 ) -> cryspglib::MagneticSymmetry {
-    let mut cry = Crystal::new(*lattice, positions.to_vec(), types.to_vec());
+    let mut cry = Crystal::new(*lattice, positions.to_vec(), types.to_vec()).unwrap();
     if let Some(m) = moments {
-        cry = cry.with_magnetic(m.to_vec());
+        cry = cry.with_magnetic(m.to_vec()).unwrap();
     }
     let result = cry.analyze().symprec(SYMPREC).magnetic_dataset()
         .unwrap_or_else(|e| panic!("{}: magnetic_dataset failed: {:?}", label, e));
@@ -145,7 +145,8 @@ fn test_magnetic_dataset_rejects_mutated_public_fields() {
         lattice,
         vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
         vec![26, 26],
-    );
+    )
+    .unwrap();
     mismatched_types.types.pop();
     assert!(matches!(
         mismatched_types.analyze().symprec(SYMPREC).magnetic_dataset(),
@@ -157,7 +158,9 @@ fn test_magnetic_dataset_rejects_mutated_public_fields() {
         vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
         vec![26, 26],
     )
-    .with_magnetic(vec![[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]]);
+    .unwrap()
+    .with_magnetic(vec![[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
+    .unwrap();
     mismatched_moments.moments = Some(vec![[1.0, 0.0, 0.0]]);
     assert!(matches!(
         mismatched_moments
@@ -167,7 +170,7 @@ fn test_magnetic_dataset_rejects_mutated_public_fields() {
         Err(SymError::InvalidInput)
     ));
 
-    let empty = Crystal::new(lattice, vec![], vec![]);
+    let empty = Crystal::new(lattice, vec![], vec![]).unwrap();
     assert!(matches!(
         empty.analyze().symprec(SYMPREC).magnetic_dataset(),
         Err(SymError::InvalidInput)
@@ -323,7 +326,9 @@ fn test_graphene_afm_z() {
     // The identification must be stable across reasonable tolerances.
     for &sp in &[1e-3, 1e-4, 1e-5, 1e-6] {
         let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
-            .with_magnetic(moments.to_vec());
+            .unwrap()
+            .with_magnetic(moments.to_vec())
+            .unwrap();
         let r = cry.analyze().symprec(sp).magnetic_dataset()
             .unwrap_or_else(|e| panic!("symprec={sp}: magnetic_dataset failed: {e:?}"));
 
@@ -368,7 +373,7 @@ fn test_graphene_bilayer_z() {
     // --- Non-magnetic ---
     // Broken z-mirror: P6/mmm (#191) → P-3m1 (#164), 24→12 ops
     {
-        let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec());
+        let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec()).unwrap();
         let r = cry.analyze().symprec(1e-5).magnetic_dataset()
             .unwrap_or_else(|e| panic!("bilayer non-mag: {e:?}"));
         assert_eq!(r.spacegroup_number, 164, "non-mag: P-3m1");
@@ -385,7 +390,9 @@ fn test_graphene_bilayer_z() {
             [0.0, 0.0, 1.0],
         ];
         let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
-            .with_magnetic(moments.to_vec());
+            .unwrap()
+            .with_magnetic(moments.to_vec())
+            .unwrap();
         let r = cry.analyze().symprec(1e-5).magnetic_dataset()
             .unwrap_or_else(|e| panic!("bilayer FM: {e:?}"));
         assert_eq!(r.spacegroup_number, 164);
@@ -404,7 +411,9 @@ fn test_graphene_bilayer_z() {
             [0.0, 0.0, -1.0],
         ];
         let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
-            .with_magnetic(moments.to_vec());
+            .unwrap()
+            .with_magnetic(moments.to_vec())
+            .unwrap();
         let r = cry.analyze().symprec(1e-5).magnetic_dataset()
             .unwrap_or_else(|e| panic!("bilayer AFM: {e:?}"));
         assert_eq!(r.spacegroup_number, 164);
@@ -509,7 +518,7 @@ fn test_mnal2o4_afm_z() {
 
     // --- Non-magnetic: spinel Fd-3m (#227) ---
     {
-        let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec());
+        let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec()).unwrap();
         let r = cry
             .analyze()
             .symprec(SYMPREC)
@@ -528,7 +537,9 @@ fn test_mnal2o4_afm_z() {
         }
 
         let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
-            .with_magnetic(moments);
+            .unwrap()
+            .with_magnetic(moments)
+            .unwrap();
         let r = cry
             .analyze()
             .symprec(SYMPREC)

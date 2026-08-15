@@ -4571,7 +4571,8 @@ mod tests {
             ],
             vec![[0.0; 3], [0.0; 3]],
             vec![true, false],
-        );
+        )
+        .unwrap();
         let lg = filter_little_group(0, 0, 1, 2, &ops);
         assert_eq!(lg.len(), 2, "Both ops should be in Z-point little group");
     }
@@ -4591,7 +4592,8 @@ mod tests {
             ],
             vec![[0.0; 3], [0.0; 3]],
             vec![true, true],
-        );
+        )
+        .unwrap();
         let lg = filter_little_group(1, 0, 0, 8, &ops);
         assert_eq!(lg.len(), 1, "Only mx' should preserve k=(1/8,0,0)");
     }
@@ -4789,7 +4791,8 @@ mod tests {
             vec![id, id],
             vec![[0.0; 3], [0.0; 3]],
             vec![false, true],
-        );
+        )
+        .unwrap();
 
         assert!(
             build_corep_chars(

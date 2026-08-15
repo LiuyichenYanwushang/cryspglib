@@ -1101,11 +1101,7 @@ pub(crate) fn operations_in_data_hall_frame(
         translations.push(translation);
         time_reversals.push(operation.time_reversal);
     }
-    Some(SymmetryOps::from_parallel_owned(
-        rotations,
-        translations,
-        time_reversals,
-    ))
+    SymmetryOps::from_parallel_owned(rotations, translations, time_reversals).ok()
 }
 
 /// Get the magnetic space group symmetry operations.
@@ -1121,7 +1117,7 @@ pub fn get_magnetic_operations(uni_number: usize) -> Option<SymmetryOps> {
         trans.push(sym.trans[i]);
         timerev.push(sym.timerev[i]);
     }
-    Some(SymmetryOps::from_parallel(&rot, &trans, &timerev))
+    SymmetryOps::from_parallel(&rot, &trans, &timerev).ok()
 }
 
 fn get_first_hall_for_uni(uni: usize) -> Option<usize> {
@@ -1161,7 +1157,7 @@ fn get_parent_operations_by_hall(hall: usize) -> Option<SymmetryOps> {
         trans.push(sym.trans[i]);
     }
     let timerev = vec![false; n];
-    Some(SymmetryOps::from_parallel(&rot, &trans, &timerev))
+    SymmetryOps::from_parallel(&rot, &trans, &timerev).ok()
 }
 
 fn get_parent_operations(sg: u8) -> Result<SymmetryOps, crate::SymError> {
@@ -1315,7 +1311,8 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
 
     let n = unitary_rots.len();
     let timerev_from_msg = vec![false; n];
-    let ops_from_msg = SymmetryOps::from_parallel(&unitary_rots, &unitary_trans, &timerev_from_msg);
+    let ops_from_msg =
+        SymmetryOps::from_parallel(&unitary_rots, &unitary_trans, &timerev_from_msg).ok()?;
 
     let (sg, hall, ops_from_hall, msg_to_detected) = if let Some(s) = sg_from_metadata {
         // Type I/II: use metadata SG directly.
@@ -1328,7 +1325,8 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
             &unitary_rots,
             &unitary_trans,
             &vec![false; unitary_rots.len()],
-        );
+        )
+        .ok()?;
         if let Some((std_sg, std_hall, xf)) = standard_setting_transform(&unitary_ops, false) {
             let oh = get_parent_operations_by_hall(std_hall).or_else(|| {
                 get_parent_operations_by_hall(crate::api::find_hall_number(std_sg as u8).ok()?)
@@ -4299,7 +4297,7 @@ mod tests {
                 .map(|o| o.translation)
                 .collect();
             let unitary_ops =
-                SymmetryOps::from_parallel(&u_rots, &u_trans, &vec![false; u_rots.len()]);
+                SymmetryOps::from_parallel(&u_rots, &u_trans, &vec![false; u_rots.len()]).unwrap();
             if let Some((std_sg, std_hall, xf)) = standard_setting_transform(&unitary_ops, false) {
                 println!(
                     "  standard_setting: SG{} Hall{} basis={:?} origin=({:.3},{:.3},{:.3})",
@@ -6253,7 +6251,8 @@ mod tests {
                     &u_rots,
                     &u_trans,
                     &vec![false; u_rots.len()],
-                );
+                )
+                .unwrap();
                 if let Some((_, _, xf)) = standard_setting_transform(&u_ops, false) {
                     xf_owned = Some(xf);
                 }

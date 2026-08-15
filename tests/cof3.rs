@@ -51,6 +51,7 @@ fn test_cof3_nonmagnetic() {
     ];
 
     let dataset = Crystal::new(lattice, positions.to_vec(), types.to_vec())
+        .unwrap()
         .analyze()
         .symprec(SYMPREC)
         .dataset()
@@ -124,7 +125,9 @@ fn test_cof3_magnetic() {
     ];
 
     let result = Crystal::new(lattice, positions.to_vec(), types.to_vec())
+        .unwrap()
         .with_magnetic(moments.to_vec())
+        .unwrap()
         .analyze()
         .symprec(SYMPREC)
         .magnetic_dataset()

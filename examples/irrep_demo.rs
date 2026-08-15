@@ -22,7 +22,8 @@ fn main() {
             [0.0, 0.5, 0.5],
         ],
         vec![13, 13, 13, 13],
-    );
+    )
+    .unwrap();
     let ds = al.analyze().symprec(1e-5).dataset().unwrap();
 
     // 桥接 API: 从 SpaceGroup 直接查 irreps

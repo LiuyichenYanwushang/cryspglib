@@ -56,6 +56,7 @@ fn test_la2nio4() {
     ];
 
     let dataset = Crystal::new(lattice, positions.to_vec(), types.to_vec())
+        .unwrap()
         .analyze()
         .symprec(SYMPREC)
         .dataset()

@@ -9,7 +9,7 @@
 //!     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
 //!     vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
 //!     vec![26, 26],
-//! );
+//! )?;
 //! let ds = cry.analyze().symprec(1e-5).dataset()?;
 //! println!("Space group #{}: {}", ds.spacegroup_number, ds.international_symbol);
 //! # Ok::<(), SymError>(())
@@ -47,7 +47,8 @@ use crate::{MagneticSymmetry, SpaceGroup, SymError};
 ///     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
 ///     vec![[0.0, 0.0, 0.0], [0.25, 0.25, 0.25]],
 ///     vec![14, 14],
-/// );
+/// )?;
+/// # Ok::<(), cryspglib::SymError>(())
 /// ```
 #[derive(Debug, Clone)]
 pub struct Crystal {
@@ -66,28 +67,32 @@ pub struct Crystal {
 impl Crystal {
     /// Create a non-magnetic 3D crystal.
     ///
-    /// # Panics
-    /// Panics if `positions.len() != types.len()`.
-    pub fn new(lattice: Mat3, positions: Vec<Vec3>, types: Vec<i32>) -> Self {
-        assert_eq!(
-            positions.len(),
-            types.len(),
-            "positions and types must have the same length"
-        );
-        Crystal {
+    /// # Errors
+    /// Returns [`SymError::InvalidInput`] when `positions.len() != types.len()`.
+    pub fn new(lattice: Mat3, positions: Vec<Vec3>, types: Vec<i32>) -> Result<Self, SymError> {
+        if positions.len() != types.len() {
+            return Err(SymError::InvalidInput);
+        }
+        Ok(Crystal {
             lattice,
             positions,
             types,
             moments: None,
             aperiodic_axis: None,
-        }
+        })
     }
 
     /// Add collinear magnetic moments (one `[mx, my, mz]` per atom).
-    pub fn with_magnetic(mut self, moments: Vec<[f64; 3]>) -> Self {
-        assert_eq!(moments.len(), self.positions.len());
+    ///
+    /// # Errors
+    /// Returns [`SymError::InvalidInput`] when `moments.len()` does not match
+    /// the number of atoms.
+    pub fn with_magnetic(mut self, moments: Vec<[f64; 3]>) -> Result<Self, SymError> {
+        if moments.len() != self.positions.len() {
+            return Err(SymError::InvalidInput);
+        }
         self.moments = Some(moments);
-        self
+        Ok(self)
     }
 
     /// Mark as a 2D slab with the given aperiodic axis.
@@ -226,7 +231,7 @@ impl Crystal {
 ///
 /// ```no_run
 /// # use cryspglib::Crystal;
-/// let cry = Crystal::new([[1.;3];3], vec![[0.;3]], vec![14]);
+/// let cry = Crystal::new([[1.;3];3], vec![[0.;3]], vec![14])?;
 /// let ds = cry.analyze()
 ///     .symprec(1e-5)
 ///     .angle_tolerance(-0.1)
@@ -611,35 +616,54 @@ impl SymmetryOps {
 
     /// Build from parallel arrays (structure-of-arrays form).
     ///
-    /// Panics if the three slices have different lengths.
-    pub fn from_parallel(rot: &[Mat3I], trans: &[Vec3], timerev: &[bool]) -> Self {
-        assert_eq!(rot.len(), trans.len(), "rot and trans length mismatch");
-        assert_eq!(rot.len(), timerev.len(), "rot and timerev length mismatch");
-        let n = rot.len();
-        let operations: Vec<SymmetryOp> = (0..n)
-            .map(|i| SymmetryOp {
-                rotation: rot[i],
-                translation: trans[i],
-                time_reversal: timerev[i],
+    /// # Errors
+    /// Returns [`SymError::InvalidInput`] when `rot`, `trans`, and `timerev`
+    /// have different lengths.
+    pub fn from_parallel(
+        rot: &[Mat3I],
+        trans: &[Vec3],
+        timerev: &[bool],
+    ) -> Result<Self, SymError> {
+        if rot.len() != trans.len() || rot.len() != timerev.len() {
+            return Err(SymError::InvalidInput);
+        }
+        let operations = rot
+            .iter()
+            .zip(trans)
+            .zip(timerev)
+            .map(|((&rotation, &translation), &time_reversal)| SymmetryOp {
+                rotation,
+                translation,
+                time_reversal,
             })
             .collect();
-        SymmetryOps { operations }
+        Ok(SymmetryOps { operations })
     }
 
     /// Build from owned parallel vectors.
-    pub fn from_parallel_owned(rot: Vec<Mat3I>, trans: Vec<Vec3>, timerev: Vec<bool>) -> Self {
-        let n = rot.len();
-        assert_eq!(trans.len(), n, "length mismatch");
-        assert_eq!(timerev.len(), n, "length mismatch");
-        let mut operations = Vec::with_capacity(n);
-        for i in 0..n {
-            operations.push(SymmetryOp {
-                rotation: rot[i],
-                translation: trans[i],
-                time_reversal: timerev[i],
-            });
+    ///
+    /// # Errors
+    /// Returns [`SymError::InvalidInput`] when the three vectors have
+    /// different lengths.
+    pub fn from_parallel_owned(
+        rot: Vec<Mat3I>,
+        trans: Vec<Vec3>,
+        timerev: Vec<bool>,
+    ) -> Result<Self, SymError> {
+        if rot.len() != trans.len() || rot.len() != timerev.len() {
+            return Err(SymError::InvalidInput);
         }
-        SymmetryOps { operations }
+        let operations = rot
+            .into_iter()
+            .zip(trans)
+            .zip(timerev)
+            .map(|((rotation, translation), time_reversal)| SymmetryOp {
+                rotation,
+                translation,
+                time_reversal,
+            })
+            .collect();
+        Ok(SymmetryOps { operations })
     }
 
     /// Look up symmetry operations from the space group database by Hall number.
@@ -838,7 +862,7 @@ pub fn grid_point_from_address(grid_address: [i32; 3], mesh: [i32; 3]) -> Result
 ///     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
 ///     vec![[0.0, 0.0, 0.0]],
 ///     vec![14],
-/// );
+/// )?;
 /// let ds = cry.analyze().symprec(1e-5).dataset().unwrap();
 ///
 /// // 2x2x2 mesh, no q-point distortion
@@ -851,6 +875,7 @@ pub fn grid_point_from_address(grid_address: [i32; 3], mesh: [i32; 3]) -> Result
 /// ).unwrap();
 /// assert!(sm.num_ir > 0);
 /// assert!(sm.num_ir <= 8); // 8 total points in 2x2x2 mesh
+/// # Ok::<(), cryspglib::SymError>(())
 /// ```
 pub fn stabilized_reciprocal_mesh(
     mesh: [i32; 3],
@@ -973,7 +998,7 @@ pub fn dense_bz_grid_points_by_rotations(
 ///     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
 ///     vec![[0.0, 0.0, 0.0]],
 ///     vec![14],
-/// );
+/// )?;
 /// let ds = cry.analyze().symprec(1e-5).dataset().unwrap();
 /// let im = cry.analyze().irreducible_mesh([2, 2, 2], [0, 0, 0], true).unwrap();
 ///
@@ -986,6 +1011,7 @@ pub fn dense_bz_grid_points_by_rotations(
 ///     [0, 0, 0],
 /// ).unwrap();
 /// assert!(bz.num_bz > 0);
+/// # Ok::<(), cryspglib::SymError>(())
 /// ```
 pub fn relocate_bz_grid_address(
     grid_address: &[[i32; 3]],
@@ -1260,8 +1286,37 @@ mod ordinary_input_contract_tests {
     }
 
     #[test]
+    fn crystal_constructor_rejects_mismatched_lengths() {
+        assert!(matches!(
+            Crystal::new(cubic_lattice(), vec![[0.0; 3]], vec![14, 14]),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            Crystal::new(cubic_lattice(), vec![[0.0; 3]], vec![14])
+                .unwrap()
+                .with_magnetic(vec![[0.0; 3]; 2]),
+            Err(SymError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn symmetry_ops_from_parallel_rejects_mismatched_lengths() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let translation = [0.0; 3];
+        assert!(SymmetryOps::from_parallel(&[identity], &[], &[false]).is_err());
+        assert!(SymmetryOps::from_parallel(&[identity], &[translation], &[]).is_err());
+        assert!(
+            SymmetryOps::from_parallel_owned(vec![identity], vec![translation], vec![]).is_err()
+        );
+        assert!(
+            SymmetryOps::from_parallel_owned(vec![identity; 2], vec![translation], vec![false; 2])
+                .is_err()
+        );
+    }
+
+    #[test]
     fn ordinary_analysis_rejects_empty_crystal_across_terminal_methods() {
-        let empty = Crystal::new(cubic_lattice(), vec![], vec![]);
+        let empty = Crystal::new(cubic_lattice(), vec![], vec![]).unwrap();
         let analysis = empty.analyze();
 
         assert!(matches!(analysis.dataset(), Err(SymError::InvalidInput)));
@@ -1287,8 +1342,9 @@ mod ordinary_input_contract_tests {
             Err(SymError::InvalidInput)
         ));
 
-        let empty_layer =
-            Crystal::new(cubic_lattice(), vec![], vec![]).with_layer(AperiodicAxis::Z);
+        let empty_layer = Crystal::new(cubic_lattice(), vec![], vec![])
+            .unwrap()
+            .with_layer(AperiodicAxis::Z);
         assert!(matches!(
             empty_layer.analyze().dataset(),
             Err(SymError::InvalidInput)
@@ -1297,14 +1353,16 @@ mod ordinary_input_contract_tests {
 
     #[test]
     fn ordinary_analysis_rejects_mutated_parallel_fields() {
-        let mut empty_positions = Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]);
+        let mut empty_positions =
+            Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]).unwrap();
         empty_positions.positions.clear();
         assert!(matches!(
             empty_positions.analyze().dataset(),
             Err(SymError::InvalidInput)
         ));
 
-        let mut missing_type = Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]);
+        let mut missing_type =
+            Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]).unwrap();
         missing_type.types.clear();
         assert!(matches!(
             missing_type.analyze().primitive_cell(),
@@ -1315,7 +1373,8 @@ mod ordinary_input_contract_tests {
             cubic_lattice(),
             vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
             vec![14, 14],
-        );
+        )
+        .unwrap();
         short_moments.moments = Some(vec![[0.0; 3]]);
         assert!(matches!(
             short_moments.analyze().standardize(false, false),
@@ -1325,14 +1384,14 @@ mod ordinary_input_contract_tests {
 
     #[test]
     fn ordinary_analysis_valid_control_still_succeeds() {
-        let crystal = Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]);
+        let crystal = Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]).unwrap();
         let dataset = crystal.analyze().dataset().unwrap();
         assert_eq!(dataset.spacegroup_number, 221);
     }
 
     #[test]
     fn external_fields_filter_structural_operations_without_changing_dataset() {
-        let crystal = Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]);
+        let crystal = Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]).unwrap();
         let fields = ExternalFields {
             electric: Some([0.0, 0.0, 1.0]),
             magnetic: None,

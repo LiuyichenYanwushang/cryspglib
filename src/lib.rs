@@ -15,7 +15,7 @@
 //!     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
 //!     vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.5, 0.0, 0.5], [0.0, 0.5, 0.5]],
 //!     vec![13, 13, 13, 13],
-//! );
+//! )?;
 //! let ds = al.analyze().symprec(1e-5).dataset()?;
 //! println!("Space group #{}: {}", ds.spacegroup_number, ds.international_symbol);
 //! # Ok::<(), cryspglib::SymError>(())
@@ -32,13 +32,15 @@
 //!     [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
 //!     vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
 //!     vec![26, 26],
-//! ).with_magnetic(vec![
+//! )?
+//! .with_magnetic(vec![
 //!     [1.0/n, 1.0/n, 1.0/n],
 //!     [-1.0/n, -1.0/n, -1.0/n],
-//! ]);
+//! ])?;
 //!
 //! let r = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
 //! println!("SG #{} → UNI={}, BNS={}", r.spacegroup_number, r.uni_number, r.bns_number);
+//! # Ok::<(), cryspglib::SymError>(())
 //! ```
 //!
 //! # 主要类型
