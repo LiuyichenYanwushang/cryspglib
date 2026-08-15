@@ -11,6 +11,8 @@ exclude = [
     "isotropy_subgroup/*.txt",
     "isotropy_subgroup/*.html",
     "scripts/",
+    "examples/",
+    "tests/",
     "docs/",
     "*.md",
 ]
