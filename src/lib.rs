@@ -180,6 +180,33 @@ pub enum SymError {
 // Public data structures
 // ---------------------------------------------------------------------------
 
+/// A Wyckoff letter `a`–`z`, validated at construction so downstream code
+/// can never observe an out-of-range or placeholder value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WyckoffLetter(u8);
+
+impl WyckoffLetter {
+    /// Builds a Wyckoff letter from a 0-based index (0 = `a`, 25 = `z`).
+    pub fn from_index(value: i32) -> Result<Self, SymError> {
+        let index = u8::try_from(value).map_err(|_| SymError::InvalidInput)?;
+        if index > 25 {
+            return Err(SymError::InvalidInput);
+        }
+        Ok(Self(b'a' + index))
+    }
+
+    /// The letter as an ASCII `char`.
+    pub fn as_char(self) -> char {
+        self.0 as char
+    }
+}
+
+impl Default for WyckoffLetter {
+    fn default() -> Self {
+        Self(b'a')
+    }
+}
+
 /// 空间群数据集的完整结构。
 ///
 /// 包含标准晶胞、对称操作、Wyckoff 位置标记和映射信息。
@@ -209,7 +236,7 @@ pub struct SpaceGroup {
     /// 原子数
     pub n_atoms: usize,
     /// Wyckoff 字母编码 (0=a, 1=b, ..., 26=z)
-    pub wyckoffs: Vec<i32>,
+    pub wyckoffs: Vec<WyckoffLetter>,
     /// 位点对称性符号
     pub site_symmetry_symbols: Vec<String>,
     /// 对等原子映射

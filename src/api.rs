@@ -1072,7 +1072,7 @@ fn build_dataset(
         rotations: vec![[[0; 3]; 3]; n_operations],
         translations: vec![[0.0; 3]; n_operations],
         n_atoms,
-        wyckoffs: vec![0i32; n_atoms],
+        wyckoffs: vec![crate::WyckoffLetter::default(); n_atoms],
         site_symmetry_symbols: vec![String::new(); n_atoms],
         equivalent_atoms: vec![0; n_atoms],
         crystallographic_orbits: vec![0; n_atoms],

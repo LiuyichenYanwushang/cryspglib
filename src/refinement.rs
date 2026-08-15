@@ -29,7 +29,7 @@ const IDENTITY: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 pub struct ExactStructure {
     pub bravais: Cell,
     pub symmetry: Symmetry,
-    pub wyckoffs: Vec<i32>,
+    pub wyckoffs: Vec<crate::WyckoffLetter>,
     pub site_symmetry_symbols: Vec<String>,
     pub equivalent_atoms: Vec<usize>,
     pub crystallographic_orbits: Vec<usize>,
@@ -38,7 +38,7 @@ pub struct ExactStructure {
 }
 
 struct WyckoffOutput<'a> {
-    wyckoffs: &'a mut [i32],
+    wyckoffs: &'a mut [crate::WyckoffLetter],
     site_symmetry_symbols: &'a mut [String],
     equivalent_atoms: &'a mut [usize],
     crystallographic_orbits: &'a mut [usize],
@@ -46,7 +46,7 @@ struct WyckoffOutput<'a> {
 }
 
 struct BravaisExpansionOutput<'a> {
-    wyckoffs: &'a mut [i32],
+    wyckoffs: &'a mut [crate::WyckoffLetter],
     site_symmetry_symbols: &'a mut [String],
     equivalent_atoms: &'a mut [usize],
     std_mapping_to_primitive: &'a mut [usize],
@@ -70,7 +70,7 @@ pub fn get_exact_structure_and_symmetry(
     let symmetry = get_refined_symmetry_operations(cell, primitive, spacegroup, symprec)?;
 
     let n = cell.len();
-    let mut wyckoffs = vec![0i32; n];
+    let mut wyckoffs = vec![crate::WyckoffLetter::default(); n];
     let mut site_symmetry_symbols: Vec<String> = vec![String::new(); n];
     let mut equivalent_atoms = vec![0; n];
     let mut crystallographic_orbits = vec![0; n];
@@ -119,7 +119,7 @@ fn get_wyckoff_positions(
     debug::debug_print(format_args!("get_Wyckoff_positions\n"));
 
     let prim_size_4 = primitive.len() * 4;
-    let mut wyckoffs_bravais = vec![0i32; prim_size_4];
+    let mut wyckoffs_bravais = vec![crate::WyckoffLetter::default(); prim_size_4];
     let mut site_sym_symbols_bravais: Vec<String> = vec![String::new(); prim_size_4];
     let mut equiv_atoms_bravais = vec![0; prim_size_4];
 
@@ -176,7 +176,7 @@ fn get_wyckoff_positions(
 
 /// 获取 Bravais 格子中的精确原子位置和格子。
 fn get_bravais_exact_positions_and_lattice(
-    wyckoffs: &mut [i32],
+    wyckoffs: &mut [crate::WyckoffLetter],
     site_symmetry_symbols: &mut [String],
     equiv_atoms: &mut [usize],
     std_mapping_to_primitive: &mut [usize],
@@ -242,7 +242,7 @@ fn expand_positions_in_bravais(
     conv_prim: &Cell,
     conv_sym: &Symmetry,
     num_pure_trans: i32,
-    wyckoffs_prim: &[i32],
+    wyckoffs_prim: &[crate::WyckoffLetter],
     site_symmetry_symbols_prim: &[String],
     equiv_atoms_prim: &[usize],
 ) -> Cell {

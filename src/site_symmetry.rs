@@ -17,7 +17,7 @@ const NUM_ATTEMPT: i32 = 5;
 
 pub(crate) struct ExactPositions {
     pub positions: Vec<Vec3>,
-    pub wyckoffs: Vec<i32>,
+    pub wyckoffs: Vec<crate::WyckoffLetter>,
     pub equivalent_atoms: Vec<usize>,
     pub site_symmetry_symbols: Vec<String>,
 }
@@ -314,7 +314,7 @@ fn set_wyckoffs_labels(
     num_pure_trans: i32,
     hall_number: usize,
     symprec: f64,
-) -> Option<(Vec<i32>, Vec<String>)> {
+) -> Option<(Vec<crate::WyckoffLetter>, Vec<String>)> {
     let n = conv_prim.len();
     let mut nums_equiv_atoms = vec![0i32; n];
     for i in 0..n {
@@ -323,7 +323,7 @@ fn set_wyckoffs_labels(
 
     debug::debug_print(format_args!("num_pure_trans: {}\n", num_pure_trans));
 
-    let mut wyckoffs = vec![0i32; n];
+    let mut wyckoffs = vec![crate::WyckoffLetter::default(); n];
     let mut symbols: Vec<String> = vec![String::new(); n];
 
     if hall_number > 0 {
@@ -385,7 +385,7 @@ fn get_wyckoff_notation(
     bravais_lattice: &Mat3,
     hall_number: usize,
     symprec: f64,
-) -> Option<(i32, String)> {
+) -> Option<(crate::WyckoffLetter, String)> {
     debug::debug_print(format_args!("get_Wyckoff_notation\n"));
 
     let n = conv_sym.len();
@@ -425,7 +425,7 @@ fn get_wyckoff_notation(
                 // 数据库是反序的 (gfedcba), wyckoff 按 a=0, b=1, c=2... 排列
                 let wyckoff_letter = indices_wyc_count - i - 1;
                 let symbol = ssmdb_get_site_symmetry_symbol(idx);
-                return Some((wyckoff_letter, symbol));
+                return Some((crate::WyckoffLetter::from_index(wyckoff_letter).expect("wyckoff letter index out of 0..=25"), symbol));
             }
         }
     }
@@ -442,7 +442,7 @@ fn get_layer_wyckoff_notation(
     hall_number: usize,
     aperiodic: AperiodicAxis,
     symprec: f64,
-) -> Option<(i32, String)> {
+) -> Option<(crate::WyckoffLetter, String)> {
     debug::debug_print(format_args!("get_layer_Wyckoff_notation\n"));
 
     let n = conv_sym.len();
@@ -483,7 +483,7 @@ fn get_layer_wyckoff_notation(
             {
                 let wyckoff_letter = indices_wyc_count - i - 1;
                 let symbol = ssmdb_get_site_symmetry_symbol(idx);
-                return Some((wyckoff_letter, symbol));
+                return Some((crate::WyckoffLetter::from_index(wyckoff_letter).expect("wyckoff letter index out of 0..=25"), symbol));
             }
         }
     }
