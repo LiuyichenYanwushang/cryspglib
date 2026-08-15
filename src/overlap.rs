@@ -493,7 +493,7 @@ mod tests {
         let positions = [[0.0, 0.0, 0.0]];
         let types = [1];
         let mut cell = Cell::new(1, TensorRank::NoSpin);
-        cell.set_cell(&lattice, &positions, &types);
+        cell.set_cell(&lattice, &positions, &types).unwrap();
         cell
     }
 
@@ -503,7 +503,7 @@ mod tests {
         let positions = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]];
         let types = [1, 1];
         let mut cell = Cell::new(2, TensorRank::NoSpin);
-        cell.set_cell(&lattice, &positions, &types);
+        cell.set_cell(&lattice, &positions, &types).unwrap();
         cell
     }
 
@@ -513,7 +513,8 @@ mod tests {
         let positions = [[0.1, 0.2, 0.3]];
         let types = [1];
         let mut cell = Cell::new(1, TensorRank::NoSpin);
-        cell.set_layer_cell(&lattice, &positions, &types, Some(AperiodicAxis::Z));
+        cell.set_layer_cell(&lattice, &positions, &types, Some(AperiodicAxis::Z))
+            .unwrap();
         cell
     }
 

@@ -1001,7 +1001,7 @@ mod tests {
         types: &[i32],
     ) -> Option<Spacegroup> {
         let mut cell = Cell::new(types.len(), crate::cell::TensorRank::NoSpin);
-        cell.set_cell(lattice, positions, types);
+        cell.set_cell(lattice, positions, types).ok()?;
         cell.aperiodic_axis = None;
 
         // 第一步：获取原胞 (Primitive)

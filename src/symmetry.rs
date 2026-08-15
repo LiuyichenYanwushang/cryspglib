@@ -844,7 +844,7 @@ mod tests {
         let positions = [[0.0, 0.0, 0.0]];
         let types = [1];
         let mut cell = Cell::new(1, TensorRank::NoSpin);
-        cell.set_cell(&lattice, &positions, &types);
+        cell.set_cell(&lattice, &positions, &types).unwrap();
 
         let t = get_pure_translation(&cell, 1e-5).unwrap();
         assert_eq!(t.len(), 1);
@@ -859,7 +859,7 @@ mod tests {
         let positions = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]];
         let types = [1, 1];
         let mut cell = Cell::new(2, TensorRank::NoSpin);
-        cell.set_cell(&lattice, &positions, &types);
+        cell.set_cell(&lattice, &positions, &types).unwrap();
 
         let t = get_pure_translation(&cell, 1e-5).unwrap();
         assert_eq!(t.len(), 2);

@@ -5,6 +5,7 @@
 //! 行=笛卡尔分量 (x,y,z)，列=晶格矢量 (a,b,c)。
 //! 详见 [`mathfunc`](crate::mathfunc) 模块文档。
 
+use crate::SymError;
 use crate::debug;
 use crate::mathfunc::{
     Mat3, Vec3, mat_cast_matrix_3d_to_3i, mat_dabs,
@@ -116,62 +117,100 @@ impl Cell {
         self.types.is_empty()
     }
 
-    /// 设置 Cell 数据
-    /// 对应 C: cel_set_cell
-    pub fn set_cell(&mut self, lattice: &Mat3, position: &[Vec3], types: &[i32]) {
+    /// 设置 Cell 数据。
+    ///
+    /// `position` 与 `types` 的长度必须都等于当前 Cell 的原子数。
+    ///
+    /// # Errors
+    /// 长度不匹配时返回 [`SymError::InvalidInput`]。
+    pub fn set_cell(
+        &mut self,
+        lattice: &Mat3,
+        position: &[Vec3],
+        types: &[i32],
+    ) -> Result<(), SymError> {
+        self.validate_input_lengths(position, types)?;
         self.lattice = *lattice;
-        for i in 0..self.len() {
-            for (dst, &src) in self.position[i].iter_mut().zip(&position[i]) {
+        for (dst, &src) in self.position.iter_mut().zip(position) {
+            for (component, value) in dst.iter_mut().zip(src) {
                 // 确保位置在 [-0.5, 0.5) 区间内，或者 [0, 1) 取决于 mat_nint 实现
                 // C 代码逻辑：position - Nint(position)
-                *dst = src - mat_nint(src) as f64;
+                *component = value - mat_nint(value) as f64;
             }
-            self.types[i] = types[i];
         }
+        self.types.copy_from_slice(types);
+        Ok(())
     }
 
-    /// 设置层状 Cell 数据
-    /// 对应 C: cel_set_layer_cell
+    /// 设置层状 Cell 数据。
+    ///
+    /// # Errors
+    /// `position` 与 `types` 的长度不匹配时返回 [`SymError::InvalidInput`]。
     pub fn set_layer_cell(
         &mut self,
         lattice: &Mat3,
         position: &[Vec3],
         types: &[i32],
         aperiodic_axis: Option<AperiodicAxis>,
-    ) {
+    ) -> Result<(), SymError> {
+        self.validate_input_lengths(position, types)?;
         self.lattice = *lattice;
-        for i in 0..self.len() {
-            for (j, dst) in self.position[i].iter_mut().enumerate() {
+        for (dst, &src) in self.position.iter_mut().zip(position) {
+            for (j, component) in dst.iter_mut().enumerate() {
                 if aperiodic_axis.is_none_or(|ap| j != ap.axis_index()) {
-                    *dst = position[i][j] - mat_nint(position[i][j]) as f64;
+                    *component = src[j] - mat_nint(src[j]) as f64;
                 } else {
-                    *dst = position[i][j];
+                    *component = src[j];
                 }
             }
-            self.types[i] = types[i];
         }
+        self.types.copy_from_slice(types);
         self.aperiodic_axis = aperiodic_axis;
+        Ok(())
     }
 
-    /// 设置带张量的 Cell 数据
-    /// 对应 C: cel_set_cell_with_tensors
+    /// 设置带张量的 Cell 数据（三维周期晶胞）。
+    ///
+    /// # Errors
+    /// 位置/类型长度不匹配，或 `tensors` 长度不等于当前张量秩要求的长度
+    /// （NoSpin 为 0，Collinear 为原子数，NonCollinear 为原子数 × 3）时
+    /// 返回 [`SymError::InvalidInput`]。
     pub fn set_cell_with_tensors(
         &mut self,
         lattice: &Mat3,
         position: &[Vec3],
         types: &[i32],
         tensors: &[f64],
-    ) {
-        self.set_cell(lattice, position, types);
-        let n = self.len();
+    ) -> Result<(), SymError> {
+        self.set_cell(lattice, position, types)?;
+        self.set_tensors(tensors)
+    }
+
+    /// 只更新磁性张量，不触碰晶格、位置和类型。
+    ///
+    /// # Errors
+    /// `tensors` 长度不等于当前张量秩要求的长度时返回
+    /// [`SymError::InvalidInput`]。
+    pub fn set_tensors(&mut self, tensors: &[f64]) -> Result<(), SymError> {
+        if tensors.len() != self.expected_tensor_len() {
+            return Err(SymError::InvalidInput);
+        }
+        self.tensors.copy_from_slice(tensors);
+        Ok(())
+    }
+
+    fn validate_input_lengths(&self, position: &[Vec3], types: &[i32]) -> Result<(), SymError> {
+        if position.len() != self.len() || types.len() != self.len() {
+            return Err(SymError::InvalidInput);
+        }
+        Ok(())
+    }
+
+    fn expected_tensor_len(&self) -> usize {
         match self.tensor_rank {
-            TensorRank::Collinear => {
-                self.tensors[..n].copy_from_slice(&tensors[..n]);
-            }
-            TensorRank::NonCollinear => {
-                self.tensors[..n * 3].copy_from_slice(&tensors[..n * 3]);
-            }
-            _ => {}
+            TensorRank::NoSpin => 0,
+            TensorRank::Collinear => self.len(),
+            TensorRank::NonCollinear => self.len() * 3,
         }
     }
 }
@@ -604,6 +643,41 @@ mod tests {
     }
 
     #[test]
+    fn set_cell_rejects_length_mismatches_without_partial_writes() {
+        let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let mut cell = Cell::new(2, TensorRank::NoSpin);
+
+        assert!(matches!(
+            cell.set_cell(&lattice, &[[0.0; 3]], &[1, 1]),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            cell.set_cell(&lattice, &[[0.0; 3]; 2], &[1]),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            cell.set_layer_cell(&lattice, &[[0.0; 3]], &[1, 1], Some(AperiodicAxis::Z)),
+            Err(SymError::InvalidInput)
+        ));
+
+        let mut magnetic = Cell::new(2, TensorRank::NonCollinear);
+        assert!(matches!(
+            magnetic.set_cell_with_tensors(&lattice, &[[0.0; 3]; 2], &[1, 1], &[0.0; 5]),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            magnetic.set_cell_with_tensors(&lattice, &[[0.0; 3]], &[1], &[0.0; 3]),
+            Err(SymError::InvalidInput)
+        ));
+        assert!(matches!(
+            magnetic.set_tensors(&[0.0; 5]),
+            Err(SymError::InvalidInput)
+        ));
+        magnetic.set_tensors(&[0.0; 6]).unwrap();
+        assert_eq!(magnetic.tensors, vec![0.0; 6]);
+    }
+
+    #[test]
     fn test_overlap() {
         let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let a = [0.1, 0.1, 0.1];
@@ -630,7 +704,7 @@ mod tests {
         let mut cell = Cell::new(2, TensorRank::NoSpin);
         let positions = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]];
         let types = [1, 1];
-        cell.set_cell(&super_lattice, &positions, &types);
+        cell.set_cell(&super_lattice, &positions, &types).unwrap();
 
         let mut mapping_table = vec![0; 2];
         let trimmed = trim_cell(&mut mapping_table, &trimmed_lattice, &cell, 1e-5);

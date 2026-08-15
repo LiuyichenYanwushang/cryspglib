@@ -463,7 +463,7 @@ mod tests {
     fn one_atom_cell() -> Cell {
         let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let mut cell = Cell::new(1, TensorRank::NoSpin);
-        cell.set_cell(&lattice, &[[0.0; 3]], &[1]);
+        cell.set_cell(&lattice, &[[0.0; 3]], &[1]).unwrap();
         cell
     }
 

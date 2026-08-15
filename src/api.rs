@@ -146,19 +146,22 @@ impl Crystal {
         }
         let tensor_rank = self.tensor_rank();
         let mut cell = Cell::new(self.positions.len(), tensor_rank);
-        if self.aperiodic_axis().is_none() {
-            cell.set_cell(&self.lattice, &self.positions, &self.types);
-        } else {
-            cell.set_layer_cell(
-                &self.lattice,
-                &self.positions,
-                &self.types,
-                self.aperiodic_axis,
-            );
-        }
-        if let Some(ref moments) = self.moments {
-            let tensors: Vec<f64> = moments.iter().flat_map(|m| [m[0], m[1], m[2]]).collect();
-            cell.set_cell_with_tensors(&self.lattice, &self.positions, &self.types, &tensors);
+        let tensors = self
+            .moments
+            .as_ref()
+            .map(|moments| moments.iter().flat_map(|m| [m[0], m[1], m[2]]).collect::<Vec<_>>());
+        match (self.aperiodic_axis(), tensors) {
+            (None, None) => cell.set_cell(&self.lattice, &self.positions, &self.types)?,
+            (Some(axis), None) => {
+                cell.set_layer_cell(&self.lattice, &self.positions, &self.types, Some(axis))?
+            }
+            (None, Some(tensors)) => {
+                cell.set_cell_with_tensors(&self.lattice, &self.positions, &self.types, &tensors)?
+            }
+            (Some(axis), Some(tensors)) => {
+                cell.set_layer_cell(&self.lattice, &self.positions, &self.types, Some(axis))?;
+                cell.set_tensors(&tensors)?;
+            }
         }
         Ok(cell)
     }
@@ -1297,6 +1300,19 @@ mod ordinary_input_contract_tests {
                 .with_magnetic(vec![[0.0; 3]; 2]),
             Err(SymError::InvalidInput)
         ));
+    }
+
+    #[test]
+    fn layer_with_magnetic_moments_keeps_aperiodic_coordinate_unwrapped() {
+        let crystal = Crystal::new(cubic_lattice(), vec![[0.1, 0.2, 1.3]], vec![14])
+            .unwrap()
+            .with_magnetic(vec![[0.0, 0.0, 1.0]])
+            .unwrap()
+            .with_layer(AperiodicAxis::Z);
+        let cell = crystal.to_cell().unwrap();
+        assert_eq!(cell.position[0][2], 1.3);
+        assert!((cell.position[0][0] - 0.1).abs() < 1e-12);
+        assert_eq!(cell.tensors, vec![0.0, 0.0, 1.0]);
     }
 
     #[test]

@@ -564,10 +564,9 @@ pub(crate) fn magnetic_symmetry_from_crystal(
     };
 
     let mut cell = crate::cell::Cell::new(n_atoms, tensor_rank);
-    cell.set_cell(lattice, positions, types);
+    cell.set_cell(lattice, positions, types)?;
 
-    if has_mag {
-        let moments = magnetic_moments.unwrap();
+    if let Some(moments) = magnetic_moments {
         for (i, moment) in moments.iter().enumerate().take(n_atoms) {
             cell.tensors[i * 3] = moment[0];
             cell.tensors[i * 3 + 1] = moment[1];
