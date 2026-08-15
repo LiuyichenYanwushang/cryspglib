@@ -949,7 +949,7 @@ fn build_spacegroup_type(hall_number: usize) -> Result<SpaceGroupType, SymError>
     }
 
     let spgtype = get_spacegroup_type(hall_number);
-    let pointgroup = get_pointgroup(spgtype.pointgroup_number);
+    let pointgroup = get_pointgroup(spgtype.pointgroup_number)?;
 
     Ok(SpaceGroupType {
         number: spgtype.number,

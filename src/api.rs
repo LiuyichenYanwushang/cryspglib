@@ -1144,7 +1144,7 @@ fn build_dataset(
     }
     dataset.std_rotation_matrix = exstr.rotation;
 
-    let pointgroup = get_pointgroup(spacegroup.pointgroup_number);
+    let pointgroup = get_pointgroup(spacegroup.pointgroup_number).ok()?;
     dataset.pointgroup_symbol = pointgroup.symbol.to_string();
 
     Some(dataset)

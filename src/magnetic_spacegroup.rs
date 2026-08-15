@@ -826,10 +826,7 @@ fn find_spacegroup_by_symmetry(
 ) -> Option<Spacegroup> {
     let mut origin_shift = [0.0; 3];
 
-    let (tmat_int, pointgroup) = get_transformation_matrix(&symmetry.rot, None);
-    if pointgroup.number == 0 {
-        return None;
-    }
+    let (tmat_int, pointgroup) = get_transformation_matrix(&symmetry.rot, None)?;
 
     let mut correction_mat = [[0.0; 3]; 3];
     let centering = get_centering(&mut correction_mat, &tmat_int, pointgroup.laue);

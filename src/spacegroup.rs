@@ -394,11 +394,8 @@ fn search_spacegroup_with_symmetry_core(
         symmetry,
         symprec,
         angle_tolerance,
-    );
-
-    if hall_number == 0 {
-        return Err(SymError::SpacegroupSearchFailed);
-    }
+    )
+    .ok_or(SymError::SpacegroupSearchFailed)?;
 
     get_spacegroup(hall_number, &origin_shift, &conv_lattice)
         .ok_or(SymError::SpacegroupSearchFailed)
@@ -435,7 +432,7 @@ fn iterative_search_hall_number(
     symmetry: &Symmetry,
     symprec: f64,
     angle_tolerance: f64,
-) -> i32 {
+) -> Option<i32> {
     debug::debug_print(format_args!("iterative_search_hall_number:\n"));
 
     let mut hall_number = search_hall_number(
@@ -447,7 +444,7 @@ fn iterative_search_hall_number(
         symprec,
     );
 
-    if hall_number != 0 {
+    if hall_number.is_some() {
         return hall_number;
     }
 
@@ -481,11 +478,11 @@ fn iterative_search_hall_number(
         // Reject Hall 1 when the original symmetry had non-trivial
         // operations — the tolerance retry must not reduce a genuine
         // subgroup down to just identity and then claim "SG1".
-        if hall_number == 1 && symmetry.len() > 1 {
-            hall_number = 0;
+        if hall_number == Some(1) && symmetry.len() > 1 {
+            hall_number = None;
         }
 
-        if hall_number != 0 {
+        if hall_number.is_some() {
             break;
         }
     }
@@ -500,15 +497,12 @@ fn search_hall_number(
     primitive: &Primitive,
     symmetry: &Symmetry,
     symprec: f64,
-) -> i32 {
+) -> Option<i32> {
     debug::debug_print(format_args!("search_hall_number:\n"));
 
     let aperiodic_axis = primitive.cell.as_ref().unwrap().aperiodic_axis;
-    let (mut tmat_int, pointgroup) = get_transformation_matrix(&symmetry.rot, aperiodic_axis);
-
-    if pointgroup.number == 0 {
-        return 0;
-    }
+    let (mut tmat_int, pointgroup) =
+        get_transformation_matrix(&symmetry.rot, aperiodic_axis)?;
 
     if pointgroup.laue == Laue::Laue1 || pointgroup.laue == Laue::Laue2M {
         let conv_lattice_tmp =
@@ -522,7 +516,7 @@ fn search_hall_number(
                 symprec,
                 aperiodic_axis,
             ) {
-                return 0;
+                return None;
             }
 
         if pointgroup.laue == Laue::Laue2M
@@ -533,24 +527,20 @@ fn search_hall_number(
                 symprec,
                 aperiodic_axis,
             ) {
-                return 0;
+                return None;
             }
     }
 
     let mut correction_mat = [[0.0; 3]; 3];
     let centering = get_centering(&mut correction_mat, &tmat_int, pointgroup.laue);
     if centering == Centering::Error {
-        return 0;
+        return None;
     }
 
     let tmat = mat_multiply_matrix_id3(&tmat_int, &correction_mat);
     *conv_lattice = mat_multiply_matrix_d3(&primitive.cell.as_ref().unwrap().lattice, &tmat);
 
-    let conv_symmetry = get_initial_conventional_symmetry(centering, &tmat, symmetry);
-    if conv_symmetry.is_none() {
-        return 0;
-    }
-    let conv_symmetry = conv_symmetry.unwrap();
+    let conv_symmetry = get_initial_conventional_symmetry(centering, &tmat, symmetry)?;
 
     let holohedry = pointgroup.holohedry;
     let pg_number = pointgroup.number;
@@ -570,11 +560,11 @@ fn search_hall_number(
             &match_context,
         ) {
             debug::debug_print(format_args!("origin shift\n"));
-            return cand;
+            return Some(cand);
         }
     }
 
-    0
+    None
 }
 
 fn change_basis_tricli(

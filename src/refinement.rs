@@ -4,6 +4,7 @@
 //! 利用位点对称性数据库确定原子的精确 Wyckoff 位置，
 //! 并恢复原始晶胞中的对称操作。
 
+use crate::SymError;
 use crate::cell::{is_overlap, is_overlap_with_same_type, layer_is_overlap_with_same_type, AperiodicAxis, Cell};
 use crate::debug;
 use crate::mathfunc::{
@@ -194,7 +195,7 @@ fn get_bravais_exact_positions_and_lattice(
     let num_pure_trans = get_number_of_pure_translation(&conv_sym);
 
     // Set conventional lattice
-    conv_prim.lattice = get_conventional_lattice(spacegroup);
+    conv_prim.lattice = get_conventional_lattice(spacegroup).ok()?;
 
     // Set aperiodic axis
     conv_prim.aperiodic_axis = if spacegroup.hall_number > 0 { None } else { Some(AperiodicAxis::Z) };
@@ -321,10 +322,10 @@ fn get_conventional_primitive(spacegroup: &Spacegroup, primitive: &Cell) -> Opti
 /// 通过点群的 holohedry 类型确定晶格约束，
 /// 将自由的 Bravais 晶格约化到标准常规形式。
 ///
-/// # Returns
-/// 满足空间群约束的标准常规晶格矩阵。
-pub fn get_conventional_lattice(spacegroup: &Spacegroup) -> Mat3 {
-    let pointgroup = get_pointgroup(spacegroup.pointgroup_number);
+/// # Errors
+/// 空间群的点群编号无效时返回 [`SymError::PointgroupNotFound`]。
+pub fn get_conventional_lattice(spacegroup: &Spacegroup) -> Result<Mat3, SymError> {
+    let pointgroup = get_pointgroup(spacegroup.pointgroup_number)?;
 
     let mut lattice = [[0.0; 3]; 3];
 
@@ -356,7 +357,7 @@ pub fn get_conventional_lattice(spacegroup: &Spacegroup) -> Mat3 {
         Holohedry::Cubic => lattice = set_cubic(&metric),
         Holohedry::None => {}
     }
-    lattice
+    Ok(lattice)
 }
 
 // --- 标准晶格生成函数 ---
@@ -917,7 +918,9 @@ pub fn find_similar_bravais_lattice(spacegroup: &mut Spacegroup, symprec: f64) -
         None => return false,
     };
 
-    let std_lattice = get_conventional_lattice(spacegroup);
+    let Ok(std_lattice) = get_conventional_lattice(spacegroup) else {
+        return false;
+    };
 
     // Find best rotation
     let mut min_length2 = 0.0;

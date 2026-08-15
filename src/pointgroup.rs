@@ -377,9 +377,6 @@ pub(crate) static ROT_AXES: [[i32; 3]; NUM_ROT_AXES] = [
 /// * `rotations` - 旋转操作矩阵（整数矩阵）。
 /// * `aperiodic_axis` - 层状结构的非周期轴（三维周期传 `None`）。
 ///
-/// # Returns
-/// `(transform_mat, pointgroup)` — `transform_mat` 将旋转操作变换到标准方向，
-/// `pointgroup` 包含点群编号、符号等信息。若无法识别点群则 `pointgroup.number == 0`。
 /// Identify a crystallographic point group from rotation operations.
 ///
 /// Returns the international symbol, the conventional-basis transformation,
@@ -387,49 +384,54 @@ pub(crate) static ROT_AXES: [[i32; 3]; NUM_ROT_AXES] = [
 pub fn pointgroup_from_rotations(
     rotations: &[Mat3I],
 ) -> Result<(String, Mat3I, usize), SymError> {
-    let (transform, pointgroup) = get_transformation_matrix(rotations, None);
-    if pointgroup.number == 0 {
-        return Err(SymError::PointgroupNotFound);
-    }
+    let (transform, pointgroup) =
+        get_transformation_matrix(rotations, None).ok_or(SymError::PointgroupNotFound)?;
     Ok((pointgroup.symbol, transform, pointgroup.number))
 }
 
+/// 从旋转操作计算点群和标准方向变换矩阵。
+///
+/// 无法识别时返回 `None`，不再返回 `number == 0` 的伪点群。
 pub fn get_transformation_matrix(
     rotations: &[Mat3I],
     aperiodic_axis: Option<AperiodicAxis>,
-) -> (Mat3I, Pointgroup) {
+) -> Option<(Mat3I, Pointgroup)> {
     debug::debug_print(format_args!("get_transformation_matrix:\n"));
 
     let mut transform_mat = [[0; 3]; 3];
 
-    let pg_num = get_pointgroup_number_by_rotations(rotations);
+    let pg_num = get_pointgroup_number_by_rotations(rotations)?;
 
-    if pg_num > 0 && (aperiodic_axis.is_none() || pg_num < 28) {
-        let pointgroup = get_pointgroup(pg_num as usize);
-        let pointsym = get_pointsymmetry(rotations);
-        let mut axes = [0; 3];
-        get_axes(&mut axes, pointgroup.laue, &pointsym, aperiodic_axis);
-        set_transformation_matrix(&mut transform_mat, &axes);
-        (transform_mat, pointgroup)
-    } else {
+    if aperiodic_axis.is_some() && pg_num >= 28 {
         debug::info_print(format_args!("spglib: No point group was found\n"));
-        let mut pg = get_pointgroup(0);
-        pg.number = 0;
-        (transform_mat, pg)
+        return None;
     }
+
+    let pointgroup = get_pointgroup(pg_num).ok()?;
+    let pointsym = get_pointsymmetry(rotations);
+    let mut axes = [0; 3];
+    get_axes(&mut axes, pointgroup.laue, &pointsym, aperiodic_axis);
+    set_transformation_matrix(&mut transform_mat, &axes);
+    Some((transform_mat, pointgroup))
 }
 
-pub fn get_pointgroup(pointgroup_number: usize) -> Pointgroup {
-    let idx = pointgroup_number;
-    let pg_type = &POINTGROUP_DATA[idx];
+/// 按点群编号查询点群信息。
+///
+/// # Errors
+/// 编号超出 1–32 范围时返回 [`SymError::PointgroupNotFound`]。
+pub fn get_pointgroup(pointgroup_number: usize) -> Result<Pointgroup, SymError> {
+    let pg_type = POINTGROUP_DATA
+        .get(pointgroup_number)
+        .filter(|_| pointgroup_number != 0)
+        .ok_or(SymError::PointgroupNotFound)?;
 
-    Pointgroup {
+    Ok(Pointgroup {
         number: pointgroup_number,
         symbol: pg_type.symbol.trim().to_string(),
         schoenflies: pg_type.schoenflies.trim().to_string(),
         holohedry: pg_type.holohedry,
         laue: pg_type.laue,
-    }
+    })
 }
 
 pub fn get_pointsymmetry(rotations: &[Mat3I]) -> PointSymmetry {
@@ -448,29 +450,29 @@ pub fn get_pointsymmetry(rotations: &[Mat3I]) -> PointSymmetry {
 
 // --- Internal Functions ---
 
-fn get_pointgroup_number_by_rotations(rotations: &[Mat3I]) -> i32 {
+fn get_pointgroup_number_by_rotations(rotations: &[Mat3I]) -> Option<usize> {
     let pointsym = get_pointsymmetry(rotations);
     get_pointgroup_number(&pointsym)
 }
 
-fn get_pointgroup_number(pointsym: &PointSymmetry) -> i32 {
+fn get_pointgroup_number(pointsym: &PointSymmetry) -> Option<usize> {
     debug::debug_print(format_args!("get_pointgroup_number:"));
 
     let mut table = [0; 10];
     if !get_pointgroup_class_table(&mut table, pointsym) {
         debug::debug_print(format_args!(" 0\n"));
-        return 0;
+        return None;
     }
 
     for (i, pg_type) in POINTGROUP_DATA.iter().enumerate().take(33).skip(1) {
         if pg_type.table == table {
             debug::debug_print(format_args!(" {}\n", i));
-            return i as i32;
+            return Some(i);
         }
     }
 
     debug::debug_print(format_args!(" 0\n"));
-    0
+    None
 }
 
 fn get_pointgroup_class_table(table: &mut [i32; 10], pointsym: &PointSymmetry) -> bool {
