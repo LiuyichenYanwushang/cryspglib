@@ -53,15 +53,15 @@ use crate::{MagneticSymmetry, SpaceGroup, SymError};
 #[derive(Debug, Clone)]
 pub struct Crystal {
     /// Lattice matrix, layout `[cart][vec]`
-    pub lattice: Mat3,
+    lattice: Mat3,
     /// Atomic positions in fractional coordinates
-    pub positions: Vec<Vec3>,
+    positions: Vec<Vec3>,
     /// Atomic numbers (e.g., 14 for Si, 26 for Fe)
-    pub types: Vec<i32>,
+    types: Vec<i32>,
     /// Magnetic moments per atom (`[mx, my, mz]`). `None` = non-magnetic.
-    pub moments: Option<Vec<[f64; 3]>>,
+    moments: Option<Vec<[f64; 3]>>,
     /// Aperiodic axis for 2D slabs. `None` = full 3D periodicity.
-    pub aperiodic_axis: Option<AperiodicAxis>,
+    aperiodic_axis: Option<AperiodicAxis>,
 }
 
 impl Crystal {
@@ -104,6 +104,31 @@ impl Crystal {
     /// Number of atoms.
     pub fn natom(&self) -> usize {
         self.positions.len()
+    }
+
+    /// Lattice matrix, layout `[cart][vec]`.
+    pub fn lattice(&self) -> Mat3 {
+        self.lattice
+    }
+
+    /// Atomic positions in fractional coordinates.
+    pub fn positions(&self) -> &[Vec3] {
+        &self.positions
+    }
+
+    /// Atomic numbers (e.g., 14 for Si, 26 for Fe).
+    pub fn types(&self) -> &[i32] {
+        &self.types
+    }
+
+    /// Magnetic moments per atom; `None` for a non-magnetic crystal.
+    pub fn moments(&self) -> Option<&[[f64; 3]]> {
+        self.moments.as_deref()
+    }
+
+    /// Aperiodic axis for 2D slabs; `None` means full 3D periodicity.
+    pub fn aperiodic_axis(&self) -> Option<AperiodicAxis> {
+        self.aperiodic_axis
     }
 
     /// Begin symmetry analysis with default settings.
@@ -173,10 +198,6 @@ impl Crystal {
         }
     }
 
-    pub(crate) fn aperiodic_axis(&self) -> Option<AperiodicAxis> {
-        self.aperiodic_axis
-    }
-
     // ── POSCAR parser ───────────────────────────────────────────────────────
 
     /// Parse a POSCAR-format string into a `Crystal`.
@@ -213,7 +234,7 @@ impl Crystal {
     /// ";
     /// let cry = Crystal::from_poscar(poscar).unwrap();
     /// assert_eq!(cry.natom(), 2);
-    /// assert_eq!(cry.types, vec![14, 14]);
+    /// assert_eq!(cry.types(), &[14, 14]);
     /// ```
     pub fn from_poscar(data: &str) -> Result<Self, crate::SymError> {
         crate::parser::parse_poscar(data).map(|parsed| Crystal {
@@ -1379,34 +1400,26 @@ mod ordinary_input_contract_tests {
     }
 
     #[test]
-    fn ordinary_analysis_rejects_mutated_parallel_fields() {
-        let mut empty_positions =
-            Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]).unwrap();
-        empty_positions.positions.clear();
-        assert!(matches!(
-            empty_positions.analyze().dataset(),
-            Err(SymError::InvalidInput)
-        ));
-
-        let mut missing_type =
-            Crystal::new(cubic_lattice(), vec![[0.0, 0.0, 0.0]], vec![14]).unwrap();
-        missing_type.types.clear();
-        assert!(matches!(
-            missing_type.analyze().primitive_cell(),
-            Err(SymError::InvalidInput)
-        ));
-
-        let mut short_moments = Crystal::new(
-            cubic_lattice(),
+    fn crystal_accessors_reflect_constructor_input() {
+        let lattice = cubic_lattice();
+        let crystal = Crystal::new(
+            lattice,
             vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
             vec![14, 14],
         )
-        .unwrap();
-        short_moments.moments = Some(vec![[0.0; 3]]);
-        assert!(matches!(
-            short_moments.analyze().standardize(false, false),
-            Err(SymError::InvalidInput)
-        ));
+        .unwrap()
+        .with_magnetic(vec![[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]])
+        .unwrap()
+        .with_layer(AperiodicAxis::Z);
+
+        assert_eq!(crystal.lattice(), lattice);
+        assert_eq!(crystal.positions(), &[[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]]);
+        assert_eq!(crystal.types(), &[14, 14]);
+        assert_eq!(
+            crystal.moments(),
+            Some(&[[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]][..])
+        );
+        assert_eq!(crystal.aperiodic_axis(), Some(AperiodicAxis::Z));
     }
 
     #[test]

@@ -138,35 +138,18 @@ fn test_from_uni_accepts_database_boundaries() {
 }
 
 #[test]
-fn test_magnetic_dataset_rejects_mutated_public_fields() {
+fn test_magnetic_dataset_rejects_invalid_crystal_inputs() {
     let lattice = cubic_lattice();
+    let positions = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]];
 
-    let mut mismatched_types = Crystal::new(
-        lattice,
-        vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
-        vec![26, 26],
-    )
-    .unwrap();
-    mismatched_types.types.pop();
     assert!(matches!(
-        mismatched_types.analyze().symprec(SYMPREC).magnetic_dataset(),
+        Crystal::new(lattice, positions.to_vec(), vec![26]),
         Err(SymError::InvalidInput)
     ));
-
-    let mut mismatched_moments = Crystal::new(
-        lattice,
-        vec![[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]],
-        vec![26, 26],
-    )
-    .unwrap()
-    .with_magnetic(vec![[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]])
-    .unwrap();
-    mismatched_moments.moments = Some(vec![[1.0, 0.0, 0.0]]);
     assert!(matches!(
-        mismatched_moments
-            .analyze()
-            .symprec(SYMPREC)
-            .magnetic_dataset(),
+        Crystal::new(lattice, positions.to_vec(), vec![26, 26])
+            .unwrap()
+            .with_magnetic(vec![[1.0, 0.0, 0.0]]),
         Err(SymError::InvalidInput)
     ));
 
