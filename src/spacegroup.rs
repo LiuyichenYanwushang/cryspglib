@@ -322,13 +322,12 @@ pub fn transform_from_primitive(
     symprec: f64,
 ) -> Option<Cell> {
     let (tmat, inv_tmat) = match centering {
-        Centering::Primitive => (IDENTITY, IDENTITY),
+        Centering::Primitive | Centering::BFace | Centering::Error => return None,
         Centering::AFace => (A_MAT, mat_inverse_matrix_d3(&A_MAT, 0.0).ok()?),
         Centering::CFace => (C_MAT, mat_inverse_matrix_d3(&C_MAT, 0.0).ok()?),
         Centering::Face => (F_MAT, mat_inverse_matrix_d3(&F_MAT, 0.0).ok()?),
         Centering::Body => (I_MAT, mat_inverse_matrix_d3(&I_MAT, 0.0).ok()?),
         Centering::RCenter => (R_MAT, mat_inverse_matrix_d3(&R_MAT, 0.0).ok()?),
-        Centering::BFace | Centering::Error => return None,
     };
 
     let mut shift = [[0.0; 3]; 3];
