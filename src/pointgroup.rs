@@ -433,28 +433,17 @@ pub fn get_pointgroup(pointgroup_number: usize) -> Pointgroup {
 }
 
 pub fn get_pointsymmetry(rotations: &[Mat3I]) -> PointSymmetry {
-    let mut pointsym = PointSymmetry::new(0);
-    // PointSymmetry in Rust uses Vec, so we can push
-    // But the C struct has fixed size array or pointer.
-    // In symmetry.rs, PointSymmetry has `rot: Vec<Mat3I>`.
-    // We need to re-implement the logic to find unique rotations.
-
     let mut unique_rots = Vec::new();
     for rot in rotations {
-        let mut found = false;
-        for existing in &unique_rots {
-            if mat_check_identity_matrix_i3(rot, existing) {
-                found = true;
-                break;
-            }
-        }
-        if !found {
+        if !unique_rots
+            .iter()
+            .any(|existing| mat_check_identity_matrix_i3(rot, existing))
+        {
             unique_rots.push(*rot);
         }
     }
 
-    pointsym.rot = unique_rots;
-    pointsym
+    PointSymmetry { rot: unique_rots }
 }
 
 // --- Internal Functions ---

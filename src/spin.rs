@@ -362,15 +362,10 @@ fn get_operations(
     }
 
     let num_sym = rotations.len();
-    let mut magnetic_symmetry = MagneticSymmetry::new(num_sym);
+    let mut magnetic_symmetry = MagneticSymmetry::with_capacity(num_sym);
     for i in 0..num_sym {
-        magnetic_symmetry.rot[i] = rotations[i];
-        magnetic_symmetry.trans[i] = trans[i];
-        if with_time_reversal {
-            magnetic_symmetry.timerev[i] = spin_flips[i] == -1;
-        } else {
-            magnetic_symmetry.timerev[i] = false;
-        }
+        let timerev = with_time_reversal && spin_flips[i] == -1;
+        magnetic_symmetry.push(rotations[i], trans[i], timerev);
         debug::debug_print(format_args!("-- {} -- \n", i));
         debug::debug_print_matrix_i3(&magnetic_symmetry.rot[i]);
         debug::debug_print_vector_d3(&magnetic_symmetry.trans[i]);

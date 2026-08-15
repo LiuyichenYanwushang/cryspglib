@@ -417,11 +417,13 @@ impl ValidatedMagneticOperationSet {
     }
 
     fn as_magnetic_symmetry(&self) -> MagneticSymmetry {
-        let mut symmetry = MagneticSymmetry::new(self.len());
-        for (index, operation) in self.operations.iter().enumerate() {
-            symmetry.rot[index] = operation.rotation;
-            symmetry.trans[index] = operation.translation;
-            symmetry.timerev[index] = operation.time_reversal;
+        let mut symmetry = MagneticSymmetry::with_capacity(self.len());
+        for operation in self.operations.iter() {
+            symmetry.push(
+                operation.rotation,
+                operation.translation,
+                operation.time_reversal,
+            );
         }
         symmetry
     }

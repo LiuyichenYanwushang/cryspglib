@@ -733,9 +733,10 @@ fn get_primitive_db_symmetry(t_mat: &Mat3, conv_sym: &Symmetry) -> Option<Symmet
     }
 
     let num_op = r_prim.len();
-    let mut prim_sym = Symmetry::new(num_op);
-    prim_sym.rot[..num_op].copy_from_slice(&r_prim[..num_op]);
-    prim_sym.trans[..num_op].copy_from_slice(&t_prim[..num_op]);
+    let mut prim_sym = Symmetry::with_capacity(num_op);
+    for (&rot, &trans) in r_prim.iter().zip(&t_prim) {
+        prim_sym.push(rot, trans);
+    }
 
     Some(prim_sym)
 }
@@ -858,8 +859,7 @@ fn get_symmetry_in_original_cell(
     prim_sym: &Symmetry,
     symprec: f64,
 ) -> Option<Symmetry> {
-    let mut t_sym = Symmetry::new(prim_sym.len());
-    let mut size_sym_orig = 0usize;
+    let mut t_sym = Symmetry::with_capacity(prim_sym.len());
 
     for i in 0..prim_sym.len() {
         // R' = T^-1 * R * T
@@ -871,26 +871,11 @@ fn get_symmetry_in_original_cell(
         let tmp_lat_d = mat_multiply_matrix_d3(lattice, &tmp_rot_d);
 
         if mat_check_identity_matrix_d3(&tmp_lat_i, &tmp_lat_d, symprec) {
-            t_sym.rot[size_sym_orig] = tmp_rot_i;
             // t' = T^-1 * t
-            t_sym.trans[size_sym_orig] =
-                mat_multiply_matrix_vector_d3(inv_tmat, &prim_sym.trans[i]);
-            size_sym_orig += 1;
+            let trans = mat_multiply_matrix_vector_d3(inv_tmat, &prim_sym.trans[i]);
+            t_sym.push(tmp_rot_i, trans);
         }
     }
-
-    // Trim if symmetry was broken
-    if size_sym_orig != prim_sym.len() {
-        let mut t_red_sym = Symmetry::new(size_sym_orig);
-        for i in 0..size_sym_orig {
-            t_red_sym.rot[i] = t_sym.rot[i];
-            t_red_sym.trans[i] = t_sym.trans[i];
-        }
-        t_sym = t_red_sym;
-    }
-
-    // Update size
-    t_sym.truncate(size_sym_orig);
 
     Some(t_sym)
 }
@@ -902,19 +887,18 @@ fn copy_symmetry_upon_lattice_points(
 ) -> Option<Symmetry> {
     let size_sym_orig = t_sym.len();
     let total = pure_trans.len() * size_sym_orig;
-    let mut symmetry = Symmetry::new(total);
+    let mut symmetry = Symmetry::with_capacity(total);
 
-    for (i, pure_translation) in pure_trans.iter().enumerate() {
+    for pure_translation in pure_trans {
         for j in 0..size_sym_orig {
-            let idx = size_sym_orig * i + j;
-            symmetry.rot[idx] = t_sym.rot[j];
-            symmetry.trans[idx] = t_sym.trans[j];
+            let mut trans = t_sym.trans[j];
             for (k, &offset) in pure_translation.iter().enumerate() {
-                symmetry.trans[idx][k] += offset;
+                trans[k] += offset;
                 if k as i32 != aperiodic_axis.map_or(-1, |ap| ap.axis_index() as i32) {
-                    symmetry.trans[idx][k] = mat_dmod1(symmetry.trans[idx][k]);
+                    trans[k] = mat_dmod1(trans[k]);
                 }
             }
+            symmetry.push(t_sym.rot[j], trans);
         }
     }
 

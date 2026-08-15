@@ -1553,11 +1553,9 @@ fn standard_setting_transform(
     ops: &SymmetryOps,
     ignore_time_reversal: bool,
 ) -> Option<(usize, usize, wigner::SettingTransform)> {
-    let mut magnetic = crate::symmetry::MagneticSymmetry::new(ops.len());
-    for (i, op) in ops.operations.iter().enumerate() {
-        magnetic.rot[i] = op.rotation;
-        magnetic.trans[i] = op.translation;
-        magnetic.timerev[i] = op.time_reversal;
+    let mut magnetic = crate::symmetry::MagneticSymmetry::with_capacity(ops.len());
+    for op in &ops.operations {
+        magnetic.push(op.rotation, op.translation, op.time_reversal);
     }
     let (spacegroup, _) = crate::magnetic_spacegroup::get_space_group_with_magnetic_symmetry(
         &magnetic,

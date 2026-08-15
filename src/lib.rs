@@ -456,11 +456,10 @@ impl MagneticSpaceGroupType {
             return Err(SymError::InvalidInput);
         }
 
-        let mut magnetic_symmetry = crate::symmetry::MagneticSymmetry::new(n_ops);
-        for i in 0..n_ops {
-            magnetic_symmetry.rot[i] = rotations[i];
-            magnetic_symmetry.trans[i] = translations[i];
-            magnetic_symmetry.timerev[i] = time_reversals.is_some_and(|values| values[i]);
+        let mut magnetic_symmetry = crate::symmetry::MagneticSymmetry::with_capacity(n_ops);
+        for (i, (&rotation, &translation)) in rotations.iter().zip(translations).enumerate() {
+            let timerev = time_reversals.is_some_and(|values| values[i]);
+            magnetic_symmetry.push(rotation, translation, timerev);
         }
 
         let dataset = crate::magnetic_spacegroup::identify_magnetic_space_group_type(
@@ -639,11 +638,13 @@ pub(crate) fn magnetic_symmetry_from_crystal(
         if n == 0 {
             return Err(SymError::MagneticOpGenerationFailed);
         }
-        let mut fallback = crate::symmetry::MagneticSymmetry::new(n);
-        for (j, &idx) in valid.iter().enumerate() {
-            fallback.rot[j] = nonspin_sym.rot[idx];
-            fallback.trans[j] = nonspin_sym.trans[idx];
-            fallback.timerev[j] = tr[idx] != 0;
+        let mut fallback = crate::symmetry::MagneticSymmetry::with_capacity(n);
+        for &idx in &valid {
+            fallback.push(
+                nonspin_sym.rot[idx],
+                nonspin_sym.trans[idx],
+                tr[idx] != 0,
+            );
         }
         (fallback, true)
     } else {
@@ -920,9 +921,10 @@ pub(crate) fn identify_hall_number(
     if num_ops == 0 || translations.len() != num_ops {
         return Err(SymError::InvalidInput);
     }
-    let mut symmetry = Symmetry::new(num_ops);
-    symmetry.rot[..num_ops].copy_from_slice(&rotations[..num_ops]);
-    symmetry.trans[..num_ops].copy_from_slice(&translations[..num_ops]);
+    let mut symmetry = Symmetry::with_capacity(num_ops);
+    for (&rotation, &translation) in rotations.iter().zip(translations) {
+        symmetry.push(rotation, translation);
+    }
 
     let (t_mat, prim_sym) =
         get_primitive_symmetry(&symmetry, symprec).ok_or(SymError::SpacegroupSearchFailed)?;

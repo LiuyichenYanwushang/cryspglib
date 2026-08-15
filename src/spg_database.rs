@@ -8902,12 +8902,10 @@ pub fn get_spacegroup_operations(hall_number: usize) -> Option<Symmetry> {
     if count == 0 {
         return None;
     }
-    let mut symmetry = Symmetry::new(count);
-    for i in 0..count {
-        let code = SYMMETRY_OPERATIONS[start + i];
-        let (rot, trans) = decode_symmetry(code);
-        symmetry.rot[i] = rot;
-        symmetry.trans[i] = trans;
+    let mut symmetry = Symmetry::with_capacity(count);
+    for code in &SYMMETRY_OPERATIONS[start..start + count] {
+        let (rot, trans) = decode_symmetry(*code);
+        symmetry.push(rot, trans);
     }
     Some(symmetry)
 }

@@ -422,37 +422,26 @@ fn get_primitive_in_translation_space(
 }
 
 fn collect_primitive_symmetry(symmetry: &Symmetry, primsym_size: usize) -> Option<Symmetry> {
-    let mut prim_symmetry = Symmetry::new(primsym_size);
-    let mut num_psym = 0;
+    let mut prim_symmetry = Symmetry::with_capacity(primsym_size);
 
-    // First one
-    prim_symmetry.rot[0] = symmetry.rot[0];
-    prim_symmetry.trans[0] = symmetry.trans[0];
-    num_psym += 1;
+    let (&first_rot, &first_trans) = symmetry.rot.first().zip(symmetry.trans.first())?;
+    prim_symmetry.push(first_rot, first_trans);
 
     for i in 1..symmetry.len() {
-        let mut is_found = true;
-        for j in 0..num_psym {
-            if mat_check_identity_matrix_i3(&prim_symmetry.rot[j], &symmetry.rot[i]) {
-                is_found = false;
-                break;
-            }
+        let duplicate = prim_symmetry
+            .rot
+            .iter()
+            .any(|rot| mat_check_identity_matrix_i3(rot, &symmetry.rot[i]));
+        if duplicate {
+            continue;
         }
-        if is_found {
-            if num_psym == primsym_size {
-                return None;
-            }
-            prim_symmetry.rot[num_psym] = symmetry.rot[i];
-            prim_symmetry.trans[num_psym] = symmetry.trans[i];
-            num_psym += 1;
+        if prim_symmetry.len() == primsym_size {
+            return None;
         }
+        prim_symmetry.push(symmetry.rot[i], symmetry.trans[i]);
     }
 
-    if num_psym != primsym_size {
-        return None;
-    }
-
-    Some(prim_symmetry)
+    (prim_symmetry.len() == primsym_size).then_some(prim_symmetry)
 }
 
 #[cfg(test)]

@@ -44,13 +44,11 @@ pub fn get_spacegroup_operations(
         uni_number, hall_number, hall_number_offset, order, start
     ));
 
-    let mut sym = MagneticSymmetry::new(order as usize);
+    let mut sym = MagneticSymmetry::with_capacity(order as usize);
     for i in 0..order {
         let idx = (start + i) as usize;
         let (rot, trans, timerev) = decode_magnetic_operation(idx);
-        sym.rot[i as usize] = rot;
-        sym.trans[i as usize] = trans;
-        sym.timerev[i as usize] = timerev;
+        sym.push(rot, trans, timerev);
     }
 
     Some(sym)
@@ -62,23 +60,16 @@ pub fn get_std_transformations(
     hall_number: usize,
 ) -> Option<Symmetry> {
     let hall_number_offset = get_hall_number_offset(uni_number, hall_number)?;
-    let mut sym = Symmetry::new(7);
+    let mut sym = Symmetry::with_capacity(7);
     // Identity transformation as first element
-    sym.rot[0] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-    sym.trans[0] = [0.0; 3];
+    sym.push([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3]);
 
-    for (i, &enc) in ALTERNATIVE_TRANSFORMATIONS[uni_number][hall_number_offset]
-        .iter()
-        .take(7)
-        .enumerate()
-    {
+    for &enc in &ALTERNATIVE_TRANSFORMATIONS[uni_number][hall_number_offset] {
         if enc == 0 {
-            sym.truncate(i + 1);
             break;
         }
         let (tmat, origin_shift) = crate::spg_database::decode_symmetry(enc);
-        sym.rot[i + 1] = tmat;
-        sym.trans[i + 1] = origin_shift;
+        sym.push(tmat, origin_shift);
     }
 
     Some(sym)

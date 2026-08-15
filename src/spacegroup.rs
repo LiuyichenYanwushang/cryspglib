@@ -671,16 +671,13 @@ fn get_conventional_symmetry(
     primitive_sym: &Symmetry,
 ) -> Option<Symmetry> {
     let size = primitive_sym.len();
-    let mut symmetry;
-
-    match centering {
-        Centering::Face => symmetry = Symmetry::new(size * 4),
-        Centering::RCenter => symmetry = Symmetry::new(size * 3),
-        Centering::Body | Centering::AFace | Centering::BFace | Centering::CFace => {
-            symmetry = Symmetry::new(size * 2)
-        }
-        _ => symmetry = Symmetry::new(size),
-    }
+    let capacity = match centering {
+        Centering::Face => size * 4,
+        Centering::RCenter => size * 3,
+        Centering::Body | Centering::AFace | Centering::BFace | Centering::CFace => size * 2,
+        Centering::Primitive | Centering::Error => size,
+    };
+    let mut symmetry = Symmetry::with_capacity(capacity);
 
     let inv_tmat = mat_inverse_matrix_d3(tmat, 0.0).ok().unwrap_or([[0.0; 3]; 3]);
 
@@ -692,29 +689,24 @@ fn get_conventional_symmetry(
         if let Ok(res) = mat_get_similar_matrix_d3(&primitive_sym_rot_d3, tmat, 0.0) {
             symmetry_rot_d3 = res;
         }
-        symmetry.rot[i] = mat_cast_matrix_3d_to_3i(&symmetry_rot_d3);
+        let rot = mat_cast_matrix_3d_to_3i(&symmetry_rot_d3);
 
         // translation: C = B^-1*P
-        symmetry.trans[i] = mat_multiply_matrix_vector_d3(&inv_tmat, &primitive_sym.trans[i]);
+        let trans = mat_multiply_matrix_vector_d3(&inv_tmat, &primitive_sym.trans[i]);
+        symmetry.push(rot, trans);
     }
 
     let mut shift = [[0.0; 3]; 3];
     let multi = get_centering_shifts(&mut shift, centering);
 
     if centering != Centering::Primitive {
-        for (i, centering_shift) in shift.iter().take(multi - 1).enumerate() {
+        for centering_shift in shift.iter().take(multi - 1) {
             for j in 0..size {
-                //mat_copy_matrix_i3(&mut symmetry.rot[(i + 1) * size + j], &symmetry.rot[j]);
-                let src_rot = symmetry.rot[j];
-                symmetry.rot[(i + 1) * size + j] = src_rot;
-                let source_translation = symmetry.trans[j];
-                for ((coordinate, source), offset) in symmetry.trans[(i + 1) * size + j]
-                    .iter_mut()
-                    .zip(source_translation)
-                    .zip(centering_shift)
-                {
-                    *coordinate = source + offset;
+                let mut trans = symmetry.trans[j];
+                for (coordinate, offset) in trans.iter_mut().zip(centering_shift) {
+                    *coordinate += offset;
                 }
+                symmetry.push(symmetry.rot[j], trans);
             }
         }
     }

@@ -665,6 +665,28 @@ fn build_fallback_reference(
     Some((ref_sg_copy, changed_symmetry, tmat, shift, msgtype_num))
 }
 
+fn deduplicate_spatial_operations(sym: Symmetry, symprec: f64) -> Symmetry {
+    let mut dedup = Symmetry::with_capacity(sym.len());
+    for i in 0..sym.len() {
+        let duplicate = (0..dedup.len()).any(|j| {
+            if !mat_check_identity_matrix_i3(&dedup.rot[j], &sym.rot[i]) {
+                return false;
+            }
+            let diff: f64 = (0..3)
+                .map(|k| {
+                    let x = dedup.trans[j][k] - sym.trans[i][k];
+                    (x - x.round()).abs()
+                })
+                .sum();
+            diff < symprec
+        });
+        if !duplicate {
+            dedup.push(sym.rot[i], sym.trans[i]);
+        }
+    }
+    dedup
+}
+
 /// 从磁性对称操作中提取普通对称操作（不搜索空间群）。
 /// `ignore_time_reversal=true` → FSG (所有操作)
 /// `ignore_time_reversal=false` → XSG (仅 timerev=0)
@@ -674,7 +696,6 @@ pub(crate) fn extract_symmetry(
     symprec: f64,
 ) -> Option<Symmetry> {
     let identity: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-    let num_sym_msg = magnetic_symmetry.len();
 
     // Check if MSG is type-II
     let is_type2 = magnetic_symmetry
@@ -690,50 +711,16 @@ pub(crate) fn extract_symmetry(
                 && timerev
         });
 
-    // Collect unique ops
-    let mut sym = Symmetry::new(num_sym_msg);
-    let mut num_sym = 0;
-    for i in 0..num_sym_msg {
-        if !ignore_time_reversal && magnetic_symmetry.timerev[i] {
+    let mut sym = Symmetry::with_capacity(magnetic_symmetry.len());
+    for i in 0..magnetic_symmetry.len() {
+        if (!ignore_time_reversal || is_type2) && magnetic_symmetry.timerev[i] {
             continue;
         }
-        if is_type2 && magnetic_symmetry.timerev[i] {
-            continue;
-        }
-        sym.rot[num_sym] = magnetic_symmetry.rot[i];
-        sym.trans[num_sym] = magnetic_symmetry.trans[i];
-        num_sym += 1;
+        sym.push(magnetic_symmetry.rot[i], magnetic_symmetry.trans[i]);
     }
-    sym.truncate(num_sym);
 
-    // Deduplicate FSG ops: same (R, t) with different timerev produce duplicates
     if ignore_time_reversal || is_type2 {
-        let mut dedup = Symmetry::new(num_sym);
-        let mut n_dedup = 0;
-        for i in 0..num_sym {
-            let mut dup = false;
-            for j in 0..n_dedup {
-                if !mat_check_identity_matrix_i3(&dedup.rot[j], &sym.rot[i]) {
-                    continue;
-                }
-                let mut diff = 0.0;
-                for k in 0..3 {
-                    let x = dedup.trans[j][k] - sym.trans[i][k];
-                    diff += (x - x.round()).abs();
-                }
-                if diff < symprec {
-                    dup = true;
-                    break;
-                }
-            }
-            if !dup {
-                dedup.rot[n_dedup] = sym.rot[i];
-                dedup.trans[n_dedup] = sym.trans[i];
-                n_dedup += 1;
-            }
-        }
-        dedup.truncate(n_dedup);
-        sym = dedup;
+        sym = deduplicate_spatial_operations(sym, symprec);
     }
 
     if sym.is_empty() { None } else { Some(sym) }
@@ -785,24 +772,17 @@ pub(crate) fn get_space_group_with_magnetic_symmetry(
                 && timerev
         });
 
-    // Extract operations
-    let mut sym = Symmetry::new(num_sym_msg);
-    let mut num_sym = 0;
+    // Extract operations. For type-II MSGs, primed copies are skipped
+    // together with the time-reversal-erased duplicates.
+    let mut sym = Symmetry::with_capacity(num_sym_msg);
     for i in 0..num_sym_msg {
-        if !ignore_time_reversal && magnetic_symmetry.timerev[i] {
+        if (!ignore_time_reversal || is_type2) && magnetic_symmetry.timerev[i] {
             continue;
         }
-        // For type-II MSG, deduplicate: skip timerev=1 copies
-        if is_type2 && magnetic_symmetry.timerev[i] {
-            continue;
-        }
-        sym.rot[num_sym] = magnetic_symmetry.rot[i];
-        sym.trans[num_sym] = magnetic_symmetry.trans[i];
-        num_sym += 1;
+        sym.push(magnetic_symmetry.rot[i], magnetic_symmetry.trans[i]);
     }
-    sym.truncate(num_sym);
 
-    if num_sym == 0 {
+    if sym.is_empty() {
         return None;
     }
 
@@ -810,32 +790,7 @@ pub(crate) fn get_space_group_with_magnetic_symmetry(
     // duplicates would confuse the space group search (e.g. BCC AFM: 24 ops with
     // 12 ordinary + 12 anti → FSG should be 12 unique ops, not 24).
     if ignore_time_reversal || is_type2 {
-        let mut dedup = Symmetry::new(num_sym);
-        let mut n_dedup = 0;
-        for i in 0..num_sym {
-            let mut dup = false;
-            for j in 0..n_dedup {
-                if !mat_check_identity_matrix_i3(&dedup.rot[j], &sym.rot[i]) {
-                    continue;
-                }
-                let mut diff = 0.0;
-                for k in 0..3 {
-                    let x = dedup.trans[j][k] - sym.trans[i][k];
-                    diff += (x - x.round()).abs();
-                }
-                if diff < symprec {
-                    dup = true;
-                    break;
-                }
-            }
-            if !dup {
-                dedup.rot[n_dedup] = sym.rot[i];
-                dedup.trans[n_dedup] = sym.trans[i];
-                n_dedup += 1;
-            }
-        }
-        dedup.truncate(n_dedup);
-        sym = dedup;
+        sym = deduplicate_spatial_operations(sym, symprec);
     }
 
     // Get primitive symmetry: (a, b, c) = (a_prim, b_prim, c_prim) @ tmat
@@ -929,22 +884,14 @@ fn build_representatives(
     let identity: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
     match msgtype {
         MagneticType::Ordinary => {
-            let mut rep = MagneticSymmetry::new(1);
-            rep.rot[0] = identity;
-            rep.trans[0] = [0.0; 3];
-            rep.timerev[0] = false;
-            rep.truncate(1);
+            let mut rep = MagneticSymmetry::with_capacity(1);
+            rep.push(identity, [0.0; 3], false);
             Some(rep)
         }
         MagneticType::Grey => {
-            let mut rep = MagneticSymmetry::new(2);
-            rep.rot[0] = identity;
-            rep.trans[0] = [0.0; 3];
-            rep.timerev[0] = false;
-            rep.rot[1] = identity;
-            rep.trans[1] = [0.0; 3];
-            rep.timerev[1] = true;
-            rep.truncate(2);
+            let mut rep = MagneticSymmetry::with_capacity(2);
+            rep.push(identity, [0.0; 3], false);
+            rep.push(identity, [0.0; 3], true);
             Some(rep)
         }
         MagneticType::BlackWhite | MagneticType::AntiTranslation => {
@@ -993,40 +940,26 @@ fn get_magnetic_space_group_type(
 fn get_representative(magnetic_symmetry: &MagneticSymmetry) -> Option<MagneticSymmetry> {
     let identity: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
-    let mut representative = MagneticSymmetry::new(2);
-
-    // Set the first representative as identity
-    representative.rot[0] = identity;
-    representative.trans[0] = [0.0; 3];
-    representative.timerev[0] = false;
+    let mut representative = MagneticSymmetry::with_capacity(2);
+    representative.push(identity, [0.0; 3], false);
 
     // A primed operation with identity linear part is the Type-IV
     // anti-translation representative. Its translation is generally nonzero.
-    for i in 0..magnetic_symmetry.len() {
-        if mat_check_identity_matrix_i3(&identity, &magnetic_symmetry.rot[i])
-            && magnetic_symmetry.timerev[i]
-        {
-            representative.rot[1] = magnetic_symmetry.rot[i];
-            representative.trans[1] = magnetic_symmetry.trans[i];
-            representative.timerev[1] = true;
-            representative.truncate(2);
-            return Some(representative);
-        }
-    }
+    let antiunitary = magnetic_symmetry
+        .timerev
+        .iter()
+        .position(|&timerev| timerev)?;
+    let chosen = (0..magnetic_symmetry.len())
+        .filter(|&i| magnetic_symmetry.timerev[i])
+        .find(|&i| mat_check_identity_matrix_i3(&identity, &magnetic_symmetry.rot[i]))
+        .unwrap_or(antiunitary);
 
-    // Otherwise any antiunitary operation represents the Type-III coset.
-    for i in 0..magnetic_symmetry.len() {
-        if !magnetic_symmetry.timerev[i] {
-            continue;
-        }
-        representative.rot[1] = magnetic_symmetry.rot[i];
-        representative.trans[1] = magnetic_symmetry.trans[i];
-        representative.timerev[1] = true;
-        representative.truncate(2);
-        return Some(representative);
-    }
-
-    None
+    representative.push(
+        magnetic_symmetry.rot[chosen],
+        magnetic_symmetry.trans[chosen],
+        true,
+    );
+    Some(representative)
 }
 
 /// Apply `x_std = (tmat, shift) x` to magnetic symmetry, deduplicating.
@@ -1040,8 +973,7 @@ fn get_distinct_changed_magnetic_symmetry(
 ) -> Option<MagneticSymmetry> {
     let inv_tmat = mat_inverse_matrix_d3(tmat, 0.0).ok()?;
 
-    let mut changed = MagneticSymmetry::new(sym_msg.len());
-    let mut size = 0usize;
+    let mut changed = MagneticSymmetry::with_capacity(sym_msg.len());
 
     for i in 0..sym_msg.len() {
         // R_std = T * R * T^-1
@@ -1077,42 +1009,32 @@ fn get_distinct_changed_magnetic_symmetry(
         }
 
         // Check for uniqueness (same rotation, same translation, same timerev)
-        let mut is_dup = false;
-        for j in 0..size {
-            if mat_check_identity_matrix_i3(&changed.rot[j], &rot_i) {
-                let mut diff = [0.0; 3];
-                for k in 0..3 {
-                    diff[k] = changed.trans[j][k] - t_new[k];
-                    diff[k] -= mat_nint(diff[k]) as f64;
-                }
-                if diff[0].abs() < 1e-5 && diff[1].abs() < 1e-5 && diff[2].abs() < 1e-5
-                    && changed.timerev[j] == sym_msg.timerev[i] {
-                        is_dup = true;
-                        break;
-                    }
+        let is_dup = (0..changed.len()).any(|j| {
+            if !mat_check_identity_matrix_i3(&changed.rot[j], &rot_i) {
+                return false;
             }
-        }
+            let mut diff = [0.0; 3];
+            for k in 0..3 {
+                diff[k] = changed.trans[j][k] - t_new[k];
+                diff[k] -= mat_nint(diff[k]) as f64;
+            }
+            diff.iter().all(|value| value.abs() < 1e-5) && changed.timerev[j] == sym_msg.timerev[i]
+        });
 
         if !is_dup {
-            changed.rot[size] = rot_i;
-            changed.trans[size] = t_new;
-            changed.timerev[size] = sym_msg.timerev[i];
-            size += 1;
+            changed.push(rot_i, t_new, sym_msg.timerev[i]);
         }
     }
 
-    changed.truncate(size);
     Some(changed)
 }
 
-/// 检查旋转矩阵 `a` 是否已包含在 `sym_msg.rot[0..size]` 中。
-fn is_contained_mat(a: &Mat3I, sym_msg: &MagneticSymmetry, size: usize) -> bool {
-    for i in 0..size {
-        if mat_check_identity_matrix_i3(a, &sym_msg.rot[i]) {
-            return true;
-        }
-    }
-    false
+/// 检查旋转矩阵 `a` 是否已包含在 `sym_msg` 中。
+fn is_contained_mat(a: &Mat3I, sym_msg: &MagneticSymmetry) -> bool {
+    sym_msg
+        .rot
+        .iter()
+        .any(|rot| mat_check_identity_matrix_i3(a, rot))
 }
 
 /// 检查向量 `v` 是否已包含在 `trans` 中 (tol = symprec)。
@@ -1253,30 +1175,24 @@ fn get_changed_magnetic_symmetry(
     let changed_pure_trans = get_changed_pure_translations(tmat, &pure_trans, symprec)?;
 
     // 3. 从 XSG 对称性中收集因子群（仅去重旋转部分，timerev=0）
-    let mut factors = MagneticSymmetry::new(sym_xsg.len());
-    let mut num_factors = 0;
+    let mut factors = MagneticSymmetry::with_capacity(sym_xsg.len());
     for i in 0..sym_xsg.len() {
-        if is_contained_mat(&sym_xsg.rot[i], &factors, num_factors) {
-            continue;
+        if !is_contained_mat(&sym_xsg.rot[i], &factors) {
+            factors.push(sym_xsg.rot[i], sym_xsg.trans[i], false);
         }
-        factors.rot[num_factors] = sym_xsg.rot[i];
-        factors.trans[num_factors] = sym_xsg.trans[i];
-        factors.timerev[num_factors] = false;
-        num_factors += 1;
     }
-    factors.truncate(num_factors);
+    let num_factors = factors.len();
     let changed_factors = get_distinct_changed_magnetic_symmetry(tmat, shift, &factors)?;
 
     // 4. 合成: (I, ti)(Pj, tj)(Pk, tk) = (Pj * Pk, Pj * tk + tj + ti)
     let size = changed_representatives.len() * changed_pure_trans.len() * num_factors;
-    let mut changed = MagneticSymmetry::new(size);
-    let mut num_sym = 0;
+    let mut changed = MagneticSymmetry::with_capacity(size);
 
     for pure_translation in &changed_pure_trans {
         for j in 0..changed_representatives.len() {
             for k in 0..num_factors {
                 // R = Pj * Pk
-                changed.rot[num_sym] = mat_multiply_matrix_i3(
+                let rot = mat_multiply_matrix_i3(
                     &changed_representatives.rot[j],
                     &changed_factors.rot[k],
                 );
@@ -1290,19 +1206,16 @@ fn get_changed_magnetic_symmetry(
                     *value += changed_representatives.trans[j][s] + pure_translation[s];
                     *value = mat_dmod1(*value);
                 }
-                changed.trans[num_sym] = trans;
 
                 // timerev = changed_representatives.timerev XOR changed_factors.timerev
                 // (factors 都是 ordinary，所以 XOR 就是 representatives 的 timerev)
-                changed.timerev[num_sym] =
+                let timerev =
                     changed_representatives.timerev[j] != changed_factors.timerev[k];
-
-                num_sym += 1;
+                changed.push(rot, trans, timerev);
             }
         }
     }
 
-    changed.truncate(num_sym);
     Some(changed)
 }
 
@@ -1382,11 +1295,9 @@ mod tests {
 
     fn make_mag_sym(timerev: &[bool], ops: &[(Mat3I, Vec3)]) -> MagneticSymmetry {
         assert_eq!(timerev.len(), ops.len());
-        let mut sym = MagneticSymmetry::new(ops.len());
-        for (i, ((r, t), &tr)) in ops.iter().zip(timerev).enumerate() {
-            sym.rot[i] = *r;
-            sym.trans[i] = *t;
-            sym.timerev[i] = tr;
+        let mut sym = MagneticSymmetry::with_capacity(ops.len());
+        for ((rot, trans), timerev) in ops.iter().zip(timerev) {
+            sym.push(*rot, *trans, *timerev);
         }
         sym
     }
@@ -1494,15 +1405,10 @@ mod tests {
     #[test]
     fn test_db_type2() {
         let ops = pm3m_ops();
-        let n = ops.len();
-        let mut mag_sym = MagneticSymmetry::new(n * 2);
-        for (i, (r, t)) in ops.iter().enumerate() {
-            mag_sym.rot[i] = *r;
-            mag_sym.trans[i] = *t;
-            mag_sym.timerev[i] = false;
-            mag_sym.rot[i + n] = *r;
-            mag_sym.trans[i + n] = *t;
-            mag_sym.timerev[i + n] = true;
+        let mut mag_sym = MagneticSymmetry::with_capacity(ops.len() * 2);
+        for &(rot, trans) in &ops {
+            mag_sym.push(rot, trans, false);
+            mag_sym.push(rot, trans, true);
         }
         let ds = super::identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC)
             .expect("must match");
@@ -1533,7 +1439,7 @@ mod tests {
     /// 空对称操作 → 返回 None
     #[test]
     fn test_empty_symmetry() {
-        let mag_sym = MagneticSymmetry::new(0);
+        let mag_sym = MagneticSymmetry::new();
         assert!(
             super::identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC,)
                 .is_err()
@@ -1543,10 +1449,8 @@ mod tests {
     /// 缺少单位操作 → 返回 Err
     #[test]
     fn test_no_identity() {
-        let mut mag_sym = MagneticSymmetry::new(1);
-        mag_sym.rot[0] = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
-        mag_sym.trans[0] = [0.0; 3];
-        mag_sym.timerev[0] = false;
+        let mut mag_sym = MagneticSymmetry::with_capacity(1);
+        mag_sym.push([[0, -1, 0], [1, 0, 0], [0, 0, 1]], [0.0; 3], false);
         assert!(
             super::identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC,)
                 .is_err()

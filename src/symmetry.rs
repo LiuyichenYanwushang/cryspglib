@@ -37,7 +37,7 @@ static IDENTITY: [[i32; 3]; 3] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 ///
 /// 包含 `size` 个对称操作 `(W, w)`，其中 W 是 3x3 整数旋转矩阵，
 /// w 是分数平移向量。对原子坐标 x，操作后为 `W*x + w`。
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Symmetry {
     /// 旋转矩阵列表（每个为 3x3 i32 矩阵）
     pub rot: Vec<Mat3I>,
@@ -46,11 +46,26 @@ pub struct Symmetry {
 }
 
 impl Symmetry {
-    pub fn new(size: usize) -> Self {
+    /// 创建一个空操作集合。
+    pub fn new() -> Self {
         Symmetry {
-            rot: vec![[[0; 3]; 3]; size],
-            trans: vec![[0.0; 3]; size],
+            rot: Vec::new(),
+            trans: Vec::new(),
         }
+    }
+
+    /// 预分配 `capacity` 个操作，不写入占位数据。
+    pub fn with_capacity(capacity: usize) -> Self {
+        Symmetry {
+            rot: Vec::with_capacity(capacity),
+            trans: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// 追加一个操作 `{R|t}`。
+    pub fn push(&mut self, rot: Mat3I, trans: Vec3) {
+        self.rot.push(rot);
+        self.trans.push(trans);
     }
 
     /// 对称操作数量。
@@ -62,25 +77,30 @@ impl Symmetry {
     pub fn is_empty(&self) -> bool {
         self.rot.is_empty()
     }
-
-    /// 将旋转和平移列表截断到指定长度。
-    pub fn truncate(&mut self, len: usize) {
-        self.rot.truncate(len);
-        self.trans.truncate(len);
-    }
 }
 
 /// 点群对称性结构体
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct PointSymmetry {
     pub rot: Vec<Mat3I>,
 }
 
 impl PointSymmetry {
-    pub fn new(size: usize) -> Self {
+    /// 创建一个空点群。
+    pub fn new() -> Self {
+        PointSymmetry { rot: Vec::new() }
+    }
+
+    /// 预分配 `capacity` 个点操作，不写入占位数据。
+    pub fn with_capacity(capacity: usize) -> Self {
         PointSymmetry {
-            rot: vec![[[0; 3]; 3]; size],
+            rot: Vec::with_capacity(capacity),
         }
+    }
+
+    /// 追加一个点操作。
+    pub fn push(&mut self, rot: Mat3I) {
+        self.rot.push(rot);
     }
 
     /// 点操作数量。
@@ -92,15 +112,10 @@ impl PointSymmetry {
     pub fn is_empty(&self) -> bool {
         self.rot.is_empty()
     }
-
-    /// 将旋转列表截断到指定长度。
-    pub fn truncate(&mut self, len: usize) {
-        self.rot.truncate(len);
-    }
 }
 
 /// 磁性对称操作结构体
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MagneticSymmetry {
     pub rot: Vec<Mat3I>,
     pub trans: Vec<Vec3>,
@@ -108,12 +123,29 @@ pub struct MagneticSymmetry {
 }
 
 impl MagneticSymmetry {
-    pub fn new(size: usize) -> Self {
+    /// 创建一个空磁操作集合。
+    pub fn new() -> Self {
         MagneticSymmetry {
-            rot: vec![[[0; 3]; 3]; size],
-            trans: vec![[0.0; 3]; size],
-            timerev: vec![false; size],
+            rot: Vec::new(),
+            trans: Vec::new(),
+            timerev: Vec::new(),
         }
+    }
+
+    /// 预分配 `capacity` 个磁操作，不写入占位数据。
+    pub fn with_capacity(capacity: usize) -> Self {
+        MagneticSymmetry {
+            rot: Vec::with_capacity(capacity),
+            trans: Vec::with_capacity(capacity),
+            timerev: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// 追加一个磁操作 `{R|t}[θ]`。
+    pub fn push(&mut self, rot: Mat3I, trans: Vec3, timerev: bool) {
+        self.rot.push(rot);
+        self.trans.push(trans);
+        self.timerev.push(timerev);
     }
 
     /// 磁操作数量。
@@ -124,13 +156,6 @@ impl MagneticSymmetry {
     /// 是否为空。
     pub fn is_empty(&self) -> bool {
         self.rot.is_empty()
-    }
-
-    /// 将旋转、平移和时间反演列表截断到指定长度。
-    pub fn truncate(&mut self, len: usize) {
-        self.rot.truncate(len);
-        self.trans.truncate(len);
-        self.timerev.truncate(len);
     }
 }
 
@@ -195,17 +220,10 @@ pub fn reduce_pure_translation(
     angle_tolerance: f64,
 ) -> Result<Vec<Vec3>, SymError> {
     let multi = pure_trans.len();
-    let mut symmetry = Symmetry::new(multi);
-
-    for (translation, &pure_translation) in symmetry
-        .trans
-        .iter_mut()
-        .zip(pure_trans.iter())
-        .take(multi)
-    {
-        *translation = pure_translation;
+    let mut symmetry = Symmetry::with_capacity(multi);
+    for &pure_translation in pure_trans {
+        symmetry.push(IDENTITY, pure_translation);
     }
-    symmetry.rot[..multi].fill(IDENTITY);
 
     let symmetry_reduced = reduce_operations(cell, &symmetry, symprec, angle_tolerance, true)
         .ok_or(SymError::SymmetryOperationSearchFailed)?;
@@ -237,8 +255,8 @@ fn reduce_operations(
     debug::debug_print(format_args!("reduce_operation:\n"));
 
     let point_symmetry = if is_pure_trans {
-        let mut ps = PointSymmetry::new(1);
-        ps.rot[0] = IDENTITY;
+        let mut ps = PointSymmetry::with_capacity(1);
+        ps.push(IDENTITY);
         ps
     } else {
         let ps = get_lattice_symmetry(primitive, symprec, angle_symprec);
@@ -268,9 +286,10 @@ fn reduce_operations(
         }
     }
 
-    let mut sym_reduced = Symmetry::new(rot_list.len());
-    sym_reduced.rot = rot_list;
-    sym_reduced.trans = trans_list;
+    let sym_reduced = Symmetry {
+        rot: rot_list,
+        trans: trans_list,
+    };
 
     Some(sym_reduced)
 }
@@ -612,9 +631,7 @@ fn get_space_group_operations(
         trans_vecs.push(t);
     }
 
-    let mut symmetry = Symmetry::new(total_num_sym);
-    let mut num_sym = 0;
-
+    let mut symmetry = Symmetry::with_capacity(total_num_sym);
     for (rotation, translations) in lattice_sym
         .rot
         .iter()
@@ -623,9 +640,7 @@ fn get_space_group_operations(
     {
         if let Some(vecs) = translations {
             for v in vecs {
-                symmetry.trans[num_sym] = *v;
-                symmetry.rot[num_sym] = *rotation;
-                num_sym += 1;
+                symmetry.push(*rotation, *v);
             }
         }
     }
@@ -636,7 +651,7 @@ fn get_space_group_operations(
 pub fn get_lattice_symmetry(cell: &Cell, symprec: f64, angle_symprec: f64) -> PointSymmetry {
     debug::debug_print(format_args!("get_lattice_symmetry:\n"));
 
-    let mut lattice_sym = PointSymmetry::new(0); // Initially empty
+    let mut lattice_sym = PointSymmetry::new();
     let aperiodic_axis = cell.aperiodic_axis;
 
     let Some(min_lattice) = (if aperiodic_axis.is_none() {
@@ -790,7 +805,7 @@ fn transform_pointsymmetry(
     new_lattice: &Mat3,
     original_lattice: &Mat3,
 ) -> PointSymmetry {
-    let mut lat_sym_new = PointSymmetry::new(0);
+    let mut lat_sym_new = PointSymmetry::new();
     let mut rot_list = Vec::new();
 
     let inv_mat = mat_inverse_matrix_d3(original_lattice, 0.0).ok().unwrap_or([[0.0; 3]; 3]);
