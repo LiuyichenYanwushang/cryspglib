@@ -138,7 +138,7 @@ Type-3 分类来自 FSG/XSG 的阶数关系。它正确意味着：
 ```text
 Crystal::magnetic_dataset
   -> spn_get_operations_with_site_tensors
-  -> msg_identify_with_parent_hall
+  -> identify_with_parent_hall
   -> reduce_to_primitive_magsym
   -> get_reference_space_group
   -> get_changed_magnetic_symmetry

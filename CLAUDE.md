@@ -118,7 +118,7 @@ API、磁/空间群内核、irrep/corep，并由主线程回查高优先级源�
 - **已修复（POSCAR）**：原子计数现在逐 token 严格解析为 `usize`，用
   `checked_add` 求和，并在任何容量分配前按实际坐标行拒绝负数、畸形、溢出、
   空结构、超大或截断输入；不再发生 release 整数回绕、容量溢出或 OOM。
-- **已修复（k-mesh）**：Rust 风格高层 API 与 crate-private `kpt_*`/`kgd_*` 内核
+- **已修复（k-mesh）**：Rust 风格高层 API 与 crate-private k 点/网格内核
   统一用 `Result` 拒绝零/负 mesh、非 0/1 shift、checked
   product 超限、输出 slice 过短、BZ map 过短和奇异 reciprocal lattice；地址翻倍
   改用有符号扩展与 Euclidean reduction，`i32::MIN` 不再溢出。分配型网格限制为
@@ -225,7 +225,7 @@ space group；幺正子群 H 在 doubled magnetic cell 中可能有不同的国�
 
 新增 ignored 诊断 `diagnose_first_hall_database_round_trips`。它从每个数据库磁群的
 完整点操作构造不变正定度量和相容晶格，再调用生产路径
-`msg_identify_with_parent_hall`，避免用不相容的单位立方晶格制造假失败。
+`identify_with_parent_hall`，避免用不相容的单位立方晶格制造假失败。
 
 首个 Hall setting 的结果：
 
@@ -1396,12 +1396,12 @@ spglib port 的主要公共 API 已全部从 `Option<T>` 迁移到 `Result<T, Sy
 | 管线 | 函数 | 错误 variant |
 |------|------|-------------|
 | 磁群 | `spn_get_operations_with_site_tensors` | `MagneticOpGenerationFailed`, `MagneticPrimitiveLatticeFailed` |
-| 磁群 | `msg_identify_with_parent_hall` | `MagneticReferenceGroupFailed`, `MagneticFallbackReferenceFailed`, `MagneticUniMatchFailed` |
+| 磁群 | `identify_with_parent_hall` | `MagneticReferenceGroupFailed`, `MagneticFallbackReferenceFailed`, `MagneticUniMatchFailed` |
 | 磁群 | `magnetic_dataset()` | 传播上游错误 |
-| 非磁 | `prm_get_primitive` | `CellStandardizationFailed` |
-| 非磁 | `sym_get_operation` | `SymmetryOperationSearchFailed` |
-| 非磁 | `spa_search_spacegroup` | `SpacegroupSearchFailed` |
-| 非磁 | `det_determine_all` | `SpacegroupSearchFailed` |
+| 非磁 | `get_primitive` | `CellStandardizationFailed` |
+| 非磁 | `get_operation` | `SymmetryOperationSearchFailed` |
+| 非磁 | `search_spacegroup` | `SpacegroupSearchFailed` |
+| 非磁 | `determine_all` | `SpacegroupSearchFailed` |
 | API | `Crystal::from_poscar` | `InvalidInput` |
 | API | `SymmetryOps::from_magnetic_database` | `SpacegroupSearchFailed` |
 | API | `SymmetryOps::from_sg` | `SpacegroupSearchFailed` |

@@ -177,7 +177,7 @@ impl Cell {
 }
 
 /// 检查两个原子位置是否重叠（考虑周期性边界）
-/// 对应 C: is_overlap
+/// 对应 C: cel_is_overlap
 pub fn is_overlap(a: &Vec3, b: &Vec3, lattice: &Mat3, symprec: f64) -> bool {
     let mut v_diff = [0.0; 3];
     for i in 0..3 {
@@ -190,7 +190,7 @@ pub fn is_overlap(a: &Vec3, b: &Vec3, lattice: &Mat3, symprec: f64) -> bool {
 }
 
 /// 检查两个相同类型的原子是否重叠
-/// 对应 C: is_overlap_with_same_type
+/// 对应 C: cel_is_overlap_with_same_type
 pub fn is_overlap_with_same_type(
     a: &Vec3,
     b: &Vec3,
@@ -207,7 +207,7 @@ pub fn is_overlap_with_same_type(
 }
 
 /// 检查 Cell 中是否存在任何重叠原子
-/// 对应 C: any_overlap
+/// 对应 C: cel_any_overlap
 pub fn any_overlap(cell: &Cell, symprec: f64) -> bool {
     // 使用 rayon 并行化可能在这里收益不大，因为通常 cell.len() 较小，且有早期返回
     for i in 0..cell.len() {
@@ -221,7 +221,7 @@ pub fn any_overlap(cell: &Cell, symprec: f64) -> bool {
 }
 
 /// 检查 Cell 中是否存在任何相同类型的重叠原子
-/// 对应 C: any_overlap_with_same_type
+/// 对应 C: cel_any_overlap_with_same_type
 pub fn any_overlap_with_same_type(cell: &Cell, symprec: f64) -> bool {
     for i in 0..cell.len() {
         for j in (i + 1)..cell.len() {
@@ -241,7 +241,7 @@ pub fn any_overlap_with_same_type(cell: &Cell, symprec: f64) -> bool {
 }
 
 /// 层状结构的重叠检查（仅在两个周期性方向上应用周期性边界）
-/// 对应 C: layer_is_overlap
+/// 对应 C: cel_layer_is_overlap
 pub fn layer_is_overlap(
     a: &Vec3,
     b: &Vec3,
@@ -262,7 +262,7 @@ pub fn layer_is_overlap(
     mat_norm_squared_d3(&v_diff).sqrt() < symprec
 }
 
-/// 对应 C: layer_is_overlap_with_same_type
+/// 对应 C: cel_layer_is_overlap_with_same_type
 pub fn layer_is_overlap_with_same_type(
     a: &Vec3,
     b: &Vec3,
@@ -279,7 +279,7 @@ pub fn layer_is_overlap_with_same_type(
     }
 }
 
-/// 对应 C: layer_any_overlap_with_same_type
+/// 对应 C: cel_layer_any_overlap_with_same_type
 pub fn layer_any_overlap_with_same_type(
     cell: &Cell,
     aperiodic: AperiodicAxis,

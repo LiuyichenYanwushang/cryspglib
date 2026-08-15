@@ -84,7 +84,7 @@ pub(crate) fn get_all_grid_addresses(
 
 /// 获取双倍网格下的线性索引
 ///
-/// 对应 C: get_grid_point_double_mesh
+/// 对应 C: kgd_get_grid_point_double_mesh
 pub(crate) fn get_grid_point_double_mesh(
     address_double: &[i32; 3],
     mesh: &[i32; 3],
@@ -95,7 +95,7 @@ pub(crate) fn get_grid_point_double_mesh(
 
 /// 获取双倍网格下的线性索引 (Dense 版本)
 ///
-/// 对应 C: get_dense_grid_point_double_mesh
+/// 对应 C: kgd_get_dense_grid_point_double_mesh
 /// 在当前实现中，逻辑与 get_grid_point_double_mesh 相同
 pub(crate) fn get_dense_grid_point_double_mesh(
     address_double: &[i32; 3],

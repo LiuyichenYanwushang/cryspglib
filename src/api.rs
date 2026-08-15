@@ -121,7 +121,7 @@ impl Crystal {
     }
 
     /// Niggli lattice reduction.
-    pub fn reduce(&self, symprec: f64) -> Result<Mat3, SymError> {
+    pub fn niggli_reduce(&self, symprec: f64) -> Result<Mat3, SymError> {
         let mut reduced = self.lattice;
         reduce(&mut reduced, symprec, None)?;
         Ok(reduced)
