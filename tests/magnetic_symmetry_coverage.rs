@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashSet};
 use cryspglib::mathfunc::{Mat3, Mat3I, mat_get_determinant_i3, mat_multiply_matrix_i3};
 use cryspglib::msg_database::{
     ALTERNATIVE_TRANSFORMATIONS, MAGNETIC_SPACEGROUP_TYPES, MAGNETIC_SPACEGROUP_UNI_MAPPING,
-    msgdb_get_spacegroup_operations, msgdb_get_std_transformations, msgdb_get_uni_candidates,
+    get_spacegroup_operations, get_std_transformations, get_uni_candidates,
 };
 use cryspglib::{MagneticType, SymError, magnetic_spacegroup, msg_database, spg_database};
 
@@ -322,13 +322,13 @@ fn all_magnetic_database_operations_form_expected_groups() {
         .take(1652)
         .skip(1)
     {
-        let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let metadata = msg_database::get_magnetic_spacegroup_type(uni);
 
         for hall in first_hall as usize..(first_hall + num_halls) as usize {
             hall_pair_count += 1;
             let context = format!("UNI {uni} BNS {} Hall {hall}", metadata.bns_number);
 
-            let Some([candidate_min, candidate_max]) = msgdb_get_uni_candidates(hall) else {
+            let Some([candidate_min, candidate_max]) = get_uni_candidates(hall) else {
                 audit.record("missing_hall_candidate_range", context);
                 continue;
             };
@@ -339,7 +339,7 @@ fn all_magnetic_database_operations_form_expected_groups() {
                 );
             }
 
-            let hall_type = spg_database::spgdb_get_spacegroup_type(hall);
+            let hall_type = spg_database::get_spacegroup_type(hall);
             if hall_type.number != metadata.number {
                 audit.record(
                     "parent_sg_mismatch",
@@ -350,7 +350,7 @@ fn all_magnetic_database_operations_form_expected_groups() {
                 );
             }
 
-            let Some(magnetic) = msgdb_get_spacegroup_operations(uni, hall) else {
+            let Some(magnetic) = get_spacegroup_operations(uni, hall) else {
                 audit.record("missing_magnetic_operations", context);
                 continue;
             };
@@ -450,7 +450,7 @@ fn all_magnetic_database_operations_form_expected_groups() {
                     && !is_zero_translation(&operation.translation)
             });
 
-            let Some(parent) = spg_database::spgdb_get_spacegroup_operations(hall) else {
+            let Some(parent) = spg_database::get_spacegroup_operations(hall) else {
                 audit.record("missing_parent_operations", context);
                 continue;
             };
@@ -559,11 +559,11 @@ fn all_magnetic_database_operations_form_expected_groups() {
 #[test]
 fn enantiomorphic_magnetic_settings_preserve_handedness() {
     for uni in [667usize, 679] {
-        let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let metadata = msg_database::get_magnetic_spacegroup_type(uni);
         let first_hall = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
-        let magnetic = msgdb_get_spacegroup_operations(uni, first_hall).unwrap();
+        let magnetic = get_spacegroup_operations(uni, first_hall).unwrap();
         let lattice = invariant_lattice(&magnetic.rot[..magnetic.len()]).unwrap();
-        let dataset = magnetic_spacegroup::msg_identify_with_parent_hall(
+        let dataset = magnetic_spacegroup::identify_with_parent_hall(
             &lattice,
             &magnetic,
             Some(first_hall),
@@ -611,7 +611,7 @@ fn all_alternative_setting_transformations_are_loaded() {
                 nontrivial_setting_count += 1;
             }
 
-            let transformations = msgdb_get_std_transformations(uni, hall)
+            let transformations = get_std_transformations(uni, hall)
                 .unwrap_or_else(|| panic!("missing transformations for UNI {uni} Hall {hall}"));
             assert_eq!(
                 transformations.len(),
@@ -629,7 +629,7 @@ fn all_alternative_setting_transformations_are_loaded() {
     assert_eq!(hall_pair_count, 4479);
     assert_eq!(nontrivial_setting_count, 450);
 
-    let transformations = msgdb_get_std_transformations(132, 116).unwrap();
+    let transformations = get_std_transformations(132, 116).unwrap();
     assert_eq!(transformations.len(), 2);
     assert_eq!(transformations.rot[1], [[0, -1, 0], [-1, 0, 0], [0, 0, -1]]);
     assert_eq!(transformations.trans[1], [0.0, 0.0, 0.25]);
@@ -646,13 +646,13 @@ fn all_database_settings_round_trip_with_parent_hint() {
         .take(1652)
         .skip(1)
     {
-        let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let metadata = msg_database::get_magnetic_spacegroup_type(uni);
         let num_halls = num_halls as usize;
         let first_hall = first_hall as usize;
         for hall_offset in 0..num_halls {
             let hall = first_hall + hall_offset;
             let context = format!("UNI {uni} BNS {} Hall {hall}", metadata.bns_number);
-            let Some(magnetic) = msgdb_get_spacegroup_operations(uni, hall) else {
+            let Some(magnetic) = get_spacegroup_operations(uni, hall) else {
                 audit.record("missing_magnetic_operations", context);
                 continue;
             };
@@ -663,7 +663,7 @@ fn all_database_settings_round_trip_with_parent_hint() {
             };
 
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                magnetic_spacegroup::msg_identify_with_parent_hall(
+                magnetic_spacegroup::identify_with_parent_hall(
                     &lattice,
                     &magnetic,
                     Some(hall),
@@ -680,7 +680,7 @@ fn all_database_settings_round_trip_with_parent_hint() {
                 }
                 Ok(Ok(dataset)) => {
                     let returned =
-                        msg_database::msgdb_get_magnetic_spacegroup_type(dataset.uni_number);
+                        msg_database::get_magnetic_spacegroup_type(dataset.uni_number);
                     let category = if dataset.msg_type == metadata.type_ {
                         "wrong_uni_same_type"
                     } else {
@@ -725,17 +725,17 @@ fn automatic_all_setting_round_trips_are_unique_or_explicitly_ambiguous() {
         .take(1652)
         .skip(1)
     {
-        let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let metadata = msg_database::get_magnetic_spacegroup_type(uni);
         let num_halls = num_halls as usize;
         let first_hall = first_hall as usize;
         for hall_offset in 0..num_halls {
             setting_count += 1;
             let hall = first_hall + hall_offset;
-            let magnetic = msgdb_get_spacegroup_operations(uni, hall)
+            let magnetic = get_spacegroup_operations(uni, hall)
                 .unwrap_or_else(|| panic!("missing operations for UNI {uni} Hall {hall}"));
             let lattice = invariant_lattice(&magnetic.rot[..magnetic.len()])
                 .unwrap_or_else(|| panic!("invariant lattice failed for UNI {uni} Hall {hall}"));
-            let result = magnetic_spacegroup::msg_identify_magnetic_space_group_type(
+            let result = magnetic_spacegroup::identify_magnetic_space_group_type(
                 &lattice, &magnetic, 1e-5,
             );
 

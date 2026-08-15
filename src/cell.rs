@@ -177,8 +177,8 @@ impl Cell {
 }
 
 /// 检查两个原子位置是否重叠（考虑周期性边界）
-/// 对应 C: cel_is_overlap
-pub fn cel_is_overlap(a: &Vec3, b: &Vec3, lattice: &Mat3, symprec: f64) -> bool {
+/// 对应 C: is_overlap
+pub fn is_overlap(a: &Vec3, b: &Vec3, lattice: &Mat3, symprec: f64) -> bool {
     let mut v_diff = [0.0; 3];
     for i in 0..3 {
         v_diff[i] = a[i] - b[i];
@@ -190,8 +190,8 @@ pub fn cel_is_overlap(a: &Vec3, b: &Vec3, lattice: &Mat3, symprec: f64) -> bool 
 }
 
 /// 检查两个相同类型的原子是否重叠
-/// 对应 C: cel_is_overlap_with_same_type
-pub fn cel_is_overlap_with_same_type(
+/// 对应 C: is_overlap_with_same_type
+pub fn is_overlap_with_same_type(
     a: &Vec3,
     b: &Vec3,
     type_a: i32,
@@ -200,19 +200,19 @@ pub fn cel_is_overlap_with_same_type(
     symprec: f64,
 ) -> bool {
     if type_a == type_b {
-        cel_is_overlap(a, b, lattice, symprec)
+        is_overlap(a, b, lattice, symprec)
     } else {
         false
     }
 }
 
 /// 检查 Cell 中是否存在任何重叠原子
-/// 对应 C: cel_any_overlap
-pub fn cel_any_overlap(cell: &Cell, symprec: f64) -> bool {
+/// 对应 C: any_overlap
+pub fn any_overlap(cell: &Cell, symprec: f64) -> bool {
     // 使用 rayon 并行化可能在这里收益不大，因为通常 cell.len() 较小，且有早期返回
     for i in 0..cell.len() {
         for j in (i + 1)..cell.len() {
-            if cel_is_overlap(&cell.position[i], &cell.position[j], &cell.lattice, symprec) {
+            if is_overlap(&cell.position[i], &cell.position[j], &cell.lattice, symprec) {
                 return true;
             }
         }
@@ -221,11 +221,11 @@ pub fn cel_any_overlap(cell: &Cell, symprec: f64) -> bool {
 }
 
 /// 检查 Cell 中是否存在任何相同类型的重叠原子
-/// 对应 C: cel_any_overlap_with_same_type
-pub fn cel_any_overlap_with_same_type(cell: &Cell, symprec: f64) -> bool {
+/// 对应 C: any_overlap_with_same_type
+pub fn any_overlap_with_same_type(cell: &Cell, symprec: f64) -> bool {
     for i in 0..cell.len() {
         for j in (i + 1)..cell.len() {
-            if cel_is_overlap_with_same_type(
+            if is_overlap_with_same_type(
                 &cell.position[i],
                 &cell.position[j],
                 cell.types[i],
@@ -241,8 +241,8 @@ pub fn cel_any_overlap_with_same_type(cell: &Cell, symprec: f64) -> bool {
 }
 
 /// 层状结构的重叠检查（仅在两个周期性方向上应用周期性边界）
-/// 对应 C: cel_layer_is_overlap
-pub fn cel_layer_is_overlap(
+/// 对应 C: layer_is_overlap
+pub fn layer_is_overlap(
     a: &Vec3,
     b: &Vec3,
     lattice: &Mat3,
@@ -262,8 +262,8 @@ pub fn cel_layer_is_overlap(
     mat_norm_squared_d3(&v_diff).sqrt() < symprec
 }
 
-/// 对应 C: cel_layer_is_overlap_with_same_type
-pub fn cel_layer_is_overlap_with_same_type(
+/// 对应 C: layer_is_overlap_with_same_type
+pub fn layer_is_overlap_with_same_type(
     a: &Vec3,
     b: &Vec3,
     type_a: i32,
@@ -273,21 +273,21 @@ pub fn cel_layer_is_overlap_with_same_type(
     symprec: f64,
 ) -> bool {
     if type_a == type_b {
-        cel_layer_is_overlap(a, b, lattice, aperiodic, symprec)
+        layer_is_overlap(a, b, lattice, aperiodic, symprec)
     } else {
         false
     }
 }
 
-/// 对应 C: cel_layer_any_overlap_with_same_type
-pub fn cel_layer_any_overlap_with_same_type(
+/// 对应 C: layer_any_overlap_with_same_type
+pub fn layer_any_overlap_with_same_type(
     cell: &Cell,
     aperiodic: AperiodicAxis,
     symprec: f64,
 ) -> bool {
     for i in 0..cell.len() {
         for j in (i + 1)..cell.len() {
-            if cel_layer_is_overlap_with_same_type(
+            if layer_is_overlap_with_same_type(
                 &cell.position[i],
                 &cell.position[j],
                 cell.types[i],
@@ -306,19 +306,7 @@ pub fn cel_layer_any_overlap_with_same_type(
 /// 裁剪晶胞 (Trim Cell)
 /// 将较大的晶胞 (cell) 投影到较小的晶格 (trimmed_lattice) 上。
 /// mapping_table: 输出参数，映射原原子索引到新原子索引
-/// 对应 C: cel_trim_cell
-pub fn cel_trim_cell(
-    mapping_table: &mut [usize],
-    trimmed_lattice: &Mat3,
-    cell: &Cell,
-    symprec: f64,
-) -> Option<Cell> {
-    trim_cell(mapping_table, trimmed_lattice, cell, symprec)
-}
-
-/// 内部实现：trim_cell
-/// 对应 C: static trim_cell
-fn trim_cell(
+pub fn trim_cell(
     mapping_table: &mut [usize],
     trimmed_lattice: &Mat3,
     cell: &Cell,
@@ -523,14 +511,14 @@ fn get_overlap_table(
             for j in 0..cell_size {
                 if cell_types[i] == cell_types[j] {
                     let is_overlap = if lattice_rank == 3 {
-                        cel_is_overlap(
+                        is_overlap(
                             &position[i],
                             &position[j],
                             &trimmed_cell.lattice,
                             trim_tolerance,
                         )
                     } else {
-                        cel_layer_is_overlap(
+                        layer_is_overlap(
                             &position[i],
                             &position[j],
                             &trimmed_cell.lattice,
@@ -622,12 +610,12 @@ mod tests {
         let b = [0.100000001, 0.1, 0.1];
         let c = [0.5, 0.5, 0.5];
 
-        assert!(cel_is_overlap(&a, &b, &lattice, 1e-5));
-        assert!(!cel_is_overlap(&a, &c, &lattice, 1e-5));
+        assert!(is_overlap(&a, &b, &lattice, 1e-5));
+        assert!(!is_overlap(&a, &c, &lattice, 1e-5));
 
         // Periodic boundary
         let d = [1.1, 0.1, 0.1];
-        assert!(cel_is_overlap(&a, &d, &lattice, 1e-5));
+        assert!(is_overlap(&a, &d, &lattice, 1e-5));
     }
 
     #[test]
@@ -645,7 +633,7 @@ mod tests {
         cell.set_cell(&super_lattice, &positions, &types);
 
         let mut mapping_table = vec![0; 2];
-        let trimmed = cel_trim_cell(&mut mapping_table, &trimmed_lattice, &cell, 1e-5);
+        let trimmed = trim_cell(&mut mapping_table, &trimmed_lattice, &cell, 1e-5);
 
         assert!(trimmed.is_some());
         let t = trimmed.unwrap();

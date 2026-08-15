@@ -142,7 +142,7 @@ Crystal::magnetic_dataset
   -> reduce_to_primitive_magsym
   -> get_reference_space_group
   -> get_changed_magnetic_symmetry
-  -> msgdb_get_uni_candidates
+  -> get_uni_candidates
   -> get_distinct_changed_magnetic_symmetry
   -> is_subset
 ```
@@ -465,7 +465,7 @@ T_real R T_real⁻¹
 它还用于：
 
 ```text
-msgdb_get_std_transformations
+get_std_transformations
   -> correction transformation
   -> get_distinct_changed_magnetic_symmetry
 ```

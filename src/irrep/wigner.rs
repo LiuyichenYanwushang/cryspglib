@@ -2656,7 +2656,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
         //
         // IMPORTANT: G spin table is in the PARENT G's coordinate frame.
         // The MSG embedding is also in G's frame (MSG ops come from
-        // msgdb_get_spacegroup_operations with parent's Hall number).
+        // get_spacegroup_operations with parent's Hall number).
         // Therefore G lookup must use the UNTRANSFORMED b.rot, NOT the
         // H-Hall-transformed b_rot.  The setting transform maps MSG→H,
         // but G spin is not in H's frame.

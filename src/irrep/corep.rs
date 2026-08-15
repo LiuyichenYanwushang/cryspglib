@@ -104,7 +104,7 @@ use super::wigner::{
 };
 use crate::SymmetryOps;
 use crate::mathfunc::{Mat3I, mat_inverse_matrix_d3};
-use crate::spg_database::{spgdb_get_spacegroup_operations, spgdb_get_spacegroup_type};
+use crate::spg_database::{get_spacegroup_operations, get_spacegroup_type};
 use num_complex::Complex64;
 use std::collections::BTreeSet;
 
@@ -1111,7 +1111,7 @@ pub(crate) fn operations_in_data_hall_frame(
 /// Get the magnetic space group symmetry operations.
 pub fn get_magnetic_operations(uni_number: usize) -> Option<SymmetryOps> {
     let hall = get_first_hall_for_uni(uni_number)?;
-    let sym = crate::msg_database::msgdb_get_spacegroup_operations(uni_number, hall)?;
+    let sym = crate::msg_database::get_spacegroup_operations(uni_number, hall)?;
     let n = sym.len();
     let mut rot = Vec::with_capacity(n);
     let mut trans = Vec::with_capacity(n);
@@ -1152,7 +1152,7 @@ pub fn symmetry_operations_of(sg: u8) -> Result<SymmetryOps, crate::SymError> {
 }
 
 fn get_parent_operations_by_hall(hall: usize) -> Option<SymmetryOps> {
-    let sym = spgdb_get_spacegroup_operations(hall)?;
+    let sym = get_spacegroup_operations(hall)?;
     let n = sym.len();
     let mut rot = Vec::with_capacity(n);
     let mut trans = Vec::with_capacity(n);
@@ -1340,7 +1340,7 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
             if h == 0 || h > 530 {
                 return None;
             }
-            let sg_type = spgdb_get_spacegroup_type(h);
+            let sg_type = get_spacegroup_type(h);
             let oh = get_parent_operations_by_hall(h)?;
             (sg_type.number, h, oh, None)
         }
@@ -1580,7 +1580,7 @@ fn standard_setting_transform(
 /// BNS label → UNI number.
 pub fn uni_from_bns(bns: &str) -> Option<usize> {
     for uni in 1..=1651usize {
-        let t = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let t = crate::msg_database::get_magnetic_spacegroup_type(uni);
         if t.bns_number == bns {
             return Some(uni);
         }
@@ -1591,7 +1591,7 @@ pub fn uni_from_bns(bns: &str) -> Option<usize> {
 /// OG label → UNI number.
 pub fn uni_from_og(og: &str) -> Option<usize> {
     for uni in 1..=1651usize {
-        let t = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+        let t = crate::msg_database::get_magnetic_spacegroup_type(uni);
         if t.og_number == og {
             return Some(uni);
         }
@@ -4272,8 +4272,8 @@ mod tests {
 
             // Also check with hall=0 to see if the MSG database self-selects
             if let Some(h) = hall {
-                let ops_h0 = crate::msg_database::msgdb_get_spacegroup_operations(uni, 0);
-                let ops_h = crate::msg_database::msgdb_get_spacegroup_operations(uni, h);
+                let ops_h0 = crate::msg_database::get_spacegroup_operations(uni, 0);
+                let ops_h = crate::msg_database::get_spacegroup_operations(uni, h);
                 if let (Some(sym0), Some(symh)) = (ops_h0, ops_h) {
                     let same_size = sym0.len() == symh.len();
                     let h0_u = (0..sym0.len()).filter(|&i| !sym0.timerev[i]).count();
@@ -6144,7 +6144,7 @@ mod tests {
     fn scan_simplest_spinor_failure() {
         let mut failures: Vec<(usize, usize, u8, String, String)> = Vec::new();
         for uni in 1..=50usize {
-            let msg = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+            let msg = crate::msg_database::get_magnetic_spacegroup_type(uni);
             if msg.type_ != crate::MagneticType::Grey {
                 continue;
             }
@@ -6184,7 +6184,7 @@ mod tests {
         // Also check SG 123 specifically — find its grey-group MSG
         let mut sg123_uni = 0usize;
         for uni in 1..=2000usize {
-            let msg = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni);
+            let msg = crate::msg_database::get_magnetic_spacegroup_type(uni);
             if msg.type_ != crate::MagneticType::Grey {
                 continue;
             }
@@ -6197,7 +6197,7 @@ mod tests {
         println!(
             "\nSG 123 grey group: UNI {} BNS {}",
             sg123_uni,
-            crate::msg_database::msgdb_get_magnetic_spacegroup_type(sg123_uni)
+            crate::msg_database::get_magnetic_spacegroup_type(sg123_uni)
                 .bns_number
                 .trim()
         );
@@ -6502,7 +6502,7 @@ mod tests {
     fn diagnose_sg143_spinor_wigner() {
         let mut uni = 0usize;
         for u in 1..=2000usize {
-            let msg = crate::msg_database::msgdb_get_magnetic_spacegroup_type(u);
+            let msg = crate::msg_database::get_magnetic_spacegroup_type(u);
             if msg.type_ != crate::MagneticType::Grey {
                 continue;
             }
@@ -6916,7 +6916,7 @@ mod tests {
             if shown >= 10 {
                 break;
             }
-            let st = crate::spg_database::spgdb_get_spacegroup_type(*hall);
+            let st = crate::spg_database::get_spacegroup_type(*hall);
             println!("    UNI{} Hall{} SG{} T={:?}", uni, hall, st.number, t);
             shown += 1;
         }

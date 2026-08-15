@@ -8846,7 +8846,7 @@ pub static LAYER_SYMMETRY_OPERATION_INDEX: [[i32; 2]; 117] = [
 // ==================== 函数实现 ====================
 
 /// 解码编码的对称操作整数为旋转矩阵和平移向量
-pub fn spgdb_decode_symmetry(encoded: i32) -> (Mat3I, Vec3) {
+pub fn decode_symmetry(encoded: i32) -> (Mat3I, Vec3) {
     let mut rot = [[0; 3]; 3];
     let mut trans = [0.0; 3];
     let r = encoded % 19683; // 19683 = 3^9
@@ -8867,27 +8867,27 @@ pub fn spgdb_decode_symmetry(encoded: i32) -> (Mat3I, Vec3) {
 }
 
 /// 根据操作索引直接获取单个对称操作
-pub fn spgdb_get_operation_by_index(index: usize) -> Option<(Mat3I, Vec3)> {
+pub fn get_operation_by_index(index: usize) -> Option<(Mat3I, Vec3)> {
     if index < SYMMETRY_OPERATIONS.len() {
-        Some(spgdb_decode_symmetry(SYMMETRY_OPERATIONS[index]))
+        Some(decode_symmetry(SYMMETRY_OPERATIONS[index]))
     } else {
         None
     }
 }
 
 /// 根据 Hall 编号获取单个对称操作
-pub fn spgdb_get_operation(hall_number: usize) -> Option<(Mat3I, Vec3)> {
+pub fn get_operation(hall_number: usize) -> Option<(Mat3I, Vec3)> {
     if hall_number > 0 && hall_number <= 530 {
         let idx = SYMMETRY_OPERATION_INDEX[hall_number][1] as usize;
         let code = SYMMETRY_OPERATIONS[idx];
-        Some(spgdb_decode_symmetry(code))
+        Some(decode_symmetry(code))
     } else {
         None
     }
 }
 
 /// 获取 Hall 编号对应的操作索引范围 (count, start_index)
-pub fn spgdb_get_operation_index(hall_number: usize) -> (usize, usize) {
+pub fn get_operation_index(hall_number: usize) -> (usize, usize) {
     if hall_number > 0 && hall_number <= 530 {
         let entry = SYMMETRY_OPERATION_INDEX[hall_number];
         (entry[0] as usize, entry[1] as usize)
@@ -8897,15 +8897,15 @@ pub fn spgdb_get_operation_index(hall_number: usize) -> (usize, usize) {
 }
 
 /// 获取 Hall 编号对应的完整对称操作集合
-pub fn spgdb_get_spacegroup_operations(hall_number: usize) -> Option<Symmetry> {
-    let (count, start) = spgdb_get_operation_index(hall_number);
+pub fn get_spacegroup_operations(hall_number: usize) -> Option<Symmetry> {
+    let (count, start) = get_operation_index(hall_number);
     if count == 0 {
         return None;
     }
     let mut symmetry = Symmetry::new(count);
     for i in 0..count {
         let code = SYMMETRY_OPERATIONS[start + i];
-        let (rot, trans) = spgdb_decode_symmetry(code);
+        let (rot, trans) = decode_symmetry(code);
         symmetry.rot[i] = rot;
         symmetry.trans[i] = trans;
     }
@@ -8933,7 +8933,7 @@ fn spgdb_remove_space(s: &mut String) {
 }
 
 /// 获取 Hall 编号对应的空间群类型信息
-pub fn spgdb_get_spacegroup_type(hall_number: usize) -> SpacegroupType {
+pub fn get_spacegroup_type(hall_number: usize) -> SpacegroupType {
     let raw = if hall_number > 0 && hall_number <= 530 {
         &SPACEGROUP_TYPES[hall_number]
     } else {

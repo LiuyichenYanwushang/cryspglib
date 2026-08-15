@@ -37,32 +37,32 @@ fn get_num_attempts() -> i32 {
 /// min_lattice: 输出的约化后晶格
 /// lattice: 输入晶格
 /// symprec: 对称性判定精度
-pub(crate) fn del_delaunay_reduce(lattice: &Mat3, symprec: f64) -> Option<Mat3> {
+pub(crate) fn delaunay_reduce(lattice: &Mat3, symprec: f64) -> Option<Mat3> {
     debug::debug_print(format_args!(
-        "del_delaunay_reduce (tolerance = {}):\n",
+        "delaunay_reduce (tolerance = {}):\n",
         symprec
     ));
-    delaunay_reduce(lattice, -1, symprec)
+    delaunay_reduce_core(lattice, -1, symprec)
 }
 
 /// 层状结构的 Delaunay 约化
 /// aperiodic_axis: 非周期轴
-pub(crate) fn del_layer_delaunay_reduce(
+pub(crate) fn layer_delaunay_reduce(
     lattice: &Mat3,
     aperiodic_axis: Option<AperiodicAxis>,
     symprec: f64,
 ) -> Option<Mat3> {
     debug::debug_print(format_args!(
-        "del_layer_delaunay_reduce (tolerance = {}):\n",
+        "layer_delaunay_reduce (tolerance = {}):\n",
         symprec
     ));
     let ap_i32 = aperiodic_axis.map_or(-1, |ap| ap.axis_index() as i32);
-    delaunay_reduce(lattice, ap_i32, symprec)
+    delaunay_reduce_core(lattice, ap_i32, symprec)
 }
 
 /// Delaunay 约化核心逻辑
 /// Reference: International table A.
-fn delaunay_reduce(
+fn delaunay_reduce_core(
     lattice: &Mat3,
     aperiodic_axis: i32,
     symprec: f64,
@@ -311,14 +311,14 @@ fn get_extended_basis(basis: &mut [[f64; 3]; 4], lattice: &Mat3, aperiodic_axis:
 // --- 2D Delaunay Reduction Functions ---
 
 /// 2D 层状结构的 Delaunay 约化
-pub(crate) fn del_layer_delaunay_reduce_2d(
+pub(crate) fn layer_delaunay_reduce_2d(
     red_lattice: &mut Mat3,
     lattice: &Mat3,
     unique_axis: i32,
     aperiodic_axis: i32,
     symprec: f64,
 ) -> bool {
-    debug::debug_print(format_args!("del_layer_delaunay_reduce_2d:\n"));
+    debug::debug_print(format_args!("layer_delaunay_reduce_2d:\n"));
 
     let mut j = -1;
     let mut k = -1;
@@ -511,7 +511,7 @@ mod tests {
     fn test_delaunay_reduce_simple() {
         // 构造一个简单的正交晶格，不需要约化
         let lattice: Mat3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        let min_lattice = del_delaunay_reduce(&lattice, 1e-5);
+        let min_lattice = delaunay_reduce(&lattice, 1e-5);
         assert!(min_lattice.is_some());
         let min_lattice = min_lattice.unwrap();
         // 结果应该保持不变（或仅仅是基向量顺序变化，对于单位阵应该不变）
@@ -528,7 +528,7 @@ mod tests {
         // b = (1, 1, 0) -> 应该被约化为 (0, 1, 0)
         // c = (0, 0, 1)
         let lattice: Mat3 = [[1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        let min_lattice = del_delaunay_reduce(&lattice, 1e-5);
+        let min_lattice = delaunay_reduce(&lattice, 1e-5);
         assert!(min_lattice.is_some());
         let min_lattice = min_lattice.unwrap();
 

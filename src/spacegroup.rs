@@ -5,9 +5,9 @@
 //!
 //! # 入口函数
 //!
-//! - [`spa_search_spacegroup`] — 从原胞出发的完整空间群搜索
-//! - [`spa_search_spacegroup_with_symmetry`] — 给定对称操作的空间群搜索
-//! - [`spa_transform_to_primitive`] / [`spa_transform_from_primitive`] — 坐标变换辅助
+//! - [`search_spacegroup`] — 从原胞出发的完整空间群搜索
+//! - [`search_spacegroup_with_symmetry`] — 给定对称操作的空间群搜索
+//! - [`transform_to_primitive`] / [`transform_from_primitive`] — 坐标变换辅助
 //!
 //! # 晶格矩阵约定
 //!
@@ -15,9 +15,9 @@
 //! 详见 [`mathfunc`](crate::mathfunc) 模块文档。
 
 use crate::SymError;
-use crate::cell::{AperiodicAxis, Cell, TensorRank, cel_trim_cell};
+use crate::cell::{AperiodicAxis, Cell, TensorRank, trim_cell};
 use crate::debug;
-use crate::delaunay::del_layer_delaunay_reduce_2d;
+use crate::delaunay::layer_delaunay_reduce_2d;
 
 use crate::hall_symbol::hal_match_hall_symbol_db;
 use crate::mathfunc::{
@@ -26,13 +26,13 @@ use crate::mathfunc::{
     mat_get_similar_matrix_d3, mat_inverse_matrix_d3, mat_is_int_matrix, mat_multiply_matrix_d3,
     mat_multiply_matrix_di3, mat_multiply_matrix_id3, mat_multiply_matrix_vector_d3,
 };
-use crate::niggli::niggli_reduce;
+use crate::niggli::reduce;
 use crate::pointgroup::{
-    Holohedry, Laue, ptg_get_pointsymmetry, ptg_get_transformation_matrix,
+    Holohedry, Laue, get_pointsymmetry, get_transformation_matrix,
 };
 use crate::primitive::Primitive;
-use crate::spg_database::{Centering, spgdb_get_spacegroup_type};
-use crate::symmetry::{Symmetry, sym_get_operation, sym_reduce_operation};
+use crate::spg_database::{Centering, get_spacegroup_type};
+use crate::symmetry::{Symmetry, get_operation, reduce_operation};
 
 const REDUCE_RATE: f64 = 0.95;
 const NUM_ATTEMPT: i32 = 100;
@@ -220,7 +220,7 @@ impl Spacegroup {
 
 // --- Public Functions ---
 
-pub fn spa_search_spacegroup(
+pub fn search_spacegroup(
     primitive: &Primitive,
     hall_number: i32,
     symprec: f64,
@@ -232,7 +232,7 @@ pub fn spa_search_spacegroup(
     ));
 
     let cell = primitive.cell.as_ref().ok_or(SymError::SpacegroupSearchFailed)?;
-    let symmetry = sym_get_operation(cell, symprec, angle_tolerance)?;
+    let symmetry = get_operation(cell, symprec, angle_tolerance)?;
 
     let candidates = if hall_number != 0 {
         vec![hall_number]
@@ -242,10 +242,10 @@ pub fn spa_search_spacegroup(
         LAYER_GROUP_TO_HALL_NUMBER.to_vec()
     };
 
-    search_spacegroup_with_symmetry(primitive, &candidates, &symmetry, symprec, angle_tolerance)
+    search_spacegroup_with_symmetry_core(primitive, &candidates, &symmetry, symprec, angle_tolerance)
 }
 
-pub fn spa_search_spacegroup_with_symmetry(
+pub fn search_spacegroup_with_symmetry(
     symmetry: &Symmetry,
     prim_lat: &Mat3,
     symprec: f64,
@@ -264,10 +264,10 @@ pub fn spa_search_spacegroup_with_symmetry(
     // the input coordinates happen to match.
     let candidates: Vec<i32> = (1..=530).collect();
 
-    search_spacegroup_with_symmetry(&primitive, &candidates, symmetry, symprec, -1.0)
+    search_spacegroup_with_symmetry_core(&primitive, &candidates, symmetry, symprec, -1.0)
 }
 
-pub fn spa_transform_to_primitive(
+pub fn transform_to_primitive(
     mapping_table: &mut [usize],
     cell: &Cell,
     trans_mat: &Mat3,
@@ -288,14 +288,14 @@ pub fn spa_transform_to_primitive(
 
     let prim_lat = mat_multiply_matrix_d3(&cell.lattice, &tmat);
 
-    let primitive = cel_trim_cell(mapping_table, &prim_lat, cell, symprec);
+    let primitive = trim_cell(mapping_table, &prim_lat, cell, symprec);
     if primitive.is_none() {
-        debug::warning_print(format_args!("spglib: cel_trim_cell failed.\n"));
+        debug::warning_print(format_args!("spglib: trim_cell failed.\n"));
     }
     primitive
 }
 
-pub fn spa_transform_from_primitive(
+pub fn transform_from_primitive(
     primitive: &Cell,
     centering: Centering,
     symprec: f64,
@@ -358,12 +358,12 @@ pub fn spa_transform_from_primitive(
         }
     }
 
-    cel_trim_cell(&mut mapping_table, &std_cell.lattice, &std_cell, symprec)
+    trim_cell(&mut mapping_table, &std_cell.lattice, &std_cell, symprec)
 }
 
 // --- Internal Functions ---
 
-fn search_spacegroup_with_symmetry(
+fn search_spacegroup_with_symmetry_core(
     primitive: &Primitive,
     candidates: &[i32],
     symmetry: &Symmetry,
@@ -378,7 +378,7 @@ fn search_spacegroup_with_symmetry(
     let mut origin_shift = [0.0; 3];
     let mut conv_lattice = [[0.0; 3]; 3];
 
-    let pointsym = ptg_get_pointsymmetry(&symmetry.rot);
+    let pointsym = get_pointsymmetry(&symmetry.rot);
     if pointsym.len() < symmetry.len() {
         debug::info_print(format_args!(
             "spglib: Point symmetry of primitive cell is broken.\n"
@@ -409,7 +409,7 @@ fn get_spacegroup(
     origin_shift: &Vec3,
     conv_lattice: &Mat3,
 ) -> Option<Spacegroup> {
-    let spg_type = spgdb_get_spacegroup_type(hall_number as usize);
+    let spg_type = get_spacegroup_type(hall_number as usize);
 
     let mut spacegroup = Spacegroup::new();
     spacegroup.bravais_lattice = *conv_lattice;
@@ -461,7 +461,7 @@ fn iterative_search_hall_number(
         ));
 
         tolerance *= REDUCE_RATE;
-        if let Ok(sym_reduced) = sym_reduce_operation(
+        if let Ok(sym_reduced) = reduce_operation(
             primitive.cell.as_ref().unwrap(),
             &current_symmetry,
             tolerance,
@@ -504,7 +504,7 @@ fn search_hall_number(
     debug::debug_print(format_args!("search_hall_number:\n"));
 
     let aperiodic_axis = primitive.cell.as_ref().unwrap().aperiodic_axis;
-    let (mut tmat_int, pointgroup) = ptg_get_transformation_matrix(&symmetry.rot, aperiodic_axis);
+    let (mut tmat_int, pointgroup) = get_transformation_matrix(&symmetry.rot, aperiodic_axis);
 
     if pointgroup.number == 0 {
         return 0;
@@ -586,7 +586,7 @@ fn change_basis_tricli(
 ) -> bool {
     let mut niggli_cell = *conv_lattice;
 
-    if niggli_reduce(&mut niggli_cell, symprec * symprec, aperiodic_axis).is_err() {
+    if reduce(&mut niggli_cell, symprec * symprec, aperiodic_axis).is_err() {
         return false;
     }
 
@@ -629,7 +629,7 @@ fn change_basis_monocli(
         unique_axis = 1;
     }
 
-    if !del_layer_delaunay_reduce_2d(
+    if !layer_delaunay_reduce_2d(
         &mut smallest_lattice,
         conv_lattice,
         unique_axis,
@@ -955,7 +955,7 @@ fn match_hall_symbol_db(
     context: &HallMatchContext<'_>,
 ) -> bool {
     // Point-group filter: skip Hall numbers whose point group doesn't match.
-    let spg_type = spgdb_get_spacegroup_type(hall_number as usize);
+    let spg_type = get_spacegroup_type(hall_number as usize);
     if context.pointgroup_number != spg_type.pointgroup_number {
         return false;
     }
@@ -994,8 +994,8 @@ mod tests {
     const ANGLE_TOL: f64 = -1.0;
 
     /// 辅助函数：根据晶格和原子位置搜索空间群
-    /// 流程：Cell → prm_get_primitive → spa_search_spacegroup
-    fn search_spacegroup(
+    /// 流程：Cell → get_primitive → search_spacegroup
+    fn search_spacegroup_from_structure(
         lattice: &Mat3,
         positions: &[Vec3],
         types: &[i32],
@@ -1005,10 +1005,10 @@ mod tests {
         cell.aperiodic_axis = None;
 
         // 第一步：获取原胞 (Primitive)
-        let primitive = crate::primitive::prm_get_primitive(&cell, SYMPREC, ANGLE_TOL).ok()?;
+        let primitive = crate::primitive::get_primitive(&cell, SYMPREC, ANGLE_TOL).ok()?;
 
         // 第二步：搜索空间群
-        spa_search_spacegroup(&primitive, 0, SYMPREC, ANGLE_TOL).ok()
+        search_spacegroup(&primitive, 0, SYMPREC, ANGLE_TOL).ok()
     }
 
     /// 验证空间群识别结果
@@ -1043,7 +1043,7 @@ mod tests {
         let positions = [[0.0, 0.0, 0.0]];
         let types = [1];
 
-        let spg = search_spacegroup(&lattice, &positions, &types)
+        let spg = search_spacegroup_from_structure(&lattice, &positions, &types)
             .expect("Simple cubic: spacegroup search returned None");
         assert_spacegroup(&spg, 221, "Pm-3m", "simple cubic");
     }
@@ -1055,7 +1055,7 @@ mod tests {
         let positions = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]];
         let types = [1, 1];
 
-        let spg = search_spacegroup(&lattice, &positions, &types)
+        let spg = search_spacegroup_from_structure(&lattice, &positions, &types)
             .expect("BCC: spacegroup search returned None");
         assert_spacegroup(&spg, 229, "Im-3m", "BCC");
     }
@@ -1072,7 +1072,7 @@ mod tests {
         ];
         let types = [1, 1, 1, 1];
 
-        let spg = search_spacegroup(&lattice, &positions, &types)
+        let spg = search_spacegroup_from_structure(&lattice, &positions, &types)
             .expect("FCC: spacegroup search returned None");
         assert_spacegroup(&spg, 225, "Fm-3m", "FCC");
     }
@@ -1093,7 +1093,7 @@ mod tests {
         ];
         let types = [1, 1, 1, 1, 1, 1, 1, 1];
 
-        let spg = search_spacegroup(&lattice, &positions, &types)
+        let spg = search_spacegroup_from_structure(&lattice, &positions, &types)
             .expect("Diamond: spacegroup search returned None");
         assert_spacegroup(&spg, 227, "Fd-3m", "diamond");
     }
@@ -1122,7 +1122,7 @@ mod tests {
         let positions = [[0.0, 0.0, 0.0], [1.0 / 3.0, 2.0 / 3.0, 0.0]];
         let types = [6, 6]; // 碳原子
 
-        let spg = search_spacegroup(&lattice, &positions, &types)
+        let spg = search_spacegroup_from_structure(&lattice, &positions, &types)
             .expect("Graphene: spacegroup search returned None");
         assert_spacegroup(&spg, 191, "P6/mmm", "graphene");
     }
@@ -1138,7 +1138,7 @@ mod tests {
         let positions = [[1.0 / 3.0, 2.0 / 3.0, -delta], [2.0 / 3.0, 1.0 / 3.0, delta]];
         let types = [14, 14]; // 硅原子
 
-        let spg = search_spacegroup(&lattice, &positions, &types)
+        let spg = search_spacegroup_from_structure(&lattice, &positions, &types)
             .expect("Silicene: spacegroup search returned None");
         // D6h → D3d（保留3重轴和反演，失去6重轴和水平镜面）
         assert_spacegroup(&spg, 164, "P-3m1", "silicene");
@@ -1153,7 +1153,7 @@ mod tests {
         let positions = [[0.0, 0.0, 0.0], [1.0 / 3.0, 2.0 / 3.0, 0.5]];
         let types = [1, 1];
 
-        let spg = search_spacegroup(&lattice, &positions, &types)
+        let spg = search_spacegroup_from_structure(&lattice, &positions, &types)
             .expect("HCP: spacegroup search returned None");
         assert_spacegroup(&spg, 194, "P6_3/mmc", "HCP");
     }
@@ -1184,7 +1184,7 @@ mod tests {
         }
         let types = vec![1; 8];
 
-        let spg = search_spacegroup(&lattice, &positions, &types)
+        let spg = search_spacegroup_from_structure(&lattice, &positions, &types)
             .expect("Supercell 2x2x2: spacegroup search returned None");
         assert_spacegroup(&spg, 221, "Pm-3m", "supercell 2x2x2 simple cubic");
     }
@@ -1229,7 +1229,7 @@ mod tests {
             }
         }
 
-        let spg = search_spacegroup(&lattice, &positions, &types)
+        let spg = search_spacegroup_from_structure(&lattice, &positions, &types)
             .expect("Supercell 2x2x2 CsCl: spacegroup search returned None");
         assert_spacegroup(&spg, 221, "Pm-3m", "supercell 2x2x2 CsCl");
     }
@@ -1262,7 +1262,7 @@ mod tests {
             }
         }
 
-        let spg = search_spacegroup(&super_lattice, &positions, &types)
+        let spg = search_spacegroup_from_structure(&super_lattice, &positions, &types)
             .expect("Supercell 2x2x1 graphene: spacegroup search returned None");
         assert_spacegroup(&spg, 191, "P6/mmm", "supercell 2x2x1 graphene");
     }
@@ -1285,7 +1285,7 @@ mod tests {
         ];
         let types = [1, 2, 1, 1, 1, 2, 2, 2];
 
-        let spg = search_spacegroup(&lattice, &positions, &types)
+        let spg = search_spacegroup_from_structure(&lattice, &positions, &types)
             .expect("NaCl: spacegroup search returned None");
         assert_spacegroup(&spg, 225, "Fm-3m", "NaCl");
     }

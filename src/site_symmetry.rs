@@ -5,8 +5,8 @@
 //! 参考: R. W. Grosse-Kunstleve and P. D. Adams,
 //! Acta Cryst. (2002). A58, 60-65
 
-use crate::cell::{cel_is_overlap, cel_is_overlap_with_same_type, cel_layer_is_overlap,
-                   cel_layer_is_overlap_with_same_type, AperiodicAxis, Cell};
+use crate::cell::{is_overlap, is_overlap_with_same_type, layer_is_overlap,
+                   layer_is_overlap_with_same_type, AperiodicAxis, Cell};
 use crate::debug;
 use crate::mathfunc::*;
 use crate::sitesym_database::*;
@@ -160,7 +160,7 @@ fn set_equivalent_atom(
             for (coordinate, translation) in pos.iter_mut().zip(&context.symmetry.trans[k]) {
                 *coordinate += translation;
             }
-            if cel_is_overlap_with_same_type(
+            if is_overlap_with_same_type(
                 &pos,
                 &context.primitive.position[i],
                 context.primitive.types[j],
@@ -196,7 +196,7 @@ fn set_exact_location(
             *coordinate += translation;
         }
 
-        if cel_is_overlap(&pos, position, bravais_lattice, symprec) {
+        if is_overlap(&pos, position, bravais_lattice, symprec) {
             for (j, (sum_row, sum_translation)) in
                 sum_rot.iter_mut().zip(&mut sum_trans).enumerate()
             {
@@ -240,7 +240,7 @@ fn set_layer_equivalent_atom(
             for (coordinate, translation) in pos.iter_mut().zip(&context.symmetry.trans[k]) {
                 *coordinate += translation;
             }
-            if cel_layer_is_overlap_with_same_type(
+            if layer_is_overlap_with_same_type(
                 &pos,
                 &context.primitive.position[i],
                 context.primitive.types[j],
@@ -275,7 +275,7 @@ fn set_layer_exact_location(
             *coordinate += translation;
         }
 
-        if cel_layer_is_overlap(&pos, position, bravais_lattice, aperiodic, symprec) {
+        if layer_is_overlap(&pos, position, bravais_lattice, aperiodic, symprec) {
             for (j, (sum_row, sum_translation)) in
                 sum_rot.iter_mut().zip(&mut sum_trans).enumerate()
             {
@@ -407,12 +407,12 @@ fn get_wyckoff_notation(
         for j in 0..n {
             let mut num_sitesym = 0;
             for k in 0..n {
-                if cel_is_overlap(&pos_rot[j], &pos_rot[k], bravais_lattice, symprec) {
+                if is_overlap(&pos_rot[j], &pos_rot[k], bravais_lattice, symprec) {
                     let mut orbit = mat_multiply_matrix_vector_id3(&rot, &pos_rot[k]);
                     for l in 0..3 {
                         orbit[l] += trans[l];
                     }
-                    if cel_is_overlap(&pos_rot[k], &orbit, bravais_lattice, symprec) {
+                    if is_overlap(&pos_rot[k], &orbit, bravais_lattice, symprec) {
                         num_sitesym += 1;
                     }
                 }
@@ -463,14 +463,14 @@ fn get_layer_wyckoff_notation(
         for j in 0..n {
             let mut num_sitesym = 0;
             for k in 0..n {
-                if cel_layer_is_overlap(
+                if layer_is_overlap(
                     &pos_rot[j], &pos_rot[k], bravais_lattice, aperiodic, symprec,
                 ) {
                     let mut orbit = mat_multiply_matrix_vector_id3(&rot, &pos_rot[k]);
                     for l in 0..3 {
                         orbit[l] += trans[l];
                     }
-                    if cel_layer_is_overlap(
+                    if layer_is_overlap(
                         &pos_rot[k], &orbit, bravais_lattice, aperiodic, symprec,
                     ) {
                         num_sitesym += 1;

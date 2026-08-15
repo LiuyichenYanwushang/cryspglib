@@ -6,9 +6,9 @@
 use crate::SymError;
 use crate::cell::Cell;
 use crate::debug;
-use crate::primitive::{prm_get_primitive, Primitive};
-use crate::refinement::{ref_get_exact_structure_and_symmetry, ExactStructure};
-use crate::spacegroup::{spa_search_spacegroup, Spacegroup};
+use crate::primitive::{get_primitive, Primitive};
+use crate::refinement::{get_exact_structure_and_symmetry, ExactStructure};
+use crate::spacegroup::{search_spacegroup, Spacegroup};
 
 const REDUCE_RATE_OUTER: f64 = 0.9;
 const NUM_ATTEMPT_OUTER: i32 = 10;
@@ -26,9 +26,9 @@ pub struct DataContainer {
 /// 确定空间群的主入口。
 ///
 /// 先通过 `get_spacegroup_and_primitive` 找到空间群和原胞，
-/// 再通过 `ref_get_exact_structure_and_symmetry` 精细化结构。
+/// 再通过 `get_exact_structure_and_symmetry` 精细化结构。
 /// 如果失败，逐步降低容差重试。
-pub fn det_determine_all(
+pub fn determine_all(
     cell: &Cell,
     hall_number: i32,
     symprec: f64,
@@ -46,7 +46,7 @@ pub fn det_determine_all(
                 let sg = container.spacegroup.as_mut().unwrap();
                 let prim = container.primitive.as_ref().unwrap();
                 let prim_cell = prim.cell.as_ref().unwrap();
-                ref_get_exact_structure_and_symmetry(
+                get_exact_structure_and_symmetry(
                     sg,
                     prim_cell,
                     cell,
@@ -59,7 +59,7 @@ pub fn det_determine_all(
                 return Ok(container);
             }
             debug::debug_print(format_args!(
-                "spglib: ref_get_exact_structure_and_symmetry failed.\n"
+                "spglib: get_exact_structure_and_symmetry failed.\n"
             ));
         }
         tolerance *= REDUCE_RATE_OUTER;
@@ -84,14 +84,14 @@ fn get_spacegroup_and_primitive(
     let mut angle_tolerance = angle_symprec;
 
     for attempt in 0..NUM_ATTEMPT {
-        let primitive = prm_get_primitive(cell, tolerance, angle_tolerance).ok();
+        let primitive = get_primitive(cell, tolerance, angle_tolerance).ok();
         if let Some(primitive) = primitive {
             debug::debug_print(format_args!("primitive lattice\n"));
 
             let prim_tol = primitive.tolerance;
             let prim_angle_tol = primitive.angle_tolerance;
 
-            let spacegroup = spa_search_spacegroup(
+            let spacegroup = search_spacegroup(
                 &primitive,
                 hall_number,
                 prim_tol,
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn test_det_hall_number_out_of_range() {
         let cell = Cell::new(1, crate::cell::TensorRank::NoSpin);
-        let result = det_determine_all(&cell, 999, 1e-5, -1.0);
+        let result = determine_all(&cell, 999, 1e-5, -1.0);
         assert!(result.is_err());
     }
 }

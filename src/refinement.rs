@@ -4,7 +4,7 @@
 //! 利用位点对称性数据库确定原子的精确 Wyckoff 位置，
 //! 并恢复原始晶胞中的对称操作。
 
-use crate::cell::{cel_is_overlap, cel_is_overlap_with_same_type, cel_layer_is_overlap_with_same_type, AperiodicAxis, Cell};
+use crate::cell::{is_overlap, is_overlap_with_same_type, layer_is_overlap_with_same_type, AperiodicAxis, Cell};
 use crate::debug;
 use crate::mathfunc::{
     Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d,
@@ -14,10 +14,10 @@ use crate::mathfunc::{
     mat_multiply_matrix_vector_id3, mat_norm_squared_d3,
     mat_transpose_matrix_d3,
 };
-use crate::pointgroup::{ptg_get_pointgroup, Holohedry};
+use crate::pointgroup::{get_pointgroup, Holohedry};
 use crate::site_symmetry::{ssm_get_exact_positions, ExactPositions};
 use crate::spacegroup::Spacegroup;
-use crate::spg_database::spgdb_get_spacegroup_operations;
+use crate::spg_database::get_spacegroup_operations;
 use crate::symmetry::Symmetry;
 
 const IDENTITY: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
@@ -56,14 +56,14 @@ struct BravaisExpansionOutput<'a> {
 ///
 /// 重写 `spacegroup.bravais_lattice` 和 `spacegroup.origin_shift`。
 /// 返回 `None` 表示失败。
-pub fn ref_get_exact_structure_and_symmetry(
+pub fn get_exact_structure_and_symmetry(
     spacegroup: &mut Spacegroup,
     primitive: &Cell,
     cell: &Cell,
     mapping_table: &[i32],
     symprec: f64,
 ) -> Option<ExactStructure> {
-    if !ref_find_similar_bravais_lattice(spacegroup, symprec) {
+    if !find_similar_bravais_lattice(spacegroup, symprec) {
         return None;
     }
 
@@ -155,7 +155,7 @@ fn get_wyckoff_positions(
     }
 
     // Check symmetry breaking by unusual multiplicity of primitive cell
-    let (op_count, _) = crate::spg_database::spgdb_get_operation_index(spacegroup.hall_number);
+    let (op_count, _) = crate::spg_database::get_operation_index(spacegroup.hall_number);
     let num_prim_sym = op_count as i32 / ((bravais.len() / primitive.len()) as i32);
 
     if cell.len() * num_prim_sym as usize != symmetry.len() * primitive.len() {
@@ -190,11 +190,11 @@ fn get_bravais_exact_positions_and_lattice(
     let mut conv_prim = get_conventional_primitive(spacegroup, primitive)?;
 
     // Get symmetry operations from database
-    let conv_sym = spgdb_get_spacegroup_operations(spacegroup.hall_number)?;
+    let conv_sym = get_spacegroup_operations(spacegroup.hall_number)?;
     let num_pure_trans = get_number_of_pure_translation(&conv_sym);
 
     // Set conventional lattice
-    conv_prim.lattice = ref_get_conventional_lattice(spacegroup);
+    conv_prim.lattice = get_conventional_lattice(spacegroup);
 
     // Set aperiodic axis
     conv_prim.aperiodic_axis = if spacegroup.hall_number > 0 { None } else { Some(AperiodicAxis::Z) };
@@ -323,8 +323,8 @@ fn get_conventional_primitive(spacegroup: &Spacegroup, primitive: &Cell) -> Opti
 ///
 /// # Returns
 /// 满足空间群约束的标准常规晶格矩阵。
-pub fn ref_get_conventional_lattice(spacegroup: &Spacegroup) -> Mat3 {
-    let pointgroup = ptg_get_pointgroup(spacegroup.pointgroup_number);
+pub fn get_conventional_lattice(spacegroup: &Spacegroup) -> Mat3 {
+    let pointgroup = get_pointgroup(spacegroup.pointgroup_number);
 
     let mut lattice = [[0.0; 3]; 3];
 
@@ -541,7 +541,7 @@ fn get_refined_symmetry_operations(
     symprec: f64,
 ) -> Option<Symmetry> {
     // Primitive symmetry from database
-    let conv_sym = spgdb_get_spacegroup_operations(spacegroup.hall_number)?;
+    let conv_sym = get_spacegroup_operations(spacegroup.hall_number)?;
 
     let inv_prim_lat = mat_inverse_matrix_d3(&primitive.lattice, 0.0).ok()?;
     let t_mat = mat_multiply_matrix_d3(&inv_prim_lat, &spacegroup.bravais_lattice);
@@ -645,7 +645,7 @@ fn search_equivalent_atom(
             *coordinate += translation;
         }
         for j in 0..atom_index {
-            if cel_is_overlap_with_same_type(
+            if is_overlap_with_same_type(
                 &cell.position[j],
                 &pos_rot,
                 cell.types[j],
@@ -673,7 +673,7 @@ fn search_layer_equivalent_atom(
             *coordinate += translation;
         }
         for j in 0..atom_index {
-            if cel_layer_is_overlap_with_same_type(
+            if layer_is_overlap_with_same_type(
                 &cell.position[j],
                 &pos_rot,
                 cell.types[j],
@@ -834,7 +834,7 @@ fn remove_overlapping_lattice_points(
     for lattice_point in lattice_trans {
         let mut is_found = false;
         for pure_translation in &pure_trans {
-            if cel_is_overlap(lattice_point, pure_translation, lattice, symprec) {
+            if is_overlap(lattice_point, pure_translation, lattice, symprec) {
                 is_found = true;
                 break;
             }
@@ -927,13 +927,13 @@ fn copy_symmetry_upon_lattice_points(
 ///
 /// 重写 `spacegroup.bravais_lattice` 和 `spacegroup.origin_shift`。
 /// 返回 false 表示失败。
-pub fn ref_find_similar_bravais_lattice(spacegroup: &mut Spacegroup, symprec: f64) -> bool {
-    let conv_sym = match spgdb_get_spacegroup_operations(spacegroup.hall_number) {
+pub fn find_similar_bravais_lattice(spacegroup: &mut Spacegroup, symprec: f64) -> bool {
+    let conv_sym = match get_spacegroup_operations(spacegroup.hall_number) {
         Some(s) => s,
         None => return false,
     };
 
-    let std_lattice = ref_get_conventional_lattice(spacegroup);
+    let std_lattice = get_conventional_lattice(spacegroup);
 
     // Find best rotation
     let mut min_length2 = 0.0;

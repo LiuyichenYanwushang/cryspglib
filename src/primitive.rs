@@ -3,20 +3,20 @@
 //! 利用检测到的纯平移对称性，将常规晶胞约化为原胞 (primitive cell)。
 //! 如果存在多种可能的原胞，选择 Delaunay 约化后晶格最小的那个。
 //!
-//! 核心函数 [`prm_get_primitive`] 返回包含原胞晶格、位置、类型和
+//! 核心函数 [`get_primitive`] 返回包含原胞晶格、位置、类型和
 //! 纯平移操作的 [`Primitive`] 结构体，以及其对称操作。
 
 use crate::SymError;
-use crate::cell::{Cell, cel_trim_cell};
+use crate::cell::{Cell, trim_cell};
 use crate::debug;
-use crate::delaunay::{del_delaunay_reduce, del_layer_delaunay_reduce};
+use crate::delaunay::{delaunay_reduce, layer_delaunay_reduce};
 use crate::mathfunc::{
     Mat3, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d, mat_check_identity_matrix_i3,
     mat_dabs, mat_dmod1, mat_get_determinant_d3,
     mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_multiply_matrix_di3,
     mat_multiply_matrix_vector_d3, mat_nint,
 };
-use crate::symmetry::{Symmetry, sym_get_pure_translation, sym_reduce_pure_translation};
+use crate::symmetry::{Symmetry, get_pure_translation, reduce_pure_translation};
 
 const REDUCE_RATE: f64 = 0.95;
 const NUM_ATTEMPT: i32 = 100;
@@ -51,11 +51,7 @@ impl Primitive {
     }
 }
 
-pub fn prm_get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Primitive, SymError> {
-    get_primitive(cell, symprec, angle_tolerance)
-}
-
-pub fn prm_get_primitive_with_pure_trans(
+pub fn get_primitive_with_pure_trans(
     cell: &Cell,
     pure_trans: &[Vec3],
     symprec: f64,
@@ -103,7 +99,7 @@ pub fn prm_get_primitive_with_pure_trans(
 /// # Returns
 /// `Some((t_mat, prim_symmetry))` — `t_mat` 是从原胞到原始晶胞的变换矩阵，
 /// `prim_symmetry` 包含原胞中的对称操作（旋转矩阵和分数平移）。
-pub fn prm_get_primitive_symmetry(
+pub fn get_primitive_symmetry(
     symmetry: &Symmetry,
     symprec: f64,
 ) -> Option<(Mat3, Symmetry)> {
@@ -139,26 +135,17 @@ pub fn prm_get_primitive_symmetry(
     Some((t_mat, prim_symmetry))
 }
 
-pub fn prm_get_primitive_lattice_vectors(
-    cell: &Cell,
-    pure_trans: &[Vec3],
-    symprec: f64,
-    angle_tolerance: f64,
-) -> Option<(Mat3, usize)> {
-    get_primitive_lattice_vectors(cell, pure_trans, symprec, angle_tolerance)
-}
-
 // --- Internal Functions ---
 
-fn get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Primitive, SymError> {
+pub fn get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Primitive, SymError> {
     debug::debug_print(format_args!("get_primitive (tolerance = {}):\n", symprec));
 
     let mut tolerance = symprec;
 
     for attempt in 0..NUM_ATTEMPT {
         debug::debug_print(format_args!("get_primitive (attempt = {}):\n", attempt));
-        if let Ok(pure_trans) = sym_get_pure_translation(cell, tolerance)
-            && let Some(primitive) = prm_get_primitive_with_pure_trans(
+        if let Ok(pure_trans) = get_pure_translation(cell, tolerance)
+            && let Some(primitive) = get_primitive_with_pure_trans(
                 cell,
                 &pure_trans,
                 tolerance,
@@ -180,9 +167,9 @@ fn get_cell_with_smallest_lattice(cell: &Cell, symprec: f64) -> Option<Cell> {
     let aperiodic_axis = cell.aperiodic_axis;
 
     let min_lat = if aperiodic_axis.is_none() {
-        del_delaunay_reduce(&cell.lattice, symprec)?
+        delaunay_reduce(&cell.lattice, symprec)?
     } else {
-        del_layer_delaunay_reduce(&cell.lattice, aperiodic_axis, symprec)?
+        layer_delaunay_reduce(&cell.lattice, aperiodic_axis, symprec)?
     };
 
     let inv_lat = mat_inverse_matrix_d3(&min_lat, 0.0).ok()?;
@@ -225,10 +212,10 @@ fn get_primitive_cell(
         return None;
     };
 
-    cel_trim_cell(mapping_table, &prim_lattice, cell, symprec)
+    trim_cell(mapping_table, &prim_lattice, cell, symprec)
 }
 
-fn get_primitive_lattice_vectors(
+pub fn get_primitive_lattice_vectors(
     cell: &Cell,
     pure_trans: &[Vec3],
     symprec: f64,
@@ -246,13 +233,13 @@ fn get_primitive_lattice_vectors(
 
         if let Some(found) = find_primitive_lattice_vectors(&vectors, cell, tolerance) {
             let reduced = if cell.aperiodic_axis.is_none() {
-                del_delaunay_reduce(&found, symprec)
+                delaunay_reduce(&found, symprec)
             } else {
-                del_layer_delaunay_reduce(&found, cell.aperiodic_axis, symprec)
+                layer_delaunay_reduce(&found, cell.aperiodic_axis, symprec)
             }?;
             return Some((reduced, multi));
         } else {
-            pure_trans_reduced = sym_reduce_pure_translation(
+            pure_trans_reduced = reduce_pure_translation(
                 cell,
                 &pure_trans_reduced,
                 tolerance,
@@ -483,15 +470,15 @@ mod tests {
     #[test]
     fn primitive_lattice_rejects_empty_pure_translation_set() {
         let cell = one_atom_cell();
-        assert!(prm_get_primitive_lattice_vectors(&cell, &[], 1e-5, -1.0).is_none());
-        assert!(prm_get_primitive_with_pure_trans(&cell, &[], 1e-5, -1.0).is_none());
+        assert!(get_primitive_lattice_vectors(&cell, &[], 1e-5, -1.0).is_none());
+        assert!(get_primitive_with_pure_trans(&cell, &[], 1e-5, -1.0).is_none());
     }
 
     #[test]
     fn primitive_lattice_accepts_identity_translation() {
         let cell = one_atom_cell();
         assert!(
-            prm_get_primitive_lattice_vectors(&cell, &[[0.0; 3]], 1e-5, -1.0).is_some()
+            get_primitive_lattice_vectors(&cell, &[[0.0; 3]], 1e-5, -1.0).is_some()
         );
     }
 }

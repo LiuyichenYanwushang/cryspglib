@@ -65,13 +65,13 @@ fn get_num_attempts() -> i32 {
     1000
 }
 
-pub fn niggli_get_major_version() -> i32 {
+pub fn get_major_version() -> i32 {
     NIGGLI_MAJOR_VERSION
 }
-pub fn niggli_get_minor_version() -> i32 {
+pub fn get_minor_version() -> i32 {
     NIGGLI_MINOR_VERSION
 }
-pub fn niggli_get_micro_version() -> i32 {
+pub fn get_micro_version() -> i32 {
     NIGGLI_MICRO_VERSION
 }
 
@@ -80,7 +80,7 @@ pub fn niggli_get_micro_version() -> i32 {
 /// eps: 容差
 /// aperiodic_axis: None=体材料, Some(X/Y/Z)=非周期轴
 /// 成功返回 `Ok(())`，失败返回 `Err(SymError::NiggliFailed)`。
-pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<AperiodicAxis>) -> Result<(), SymError> {
+pub fn reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<AperiodicAxis>) -> Result<(), SymError> {
     let mut p = NiggliParams::new(lattice, eps);
     let mut succeeded = false;
 
@@ -426,15 +426,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_niggli_reduce_identity() {
+    fn test_reduce_identity() {
         let mut lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        niggli_reduce(&mut lattice, 1e-5, None).unwrap();
+        reduce(&mut lattice, 1e-5, None).unwrap();
         // Identity should remain identity
         assert!((lattice[0][0] - 1.0).abs() < 1e-5);
     }
 
     #[test]
-    fn test_niggli_reduce_swap() {
+    fn test_reduce_swap() {
         // a=2, b=1, c=1 -> should swap a and b (or b and c depending on steps)
         // Input: a=(2,0,0), b=(0,1,0), c=(0,0,1)
         // A=4, B=1, C=1.
@@ -444,7 +444,7 @@ mod tests {
         // New: a=(0,1,0), b=(0,0,1), c=(2,0,0). A=1, B=1, C=4.
         // Sorted.
         let mut lattice = [[2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        niggli_reduce(&mut lattice, 1e-5, None).unwrap();
+        reduce(&mut lattice, 1e-5, None).unwrap();
 
         let g = mat_get_metric(&lattice);
         assert!((g[0][0] - 1.0).abs() < 1e-5); // A=1

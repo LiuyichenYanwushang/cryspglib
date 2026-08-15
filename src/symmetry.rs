@@ -1,12 +1,12 @@
 //! 对称操作检测。
 //!
 //! 在给定精度下寻找晶胞的所有对称操作（旋转 + 平移）。
-//! 核心函数 [`sym_get_operation`] 返回包含旋转矩阵（i32）和平移向量（f64）的 [`Symmetry`] 结构体。
+//! 核心函数 [`get_operation`] 返回包含旋转矩阵（i32）和平移向量（f64）的 [`Symmetry`] 结构体。
 
 use crate::SymError;
-use crate::cell::{AperiodicAxis, Cell, cel_is_overlap_with_same_type, cel_layer_is_overlap_with_same_type};
+use crate::cell::{AperiodicAxis, Cell, is_overlap_with_same_type, layer_is_overlap_with_same_type};
 use crate::debug;
-use crate::delaunay::{del_delaunay_reduce, del_layer_delaunay_reduce};
+use crate::delaunay::{delaunay_reduce, layer_delaunay_reduce};
 use crate::mathfunc::{
     Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d,
     mat_check_identity_matrix_i3,
@@ -137,26 +137,26 @@ impl MagneticSymmetry {
 // --- Public API ---
 
 /// 获取晶胞的对称操作
-pub fn sym_get_operation(primitive: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Symmetry, SymError> {
-    debug::debug_print(format_args!("sym_get_operations:\n"));
+pub fn get_operation(primitive: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Symmetry, SymError> {
+    debug::debug_print(format_args!("get_operations:\n"));
     get_operations(primitive, symprec, angle_tolerance)
 }
 
 /// 约化对称操作
-pub fn sym_reduce_operation(
+pub fn reduce_operation(
     primitive: &Cell,
     symmetry: &Symmetry,
     symprec: f64,
     angle_tolerance: f64,
 ) -> Result<Symmetry, SymError> {
-    reduce_operation(primitive, symmetry, symprec, angle_tolerance, false)
+    reduce_operations(primitive, symmetry, symprec, angle_tolerance, false)
         .ok_or(SymError::SymmetryOperationSearchFailed)
 }
 
 /// 获取纯平移操作
-pub fn sym_get_pure_translation(cell: &Cell, symprec: f64) -> Result<Vec<Vec3>, SymError> {
+pub fn get_pure_translation(cell: &Cell, symprec: f64) -> Result<Vec<Vec3>, SymError> {
     debug::debug_print(format_args!(
-        "sym_get_pure_translation (tolerance = {}):\n",
+        "get_pure_translation (tolerance = {}):\n",
         symprec
     ));
 
@@ -171,7 +171,7 @@ pub fn sym_get_pure_translation(cell: &Cell, symprec: f64) -> Result<Vec<Vec3>, 
         // 检查原子数是否是平移重数的整数倍
         if (cell.len() / multi) * multi == cell.len() {
             debug::debug_print(format_args!(
-                "spglib: sym_get_pure_translation: pure_trans->size = {}\n",
+                "spglib: get_pure_translation: pure_trans->size = {}\n",
                 multi
             ));
         } else {
@@ -188,7 +188,7 @@ pub fn sym_get_pure_translation(cell: &Cell, symprec: f64) -> Result<Vec<Vec3>, 
 }
 
 /// 约化纯平移操作
-pub fn sym_reduce_pure_translation(
+pub fn reduce_pure_translation(
     cell: &Cell,
     pure_trans: &[Vec3],
     symprec: f64,
@@ -207,7 +207,7 @@ pub fn sym_reduce_pure_translation(
     }
     symmetry.rot[..multi].fill(IDENTITY);
 
-    let symmetry_reduced = reduce_operation(cell, &symmetry, symprec, angle_tolerance, true)
+    let symmetry_reduced = reduce_operations(cell, &symmetry, symprec, angle_tolerance, true)
         .ok_or(SymError::SymmetryOperationSearchFailed)?;
 
     Ok(symmetry_reduced.trans)
@@ -227,7 +227,7 @@ fn get_operations(primitive: &Cell, symprec: f64, angle_symprec: f64) -> Result<
         .ok_or(SymError::SymmetryOperationSearchFailed)
 }
 
-fn reduce_operation(
+fn reduce_operations(
     primitive: &Cell,
     symmetry: &Symmetry,
     symprec: f64,
@@ -376,7 +376,7 @@ fn search_pure_translations(
             }
 
             for (j, atom_found) in atoms_found.iter_mut().enumerate().take(cell.len()) {
-                if cel_is_overlap_with_same_type(
+                if is_overlap_with_same_type(
                     &vec,
                     &cell.position[j],
                     cell.types[i_atom],
@@ -557,7 +557,7 @@ fn search_layer_pure_translations(
                 vec[j] = cell.position[i_atom][j] + trans[j];
             }
             for (j, atom_found) in atoms_found.iter_mut().enumerate().take(cell.len()) {
-                if cel_layer_is_overlap_with_same_type(
+                if layer_is_overlap_with_same_type(
                     &vec,
                     &cell.position[j],
                     cell.types[i_atom],
@@ -642,9 +642,9 @@ pub fn get_lattice_symmetry(cell: &Cell, symprec: f64, angle_symprec: f64) -> Po
     let aperiodic_axis = cell.aperiodic_axis;
 
     let Some(min_lattice) = (if aperiodic_axis.is_none() {
-        del_delaunay_reduce(&cell.lattice, symprec)
+        delaunay_reduce(&cell.lattice, symprec)
     } else {
-        del_layer_delaunay_reduce(&cell.lattice, aperiodic_axis, symprec)
+        layer_delaunay_reduce(&cell.lattice, aperiodic_axis, symprec)
     }) else {
         debug::debug_print(format_args!("get_lattice_symmetry failed.\n"));
         return lattice_sym;
@@ -840,7 +840,7 @@ mod tests {
     use crate::cell::TensorRank;
 
     #[test]
-    fn test_sym_get_pure_translation_identity() {
+    fn test_get_pure_translation_identity() {
         // 构造一个简单的立方晶胞
         let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let positions = [[0.0, 0.0, 0.0]];
@@ -848,14 +848,14 @@ mod tests {
         let mut cell = Cell::new(1, TensorRank::NoSpin);
         cell.set_cell(&lattice, &positions, &types);
 
-        let t = sym_get_pure_translation(&cell, 1e-5).unwrap();
+        let t = get_pure_translation(&cell, 1e-5).unwrap();
         assert_eq!(t.len(), 1);
         // 纯平移应包含 (0,0,0)
         assert!(t[0][0].abs() < 1e-5);
     }
 
     #[test]
-    fn test_sym_get_pure_translation_supercell() {
+    fn test_get_pure_translation_supercell() {
         // 构造一个 2x1x1 超胞
         let lattice = [[2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let positions = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0]];
@@ -863,7 +863,7 @@ mod tests {
         let mut cell = Cell::new(2, TensorRank::NoSpin);
         cell.set_cell(&lattice, &positions, &types);
 
-        let t = sym_get_pure_translation(&cell, 1e-5).unwrap();
+        let t = get_pure_translation(&cell, 1e-5).unwrap();
         assert_eq!(t.len(), 2);
         // 应包含 (0,0,0) 和 (0.5,0,0)
         let has_zero = t.iter().any(|v| v[0].abs() < 1e-5);
@@ -875,6 +875,6 @@ mod tests {
     #[test]
     fn test_empty_cell_has_no_pure_translation() {
         let cell = Cell::new(0, TensorRank::NoSpin);
-        assert!(sym_get_pure_translation(&cell, 1e-5).is_err());
+        assert!(get_pure_translation(&cell, 1e-5).is_err());
     }
 }

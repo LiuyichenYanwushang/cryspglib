@@ -387,39 +387,39 @@ pub(crate) static ROT_AXES: [[i32; 3]; NUM_ROT_AXES] = [
 pub fn pointgroup_from_rotations(
     rotations: &[Mat3I],
 ) -> Result<(String, Mat3I, usize), SymError> {
-    let (transform, pointgroup) = ptg_get_transformation_matrix(rotations, None);
+    let (transform, pointgroup) = get_transformation_matrix(rotations, None);
     if pointgroup.number == 0 {
         return Err(SymError::PointgroupNotFound);
     }
     Ok((pointgroup.symbol, transform, pointgroup.number))
 }
 
-pub fn ptg_get_transformation_matrix(
+pub fn get_transformation_matrix(
     rotations: &[Mat3I],
     aperiodic_axis: Option<AperiodicAxis>,
 ) -> (Mat3I, Pointgroup) {
-    debug::debug_print(format_args!("ptg_get_transformation_matrix:\n"));
+    debug::debug_print(format_args!("get_transformation_matrix:\n"));
 
     let mut transform_mat = [[0; 3]; 3];
 
     let pg_num = get_pointgroup_number_by_rotations(rotations);
 
     if pg_num > 0 && (aperiodic_axis.is_none() || pg_num < 28) {
-        let pointgroup = ptg_get_pointgroup(pg_num as usize);
-        let pointsym = ptg_get_pointsymmetry(rotations);
+        let pointgroup = get_pointgroup(pg_num as usize);
+        let pointsym = get_pointsymmetry(rotations);
         let mut axes = [0; 3];
         get_axes(&mut axes, pointgroup.laue, &pointsym, aperiodic_axis);
         set_transformation_matrix(&mut transform_mat, &axes);
         (transform_mat, pointgroup)
     } else {
         debug::info_print(format_args!("spglib: No point group was found\n"));
-        let mut pg = ptg_get_pointgroup(0);
+        let mut pg = get_pointgroup(0);
         pg.number = 0;
         (transform_mat, pg)
     }
 }
 
-pub fn ptg_get_pointgroup(pointgroup_number: usize) -> Pointgroup {
+pub fn get_pointgroup(pointgroup_number: usize) -> Pointgroup {
     let idx = pointgroup_number;
     let pg_type = &POINTGROUP_DATA[idx];
 
@@ -432,7 +432,7 @@ pub fn ptg_get_pointgroup(pointgroup_number: usize) -> Pointgroup {
     }
 }
 
-pub fn ptg_get_pointsymmetry(rotations: &[Mat3I]) -> PointSymmetry {
+pub fn get_pointsymmetry(rotations: &[Mat3I]) -> PointSymmetry {
     let mut pointsym = PointSymmetry::new(0);
     // PointSymmetry in Rust uses Vec, so we can push
     // But the C struct has fixed size array or pointer.
@@ -460,7 +460,7 @@ pub fn ptg_get_pointsymmetry(rotations: &[Mat3I]) -> PointSymmetry {
 // --- Internal Functions ---
 
 fn get_pointgroup_number_by_rotations(rotations: &[Mat3I]) -> i32 {
-    let pointsym = ptg_get_pointsymmetry(rotations);
+    let pointsym = get_pointsymmetry(rotations);
     get_pointgroup_number(&pointsym)
 }
 

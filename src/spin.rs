@@ -2,14 +2,14 @@
 //!
 //! 提供磁性张量、共线/非共线磁结构的点群分析等功能。
 
-use crate::cell::{Cell, TensorRank, cel_is_overlap_with_same_type};
+use crate::cell::{Cell, TensorRank, is_overlap_with_same_type};
 use crate::debug;
 use crate::mathfunc::{
     Mat3, Mat3I, Vec3, mat_check_identity_matrix_i3, mat_dabs,
     mat_get_determinant_d3, mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_multiply_matrix_id3,
     mat_multiply_matrix_vector_id3, mat_nint,
 };
-use crate::primitive::prm_get_primitive_lattice_vectors;
+use crate::primitive::get_primitive_lattice_vectors;
 use crate::symmetry::{MagneticSymmetry, Symmetry};
 
 static IDENTITY: [[i32; 3]; 3] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
@@ -59,9 +59,9 @@ pub(crate) fn operations_with_site_tensors(
     )
         .ok_or(crate::SymError::MagneticOpGenerationFailed)?;
 
-    let pure_trans = spn_collect_pure_translations_from_magnetic_symmetry(&magnetic_symmetry);
+    let pure_trans = collect_pure_translations_from_magnetic_symmetry(&magnetic_symmetry);
 
-    let Some((_primitive_lattice, multi)) = prm_get_primitive_lattice_vectors(
+    let Some((_primitive_lattice, multi)) = get_primitive_lattice_vectors(
         search.cell,
         &pure_trans,
         search.symprec,
@@ -77,7 +77,7 @@ pub(crate) fn operations_with_site_tensors(
     Ok(magnetic_symmetry)
 }
 
-pub fn spn_collect_pure_translations_from_magnetic_symmetry(
+pub fn collect_pure_translations_from_magnetic_symmetry(
     sym_msg: &MagneticSymmetry,
 ) -> Vec<Vec3> {
     let mut pure_trans = Vec::new();
@@ -94,7 +94,7 @@ pub fn spn_collect_pure_translations_from_magnetic_symmetry(
 }
 
 /// Apply special position operator to `cell`.
-pub fn spn_get_idealized_cell(
+pub fn get_idealized_cell(
     permutations: &[i32],
     cell: &Cell,
     magnetic_symmetry: &MagneticSymmetry,
@@ -237,7 +237,7 @@ fn get_operations(
 
             let mut k = cell.len(); // Default to not found
             for (idx, pos_k) in cell.position.iter().enumerate() {
-                if cel_is_overlap_with_same_type(
+                if is_overlap_with_same_type(
                     pos_k,
                     &pos,
                     cell.types[idx],
@@ -425,7 +425,7 @@ fn get_symmetry_permutations(
             }
 
             for j in 0..cell.len() {
-                if !cel_is_overlap_with_same_type(
+                if !is_overlap_with_same_type(
                     &pos,
                     &cell.position[j],
                     cell.types[i],

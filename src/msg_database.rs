@@ -12,7 +12,7 @@ use crate::symmetry::{MagneticSymmetry, Symmetry};
 use crate::MagneticType;
 
 /// 获取磁性空间群类型。
-pub fn msgdb_get_magnetic_spacegroup_type(uni_number: usize) -> &'static MagneticSpacegroupType {
+pub fn get_magnetic_spacegroup_type(uni_number: usize) -> &'static MagneticSpacegroupType {
     if uni_number > 0 && uni_number < MAGNETIC_SPACEGROUP_TYPES.len() {
         &MAGNETIC_SPACEGROUP_TYPES[uni_number]
     } else {
@@ -22,7 +22,7 @@ pub fn msgdb_get_magnetic_spacegroup_type(uni_number: usize) -> &'static Magneti
 
 /// 返回给定 Hall 编号的最小和最大 UNI 编号。
 /// `uni_number_range[0]` = 最小, `[1]` = 最大。
-pub fn msgdb_get_uni_candidates(hall_number: usize) -> Option<[usize; 2]> {
+pub fn get_uni_candidates(hall_number: usize) -> Option<[usize; 2]> {
     if hall_number >= MAGNETIC_SPACEGROUP_HALL_MAPPING.len() {
         return None;
     }
@@ -31,7 +31,7 @@ pub fn msgdb_get_uni_candidates(hall_number: usize) -> Option<[usize; 2]> {
 }
 
 /// 获取磁性对称操作。
-pub fn msgdb_get_spacegroup_operations(
+pub fn get_spacegroup_operations(
     uni_number: usize,
     hall_number: usize,
 ) -> Option<MagneticSymmetry> {
@@ -57,7 +57,7 @@ pub fn msgdb_get_spacegroup_operations(
 }
 
 /// 获取标准变换。
-pub fn msgdb_get_std_transformations(
+pub fn get_std_transformations(
     uni_number: usize,
     hall_number: usize,
 ) -> Option<Symmetry> {
@@ -76,7 +76,7 @@ pub fn msgdb_get_std_transformations(
             sym.truncate(i + 1);
             break;
         }
-        let (tmat, origin_shift) = crate::spg_database::spgdb_decode_symmetry(enc);
+        let (tmat, origin_shift) = crate::spg_database::decode_symmetry(enc);
         sym.rot[i + 1] = tmat;
         sym.trans[i + 1] = origin_shift;
     }
@@ -90,7 +90,7 @@ fn msgdb_get_magnetic_operation(op_number: usize) -> (Mat3I, [f64; 3], bool) {
     // timerev=true for anti operation, false for ordinary operation
     // 34012224 = 3^9 * 12^3
     let timerev = (enc / 34012224) != 0;
-    let (rot, trans) = crate::spg_database::spgdb_decode_symmetry(enc % 34012224);
+    let (rot, trans) = crate::spg_database::decode_symmetry(enc % 34012224);
     (rot, trans, timerev)
 }
 

@@ -1235,14 +1235,14 @@ bash scripts/regenerate_all.sh
 | `lib.rs` | `SpaceGroup`, `SpaceGroupType`, `MagneticSymmetry`, `MagneticSpaceGroupType`, `SymError` |
 | `cell.rs` | `Cell` (lattice + positions + types + optional tensors) |
 | `symmetry.rs` | `Symmetry` (raw symmetry operations, N×rot+trans arrays) |
-| `spacegroup.rs` | `Spacegroup`, `spa_search_spacegroup*` |
-| `spg_database.rs` | `spgdb_get_spacegroup_operations`, `spgdb_get_spacegroup_type` |
-| `magnetic_spacegroup.rs` | MSG identification: `msg_identify_magnetic_space_group_type` |
-| `msg_database.rs` | `msgdb_get_magnetic_spacegroup_type` (1,651 UNI entries) |
+| `spacegroup.rs` | `Spacegroup`, `search_spacegroup*` |
+| `spg_database.rs` | `get_spacegroup_operations`, `get_spacegroup_type` |
+| `magnetic_spacegroup.rs` | MSG identification: `identify_magnetic_space_group_type` |
+| `msg_database.rs` | `get_magnetic_spacegroup_type` (1,651 UNI entries) |
 | `msg_database_gen.rs` | Auto-generated MSG database (shipped as source) |
-| `spin.rs` | Spin-polarized symmetry: `spn_get_operations_with_site_tensors` |
-| `pointgroup.rs` | `ptg_get_pointgroup`, `ptg_get_transformation_matrix` |
-| `primitive.rs` | `prm_get_primitive`, `prm_get_primitive_symmetry` |
+| `spin.rs` | Spin-polarized symmetry: `get_idealized_cell`, `collect_pure_translations_from_magnetic_symmetry` |
+| `pointgroup.rs` | `get_pointgroup`, `get_transformation_matrix` |
+| `primitive.rs` | `get_primitive`, `get_primitive_symmetry` |
 | `delaunay.rs` | Delaunay lattice reduction |
 | `niggli.rs` | Niggli lattice reduction |
 | `hall_symbol.rs` | Hall symbol parsing/conversion |

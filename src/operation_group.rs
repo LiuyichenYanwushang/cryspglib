@@ -333,7 +333,7 @@ impl ValidatedMagneticOperationSet {
     /// Because the input $M$ has already passed closure validation, $F(M)$ is
     /// its family space group.  Its Hall setting is derived using the supplied
     /// lattice and then passed to
-    /// [`crate::magnetic_spacegroup::msg_identify_with_parent_hall`].  This is
+    /// [`crate::magnetic_spacegroup::identify_with_parent_hall`].  This is
     /// crucial for Type-IV settings: the Hall number of a *larger structural
     /// group* is not generally the Hall number of $F(M)$ and therefore cannot
     /// safely disambiguate a UNI number.
@@ -369,7 +369,7 @@ impl ValidatedMagneticOperationSet {
                 )?;
 
         let magnetic_symmetry = self.as_magnetic_symmetry();
-        let dataset = crate::magnetic_spacegroup::msg_identify_with_parent_hall(
+        let dataset = crate::magnetic_spacegroup::identify_with_parent_hall(
             lattice,
             &magnetic_symmetry,
             Some(family_hall_number),
@@ -381,7 +381,7 @@ impl ValidatedMagneticOperationSet {
                 source,
             },
         )?;
-        let metadata = crate::msg_database::msgdb_get_magnetic_spacegroup_type(dataset.uni_number);
+        let metadata = crate::msg_database::get_magnetic_spacegroup_type(dataset.uni_number);
 
         Ok(MagneticGroupIdentification {
             uni_number: dataset.uni_number,

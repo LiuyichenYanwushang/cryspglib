@@ -17,16 +17,16 @@
 
 use crate::cell::{AperiodicAxis, Cell, TensorRank};
 use crate::debug;
-use crate::delaunay::del_delaunay_reduce;
-use crate::determination::det_determine_all;
+use crate::delaunay::delaunay_reduce;
+use crate::determination::determine_all;
 use crate::mathfunc::{
     Mat3, Mat3I, Vec3, mat_get_determinant_d3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
 };
-use crate::niggli::niggli_reduce;
-use crate::pointgroup::ptg_get_pointgroup;
+use crate::niggli::reduce;
+use crate::pointgroup::get_pointgroup;
 use crate::primitive::Primitive;
 use crate::spacegroup::Spacegroup;
-use crate::spg_database::{Centering, spgdb_get_spacegroup_type};
+use crate::spg_database::{Centering, get_spacegroup_type};
 use crate::{MagneticSymmetry, SpaceGroup, SymError};
 
 // ── Crystal ──────────────────────────────────────────────────────────────────
@@ -117,13 +117,13 @@ impl Crystal {
 
     /// Delaunay lattice reduction.
     pub fn delaunay_reduce(&self, symprec: f64) -> Result<Mat3, SymError> {
-        del_delaunay_reduce(&self.lattice, symprec).ok_or(SymError::DelaunayFailed)
+        delaunay_reduce(&self.lattice, symprec).ok_or(SymError::DelaunayFailed)
     }
 
     /// Niggli lattice reduction.
-    pub fn niggli_reduce(&self, symprec: f64) -> Result<Mat3, SymError> {
+    pub fn reduce(&self, symprec: f64) -> Result<Mat3, SymError> {
         let mut reduced = self.lattice;
-        niggli_reduce(&mut reduced, symprec, None)?;
+        reduce(&mut reduced, symprec, None)?;
         Ok(reduced)
     }
 
@@ -353,7 +353,7 @@ impl<'a> SymmetryAnalysis<'a> {
         let total = crate::kgrid::validate_mesh(&mesh)?;
         crate::kgrid::validate_shift(&is_shift)?;
         let ds = self.dataset()?;
-        let rot_reciprocal = crate::kpoint::kpt_get_point_group_reciprocal(
+        let rot_reciprocal = crate::kpoint::get_point_group_reciprocal(
             &ds.rotations,
             if time_reversal { 1 } else { 0 },
         )
@@ -362,7 +362,7 @@ impl<'a> SymmetryAnalysis<'a> {
         let mut grid_address = vec![[0i32; 3]; total];
         let mut mapping_table = vec![0usize; total];
 
-        let num_ir = crate::kpoint::kpt_get_irreducible_reciprocal_mesh(
+        let num_ir = crate::kpoint::get_irreducible_reciprocal_mesh(
             &mut grid_address,
             &mut mapping_table,
             &mesh,
@@ -659,7 +659,7 @@ impl SymmetryOps {
     /// assert!(SymmetryOps::from_database(999).is_err());
     /// ```
     pub fn from_database(hall_number: usize) -> Result<Self, crate::SymError> {
-        let sym = crate::spg_database::spgdb_get_spacegroup_operations(hall_number)
+        let sym = crate::spg_database::get_spacegroup_operations(hall_number)
             .ok_or(crate::SymError::SpacegroupSearchFailed)?;
         let ops: Vec<SymmetryOp> = (0..sym.len())
             .map(|i| SymmetryOp {
@@ -691,7 +691,7 @@ impl SymmetryOps {
         uni_number: usize,
         hall_number: usize,
     ) -> Result<Self, crate::SymError> {
-        let sym = crate::msg_database::msgdb_get_spacegroup_operations(uni_number, hall_number)
+        let sym = crate::msg_database::get_spacegroup_operations(uni_number, hall_number)
             .ok_or(crate::SymError::SpacegroupSearchFailed)?;
         let n = sym.len();
         let ops: Vec<SymmetryOp> = (0..n)
@@ -742,7 +742,7 @@ impl SymmetryOps {
 /// Find the first Hall number whose space group number matches `sg`.
 pub fn find_hall_number(sg: u8) -> Result<usize, crate::SymError> {
     for hall in 1..=530 {
-        let st = crate::spg_database::spgdb_get_spacegroup_type(hall);
+        let st = crate::spg_database::get_spacegroup_type(hall);
         if st.number == sg as usize {
             return Ok(hall);
         }
@@ -756,7 +756,7 @@ pub fn find_first_hall_for_uni(uni: usize) -> Result<usize, crate::SymError> {
         return Err(crate::SymError::SpacegroupSearchFailed);
     }
     for hall in 1..=530 {
-        if let Some([lo, hi]) = crate::msg_database::msgdb_get_uni_candidates(hall)
+        if let Some([lo, hi]) = crate::msg_database::get_uni_candidates(hall)
             && uni >= lo
             && uni <= hi
         {
@@ -817,13 +817,13 @@ pub struct BzMesh {
 pub fn grid_point_from_address(grid_address: [i32; 3], mesh: [i32; 3]) -> Result<usize, SymError> {
     let mut address_double = [0i32; 3];
     let is_shift = [0i32; 3];
-    crate::kgrid::kgd_get_grid_address_double_mesh(
+    crate::kgrid::get_grid_address_double_mesh(
         &mut address_double,
         &grid_address,
         &mesh,
         &is_shift,
     )?;
-    crate::kgrid::kgd_get_dense_grid_point_double_mesh(&address_double, &mesh)
+    crate::kgrid::get_dense_grid_point_double_mesh(&address_double, &mesh)
 }
 
 /// Generate a stabilized irreducible reciprocal mesh for given q-points.
@@ -863,7 +863,7 @@ pub fn stabilized_reciprocal_mesh(
     crate::kgrid::validate_shift(&is_shift)?;
     let mut grid_address = vec![[0i32; 3]; total];
     let mut mapping_table = vec![0usize; total];
-    let num_ir = crate::kpoint::kpt_get_stabilized_reciprocal_mesh(
+    let num_ir = crate::kpoint::get_stabilized_reciprocal_mesh(
         &mut grid_address,
         &mut mapping_table,
         &mesh,
@@ -909,7 +909,7 @@ pub fn dense_grid_points_by_rotations(
     crate::kgrid::validate_mesh(&mesh)?;
     crate::kgrid::validate_shift(&is_shift)?;
     let mut rot_grid_points = vec![0usize; rot_reciprocal.len()];
-    crate::kpoint::kpt_get_dense_grid_points_by_rotations(
+    crate::kpoint::get_dense_grid_points_by_rotations(
         &mut rot_grid_points,
         &address_orig,
         rot_reciprocal,
@@ -950,7 +950,7 @@ pub fn dense_bz_grid_points_by_rotations(
     crate::kgrid::validate_mesh(&mesh)?;
     crate::kgrid::validate_shift(&is_shift)?;
     let mut rot_grid_points = vec![0usize; rot_reciprocal.len()];
-    crate::kpoint::kpt_get_dense_bz_grid_points_by_rotations(
+    crate::kpoint::get_dense_bz_grid_points_by_rotations(
         &mut rot_grid_points,
         &address_orig,
         rot_reciprocal,
@@ -998,7 +998,7 @@ pub fn relocate_bz_grid_address(
     let num_bz_map = total.checked_mul(8).ok_or(SymError::ArraySizeShortage)?;
     let mut bz_grid_address = vec![[0i32; 3]; num_bz_map];
     let mut bz_map = vec![0usize; num_bz_map];
-    let num_bz = crate::kpoint::kpt_relocate_bz_grid_address(
+    let num_bz = crate::kpoint::relocate_bz_grid_address(
         &mut bz_grid_address,
         &mut bz_map,
         grid_address,
@@ -1031,7 +1031,7 @@ fn get_dataset_inner(
     angle_tolerance: f64,
     hall_number: i32,
 ) -> Result<SpaceGroup, SymError> {
-    let container = det_determine_all(cell, hall_number, symprec, angle_tolerance)?;
+    let container = determine_all(cell, hall_number, symprec, angle_tolerance)?;
 
     let spacegroup = container
         .spacegroup
@@ -1115,7 +1115,7 @@ fn build_dataset(
     }
     dataset.std_rotation_matrix = exstr.rotation;
 
-    let pointgroup = ptg_get_pointgroup(spacegroup.pointgroup_number);
+    let pointgroup = get_pointgroup(spacegroup.pointgroup_number);
     dataset.pointgroup_symbol = pointgroup.symbol.to_string();
 
     Some(dataset)
@@ -1127,7 +1127,7 @@ fn standardize_primitive_inner(
     angle_tolerance: f64,
 ) -> Result<Cell, SymError> {
     let dataset = get_dataset_inner(cell, symprec, angle_tolerance, 0)?;
-    let centering = spgdb_get_spacegroup_type(dataset.hall_number).centering;
+    let centering = get_spacegroup_type(dataset.hall_number).centering;
 
     let mut bravais = Cell::new(dataset.n_std_atoms, TensorRank::NoSpin);
     bravais.lattice = dataset.std_lattice;
@@ -1138,7 +1138,7 @@ fn standardize_primitive_inner(
 
     let mut mapping_table = vec![0usize; bravais.len()];
     let identity: Mat3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-    let primitive = crate::spacegroup::spa_transform_to_primitive(
+    let primitive = crate::spacegroup::transform_to_primitive(
         &mut mapping_table,
         &bravais,
         &identity,
@@ -1150,7 +1150,7 @@ fn standardize_primitive_inner(
     for (i, &mapped) in mapping_table.iter().take(primitive.len()).enumerate() {
         if mapped != i {
             debug::warning_print(format_args!(
-                "spglib: spa_transform_to_primitive failed ({} != {})\n",
+                "spglib: transform_to_primitive failed ({} != {})\n",
                 mapped, i
             ));
             return Err(SymError::CellStandardizationFailed);
@@ -1174,7 +1174,7 @@ fn standardize_cell_inner(
 
     if to_primitive && no_idealize {
         // Use existing standardize logic with dataset
-        let centering = spgdb_get_spacegroup_type(dataset.hall_number).centering;
+        let centering = get_spacegroup_type(dataset.hall_number).centering;
         let num_atom = cell.len();
         let mut work_cell = Cell::new(num_atom, TensorRank::NoSpin);
         work_cell.lattice = cell.lattice;
@@ -1183,7 +1183,7 @@ fn standardize_cell_inner(
             work_cell.position[i] = cell.position[i];
         }
         let mut mapping_table = vec![0usize; num_atom];
-        let primitive = crate::spacegroup::spa_transform_to_primitive(
+        let primitive = crate::spacegroup::transform_to_primitive(
             &mut mapping_table,
             &work_cell,
             &dataset.transformation_matrix,
@@ -1195,7 +1195,7 @@ fn standardize_cell_inner(
         for (&mapped, &expected) in mapping_table.iter().zip(&dataset.mapping_to_primitive) {
             if mapped != expected as usize {
                 debug::warning_print(format_args!(
-                    "spglib: spa_transform_to_primitive failed ({} != {})\n",
+                    "spglib: transform_to_primitive failed ({} != {})\n",
                     mapped, expected
                 ));
                 return Err(SymError::CellStandardizationFailed);
@@ -1204,7 +1204,7 @@ fn standardize_cell_inner(
         Ok(primitive)
     } else if no_idealize {
         // no_idealize, not to_primitive
-        let centering = spgdb_get_spacegroup_type(dataset.hall_number).centering;
+        let centering = get_spacegroup_type(dataset.hall_number).centering;
         let num_atom = cell.len();
         let mut work_cell = Cell::new(num_atom, TensorRank::NoSpin);
         work_cell.lattice = cell.lattice;
@@ -1213,7 +1213,7 @@ fn standardize_cell_inner(
             work_cell.position[i] = cell.position[i];
         }
         let mut mapping_table = vec![0usize; num_atom];
-        let primitive = crate::spacegroup::spa_transform_to_primitive(
+        let primitive = crate::spacegroup::transform_to_primitive(
             &mut mapping_table,
             &work_cell,
             &dataset.transformation_matrix,
@@ -1225,7 +1225,7 @@ fn standardize_cell_inner(
         for (&mapped, &expected) in mapping_table.iter().zip(&dataset.mapping_to_primitive) {
             if mapped != expected as usize {
                 debug::warning_print(format_args!(
-                    "spglib: spa_transform_to_primitive failed ({} != {})\n",
+                    "spglib: transform_to_primitive failed ({} != {})\n",
                     mapped, expected
                 ));
                 return Err(SymError::CellStandardizationFailed);
@@ -1234,7 +1234,7 @@ fn standardize_cell_inner(
         if matches!(centering, Centering::Primitive) {
             return Ok(primitive);
         }
-        crate::spacegroup::spa_transform_from_primitive(&primitive, centering, symprec)
+        crate::spacegroup::transform_from_primitive(&primitive, centering, symprec)
             .ok_or(SymError::CellStandardizationFailed)
     } else {
         // Standard refinement

@@ -149,14 +149,14 @@ static BZ_SEARCH_SPACE: [[i32; 3]; KPT_NUM_BZ_SEARCH_SPACE] = [
 /// * `mesh` - 网格尺寸 [Nx, Ny, Nz]
 /// * `is_shift` - 网格位移 (Monkhorst-Pack shift)
 /// * `rot_reciprocal` - 倒易空间中的点群旋转矩阵
-pub(crate) fn kpt_get_irreducible_reciprocal_mesh(
+pub(crate) fn get_irreducible_reciprocal_mesh(
     grid_address: &mut [[i32; 3]],
     ir_mapping_table: &mut [usize],
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
     rot_reciprocal: &[Mat3I],
 ) -> Result<usize, SymError> {
-    kpt_get_dense_irreducible_reciprocal_mesh(
+    get_dense_irreducible_reciprocal_mesh(
         grid_address,
         ir_mapping_table,
         mesh,
@@ -165,7 +165,7 @@ pub(crate) fn kpt_get_irreducible_reciprocal_mesh(
     )
 }
 
-pub(crate) fn kpt_get_dense_irreducible_reciprocal_mesh(
+pub(crate) fn get_dense_irreducible_reciprocal_mesh(
     grid_address: &mut [[i32; 3]],
     ir_mapping_table: &mut [usize],
     mesh: &[i32; 3],
@@ -182,7 +182,7 @@ pub(crate) fn kpt_get_dense_irreducible_reciprocal_mesh(
 }
 
 /// 获取考虑了时间反演和 q 点的稳定倒易网格
-pub(crate) fn kpt_get_stabilized_reciprocal_mesh(
+pub(crate) fn get_stabilized_reciprocal_mesh(
     grid_address: &mut [[i32; 3]],
     ir_mapping_table: &mut [usize],
     mesh: &[i32; 3],
@@ -215,7 +215,7 @@ pub(crate) fn kpt_get_stabilized_reciprocal_mesh(
 }
 
 /// 将网格点重定位到第一布里渊区 (First Brillouin Zone)
-pub(crate) fn kpt_relocate_bz_grid_address(
+pub(crate) fn relocate_bz_grid_address(
     bz_grid_address: &mut [[i32; 3]],
     bz_map: &mut [usize],
     grid_address: &[[i32; 3]],
@@ -254,7 +254,7 @@ pub(crate) fn kpt_relocate_bz_grid_address(
 }
 
 /// 对原始网格地址应用旋转，获取所有旋转后的双倍网格点索引。
-pub(crate) fn kpt_get_dense_grid_points_by_rotations(
+pub(crate) fn get_dense_grid_points_by_rotations(
     rot_grid_points: &mut [usize],
     address_orig: &[i32; 3],
     rot_reciprocal: &[Mat3I],
@@ -267,7 +267,7 @@ pub(crate) fn kpt_get_dense_grid_points_by_rotations(
         return Err(SymError::ArraySizeShortage);
     }
     let mut address_double_orig = [0i32; 3];
-    kgrid::kgd_get_grid_address_double_mesh(
+    kgrid::get_grid_address_double_mesh(
         &mut address_double_orig,
         address_orig,
         mesh,
@@ -279,13 +279,13 @@ pub(crate) fn kpt_get_dense_grid_points_by_rotations(
         .take(rot_reciprocal.len())
     {
         let address_double = mat_multiply_matrix_vector_i3(rotation, &address_double_orig);
-        *output = kgrid::kgd_get_dense_grid_point_double_mesh(&address_double, mesh)?;
+        *output = kgrid::get_dense_grid_point_double_mesh(&address_double, mesh)?;
     }
     Ok(())
 }
 
 /// 对原始网格地址应用旋转，获取旋转后在 BZ 映射中的双倍网格点索引。
-pub(crate) fn kpt_get_dense_bz_grid_points_by_rotations(
+pub(crate) fn get_dense_bz_grid_points_by_rotations(
     rot_grid_points: &mut [usize],
     address_orig: &[i32; 3],
     rot_reciprocal: &[Mat3I],
@@ -305,7 +305,7 @@ pub(crate) fn kpt_get_dense_bz_grid_points_by_rotations(
         mesh[1].checked_mul(2).ok_or(SymError::ArraySizeShortage)?,
         mesh[2].checked_mul(2).ok_or(SymError::ArraySizeShortage)?,
     ];
-    kgrid::kgd_get_grid_address_double_mesh(
+    kgrid::get_grid_address_double_mesh(
         &mut address_double_orig,
         address_orig,
         mesh,
@@ -317,24 +317,16 @@ pub(crate) fn kpt_get_dense_bz_grid_points_by_rotations(
         .take(rot_reciprocal.len())
     {
         let address_double = mat_multiply_matrix_vector_i3(rotation, &address_double_orig);
-        let bz_index = kgrid::kgd_get_dense_grid_point_double_mesh(&address_double, &bzmesh)?;
+        let bz_index = kgrid::get_dense_grid_point_double_mesh(&address_double, &bzmesh)?;
         *output = bz_map[bz_index];
     }
     Ok(())
 }
 
-/// 获取倒易空间点群 (公共包装)。
-pub(crate) fn kpt_get_point_group_reciprocal(
-    rotations: &[Mat3I],
-    is_time_reversal: i32,
-) -> Option<Vec<Mat3I>> {
-    get_point_group_reciprocal(rotations, is_time_reversal)
-}
-
 // --- Internal Logic ---
 
-/// 获取倒易空间点群
-fn get_point_group_reciprocal(rotations: &[Mat3I], is_time_reversal: i32) -> Option<Vec<Mat3I>> {
+/// 获取倒易空间点群。
+pub(crate) fn get_point_group_reciprocal(rotations: &[Mat3I], is_time_reversal: i32) -> Option<Vec<Mat3I>> {
     let inversion = [[-1, 0, 0], [0, -1, 0], [0, 0, -1]];
     let size = if is_time_reversal != 0 {
         rotations.len() * 2
@@ -471,14 +463,14 @@ fn get_dense_ir_reciprocal_mesh_normal(
     is_shift: &[i32; 3],
     rot_reciprocal: &[Mat3I],
 ) -> Result<usize, SymError> {
-    kgrid::kgd_get_all_grid_addresses(grid_address, mesh)?;
+    kgrid::get_all_grid_addresses(grid_address, mesh)?;
 
     let total_pts = kgrid::validate_mesh(mesh)?;
 
     // Serial implementation matching the currently supported feature set.
     for i in 0..total_pts {
         let mut address_double = [0; 3];
-        kgrid::kgd_get_grid_address_double_mesh(
+        kgrid::get_grid_address_double_mesh(
             &mut address_double,
             &grid_address[i],
             mesh,
@@ -490,7 +482,7 @@ fn get_dense_ir_reciprocal_mesh_normal(
         for rot in rot_reciprocal {
             let address_double_rot = mat_multiply_matrix_vector_i3(rot, &address_double);
             let grid_point_rot =
-                kgrid::kgd_get_dense_grid_point_double_mesh(&address_double_rot, mesh)?;
+                kgrid::get_dense_grid_point_double_mesh(&address_double_rot, mesh)?;
 
             if grid_point_rot < ir_mapping_table[i] {
                 ir_mapping_table[i] = grid_point_rot;
@@ -510,7 +502,7 @@ fn get_dense_ir_reciprocal_mesh_distortion(
     is_shift: &[i32; 3],
     rot_reciprocal: &[Mat3I],
 ) -> Result<usize, SymError> {
-    kgrid::kgd_get_all_grid_addresses(grid_address, mesh)?;
+    kgrid::get_all_grid_addresses(grid_address, mesh)?;
 
     let divisor = [
         i64::from(mesh[1]) * i64::from(mesh[2]),
@@ -521,7 +513,7 @@ fn get_dense_ir_reciprocal_mesh_distortion(
 
     for i in 0..total_pts {
         let mut address_double = [0; 3];
-        kgrid::kgd_get_grid_address_double_mesh(
+        kgrid::get_grid_address_double_mesh(
             &mut address_double,
             &grid_address[i],
             mesh,
@@ -566,7 +558,7 @@ fn get_dense_ir_reciprocal_mesh_distortion(
             }
 
             let grid_point_rot =
-                kgrid::kgd_get_dense_grid_point_double_mesh(&address_double_rot, mesh)?;
+                kgrid::get_dense_grid_point_double_mesh(&address_double_rot, mesh)?;
 
             if grid_point_rot < ir_mapping_table[i] {
                 ir_mapping_table[i] = grid_point_rot;
@@ -694,7 +686,7 @@ fn relocate_dense_bz_grid_address(
                 }
 
                 let bzgp =
-                    kgrid::kgd_get_dense_grid_point_double_mesh(&bz_address_double, &bzmesh)?;
+                    kgrid::get_dense_grid_point_double_mesh(&bz_address_double, &bzmesh)?;
                 bz_map[bzgp] = gp;
 
                 if j != min_index {
@@ -774,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn test_kpt_get_irreducible_reciprocal_mesh_simple() {
+    fn test_get_irreducible_reciprocal_mesh_simple() {
         // 简单的 2x2x2 网格，无位移，只有恒等操作
         let mesh = [2, 2, 2];
         let shift = [0, 0, 0];
@@ -785,7 +777,7 @@ mod tests {
         let mut map = vec![0; 8];
 
         let num_ir =
-            kpt_get_irreducible_reciprocal_mesh(&mut grid_address, &mut map, &mesh, &shift, &rot)
+            get_irreducible_reciprocal_mesh(&mut grid_address, &mut map, &mesh, &shift, &rot)
                 .unwrap();
 
         // 由于只有恒等操作，每个点都是不可约的
@@ -805,13 +797,13 @@ mod tests {
         let mut short_grid = vec![[0; 3]; 7];
         let mut map = vec![0; 8];
         assert!(matches!(
-            kpt_get_irreducible_reciprocal_mesh(&mut short_grid, &mut map, &mesh, &shift, &rot,),
+            get_irreducible_reciprocal_mesh(&mut short_grid, &mut map, &mesh, &shift, &rot,),
             Err(SymError::ArraySizeShortage)
         ));
 
         let mut no_points = [];
         assert!(matches!(
-            kpt_get_dense_grid_points_by_rotations(&mut no_points, &[0, 0, 0], &rot, &mesh, &shift,),
+            get_dense_grid_points_by_rotations(&mut no_points, &[0, 0, 0], &rot, &mesh, &shift,),
             Err(SymError::ArraySizeShortage)
         ));
     }

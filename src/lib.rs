@@ -93,10 +93,10 @@ pub mod spin;
 pub mod symmetry;
 
 use crate::mathfunc::{Mat3, Mat3I, Vec3, mat_inverse_matrix_d3, mat_multiply_matrix_d3};
-use crate::pointgroup::ptg_get_pointgroup;
-use crate::primitive::prm_get_primitive_symmetry;
-use crate::spacegroup::spa_search_spacegroup_with_symmetry;
-use crate::spg_database::spgdb_get_spacegroup_type;
+use crate::pointgroup::get_pointgroup;
+use crate::primitive::get_primitive_symmetry;
+use crate::spacegroup::search_spacegroup_with_symmetry;
+use crate::spg_database::get_spacegroup_type;
 use crate::symmetry::Symmetry;
 
 // Re-export the new Rust-idiomatic API
@@ -284,7 +284,7 @@ impl SpaceGroupType {
     /// ```
     pub fn from_hall(hall_number: usize) -> Result<Self, SymError> {
         if hall_number > 0 && hall_number < 531 {
-            get_spacegroup_type(hall_number)
+            build_spacegroup_type(hall_number)
         } else {
             Err(SymError::SpacegroupSearchFailed)
         }
@@ -353,7 +353,7 @@ impl MagneticSpaceGroupType {
         if !(1..=1651).contains(&uni_number) {
             return Err(SymError::InvalidInput);
         }
-        let msgtype = crate::msg_database::msgdb_get_magnetic_spacegroup_type(uni_number);
+        let msgtype = crate::msg_database::get_magnetic_spacegroup_type(uni_number);
         Ok(MagneticSpaceGroupType {
             uni_number: msgtype.uni_number,
             litvin_number: msgtype.litvin_number,
@@ -372,7 +372,7 @@ impl MagneticSpaceGroupType {
     /// [`SymError::MagneticUniAmbiguous`], instead of disguising failure as a
     /// default `UNI=0` non-magnetic result.
     ///
-    /// Use [`crate::magnetic_spacegroup::msg_identify_with_parent_hall`] when
+    /// Use [`crate::magnetic_spacegroup::identify_with_parent_hall`] when
     /// the non-magnetic parent Hall number is known.
     ///
     /// # Examples
@@ -415,7 +415,7 @@ impl MagneticSpaceGroupType {
             magnetic_symmetry.timerev[i] = time_reversals.is_some_and(|values| values[i]);
         }
 
-        let dataset = crate::magnetic_spacegroup::msg_identify_magnetic_space_group_type(
+        let dataset = crate::magnetic_spacegroup::identify_magnetic_space_group_type(
             lattice,
             &magnetic_symmetry,
             symprec,
@@ -529,12 +529,12 @@ pub(crate) fn magnetic_symmetry_from_crystal(
     cell.aperiodic_axis = None;
 
     // --- 1. 非磁空间群 ---
-    let primitive = crate::primitive::prm_get_primitive(&cell, symprec, -1.0)?;
-    let spg = crate::spacegroup::spa_search_spacegroup(&primitive, 0, symprec, -1.0)?;
+    let primitive = crate::primitive::get_primitive(&cell, symprec, -1.0)?;
+    let spg = crate::spacegroup::search_spacegroup(&primitive, 0, symprec, -1.0)?;
     let hall_number = spg.hall_number;
 
     // --- 2. 非磁对称操作 (用常规晶胞获取, 保证基矢正确) ---
-    let nonspin_sym = crate::symmetry::sym_get_operation(&cell, symprec, -1.0)?;
+    let nonspin_sym = crate::symmetry::get_operation(&cell, symprec, -1.0)?;
 
     if !has_mag {
         // 无磁矩: 只返回非磁结果
@@ -543,7 +543,7 @@ pub(crate) fn magnetic_symmetry_from_crystal(
             .map(|i| nonspin_sym.trans[i])
             .collect();
         let timerev = vec![false; nonspin_sym.len()];
-        let spg_type = crate::spg_database::spgdb_get_spacegroup_type(hall_number);
+        let spg_type = crate::spg_database::get_spacegroup_type(hall_number);
         return Ok(MagneticSymmetry {
             spacegroup_number: spg.number,
             international_short: spg.international_short.trim().to_string(),
@@ -607,7 +607,7 @@ pub(crate) fn magnetic_symmetry_from_crystal(
     // 用已求得的非磁 Hall 编号作为 parent_hall_number fallback。
     // 当 FSG 空间群搜索失败时（如多原子磁细胞的原胞约化限制），
     // fallback 直接使用非磁母空间群来搜索 UNI 候选。
-    let identification = crate::magnetic_spacegroup::msg_identify_with_parent_hall(
+    let identification = crate::magnetic_spacegroup::identify_with_parent_hall(
         lattice,
         &final_mag_sym,
         Some(hall_number),
@@ -616,7 +616,7 @@ pub(crate) fn magnetic_symmetry_from_crystal(
     let (uni_number, magnetic_type, bns_number, og_number) =
         magnetic_identification_metadata(identification)?;
 
-    let spg_type = crate::spg_database::spgdb_get_spacegroup_type(hall_number);
+    let spg_type = crate::spg_database::get_spacegroup_type(hall_number);
     let rot_out = (0..final_mag_sym.len())
         .map(|i| final_mag_sym.rot[i])
         .collect();
@@ -649,7 +649,7 @@ fn magnetic_identification_metadata(
     identification: Result<crate::magnetic_spacegroup::MagneticDataset, SymError>,
 ) -> Result<MagneticIdentificationMetadata, SymError> {
     let dataset = identification?;
-    let msg_type = crate::msg_database::msgdb_get_magnetic_spacegroup_type(dataset.uni_number);
+    let msg_type = crate::msg_database::get_magnetic_spacegroup_type(dataset.uni_number);
     Ok((
         dataset.uni_number,
         msg_type.type_,
@@ -878,7 +878,7 @@ pub(crate) fn identify_hall_number(
     symmetry.trans[..num_ops].copy_from_slice(&translations[..num_ops]);
 
     let (t_mat, prim_sym) =
-        prm_get_primitive_symmetry(&symmetry, symprec).ok_or(SymError::SpacegroupSearchFailed)?;
+        get_primitive_symmetry(&symmetry, symprec).ok_or(SymError::SpacegroupSearchFailed)?;
 
     let prim_lat = if transform_lattice_by_tmat {
         let t_mat_inv = mat_inverse_matrix_d3(&t_mat, symprec)
@@ -889,18 +889,18 @@ pub(crate) fn identify_hall_number(
         *lattice
     };
 
-    let spacegroup = spa_search_spacegroup_with_symmetry(&prim_sym, &prim_lat, symprec)?;
+    let spacegroup = search_spacegroup_with_symmetry(&prim_sym, &prim_lat, symprec)?;
     Ok(spacegroup.hall_number)
 }
 
 /// 获取 SpaceGroupType。
-fn get_spacegroup_type(hall_number: usize) -> Result<SpaceGroupType, SymError> {
+fn build_spacegroup_type(hall_number: usize) -> Result<SpaceGroupType, SymError> {
     if hall_number == 0 || hall_number >= 531 {
         return Err(SymError::SpacegroupSearchFailed);
     }
 
-    let spgtype = spgdb_get_spacegroup_type(hall_number);
-    let pointgroup = ptg_get_pointgroup(spgtype.pointgroup_number);
+    let spgtype = get_spacegroup_type(hall_number);
+    let pointgroup = get_pointgroup(spgtype.pointgroup_number);
 
     Ok(SpaceGroupType {
         number: spgtype.number,

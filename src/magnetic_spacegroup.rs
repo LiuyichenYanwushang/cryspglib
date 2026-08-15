@@ -16,17 +16,17 @@ use crate::mathfunc::{
     mat_nint,
 };
 use crate::msg_database::{
-    msgdb_get_magnetic_spacegroup_type, msgdb_get_spacegroup_operations,
-    msgdb_get_std_transformations, msgdb_get_uni_candidates,
+    get_magnetic_spacegroup_type, get_spacegroup_operations,
+    get_std_transformations, get_uni_candidates,
 };
-use crate::pointgroup::ptg_get_transformation_matrix;
-use crate::primitive::prm_get_primitive_symmetry;
-use crate::refinement::ref_find_similar_bravais_lattice;
+use crate::pointgroup::get_transformation_matrix;
+use crate::primitive::get_primitive_symmetry;
+use crate::refinement::find_similar_bravais_lattice;
 use crate::spacegroup::{
     Spacegroup, get_centering, get_initial_conventional_symmetry,
-    spa_search_spacegroup_with_symmetry,
+    search_spacegroup_with_symmetry,
 };
-use crate::spg_database::{Centering, spgdb_get_spacegroup_type};
+use crate::spg_database::{Centering, get_spacegroup_type};
 use crate::symmetry::{MagneticSymmetry, Symmetry};
 
 const MAX_DENOMINATOR: f64 = 100.0;
@@ -90,18 +90,18 @@ static TYPE_IV_CANONICAL_INDEX: OnceLock<
 /// 给定晶格和磁性对称操作，返回识别出的磁性数据集。
 /// 对只靠磁操作无法区分的 Type-IV BNS parent，返回
 /// [`SymError::MagneticUniAmbiguous`]，而不是静默选择某个 UNI。
-pub fn msg_identify_magnetic_space_group_type(
+pub fn identify_magnetic_space_group_type(
     lattice: &Mat3,
     magnetic_symmetry: &MagneticSymmetry,
     symprec: f64,
 ) -> Result<MagneticDataset, SymError> {
-    msg_identify_with_parent_hall(lattice, magnetic_symmetry, None, symprec)
+    identify_with_parent_hall(lattice, magnetic_symmetry, None, symprec)
 }
 
-/// 与 [`msg_identify_magnetic_space_group_type`] 相同，但可指定非磁母空间群的
+/// 与 [`identify_magnetic_space_group_type`] 相同，但可指定非磁母空间群的
 /// Hall 编号。规范数据库 setting 的严格匹配优先于自动标准化；对一般基变换和
 /// 原点移动后的输入，则用母群空间群号筛选完整的 Type-IV 规范等价类。
-pub fn msg_identify_with_parent_hall(
+pub fn identify_with_parent_hall(
     lattice: &Mat3,
     magnetic_symmetry: &MagneticSymmetry,
     parent_hall_number: Option<usize>,
@@ -123,11 +123,11 @@ pub fn msg_identify_with_parent_hall(
     if let Some(canonical_match) = canonical_match {
         let mut candidates = canonical_match.candidates.clone();
         if let Some(parent_hall) = parent_hall_number {
-            let parent_number = spgdb_get_spacegroup_type(parent_hall).number;
+            let parent_number = get_spacegroup_type(parent_hall).number;
             let parent_candidates: Vec<_> = candidates
                 .iter()
                 .filter(|candidate| {
-                    msgdb_get_magnetic_spacegroup_type(candidate.uni_number).number == parent_number
+                    get_magnetic_spacegroup_type(candidate.uni_number).number == parent_number
                 })
                 .cloned()
                 .collect();
@@ -213,7 +213,7 @@ fn identify_in_single_reference_setting(
     let mut best_hall_number = 0;
 
     for &hall_number in &hall_numbers_try {
-        let range = match msgdb_get_uni_candidates(hall_number) {
+        let range = match get_uni_candidates(hall_number) {
             Some(r) => r,
             None => continue,
         };
@@ -221,11 +221,11 @@ fn identify_in_single_reference_setting(
         let max_uni = range[1];
 
         for uni_number in min_uni..=max_uni {
-            let msgtype_db = msgdb_get_magnetic_spacegroup_type(uni_number);
+            let msgtype_db = get_magnetic_spacegroup_type(uni_number);
             if msgtype_db.type_ != msgtype_num {
                 continue;
             }
-            let msg_uni = match msgdb_get_spacegroup_operations(uni_number, hall_number) {
+            let msg_uni = match get_spacegroup_operations(uni_number, hall_number) {
                 Some(u) => u,
                 None => continue,
             };
@@ -233,7 +233,7 @@ fn identify_in_single_reference_setting(
                 continue;
             }
 
-            let transformations = match msgdb_get_std_transformations(uni_number, hall_number) {
+            let transformations = match get_std_transformations(uni_number, hall_number) {
                 Some(t) => t,
                 None => continue,
             };
@@ -287,7 +287,7 @@ fn identify_in_single_reference_setting(
 
     let hall_number = best_hall_number;
 
-    let _msgtype = msgdb_get_magnetic_spacegroup_type(best_uni);
+    let _msgtype = get_magnetic_spacegroup_type(best_uni);
     let mut ret = MagneticDataset {
         uni_number: best_uni,
         msg_type: best_msg_type,
@@ -315,9 +315,9 @@ fn match_exact_parent_setting(
     hall_number: usize,
     symprec: f64,
 ) -> Option<MagneticDataset> {
-    let [min_uni, max_uni] = msgdb_get_uni_candidates(hall_number)?;
+    let [min_uni, max_uni] = get_uni_candidates(hall_number)?;
     for uni_number in min_uni..=max_uni {
-        let Some(database_symmetry) = msgdb_get_spacegroup_operations(uni_number, hall_number)
+        let Some(database_symmetry) = get_spacegroup_operations(uni_number, hall_number)
         else {
             continue;
         };
@@ -325,7 +325,7 @@ fn match_exact_parent_setting(
             continue;
         }
 
-        let msg_type = msgdb_get_magnetic_spacegroup_type(uni_number).type_;
+        let msg_type = get_magnetic_spacegroup_type(uni_number).type_;
         return Some(MagneticDataset {
             uni_number,
             msg_type,
@@ -423,7 +423,7 @@ fn type_iv_canonical_index() -> &'static HashMap<CanonicalMagneticKey, Vec<Canon
             HashMap::new();
 
         for uni_number in 1usize..=1651 {
-            let metadata = msgdb_get_magnetic_spacegroup_type(uni_number);
+            let metadata = get_magnetic_spacegroup_type(uni_number);
             if metadata.type_ != MagneticType::AntiTranslation {
                 continue;
             }
@@ -431,7 +431,7 @@ fn type_iv_canonical_index() -> &'static HashMap<CanonicalMagneticKey, Vec<Canon
                 crate::msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING[uni_number];
             for hall_number in first_hall as usize..(first_hall + num_halls) as usize {
                 let Some(database_symmetry) =
-                    msgdb_get_spacegroup_operations(uni_number, hall_number)
+                    get_spacegroup_operations(uni_number, hall_number)
                 else {
                     continue;
                 };
@@ -488,7 +488,7 @@ fn choose_canonical_candidate(
 
     for candidate in candidates {
         let Some(database_symmetry) =
-            msgdb_get_spacegroup_operations(candidate.uni_number, candidate.hall_number)
+            get_spacegroup_operations(candidate.uni_number, candidate.hall_number)
         else {
             continue;
         };
@@ -526,7 +526,7 @@ fn dataset_from_canonical_candidate(
         magnetic_symmetry,
     )?;
     let database_symmetry =
-        msgdb_get_spacegroup_operations(candidate.uni_number, candidate.hall_number)?;
+        get_spacegroup_operations(candidate.uni_number, candidate.hall_number)?;
     if !is_equal(&transformed, &database_symmetry, symprec) {
         return None;
     }
@@ -541,7 +541,7 @@ fn dataset_from_canonical_candidate(
 
     Some(MagneticDataset {
         uni_number: candidate.uni_number,
-        msg_type: msgdb_get_magnetic_spacegroup_type(candidate.uni_number).type_,
+        msg_type: get_magnetic_spacegroup_type(candidate.uni_number).type_,
         hall_number: candidate.hall_number,
         transformation_matrix,
         origin_shift,
@@ -594,7 +594,7 @@ fn get_reference_space_group(
     //    refinement is required for non-cubic structure inputs.
     let lattice_inv = mat_inverse_matrix_d3(lattice, 0.0).ok()?;
     ref_sg.bravais_lattice = mat_multiply_matrix_d3(lattice, &ref_sg.bravais_lattice);
-    ref_find_similar_bravais_lattice(ref_sg, symprec);
+    find_similar_bravais_lattice(ref_sg, symprec);
     ref_sg.bravais_lattice = mat_multiply_matrix_d3(&lattice_inv, &ref_sg.bravais_lattice);
     let tmat = mat_inverse_matrix_d3(&ref_sg.bravais_lattice, 0.0).ok()?;
     let shift = ref_sg.origin_shift;
@@ -632,7 +632,7 @@ fn build_fallback_reference(
     let msgtype_num = get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.len(), sym_xsg.len())?;
 
     // 3. 用非磁 Hall 编号构建参考 Spacegroup
-    let spg_type = spgdb_get_spacegroup_type(parent_hall_number);
+    let spg_type = get_spacegroup_type(parent_hall_number);
     let mut ref_sg = Spacegroup::new();
     ref_sg.hall_number = parent_hall_number;
     ref_sg.number = spg_type.number;
@@ -839,9 +839,9 @@ pub(crate) fn get_space_group_with_magnetic_symmetry(
     }
 
     // Get primitive symmetry: (a, b, c) = (a_prim, b_prim, c_prim) @ tmat
-    let (tmat, prim_sym) = prm_get_primitive_symmetry(&sym, symprec)?;
+    let (tmat, prim_sym) = get_primitive_symmetry(&sym, symprec)?;
 
-    let mut spacegroup = match spa_search_spacegroup_with_symmetry(&prim_sym, &unit_lat, symprec) {
+    let mut spacegroup = match search_spacegroup_with_symmetry(&prim_sym, &unit_lat, symprec) {
         Ok(sg) => sg,
         Err(_) => {
             // 标准空间群搜索失败 → 使用 fallback
@@ -850,7 +850,7 @@ pub(crate) fn get_space_group_with_magnetic_symmetry(
     };
 
     // Refine bravais lattice and origin_shift
-    ref_find_similar_bravais_lattice(&mut spacegroup, symprec);
+    find_similar_bravais_lattice(&mut spacegroup, symprec);
 
     // Change basis from primitive to original:
     // x = (tmat, 0)^-1 x_prim
@@ -863,7 +863,7 @@ pub(crate) fn get_space_group_with_magnetic_symmetry(
 }
 
 /// Fallback: 直接从对称操作匹配 Hall 编号，绕过完整的空间群搜索。
-/// 当 `spa_search_spacegroup_with_symmetry` 失败时使用。
+/// 当 `search_spacegroup_with_symmetry` 失败时使用。
 fn find_spacegroup_by_symmetry(
     symmetry: &Symmetry,
     lattice: &Mat3,
@@ -871,7 +871,7 @@ fn find_spacegroup_by_symmetry(
 ) -> Option<Spacegroup> {
     let mut origin_shift = [0.0; 3];
 
-    let (tmat_int, pointgroup) = ptg_get_transformation_matrix(&symmetry.rot, None);
+    let (tmat_int, pointgroup) = get_transformation_matrix(&symmetry.rot, None);
     if pointgroup.number == 0 {
         return None;
     }
@@ -897,7 +897,7 @@ fn find_spacegroup_by_symmetry(
             &conv_symmetry,
             symprec,
         ) {
-            let spg_type = spgdb_get_spacegroup_type(hall as usize);
+            let spg_type = get_spacegroup_type(hall as usize);
             let mut spacegroup = Spacegroup::new();
             spacegroup.bravais_lattice = conv_lattice;
             spacegroup.origin_shift = origin_shift;
@@ -1247,7 +1247,7 @@ fn get_changed_magnetic_symmetry(
         get_distinct_changed_magnetic_symmetry(tmat, shift, representatives)?;
 
     // 2. 收集原始磁性对称中的纯平移（仅 timerev=0），变换到参考设置
-    let pure_trans = crate::spin::spn_collect_pure_translations_from_magnetic_symmetry(
+    let pure_trans = crate::spin::collect_pure_translations_from_magnetic_symmetry(
         magnetic_symmetry,
     );
     let changed_pure_trans = get_changed_pure_translations(tmat, &pure_trans, symprec)?;
@@ -1364,7 +1364,7 @@ fn get_rigid_rotation(rigid_rot: &mut Mat3, lattice: &Mat3, tmat: &Mat3, ref_sg:
 mod tests {
     use crate::MagneticType;
     use crate::mathfunc::{Mat3, Mat3I, Vec3, is_proper};
-    use crate::msg_database::msgdb_get_magnetic_spacegroup_type;
+    use crate::msg_database::get_magnetic_spacegroup_type;
     use crate::symmetry::MagneticSymmetry;
 
     const SYMPREC: f64 = 1e-5;
@@ -1374,9 +1374,9 @@ mod tests {
     }
 
     fn pm3m_ops() -> Vec<(Mat3I, Vec3)> {
-        let (count, start) = crate::spg_database::spgdb_get_operation_index(517);
+        let (count, start) = crate::spg_database::get_operation_index(517);
         (0..count)
-            .filter_map(|i| crate::spg_database::spgdb_get_operation_by_index(start + i))
+            .filter_map(|i| crate::spg_database::get_operation_by_index(start + i))
             .collect()
     }
 
@@ -1480,12 +1480,12 @@ mod tests {
     fn test_db_type1() {
         let ops = pm3m_ops();
         let mag_sym = make_mag_sym(&vec![false; ops.len()], &ops);
-        let ds = super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC)
+        let ds = super::identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC)
             .expect("must match");
         assert_eq!(ds.msg_type, MagneticType::Ordinary);
         assert_eq!(ds.hall_number, 517);
         assert_eq!(
-            msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_,
+            get_magnetic_spacegroup_type(ds.uni_number).type_,
             MagneticType::Ordinary
         );
     }
@@ -1504,12 +1504,12 @@ mod tests {
             mag_sym.trans[i + n] = *t;
             mag_sym.timerev[i + n] = true;
         }
-        let ds = super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC)
+        let ds = super::identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC)
             .expect("must match");
         assert_eq!(ds.msg_type, MagneticType::Grey);
         assert_eq!(ds.hall_number, 517);
         assert_eq!(
-            msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_,
+            get_magnetic_spacegroup_type(ds.uni_number).type_,
             MagneticType::Grey
         );
     }
@@ -1520,12 +1520,12 @@ mod tests {
         let ops = pm3m_ops();
         let timerev: Vec<bool> = ops.iter().map(|(r, _)| !is_proper(r)).collect();
         let mag_sym = make_mag_sym(&timerev, &ops);
-        let ds = super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC)
+        let ds = super::identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC)
             .expect("must match");
         assert_eq!(ds.msg_type, MagneticType::BlackWhite);
         assert_eq!(ds.hall_number, 517);
         assert_eq!(
-            msgdb_get_magnetic_spacegroup_type(ds.uni_number).type_,
+            get_magnetic_spacegroup_type(ds.uni_number).type_,
             MagneticType::BlackWhite
         );
     }
@@ -1535,7 +1535,7 @@ mod tests {
     fn test_empty_symmetry() {
         let mag_sym = MagneticSymmetry::new(0);
         assert!(
-            super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC,)
+            super::identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC,)
                 .is_err()
         );
     }
@@ -1548,14 +1548,14 @@ mod tests {
         mag_sym.trans[0] = [0.0; 3];
         mag_sym.timerev[0] = false;
         assert!(
-            super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC,)
+            super::identify_magnetic_space_group_type(&cubic_lattice(), &mag_sym, SYMPREC,)
                 .is_err()
         );
     }
 
     #[test]
     fn type_iv_parent_hall_disambiguates_a_changed_basis_and_origin() {
-        let database = crate::msg_database::msgdb_get_spacegroup_operations(282, 182).unwrap();
+        let database = crate::msg_database::get_spacegroup_operations(282, 182).unwrap();
         let input_transform = [[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, -1.0]];
         let input_shift = [0.137, 0.219, 0.311];
         let input = super::get_distinct_changed_magnetic_symmetry(
@@ -1566,17 +1566,17 @@ mod tests {
         .unwrap();
 
         assert!(matches!(
-            super::msg_identify_magnetic_space_group_type(&cubic_lattice(), &input, SYMPREC),
+            super::identify_magnetic_space_group_type(&cubic_lattice(), &input, SYMPREC),
             Err(crate::SymError::MagneticUniAmbiguous)
         ));
 
         let bns_37 =
-            super::msg_identify_with_parent_hall(&cubic_lattice(), &input, Some(182), SYMPREC)
+            super::identify_with_parent_hall(&cubic_lattice(), &input, Some(182), SYMPREC)
                 .unwrap();
         assert_eq!(bns_37.uni_number, 282);
 
         let bns_36 =
-            super::msg_identify_with_parent_hall(&cubic_lattice(), &input, Some(176), SYMPREC)
+            super::identify_with_parent_hall(&cubic_lattice(), &input, Some(176), SYMPREC)
                 .unwrap();
         assert_eq!(bns_36.uni_number, 275);
     }
@@ -1608,9 +1608,9 @@ mod tests {
         for uni in [282usize, 283, 284] {
             for hall in 182usize..=184 {
                 let magnetic =
-                    crate::msg_database::msgdb_get_spacegroup_operations(uni, hall).unwrap();
+                    crate::msg_database::get_spacegroup_operations(uni, hall).unwrap();
                 let automatic =
-                    super::msg_identify_magnetic_space_group_type(&lattice, &magnetic, SYMPREC);
+                    super::identify_magnetic_space_group_type(&lattice, &magnetic, SYMPREC);
                 if uni == 283 {
                     assert_eq!(automatic.unwrap().uni_number, 283, "input Hall {hall}");
                 } else {
@@ -1621,7 +1621,7 @@ mod tests {
                 }
 
                 let with_parent =
-                    super::msg_identify_with_parent_hall(&lattice, &magnetic, Some(hall), SYMPREC)
+                    super::identify_with_parent_hall(&lattice, &magnetic, Some(hall), SYMPREC)
                         .unwrap();
                 assert_eq!(with_parent.uni_number, uni);
                 assert_eq!(with_parent.hall_number, hall);
@@ -1634,7 +1634,7 @@ mod tests {
     fn diagnose_selected_database_reference_groups() {
         for uni in [132usize, 282, 667, 751, 890, 1338] {
             let hall = crate::msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
-            let magnetic = crate::msg_database::msgdb_get_spacegroup_operations(uni, hall).unwrap();
+            let magnetic = crate::msg_database::get_spacegroup_operations(uni, hall).unwrap();
             let (fsg, sym_fsg) =
                 super::get_family_space_group_with_magnetic_symmetry(&magnetic, SYMPREC).unwrap();
             let (xsg, sym_xsg) =
@@ -1642,7 +1642,7 @@ mod tests {
                     .unwrap();
             let reference =
                 super::get_reference_space_group(&cubic_lattice(), &magnetic, SYMPREC).unwrap();
-            let result = super::msg_identify_with_parent_hall(
+            let result = super::identify_with_parent_hall(
                 &cubic_lattice(),
                 &magnetic,
                 Some(hall),

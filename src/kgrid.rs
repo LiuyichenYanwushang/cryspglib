@@ -45,7 +45,7 @@ pub(crate) fn validate_shift(is_shift: &[i32; 3]) -> Result<(), SymError> {
 /// # Arguments
 /// * `grid_address` - 输出参数，用于存储网格点坐标。大小必须 >= `mesh[0]*mesh[1]*mesh[2]`。
 /// * `mesh` - 定义 k 点网格的尺寸 [Nx, Ny, Nz]。
-pub(crate) fn kgd_get_all_grid_addresses(
+pub(crate) fn get_all_grid_addresses(
     grid_address: &mut [[i32; 3]],
     mesh: &[i32; 3],
 ) -> Result<(), SymError> {
@@ -84,24 +84,24 @@ pub(crate) fn kgd_get_all_grid_addresses(
 
 /// 获取双倍网格下的线性索引
 ///
-/// 对应 C: kgd_get_grid_point_double_mesh
-pub(crate) fn kgd_get_grid_point_double_mesh(
+/// 对应 C: get_grid_point_double_mesh
+pub(crate) fn get_grid_point_double_mesh(
     address_double: &[i32; 3],
     mesh: &[i32; 3],
 ) -> Result<usize, SymError> {
     mesh_size(mesh)?;
-    Ok(get_grid_point_double_mesh(address_double, mesh))
+    Ok(get_grid_point_double_mesh_core(address_double, mesh))
 }
 
 /// 获取双倍网格下的线性索引 (Dense 版本)
 ///
-/// 对应 C: kgd_get_dense_grid_point_double_mesh
-/// 在当前实现中，逻辑与 kgd_get_grid_point_double_mesh 相同
-pub(crate) fn kgd_get_dense_grid_point_double_mesh(
+/// 对应 C: get_dense_grid_point_double_mesh
+/// 在当前实现中，逻辑与 get_grid_point_double_mesh 相同
+pub(crate) fn get_dense_grid_point_double_mesh(
     address_double: &[i32; 3],
     mesh: &[i32; 3],
 ) -> Result<usize, SymError> {
-    kgd_get_grid_point_double_mesh(address_double, mesh)
+    get_grid_point_double_mesh(address_double, mesh)
 }
 
 /// 计算双倍网格地址
@@ -114,7 +114,7 @@ pub(crate) fn kgd_get_dense_grid_point_double_mesh(
 /// * `address` - 输入：原始网格坐标
 /// * `mesh` - 原始网格尺寸
 /// * `is_shift` - 是否有半网格位移 (0 或 1)
-pub(crate) fn kgd_get_grid_address_double_mesh(
+pub(crate) fn get_grid_address_double_mesh(
     address_double: &mut [i32; 3],
     address: &[i32; 3],
     mesh: &[i32; 3],
@@ -138,7 +138,7 @@ pub(crate) fn kgd_get_grid_address_double_mesh(
 
 /// 内部函数：从双倍网格坐标计算单倍网格的线性索引
 #[inline]
-fn get_grid_point_double_mesh(address_double: &[i32; 3], mesh: &[i32; 3]) -> usize {
+fn get_grid_point_double_mesh_core(address_double: &[i32; 3], mesh: &[i32; 3]) -> usize {
     let mut address = [0; 3];
     for i in 0..3 {
         // 模拟整数除法的向下取整逻辑，还原原始网格坐标
@@ -195,7 +195,7 @@ mod tests {
         let mesh = [2, 2, 1];
         // Total size = 4
         let mut addresses = vec![[0; 3]; 4];
-        kgd_get_all_grid_addresses(&mut addresses, &mesh).unwrap();
+        get_all_grid_addresses(&mut addresses, &mesh).unwrap();
 
         // Expected:
         // (0,0,0) -> idx 0
@@ -248,11 +248,11 @@ mod tests {
         // Case 1: Even address_double
         let addr_d = [0, 4, 8]; 
         // 0/2=0, 4/2=2, 8/2=4 -> mod 4 -> 0
-        assert_eq!(get_grid_point_double_mesh(&addr_d, &mesh), get_grid_point_single_mesh(&[0, 2, 0], &mesh));
+        assert_eq!(get_grid_point_double_mesh_core(&addr_d, &mesh), get_grid_point_single_mesh(&[0, 2, 0], &mesh));
         
         // Case 2: Odd address_double
         let addr_d_odd = [1, 5, 9];
         // (1-1)/2=0, (5-1)/2=2, (9-1)/2=4 -> mod 4 -> 0
-        assert_eq!(get_grid_point_double_mesh(&addr_d_odd, &mesh), get_grid_point_single_mesh(&[0, 2, 0], &mesh));
+        assert_eq!(get_grid_point_double_mesh_core(&addr_d_odd, &mesh), get_grid_point_single_mesh(&[0, 2, 0], &mesh));
     }
 }
