@@ -335,7 +335,7 @@ pub(crate) fn get_point_group_reciprocal(rotations: &[Mat3I], is_time_reversal: 
     };
 
     let mut rot_reciprocal = vec![[[0; 3]; 3]; size];
-    let mut unique_rot = vec![-1; size];
+    let mut unique_rot = vec![None; size];
 
     for i in 0..rotations.len() {
         // 倒易空间的旋转矩阵是实空间旋转矩阵的转置
@@ -352,23 +352,20 @@ pub(crate) fn get_point_group_reciprocal(rotations: &[Mat3I], is_time_reversal: 
     let mut num_rot = 0;
     for i in 0..rot_reciprocal.len() {
         let mut is_unique = true;
-        if unique_rot[..num_rot].iter().any(|&index| {
-            mat_check_identity_matrix_i3(
-                &rot_reciprocal[index as usize],
-                &rot_reciprocal[i],
-            )
+        if unique_rot[..num_rot].iter().flatten().any(|&index| {
+            mat_check_identity_matrix_i3(&rot_reciprocal[index], &rot_reciprocal[i])
         }) {
             is_unique = false;
         }
         if is_unique {
-            unique_rot[num_rot] = i as i32;
+            unique_rot[num_rot] = Some(i);
             num_rot += 1;
         }
     }
 
     let mut rot_return = vec![[[0; 3]; 3]; num_rot];
     for (output, &index) in rot_return.iter_mut().zip(&unique_rot).take(num_rot) {
-        *output = rot_reciprocal[index as usize];
+        *output = rot_reciprocal[index.expect("unique rotation index should be set")];
     }
 
     Some(rot_return)
@@ -380,7 +377,7 @@ fn get_point_group_reciprocal_with_q(
     symprec: f64,
     qpoints: &[[f64; 3]],
 ) -> Option<Vec<Mat3I>> {
-    let mut ir_rot = vec![-1; rot_reciprocal.len()];
+    let mut ir_rot = vec![None; rot_reciprocal.len()];
     let mut num_rot = 0;
 
     for (i, rot) in rot_reciprocal.iter().enumerate() {
@@ -411,14 +408,14 @@ fn get_point_group_reciprocal_with_q(
         }
 
         if is_all_ok {
-            ir_rot[num_rot] = i as i32;
+            ir_rot[num_rot] = Some(i);
             num_rot += 1;
         }
     }
 
     let mut rot_reciprocal_q = vec![[[0; 3]; 3]; num_rot];
     for (output, &index) in rot_reciprocal_q.iter_mut().zip(&ir_rot).take(num_rot) {
-        *output = rot_reciprocal[index as usize];
+        *output = rot_reciprocal[index.expect("ir rotation index should be set")];
     }
 
     Some(rot_reciprocal_q)

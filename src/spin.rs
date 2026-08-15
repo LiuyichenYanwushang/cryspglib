@@ -387,8 +387,8 @@ fn get_symmetry_permutations(
     is_axial: bool,
     symprec: f64,
     mag_symprec: f64,
-) -> Option<Vec<i32>> {
-    let mut permutations = vec![-1; magnetic_symmetry.len() * cell.len()];
+) -> Option<Vec<Option<usize>>> {
+    let mut permutations = vec![None; magnetic_symmetry.len() * cell.len()];
     let mut rotations_cart = vec![[[0.0; 3]; 3]; magnetic_symmetry.len()];
 
     set_rotations_in_cartesian(&mut rotations_cart, &cell.lattice, magnetic_symmetry);
@@ -457,11 +457,11 @@ fn get_symmetry_permutations(
                     }
                 }
 
-                permutations[p * cell.len() + i] = j as i32;
+                permutations[p * cell.len() + i] = Some(j);
                 break;
             }
 
-            if permutations[p * cell.len() + i] == -1 {
+            if permutations[p * cell.len() + i].is_none() {
                 debug::debug_print(format_args!(
                     "Failed to map site-{} by operation-{}\n",
                     i, p
@@ -472,7 +472,7 @@ fn get_symmetry_permutations(
 
         debug::debug_print(format_args!("Operation {}\n", p));
         for i in 0..cell.len() {
-            debug::debug_print(format_args!(" {}", permutations[p * cell.len() + i]));
+            debug::debug_print(format_args!(" {:?}", permutations[p * cell.len() + i]));
         }
         debug::debug_print(format_args!("\n"));
     }
@@ -480,19 +480,18 @@ fn get_symmetry_permutations(
     Some(permutations)
 }
 
-fn get_orbits(permutations: &[i32], num_sym: usize, num_atoms: usize) -> Option<Vec<i32>> {
-    let mut equivalent_atoms = vec![-1; num_atoms];
+fn get_orbits(permutations: &[Option<usize>], num_sym: usize, num_atoms: usize) -> Option<Vec<Option<usize>>> {
+    let mut equivalent_atoms = vec![None; num_atoms];
 
     for i in 0..num_atoms {
-        if equivalent_atoms[i] != -1 {
+        if equivalent_atoms[i].is_some() {
             continue;
         }
 
-        equivalent_atoms[i] = i as i32;
+        equivalent_atoms[i] = Some(i);
         for s in 0..num_sym {
-            let target = permutations[s * num_atoms + i] as usize;
-            if target < num_atoms {
-                equivalent_atoms[target] = i as i32;
+            if let Some(target) = permutations[s * num_atoms + i] {
+                equivalent_atoms[target] = Some(i);
             }
         }
     }
