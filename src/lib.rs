@@ -542,11 +542,11 @@ pub(crate) fn magnetic_symmetry_from_crystal(
 
     if !has_mag {
         // 无磁矩: 只返回非磁结果
-        let rot = (0..nonspin_sym.size).map(|i| nonspin_sym.rot[i]).collect();
-        let trans = (0..nonspin_sym.size)
+        let rot = (0..nonspin_sym.len()).map(|i| nonspin_sym.rot[i]).collect();
+        let trans = (0..nonspin_sym.len())
             .map(|i| nonspin_sym.trans[i])
             .collect();
-        let timerev = vec![false; nonspin_sym.size];
+        let timerev = vec![false; nonspin_sym.len()];
         let spg_type = crate::spg_database::spgdb_get_spacegroup_type(hall_number);
         return Ok(MagneticSymmetry {
             spacegroup_number: spg.number,
@@ -557,7 +557,7 @@ pub(crate) fn magnetic_symmetry_from_crystal(
             magnetic_type: MagneticType::NonMagnetic,
             bns_number: String::new(),
             og_number: String::new(),
-            num_operations: nonspin_sym.size,
+            num_operations: nonspin_sym.len(),
             rotations: rot,
             translations: trans,
             time_reversals: timerev,
@@ -578,9 +578,9 @@ pub(crate) fn magnetic_symmetry_from_crystal(
 
     // 如果有磁矩但磁对称操作数为 0，尝试用简单方法
     // (operations_with_site_tensors 可能因原胞匹配失败)
-    let (final_mag_sym, _used_fallback) = if mag_sym.size == 0 {
+    let (final_mag_sym, _used_fallback) = if mag_sym.is_empty() {
         // fallback: 手动计算 timerev
-        let crystal_ops: Vec<(Mat3I, Vec3)> = (0..nonspin_sym.size)
+        let crystal_ops: Vec<(Mat3I, Vec3)> = (0..nonspin_sym.len())
             .map(|i| (nonspin_sym.rot[i], nonspin_sym.trans[i]))
             .collect();
         let moments = magnetic_moments.unwrap();
@@ -621,13 +621,13 @@ pub(crate) fn magnetic_symmetry_from_crystal(
         magnetic_identification_metadata(identification)?;
 
     let spg_type = crate::spg_database::spgdb_get_spacegroup_type(hall_number);
-    let rot_out = (0..final_mag_sym.size)
+    let rot_out = (0..final_mag_sym.len())
         .map(|i| final_mag_sym.rot[i])
         .collect();
-    let trans_out = (0..final_mag_sym.size)
+    let trans_out = (0..final_mag_sym.len())
         .map(|i| final_mag_sym.trans[i])
         .collect();
-    let tr_out = (0..final_mag_sym.size)
+    let tr_out = (0..final_mag_sym.len())
         .map(|i| final_mag_sym.timerev[i])
         .collect();
 
@@ -640,7 +640,7 @@ pub(crate) fn magnetic_symmetry_from_crystal(
         magnetic_type,
         bns_number,
         og_number,
-        num_operations: final_mag_sym.size,
+        num_operations: final_mag_sym.len(),
         rotations: rot_out,
         translations: trans_out,
         time_reversals: tr_out,

@@ -666,7 +666,7 @@ impl SymmetryOps {
     pub fn from_database(hall_number: usize) -> Result<Self, crate::SymError> {
         let sym = crate::spg_database::spgdb_get_spacegroup_operations(hall_number)
             .ok_or(crate::SymError::SpacegroupSearchFailed)?;
-        let ops: Vec<SymmetryOp> = (0..sym.size)
+        let ops: Vec<SymmetryOp> = (0..sym.len())
             .map(|i| SymmetryOp {
                 rotation: sym.rot[i],
                 translation: sym.trans[i],
@@ -698,7 +698,7 @@ impl SymmetryOps {
     ) -> Result<Self, crate::SymError> {
         let sym = crate::msg_database::msgdb_get_spacegroup_operations(uni_number, hall_number)
             .ok_or(crate::SymError::SpacegroupSearchFailed)?;
-        let n = sym.size;
+        let n = sym.len();
         let ops: Vec<SymmetryOp> = (0..n)
             .map(|i| SymmetryOp {
                 rotation: sym.rot[i],
@@ -1062,8 +1062,8 @@ fn build_dataset(
     spacegroup: &Spacegroup,
     exstr: &crate::refinement::ExactStructure,
 ) -> Option<SpaceGroup> {
-    let n_atoms = cell.size;
-    let n_operations = exstr.symmetry.size;
+    let n_atoms = cell.len();
+    let n_operations = exstr.symmetry.len();
 
     let mut dataset = SpaceGroup {
         spacegroup_number: spacegroup.number,
@@ -1082,12 +1082,12 @@ fn build_dataset(
         equivalent_atoms: vec![0i32; n_atoms],
         crystallographic_orbits: vec![0i32; n_atoms],
         mapping_to_primitive: vec![0i32; n_atoms],
-        n_std_atoms: exstr.bravais.size,
+        n_std_atoms: exstr.bravais.len(),
         std_lattice: exstr.bravais.lattice,
         std_positions: exstr.bravais.position.clone(),
         std_types: exstr.bravais.types.clone(),
         std_rotation_matrix: [[0.0; 3]; 3],
-        std_mapping_to_primitive: vec![0i32; exstr.bravais.size],
+        std_mapping_to_primitive: vec![0i32; exstr.bravais.len()],
         primitive_lattice: [[0.0; 3]; 3],
         pointgroup_symbol: String::new(),
     };
@@ -1141,7 +1141,7 @@ fn standardize_primitive_inner(
         bravais.position[i] = dataset.std_positions[i];
     }
 
-    let mut mapping_table = vec![0usize; bravais.size];
+    let mut mapping_table = vec![0usize; bravais.len()];
     let identity: Mat3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
     let primitive = crate::spacegroup::spa_transform_to_primitive(
         &mut mapping_table,
@@ -1152,7 +1152,7 @@ fn standardize_primitive_inner(
     )
     .ok_or(SymError::CellStandardizationFailed)?;
 
-    for (i, &mapped) in mapping_table.iter().take(primitive.size).enumerate() {
+    for (i, &mapped) in mapping_table.iter().take(primitive.len()).enumerate() {
         if mapped != i {
             debug::warning_print(format_args!(
                 "spglib: spa_transform_to_primitive failed ({} != {})\n",
@@ -1180,7 +1180,7 @@ fn standardize_cell_inner(
     if to_primitive && no_idealize {
         // Use existing standardize logic with dataset
         let centering = spgdb_get_spacegroup_type(dataset.hall_number).centering;
-        let num_atom = cell.size;
+        let num_atom = cell.len();
         let mut work_cell = Cell::new(num_atom, TensorRank::NoSpin);
         work_cell.lattice = cell.lattice;
         for i in 0..num_atom {
@@ -1210,7 +1210,7 @@ fn standardize_cell_inner(
     } else if no_idealize {
         // no_idealize, not to_primitive
         let centering = spgdb_get_spacegroup_type(dataset.hall_number).centering;
-        let num_atom = cell.size;
+        let num_atom = cell.len();
         let mut work_cell = Cell::new(num_atom, TensorRank::NoSpin);
         work_cell.lattice = cell.lattice;
         for i in 0..num_atom {

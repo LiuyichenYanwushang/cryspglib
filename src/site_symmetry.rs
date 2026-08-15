@@ -88,7 +88,7 @@ fn get_exact_positions(
 ) -> Option<ExactSiteData> {
     debug::debug_print(format_args!("get_exact_positions\n"));
 
-    let n = conv_prim.size;
+    let n = conv_prim.len();
     let mut positions = vec![[0.0; 3]; n];
     let mut equiv_atoms = vec![0i32; n];
     let mut indep_atoms: Vec<usize> = Vec::with_capacity(n);
@@ -154,7 +154,7 @@ fn set_equivalent_atom(
     i: usize,
 ) -> bool {
     for &j in context.independent_atoms {
-        for k in 0..context.symmetry.size {
+        for k in 0..context.symmetry.len() {
             let mut pos =
                 mat_multiply_matrix_vector_id3(&context.symmetry.rot[k], &context.positions[j]);
             for (coordinate, translation) in pos.iter_mut().zip(&context.symmetry.trans[k]) {
@@ -190,7 +190,7 @@ fn set_exact_location(
     let mut sum_rot = [[0.0; 3]; 3];
     let mut sum_trans = [0.0; 3];
 
-    for i in 0..conv_sym.size {
+    for i in 0..conv_sym.len() {
         let mut pos = mat_multiply_matrix_vector_id3(&conv_sym.rot[i], position);
         for (coordinate, translation) in pos.iter_mut().zip(&conv_sym.trans[i]) {
             *coordinate += translation;
@@ -234,7 +234,7 @@ fn set_layer_equivalent_atom(
     aperiodic: AperiodicAxis,
 ) -> bool {
     for &j in context.independent_atoms {
-        for k in 0..context.symmetry.size {
+        for k in 0..context.symmetry.len() {
             let mut pos =
                 mat_multiply_matrix_vector_id3(&context.symmetry.rot[k], &context.positions[j]);
             for (coordinate, translation) in pos.iter_mut().zip(&context.symmetry.trans[k]) {
@@ -269,7 +269,7 @@ fn set_layer_exact_location(
     let mut sum_rot = [[0.0; 3]; 3];
     let mut sum_trans = [0.0; 3];
 
-    for i in 0..conv_sym.size {
+    for i in 0..conv_sym.len() {
         let mut pos = mat_multiply_matrix_vector_id3(&conv_sym.rot[i], position);
         for (coordinate, translation) in pos.iter_mut().zip(&conv_sym.trans[i]) {
             *coordinate += translation;
@@ -315,7 +315,7 @@ fn set_wyckoffs_labels(
     hall_number: usize,
     symprec: f64,
 ) -> Option<(Vec<i32>, Vec<String>)> {
-    let n = conv_prim.size;
+    let n = conv_prim.len();
     let mut nums_equiv_atoms = vec![0i32; n];
     for i in 0..n {
         nums_equiv_atoms[equiv_atoms[i] as usize] += 1;
@@ -388,7 +388,7 @@ fn get_wyckoff_notation(
 ) -> Option<(i32, String)> {
     debug::debug_print(format_args!("get_Wyckoff_notation\n"));
 
-    let n = conv_sym.size;
+    let n = conv_sym.len();
 
     // 计算所有对称操作作用在 position 上的结果
     let mut pos_rot: Vec<Vec3> = vec![[0.0; 3]; n];
@@ -445,7 +445,7 @@ fn get_layer_wyckoff_notation(
 ) -> Option<(i32, String)> {
     debug::debug_print(format_args!("get_layer_Wyckoff_notation\n"));
 
-    let n = conv_sym.size;
+    let n = conv_sym.len();
 
     let mut pos_rot: Vec<Vec3> = vec![[0.0; 3]; n];
     for (i, rotated_position) in pos_rot.iter_mut().enumerate().take(n) {

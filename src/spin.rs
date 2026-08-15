@@ -54,8 +54,8 @@ pub(crate) fn operations_with_site_tensors(
 
     let _equivalent_atoms = get_orbits(
         &permutations,
-        magnetic_symmetry.size,
-        search.cell.size,
+        magnetic_symmetry.len(),
+        search.cell.len(),
     )
         .ok_or(crate::SymError::MagneticOpGenerationFailed)?;
 
@@ -83,7 +83,7 @@ pub fn spn_collect_pure_translations_from_magnetic_symmetry(
 ) -> Option<Vec<Vec3>> {
     let mut pure_trans = Vec::new();
 
-    for i in 0..sym_msg.size {
+    for i in 0..sym_msg.len() {
         /* Take translation with rot=identity and timerev=false */
         /* time reversal should be considered for type-IV magnetic space group */
         if mat_check_identity_matrix_i3(&IDENTITY, &sym_msg.rot[i]) && !sym_msg.timerev[i] {
@@ -102,24 +102,24 @@ pub fn spn_get_idealized_cell(
     with_time_reversal: bool,
     is_axial: bool,
 ) -> Option<Cell> {
-    let mut exact_cell = Cell::new(cell.size, cell.tensor_rank);
+    let mut exact_cell = Cell::new(cell.len(), cell.tensor_rank);
     exact_cell.lattice = cell.lattice;
     exact_cell.aperiodic_axis = cell.aperiodic_axis;
     exact_cell.types = cell.types.clone();
 
-    let mut inv_perm = vec![0; cell.size];
-    let mut rotations_cart = vec![[[0.0; 3]; 3]; magnetic_symmetry.size];
+    let mut inv_perm = vec![0; cell.len()];
+    let mut rotations_cart = vec![[[0.0; 3]; 3]; magnetic_symmetry.len()];
     set_rotations_in_cartesian(&mut rotations_cart, &cell.lattice, magnetic_symmetry);
 
-    for i in 0..cell.size {
+    for i in 0..cell.len() {
         let mut pos_res = [0.0; 3];
         let mut scalar_res = 0.0;
         let mut vector_res = [0.0; 3];
 
-        for p in 0..magnetic_symmetry.size {
+        for p in 0..magnetic_symmetry.len() {
             // Inverse of the p-th permutation
-            for j in 0..cell.size {
-                inv_perm[permutations[p * cell.size + j] as usize] = j;
+            for j in 0..cell.len() {
+                inv_perm[permutations[p * cell.len() + j] as usize] = j;
             }
 
             let j = inv_perm[i]; // p-th operation maps site-j to site-i
@@ -168,7 +168,7 @@ pub fn spn_get_idealized_cell(
             .zip(cell.position[i])
             .zip(pos_res)
         {
-            *coordinate = source + sum / magnetic_symmetry.size as f64;
+            *coordinate = source + sum / magnetic_symmetry.len() as f64;
         }
 
         debug::debug_print(format_args!("Idealize position\n"));
@@ -177,7 +177,7 @@ pub fn spn_get_idealized_cell(
 
         debug::debug_print(format_args!("Idealize site tensor\n"));
         if cell.tensor_rank == TensorRank::Collinear {
-            exact_cell.tensors[i] = cell.tensors[i] + scalar_res / magnetic_symmetry.size as f64;
+            exact_cell.tensors[i] = cell.tensors[i] + scalar_res / magnetic_symmetry.len() as f64;
             debug::debug_print(format_args!("{}\n", cell.tensors[i]));
             debug::debug_print(format_args!("{}\n", exact_cell.tensors[i]));
         } else if cell.tensor_rank == TensorRank::NonCollinear {
@@ -186,7 +186,7 @@ pub fn spn_get_idealized_cell(
                 .zip(&cell.tensors[3 * i..3 * i + 3])
                 .zip(vector_res)
             {
-                *destination = source + sum / magnetic_symmetry.size as f64;
+                *destination = source + sum / magnetic_symmetry.len() as f64;
             }
         }
     }
@@ -206,14 +206,14 @@ fn get_operations(
     symprec: f64,
     mag_symprec: f64,
 ) -> Option<MagneticSymmetry> {
-    let mut rotations_cart = vec![[[0.0; 3]; 3]; sym_nonspin.size];
+    let mut rotations_cart = vec![[[0.0; 3]; 3]; sym_nonspin.len()];
 
     let inv_lat = mat_inverse_matrix_d3(&cell.lattice, 0.0).ok()?;
 
     for (i, rotation_cart) in rotations_cart
         .iter_mut()
         .enumerate()
-        .take(sym_nonspin.size)
+        .take(sym_nonspin.len())
     {
         // rot_cart = lattice @ rot @ lattice^-1
         let temp = mat_multiply_matrix_id3(&sym_nonspin.rot[i], &inv_lat);
@@ -224,19 +224,19 @@ fn get_operations(
     let mut trans = Vec::new();
     let mut spin_flips = Vec::new();
 
-    for (i, rotation_cart) in rotations_cart.iter().enumerate().take(sym_nonspin.size) {
+    for (i, rotation_cart) in rotations_cart.iter().enumerate().take(sym_nonspin.len()) {
         let mut found = true;
         let mut determined = false;
         let mut sign = 0;
 
-        for j in 0..cell.size {
+        for j in 0..cell.len() {
             let pos = apply_symmetry_to_position(
                 &cell.position[j],
                 &sym_nonspin.rot[i],
                 &sym_nonspin.trans[i],
             );
 
-            let mut k = cell.size; // Default to not found
+            let mut k = cell.len(); // Default to not found
             for (idx, pos_k) in cell.position.iter().enumerate() {
                 if cel_is_overlap_with_same_type(
                     pos_k,
@@ -251,7 +251,7 @@ fn get_operations(
                 }
             }
 
-            if k == cell.size {
+            if k == cell.len() {
                 debug::debug_print(format_args!(
                     "Failed to overlap atom-{} by operation-{}\n",
                     j, i
@@ -389,13 +389,13 @@ fn get_symmetry_permutations(
     symprec: f64,
     mag_symprec: f64,
 ) -> Option<Vec<i32>> {
-    let mut permutations = vec![-1; magnetic_symmetry.size * cell.size];
-    let mut rotations_cart = vec![[[0.0; 3]; 3]; magnetic_symmetry.size];
+    let mut permutations = vec![-1; magnetic_symmetry.len() * cell.len()];
+    let mut rotations_cart = vec![[[0.0; 3]; 3]; magnetic_symmetry.len()];
 
     set_rotations_in_cartesian(&mut rotations_cart, &cell.lattice, magnetic_symmetry);
 
-    for p in 0..magnetic_symmetry.size {
-        for i in 0..cell.size {
+    for p in 0..magnetic_symmetry.len() {
+        for i in 0..cell.len() {
             let pos = apply_symmetry_to_position(
                 &cell.position[i],
                 &magnetic_symmetry.rot[p],
@@ -425,7 +425,7 @@ fn get_symmetry_permutations(
                 );
             }
 
-            for j in 0..cell.size {
+            for j in 0..cell.len() {
                 if !cel_is_overlap_with_same_type(
                     &pos,
                     &cell.position[j],
@@ -458,11 +458,11 @@ fn get_symmetry_permutations(
                     }
                 }
 
-                permutations[p * cell.size + i] = j as i32;
+                permutations[p * cell.len() + i] = j as i32;
                 break;
             }
 
-            if permutations[p * cell.size + i] == -1 {
+            if permutations[p * cell.len() + i] == -1 {
                 debug::debug_print(format_args!(
                     "Failed to map site-{} by operation-{}\n",
                     i, p
@@ -472,8 +472,8 @@ fn get_symmetry_permutations(
         }
 
         debug::debug_print(format_args!("Operation {}\n", p));
-        for i in 0..cell.size {
-            debug::debug_print(format_args!(" {}", permutations[p * cell.size + i]));
+        for i in 0..cell.len() {
+            debug::debug_print(format_args!(" {}", permutations[p * cell.len() + i]));
         }
         debug::debug_print(format_args!("\n"));
     }
@@ -614,7 +614,7 @@ fn set_rotations_in_cartesian(
     for (i, rotation_cart) in rotations_cart
         .iter_mut()
         .enumerate()
-        .take(magnetic_symmetry.size)
+        .take(magnetic_symmetry.len())
     {
         // rot_cart = lattice @ rot @ lattice^-1
         let temp = mat_multiply_matrix_id3(&magnetic_symmetry.rot[i], &inv_lat);

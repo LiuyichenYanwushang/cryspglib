@@ -355,12 +355,12 @@ fn all_magnetic_database_operations_form_expected_groups() {
                 audit.record("missing_magnetic_operations", context);
                 continue;
             };
-            if magnetic.size == 0 {
+            if magnetic.is_empty() {
                 audit.record("empty_magnetic_operations", context);
                 continue;
             }
 
-            let operations: Vec<TestOp> = (0..magnetic.size)
+            let operations: Vec<TestOp> = (0..magnetic.len())
                 .map(|index| TestOp {
                     rotation: magnetic.rot[index],
                     translation: magnetic.trans[index],
@@ -455,7 +455,7 @@ fn all_magnetic_database_operations_form_expected_groups() {
                 audit.record("missing_parent_operations", context);
                 continue;
             };
-            let parent_keys: HashSet<OpKey> = (0..parent.size)
+            let parent_keys: HashSet<OpKey> = (0..parent.len())
                 .filter_map(|index| {
                     op_key(&TestOp {
                         rotation: parent.rot[index],
@@ -488,7 +488,7 @@ fn all_magnetic_database_operations_form_expected_groups() {
                         .iter()
                         .filter(|operation| !operation.time_reversal)
                         .map(|operation| &operation.rotation),
-                ) == rotation_multiset((0..parent.size).map(|index| &parent.rot[index]))
+                ) == rotation_multiset((0..parent.len()).map(|index| &parent.rot[index]))
             } else {
                 family_keys == parent_keys
             };
@@ -563,7 +563,7 @@ fn enantiomorphic_magnetic_settings_preserve_handedness() {
         let metadata = msg_database::msgdb_get_magnetic_spacegroup_type(uni);
         let first_hall = MAGNETIC_SPACEGROUP_UNI_MAPPING[uni][1] as usize;
         let magnetic = msgdb_get_spacegroup_operations(uni, first_hall).unwrap();
-        let lattice = invariant_lattice(&magnetic.rot[..magnetic.size]).unwrap();
+        let lattice = invariant_lattice(&magnetic.rot[..magnetic.len()]).unwrap();
         let dataset = magnetic_spacegroup::msg_identify_with_parent_hall(
             &lattice,
             &magnetic,
@@ -615,7 +615,7 @@ fn all_alternative_setting_transformations_are_loaded() {
             let transformations = msgdb_get_std_transformations(uni, hall)
                 .unwrap_or_else(|| panic!("missing transformations for UNI {uni} Hall {hall}"));
             assert_eq!(
-                transformations.size,
+                transformations.len(),
                 encoded_count + 1,
                 "wrong transformation count for UNI {uni} Hall {hall}"
             );
@@ -631,7 +631,7 @@ fn all_alternative_setting_transformations_are_loaded() {
     assert_eq!(nontrivial_setting_count, 450);
 
     let transformations = msgdb_get_std_transformations(132, 116).unwrap();
-    assert_eq!(transformations.size, 2);
+    assert_eq!(transformations.len(), 2);
     assert_eq!(transformations.rot[1], [[0, -1, 0], [-1, 0, 0], [0, 0, -1]]);
     assert_eq!(transformations.trans[1], [0.0, 0.0, 0.25]);
 }
@@ -657,7 +657,7 @@ fn all_database_settings_round_trip_with_parent_hint() {
                 audit.record("missing_magnetic_operations", context);
                 continue;
             };
-            let rotations = magnetic.rot[..magnetic.size].to_vec();
+            let rotations = magnetic.rot[..magnetic.len()].to_vec();
             let Some(lattice) = invariant_lattice(&rotations) else {
                 audit.record("invariant_lattice_failed", context);
                 continue;
@@ -734,7 +734,7 @@ fn automatic_all_setting_round_trips_are_unique_or_explicitly_ambiguous() {
             let hall = first_hall + hall_offset;
             let magnetic = msgdb_get_spacegroup_operations(uni, hall)
                 .unwrap_or_else(|| panic!("missing operations for UNI {uni} Hall {hall}"));
-            let lattice = invariant_lattice(&magnetic.rot[..magnetic.size])
+            let lattice = invariant_lattice(&magnetic.rot[..magnetic.len()])
                 .unwrap_or_else(|| panic!("invariant lattice failed for UNI {uni} Hall {hall}"));
             let result = magnetic_spacegroup::msg_identify_magnetic_space_group_type(
                 &lattice, &magnetic, 1e-5,

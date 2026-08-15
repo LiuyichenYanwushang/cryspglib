@@ -331,20 +331,20 @@ pub fn spa_transform_from_primitive(
     let mut shift = [[0.0; 3]; 3];
     let multi = get_centering_shifts(&mut shift, centering);
 
-    let mut mapping_table = vec![0; primitive.size * multi];
-    let mut std_cell = Cell::new(primitive.size * multi, primitive.tensor_rank);
+    let mut mapping_table = vec![0; primitive.len() * multi];
+    let mut std_cell = Cell::new(primitive.len() * multi, primitive.tensor_rank);
 
     std_cell.lattice = mat_multiply_matrix_d3(&primitive.lattice, &inv_tmat);
 
     let mut num_atom = 0;
-    for i in 0..primitive.size {
+    for i in 0..primitive.len() {
         std_cell.position[num_atom] = mat_multiply_matrix_vector_d3(&tmat, &primitive.position[i]);
         std_cell.types[num_atom] = primitive.types[i];
         num_atom += 1;
     }
 
     for centering_shift in shift.iter().take(multi - 1) {
-        for j in 0..primitive.size {
+        for j in 0..primitive.len() {
             let src_pos = std_cell.position[j];
             std_cell.position[num_atom] = src_pos;
             for (coordinate, offset) in std_cell.position[num_atom]
@@ -379,7 +379,7 @@ fn search_spacegroup_with_symmetry(
     let mut conv_lattice = [[0.0; 3]; 3];
 
     let pointsym = ptg_get_pointsymmetry(&symmetry.rot);
-    if pointsym.size < symmetry.size {
+    if pointsym.len() < symmetry.len() {
         debug::info_print(format_args!(
             "spglib: Point symmetry of primitive cell is broken.\n"
         ));
@@ -481,7 +481,7 @@ fn iterative_search_hall_number(
         // Reject Hall 1 when the original symmetry had non-trivial
         // operations — the tolerance retry must not reduce a genuine
         // subgroup down to just identity and then claim "SG1".
-        if hall_number == 1 && symmetry.size > 1 {
+        if hall_number == 1 && symmetry.len() > 1 {
             hall_number = 0;
         }
 
@@ -670,7 +670,7 @@ fn get_conventional_symmetry(
     centering: Centering,
     primitive_sym: &Symmetry,
 ) -> Option<Symmetry> {
-    let size = primitive_sym.size;
+    let size = primitive_sym.len();
     let mut symmetry;
 
     match centering {

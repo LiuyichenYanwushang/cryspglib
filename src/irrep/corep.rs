@@ -1112,7 +1112,7 @@ pub(crate) fn operations_in_data_hall_frame(
 pub fn get_magnetic_operations(uni_number: usize) -> Option<SymmetryOps> {
     let hall = get_first_hall_for_uni(uni_number)?;
     let sym = crate::msg_database::msgdb_get_spacegroup_operations(uni_number, hall)?;
-    let n = sym.size;
+    let n = sym.len();
     let mut rot = Vec::with_capacity(n);
     let mut trans = Vec::with_capacity(n);
     let mut timerev = Vec::with_capacity(n);
@@ -1153,7 +1153,7 @@ pub fn symmetry_operations_of(sg: u8) -> Result<SymmetryOps, crate::SymError> {
 
 fn get_parent_operations_by_hall(hall: usize) -> Option<SymmetryOps> {
     let sym = spgdb_get_spacegroup_operations(hall)?;
-    let n = sym.size;
+    let n = sym.len();
     let mut rot = Vec::with_capacity(n);
     let mut trans = Vec::with_capacity(n);
     for i in 0..n {
@@ -4275,12 +4275,12 @@ mod tests {
                 let ops_h0 = crate::msg_database::msgdb_get_spacegroup_operations(uni, 0);
                 let ops_h = crate::msg_database::msgdb_get_spacegroup_operations(uni, h);
                 if let (Some(sym0), Some(symh)) = (ops_h0, ops_h) {
-                    let same_size = sym0.size == symh.size;
-                    let h0_u = (0..sym0.size).filter(|&i| !sym0.timerev[i]).count();
-                    let hh_u = (0..symh.size).filter(|&i| !symh.timerev[i]).count();
+                    let same_size = sym0.len() == symh.len();
+                    let h0_u = (0..sym0.len()).filter(|&i| !sym0.timerev[i]).count();
+                    let hh_u = (0..symh.len()).filter(|&i| !symh.timerev[i]).count();
                     println!(
                         "  msgdb(uni,0): {} ops ({}U)  msgdb(uni,{}): {} ops ({}U)  same_size={}",
-                        sym0.size, h0_u, h, symh.size, hh_u, same_size
+                        sym0.len(), h0_u, h, symh.len(), hh_u, same_size
                     );
                 }
             }

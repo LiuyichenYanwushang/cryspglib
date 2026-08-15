@@ -7984,7 +7984,7 @@ fn is_hall_symbol(
         return false;
     }
 
-    if op_count != symmetry.size {
+    if op_count != symmetry.len() {
         return false;
     }
 
@@ -8037,7 +8037,7 @@ fn get_translations(
             continue;
         }
         let mut is_found = false;
-        for j in 0..symmetry.size {
+        for j in 0..symmetry.len() {
             if mat_check_identity_matrix_i3(&symmetry.rot[j], &rot[i]) {
                 trans[i] = symmetry.trans[j];
                 is_found = true;
@@ -8192,7 +8192,7 @@ fn is_match_database(
     let mut found_list = vec![false; count];
     let aperiodic = AperiodicAxis::Z;
 
-    for i in 0..symmetry.size {
+    for i in 0..symmetry.len() {
         let mut is_found = false;
         for (j, found) in found_list.iter_mut().enumerate() {
             // FIX: Handle Option return

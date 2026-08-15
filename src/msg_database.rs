@@ -73,7 +73,7 @@ pub fn msgdb_get_std_transformations(
         .enumerate()
     {
         if enc == 0 {
-            sym.size = i + 1;
+            sym.truncate(i + 1);
             break;
         }
         let (tmat, origin_shift) = crate::spg_database::spgdb_decode_symmetry(enc);

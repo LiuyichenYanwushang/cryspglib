@@ -24,7 +24,6 @@ const NUM_ATTEMPT: i32 = 100;
 pub struct Primitive {
     pub cell: Option<Cell>,
     pub mapping_table: Vec<i32>,
-    pub size: usize,
     pub tolerance: f64,
     pub angle_tolerance: f64,
     pub orig_lattice: Mat3,
@@ -35,11 +34,20 @@ impl Primitive {
         Primitive {
             cell: None,
             mapping_table: vec![-1; size],
-            size,
             tolerance: 0.0,
             angle_tolerance: -1.0,
             orig_lattice: [[0.0; 3]; 3],
         }
+    }
+
+    /// 原胞原子数量。
+    pub fn len(&self) -> usize {
+        self.mapping_table.len()
+    }
+
+    /// 是否为空。
+    pub fn is_empty(&self) -> bool {
+        self.mapping_table.is_empty()
     }
 }
 
@@ -53,16 +61,16 @@ pub fn prm_get_primitive_with_pure_trans(
     symprec: f64,
     angle_tolerance: f64,
 ) -> Option<Primitive> {
-    let mut primitive = Primitive::new(cell.size);
+    let mut primitive = Primitive::new(cell.len());
 
     if pure_trans.len() == 1 {
         primitive.cell = get_cell_with_smallest_lattice(cell, symprec);
         primitive.cell.as_ref()?;
-        for i in 0..cell.size {
+        for i in 0..cell.len() {
             primitive.mapping_table[i] = i as i32;
         }
     } else {
-        let mut mapping_table_usize = vec![0; cell.size];
+        let mut mapping_table_usize = vec![0; cell.len()];
         primitive.cell = get_primitive_cell(
             &mut mapping_table_usize,
             cell,
@@ -100,21 +108,21 @@ pub fn prm_get_primitive_symmetry(
     symprec: f64,
 ) -> Option<(Mat3, Symmetry)> {
     let pure_trans = collect_pure_translations(symmetry)?;
-    let primsym_size = symmetry.size / pure_trans.len();
+    let primsym_size = symmetry.len() / pure_trans.len();
 
-    let t_mat_inv = get_primitive_in_translation_space(&pure_trans, symmetry.size, symprec)?;
+    let t_mat_inv = get_primitive_in_translation_space(&pure_trans, symmetry.len(), symprec)?;
     let t_mat = mat_inverse_matrix_d3(&t_mat_inv, symprec).ok()?;
 
     let mut prim_symmetry = collect_primitive_symmetry(symmetry, primsym_size)?;
 
-    for i in 0..prim_symmetry.size {
+    for i in 0..prim_symmetry.len() {
         let mut tmp_mat = mat_multiply_matrix_di3(&t_mat, &prim_symmetry.rot[i]);
         tmp_mat = mat_multiply_matrix_d3(&tmp_mat, &t_mat_inv);
         prim_symmetry.rot[i] = mat_cast_matrix_3d_to_3i(&tmp_mat);
         prim_symmetry.trans[i] = mat_multiply_matrix_vector_d3(&t_mat, &prim_symmetry.trans[i]);
     }
 
-    for i in 0..prim_symmetry.size {
+    for i in 0..prim_symmetry.len() {
         debug::debug_print(format_args!("--- {} ---\n", i + 1));
         for j in 0..3 {
             debug::debug_print(format_args!(
@@ -180,10 +188,10 @@ fn get_cell_with_smallest_lattice(cell: &Cell, symprec: f64) -> Option<Cell> {
     let inv_lat = mat_inverse_matrix_d3(&min_lat, 0.0).ok()?;
     let trans_mat = mat_multiply_matrix_d3(&inv_lat, &cell.lattice);
 
-    let mut smallest_cell = Cell::new(cell.size, cell.tensor_rank);
+    let mut smallest_cell = Cell::new(cell.len(), cell.tensor_rank);
     smallest_cell.lattice = min_lat;
 
-    for i in 0..cell.size {
+    for i in 0..cell.len() {
         smallest_cell.types[i] = cell.types[i];
         smallest_cell.position[i] = mat_multiply_matrix_vector_d3(&trans_mat, &cell.position[i]);
         for j in 0..3 {
@@ -381,7 +389,7 @@ fn collect_pure_translations(symmetry: &Symmetry) -> Option<Vec<Vec3>> {
     let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
     let mut pure_trans = Vec::new();
 
-    for i in 0..symmetry.size {
+    for i in 0..symmetry.len() {
         if mat_check_identity_matrix_i3(&symmetry.rot[i], &identity) {
             pure_trans.push(symmetry.trans[i]);
         }
@@ -420,7 +428,7 @@ fn get_primitive_in_translation_space(
 
     let primitive = get_primitive(&cell, symprec, -1.0).ok()?;
     let prim_cell = primitive.cell?;
-    if prim_cell.size != 1 {
+    if prim_cell.len() != 1 {
         return None;
     }
     Some(prim_cell.lattice)
@@ -435,7 +443,7 @@ fn collect_primitive_symmetry(symmetry: &Symmetry, primsym_size: usize) -> Optio
     prim_symmetry.trans[0] = symmetry.trans[0];
     num_psym += 1;
 
-    for i in 1..symmetry.size {
+    for i in 1..symmetry.len() {
         let mut is_found = true;
         for j in 0..num_psym {
             if mat_check_identity_matrix_i3(&prim_symmetry.rot[j], &symmetry.rot[i]) {

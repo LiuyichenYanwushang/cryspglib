@@ -453,7 +453,6 @@ pub fn ptg_get_pointsymmetry(rotations: &[Mat3I]) -> PointSymmetry {
         }
     }
 
-    pointsym.size = unique_rots.len();
     pointsym.rot = unique_rots;
     pointsym
 }
@@ -487,7 +486,7 @@ fn get_pointgroup_number(pointsym: &PointSymmetry) -> i32 {
 
 fn get_pointgroup_class_table(table: &mut [i32; 10], pointsym: &PointSymmetry) -> bool {
     table.fill(0);
-    for i in 0..pointsym.size {
+    for i in 0..pointsym.len() {
         let rot_type = get_rotation_type(&pointsym.rot[i]);
         if rot_type == -1 {
             debug::warning_print(format_args!("spglib: No point group symbol found\n"));
@@ -562,7 +561,7 @@ fn laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry) -> bool {
 
     // Find unique axis b (first axis in axes array for now, will be swapped later if needed logic in C was commented out)
     // C code: axes[1] = get_rotation_axis
-    for i in 0..pointsym.size {
+    for i in 0..pointsym.len() {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
         if mat_get_trace_i3(&prop_rot) == -1
             && let Some(axis) = get_rotation_axis(&prop_rot) {
@@ -611,7 +610,7 @@ fn laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry) -> bool {
 fn layer_laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry, aperiodic_axis: i32) -> bool {
     let mut prop_rot = [[0; 3]; 3];
 
-    for i in 0..pointsym.size {
+    for i in 0..pointsym.len() {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
         if mat_get_trace_i3(&prop_rot) == -1
             && let Some(axis) = get_rotation_axis(&prop_rot) {
@@ -704,7 +703,7 @@ fn laue_one_axis(axes: &mut [usize; 3], pointsym: &PointSymmetry, rot_order: i32
 
     let mut prop_rot = [[0; 3]; 3];
 
-    for i in 0..pointsym.size {
+    for i in 0..pointsym.len() {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
         let trace = mat_get_trace_i3(&prop_rot);
         if ((rot_order == 4 && trace == 1) || (rot_order == 3 && trace == 0))
@@ -784,7 +783,7 @@ fn lauennn(
     let mut count = 0;
     let mut prop_rot = [[0; 3]; 3];
 
-    for i in 0..pointsym.size {
+    for i in 0..pointsym.len() {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
         let trace = mat_get_trace_i3(&prop_rot);
 

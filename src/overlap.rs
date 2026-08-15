@@ -33,7 +33,6 @@ impl Default for ValueWithIndex {
 /// 重叠检查器结构体
 /// 对应 C 代码中的 OverlapChecker
 pub struct OverlapChecker {
-    pub size: usize,
     pub lattice: Mat3,
     pub types_sorted: Vec<i32>,
     pub pos_sorted: Vec<Vec3>,     // 已排序的原子位置
@@ -51,10 +50,9 @@ impl OverlapChecker {
     /// 初始化 OverlapChecker
     /// 对应 C: ovl_overlap_checker_init
     pub fn new(cell: &Cell) -> Option<Self> {
-        let size = cell.size;
+        let size = cell.len();
         // 预分配所有 Vec，避免后续 realloc
         let mut checker = OverlapChecker {
-            size,
             lattice: [[0.0; 3]; 3],
             types_sorted: vec![0; size],
             pos_sorted: vec![[0.0; 3]; size],
@@ -103,6 +101,16 @@ impl OverlapChecker {
         Some(checker)
     }
 
+    /// 原子数量。
+    pub fn len(&self) -> usize {
+        self.types_sorted.len()
+    }
+
+    /// 是否为空。
+    pub fn is_empty(&self) -> bool {
+        self.types_sorted.is_empty()
+    }
+
     /// 检查完全重叠
     /// 返回: -1 (Error), 0 (False), 1 (True)
     /// 对应 C: ovl_check_total_overlap
@@ -119,7 +127,7 @@ impl OverlapChecker {
         }
 
         // 计算旋转和平移后的位置
-        for i in 0..self.size {
+        for i in 0..self.len() {
             if is_identity {
                 self.pos_temp_1[i] = self.pos_sorted[i];
             } else {
@@ -152,7 +160,7 @@ impl OverlapChecker {
             &self.pos_temp_2,
             &self.types_sorted,
             &self.types_sorted,
-            self.size,
+            self.len(),
             symprec,
         )
     }
@@ -170,7 +178,7 @@ impl OverlapChecker {
             return 0;
         }
 
-        for i in 0..self.size {
+        for i in 0..self.len() {
             if is_identity {
                 self.pos_temp_1[i] = self.pos_sorted[i];
             } else {
@@ -209,8 +217,8 @@ impl OverlapChecker {
     /// 对应 C: check_possible_overlap
     fn check_possible_overlap(&self, test_trans: &Vec3, rot: &[[i32; 3]; 3], symprec: f64) -> bool {
         let max_search_num = 3;
-        let search_num = if self.size <= max_search_num {
-            self.size
+        let search_num = if self.len() <= max_search_num {
+            self.len()
         } else {
             max_search_num
         };
@@ -224,7 +232,7 @@ impl OverlapChecker {
 
             let mut is_found = false;
             // 暴力搜索，因为只检查前几个原子，开销可控
-            for i in 0..self.size {
+            for i in 0..self.len() {
                 if has_overlap_with_same_type(
                     &pos_rot,
                     &self.pos_sorted[i],

@@ -72,8 +72,6 @@ impl AperiodicAxis {
 /// 对应 C 中的 `Cell` 结构体。
 #[derive(Clone, Debug)]
 pub struct Cell {
-    /// 原子数量
-    pub size: usize,
     /// 3x3 晶格矩阵，布局 `[cart][vec]`（行=笛卡尔, 列=晶格矢量）
     pub lattice: Mat3,
     /// 原子类型（原子序数）
@@ -99,7 +97,6 @@ impl Cell {
         };
 
         Cell {
-            size,
             lattice: [[0.0; 3]; 3],
             types: vec![0; size],
             position: vec![[0.0; 3]; size],
@@ -109,11 +106,21 @@ impl Cell {
         }
     }
 
+    /// 原子数量。
+    pub fn len(&self) -> usize {
+        self.types.len()
+    }
+
+    /// 是否为空。
+    pub fn is_empty(&self) -> bool {
+        self.types.is_empty()
+    }
+
     /// 设置 Cell 数据
     /// 对应 C: cel_set_cell
     pub fn set_cell(&mut self, lattice: &Mat3, position: &[Vec3], types: &[i32]) {
         self.lattice = *lattice;
-        for i in 0..self.size {
+        for i in 0..self.len() {
             for (dst, &src) in self.position[i].iter_mut().zip(&position[i]) {
                 // 确保位置在 [-0.5, 0.5) 区间内，或者 [0, 1) 取决于 mat_nint 实现
                 // C 代码逻辑：position - Nint(position)
@@ -133,7 +140,7 @@ impl Cell {
         aperiodic_axis: Option<AperiodicAxis>,
     ) {
         self.lattice = *lattice;
-        for i in 0..self.size {
+        for i in 0..self.len() {
             for (j, dst) in self.position[i].iter_mut().enumerate() {
                 if aperiodic_axis.is_none_or(|ap| j != ap.axis_index()) {
                     *dst = position[i][j] - mat_nint(position[i][j]) as f64;
@@ -156,12 +163,13 @@ impl Cell {
         tensors: &[f64],
     ) {
         self.set_cell(lattice, position, types);
+        let n = self.len();
         match self.tensor_rank {
             TensorRank::Collinear => {
-                self.tensors[..self.size].copy_from_slice(&tensors[..self.size]);
+                self.tensors[..n].copy_from_slice(&tensors[..n]);
             }
             TensorRank::NonCollinear => {
-                self.tensors[..self.size * 3].copy_from_slice(&tensors[..self.size * 3]);
+                self.tensors[..n * 3].copy_from_slice(&tensors[..n * 3]);
             }
             _ => {}
         }
@@ -201,9 +209,9 @@ pub fn cel_is_overlap_with_same_type(
 /// 检查 Cell 中是否存在任何重叠原子
 /// 对应 C: cel_any_overlap
 pub fn cel_any_overlap(cell: &Cell, symprec: f64) -> bool {
-    // 使用 rayon 并行化可能在这里收益不大，因为通常 cell.size 较小，且有早期返回
-    for i in 0..cell.size {
-        for j in (i + 1)..cell.size {
+    // 使用 rayon 并行化可能在这里收益不大，因为通常 cell.len() 较小，且有早期返回
+    for i in 0..cell.len() {
+        for j in (i + 1)..cell.len() {
             if cel_is_overlap(&cell.position[i], &cell.position[j], &cell.lattice, symprec) {
                 return true;
             }
@@ -215,8 +223,8 @@ pub fn cel_any_overlap(cell: &Cell, symprec: f64) -> bool {
 /// 检查 Cell 中是否存在任何相同类型的重叠原子
 /// 对应 C: cel_any_overlap_with_same_type
 pub fn cel_any_overlap_with_same_type(cell: &Cell, symprec: f64) -> bool {
-    for i in 0..cell.size {
-        for j in (i + 1)..cell.size {
+    for i in 0..cell.len() {
+        for j in (i + 1)..cell.len() {
             if cel_is_overlap_with_same_type(
                 &cell.position[i],
                 &cell.position[j],
@@ -277,8 +285,8 @@ pub fn cel_layer_any_overlap_with_same_type(
     aperiodic: AperiodicAxis,
     symprec: f64,
 ) -> bool {
-    for i in 0..cell.size {
-        for j in (i + 1)..cell.size {
+    for i in 0..cell.len() {
+        for j in (i + 1)..cell.len() {
             if cel_layer_is_overlap_with_same_type(
                 &cell.position[i],
                 &cell.position[j],
@@ -336,12 +344,12 @@ fn trim_cell(
     }
 
     // 检查原子数是否能被比率整除
-    if !cell.size.is_multiple_of(ratio as usize) {
+    if !cell.len().is_multiple_of(ratio as usize) {
         debug::info_print(format_args!("spglib: atom number ratio is inconsistent.\n"));
         return None;
     }
 
-    let trimmed_size = cell.size / ratio as usize;
+    let trimmed_size = cell.len() / ratio as usize;
     let mut trimmed_cell = Cell::new(trimmed_size, cell.tensor_rank);
 
     // 将原子坐标转换到 trimmed_lattice 坐标系下
@@ -356,7 +364,7 @@ fn trim_cell(
     // 对应 C: get_overlap_table
     let overlap_table = get_overlap_table(
         &position_vec_dbl,
-        cell.size,
+        cell.len(),
         &cell.types,
         &trimmed_cell,
         symprec,
@@ -364,7 +372,7 @@ fn trim_cell(
 
     // 构建 mapping_table 并设置 trimmed_cell 的类型
     let mut index_atom = 0;
-    for i in 0..cell.size {
+    for i in 0..cell.len() {
         if overlap_table[i] == i {
             mapping_table[i] = index_atom;
             trimmed_cell.types[index_atom] = cell.types[i];
@@ -399,7 +407,7 @@ fn set_positions_and_tensors(
     overlap_table: &[usize],
 ) {
     // 初始化位置和张量为 0
-    for i in 0..trimmed_cell.size {
+    for i in 0..trimmed_cell.len() {
         trimmed_cell.position[i] = [0.0; 3];
         match tensor_rank {
             TensorRank::Collinear => trimmed_cell.tensors[i] = 0.0,
@@ -448,8 +456,8 @@ fn set_positions_and_tensors(
     }
 
     // 计算平均值
-    let multi = (position.len() / trimmed_cell.size) as f64;
-    for i in 0..trimmed_cell.size {
+    let multi = (position.len() / trimmed_cell.len()) as f64;
+    for i in 0..trimmed_cell.len() {
         for j in 0..3 {
             trimmed_cell.position[i][j] /= multi;
             if trimmed_cell.aperiodic_axis.is_none_or(|ap| j != ap.axis_index()) {
@@ -474,7 +482,7 @@ fn set_positions_and_tensors(
 /// 将原子转换到 trimmed lattice 坐标系
 /// 对应 C: translate_atoms_in_trimmed_lattice
 fn translate_atoms_in_trimmed_lattice(cell: &Cell, tmat_p_i: &[[i32; 3]; 3]) -> Option<Vec<Vec3>> {
-    let mut position = vec![[0.0; 3]; cell.size];
+    let mut position = vec![[0.0; 3]; cell.len()];
 
     for (i, pos) in position.iter_mut().enumerate() {
         // 假设 mat_multiply_matrix_vector_id3 返回计算后的向量
@@ -503,7 +511,7 @@ fn get_overlap_table(
     };
 
     let mut trim_tolerance = symprec;
-    let ratio = cell_size / trimmed_cell.size;
+    let ratio = cell_size / trimmed_cell.len();
     // 预分配内存，避免在循环中重复分配
     let mut overlap_table = vec![0; cell_size];
 
@@ -600,7 +608,7 @@ mod tests {
     #[test]
     fn test_cell_creation() {
         let cell = Cell::new(2, TensorRank::NoSpin);
-        assert_eq!(cell.size, 2);
+        assert_eq!(cell.len(), 2);
         assert_eq!(cell.tensors.len(), 0);
 
         let cell_col = Cell::new(2, TensorRank::Collinear);
@@ -641,7 +649,7 @@ mod tests {
 
         assert!(trimmed.is_some());
         let t = trimmed.unwrap();
-        assert_eq!(t.size, 1);
+        assert_eq!(t.len(), 1);
         assert!((t.position[0][0] - 0.0).abs() < 1e-5);
 
         // Check mapping: both atoms map to 0
