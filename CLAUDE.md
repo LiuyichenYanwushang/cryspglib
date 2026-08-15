@@ -1395,7 +1395,7 @@ spglib port 的主要公共 API 已全部从 `Option<T>` 迁移到 `Result<T, Sy
 
 | 管线 | 函数 | 错误 variant |
 |------|------|-------------|
-| 磁群 | `spn_get_operations_with_site_tensors` | `MagneticOpGenerationFailed`, `MagneticPrimitiveLatticeFailed` |
+| 磁群 | `operations_with_site_tensors` | `MagneticOpGenerationFailed`, `MagneticPrimitiveLatticeFailed` |
 | 磁群 | `identify_with_parent_hall` | `MagneticReferenceGroupFailed`, `MagneticFallbackReferenceFailed`, `MagneticUniMatchFailed` |
 | 磁群 | `magnetic_dataset()` | 传播上游错误 |
 | 非磁 | `get_primitive` | `CellStandardizationFailed` |

@@ -104,7 +104,7 @@ Type-3 分类来自 FSG/XSG 的阶数关系。它正确意味着：
 12 anti-unitary
 ```
 
-这说明 `spn_get_operations_with_site_tensors` 已经正确处理了：
+这说明 `operations_with_site_tensors` 已经正确处理了：
 
 - 两个碳原子的子晶格交换；
 - z 方向磁矩作为 axial vector 的变换；
@@ -137,7 +137,7 @@ Type-3 分类来自 FSG/XSG 的阶数关系。它正确意味着：
 
 ```text
 Crystal::magnetic_dataset
-  -> spn_get_operations_with_site_tensors
+  -> operations_with_site_tensors
   -> identify_with_parent_hall
   -> reduce_to_primitive_magsym
   -> get_reference_space_group
