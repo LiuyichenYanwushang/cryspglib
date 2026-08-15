@@ -135,10 +135,29 @@ fn get_wyckoff_positions(
     )?;
 
     // Map bravais-level data to cell-level
-    for i in 0..cell.len() {
-        output.wyckoffs[i] = wyckoffs_bravais[mapping_table[i].expect("mapping table entry should be mapped")];
-        output.site_symmetry_symbols[i] =
-            site_sym_symbols_bravais[mapping_table[i].expect("mapping table entry should be mapped")].clone();
+    for (i, (wyckoff, &mapped_atom)) in output
+        .wyckoffs
+        .iter_mut()
+        .zip(mapping_table)
+        .enumerate()
+    {
+        let Some(mapped_atom) = mapped_atom else {
+            debug::warning_print(format_args!(
+                "spglib: missing bravais mapping for atom {}\n",
+                i
+            ));
+            return None;
+        };
+        *wyckoff = wyckoffs_bravais[mapped_atom];
+    }
+    for (symbol, &mapped_atom) in output.site_symmetry_symbols.iter_mut().zip(mapping_table) {
+        let Some(mapped_atom) = mapped_atom else {
+            debug::warning_print(format_args!(
+                "spglib: missing bravais mapping for atom\n"
+            ));
+            return None;
+        };
+        *symbol = site_sym_symbols_bravais[mapped_atom].clone();
     }
 
     // Set crystallographic orbits
@@ -585,8 +604,11 @@ fn set_crystallographic_orbits(
             }
         }
     }
-    for i in 0..cell.len() {
-        equiv_atoms_cell[i] = equiv_atoms[mapping_table[i].expect("mapping table entry should be mapped")];
+    for (equiv_atom, &mapped_atom) in equiv_atoms_cell.iter_mut().zip(mapping_table) {
+        let Some(mapped_atom) = mapped_atom else {
+            return false;
+        };
+        *equiv_atom = equiv_atoms[mapped_atom];
     }
 
     true

@@ -625,7 +625,7 @@ pub(crate) fn magnetic_symmetry_from_crystal(
         let crystal_ops: Vec<(Mat3I, Vec3)> = (0..nonspin_sym.len())
             .map(|i| (nonspin_sym.rot[i], nonspin_sym.trans[i]))
             .collect();
-        let moments = magnetic_moments.unwrap();
+        let moments = magnetic_moments.ok_or(SymError::InvalidInput)?;
         let tr = manual_compute_timerev(positions, moments, &crystal_ops, symprec);
         let valid: Vec<usize> = tr
             .iter()
