@@ -7,7 +7,7 @@
 
 use crate::debug;
 use crate::mathfunc::{
-    Mat3, Vec3, VecDBL, mat_cast_matrix_3d_to_3i, mat_dabs,
+    Mat3, Vec3, mat_cast_matrix_3d_to_3i, mat_dabs,
     mat_dmod1, mat_get_determinant_d3, mat_get_determinant_i3,
     mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_multiply_matrix_vector_d3,
     mat_multiply_matrix_vector_id3, mat_nint, mat_norm_squared_d3,
@@ -385,9 +385,6 @@ fn trim_cell(
         &overlap_table,
     );
 
-    // Rust 中 VecDBL 会自动 Drop，不需要显式 free
-    // mat_free_vecdbl(position_vec_dbl); 
-
     Some(trimmed_cell)
 }
 
@@ -395,7 +392,7 @@ fn trim_cell(
 /// 对应 C: set_positions_and_tensors
 fn set_positions_and_tensors(
     trimmed_cell: &mut Cell,
-    position: &VecDBL,
+    position: &[Vec3],
     tensor_rank: TensorRank,
     tensors: &[f64],
     mapping_table: &[usize],
@@ -416,26 +413,26 @@ fn set_positions_and_tensors(
     }
 
     // 累加位置
-    for i in 0..position.size {
+    for i in 0..position.len() {
         let j = mapping_table[i];
         let k = overlap_table[i]; // k 是该组的代表原子索引
-        for l in 0..3 {
-            // 边界处理：如果两个重叠原子分别在 0.01 和 0.99，
-            // 它们的差值 > 0.5，需要将其中一个移位 1.0 后再求和，以保证平均值正确
-            if mat_dabs(position.vec[k][l] - position.vec[i][l]) > 0.5 {
-                if position.vec[i][l] < position.vec[k][l] {
-                    trimmed_cell.position[j][l] += position.vec[i][l] + 1.0;
-                } else {
-                    trimmed_cell.position[j][l] += position.vec[i][l] - 1.0;
-                }
+        // 边界处理：如果两个重叠原子分别在 0.01 和 0.99，
+        // 它们的差值 > 0.5，需要将其中一个移位 1.0 后再求和，以保证平均值正确
+        for ((&pi, &pk), target) in position[i]
+            .iter()
+            .zip(&position[k])
+            .zip(&mut trimmed_cell.position[j])
+        {
+            if mat_dabs(pk - pi) > 0.5 {
+                *target += if pi < pk { pi + 1.0 } else { pi - 1.0 };
             } else {
-                trimmed_cell.position[j][l] += position.vec[i][l];
+                *target += pi;
             }
         }
     }
 
     // 累加张量
-    for i in 0..position.size {
+    for i in 0..position.len() {
         let atom_idx = mapping_table[i];
         match tensor_rank {
             TensorRank::Collinear => {
@@ -451,7 +448,7 @@ fn set_positions_and_tensors(
     }
 
     // 计算平均值
-    let multi = (position.size / trimmed_cell.size) as f64;
+    let multi = (position.len() / trimmed_cell.size) as f64;
     for i in 0..trimmed_cell.size {
         for j in 0..3 {
             trimmed_cell.position[i][j] /= multi;
@@ -476,15 +473,15 @@ fn set_positions_and_tensors(
 
 /// 将原子转换到 trimmed lattice 坐标系
 /// 对应 C: translate_atoms_in_trimmed_lattice
-fn translate_atoms_in_trimmed_lattice(cell: &Cell, tmat_p_i: &[[i32; 3]; 3]) -> Option<VecDBL> {
-    let mut position = VecDBL::new(cell.size);
+fn translate_atoms_in_trimmed_lattice(cell: &Cell, tmat_p_i: &[[i32; 3]; 3]) -> Option<Vec<Vec3>> {
+    let mut position = vec![[0.0; 3]; cell.size];
 
-    for i in 0..cell.size {
+    for (i, pos) in position.iter_mut().enumerate() {
         // 假设 mat_multiply_matrix_vector_id3 返回计算后的向量
-        position.vec[i] = mat_multiply_matrix_vector_id3(tmat_p_i, &cell.position[i]);
-        for j in 0..3 {
+        *pos = mat_multiply_matrix_vector_id3(tmat_p_i, &cell.position[i]);
+        for (j, component) in pos.iter_mut().enumerate() {
             if cell.aperiodic_axis.is_none_or(|ap| j != ap.axis_index()) {
-                position.vec[i][j] = mat_dmod1(position.vec[i][j]);
+                *component = mat_dmod1(*component);
             }
         }
     }
@@ -494,7 +491,7 @@ fn translate_atoms_in_trimmed_lattice(cell: &Cell, tmat_p_i: &[[i32; 3]; 3]) -> 
 /// 获取重叠表，包含自适应容差调整逻辑
 /// 对应 C: get_overlap_table
 fn get_overlap_table(
-    position: &VecDBL,
+    position: &[Vec3],
     cell_size: usize,
     cell_types: &[i32],
     trimmed_cell: &Cell,
@@ -519,15 +516,15 @@ fn get_overlap_table(
                 if cell_types[i] == cell_types[j] {
                     let is_overlap = if lattice_rank == 3 {
                         cel_is_overlap(
-                            &position.vec[i],
-                            &position.vec[j],
+                            &position[i],
+                            &position[j],
                             &trimmed_cell.lattice,
                             trim_tolerance,
                         )
                     } else {
                         cel_layer_is_overlap(
-                            &position.vec[i],
-                            &position.vec[j],
+                            &position[i],
+                            &position[j],
                             &trimmed_cell.lattice,
                             trimmed_cell.aperiodic_axis.unwrap(),
                             trim_tolerance,

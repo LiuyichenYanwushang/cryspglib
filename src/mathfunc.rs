@@ -369,42 +369,6 @@ pub fn mat_is_int_matrix(mat: &Mat3, symprec: f64) -> bool {
         .all(|&value| (mat_nint(value) as f64 - value).abs() <= symprec)
 }
 
-// --- 动态数组结构体封装 (对应 C 的 MatINT 和 VecDBL) ---
-
-/// 对应 C 的 MatINT 结构
-/// 在 Rust 中通常直接使用 `Vec<Mat3I>`，这里为了兼容性保留结构体
-#[derive(Debug, Clone)]
-pub struct MatINT {
-    pub size: usize,
-    pub mat: Vec<Mat3I>,
-}
-
-impl MatINT {
-    pub fn new(size: usize) -> Self {
-        // 预分配内存，初始化为 0
-        MatINT {
-            size,
-            mat: vec![[[0; 3]; 3]; size],
-        }
-    }
-}
-
-/// 对应 C 的 VecDBL 结构
-#[derive(Debug, Clone)]
-pub struct VecDBL {
-    pub size: usize,
-    pub vec: Vec<Vec3>,
-}
-
-impl VecDBL {
-    pub fn new(size: usize) -> Self {
-        VecDBL {
-            size,
-            vec: vec![[0.0; 3]; size],
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,19 +485,6 @@ mod tests {
         assert!((mat_dmod1(1.2) - 0.2).abs() < 1e-10);
         // -0.2 -> -0.2 - (-0) = -0.2 -> < 0 -> -0.2 + 1.0 = 0.8
         assert!((mat_dmod1(-0.2) - 0.8).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_alloc_structs() {
-        let m = MatINT::new(5);
-        assert_eq!(m.size, 5);
-        assert_eq!(m.mat.len(), 5);
-
-        let v = VecDBL::new(3);
-        assert_eq!(v.size, 3);
-        assert_eq!(v.vec.len(), 3);
-        
-        // No explicit free needed
     }
 
     #[test]

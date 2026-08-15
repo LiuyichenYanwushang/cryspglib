@@ -5,7 +5,7 @@
 use crate::SymError;
 use crate::kgrid;
 use crate::mathfunc::{
-    MatINT, mat_check_identity_matrix_i3, mat_dabs, mat_get_determinant_d3, mat_multiply_matrix_i3,
+    Mat3I, mat_check_identity_matrix_i3, mat_dabs, mat_get_determinant_d3, mat_multiply_matrix_i3,
     mat_multiply_matrix_vector_d3, mat_multiply_matrix_vector_i3, mat_multiply_matrix_vector_id3,
     mat_nint, mat_norm_squared_d3, mat_transpose_matrix_i3,
 };
@@ -154,7 +154,7 @@ pub(crate) fn kpt_get_irreducible_reciprocal_mesh(
     ir_mapping_table: &mut [usize],
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
-    rot_reciprocal: &MatINT,
+    rot_reciprocal: &[Mat3I],
 ) -> Result<usize, SymError> {
     kpt_get_dense_irreducible_reciprocal_mesh(
         grid_address,
@@ -170,7 +170,7 @@ pub(crate) fn kpt_get_dense_irreducible_reciprocal_mesh(
     ir_mapping_table: &mut [usize],
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
-    rot_reciprocal: &MatINT,
+    rot_reciprocal: &[Mat3I],
 ) -> Result<usize, SymError> {
     get_dense_ir_reciprocal_mesh(
         grid_address,
@@ -188,14 +188,11 @@ pub(crate) fn kpt_get_stabilized_reciprocal_mesh(
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
     is_time_reversal: i32,
-    rotations: &MatINT,
+    rotations: &[Mat3I],
     qpoints: &[[f64; 3]],
 ) -> Result<usize, SymError> {
     kgrid::validate_mesh(mesh)?;
     kgrid::validate_shift(is_shift)?;
-    if rotations.size > rotations.mat.len() {
-        return Err(SymError::InvalidInput);
-    }
     // 获取倒易空间点群（包含时间反演）
     let rot_reciprocal = get_point_group_reciprocal(rotations, is_time_reversal)
         .ok_or(SymError::ArraySizeShortage)?;
@@ -260,14 +257,13 @@ pub(crate) fn kpt_relocate_bz_grid_address(
 pub(crate) fn kpt_get_dense_grid_points_by_rotations(
     rot_grid_points: &mut [usize],
     address_orig: &[i32; 3],
-    rot_reciprocal: &MatINT,
+    rot_reciprocal: &[Mat3I],
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
 ) -> Result<(), SymError> {
     kgrid::validate_mesh(mesh)?;
     kgrid::validate_shift(is_shift)?;
-    if rot_reciprocal.size > rot_reciprocal.mat.len() || rot_grid_points.len() < rot_reciprocal.size
-    {
+    if rot_grid_points.len() < rot_reciprocal.len() {
         return Err(SymError::ArraySizeShortage);
     }
     let mut address_double_orig = [0i32; 3];
@@ -279,8 +275,8 @@ pub(crate) fn kpt_get_dense_grid_points_by_rotations(
     )?;
     for (output, rotation) in rot_grid_points
         .iter_mut()
-        .zip(&rot_reciprocal.mat)
-        .take(rot_reciprocal.size)
+        .zip(rot_reciprocal)
+        .take(rot_reciprocal.len())
     {
         let address_double = mat_multiply_matrix_vector_i3(rotation, &address_double_orig);
         *output = kgrid::kgd_get_dense_grid_point_double_mesh(&address_double, mesh)?;
@@ -292,7 +288,7 @@ pub(crate) fn kpt_get_dense_grid_points_by_rotations(
 pub(crate) fn kpt_get_dense_bz_grid_points_by_rotations(
     rot_grid_points: &mut [usize],
     address_orig: &[i32; 3],
-    rot_reciprocal: &MatINT,
+    rot_reciprocal: &[Mat3I],
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
     bz_map: &[usize],
@@ -300,10 +296,7 @@ pub(crate) fn kpt_get_dense_bz_grid_points_by_rotations(
     let total = kgrid::validate_mesh(mesh)?;
     kgrid::validate_shift(is_shift)?;
     let num_bz_map = total.checked_mul(8).ok_or(SymError::ArraySizeShortage)?;
-    if rot_reciprocal.size > rot_reciprocal.mat.len()
-        || rot_grid_points.len() < rot_reciprocal.size
-        || bz_map.len() < num_bz_map
-    {
+    if rot_grid_points.len() < rot_reciprocal.len() || bz_map.len() < num_bz_map {
         return Err(SymError::ArraySizeShortage);
     }
     let mut address_double_orig = [0i32; 3];
@@ -320,8 +313,8 @@ pub(crate) fn kpt_get_dense_bz_grid_points_by_rotations(
     )?;
     for (output, rotation) in rot_grid_points
         .iter_mut()
-        .zip(&rot_reciprocal.mat)
-        .take(rot_reciprocal.size)
+        .zip(rot_reciprocal)
+        .take(rot_reciprocal.len())
     {
         let address_double = mat_multiply_matrix_vector_i3(rotation, &address_double_orig);
         let bz_index = kgrid::kgd_get_dense_grid_point_double_mesh(&address_double, &bzmesh)?;
@@ -332,45 +325,45 @@ pub(crate) fn kpt_get_dense_bz_grid_points_by_rotations(
 
 /// 获取倒易空间点群 (公共包装)。
 pub(crate) fn kpt_get_point_group_reciprocal(
-    rotations: &MatINT,
+    rotations: &[Mat3I],
     is_time_reversal: i32,
-) -> Option<MatINT> {
+) -> Option<Vec<Mat3I>> {
     get_point_group_reciprocal(rotations, is_time_reversal)
 }
 
 // --- Internal Logic ---
 
 /// 获取倒易空间点群
-fn get_point_group_reciprocal(rotations: &MatINT, is_time_reversal: i32) -> Option<MatINT> {
+fn get_point_group_reciprocal(rotations: &[Mat3I], is_time_reversal: i32) -> Option<Vec<Mat3I>> {
     let inversion = [[-1, 0, 0], [0, -1, 0], [0, 0, -1]];
     let size = if is_time_reversal != 0 {
-        rotations.size * 2
+        rotations.len() * 2
     } else {
-        rotations.size
+        rotations.len()
     };
 
-    let mut rot_reciprocal = MatINT::new(size);
+    let mut rot_reciprocal = vec![[[0; 3]; 3]; size];
     let mut unique_rot = vec![-1; size];
 
-    for i in 0..rotations.size {
+    for i in 0..rotations.len() {
         // 倒易空间的旋转矩阵是实空间旋转矩阵的转置
-        let t = mat_transpose_matrix_i3(&rotations.mat[i]);
-        rot_reciprocal.mat[i] = t;
+        let t = mat_transpose_matrix_i3(&rotations[i]);
+        rot_reciprocal[i] = t;
 
         if is_time_reversal != 0 {
-            let inv_rot = mat_multiply_matrix_i3(&inversion, &rot_reciprocal.mat[i]);
-            rot_reciprocal.mat[rotations.size + i] = inv_rot;
+            let inv_rot = mat_multiply_matrix_i3(&inversion, &rot_reciprocal[i]);
+            rot_reciprocal[rotations.len() + i] = inv_rot;
         }
     }
 
     // 筛选唯一旋转矩阵
     let mut num_rot = 0;
-    for i in 0..rot_reciprocal.size {
+    for i in 0..rot_reciprocal.len() {
         let mut is_unique = true;
         if unique_rot[..num_rot].iter().any(|&index| {
             mat_check_identity_matrix_i3(
-                &rot_reciprocal.mat[index as usize],
-                &rot_reciprocal.mat[i],
+                &rot_reciprocal[index as usize],
+                &rot_reciprocal[i],
             )
         }) {
             is_unique = false;
@@ -381,9 +374,9 @@ fn get_point_group_reciprocal(rotations: &MatINT, is_time_reversal: i32) -> Opti
         }
     }
 
-    let mut rot_return = MatINT::new(num_rot);
-    for (output, &index) in rot_return.mat.iter_mut().zip(&unique_rot).take(num_rot) {
-        *output = rot_reciprocal.mat[index as usize];
+    let mut rot_return = vec![[[0; 3]; 3]; num_rot];
+    for (output, &index) in rot_return.iter_mut().zip(&unique_rot).take(num_rot) {
+        *output = rot_reciprocal[index as usize];
     }
 
     Some(rot_return)
@@ -391,17 +384,17 @@ fn get_point_group_reciprocal(rotations: &MatINT, is_time_reversal: i32) -> Opti
 
 /// 考虑 q 点的对称性
 fn get_point_group_reciprocal_with_q(
-    rot_reciprocal: &MatINT,
+    rot_reciprocal: &[Mat3I],
     symprec: f64,
     qpoints: &[[f64; 3]],
-) -> Option<MatINT> {
-    let mut ir_rot = vec![-1; rot_reciprocal.size];
+) -> Option<Vec<Mat3I>> {
+    let mut ir_rot = vec![-1; rot_reciprocal.len()];
     let mut num_rot = 0;
 
-    for i in 0..rot_reciprocal.size {
+    for (i, rot) in rot_reciprocal.iter().enumerate() {
         let mut is_all_ok = true;
         for qpoint in qpoints {
-            let q_rot = mat_multiply_matrix_vector_id3(&rot_reciprocal.mat[i], qpoint);
+            let q_rot = mat_multiply_matrix_vector_id3(rot, qpoint);
 
             let mut found_diff = false;
             for candidate in qpoints {
@@ -431,9 +424,9 @@ fn get_point_group_reciprocal_with_q(
         }
     }
 
-    let mut rot_reciprocal_q = MatINT::new(num_rot);
-    for (output, &index) in rot_reciprocal_q.mat.iter_mut().zip(&ir_rot).take(num_rot) {
-        *output = rot_reciprocal.mat[index as usize];
+    let mut rot_reciprocal_q = vec![[[0; 3]; 3]; num_rot];
+    for (output, &index) in rot_reciprocal_q.iter_mut().zip(&ir_rot).take(num_rot) {
+        *output = rot_reciprocal[index as usize];
     }
 
     Some(rot_reciprocal_q)
@@ -444,15 +437,12 @@ fn get_dense_ir_reciprocal_mesh(
     ir_mapping_table: &mut [usize],
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
-    rot_reciprocal: &MatINT,
+    rot_reciprocal: &[Mat3I],
 ) -> Result<usize, SymError> {
     let total = kgrid::validate_mesh(mesh)?;
     kgrid::validate_shift(is_shift)?;
     if grid_address.len() < total || ir_mapping_table.len() < total {
         return Err(SymError::ArraySizeShortage);
-    }
-    if rot_reciprocal.size > rot_reciprocal.mat.len() {
-        return Err(SymError::InvalidInput);
     }
     if check_mesh_symmetry(mesh, is_shift, rot_reciprocal) {
         get_dense_ir_reciprocal_mesh_normal(
@@ -479,7 +469,7 @@ fn get_dense_ir_reciprocal_mesh_normal(
     ir_mapping_table: &mut [usize],
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
-    rot_reciprocal: &MatINT,
+    rot_reciprocal: &[Mat3I],
 ) -> Result<usize, SymError> {
     kgrid::kgd_get_all_grid_addresses(grid_address, mesh)?;
 
@@ -497,9 +487,8 @@ fn get_dense_ir_reciprocal_mesh_normal(
 
         ir_mapping_table[i] = i;
 
-        for j in 0..rot_reciprocal.size {
-            let address_double_rot =
-                mat_multiply_matrix_vector_i3(&rot_reciprocal.mat[j], &address_double);
+        for rot in rot_reciprocal {
+            let address_double_rot = mat_multiply_matrix_vector_i3(rot, &address_double);
             let grid_point_rot =
                 kgrid::kgd_get_dense_grid_point_double_mesh(&address_double_rot, mesh)?;
 
@@ -519,7 +508,7 @@ fn get_dense_ir_reciprocal_mesh_distortion(
     ir_mapping_table: &mut [usize],
     mesh: &[i32; 3],
     is_shift: &[i32; 3],
-    rot_reciprocal: &MatINT,
+    rot_reciprocal: &[Mat3I],
 ) -> Result<usize, SymError> {
     kgrid::kgd_get_all_grid_addresses(grid_address, mesh)?;
 
@@ -546,12 +535,12 @@ fn get_dense_ir_reciprocal_mesh_distortion(
 
         ir_mapping_table[i] = i;
 
-        for j in 0..rot_reciprocal.size {
+        for rot in rot_reciprocal {
             let mut long_address_double_rot = [0i64; 3];
             for (k, rotated) in long_address_double_rot.iter_mut().enumerate() {
-                *rotated = rot_reciprocal.mat[j][k][0] as i64 * long_address_double[0]
-                    + rot_reciprocal.mat[j][k][1] as i64 * long_address_double[1]
-                    + rot_reciprocal.mat[j][k][2] as i64 * long_address_double[2];
+                *rotated = rot[k][0] as i64 * long_address_double[0]
+                    + rot[k][1] as i64 * long_address_double[1]
+                    + rot[k][2] as i64 * long_address_double[2];
             }
 
             let mut indivisible = false;
@@ -735,44 +724,29 @@ fn get_tolerance_for_bz_reduction(rec_lattice: &[[f64; 3]; 3], mesh: &[i32; 3]) 
 ///
 /// 注意：提供的 C 代码中此函数存在复制粘贴错误（重复检查 column 0）。
 /// 本 Rust 实现已修正此问题，正确检查 column 0, 1, 2 分别对应 a=b, b=c, c=a 的对称性。
-fn check_mesh_symmetry(mesh: &[i32; 3], is_shift: &[i32; 3], rot_reciprocal: &MatINT) -> bool {
+fn check_mesh_symmetry(mesh: &[i32; 3], is_shift: &[i32; 3], rot_reciprocal: &[Mat3I]) -> bool {
     let mut eq = [false; 3]; // eq[0]: a=b, eq[1]: b=c, eq[2]: c=a
 
-    for i in 0..rot_reciprocal.size {
-        let mut sum = 0;
-        for j in 0..3 {
-            for k in 0..3 {
-                sum += rot_reciprocal.mat[i][j][k].abs();
-            }
-        }
-        if sum > 3 {
+    for rot in rot_reciprocal {
+        if rot.iter().flatten().map(|x| x.abs()).sum::<i32>() > 3 {
             return false;
         }
     }
 
-    for i in 0..rot_reciprocal.size {
+    for rot in rot_reciprocal {
         // 检查 x <-> y 交换 (a=b)
         // 矩阵应为 [0 1 0; 1 0 0; 0 0 1] 或类似，关注列 0 变为 [0, 1, 0]
-        if rot_reciprocal.mat[i][0][0] == 0
-            && rot_reciprocal.mat[i][1][0] == 1
-            && rot_reciprocal.mat[i][2][0] == 0
-        {
+        if rot[0][0] == 0 && rot[1][0] == 1 && rot[2][0] == 0 {
             eq[0] = true;
         }
         // 检查 y <-> z 交换 (b=c)
         // 关注列 1 变为 [0, 0, 1]
-        if rot_reciprocal.mat[i][0][1] == 0
-            && rot_reciprocal.mat[i][1][1] == 0
-            && rot_reciprocal.mat[i][2][1] == 1
-        {
+        if rot[0][1] == 0 && rot[1][1] == 0 && rot[2][1] == 1 {
             eq[1] = true;
         }
         // 检查 z <-> x 交换 (c=a)
         // 关注列 2 变为 [1, 0, 0]
-        if rot_reciprocal.mat[i][0][2] == 1
-            && rot_reciprocal.mat[i][1][2] == 0
-            && rot_reciprocal.mat[i][2][2] == 0
-        {
+        if rot[0][2] == 1 && rot[1][2] == 0 && rot[2][2] == 0 {
             eq[2] = true;
         }
     }
@@ -787,15 +761,14 @@ fn check_mesh_symmetry(mesh: &[i32; 3], is_shift: &[i32; 3], rot_reciprocal: &Ma
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mathfunc::MatINT;
 
     #[test]
     fn test_check_mesh_symmetry() {
         let mesh = [4, 4, 4];
         let shift = [0, 0, 0];
-        let mut rot = MatINT::new(1);
+        let mut rot = vec![[[0; 3]; 3]; 1];
         // Identity
-        rot.mat[0] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        rot[0] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
         assert!(check_mesh_symmetry(&mesh, &shift, &rot));
     }
@@ -805,8 +778,8 @@ mod tests {
         // 简单的 2x2x2 网格，无位移，只有恒等操作
         let mesh = [2, 2, 2];
         let shift = [0, 0, 0];
-        let mut rot = MatINT::new(1);
-        rot.mat[0] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let mut rot = vec![[[0; 3]; 3]; 1];
+        rot[0] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
         let mut grid_address = vec![[0; 3]; 8];
         let mut map = vec![0; 8];
@@ -826,8 +799,8 @@ mod tests {
     fn mesh_buffers_are_checked_before_indexing() {
         let mesh = [2, 2, 2];
         let shift = [0, 0, 0];
-        let mut rot = MatINT::new(1);
-        rot.mat[0] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let mut rot = vec![[[0; 3]; 3]; 1];
+        rot[0] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
         let mut short_grid = vec![[0; 3]; 7];
         let mut map = vec![0; 8];

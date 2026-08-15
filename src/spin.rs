@@ -91,14 +91,6 @@ pub fn spn_collect_pure_translations_from_magnetic_symmetry(
         }
     }
 
-    if pure_trans.is_empty() {
-        // In C code, it returns NULL if alloc fails, but here empty vec is valid but logic might expect something?
-        // C code logic: if alloc fails return NULL. If num_pure_trans is 0, it returns a VecDBL with size 0.
-        // But usually there is at least identity.
-        // We return Some(vec) even if empty, or None if something critical failed (not applicable here).
-        // To match C's "return NULL on failure" vs "return object", we return Some.
-    }
-
     Some(pure_trans)
 }
 

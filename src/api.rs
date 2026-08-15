@@ -358,14 +358,8 @@ impl<'a> SymmetryAnalysis<'a> {
         let total = crate::kgrid::validate_mesh(&mesh)?;
         crate::kgrid::validate_shift(&is_shift)?;
         let ds = self.dataset()?;
-        use crate::mathfunc::MatINT;
-        let mut rotations = MatINT::new(ds.n_operations);
-        for i in 0..ds.n_operations {
-            rotations.mat[i] = ds.rotations[i];
-        }
-
         let rot_reciprocal = crate::kpoint::kpt_get_point_group_reciprocal(
-            &rotations,
+            &ds.rotations,
             if time_reversal { 1 } else { 0 },
         )
         .ok_or(SymError::SpacegroupSearchFailed)?;
@@ -872,11 +866,6 @@ pub fn stabilized_reciprocal_mesh(
 ) -> Result<StabilizedMesh, SymError> {
     let total = crate::kgrid::validate_mesh(&mesh)?;
     crate::kgrid::validate_shift(&is_shift)?;
-    use crate::mathfunc::MatINT;
-    let mut rot = MatINT::new(rotations.len());
-    for (i, r) in rotations.iter().enumerate() {
-        rot.mat[i] = *r;
-    }
     let mut grid_address = vec![[0i32; 3]; total];
     let mut mapping_table = vec![0usize; total];
     let num_ir = crate::kpoint::kpt_get_stabilized_reciprocal_mesh(
@@ -885,7 +874,7 @@ pub fn stabilized_reciprocal_mesh(
         &mesh,
         &is_shift,
         if is_time_reversal { 1 } else { 0 },
-        &rot,
+        rotations,
         qpoints,
     )?;
     Ok(StabilizedMesh {
@@ -924,16 +913,11 @@ pub fn dense_grid_points_by_rotations(
 ) -> Result<Vec<usize>, SymError> {
     crate::kgrid::validate_mesh(&mesh)?;
     crate::kgrid::validate_shift(&is_shift)?;
-    use crate::mathfunc::MatINT;
-    let mut rot = MatINT::new(rot_reciprocal.len());
-    for (i, r) in rot_reciprocal.iter().enumerate() {
-        rot.mat[i] = *r;
-    }
     let mut rot_grid_points = vec![0usize; rot_reciprocal.len()];
     crate::kpoint::kpt_get_dense_grid_points_by_rotations(
         &mut rot_grid_points,
         &address_orig,
-        &rot,
+        rot_reciprocal,
         &mesh,
         &is_shift,
     )?;
@@ -970,16 +954,11 @@ pub fn dense_bz_grid_points_by_rotations(
 ) -> Result<Vec<usize>, SymError> {
     crate::kgrid::validate_mesh(&mesh)?;
     crate::kgrid::validate_shift(&is_shift)?;
-    use crate::mathfunc::MatINT;
-    let mut rot = MatINT::new(rot_reciprocal.len());
-    for (i, r) in rot_reciprocal.iter().enumerate() {
-        rot.mat[i] = *r;
-    }
     let mut rot_grid_points = vec![0usize; rot_reciprocal.len()];
     crate::kpoint::kpt_get_dense_bz_grid_points_by_rotations(
         &mut rot_grid_points,
         &address_orig,
-        &rot,
+        rot_reciprocal,
         &mesh,
         &is_shift,
         bz_map,
