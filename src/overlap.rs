@@ -113,7 +113,7 @@ impl OverlapChecker {
     }
 
     /// 检查完全重叠
-    /// 返回: -1 (Error), 0 (False), 1 (True)
+    /// 返回 `Ok(true)`（重叠）、`Ok(false)`（不重叠），或 `Err(SymError::MathFailed)`（排序失败）。
     /// 对应 C: ovl_check_total_overlap
     pub fn check_total_overlap(
         &mut self,
