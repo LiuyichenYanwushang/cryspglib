@@ -18,13 +18,13 @@ const NUM_ATTEMPT: i32 = 5;
 pub(crate) struct ExactPositions {
     pub positions: Vec<Vec3>,
     pub wyckoffs: Vec<i32>,
-    pub equivalent_atoms: Vec<i32>,
+    pub equivalent_atoms: Vec<usize>,
     pub site_symmetry_symbols: Vec<String>,
 }
 
 struct ExactSiteData {
     positions: Vec<Vec3>,
-    equivalent_atoms: Vec<i32>,
+    equivalent_atoms: Vec<usize>,
 }
 
 struct SiteEquivalenceContext<'a> {
@@ -90,7 +90,7 @@ fn get_exact_positions(
 
     let n = conv_prim.len();
     let mut positions = vec![[0.0; 3]; n];
-    let mut equiv_atoms = vec![0i32; n];
+    let mut equiv_atoms = vec![0; n];
     let mut indep_atoms: Vec<usize> = Vec::with_capacity(n);
 
     if let Some(aperiodic) = conv_prim.aperiodic_axis {
@@ -107,7 +107,7 @@ fn get_exact_positions(
                 i,
                 aperiodic,
             ) {
-                equiv_atoms[i] = i as i32;
+                equiv_atoms[i] = i;
                 indep_atoms.push(i);
                 positions[i] = conv_prim.position[i];
                 set_layer_exact_location(
@@ -132,7 +132,7 @@ fn get_exact_positions(
                 &mut equiv_atoms,
                 i,
             ) {
-                equiv_atoms[i] = i as i32;
+                equiv_atoms[i] = i;
                 indep_atoms.push(i);
                 positions[i] = conv_prim.position[i];
                 set_exact_location(&mut positions[i], conv_sym, &conv_prim.lattice, symprec);
@@ -150,7 +150,7 @@ fn get_exact_positions(
 /// 如果是，设置 positions[i] 和 equiv_atoms[i] 并返回 true。
 fn set_equivalent_atom(
     context: &SiteEquivalenceContext<'_>,
-    equiv_atoms: &mut [i32],
+    equiv_atoms: &mut [usize],
     i: usize,
 ) -> bool {
     for &j in context.independent_atoms {
@@ -168,7 +168,7 @@ fn set_equivalent_atom(
                 &context.primitive.lattice,
                 context.symprec,
             ) {
-                equiv_atoms[i] = j as i32;
+                equiv_atoms[i] = j;
                 // positions is &mut in the caller, here we can't mutate it
                 // because it's &[]. So we rely on the caller to handle this.
                 return true;
@@ -229,7 +229,7 @@ fn set_exact_location(
 /// 层状结构的等价原子检查。
 fn set_layer_equivalent_atom(
     context: &SiteEquivalenceContext<'_>,
-    equiv_atoms: &mut [i32],
+    equiv_atoms: &mut [usize],
     i: usize,
     aperiodic: AperiodicAxis,
 ) -> bool {
@@ -249,7 +249,7 @@ fn set_layer_equivalent_atom(
                 aperiodic,
                 context.symprec,
             ) {
-                equiv_atoms[i] = j as i32;
+                equiv_atoms[i] = j;
                 return true;
             }
         }
@@ -308,7 +308,7 @@ fn set_layer_exact_location(
 /// 为所有独立原子分配 Wyckoff 字母和位点对称性符号。
 fn set_wyckoffs_labels(
     positions: &[Vec3],
-    equiv_atoms: &[i32],
+    equiv_atoms: &[usize],
     conv_prim: &Cell,
     conv_sym: &Symmetry,
     num_pure_trans: i32,
@@ -318,7 +318,7 @@ fn set_wyckoffs_labels(
     let n = conv_prim.len();
     let mut nums_equiv_atoms = vec![0i32; n];
     for i in 0..n {
-        nums_equiv_atoms[equiv_atoms[i] as usize] += 1;
+        nums_equiv_atoms[equiv_atoms[i]] += 1;
     }
 
     debug::debug_print(format_args!("num_pure_trans: {}\n", num_pure_trans));
@@ -328,7 +328,7 @@ fn set_wyckoffs_labels(
 
     if hall_number > 0 {
         for i in 0..n {
-            if i as i32 == equiv_atoms[i] {
+            if i == equiv_atoms[i] {
                 debug::debug_print(format_args!(
                     "num_equiv_atoms[{}]: {}\n", i, nums_equiv_atoms[i]
                 ));
@@ -348,7 +348,7 @@ fn set_wyckoffs_labels(
         }
     } else {
         for i in 0..n {
-            if i as i32 == equiv_atoms[i] {
+            if i == equiv_atoms[i] {
                 let w = get_layer_wyckoff_notation(
                     &positions[i], conv_sym,
                     nums_equiv_atoms[i] * num_pure_trans, &conv_prim.lattice,
@@ -367,9 +367,9 @@ fn set_wyckoffs_labels(
 
     // 将等价原子的 Wyckoff 标记从独立原子复制过来
     for i in 0..n {
-        if i as i32 != equiv_atoms[i] {
-            wyckoffs[i] = wyckoffs[equiv_atoms[i] as usize];
-            symbols[i] = symbols[equiv_atoms[i] as usize].clone();
+        if i != equiv_atoms[i] {
+            wyckoffs[i] = wyckoffs[equiv_atoms[i]];
+            symbols[i] = symbols[equiv_atoms[i]].clone();
         }
     }
 

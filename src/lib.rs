@@ -213,9 +213,9 @@ pub struct SpaceGroup {
     /// 位点对称性符号
     pub site_symmetry_symbols: Vec<String>,
     /// 对等原子映射
-    pub equivalent_atoms: Vec<i32>,
+    pub equivalent_atoms: Vec<usize>,
     /// 晶体学轨道
-    pub crystallographic_orbits: Vec<i32>,
+    pub crystallographic_orbits: Vec<usize>,
     /// 原子 → 原胞映射
     pub mapping_to_primitive: Vec<Option<usize>>,
     /// 标准晶胞原子数
@@ -229,7 +229,7 @@ pub struct SpaceGroup {
     /// 标准晶胞旋转矩阵
     pub std_rotation_matrix: Mat3,
     /// 标准晶胞 → 原胞映射
-    pub std_mapping_to_primitive: Vec<i32>,
+    pub std_mapping_to_primitive: Vec<usize>,
     /// 原胞晶格
     pub primitive_lattice: Mat3,
     /// 点群符号 (最多 6 字符)

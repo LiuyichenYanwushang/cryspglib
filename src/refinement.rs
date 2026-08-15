@@ -31,25 +31,25 @@ pub struct ExactStructure {
     pub symmetry: Symmetry,
     pub wyckoffs: Vec<i32>,
     pub site_symmetry_symbols: Vec<String>,
-    pub equivalent_atoms: Vec<i32>,
-    pub crystallographic_orbits: Vec<i32>,
-    pub std_mapping_to_primitive: Vec<i32>,
+    pub equivalent_atoms: Vec<usize>,
+    pub crystallographic_orbits: Vec<usize>,
+    pub std_mapping_to_primitive: Vec<usize>,
     pub rotation: Mat3,
 }
 
 struct WyckoffOutput<'a> {
     wyckoffs: &'a mut [i32],
     site_symmetry_symbols: &'a mut [String],
-    equivalent_atoms: &'a mut [i32],
-    crystallographic_orbits: &'a mut [i32],
-    std_mapping_to_primitive: &'a mut [i32],
+    equivalent_atoms: &'a mut [usize],
+    crystallographic_orbits: &'a mut [usize],
+    std_mapping_to_primitive: &'a mut [usize],
 }
 
 struct BravaisExpansionOutput<'a> {
     wyckoffs: &'a mut [i32],
     site_symmetry_symbols: &'a mut [String],
-    equivalent_atoms: &'a mut [i32],
-    std_mapping_to_primitive: &'a mut [i32],
+    equivalent_atoms: &'a mut [usize],
+    std_mapping_to_primitive: &'a mut [usize],
 }
 
 /// 精细化结构并获取完整对称信息。
@@ -72,9 +72,9 @@ pub fn get_exact_structure_and_symmetry(
     let n = cell.len();
     let mut wyckoffs = vec![0i32; n];
     let mut site_symmetry_symbols: Vec<String> = vec![String::new(); n];
-    let mut equivalent_atoms = vec![0i32; n];
-    let mut crystallographic_orbits = vec![0i32; n];
-    let mut std_mapping_to_primitive = vec![0i32; primitive.len() * 4];
+    let mut equivalent_atoms = vec![0; n];
+    let mut crystallographic_orbits = vec![0; n];
+    let mut std_mapping_to_primitive = vec![0; primitive.len() * 4];
 
     let bravais = get_wyckoff_positions(
         WyckoffOutput {
@@ -121,7 +121,7 @@ fn get_wyckoff_positions(
     let prim_size_4 = primitive.len() * 4;
     let mut wyckoffs_bravais = vec![0i32; prim_size_4];
     let mut site_sym_symbols_bravais: Vec<String> = vec![String::new(); prim_size_4];
-    let mut equiv_atoms_bravais = vec![0i32; prim_size_4];
+    let mut equiv_atoms_bravais = vec![0; prim_size_4];
 
     let bravais = get_bravais_exact_positions_and_lattice(
         &mut wyckoffs_bravais,
@@ -178,8 +178,8 @@ fn get_wyckoff_positions(
 fn get_bravais_exact_positions_and_lattice(
     wyckoffs: &mut [i32],
     site_symmetry_symbols: &mut [String],
-    equiv_atoms: &mut [i32],
-    std_mapping_to_primitive: &mut [i32],
+    equiv_atoms: &mut [usize],
+    std_mapping_to_primitive: &mut [usize],
     spacegroup: &Spacegroup,
     primitive: &Cell,
     symprec: f64,
@@ -244,7 +244,7 @@ fn expand_positions_in_bravais(
     num_pure_trans: i32,
     wyckoffs_prim: &[i32],
     site_symmetry_symbols_prim: &[String],
-    equiv_atoms_prim: &[i32],
+    equiv_atoms_prim: &[usize],
 ) -> Cell {
     let bravais_size = conv_prim.len() * num_pure_trans as usize;
     let mut bravais = Cell::new(bravais_size, conv_prim.tensor_rank);
@@ -261,7 +261,7 @@ fn expand_positions_in_bravais(
                 output.wyckoffs[num_atom] = wyckoffs_prim[j];
                 output.site_symmetry_symbols[num_atom] = site_symmetry_symbols_prim[j].clone();
                 output.equivalent_atoms[num_atom] = equiv_atoms_prim[j];
-                output.std_mapping_to_primitive[num_atom] = j as i32;
+                output.std_mapping_to_primitive[num_atom] = j;
                 num_atom += 1;
             }
         }
@@ -568,18 +568,18 @@ fn get_refined_symmetry_operations(
 
 /// 设置晶体学轨道（等价原子映射）。
 fn set_crystallographic_orbits(
-    equiv_atoms_cell: &mut [i32],
+    equiv_atoms_cell: &mut [usize],
     primitive: &Cell,
     cell: &Cell,
-    equiv_atoms_prim: &[i32],
+    equiv_atoms_prim: &[usize],
     mapping_table: &[Option<usize>],
 ) -> bool {
-    let mut equiv_atoms = vec![0i32; primitive.len()];
+    let mut equiv_atoms = vec![0; primitive.len()];
 
     for (i, &equiv_atom_prim) in equiv_atoms_prim.iter().take(primitive.len()).enumerate() {
         for (j, &mapped_atom) in mapping_table.iter().take(cell.len()).enumerate() {
-            if mapped_atom == Some(equiv_atom_prim as usize) {
-                equiv_atoms[i] = j as i32;
+            if mapped_atom == Some(equiv_atom_prim) {
+                equiv_atoms[i] = j;
                 break;
             }
         }
@@ -593,7 +593,7 @@ fn set_crystallographic_orbits(
 
 /// 处理因超胞导致对称性破缺的等价原子分配。
 fn set_equivalent_atoms_broken_symmetry(
-    equiv_atoms_cell: &mut [i32],
+    equiv_atoms_cell: &mut [usize],
     cell: &Cell,
     symmetry: &Symmetry,
     mapping_table: &[Option<usize>],
@@ -601,7 +601,7 @@ fn set_equivalent_atoms_broken_symmetry(
 ) {
     if let Some(aperiodic) = cell.aperiodic_axis {
         for i in 0..cell.len() {
-            equiv_atoms_cell[i] = i as i32;
+            equiv_atoms_cell[i] = i;
             for j in 0..cell.len() {
                 if mapping_table[i] == mapping_table[j] {
                     if i == j {
@@ -617,7 +617,7 @@ fn set_equivalent_atoms_broken_symmetry(
         }
     } else {
         for i in 0..cell.len() {
-            equiv_atoms_cell[i] = i as i32;
+            equiv_atoms_cell[i] = i;
             for j in 0..cell.len() {
                 if mapping_table[i] == mapping_table[j] {
                     if i == j {
