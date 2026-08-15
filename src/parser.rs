@@ -26,7 +26,7 @@ pub struct ParsedPoscar {
 /// x y z [mx my mz]  # positions, optional 3 magnetic moment components
 /// ```
 ///
-/// Returns `None` on malformed input.
+/// Returns `Err(SymError::InvalidInput)` on malformed input.
 pub fn parse_poscar(data: &str) -> Result<ParsedPoscar, SymError> {
     let lines: Vec<&str> = data.lines().collect();
     if lines.len() < 6 {

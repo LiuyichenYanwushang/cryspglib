@@ -79,7 +79,7 @@ pub fn niggli_get_micro_version() -> i32 {
 /// lattice: 输入/输出晶格 (列向量矩阵)
 /// eps: 容差
 /// aperiodic_axis: None=体材料, Some(X/Y/Z)=非周期轴
-/// 返回 true 表示成功
+/// 成功返回 `Ok(())`，失败返回 `Err(SymError::NiggliFailed)`。
 pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<AperiodicAxis>) -> Result<(), SymError> {
     let mut p = NiggliParams::new(lattice, eps);
     let mut succeeded = false;
