@@ -139,6 +139,7 @@ impl Cell {
             }
         }
         self.types.copy_from_slice(types);
+        self.aperiodic_axis = None;
         Ok(())
     }
 
@@ -197,6 +198,7 @@ impl Cell {
     /// `tensors` 长度不等于当前张量秩要求的长度时返回
     /// [`SymError::InvalidInput`]。
     pub fn set_tensors(&mut self, tensors: &[f64]) -> Result<(), SymError> {
+        self.validate_receiver()?;
         if tensors.len() != self.expected_tensor_len() {
             return Err(SymError::InvalidInput);
         }
@@ -205,7 +207,18 @@ impl Cell {
     }
 
     fn validate_input_lengths(&self, position: &[Vec3], types: &[i32]) -> Result<(), SymError> {
+        self.validate_receiver()?;
         if position.len() != self.len() || types.len() != self.len() {
+            return Err(SymError::InvalidInput);
+        }
+        Ok(())
+    }
+
+    fn validate_receiver(&self) -> Result<(), SymError> {
+        if self.position.len() != self.types.len() {
+            return Err(SymError::InvalidInput);
+        }
+        if self.tensors.len() != self.expected_tensor_len() {
             return Err(SymError::InvalidInput);
         }
         Ok(())
@@ -707,6 +720,36 @@ mod tests {
 
         magnetic.set_tensors(&[0.25; 6]).unwrap();
         assert_eq!(magnetic.tensors, vec![0.25; 6]);
+    }
+
+    #[test]
+    fn set_cell_rejects_cells_whose_public_fields_were_resized() {
+        let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+
+        let mut cell = Cell::new(2, TensorRank::NoSpin);
+        cell.position.pop();
+        assert!(matches!(
+            cell.set_cell(&lattice, &[[0.0; 3]; 1], &[1]),
+            Err(SymError::InvalidInput)
+        ));
+
+        let mut magnetic = Cell::new(2, TensorRank::NonCollinear);
+        magnetic.tensors.clear();
+        assert!(matches!(
+            magnetic.set_tensors(&[0.0; 6]),
+            Err(SymError::InvalidInput)
+        ));
+    }
+
+    #[test]
+    fn periodic_setters_clear_aperiodic_axis() {
+        let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let mut cell = Cell::new(1, TensorRank::NoSpin);
+        cell.set_layer_cell(&lattice, &[[0.0; 3]], &[1], Some(AperiodicAxis::Z))
+            .unwrap();
+        assert_eq!(cell.aperiodic_axis, Some(AperiodicAxis::Z));
+        cell.set_cell(&lattice, &[[0.0; 3]], &[1]).unwrap();
+        assert_eq!(cell.aperiodic_axis, None);
     }
 
     #[test]
