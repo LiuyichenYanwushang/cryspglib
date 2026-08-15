@@ -633,18 +633,7 @@ fn build_fallback_reference(
 
     // 3. 用非磁 Hall 编号构建参考 Spacegroup
     let spg_type = get_spacegroup_type(parent_hall_number);
-    let mut ref_sg = Spacegroup::new();
-    ref_sg.hall_number = parent_hall_number;
-    ref_sg.number = spg_type.number;
-    ref_sg.pointgroup_number = spg_type.pointgroup_number;
-    ref_sg.schoenflies = spg_type.schoenflies;
-    ref_sg.hall_symbol = spg_type.hall_symbol;
-    ref_sg.international = spg_type.international;
-    ref_sg.international_long = spg_type.international_full;
-    ref_sg.international_short = spg_type.international_short;
-    ref_sg.choice = spg_type.choice;
-    ref_sg.bravais_lattice = *lattice;
-    // origin_shift 保持为 [0;3]（默认值）
+    let ref_sg = Spacegroup::from_spg_type(parent_hall_number, [0.0; 3], *lattice, &spg_type);
 
     // 4. 计算 changed_symmetry: 使用完整的合成（representatives × pure_trans × factors）
     let tmat = ref_sg.bravais_lattice;
@@ -850,19 +839,12 @@ fn find_spacegroup_by_symmetry(
             symprec,
         ) {
             let spg_type = get_spacegroup_type(hall as usize);
-            let mut spacegroup = Spacegroup::new();
-            spacegroup.bravais_lattice = conv_lattice;
-            spacegroup.origin_shift = origin_shift;
-            spacegroup.number = spg_type.number;
-            spacegroup.hall_number = hall as usize;
-            spacegroup.pointgroup_number = spg_type.pointgroup_number;
-            spacegroup.schoenflies = spg_type.schoenflies;
-            spacegroup.hall_symbol = spg_type.hall_symbol;
-            spacegroup.international = spg_type.international;
-            spacegroup.international_long = spg_type.international_full;
-            spacegroup.international_short = spg_type.international_short;
-            spacegroup.choice = spg_type.choice;
-            return Some(spacegroup);
+            return Some(Spacegroup::from_spg_type(
+                hall as usize,
+                origin_shift,
+                conv_lattice,
+                &spg_type,
+            ));
         }
     }
 

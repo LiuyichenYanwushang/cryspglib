@@ -537,7 +537,7 @@ fn search_layer_translation_part(
                 atoms_found[i] = true;
                 num_trans += 1;
                 if is_identity {
-                    let aperiodic = cell.aperiodic_axis.unwrap();
+                    let aperiodic = cell.aperiodic_axis?;
                     num_trans += search_layer_pure_translations(
                         &mut atoms_found,
                         cell,

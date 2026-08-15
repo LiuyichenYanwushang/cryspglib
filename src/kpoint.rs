@@ -365,7 +365,8 @@ pub(crate) fn get_point_group_reciprocal(rotations: &[Mat3I], is_time_reversal: 
 
     let mut rot_return = vec![[[0; 3]; 3]; num_rot];
     for (output, &index) in rot_return.iter_mut().zip(&unique_rot).take(num_rot) {
-        *output = rot_reciprocal[index.expect("unique rotation index should be set")];
+        let index = index?;
+        *output = rot_reciprocal[index];
     }
 
     Some(rot_return)
@@ -415,7 +416,8 @@ fn get_point_group_reciprocal_with_q(
 
     let mut rot_reciprocal_q = vec![[[0; 3]; 3]; num_rot];
     for (output, &index) in rot_reciprocal_q.iter_mut().zip(&ir_rot).take(num_rot) {
-        *output = rot_reciprocal[index.expect("ir rotation index should be set")];
+        let index = index?;
+        *output = rot_reciprocal[index];
     }
 
     Some(rot_reciprocal_q)

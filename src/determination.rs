@@ -43,9 +43,18 @@ pub fn determine_all(
         if let Ok(mut container) = get_spacegroup_and_primitive(cell, hall_number, tolerance, angle_symprec)
         {
             let exstr = {
-                let sg = container.spacegroup.as_mut().unwrap();
-                let prim = container.primitive.as_ref().unwrap();
-                let prim_cell = prim.cell.as_ref().unwrap();
+                let sg = container
+                    .spacegroup
+                    .as_mut()
+                    .ok_or(SymError::SpacegroupSearchFailed)?;
+                let prim = container
+                    .primitive
+                    .as_ref()
+                    .ok_or(SymError::SpacegroupSearchFailed)?;
+                let prim_cell = prim
+                    .cell
+                    .as_ref()
+                    .ok_or(SymError::SpacegroupSearchFailed)?;
                 get_exact_structure_and_symmetry(
                     sg,
                     prim_cell,

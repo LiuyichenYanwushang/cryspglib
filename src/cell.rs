@@ -579,7 +579,7 @@ fn get_overlap_table(
                             &position[i],
                             &position[j],
                             &trimmed_cell.lattice,
-                            trimmed_cell.aperiodic_axis.unwrap(),
+                            trimmed_cell.aperiodic_axis?,
                             trim_tolerance,
                         )
                     };

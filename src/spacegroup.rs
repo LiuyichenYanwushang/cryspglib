@@ -31,7 +31,7 @@ use crate::pointgroup::{
     Holohedry, Laue, get_pointsymmetry, get_transformation_matrix,
 };
 use crate::primitive::Primitive;
-use crate::spg_database::{Centering, get_spacegroup_type};
+use crate::spg_database::{Centering, SpacegroupType, get_spacegroup_type};
 use crate::symmetry::{Symmetry, get_operation, reduce_operation};
 
 const REDUCE_RATE: f64 = 0.95;
@@ -216,6 +216,27 @@ impl Spacegroup {
             origin_shift: [0.0; 3],
         }
     }
+
+    pub(crate) fn from_spg_type(
+        hall_number: usize,
+        origin_shift: Vec3,
+        bravais_lattice: Mat3,
+        spg_type: &SpacegroupType,
+    ) -> Self {
+        Spacegroup {
+            number: spg_type.number,
+            hall_number,
+            pointgroup_number: spg_type.pointgroup_number,
+            schoenflies: spg_type.schoenflies.clone(),
+            hall_symbol: spg_type.hall_symbol.clone(),
+            international: spg_type.international.clone(),
+            international_long: spg_type.international_full.clone(),
+            international_short: spg_type.international_short.clone(),
+            choice: spg_type.choice.clone(),
+            bravais_lattice,
+            origin_shift,
+        }
+    }
 }
 
 // --- Public Functions ---
@@ -300,63 +321,43 @@ pub fn transform_from_primitive(
     centering: Centering,
     symprec: f64,
 ) -> Option<Cell> {
-    let mut tmat = [[0.0; 3]; 3];
-    let mut inv_tmat = [[0.0; 3]; 3];
-
-    match centering {
-        Centering::Primitive => {}
-        Centering::AFace => {
-            tmat = A_MAT;
-            inv_tmat = mat_inverse_matrix_d3(&A_MAT, 0.0).ok().unwrap();
-        }
-        Centering::CFace => {
-            tmat = C_MAT;
-            inv_tmat = mat_inverse_matrix_d3(&C_MAT, 0.0).ok().unwrap();
-        }
-        Centering::Face => {
-            tmat = F_MAT;
-            inv_tmat = mat_inverse_matrix_d3(&F_MAT, 0.0).ok().unwrap();
-        }
-        Centering::Body => {
-            tmat = I_MAT;
-            inv_tmat = mat_inverse_matrix_d3(&I_MAT, 0.0).ok().unwrap();
-        }
-        Centering::RCenter => {
-            tmat = R_MAT;
-            inv_tmat = mat_inverse_matrix_d3(&R_MAT, 0.0).ok().unwrap();
-        }
-        _ => return None,
-    }
+    let (tmat, inv_tmat) = match centering {
+        Centering::Primitive => (IDENTITY, IDENTITY),
+        Centering::AFace => (A_MAT, mat_inverse_matrix_d3(&A_MAT, 0.0).ok()?),
+        Centering::CFace => (C_MAT, mat_inverse_matrix_d3(&C_MAT, 0.0).ok()?),
+        Centering::Face => (F_MAT, mat_inverse_matrix_d3(&F_MAT, 0.0).ok()?),
+        Centering::Body => (I_MAT, mat_inverse_matrix_d3(&I_MAT, 0.0).ok()?),
+        Centering::RCenter => (R_MAT, mat_inverse_matrix_d3(&R_MAT, 0.0).ok()?),
+        Centering::BFace | Centering::Error => return None,
+    };
 
     let mut shift = [[0.0; 3]; 3];
     let multi = get_centering_shifts(&mut shift, centering);
 
     let mut mapping_table = vec![0; primitive.len() * multi];
-    let mut std_cell = Cell::new(primitive.len() * multi, primitive.tensor_rank);
+    let mut positions = Vec::with_capacity(primitive.len() * multi);
+    let mut types = Vec::with_capacity(primitive.len() * multi);
 
-    std_cell.lattice = mat_multiply_matrix_d3(&primitive.lattice, &inv_tmat);
-
-    let mut num_atom = 0;
     for i in 0..primitive.len() {
-        std_cell.position[num_atom] = mat_multiply_matrix_vector_d3(&tmat, &primitive.position[i]);
-        std_cell.types[num_atom] = primitive.types[i];
-        num_atom += 1;
+        positions.push(mat_multiply_matrix_vector_d3(&tmat, &primitive.position[i]));
+        types.push(primitive.types[i]);
     }
 
     for centering_shift in shift.iter().take(multi - 1) {
         for j in 0..primitive.len() {
-            let src_pos = std_cell.position[j];
-            std_cell.position[num_atom] = src_pos;
-            for (coordinate, offset) in std_cell.position[num_atom]
-                .iter_mut()
-                .zip(centering_shift)
-            {
+            let mut position = positions[j];
+            for (coordinate, offset) in position.iter_mut().zip(centering_shift) {
                 *coordinate += offset;
             }
-            std_cell.types[num_atom] = std_cell.types[j];
-            num_atom += 1;
+            positions.push(position);
+            types.push(types[j]);
         }
     }
+
+    let mut std_cell = Cell::new(positions.len(), primitive.tensor_rank);
+    std_cell.lattice = mat_multiply_matrix_d3(&primitive.lattice, &inv_tmat);
+    std_cell.position = positions;
+    std_cell.types = types;
 
     trim_cell(&mut mapping_table, &std_cell.lattice, &std_cell, symprec)
 }
@@ -407,21 +408,12 @@ fn get_spacegroup(
     conv_lattice: &Mat3,
 ) -> Option<Spacegroup> {
     let spg_type = get_spacegroup_type(hall_number as usize);
-
-    let mut spacegroup = Spacegroup::new();
-    spacegroup.bravais_lattice = *conv_lattice;
-    spacegroup.origin_shift = *origin_shift;
-    spacegroup.number = spg_type.number;
-    spacegroup.hall_number = hall_number as usize;
-    spacegroup.pointgroup_number = spg_type.pointgroup_number;
-    spacegroup.schoenflies = spg_type.schoenflies;
-    spacegroup.hall_symbol = spg_type.hall_symbol;
-    spacegroup.international = spg_type.international;
-    spacegroup.international_long = spg_type.international_full;
-    spacegroup.international_short = spg_type.international_short;
-    spacegroup.choice = spg_type.choice;
-
-    Some(spacegroup)
+    Some(Spacegroup::from_spg_type(
+        hall_number as usize,
+        *origin_shift,
+        *conv_lattice,
+        &spg_type,
+    ))
 }
 
 fn iterative_search_hall_number(
@@ -435,6 +427,7 @@ fn iterative_search_hall_number(
 ) -> Option<i32> {
     debug::debug_print(format_args!("iterative_search_hall_number:\n"));
 
+    let cell = primitive.cell.as_ref()?;
     let mut hall_number = search_hall_number(
         origin_shift,
         conv_lattice,
@@ -458,12 +451,7 @@ fn iterative_search_hall_number(
         ));
 
         tolerance *= REDUCE_RATE;
-        if let Ok(sym_reduced) = reduce_operation(
-            primitive.cell.as_ref().unwrap(),
-            &current_symmetry,
-            tolerance,
-            angle_tolerance,
-        ) {
+        if let Ok(sym_reduced) = reduce_operation(cell, &current_symmetry, tolerance, angle_tolerance) {
             hall_number = search_hall_number(
                 origin_shift,
                 conv_lattice,
@@ -500,19 +488,20 @@ fn search_hall_number(
 ) -> Option<i32> {
     debug::debug_print(format_args!("search_hall_number:\n"));
 
-    let aperiodic_axis = primitive.cell.as_ref().unwrap().aperiodic_axis;
+    let cell = primitive.cell.as_ref()?;
+    let aperiodic_axis = cell.aperiodic_axis;
     let (mut tmat_int, pointgroup) =
         get_transformation_matrix(&symmetry.rot, aperiodic_axis)?;
 
     if pointgroup.laue == Laue::Laue1 || pointgroup.laue == Laue::Laue2M {
         let conv_lattice_tmp =
-            mat_multiply_matrix_di3(&primitive.cell.as_ref().unwrap().lattice, &tmat_int);
+            mat_multiply_matrix_di3(&cell.lattice, &tmat_int);
 
         if pointgroup.laue == Laue::Laue1
             && !change_basis_tricli(
                 &mut tmat_int,
                 &conv_lattice_tmp,
-                &primitive.cell.as_ref().unwrap().lattice,
+                &cell.lattice,
                 symprec,
                 aperiodic_axis,
             ) {
@@ -523,7 +512,7 @@ fn search_hall_number(
             && !change_basis_monocli(
                 &mut tmat_int,
                 &conv_lattice_tmp,
-                &primitive.cell.as_ref().unwrap().lattice,
+                &cell.lattice,
                 symprec,
                 aperiodic_axis,
             ) {
@@ -538,7 +527,7 @@ fn search_hall_number(
     }
 
     let tmat = mat_multiply_matrix_id3(&tmat_int, &correction_mat);
-    *conv_lattice = mat_multiply_matrix_d3(&primitive.cell.as_ref().unwrap().lattice, &tmat);
+    *conv_lattice = mat_multiply_matrix_d3(&cell.lattice, &tmat);
 
     let conv_symmetry = get_initial_conventional_symmetry(centering, &tmat, symmetry)?;
 
@@ -589,7 +578,9 @@ fn change_basis_tricli(
         }
     }
 
-    let inv_lattice = mat_inverse_matrix_d3(primitive_lattice, 0.0).ok().unwrap();
+    let Ok(inv_lattice) = mat_inverse_matrix_d3(primitive_lattice, 0.0) else {
+        return false;
+    };
     let tmat = mat_multiply_matrix_d3(&inv_lattice, &smallest_lattice);
     *tmat_int = mat_cast_matrix_3d_to_3i(&tmat);
 
@@ -634,7 +625,9 @@ fn change_basis_monocli(
         smallest_lattice = mat_multiply_matrix_d3(&smallest_lattice, &CHANGE_OF_BASIS_MONOCLI[2]);
     }
 
-    let inv_lattice = mat_inverse_matrix_d3(primitive_lattice, 0.0).ok().unwrap();
+    let Ok(inv_lattice) = mat_inverse_matrix_d3(primitive_lattice, 0.0) else {
+        return false;
+    };
     let tmat = mat_multiply_matrix_d3(&inv_lattice, &smallest_lattice);
     *tmat_int = mat_cast_matrix_3d_to_3i(&tmat);
 
@@ -669,7 +662,7 @@ fn get_conventional_symmetry(
     };
     let mut symmetry = Symmetry::with_capacity(capacity);
 
-    let inv_tmat = mat_inverse_matrix_d3(tmat, 0.0).ok().unwrap_or([[0.0; 3]; 3]);
+    let inv_tmat = mat_inverse_matrix_d3(tmat, 0.0).ok()?;
 
     for i in 0..size {
         let primitive_sym_rot_d3 = mat_cast_matrix_3i_to_3d(&primitive_sym.rot[i]);

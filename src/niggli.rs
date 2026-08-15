@@ -85,9 +85,11 @@ pub fn reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<AperiodicAxis
     let mut succeeded = false;
 
     // Step 0: Move aperiodic axis to c for layer
-    if !((matches!(aperiodic_axis, Some(AperiodicAxis::X | AperiodicAxis::Y)) && layer_swap_axis(&mut p, aperiodic_axis.unwrap()))
-        || (matches!(aperiodic_axis, None | Some(AperiodicAxis::Z)) && set_parameters(&mut p)))
-    {
+    let configured = match aperiodic_axis {
+        Some(axis @ (AperiodicAxis::X | AperiodicAxis::Y)) => layer_swap_axis(&mut p, axis),
+        None | Some(AperiodicAxis::Z) => set_parameters(&mut p),
+    };
+    if !configured {
         return Err(SymError::NiggliFailed);
     }
 

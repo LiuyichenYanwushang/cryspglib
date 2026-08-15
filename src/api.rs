@@ -1209,6 +1209,28 @@ fn standardize_primitive_inner(
     Ok(primitive)
 }
 
+fn validate_primitive_mapping(
+    mapping_table: &[usize],
+    expected: &[Option<usize>],
+) -> Result<(), SymError> {
+    for (&mapped, &expected) in mapping_table.iter().zip(expected) {
+        let Some(expected) = expected else {
+            debug::warning_print(format_args!(
+                "spglib: transform_to_primitive failed (missing mapping)\n"
+            ));
+            return Err(SymError::CellStandardizationFailed);
+        };
+        if mapped != expected {
+            debug::warning_print(format_args!(
+                "spglib: transform_to_primitive failed ({} != {})\n",
+                mapped, expected
+            ));
+            return Err(SymError::CellStandardizationFailed);
+        }
+    }
+    Ok(())
+}
+
 fn standardize_cell_inner(
     cell: &Cell,
     to_primitive: bool,
@@ -1242,16 +1264,7 @@ fn standardize_cell_inner(
         )
         .ok_or(SymError::CellStandardizationFailed)?;
 
-        for (&mapped, &expected) in mapping_table.iter().zip(&dataset.mapping_to_primitive) {
-            let expected = expected.expect("mapping_to_primitive should be mapped");
-            if mapped != expected {
-                debug::warning_print(format_args!(
-                    "spglib: transform_to_primitive failed ({} != {})\n",
-                    mapped, expected
-                ));
-                return Err(SymError::CellStandardizationFailed);
-            }
-        }
+        validate_primitive_mapping(&mapping_table, &dataset.mapping_to_primitive)?;
         Ok(primitive)
     } else if no_idealize {
         // no_idealize, not to_primitive
@@ -1273,16 +1286,7 @@ fn standardize_cell_inner(
         )
         .ok_or(SymError::CellStandardizationFailed)?;
 
-        for (&mapped, &expected) in mapping_table.iter().zip(&dataset.mapping_to_primitive) {
-            let expected = expected.expect("mapping_to_primitive should be mapped");
-            if mapped != expected {
-                debug::warning_print(format_args!(
-                    "spglib: transform_to_primitive failed ({} != {})\n",
-                    mapped, expected
-                ));
-                return Err(SymError::CellStandardizationFailed);
-            }
-        }
+        validate_primitive_mapping(&mapping_table, &dataset.mapping_to_primitive)?;
         if matches!(centering, Centering::Primitive) {
             return Ok(primitive);
         }
