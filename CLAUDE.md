@@ -4,6 +4,46 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## Rust 风格化改造账本（2026-08-15 起）
+
+目标：把 C 直译内核逐步改为 Rust 风格，消除哨兵、零填充缓冲、下标 panic
+和不变量可被公开字段绕过的问题。每个阶段必须全量测试、clippy 零警告、git
+提交，并通过独立 reviewer 的极简严格复审后才算完成。
+
+已完成阶段（提交 `dad5dd8` → `ee9286a`，HEAD `ee9286a`）：
+
+1. `Crystal::new` / `with_magnetic` / `SymmetryOps::from_parallel*` 全部返回
+   `Result`，不再 panic；README 与 doctest 同步。
+2. `Cell::set_cell` / `set_layer_cell` / `set_cell_with_tensors` / 新增
+   `set_tensors` 全部返回 `Result`，先验证后写入；周期 setter 显式清除
+   `aperiodic_axis`；`Crystal::to_cell` 对层状磁性晶胞不再二次覆写非周期坐标。
+3. `Symmetry` / `PointSymmetry` / `MagneticSymmetry` 移除 `new(size)` 零填充与
+   `truncate`，改为 `new` / `with_capacity` / `push`；磁空间群的两条提取路径
+   共享 `deduplicate_spatial_operations`。
+4. 点群识别去除 `number == 0` 哨兵：`get_transformation_matrix -> Option`、
+   `get_pointgroup -> Result`、Hall 搜索返回 `Option<i32>`。
+5. `Crystal` 字段全部私有化，提供只读访问器；等长不变量不再可被外部破坏。
+6. 清理内核生产路径 `unwrap`/`expect`、重复 `Spacegroup` 组装与映射校验；
+   `transform_from_primitive` 保持旧公开行为（Primitive/BFace/Error 返回 None）。
+
+当前验证基线（每次变更都必须复跑）：
+
+```bash
+cd /home/liuyichen/TB_rs
+CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
+  cargo test --release --package cryspglib --tests
+CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
+  cargo test --release --package cryspglib --doc
+CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
+  cargo clippy -p cryspglib --all-targets --release -- -D warnings
+```
+
+结果为 217 lib tests + 集成 tests 全绿、3 ignored；26 doctests 全绿；
+clippy 零警告。`src/irrep/mod.rs` 的模块顺序调整是会话开始前就存在的未提交
+改动，不属于上述阶段，禁止顺手提交。
+
+---
+
 ## 磁 symmetry 全覆盖实时账本（2026-07-31 起）
 
 用户当前优先目标：先覆盖并修正全部 1–1651 UNI 的磁对称性，再继续上层
