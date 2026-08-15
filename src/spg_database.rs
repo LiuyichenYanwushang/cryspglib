@@ -8932,19 +8932,6 @@ fn spgdb_remove_space(s: &mut String) {
     s.truncate(len);
 }
 
-/// 将 Hall 符号中的 '=' 替换为 '"'
-fn replace_equal_char(s: &mut str) {
-    // 由于字符串是 UTF-8 安全的，'=' 和 '"' 都是单字节，可以直接操作字节
-    // 但为了简单，使用 chars_mut 需要 unsafe，这里采用 as_bytes_mut
-    unsafe {
-        for b in s.as_bytes_mut() {
-            if *b == b'=' {
-                *b = b'"';
-            }
-        }
-    }
-}
-
 /// 获取 Hall 编号对应的空间群类型信息
 pub fn spgdb_get_spacegroup_type(hall_number: usize) -> SpacegroupType {
     let raw = if hall_number > 0 && hall_number <= 530 {
@@ -8957,7 +8944,7 @@ pub fn spgdb_get_spacegroup_type(hall_number: usize) -> SpacegroupType {
     spgdb_remove_space(&mut schoenflies);
     let mut hall_symbol = raw.hall_symbol.to_string();
     spgdb_remove_space(&mut hall_symbol);
-    replace_equal_char(&mut hall_symbol);
+    hall_symbol = hall_symbol.replace('=', "\"");
     let mut international = raw.international.to_string();
     spgdb_remove_space(&mut international);
     let mut international_full = raw.international_full.to_string();
