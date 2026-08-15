@@ -1,6 +1,6 @@
 [package]
 name = "cryspglib"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "A pure-Rust port of spglib — not a replacement, but a dependency-free alternative for Rust projects that need crystallographic symmetry routines without bundling a C toolchain."
 license = "BSD-3-Clause"

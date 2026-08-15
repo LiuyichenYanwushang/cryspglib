@@ -97,17 +97,17 @@
 
 pub mod types;
 pub use types::generated_data;
+pub mod bridge;
+pub mod corep;
+pub mod magnetic_summary;
 pub mod preamble;
 pub mod query;
-pub mod corep;
 pub mod wigner;
-pub mod bridge;
-pub mod magnetic_summary;
 
-pub mod triclinic;
+pub mod cubic;
+pub mod hexagonal;
 pub mod monoclinic;
 pub mod orthorhombic;
 pub mod tetragonal;
+pub mod triclinic;
 pub mod trigonal;
-pub mod hexagonal;
-pub mod cubic;
