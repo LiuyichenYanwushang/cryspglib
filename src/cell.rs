@@ -182,8 +182,13 @@ impl Cell {
         types: &[i32],
         tensors: &[f64],
     ) -> Result<(), SymError> {
+        self.validate_input_lengths(position, types)?;
+        if tensors.len() != self.expected_tensor_len() {
+            return Err(SymError::InvalidInput);
+        }
         self.set_cell(lattice, position, types)?;
-        self.set_tensors(tensors)
+        self.tensors.copy_from_slice(tensors);
+        Ok(())
     }
 
     /// 只更新磁性张量，不触碰晶格、位置和类型。
@@ -660,9 +665,15 @@ mod tests {
             Err(SymError::InvalidInput)
         ));
 
+        let positions = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]];
         let mut magnetic = Cell::new(2, TensorRank::NonCollinear);
+        magnetic
+            .set_cell_with_tensors(&lattice, &positions, &[1, 1], &[0.5; 6])
+            .unwrap();
+        let snapshot = magnetic.clone();
+
         assert!(matches!(
-            magnetic.set_cell_with_tensors(&lattice, &[[0.0; 3]; 2], &[1, 1], &[0.0; 5]),
+            magnetic.set_cell_with_tensors(&lattice, &positions, &[1, 1], &[0.0; 5]),
             Err(SymError::InvalidInput)
         ));
         assert!(matches!(
@@ -673,8 +684,15 @@ mod tests {
             magnetic.set_tensors(&[0.0; 5]),
             Err(SymError::InvalidInput)
         ));
-        magnetic.set_tensors(&[0.0; 6]).unwrap();
-        assert_eq!(magnetic.tensors, vec![0.0; 6]);
+        assert_eq!(magnetic.lattice, snapshot.lattice);
+        assert_eq!(magnetic.position, snapshot.position);
+        assert_eq!(magnetic.types, snapshot.types);
+        assert_eq!(magnetic.tensors, snapshot.tensors);
+        assert_eq!(magnetic.tensor_rank, snapshot.tensor_rank);
+        assert_eq!(magnetic.aperiodic_axis, snapshot.aperiodic_axis);
+
+        magnetic.set_tensors(&[0.25; 6]).unwrap();
+        assert_eq!(magnetic.tensors, vec![0.25; 6]);
     }
 
     #[test]
