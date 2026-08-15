@@ -157,7 +157,7 @@ fn get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Prim
 
     for attempt in 0..NUM_ATTEMPT {
         debug::debug_print(format_args!("get_primitive (attempt = {}):\n", attempt));
-        if let Some(pure_trans) = sym_get_pure_translation(cell, tolerance)
+        if let Ok(pure_trans) = sym_get_pure_translation(cell, tolerance)
             && let Some(primitive) = prm_get_primitive_with_pure_trans(
                 cell,
                 &pure_trans,
@@ -257,7 +257,7 @@ fn get_primitive_lattice_vectors(
                 &pure_trans_reduced,
                 tolerance,
                 angle_tolerance,
-            )?;
+            ).ok()?;
             debug::debug_print(format_args!(
                 "spglib: Tolerance is reduced to {} ({}), num_pure_trans = {}\n",
                 tolerance,

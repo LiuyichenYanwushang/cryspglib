@@ -239,7 +239,6 @@ fn invariant_lattice(rotations: &[Mat3I]) -> Option<Mat3> {
 
 fn identification_error_category(error: SymError) -> &'static str {
     match error {
-        SymError::Success => "error_success",
         SymError::SpacegroupSearchFailed => "error_spacegroup_search",
         SymError::CellStandardizationFailed => "error_cell_standardization",
         SymError::SymmetryOperationSearchFailed => "error_symmetry_operation_search",

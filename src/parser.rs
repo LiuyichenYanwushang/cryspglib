@@ -1,5 +1,6 @@
 //! Parser for POSCAR-like structure files.
 
+use crate::SymError;
 use crate::mathfunc::{Mat3, Vec3};
 
 /// Parsed contents of a POSCAR-like structure file.
@@ -26,13 +27,13 @@ pub struct ParsedPoscar {
 /// ```
 ///
 /// Returns `None` on malformed input.
-pub fn parse_poscar(data: &str) -> Option<ParsedPoscar> {
+pub fn parse_poscar(data: &str) -> Result<ParsedPoscar, SymError> {
     let lines: Vec<&str> = data.lines().collect();
     if lines.len() < 6 {
-        return None;
+        return Err(SymError::InvalidInput);
     }
 
-    let scale: f64 = lines.get(1)?.trim().parse().ok()?;
+    let scale: f64 = lines.get(1).ok_or(SymError::InvalidInput)?.trim().parse().map_err(|_| SymError::InvalidInput)?;
 
     let mut rows = [[0.0; 3]; 3];
     for i in 0..3 {
@@ -41,7 +42,7 @@ pub fn parse_poscar(data: &str) -> Option<ParsedPoscar> {
             .filter_map(|x| x.parse().ok())
             .collect();
         if parts.len() < 3 {
-            return None;
+            return Err(SymError::InvalidInput);
         }
         rows[i] = [parts[0], parts[1], parts[2]];
     }
@@ -59,21 +60,22 @@ pub fn parse_poscar(data: &str) -> Option<ParsedPoscar> {
         }
     }
 
-    let type_line = lines.get(5)?;
+    let type_line = lines.get(5).ok_or(SymError::InvalidInput)?;
     let counts: Vec<usize> = lines
-        .get(6)?
+        .get(6).ok_or(SymError::InvalidInput)?
         .split_whitespace()
         .map(str::parse::<usize>)
         .collect::<Result<_, _>>()
-        .ok()?;
+        .map_err(|_| SymError::InvalidInput)?;
     if counts.is_empty() {
-        return None;
+        return Err(SymError::InvalidInput);
     }
     let n_atoms = counts
         .iter()
-        .try_fold(0usize, |total, count| total.checked_add(*count))?;
+        .try_fold(0usize, |total, count| total.checked_add(*count))
+        .ok_or(SymError::InvalidInput)?;
     if n_atoms == 0 || n_atoms > lines.len().saturating_sub(8) {
-        return None;
+        return Err(SymError::InvalidInput);
     }
 
     let type_names: Vec<&str> = type_line.split_whitespace().collect();
@@ -89,7 +91,7 @@ pub fn parse_poscar(data: &str) -> Option<ParsedPoscar> {
         }
     }
 
-    let mode_line = lines.get(7)?;
+    let mode_line = lines.get(7).ok_or(SymError::InvalidInput)?;
     let is_cartesian = mode_line.trim().to_uppercase().starts_with('C')
         || mode_line.trim().to_uppercase().starts_with('K');
 
@@ -98,13 +100,13 @@ pub fn parse_poscar(data: &str) -> Option<ParsedPoscar> {
     let mut has_moments = false;
 
     for i in 0..n_atoms {
-        let line = lines.get(8 + i)?;
+        let line = lines.get(8 + i).ok_or(SymError::InvalidInput)?;
         let parts: Vec<f64> = line
             .split_whitespace()
             .filter_map(|x| x.parse().ok())
             .collect();
         if parts.len() < 3 {
-            return None;
+            return Err(SymError::InvalidInput);
         }
         positions.push([parts[0], parts[1], parts[2]]);
         if parts.len() >= 6 {
@@ -116,14 +118,14 @@ pub fn parse_poscar(data: &str) -> Option<ParsedPoscar> {
     }
 
     if is_cartesian {
-        let inv_lat = crate::mathfunc::mat_inverse_matrix_d3(&lattice, 1e-10).ok()?;
+        let inv_lat = crate::mathfunc::mat_inverse_matrix_d3(&lattice, 1e-10).map_err(|_| SymError::InvalidInput)?;
         for position in positions.iter_mut().take(n_atoms) {
             *position = crate::mathfunc::mat_multiply_matrix_vector_d3(&inv_lat, position);
         }
     }
 
     let mag_opt = if has_moments { Some(moments) } else { None };
-    Some(ParsedPoscar {
+    Ok(ParsedPoscar {
         lattice,
         positions,
         types,
@@ -180,7 +182,7 @@ mod tests {
     fn poscar_rejects_negative_and_malformed_counts() {
         for counts in ["-1", "2 -1", "-2147483648", "2 x 1", "2 1.5", "1e3"] {
             let input = poscar_with_counts(counts, "0 0 0\n0.5 0.5 0.5");
-            assert!(super::parse_poscar(&input).is_none(), "counts={counts}");
+            assert!(super::parse_poscar(&input).is_err(), "counts={counts}");
         }
     }
 
@@ -192,15 +194,15 @@ mod tests {
             "18446744073709551615 1",
         ] {
             let input = poscar_with_counts(counts, "0 0 0");
-            assert!(super::parse_poscar(&input).is_none(), "counts={counts}");
+            assert!(super::parse_poscar(&input).is_err(), "counts={counts}");
         }
     }
 
     #[test]
     fn poscar_rejects_zero_total_and_truncated_coordinates() {
-        assert!(super::parse_poscar(&poscar_with_counts("0 0", "")).is_none());
+        assert!(super::parse_poscar(&poscar_with_counts("0 0", "")).is_err());
         assert!(
-            super::parse_poscar(&poscar_with_counts("3", "0 0 0\n0.5 0.5 0.5")).is_none()
+            super::parse_poscar(&poscar_with_counts("3", "0 0 0\n0.5 0.5 0.5")).is_err()
         );
     }
 

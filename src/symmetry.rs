@@ -148,12 +148,13 @@ pub fn sym_reduce_operation(
     symmetry: &Symmetry,
     symprec: f64,
     angle_tolerance: f64,
-) -> Option<Symmetry> {
+) -> Result<Symmetry, SymError> {
     reduce_operation(primitive, symmetry, symprec, angle_tolerance, false)
+        .ok_or(SymError::SymmetryOperationSearchFailed)
 }
 
 /// 获取纯平移操作
-pub fn sym_get_pure_translation(cell: &Cell, symprec: f64) -> Option<Vec<Vec3>> {
+pub fn sym_get_pure_translation(cell: &Cell, symprec: f64) -> Result<Vec<Vec3>, SymError> {
     debug::debug_print(format_args!(
         "sym_get_pure_translation (tolerance = {}):\n",
         symprec
@@ -183,7 +184,7 @@ pub fn sym_get_pure_translation(cell: &Cell, symprec: f64) -> Option<Vec<Vec3>> 
         debug::debug_print(format_args!("spglib: get_translation failed.\n"));
     }
 
-    pure_trans
+    pure_trans.ok_or(SymError::SymmetryOperationSearchFailed)
 }
 
 /// 约化纯平移操作
@@ -192,7 +193,7 @@ pub fn sym_reduce_pure_translation(
     pure_trans: &[Vec3],
     symprec: f64,
     angle_tolerance: f64,
-) -> Option<Vec<Vec3>> {
+) -> Result<Vec<Vec3>, SymError> {
     let multi = pure_trans.len();
     let mut symmetry = Symmetry::new(multi);
 
@@ -206,9 +207,10 @@ pub fn sym_reduce_pure_translation(
     }
     symmetry.rot[..multi].fill(IDENTITY);
 
-    let symmetry_reduced = reduce_operation(cell, &symmetry, symprec, angle_tolerance, true)?;
+    let symmetry_reduced = reduce_operation(cell, &symmetry, symprec, angle_tolerance, true)
+        .ok_or(SymError::SymmetryOperationSearchFailed)?;
 
-    Some(symmetry_reduced.trans)
+    Ok(symmetry_reduced.trans)
 }
 
 // --- Internal Functions ---
@@ -846,9 +848,7 @@ mod tests {
         let mut cell = Cell::new(1, TensorRank::NoSpin);
         cell.set_cell(&lattice, &positions, &types);
 
-        let trans = sym_get_pure_translation(&cell, 1e-5);
-        assert!(trans.is_some());
-        let t = trans.unwrap();
+        let t = sym_get_pure_translation(&cell, 1e-5).unwrap();
         assert_eq!(t.len(), 1);
         // 纯平移应包含 (0,0,0)
         assert!(t[0][0].abs() < 1e-5);
@@ -863,9 +863,7 @@ mod tests {
         let mut cell = Cell::new(2, TensorRank::NoSpin);
         cell.set_cell(&lattice, &positions, &types);
 
-        let trans = sym_get_pure_translation(&cell, 1e-5);
-        assert!(trans.is_some());
-        let t = trans.unwrap();
+        let t = sym_get_pure_translation(&cell, 1e-5).unwrap();
         assert_eq!(t.len(), 2);
         // 应包含 (0,0,0) 和 (0.5,0,0)
         let has_zero = t.iter().any(|v| v[0].abs() < 1e-5);
@@ -877,6 +875,6 @@ mod tests {
     #[test]
     fn test_empty_cell_has_no_pure_translation() {
         let cell = Cell::new(0, TensorRank::NoSpin);
-        assert!(sym_get_pure_translation(&cell, 1e-5).is_none());
+        assert!(sym_get_pure_translation(&cell, 1e-5).is_err());
     }
 }

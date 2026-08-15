@@ -122,62 +122,58 @@ pub const VERSION: &str = "0.2.0";
 // ---------------------------------------------------------------------------
 /// Symmetry analysis error codes.
 #[derive(thiserror::Error, Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i32)]
 pub enum SymError {
-    /// 无错误
-    #[error("no error")]
-    Success = 0,
     /// 空间群搜索失败
     #[error("spacegroup search failed")]
-    SpacegroupSearchFailed = 1,
+    SpacegroupSearchFailed,
     /// 晶胞标准化失败
     #[error("cell standardization failed")]
-    CellStandardizationFailed = 2,
+    CellStandardizationFailed,
     /// 对称操作搜索失败
     #[error("symmetry operation search failed")]
-    SymmetryOperationSearchFailed = 3,
+    SymmetryOperationSearchFailed,
     /// 原子间距过近
     #[error("too close distance between atoms")]
-    AtomsTooClose = 4,
+    AtomsTooClose,
     /// 点群未找到
     #[error("pointgroup not found")]
-    PointgroupNotFound = 5,
+    PointgroupNotFound,
     /// Niggli 约化失败
     #[error("Niggli reduction failed")]
-    NiggliFailed = 6,
+    NiggliFailed,
     /// Delaunay 约化失败
     #[error("Delaunay reduction failed")]
-    DelaunayFailed = 7,
+    DelaunayFailed,
     /// 数组大小不足
     #[error("array size shortage")]
-    ArraySizeShortage = 8,
+    ArraySizeShortage,
     /// 输入格式无效
     #[error("invalid input format")]
-    InvalidInput = 9,
+    InvalidInput,
     /// 数学运算失败
     #[error("math operation failed")]
-    MathFailed = 10,
+    MathFailed,
     /// 磁操作生成失败
     #[error("magnetic operation generation failed")]
-    MagneticOpGenerationFailed = 11,
+    MagneticOpGenerationFailed,
     /// 磁参考空间群搜索失败
     #[error("magnetic reference space group search failed")]
-    MagneticReferenceGroupFailed = 12,
+    MagneticReferenceGroupFailed,
     /// 磁群 fallback 参考设置失败
     #[error("magnetic fallback reference setting failed")]
-    MagneticFallbackReferenceFailed = 13,
+    MagneticFallbackReferenceFailed,
     /// Hall 编号无 UNI 候选
     #[error("no UNI candidates for Hall number")]
-    MagneticUniCandidatesNotFound = 14,
+    MagneticUniCandidatesNotFound,
     /// UNI 候选匹配全部失败
     #[error("all UNI candidates failed full magnetic Seitz-set matching")]
-    MagneticUniMatchFailed = 15,
+    MagneticUniMatchFailed,
     /// 磁原胞晶格确定失败
     #[error("magnetic primitive lattice determination failed")]
-    MagneticPrimitiveLatticeFailed = 16,
+    MagneticPrimitiveLatticeFailed,
     /// 完整磁对称操作对应多个不同的 UNI；需要母群 Hall 信息消歧
     #[error("magnetic symmetry has multiple UNI candidates; parent Hall number is required")]
-    MagneticUniAmbiguous = 17,
+    MagneticUniAmbiguous,
 }
 
 // ---------------------------------------------------------------------------

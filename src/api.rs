@@ -123,11 +123,8 @@ impl Crystal {
     /// Niggli lattice reduction.
     pub fn niggli_reduce(&self, symprec: f64) -> Result<Mat3, SymError> {
         let mut reduced = self.lattice;
-        if niggli_reduce(&mut reduced, symprec, None) {
-            Ok(reduced)
-        } else {
-            Err(SymError::NiggliFailed)
-        }
+        niggli_reduce(&mut reduced, symprec, None)?;
+        Ok(reduced)
     }
 
     // ── Internal: convert to Cell ──────────────────────────────────────────
@@ -211,9 +208,7 @@ impl Crystal {
     /// assert_eq!(cry.types, vec![14, 14]);
     /// ```
     pub fn from_poscar(data: &str) -> Result<Self, crate::SymError> {
-        crate::parser::parse_poscar(data)
-            .ok_or(crate::SymError::InvalidInput)
-            .map(|parsed| Crystal {
+        crate::parser::parse_poscar(data).map(|parsed| Crystal {
                 lattice: parsed.lattice,
                 positions: parsed.positions,
                 types: parsed.types,

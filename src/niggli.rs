@@ -4,6 +4,7 @@
 //! 使用 Delaunay 约化）。Niggli 约化后的晶格满足一组严格的不等式条件，
 //! 确保同一晶格的所有等价表示约化到相同的标准形式。
 
+use crate::SymError;
 use crate::cell::AperiodicAxis;
 use crate::debug;
 use crate::mathfunc::{Mat3, mat_get_metric, mat_multiply_matrix_d3};
@@ -79,7 +80,7 @@ pub fn niggli_get_micro_version() -> i32 {
 /// eps: 容差
 /// aperiodic_axis: None=体材料, Some(X/Y/Z)=非周期轴
 /// 返回 true 表示成功
-pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<AperiodicAxis>) -> bool {
+pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<AperiodicAxis>) -> Result<(), SymError> {
     let mut p = NiggliParams::new(lattice, eps);
     let mut succeeded = false;
 
@@ -87,7 +88,7 @@ pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<Aperio
     if !((matches!(aperiodic_axis, Some(AperiodicAxis::X | AperiodicAxis::Y)) && layer_swap_axis(&mut p, aperiodic_axis.unwrap()))
         || (matches!(aperiodic_axis, None | Some(AperiodicAxis::Z)) && set_parameters(&mut p)))
     {
-        return false;
+        return Err(SymError::NiggliFailed);
     }
 
     let max_attempts = get_num_attempts();
@@ -106,7 +107,7 @@ pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<Aperio
         if step1(&mut p) {
             debug_show(1, &p);
             if !reset(&mut p) {
-                return false;
+                return Err(SymError::NiggliFailed);
             }
             // No break for Step 1
         }
@@ -120,7 +121,7 @@ pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<Aperio
         if do_step2 {
             debug_show(2, &p);
             if !reset(&mut p) {
-                return false;
+                return Err(SymError::NiggliFailed);
             }
             continue; // Break inner loop, restart outer loop
         }
@@ -129,7 +130,7 @@ pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<Aperio
         if step3(&mut p) {
             debug_show(3, &p);
             if !reset(&mut p) {
-                return false;
+                return Err(SymError::NiggliFailed);
             }
             // No break for Step 3
         }
@@ -138,7 +139,7 @@ pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<Aperio
         if step4(&mut p) {
             debug_show(4, &p);
             if !reset(&mut p) {
-                return false;
+                return Err(SymError::NiggliFailed);
             }
             // No break for Step 4
         }
@@ -147,7 +148,7 @@ pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<Aperio
         if step5(&mut p) {
             debug_show(5, &p);
             if !reset(&mut p) {
-                return false;
+                return Err(SymError::NiggliFailed);
             }
             continue; // Break inner loop, restart outer loop
         }
@@ -156,7 +157,7 @@ pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<Aperio
         if step6(&mut p) {
             debug_show(6, &p);
             if !reset(&mut p) {
-                return false;
+                return Err(SymError::NiggliFailed);
             }
             continue; // Break inner loop, restart outer loop
         }
@@ -165,7 +166,7 @@ pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<Aperio
         if step7(&mut p) {
             debug_show(7, &p);
             if !reset(&mut p) {
-                return false;
+                return Err(SymError::NiggliFailed);
             }
             continue; // Break inner loop, restart outer loop
         }
@@ -174,7 +175,7 @@ pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<Aperio
         if step8(&mut p) {
             debug_show(8, &p);
             if !reset(&mut p) {
-                return false;
+                return Err(SymError::NiggliFailed);
             }
             continue; // Break inner loop, restart outer loop
         }
@@ -191,7 +192,7 @@ pub fn niggli_reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<Aperio
     // Finalize: copy back to lattice
     *lattice = p.lattice;
 
-    succeeded
+    if succeeded { Ok(()) } else { Err(SymError::NiggliFailed) }
 }
 
 fn layer_swap_axis(p: &mut NiggliParams, aperiodic_axis: AperiodicAxis) -> bool {
@@ -427,8 +428,7 @@ mod tests {
     #[test]
     fn test_niggli_reduce_identity() {
         let mut lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        let res = niggli_reduce(&mut lattice, 1e-5, None);
-        assert!(res);
+        niggli_reduce(&mut lattice, 1e-5, None).unwrap();
         // Identity should remain identity
         assert!((lattice[0][0] - 1.0).abs() < 1e-5);
     }
@@ -444,8 +444,7 @@ mod tests {
         // New: a=(0,1,0), b=(0,0,1), c=(2,0,0). A=1, B=1, C=4.
         // Sorted.
         let mut lattice = [[2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
-        let res = niggli_reduce(&mut lattice, 1e-5, None);
-        assert!(res);
+        niggli_reduce(&mut lattice, 1e-5, None).unwrap();
 
         let g = mat_get_metric(&lattice);
         assert!((g[0][0] - 1.0).abs() < 1e-5); // A=1

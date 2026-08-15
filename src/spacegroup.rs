@@ -461,7 +461,7 @@ fn iterative_search_hall_number(
         ));
 
         tolerance *= REDUCE_RATE;
-        if let Some(sym_reduced) = sym_reduce_operation(
+        if let Ok(sym_reduced) = sym_reduce_operation(
             primitive.cell.as_ref().unwrap(),
             &current_symmetry,
             tolerance,
@@ -586,7 +586,7 @@ fn change_basis_tricli(
 ) -> bool {
     let mut niggli_cell = *conv_lattice;
 
-    if !niggli_reduce(&mut niggli_cell, symprec * symprec, aperiodic_axis) {
+    if niggli_reduce(&mut niggli_cell, symprec * symprec, aperiodic_axis).is_err() {
         return false;
     }
 

@@ -1249,7 +1249,7 @@ fn get_changed_magnetic_symmetry(
     // 2. 收集原始磁性对称中的纯平移（仅 timerev=0），变换到参考设置
     let pure_trans = crate::spin::spn_collect_pure_translations_from_magnetic_symmetry(
         magnetic_symmetry,
-    )?;
+    );
     let changed_pure_trans = get_changed_pure_translations(tmat, &pure_trans, symprec)?;
 
     // 3. 从 XSG 对称性中收集因子群（仅去重旋转部分，timerev=0）

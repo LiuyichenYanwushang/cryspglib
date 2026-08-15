@@ -59,8 +59,7 @@ pub(crate) fn operations_with_site_tensors(
     )
         .ok_or(crate::SymError::MagneticOpGenerationFailed)?;
 
-    let pure_trans = spn_collect_pure_translations_from_magnetic_symmetry(&magnetic_symmetry)
-        .ok_or(crate::SymError::MagneticOpGenerationFailed)?;
+    let pure_trans = spn_collect_pure_translations_from_magnetic_symmetry(&magnetic_symmetry);
 
     let Some((_primitive_lattice, multi)) = prm_get_primitive_lattice_vectors(
         search.cell,
@@ -80,7 +79,7 @@ pub(crate) fn operations_with_site_tensors(
 
 pub fn spn_collect_pure_translations_from_magnetic_symmetry(
     sym_msg: &MagneticSymmetry,
-) -> Option<Vec<Vec3>> {
+) -> Vec<Vec3> {
     let mut pure_trans = Vec::new();
 
     for i in 0..sym_msg.len() {
@@ -91,7 +90,7 @@ pub fn spn_collect_pure_translations_from_magnetic_symmetry(
         }
     }
 
-    Some(pure_trans)
+    pure_trans
 }
 
 /// Apply special position operator to `cell`.
