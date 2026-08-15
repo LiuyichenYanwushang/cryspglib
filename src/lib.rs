@@ -217,7 +217,7 @@ pub struct SpaceGroup {
     /// 晶体学轨道
     pub crystallographic_orbits: Vec<i32>,
     /// 原子 → 原胞映射
-    pub mapping_to_primitive: Vec<i32>,
+    pub mapping_to_primitive: Vec<Option<usize>>,
     /// 标准晶胞原子数
     pub n_std_atoms: usize,
     /// 标准晶胞晶格

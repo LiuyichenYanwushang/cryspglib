@@ -23,7 +23,7 @@ const NUM_ATTEMPT: i32 = 100;
 
 pub struct Primitive {
     pub cell: Option<Cell>,
-    pub mapping_table: Vec<i32>,
+    pub mapping_table: Vec<Option<usize>>,
     pub tolerance: f64,
     pub angle_tolerance: f64,
     pub orig_lattice: Mat3,
@@ -33,7 +33,7 @@ impl Primitive {
     pub fn new(size: usize) -> Self {
         Primitive {
             cell: None,
-            mapping_table: vec![-1; size],
+            mapping_table: vec![None; size],
             tolerance: 0.0,
             angle_tolerance: -1.0,
             orig_lattice: [[0.0; 3]; 3],
@@ -63,7 +63,7 @@ pub fn get_primitive_with_pure_trans(
         primitive.cell = get_cell_with_smallest_lattice(cell, symprec);
         primitive.cell.as_ref()?;
         for i in 0..cell.len() {
-            primitive.mapping_table[i] = i as i32;
+            primitive.mapping_table[i] = Some(i);
         }
     } else {
         let mut mapping_table_usize = vec![0; cell.len()];
@@ -76,7 +76,7 @@ pub fn get_primitive_with_pure_trans(
         );
         primitive.cell.as_ref()?;
         for (output, &mapped) in primitive.mapping_table.iter_mut().zip(&mapping_table_usize) {
-            *output = mapped as i32;
+            *output = Some(mapped);
         }
     }
 

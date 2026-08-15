@@ -60,7 +60,7 @@ pub fn get_exact_structure_and_symmetry(
     spacegroup: &mut Spacegroup,
     primitive: &Cell,
     cell: &Cell,
-    mapping_table: &[i32],
+    mapping_table: &[Option<usize>],
     symprec: f64,
 ) -> Option<ExactStructure> {
     if !find_similar_bravais_lattice(spacegroup, symprec) {
@@ -113,7 +113,7 @@ fn get_wyckoff_positions(
     cell: &Cell,
     spacegroup: &Spacegroup,
     symmetry: &Symmetry,
-    mapping_table: &[i32],
+    mapping_table: &[Option<usize>],
     symprec: f64,
 ) -> Option<Cell> {
     debug::debug_print(format_args!("get_Wyckoff_positions\n"));
@@ -135,9 +135,9 @@ fn get_wyckoff_positions(
 
     // Map bravais-level data to cell-level
     for i in 0..cell.len() {
-        output.wyckoffs[i] = wyckoffs_bravais[mapping_table[i] as usize];
+        output.wyckoffs[i] = wyckoffs_bravais[mapping_table[i].expect("mapping table entry should be mapped")];
         output.site_symmetry_symbols[i] =
-            site_sym_symbols_bravais[mapping_table[i] as usize].clone();
+            site_sym_symbols_bravais[mapping_table[i].expect("mapping table entry should be mapped")].clone();
     }
 
     // Set crystallographic orbits
@@ -572,20 +572,20 @@ fn set_crystallographic_orbits(
     primitive: &Cell,
     cell: &Cell,
     equiv_atoms_prim: &[i32],
-    mapping_table: &[i32],
+    mapping_table: &[Option<usize>],
 ) -> bool {
     let mut equiv_atoms = vec![0i32; primitive.len()];
 
     for (i, &equiv_atom_prim) in equiv_atoms_prim.iter().take(primitive.len()).enumerate() {
         for (j, &mapped_atom) in mapping_table.iter().take(cell.len()).enumerate() {
-            if mapped_atom == equiv_atom_prim {
+            if mapped_atom == Some(equiv_atom_prim as usize) {
                 equiv_atoms[i] = j as i32;
                 break;
             }
         }
     }
     for i in 0..cell.len() {
-        equiv_atoms_cell[i] = equiv_atoms[mapping_table[i] as usize];
+        equiv_atoms_cell[i] = equiv_atoms[mapping_table[i].expect("mapping table entry should be mapped")];
     }
 
     true
@@ -596,7 +596,7 @@ fn set_equivalent_atoms_broken_symmetry(
     equiv_atoms_cell: &mut [i32],
     cell: &Cell,
     symmetry: &Symmetry,
-    mapping_table: &[i32],
+    mapping_table: &[Option<usize>],
     symprec: f64,
 ) {
     if let Some(aperiodic) = cell.aperiodic_axis {

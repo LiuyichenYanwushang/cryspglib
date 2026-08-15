@@ -1076,7 +1076,7 @@ fn build_dataset(
         site_symmetry_symbols: vec![String::new(); n_atoms],
         equivalent_atoms: vec![0i32; n_atoms],
         crystallographic_orbits: vec![0i32; n_atoms],
-        mapping_to_primitive: vec![0i32; n_atoms],
+        mapping_to_primitive: vec![None; n_atoms],
         n_std_atoms: exstr.bravais.len(),
         std_lattice: exstr.bravais.lattice,
         std_positions: exstr.bravais.position.clone(),
@@ -1193,7 +1193,8 @@ fn standardize_cell_inner(
         .ok_or(SymError::CellStandardizationFailed)?;
 
         for (&mapped, &expected) in mapping_table.iter().zip(&dataset.mapping_to_primitive) {
-            if mapped != expected as usize {
+            let expected = expected.expect("mapping_to_primitive should be mapped");
+            if mapped != expected {
                 debug::warning_print(format_args!(
                     "spglib: transform_to_primitive failed ({} != {})\n",
                     mapped, expected
@@ -1223,7 +1224,8 @@ fn standardize_cell_inner(
         .ok_or(SymError::CellStandardizationFailed)?;
 
         for (&mapped, &expected) in mapping_table.iter().zip(&dataset.mapping_to_primitive) {
-            if mapped != expected as usize {
+            let expected = expected.expect("mapping_to_primitive should be mapped");
+            if mapped != expected {
                 debug::warning_print(format_args!(
                     "spglib: transform_to_primitive failed ({} != {})\n",
                     mapped, expected
