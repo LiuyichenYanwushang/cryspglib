@@ -27,7 +27,7 @@ use crate::pointgroup::get_pointgroup;
 use crate::primitive::Primitive;
 use crate::spacegroup::Spacegroup;
 use crate::spg_database::{Centering, get_spacegroup_type};
-use crate::{MagneticSymmetry, SpaceGroup, SymError};
+use crate::{HallNumber, MagneticSymmetry, SpaceGroup, SpaceGroupNumber, SymError, UniNumber};
 
 // ── Crystal ──────────────────────────────────────────────────────────────────
 
@@ -171,10 +171,12 @@ impl Crystal {
         }
         let tensor_rank = self.tensor_rank();
         let mut cell = Cell::new(self.positions.len(), tensor_rank);
-        let tensors = self
-            .moments
-            .as_ref()
-            .map(|moments| moments.iter().flat_map(|m| [m[0], m[1], m[2]]).collect::<Vec<_>>());
+        let tensors = self.moments.as_ref().map(|moments| {
+            moments
+                .iter()
+                .flat_map(|m| [m[0], m[1], m[2]])
+                .collect::<Vec<_>>()
+        });
         match (self.aperiodic_axis(), tensors) {
             (None, None) => cell.set_cell(&self.lattice, &self.positions, &self.types)?,
             (Some(axis), None) => {
@@ -238,12 +240,12 @@ impl Crystal {
     /// ```
     pub fn from_poscar(data: &str) -> Result<Self, crate::SymError> {
         crate::parser::parse_poscar(data).map(|parsed| Crystal {
-                lattice: parsed.lattice,
-                positions: parsed.positions,
-                types: parsed.types,
-                moments: parsed.magnetic_moments,
-                aperiodic_axis: None,
-            })
+            lattice: parsed.lattice,
+            positions: parsed.positions,
+            types: parsed.types,
+            moments: parsed.magnetic_moments,
+            aperiodic_axis: None,
+        })
     }
 }
 
@@ -529,6 +531,64 @@ impl ExternalFields {
     }
 }
 
+/// Unitary character of a magnetic symmetry operation.
+///
+/// This is the semantic form of the database time-reversal bit. The explicit
+/// variants make magnetic group composition and public call sites readable
+/// without relying on the meaning of `true` and `false`.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum OperationKind {
+    /// Ordinary unitary Seitz operation.
+    #[default]
+    Unitary,
+    /// Primed antiunitary operation containing time reversal.
+    Antiunitary,
+}
+
+impl OperationKind {
+    /// Convert the raw database bit to its semantic representation.
+    pub const fn from_time_reversal(time_reversal: bool) -> Self {
+        if time_reversal {
+            Self::Antiunitary
+        } else {
+            Self::Unitary
+        }
+    }
+
+    /// Whether this operation is unitary.
+    pub const fn is_unitary(self) -> bool {
+        matches!(self, Self::Unitary)
+    }
+
+    /// Whether this operation is antiunitary.
+    pub const fn is_antiunitary(self) -> bool {
+        matches!(self, Self::Antiunitary)
+    }
+
+    /// Raw time-reversal bit used by generated database arrays.
+    pub const fn time_reversal(self) -> bool {
+        self.is_antiunitary()
+    }
+
+    /// Magnetic composition law: antiunitarity combines by XOR.
+    pub const fn compose(self, right: Self) -> Self {
+        Self::from_time_reversal(self.time_reversal() ^ right.time_reversal())
+    }
+}
+
+impl From<bool> for OperationKind {
+    fn from(value: bool) -> Self {
+        Self::from_time_reversal(value)
+    }
+}
+
+impl From<OperationKind> for bool {
+    fn from(value: OperationKind) -> Self {
+        value.time_reversal()
+    }
+}
+
 /// A single symmetry operation {R|t}[θ] with optional time reversal.
 #[derive(Debug, Clone, Copy)]
 pub struct SymmetryOp {
@@ -538,6 +598,28 @@ pub struct SymmetryOp {
     pub translation: Vec3,
     /// Time reversal: false = ordinary, true = primed (anti-unitary)
     pub time_reversal: bool,
+}
+
+impl SymmetryOp {
+    /// Construct an operation from its semantic unitary character.
+    pub const fn new(rotation: Mat3I, translation: Vec3, kind: OperationKind) -> Self {
+        Self {
+            rotation,
+            translation,
+            time_reversal: kind.time_reversal(),
+        }
+    }
+
+    /// Return the semantic unitary/antiunitary character.
+    pub const fn kind(self) -> OperationKind {
+        OperationKind::from_time_reversal(self.time_reversal)
+    }
+
+    /// Return a copy with the requested unitary character.
+    pub const fn with_kind(mut self, kind: OperationKind) -> Self {
+        self.time_reversal = kind.time_reversal();
+        self
+    }
 }
 
 /// Ordered set of symmetry operations.
@@ -597,7 +679,11 @@ impl SymmetryOps {
                     tolerance,
                 )
             });
-            let time_sign = if operation.time_reversal { -1.0 } else { 1.0 };
+            let time_sign = if operation.kind().is_antiunitary() {
+                -1.0
+            } else {
+                1.0
+            };
             let magnetic_sign = determinant.signum() * time_sign;
             let preserves_magnetic = fields.magnetic.is_none_or(|field| {
                 vector_close(
@@ -625,16 +711,18 @@ impl SymmetryOps {
         if self
             .operations
             .iter()
-            .any(|operation| operation.time_reversal)
+            .any(|operation| operation.kind().is_antiunitary())
         {
             return Err(SymError::InvalidInput);
         }
         let mut operations = Vec::with_capacity(self.operations.len() * 2);
         operations.extend(self.operations.iter().copied());
-        operations.extend(self.operations.iter().copied().map(|mut operation| {
-            operation.time_reversal = true;
-            operation
-        }));
+        operations.extend(
+            self.operations
+                .iter()
+                .copied()
+                .map(|operation| operation.with_kind(OperationKind::Antiunitary)),
+        );
         Ok(Self { operations })
     }
 
@@ -662,6 +750,24 @@ impl SymmetryOps {
             })
             .collect();
         Ok(SymmetryOps { operations })
+    }
+
+    /// Build from parallel arrays with typed unitary/antiunitary characters.
+    pub fn from_parallel_kinds(
+        rot: &[Mat3I],
+        trans: &[Vec3],
+        kinds: &[OperationKind],
+    ) -> Result<Self, SymError> {
+        if rot.len() != trans.len() || rot.len() != kinds.len() {
+            return Err(SymError::InvalidInput);
+        }
+        let operations = rot
+            .iter()
+            .zip(trans)
+            .zip(kinds)
+            .map(|((&rotation, &translation), &kind)| SymmetryOp::new(rotation, translation, kind))
+            .collect();
+        Ok(Self { operations })
     }
 
     /// Build from owned parallel vectors.
@@ -707,7 +813,14 @@ impl SymmetryOps {
     /// assert!(SymmetryOps::from_database(999).is_err());
     /// ```
     pub fn from_database(hall_number: usize) -> Result<Self, crate::SymError> {
-        let sym = crate::spg_database::get_spacegroup_operations(hall_number)
+        let hall_number = HallNumber::try_from(hall_number)
+            .map_err(|_| crate::SymError::SpacegroupSearchFailed)?;
+        Self::from_hall_number(hall_number)
+    }
+
+    /// Look up ordinary operations with a validated Hall identifier.
+    pub fn from_hall_number(hall_number: HallNumber) -> Result<Self, crate::SymError> {
+        let sym = crate::spg_database::get_spacegroup_operations(hall_number.get())
             .ok_or(crate::SymError::SpacegroupSearchFailed)?;
         let ops: Vec<SymmetryOp> = (0..sym.len())
             .map(|i| SymmetryOp {
@@ -726,8 +839,16 @@ impl SymmetryOps {
     /// Hall settings, this convenience method selects the first one. Call
     /// [`Self::from_magnetic_database_with_hall`] when the setting is known.
     pub fn from_magnetic_database(uni_number: usize) -> Result<Self, crate::SymError> {
-        let hall = find_first_hall_for_uni(uni_number)?;
-        Self::from_magnetic_database_with_hall(uni_number, hall)
+        let uni_number =
+            UniNumber::try_from(uni_number).map_err(|_| crate::SymError::SpacegroupSearchFailed)?;
+        Self::from_uni_number(uni_number)
+    }
+
+    /// Look up magnetic operations with a validated UNI identifier, selecting
+    /// the first database Hall setting.
+    pub fn from_uni_number(uni_number: UniNumber) -> Result<Self, crate::SymError> {
+        let hall_number = find_first_hall_for_uni_number(uni_number)?;
+        Self::from_magnetic_database_with_numbers(uni_number, hall_number)
     }
 
     /// Look up magnetic operations for an explicit `(UNI, Hall)` setting.
@@ -739,8 +860,21 @@ impl SymmetryOps {
         uni_number: usize,
         hall_number: usize,
     ) -> Result<Self, crate::SymError> {
-        let sym = crate::msg_database::get_spacegroup_operations(uni_number, hall_number)
-            .ok_or(crate::SymError::SpacegroupSearchFailed)?;
+        let uni_number =
+            UniNumber::try_from(uni_number).map_err(|_| crate::SymError::SpacegroupSearchFailed)?;
+        let hall_number = HallNumber::try_from(hall_number)
+            .map_err(|_| crate::SymError::SpacegroupSearchFailed)?;
+        Self::from_magnetic_database_with_numbers(uni_number, hall_number)
+    }
+
+    /// Look up magnetic operations for validated `(UNI, Hall)` identifiers.
+    pub fn from_magnetic_database_with_numbers(
+        uni_number: UniNumber,
+        hall_number: HallNumber,
+    ) -> Result<Self, crate::SymError> {
+        let sym =
+            crate::msg_database::get_spacegroup_operations(uni_number.get(), hall_number.get())
+                .ok_or(crate::SymError::SpacegroupSearchFailed)?;
         let n = sym.len();
         let ops: Vec<SymmetryOp> = (0..n)
             .map(|i| SymmetryOp {
@@ -782,17 +916,32 @@ impl SymmetryOps {
     ///
     /// Looks up the first Hall number for the SG and returns its operations.
     pub fn from_sg(sg: u8) -> Result<Self, crate::SymError> {
-        let hall = find_hall_number(sg)?;
-        Self::from_database(hall)
+        let space_group =
+            SpaceGroupNumber::new(sg).ok_or(crate::SymError::SpacegroupSearchFailed)?;
+        Self::from_space_group_number(space_group)
+    }
+
+    /// Look up the first Hall setting for a validated space-group number.
+    pub fn from_space_group_number(space_group: SpaceGroupNumber) -> Result<Self, crate::SymError> {
+        let hall_number = find_hall_number_typed(space_group)?;
+        Self::from_hall_number(hall_number)
     }
 }
 
 /// Find the first Hall number whose space group number matches `sg`.
 pub fn find_hall_number(sg: u8) -> Result<usize, crate::SymError> {
+    let space_group = SpaceGroupNumber::new(sg).ok_or(crate::SymError::SpacegroupSearchFailed)?;
+    find_hall_number_typed(space_group).map(HallNumber::get)
+}
+
+/// Find the first Hall setting for a validated space-group number.
+pub fn find_hall_number_typed(
+    space_group: SpaceGroupNumber,
+) -> Result<HallNumber, crate::SymError> {
     for hall in 1..=530 {
         let st = crate::spg_database::get_spacegroup_type(hall);
-        if st.number == sg as usize {
-            return Ok(hall);
+        if st.number == space_group.get() {
+            return HallNumber::try_from(hall).map_err(|_| crate::SymError::SpacegroupSearchFailed);
         }
     }
     Err(crate::SymError::SpacegroupSearchFailed)
@@ -800,15 +949,18 @@ pub fn find_hall_number(sg: u8) -> Result<usize, crate::SymError> {
 
 /// Find the first Hall number for a magnetic UNI number.
 pub fn find_first_hall_for_uni(uni: usize) -> Result<usize, crate::SymError> {
-    if uni == 0 || uni > 1651 {
-        return Err(crate::SymError::SpacegroupSearchFailed);
-    }
+    let uni = UniNumber::try_from(uni).map_err(|_| crate::SymError::SpacegroupSearchFailed)?;
+    find_first_hall_for_uni_number(uni).map(HallNumber::get)
+}
+
+/// Find the first Hall setting for a validated UNI number.
+pub fn find_first_hall_for_uni_number(uni: UniNumber) -> Result<HallNumber, crate::SymError> {
     for hall in 1..=530 {
         if let Some([lo, hi]) = crate::msg_database::get_uni_candidates(hall)
-            && uni >= lo
-            && uni <= hi
+            && uni.get() >= lo
+            && uni.get() <= hi
         {
-            return Ok(hall);
+            return HallNumber::try_from(hall).map_err(|_| crate::SymError::SpacegroupSearchFailed);
         }
     }
     Err(crate::SymError::SpacegroupSearchFailed)
@@ -1357,11 +1509,7 @@ mod ordinary_input_contract_tests {
             Err(SymError::InvalidInput)
         ));
         assert!(matches!(
-            SymmetryOps::from_parallel_owned(
-                vec![identity; 2],
-                vec![translation],
-                vec![false; 2]
-            ),
+            SymmetryOps::from_parallel_owned(vec![identity; 2], vec![translation], vec![false; 2]),
             Err(SymError::InvalidInput)
         ));
     }
@@ -1606,5 +1754,53 @@ mod ordinary_input_contract_tests {
                 .unwrap();
         assert_eq!(stabilized.num_ir, 8);
         assert_eq!(stabilized.grid_addresses.len(), 8);
+    }
+
+    #[test]
+    fn operation_kind_is_compact_and_composes_magnetically() {
+        use std::mem::size_of;
+
+        assert_eq!(size_of::<OperationKind>(), 1);
+        assert_eq!(size_of::<Option<OperationKind>>(), 1);
+        assert!(OperationKind::Unitary.is_unitary());
+        assert!(OperationKind::Antiunitary.is_antiunitary());
+        assert_eq!(
+            OperationKind::Antiunitary.compose(OperationKind::Antiunitary),
+            OperationKind::Unitary
+        );
+        assert_eq!(
+            OperationKind::Unitary.compose(OperationKind::Antiunitary),
+            OperationKind::Antiunitary
+        );
+
+        let operations = SymmetryOps::from_parallel_kinds(
+            &[[[1, 0, 0], [0, 1, 0], [0, 0, 1]]],
+            &[[0.0, 0.0, 0.0]],
+            &[OperationKind::Antiunitary],
+        )
+        .unwrap();
+        assert_eq!(operations.operations[0].kind(), OperationKind::Antiunitary);
+    }
+
+    #[test]
+    fn typed_database_identifiers_match_integer_compatibility_entry_points() {
+        let hall = HallNumber::try_from(517).unwrap();
+        let uni = UniNumber::try_from(2).unwrap();
+        let space_group = SpaceGroupNumber::try_from(221).unwrap();
+
+        assert_eq!(
+            SymmetryOps::from_hall_number(hall).unwrap().len(),
+            SymmetryOps::from_database(517).unwrap().len()
+        );
+        assert_eq!(
+            SymmetryOps::from_uni_number(uni).unwrap().len(),
+            SymmetryOps::from_magnetic_database(2).unwrap().len()
+        );
+        assert_eq!(
+            SymmetryOps::from_space_group_number(space_group)
+                .unwrap()
+                .len(),
+            SymmetryOps::from_sg(221).unwrap().len()
+        );
     }
 }

@@ -8,11 +8,11 @@
 //! have been proved to form a finite magnetic group modulo lattice
 //! translations.
 
-use crate::api::{SymmetryOp, SymmetryOps};
+use crate::api::{OperationKind, SymmetryOp, SymmetryOps};
 use crate::irrep::wigner::{SeitzOp, compose_seitz};
 use crate::mathfunc::{Mat3, Mat3I, Vec3, mat_get_determinant_d3};
 use crate::symmetry::MagneticSymmetry;
-use crate::{MagneticType, SymError};
+use crate::{HallNumber, MagneticType, SymError};
 
 const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
@@ -347,14 +347,30 @@ impl ValidatedMagneticOperationSet {
         structural_supergroup_hall: Option<usize>,
         symprec: f64,
     ) -> Result<MagneticGroupIdentification, MagneticOperationSetError> {
+        let structural_supergroup_hall = structural_supergroup_hall
+            .map(|hall_number| {
+                HallNumber::try_from(hall_number).map_err(|_| {
+                    MagneticOperationSetError::InvalidStructuralSupergroupHall { hall_number }
+                })
+            })
+            .transpose()?;
+        self.identify_with_hall_number(lattice, structural_supergroup_hall, symprec)
+    }
+
+    /// Identify this group while carrying typed structural-setting provenance.
+    ///
+    /// The Hall number remains provenance only; the effective family setting
+    /// is derived from the validated operations themselves.
+    pub fn identify_with_hall_number(
+        &self,
+        lattice: &Mat3,
+        structural_supergroup_hall: Option<HallNumber>,
+        symprec: f64,
+    ) -> Result<MagneticGroupIdentification, MagneticOperationSetError> {
         if !symprec.is_finite() || symprec <= 0.0 {
             return Err(MagneticOperationSetError::InvalidSymmetryPrecision { symprec });
         }
-        if let Some(hall_number) = structural_supergroup_hall
-            && !(1..=530).contains(&hall_number)
-        {
-            return Err(MagneticOperationSetError::InvalidStructuralSupergroupHall { hall_number });
-        }
+        let structural_supergroup_hall = structural_supergroup_hall.map(HallNumber::get);
 
         let family = self.family_spatial_projection();
         let rotations: Vec<_> = family.iter().map(|operation| operation.rotation).collect();
@@ -402,10 +418,7 @@ impl ValidatedMagneticOperationSet {
     fn family_spatial_projection(&self) -> SymmetryOps {
         let mut operations: Vec<SymmetryOp> = Vec::with_capacity(self.len());
         for operation in self.operations.iter() {
-            let projection = SymmetryOp {
-                time_reversal: false,
-                ..*operation
-            };
+            let projection = operation.with_kind(OperationKind::Unitary);
             if !operations
                 .iter()
                 .any(|existing| operations_equivalent(existing, &projection, self.tolerance, true))
@@ -422,7 +435,7 @@ impl ValidatedMagneticOperationSet {
             symmetry.push(
                 operation.rotation,
                 operation.translation,
-                operation.time_reversal,
+                operation.kind().time_reversal(),
             );
         }
         symmetry
@@ -516,7 +529,7 @@ fn operations_equivalent(
     ignore_time_reversal: bool,
 ) -> bool {
     left.rotation == right.rotation
-        && (ignore_time_reversal || left.time_reversal == right.time_reversal)
+        && (ignore_time_reversal || left.kind() == right.kind())
         && left
             .translation
             .into_iter()
@@ -528,14 +541,18 @@ fn operations_equivalent(
 }
 
 fn compose(left: &SymmetryOp, right: &SymmetryOp) -> SymmetryOp {
-    let left = SeitzOp::new(left.rotation, left.translation, left.time_reversal);
-    let right = SeitzOp::new(right.rotation, right.translation, right.time_reversal);
+    let left = SeitzOp::new(left.rotation, left.translation, left.kind().time_reversal());
+    let right = SeitzOp::new(
+        right.rotation,
+        right.translation,
+        right.kind().time_reversal(),
+    );
     let (product, _) = compose_seitz(&left, &right);
-    SymmetryOp {
-        rotation: product.rot,
-        translation: product.trans,
-        time_reversal: product.timerev,
-    }
+    SymmetryOp::new(
+        product.rot,
+        product.trans,
+        OperationKind::from_time_reversal(product.timerev),
+    )
 }
 
 /// Failure to lift an orthogonal spatial transformation to spin $1/2$.

@@ -42,6 +42,29 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
 clippy 零警告。`src/irrep/mod.rs` 的模块顺序调整是会话开始前就存在的未提交
 改动，不属于上述阶段，禁止顺手提交。
 
+### 2026-08-26 有限域类型化
+
+本轮按 `RUST_TYPE_MODERNIZATION_PLAN.md` 区分三类数据，而不是把所有有限数据库
+字段机械地改成 enum：
+
+- 小型稳定语义集合使用 `OperationKind`、`TimeReversalPolicy`、`TensorParity`；
+  其中磁操作验证/组合层已改用 unitary/antiunitary 语义访问，原始 `bool` 只保留在
+  兼容字段和数据库平行数组边界。
+- 大型有界编号使用 `SpaceGroupNumber`、`HallNumber`、`UniNumber` 的 non-zero
+  transparent newtype；均支持 `TryFrom<usize>`，非法值不能进入 typed lookup。
+- Hall/国际/BNS/OG/k 点/irrep 符号仍是数据库文本，不建立数百或数千 variant 的
+  巨型 enum。纯磁群元数据的 BNS/OG 返回值改借用生成表中的 `&'static str`，避免
+  每次 `from_uni` 都分配两个 `String`；运行时派生文本仍保持拥有所有权。
+
+兼容期保留整数和 `bool` 入口，它们会在边界验证后委托 typed API。新增代码应优先
+使用 `from_hall_number`、`from_uni_number`、`from_space_group_number`、
+`from_parallel_kinds` 和 `identify_with_hall_number`。
+
+本轮 release 验证：library `222 passed / 0 failed / 3 ignored`，全部集成测试
+（包括 `4479/4479` setting-aware round trip）通过，doctest `26/26`，严格
+all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
+`intel-mkl-system,cryspglib` 的 release check 通过。
+
 ---
 
 ## 磁 symmetry 全覆盖实时账本（2026-07-31 起）

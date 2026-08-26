@@ -74,6 +74,7 @@ pub mod debug;
 pub mod delaunay;
 pub mod determination;
 pub mod hall_symbol;
+mod identifiers;
 pub mod irrep;
 pub mod kgrid;
 pub mod kpoint;
@@ -103,15 +104,17 @@ use crate::symmetry::Symmetry;
 
 // Re-export the new Rust-idiomatic API
 pub use api::{
-    BzMesh, Crystal, ExternalFields, IrMesh, StabilizedMesh, SymmetryAnalysis, SymmetryOp,
-    SymmetryOps, dense_bz_grid_points_by_rotations, dense_grid_points_by_rotations,
+    BzMesh, Crystal, ExternalFields, IrMesh, OperationKind, StabilizedMesh, SymmetryAnalysis,
+    SymmetryOp, SymmetryOps, dense_bz_grid_points_by_rotations, dense_grid_points_by_rotations,
     grid_point_from_address, relocate_bz_grid_address, stabilized_reciprocal_mesh,
 };
+pub use identifiers::{HallNumber, InvalidIdentifier, SpaceGroupNumber, UniNumber};
 pub use operation_group::{
     MagneticGroupIdentification, MagneticOperationSetError, SpinLiftError,
     ValidatedMagneticOperationSet, axial_spin_half_lift,
 };
 pub use pointgroup::pointgroup_from_rotations;
+pub use spin::{TensorParity, TimeReversalPolicy};
 
 // ---------------------------------------------------------------------------
 // Version constants
@@ -314,6 +317,11 @@ pub struct SpaceGroupType {
 }
 
 impl SpaceGroupType {
+    /// Look up a space-group type with a range-checked Hall identifier.
+    pub fn from_hall_number(hall_number: HallNumber) -> Result<Self, SymError> {
+        build_spacegroup_type(hall_number.get())
+    }
+
     /// Look up space group type by Hall number (1–530).
     ///
     /// # Examples
@@ -331,11 +339,9 @@ impl SpaceGroupType {
     /// assert!(SpaceGroupType::from_hall(999).is_err());
     /// ```
     pub fn from_hall(hall_number: usize) -> Result<Self, SymError> {
-        if hall_number > 0 && hall_number < 531 {
-            build_spacegroup_type(hall_number)
-        } else {
-            Err(SymError::SpacegroupSearchFailed)
-        }
+        let hall_number =
+            HallNumber::try_from(hall_number).map_err(|_| SymError::SpacegroupSearchFailed)?;
+        Self::from_hall_number(hall_number)
     }
 }
 
@@ -355,16 +361,16 @@ pub enum MagneticType {
 }
 
 /// 磁性空间群类型（从数据库查询）。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct MagneticSpaceGroupType {
     /// UNI 编号
     pub uni_number: usize,
     /// Litvin 编号
     pub litvin_number: usize,
     /// BNS 符号 (最多 8 字符)
-    pub bns_number: String,
+    pub bns_number: &'static str,
     /// OG 符号 (最多 12 字符)
-    pub og_number: String,
+    pub og_number: &'static str,
     /// 晶体学编号 (1–230)
     pub number: usize,
     /// 磁性类型 (1-4)
@@ -372,6 +378,20 @@ pub struct MagneticSpaceGroupType {
 }
 
 impl MagneticSpaceGroupType {
+    /// Look up a magnetic-space-group type with a range-checked UNI
+    /// identifier.
+    pub fn from_uni_number(uni_number: UniNumber) -> Result<Self, SymError> {
+        let msgtype = crate::msg_database::get_magnetic_spacegroup_type(uni_number.get());
+        Ok(MagneticSpaceGroupType {
+            uni_number: msgtype.uni_number,
+            litvin_number: msgtype.litvin_number,
+            bns_number: msgtype.bns_number.trim_ascii_end(),
+            og_number: msgtype.og_number.trim_ascii_end(),
+            number: msgtype.number,
+            type_: msgtype.type_,
+        })
+    }
+
     /// Look up a magnetic space group type by UNI number (1–1651).
     ///
     /// # Errors
@@ -398,18 +418,8 @@ impl MagneticSpaceGroupType {
     /// assert!(MagneticSpaceGroupType::from_uni(1652).is_err());
     /// ```
     pub fn from_uni(uni_number: usize) -> Result<Self, SymError> {
-        if !(1..=1651).contains(&uni_number) {
-            return Err(SymError::InvalidInput);
-        }
-        let msgtype = crate::msg_database::get_magnetic_spacegroup_type(uni_number);
-        Ok(MagneticSpaceGroupType {
-            uni_number: msgtype.uni_number,
-            litvin_number: msgtype.litvin_number,
-            bns_number: msgtype.bns_number.to_string(),
-            og_number: msgtype.og_number.to_string(),
-            number: msgtype.number,
-            type_: msgtype.type_,
-        })
+        let uni_number = UniNumber::try_from(uni_number).map_err(|_| SymError::InvalidInput)?;
+        Self::from_uni_number(uni_number)
     }
 
     /// Classify magnetic space group type from a set of symmetry operations.
@@ -611,8 +621,8 @@ pub(crate) fn magnetic_symmetry_from_crystal(
         crate::spin::operations_with_site_tensors(crate::spin::MagneticOperationSearch {
             symmetry: &nonspin_sym,
             cell: &cell,
-            with_time_reversal: true,
-            is_axial: true,
+            time_reversal: crate::spin::TimeReversalPolicy::Include,
+            tensor_parity: crate::spin::TensorParity::Axial,
             symprec,
             angle_tolerance: -1.0,
             magnetic_symprec: -1.0,
@@ -640,11 +650,7 @@ pub(crate) fn magnetic_symmetry_from_crystal(
         }
         let mut fallback = crate::symmetry::MagneticSymmetry::with_capacity(n);
         for &idx in &valid {
-            fallback.push(
-                nonspin_sym.rot[idx],
-                nonspin_sym.trans[idx],
-                tr[idx] != 0,
-            );
+            fallback.push(nonspin_sym.rot[idx], nonspin_sym.trans[idx], tr[idx] != 0);
         }
         (fallback, true)
     } else {

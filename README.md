@@ -31,7 +31,7 @@ Starting from the C source, the AI-assisted porting effort delivered:
 
 - POSCAR-style input (lattice + positions + types + magnetic moments) → non-magnetic space group + magnetic space group (BNS) + symmetry operations
 - Supports Type-1 (ordinary), Type-2 (grey), Type-3 (black-white / anti-rotation), Type-4 (anti-translation)
-- Atomic magnetic moments treated as axial vectors (`is_axial=true`), with correct transformation under spatial inversion
+- Atomic magnetic moments treated as axial vectors (`TensorParity::Axial`), with correct transformation under spatial inversion
 
 ### Verified physical systems
 
@@ -118,6 +118,19 @@ let result = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
 | `.irreducible_mesh(mesh, shift, tr)` | Irreducible k-point grid |
 | `SpaceGroupType::from_hall(n)` | Look up space group type by Hall number |
 | `MagneticSpaceGroupType::from_uni(n)` | Look up magnetic SG type by UNI number (`Result`) |
+| `HallNumber`, `UniNumber`, `SpaceGroupNumber` | Validated, non-zero database identifiers |
+| `OperationKind` | Explicit `Unitary` / `Antiunitary` magnetic-operation semantics |
+
+Typed code should prefer `SpaceGroupType::from_hall_number`,
+`MagneticSpaceGroupType::from_uni_number`, and the corresponding
+`SymmetryOps` constructors. Integer entry points remain as validating
+compatibility adapters.
+
+Hall, international, BNS, OG, k-point, and irrep symbols remain database text,
+not giant enums. Their domains contain hundreds or thousands of generated
+entries, so indexed static tables are both more maintainable and more compact.
+Database-backed magnetic metadata borrows static BNS/OG strings instead of
+allocating new strings for every lookup.
 
 ## Build
 
