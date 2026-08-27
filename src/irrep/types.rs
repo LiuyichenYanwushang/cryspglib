@@ -73,8 +73,9 @@ pub enum MatrixReorderError {
 pub enum RepresentationSpaceKind {
     /// The physical full-star/PIR character row in PIR operation order.
     FullStarPir,
-    /// The complete physical representation on one selected k arm.
-    SelectedArmPhysical,
+    /// A selected star arm's block trace, still indexed by the complete PIR
+    /// operation universe; callers must apply the arm little-group Seitz set.
+    SelectedArmBlockTrace,
     /// One raw complex CIR constituent of a compound record.
     ConstituentCir,
 }
@@ -97,12 +98,27 @@ pub enum CharacterViewError {
     /// Required generated character or operation data is absent.
     #[error("typed character data is missing")]
     MissingData,
+    /// A dimension supplied by generated metadata is zero or invalid.
+    #[error("typed character dimension is invalid")]
+    InvalidDimension,
+    /// A character, translation, or spin lift contains a non-finite value.
+    #[error("typed character data contains a non-finite value")]
+    NonFiniteData,
+    /// A generated flat-array offset is not aligned with its element width.
+    #[error("typed character storage offset is misaligned")]
+    MisalignedStorage,
     /// Values and complete Seitz operations have different lengths.
     #[error("typed character values and operations have different lengths")]
     LengthMismatch,
     /// A generated operation index points outside the SG operation table.
     #[error("typed character operation index is out of bounds")]
     InvalidOperationIndex,
+    /// A compound component selector is outside the two metadata components.
+    #[error("typed compound component selector is invalid")]
+    InvalidComponent,
+    /// A spinor little-group operation index occurs more than once.
+    #[error("typed spinor operation index occurs more than once")]
+    DuplicateOperationIndex,
     /// The complete Seitz operation list does not contain exactly one identity.
     #[error("typed character operation list does not contain a unique identity")]
     NonUniqueIdentity,
@@ -135,11 +151,23 @@ impl CharacterRow {
         operations: Vec<SeitzOperation>,
         expected_dimension: Option<usize>,
     ) -> Result<Self, CharacterViewError> {
+        if expected_dimension == Some(0) {
+            return Err(CharacterViewError::InvalidDimension);
+        }
         if values.is_empty() || operations.is_empty() {
             return Err(CharacterViewError::MissingData);
         }
         if values.len() != operations.len() {
             return Err(CharacterViewError::LengthMismatch);
+        }
+        if values
+            .iter()
+            .any(|value| !value.re.is_finite() || !value.im.is_finite())
+            || operations
+                .iter()
+                .any(|operation| operation.translation.iter().any(|value| !value.is_finite()))
+        {
+            return Err(CharacterViewError::NonFiniteData);
         }
         let identity_indices = operations
             .iter()
@@ -226,6 +254,24 @@ fn is_identity_seitz(operation: &SeitzOperation) -> bool {
             .all(|value| (value - value.round()).abs() <= SEITZ_IDENTITY_TOLERANCE)
 }
 
+fn validate_spinor_operation_indices(
+    indices: &[u16],
+    operation_count: usize,
+) -> Result<(), CharacterViewError> {
+    let mut seen = vec![false; operation_count];
+    for &index in indices {
+        let index = index as usize;
+        if index >= operation_count {
+            return Err(CharacterViewError::InvalidOperationIndex);
+        }
+        if seen[index] {
+            return Err(CharacterViewError::DuplicateOperationIndex);
+        }
+        seen[index] = true;
+    }
+    Ok(())
+}
+
 /// One compound CIR constituent with its frozen C1 provenance.
 #[derive(Debug, Clone)]
 pub struct CompoundConstituentCharacter {
@@ -248,22 +294,23 @@ pub enum CompoundSelectedArmCharacter {
     /// no second stored row exposed as an independent constituent.
     ConjugateRealification {
         seed: CompoundConstituentCharacter,
-        physical: CharacterRow,
+        block_trace: CharacterRow,
     },
     /// Two distinct CIR constituents and their direct physical sum.
     DistinctComponentSum {
         first: CompoundConstituentCharacter,
         second: CompoundConstituentCharacter,
-        physical: CharacterRow,
+        block_trace: CharacterRow,
     },
 }
 
 impl CompoundSelectedArmCharacter {
-    /// Complete physical selected-arm character row.
-    pub fn physical(&self) -> &CharacterRow {
+    /// Complete selected-arm block-trace row. Callers must match it to the
+    /// desired little-group Seitz operation set.
+    pub fn block_trace(&self) -> &CharacterRow {
         match self {
-            Self::ConjugateRealification { physical, .. }
-            | Self::DistinctComponentSum { physical, .. } => physical,
+            Self::ConjugateRealification { block_trace, .. }
+            | Self::DistinctComponentSum { block_trace, .. } => block_trace,
         }
     }
 }
@@ -291,11 +338,28 @@ impl SpinCharacterRow {
         operations: Vec<SpinSeitzOperation>,
         expected_dimension: usize,
     ) -> Result<Self, CharacterViewError> {
+        if expected_dimension == 0 {
+            return Err(CharacterViewError::InvalidDimension);
+        }
         if values.is_empty() || operations.is_empty() {
             return Err(CharacterViewError::MissingData);
         }
         if values.len() != operations.len() {
             return Err(CharacterViewError::LengthMismatch);
+        }
+        if values
+            .iter()
+            .any(|value| !value.re.is_finite() || !value.im.is_finite())
+            || operations.iter().any(|operation| {
+                operation
+                    .seitz
+                    .translation
+                    .iter()
+                    .any(|value| !value.is_finite())
+                    || operation.su2.iter().any(|value| !value.is_finite())
+            })
+        {
+            return Err(CharacterViewError::NonFiniteData);
         }
         let identity_indices =
             operations
@@ -606,6 +670,9 @@ impl IrrepRecord {
             return Err(CharacterViewError::MissingData);
         }
         let rotation_start = self._pir_rot_start as usize;
+        if rotation_start % 9 != 0 {
+            return Err(CharacterViewError::MisalignedStorage);
+        }
         let rotation_len = count
             .checked_mul(9)
             .ok_or(CharacterViewError::LengthMismatch)?;
@@ -724,7 +791,9 @@ impl IrrepRecord {
     /// The selected dimension is the authoritative exact CIR header value
     /// frozen in this record. The aligned scalar little-group characters are
     /// checked against it at their unique full-Seitz identity operation.
-    pub fn ordinary_scalar_selected_arm_row(&self) -> Result<CharacterRow, CharacterViewError> {
+    pub fn ordinary_scalar_selected_arm_block_trace(
+        &self,
+    ) -> Result<CharacterRow, CharacterViewError> {
         if self.spinor || self._cir_count > 0 {
             return Err(CharacterViewError::NotApplicable);
         }
@@ -736,7 +805,11 @@ impl IrrepRecord {
         if count == 0 {
             return Err(CharacterViewError::MissingData);
         }
-        let start = self._pir_rot_start as usize / 9;
+        let rotation_start = self._pir_rot_start as usize;
+        if rotation_start % 9 != 0 {
+            return Err(CharacterViewError::MisalignedStorage);
+        }
+        let start = rotation_start / 9;
         let end = start
             .checked_add(count)
             .ok_or(CharacterViewError::LengthMismatch)?;
@@ -755,7 +828,7 @@ impl IrrepRecord {
             .map(|(&real, &imag)| Complex64::new(real, imag))
             .collect::<Vec<_>>();
         let row = CharacterRow::from_parts(
-            RepresentationSpaceKind::SelectedArmPhysical,
+            RepresentationSpaceKind::SelectedArmBlockTrace,
             values,
             self.typed_pir_operations()?,
             Some(expected_dimension),
@@ -811,8 +884,8 @@ impl IrrepRecord {
                 .map(|&dimension| dimension as usize)
                 .sum(),
         };
-        let physical = CharacterRow::from_parts(
-            RepresentationSpaceKind::SelectedArmPhysical,
+        let block_trace = CharacterRow::from_parts(
+            RepresentationSpaceKind::SelectedArmBlockTrace,
             values,
             first.row.operations().to_vec(),
             Some(expected_dimension),
@@ -821,14 +894,14 @@ impl IrrepRecord {
             CompoundCharacterSemantics::ConjugateRealification => {
                 CompoundSelectedArmCharacter::ConjugateRealification {
                     seed: first,
-                    physical,
+                    block_trace,
                 }
             }
             CompoundCharacterSemantics::DistinctComponentSum => {
                 CompoundSelectedArmCharacter::DistinctComponentSum {
                     first,
                     second,
-                    physical,
+                    block_trace,
                 }
             }
         })
@@ -846,7 +919,10 @@ impl IrrepRecord {
             .compound_metadata()
             .ok_or(CharacterViewError::NotApplicable)?;
         if component >= 2 || self._cir_count != 2 {
-            return Err(CharacterViewError::InvalidOperationIndex);
+            return Err(CharacterViewError::InvalidComponent);
+        }
+        if self._cir_start % 2 != 0 {
+            return Err(CharacterViewError::MisalignedStorage);
         }
         let operations = self.typed_pir_operations()?;
         if operations.len() != self._cir_ops as usize {
@@ -856,7 +932,14 @@ impl IrrepRecord {
             .len()
             .checked_mul(2)
             .ok_or(CharacterViewError::LengthMismatch)?;
-        let raw_start = self._cir_start as usize + component * self._cir_ops as usize * 2;
+        let raw_start = (self._cir_start as usize)
+            .checked_add(
+                component
+                    .checked_mul(self._cir_ops as usize)
+                    .and_then(|value| value.checked_mul(2))
+                    .ok_or(CharacterViewError::LengthMismatch)?,
+            )
+            .ok_or(CharacterViewError::LengthMismatch)?;
         let raw_end = raw_start
             .checked_add(expected_values)
             .ok_or(CharacterViewError::LengthMismatch)?;
@@ -864,8 +947,15 @@ impl IrrepRecord {
             return Err(CharacterViewError::LengthMismatch);
         }
         let raw = &super::generated_data::CIR_COMPONENT_CHARS[raw_start..raw_end];
-        let cir_rotation_start =
-            (self._cir_start as usize / 2) * 9 + component * operations.len() * 9;
+        let cir_rotation_start = (self._cir_start as usize / 2)
+            .checked_mul(9)
+            .and_then(|value| {
+                component
+                    .checked_mul(operations.len())
+                    .and_then(|offset| offset.checked_mul(9))
+                    .and_then(|offset| value.checked_add(offset))
+            })
+            .ok_or(CharacterViewError::LengthMismatch)?;
         let cir_rotation_end = cir_rotation_start
             .checked_add(operations.len() * 9)
             .ok_or(CharacterViewError::LengthMismatch)?;
@@ -976,7 +1066,10 @@ impl IrrepRecord {
         {
             return Err(CharacterViewError::LengthMismatch);
         }
-        let mut seen = vec![false; spin_count];
+        validate_spinor_operation_indices(
+            &super::generated_data::SPIN_LG_OP_INDICES[index_start..index_end],
+            spin_count,
+        )?;
         let mut values = Vec::with_capacity(count);
         let mut operations = Vec::with_capacity(count);
         for index in index_start..index_end {
@@ -984,10 +1077,6 @@ impl IrrepRecord {
             if spin_index >= spin_count {
                 return Err(CharacterViewError::InvalidOperationIndex);
             }
-            if seen[spin_index] {
-                return Err(CharacterViewError::OperationOrderMismatch);
-            }
-            seen[spin_index] = true;
             let value_index = char_start + (index - index_start);
             let imag_index = imag_start + (index - index_start);
             values.push(Complex64::new(
@@ -1401,7 +1490,7 @@ mod compound_metadata_tests {
                     assert_eq!(irrep._scalar_selected_dim, 0);
                     compound += 1;
                     let view = irrep.compound_selected_arm_view().expect("compound row");
-                    let row = view.physical();
+                    let row = view.block_trace();
                     assert_eq!(row.len(), row.operations().len());
                     assert!(row.dimension() > 0);
                     let identities = row
@@ -1419,7 +1508,7 @@ mod compound_metadata_tests {
                     assert!(irrep._scalar_selected_dim > 0);
                     ordinary += 1;
                     let row = irrep
-                        .ordinary_scalar_selected_arm_row()
+                        .ordinary_scalar_selected_arm_block_trace()
                         .expect("ordinary scalar row");
                     assert_eq!(row.len(), row.operations().len());
                     assert_eq!(row.dimension(), irrep._scalar_selected_dim as usize);
@@ -1460,13 +1549,13 @@ mod compound_metadata_tests {
                 let (first, second, selected) = match &view {
                     super::CompoundSelectedArmCharacter::ConjugateRealification {
                         seed,
-                        physical,
-                    } => (seed, None, physical),
+                        block_trace,
+                    } => (seed, None, block_trace),
                     super::CompoundSelectedArmCharacter::DistinctComponentSum {
                         first,
                         second,
-                        physical,
-                    } => (first, Some(second), physical),
+                        block_trace,
+                    } => (first, Some(second), block_trace),
                 };
                 assert_eq!(first.row.len(), selected.len());
                 assert_eq!(first.dimension, metadata.cir_dimensions[0] as usize);
@@ -1477,7 +1566,7 @@ mod compound_metadata_tests {
                 references += 2;
                 assert_eq!(
                     selected.representation_space(),
-                    super::RepresentationSpaceKind::SelectedArmPhysical
+                    super::RepresentationSpaceKind::SelectedArmBlockTrace
                 );
                 assert_eq!(selected.len(), first.row.len());
                 for index in 0..selected.len() {
@@ -1514,7 +1603,7 @@ mod compound_metadata_tests {
         assert_eq!(
             sg76.compound_selected_arm_view()
                 .unwrap()
-                .physical()
+                .block_trace()
                 .dimension(),
             2
         );
@@ -1534,14 +1623,15 @@ mod compound_metadata_tests {
                 .expect("realification record");
             let view = irrep.compound_selected_arm_view().unwrap();
             let (first, selected) = match &view {
-                super::CompoundSelectedArmCharacter::ConjugateRealification { seed, physical } => {
-                    (seed, physical)
-                }
+                super::CompoundSelectedArmCharacter::ConjugateRealification {
+                    seed,
+                    block_trace,
+                } => (seed, block_trace),
                 super::CompoundSelectedArmCharacter::DistinctComponentSum {
                     first,
-                    physical,
+                    block_trace,
                     ..
-                } => (first, physical),
+                } => (first, block_trace),
             };
             let stored_second = irrep.compound_constituent_character(1).unwrap();
             for index in 0..selected.len() {
@@ -1574,8 +1664,8 @@ mod compound_metadata_tests {
                 super::CompoundSelectedArmCharacter::DistinctComponentSum {
                     first,
                     second,
-                    physical,
-                } => (first, second, physical),
+                    block_trace,
+                } => (first, second, block_trace),
                 _ => panic!("expected distinct component sum"),
             };
             for index in 0..selected.len() {
@@ -1637,7 +1727,7 @@ mod compound_metadata_tests {
             translation: [0.0, 0.0, 0.0],
         };
         let row = super::CharacterRow::from_parts(
-            super::RepresentationSpaceKind::SelectedArmPhysical,
+            super::RepresentationSpaceKind::SelectedArmBlockTrace,
             vec![Complex64::new(0.0, 0.0), Complex64::new(2.0, 0.0)],
             vec![nonidentity, identity],
             Some(2),
@@ -1647,7 +1737,7 @@ mod compound_metadata_tests {
         assert_eq!(row.get(1), Some(Complex64::new(2.0, 0.0)));
         assert!(matches!(
             super::CharacterRow::from_parts(
-                super::RepresentationSpaceKind::SelectedArmPhysical,
+                super::RepresentationSpaceKind::SelectedArmBlockTrace,
                 vec![Complex64::new(1.0, 0.0)],
                 vec![identity],
                 Some(2),
@@ -1656,7 +1746,7 @@ mod compound_metadata_tests {
         ));
         assert!(matches!(
             super::CharacterRow::from_parts(
-                super::RepresentationSpaceKind::SelectedArmPhysical,
+                super::RepresentationSpaceKind::SelectedArmBlockTrace,
                 vec![Complex64::new(1.0, 0.0), Complex64::new(1.0, 0.0)],
                 vec![identity, identity],
                 None,
@@ -1665,7 +1755,7 @@ mod compound_metadata_tests {
         ));
         assert!(matches!(
             super::CharacterRow::from_parts(
-                super::RepresentationSpaceKind::SelectedArmPhysical,
+                super::RepresentationSpaceKind::SelectedArmBlockTrace,
                 vec![Complex64::new(1.0, 0.0), Complex64::new(0.0, 0.0)],
                 vec![identity],
                 None,
@@ -1704,6 +1794,114 @@ mod compound_metadata_tests {
                 2,
             ),
             Err(super::CharacterViewError::LengthMismatch)
+        ));
+        assert!(matches!(
+            super::validate_spinor_operation_indices(&[0, 0], 1),
+            Err(super::CharacterViewError::DuplicateOperationIndex)
+        ));
+        assert!(matches!(
+            super::validate_spinor_operation_indices(&[1], 1),
+            Err(super::CharacterViewError::InvalidOperationIndex)
+        ));
+    }
+
+    #[test]
+    fn typed_character_rows_reject_nonfinite_data_and_bad_offsets() {
+        let identity = super::SeitzOperation {
+            rotation: [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            translation: [0.0, 0.0, 0.0],
+        };
+        let nonidentity = super::SeitzOperation {
+            rotation: [0, -1, 0, 1, 0, 0, 0, 0, 1],
+            translation: [0.0, 0.0, 0.0],
+        };
+        assert!(matches!(
+            super::CharacterRow::from_parts(
+                super::RepresentationSpaceKind::FullStarPir,
+                vec![Complex64::new(f64::NAN, 0.0), Complex64::new(1.0, 0.0)],
+                vec![identity, nonidentity],
+                None,
+            ),
+            Err(super::CharacterViewError::NonFiniteData)
+        ));
+        assert!(matches!(
+            super::CharacterRow::from_parts(
+                super::RepresentationSpaceKind::FullStarPir,
+                vec![Complex64::new(1.0, 0.0)],
+                vec![super::SeitzOperation {
+                    translation: [f64::INFINITY, 0.0, 0.0],
+                    ..identity
+                }],
+                None,
+            ),
+            Err(super::CharacterViewError::NonFiniteData)
+        ));
+        assert!(matches!(
+            super::CharacterRow::from_parts(
+                super::RepresentationSpaceKind::FullStarPir,
+                vec![Complex64::new(1.0, 0.0)],
+                vec![identity],
+                Some(0),
+            ),
+            Err(super::CharacterViewError::InvalidDimension)
+        ));
+        let spin_identity = super::SpinSeitzOperation {
+            seitz: identity,
+            su2: [1.0, 0.0, 0.0, 0.0],
+        };
+        assert!(matches!(
+            super::SpinCharacterRow::from_parts(
+                vec![Complex64::new(1.0, f64::INFINITY)],
+                vec![spin_identity],
+                1,
+            ),
+            Err(super::CharacterViewError::NonFiniteData)
+        ));
+        assert!(matches!(
+            super::SpinCharacterRow::from_parts(
+                vec![Complex64::new(1.0, 0.0)],
+                vec![super::SpinSeitzOperation {
+                    seitz: super::SeitzOperation {
+                        translation: [f64::NAN, 0.0, 0.0],
+                        ..identity
+                    },
+                    ..spin_identity
+                }],
+                1,
+            ),
+            Err(super::CharacterViewError::NonFiniteData)
+        ));
+        assert!(matches!(
+            super::SpinCharacterRow::from_parts(
+                vec![Complex64::new(1.0, 0.0)],
+                vec![super::SpinSeitzOperation {
+                    su2: [f64::NAN, 0.0, 0.0, 0.0],
+                    ..spin_identity
+                }],
+                1,
+            ),
+            Err(super::CharacterViewError::NonFiniteData)
+        ));
+
+        let ordinary = crate::irrep::query::irreps_of(1)
+            .iter()
+            .find(|irrep| !irrep.spinor)
+            .expect("ordinary scalar");
+        let mut malformed = *ordinary;
+        malformed._pir_rot_start += 1;
+        assert!(matches!(
+            malformed.ordinary_scalar_selected_arm_block_trace(),
+            Err(super::CharacterViewError::MisalignedStorage)
+        ));
+        let compound = crate::irrep::query::irreps_of(23)
+            .iter()
+            .find(|irrep| irrep.cir_component_count() > 0)
+            .expect("compound scalar");
+        let mut malformed = *compound;
+        malformed._cir_start += 1;
+        assert!(matches!(
+            malformed.compound_selected_arm_view(),
+            Err(super::CharacterViewError::MisalignedStorage)
         ));
     }
 }

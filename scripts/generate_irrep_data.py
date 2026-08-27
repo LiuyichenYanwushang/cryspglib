@@ -2082,6 +2082,14 @@ def _validate_compound_bindings(
         if component_count == 0:
             continue
         accepted += 1
+        if pir_rot_starts[i] % 9 != 0:
+            raise ValueError(
+                f"compound SG{sg[i]} {ml[i]!r} has misaligned PIR rotation offset"
+            )
+        if pir_trans_starts[i] != (pir_rot_starts[i] // 9) * 3:
+            raise ValueError(
+                f"compound SG{sg[i]} {ml[i]!r} has PIR rotation/translation offset mismatch"
+            )
         op_count = cir_comp_ops[i]
         if op_count <= 0 or op_count != char_counts[i]:
             raise ValueError(
@@ -2127,6 +2135,28 @@ def _validate_compound_bindings(
         raise ValueError(
             f"final compound binding census expected 672 accepted records, got {accepted}"
         )
+
+
+def _validate_pir_storage_alignment(
+        sg, ml, char_counts, pir_rots_flat, pir_rot_starts,
+        pir_trans_flat, pir_trans_starts):
+    """Require every scalar PIR operation row to share one flat offset."""
+    for i, op_count in enumerate(char_counts):
+        if pir_rot_starts[i] % 9 != 0:
+            raise ValueError(
+                f"scalar SG{sg[i]} {ml[i]!r} has misaligned PIR rotation offset"
+            )
+        expected_translation_start = (pir_rot_starts[i] // 9) * 3
+        if pir_trans_starts[i] != expected_translation_start:
+            raise ValueError(
+                f"scalar SG{sg[i]} {ml[i]!r} has PIR rotation/translation "
+                "offset mismatch"
+            )
+        if (pir_rot_starts[i] + op_count * 9 > len(pir_rots_flat)
+                or expected_translation_start + op_count * 3 > len(pir_trans_flat)):
+            raise ValueError(
+                f"scalar SG{sg[i]} {ml[i]!r} has incomplete PIR operation row"
+            )
 
 
 def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
@@ -2510,9 +2540,26 @@ def generate_rust_data(data):
         for i in range(len(ml))
     ]
     scalar_selected_dims = []
+    scalar_full_dims = []
     for i, (sg_num, ml_label) in enumerate(zip(sg, ml)):
-        if compound_resolutions[i] is not None:
+        resolved = compound_resolutions[i]
+        if resolved is not None:
             scalar_selected_dims.append(0)
+            entries = resolved["entries"]
+            if resolved["parts"][0] == resolved["parts"][1]:
+                full_dim = 2 * entries[0]["dim"]
+                if entries[1]["dim"] != entries[0]["dim"]:
+                    raise ValueError(
+                        f"realification SG{sg_num} {ml_label!r} has unequal "
+                        "constituent full dimensions"
+                    )
+            else:
+                full_dim = sum(entry["dim"] for entry in entries)
+            if full_dim <= 0:
+                raise ValueError(
+                    f"compound SG{sg_num} {ml_label!r} has invalid full dimension"
+                )
+            scalar_full_dims.append(full_dim)
             continue
         entry = cir_data.get((sg_num, ml_label))
         if entry is None:
@@ -2526,6 +2573,7 @@ def generate_rust_data(data):
                 f"authoritative selected dimension {little_dim}"
             )
         scalar_selected_dims.append(little_dim)
+        scalar_full_dims.append(entry["dim"])
 
     # PIR rotation matrices for H_ops → PIR order mapping (Wigner test)
     rots_map = data.get("rots_map", {})
@@ -2984,6 +3032,9 @@ def generate_rust_data(data):
 
     # The final arrays are now in data-Hall order.  Freeze and verify the
     # operation binding only after every reorder/padding mutation is complete.
+    _validate_pir_storage_alignment(
+        sg, ml, char_counts, pir_rots_flat, pir_rot_starts,
+        pir_trans_flat, pir_trans_starts)
     _validate_compound_bindings(
         sg, ml, char_counts, pir_rots_flat, pir_rot_starts,
         pir_trans_flat, pir_trans_starts, cir_comp_starts,
@@ -3108,23 +3159,38 @@ def generate_rust_data(data):
                 "disagrees with record dimension"
             )
 
-    # ── Verify identity characters for ALL scalar entries ──
-    bad_chars = []
-    for i in range(len(ml)):
-        cs = char_starts[i]
-        cc = char_counts[i]
-        if cc > 0 and cs < len(chars_flat):
-            chi0 = chars_flat[cs]
-            if chi0 <= 0.0:
-                bad_chars.append(f"  SG{sg[i]} {ml[i]}: χ(E)={chi0} (n_ops={cc})")
-    if bad_chars:
-        print(f"  ⚠ {len(bad_chars)} ENTRIES WITH NON-POSITIVE χ(E) AFTER PADDING:")
-        for line in bad_chars[:15]:
-            print(line)
-        if len(bad_chars) > 15:
-            print(f"  ... and {len(bad_chars) - 15} more")
-    else:
-        print(f"  ✓ All {len(ml)} scalar entries have positive χ(E)")
+    # ── Verify full scalar identity characters against authoritative dims ──
+    for i, (sg_num, ml_label) in enumerate(zip(sg, ml)):
+        op_count = char_counts[i]
+        pir_rot_start = pir_rot_starts[i]
+        pir_trans_start = pir_trans_starts[i]
+        identities = []
+        for op in range(op_count):
+            rotation = pir_rots_flat[pir_rot_start + op * 9:pir_rot_start + (op + 1) * 9]
+            translation = pir_trans_flat[pir_trans_start + op * 3:pir_trans_start + (op + 1) * 3]
+            if rotation == identity_rotation and all(
+                    abs(value - round(value)) <= 1e-8 for value in translation):
+                identities.append(op)
+        if len(identities) != 1:
+            raise ValueError(
+                f"scalar SG{sg_num} {ml_label!r} has "
+                f"{len(identities)} final Seitz identities"
+            )
+        char_index = char_starts[i] + identities[0]
+        if char_index >= len(chars_flat):
+            raise ValueError(
+                f"scalar SG{sg_num} {ml_label!r} has out-of-bounds identity character"
+            )
+        value = chars_flat[char_index]
+        expected = scalar_full_dims[i]
+        if (not math.isfinite(value) or value <= 0.0
+                or abs(value - round(value)) > 1e-8
+                or abs(value - expected) > 1e-8):
+            raise ValueError(
+                f"scalar SG{sg_num} {ml_label!r} identity character {value} "
+                f"does not equal authoritative full dimension {expected}"
+            )
+    print(f"  ✓ All {len(ml)} scalar identity characters match authoritative dimensions")
 
     lines = []
     lines.append("// Auto-generated from iso_data files by scripts/generate_irrep_data.py")
@@ -3346,7 +3412,6 @@ def generate_rust_data(data):
         mag_iso_counts.append(max(0, e - s))
 
     scalar_records = []  # list of dicts with all the generated fields
-    dim_warnings = 0
     ordinary_scalar_count = 0
     for i in range(len(ml)):
         ml_label = ml[i]
@@ -3369,21 +3434,20 @@ def generate_rust_data(data):
         char_s = char_starts[i]
         char_c = char_counts[i]
 
-        # Determine dimension from the final character table (which already
-        # went through _lookup_chars fallback matching), so dim and the
-        # written CHARACTERS are guaranteed consistent.
-        # Priority: χ(E) from CHARACTERS > PIR header > image_dimension > error
+        # Dimensions are authoritative source metadata: exact CIR headers for
+        # ordinary rows, or the resolved CIR constituent dimensions assembled
+        # according to the frozen compound semantics. Character values are
+        # checked against this value below, never used to define it.
         pir_d = pir_dim_map.get((sg_num, ml_label))
-        final_chars = chars_flat[char_s:char_s + char_c] if char_c > 0 else []
-        if final_chars:
-            dim = int(round(final_chars[0]))
-        elif pir_d is not None and pir_d > 0:
-            dim = pir_d
-        elif 1 <= img_code <= len(img_dims):
-            dim = img_dims[img_code - 1]
-        else:
+        dim = scalar_full_dims[i]
+        if dim <= 0:
             raise ValueError(
-                f"Cannot determine dim for SG{sg_num} {ml_label}, img={img_name}"
+                f"authoritative dimension is invalid for SG{sg_num} {ml_label!r}"
+            )
+        if pir_d is not None and pir_d != dim:
+            raise ValueError(
+                f"PIR/CIR authoritative dimension mismatch for SG{sg_num} "
+                f"{ml_label!r}: PIR={pir_d}, CIR={dim}"
             )
 
         compound = compound_resolutions[i] is not None
@@ -3407,14 +3471,6 @@ def generate_rust_data(data):
                     f"{selected_dim}×{cir_entry['star_count']}"
                 )
 
-        # Cross-check: warn if PIR header dim disagrees with final χ(E)
-        if pir_d is not None and final_chars:
-            chi_e = int(round(final_chars[0]))
-            if pir_d != chi_e:
-                print(f"  WARNING dim mismatch: SG{sg_num} {ml_label}: "
-                      f"PIR header dim={pir_d}, χ(E)={final_chars[0]}, img={img_name}")
-                dim_warnings += 1
-
         mat_s = mat_starts[i]
         mat_c = mat_counts[i]
         scalar_records.append({
@@ -3436,8 +3492,6 @@ def generate_rust_data(data):
             "spin_extra_c": 0,
         })
 
-    if dim_warnings > 0:
-        print(f"  ⚠ {dim_warnings} irreps have PIR header dim ≠ χ(E) (fixed to χ(E))")
     if ordinary_scalar_count != 4105:
         raise ValueError(
             f"ordinary scalar CIR selected-dimension census expected 4105, got "
