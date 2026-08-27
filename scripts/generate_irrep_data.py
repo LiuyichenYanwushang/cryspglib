@@ -254,6 +254,31 @@ def _round_char(x, eps=1e-8):
     return round(x, 10)
 
 
+def _format_rust_f64(value):
+    """Format a finite float as a Rust ``f64`` literal without changing it.
+
+    Python's default floating-point format may use scientific notation.  Do
+    not trim trailing zeroes from the resulting string: in a value such as
+    ``1.047197638e-10`` the final zero is part of the exponent, not redundant
+    decimal padding.  Trimming it would amplify harmless 1e-10 phase noise to
+    1e-1 in the generated database.
+    """
+    if not math.isfinite(value):
+        raise ValueError(f"cannot emit non-finite Rust f64 literal: {value!r}")
+    if abs(value) < 1e-15:
+        return "0.0"
+    if abs(value - round(value)) < 1e-12:
+        return f"{int(round(value))}.0"
+
+    literal = f"{value:.10}"
+    parsed = float(literal)
+    if not math.isclose(parsed, value, rel_tol=5e-10, abs_tol=1e-15):
+        raise AssertionError(
+            f"Rust f64 formatting changed {value!r} to {literal!r} ({parsed!r})"
+        )
+    return literal
+
+
 def is_int_4(s):
     """Check if s is a small integer fitting Fortran I3 format (irtranslation)."""
     try:
@@ -2754,16 +2779,7 @@ def generate_rust_data(data):
     # Write in chunks of 10 values per line for readability.
     # Always produce valid f64 literals (integer values need ".0" suffix).
     def _fmt_char(v):
-        if abs(v) < 1e-15:
-            return "0.0"
-        # If it's effectively an integer, use "N.0" format
-        if abs(v - round(v)) < 1e-12:
-            return f"{int(round(v))}.0"
-        # Otherwise keep significant digits, ensuring "0." prefix for fractions < 1
-        s = f"{v:.10}".rstrip("0")
-        if s == "-0." or s == "0.":
-            s = s + "0"
-        return s
+        return _format_rust_f64(v)
 
     for chunk_start in range(0, len(chars_flat), 10):
         chunk = chars_flat[chunk_start:chunk_start + 10]

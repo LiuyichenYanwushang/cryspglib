@@ -1449,10 +1449,30 @@ mod tests {
         let mut failures = Vec::new();
         let mut kpoint_count = 0usize;
         let mut corep_count = 0usize;
+        let amplified_noise_targets = [
+            std::f64::consts::PI / 30.0,
+            std::f64::consts::PI / (10.0 * 3.0_f64.sqrt()),
+            std::f64::consts::PI / 15.0,
+            std::f64::consts::PI / 10.0,
+            3.0_f64.sqrt() * std::f64::consts::PI / 10.0,
+            std::f64::consts::PI / 5.0,
+        ];
+        let mut amplified_noise_count = 0usize;
         for &uni in &unis {
             match magnetic_irrep_summary_by_uni(uni) {
                 Ok(summary) => {
                     assert_well_formed_summary(&summary);
+                    amplified_noise_count += summary
+                        .kpoints
+                        .iter()
+                        .flat_map(|kpoint| &kpoint.coreps)
+                        .flat_map(|corep| &corep.characters)
+                        .filter(|value| {
+                            amplified_noise_targets
+                                .iter()
+                                .any(|target| (value.abs() - target).abs() < 2e-6)
+                        })
+                        .count();
                     kpoint_count += summary.kpoints.len();
                     corep_count += summary
                         .kpoints
@@ -1464,11 +1484,12 @@ mod tests {
             }
         }
         eprintln!(
-            "magnetic summary audit: success={} failure={} kpoints={} coreps={}",
+            "magnetic summary audit: success={} failure={} kpoints={} coreps={} amplified_noise={}",
             unis.len() - failures.len(),
             failures.len(),
             kpoint_count,
-            corep_count
+            corep_count,
+            amplified_noise_count
         );
         let mut categories = std::collections::BTreeMap::<&str, usize>::new();
         for (_, error) in &failures {
@@ -1518,6 +1539,10 @@ mod tests {
             failures.is_empty(),
             "{} UNI summaries failed",
             failures.len()
+        );
+        assert_eq!(
+            amplified_noise_count, 0,
+            "amplified exponent noise propagated into magnetic summaries"
         );
     }
 

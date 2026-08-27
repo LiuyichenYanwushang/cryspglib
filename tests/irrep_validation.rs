@@ -420,6 +420,55 @@ fn all_crystal_systems_have_data() {
     }
 }
 
+/// Regression for the generated-float exponent corruption fixed in 2026-08.
+///
+/// The exact SG 144 A2 CIR characters are real.  During Hall alignment they
+/// acquire only about 1e-10 numerical phase noise.  The old generator changed
+/// a literal ending in `e-10` to `e-1`, creating a spurious O(0.1) imaginary
+/// character that then propagated into magnetic corepresentation summaries.
+#[test]
+fn sg144_a2_little_characters_keep_tiny_phase_noise() {
+    let a2 = irreps_of(144)
+        .iter()
+        .find(|ir| !ir.spinor && ir.ml == "A2")
+        .expect("SG 144 A2 scalar irrep");
+    let (real, imag) = a2.scalar_little_characters();
+
+    assert_eq!(real, &[1.0, -1.0, 1.0]);
+    assert_eq!(imag.len(), 3);
+    assert!(
+        imag.iter().all(|value| value.abs() < 1e-8),
+        "SG 144 A2 has spurious imaginary characters: {imag:?}"
+    );
+}
+
+/// The 2026-08 formatter bug amplified scientific-notation exponents ending
+/// in zero and produced six recognizable O(0.1) value families.  Finite-group
+/// characters are algebraic, so values numerically equal to these rational
+/// multiples of the transcendental number pi are not valid database entries.
+#[test]
+fn generated_characters_have_no_amplified_exponent_noise() {
+    let targets = [
+        std::f64::consts::PI / 30.0,
+        std::f64::consts::PI / (10.0 * 3.0_f64.sqrt()),
+        std::f64::consts::PI / 15.0,
+        std::f64::consts::PI / 10.0,
+        3.0_f64.sqrt() * std::f64::consts::PI / 10.0,
+        std::f64::consts::PI / 5.0,
+    ];
+    let suspicious = SCALAR_LITTLE_CHARS_IMAG
+        .iter()
+        .chain(CIR_COMPONENT_CHARS.iter())
+        .filter(|value| {
+            targets
+                .iter()
+                .any(|target| (value.abs() - target).abs() < 2e-6)
+        })
+        .count();
+
+    assert_eq!(suspicious, 0, "amplified exponent-noise characters remain");
+}
+
 // ==========================================================================
 // BC 标签 vs ML 标签交叉验证（已知 convention 差异）
 // ==========================================================================

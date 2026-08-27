@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 和不变量可被公开字段绕过的问题。每个阶段必须全量测试、clippy 零警告、git
 提交，并通过独立 reviewer 的极简严格复审后才算完成。
 
-已完成阶段（提交 `dad5dd8` → `ee9286a`，HEAD `ee9286a`）：
+已完成阶段（提交 `dad5dd8` → `ee9286a`；当前 HEAD `a84f160`）：
 
 1. `Crystal::new` / `with_magnetic` / `SymmetryOps::from_parallel*` 全部返回
    `Result`，不再 panic；README 与 doctest 同步。
@@ -38,9 +38,8 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo clippy -p cryspglib --all-targets --release -- -D warnings
 ```
 
-结果为 217 lib tests + 集成 tests 全绿、3 ignored；26 doctests 全绿；
-clippy 零警告。`src/irrep/mod.rs` 的模块顺序调整是会话开始前就存在的未提交
-改动，不属于上述阶段，禁止顺手提交。
+当前结果为 222 lib tests + 61 integration tests 全绿、3 ignored；26 doctests
+全绿；clippy 零警告。
 
 ### 2026-08-26 有限域类型化
 
@@ -90,7 +89,7 @@ corep/summary 产品化。每次全扫、根因确认和修复后都必须更新
 | 正式特征标表 | 已提供“每个磁操作一列”和“每个共轭类一列”两种 Markdown 正式表格；不再截断到前 6 个特征标，并附操作/列标签图例。入口为 `format_magnetic_character_table` 与 `format_magnetic_character_table_by_class`。 |
 | 目标磁群回归 | `BNS 128.406` 与 `BNS 52.318` 已不再返回“计算不支持”；`128.406@Z` 稳定给出维数 `2,2,2,4` 的四个 coreps，正式操作表包含 `g1..g16` 全部 16 列。 |
 | CIR 数据生成 | CIR 解析器支持复合反幺正矩阵：`11,202` 个原始 coreps 中复合反幺正项 `672` 个、拒绝 `0`；`8,388` 个可映射到磁数据库的 coreps 中未映射 `0`。 |
-| 验证 | 全 `1651` UNI release summary 审计：成功 `1651`、失败 `0`、`10,390` k 点、`54,717` coreps；常规 release 测试：通过 `254`、失败 `0`、忽略 `3`，另有 doc-tests `26/26` 通过；`cargo clippy -p cryspglib --all-targets --release -- -D warnings` 为零警告。 |
+| 验证 | 全 `1651` UNI release summary 审计：成功 `1651`、失败 `0`、`10,390` k 点、`54,717` coreps、π 型放大噪声 `0`；常规 release 测试：通过 `283`、失败 `0`、忽略 `3`，另有 doc-tests `26/26` 通过；`cargo clippy -p cryspglib --all-targets --release -- -D warnings` 为零警告。 |
 
 必须保留以下语义边界：
 
@@ -977,17 +976,21 @@ Hall setting 坐标轴排列 → 从 Hall 纯平移自动推导；(3) `1e-9` 对
 ### CIR_data.txt 格式
 
 ```
-seq sg "name" "label" dim kx ky kz kd
-<16-int complex matrix line>  ← 每个 operation 一行
-<16-int complex matrix line>  ← 第二行（和第一行一起编码复矩阵）
-(re, im)                      ← complex character
-...                            ← 重复（如果有更多 operation）
+seq sg "symbol" "label" dim irtype kcount pmkcount opcount
+<kcount × 16 integers>        ← CIR 的 k-star augmented 4×4 records
+<16-int Seitz operation>      ← augmented 4×4 {R|t}
+<optional 4-int irtranslation>← 仅 non-special k vector
+<dim² (re,im) values>         ← complex IR matrix, row-major
+...                           ← 对每个 operation 重复
 ```
 
-- 第一行 16 个整数是复矩阵的编码（ISOTROPY 特有格式）
-- 第二行 16 个整数也是复矩阵的一部分
-- 每个 operation 由 2 行矩阵 + 1 行字符组成
-- CIR 无 irtranslation（字符不依赖 translation）
+- CIR 跳过 `kcount × 16` 个 k-vector 整数；PIR 对应跳过
+  `pmkcount × 16`。这一区别由官方 `CIR_data.f` / `PIR_data.f` 明确定义。
+- operation 的 16 个整数是 augmented Seitz matrix，不是复表示矩阵编码。
+- CIR 也可能有 `irtranslation`；官方 reader 通过 k-vector record 是否含自由参数
+  判定 special/non-special，而不是假设 CIR 永远没有 translation 行。
+- 文件存储的是 `dim²` 个表示矩阵元素；character 是生成器对对角元求 trace 得到的，
+  不是文件中的独立 character 行。
 
 ### spglib Hall vs ISOTROPY 的 translation 差异
 
@@ -1002,6 +1005,185 @@ seq sg "name" "label" dim kx ky kz kd
 重排后 PIR 和 CIR 在同一 Hall 位置的字符来自**同一个 ISOTROPY operation**
 （因为 mapping[h] 唯一定义了 ISOTROPY 索引）。因此 PIR = CIR_sum 在排列后
 仍然成立。CIR 展开只影响额外位置（CIR 源数据没有的 translation 变体）。
+
+### 2026-08-27 角色数据审计：π 型异常已修复
+
+本节记录 Rustb `calculate_irrep` 接入过程中对 cryspglib 角色数据做的全量审计。
+π 型异常已经定位到生成 Rust literal 的最后一步，并已从根源修复。后续修改生成器、
+CIR/PIR 映射或角色拟合时仍必须把本节的回归作为独立 gate；不得通过按数值模式
+替换生成数组来掩盖数据问题。
+
+#### 审计范围与已确认的健康边界
+
+- 扫描全部 230 个空间群中的 `4777` 个 scalar record 和 `3611` 个 spinor record，
+  共 `8388` 个 irrep record；
+- 扫描全部 `1651 / 1651` 个 magnetic summary，共 `972786` 个 summary
+  character field；
+- 所有 magnetic summary 均可构造，未发现 NaN、Inf 或负零；
+- 普通 PIR `characters()`、`SCALAR_LITTLE_CHARS_REAL` 和
+  `SPIN_IMAG_CHARS` 中没有下述 π 型异常；异常集中在 CIR 派生的复角色数据。
+
+修复前的问题不是整个数据库普遍损坏，而是集中在
+`SCALAR_LITTLE_CHARS_IMAG`、`CIR_COMPONENT_CHARS` 及其少量下游 summary；
+修复后同一全量扫描中 π 型字段为 `0`。
+
+#### 已修复：CIR 复角色中的 758 个 π 型数值
+
+修复前全量扫描发现 `758` 个静态字段接近以下数值：
+
+```text
+π/30, π/(10√3), π/15, π/10, √3π/10, π/5
+```
+
+它们的分布为：
+
+| 字段 | 数值模式 | 数量 | 涉及空间群 |
+|------|----------|-----:|------------|
+| `CIR_COMPONENT_CHARS` | `π/30` | 88 | 144, 145, 152, 154, 169, 170, 178, 179 |
+| `CIR_COMPONENT_CHARS` | `π/10` | 68 | 146, 148, 161, 167 |
+| `CIR_COMPONENT_CHARS` | `π/5` | 8 | 161, 167 |
+| `CIR_COMPONENT_CHARS` | `√3π/10` | 8 | 167 |
+| `SCALAR_LITTLE_CHARS_IMAG` | `π/30` | 200 | 144, 145, 151, 152, 153, 154, 171, 172, 178, 179, 180, 181 |
+| `SCALAR_LITTLE_CHARS_IMAG` | `π/(10√3)` | 8 | 178, 179 |
+| `SCALAR_LITTLE_CHARS_IMAG` | `π/15` | 4 | 178, 179 |
+| `SCALAR_LITTLE_CHARS_IMAG` | `π/10` | 354 | 146, 148, 155, 160, 161, 166, 167 |
+| `SCALAR_LITTLE_CHARS_IMAG` | `π/5` | 20 | 155, 160, 166, 167 |
+
+代表性原始值包括：
+
+```text
+0.1047197638   ≈ π/30
+0.1813809141   ≈ π/(10√3)
+0.2094395276   ≈ π/15
+0.3141594877   ≈ π/10
+0.5441430822   ≈ √3π/10
+0.6283189753   ≈ π/5
+```
+
+这类值不是 `0.70711 ≈ 1/√2` 或 `1.73206 ≈ √3` 那样的低精度代数数。
+有限 little co-group（包括具有有限因子的投影表示）的角色是根单位的有限和，
+应属于 cyclotomic 代数数域；精确包含 π 的超越数不能是正确角色。因此这批值
+高度疑似将相位角、记录边界或其他编码字段误当成了复数虚部。
+
+异常不是只存在于未使用的静态表。修复前有 `40` 个字段传播进公开 magnetic
+summary：
+
+| UNI | BNS | 受影响模式 |
+|----:|-----|------------|
+| 1300 | 161.70 | `π/5` |
+| 1302 | 161.72 | `π/5` |
+| 1335 | 167.105 | `π/10` |
+| 1338 | 167.108 | `√3π/10` |
+| 1344 | 169.114 | `π/15` |
+| 1346 | 169.116 | `π/15` |
+| 1348 | 170.118 | `π/15` |
+| 1350 | 170.120 | `π/15` |
+| 1389 | 178.159 | `π/30` |
+| 1395 | 179.165 | `π/30` |
+
+本次修复没有把这些数按“最接近常量”snap 到猜测值，而是恢复官方 archive、
+复现完整生成管线并修正造成数量级放大的 formatter。修复后恰好只有上述
+`586 + 172 = 758` 个字段变化，其他所有 `f64` 生成数组逐项不变。
+
+#### 根因：`rstrip("0")` 破坏科学计数法指数
+
+以 SG144 A2 为最小见证，Hall translation 与 ISOTROPY translation 的十进制表示
+分别为 `1/3` 与 `0.3333333333`。相位对齐后正确的虚部只是浮点噪声：
+
+```text
+1.0471976378421116e-10
+```
+
+旧 `_fmt_char` 先得到字符串 `"1.047197638e-10"`，随后对整个字符串调用
+`.rstrip("0")`，把指数末尾的零也删除成 `"1.047197638e-1"`。因此正常的
+`O(10^-10)` 相位噪声被放大九个数量级，表现为 `0.1047197638 ≈ π/30`。
+所有 π/10、π/5 及根式倍数家族都来自同一字符串错误。
+
+修复后的 `_format_rust_f64` 不再裁剪格式化字符串，并将 literal 重新解析做
+`math.isclose` 往返校验；任何未来的数量级破坏会在生成阶段直接失败。
+`tests/irrep_validation.rs::sg144_a2_little_characters_keep_tiny_phase_noise`
+固定了数据库端的最小回归。
+
+#### 官方源数据与格式核验
+
+2026-08-27 从官方 ISO-IR 页面恢复 2022 computer-readable archives，并对照归档
+自带的 Fortran reader，而不是根据生成数组反推格式：
+
+| archive | SHA-256 |
+|---------|---------|
+| `PIR_data.zip` | `e909a4f0121688b0590ccaec10b0276171bc24619cf7eb562ba441268c01e121` |
+| `CIR_data.zip` | `f4edcb2852b83a86d1b58f29fb862d9124a227cfc90f9e1ae17d2c97585264e6` |
+| `iso.zip` | `568667bfc8027095537d642297b319c872d00016b868143c666f90d5931d9f7b` |
+
+官方 `pir_data_constant` / `cir_data_constant` 只接受 25 个代数常数，原始 archive
+中不存在上述 π 型 token。官方读取逻辑也确认了本文件上方更正后的 cursor 语义；
+因此解析器不是本次 758 个字段异常的根因。
+
+#### P2：compound CIR record 缺少机器可读的组合语义
+
+当前 compound record 主要依赖 Miller–Love 标签和两个 component 数组，未显式
+记录它属于哪一种构造：
+
+```rust
+enum CompoundSemantics {
+    ConjugateRealification, // χ = 2 Re χ₁
+    DistinctComponentSum,   // χ = χ₁ + χ₂
+    StarInduced,
+}
+```
+
+实际数据中第二个 component 有时等于第一个、有时是其共轭、有时受 source/Hall
+约定污染，仅凭数值关系不能稳健分类。Rustb 目前对重复 constituent 标签采用
+`2 Re(first)`，修复了 SG199 `P2P2` 和 SG220 `P1P1/P2P2/P3P3` 等已由显式
+对称模型验证的记录；但这是 consumer-side 规则，不等价于上游数据已经自描述。
+
+生成数据最终应显式保存 compound semantics、constituent identity 和 selected-arm
+映射，调用者不应再从字符串标签或 component 数值猜测物理含义。
+
+#### P2：full-star 与 selected-arm/little-group 数据共用一个 record
+
+同一个 `IrrepRecord` 同时暴露 `dim`、PIR `characters()`、
+`scalar_little_characters()` 和 `cir_component_chars()`，但这些字段可能分别属于：
+
+- 完整 k-star 的诱导表示；
+- 指定 star arm；
+- fixed-k little-group 表示。
+
+若直接把 full-star `dim` 或 trace 当作 little-group corep 数据，会得到分数
+multiplicity 或无法标记的 `???`。SG76 的 R 点 compound record 曾出现这一类
+false negative。长期应拆分或类型化为 `FullStarIrrep`、`SelectedArmIrrep` 和
+`LittleGroupIrrep`，至少也要为每个字段记录对应空间和维数。
+
+#### P2：spinor source operation mapping 仍不完整
+
+全 UNI 探针中有 `5753` 次潜在 source-character 映射因
+`flat_operation_miss` 进入 magnetic-summary fallback，且这些缺口全部来自 spinor
+路径。当前 fallback 能保持 summary 可用，但这说明 spinor source operation、
+data-Hall operation 与 summary column 之间仍缺少完整、显式、可验证的双射。
+
+不要把 fallback 成功当作上游 mapping 已正确。应为每个 character column 保存
+稳定的 operation identity，并对 source→Hall 映射做全量 bijection gate。
+
+#### P2：其他已知的局部数据异常
+
+- SG219 `L3L3` / grey SG79 P 点仍有 rank/coimage 异常；
+- 一些 compound CIR 的第二行带有 star-arm/source-setting convention 污染；
+- 生成数组混用五位小数、九位小数和较高精度 `f64`。Rustb 已对白名单中的
+  `1/2`、`1/√2`、`√3/2`、`√2`、`√3`、`2√2` 做 consumer-side 精确化，
+  但上游最好保存 exact cyclotomic/algebraic 表达式或至少保存来源与误差等级。
+
+#### 验收状态与后续 gate
+
+- 已恢复并固定官方 archive 版本与哈希；官方 Fortran reader 已用于核验 parser
+  cursor 和矩阵语义。
+- formatter 修复后完整再生成只改变 758 个已知污染字段；静态 π 型扫描为零。
+- SG144 A2 最小回归和 literal 往返 gate 已加入。
+- 全 `1651` UNI summary gate 结果为 `success=1651`、`failure=0`、
+  `kpoints=10390`、`coreps=54717`、`amplified_noise=0`。
+- 仍需长期加强 `χ(E)=dim`、`|χ(g)|≤dim`、角色正交性、整数 multiplicity、
+  cyclotomic 可识别性，以及 compound constituent/selected-arm 的机器可读语义。
+- 独立显式 Hamiltonian/orbit oracle 仍应覆盖 SG161、167、169、170、178、179
+  和已知 SG219 case；这些 P2 项与本次 formatter 根因不同，不应混为同一修复。
 
 ---
 
@@ -1338,20 +1520,20 @@ bash scripts/regenerate_all.sh
 
 ---
 
-## Test suite（2026-08-10 release 基线）
+## Test suite（2026-08-27 release 基线）
 
 Core irrep diagnostics pass as of 2026-07-03.  The full spinor Wigner sweep reports
 `spinor_complex_ok = 21216` with no `spinor_complex_fail`.
 
 | Binary / Location | 当前结果 | Description |
 |-------|-------|-------------|
-| `src/lib.rs`（全部 unit modules） | `196 passed / 3 ignored` | Wigner、BCS、API、输入契约、setting 与磁群回归 |
-| `tests/irrep_validation.rs` | `31 passed` | Full-sweep validation: every SG has irreps, dimensions match, labels well-formed, k-vectors positive |
-| `tests/magnetic_integration.rs` | `16 passed` | Magnetic structure analysis and Result/error contracts end-to-end |
+| `src/lib.rs`（全部 unit modules） | `222 passed / 3 ignored` | Wigner、BCS、API、输入契约、setting 与磁群回归 |
+| `tests/irrep_validation.rs` | `33 passed` | Full-sweep validation: every SG has irreps, dimensions match, labels well-formed, k-vectors positive, generated characters contain no amplified exponent noise |
+| `tests/magnetic_integration.rs` | `17 passed` | Magnetic structure analysis and Result/error contracts end-to-end |
 | `tests/magnetic_symmetry_coverage.rs` | `6 passed` | 1651 UNI / 4479 setting group algebra, round-trip and ambiguity policy |
 | `tests/{cof3,crps4,la2nio4,bcs_corep_validation}.rs` | `5 passed` | Reference material cases |
 | doc-tests | `26 passed` | Public Rust API examples compile and run |
-| **常规 release 总计** | **`254 tests + 26 doctests passed; 3 ignored`** | 另行执行的 1651 summary audit 也通过 |
+| **常规 release 总计** | **`283 tests + 26 doctests passed; 3 ignored`** | 另行执行的 1651 summary audit 也通过，`amplified_noise=0` |
 
 Key diagnostic tests (most useful for Wigner debugging):
 
