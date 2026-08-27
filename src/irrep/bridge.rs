@@ -11,10 +11,12 @@ use crate::irrep::query::{IsotropyEntry, MagneticIsotropyEntry};
 use crate::irrep::types::IrrepRecord;
 use crate::irrep::types::generated_data::SG_DATA_HALL;
 
-/// Get H_ops in the same order as the stored irrep data (CHARACTERS, PIR_ROTS, etc.)
+/// Get H_ops in the final Hall setting used by PIR operation metadata.
 ///
 /// For most SGs this matches the spglib default Hall setting.
-/// Use this to avoid runtime rotation-matching when the data and H_ops are aligned.
+/// This is suitable for operation mapping. Legacy [`IrrepRecord::characters`]
+/// values may still refer to source Seitz representatives and must not be
+/// paired with these operations as a phase-covariant character table.
 pub fn canonical_hall_ops(sg: u8) -> Result<SymmetryOps, crate::SymError> {
     if sg == 0 || sg > 230 {
         return Err(crate::SymError::SpacegroupSearchFailed);
@@ -54,7 +56,11 @@ impl SpaceGroup {
             .collect()
     }
 
-    /// Formatted character table at the given k-point coordinates.
+    /// Formatted, operation-aware typed character table at the given k-point.
+    ///
+    /// Each family is built from its typed selected-arm view and columns are
+    /// matched by complete Seitz operation, preserving complex character
+    /// values. Typed-data failures are rendered as an explicit diagnostic.
     pub fn character_table(&self, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
         query::format_character_table(self.spacegroup_number as u8, kx, ky, kz, kd)
     }

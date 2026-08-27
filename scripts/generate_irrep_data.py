@@ -3253,8 +3253,8 @@ def generate_rust_data(data):
     lines.append("")
 
     # ── PIR rotation matrices ──
-    lines.append("/// Rotation matrices for PIR operations, 9 i32 per op, same order as CHARACTERS.")
-    lines.append("/// Used to build H_ops → PIR index mapping for the Wigner test.")
+    lines.append("/// Rotation matrices for final-Hall PIR operation metadata, 9 i32 per op.")
+    lines.append("/// Used to build H_ops → PIR index mappings; not a phase-aligned pair with CHARACTERS.")
     lines.append(f"pub static PIR_ROTS: [i32; {len(pir_rots_flat)}] = [")
     for chunk_start in range(0, len(pir_rots_flat), 9):
         chunk = pir_rots_flat[chunk_start:chunk_start + 9]
@@ -3264,8 +3264,8 @@ def generate_rust_data(data):
     lines.append("")
 
     # ── PIR translation vectors ──
-    lines.append("/// Translation vectors for PIR operations, 3 f64 per op, same order as CHARACTERS and PIR_ROTS.")
-    lines.append("/// Used with PIR_ROTS for full Seitz matching (rotation + translation).")
+    lines.append("/// Translation vectors for final-Hall PIR operation metadata, 3 f64 per op.")
+    lines.append("/// Used with PIR_ROTS for Seitz operation mapping; not phase-aligned with CHARACTERS.")
     lines.append(f"pub static PIR_TRANS: [f64; {len(pir_trans_flat)}] = [")
     for chunk_start in range(0, len(pir_trans_flat), 3):
         chunk = pir_trans_flat[chunk_start:chunk_start + 3]
@@ -3379,9 +3379,9 @@ def generate_rust_data(data):
     lines.append("];")
 
     # ── SG_DATA_HALL: canonical Hall number per SG ──
-    lines.append("/// Hall number used for data ordering for each SG (1-230).")
-    lines.append("/// Use `SymmetryOps::from_database(SG_DATA_HALL[sg])` to get H_ops")
-    lines.append("/// in the same order as CHARACTERS / PIR_ROTS / PIR_TRANS.")
+    lines.append("/// Hall number identifying the final-Hall operation metadata for each SG (1-230).")
+    lines.append("/// Use `SymmetryOps::from_database(SG_DATA_HALL[sg])` to get mapping H_ops.")
+    lines.append("/// Legacy CHARACTERS may retain source Seitz representatives and are not phase-aligned by this table.")
     lines.append(f"pub static SG_DATA_HALL: [u16; 231] = [")
     lines.append("    0,  // dummy for index 0")
     for s in range(1, 231):

@@ -14,7 +14,7 @@
 //! // Get all unique k-points with their labels and coordinates
 //! let kpoints = kpoints_of(221);
 //!
-//! // Print a markdown-style character table for the Γ point
+//! // Print an operation-aware typed character table for the Γ point
 //! println!("{}", format_character_table(221, 0, 0, 0, 1));
 //!
 //! // Get symmetry operations {R|t} for the space group
@@ -35,6 +35,8 @@
 //! - [`IrrepRecord::is_point()`] — whether this is a special k-point
 
 use std::collections::BTreeMap;
+
+use num_complex::Complex64;
 
 use super::preamble;
 use super::types::generated_data::*;
@@ -140,10 +142,146 @@ pub fn kpoints_of(sg: u8) -> Vec<KPointSummary> {
         .collect()
 }
 
-/// Format a character table for a specific k-point as a markdown-style table.
+const SEITZ_COLUMN_QUANTIZATION: f64 = 1.0e8;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct SeitzColumnKey {
+    rotation: [i32; 9],
+    translation: [i64; 3],
+}
+
+#[derive(Debug)]
+struct TypedCharacterTableRow {
+    irrep: &'static IrrepRecord,
+    entries: BTreeMap<SeitzColumnKey, (SeitzOperation, Complex64)>,
+}
+
+fn seitz_column_key(operation: &SeitzOperation) -> Result<SeitzColumnKey, String> {
+    let mut translation = [0_i64; 3];
+    for (index, &value) in operation.translation.iter().enumerate() {
+        let quantized = value * SEITZ_COLUMN_QUANTIZATION;
+        if !quantized.is_finite() || quantized.abs() > i64::MAX as f64 {
+            return Err("non-finite or unrepresentable Seitz translation".to_string());
+        }
+        translation[index] = quantized.round() as i64;
+    }
+    Ok(SeitzColumnKey {
+        rotation: operation.rotation,
+        translation,
+    })
+}
+
+fn insert_typed_character(
+    entries: &mut BTreeMap<SeitzColumnKey, (SeitzOperation, Complex64)>,
+    value: Complex64,
+    operation: SeitzOperation,
+) -> Result<(), String> {
+    let key = seitz_column_key(&operation)?;
+    if entries.insert(key, (operation, value)).is_some() {
+        return Err("duplicate complete Seitz operation in typed character row".to_string());
+    }
+    Ok(())
+}
+
+fn typed_character_table_row(
+    irrep: &'static IrrepRecord,
+) -> Result<TypedCharacterTableRow, String> {
+    let mut entries = BTreeMap::new();
+    if irrep.spinor {
+        let row = irrep
+            .spinor_selected_arm_view()
+            .map_err(|error| error.to_string())?;
+        for (value, operation) in row
+            .values()
+            .iter()
+            .copied()
+            .zip(row.operations().iter().copied())
+        {
+            insert_typed_character(&mut entries, value, operation.seitz)?;
+        }
+    } else if irrep.raw_cir_component_count() > 0 {
+        let compound = irrep
+            .compound_selected_arm_view()
+            .map_err(|error| error.to_string())?;
+        let row = compound.block_trace();
+        for (value, operation) in row
+            .values()
+            .iter()
+            .copied()
+            .zip(row.operations().iter().copied())
+        {
+            insert_typed_character(&mut entries, value, operation)?;
+        }
+    } else {
+        let row = irrep
+            .ordinary_scalar_selected_arm_block_trace()
+            .map_err(|error| error.to_string())?;
+        for (value, operation) in row
+            .values()
+            .iter()
+            .copied()
+            .zip(row.operations().iter().copied())
+        {
+            insert_typed_character(&mut entries, value, operation)?;
+        }
+    }
+    if entries.is_empty() {
+        return Err("typed character row has no operation entries".to_string());
+    }
+    Ok(TypedCharacterTableRow { irrep, entries })
+}
+
+fn format_seitz_operation(operation: SeitzOperation) -> String {
+    let is_identity_rotation = operation.rotation == [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    let has_trans = operation.translation.iter().any(|value| value.abs() > 1e-6);
+    if is_identity_rotation && !has_trans {
+        return "1".to_string();
+    }
+    let r = operation.rotation;
+    let rot_str = format!(
+        "[{:2},{:2},{:2};{:2},{:2},{:2};{:2},{:2},{:2}]",
+        r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]
+    );
+    if has_trans {
+        let t = operation.translation;
+        format!("{}|{:.2},{:.2},{:.2}", rot_str, t[0], t[1], t[2])
+    } else {
+        rot_str
+    }
+}
+
+fn format_complex_part(value: f64) -> String {
+    if value == 0.0 {
+        "0".to_string()
+    } else if value.abs() < 1e-6 {
+        format!("{value:.6e}")
+    } else {
+        format_value(value)
+    }
+}
+
+fn format_complex_value(value: Complex64) -> String {
+    if value.im == 0.0 {
+        return format_complex_part(value.re);
+    }
+    let imaginary = format_complex_part(value.im);
+    if value.re == 0.0 {
+        format!("{imaginary}i")
+    } else if value.im.is_sign_positive() {
+        format!("{}+{}i", format_complex_part(value.re), imaginary)
+    } else {
+        format!("{}{}i", format_complex_part(value.re), imaginary)
+    }
+}
+
+/// Format an operation-aware typed character table for a specific k-point.
 ///
-/// Columns: ML label, BC label, then one column per character value.
-/// Returns a `String` suitable for printing.
+/// Each row is constructed from its family-specific typed view: ordinary
+/// scalar block trace, semantic compound block trace, or indexed spinor row.
+/// Columns are the ordered union of complete Seitz operations across those
+/// rows, matched by rotation and quantized fractional translation; missing
+/// family-specific operations are left blank. Any typed-data error is returned
+/// in the resulting diagnostic string rather than being silently misaligned.
 pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
     let irreps = irreps_of(sg);
     let matching: Vec<&IrrepRecord> = irreps
@@ -158,83 +296,64 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
         );
     }
 
-    // Determine number of operators from the first irrep's character table
-    let max_ops = matching
-        .iter()
-        .map(|ir| ir.characters().len())
-        .max()
-        .unwrap_or(0);
-    if max_ops == 0 {
+    let matching_count = matching.len();
+    let mut typed_rows = Vec::with_capacity(matching.len());
+    let mut columns = Vec::<(SeitzColumnKey, SeitzOperation)>::new();
+    let mut column_indices = BTreeMap::<SeitzColumnKey, usize>::new();
+    for irrep in matching {
+        let row = match typed_character_table_row(irrep) {
+            Ok(row) => row,
+            Err(error) => {
+                return format!(
+                    "// Failed to construct typed character row for SG {sg} {}: {error}",
+                    irrep.ml
+                );
+            }
+        };
+        for (&key, (operation, _)) in &row.entries {
+            if column_indices.contains_key(&key) {
+                continue;
+            }
+            column_indices.insert(key, columns.len());
+            columns.push((key, *operation));
+        }
+        typed_rows.push(row);
+    }
+    if columns.is_empty() {
         return format!(
-            "// SG {} k=({}/{},{}/{},{}/{}): no operator data available",
+            "// SG {} k=({}/{},{}/{},{}/{}): no typed operation data available",
             sg, kx, kd, ky, kd, kz, kd
         );
     }
-
-    // Get symmetry operations for column headers
-    let ops = match symmetry_operations_of(sg) {
-        Ok(ops) => ops,
-        Err(error) => {
-            return format!("// Failed to load symmetry operations for SG {sg}: {error}");
-        }
-    };
-
-    // Format operation as compact string
-    let fmt_op = |i: usize| -> String {
-        if i >= ops.len() {
-            return format!("g{}", i);
-        }
-        let r = &ops[i].rotation;
-        let t = &ops[i].translation;
-        let is_identity = r[0][0] == 1
-            && r[0][1] == 0
-            && r[0][2] == 0
-            && r[1][0] == 0
-            && r[1][1] == 1
-            && r[1][2] == 0
-            && r[2][0] == 0
-            && r[2][1] == 0
-            && r[2][2] == 1;
-        let has_trans = t[0].abs() > 1e-6 || t[1].abs() > 1e-6 || t[2].abs() > 1e-6;
-
-        if is_identity && !has_trans {
-            return "1".to_string();
-        }
-
-        let rot_str = format!(
-            "[{:2},{:2},{:2};{:2},{:2},{:2};{:2},{:2},{:2}]",
-            r[0][0], r[0][1], r[0][2], r[1][0], r[1][1], r[1][2], r[2][0], r[2][1], r[2][2]
-        );
-        if has_trans {
-            format!("{}|{:.2},{:.2},{:.2}", rot_str, t[0], t[1], t[2])
-        } else {
-            rot_str
-        }
-    };
 
     // Header row
     let mut lines = Vec::new();
     let header: Vec<String> = std::iter::once("ML".to_string())
         .chain(std::iter::once("BC".to_string()))
-        .chain((0..max_ops).map(fmt_op))
+        .chain(
+            columns
+                .iter()
+                .map(|(_, operation)| format_seitz_operation(*operation)),
+        )
         .collect();
     lines.push(format!("| {} |", header.join(" | ")));
 
     // Separator
-    let sep: Vec<String> = (0..(2 + max_ops)).map(|_| "---".to_string()).collect();
+    let sep: Vec<String> = (0..(2 + columns.len()))
+        .map(|_| "---".to_string())
+        .collect();
     lines.push(format!("| {} |", sep.join(" | ")));
 
     // Data rows
-    for ir in &matching {
-        let chars = ir.characters();
-        let row: Vec<String> = std::iter::once(ir.ml.to_string())
-            .chain(std::iter::once(ir.bc.to_string()))
-            .chain((0..max_ops).map(|i| {
-                if i < chars.len() {
-                    format_value(chars[i])
-                } else {
-                    "".to_string()
-                }
+    for typed_row in &typed_rows {
+        let row: Vec<String> = std::iter::once(typed_row.irrep.ml.to_string())
+            .chain(std::iter::once(typed_row.irrep.bc.to_string()))
+            .chain(columns.iter().map(|(key, _)| {
+                typed_row
+                    .entries
+                    .get(key)
+                    .map(|(_, value)| format_complex_value(*value))
+                    .unwrap_or_default()
             }))
             .collect();
         lines.push(format!("| {} |", row.join(" | ")));
@@ -242,14 +361,7 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
 
     let header_line = format!(
         "// SG {} k-point ({}/{}, {}/{}, {}/{}), {} irrep(s)",
-        sg,
-        kx,
-        kd,
-        ky,
-        kd,
-        kz,
-        kd,
-        matching.len()
+        sg, kx, kd, ky, kd, kz, kd, matching_count
     );
     std::iter::once(header_line)
         .chain(lines)
@@ -673,6 +785,74 @@ mod tests {
         assert!(table.contains("SG 1"));
         assert!(table.contains("ML"));
         assert!(table.contains("BC"));
+    }
+
+    #[test]
+    fn test_format_character_table_preserves_sg5_hall_phase() {
+        let y1 = irreps_of(5)
+            .iter()
+            .find(|ir| !ir.spinor && ir.ml == "Y1")
+            .expect("SG 5 Y1 scalar irrep");
+        let table = format_character_table(5, y1.kx, y1.ky, y1.kz, y1.kd);
+        let header = table
+            .lines()
+            .find(|line| line.starts_with("| ML |"))
+            .expect("typed formatter header");
+        let y1_row = table
+            .lines()
+            .find(|line| line.starts_with("| Y1 |"))
+            .expect("SG 5 Y1 formatted row");
+        assert!(header.contains("[ 1, 0, 0; 0, 1, 0; 0, 0, 1]"));
+        assert!(header.contains("0.50,0.50,0.00"));
+        assert!(
+            y1_row.ends_with("| 1 | -1 |"),
+            "SG 5 Y1 centered identity value was not -1: {y1_row}"
+        );
+    }
+
+    #[test]
+    fn test_format_character_table_preserves_complex_and_spinor_rows() {
+        let compound = irreps_of(182)
+            .iter()
+            .find(|ir| !ir.spinor && ir.ml == "H1H2")
+            .expect("SG 182 H1H2 compound irrep");
+        let compound_table =
+            format_character_table(182, compound.kx, compound.ky, compound.kz, compound.kd);
+        assert!(
+            compound_table
+                .lines()
+                .any(|line| line.starts_with("| H1H2 |"))
+        );
+
+        let complex_compound = irreps_of(46)
+            .iter()
+            .find(|ir| !ir.spinor && ir.ml == "W1W2")
+            .expect("SG 46 W1W2 compound irrep");
+        let complex_table = format_character_table(
+            46,
+            complex_compound.kx,
+            complex_compound.ky,
+            complex_compound.kz,
+            complex_compound.kd,
+        );
+        let complex_row = complex_table
+            .lines()
+            .find(|line| line.starts_with("| W1W2 |"))
+            .expect("SG 46 W1W2 formatted row");
+        assert!(
+            complex_row.contains('i'),
+            "complex compound character was not rendered: {complex_row}"
+        );
+
+        let spinor = irreps_of(1)
+            .iter()
+            .find(|ir| ir.spinor)
+            .expect("SG 1 spinor irrep");
+        let spinor_table = format_character_table(1, spinor.kx, spinor.ky, spinor.kz, spinor.kd);
+        assert!(
+            spinor_table.contains(&format!("| {} |", spinor.ml)),
+            "spinor row was not rendered: {spinor_table}"
+        );
     }
 
     #[test]
