@@ -3435,7 +3435,7 @@ fn same_seitz_mod_lattice(a: &SeitzOp, b: &SeitzOp) -> bool {
     true
 }
 
-/// Build mapping from H_ops (spglib order) to spin-op index.
+/// Build the legacy mapping from H_ops (spglib order) to spin-op index.
 ///
 /// Strategy:
 /// 1. Full Seitz matching (rotation + translation via `same_seitz_mod_lattice`)
@@ -3444,7 +3444,10 @@ fn same_seitz_mod_lattice(a: &SeitzOp, b: &SeitzOp) -> bool {
 ///    `spin_lg_op_indices`.  Multiple candidates with the same rotation but
 ///    different translations are UNRESOLVED → return None (caller skips).
 ///
-/// Uses a `Vec` (not HashSet) for deterministic iteration order.
+/// Uses a `Vec` (not HashSet) for deterministic iteration order.  This helper
+/// remains for Wigner classification and diagnostics only; it must not be
+/// used to pair final spinor character values with Seitz operations.  Final
+/// output uses [`build_h_to_spin_map_exact`].
 pub fn build_h_to_spin_map(
     h_seitz: &[SeitzOp],
     spin_seitz: &[SeitzOp],
@@ -3485,6 +3488,49 @@ pub fn build_h_to_spin_map(
         }
     }
     map
+}
+
+/// Build the operation map used by final spinor character output.
+///
+/// Unlike [`build_h_to_spin_map`], this deliberately accepts only the same
+/// representative: rotations must be equal and every translation component
+/// must agree within [`SEITZ_TRANS_TOL`].  Integer lattice shifts are not
+/// equivalent here because they carry a Bloch phase.  Candidates are limited
+/// to `spin_lg_op_indices`; a missing or ambiguous match is represented by
+/// `None` and must be rejected by the caller before constructing characters.
+pub(crate) fn build_h_to_spin_map_exact(
+    h_seitz: &[SeitzOp],
+    spin_seitz: &[SeitzOp],
+    spin_lg_op_indices: &[u16],
+) -> Vec<Option<usize>> {
+    let allowed: Vec<usize> = spin_lg_op_indices
+        .iter()
+        .map(|&index| index as usize)
+        .collect();
+
+    h_seitz
+        .iter()
+        .map(|h| {
+            let candidates: Vec<usize> = allowed
+                .iter()
+                .copied()
+                .filter(|&spin_index| {
+                    spin_seitz.get(spin_index).is_some_and(|spin| {
+                        spin.rot == h.rot
+                            && spin
+                                .trans
+                                .iter()
+                                .zip(h.trans)
+                                .all(|(spin_t, h_t)| (spin_t - h_t).abs() < SEITZ_TRANS_TOL)
+                    })
+                })
+                .collect();
+            match candidates.as_slice() {
+                [candidate] => Some(*candidate),
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 /// Build a Vec<SeitzOp> from the spin-op flat arrays (public for testing).
@@ -4782,6 +4828,60 @@ mod tests {
         assert!(classify(&[0], &[99], 1).is_err());
         assert!(classify(&[0], &[0], usize::MAX).is_err());
         assert!(classify(&[0], &[1], 1).is_err());
+    }
+
+    #[test]
+    fn exact_spin_map_rejects_lattice_and_ambiguous_matches() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let h = SeitzOp {
+            rot: identity,
+            trans: [0.5, 0.0, 0.0],
+            timerev: false,
+        };
+        let exact = SeitzOp {
+            rot: identity,
+            trans: [0.5 + 1.0e-10, 0.0, 0.0],
+            timerev: false,
+        };
+        assert_eq!(
+            build_h_to_spin_map_exact(std::slice::from_ref(&h), std::slice::from_ref(&exact), &[0],),
+            vec![Some(0)]
+        );
+
+        let integer_shift = SeitzOp {
+            rot: identity,
+            trans: [1.5, 0.0, 0.0],
+            timerev: false,
+        };
+        assert_eq!(
+            build_h_to_spin_map_exact(
+                std::slice::from_ref(&h),
+                std::slice::from_ref(&integer_shift),
+                &[0],
+            ),
+            vec![None],
+            "integer translation differences must not be matched modulo the lattice"
+        );
+
+        let different_representative = SeitzOp {
+            rot: identity,
+            trans: [0.0, 0.0, 0.0],
+            timerev: false,
+        };
+        assert_eq!(
+            build_h_to_spin_map_exact(
+                std::slice::from_ref(&h),
+                std::slice::from_ref(&different_representative),
+                &[0],
+            ),
+            vec![None]
+        );
+
+        assert_eq!(
+            build_h_to_spin_map_exact(&[h], &[exact.clone(), exact], &[0, 1]),
+            vec![None],
+            "duplicate exact candidates must be rejected as ambiguous"
+        );
     }
 
     #[test]

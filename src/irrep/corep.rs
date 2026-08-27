@@ -692,8 +692,34 @@ pub fn compute_corepresentation(
     let character_op_map = if h_irrep.spinor {
         let h_spin = h_irrep.spin_ops();
         let h_spin_seitz = wigner::build_spin_seitz(h_spin.0, h_spin.1);
-        let h_to_spin =
-            wigner::build_h_to_spin_map(&h_seitz, &h_spin_seitz, h_irrep.spin_lg_op_indices());
+        // Final spinor characters require the exact source Seitz
+        // representative.  In particular, an integer translation shift is
+        // not interchangeable here: it changes the Bloch phase.  The older
+        // map with modulo-lattice and rotation-only fallback remains limited
+        // to Wigner diagnostics/classification and is never used for output.
+        let h_to_spin = wigner::build_h_to_spin_map_exact(
+            &h_seitz,
+            &h_spin_seitz,
+            h_irrep.spin_lg_op_indices(),
+        );
+        for &mag_index in &unitary {
+            let h_index = op_map[mag_index].ok_or_else(|| {
+                CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: "phase-aligned exact full-Seitz spin character mapping unavailable"
+                        .to_string(),
+                }
+            })?;
+            if h_to_spin.get(h_index).and_then(|mapped| *mapped).is_none() {
+                return Err(CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: "phase-aligned exact full-Seitz spin character mapping unavailable"
+                        .to_string(),
+                });
+            }
+        }
         op_map
             .iter()
             .map(|h_index| {
@@ -1629,12 +1655,87 @@ mod tests {
         assert!(scalar.compound_metadata().is_none());
         assert!(scalar.corepresentation(2).is_ok());
 
-        let spinor = irreps_of(5)
+        let spinor = irreps_of(1)
             .iter()
-            .find(|irrep| irrep.spinor && irrep.k_label() == "L" && irrep.spin_lg_char_count() == 1)
-            .expect("SG 5 L-point spinor irrep");
+            .find(|irrep| irrep.spinor && irrep.ml == "GM2" && irrep.spin_lg_char_count() == 1)
+            .expect("SG 1 GM2 spinor irrep");
         assert_eq!(spinor.raw_cir_component_count(), 0);
-        assert!(spinor.corepresentation(21).is_ok());
+        assert!(spinor.corepresentation(2).is_ok());
+    }
+
+    #[test]
+    fn sg5_l2_uni20_rejects_unphased_spin_character_mapping() {
+        let l2 = crate::irrep::query::irreps_of(5)
+            .iter()
+            .find(|irrep| irrep.spinor && irrep.ml == "L2")
+            .expect("SG 5 L2 spinor irrep");
+        let row = l2
+            .spinor_selected_arm_view()
+            .expect("SG 5 L2 typed spinor row");
+        assert_eq!(row.len(), 1);
+        let (source_value, source_operation) = row.entry(0).expect("SG 5 L2 source operation");
+        assert!((source_value.re - 1.0).abs() < 1.0e-8);
+        assert!(source_value.im.abs() < 1.0e-8);
+        assert!(
+            source_operation
+                .seitz
+                .translation
+                .iter()
+                .all(|translation| translation.abs() < 1.0e-8)
+        );
+
+        let mag_ops = get_magnetic_operations(20).expect("UNI 20 operations");
+        let error = compute_corepresentation(l2, 20, &mag_ops)
+            .expect_err("unphased SG 5 L2 spin mapping must be rejected");
+        match error {
+            CorepComputationError::UnsupportedClassification {
+                uni,
+                source_irrep,
+                reason,
+            } => {
+                assert_eq!(uni, 20);
+                assert_eq!(source_irrep, "L2");
+                assert!(
+                    reason.contains(
+                        "phase-aligned exact full-Seitz spin character mapping unavailable"
+                    )
+                );
+            }
+            other => panic!("unexpected SG 5 L2 error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn exact_spin_character_mapping_control_remains_available() {
+        let control = crate::irrep::query::irreps_of(1)
+            .iter()
+            .find(|irrep| irrep.spinor && irrep.ml == "GM2" && irrep.spin_lg_char_count() == 1)
+            .expect("SG 1 GM2 one-operation spinor irrep");
+        let row = control
+            .spinor_selected_arm_view()
+            .expect("SG 1 GM2 typed spinor row");
+        assert_eq!(row.len(), 1);
+        assert!(
+            row.operations()[0]
+                .seitz
+                .translation
+                .iter()
+                .all(|t| t.abs() < 1.0e-8)
+        );
+
+        let mag_ops = get_magnetic_operations(2).expect("UNI 2 operations");
+        let corep = compute_corepresentation(control, 2, &mag_ops)
+            .expect("exact full-Seitz one-operation spin control");
+        assert!(matches!(corep.corep_type, CorepType::A | CorepType::B));
+        assert!(
+            corep
+                .characters
+                .iter()
+                .zip(&corep.timerev)
+                .any(|(character, time_reversal)| {
+                    !time_reversal && (*character - corep.dim as f64).abs() < 1.0e-8
+                })
+        );
     }
 
     #[test]
@@ -5712,22 +5813,18 @@ mod tests {
             "Unitary little group at P-point should be non-empty"
         );
 
-        // Current-API behaviour: empty antiunitary LG → TrivialNoAntiunitary → Type A
-        let corep = p5.corepresentation(uni).unwrap();
-        assert_eq!(
-            corep.corep_type,
-            CorepType::A,
-            "API convention: empty antiunitary LG returns Type A"
-        );
-        assert_eq!(
-            corep.source,
-            WignerSource::TrivialNoAntiunitary,
-            "Source must be TrivialNoAntiunitary (not a real Wigner classification)"
-        );
-        assert_eq!(
-            corep.antiunitary_order, 0,
-            "antiunitary_order must be 0 when LG has no antiunitary ops"
-        );
+        // The empty antiunitary little group is still identified above, but
+        // final spinor characters require an exact source Seitz map too.
+        let error = p5
+            .corepresentation(uni)
+            .expect_err("unphased spin operation mapping must be rejected");
+        match error {
+            CorepComputationError::UnsupportedClassification { reason, .. } => assert!(
+                reason
+                    .contains("phase-aligned exact full-Seitz spin character mapping unavailable")
+            ),
+            other => panic!("unexpected P-point spinor error: {other:?}"),
+        }
     }
 
     /// - BNS → UNI mapping
@@ -5908,18 +6005,16 @@ mod tests {
         let su2_rel = wigner::su2_same_up_to_sign(&u_sq_old, &u_k);
         println!("SU(2) relation: {:?}", su2_rel);
         assert!(su2_rel.is_some(), "SU(2) relation should be well-defined");
-        assert!(
-            corep.is_ok(),
-            "Should classify n_lg=1 spinor case: {:?}",
-            corep
-        );
-        let ct = corep.unwrap().corep_type;
-        println!("Corep type: {:?}", ct);
-        assert!(
-            ct == CorepType::A || ct == CorepType::B,
-            "Type should be A or B, got {:?}",
-            ct
-        );
+        match corep {
+            Err(CorepComputationError::UnsupportedClassification { reason, .. }) => {
+                assert!(
+                    reason.contains(
+                        "phase-aligned exact full-Seitz spin character mapping unavailable"
+                    )
+                );
+            }
+            other => panic!("unexpected n_lg=1 spinor result: {other:?}"),
+        }
     }
 
     /// Quick scan to find the simplest failing magnetic group.
