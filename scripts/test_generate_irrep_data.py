@@ -99,5 +99,68 @@ class PinnedArchiveBoundaryTests(unittest.TestCase):
                 generator._validate_pir_storage_alignment(**malformed)
 
 
+class PirStructureTests(unittest.TestCase):
+    @staticmethod
+    def _operation_row():
+        return "1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"
+
+    @staticmethod
+    def _kvector(nonzero=False):
+        values = [0] * 16
+        values[3] = 2
+        if nonzero:
+            values[4] = 1
+        return values
+
+    def test_kspecial_comes_from_augmented_kvector_not_label(self):
+        self.assertTrue(generator._pir_kvector_is_special(self._kvector()))
+        self.assertFalse(generator._pir_kvector_is_special(self._kvector(True)))
+
+    def test_special_payload_has_no_irtranslation(self):
+        payload = [self._operation_row(), "1"]
+        _op, irtranslation, matrix, spellings, next_line = (
+            generator._read_pir_operation_payload(
+                payload, 0, 1, True, "label-that-does-not-matter"
+            )
+        )
+        self.assertIsNone(irtranslation)
+        self.assertEqual(matrix, [1.0])
+        self.assertEqual(spellings, ["1"])
+        self.assertEqual(next_line, 2)
+
+    def test_nonspecial_payload_requires_irtranslation(self):
+        payload = [self._operation_row(), "0 0 0 1", "1"]
+        _op, irtranslation, matrix, _spellings, next_line = (
+            generator._read_pir_operation_payload(
+                payload, 0, 1, False, "GM-label-with-nonspecial-kvector"
+            )
+        )
+        self.assertEqual(irtranslation, [0, 0, 0, 1])
+        self.assertEqual(matrix, [1.0])
+        self.assertEqual(next_line, 3)
+
+    def test_malformed_pir_structure_is_rejected(self):
+        operation = self._operation_row()
+        cases = (
+            [operation, "1"],  # missing irtranslation
+            [operation, "0 0 0 1 9", "1"],  # extra irtranslation token
+            [operation, "0 0 0 1"],  # truncated matrix
+        )
+        for payload in cases:
+            with self.assertRaises(ValueError):
+                generator._read_pir_operation_payload(
+                    payload, 0, 1, False, "synthetic malformed record"
+                )
+
+    def test_archive_structural_census(self):
+        parsed = generator._parse_pir_characters()
+        census = parsed[-1]
+        self.assertEqual(census["records"], 10294)
+        self.assertEqual(census["irtranslation_rows"], 64588)
+        self.assertEqual(census["matrix_scalar_tokens"], 8977752)
+        self.assertEqual(len(census["matrix_token_spellings"]), 25)
+        self.assertEqual(census["unmatched_structural_tokens"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

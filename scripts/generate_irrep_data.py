@@ -229,6 +229,168 @@ def _read_pir_lines():
         return io.TextIOWrapper(f).readlines()
 
 
+def _parse_pir_header(line, line_number):
+    """Parse one PIR record header with source-line diagnostics."""
+    tokens = line.strip().split()
+    quoted = re.findall(r'"([^"]*)"', line)
+    if not tokens or not tokens[0].isdigit() or len(quoted) < 2:
+        raise ValueError(f"malformed PIR header at line {line_number}")
+    after = line[line.rindex('"') + 1:].strip().split()
+    if len(after) < 5:
+        raise ValueError(f"truncated PIR header at line {line_number}")
+    try:
+        return (
+            int(tokens[1]),
+            quoted[1].strip(),
+            int(after[0]),
+            int(after[3]),
+            int(after[4]),
+        )
+    except ValueError as error:
+        raise ValueError(f"non-integer PIR header field at line {line_number}") from error
+
+
+def _read_exact_pir_int_block(lines, start, count, context):
+    """Read exactly ``count`` integer tokens, preserving line boundaries.
+
+    PIR's Fortran reader consumes a fixed number of integer values for each
+    record.  Rejecting extra tokens on the terminal line prevents a malformed
+    k-vector block from consuming the following operation structure.
+    """
+    values = []
+    line_index = start
+    while len(values) < count:
+        if line_index >= len(lines):
+            raise ValueError(
+                f"truncated PIR integer block for {context}: "
+                f"expected {count}, got {len(values)}"
+            )
+        tokens = lines[line_index].strip().split()
+        if not tokens:
+            raise ValueError(
+                f"empty PIR integer block line {line_index + 1} for {context}"
+            )
+        remaining = count - len(values)
+        if len(tokens) > remaining:
+            raise ValueError(
+                f"extra PIR integer tokens at line {line_index + 1} for {context}: "
+                f"expected {remaining}, got {len(tokens)}"
+            )
+        for token in tokens:
+            try:
+                values.append(int(token))
+            except ValueError as error:
+                raise ValueError(
+                    f"non-integer PIR token {token!r} at line {line_index + 1} for {context}"
+                ) from error
+        line_index += 1
+    return values, line_index
+
+
+def _read_exact_pir_float_block(lines, start, count, context):
+    """Read exactly ``count`` matrix scalar tokens with provenance checks."""
+    values = []
+    spellings = []
+    line_index = start
+    while len(values) < count:
+        if line_index >= len(lines):
+            raise ValueError(
+                f"truncated PIR matrix block for {context}: "
+                f"expected {count}, got {len(values)}"
+            )
+        tokens = lines[line_index].strip().split()
+        if not tokens:
+            raise ValueError(
+                f"empty PIR matrix block line {line_index + 1} for {context}"
+            )
+        remaining = count - len(values)
+        if len(tokens) > remaining:
+            raise ValueError(
+                f"extra PIR matrix tokens at line {line_index + 1} for {context}: "
+                f"expected {remaining}, got {len(tokens)}"
+            )
+        for token in tokens:
+            try:
+                values.append(float(token))
+            except ValueError as error:
+                raise ValueError(
+                    f"non-numeric PIR matrix token {token!r} at line "
+                    f"{line_index + 1} for {context}"
+                ) from error
+            spellings.append(token)
+        line_index += 1
+    return values, spellings, line_index
+
+
+def _read_pir_operation_row(lines, start, context):
+    """Read one official 16-integer Seitz operation row."""
+    if start >= len(lines):
+        raise ValueError(f"truncated PIR operation row for {context}")
+    tokens = lines[start].strip().split()
+    if len(tokens) != 16:
+        raise ValueError(
+            f"PIR operation row at line {start + 1} for {context} has "
+            f"{len(tokens)} integers, expected 16"
+        )
+    try:
+        return [int(token) for token in tokens], start + 1
+    except ValueError as error:
+        raise ValueError(
+            f"non-integer PIR operation row at line {start + 1} for {context}"
+        ) from error
+
+
+def _read_pir_irtranslation_row(lines, start, context):
+    """Read one required four-integer nonspecial ``irtranslation`` row."""
+    if start >= len(lines):
+        raise ValueError(f"truncated PIR irtranslation row for {context}")
+    tokens = lines[start].strip().split()
+    if len(tokens) != 4:
+        raise ValueError(
+            f"PIR irtranslation row at line {start + 1} for {context} has "
+            f"{len(tokens)} integers, expected 4"
+        )
+    try:
+        values = [int(token) for token in tokens]
+    except ValueError as error:
+        raise ValueError(
+            f"non-integer PIR irtranslation row at line {start + 1} for {context}"
+        ) from error
+    if values[3] <= 0:
+        raise ValueError(
+            f"invalid PIR irtranslation denominator {values[3]} at line "
+            f"{start + 1} for {context}"
+        )
+    return values, start + 1
+
+
+def _read_pir_operation_payload(lines, start, dim, special, context):
+    """Read one PIR operation, its optional translation, and matrix.
+
+    ``special`` is derived solely from the archived augmented k-vector by the
+    official PIR reader rule.  Labels are intentionally not an input here.
+    """
+    op_nums, next_line = _read_pir_operation_row(lines, start, context)
+    irtranslation = None
+    if not special:
+        irtranslation, next_line = _read_pir_irtranslation_row(
+            lines, next_line, context
+        )
+    matrix_values, spellings, next_line = _read_exact_pir_float_block(
+        lines, next_line, dim * dim, context
+    )
+    return op_nums, irtranslation, matrix_values, spellings, next_line
+
+
+def _pir_kvector_is_special(kvector_values):
+    """Apply PIR_data.f's ``kspecial`` test to the first augmented k-vector."""
+    if len(kvector_values) < 16:
+        raise ValueError("PIR k-vector record must contain at least 16 integers")
+    # Fortran kvector(kp+4*k+m), converted to record-local Python offsets.
+    component_offsets = (4, 5, 6, 8, 9, 10, 12, 13, 14)
+    return all(kvector_values[offset] == 0 for offset in component_offsets)
+
+
 def _parse_pir_kvectors():
     """Parse PIR_data.txt and return dict: (SG#, ML_label) -> (kx, ky, kz, denom)."""
     lines = _read_pir_lines()
@@ -236,44 +398,36 @@ def _parse_pir_kvectors():
     kvec_map = {}
     i = 3  # skip 3 header lines
     while i < len(lines):
-        line = lines[i].strip()
-        if not line or not line.split()[0].isdigit():
+        while i < len(lines) and not lines[i].strip():
             i += 1
-            continue
-
-        tokens = line.split()
-        sg_num = int(tokens[1])
-        quoted = re.findall(r'"([^"]*)"', line)
-        if len(quoted) < 2:
-            i += 1
-            continue
-        label = quoted[1].strip()
-
-        # Get pmkcount from after the second quote
-        after = line[line.rindex('"') + 1:].strip().split()
-        if len(after) < 5:
-            i += 1
-            continue
-        pmkcount = int(after[3])
-
-        # Next line: k-vectors
-        i += 1
         if i >= len(lines):
             break
-        kvals = [int(x) for x in lines[i].strip().split()]
-
-        if len(kvals) >= 4:
-            key = (sg_num, label)
-            if key not in kvec_map:
-                kvec_map[key] = (kvals[0], kvals[1], kvals[2], kvals[3])
-
-        # Skip to next irrep (find next line with double quotes and digits)
-        i += 1
-        while i < len(lines):
-            nxt = lines[i].strip()
-            if nxt and nxt.split()[0].isdigit() and '"' in nxt:
-                break
-            i += 1
+        sg_num, label, dim, pmkcount, opcount = _parse_pir_header(
+            lines[i], i + 1
+        )
+        if dim <= 0 or pmkcount <= 0 or opcount <= 0:
+            raise ValueError(
+                f"invalid PIR dimensions/counts at line {i + 1}: "
+                f"dim={dim}, pmkcount={pmkcount}, opcount={opcount}"
+            )
+        key = (sg_num, label)
+        if key in kvec_map:
+            raise ValueError(f"duplicate PIR source key {key!r}")
+        kvals, i = _read_exact_pir_int_block(
+            lines, i + 1, pmkcount * 16, f"SG{sg_num} {label!r}"
+        )
+        kvec_map[key] = (kvals[0], kvals[1], kvals[2], kvals[3])
+        special = _pir_kvector_is_special(kvals)
+        for op_index in range(opcount):
+            _op_nums, _translation, _matrix, _spellings, i = (
+                _read_pir_operation_payload(
+                    lines,
+                    i,
+                    dim,
+                    special,
+                    f"SG{sg_num} {label!r} operation {op_index}",
+                )
+            )
 
     return kvec_map
 
@@ -320,38 +474,6 @@ def _format_rust_f64(value):
     return literal
 
 
-def is_int_4(s):
-    """Check if s is a small integer fitting Fortran I3 format (irtranslation)."""
-    try:
-        v = int(s)
-        return -999 <= v <= 999
-    except ValueError:
-        return False
-
-
-# k-point prefixes for special (high-symmetry) points
-_SPECIAL_KPTS = {
-    "GM", "G", "X", "Y", "Z", "M", "R", "A", "H", "K", "L",
-    "S", "T", "U", "V", "W", "N", "P", "F", "C", "D", "E",
-    "Q", "B", "J",
-}
-
-
-def _is_special_kpoint(label):
-    """Check if a k-point label is a special (high-symmetry) point.
-
-    Special k-points have kspecial=true in the ISOTROPY data and do NOT
-    have irtranslation lines after the operator matrix.
-    Non-special k-points (lines DT, LD, SM, GP, etc.) have irtranslation.
-    """
-    # Extract the k-point prefix (letters before the first digit)
-    m = re.match(r'^([A-Za-z]+)', label)
-    if not m:
-        return False
-    prefix = m.group(1)
-    return prefix in _SPECIAL_KPTS
-
-
 def _parse_pir_characters():
     """Parse PIR_data.txt and return character, matrix, and operation maps:
 	    chars_map:    (SG#, ML_label) -> [char1, char2, ..., charN]
@@ -367,116 +489,60 @@ def _parse_pir_characters():
     dim_map = {}     # (SG#, ML_label) -> dim (from PIR header)
     rots_map = {}     # (SG#, ML_label) -> [[r00..r22], ...] per operation
     trans_map = {}   # (SG#, ML_label) -> [[t0,t1,t2], ...] per operation
+    kvector_map = {} # (SG#, ML_label) -> all augmented k-vector integers
+    irtranslation_rows = 0
+    matrix_scalar_tokens = 0
+    matrix_token_spellings = set()
+    record_count = 0
     i = 3  # skip 3 header lines
 
     while i < len(lines):
-        line = lines[i].strip()
-        if not line:
+        while i < len(lines) and not lines[i].strip():
             i += 1
-            continue
+        if i >= len(lines):
+            break
 
-        tokens = line.split()
-        if not tokens or not tokens[0].isdigit():
-            i += 1
-            continue
-
-        # Parse header: ir# SG# "sym" "label" dim type kcount pmkcount opcount
-        quoted = re.findall(r'"([^"]*)"', line)
-        if len(quoted) < 2:
-            i += 1
-            continue
-
-        sg = int(tokens[1])
-        label = quoted[1].strip()
-        after_line = line[line.rindex('"') + 1:].strip().split()
-        if len(after_line) < 5:
-            i += 1
-            continue
-        dim = int(after_line[0])
-        pmkcount = int(after_line[3])
-        opcount = int(after_line[4])
-
-        # Skip k-vector data: pmkcount * 16 integers across lines.
-        # When pmkcount > 1, the k-vector occupies multiple lines
-        # and the old code only skipped one line, causing all
-        # subsequent character data to be shifted.
-        kvec_remaining = pmkcount * 16
-        while kvec_remaining > 0 and i < len(lines) - 1:
-            i += 1
-            if i >= len(lines):
-                break
-            kvec_remaining -= len(lines[i].strip().split())
+        sg, label, dim, pmkcount, opcount = _parse_pir_header(lines[i], i + 1)
+        if dim <= 0 or pmkcount <= 0 or opcount <= 0:
+            raise ValueError(
+                f"invalid PIR dimensions/counts at line {i + 1}: "
+                f"dim={dim}, pmkcount={pmkcount}, opcount={opcount}"
+            )
+        key = (sg, label)
+        if key in chars_map:
+            raise ValueError(f"duplicate PIR source key {key!r}")
+        kvector_values, i = _read_exact_pir_int_block(
+            lines, i + 1, pmkcount * 16, f"SG{sg} {label!r} k-vector"
+        )
+        kvector_map[key] = kvector_values
+        special = _pir_kvector_is_special(kvector_values)
 
         # Read operator matrices + irrep matrices
         chars = []
         rots = []         # rotation matrices: list of [r00..r22], 9 ints per op
         trans = []        # translations: list of [t0,t1,t2], 3 f64 per op
         all_matrices = []  # flat: op0_row0, op0_row1, ..., op1_row0, ...
-        for _op in range(opcount):
-            # Advance to operator matrix line
-            i += 1
-            if i >= len(lines):
-                break
-
-            # Parse operator matrix (16 ints): extract rotation matrix
-            op_parts = lines[i].strip().split()
-            if len(op_parts) >= 16:
-                try:
-                    op_nums = [int(x) for x in op_parts[:16]]
-                    denom = op_nums[15] if op_nums[15] != 0 else 1
-                    r00 = op_nums[0] // denom; r01 = op_nums[1] // denom; r02 = op_nums[2] // denom
-                    r10 = op_nums[4] // denom; r11 = op_nums[5] // denom; r12 = op_nums[6] // denom
-                    r20 = op_nums[8] // denom; r21 = op_nums[9] // denom; r22 = op_nums[10] // denom
-                    rots.append([r00, r01, r02, r10, r11, r12, r20, r21, r22])
-                    # operator matrix: 16 ints [r00,r01,r02,t0, r10,r11,r12,t1, r20,r21,r22,t2, 0,0,0,denom]
-                    t0 = float(op_nums[3]) / float(denom)
-                    t1 = float(op_nums[7]) / float(denom)
-                    t2 = float(op_nums[11]) / float(denom)
-                    trans.append([t0, t1, t2])
-                except ValueError:
-                    rots.append([0,0,0, 0,0,0, 0,0,0])
-                    trans.append([0.0, 0.0, 0.0])
-            else:
-                rots.append([0,0,0, 0,0,0, 0,0,0])
-
-            # Move to the irrep/irtranslation line
-            i += 1
-            if i >= len(lines):
-                break
-
-            # Check if this line is irtranslation.
-            # Irtranslation is only present for NON-special k-points
-            # (lines DT/LD/SM, planes, and general points GP).
-            # Special k-points (GM, X, Z, M, R, A, H, K, L, etc.)
-            # have kspecial=true → NO irtranslation.
-            # We determine kspecial from the k-point label.
-            nxt = lines[i].strip().split()
-            if (not _is_special_kpoint(label) and nxt
-                    and len(nxt) == 4
-                    and not any('.' in x for x in nxt)
-                    and all(is_int_4(x) for x in nxt)):
-                try:
-                    if int(nxt[3]) > 0:
-                        i += 1  # skip irtranslation
-                        if i >= len(lines):
-                            break
-                except ValueError:
-                    pass
-
-            # Read irrep matrix: dim^2 float values (raw floats in the file)
-            matrix_vals = []
-            needed = dim * dim
-            while len(matrix_vals) < needed and i < len(lines):
-                for token in lines[i].strip().split():
-                    try:
-                        matrix_vals.append(float(token))
-                    except ValueError:
-                        pass
-                    if len(matrix_vals) >= needed:
-                        break
-                if len(matrix_vals) >= needed:
-                    break
-                i += 1
+        for op_index in range(opcount):
+            context = f"SG{sg} {label!r} operation {op_index}"
+            op_nums, irtranslation, matrix_vals, spellings, i = (
+                _read_pir_operation_payload(lines, i, dim, special, context)
+            )
+            if irtranslation is not None:
+                irtranslation_rows += 1
+            matrix_scalar_tokens += len(spellings)
+            matrix_token_spellings.update(spellings)
+            denom = op_nums[15]
+            if denom <= 0:
+                raise ValueError(f"invalid PIR operation denominator at {context}")
+            r00 = op_nums[0] // denom; r01 = op_nums[1] // denom; r02 = op_nums[2] // denom
+            r10 = op_nums[4] // denom; r11 = op_nums[5] // denom; r12 = op_nums[6] // denom
+            r20 = op_nums[8] // denom; r21 = op_nums[9] // denom; r22 = op_nums[10] // denom
+            rots.append([r00, r01, r02, r10, r11, r12, r20, r21, r22])
+            trans.append([
+                float(op_nums[3]) / float(denom),
+                float(op_nums[7]) / float(denom),
+                float(op_nums[11]) / float(denom),
+            ])
 
             # Store raw matrix values (keep full precision)
             all_matrices.extend(matrix_vals)
@@ -489,25 +555,40 @@ def _parse_pir_characters():
                     trace += matrix_vals[idx]
             chars.append(_round_char(trace))
 
-        key = (sg, label)
-        if key in chars_map:
-            raise ValueError(f"duplicate PIR source key {key!r}")
-        if key not in chars_map:
-            chars_map[key] = chars
-            matrices_map[key] = all_matrices
-            rots_map[key] = rots
-            trans_map[key] = trans
-            dim_map[key] = dim
+        chars_map[key] = chars
+        matrices_map[key] = all_matrices
+        rots_map[key] = rots
+        trans_map[key] = trans
+        dim_map[key] = dim
+        record_count += 1
 
-        # Advance to next irrep header
-        i += 1
-        while i < len(lines):
-            nxt = lines[i].strip()
-            if nxt and nxt.split()[0].isdigit() and '"' in nxt:
-                break
-            i += 1
-
-    return chars_map, matrices_map, rots_map, dim_map, trans_map
+    census = {
+        "records": record_count,
+        "irtranslation_rows": irtranslation_rows,
+        "matrix_scalar_tokens": matrix_scalar_tokens,
+        "matrix_token_spellings": frozenset(matrix_token_spellings),
+        "unmatched_structural_tokens": 0,
+    }
+    expected_spellings = frozenset({
+        "-1", "-0.96593", "-0.86603", "-0.70711", "-0.68301",
+        "-0.61237", "-0.50000", "-0.43301", "-0.35355", "-0.25882",
+        "-0.25000", "-0.18301", "0", "0.18301", "0.25000",
+        "0.25882", "0.35355", "0.43301", "0.50000", "0.61237",
+        "0.68301", "0.70711", "0.86603", "0.96593", "1",
+    })
+    expected_census = {
+        "records": 10294,
+        "irtranslation_rows": 64588,
+        "matrix_scalar_tokens": 8977752,
+        "matrix_token_spellings": expected_spellings,
+        "unmatched_structural_tokens": 0,
+    }
+    if census != expected_census:
+        raise ValueError(
+            "PIR archive structural census mismatch: "
+            f"observed={census!r}, expected={expected_census!r}"
+        )
+    return chars_map, matrices_map, rots_map, dim_map, trans_map, kvector_map, census
 
 
 # ── CIR (Complex Irreducible Representations) parsing ────────────────────────
@@ -1168,9 +1249,19 @@ def parse_all():
 
     print("Parsing PIR_data.txt characters and matrices...")
     (chars_map, matrices_map, rots_map, pir_dim_map,
-     pir_trans_map) = _parse_pir_characters()
+     pir_trans_map, pir_kvector_map, pir_census) = _parse_pir_characters()
     print(f"  Parsed {len(chars_map)} character table entries")
     print(f"  Parsed {len(matrices_map)} matrix data entries")
+    if {
+        key: tuple(value[:4]) for key, value in pir_kvector_map.items()
+    } != kvec_map:
+        raise ValueError("PIR k-vector parsers disagree on source records")
+    print(
+        "  PIR structural census: "
+        f"{pir_census['records']} records, "
+        f"{pir_census['irtranslation_rows']} irtranslation rows, "
+        f"{pir_census['matrix_scalar_tokens']} matrix scalars"
+    )
 
     # Determine which CIR labels need matrix data (missing from PIR)
     needed_cir = set()
@@ -1228,6 +1319,8 @@ def parse_all():
         "iso_ferroic": iso_ferroic,
         "dir_map": dir_map,
         "kvec_map": kvec_map,
+        "pir_kvector_map": pir_kvector_map,
+        "pir_census": pir_census,
         "chars_map": chars_map,
         "matrices_map": matrices_map,
         "rots_map": rots_map,
