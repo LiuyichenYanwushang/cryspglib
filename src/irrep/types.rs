@@ -738,12 +738,12 @@ impl IrrepRecord {
         )
     }
 
-    /// Complex characters of the first (stored-k) star-arm block.
+    /// Raw complex block traces of the first (stored-k) star-arm block.
     ///
-    /// These are generated from the complex ISO-IR matrices and are needed
-    /// when a physically irreducible real PIR combines conjugate k arms. The
-    /// returned slices are empty when no aligned CIR matrix was available.
-    pub fn scalar_little_characters(&self) -> (&'static [f64], &'static [f64]) {
+    /// The slices span the complete PIR operation universe, not just the
+    /// operations stabilizing the selected arm. Use the typed ordinary scalar
+    /// block-trace view when operation/value pairing is required.
+    pub(crate) fn raw_scalar_selected_arm_block_traces(&self) -> (&'static [f64], &'static [f64]) {
         if self.spinor || self._char_count == 0 {
             return (&[], &[]);
         }
@@ -763,8 +763,14 @@ impl IrrepRecord {
 
     /// Number of CIR (complex) components this PIR irrep decomposes into.
     /// 0 = non-compound, 2 = compound like Z1Z4 = Z1 ⊕ Z4.
-    pub fn cir_component_count(&self) -> usize {
+    pub(crate) fn raw_cir_component_count(&self) -> usize {
         self._cir_count as usize
+    }
+
+    // Kept crate-visible for existing non-irrep summary code; external users
+    // must use the semantic compound view rather than this raw count.
+    pub(crate) fn cir_component_count(&self) -> usize {
+        self.raw_cir_component_count()
     }
 
     /// Generation-time metadata for this compound irrep.
@@ -857,54 +863,52 @@ impl IrrepRecord {
         let metadata = self
             .compound_metadata()
             .ok_or(CharacterViewError::MissingData)?;
-        let first = self.compound_constituent_character(0)?;
-        let second = self.compound_constituent_character(1)?;
-        let values = match metadata.semantics {
-            CompoundCharacterSemantics::ConjugateRealification => first
-                .row
-                .values()
-                .iter()
-                .map(|value| *value + value.conj())
-                .collect(),
-            CompoundCharacterSemantics::DistinctComponentSum => first
-                .row
-                .values()
-                .iter()
-                .zip(second.row.values())
-                .map(|(first, second)| *first + *second)
-                .collect(),
-        };
-        let expected_dimension = match metadata.semantics {
+        match metadata.semantics {
             CompoundCharacterSemantics::ConjugateRealification => {
-                2 * metadata.cir_dimensions[0] as usize
-            }
-            CompoundCharacterSemantics::DistinctComponentSum => metadata
-                .cir_dimensions
-                .iter()
-                .map(|&dimension| dimension as usize)
-                .sum(),
-        };
-        let block_trace = CharacterRow::from_parts(
-            RepresentationSpaceKind::SelectedArmBlockTrace,
-            values,
-            first.row.operations().to_vec(),
-            Some(expected_dimension),
-        )?;
-        Ok(match metadata.semantics {
-            CompoundCharacterSemantics::ConjugateRealification => {
-                CompoundSelectedArmCharacter::ConjugateRealification {
-                    seed: first,
-                    block_trace,
-                }
+                let seed = self.compound_constituent_character(0)?;
+                let values = seed
+                    .row
+                    .values()
+                    .iter()
+                    .map(|value| *value + value.conj())
+                    .collect();
+                let block_trace = CharacterRow::from_parts(
+                    RepresentationSpaceKind::SelectedArmBlockTrace,
+                    values,
+                    seed.row.operations().to_vec(),
+                    Some(2 * metadata.cir_dimensions[0] as usize),
+                )?;
+                Ok(CompoundSelectedArmCharacter::ConjugateRealification { seed, block_trace })
             }
             CompoundCharacterSemantics::DistinctComponentSum => {
-                CompoundSelectedArmCharacter::DistinctComponentSum {
+                let first = self.compound_constituent_character(0)?;
+                let second = self.compound_constituent_character(1)?;
+                let values = first
+                    .row
+                    .values()
+                    .iter()
+                    .zip(second.row.values())
+                    .map(|(first, second)| *first + *second)
+                    .collect();
+                let block_trace = CharacterRow::from_parts(
+                    RepresentationSpaceKind::SelectedArmBlockTrace,
+                    values,
+                    first.row.operations().to_vec(),
+                    Some(
+                        metadata
+                            .cir_dimensions
+                            .iter()
+                            .map(|&dimension| dimension as usize)
+                            .sum(),
+                    ),
+                )?;
+                Ok(CompoundSelectedArmCharacter::DistinctComponentSum {
                     first,
                     second,
                     block_trace,
-                }
+                })
             }
-        })
+        }
     }
 
     /// Internal constructor for the constituent rows embedded by
@@ -1103,8 +1107,8 @@ impl IrrepRecord {
     /// Complex character table for a specific CIR component.
     ///
     /// Returns `(re, im)` pairs in the generated data-Hall operation order.
-    /// [`Self::cir_rotations`] contains the corresponding rotations.
-    pub fn cir_component_chars(&self, comp: usize) -> &'static [f64] {
+    /// [`Self::raw_cir_rotations`] contains the corresponding rotations.
+    pub(crate) fn raw_cir_component_chars(&self, comp: usize) -> &'static [f64] {
         if comp >= self._cir_count as usize {
             return &[];
         }
@@ -1116,7 +1120,7 @@ impl IrrepRecord {
     /// Rotation matrices for CIR operations of a specific component.
     ///
     /// Returns 9×n_ops i32 values (r00,r01,r02, r10,r11,r12, r20,r21,r22 per op).
-    pub fn cir_rotations(&self, comp: usize) -> &'static [i32] {
+    pub(crate) fn raw_cir_rotations(&self, comp: usize) -> &'static [i32] {
         if comp >= self._cir_count as usize {
             return &[];
         }
@@ -1136,10 +1140,10 @@ impl IrrepRecord {
     ///
     /// The character χ(g) of a representation D is the trace of the
     /// representation matrix for each symmetry operation g.  The return
-    /// slice has length equal to the number of operators in the little
-    /// co-group of the wave-vector, and each entry is a floating-point
-    /// value (possibly negative, fractional, or zero). For an operation-aware
-    /// complex selected-arm views, use the family-specific typed constructors.
+    /// slice is the stored PIR operation universe and each entry is a
+    /// floating-point value (possibly negative, fractional, or zero); its
+    /// length is not a selected-arm little-group contract. For operation-aware
+    /// typed views, use the family-specific constructors.
     pub fn characters(&self) -> &'static [f64] {
         if self._char_count == 0 {
             return &[];
@@ -1530,6 +1534,77 @@ mod compound_metadata_tests {
         assert_eq!(ordinary, 4105);
         assert_eq!(compound, 672);
         assert_eq!(spinor, 3611);
+    }
+
+    #[test]
+    fn scalar_full_star_character_census() {
+        let mut checked = 0;
+        for sg in 1..=230 {
+            for irrep in crate::irrep::query::irreps_of(sg)
+                .iter()
+                .filter(|irrep| !irrep.spinor)
+            {
+                let row = irrep.scalar_full_star_row().expect("scalar full-star row");
+                assert_eq!(row.len(), row.operations().len());
+                assert_eq!(row.dimension(), irrep.dim as usize);
+                let identities = row
+                    .operations()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, operation)| super::is_identity_seitz(operation))
+                    .collect::<Vec<_>>();
+                assert_eq!(identities.len(), 1);
+                let identity = row.entry(identities[0].0).unwrap().0;
+                assert_eq!(identity.im, 0.0);
+                assert_eq!(identity.re, irrep.dim as f64);
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 4777);
+    }
+
+    #[test]
+    fn typed_character_family_applicability_is_explicit() {
+        let ordinary = crate::irrep::query::irreps_of(1)
+            .iter()
+            .find(|irrep| !irrep.spinor)
+            .expect("ordinary scalar");
+        let compound = crate::irrep::query::irreps_of(23)
+            .iter()
+            .find(|irrep| irrep.raw_cir_component_count() > 0)
+            .expect("compound scalar");
+        let spinor = crate::irrep::query::irreps_of(1)
+            .iter()
+            .find(|irrep| irrep.spinor)
+            .expect("spinor");
+        assert!(matches!(
+            ordinary.compound_selected_arm_view(),
+            Err(super::CharacterViewError::NotApplicable)
+        ));
+        assert!(matches!(
+            ordinary.spinor_selected_arm_view(),
+            Err(super::CharacterViewError::NotApplicable)
+        ));
+        assert!(matches!(
+            compound.ordinary_scalar_selected_arm_block_trace(),
+            Err(super::CharacterViewError::NotApplicable)
+        ));
+        assert!(matches!(
+            compound.spinor_selected_arm_view(),
+            Err(super::CharacterViewError::NotApplicable)
+        ));
+        assert!(matches!(
+            spinor.scalar_full_star_row(),
+            Err(super::CharacterViewError::NotApplicable)
+        ));
+        assert!(matches!(
+            spinor.ordinary_scalar_selected_arm_block_trace(),
+            Err(super::CharacterViewError::NotApplicable)
+        ));
+        assert!(matches!(
+            spinor.compound_selected_arm_view(),
+            Err(super::CharacterViewError::NotApplicable)
+        ));
     }
 
     #[test]

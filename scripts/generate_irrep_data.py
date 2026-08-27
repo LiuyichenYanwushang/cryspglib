@@ -992,7 +992,8 @@ def _resolve_compound_constituents(sg, ml, cir_data):
         raise ValueError(f"compound SG{sg} {ml!r} has CIR constituent without irnumber")
     if any(entry['opcount'] != entries[0]['opcount'] for entry in entries[1:]):
         raise ValueError(f"compound SG{sg} {ml!r} has mismatched CIR operation counts")
-    return {'parts': parts, 'entries': entries}
+    semantics = "realification" if parts[0] == parts[1] else "distinct_sum"
+    return {'parts': parts, 'entries': entries, 'semantics': semantics}
 
 
 def _lookup_cir_chars(cir_data, sg_num, ml_label):
@@ -2138,8 +2139,9 @@ def _validate_compound_bindings(
 
 
 def _validate_pir_storage_alignment(
-        sg, ml, char_counts, pir_rots_flat, pir_rot_starts,
-        pir_trans_flat, pir_trans_starts):
+        sg, ml, char_starts, char_counts, chars_flat, pir_rots_flat,
+        pir_rot_starts, pir_trans_flat, pir_trans_starts,
+        little_chars_real, little_chars_imag, little_chars_valid):
     """Require every scalar PIR operation row to share one flat offset."""
     for i, op_count in enumerate(char_counts):
         if pir_rot_starts[i] % 9 != 0:
@@ -2152,7 +2154,15 @@ def _validate_pir_storage_alignment(
                 f"scalar SG{sg[i]} {ml[i]!r} has PIR rotation/translation "
                 "offset mismatch"
             )
-        if (pir_rot_starts[i] + op_count * 9 > len(pir_rots_flat)
+        if char_starts[i] != pir_rot_starts[i] // 9:
+            raise ValueError(
+                f"scalar SG{sg[i]} {ml[i]!r} has character/PIR offset mismatch"
+            )
+        if (char_starts[i] + op_count > len(chars_flat)
+                or char_starts[i] + op_count > len(little_chars_real)
+                or char_starts[i] + op_count > len(little_chars_imag)
+                or char_starts[i] + op_count > len(little_chars_valid)
+                or pir_rot_starts[i] + op_count * 9 > len(pir_rots_flat)
                 or expected_translation_start + op_count * 3 > len(pir_trans_flat)):
             raise ValueError(
                 f"scalar SG{sg[i]} {ml[i]!r} has incomplete PIR operation row"
@@ -2546,7 +2556,7 @@ def generate_rust_data(data):
         if resolved is not None:
             scalar_selected_dims.append(0)
             entries = resolved["entries"]
-            if resolved["parts"][0] == resolved["parts"][1]:
+            if resolved["semantics"] == "realification":
                 full_dim = 2 * entries[0]["dim"]
                 if entries[1]["dim"] != entries[0]["dim"]:
                     raise ValueError(
@@ -2756,7 +2766,7 @@ def generate_rust_data(data):
 
                     # Repeated CIR labels denote a representation together
                     # with its complex conjugate (for example P3P3).
-                    if p_idx > 0 and part == parts[0]:
+                    if p_idx > 0 and resolved["semantics"] == "realification":
                         aligned_little = [value.conjugate() for value in aligned_little]
                         aligned_full = [value.conjugate() for value in aligned_full]
 
@@ -2851,7 +2861,7 @@ def generate_rust_data(data):
                 "cir_irnumbers": [entry['irnumber'] for entry in entries],
                 "cir_labels": parts,
                 "cir_dimensions": [entry['little_dim'] for entry in entries],
-                "semantics": 1 if parts[0] == parts[1] else 2,
+                "semantics": 1 if resolved["semantics"] == "realification" else 2,
             })
         else:
             cir_comp_starts.append(0); cir_comp_counts.append(0); cir_comp_ops.append(0)
@@ -3033,8 +3043,9 @@ def generate_rust_data(data):
     # The final arrays are now in data-Hall order.  Freeze and verify the
     # operation binding only after every reorder/padding mutation is complete.
     _validate_pir_storage_alignment(
-        sg, ml, char_counts, pir_rots_flat, pir_rot_starts,
-        pir_trans_flat, pir_trans_starts)
+        sg, ml, char_starts, char_counts, chars_flat, pir_rots_flat,
+        pir_rot_starts, pir_trans_flat, pir_trans_starts,
+        little_chars_real, little_chars_imag, little_chars_valid)
     _validate_compound_bindings(
         sg, ml, char_counts, pir_rots_flat, pir_rot_starts,
         pir_trans_flat, pir_trans_starts, cir_comp_starts,
@@ -3129,7 +3140,7 @@ def generate_rust_data(data):
         indices = spin_lg_op_indices_flat[start:start + count]
         sg_count = spin_op_sg_count[sir['sg']]
         if len(indices) != count or len(set(indices)) != count or any(
-                operation >= sg_count for operation in indices):
+                operation < 0 or operation >= sg_count for operation in indices):
             raise ValueError(
                 f"spinor SG{sir['sg']} {sir['ml_label']!r} has invalid little-group indices"
             )
@@ -3413,6 +3424,8 @@ def generate_rust_data(data):
 
     scalar_records = []  # list of dicts with all the generated fields
     ordinary_scalar_count = 0
+    image_dimension_count = 0
+    pir_dimension_count = 0
     for i in range(len(ml)):
         ml_label = ml[i]
         bc_label = bc[i]
@@ -3444,11 +3457,25 @@ def generate_rust_data(data):
             raise ValueError(
                 f"authoritative dimension is invalid for SG{sg_num} {ml_label!r}"
             )
+        if not (1 <= img_code <= len(img_dims)):
+            raise ValueError(
+                f"missing authoritative image dimension for SG{sg_num} {ml_label!r}: "
+                f"image code {img_code}"
+            )
+        image_dim = img_dims[img_code - 1]
+        if image_dim != dim:
+            raise ValueError(
+                f"image/CIR authoritative dimension mismatch for SG{sg_num} "
+                f"{ml_label!r}: image={image_dim}, CIR={dim}"
+            )
+        image_dimension_count += 1
         if pir_d is not None and pir_d != dim:
             raise ValueError(
                 f"PIR/CIR authoritative dimension mismatch for SG{sg_num} "
                 f"{ml_label!r}: PIR={pir_d}, CIR={dim}"
             )
+        if pir_d is not None:
+            pir_dimension_count += 1
 
         compound = compound_resolutions[i] is not None
         selected_dim = scalar_selected_dims[i]
@@ -3497,6 +3524,21 @@ def generate_rust_data(data):
             f"ordinary scalar CIR selected-dimension census expected 4105, got "
             f"{ordinary_scalar_count}"
         )
+    if image_dimension_count != len(ml):
+        raise ValueError(
+            f"image dimension census expected {len(ml)}/{len(ml)}, got "
+            f"{image_dimension_count}/{len(ml)}"
+        )
+    if pir_dimension_count != 4665:
+        raise ValueError(
+            f"PIR dimension census expected 4665/4777, got "
+            f"{pir_dimension_count}/4777"
+        )
+    print(
+        f"  Authoritative scalar dimensions: CIR {len(ml)}/4777, "
+        f"PIR cross-check {pir_dimension_count}/4777, "
+        f"image cross-check {image_dimension_count}/4777"
+    )
 
     # Pre-compute spinor IrrepRecord data
     spinor_records = []

@@ -73,6 +73,31 @@ class PinnedArchiveBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "ambiguous archive member"):
                 generator._open_zip_path("iso.zip", "data.txt")
 
+    def test_pir_parallel_offsets_are_strictly_linked(self):
+        args = dict(
+            sg=[4],
+            ml=["GM1"],
+            char_starts=[0],
+            char_counts=[1],
+            chars_flat=[1.0],
+            pir_rots_flat=[1, 0, 0, 0, 1, 0, 0, 0, 1],
+            pir_rot_starts=[0],
+            pir_trans_flat=[0.0, 0.0, 0.0],
+            pir_trans_starts=[0],
+            little_chars_real=[1.0],
+            little_chars_imag=[0.0],
+            little_chars_valid=[1],
+        )
+        generator._validate_pir_storage_alignment(**args)
+        for field, value in (
+                ("pir_rot_starts", [1]),
+                ("pir_trans_starts", [3]),
+                ("char_starts", [1])):
+            malformed = dict(args)
+            malformed[field] = value
+            with self.assertRaisesRegex(ValueError, "offset"):
+                generator._validate_pir_storage_alignment(**malformed)
+
 
 if __name__ == "__main__":
     unittest.main()

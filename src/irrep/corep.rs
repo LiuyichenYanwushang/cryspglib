@@ -191,7 +191,7 @@ fn scalar_little_irrep_data(
     {
         return None;
     }
-    let (stored_little_real, stored_little_imag) = irrep.scalar_little_characters();
+    let (stored_little_real, stored_little_imag) = irrep.raw_scalar_selected_arm_block_traces();
     let stored_little_available =
         stored_little_real.len() == n_pir_ops && stored_little_imag.len() == n_pir_ops;
     let mapped_stored_characters = stored_little_available.then(|| {
@@ -711,7 +711,7 @@ pub fn compute_corepresentation(
     // induced star representation to the selected k-arm. Spinor records are
     // already little-group data, while compound PIRs are classified through
     // their stored complex components below.
-    if !h_irrep.spinor && h_irrep.cir_component_count() == 0 {
+    if !h_irrep.spinor && h_irrep.raw_cir_component_count() == 0 {
         let pir_rots = h_irrep.pir_rotations();
         let pir_trans = h_irrep.pir_translations();
         let map = if pir_trans.len() == pir_rots.len() / 9 * 3 {
@@ -755,7 +755,7 @@ pub fn compute_corepresentation(
     // 7. Wigner test: dispatch by irrep type
     let (corep_type, source) = if antiunitary.is_empty() {
         Ok((CorepType::A, WignerSource::TrivialNoAntiunitary))
-    } else if h_irrep.cir_component_count() > 0 {
+    } else if h_irrep.raw_cir_component_count() > 0 {
         // A compound real PIR such as Z1Z4 is already the direct sum of two
         // conjugate complex irreps.  Wigner's test must start from ONE of
         // those complex components; using the compound PIR dimension and
@@ -780,14 +780,14 @@ pub fn compute_corepresentation(
         debug_log!(
             "DEBUG CIR path: {} n_comp={}",
             h_irrep.ml,
-            h_irrep.cir_component_count()
+            h_irrep.raw_cir_component_count()
         );
-        for comp in 0..h_irrep.cir_component_count() {
-            let cir = h_irrep.cir_component_chars(comp);
+        for comp in 0..h_irrep.raw_cir_component_count() {
+            let cir = h_irrep.raw_cir_component_chars(comp);
             if cir.is_empty() {
                 continue;
             }
-            let cir_rots = h_irrep.cir_rotations(comp);
+            let cir_rots = h_irrep.raw_cir_rotations(comp);
             // Generated CIR components are stored in the selected data-Hall
             // order.  Prefer that exact order, especially for centered groups
             // where several Seitz operations can share one rotation.  The
@@ -1936,7 +1936,7 @@ mod tests {
         // Iterate over all SGs
         for sg in 1u8..=230 {
             for ir in crate::irrep::query::irreps_of(sg) {
-                let n_comp = ir.cir_component_count();
+                let n_comp = ir.raw_cir_component_count();
                 if n_comp == 0 {
                     continue;
                 }
@@ -1949,7 +1949,7 @@ mod tests {
 
                 // Sum selected-arm CIR component characters.
                 let cir_ops = (0..n_comp)
-                    .map(|c| ir.cir_component_chars(c).len() / 2)
+                    .map(|c| ir.raw_cir_component_chars(c).len() / 2)
                     .min()
                     .unwrap_or(0);
                 if cir_ops == 0 {
@@ -1966,7 +1966,7 @@ mod tests {
                 let mut cir_sum_re = vec![0.0f64; n_ops];
                 let mut cir_sum_im = vec![0.0f64; n_ops];
                 for c in 0..n_comp {
-                    let cir = ir.cir_component_chars(c);
+                    let cir = ir.raw_cir_component_chars(c);
                     for op in 0..n_ops {
                         cir_sum_re[op] += cir[2 * op];
                         cir_sum_im[op] += cir[2 * op + 1];
@@ -2121,9 +2121,9 @@ mod tests {
 
         // For each Z-point CIR irrep, check χ(id)=dim
         for ir in h_irreps.iter().filter(|r| r.k_label() == "Z") {
-            if ir.cir_component_count() > 0 {
-                for c in 0..ir.cir_component_count() {
-                    let cir = ir.cir_component_chars(c);
+            if ir.raw_cir_component_count() > 0 {
+                for c in 0..ir.raw_cir_component_count() {
+                    let cir = ir.raw_cir_component_chars(c);
                     let chi_id = Complex64::new(cir[0], cir[1]);
                     println!(
                         "{} comp{}: cir_chars[0]=({:.2},{:.2}) |χ|={:.2}",
@@ -2145,7 +2145,7 @@ mod tests {
 
         // Print full h_seitz ↔ cir_chars mapping for Z1Z4's first component
         if let Some(z1z4) = h_irreps.iter().find(|r| r.ml == "Z1Z4") {
-            let cir = z1z4.cir_component_chars(0);
+            let cir = z1z4.raw_cir_component_chars(0);
             wigner::debug_char_order(cir, &h_seitz, "SG118 Z1Z4 comp0");
         }
     }
@@ -2456,7 +2456,7 @@ mod tests {
                     .expect("diagnostic square indices must be valid");
 
                 // Direct anti-coset Wigner sum
-                let cir = ir.cir_component_chars(0);
+                let cir = ir.raw_cir_component_chars(0);
                 let w_direct = wigner::wigner_direct_anti_coset(
                     cir,
                     &anti_lg,
@@ -3307,9 +3307,9 @@ mod tests {
                         }
                     }
                 }
-                for comp in 0..ir.cir_component_count() {
-                    let cir = ir.cir_component_chars(comp);
-                    let cr = ir.cir_rotations(comp);
+                for comp in 0..ir.raw_cir_component_count() {
+                    let cir = ir.raw_cir_component_chars(comp);
+                    let cr = ir.raw_cir_rotations(comp);
                     let n = cir.len() / 2;
                     if cr.len() != n * 9 {
                         continue;
@@ -3455,7 +3455,7 @@ mod tests {
 
                 let key = if antiunitary.is_empty() {
                     "scalar_trivial_A"
-                } else if ir.cir_component_count() > 0 {
+                } else if ir.raw_cir_component_count() > 0 {
                     "scalar_CIR"
                 } else if ir.spinor {
                     let unitary: Vec<usize> = mag_lg
