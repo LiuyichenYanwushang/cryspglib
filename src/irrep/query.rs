@@ -142,7 +142,14 @@ pub fn kpoints_of(sg: u8) -> Vec<KPointSummary> {
         .collect()
 }
 
-const SEITZ_COLUMN_QUANTIZATION: f64 = 1.0e8;
+/// Fractional-translation tolerance used when forming formatter columns.
+///
+/// Source records contain at most about five decimal places of meaningful
+/// Seitz translation precision.  Matching at this same scale coalesces
+/// representations of one physical operation without identifying distinct
+/// integer-translation representatives (which remain different keys).
+const SEITZ_COLUMN_TRANSLATION_TOLERANCE: f64 = 1.0e-5;
+const SEITZ_COLUMN_QUANTIZATION: f64 = 1.0 / SEITZ_COLUMN_TRANSLATION_TOLERANCE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct SeitzColumnKey {
@@ -244,7 +251,8 @@ fn format_seitz_operation(operation: SeitzOperation) -> String {
     );
     if has_trans {
         let t = operation.translation;
-        format!("{}|{:.2},{:.2},{:.2}", rot_str, t[0], t[1], t[2])
+        // Escape the Seitz bar so Markdown keeps the operation in one cell.
+        format!("{}\\|{:.2},{:.2},{:.2}", rot_str, t[0], t[1], t[2])
     } else {
         rot_str
     }
@@ -279,9 +287,12 @@ fn format_complex_value(value: Complex64) -> String {
 /// Each row is constructed from its family-specific typed view: ordinary
 /// scalar block trace, semantic compound block trace, or indexed spinor row.
 /// Columns are the ordered union of complete Seitz operations across those
-/// rows, matched by rotation and quantized fractional translation; missing
-/// family-specific operations are left blank. Any typed-data error is returned
-/// in the resulting diagnostic string rather than being silently misaligned.
+/// rows, matched by exact rotation and fractional translation quantized at
+/// the formatter's `SEITZ_COLUMN_TRANSLATION_TOLERANCE`; missing
+/// family-specific operations
+/// are left blank. Integer translation representatives are not reduced
+/// modulo the lattice. Any typed-data error is returned in the resulting
+/// diagnostic string rather than being silently misaligned.
 pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
     let irreps = irreps_of(sg);
     let matching: Vec<&IrrepRecord> = irreps
@@ -808,6 +819,144 @@ mod tests {
             y1_row.ends_with("| 1 | -1 |"),
             "SG 5 Y1 centered identity value was not -1: {y1_row}"
         );
+    }
+
+    #[test]
+    fn test_format_character_table_coalesces_sg144_gamma_translation_precision() {
+        let gamma = kpoints_of(144)
+            .into_iter()
+            .find(|kpoint| kpoint.label == "GM")
+            .expect("SG 144 Gamma k-point");
+        let irreps = irreps_of(144);
+        let rows: Vec<_> = gamma
+            .irreps
+            .iter()
+            .map(|&index| typed_character_table_row(&irreps[index]).unwrap())
+            .collect();
+        let mut columns = BTreeMap::new();
+        for row in &rows {
+            for (&key, (operation, _)) in &row.entries {
+                columns.entry(key).or_insert(*operation);
+            }
+        }
+        assert_eq!(columns.len(), 3, "SG 144 Gamma physical Seitz columns");
+
+        let centered_identity: Vec<_> = columns
+            .iter()
+            .filter(|(_, operation)| (operation.translation[2] - 1.0 / 3.0).abs() < 1e-3)
+            .collect();
+        assert_eq!(
+            centered_identity.len(),
+            1,
+            "1/3 translation must identify one physical Seitz column"
+        );
+        let centered_key = centered_identity[0].0;
+        let gm1 = rows
+            .iter()
+            .find(|row| row.irrep.ml == "GM1")
+            .expect("SG 144 GM1 row");
+        let gm4 = rows
+            .iter()
+            .find(|row| row.irrep.ml == "GM4")
+            .expect("SG 144 GM4 row");
+        assert!(gm1.entries.contains_key(centered_key));
+        assert!(gm4.entries.contains_key(centered_key));
+
+        let table = format_character_table(
+            144,
+            gamma.coords.0,
+            gamma.coords.1,
+            gamma.coords.2,
+            gamma.coords.3,
+        );
+        let header = table
+            .lines()
+            .find(|line| line.starts_with("| ML |"))
+            .expect("SG 144 Gamma formatter header");
+        assert_eq!(
+            header.trim_matches('|').split(" | ").count(),
+            5,
+            "ML, BC, and three Seitz columns must remain distinct Markdown cells"
+        );
+        assert!(
+            header.contains("\\|"),
+            "Seitz bars must be Markdown-escaped"
+        );
+        let header_cells: Vec<_> = header.trim_matches('|').split(" | ").collect();
+        let centered_column = header_cells
+            .iter()
+            .position(|cell| cell.contains("0.33"))
+            .expect("SG 144 centered 1/3 operation column");
+        for label in ["GM1", "GM4"] {
+            let line = table
+                .lines()
+                .find(|line| line.starts_with(&format!("| {label} |")))
+                .unwrap_or_else(|| panic!("missing SG 144 {label} row"));
+            let cells: Vec<_> = line.trim_matches('|').split(" | ").collect();
+            assert!(
+                !cells[centered_column].is_empty(),
+                "{label} value must occupy the centered 1/3 column"
+            );
+        }
+    }
+
+    #[test]
+    fn test_formatter_seitz_union_matches_typed_row_census() {
+        let mut kpoint_count = 0usize;
+        let mut ordinary_count = 0usize;
+        let mut compound_count = 0usize;
+        let mut spinor_count = 0usize;
+        for sg in 1..=230u8 {
+            let irreps = irreps_of(sg);
+            for kpoint in kpoints_of(sg) {
+                kpoint_count += 1;
+                let mut union = BTreeMap::new();
+                let mut maximum = 0usize;
+                for &index in &kpoint.irreps {
+                    let irrep = &irreps[index];
+                    if irrep.spinor {
+                        spinor_count += 1;
+                    } else if irrep.raw_cir_component_count() > 0 {
+                        compound_count += 1;
+                    } else {
+                        ordinary_count += 1;
+                    }
+                    let row = typed_character_table_row(irrep)
+                        .unwrap_or_else(|error| panic!("SG {sg} {}: {error}", irrep.ml));
+                    maximum = maximum.max(row.entries.len());
+                    for (&key, (operation, _)) in &row.entries {
+                        union.entry(key).or_insert(*operation);
+                    }
+                }
+                assert_eq!(
+                    union.len(),
+                    maximum,
+                    "SG {sg} {} formatter Seitz union inflated",
+                    kpoint.label
+                );
+                let rendered = format_character_table(
+                    sg,
+                    kpoint.coords.0,
+                    kpoint.coords.1,
+                    kpoint.coords.2,
+                    kpoint.coords.3,
+                );
+                let header = rendered
+                    .lines()
+                    .find(|line| line.starts_with("| ML |"))
+                    .unwrap_or_else(|| panic!("SG {sg} {} has no formatter header", kpoint.label));
+                assert_eq!(
+                    header.trim_matches('|').split(" | ").count(),
+                    maximum + 2,
+                    "SG {sg} {} rendered Seitz column count mismatch",
+                    kpoint.label
+                );
+            }
+        }
+        assert!(kpoint_count > 0);
+        assert_eq!(ordinary_count, 4105);
+        assert_eq!(compound_count, 672);
+        assert_eq!(spinor_count, 3611);
     }
 
     #[test]
