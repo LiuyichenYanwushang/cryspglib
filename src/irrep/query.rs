@@ -27,7 +27,7 @@
 //! # Irrep records
 //!
 //! Each [`IrrepRecord`] provides:
-//! - [`IrrepRecord::characters()`] — χ(g) = Tr(D(g)) for each little-group operator
+//! - [`IrrepRecord::characters()`] — legacy raw PIR traces (not an operation-aware Seitz row)
 //! - [`IrrepRecord::matrices()`] — full D(g) matrix elements, flattened
 //! - [`IrrepRecord::subgroups()`] — non-magnetic isotropy subgroups (lower-symmetry space groups)
 //! - [`IrrepRecord::magnetic_subgroups()`] — magnetic isotropy subgroups (magnetic space groups)

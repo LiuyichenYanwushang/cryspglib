@@ -461,6 +461,44 @@ fn sg144_a2_little_characters_keep_tiny_phase_noise() {
     }
 }
 
+/// Hall expansion may replace a source Seitz representative while the legacy
+/// full-star character remains tied to the source representative. The typed
+/// selected-arm block trace retains the phase-correct value for SG 5 Y1.
+#[test]
+fn sg5_y1_selected_block_trace_keeps_hall_phase() {
+    let y1 = irreps_of(5)
+        .iter()
+        .find(|ir| !ir.spinor && ir.ml == "Y1")
+        .expect("SG 5 Y1 scalar irrep");
+    let row = y1
+        .ordinary_scalar_selected_arm_block_trace()
+        .expect("SG 5 Y1 selected-arm block trace");
+    let identity_rotation = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    let candidates = row
+        .operations()
+        .iter()
+        .enumerate()
+        .filter(|(_, operation)| {
+            operation.rotation == identity_rotation
+                && operation
+                    .translation
+                    .iter()
+                    .zip([0.5, 0.5, 0.0])
+                    .all(|(actual, expected)| (actual - expected).abs() < 1e-8)
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    assert_eq!(candidates.len(), 1, "SG 5 Y1 Hall Seitz candidate count");
+    let value = row
+        .get(candidates[0])
+        .expect("SG 5 Y1 Hall Seitz character");
+    assert!(
+        (value.re + 1.0).abs() < 1e-10,
+        "unexpected SG 5 Y1 value: {value}"
+    );
+    assert!(value.im.abs() < 1e-10);
+}
+
 /// The 2026-08 formatter bug amplified scientific-notation exponents ending
 /// in zero and produced six recognizable O(0.1) value families.  Finite-group
 /// characters are algebraic, so values numerically equal to these rational

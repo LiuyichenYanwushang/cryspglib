@@ -71,8 +71,6 @@ pub enum MatrixReorderError {
 /// Representation space occupied by a typed character row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RepresentationSpaceKind {
-    /// The physical full-star/PIR character row in PIR operation order.
-    FullStarPir,
     /// A selected star arm's block trace, still indexed by the complete PIR
     /// operation universe; callers must apply the arm little-group Seitz set.
     SelectedArmBlockTrace,
@@ -634,9 +632,13 @@ impl IrrepRecord {
         (rots, trans, su2)
     }
 
-    /// Translation vectors for PIR operations, 3 f64 per op, same order as [`Self::characters`].
+    /// Translation vectors for the final Hall PIR operation storage, 3 f64 per op.
     ///
-    /// Together with [`Self::pir_rotations`], enables full Seitz matching.
+    /// This is mapping metadata paired with [`Self::pir_rotations`]. It must not
+    /// be paired with the legacy [`Self::characters`] values as a
+    /// phase-covariant operation-aware character row: Hall expansion can change
+    /// the Seitz representative without applying the corresponding Bloch phase
+    /// to that legacy storage.
     pub fn pir_translations(&self) -> &'static [f64] {
         let char_count = self._char_count as usize;
         if char_count == 0 {
@@ -651,9 +653,11 @@ impl IrrepRecord {
         &super::generated_data::PIR_TRANS[start..start + len]
     }
 
-    /// Rotation matrices for PIR operations, 9 i32 per op, same order as [`Self::characters`].
+    /// Rotation matrices for the final Hall PIR operation storage, 9 i32 per op.
     ///
-    /// Used to build H_ops→PIR index mapping for the Wigner test.
+    /// Used to build H_ops→PIR index mapping for the Wigner test. These are
+    /// mapping metadata and do not form a phase-covariant typed pair with the
+    /// legacy [`Self::characters`] values.
     pub fn pir_rotations(&self) -> &'static [i32] {
         let char_count = self._char_count as usize;
         if char_count == 0 {
@@ -706,36 +710,6 @@ impl IrrepRecord {
                     .expect("checked PIR translation width"),
             })
             .collect())
-    }
-
-    /// The physical scalar full-star/PIR character row in paired Seitz order.
-    ///
-    /// This is the existing real PIR row represented as complex values with
-    /// zero imaginary parts. It is unavailable for spinors, whose character
-    /// data include a distinct indexed little-group representation.
-    pub fn scalar_full_star_row(&self) -> Result<CharacterRow, CharacterViewError> {
-        if self.spinor {
-            return Err(CharacterViewError::NotApplicable);
-        }
-        let start = self._char_start as usize;
-        let end = start
-            .checked_add(self._char_count as usize)
-            .ok_or(CharacterViewError::LengthMismatch)?;
-        if end > super::generated_data::CHARACTERS.len() {
-            return Err(CharacterViewError::MissingData);
-        }
-        let values = self
-            .checked_characters()
-            .iter()
-            .copied()
-            .map(|value| Complex64::new(value, 0.0))
-            .collect();
-        CharacterRow::from_parts(
-            RepresentationSpaceKind::FullStarPir,
-            values,
-            self.typed_pir_operations()?,
-            Some(self.dim as usize),
-        )
     }
 
     /// Raw complex block traces of the first (stored-k) star-arm block.
@@ -840,16 +814,6 @@ impl IrrepRecord {
             Some(expected_dimension),
         )?;
         Ok(row)
-    }
-
-    fn checked_characters(&self) -> &'static [f64] {
-        let start = self._char_start as usize;
-        let end = start.saturating_add(self._char_count as usize);
-        if end > super::generated_data::CHARACTERS.len() {
-            &[]
-        } else {
-            &super::generated_data::CHARACTERS[start..end]
-        }
     }
 
     /// Construct a compound selected-arm view whose public shape preserves
@@ -1135,15 +1099,18 @@ impl IrrepRecord {
 }
 
 impl IrrepRecord {
-    /// Full-star/PIR character table: χ(g) = Tr(D(g)) for each stored
-    /// space-group operator.
+    /// Legacy raw full-star/PIR character storage.
     ///
-    /// The character χ(g) of a representation D is the trace of the
-    /// representation matrix for each symmetry operation g.  The return
-    /// slice is the stored PIR operation universe and each entry is a
-    /// floating-point value (possibly negative, fractional, or zero); its
-    /// length is not a selected-arm little-group contract. For operation-aware
-    /// typed views, use the family-specific constructors.
+    /// The return slice is the legacy source-operation storage and each entry
+    /// is a floating-point trace (possibly negative, fractional, or zero).
+    /// During Hall expansion, the source Seitz representatives can be changed
+    /// without applying the corresponding Bloch phase to these values, so this
+    /// slice must not be paired with [`Self::pir_rotations`] or
+    /// [`Self::pir_translations`] to form an operation-aware character row.
+    /// For operation-aware typed views, use the family-specific constructors:
+    /// [`Self::ordinary_scalar_selected_arm_block_trace`],
+    /// [`Self::compound_selected_arm_view`], or
+    /// [`Self::spinor_selected_arm_view`].
     pub fn characters(&self) -> &'static [f64] {
         if self._char_count == 0 {
             return &[];
@@ -1537,33 +1504,6 @@ mod compound_metadata_tests {
     }
 
     #[test]
-    fn scalar_full_star_character_census() {
-        let mut checked = 0;
-        for sg in 1..=230 {
-            for irrep in crate::irrep::query::irreps_of(sg)
-                .iter()
-                .filter(|irrep| !irrep.spinor)
-            {
-                let row = irrep.scalar_full_star_row().expect("scalar full-star row");
-                assert_eq!(row.len(), row.operations().len());
-                assert_eq!(row.dimension(), irrep.dim as usize);
-                let identities = row
-                    .operations()
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, operation)| super::is_identity_seitz(operation))
-                    .collect::<Vec<_>>();
-                assert_eq!(identities.len(), 1);
-                let identity = row.entry(identities[0].0).unwrap().0;
-                assert_eq!(identity.im, 0.0);
-                assert_eq!(identity.re, irrep.dim as f64);
-                checked += 1;
-            }
-        }
-        assert_eq!(checked, 4777);
-    }
-
-    #[test]
     fn typed_character_family_applicability_is_explicit() {
         let ordinary = crate::irrep::query::irreps_of(1)
             .iter()
@@ -1591,10 +1531,6 @@ mod compound_metadata_tests {
         ));
         assert!(matches!(
             compound.spinor_selected_arm_view(),
-            Err(super::CharacterViewError::NotApplicable)
-        ));
-        assert!(matches!(
-            spinor.scalar_full_star_row(),
             Err(super::CharacterViewError::NotApplicable)
         ));
         assert!(matches!(
@@ -1674,7 +1610,6 @@ mod compound_metadata_tests {
             .iter()
             .find(|irrep| irrep.ml == "R1R2")
             .expect("SG76 R1R2");
-        assert_eq!(sg76.scalar_full_star_row().unwrap().dimension(), 4);
         assert_eq!(
             sg76.compound_selected_arm_view()
                 .unwrap()
@@ -1892,7 +1827,7 @@ mod compound_metadata_tests {
         };
         assert!(matches!(
             super::CharacterRow::from_parts(
-                super::RepresentationSpaceKind::FullStarPir,
+                super::RepresentationSpaceKind::SelectedArmBlockTrace,
                 vec![Complex64::new(f64::NAN, 0.0), Complex64::new(1.0, 0.0)],
                 vec![identity, nonidentity],
                 None,
@@ -1901,7 +1836,7 @@ mod compound_metadata_tests {
         ));
         assert!(matches!(
             super::CharacterRow::from_parts(
-                super::RepresentationSpaceKind::FullStarPir,
+                super::RepresentationSpaceKind::SelectedArmBlockTrace,
                 vec![Complex64::new(1.0, 0.0)],
                 vec![super::SeitzOperation {
                     translation: [f64::INFINITY, 0.0, 0.0],
@@ -1913,7 +1848,7 @@ mod compound_metadata_tests {
         ));
         assert!(matches!(
             super::CharacterRow::from_parts(
-                super::RepresentationSpaceKind::FullStarPir,
+                super::RepresentationSpaceKind::SelectedArmBlockTrace,
                 vec![Complex64::new(1.0, 0.0)],
                 vec![identity],
                 Some(0),
