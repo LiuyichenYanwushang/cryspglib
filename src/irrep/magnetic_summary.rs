@@ -1303,7 +1303,7 @@ mod tests {
     }
 
     #[test]
-    fn bns_128_406_is_fully_supported() {
+    fn bns_128_406_has_official_dimensions_and_pending_status() {
         let summary = magnetic_irrep_summary_by_bns("128.406").unwrap();
         assert_eq!(summary.uni, 1066);
         assert_eq!(summary.unitary_sg, 118);
@@ -1335,9 +1335,24 @@ mod tests {
         let mut dimensions: Vec<_> = z.coreps.iter().map(|corep| corep.dim).collect();
         dimensions.sort_unstable();
         assert_eq!(dimensions, vec![2, 2, 2, 4]);
+        assert!(z.coreps.iter().all(|corep| corep.characters.len() == 16));
+        // High-dimensional scalar Type-A antiunitary characters are
+        // intentionally withheld until phase-aligned selected-arm matrices
+        // exist.  The two Type-C scalar pairs and spinor pair remain complete.
+        let pending = z
+            .coreps
+            .iter()
+            .filter(|corep| {
+                matches!(
+                    corep.completeness,
+                    crate::irrep::corep::CharacterCompleteness::TypeAAntiunitaryPending { .. }
+                )
+            })
+            .count();
+        assert_eq!(pending, 1);
         assert!(z.coreps.iter().all(|corep| {
-            corep.characters.len() == 16
-                && corep.completeness == crate::irrep::corep::CharacterCompleteness::Complete
+            corep.completeness == crate::irrep::corep::CharacterCompleteness::Complete
+                || (corep.corep_type == crate::irrep::corep::CorepType::A && corep.dim > 1)
         }));
     }
 

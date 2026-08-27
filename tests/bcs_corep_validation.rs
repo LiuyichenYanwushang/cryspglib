@@ -11,9 +11,9 @@ use cryspglib::irrep::magnetic_summary::{
 };
 
 #[test]
-fn bcs_sg128_406_z_is_complete_and_has_official_dimensions() {
+fn bcs_sg128_406_z_has_official_dimensions() {
     let summary = magnetic_irrep_summary_by_bns("128.406")
-        .expect("BNS 128.406 must have a complete magnetic-irrep summary");
+        .expect("BNS 128.406 must have a valid magnetic-irrep summary");
     assert_eq!(summary.uni, 1066);
     assert_eq!(summary.parent_sg, 128);
     assert_eq!(summary.unitary_sg, 118);
@@ -57,7 +57,14 @@ fn bcs_sg128_406_z_is_complete_and_has_official_dimensions() {
             .unwrap_or_else(|| panic!("missing Z-point corep {label}"));
         assert_eq!(corep.corep_type, corep_type, "{label}");
         assert_eq!(corep.dim, dimension, "{label}");
-        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+        if corep_type == CorepType::A && dimension > 1 {
+            assert_eq!(
+                corep.completeness,
+                CharacterCompleteness::TypeAAntiunitaryPending { count: 8 }
+            );
+        } else {
+            assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+        }
         assert_eq!(corep.characters.len(), z.operations.len());
         assert_eq!(corep.timerev.len(), z.operations.len());
         assert!(corep.characters.iter().all(|value| value.is_finite()));

@@ -113,22 +113,18 @@ macro_rules! debug_log {
     };
 }
 
-/// Scalar PIR data restricted to the block belonging to the stored k-vector.
+/// Scalar selected-arm character data belonging to the stored k-vector.
 ///
 /// ISO-IR stores a full space-group representation induced over every arm of
-/// the star. Its matrices are block matrices, with the first block belonging
-/// to the first k-vector in the record (the one exposed by `IrrepRecord`). A
-/// magnetic little-group corepresentation must use that block rather than the
-/// trace and dimension of the full induced representation.
+/// the star. This path deliberately consumes only the phase-aligned selected
+/// block traces; legacy PIR matrices are not used for magnetic
+/// antiunitary-character completion.
 struct ScalarLittleIrrepData {
     /// Characters in canonical H-operation order. Entries outside H_k are
     /// harmless zeroes and are never consumed by the little-group formulas.
     characters: Vec<f64>,
     /// Same selected-arm characters with their CIR imaginary parts retained.
     complex_characters: Vec<Complex64>,
-    /// Matrices in canonical H-operation order, one `dim * dim` block per H
-    /// operation. Empty only when ISO-IR matrix data is unavailable.
-    matrices: Vec<f64>,
     dim: usize,
 }
 
@@ -180,15 +176,8 @@ fn scalar_little_irrep_data(
         return None;
     }
     let dim = full_dim / star_size;
-    let pir_chars = irrep.characters();
-    let pir_matrices = irrep.matrices();
-    let full_block = full_dim * full_dim;
-    let little_block = dim * dim;
     let n_pir_ops = irrep.pir_rotations().len() / 9;
-    if h_to_pir
-        .iter()
-        .any(|&pir_idx| pir_idx >= n_pir_ops || pir_idx >= pir_chars.len())
-    {
+    if h_to_pir.iter().any(|&pir_idx| pir_idx >= n_pir_ops) {
         return None;
     }
     let (stored_little_real, stored_little_imag) = irrep.raw_scalar_selected_arm_block_traces();
@@ -209,217 +198,25 @@ fn scalar_little_irrep_data(
             && op.trans.iter().all(|x| (x - x.round()).abs() < 1e-8)
     })?;
 
-    // The CIR-derived selected-arm characters are authoritative for a
-    // multi-arm physical PIR. Its real matrices may be a realification in
-    // which conjugate arm subspaces cannot be split over R (for example a
-    // 2D rotation representing two conjugate 1D K-point irreps).
-    if star_size > 1
-        && let Some(complex_characters) = &mapped_stored_characters
-    {
-        if (complex_characters[identity] - Complex64::new(dim as f64, 0.0)).norm() > 1e-6 {
-            debug_log!(
-                "scalar selected CIR characters: SG{} {} H identity={} PIR identity={} value={} expected={} (star={}, stored ops={}, first={:?})",
-                irrep.sg,
-                irrep.ml,
-                identity,
-                h_to_pir[identity],
-                complex_characters[identity],
-                dim,
-                star_size,
-                stored_little_real.len(),
-                complex_characters.iter().take(8).collect::<Vec<_>>()
-            );
-            return None;
-        }
-        let complex_characters = complex_characters.clone();
-        return Some(ScalarLittleIrrepData {
-            characters: complex_characters.iter().map(|value| value.re).collect(),
-            complex_characters,
-            matrices: Vec::new(),
-            dim,
-        });
-    }
-    if star_size > 1 && mapped_stored_characters.is_none() {
+    let complex_characters = mapped_stored_characters?;
+    if (complex_characters[identity] - Complex64::new(dim as f64, 0.0)).norm() > 1e-6 {
         debug_log!(
-            "scalar selected CIR characters unavailable: SG{} {} PIR ops={} stored real={} imag={}",
-            irrep.sg,
-            irrep.ml,
-            n_pir_ops,
-            stored_little_real.len(),
-            stored_little_imag.len()
-        );
-    }
-
-    // At a one-arm point, reordered characters remain useful even if a legacy
-    // record has no matrices.
-    if pir_matrices.len() < n_pir_ops * full_block {
-        let complex_characters = mapped_stored_characters.unwrap_or_else(|| {
-            h_to_pir
-                .iter()
-                .map(|&idx| Complex64::new(pir_chars[idx], 0.0))
-                .collect()
-        });
-        return Some(ScalarLittleIrrepData {
-            characters: complex_characters.iter().map(|value| value.re).collect(),
-            complex_characters,
-            matrices: Vec::new(),
-            dim,
-        });
-    }
-
-    let mut is_little = vec![false; h_seitz.len()];
-    for (h_idx, operation) in h_seitz.iter().enumerate() {
-        is_little[h_idx] = little_coset_representatives.iter().any(|&representative| {
-            equivalent_mod_translation_subgroup(operation, &h_seitz[representative])
-        });
-    }
-
-    // ISO-IR guarantees one invariant block per star arm, but the basis
-    // vectors of a block are not always contiguous (notably repeated/physical
-    // labels such as W1W1). Recover the first arm as the invariant connectivity
-    // component containing basis vector 0, adding further disconnected
-    // components in basis order only when the little representation itself is
-    // reducible. This reduces to the usual top-left block for contiguous data.
-    let mut adjacency = vec![false; full_block];
-    for (h_idx, &pir_idx) in h_to_pir.iter().enumerate() {
-        if !is_little[h_idx] || pir_idx >= n_pir_ops {
-            continue;
-        }
-        let source = &pir_matrices[pir_idx * full_block..(pir_idx + 1) * full_block];
-        for row in 0..full_dim {
-            adjacency[row * full_dim + row] = true;
-            for col in 0..full_dim {
-                if source[row * full_dim + col].abs() > 1e-8 {
-                    adjacency[row * full_dim + col] = true;
-                    adjacency[col * full_dim + row] = true;
-                }
-            }
-        }
-    }
-    let mut seen_basis = vec![false; full_dim];
-    let mut components = Vec::<Vec<usize>>::new();
-    for start in 0..full_dim {
-        if seen_basis[start] {
-            continue;
-        }
-        seen_basis[start] = true;
-        let mut component = Vec::new();
-        let mut frontier = vec![start];
-        while let Some(row) = frontier.pop() {
-            component.push(row);
-            for col in 0..full_dim {
-                if adjacency[row * full_dim + col] && !seen_basis[col] {
-                    seen_basis[col] = true;
-                    frontier.push(col);
-                }
-            }
-        }
-        component.sort_unstable();
-        components.push(component);
-    }
-    components.sort_by_key(|component| component[0]);
-    let first_component = components
-        .iter()
-        .position(|component| component.contains(&0))?;
-    components.swap(0, first_component);
-    let mut selected_basis = Vec::with_capacity(dim);
-    for component in components {
-        if selected_basis.len() == dim {
-            break;
-        }
-        if selected_basis.len() + component.len() > dim {
-            debug_log!(
-                "scalar block extraction: SG{} {} invariant component {} would exceed selected dimension {}",
-                irrep.sg,
-                irrep.ml,
-                component.len(),
-                dim
-            );
-            return None;
-        }
-        selected_basis.extend(component);
-    }
-    if selected_basis.len() != dim {
-        return None;
-    }
-    selected_basis.sort_unstable();
-    let mut basis_is_selected = vec![false; full_dim];
-    for &basis in &selected_basis {
-        basis_is_selected[basis] = true;
-    }
-
-    let mut characters = vec![0.0; h_seitz.len()];
-    let mut matrices = vec![0.0; h_seitz.len() * little_block];
-    for (h_idx, &pir_idx) in h_to_pir.iter().enumerate() {
-        if pir_idx >= n_pir_ops {
-            return None;
-        }
-        let source = &pir_matrices[pir_idx * full_block..(pir_idx + 1) * full_block];
-
-        // An operation of H_k must preserve the selected star-arm subspace.
-        if is_little[h_idx] {
-            for row in 0..full_dim {
-                for col in 0..full_dim {
-                    if basis_is_selected[row] == basis_is_selected[col] {
-                        continue;
-                    }
-                    if source[row * full_dim + col].abs() > 1e-8 {
-                        debug_log!(
-                            "scalar block extraction: SG{} {} H[{}] PIR[{}] couples ({},{})={} (full_dim={}, little_dim={}, star={})",
-                            irrep.sg,
-                            irrep.ml,
-                            h_idx,
-                            pir_idx,
-                            row,
-                            col,
-                            source[row * full_dim + col],
-                            full_dim,
-                            dim,
-                            star_size
-                        );
-                        return None;
-                    }
-                }
-            }
-        }
-
-        let target = &mut matrices[h_idx * little_block..(h_idx + 1) * little_block];
-        let mut trace = 0.0;
-        for (row, &source_row) in selected_basis.iter().enumerate() {
-            for (col, &source_col) in selected_basis.iter().enumerate() {
-                target[row * dim + col] = source[source_row * full_dim + source_col];
-            }
-            trace += source[source_row * full_dim + source_row];
-        }
-        characters[h_idx] = if trace.abs() < 1e-12 { 0.0 } else { trace };
-    }
-
-    if !is_little[identity] || (characters[identity] - dim as f64).abs() > 1e-6 {
-        debug_log!(
-            "scalar block extraction: SG{} {} identity H[{}] is_little={} trace={} expected={} (effective H={}, little={}, centering={})",
+            "scalar selected-arm characters: SG{} {} H identity={} PIR identity={} value={} expected={} (star={}, stored ops={}, first={:?})",
             irrep.sg,
             irrep.ml,
             identity,
-            is_little[identity],
-            characters[identity],
+            h_to_pir[identity],
+            complex_characters[identity],
             dim,
-            effective_h_order,
-            effective_little_order,
-            pure_translations.len()
+            star_size,
+            stored_little_real.len(),
+            complex_characters.iter().take(8).collect::<Vec<_>>()
         );
         return None;
     }
-
-    let complex_characters = mapped_stored_characters.unwrap_or_else(|| {
-        characters
-            .iter()
-            .map(|&value| Complex64::new(value, 0.0))
-            .collect()
-    });
     Some(ScalarLittleIrrepData {
         characters: complex_characters.iter().map(|value| value.re).collect(),
         complex_characters,
-        matrices,
         dim,
     })
 }
@@ -694,7 +491,6 @@ pub fn compute_corepresentation(
     let mut h_chars = h_irrep.characters().to_vec();
     let mut h_complex_chars = None;
     let mut h_dim = h_irrep.dim as usize;
-    let mut h_matrices_ordered = Vec::new();
     // 5. Separate unitary / anti-unitary in little group
     let unitary: Vec<usize> = mag_lg
         .iter()
@@ -749,7 +545,6 @@ pub fn compute_corepresentation(
         h_chars = little.characters;
         h_complex_chars = Some(little.complex_characters);
         h_dim = little.dim;
-        h_matrices_ordered = little.matrices;
     }
 
     // 7. Wigner test: dispatch by irrep type
@@ -975,33 +770,11 @@ pub fn compute_corepresentation(
             )
             .map(|(chars, _u)| chars)
         } else {
-            if !h_matrices_ordered.is_empty() {
-                wigner::type_a_antiunitary_chars_high_dim_ordered(
-                    &mag_seitz,
-                    &mag_lg,
-                    &h_chars,
-                    &h_seitz,
-                    antiunitary[0],
-                    &h_matrices_ordered,
-                    h_dim,
-                )
-            } else {
-                let matrices = h_irrep.matrices();
-                let rotations = h_irrep.pir_rotations();
-                if matrices.is_empty() || rotations.is_empty() {
-                    None
-                } else {
-                    wigner::type_a_antiunitary_chars_high_dim(
-                        &mag_seitz,
-                        &mag_lg,
-                        &h_chars,
-                        &h_seitz,
-                        antiunitary[0],
-                        matrices,
-                        rotations,
-                    )
-                }
-            }
+            // The legacy PIR matrices are source-representative data and are
+            // not phase-aligned with final-Hall Seitz operations. Until
+            // phase-aligned complex selected-arm matrices are generated, do
+            // not fabricate high-dimensional Type-A antiunitary characters.
+            None
         }
     } else {
         None
@@ -1819,6 +1592,58 @@ mod tests {
             "Should compute coreps for 1.3 at GM: {:?}",
             coreps
         );
+    }
+
+    #[test]
+    fn one_dimensional_scalar_type_a_antiunitary_characters_remain_complete() {
+        let gm1 = crate::irrep::query::irreps_of(1)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "GM1")
+            .expect("SG 1 GM1 scalar irrep");
+        let corep = gm1
+            .corepresentation(2)
+            .expect("SG 1 GM1 corepresentation for grey UNI 2");
+
+        assert_eq!(corep.corep_type, CorepType::A);
+        assert_eq!(corep.dim, 1);
+        assert!(corep.antiunitary_order > 0);
+        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+        assert!(
+            corep
+                .characters
+                .iter()
+                .all(|character| character.is_finite())
+        );
+    }
+
+    #[test]
+    fn high_dimensional_scalar_type_a_antiunitary_characters_are_pending() {
+        let m1 = crate::irrep::query::irreps_of(15)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "M1")
+            .expect("SG 15 M1 scalar irrep");
+        let corep = m1
+            .corepresentation(93)
+            .expect("SG 15 M1 corepresentation for UNI 93");
+
+        assert_eq!(corep.corep_type, CorepType::A);
+        assert_eq!(corep.dim, 2);
+        assert_eq!(corep.source, WignerSource::ScalarPIR);
+        assert!(corep.unitary_order > 0);
+        assert!(corep.antiunitary_order > 0);
+        assert_eq!(corep.characters.len(), corep.timerev.len());
+        assert!(matches!(
+            corep.completeness,
+            CharacterCompleteness::TypeAAntiunitaryPending { count }
+                if count == corep.antiunitary_order
+        ));
+        for (&character, &is_antiunitary) in corep.characters.iter().zip(&corep.timerev) {
+            if is_antiunitary {
+                assert_eq!(character, 0.0);
+            } else {
+                assert!(character.is_finite());
+            }
+        }
     }
 
     /// SG 128.406 (P4'/m'nc') at Z point — verified against BCS
