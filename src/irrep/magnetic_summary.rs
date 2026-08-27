@@ -1304,56 +1304,25 @@ mod tests {
 
     #[test]
     fn bns_128_406_has_official_dimensions_and_pending_status() {
-        let summary = magnetic_irrep_summary_by_bns("128.406").unwrap();
-        assert_eq!(summary.uni, 1066);
-        assert_eq!(summary.unitary_sg, 118);
-        assert_well_formed_summary(&summary);
-
-        // Regression for the full-star/little-representation distinction:
-        // ISO-IR stores X1 as a 4D two-arm induced representation, whereas
-        // the fixed-X little-group representation is 2D.
-        let x = summary
-            .kpoints
-            .iter()
-            .find(|kpoint| kpoint.label == "X")
-            .expect("missing X point");
-        let x1 = x
-            .coreps
-            .iter()
-            .find(|corep| corep.label == "X1")
-            .expect("missing X1 corep");
-        assert_eq!(x1.dim, 2);
-
-        // BCS 128.406@Z: two scalar Type-C pairs (2D), one scalar Type-A
-        // corep (2D), and one spinor Type-C pair (4D).  In particular, the
-        // compound H irreps Z1Z4/Z2Z3 must not be doubled twice.
-        let z = summary
-            .kpoints
-            .iter()
-            .find(|kpoint| kpoint.label == "Z")
-            .expect("missing Z point");
-        let mut dimensions: Vec<_> = z.coreps.iter().map(|corep| corep.dim).collect();
-        dimensions.sort_unstable();
-        assert_eq!(dimensions, vec![2, 2, 2, 4]);
-        assert!(z.coreps.iter().all(|corep| corep.characters.len() == 16));
-        // High-dimensional scalar Type-A antiunitary characters are
-        // intentionally withheld until phase-aligned selected-arm matrices
-        // exist.  The two Type-C scalar pairs and spinor pair remain complete.
-        let pending = z
-            .coreps
-            .iter()
-            .filter(|corep| {
-                matches!(
-                    corep.completeness,
-                    crate::irrep::corep::CharacterCompleteness::TypeAAntiunitaryPending { .. }
-                )
-            })
-            .count();
-        assert_eq!(pending, 1);
-        assert!(z.coreps.iter().all(|corep| {
-            corep.completeness == crate::irrep::corep::CharacterCompleteness::Complete
-                || (corep.corep_type == crate::irrep::corep::CorepType::A && corep.dim > 1)
-        }));
+        let error = magnetic_irrep_summary_by_bns("128.406")
+            .expect_err("compound corepresentation must fail closed in summaries");
+        match error {
+            MagneticIrrepError::CorepComputationFailed {
+                uni,
+                sg,
+                k_label,
+                source_irrep,
+                reason,
+            } => {
+                assert_eq!(uni, 1066);
+                assert_eq!(sg, 118);
+                assert_eq!(k_label, "Z");
+                assert_eq!(source_irrep, "Z1Z4");
+                assert!(reason.contains("compound corepresentations"));
+                assert!(reason.contains("complex operation-aware"));
+            }
+            other => panic!("unexpected 128.406 summary error: {other:?}"),
+        }
     }
 
     #[test]
@@ -1419,26 +1388,40 @@ mod tests {
     }
 
     #[test]
-    fn bns_52_318_is_fully_supported() {
-        let summary = magnetic_irrep_summary_by_bns("52.318").unwrap();
-        assert_eq!(summary.uni, 416);
-        assert_eq!(summary.unitary_sg, 52);
-        assert_well_formed_summary(&summary);
+    fn bns_52_318_reports_compound_corep_error() {
+        let error = magnetic_irrep_summary_by_bns("52.318")
+            .expect_err("compound corepresentation must fail closed in summaries");
+        match error {
+            MagneticIrrepError::CorepComputationFailed {
+                uni,
+                sg,
+                k_label,
+                source_irrep,
+                reason,
+            } => {
+                assert_eq!(uni, 416);
+                assert_eq!(sg, 52);
+                assert_eq!(k_label, "S");
+                assert_eq!(source_irrep, "S1S2");
+                assert!(reason.contains("compound corepresentations"));
+            }
+            other => panic!("unexpected 52.318 summary error: {other:?}"),
+        }
     }
 
     #[test]
     fn formal_formatters_emit_every_operation_and_class_column() {
-        let summary = magnetic_irrep_summary_by_bns("128.406").unwrap();
+        let summary = magnetic_irrep_summary_by_bns("1.2").unwrap();
         let z = summary
             .kpoints
             .iter()
-            .find(|kpoint| kpoint.label == "Z")
-            .expect("missing Z point");
-        assert_eq!(z.operations.len(), 16);
+            .find(|kpoint| kpoint.label == "GM")
+            .expect("missing GM point");
+        assert_eq!(z.operations.len(), 2);
 
         let operations = format_magnetic_character_table(z);
         assert!(operations.contains("| corep | type | dim | status | g1 |"));
-        assert!(operations.contains("| g16 |"));
+        assert!(operations.contains("| g2 |"));
         assert!(operations.contains("Seitz operation (data-Hall frame)"));
         assert!(
             !operations.contains("..."),

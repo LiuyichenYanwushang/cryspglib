@@ -398,6 +398,24 @@ pub fn compute_corepresentation(
         return Err(CorepComputationError::InvalidUni { uni: uni_number });
     }
 
+    // Compound PIR records currently expose semantic complex selected-arm
+    // data, but this f64 corepresentation surface cannot represent their
+    // operation-aware complex characters safely.  Fail before reading any
+    // raw PIR/CIR rows rather than silently realifying or pairing legacy
+    // full-star storage with magnetic operations.
+    if h_irrep.raw_cir_component_count() > 0 {
+        let reason = if h_irrep.compound_metadata().is_none() {
+            "generated compound metadata missing/inconsistent"
+        } else {
+            "compound corepresentations need complex operation-aware constituent pairing"
+        };
+        return Err(CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: reason.to_string(),
+        });
+    }
+
     // 1. Identify H first — needed for setting transform.
     let h_info = identify_unitary_subgroup_with_hall(uni_number)
         .ok_or(CorepComputationError::MissingUnitarySubgroup { uni: uni_number })?;
@@ -550,119 +568,6 @@ pub fn compute_corepresentation(
     // 7. Wigner test: dispatch by irrep type
     let (corep_type, source) = if antiunitary.is_empty() {
         Ok((CorepType::A, WignerSource::TrivialNoAntiunitary))
-    } else if h_irrep.raw_cir_component_count() > 0 {
-        // A compound real PIR such as Z1Z4 is already the direct sum of two
-        // conjugate complex irreps.  Wigner's test must start from ONE of
-        // those complex components; using the compound PIR dimension and
-        // then applying the Type-C doubling would count the pair twice.
-        let identity_rotation = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-        let identity = h_seitz
-            .iter()
-            .position(|operation| {
-                operation.rot == identity_rotation
-                    && operation
-                        .trans
-                        .iter()
-                        .all(|value| (value - value.round()).abs() < 1e-8)
-            })
-            .ok_or_else(|| CorepComputationError::UnsupportedClassification {
-                uni: uni_number,
-                source_irrep: h_irrep.ml.to_string(),
-                reason: "unitary subgroup has no identity operation".to_string(),
-            })?;
-        let mut selected: Option<(CorepType, Vec<f64>, usize)> = None;
-        let mut component_errors = Vec::new();
-        debug_log!(
-            "DEBUG CIR path: {} n_comp={}",
-            h_irrep.ml,
-            h_irrep.raw_cir_component_count()
-        );
-        for comp in 0..h_irrep.raw_cir_component_count() {
-            let cir = h_irrep.raw_cir_component_chars(comp);
-            if cir.is_empty() {
-                continue;
-            }
-            let cir_rots = h_irrep.raw_cir_rotations(comp);
-            // Generated CIR components are stored in the selected data-Hall
-            // order.  Prefer that exact order, especially for centered groups
-            // where several Seitz operations can share one rotation.  The
-            // rotation-only map remains a compatibility fallback for older
-            // generated tables with a different operation count.
-            let cir_reordered = if cir.len() == 2 * h_seitz.len() {
-                cir.to_vec()
-            } else if let Some(h_to_cir) = wigner::build_h_to_cir_map(&h_seitz, cir_rots) {
-                wigner::reorder_cir_chars(cir, &h_to_cir).map_err(|error| {
-                    CorepComputationError::UnsupportedClassification {
-                        uni: uni_number,
-                        source_irrep: h_irrep.ml.to_string(),
-                        reason: format!("CIR component {comp} reorder failed: {error}"),
-                    }
-                })?
-            } else {
-                return Err(CorepComputationError::UnsupportedClassification {
-                    uni: uni_number,
-                    source_irrep: h_irrep.ml.to_string(),
-                    reason: format!(
-                        "CIR component {} operation map could not be built (H ops={}, CIR ops={})",
-                        comp,
-                        h_seitz.len(),
-                        cir.len() / 2
-                    ),
-                });
-            };
-            let ct = match wigner::wigner_classify_cir_direct(
-                &cir_reordered,
-                &antiunitary,
-                &mag_seitz,
-                &h_seitz,
-                h_irrep.k_vector(),
-            ) {
-                Ok(corep_type) => corep_type,
-                Err(error) => {
-                    component_errors.push(format!("component {}: {}", comp, error));
-                    continue;
-                }
-            };
-
-            let identity_character =
-                Complex64::new(cir_reordered[2 * identity], cir_reordered[2 * identity + 1]);
-            let rounded_dim = identity_character.re.round();
-            if identity_character.im.abs() > 1e-6
-                || rounded_dim < 1.0
-                || (identity_character.re - rounded_dim).abs() > 1e-6
-            {
-                return Err(CorepComputationError::UnsupportedClassification {
-                    uni: uni_number,
-                    source_irrep: h_irrep.ml.to_string(),
-                    reason: format!(
-                        "CIR component {} has invalid identity character ({:.8},{:.8})",
-                        comp, identity_character.re, identity_character.im
-                    ),
-                });
-            }
-            let component_chars: Vec<f64> = cir_reordered
-                .chunks_exact(2)
-                .map(|value| value[0])
-                .collect();
-            // Wigner's construction begins with one irreducible complex
-            // constituent Δ. Repeated labels such as P1P1 contain a
-            // synthesized conjugate copy whose first-arm convention need not
-            // be classified a second time.
-            selected = Some((ct, component_chars, rounded_dim as usize));
-            break;
-        }
-        let (corep_type, component_chars, component_dim) =
-            selected.ok_or_else(|| CorepComputationError::UnsupportedClassification {
-                uni: uni_number,
-                source_irrep: h_irrep.ml.to_string(),
-                reason: format!(
-                    "compound irrep contains no classifiable CIR component ({})",
-                    component_errors.join("; ")
-                ),
-            })?;
-        h_chars = component_chars;
-        h_dim = component_dim;
-        Ok((corep_type, WignerSource::ScalarCIR))
     } else if h_irrep.spinor {
         // Spinor: SU(2) Wigner test is the primary path.
         // Bilbao imaginary chars are NOT term-by-term Wigner summands
@@ -1644,6 +1549,92 @@ mod tests {
                 assert!(character.is_finite());
             }
         }
+    }
+
+    #[test]
+    fn compound_corepresentations_fail_closed_with_structured_errors() {
+        for (sg, label, uni) in [
+            (9u8, "M1M2", 44usize),
+            (182, "H1H2", 1410),
+            (46, "W1W2", 340),
+        ] {
+            let irrep = irreps_of(sg)
+                .iter()
+                .find(|irrep| irrep.ml == label)
+                .unwrap_or_else(|| panic!("missing SG {sg} {label} compound irrep"));
+            assert!(irrep.raw_cir_component_count() > 0);
+            assert!(irrep.compound_metadata().is_some());
+            let mag_ops = get_magnetic_operations(uni)
+                .unwrap_or_else(|| panic!("missing magnetic operations for UNI {uni}"));
+            let error = compute_corepresentation(irrep, uni, &mag_ops)
+                .expect_err("compound corepresentation must be rejected");
+            match error {
+                CorepComputationError::UnsupportedClassification {
+                    uni: error_uni,
+                    source_irrep,
+                    reason,
+                } => {
+                    assert_eq!(error_uni, uni);
+                    assert_eq!(source_irrep, label);
+                    assert!(reason.contains("complex operation-aware constituent pairing"));
+                }
+                other => panic!("unexpected compound corep error: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn missing_compound_metadata_is_reported_before_data_access() {
+        let source = irreps_of(9)
+            .iter()
+            .find(|irrep| irrep.ml == "M1M2")
+            .expect("SG 9 M1M2 compound irrep");
+        let mut malformed = *source;
+        malformed._compound_metadata_index = 0;
+        let mag_ops = get_magnetic_operations(44).expect("UNI 44 operations");
+        let error = compute_corepresentation(&malformed, 44, &mag_ops)
+            .expect_err("missing compound metadata must be rejected");
+        match error {
+            CorepComputationError::UnsupportedClassification { reason, .. } => {
+                assert!(reason.contains("generated compound metadata missing/inconsistent"));
+            }
+            other => panic!("unexpected metadata error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn high_level_compute_coreps_propagates_compound_rejection() {
+        let error = compute_coreps("9.37", "M")
+            .expect_err("compute_coreps must not skip unsupported compound records");
+        match error {
+            CorepComputationError::UnsupportedClassification {
+                uni,
+                source_irrep,
+                reason,
+            } => {
+                assert_eq!(uni, 44);
+                assert_eq!(source_irrep, "M1M2");
+                assert!(reason.contains("compound corepresentations"));
+            }
+            other => panic!("unexpected propagated error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compound_guard_does_not_affect_scalar_or_spinor_controls() {
+        let scalar = irreps_of(1)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "GM1")
+            .expect("SG 1 GM1 scalar irrep");
+        assert!(scalar.compound_metadata().is_none());
+        assert!(scalar.corepresentation(2).is_ok());
+
+        let spinor = irreps_of(5)
+            .iter()
+            .find(|irrep| irrep.spinor && irrep.k_label() == "L" && irrep.spin_lg_char_count() == 1)
+            .expect("SG 5 L-point spinor irrep");
+        assert_eq!(spinor.raw_cir_component_count(), 0);
+        assert!(spinor.corepresentation(21).is_ok());
     }
 
     #[test]
@@ -5789,53 +5780,23 @@ mod tests {
             p_spinor.len()
         );
 
-        // 5. Compute co-representations
-        let coreps = super::compute_coreps(bns, "P");
-        assert!(
-            coreps.is_ok(),
-            "Should compute coreps for {} at P-point: {:?}",
-            bns,
-            coreps
-        );
-        let coreps = coreps.unwrap();
-        // BCS: 5 co-irrep labels (H₁, H₂H₃, H₄, H̄₅, H̄₆H̄₇)
-        // Our data: 4 scalar + 3 spinor = 7 labels (each partner stored separately)
-        assert!(
-            coreps.len() >= 5,
-            "Should have >=5 co-irreps (BCS), got {}",
-            coreps.len()
-        );
-
-        // 6. χ(E) = dim for all valid co-irreps
-        for (label, c) in &coreps {
-            assert!(
-                (c.characters[0] - c.dim as f64).abs() < 0.01,
-                "χ(E)={:.4} ≠ dim={} for {}",
-                c.characters[0],
-                c.dim,
-                label
-            );
-            // χ(E) must be positive
-            assert!(c.characters[0] > 0.0, "χ(E) <= 0 for {}", label);
-        }
-
-        // 7. Scalar co-irreps at P-point: current API returns Type A.
-        // k=(1,1,1)/2 in body-centred I23: -2k=(-1,-1,-1), h+k+l=-3 odd
-        // → -2k ∉ L* (FCC).  No antiunitary ops in magnetic LG →
-        // TrivialNoAntiunitary → Type A.  This is the current-API
-        // convention; BCS reports Type C because the antiunitary connects
-        // k → -k (different star arm).  Star-based co-representation
-        // construction for that case is not yet implemented.
-        let scalar_coreps: Vec<_> = coreps
-            .iter()
-            .filter(|(label, _)| p_scalar.iter().any(|ir| label.contains(&ir.ml[..2])))
-            .collect();
-        for (_label, c) in &scalar_coreps {
-            assert_eq!(
-                c.corep_type,
-                CorepType::A,
-                "API convention: empty antiunitary LG → Type A"
-            );
+        // 5. Compound PIR characters are intentionally fail-closed.  The
+        // old path classified P1P1 from unphased full-PIR data and could not
+        // represent its complex operation-aware constituent characters.
+        let error = super::compute_coreps(bns, "P")
+            .expect_err("compound corepresentation must be rejected explicitly");
+        match error {
+            CorepComputationError::UnsupportedClassification {
+                uni: error_uni,
+                source_irrep,
+                reason,
+            } => {
+                assert_eq!(error_uni, uni);
+                assert_eq!(source_irrep, "P1P1");
+                assert!(reason.contains("compound corepresentations"));
+                assert!(reason.contains("complex operation-aware"));
+            }
+            other => panic!("unexpected compound corep error: {other:?}"),
         }
     }
 
