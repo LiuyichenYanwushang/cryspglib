@@ -14,6 +14,244 @@
 
 // ── Compact record types (flat-array storage) ───────────────────────────────
 
+/// The representation space in which a character table is expressed.
+///
+/// A physical (PIR) table can be induced from one or more arms of a star of
+/// **k**.  Its [`IrrepRecord::dim`] and [`IrrepRecord::characters`] describe
+/// that full-star representation.  CIR and spinor tables, on the other hand,
+/// describe a single selected arm and its little group.  Keeping this fact in
+/// the type of a read view prevents accidentally using the full-star dimension
+/// with a selected-arm character row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IrrepRepresentationSpace {
+    /// The full physical representation, including all star arms.
+    FullStar,
+    /// One selected **k** arm and its little-group representation.
+    SelectedArm,
+}
+
+/// Operation ordering used by an [`IrrepCharacterView`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IrrepOperationOrder {
+    /// PIR/Hall operation order, as used by [`IrrepRecord::characters`].
+    Pir,
+    /// CIR operation order for one selected-arm component.
+    Cir,
+    /// Local little-group order for a spinor table.  `get(i)` corresponds to
+    /// `spin_lg_op_indices()[i]`.
+    SpinLittleGroup,
+}
+
+/// A checked, read-only character table view.
+///
+/// The view exposes the dimension and operation order alongside the values.
+/// Construction is fallible: malformed or incomplete generated data (in
+/// particular an identity character different from the dimension) yields
+/// `None` rather than a view that can be misused.  Character values are
+/// returned as complex numbers so scalar, CIR, and spinor tables share one
+/// access pattern.
+#[derive(Debug, Clone, Copy)]
+pub struct IrrepCharacterView {
+    space: IrrepRepresentationSpace,
+    order: IrrepOperationOrder,
+    dimension: usize,
+    values: CharacterViewValues,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CharacterViewValues {
+    Real(&'static [f64]),
+    /// Interleaved `(re, im)` values, as used by CIR component storage.
+    Complex(&'static [f64]),
+    /// Separate real and imaginary arrays, as used by scalar selected-arm
+    /// and spinor storage.
+    Split(&'static [f64], &'static [f64]),
+    /// Concatenated CIR component rows.  `components` rows, each of
+    /// `operations` interleaved values, are summed lazily by `get`.
+    Compound {
+        values: &'static [f64],
+        components: usize,
+        operations: usize,
+    },
+}
+
+impl IrrepCharacterView {
+    fn checked_real(
+        space: IrrepRepresentationSpace,
+        order: IrrepOperationOrder,
+        dimension: usize,
+        values: &'static [f64],
+    ) -> Option<Self> {
+        if values.is_empty()
+            || !values.iter().all(|value| value.is_finite())
+            || (values[0] - dimension as f64).abs() > 1e-6
+        {
+            return None;
+        }
+        Some(Self {
+            space,
+            order,
+            dimension,
+            values: CharacterViewValues::Real(values),
+        })
+    }
+
+    fn checked_complex(
+        space: IrrepRepresentationSpace,
+        order: IrrepOperationOrder,
+        dimension: usize,
+        real: &'static [f64],
+        imag: &'static [f64],
+    ) -> Option<Self> {
+        if real.is_empty()
+            || real.len() != imag.len()
+            || !real.iter().chain(imag).all(|value| value.is_finite())
+            || (real[0] - dimension as f64).abs() > 1e-6
+            || imag[0].abs() > 1e-6
+        {
+            return None;
+        }
+        Some(Self {
+            space,
+            order,
+            dimension,
+            values: CharacterViewValues::Split(real, imag),
+        })
+    }
+
+    fn checked_interleaved_complex(
+        space: IrrepRepresentationSpace,
+        order: IrrepOperationOrder,
+        dimension: usize,
+        values: &'static [f64],
+    ) -> Option<Self> {
+        if values.is_empty()
+            || !values.len().is_multiple_of(2)
+            || !values.iter().all(|value| value.is_finite())
+            || (values[0] - dimension as f64).abs() > 1e-6
+            || values[1].abs() > 1e-6
+        {
+            return None;
+        }
+        Some(Self {
+            space,
+            order,
+            dimension,
+            values: CharacterViewValues::Complex(values),
+        })
+    }
+
+    fn checked_compound(
+        dimension: usize,
+        values: &'static [f64],
+        components: usize,
+        operations: usize,
+    ) -> Option<Self> {
+        if components == 0
+            || operations == 0
+            || values.len() != components.checked_mul(operations)?.checked_mul(2)?
+            || !values.iter().all(|value| value.is_finite())
+        {
+            return None;
+        }
+        let identity_real = (0..components)
+            .map(|component| values[component * operations * 2])
+            .sum::<f64>();
+        let identity_imag = (0..components)
+            .map(|component| values[component * operations * 2 + 1])
+            .sum::<f64>();
+        if (identity_real - dimension as f64).abs() > 1e-6 || identity_imag.abs() > 1e-6 {
+            return None;
+        }
+        Some(Self {
+            space: IrrepRepresentationSpace::SelectedArm,
+            order: IrrepOperationOrder::Cir,
+            dimension,
+            values: CharacterViewValues::Compound {
+                values,
+                components,
+                operations,
+            },
+        })
+    }
+
+    /// Whether this view describes the full star or a selected arm.
+    pub const fn representation_space(&self) -> IrrepRepresentationSpace {
+        self.space
+    }
+
+    /// Operation order associated with [`Self::get`].
+    pub const fn operation_order(&self) -> IrrepOperationOrder {
+        self.order
+    }
+
+    /// Dimension in the same representation space as this view.
+    pub const fn dimension(&self) -> usize {
+        self.dimension
+    }
+
+    /// Number of character columns.
+    pub const fn len(&self) -> usize {
+        match self.values {
+            CharacterViewValues::Real(values) => values.len(),
+            CharacterViewValues::Complex(values) => values.len() / 2,
+            CharacterViewValues::Split(real, _) => real.len(),
+            CharacterViewValues::Compound { operations, .. } => operations,
+        }
+    }
+
+    /// Whether this view has no character columns.
+    pub const fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Get a character value without risking an out-of-bounds panic.
+    pub fn get(&self, index: usize) -> Option<num_complex::Complex64> {
+        match self.values {
+            CharacterViewValues::Real(values) => values
+                .get(index)
+                .copied()
+                .map(|value| num_complex::Complex64::new(value, 0.0)),
+            CharacterViewValues::Complex(values) => {
+                let start = index.checked_mul(2)?;
+                Some(num_complex::Complex64::new(
+                    *values.get(start)?,
+                    *values.get(start + 1)?,
+                ))
+            }
+            CharacterViewValues::Split(real, imag) => Some(num_complex::Complex64::new(
+                *real.get(index)?,
+                *imag.get(index)?,
+            )),
+            CharacterViewValues::Compound {
+                values,
+                components,
+                operations,
+            } => {
+                if index >= operations {
+                    return None;
+                }
+                let mut value = num_complex::Complex64::new(0.0, 0.0);
+                for component in 0..components {
+                    let start = (component * operations + index).checked_mul(2)?;
+                    value.re += *values.get(start)?;
+                    value.im += *values.get(start + 1)?;
+                }
+                Some(value)
+            }
+        }
+    }
+}
+
+/// How a scalar physical (PIR) compound record is assembled from CIR rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompoundCharacterSemantics {
+    /// A CIR row and its complex conjugate are realified: χ = 2 Re(χ_CIR).
+    ConjugateRealification,
+    /// Distinct CIR constituents are directly summed: χ = Σ χ_CIR.
+    DistinctComponentSum,
+}
+
 /// Error returned when stored irrep matrices cannot be aligned with a supplied
 /// symmetry-operation order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -276,6 +514,139 @@ impl IrrepRecord {
         )
     }
 
+    /// Return the checked character view of the full physical (PIR) star.
+    ///
+    /// For scalar records this is [`IrrepRepresentationSpace::FullStar`] in
+    /// PIR order.  Spinor records do not have a full-star PIR character row
+    /// in this database and therefore return `None`; use
+    /// [`Self::selected_arm_character_view`] for those records.
+    pub fn full_star_character_view(&self) -> Option<IrrepCharacterView> {
+        (!self.spinor).then(|| {
+            IrrepCharacterView::checked_real(
+                IrrepRepresentationSpace::FullStar,
+                IrrepOperationOrder::Pir,
+                self.dim as usize,
+                self.characters(),
+            )
+        })?
+    }
+
+    /// Return a checked character view for one selected arm.
+    ///
+    /// For an ordinary scalar record `component` must be zero and the view is
+    /// backed by the aligned `scalar_little_characters` arrays.  A compound
+    /// scalar record exposes one CIR component per index, with interleaved
+    /// `(real, imag)` values.  A spinor record has one component (index zero)
+    /// and uses the first `spin_lg_char_count()` entries plus the stored
+    /// imaginary parts.  Every view validates its identity character against
+    /// its selected-arm dimension before being returned.
+    pub fn selected_arm_character_view(&self, component: usize) -> Option<IrrepCharacterView> {
+        if self.spinor {
+            if component != 0 {
+                return None;
+            }
+            let count = self.spin_lg_char_count();
+            let chars = self.characters().get(..count)?;
+            let imag = self.spin_character_imag().get(..count)?;
+            let dimension = chars.first().copied()?;
+            if !dimension.is_finite() || dimension.fract() != 0.0 || dimension < 0.0 {
+                return None;
+            }
+            return IrrepCharacterView::checked_complex(
+                IrrepRepresentationSpace::SelectedArm,
+                IrrepOperationOrder::SpinLittleGroup,
+                dimension as usize,
+                chars,
+                imag,
+            );
+        }
+
+        if self.cir_component_count() > 0 {
+            if component >= self.cir_component_count() {
+                return None;
+            }
+            let operations = self._cir_ops as usize;
+            let start =
+                self._cir_start as usize + component.checked_mul(operations)?.checked_mul(2)?;
+            let end = start.checked_add(operations.checked_mul(2)?)?;
+            let values = super::generated_data::CIR_COMPONENT_CHARS.get(start..end)?;
+            let dimension = values.first().copied()?;
+            if !dimension.is_finite() || dimension.fract() != 0.0 || dimension < 0.0 {
+                return None;
+            }
+            return IrrepCharacterView::checked_interleaved_complex(
+                IrrepRepresentationSpace::SelectedArm,
+                IrrepOperationOrder::Cir,
+                dimension as usize,
+                values,
+            );
+        }
+
+        if component != 0 {
+            return None;
+        }
+        let (real, imag) = self.scalar_little_characters();
+        let dimension = real.first().copied()?;
+        if !dimension.is_finite() || dimension.fract() != 0.0 || dimension < 0.0 {
+            return None;
+        }
+        IrrepCharacterView::checked_complex(
+            IrrepRepresentationSpace::SelectedArm,
+            IrrepOperationOrder::Pir,
+            dimension as usize,
+            real,
+            imag,
+        )
+    }
+
+    /// Return the selected-arm character view of the complete scalar little
+    /// representation.  For a compound record this is the direct sum of all
+    /// CIR component rows, so its dimension is the sum of component
+    /// dimensions (for example SG76 `R1R2` has full-star dimension 4 and
+    /// selected-arm dimension 2).  For an ordinary scalar or spinor record it
+    /// is equivalent to component zero from [`Self::selected_arm_character_view`].
+    pub fn selected_arm_little_group_view(&self) -> Option<IrrepCharacterView> {
+        if self.cir_component_count() == 0 {
+            return self.selected_arm_character_view(0);
+        }
+        let operations = self._cir_ops as usize;
+        let components = self._cir_count as usize;
+        let total = components.checked_mul(operations)?.checked_mul(2)?;
+        let start = self._cir_start as usize;
+        let end = start.checked_add(total)?;
+        let values = super::generated_data::CIR_COMPONENT_CHARS.get(start..end)?;
+        let dimension = (0..components)
+            .map(|component| values.get(component * operations * 2).copied())
+            .collect::<Option<Vec<_>>>()?
+            .into_iter()
+            .sum::<f64>();
+        if !dimension.is_finite() || dimension.fract() != 0.0 || dimension < 0.0 {
+            return None;
+        }
+        IrrepCharacterView::checked_compound(
+            dimension as usize,
+            // CIR components are contiguous in the generated flat array.
+            values,
+            components,
+            operations,
+        )
+    }
+
+    /// Return either the full-star or selected-arm view requested by the
+    /// caller.  `component` is ignored for the full-star case and must be
+    /// zero for non-compound selected-arm data.
+    pub fn character_view(
+        &self,
+        space: IrrepRepresentationSpace,
+        component: usize,
+    ) -> Option<IrrepCharacterView> {
+        match space {
+            IrrepRepresentationSpace::FullStar if component == 0 => self.full_star_character_view(),
+            IrrepRepresentationSpace::SelectedArm => self.selected_arm_character_view(component),
+            _ => None,
+        }
+    }
+
     /// Number of CIR (complex) components this PIR irrep decomposes into.
     /// 0 = non-compound, 2 = compound like Z1Z4 = Z1 ⊕ Z4.
     pub fn cir_component_count(&self) -> usize {
@@ -310,6 +681,65 @@ impl IrrepRecord {
         let len = self._cir_ops as usize * 9;
         &super::generated_data::CIR_ROTS[start..start + len]
     }
+
+    /// Semantics used to assemble this physical compound character table from
+    /// its authoritative CIR constituents.
+    ///
+    /// Returns `None` for non-compound records and for a malformed compound
+    /// label for which constituent identity cannot be recovered.  In
+    /// particular, this accessor never guesses from character values or Gram
+    /// products.  The generated CIR component count is used only to establish
+    /// that this record is a compound record; constituent identity comes from
+    /// the parsed constituent labels encoded in the ML record.
+    pub fn compound_character_semantics(&self) -> Option<CompoundCharacterSemantics> {
+        if self._cir_count == 0 {
+            return None;
+        }
+        let (first, second) = split_compound_constituents(self.ml)?;
+        Some(if first == second {
+            CompoundCharacterSemantics::ConjugateRealification
+        } else {
+            CompoundCharacterSemantics::DistinctComponentSum
+        })
+    }
+}
+
+/// Parse the two constituent labels in the compact ML spelling used for a
+/// compound record.  This accepts e.g. `P2P2`, `H1H2`, and `D1+D2+`, while
+/// rejecting a single ordinary label.  It deliberately does not inspect any
+/// numerical character values.
+fn split_compound_constituents(label: &str) -> Option<(&str, &str)> {
+    fn constituent_end(value: &str) -> Option<usize> {
+        let bytes = value.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() && bytes[index].is_ascii_alphabetic() {
+            index += 1;
+        }
+        let digit_start = index;
+        while index < bytes.len() && bytes[index].is_ascii_digit() {
+            index += 1;
+        }
+        if index == 0 || index == digit_start {
+            return None;
+        }
+        if bytes
+            .get(index)
+            .is_some_and(|byte| *byte == b'+' || *byte == b'-')
+        {
+            index += 1;
+        }
+        Some(index)
+    }
+
+    for split in 1..label.len() {
+        let (first, second) = label.split_at(split);
+        if constituent_end(first) == Some(first.len())
+            && constituent_end(second) == Some(second.len())
+        {
+            return Some((first, second));
+        }
+    }
+    None
 }
 
 impl IrrepRecord {
@@ -553,4 +983,78 @@ pub struct MagneticIsotropyRecord {
 pub mod generated_data {
     #![allow(clippy::all)]
     include!("generated_data.rs");
+}
+
+#[cfg(test)]
+mod character_view_tests {
+    use super::{CompoundCharacterSemantics, IrrepRepresentationSpace};
+
+    #[test]
+    fn compound_semantics_are_available_for_every_generated_compound() {
+        let mut compounds = 0;
+        let mut realified = 0;
+        let mut distinct = 0;
+        for sg in 1..=230 {
+            for irrep in crate::irrep::query::irreps_of(sg) {
+                if irrep.cir_component_count() == 0 {
+                    assert!(irrep.compound_character_semantics().is_none());
+                    continue;
+                }
+                compounds += 1;
+                match irrep.compound_character_semantics() {
+                    Some(CompoundCharacterSemantics::ConjugateRealification) => realified += 1,
+                    Some(CompoundCharacterSemantics::DistinctComponentSum) => distinct += 1,
+                    None => panic!("missing semantics for SG{} {}", sg, irrep.ml),
+                }
+            }
+        }
+        assert_eq!(compounds, 672);
+        assert_eq!(realified + distinct, compounds);
+        assert!(realified > 0 && distinct > 0);
+    }
+
+    #[test]
+    fn selected_arm_view_does_not_use_full_star_dimension() {
+        let irrep = crate::irrep::query::irreps_of(76)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "R1R2")
+            .expect("SG76 R1R2 compound irrep");
+        let full = irrep.full_star_character_view().expect("full PIR view");
+        let selected = irrep
+            .selected_arm_little_group_view()
+            .expect("selected CIR view");
+        assert_eq!(
+            full.representation_space(),
+            IrrepRepresentationSpace::FullStar
+        );
+        assert_eq!(full.dimension(), 4);
+        assert_eq!(
+            selected.representation_space(),
+            IrrepRepresentationSpace::SelectedArm
+        );
+        assert_eq!(selected.dimension(), 2);
+        assert_eq!(full.len(), selected.len());
+        assert_eq!(full.get(usize::MAX), None);
+    }
+
+    #[test]
+    fn representative_compound_records_use_their_constituent_identity() {
+        use CompoundCharacterSemantics::{
+            ConjugateRealification as Real, DistinctComponentSum as Sum,
+        };
+        for (sg, label, expected) in [
+            (199, "P2P2", Real),
+            (220, "P1P1", Real),
+            (220, "P2P2", Real),
+            (220, "P3P3", Real),
+            (182, "H1H2", Sum),
+            (46, "W1W2", Sum),
+        ] {
+            let irrep = crate::irrep::query::irreps_of(sg)
+                .iter()
+                .find(|irrep| irrep.ml == label)
+                .expect("compound regression record");
+            assert_eq!(irrep.compound_character_semantics(), Some(expected));
+        }
+    }
 }
