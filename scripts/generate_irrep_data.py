@@ -587,7 +587,12 @@ def _parse_cir_characters(needed_labels=None):
 
         dim = int(after_line[0])
         star_count = int(after_line[2]) if len(after_line) > 2 else 1
-        little_dim = dim // star_count if star_count > 0 and dim % star_count == 0 else dim
+        if star_count <= 0 or dim <= 0 or dim % star_count != 0:
+            raise ValueError(
+                f"invalid CIR dimension/star count for SG{sg} {label!r}: "
+                f"dim={dim}, star_count={star_count}"
+            )
+        little_dim = dim // star_count
         opcount = int(after_line[4])
 
         # CIR stores one augmented 4x4 k-vector record per star arm.  The
@@ -695,6 +700,13 @@ def _parse_cir_characters(needed_labels=None):
                     little_trace_re += complex_vals[idx][0]
                     little_trace_im += complex_vals[idx][1]
             little_chars.append((little_trace_re, little_trace_im))
+
+        if len(rots) != opcount or len(trans) != opcount or len(chars) != opcount:
+            raise ValueError(
+                f"incomplete CIR record SG{sg} {label!r}: "
+                f"ops={len(rots)}/{opcount}, translations={len(trans)}/{opcount}, "
+                f"characters={len(chars)}/{opcount}"
+            )
 
         key = (sg, label)
         if key not in cir_chars:
@@ -2054,6 +2066,69 @@ def _align_cir_characters(values, source_rots, source_trans,
     return aligned
 
 
+def _validate_compound_bindings(
+        sg, ml, char_counts, pir_rots_flat, pir_rot_starts,
+        pir_trans_flat, pir_trans_starts, cir_comp_starts,
+        cir_comp_counts, cir_comp_ops, cir_comp_rots, cir_comp_trans):
+    """Require every accepted compound row to share the final PIR Seitz order.
+
+    CIR component rotations and generation-only translations are deliberately
+    retained as auditable parallel arrays.  Once Hall reorder and padding are
+    complete, both must equal the record's PIR arrays entry-for-entry; no
+    prefix or rotation-only binding is acceptable.
+    """
+    accepted = 0
+    for i, component_count in enumerate(cir_comp_counts):
+        if component_count == 0:
+            continue
+        accepted += 1
+        op_count = cir_comp_ops[i]
+        if op_count <= 0 or op_count != char_counts[i]:
+            raise ValueError(
+                f"compound SG{sg[i]} {ml[i]!r} has CIR/PIR operation count "
+                f"{op_count}/{char_counts[i]} after final ordering"
+            )
+        pir_rot_start = pir_rot_starts[i]
+        pir_trans_start = pir_trans_starts[i]
+        if (pir_rot_start + op_count * 9 > len(pir_rots_flat)
+                or pir_trans_start + op_count * 3 > len(pir_trans_flat)):
+            raise ValueError(
+                f"compound SG{sg[i]} {ml[i]!r} has out-of-bounds final PIR Seitz row"
+            )
+        pir_rot_row = pir_rots_flat[pir_rot_start:pir_rot_start + op_count * 9]
+        pir_trans_row = pir_trans_flat[pir_trans_start:pir_trans_start + op_count * 3]
+        if len(pir_rot_row) != op_count * 9 or len(pir_trans_row) != op_count * 3:
+            raise ValueError(
+                f"compound SG{sg[i]} {ml[i]!r} has incomplete final PIR Seitz row"
+            )
+        cir_rot_base = (cir_comp_starts[i] // 2) * 9
+        cir_trans_base = (cir_comp_starts[i] // 2) * 3
+        for component in range(component_count):
+            cir_rot_start = cir_rot_base + component * op_count * 9
+            cir_trans_start = cir_trans_base + component * op_count * 3
+            if (cir_rot_start + op_count * 9 > len(cir_comp_rots)
+                    or cir_trans_start + op_count * 3 > len(cir_comp_trans)):
+                raise ValueError(
+                    f"compound SG{sg[i]} {ml[i]!r} has out-of-bounds final CIR Seitz row"
+                )
+            cir_rot_row = cir_comp_rots[cir_rot_start:cir_rot_start + op_count * 9]
+            cir_trans_row = cir_comp_trans[cir_trans_start:cir_trans_start + op_count * 3]
+            if cir_rot_row != pir_rot_row:
+                raise ValueError(
+                    f"compound SG{sg[i]} {ml[i]!r} constituent {component} "
+                    "CIR/PIR rotations differ after final ordering"
+                )
+            if cir_trans_row != pir_trans_row:
+                raise ValueError(
+                    f"compound SG{sg[i]} {ml[i]!r} constituent {component} "
+                    "CIR/PIR translations differ after final ordering"
+                )
+    if accepted != 672:
+        raise ValueError(
+            f"final compound binding census expected 672 accepted records, got {accepted}"
+        )
+
+
 def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                           little_chars_real, little_chars_imag, little_chars_valid,
                           sg, ml, kvec_map,
@@ -2425,6 +2500,33 @@ def generate_rust_data(data):
 
     cir_data = data.get("cir_data", {})
 
+    # The selected-arm dimension for an ordinary scalar is an independent
+    # CIR-header fact, not something inferred from a character value.  A
+    # compound has no single CIR header for the physical row and is kept at
+    # zero here; its semantic dimension is validated from both constituents
+    # below.
+    compound_resolutions = [
+        _resolve_compound_constituents(sg[i], ml[i], cir_data)
+        for i in range(len(ml))
+    ]
+    scalar_selected_dims = []
+    for i, (sg_num, ml_label) in enumerate(zip(sg, ml)):
+        if compound_resolutions[i] is not None:
+            scalar_selected_dims.append(0)
+            continue
+        entry = cir_data.get((sg_num, ml_label))
+        if entry is None:
+            raise ValueError(
+                f"ordinary scalar SG{sg_num} {ml_label!r} has no exact CIR header"
+            )
+        little_dim = entry["little_dim"]
+        if little_dim <= 0 or little_dim > 255:
+            raise ValueError(
+                f"ordinary scalar SG{sg_num} {ml_label!r} has invalid "
+                f"authoritative selected dimension {little_dim}"
+            )
+        scalar_selected_dims.append(little_dim)
+
     # PIR rotation matrices for H_ops → PIR order mapping (Wigner test)
     rots_map = data.get("rots_map", {})
 
@@ -2556,10 +2658,6 @@ def generate_rust_data(data):
     cir_comp_total = 0
     compound_metadata = []
     compound_metadata_indices = [0] * len(ml)
-    compound_resolutions = [
-        _resolve_compound_constituents(sg[i], ml[i], cir_data)
-        for i in range(len(ml))
-    ]
     for i in range(len(ml)):
         resolved = compound_resolutions[i]
         if resolved is not None:
@@ -2884,6 +2982,51 @@ def generate_rust_data(data):
                              orig_char_counts=orig_char_counts,
                              hall_targets=hall_targets)
 
+    # The final arrays are now in data-Hall order.  Freeze and verify the
+    # operation binding only after every reorder/padding mutation is complete.
+    _validate_compound_bindings(
+        sg, ml, char_counts, pir_rots_flat, pir_rot_starts,
+        pir_trans_flat, pir_trans_starts, cir_comp_starts,
+        cir_comp_counts, cir_comp_ops, cir_comp_rots, cir_comp_trans)
+
+    # Ordinary scalar selected dimensions come from CIR headers above.  The
+    # final Hall-ordered little character at the unique full-Seitz identity is
+    # only an independent cross-check of that authoritative value.
+    identity_rotation = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+    for i, (sg_num, ml_label) in enumerate(zip(sg, ml)):
+        if compound_resolutions[i] is not None:
+            continue
+        expected = scalar_selected_dims[i]
+        op_count = char_counts[i]
+        pir_rot_start = pir_rot_starts[i]
+        pir_trans_start = pir_trans_starts[i]
+        identities = []
+        for op in range(op_count):
+            rotation = pir_rots_flat[pir_rot_start + op * 9:pir_rot_start + (op + 1) * 9]
+            translation = pir_trans_flat[pir_trans_start + op * 3:pir_trans_start + (op + 1) * 3]
+            if rotation == identity_rotation and all(
+                    abs(value - round(value)) <= 1e-8 for value in translation):
+                identities.append(op)
+        if len(identities) != 1:
+            raise ValueError(
+                f"ordinary scalar SG{sg_num} {ml_label!r} has "
+                f"{len(identities)} final Seitz identities"
+            )
+        little_start = char_starts[i]
+        little_end = little_start + op_count
+        if little_end > len(little_chars_real) or little_end > len(little_chars_imag):
+            raise ValueError(
+                f"ordinary scalar SG{sg_num} {ml_label!r} has incomplete final little row"
+            )
+        identity = identities[0]
+        little_re = little_chars_real[little_start + identity]
+        little_im = little_chars_imag[little_start + identity]
+        if abs(little_re - expected) > 1e-8 or abs(little_im) > 1e-8:
+            raise ValueError(
+                f"ordinary scalar SG{sg_num} {ml_label!r} CIR selected dimension "
+                f"{expected} disagrees with final χ(E)=({little_re},{little_im})"
+            )
+
     # ── Phase D: Reorder SPIN_OP data to spglib Hall order ──
     sg_bilbao_to_new = _reorder_spin_ops_to_hall(
         spin_op_rots, spin_op_trans, spin_op_su2,
@@ -2907,6 +3050,63 @@ def generate_rust_data(data):
                 spin_lg_op_indices_flat[start + j] = new_local
                 updated_count += 1
         print(f"  Updated {updated_count} spin_lg_op_indices after SPIN_OP reorder")
+
+    # Spinor rows are a strict indexed view: all four counts are identical,
+    # indices are a permutation of distinct SG-local operations, and every SG
+    # table has complete rotation/translation/SU(2) parallel arrays.
+    for sg_num in range(1, 231):
+        ops = spinor_ops_data.get(sg_num, [])
+        if (len(spin_op_rots) % 9 != 0 or len(spin_op_trans) % 3 != 0
+                or len(spin_op_su2) % 4 != 0):
+            raise ValueError("global spin operation arrays have invalid widths")
+        sg_start = spin_op_sg_start[sg_num]
+        sg_count = spin_op_sg_count[sg_num]
+        if (len(ops) != sg_count or sg_start + sg_count > len(spin_op_rots) // 9
+                or sg_start + sg_count > len(spin_op_trans) // 3
+                or sg_start + sg_count > len(spin_op_su2) // 4):
+            raise ValueError(f"spin operation table SG{sg_num} has inconsistent widths")
+
+    for idx, sir in enumerate(spinor_irreps):
+        count = spinor_counts[idx]
+        if not (count > 0 and count == spin_lg_counts[idx]
+                == spin_lg_op_counts[idx] == spin_extra_counts[idx]):
+            raise ValueError(
+                f"spinor SG{sir['sg']} {sir['ml_label']!r} has inconsistent "
+                "character/index/imaginary counts"
+            )
+        start = spin_lg_op_starts[idx]
+        indices = spin_lg_op_indices_flat[start:start + count]
+        sg_count = spin_op_sg_count[sir['sg']]
+        if len(indices) != count or len(set(indices)) != count or any(
+                operation >= sg_count for operation in indices):
+            raise ValueError(
+                f"spinor SG{sir['sg']} {sir['ml_label']!r} has invalid little-group indices"
+            )
+        sg_start = spin_op_sg_start[sir['sg']]
+        identities = []
+        for position, operation in enumerate(indices):
+            operation = int(operation)
+            rotation = spin_op_rots[(sg_start + operation) * 9:(sg_start + operation + 1) * 9]
+            translation = spin_op_trans[(sg_start + operation) * 3:(sg_start + operation + 1) * 3]
+            su2 = spin_op_su2[(sg_start + operation) * 4:(sg_start + operation + 1) * 4]
+            if (rotation == identity_rotation
+                    and all(abs(value - round(value)) <= 1e-8 for value in translation)
+                    and all(abs(value - expected) <= 1e-8
+                             for value, expected in zip(su2, [1.0, 0.0, 0.0, 0.0]))):
+                identities.append(position)
+        if len(identities) != 1:
+            raise ValueError(
+                f"spinor SG{sir['sg']} {sir['ml_label']!r} has "
+                f"{len(identities)} canonical spin identities"
+            )
+        identity_value = chars_flat[
+            spinor_starts[idx] + identities[0]]
+        identity_imag = spin_extra_flat[spin_extra_starts[idx] + identities[0]]
+        if abs(identity_value - sir['dim']) > 1e-8 or abs(identity_imag) > 1e-8:
+            raise ValueError(
+                f"spinor SG{sir['sg']} {sir['ml_label']!r} identity character "
+                "disagrees with record dimension"
+            )
 
     # ── Verify identity characters for ALL scalar entries ──
     bad_chars = []
@@ -3147,6 +3347,7 @@ def generate_rust_data(data):
 
     scalar_records = []  # list of dicts with all the generated fields
     dim_warnings = 0
+    ordinary_scalar_count = 0
     for i in range(len(ml)):
         ml_label = ml[i]
         bc_label = bc[i]
@@ -3185,6 +3386,27 @@ def generate_rust_data(data):
                 f"Cannot determine dim for SG{sg_num} {ml_label}, img={img_name}"
             )
 
+        compound = compound_resolutions[i] is not None
+        selected_dim = scalar_selected_dims[i]
+        if compound:
+            if selected_dim != 0:
+                raise ValueError(
+                    f"compound SG{sg_num} {ml_label!r} has nonzero scalar selected dimension"
+                )
+        else:
+            ordinary_scalar_count += 1
+            cir_entry = cir_data.get((sg_num, ml_label))
+            if cir_entry is None or dim != cir_entry["dim"]:
+                raise ValueError(
+                    f"ordinary scalar SG{sg_num} {ml_label!r} PIR/CIR full dimension mismatch"
+                )
+            if dim != selected_dim * cir_entry["star_count"]:
+                raise ValueError(
+                    f"ordinary scalar SG{sg_num} {ml_label!r} dimension mismatch: "
+                    f"record={dim}, CIR={cir_entry['dim']}, selected×star="
+                    f"{selected_dim}×{cir_entry['star_count']}"
+                )
+
         # Cross-check: warn if PIR header dim disagrees with final χ(E)
         if pir_d is not None and final_chars:
             chi_e = int(round(final_chars[0]))
@@ -3199,6 +3421,7 @@ def generate_rust_data(data):
             "sg": sg_num, "ml": ml_label, "bc": latex_bc, "kov": latex_kov,
             "dim": dim, "img": img_name, "lifshitz": lif_val == 1,
             "spinor": False, "kx": kx, "ky": ky, "kz": kz, "kd": kd,
+            "scalar_selected_dim": selected_dim,
             "char_s": char_s, "char_c": char_c,
             "mat_s": mat_s, "mat_c": mat_c,
             "iso_s": iso_s, "iso_c": iso_c,
@@ -3215,6 +3438,11 @@ def generate_rust_data(data):
 
     if dim_warnings > 0:
         print(f"  ⚠ {dim_warnings} irreps have PIR header dim ≠ χ(E) (fixed to χ(E))")
+    if ordinary_scalar_count != 4105:
+        raise ValueError(
+            f"ordinary scalar CIR selected-dimension census expected 4105, got "
+            f"{ordinary_scalar_count}"
+        )
 
     # Pre-compute spinor IrrepRecord data
     spinor_records = []
@@ -3224,6 +3452,7 @@ def generate_rust_data(data):
             "sg": sir["sg"], "ml": sir["ml_label"], "bc": latex_bc, "kov": "",
             "dim": sir["dim"], "img": "?", "lifshitz": False,
             "spinor": True,
+            "scalar_selected_dim": 0,
             "kx": sir["kx"], "ky": sir["ky"], "kz": sir["kz"], "kd": sir["kd"],
             "char_s": spinor_starts[idx], "char_c": spinor_counts[idx],
             "mat_s": 0, "mat_c": 0,
@@ -3264,6 +3493,7 @@ def generate_rust_data(data):
             lines.append(f"        _pir_rot_start: {r['pir_rot_s']},")
             lines.append(f"        _char_start: {r['char_s']},")
             lines.append(f"        _char_count: {r['char_c']},")
+            lines.append(f"        _scalar_selected_dim: {r['scalar_selected_dim']},")
             lines.append(f"        _mat_start: {r['mat_s']},")
             lines.append(f"        _mat_count: {r['mat_c']},")
             lines.append(f"        _iso_start: {r['iso_s']},")
