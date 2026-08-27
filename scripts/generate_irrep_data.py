@@ -11,12 +11,42 @@ All arrays in data_irreps.txt and data_isotropy.txt are PARALLEL:
 position N in one array corresponds to position N in all others.
 """
 
-import re, sys, os, zipfile, io, math
+import re, sys, os, zipfile, io, math, hashlib
 from collections import defaultdict
 
 SCRIPT_DIR = os.path.dirname(__file__)
 ISO_DIR = os.path.join(SCRIPT_DIR, "..", "isotropy_subgroup")
 OUT_DIR = os.path.join(SCRIPT_DIR, "..", "src", "irrep")
+
+# These archives are the complete, pinned upstream inputs for generated data.
+# Keep this list versioned with the generator: parsing an unverified archive
+# would make generated metadata impossible to reproduce or audit.
+PINNED_ARCHIVE_SHA256 = {
+    "PIR_data.zip": "e909a4f0121688b0590ccaec10b0276171bc24619cf7eb562ba441268c01e121",
+    "CIR_data.zip": "f4edcb2852b83a86d1b58f29fb862d9124a227cfc90f9e1ae17d2c97585264e6",
+    "iso.zip": "568667bfc8027095537d642297b319c872d00016b868143c666f90d5931d9f7b",
+}
+
+
+def _verify_pinned_archives():
+    """Verify every required upstream archive before parsing any input."""
+    for archive, expected in PINNED_ARCHIVE_SHA256.items():
+        path = os.path.join(ISO_DIR, archive)
+        if not os.path.isfile(path):
+            raise FileNotFoundError(
+                f"required pinned archive is missing: {path}"
+            )
+        digest = hashlib.sha256()
+        with open(path, "rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        actual = digest.hexdigest()
+        if actual != expected:
+            raise ValueError(
+                f"pinned archive hash mismatch for {path}: "
+                f"expected {expected}, got {actual}"
+            )
+    print("  Verified pinned PIR/CIR/ISO archive SHA-256 hashes")
 
 # Import the direction mapping module from this directory
 sys.path.insert(0, os.path.dirname(__file__))
@@ -312,7 +342,7 @@ def _is_special_kpoint(label):
 
 
 def _parse_pir_characters():
-    """Parse PIR_data.txt and return two dicts:
+    """Parse PIR_data.txt and return character, matrix, and operation maps:
 	    chars_map:    (SG#, ML_label) -> [char1, char2, ..., charN]
 	    matrices_map: (SG#, ML_label) -> [m11, m12, ..., mNN] flat values
 
@@ -326,7 +356,6 @@ def _parse_pir_characters():
     dim_map = {}     # (SG#, ML_label) -> dim (from PIR header)
     rots_map = {}     # (SG#, ML_label) -> [[r00..r22], ...] per operation
     trans_map = {}   # (SG#, ML_label) -> [[t0,t1,t2], ...] per operation
-    irnumber_map = {}  # (SG#, ML_label) -> stable ISO-IR PIR irnumber
     i = 3  # skip 3 header lines
 
     while i < len(lines):
@@ -347,7 +376,6 @@ def _parse_pir_characters():
             continue
 
         sg = int(tokens[1])
-        irnumber = int(tokens[0])
         label = quoted[1].strip()
         after_line = line[line.rindex('"') + 1:].strip().split()
         if len(after_line) < 5:
@@ -453,15 +481,12 @@ def _parse_pir_characters():
         key = (sg, label)
         if key in chars_map:
             raise ValueError(f"duplicate PIR source key {key!r}")
-        if irnumber in irnumber_map.values():
-            raise ValueError(f"duplicate PIR source irnumber {irnumber}")
         if key not in chars_map:
             chars_map[key] = chars
             matrices_map[key] = all_matrices
             rots_map[key] = rots
             trans_map[key] = trans
             dim_map[key] = dim
-            irnumber_map[key] = irnumber
 
         # Advance to next irrep header
         i += 1
@@ -471,7 +496,7 @@ def _parse_pir_characters():
                 break
             i += 1
 
-    return chars_map, matrices_map, rots_map, dim_map, trans_map, irnumber_map
+    return chars_map, matrices_map, rots_map, dim_map, trans_map
 
 
 # ── CIR (Complex Irreducible Representations) parsing ────────────────────────
@@ -678,7 +703,7 @@ def _parse_cir_characters(needed_labels=None):
             if store_matrices:
                 cir_matrices[key] = all_matrices
             cir_irnumber_map[key] = irnumber
-        elif cir_chars[key]['irnumber'] != irnumber:
+        else:
             raise ValueError(f"duplicate CIR source key {key!r}")
 
         # Advance to next irrep header
@@ -1005,6 +1030,7 @@ def _round_char_cir(x, eps=1e-8):
 # ── main parsing ─────────────────────────────────────────────────────────────
 
 def parse_all():
+    _verify_pinned_archives()
     print("Parsing data_irreps.txt...")
     irr_lines = read_file("data_irreps.txt")
     irr_sec = get_sections(irr_lines)
@@ -1118,8 +1144,8 @@ def parse_all():
     print(f"  Parsed {len(kvec_map)} k-vector entries")
 
     print("Parsing PIR_data.txt characters and matrices...")
-    (chars_map, matrices_map, rots_map, pir_dim_map, pir_trans_map,
-     pir_irnumber_map) = _parse_pir_characters()
+    (chars_map, matrices_map, rots_map, pir_dim_map,
+     pir_trans_map) = _parse_pir_characters()
     print(f"  Parsed {len(chars_map)} character table entries")
     print(f"  Parsed {len(matrices_map)} matrix data entries")
 
@@ -1184,7 +1210,6 @@ def parse_all():
         "rots_map": rots_map,
         "pir_trans_map": pir_trans_map,
         "pir_dim_map": pir_dim_map,
-        "pir_irnumber_map": pir_irnumber_map,
         "cir_data": cir_data,
         "cir_matrices": cir_matrices,
         "mag_iso_sg": mag_iso_sg,
@@ -1448,76 +1473,6 @@ def _kpoint_label_from_ml(ml):
     if m:
         return body[:m.start()]
     return body
-
-
-def _resolve_pir_source_id(sg, ml, pir_irnumber_map, kvec_map):
-    """Resolve a data_irreps label to one unique authoritative PIR header.
-
-    A few ISO-IR releases spell compound headers with an extra arm marker
-    (e.g. data label ``W1W1`` vs PIR ``W1WA1``).  This mirrors the existing
-    character lookup only for source identity and rejects every non-unique
-    candidate instead of silently selecting an array ordinal.
-    """
-    keys = [key for key in pir_irnumber_map if key[0] == sg]
-    exact = (sg, ml)
-    if exact in pir_irnumber_map:
-        return pir_irnumber_map[exact]
-
-    def unique(candidates, strategy):
-        ids = {pir_irnumber_map[key] for key in candidates}
-        if len(ids) == 1:
-            return next(iter(ids))
-        if len(ids) > 1:
-            raise ValueError(
-                f"ambiguous PIR source identity for SG{sg} {ml!r} via {strategy}: {candidates}"
-            )
-        return None
-
-    result = unique(
-        [key for key in keys if key[1].startswith(ml) or ml.startswith(key[1])],
-        "prefix",
-    )
-    if result is not None:
-        return result
-
-    body = ml
-    while len(body) > 2:
-        new_body = re.sub(r'[0-9][+-]?$', '', body)
-        if new_body == body:
-            new_body = body[:-1]
-        body = new_body
-        if len(body) < 2:
-            break
-        result = unique(
-            [key for key in keys if key[1] == body or key[1].startswith(body)],
-            f"short-prefix {body!r}",
-        )
-        if result is not None:
-            return result
-
-    iso_kvec = _lookup_kvec(kvec_map, sg, ml)
-    if iso_kvec != (0, 0, 0, 1):
-        same_kvec = [key for key in keys if kvec_map.get(key) == iso_kvec]
-        iso_num = _label_number(ml)
-        if iso_num is not None:
-            result = unique(
-                [key for key in same_kvec if _label_number(key[1]) == iso_num],
-                "k-vector and numeric label",
-            )
-            if result is not None:
-                return result
-        iso_sign = '+' if '+' in ml else ('-' if '-' in ml else None)
-        if iso_sign:
-            result = unique(
-                [key for key in same_kvec if iso_sign in key[1]],
-                "k-vector and sign",
-            )
-            if result is not None:
-                return result
-        result = unique(same_kvec, "k-vector")
-        if result is not None:
-            return result
-    raise ValueError(f"unresolved PIR source identity for SG{sg} {ml!r}")
 
 
 def _lookup_matrices(matrices_map, sg_num, ml_label, kvec_map=None):
@@ -2589,7 +2544,6 @@ def generate_rust_data(data):
     cir_comp_counts = []  # number of CIR components (0 = not compound)
     cir_comp_ops = []     # operations per CIR component
     cir_comp_total = 0
-    cir_comp_rejected = 0
     compound_metadata = []
     compound_metadata_indices = [0] * len(ml)
     compound_resolutions = [
@@ -2620,7 +2574,10 @@ def generate_rust_data(data):
                 target_rots = entries[0].get('rots', [])
                 target_trans = entries[0].get('trans', [])
             if not (len(target_rots) == len(target_trans) == n_ops and n_ops > 0):
-                entries = []
+                raise ValueError(
+                    f"compound SG{sg[i]} {ml[i]!r} has no complete target "
+                    f"Seitz order for {n_ops} operations"
+                )
 
             kvec = _lookup_kvec(kvec_map, sg[i], ml[i])
             if entries:
@@ -2636,9 +2593,10 @@ def generate_rust_data(data):
                         full_values, entry.get('rots', []), entry.get('trans', []),
                         target_rots, target_trans, kvec)
                     if aligned_little is None or aligned_full is None:
-                        comp_chars = []
-                        comp_full_chars = []
-                        break
+                        raise ValueError(
+                            f"compound SG{sg[i]} {ml[i]!r} CIR constituent "
+                            f"{part!r} failed Seitz operation alignment"
+                        )
 
                     # Repeated CIR labels denote a representation together
                     # with its complex conjugate (for example P3P3).
@@ -2655,85 +2613,125 @@ def generate_rust_data(data):
 
             # Validate the stored selected-arm rows against their dimensions,
             # and the corresponding full CIR sums against every PIR character.
-            valid = False
-            if comp_chars:
-                pir_ch = _lookup_chars(chars_map, sg[i], ml[i], kvec_map)
-                identity_rotation = [1, 0, 0, 0, 1, 0, 0, 0, 1]
-                identities = [
-                    op for op, (rotation, translation)
-                    in enumerate(zip(target_rots, target_trans))
-                    if rotation == identity_rotation
-                    and all(abs(value - round(value)) < 1e-8 for value in translation)
-                ]
-                identity_ok = len(identities) == 1
-                if identity_ok:
-                    identity = identities[0]
-                    for component, entry in enumerate(entries):
-                        value = complex(
-                            comp_chars[2 * (component * n_ops + identity)],
-                            comp_chars[2 * (component * n_ops + identity) + 1])
-                        if (abs(value.real - entry['little_dim']) > 0.01
-                                or abs(value.imag) > 0.01):
-                            identity_ok = False
-                            break
-
-                full_sum_ok = bool(pir_ch) and len(pir_ch) == n_ops
-                if full_sum_ok:
-                    for op in range(n_ops):
-                        value = sum(component[op] for component in comp_full_chars)
-                        if abs(value.real - pir_ch[op]) > 0.01 or abs(value.imag) > 0.01:
-                            full_sum_ok = False
-                            break
-                valid = identity_ok and full_sum_ok
-
-            if comp_chars and valid:
-                cir_comp_starts.append(len(cir_comp_flat))
-                cir_comp_counts.append(len(parts))
-                cir_comp_ops.append(n_ops)
-                cir_comp_flat.extend(comp_chars)
-                # Always extend rotations to keep arrays in sync.
-                total_rots_needed = len(parts) * n_ops * 9
-                if len(comp_rots) == total_rots_needed:
-                    cir_comp_rots.extend(comp_rots)
-                else:
-                    cir_comp_rots.extend([0] * total_rots_needed)
-                total_trans_needed = len(parts) * n_ops * 3
-                if len(comp_trans) == total_trans_needed:
-                    cir_comp_trans.extend(comp_trans)
-                else:
-                    cir_comp_trans.extend([0.0] * total_trans_needed)
-
-                # Make previously rotation-less compound PIR records part of
-                # the same Hall-order pipeline as every other scalar record.
-                if not uses_pir_order and char_counts[i] == n_ops:
-                    rots_map[(sg[i], ml[i])] = [list(rotation) for rotation in target_rots]
-                    rot_start = pir_rot_starts[i]
-                    trans_start = pir_trans_starts[i]
-                    for op, (rotation, translation) in enumerate(
-                            zip(target_rots, target_trans)):
-                        pir_rots_flat[rot_start + op * 9:rot_start + (op + 1) * 9] = rotation
-                        pir_trans_flat[trans_start + op * 3:trans_start + (op + 1) * 3] = translation
-                cir_comp_total += 1
-                pir_source_id = _resolve_pir_source_id(
-                    sg[i], ml[i], data["pir_irnumber_map"], kvec_map
+            if not comp_chars:
+                raise ValueError(
+                    f"compound SG{sg[i]} {ml[i]!r} produced no CIR character data"
                 )
-                metadata_index = len(compound_metadata) + 1
-                compound_metadata_indices[i] = metadata_index
-                compound_metadata.append({
-                    "pir_irnumber": pir_source_id,
-                    "sg": sg[i],
-                    "pir_label": ml[i],
-                    "cir_irnumbers": [entry['irnumber'] for entry in entries],
-                    "cir_labels": parts,
-                    "cir_dimensions": [entry['little_dim'] for entry in entries],
-                    "semantics": 1 if parts[0] == parts[1] else 2,
-                })
+            pir_ch = _lookup_chars(chars_map, sg[i], ml[i], kvec_map)
+            identity_rotation = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+            identities = [
+                op for op, (rotation, translation)
+                in enumerate(zip(target_rots, target_trans))
+                if rotation == identity_rotation
+                and all(abs(value - round(value)) < 1e-8 for value in translation)
+            ]
+            if len(identities) != 1:
+                raise ValueError(
+                    f"compound SG{sg[i]} {ml[i]!r} has {len(identities)} "
+                    "identity operations after Seitz alignment"
+                )
+            identity = identities[0]
+            for component, entry in enumerate(entries):
+                value = complex(
+                    comp_chars[2 * (component * n_ops + identity)],
+                    comp_chars[2 * (component * n_ops + identity) + 1])
+                if (abs(value.real - entry['little_dim']) > 0.01
+                        or abs(value.imag) > 0.01):
+                    raise ValueError(
+                        f"compound SG{sg[i]} {ml[i]!r} constituent {component} "
+                        "fails identity/dimension validation"
+                    )
+
+            if not pir_ch or len(pir_ch) != n_ops:
+                raise ValueError(
+                    f"compound SG{sg[i]} {ml[i]!r} has no PIR character row "
+                    f"aligned to {n_ops} operations"
+                )
+            for op in range(n_ops):
+                value = sum(component[op] for component in comp_full_chars)
+                if (abs(value.real - pir_ch[op]) > 0.01
+                        or abs(value.imag) > 0.01):
+                    raise ValueError(
+                        f"compound SG{sg[i]} {ml[i]!r} fails full character-sum "
+                        f"validation at operation {op}"
+                    )
+
+            cir_comp_starts.append(len(cir_comp_flat))
+            cir_comp_counts.append(len(parts))
+            cir_comp_ops.append(n_ops)
+            cir_comp_flat.extend(comp_chars)
+            # Always extend rotations to keep arrays in sync.
+            total_rots_needed = len(parts) * n_ops * 9
+            if len(comp_rots) == total_rots_needed:
+                cir_comp_rots.extend(comp_rots)
             else:
-                cir_comp_starts.append(0); cir_comp_counts.append(0); cir_comp_ops.append(0)
-                cir_comp_rejected += 1
+                cir_comp_rots.extend([0] * total_rots_needed)
+            total_trans_needed = len(parts) * n_ops * 3
+            if len(comp_trans) == total_trans_needed:
+                cir_comp_trans.extend(comp_trans)
+            else:
+                cir_comp_trans.extend([0.0] * total_trans_needed)
+
+            # Make previously rotation-less compound PIR records part of
+            # the same Hall-order pipeline as every other scalar record.
+            if not uses_pir_order and char_counts[i] == n_ops:
+                rots_map[(sg[i], ml[i])] = [list(rotation) for rotation in target_rots]
+                rot_start = pir_rot_starts[i]
+                trans_start = pir_trans_starts[i]
+                for op, (rotation, translation) in enumerate(
+                        zip(target_rots, target_trans)):
+                    pir_rots_flat[rot_start + op * 9:rot_start + (op + 1) * 9] = rotation
+                    pir_trans_flat[trans_start + op * 3:trans_start + (op + 1) * 3] = translation
+            cir_comp_total += 1
+            metadata_index = len(compound_metadata) + 1
+            compound_metadata_indices[i] = metadata_index
+            compound_metadata.append({
+                "sg": sg[i],
+                "record_label": ml[i],
+                "cir_irnumbers": [entry['irnumber'] for entry in entries],
+                "cir_labels": parts,
+                "cir_dimensions": [entry['little_dim'] for entry in entries],
+                "semantics": 1 if parts[0] == parts[1] else 2,
+            })
         else:
             cir_comp_starts.append(0); cir_comp_counts.append(0); cir_comp_ops.append(0)
-    print(f"  CIR component chars: {cir_comp_total} compound irreps, {cir_comp_rejected} rejected (id mismatch), {len(cir_comp_flat)} values, {len(cir_comp_rots)} rotation ints")
+    resolved_count = sum(resolved is not None for resolved in compound_resolutions)
+    if resolved_count != 672 or cir_comp_total != resolved_count:
+        raise ValueError(
+            f"compound census expected 672 resolved/accepted records, got "
+            f"{resolved_count} resolved and {cir_comp_total} accepted"
+        )
+    realification_count = sum(
+        metadata["semantics"] == 1 for metadata in compound_metadata
+    )
+    distinct_count = sum(
+        metadata["semantics"] == 2 for metadata in compound_metadata
+    )
+    if (realification_count, distinct_count) != (153, 519):
+        raise ValueError(
+            "compound semantics census expected 153 realifications and "
+            f"519 distinct sums, got {realification_count} and {distinct_count}"
+        )
+    source_refs = 0
+    for metadata in compound_metadata:
+        sg_value = metadata["sg"]
+        for cir_id, cir_label, cir_dim in zip(
+                metadata["cir_irnumbers"], metadata["cir_labels"],
+                metadata["cir_dimensions"]):
+            entry = cir_data.get((sg_value, cir_label))
+            if (entry is None or entry["irnumber"] != cir_id
+                    or entry["little_dim"] != cir_dim or cir_dim <= 0):
+                raise ValueError(
+                    f"compound SG{sg_value} {metadata['record_label']!r} has "
+                    f"invalid CIR source reference {cir_id}/{cir_label}/{cir_dim}"
+                )
+            source_refs += 1
+    if source_refs != 1344:
+        raise ValueError(
+            f"compound CIR source-reference census expected 1344, got {source_refs}"
+        )
+    print(f"  CIR component chars: {cir_comp_total} compound irreps accepted, {len(cir_comp_flat)} values, {len(cir_comp_rots)} rotation ints")
+    print(f"  Compound census: {resolved_count} resolved/accepted, {realification_count} realifications, {distinct_count} distinct sums, {source_refs} CIR refs")
 
     # ── Spinor (double-valued) irrep data ──
     spinor_irreps = data.get("spinor_irreps", [])
@@ -3271,7 +3269,7 @@ def generate_rust_data(data):
     lines.append("];")
     lines.append("")
 
-    lines.append("/// Frozen generation-time metadata for accepted PIR compound records.")
+    lines.append("/// Frozen generation-time metadata for accepted compound records.")
     lines.append(f"pub static COMPOUND_METADATA: [CompoundMetadata; {len(compound_metadata)}] = [")
     for metadata in compound_metadata:
         cir_labels = ", ".join(
@@ -3285,14 +3283,16 @@ def generate_rust_data(data):
             else "CompoundCharacterSemantics::DistinctComponentSum"
         )
         lines.append("    CompoundMetadata {")
-        lines.append(f"        pir_irnumber: {metadata['pir_irnumber']},")
         lines.append(f"        sg: {metadata['sg']},")
-        lines.append(f'        pir_label: "{escape_rust_str(metadata["pir_label"])}",')
+        lines.append(f'        record_label: "{escape_rust_str(metadata["record_label"])}",')
         lines.append(f"        cir_irnumbers: [{cir_ids}],")
         lines.append(f"        cir_labels: [{cir_labels}],")
         lines.append(f"        cir_dimensions: [{cir_dims}],")
-        lines.append(f"        naming_grammar_version: {COMPOUND_NAMING_GRAMMAR_VERSION},")
-        lines.append(f'        provenance: "{COMPOUND_NAMING_PROVENANCE}",')
+        lines.append(
+            "        naming_grammar_version: "
+            "COMPOUND_NAMING_GRAMMAR_VERSION,"
+        )
+        lines.append("        provenance: COMPOUND_NAMING_PROVENANCE,")
         lines.append(f"        semantics: {semantics},")
         lines.append("    },")
     lines.append("];\n")

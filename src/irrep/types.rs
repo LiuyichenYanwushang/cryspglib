@@ -14,7 +14,7 @@
 
 // ── Compact record types (flat-array storage) ───────────────────────────────
 
-/// How a scalar physical (PIR) compound record is assembled from CIR rows.
+/// How a scalar physical compound record is assembled from CIR rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompoundCharacterSemantics {
     /// A CIR row and its complex conjugate are realified: χ = 2 Re(χ_CIR).
@@ -22,6 +22,12 @@ pub enum CompoundCharacterSemantics {
     /// Distinct CIR constituents are directly summed: χ = Σ χ_CIR.
     DistinctComponentSum,
 }
+
+/// Version of the generation-time Miller--Love compound naming grammar.
+pub const COMPOUND_NAMING_GRAMMAR_VERSION: u8 = 1;
+
+/// Provenance of the generation-time PIR/CIR compound association.
+pub const COMPOUND_NAMING_PROVENANCE: &str = "ISO-IR Miller-Love concatenation, resolver v1";
 
 /// Generation-time provenance for a compound physical irrep.
 ///
@@ -31,12 +37,11 @@ pub enum CompoundCharacterSemantics {
 /// here as generated read-only metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompoundMetadata {
-    /// Stable source `irnumber` from PIR_data.txt.
-    pub pir_irnumber: u32,
-    /// Space group number shared by PIR and both CIR records.
+    /// Space group number shared by the data_irreps record and both CIR rows.
     pub sg: u8,
-    /// Original compound Miller--Love label from PIR_data.txt.
-    pub pir_label: &'static str,
+    /// Original compound Miller--Love label from data_irreps.txt and the
+    /// runtime [`IrrepRecord`]. This is not a PIR_data.txt source label.
+    pub record_label: &'static str,
     /// Stable source `irnumber`s from CIR_data.txt, in constituent order.
     pub cir_irnumbers: [u32; 2],
     /// Constituent Miller--Love labels resolved from CIR_data.txt.
@@ -45,7 +50,8 @@ pub struct CompoundMetadata {
     pub cir_dimensions: [u8; 2],
     /// Version of the naming grammar used for the resolution.
     pub naming_grammar_version: u8,
-    /// Human-readable provenance of the generation-time association.
+    /// Global provenance string; generated rows reference
+    /// [`COMPOUND_NAMING_PROVENANCE`] rather than duplicating its text.
     pub provenance: &'static str,
     /// Algebra used to assemble the physical character row.
     pub semantics: CompoundCharacterSemantics,
@@ -332,7 +338,7 @@ impl IrrepRecord {
         }
         let metadata = super::generated_data::COMPOUND_METADATA
             .get(self._compound_metadata_index as usize - 1)?;
-        (metadata.sg == self.sg && metadata.pir_label == self.ml).then_some(metadata)
+        (metadata.sg == self.sg && metadata.record_label == self.ml).then_some(metadata)
     }
 
     /// Compound character semantics from frozen generation metadata.
@@ -633,12 +639,12 @@ mod compound_metadata_tests {
                 let metadata = metadata.expect("compound metadata");
                 seen += 1;
                 assert_eq!(metadata.sg, irrep.sg);
-                assert_eq!(metadata.pir_label, irrep.ml);
-                assert_eq!(metadata.naming_grammar_version, 1);
+                assert_eq!(metadata.record_label, irrep.ml);
                 assert_eq!(
-                    metadata.provenance,
-                    "ISO-IR Miller-Love concatenation, resolver v1"
+                    metadata.naming_grammar_version,
+                    super::COMPOUND_NAMING_GRAMMAR_VERSION
                 );
+                assert_eq!(metadata.provenance, super::COMPOUND_NAMING_PROVENANCE);
                 assert!(
                     metadata
                         .cir_dimensions
