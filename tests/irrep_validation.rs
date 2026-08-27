@@ -2,8 +2,8 @@
 
 use cryspglib::SymmetryOps;
 use cryspglib::irrep::query::*;
-use cryspglib::irrep::types::IrrepRecord;
 use cryspglib::irrep::types::generated_data::*;
+use cryspglib::irrep::types::{IrrepRecord, RepresentationSpaceKind};
 
 // ==========================================================================
 // 基本完整性检查
@@ -432,14 +432,33 @@ fn sg144_a2_little_characters_keep_tiny_phase_noise() {
         .iter()
         .find(|ir| !ir.spinor && ir.ml == "A2")
         .expect("SG 144 A2 scalar irrep");
-    let (real, imag) = a2.scalar_little_characters();
+    let row = a2
+        .ordinary_scalar_selected_arm_block_trace()
+        .expect("SG 144 A2 selected-arm block trace");
 
-    assert_eq!(real, &[1.0, -1.0, 1.0]);
-    assert_eq!(imag.len(), 3);
-    assert!(
-        imag.iter().all(|value| value.abs() < 1e-8),
-        "SG 144 A2 has spurious imaginary characters: {imag:?}"
+    assert_eq!(
+        row.representation_space(),
+        RepresentationSpaceKind::SelectedArmBlockTrace
     );
+    assert_eq!(row.len(), row.operations().len());
+    assert_eq!(
+        row.values()
+            .iter()
+            .map(|value| value.re)
+            .collect::<Vec<_>>(),
+        [1.0, -1.0, 1.0]
+    );
+    assert_eq!(row.values().len(), 3);
+    assert!(
+        row.values().iter().all(|value| value.im.abs() < 1e-8),
+        "SG 144 A2 has spurious imaginary characters: {:?}",
+        row.values()
+    );
+    for (index, value) in row.values().iter().copied().enumerate() {
+        let (entry_value, operation) = row.entry(index).expect("paired typed character entry");
+        assert_eq!(entry_value, value);
+        assert_eq!(row.operation(index), Some(operation));
+    }
 }
 
 /// The 2026-08 formatter bug amplified scientific-notation exponents ending
