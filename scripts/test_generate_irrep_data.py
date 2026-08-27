@@ -101,6 +101,10 @@ class PinnedArchiveBoundaryTests(unittest.TestCase):
 
 class PirStructureTests(unittest.TestCase):
     @staticmethod
+    def _header():
+        return '  1  2  "P 1  "  "GM1  "  3  1  1  1  1  '
+
+    @staticmethod
     def _operation_row():
         return "1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"
 
@@ -115,6 +119,60 @@ class PirStructureTests(unittest.TestCase):
     def test_kspecial_comes_from_augmented_kvector_not_label(self):
         self.assertTrue(generator._pir_kvector_is_special(self._kvector()))
         self.assertFalse(generator._pir_kvector_is_special(self._kvector(True)))
+
+    def test_all_augmented_kvector_components_control_kspecial(self):
+        for offset in (4, 5, 6, 8, 9, 10, 12, 13, 14):
+            values = self._kvector()
+            values[offset] = 1
+            self.assertFalse(
+                generator._pir_kvector_is_special(values),
+                f"offset {offset} was not part of the kspecial test",
+            )
+
+    def test_multi_arm_kvector_block_exact_boundary(self):
+        values = list(range(32))
+        parsed, next_line = generator._read_exact_pir_int_block(
+            [" ".join(map(str, values[:16])), " ".join(map(str, values[16:]))],
+            0,
+            32,
+            "synthetic multi-arm record",
+        )
+        self.assertEqual(parsed, values)
+        self.assertEqual(next_line, 2)
+
+    def test_header_requires_exact_official_nine_fields(self):
+        parsed = generator._parse_pir_header(self._header(), 17)
+        self.assertEqual(parsed, (1, 2, "GM1", 3, 1, 1))
+        malformed = (
+            "EXTRA " + self._header(),
+            self._header() + " EXTRA",
+            '1 2 "P 1" "GM1" "THIRD" 3 1 1 1 1',
+            '1 2 "P 1" "GM1" 3 1 1 1',
+        )
+        for line in malformed:
+            with self.assertRaisesRegex(ValueError, "malformed PIR header"):
+                generator._parse_pir_header(line, 23)
+
+    def test_pir_irnumber_must_be_global_and_consecutive(self):
+        for sequence in ((1, 3), (1, 1), (1, 2, 4)):
+            expected = 1
+            for line_number, actual in enumerate(sequence, start=1):
+                if actual != expected:
+                    with self.assertRaisesRegex(ValueError, "unexpected PIR irnumber"):
+                        generator._require_pir_irnumber(
+                            actual, expected, line_number, 2, "GM1"
+                        )
+                    break
+                expected += 1
+            else:
+                self.fail(f"synthetic sequence {sequence!r} unexpectedly passed")
+
+    def test_matrix_tokens_require_exact_archive_spellings(self):
+        for token in ("2", "nan", "+1", "1.00000", "-0.5000", "malformed"):
+            with self.assertRaisesRegex(ValueError, "unknown PIR matrix token"):
+                generator._read_exact_pir_float_block(
+                    [token], 0, 1, "synthetic matrix token"
+                )
 
     def test_special_payload_has_no_irtranslation(self):
         payload = [self._operation_row(), "1"]
@@ -159,7 +217,9 @@ class PirStructureTests(unittest.TestCase):
         self.assertEqual(census["irtranslation_rows"], 64588)
         self.assertEqual(census["matrix_scalar_tokens"], 8977752)
         self.assertEqual(len(census["matrix_token_spellings"]), 25)
-        self.assertEqual(census["unmatched_structural_tokens"], 0)
+        self.assertEqual(
+            census["matrix_token_spellings"], generator.PIR_MATRIX_TOKEN_SPELLINGS
+        )
 
 
 if __name__ == "__main__":

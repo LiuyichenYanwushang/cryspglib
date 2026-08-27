@@ -221,6 +221,19 @@ def label_to_latex(label):
 
 # ── PIR k-vector parsing ──────────────────────────────────────────────────────
 
+PIR_RECORD_COUNT = 10294
+PIR_MATRIX_TOKEN_SPELLINGS = frozenset({
+    "-1", "-0.96593", "-0.86603", "-0.70711", "-0.68301",
+    "-0.61237", "-0.50000", "-0.43301", "-0.35355", "-0.25882",
+    "-0.25000", "-0.18301", "0", "0.18301", "0.25000",
+    "0.25882", "0.35355", "0.43301", "0.50000", "0.61237",
+    "0.68301", "0.70711", "0.86603", "0.96593", "1",
+})
+_PIR_HEADER_RE = re.compile(
+    r'^\s*([+-]?\d+)\s+([+-]?\d+)\s+"([^"]*)"\s+"([^"]*)"\s+'
+    r'([+-]?\d+)\s+([+-]?\d+)\s+([+-]?\d+)\s+([+-]?\d+)\s+([+-]?\d+)\s*$'
+)
+
 def _read_pir_lines():
     """Read PIR_data.txt from the zip archive."""
     zip_path = os.path.join(ISO_DIR, "PIR_data.zip")
@@ -230,24 +243,31 @@ def _read_pir_lines():
 
 
 def _parse_pir_header(line, line_number):
-    """Parse one PIR record header with source-line diagnostics."""
-    tokens = line.strip().split()
-    quoted = re.findall(r'"([^"]*)"', line)
-    if not tokens or not tokens[0].isdigit() or len(quoted) < 2:
+    """Parse one official nine-field PIR record header."""
+    match = _PIR_HEADER_RE.fullmatch(line)
+    if match is None:
         raise ValueError(f"malformed PIR header at line {line_number}")
-    after = line[line.rindex('"') + 1:].strip().split()
-    if len(after) < 5:
-        raise ValueError(f"truncated PIR header at line {line_number}")
     try:
         return (
-            int(tokens[1]),
-            quoted[1].strip(),
-            int(after[0]),
-            int(after[3]),
-            int(after[4]),
+            int(match.group(1)),
+            int(match.group(2)),
+            match.group(4).strip(),
+            int(match.group(5)),
+            int(match.group(8)),
+            int(match.group(9)),
         )
     except ValueError as error:
         raise ValueError(f"non-integer PIR header field at line {line_number}") from error
+
+
+def _require_pir_irnumber(actual, expected, line_number, sg, label):
+    """Require the archive's global PIR source number to be consecutive."""
+    if actual != expected:
+        raise ValueError(
+            f"unexpected PIR irnumber {actual} at line {line_number} for "
+            f"SG{sg} {label!r}; expected {expected}"
+        )
+    return expected + 1
 
 
 def _read_exact_pir_int_block(lines, start, count, context):
@@ -310,6 +330,11 @@ def _read_exact_pir_float_block(lines, start, count, context):
                 f"expected {remaining}, got {len(tokens)}"
             )
         for token in tokens:
+            if token not in PIR_MATRIX_TOKEN_SPELLINGS:
+                raise ValueError(
+                    f"unknown PIR matrix token {token!r} at line "
+                    f"{line_index + 1} for {context}"
+                )
             try:
                 values.append(float(token))
             except ValueError as error:
@@ -396,14 +421,18 @@ def _parse_pir_kvectors():
     lines = _read_pir_lines()
 
     kvec_map = {}
+    expected_irnumber = 1
     i = 3  # skip 3 header lines
     while i < len(lines):
         while i < len(lines) and not lines[i].strip():
             i += 1
         if i >= len(lines):
             break
-        sg_num, label, dim, pmkcount, opcount = _parse_pir_header(
+        irnumber, sg_num, label, dim, pmkcount, opcount = _parse_pir_header(
             lines[i], i + 1
+        )
+        expected_irnumber = _require_pir_irnumber(
+            irnumber, expected_irnumber, i + 1, sg_num, label
         )
         if dim <= 0 or pmkcount <= 0 or opcount <= 0:
             raise ValueError(
@@ -429,6 +458,11 @@ def _parse_pir_kvectors():
                 )
             )
 
+    if expected_irnumber != PIR_RECORD_COUNT + 1:
+        raise ValueError(
+            f"PIR record census mismatch: parsed {expected_irnumber - 1}, "
+            f"expected {PIR_RECORD_COUNT}"
+        )
     return kvec_map
 
 
@@ -494,6 +528,7 @@ def _parse_pir_characters():
     matrix_scalar_tokens = 0
     matrix_token_spellings = set()
     record_count = 0
+    expected_irnumber = 1
     i = 3  # skip 3 header lines
 
     while i < len(lines):
@@ -502,7 +537,12 @@ def _parse_pir_characters():
         if i >= len(lines):
             break
 
-        sg, label, dim, pmkcount, opcount = _parse_pir_header(lines[i], i + 1)
+        irnumber, sg, label, dim, pmkcount, opcount = _parse_pir_header(
+            lines[i], i + 1
+        )
+        expected_irnumber = _require_pir_irnumber(
+            irnumber, expected_irnumber, i + 1, sg, label
+        )
         if dim <= 0 or pmkcount <= 0 or opcount <= 0:
             raise ValueError(
                 f"invalid PIR dimensions/counts at line {i + 1}: "
@@ -567,21 +607,12 @@ def _parse_pir_characters():
         "irtranslation_rows": irtranslation_rows,
         "matrix_scalar_tokens": matrix_scalar_tokens,
         "matrix_token_spellings": frozenset(matrix_token_spellings),
-        "unmatched_structural_tokens": 0,
     }
-    expected_spellings = frozenset({
-        "-1", "-0.96593", "-0.86603", "-0.70711", "-0.68301",
-        "-0.61237", "-0.50000", "-0.43301", "-0.35355", "-0.25882",
-        "-0.25000", "-0.18301", "0", "0.18301", "0.25000",
-        "0.25882", "0.35355", "0.43301", "0.50000", "0.61237",
-        "0.68301", "0.70711", "0.86603", "0.96593", "1",
-    })
     expected_census = {
-        "records": 10294,
+        "records": PIR_RECORD_COUNT,
         "irtranslation_rows": 64588,
         "matrix_scalar_tokens": 8977752,
-        "matrix_token_spellings": expected_spellings,
-        "unmatched_structural_tokens": 0,
+        "matrix_token_spellings": PIR_MATRIX_TOKEN_SPELLINGS,
     }
     if census != expected_census:
         raise ValueError(
