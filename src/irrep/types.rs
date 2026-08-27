@@ -14,6 +14,43 @@
 
 // ── Compact record types (flat-array storage) ───────────────────────────────
 
+/// How a scalar physical (PIR) compound record is assembled from CIR rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompoundCharacterSemantics {
+    /// A CIR row and its complex conjugate are realified: χ = 2 Re(χ_CIR).
+    ConjugateRealification,
+    /// Distinct CIR constituents are directly summed: χ = Σ χ_CIR.
+    DistinctComponentSum,
+}
+
+/// Generation-time provenance for a compound physical irrep.
+///
+/// ISO-IR does not provide an independent PIR-to-CIR link. The two constituent
+/// identities are resolved from the documented Miller--Love concatenation
+/// grammar (version 1) against unique same-SG CIR source records, then frozen
+/// here as generated read-only metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CompoundMetadata {
+    /// Stable source `irnumber` from PIR_data.txt.
+    pub pir_irnumber: u32,
+    /// Space group number shared by PIR and both CIR records.
+    pub sg: u8,
+    /// Original compound Miller--Love label from PIR_data.txt.
+    pub pir_label: &'static str,
+    /// Stable source `irnumber`s from CIR_data.txt, in constituent order.
+    pub cir_irnumbers: [u32; 2],
+    /// Constituent Miller--Love labels resolved from CIR_data.txt.
+    pub cir_labels: [&'static str; 2],
+    /// Dimensions of the two selected-arm CIR constituents.
+    pub cir_dimensions: [u8; 2],
+    /// Version of the naming grammar used for the resolution.
+    pub naming_grammar_version: u8,
+    /// Human-readable provenance of the generation-time association.
+    pub provenance: &'static str,
+    /// Algebra used to assemble the physical character row.
+    pub semantics: CompoundCharacterSemantics,
+}
+
 /// Error returned when stored irrep matrices cannot be aligned with a supplied
 /// symmetry-operation order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -115,6 +152,8 @@ pub struct IrrepRecord {
     pub(crate) _cir_count: u8,
     /// Number of operations per CIR component
     pub(crate) _cir_ops: u8,
+    /// One-based index into [`generated_data::COMPOUND_METADATA`], or zero.
+    pub(crate) _compound_metadata_index: u16,
 }
 
 impl IrrepRecord {
@@ -280,6 +319,25 @@ impl IrrepRecord {
     /// 0 = non-compound, 2 = compound like Z1Z4 = Z1 ⊕ Z4.
     pub fn cir_component_count(&self) -> usize {
         self._cir_count as usize
+    }
+
+    /// Generation-time metadata for this compound irrep.
+    ///
+    /// The checked index and SG/label identity guard make malformed generated
+    /// records return `None`; runtime code never parses labels or infers
+    /// semantics from character values.
+    pub fn compound_metadata(&self) -> Option<&'static CompoundMetadata> {
+        if self._compound_metadata_index == 0 || self._cir_count == 0 {
+            return None;
+        }
+        let metadata = super::generated_data::COMPOUND_METADATA
+            .get(self._compound_metadata_index as usize - 1)?;
+        (metadata.sg == self.sg && metadata.pir_label == self.ml).then_some(metadata)
+    }
+
+    /// Compound character semantics from frozen generation metadata.
+    pub fn compound_character_semantics(&self) -> Option<CompoundCharacterSemantics> {
+        self.compound_metadata().map(|metadata| metadata.semantics)
     }
 
     /// Complex character table for a specific CIR component.
@@ -553,4 +611,88 @@ pub struct MagneticIsotropyRecord {
 pub mod generated_data {
     #![allow(clippy::all)]
     include!("generated_data.rs");
+}
+
+#[cfg(test)]
+mod compound_metadata_tests {
+    use super::CompoundCharacterSemantics::{ConjugateRealification, DistinctComponentSum};
+
+    #[test]
+    fn generated_compound_metadata_is_complete_and_indexed() {
+        assert_eq!(super::generated_data::COMPOUND_METADATA.len(), 672);
+        let mut seen = 0;
+        let mut realified = 0;
+        let mut distinct = 0;
+        for sg in 1..=230 {
+            for irrep in crate::irrep::query::irreps_of(sg) {
+                let metadata = irrep.compound_metadata();
+                if irrep._cir_count == 0 {
+                    assert!(metadata.is_none(), "noncompound SG{sg} {}", irrep.ml);
+                    continue;
+                }
+                let metadata = metadata.expect("compound metadata");
+                seen += 1;
+                assert_eq!(metadata.sg, irrep.sg);
+                assert_eq!(metadata.pir_label, irrep.ml);
+                assert_eq!(metadata.naming_grammar_version, 1);
+                assert_eq!(
+                    metadata.provenance,
+                    "ISO-IR Miller-Love concatenation, resolver v1"
+                );
+                assert!(
+                    metadata
+                        .cir_dimensions
+                        .iter()
+                        .all(|dimension| *dimension > 0)
+                );
+                match metadata.semantics {
+                    ConjugateRealification => {
+                        realified += 1;
+                        assert_eq!(metadata.cir_irnumbers[0], metadata.cir_irnumbers[1]);
+                        assert_eq!(metadata.cir_labels[0], metadata.cir_labels[1]);
+                    }
+                    DistinctComponentSum => {
+                        distinct += 1;
+                        assert_ne!(metadata.cir_irnumbers[0], metadata.cir_irnumbers[1]);
+                        assert_ne!(metadata.cir_labels[0], metadata.cir_labels[1]);
+                    }
+                }
+            }
+        }
+        assert_eq!(seen, 672);
+        assert_eq!(realified, 153);
+        assert_eq!(distinct, 519);
+    }
+
+    #[test]
+    fn representative_compound_metadata_semantics() {
+        for (sg, label, expected) in [
+            (199, "P2P2", ConjugateRealification),
+            (220, "P1P1", ConjugateRealification),
+            (220, "P2P2", ConjugateRealification),
+            (220, "P3P3", ConjugateRealification),
+            (182, "H1H2", DistinctComponentSum),
+            (46, "W1W2", DistinctComponentSum),
+        ] {
+            let irrep = crate::irrep::query::irreps_of(sg)
+                .iter()
+                .find(|irrep| irrep.ml == label)
+                .expect("compound record");
+            assert_eq!(irrep.compound_character_semantics(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn noncompound_and_spinor_records_have_no_compound_metadata() {
+        let scalar = crate::irrep::query::irreps_of(221)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "GM1+")
+            .expect("ordinary scalar record");
+        assert!(scalar.compound_metadata().is_none());
+        let spinor = crate::irrep::query::irreps_of(221)
+            .iter()
+            .find(|irrep| irrep.spinor)
+            .expect("spinor record");
+        assert!(spinor.compound_metadata().is_none());
+    }
 }

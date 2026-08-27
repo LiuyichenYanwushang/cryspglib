@@ -326,6 +326,7 @@ def _parse_pir_characters():
     dim_map = {}     # (SG#, ML_label) -> dim (from PIR header)
     rots_map = {}     # (SG#, ML_label) -> [[r00..r22], ...] per operation
     trans_map = {}   # (SG#, ML_label) -> [[t0,t1,t2], ...] per operation
+    irnumber_map = {}  # (SG#, ML_label) -> stable ISO-IR PIR irnumber
     i = 3  # skip 3 header lines
 
     while i < len(lines):
@@ -346,6 +347,7 @@ def _parse_pir_characters():
             continue
 
         sg = int(tokens[1])
+        irnumber = int(tokens[0])
         label = quoted[1].strip()
         after_line = line[line.rindex('"') + 1:].strip().split()
         if len(after_line) < 5:
@@ -449,12 +451,17 @@ def _parse_pir_characters():
             chars.append(_round_char(trace))
 
         key = (sg, label)
+        if key in chars_map:
+            raise ValueError(f"duplicate PIR source key {key!r}")
+        if irnumber in irnumber_map.values():
+            raise ValueError(f"duplicate PIR source irnumber {irnumber}")
         if key not in chars_map:
             chars_map[key] = chars
             matrices_map[key] = all_matrices
             rots_map[key] = rots
             trans_map[key] = trans
             dim_map[key] = dim
+            irnumber_map[key] = irnumber
 
         # Advance to next irrep header
         i += 1
@@ -464,7 +471,7 @@ def _parse_pir_characters():
                 break
             i += 1
 
-    return chars_map, matrices_map, rots_map, dim_map, trans_map
+    return chars_map, matrices_map, rots_map, dim_map, trans_map, irnumber_map
 
 
 # ── CIR (Complex Irreducible Representations) parsing ────────────────────────
@@ -516,6 +523,7 @@ def _parse_cir_characters(needed_labels=None):
 
     cir_chars = {}
     cir_matrices = {}  # (sg, label) -> [(re, im), ...] flattened
+    cir_irnumber_map = {}  # (SG#, ML_label) -> stable ISO-IR CIR irnumber
     i = 3  # skip 3 header lines
 
     while i < len(lines):
@@ -534,6 +542,7 @@ def _parse_cir_characters(needed_labels=None):
             continue
 
         sg = int(tokens[1])
+        irnumber = int(tokens[0])
         label = quoted[1].strip()
         after_line = s[s.rindex('"') + 1:].strip().split()
         if len(after_line) < 5:
@@ -653,6 +662,8 @@ def _parse_cir_characters(needed_labels=None):
 
         key = (sg, label)
         if key not in cir_chars:
+            if irnumber in cir_irnumber_map.values():
+                raise ValueError(f"duplicate CIR source irnumber {irnumber}")
             cir_chars[key] = {
                 'dim': dim,
                 'star_count': star_count,
@@ -662,9 +673,13 @@ def _parse_cir_characters(needed_labels=None):
                 'little_chars': little_chars,
                 'rots': rots,   # list of [r00..r22], 9 ints per op
                 'trans': trans, # list of [t0,t1,t2], fractional per op
+                'irnumber': irnumber,
             }
             if store_matrices:
                 cir_matrices[key] = all_matrices
+            cir_irnumber_map[key] = irnumber
+        elif cir_chars[key]['irnumber'] != irnumber:
+            raise ValueError(f"duplicate CIR source key {key!r}")
 
         # Advance to next irrep header
         i += 1
@@ -891,6 +906,48 @@ def _decompose_compound_label(ml):
     return None  # can't decompose
 
 
+COMPOUND_NAMING_GRAMMAR_VERSION = 1
+COMPOUND_NAMING_PROVENANCE = "ISO-IR Miller-Love concatenation, resolver v1"
+
+
+def _resolve_compound_constituents(sg, ml, cir_data):
+    """Resolve one compound ML spelling to exactly two same-SG CIR records.
+
+    ISO-IR does not carry an independent PIR-to-CIR relation.  The documented
+    relation is the Miller--Love concatenation convention, so this resolver is
+    the sole generation-time boundary where that convention is interpreted.
+    Every component must resolve to one unique CIR key.  Operation alignment
+    and accepted generated component data are checked by the caller before
+    this identity is frozen into generated metadata.
+
+    ``None`` denotes an ordinary (non-compound) label.  A compound-looking
+    label that is malformed, unresolved, ambiguous, or has more than two
+    constituents raises ``ValueError`` so generation cannot silently omit it.
+    """
+    parts = _decompose_compound_label(ml)
+    if parts is None:
+        return None
+    if len(parts) != 2:
+        raise ValueError(
+            f"compound SG{sg} {ml!r} has {len(parts)} constituents; expected exactly two"
+        )
+    entries = []
+    for part in parts:
+        entry = cir_data.get((sg, part))
+        if entry is None:
+            raise ValueError(
+                f"compound SG{sg} {ml!r} has unresolved CIR constituent {part!r}"
+            )
+        entries.append(entry)
+    if any(entry.get('irnumber') is None for entry in entries):
+        raise ValueError(f"compound SG{sg} {ml!r} has CIR constituent without irnumber")
+    if any(entry.get('sg', sg) != sg for entry in entries):
+        raise ValueError(f"compound SG{sg} {ml!r} has a constituent from another SG")
+    if any(entry['opcount'] != entries[0]['opcount'] for entry in entries[1:]):
+        raise ValueError(f"compound SG{sg} {ml!r} has mismatched CIR operation counts")
+    return {'parts': parts, 'entries': entries}
+
+
 def _lookup_cir_chars(cir_data, sg_num, ml_label):
     """Look up character data from CIR, handling compound labels.
 
@@ -1061,7 +1118,8 @@ def parse_all():
     print(f"  Parsed {len(kvec_map)} k-vector entries")
 
     print("Parsing PIR_data.txt characters and matrices...")
-    chars_map, matrices_map, rots_map, pir_dim_map, pir_trans_map = _parse_pir_characters()
+    (chars_map, matrices_map, rots_map, pir_dim_map, pir_trans_map,
+     pir_irnumber_map) = _parse_pir_characters()
     print(f"  Parsed {len(chars_map)} character table entries")
     print(f"  Parsed {len(matrices_map)} matrix data entries")
 
@@ -1126,6 +1184,7 @@ def parse_all():
         "rots_map": rots_map,
         "pir_trans_map": pir_trans_map,
         "pir_dim_map": pir_dim_map,
+        "pir_irnumber_map": pir_irnumber_map,
         "cir_data": cir_data,
         "cir_matrices": cir_matrices,
         "mag_iso_sg": mag_iso_sg,
@@ -1389,6 +1448,76 @@ def _kpoint_label_from_ml(ml):
     if m:
         return body[:m.start()]
     return body
+
+
+def _resolve_pir_source_id(sg, ml, pir_irnumber_map, kvec_map):
+    """Resolve a data_irreps label to one unique authoritative PIR header.
+
+    A few ISO-IR releases spell compound headers with an extra arm marker
+    (e.g. data label ``W1W1`` vs PIR ``W1WA1``).  This mirrors the existing
+    character lookup only for source identity and rejects every non-unique
+    candidate instead of silently selecting an array ordinal.
+    """
+    keys = [key for key in pir_irnumber_map if key[0] == sg]
+    exact = (sg, ml)
+    if exact in pir_irnumber_map:
+        return pir_irnumber_map[exact]
+
+    def unique(candidates, strategy):
+        ids = {pir_irnumber_map[key] for key in candidates}
+        if len(ids) == 1:
+            return next(iter(ids))
+        if len(ids) > 1:
+            raise ValueError(
+                f"ambiguous PIR source identity for SG{sg} {ml!r} via {strategy}: {candidates}"
+            )
+        return None
+
+    result = unique(
+        [key for key in keys if key[1].startswith(ml) or ml.startswith(key[1])],
+        "prefix",
+    )
+    if result is not None:
+        return result
+
+    body = ml
+    while len(body) > 2:
+        new_body = re.sub(r'[0-9][+-]?$', '', body)
+        if new_body == body:
+            new_body = body[:-1]
+        body = new_body
+        if len(body) < 2:
+            break
+        result = unique(
+            [key for key in keys if key[1] == body or key[1].startswith(body)],
+            f"short-prefix {body!r}",
+        )
+        if result is not None:
+            return result
+
+    iso_kvec = _lookup_kvec(kvec_map, sg, ml)
+    if iso_kvec != (0, 0, 0, 1):
+        same_kvec = [key for key in keys if kvec_map.get(key) == iso_kvec]
+        iso_num = _label_number(ml)
+        if iso_num is not None:
+            result = unique(
+                [key for key in same_kvec if _label_number(key[1]) == iso_num],
+                "k-vector and numeric label",
+            )
+            if result is not None:
+                return result
+        iso_sign = '+' if '+' in ml else ('-' if '-' in ml else None)
+        if iso_sign:
+            result = unique(
+                [key for key in same_kvec if iso_sign in key[1]],
+                "k-vector and sign",
+            )
+            if result is not None:
+                return result
+        result = unique(same_kvec, "k-vector")
+        if result is not None:
+            return result
+    raise ValueError(f"unresolved PIR source identity for SG{sg} {ml!r}")
 
 
 def _lookup_matrices(matrices_map, sg_num, ml_label, kvec_map=None):
@@ -2461,20 +2590,23 @@ def generate_rust_data(data):
     cir_comp_ops = []     # operations per CIR component
     cir_comp_total = 0
     cir_comp_rejected = 0
+    compound_metadata = []
+    compound_metadata_indices = [0] * len(ml)
+    compound_resolutions = [
+        _resolve_compound_constituents(sg[i], ml[i], cir_data)
+        for i in range(len(ml))
+    ]
     for i in range(len(ml)):
-        parts = _decompose_compound_label(ml[i])
-        if parts and len(parts) >= 2:
+        resolved = compound_resolutions[i]
+        if resolved is not None:
+            parts = resolved['parts']
             comp_chars = []
             comp_full_chars = []
             comp_rots = []
             comp_trans = []
             n_ops = 0
-            entries = [cir_data.get((sg[i], part)) for part in parts]
-            if all(entry is not None for entry in entries):
-                n_ops = entries[0]['opcount']
-            if (not entries or any(entry is None for entry in entries)
-                    or any(entry['opcount'] != n_ops for entry in entries)):
-                entries = []
+            entries = resolved['entries']
+            n_ops = entries[0]['opcount']
 
             # Prefer the compound PIR's exact Seitz order.  A small number of
             # compound records have no PIR operator list; their first CIR
@@ -2582,6 +2714,20 @@ def generate_rust_data(data):
                         pir_rots_flat[rot_start + op * 9:rot_start + (op + 1) * 9] = rotation
                         pir_trans_flat[trans_start + op * 3:trans_start + (op + 1) * 3] = translation
                 cir_comp_total += 1
+                pir_source_id = _resolve_pir_source_id(
+                    sg[i], ml[i], data["pir_irnumber_map"], kvec_map
+                )
+                metadata_index = len(compound_metadata) + 1
+                compound_metadata_indices[i] = metadata_index
+                compound_metadata.append({
+                    "pir_irnumber": pir_source_id,
+                    "sg": sg[i],
+                    "pir_label": ml[i],
+                    "cir_irnumbers": [entry['irnumber'] for entry in entries],
+                    "cir_labels": parts,
+                    "cir_dimensions": [entry['little_dim'] for entry in entries],
+                    "semantics": 1 if parts[0] == parts[1] else 2,
+                })
             else:
                 cir_comp_starts.append(0); cir_comp_counts.append(0); cir_comp_ops.append(0)
                 cir_comp_rejected += 1
@@ -3046,6 +3192,7 @@ def generate_rust_data(data):
             "iso_s": iso_s, "iso_c": iso_c,
             "mag_iso_s": mag_iso_s, "mag_iso_c": mag_iso_c,
             "cir_s": cir_comp_starts[i], "cir_c": cir_comp_counts[i], "cir_o": cir_comp_ops[i],
+            "compound_metadata_index": compound_metadata_indices[i],
             "pir_rot_s": pir_rot_starts[i],
             "spin_lg_count": 0,
             "spin_lg_op_s": 0,
@@ -3071,6 +3218,7 @@ def generate_rust_data(data):
             "iso_s": 0, "iso_c": 0,
             "mag_iso_s": 0, "mag_iso_c": 0,
             "cir_s": 0, "cir_c": 0, "cir_o": 0,
+            "compound_metadata_index": 0,
             "pir_rot_s": pir_rot_starts[len(ml) + idx],
             "spin_lg_count": spin_lg_counts[idx],
             "spin_lg_op_s": spin_lg_op_starts[idx],
@@ -3113,6 +3261,7 @@ def generate_rust_data(data):
             lines.append(f"        _cir_start: {r['cir_s']},")
             lines.append(f"        _cir_count: {r['cir_c']},")
             lines.append(f"        _cir_ops: {r['cir_o']},")
+            lines.append(f"        _compound_metadata_index: {r['compound_metadata_index']},")
             lines.append(f"        _spin_lg_count: {r['spin_lg_count']},")
             lines.append(f"        _spin_lg_op_start: {r['spin_lg_op_s']},")
             lines.append(f"        _spin_lg_op_count: {r['spin_lg_op_c']},")
@@ -3121,6 +3270,32 @@ def generate_rust_data(data):
             lines.append(f"    }},")
     lines.append("];")
     lines.append("")
+
+    lines.append("/// Frozen generation-time metadata for accepted PIR compound records.")
+    lines.append(f"pub static COMPOUND_METADATA: [CompoundMetadata; {len(compound_metadata)}] = [")
+    for metadata in compound_metadata:
+        cir_labels = ", ".join(
+            f'"{escape_rust_str(label)}"' for label in metadata["cir_labels"]
+        )
+        cir_ids = ", ".join(str(value) for value in metadata["cir_irnumbers"])
+        cir_dims = ", ".join(str(value) for value in metadata["cir_dimensions"])
+        semantics = (
+            "CompoundCharacterSemantics::ConjugateRealification"
+            if metadata["semantics"] == 1
+            else "CompoundCharacterSemantics::DistinctComponentSum"
+        )
+        lines.append("    CompoundMetadata {")
+        lines.append(f"        pir_irnumber: {metadata['pir_irnumber']},")
+        lines.append(f"        sg: {metadata['sg']},")
+        lines.append(f'        pir_label: "{escape_rust_str(metadata["pir_label"])}",')
+        lines.append(f"        cir_irnumbers: [{cir_ids}],")
+        lines.append(f"        cir_labels: [{cir_labels}],")
+        lines.append(f"        cir_dimensions: [{cir_dims}],")
+        lines.append(f"        naming_grammar_version: {COMPOUND_NAMING_GRAMMAR_VERSION},")
+        lines.append(f'        provenance: "{COMPOUND_NAMING_PROVENANCE}",')
+        lines.append(f"        semantics: {semantics},")
+        lines.append("    },")
+    lines.append("];\n")
 
     # ── Isotropy subgroup records (flat, NOT deduplicated) ──
     iso_irrep = data["iso_irrep"]
