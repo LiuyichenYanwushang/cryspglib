@@ -2331,22 +2331,6 @@ def generate_rust_data(data):
 
     cir_data = data.get("cir_data", {})
 
-    # Keep compound meaning as generator metadata, rather than asking
-    # consumers to infer it from character values.  A constituent is
-    # authoritative only when its CIR record was parsed successfully for the
-    # same SG; an unresolved concatenated label is encoded as 0 (unknown) and
-    # is rejected by typed consumers.
-    compound_semantics = []
-    for sg_num, ml_label in zip(sg, ml):
-        parts = _decompose_compound_label(ml_label)
-        if (not parts or len(parts) < 2
-                or any((sg_num, part) not in cir_data for part in parts)):
-            compound_semantics.append(0)
-        elif parts[0] == parts[1]:
-            compound_semantics.append(1)  # conjugate realification
-        else:
-            compound_semantics.append(2)  # distinct component sum
-
     # PIR rotation matrices for H_ops → PIR order mapping (Wigner test)
     rots_map = data.get("rots_map", {})
 
@@ -2863,17 +2847,6 @@ def generate_rust_data(data):
         chunk = cir_comp_flat[chunk_start:chunk_start + 10]
         vals = ", ".join(_fmt_char(v) for v in chunk)
         lines.append(f"    {vals},")
-    lines.append("];")
-    lines.append("")
-
-    # One compact semantic tag per scalar PIR record: 0 = not a resolvable
-    # compound (including non-compound records), 1 = conjugate realification,
-    # 2 = distinct-component sum.  The table is in scalar/PIR input order.
-    lines.append("/// Compound character semantics: 0 unknown/non-compound, 1 realification, 2 distinct sum.")
-    lines.append(f"pub static COMPOUND_CHARACTER_SEMANTICS: [u8; {len(compound_semantics)}] = [")
-    for chunk_start in range(0, len(compound_semantics), 32):
-        chunk = compound_semantics[chunk_start:chunk_start + 32]
-        lines.append(f"    {', '.join(str(value) for value in chunk)},")
     lines.append("];")
     lines.append("")
 
