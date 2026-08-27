@@ -111,7 +111,7 @@ pub fn arth_get_symbol(spgroup_number: i32) -> Option<(u8, &'static str)> {
     // 不，数组大小是 231，索引 0 是占位符，索引 1 对应空间群 1。
     // 所以直接用 spgroup_number 作为索引。
     let arth_number = *ARITHMETIC_CRYSTAL_CLASSES.get(spgroup_number as usize)?;
-    
+
     if arth_number == 0 {
         return None;
     }

@@ -202,8 +202,7 @@ fn invariant_lattice(rotations: &[Mat3I]) -> Option<Mat3> {
         for row in 0..3 {
             for column in 0..3 {
                 for rotation_row in rotation {
-                    metric[row][column] +=
-                        (rotation_row[row] * rotation_row[column]) as f64;
+                    metric[row][column] += (rotation_row[row] * rotation_row[column]) as f64;
                 }
             }
         }
@@ -679,8 +678,7 @@ fn all_database_settings_round_trip_with_parent_hint() {
                     exact_matches += 1;
                 }
                 Ok(Ok(dataset)) => {
-                    let returned =
-                        msg_database::get_magnetic_spacegroup_type(dataset.uni_number);
+                    let returned = msg_database::get_magnetic_spacegroup_type(dataset.uni_number);
                     let category = if dataset.msg_type == metadata.type_ {
                         "wrong_uni_same_type"
                     } else {
@@ -735,9 +733,8 @@ fn automatic_all_setting_round_trips_are_unique_or_explicitly_ambiguous() {
                 .unwrap_or_else(|| panic!("missing operations for UNI {uni} Hall {hall}"));
             let lattice = invariant_lattice(&magnetic.rot[..magnetic.len()])
                 .unwrap_or_else(|| panic!("invariant lattice failed for UNI {uni} Hall {hall}"));
-            let result = magnetic_spacegroup::identify_magnetic_space_group_type(
-                &lattice, &magnetic, 1e-5,
-            );
+            let result =
+                magnetic_spacegroup::identify_magnetic_space_group_type(&lattice, &magnetic, 1e-5);
 
             match result {
                 Ok(dataset) => {

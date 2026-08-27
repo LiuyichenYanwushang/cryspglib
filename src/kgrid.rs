@@ -72,7 +72,7 @@ pub(crate) fn get_all_grid_addresses(
                 // 直接写入，Rust 会自动进行边界检查（由于前面已 assert，这里是安全的）
                 // 复制当前坐标
                 grid_address[grid_point] = address;
-                
+
                 // 执行边界约化，将坐标映射到以 Gamma 点为中心的区域
                 // 例如 mesh=4: [0, 1, 2, 3] -> [0, 1, 2, -1]
                 reduce_grid_address(&mut grid_address[grid_point], mesh);
@@ -124,8 +124,7 @@ pub(crate) fn get_grid_address_double_mesh(
     validate_shift(is_shift)?;
     for i in 0..3 {
         let period = i64::from(mesh[i]) * 2;
-        let mut reduced = (i64::from(address[i]) * 2 + i64::from(is_shift[i]))
-            .rem_euclid(period);
+        let mut reduced = (i64::from(address[i]) * 2 + i64::from(is_shift[i])).rem_euclid(period);
         if reduced > i64::from(mesh[i]) {
             reduced -= period;
         }
@@ -204,10 +203,10 @@ mod tests {
         // (1,1,0) -> idx 3
         // Reduced:
         // 1 > 2/2 (false) -> remains 1.
-        
+
         // Let's trace get_grid_point_single_mesh for [0,1,0], mesh=[2,2,1]
         // idx = 0*2*2 + 1*2 + 0 = 2. Correct.
-        
+
         assert_eq!(addresses[0], [0, 0, 0]);
         assert_eq!(addresses[1], [1, 0, 0]);
         assert_eq!(addresses[2], [0, 1, 0]); // y=1, reduced? 1 > 2/2 (1>1 false) -> 1
@@ -241,18 +240,24 @@ mod tests {
         modulo_i3(&mut v, &mesh);
         assert_eq!(v, [3, 1, 0]);
     }
-    
+
     #[test]
     fn test_double_mesh_logic() {
         let mesh = [4, 4, 4];
         // Case 1: Even address_double
-        let addr_d = [0, 4, 8]; 
+        let addr_d = [0, 4, 8];
         // 0/2=0, 4/2=2, 8/2=4 -> mod 4 -> 0
-        assert_eq!(get_grid_point_double_mesh_core(&addr_d, &mesh), get_grid_point_single_mesh(&[0, 2, 0], &mesh));
-        
+        assert_eq!(
+            get_grid_point_double_mesh_core(&addr_d, &mesh),
+            get_grid_point_single_mesh(&[0, 2, 0], &mesh)
+        );
+
         // Case 2: Odd address_double
         let addr_d_odd = [1, 5, 9];
         // (1-1)/2=0, (5-1)/2=2, (9-1)/2=4 -> mod 4 -> 0
-        assert_eq!(get_grid_point_double_mesh_core(&addr_d_odd, &mesh), get_grid_point_single_mesh(&[0, 2, 0], &mesh));
+        assert_eq!(
+            get_grid_point_double_mesh_core(&addr_d_odd, &mesh),
+            get_grid_point_single_mesh(&[0, 2, 0], &mesh)
+        );
     }
 }

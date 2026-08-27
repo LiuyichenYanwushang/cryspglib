@@ -5,9 +5,9 @@
 //! 2. 直接按 SG 编号查询
 //! 3. 格式化特征标表
 
-use cryspglib::irrep::query::*;
 use cryspglib::Crystal;
 use cryspglib::SymmetryOps;
+use cryspglib::irrep::query::*;
 
 fn main() {
     // ━━━ 方式一: 通过 Crystal 桥接 API ━━━

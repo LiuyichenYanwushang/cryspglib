@@ -95,9 +95,7 @@
 //! - Bilbao Crystallographic Server: <https://cryst.ehu.es/cgi-bin/cryst/programs/corepresentations.pl>
 
 use super::types::IrrepRecord;
-use super::wigner::{
-    self, SeitzOp, filter_little_group_with_transform, ops_to_seitz,
-};
+use super::wigner::{self, SeitzOp, filter_little_group_with_transform, ops_to_seitz};
 #[cfg(test)]
 use super::wigner::{
     add3, bloch_phase, compose_seitz, filter_little_group, find_seitz, mat_vec_i32, square_seitz,
@@ -1333,8 +1331,7 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
             })?;
             (std_sg, std_hall, oh, Some(xf))
         } else {
-            let h = crate::hall_number_from_symmetry(&unitary_rots, &unitary_trans, 1e-5)
-                .ok()?;
+            let h = crate::hall_number_from_symmetry(&unitary_rots, &unitary_trans, 1e-5).ok()?;
             if h == 0 || h > 530 {
                 return None;
             }
@@ -1454,26 +1451,26 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
             if let Some((std_sg, std_hall, detected_to_data)) =
                 standard_setting_transform(&ops_from_hall, false)
                 && std_sg == sg
-                    && std_hall == data_hall
-                    && transform_embeds_ops(&detected_to_data, &ops_from_hall, &data_ops)
+                && std_hall == data_hall
+                && transform_embeds_ops(&detected_to_data, &ops_from_hall, &data_ops)
+            {
+                let msg_to_data = msg_to_detected
+                    .as_ref()
+                    .map(|candidate| candidate.then(&detected_to_data))
+                    .unwrap_or(detected_to_data);
+                if transform_embeds_ops(&msg_to_data, &ops_from_msg, &data_ops)
+                    && transform_applies_to_all_ops(&msg_to_data, &mag_ops)
                 {
-                    let msg_to_data = msg_to_detected
-                        .as_ref()
-                        .map(|candidate| candidate.then(&detected_to_data))
-                        .unwrap_or(detected_to_data);
-                    if transform_embeds_ops(&msg_to_data, &ops_from_msg, &data_ops)
-                        && transform_applies_to_all_ops(&msg_to_data, &mag_ops)
-                    {
-                        return Some(UnitarySubgroupInfo {
-                            sg,
-                            hall,
-                            data_hall,
-                            ops_from_msg,
-                            ops_from_hall: data_ops,
-                            msg_to_data: Some(msg_to_data),
-                        });
-                    }
+                    return Some(UnitarySubgroupInfo {
+                        sg,
+                        hall,
+                        data_hall,
+                        ops_from_msg,
+                        ops_from_hall: data_ops,
+                        msg_to_data: Some(msg_to_data),
+                    });
                 }
+            }
         }
         // Never expose a detected-Hall operation set as if it were in the
         // data-Hall frame.  Callers need a verified common frame.
@@ -1494,16 +1491,17 @@ pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitaryS
             && let Some(xf) = msg_to_detected.filter(|candidate| {
                 transform_embeds_ops(candidate, &ops_from_msg, &ops_from_hall)
                     && transform_applies_to_all_ops(candidate, &mag_ops)
-            }) {
-                return Some(UnitarySubgroupInfo {
-                    sg,
-                    hall,
-                    data_hall,
-                    ops_from_msg,
-                    ops_from_hall,
-                    msg_to_data: Some(xf),
-                });
-            }
+            })
+        {
+            return Some(UnitarySubgroupInfo {
+                sg,
+                hall,
+                data_hall,
+                ops_from_msg,
+                ops_from_hall,
+                msg_to_data: Some(xf),
+            });
+        }
         let msg_rots: Vec<Mat3I> = ops_from_msg.operations.iter().map(|o| o.rotation).collect();
         let msg_trans: Vec<[f64; 3]> = ops_from_msg
             .operations
@@ -2452,19 +2450,19 @@ mod tests {
                     unitary_ops: &h_seitz,
                     antiunitary_representative: a0_idx,
                 };
-                wigner::debug_unwrapped_square(
-                    4, group, ir.k_vector(),
-                )
-                .expect("diagnostic square indices must be valid");
-                wigner::debug_unwrapped_square(
-                    7, group, ir.k_vector(),
-                )
-                .expect("diagnostic square indices must be valid");
+                wigner::debug_unwrapped_square(4, group, ir.k_vector())
+                    .expect("diagnostic square indices must be valid");
+                wigner::debug_unwrapped_square(7, group, ir.k_vector())
+                    .expect("diagnostic square indices must be valid");
 
                 // Direct anti-coset Wigner sum
                 let cir = ir.cir_component_chars(0);
                 let w_direct = wigner::wigner_direct_anti_coset(
-                    cir, &anti_lg, &mag_seitz, &h_seitz, ir.k_vector(),
+                    cir,
+                    &anti_lg,
+                    &mag_seitz,
+                    &h_seitz,
+                    ir.k_vector(),
                 )
                 .expect("diagnostic direct anti-coset sum must be well formed");
                 println!("  Direct anti-coset W = {:.4}", w_direct);
@@ -4276,7 +4274,12 @@ mod tests {
                     let hh_u = (0..symh.len()).filter(|&i| !symh.timerev[i]).count();
                     println!(
                         "  msgdb(uni,0): {} ops ({}U)  msgdb(uni,{}): {} ops ({}U)  same_size={}",
-                        sym0.len(), h0_u, h, symh.len(), hh_u, same_size
+                        sym0.len(),
+                        h0_u,
+                        h,
+                        symh.len(),
+                        hh_u,
+                        same_size
                     );
                 }
             }
@@ -6157,8 +6160,9 @@ mod tests {
                 }
                 let bns = msg.bns_number.trim().to_string();
                 if let Err(CorepComputationError::UnsupportedClassification {
-                        source_irrep, ..
-                    }) = ir.corepresentation(uni) {
+                    source_irrep, ..
+                }) = ir.corepresentation(uni)
+                {
                     failures.push((
                         uni,
                         h_sg as usize,
@@ -6185,10 +6189,11 @@ mod tests {
                 continue;
             }
             if let Some(h) = identify_unitary_subgroup_with_hall(uni)
-                && h.sg == 123 {
-                    sg123_uni = uni;
-                    break;
-                }
+                && h.sg == 123
+            {
+                sg123_uni = uni;
+                break;
+            }
         }
         println!(
             "\nSG 123 grey group: UNI {} BNS {}",
@@ -6504,10 +6509,11 @@ mod tests {
                 continue;
             }
             if let Some(h) = identify_unitary_subgroup_with_hall(u)
-                && h.sg == 143 {
-                    uni = u;
-                    break;
-                }
+                && h.sg == 143
+            {
+                uni = u;
+                break;
+            }
         }
         assert!(uni > 0);
         let mag_ops = get_magnetic_operations(uni).unwrap();

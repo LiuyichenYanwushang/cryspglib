@@ -36,9 +36,9 @@
 
 use std::collections::BTreeMap;
 
+use super::preamble;
 use super::types::generated_data::*;
 use super::types::*;
-use super::preamble;
 
 /// Extract the k-point label prefix from a Miller-Love irrep label.
 ///
@@ -159,7 +159,11 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
     }
 
     // Determine number of operators from the first irrep's character table
-    let max_ops = matching.iter().map(|ir| ir.characters().len()).max().unwrap_or(0);
+    let max_ops = matching
+        .iter()
+        .map(|ir| ir.characters().len())
+        .max()
+        .unwrap_or(0);
     if max_ops == 0 {
         return format!(
             "// SG {} k=({}/{},{}/{},{}/{}): no operator data available",
@@ -177,20 +181,30 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
 
     // Format operation as compact string
     let fmt_op = |i: usize| -> String {
-        if i >= ops.len() { return format!("g{}", i); }
+        if i >= ops.len() {
+            return format!("g{}", i);
+        }
         let r = &ops[i].rotation;
         let t = &ops[i].translation;
-        let is_identity = r[0][0] == 1 && r[0][1] == 0 && r[0][2] == 0
-            && r[1][0] == 0 && r[1][1] == 1 && r[1][2] == 0
-            && r[2][0] == 0 && r[2][1] == 0 && r[2][2] == 1;
+        let is_identity = r[0][0] == 1
+            && r[0][1] == 0
+            && r[0][2] == 0
+            && r[1][0] == 0
+            && r[1][1] == 1
+            && r[1][2] == 0
+            && r[2][0] == 0
+            && r[2][1] == 0
+            && r[2][2] == 1;
         let has_trans = t[0].abs() > 1e-6 || t[1].abs() > 1e-6 || t[2].abs() > 1e-6;
 
-        if is_identity && !has_trans { return "1".to_string(); }
+        if is_identity && !has_trans {
+            return "1".to_string();
+        }
 
-        let rot_str = format!("[{:2},{:2},{:2};{:2},{:2},{:2};{:2},{:2},{:2}]",
-            r[0][0], r[0][1], r[0][2],
-            r[1][0], r[1][1], r[1][2],
-            r[2][0], r[2][1], r[2][2]);
+        let rot_str = format!(
+            "[{:2},{:2},{:2};{:2},{:2},{:2};{:2},{:2},{:2}]",
+            r[0][0], r[0][1], r[0][2], r[1][0], r[1][1], r[1][2], r[2][0], r[2][1], r[2][2]
+        );
         if has_trans {
             format!("{}|{:.2},{:.2},{:.2}", rot_str, t[0], t[1], t[2])
         } else {
@@ -228,7 +242,13 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
 
     let header_line = format!(
         "// SG {} k-point ({}/{}, {}/{}, {}/{}), {} irrep(s)",
-        sg, kx, kd, ky, kd, kz, kd,
+        sg,
+        kx,
+        kd,
+        ky,
+        kd,
+        kz,
+        kd,
         matching.len()
     );
     std::iter::once(header_line)
@@ -442,7 +462,7 @@ pub fn format_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
 
     let mut lines = Vec::new();
     let header = "| ML | BC | dim | Subgroup | Direction | Domains | Arms |";
-    let sep =    "|---|----|-----|----------|-----------|---------|------|";
+    let sep = "|---|----|-----|----------|-----------|---------|------|";
     lines.push(header.to_string());
     lines.push(sep.to_string());
 
@@ -458,20 +478,25 @@ pub fn format_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
         for sub in subs {
             lines.push(format!(
                 "| {} | {} | {} | #{} {} | {} | {} | {} |",
-                ir.ml, ir.bc, ir.dim,
-                sub.sg, sub.symbol,
-                sub.direction,
-                sub.domains,
-                sub.arms,
+                ir.ml, ir.bc, ir.dim, sub.sg, sub.symbol, sub.direction, sub.domains, sub.arms,
             ));
         }
     }
 
     let header_line = format!(
         "// SG {} k=({}/{}, {}/{}, {}/{}), {} scalar irrep(s), {} subgroup(s)",
-        sg, kx, kd, ky, kd, kz, kd,
+        sg,
+        kx,
+        kd,
+        ky,
+        kd,
+        kz,
+        kd,
         matching.len(),
-        matching.iter().map(|ir| ir.subgroups().len()).sum::<usize>(),
+        matching
+            .iter()
+            .map(|ir| ir.subgroups().len())
+            .sum::<usize>(),
     );
     std::iter::once(header_line)
         .chain(lines)
@@ -498,7 +523,7 @@ pub fn format_magnetic_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) ->
 
     let mut lines = Vec::new();
     let header = "| ML | BC | dim | UNI# | BNS | Direction |";
-    let sep =    "|---|----|-----|------|-----|-----------|";
+    let sep = "|---|----|-----|------|-----|-----------|";
     lines.push(header.to_string());
     lines.push(sep.to_string());
 
@@ -514,17 +539,25 @@ pub fn format_magnetic_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) ->
         for sub in subs {
             lines.push(format!(
                 "| {} | {} | {} | {} | {} | {} |",
-                ir.ml, ir.bc, ir.dim,
-                sub.mag_sg, sub.bns_label, sub.direction,
+                ir.ml, ir.bc, ir.dim, sub.mag_sg, sub.bns_label, sub.direction,
             ));
         }
     }
 
     let header_line = format!(
         "// SG {} k=({}/{}, {}/{}, {}/{}), {} scalar irrep(s), {} magnetic subgroup(s)",
-        sg, kx, kd, ky, kd, kz, kd,
+        sg,
+        kx,
+        kd,
+        ky,
+        kd,
+        kz,
+        kd,
         matching.len(),
-        matching.iter().map(|ir| ir.magnetic_subgroups().len()).sum::<usize>(),
+        matching
+            .iter()
+            .map(|ir| ir.magnetic_subgroups().len())
+            .sum::<usize>(),
     );
     std::iter::once(header_line)
         .chain(lines)
@@ -583,18 +616,9 @@ mod tests {
 
     #[test]
     fn test_sg_info() {
-        assert_eq!(
-            sg_info(1),
-            Some(("P1", "C1^1"))
-        );
-        assert_eq!(
-            sg_info(225),
-            Some(("Fm-3m", "Oh^5"))
-        );
-        assert_eq!(
-            sg_info(230),
-            Some(("Ia-3d", "Oh^10"))
-        );
+        assert_eq!(sg_info(1), Some(("P1", "C1^1")));
+        assert_eq!(sg_info(225), Some(("Fm-3m", "Oh^5")));
+        assert_eq!(sg_info(230), Some(("Ia-3d", "Oh^10")));
         assert_eq!(sg_info(0), None);
         assert_eq!(sg_info(231), None);
     }
@@ -630,7 +654,8 @@ mod tests {
         for kp in &kps {
             assert!(
                 coords_set.insert(kp.coords),
-                "Duplicate k-point coords: {:?}", kp.coords
+                "Duplicate k-point coords: {:?}",
+                kp.coords
             );
         }
     }
@@ -709,7 +734,8 @@ mod tests {
                     assert!(
                         c.abs() <= 4.0 + 1e-10,
                         "SG 142 irrep {}: character {} > 4.0 for dim=4 irrep",
-                        ir.ml, c
+                        ir.ml,
+                        c
                     );
                 }
             }
@@ -728,8 +754,8 @@ mod tests {
         assert_eq!(format_value(1.5), "3/2");
         // Check that fractions are simplified
         assert_eq!(format_value(-0.5), "-1/2"); // -4/8 simplified to -1/2
-        assert_eq!(format_value(0.75), "3/4");  // 6/8 simplified to 3/4
-        assert_eq!(format_value(2.0), "2");     // 4/2 simplified to 2
+        assert_eq!(format_value(0.75), "3/4"); // 6/8 simplified to 3/4
+        assert_eq!(format_value(2.0), "2"); // 4/2 simplified to 2
     }
 
     /// Every irrep in all 230 SGs satisfies basic constraints: χ(E)=dim, non-empty labels.
@@ -745,11 +771,21 @@ mod tests {
                 assert!(!chars.is_empty(), "empty chars: SG{} {}", sg, ir.ml);
                 // χ(E) must be positive and approximately integer.
                 // (dim field from image label may be inaccurate for compound irreps.)
-                assert!(chars[0] > 0.0,
-                    "χ(E) <= 0 for SG{} {}: χ(E)={}", sg, ir.ml, chars[0]);
+                assert!(
+                    chars[0] > 0.0,
+                    "χ(E) <= 0 for SG{} {}: χ(E)={}",
+                    sg,
+                    ir.ml,
+                    chars[0]
+                );
                 let chi_e_rounded = chars[0].round();
-                assert!((chars[0] - chi_e_rounded).abs() < 1e-8,
-                    "χ(E) not integer for SG{} {}: χ(E)={}", sg, ir.ml, chars[0]);
+                assert!(
+                    (chars[0] - chi_e_rounded).abs() < 1e-8,
+                    "χ(E) not integer for SG{} {}: χ(E)={}",
+                    sg,
+                    ir.ml,
+                    chars[0]
+                );
             }
         }
     }
@@ -768,8 +804,14 @@ mod tests {
                     assert!(!covered[idx], "SG{} irrep {} duplicate in kpoints", sg, idx);
                     covered[idx] = true;
                     let ir = &irreps[idx];
-                    assert_eq!((ir.kx, ir.ky, ir.kz, ir.kd), kp.coords,
-                        "SG{} irrep {} k-coord mismatch with k-point {}", sg, ir.ml, kp.label);
+                    assert_eq!(
+                        (ir.kx, ir.ky, ir.kz, ir.kd),
+                        kp.coords,
+                        "SG{} irrep {} k-coord mismatch with k-point {}",
+                        sg,
+                        ir.ml,
+                        kp.label
+                    );
                 }
             }
             for (i, ok) in covered.iter().enumerate() {

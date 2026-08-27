@@ -9,9 +9,8 @@
 use crate::cell::AperiodicAxis;
 use crate::debug;
 use crate::mathfunc::{
-    Mat3, mat_cast_matrix_3d_to_3i,
-    mat_get_determinant_d3, mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
-    mat_norm_squared_d3,
+    Mat3, mat_cast_matrix_3d_to_3i, mat_get_determinant_d3, mat_get_determinant_i3,
+    mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_norm_squared_d3,
 };
 use std::env;
 
@@ -21,9 +20,10 @@ const ZERO_PREC: f64 = 1e-10;
 fn get_num_attempts() -> i32 {
     if let Ok(val_str) = env::var("SPGLIB_NUM_ATTEMPTS") {
         if let Ok(val) = val_str.parse::<i32>()
-            && val > 0 {
-                return val;
-            }
+            && val > 0
+        {
+            return val;
+        }
         debug::warning_print(format_args!(
             "spglib: Could not parse SPGLIB_NUM_ATTEMPTS={}\n",
             val_str
@@ -38,10 +38,7 @@ fn get_num_attempts() -> i32 {
 /// lattice: 输入晶格
 /// symprec: 对称性判定精度
 pub(crate) fn delaunay_reduce(lattice: &Mat3, symprec: f64) -> Option<Mat3> {
-    debug::debug_print(format_args!(
-        "delaunay_reduce (tolerance = {}):\n",
-        symprec
-    ));
+    debug::debug_print(format_args!("delaunay_reduce (tolerance = {}):\n", symprec));
     delaunay_reduce_core(lattice, -1, symprec)
 }
 
@@ -62,11 +59,7 @@ pub(crate) fn layer_delaunay_reduce(
 
 /// Delaunay 约化核心逻辑
 /// Reference: International table A.
-fn delaunay_reduce_core(
-    lattice: &Mat3,
-    aperiodic_axis: i32,
-    symprec: f64,
-) -> Option<Mat3> {
+fn delaunay_reduce_core(lattice: &Mat3, aperiodic_axis: i32, symprec: f64) -> Option<Mat3> {
     let orig_lattice = *lattice;
 
     // 扩展基 basis[4][3]
@@ -195,7 +188,8 @@ fn get_delaunay_shortest_vectors(basis: &mut [[f64; 3]; 4], lattice_rank: usize,
             }
         }
         // 排序后四个 (b3, b4, b2+b3, b3+b1)
-        for _ in 3..6 {  // 外层循环 3 次，对应 C 的 for (i = 3; i <= 5; i++)
+        for _ in 3..6 {
+            // 外层循环 3 次，对应 C 的 for (i = 3; i <= 5; i++)
             for j in 3..6 {
                 if mat_norm_squared_d3(&b[j]) > mat_norm_squared_d3(&b[j + 1]) + ZERO_PREC {
                     b.swap(j, j + 1);
@@ -223,7 +217,6 @@ fn get_delaunay_shortest_vectors(basis: &mut [[f64; 3]; 4], lattice_rank: usize,
         }
     }
 }
-
 
 /// 执行一次 Delaunay 约化步骤
 /// 返回 true 表示已经满足 Delaunay 条件（无需修改），false 表示进行了修改

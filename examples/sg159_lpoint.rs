@@ -2,11 +2,11 @@
 //!
 //! Demonstrates: magnetic little group, double-group irreps, Wigner classification.
 
+use cryspglib::MagneticSpaceGroupType;
 use cryspglib::irrep::corep::*;
 use cryspglib::irrep::query::*;
 use cryspglib::irrep::types::IrrepRecord;
 use cryspglib::irrep::wigner::*;
-use cryspglib::MagneticSpaceGroupType;
 
 fn main() {
     let uni = 1293;

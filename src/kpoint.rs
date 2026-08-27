@@ -267,12 +267,7 @@ pub(crate) fn get_dense_grid_points_by_rotations(
         return Err(SymError::ArraySizeShortage);
     }
     let mut address_double_orig = [0i32; 3];
-    kgrid::get_grid_address_double_mesh(
-        &mut address_double_orig,
-        address_orig,
-        mesh,
-        is_shift,
-    )?;
+    kgrid::get_grid_address_double_mesh(&mut address_double_orig, address_orig, mesh, is_shift)?;
     for (output, rotation) in rot_grid_points
         .iter_mut()
         .zip(rot_reciprocal)
@@ -305,12 +300,7 @@ pub(crate) fn get_dense_bz_grid_points_by_rotations(
         mesh[1].checked_mul(2).ok_or(SymError::ArraySizeShortage)?,
         mesh[2].checked_mul(2).ok_or(SymError::ArraySizeShortage)?,
     ];
-    kgrid::get_grid_address_double_mesh(
-        &mut address_double_orig,
-        address_orig,
-        mesh,
-        is_shift,
-    )?;
+    kgrid::get_grid_address_double_mesh(&mut address_double_orig, address_orig, mesh, is_shift)?;
     for (output, rotation) in rot_grid_points
         .iter_mut()
         .zip(rot_reciprocal)
@@ -326,7 +316,10 @@ pub(crate) fn get_dense_bz_grid_points_by_rotations(
 // --- Internal Logic ---
 
 /// 获取倒易空间点群。
-pub(crate) fn get_point_group_reciprocal(rotations: &[Mat3I], is_time_reversal: i32) -> Option<Vec<Mat3I>> {
+pub(crate) fn get_point_group_reciprocal(
+    rotations: &[Mat3I],
+    is_time_reversal: i32,
+) -> Option<Vec<Mat3I>> {
     let inversion = [[-1, 0, 0], [0, -1, 0], [0, 0, -1]];
     let size = if is_time_reversal != 0 {
         rotations.len() * 2
@@ -352,9 +345,11 @@ pub(crate) fn get_point_group_reciprocal(rotations: &[Mat3I], is_time_reversal: 
     let mut num_rot = 0;
     for i in 0..rot_reciprocal.len() {
         let mut is_unique = true;
-        if unique_rot[..num_rot].iter().flatten().any(|&index| {
-            mat_check_identity_matrix_i3(&rot_reciprocal[index], &rot_reciprocal[i])
-        }) {
+        if unique_rot[..num_rot]
+            .iter()
+            .flatten()
+            .any(|&index| mat_check_identity_matrix_i3(&rot_reciprocal[index], &rot_reciprocal[i]))
+        {
             is_unique = false;
         }
         if is_unique {
@@ -469,12 +464,7 @@ fn get_dense_ir_reciprocal_mesh_normal(
     // Serial implementation matching the currently supported feature set.
     for i in 0..total_pts {
         let mut address_double = [0; 3];
-        kgrid::get_grid_address_double_mesh(
-            &mut address_double,
-            &grid_address[i],
-            mesh,
-            is_shift,
-        )?;
+        kgrid::get_grid_address_double_mesh(&mut address_double, &grid_address[i], mesh, is_shift)?;
 
         ir_mapping_table[i] = i;
 
@@ -512,12 +502,7 @@ fn get_dense_ir_reciprocal_mesh_distortion(
 
     for i in 0..total_pts {
         let mut address_double = [0; 3];
-        kgrid::get_grid_address_double_mesh(
-            &mut address_double,
-            &grid_address[i],
-            mesh,
-            is_shift,
-        )?;
+        kgrid::get_grid_address_double_mesh(&mut address_double, &grid_address[i], mesh, is_shift)?;
 
         let mut long_address_double = [0i64; 3];
         for j in 0..3 {
@@ -684,8 +669,7 @@ fn relocate_dense_bz_grid_address(
                         i32::try_from(doubled).map_err(|_| SymError::InvalidInput)?;
                 }
 
-                let bzgp =
-                    kgrid::get_dense_grid_point_double_mesh(&bz_address_double, &bzmesh)?;
+                let bzgp = kgrid::get_dense_grid_point_double_mesh(&bz_address_double, &bzmesh)?;
                 bz_map[bzgp] = gp;
 
                 if j != min_index {

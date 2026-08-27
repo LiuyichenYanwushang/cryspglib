@@ -5,11 +5,11 @@
 //! extracting the space group number.
 
 use crate::SpaceGroup;
+use crate::SymmetryOps;
 use crate::irrep::query;
 use crate::irrep::query::{IsotropyEntry, MagneticIsotropyEntry};
 use crate::irrep::types::IrrepRecord;
 use crate::irrep::types::generated_data::SG_DATA_HALL;
-use crate::SymmetryOps;
 
 /// Get H_ops in the same order as the stored irrep data (CHARACTERS, PIR_ROTS, etc.)
 ///

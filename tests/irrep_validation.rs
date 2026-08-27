@@ -1,9 +1,9 @@
 //! 验证自动生成的 irrep 数据的一致性和正确性
 
-use cryspglib::irrep::query::*;
-use cryspglib::irrep::types::generated_data::*;
-use cryspglib::irrep::types::IrrepRecord;
 use cryspglib::SymmetryOps;
+use cryspglib::irrep::query::*;
+use cryspglib::irrep::types::IrrepRecord;
+use cryspglib::irrep::types::generated_data::*;
 
 // ==========================================================================
 // 基本完整性检查
@@ -19,11 +19,7 @@ fn all_sgs_have_irreps() {
             empty_sgs.push(sg);
         }
     }
-    assert!(
-        empty_sgs.is_empty(),
-        "Empty SGs: {:?}",
-        empty_sgs
-    );
+    assert!(empty_sgs.is_empty(), "Empty SGs: {:?}", empty_sgs);
 }
 
 /// 每个标量 irrep 都有非空标签，双值 irrep 至少有 ML 标签
@@ -88,13 +84,9 @@ fn dimension_matches_image() {
         let expected = dim_from_letter(ir.image.chars().next().unwrap());
         if expected > 0 {
             assert_eq!(
-                ir.dim,
-                expected,
+                ir.dim, expected,
                 "irrep {}: dim={} but image '{}' expects {}",
-                i,
-                ir.dim,
-                ir.image,
-                expected
+                i, ir.dim, ir.image, expected
             );
         }
     }
@@ -154,11 +146,19 @@ fn sg221_gamma_irreps() {
         .iter()
         .filter(|r| kpoint_label(r.ml) == "GM")
         .collect();
-    assert!(gamma.len() >= 10, "#221 should have >=10 Γ irreps, got {}", gamma.len());
+    assert!(
+        gamma.len() >= 10,
+        "#221 should have >=10 Γ irreps, got {}",
+        gamma.len()
+    );
 
     // Scalar-only Γ irreps
     let gamma_scalar: Vec<_> = gamma.iter().filter(|r| !r.spinor).collect();
-    assert_eq!(gamma_scalar.len(), 10, "#221 should have 10 scalar Γ irreps");
+    assert_eq!(
+        gamma_scalar.len(),
+        10,
+        "#221 should have 10 scalar Γ irreps"
+    );
 
     // 检查关键 irrep
     let find_ml = |ml: &str| gamma.iter().find(|r| r.ml == ml);
@@ -180,7 +180,10 @@ fn sg221_gamma_irreps() {
     assert_eq!(gm5p.dim, 3);
 
     // Lifshitz: GM4- (Γ₄⁻, polar vector) 的反称平方包含矢量表示, 所以 Lifshitz=0
-    assert!(!gm4m.lifshitz, "GM4- should NOT satisfy Lifshitz (antisymmetric square contains vector rep)");
+    assert!(
+        !gm4m.lifshitz,
+        "GM4- should NOT satisfy Lifshitz (antisymmetric square contains vector rep)"
+    );
 }
 
 /// SG #225 Fm-3m: 面心立方, X 点标签与 primitive 不同
@@ -214,10 +217,7 @@ fn sg14_p21c_irreps() {
 #[test]
 fn sg230_last() {
     let irreps = irreps_of(230);
-    assert!(
-        !irreps.is_empty(),
-        "#230 Ia-3d should have irreps"
-    );
+    assert!(!irreps.is_empty(), "#230 Ia-3d should have irreps");
 }
 
 // ==========================================================================
@@ -298,7 +298,9 @@ fn is_valid_ml(label: &str) -> bool {
         Some(pos) => {
             // 前缀全是大写字母
             s[..pos].chars().all(|c| c.is_ascii_uppercase())
-                && s[pos..].chars().all(|c| c.is_ascii_digit() || c == '+' || c == '-' || c.is_ascii_uppercase())
+                && s[pos..]
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || c == '+' || c == '-' || c.is_ascii_uppercase())
         }
     }
 }
@@ -333,14 +335,20 @@ fn sg221_kov_labels_well_formed() {
         // 找 "k" 后的数字和 "t" 后的数字
         if let Some(k_start) = ir.kov.find('k') {
             let after_k = &ir.kov[k_start + 1..];
-            let k_end = after_k.find(|c: char| !c.is_ascii_digit() && c != '_' && c != '{' && c != '}')
+            let k_end = after_k
+                .find(|c: char| !c.is_ascii_digit() && c != '_' && c != '{' && c != '}')
                 .unwrap_or(after_k.len());
             let k_num: String = after_k[..k_end]
                 .chars()
                 .filter(|c| c.is_ascii_digit())
                 .collect();
             if let Ok(k_idx) = k_num.parse::<u32>() {
-                assert!(k_idx <= 20, "#221 kov k-index {} too large in {}", k_idx, ir.kov);
+                assert!(
+                    k_idx <= 20,
+                    "#221 kov k-index {} too large in {}",
+                    k_idx,
+                    ir.kov
+                );
             }
         }
     }
@@ -355,13 +363,15 @@ fn sg221_x_labels_exist() {
         .filter(|r| !r.spinor && kpoint_label(r.ml) == "X")
         .map(|r| r.ml)
         .collect();
-    assert_eq!(x_labels.len(), 10, "#221 should have 10 scalar X-point irreps");
-    for label in &["X1+", "X2+", "X3+", "X4+", "X5+", "X1-", "X2-", "X3-", "X4-", "X5-"] {
-        assert!(
-            x_labels.contains(label),
-            "#221 missing X label: {}",
-            label
-        );
+    assert_eq!(
+        x_labels.len(),
+        10,
+        "#221 should have 10 scalar X-point irreps"
+    );
+    for label in &[
+        "X1+", "X2+", "X3+", "X4+", "X5+", "X1-", "X2-", "X3-", "X4-", "X5-",
+    ] {
+        assert!(x_labels.contains(label), "#221 missing X label: {}", label);
     }
 }
 
@@ -375,7 +385,11 @@ fn total_irrep_count() {
     let scalar = IRREPS.iter().filter(|r| !r.spinor).count();
     let spinor = IRREPS.iter().filter(|r| r.spinor).count();
     assert_eq!(scalar, 4777, "Expected 4777 scalar irreps");
-    assert!(spinor >= 3000, "Expected >=3000 spinor irreps, got {}", spinor);
+    assert!(
+        spinor >= 3000,
+        "Expected >=3000 spinor irreps, got {}",
+        spinor
+    );
 }
 
 /// ISOTROPY_SUBGROUPS 总共 15239 条 (书中记录)
@@ -418,17 +432,29 @@ fn sg123_bc_labels_differ_from_ml() {
     // ML=GM2+ → BC=GM3+ (不是 GM2+!)
     let gm2p = irs.iter().find(|r| r.ml == "GM2+").expect("GM2+ not found");
     assert_eq!(gm2p.ml, "GM2+");
-    assert!(gm2p.bc.contains("Gamma_{3}"), "BC should be GM3+, got: {}", gm2p.bc);
+    assert!(
+        gm2p.bc.contains("Gamma_{3}"),
+        "BC should be GM3+, got: {}",
+        gm2p.bc
+    );
     assert_ne!(gm2p.bc, gm2p.ml, "BC label should differ from ML for GM2+");
 
     // ML=GM3+ → BC=GM2+
     let gm3p = irs.iter().find(|r| r.ml == "GM3+").expect("GM3+ not found");
-    assert!(gm3p.bc.contains("Gamma_{2}"), "BC should be GM2+, got: {}", gm3p.bc);
+    assert!(
+        gm3p.bc.contains("Gamma_{2}"),
+        "BC should be GM2+, got: {}",
+        gm3p.bc
+    );
     assert_ne!(gm3p.bc, gm3p.ml, "BC label should differ from ML for GM3+");
 
     // ML=GM1+ → BC=GM1+ (相同)
     let gm1p = irs.iter().find(|r| r.ml == "GM1+").expect("GM1+ not found");
-    assert!(gm1p.bc.contains("Gamma_{1}"), "BC should be GM1+, got: {}", gm1p.bc);
+    assert!(
+        gm1p.bc.contains("Gamma_{1}"),
+        "BC should be GM1+, got: {}",
+        gm1p.bc
+    );
 }
 
 /// SG #121 I-42m: ML 的 P3P3 对应 BC 的 P4P4
@@ -437,10 +463,18 @@ fn sg121_bc_labels_differ_from_ml() {
     let irs = irreps_of(121);
     let p3p3 = irs.iter().find(|r| r.ml == "P3P3").expect("P3P3 not found");
     assert_eq!(p3p3.ml, "P3P3");
-    assert!(p3p3.bc.contains("P_{4}"), "BC should be P4P4, got: {}", p3p3.bc);
+    assert!(
+        p3p3.bc.contains("P_{4}"),
+        "BC should be P4P4, got: {}",
+        p3p3.bc
+    );
 
     let p4p4 = irs.iter().find(|r| r.ml == "P4P4").expect("P4P4 not found");
-    assert!(p4p4.bc.contains("P_{2}"), "BC should be P2P2, got: {}", p4p4.bc);
+    assert!(
+        p4p4.bc.contains("P_{2}"),
+        "BC should be P2P2, got: {}",
+        p4p4.bc
+    );
 }
 
 /// SG #1 P1: BC 使用不同的 k 点字母
@@ -459,14 +493,24 @@ fn sg1_bc_uses_different_k_labels() {
 fn total_bc_ml_differences() {
     let mut diff = 0u32;
     for ir in IRREPS.iter().filter(|r| !r.spinor) {
-        let bc_clean = ir.bc.replace("\\", "").replace("{", "").replace("}", "")
-            .replace("^", "").replace("_", "").replace("$", "");
+        let bc_clean = ir
+            .bc
+            .replace("\\", "")
+            .replace("{", "")
+            .replace("}", "")
+            .replace("^", "")
+            .replace("_", "")
+            .replace("$", "");
         let ml_clean = ir.ml.replace("+", "").replace("-", "");
         if !bc_clean.contains(&ml_clean) && !ml_clean.contains(&bc_clean) {
             diff += 1;
         }
     }
-    assert!(diff > 2000, "Expected >2000 BC≠ML differences, got {}", diff);
+    assert!(
+        diff > 2000,
+        "Expected >2000 BC≠ML differences, got {}",
+        diff
+    );
     assert!(diff < 3000, "Too many differences: {}", diff);
 }
 
@@ -479,7 +523,8 @@ fn total_bc_ml_differences() {
 /// 注意: 两个 #44 的 Basis 相同但 Origin 不同
 #[test]
 fn sg137_r1_subgroups() {
-    let r1 = irreps_of(137).iter()
+    let r1 = irreps_of(137)
+        .iter()
         .find(|r| r.ml == "R1")
         .expect("R1 not found");
 
@@ -494,8 +539,11 @@ fn sg137_r1_subgroups() {
     actual_sorted.sort();
     let mut expected_sorted = expected.clone();
     expected_sorted.sort();
-    assert_eq!(actual_sorted, expected_sorted,
-        "R1 subgroups set mismatch. Got: {:?}", sg_nums);
+    assert_eq!(
+        actual_sorted, expected_sorted,
+        "R1 subgroups set mismatch. Got: {:?}",
+        sg_nums
+    );
 
     // 验证两个 #44 都存在
     let count_44 = sg_nums.iter().filter(|&&n| n == 44).count();
@@ -508,7 +556,8 @@ fn sg137_r1_subgroups() {
 /// 差异来自数据库版本更新——非解析错误。
 #[test]
 fn sg140_n1_subgroup_count() {
-    let n1 = irreps_of(140).iter()
+    let n1 = irreps_of(140)
+        .iter()
         .find(|r| r.ml == "N1")
         .expect("N1 not found");
     let count = n1.subgroups().len();
@@ -525,26 +574,53 @@ fn sg221_kpoint_coordinates() {
     let irs = irreps_of(221);
     // Γ = (0, 0, 0)
     let gm = irs.iter().find(|r| r.ml == "GM1+").expect("GM1+");
-    assert_eq!((gm.kx, gm.ky, gm.kz, gm.kd), (0, 0, 0, 1), "Γ should be (0,0,0)");
+    assert_eq!(
+        (gm.kx, gm.ky, gm.kz, gm.kd),
+        (0, 0, 0, 1),
+        "Γ should be (0,0,0)"
+    );
     // X = (0, 1/2, 0) = (0/2, 1/2, 0/2)
     let x = irs.iter().find(|r| r.ml == "X1+").expect("X1+");
-    assert_eq!((x.kx, x.ky, x.kz, x.kd), (0, 1, 0, 2), "X should be (0,1/2,0)");
+    assert_eq!(
+        (x.kx, x.ky, x.kz, x.kd),
+        (0, 1, 0, 2),
+        "X should be (0,1/2,0)"
+    );
     // M = (1/2, 1/2, 0)
     let m = irs.iter().find(|r| r.ml == "M1+").expect("M1+");
-    assert_eq!((m.kx, m.ky, m.kz, m.kd), (1, 1, 0, 2), "M should be (1/2,1/2,0)");
+    assert_eq!(
+        (m.kx, m.ky, m.kz, m.kd),
+        (1, 1, 0, 2),
+        "M should be (1/2,1/2,0)"
+    );
     // R = (1/2, 1/2, 1/2)
     let r = irs.iter().find(|r| r.ml == "R1+").expect("R1+");
-    assert_eq!((r.kx, r.ky, r.kz, r.kd), (1, 1, 1, 2), "R should be (1/2,1/2,1/2)");
+    assert_eq!(
+        (r.kx, r.ky, r.kz, r.kd),
+        (1, 1, 1, 2),
+        "R should be (1/2,1/2,1/2)"
+    );
 }
 
 /// SG #217 I-43m: P 点坐标 = (1/2, 1/2, 1/2)
 #[test]
 fn sg217_p_point_coordinate() {
     let irs = irreps_of(217);
-    let p = irs.iter().find(|r| r.ml.starts_with("P1")).expect("P1 not found");
-    assert_eq!((p.kx, p.ky, p.kz, p.kd), (1, 1, 1, 2),
+    let p = irs
+        .iter()
+        .find(|r| r.ml.starts_with("P1"))
+        .expect("P1 not found");
+    assert_eq!(
+        (p.kx, p.ky, p.kz, p.kd),
+        (1, 1, 1, 2),
         "SG #217 P-point should be (1/2,1/2,1/2), got ({}/{}, {}/{}, {}/{})",
-        p.kx, p.kd, p.ky, p.kd, p.kz, p.kd);
+        p.kx,
+        p.kd,
+        p.ky,
+        p.kd,
+        p.kz,
+        p.kd
+    );
 }
 
 /// 验证所有 irrep 的 k 向量分母为正
@@ -560,20 +636,45 @@ fn all_kvectors_have_positive_denominator() {
 fn dump_sg142_x_point() {
     let irs = irreps_of(142);
     let ops = SymmetryOps::from_sg(142).unwrap();
-    println!("\n=== SG #142 I4_1/acd — {} irreps, {} ops ===", irs.len(), ops.len());
+    println!(
+        "\n=== SG #142 I4_1/acd — {} irreps, {} ops ===",
+        irs.len(),
+        ops.len()
+    );
 
     let x1 = irs.iter().find(|r| r.ml == "X1").unwrap();
     let chars = x1.characters();
-    println!("\nX1 dim={} k=({}/{},{}/{},{}/{})", x1.dim, x1.kx, x1.kd, x1.ky, x1.kd, x1.kz, x1.kd);
-    println!("{:3} | {{R|t}}                                    | χ", "Op");
+    println!(
+        "\nX1 dim={} k=({}/{},{}/{},{}/{})",
+        x1.dim, x1.kx, x1.kd, x1.ky, x1.kd, x1.kz, x1.kd
+    );
+    println!(
+        "{:3} | {{R|t}}                                    | χ",
+        "Op"
+    );
     println!("----+------------------------------------------+-----");
     for (i, op) in ops.iter().enumerate() {
-        let r = op.rotation; let t = op.translation;
+        let r = op.rotation;
+        let t = op.translation;
         let chi = if i < chars.len() { chars[i] } else { 0.0 };
         if chi.abs() > 0.01 || i == 0 {
-            println!("{:3} | [{:2},{:2},{:2};{:2},{:2},{:2};{:2},{:2},{:2}] ({:5.2},{:5.2},{:5.2}) | {:+.1}",
-                i, r[0][0],r[0][1],r[0][2], r[1][0],r[1][1],r[1][2], r[2][0],r[2][1],r[2][2],
-                t[0],t[1],t[2], chi);
+            println!(
+                "{:3} | [{:2},{:2},{:2};{:2},{:2},{:2};{:2},{:2},{:2}] ({:5.2},{:5.2},{:5.2}) | {:+.1}",
+                i,
+                r[0][0],
+                r[0][1],
+                r[0][2],
+                r[1][0],
+                r[1][1],
+                r[1][2],
+                r[2][0],
+                r[2][1],
+                r[2][2],
+                t[0],
+                t[1],
+                t[2],
+                chi
+            );
         }
     }
 
@@ -582,7 +683,9 @@ fn dump_sg142_x_point() {
     println!("\nX1 matrix for Op 0 (identity, 4x4):");
     for row in 0..4 {
         print!("  ");
-        for col in 0..4 { print!("{:5.0} ", mats[row*4+col]); }
+        for col in 0..4 {
+            print!("{:5.0} ", mats[row * 4 + col]);
+        }
         println!();
     }
 }
@@ -591,7 +694,8 @@ fn dump_sg142_x_point() {
 #[test]
 fn same_prefix_same_kpoint() {
     let irs = irreps_of(221);
-    let mut groups: std::collections::HashMap<&str, Vec<&IrrepRecord>> = std::collections::HashMap::new();
+    let mut groups: std::collections::HashMap<&str, Vec<&IrrepRecord>> =
+        std::collections::HashMap::new();
     for ir in irs.iter().filter(|r| !r.spinor) {
         let k = ir.k_label();
         groups.entry(k).or_default().push(ir);
@@ -603,8 +707,14 @@ fn same_prefix_same_kpoint() {
         let first = group[0];
         let kp = (first.kx, first.ky, first.kz, first.kd);
         for ir in group.iter().skip(1) {
-            assert_eq!((ir.kx, ir.ky, ir.kz, ir.kd), kp,
-                "SG221 k-label '{}': {} has different k-point from {}", label, ir.ml, first.ml);
+            assert_eq!(
+                (ir.kx, ir.ky, ir.kz, ir.kd),
+                kp,
+                "SG221 k-label '{}': {} has different k-point from {}",
+                label,
+                ir.ml,
+                first.ml
+            );
         }
     }
 }

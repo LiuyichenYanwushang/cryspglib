@@ -21,15 +21,13 @@ use crate::delaunay::layer_delaunay_reduce_2d;
 
 use crate::hall_symbol::hal_match_hall_symbol_db;
 use crate::mathfunc::{
-    Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d,
-    mat_get_determinant_d3, mat_get_determinant_i3,
-    mat_get_similar_matrix_d3, mat_inverse_matrix_d3, mat_is_int_matrix, mat_multiply_matrix_d3,
-    mat_multiply_matrix_di3, mat_multiply_matrix_id3, mat_multiply_matrix_vector_d3,
+    Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d, mat_get_determinant_d3,
+    mat_get_determinant_i3, mat_get_similar_matrix_d3, mat_inverse_matrix_d3, mat_is_int_matrix,
+    mat_multiply_matrix_d3, mat_multiply_matrix_di3, mat_multiply_matrix_id3,
+    mat_multiply_matrix_vector_d3,
 };
 use crate::niggli::reduce;
-use crate::pointgroup::{
-    Holohedry, Laue, get_pointsymmetry, get_transformation_matrix,
-};
+use crate::pointgroup::{Holohedry, Laue, get_pointsymmetry, get_transformation_matrix};
 use crate::primitive::Primitive;
 use crate::spg_database::{Centering, SpacegroupType, get_spacegroup_type};
 use crate::symmetry::{Symmetry, get_operation, reduce_operation};
@@ -252,7 +250,10 @@ pub fn search_spacegroup(
         symprec
     ));
 
-    let cell = primitive.cell.as_ref().ok_or(SymError::SpacegroupSearchFailed)?;
+    let cell = primitive
+        .cell
+        .as_ref()
+        .ok_or(SymError::SpacegroupSearchFailed)?;
     let symmetry = get_operation(cell, symprec, angle_tolerance)?;
 
     let candidates = if hall_number != 0 {
@@ -263,7 +264,13 @@ pub fn search_spacegroup(
         LAYER_GROUP_TO_HALL_NUMBER.to_vec()
     };
 
-    search_spacegroup_with_symmetry_core(primitive, &candidates, &symmetry, symprec, angle_tolerance)
+    search_spacegroup_with_symmetry_core(
+        primitive,
+        &candidates,
+        &symmetry,
+        symprec,
+        angle_tolerance,
+    )
 }
 
 pub fn search_spacegroup_with_symmetry(
@@ -450,7 +457,9 @@ fn iterative_search_hall_number(
         ));
 
         tolerance *= REDUCE_RATE;
-        if let Ok(sym_reduced) = reduce_operation(cell, &current_symmetry, tolerance, angle_tolerance) {
+        if let Ok(sym_reduced) =
+            reduce_operation(cell, &current_symmetry, tolerance, angle_tolerance)
+        {
             hall_number = search_hall_number(
                 origin_shift,
                 conv_lattice,
@@ -489,12 +498,10 @@ fn search_hall_number(
 
     let cell = primitive.cell.as_ref()?;
     let aperiodic_axis = cell.aperiodic_axis;
-    let (mut tmat_int, pointgroup) =
-        get_transformation_matrix(&symmetry.rot, aperiodic_axis)?;
+    let (mut tmat_int, pointgroup) = get_transformation_matrix(&symmetry.rot, aperiodic_axis)?;
 
     if pointgroup.laue == Laue::Laue1 || pointgroup.laue == Laue::Laue2M {
-        let conv_lattice_tmp =
-            mat_multiply_matrix_di3(&cell.lattice, &tmat_int);
+        let conv_lattice_tmp = mat_multiply_matrix_di3(&cell.lattice, &tmat_int);
 
         if pointgroup.laue == Laue::Laue1
             && !change_basis_tricli(
@@ -503,9 +510,10 @@ fn search_hall_number(
                 &cell.lattice,
                 symprec,
                 aperiodic_axis,
-            ) {
-                return None;
-            }
+            )
+        {
+            return None;
+        }
 
         if pointgroup.laue == Laue::Laue2M
             && !change_basis_monocli(
@@ -514,9 +522,10 @@ fn search_hall_number(
                 &cell.lattice,
                 symprec,
                 aperiodic_axis,
-            ) {
-                return None;
-            }
+            )
+        {
+            return None;
+        }
     }
 
     let mut correction_mat = [[0.0; 3]; 3];
@@ -541,12 +550,7 @@ fn search_hall_number(
     };
 
     for &cand in candidates {
-        if match_hall_symbol_db(
-            origin_shift,
-            conv_lattice,
-            cand,
-            &match_context,
-        ) {
+        if match_hall_symbol_db(origin_shift, conv_lattice, cand, &match_context) {
             debug::debug_print(format_args!("origin shift\n"));
             return Some(cand);
         }
@@ -1005,7 +1009,11 @@ mod tests {
         );
         // 验证 bravais_lattice 非零
         let det = mat_get_determinant_d3(&spg.bravais_lattice);
-        assert!(det.abs() > 1e-10, "[{}] bravais_lattice determinant is zero", label);
+        assert!(
+            det.abs() > 1e-10,
+            "[{}] bravais_lattice determinant is zero",
+            label
+        );
     }
 
     // ==================== 立方晶系测试 ====================
@@ -1109,7 +1117,10 @@ mod tests {
         let c = 20.0;
         let lattice = hexagonal_lattice(a, c);
         let delta = 0.44 / c; // buckling 在分数坐标中
-        let positions = [[1.0 / 3.0, 2.0 / 3.0, -delta], [2.0 / 3.0, 1.0 / 3.0, delta]];
+        let positions = [
+            [1.0 / 3.0, 2.0 / 3.0, -delta],
+            [2.0 / 3.0, 1.0 / 3.0, delta],
+        ];
         let types = [14, 14]; // 硅原子
 
         let spg = search_spacegroup_from_structure(&lattice, &positions, &types)
@@ -1148,11 +1159,7 @@ mod tests {
         for i in 0..2 {
             for j in 0..2 {
                 for k in 0..2 {
-                    positions.push([
-                        i as f64 * 0.5,
-                        j as f64 * 0.5,
-                        k as f64 * 0.5,
-                    ]);
+                    positions.push([i as f64 * 0.5, j as f64 * 0.5, k as f64 * 0.5]);
                 }
             }
         }
@@ -1180,11 +1187,7 @@ mod tests {
         for i in 0..2 {
             for j in 0..2 {
                 for k in 0..2 {
-                    positions.push([
-                        i as f64 * 0.5,
-                        j as f64 * 0.5,
-                        k as f64 * 0.5,
-                    ]);
+                    positions.push([i as f64 * 0.5, j as f64 * 0.5, k as f64 * 0.5]);
                     types.push(1);
                 }
             }
@@ -1248,14 +1251,14 @@ mod tests {
         // NaCl 岩盐结构 → Fm-3m (#225)
         let lattice = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let positions = [
-            [0.0, 0.0, 0.0],   // Na
-            [0.5, 0.5, 0.5],   // Cl
-            [0.0, 0.5, 0.5],   // Na
-            [0.5, 0.0, 0.5],   // Na
-            [0.5, 0.5, 0.0],   // Na
-            [0.0, 0.0, 0.5],   // Cl
-            [0.0, 0.5, 0.0],   // Cl
-            [0.5, 0.0, 0.0],   // Cl
+            [0.0, 0.0, 0.0], // Na
+            [0.5, 0.5, 0.5], // Cl
+            [0.0, 0.5, 0.5], // Na
+            [0.5, 0.0, 0.5], // Na
+            [0.5, 0.5, 0.0], // Na
+            [0.0, 0.0, 0.5], // Cl
+            [0.0, 0.5, 0.0], // Cl
+            [0.5, 0.0, 0.0], // Cl
         ];
         let types = [1, 2, 1, 1, 1, 2, 2, 2];
 
@@ -1263,5 +1266,4 @@ mod tests {
             .expect("NaCl: spacegroup search returned None");
         assert_spacegroup(&spg, 225, "Fm-3m", "NaCl");
     }
-
 }

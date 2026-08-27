@@ -12,9 +12,8 @@ use crate::debug;
 use crate::delaunay::{delaunay_reduce, layer_delaunay_reduce};
 use crate::mathfunc::{
     Mat3, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d, mat_check_identity_matrix_i3,
-    mat_dabs, mat_dmod1, mat_get_determinant_d3,
-    mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_multiply_matrix_di3,
-    mat_multiply_matrix_vector_d3, mat_nint,
+    mat_dabs, mat_dmod1, mat_get_determinant_d3, mat_get_determinant_i3, mat_inverse_matrix_d3,
+    mat_multiply_matrix_d3, mat_multiply_matrix_di3, mat_multiply_matrix_vector_d3, mat_nint,
 };
 use crate::symmetry::{Symmetry, get_pure_translation, reduce_pure_translation};
 
@@ -99,10 +98,7 @@ pub fn get_primitive_with_pure_trans(
 /// # Returns
 /// `Some((t_mat, prim_symmetry))` — `t_mat` 是从原胞到原始晶胞的变换矩阵，
 /// `prim_symmetry` 包含原胞中的对称操作（旋转矩阵和分数平移）。
-pub fn get_primitive_symmetry(
-    symmetry: &Symmetry,
-    symprec: f64,
-) -> Option<(Mat3, Symmetry)> {
+pub fn get_primitive_symmetry(symmetry: &Symmetry, symprec: f64) -> Option<(Mat3, Symmetry)> {
     let pure_trans = collect_pure_translations(symmetry)?;
     let primsym_size = symmetry.len() / pure_trans.len();
 
@@ -137,7 +133,11 @@ pub fn get_primitive_symmetry(
 
 // --- Internal Functions ---
 
-pub fn get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Primitive, SymError> {
+pub fn get_primitive(
+    cell: &Cell,
+    symprec: f64,
+    angle_tolerance: f64,
+) -> Result<Primitive, SymError> {
     debug::debug_print(format_args!("get_primitive (tolerance = {}):\n", symprec));
 
     let mut tolerance = symprec;
@@ -145,14 +145,11 @@ pub fn get_primitive(cell: &Cell, symprec: f64, angle_tolerance: f64) -> Result<
     for attempt in 0..NUM_ATTEMPT {
         debug::debug_print(format_args!("get_primitive (attempt = {}):\n", attempt));
         if let Ok(pure_trans) = get_pure_translation(cell, tolerance)
-            && let Some(primitive) = get_primitive_with_pure_trans(
-                cell,
-                &pure_trans,
-                tolerance,
-                angle_tolerance,
-            ) {
-                return Ok(primitive);
-            }
+            && let Some(primitive) =
+                get_primitive_with_pure_trans(cell, &pure_trans, tolerance, angle_tolerance)
+        {
+            return Ok(primitive);
+        }
 
         tolerance *= REDUCE_RATE;
         debug::debug_print(format_args!("spglib: Reduce tolerance to {} ", tolerance));
@@ -202,12 +199,9 @@ fn get_primitive_cell(
 ) -> Option<Cell> {
     debug::debug_print(format_args!("get_primitive_cell:\n"));
 
-    let Some((prim_lattice, _)) = get_primitive_lattice_vectors(
-        cell,
-        pure_trans,
-        symprec,
-        angle_tolerance,
-    ) else {
+    let Some((prim_lattice, _)) =
+        get_primitive_lattice_vectors(cell, pure_trans, symprec, angle_tolerance)
+    else {
         debug::debug_print(format_args!("spglib: Primitive cell could not be found\n"));
         return None;
     };
@@ -239,12 +233,9 @@ pub fn get_primitive_lattice_vectors(
             }?;
             return Some((reduced, multi));
         } else {
-            pure_trans_reduced = reduce_pure_translation(
-                cell,
-                &pure_trans_reduced,
-                tolerance,
-                angle_tolerance,
-            ).ok()?;
+            pure_trans_reduced =
+                reduce_pure_translation(cell, &pure_trans_reduced, tolerance, angle_tolerance)
+                    .ok()?;
             debug::debug_print(format_args!(
                 "spglib: Tolerance is reduced to {} ({}), num_pure_trans = {}\n",
                 tolerance,
@@ -257,11 +248,7 @@ pub fn get_primitive_lattice_vectors(
     None
 }
 
-fn find_primitive_lattice_vectors(
-    vectors: &[Vec3],
-    cell: &Cell,
-    symprec: f64,
-) -> Option<Mat3> {
+fn find_primitive_lattice_vectors(vectors: &[Vec3], cell: &Cell, symprec: f64) -> Option<Mat3> {
     debug::debug_print(format_args!("find_primitive_lattice_vectors:\n"));
 
     let size = vectors.len();
@@ -280,14 +267,13 @@ fn find_primitive_lattice_vectors(
                     tmp_lattice[2] = mat_multiply_matrix_vector_d3(&cell.lattice, &vectors[k]);
 
                     let volume = mat_dabs(mat_get_determinant_d3(&tmp_lattice));
-                    if volume > symprec
-                        && mat_nint(initial_volume / volume) == (size - 2) as i32 {
-                            min_vectors[0] = vectors[i];
-                            min_vectors[1] = vectors[j];
-                            min_vectors[2] = vectors[k];
-                            found = true;
-                            break 'outer;
-                        }
+                    if volume > symprec && mat_nint(initial_volume / volume) == (size - 2) as i32 {
+                        min_vectors[0] = vectors[i];
+                        min_vectors[1] = vectors[j];
+                        min_vectors[2] = vectors[k];
+                        found = true;
+                        break 'outer;
+                    }
                 }
             }
         }
@@ -303,19 +289,18 @@ fn find_primitive_lattice_vectors(
                     tmp_lattice[2] = mat_multiply_matrix_vector_d3(&cell.lattice, &vectors[k_idx]);
 
                     let volume = mat_dabs(mat_get_determinant_d3(&tmp_lattice));
-                    if volume > symprec
-                        && mat_nint(initial_volume / volume) == (size - 2) as i32 {
-                            min_vectors[0] = vectors[i];
-                            min_vectors[1] = vectors[j];
-                            if ap_idx == 2 {
-                                min_vectors[2] = vectors[k_idx];
-                            } else {
-                                min_vectors[2] = min_vectors[ap_idx];
-                                min_vectors[ap_idx] = vectors[k_idx];
-                            }
-                            found = true;
-                            break 'outer_layer;
+                    if volume > symprec && mat_nint(initial_volume / volume) == (size - 2) as i32 {
+                        min_vectors[0] = vectors[i];
+                        min_vectors[1] = vectors[j];
+                        if ap_idx == 2 {
+                            min_vectors[2] = vectors[k_idx];
+                        } else {
+                            min_vectors[2] = min_vectors[ap_idx];
+                            min_vectors[ap_idx] = vectors[k_idx];
                         }
+                        found = true;
+                        break 'outer_layer;
+                    }
                 }
             }
         }
@@ -466,8 +451,6 @@ mod tests {
     #[test]
     fn primitive_lattice_accepts_identity_translation() {
         let cell = one_atom_cell();
-        assert!(
-            get_primitive_lattice_vectors(&cell, &[[0.0; 3]], 1e-5, -1.0).is_some()
-        );
+        assert!(get_primitive_lattice_vectors(&cell, &[[0.0; 3]], 1e-5, -1.0).is_some());
     }
 }

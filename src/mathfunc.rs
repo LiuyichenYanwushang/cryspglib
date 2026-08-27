@@ -61,7 +61,11 @@ pub enum RotationClass {
 
 impl RotationClass {
     pub fn from_det(det: i32) -> Self {
-        if det == 1 { RotationClass::Proper } else { RotationClass::Improper }
+        if det == 1 {
+            RotationClass::Proper
+        } else {
+            RotationClass::Improper
+        }
     }
 }
 
@@ -272,7 +276,11 @@ pub fn mat_inverse_matrix_d3(a: &Mat3, precision: f64) -> Result<Mat3, crate::Sy
 ///
 /// # Errors
 /// `b` 不可逆时返回 [`crate::SymError::MathFailed`]。
-pub fn mat_get_similar_matrix_d3(a: &Mat3, b: &Mat3, precision: f64) -> Result<Mat3, crate::SymError> {
+pub fn mat_get_similar_matrix_d3(
+    a: &Mat3,
+    b: &Mat3,
+    precision: f64,
+) -> Result<Mat3, crate::SymError> {
     let inv_b = mat_inverse_matrix_d3(b, precision)?;
     let temp = mat_multiply_matrix_d3(a, b);
     Ok(mat_multiply_matrix_d3(&inv_b, &temp))
@@ -488,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mat_rem1(){
+    fn test_mat_rem1() {
         assert!((mat_rem1(1.3) - 0.3).abs() < 1e-10);
         assert!((mat_rem1(-0.4) - (-0.4)).abs() < 1e-10); // 注意 -0.4 的 Nint 是 0，所以余数仍为 -0.4
     }

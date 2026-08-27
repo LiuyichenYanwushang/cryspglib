@@ -1,14 +1,13 @@
 // pointgroup.rs
 
+use crate::SymError;
 use crate::cell::AperiodicAxis;
 use crate::debug;
 use crate::mathfunc::{
-    Mat3I, mat_add_matrix_i3, mat_check_identity_matrix_i3,
-    mat_get_determinant_i3, mat_get_trace_i3, mat_multiply_matrix_i3,
-    mat_multiply_matrix_vector_i3, mat_norm_squared_i3,
+    Mat3I, mat_add_matrix_i3, mat_check_identity_matrix_i3, mat_get_determinant_i3,
+    mat_get_trace_i3, mat_multiply_matrix_i3, mat_multiply_matrix_vector_i3, mat_norm_squared_i3,
 };
 use crate::symmetry::PointSymmetry;
-use crate::SymError;
 
 const NUM_ROT_AXES: usize = 73;
 
@@ -381,9 +380,7 @@ pub(crate) static ROT_AXES: [[i32; 3]; NUM_ROT_AXES] = [
 ///
 /// Returns the international symbol, the conventional-basis transformation,
 /// and the crystallographic point-group number.
-pub fn pointgroup_from_rotations(
-    rotations: &[Mat3I],
-) -> Result<(String, Mat3I, usize), SymError> {
+pub fn pointgroup_from_rotations(rotations: &[Mat3I]) -> Result<(String, Mat3I, usize), SymError> {
     let (transform, pointgroup) =
         get_transformation_matrix(rotations, None).ok_or(SymError::PointgroupNotFound)?;
     Ok((pointgroup.symbol, transform, pointgroup.number))
@@ -514,7 +511,12 @@ fn get_rotation_type(rot: &Mat3I) -> i32 {
     }
 }
 
-fn get_axes(axes: &mut [usize; 3], laue: Laue, pointsym: &PointSymmetry, aperiodic_axis: Option<AperiodicAxis>) {
+fn get_axes(
+    axes: &mut [usize; 3],
+    laue: Laue,
+    pointsym: &PointSymmetry,
+    aperiodic_axis: Option<AperiodicAxis>,
+) {
     match laue {
         Laue::Laue1 => {
             axes[0] = 0;
@@ -525,11 +527,20 @@ fn get_axes(axes: &mut [usize; 3], laue: Laue, pointsym: &PointSymmetry, aperiod
             if aperiodic_axis.is_none() {
                 laue2m(axes, pointsym);
             } else {
-                layer_laue2m(axes, pointsym, aperiodic_axis.map(|a| a.axis_index() as i32).unwrap_or(-1));
+                layer_laue2m(
+                    axes,
+                    pointsym,
+                    aperiodic_axis.map(|a| a.axis_index() as i32).unwrap_or(-1),
+                );
             }
         }
         Laue::LaueMMM => {
-            lauennn(axes, pointsym, 2, aperiodic_axis.map(|a| a.axis_index() as i32).unwrap_or(-1));
+            lauennn(
+                axes,
+                pointsym,
+                2,
+                aperiodic_axis.map(|a| a.axis_index() as i32).unwrap_or(-1),
+            );
         }
         Laue::Laue4M | Laue::Laue4MMM => {
             laue_one_axis(axes, pointsym, 4);
@@ -555,10 +566,11 @@ fn laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry) -> bool {
     for i in 0..pointsym.len() {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
         if mat_get_trace_i3(&prop_rot) == -1
-            && let Some(axis) = get_rotation_axis(&prop_rot) {
-                axes[1] = axis;
-                break;
-            }
+            && let Some(axis) = get_rotation_axis(&prop_rot)
+        {
+            axes[1] = axis;
+            break;
+        }
     }
 
     let mut ortho_axes = [0; NUM_ROT_AXES];
@@ -604,10 +616,11 @@ fn layer_laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry, aperiodic_axis:
     for i in 0..pointsym.len() {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
         if mat_get_trace_i3(&prop_rot) == -1
-            && let Some(axis) = get_rotation_axis(&prop_rot) {
-                axes[0] = axis;
-                break;
-            }
+            && let Some(axis) = get_rotation_axis(&prop_rot)
+        {
+            axes[0] = axis;
+            break;
+        }
     }
 
     let mut ortho_axes = [0; NUM_ROT_AXES];
@@ -698,10 +711,11 @@ fn laue_one_axis(axes: &mut [usize; 3], pointsym: &PointSymmetry, rot_order: i32
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
         let trace = mat_get_trace_i3(&prop_rot);
         if ((rot_order == 4 && trace == 1) || (rot_order == 3 && trace == 0))
-            && let Some(axis) = get_rotation_axis(&prop_rot) {
-                axes[2] = axis;
-                break;
-            }
+            && let Some(axis) = get_rotation_axis(&prop_rot)
+        {
+            axes[2] = axis;
+            break;
+        }
     }
 
     let mut ortho_axes = [0; NUM_ROT_AXES];
@@ -780,10 +794,13 @@ fn lauennn(
 
         if ((trace == -1 && rot_order == 2) || (trace == 1 && rot_order == 4))
             && let Some(axis) = get_rotation_axis(&prop_rot)
-                && axis != axes[0] && axis != axes[1] && axis != axes[2] {
-                    axes[count] = axis;
-                    count += 1;
-                }
+            && axis != axes[0]
+            && axis != axes[1]
+            && axis != axes[2]
+        {
+            axes[count] = axis;
+            count += 1;
+        }
     }
 
     if aperiodic_axis == -1 {

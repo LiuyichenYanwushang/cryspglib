@@ -4,15 +4,17 @@
 //! 核心函数 [`get_operation`] 返回包含旋转矩阵（i32）和平移向量（f64）的 [`Symmetry`] 结构体。
 
 use crate::SymError;
-use crate::cell::{AperiodicAxis, Cell, is_overlap_with_same_type, layer_is_overlap_with_same_type};
+use crate::cell::{
+    AperiodicAxis, Cell, is_overlap_with_same_type, layer_is_overlap_with_same_type,
+};
 use crate::debug;
 use crate::delaunay::{delaunay_reduce, layer_delaunay_reduce};
 use crate::mathfunc::{
     Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d,
-    mat_check_identity_matrix_i3,
-    mat_dabs, mat_dmod1, mat_get_determinant_d3, mat_get_determinant_i3, mat_get_metric,
-    mat_get_similar_matrix_d3, mat_inverse_matrix_d3, mat_is_int_matrix, mat_multiply_matrix_d3,
-    mat_multiply_matrix_di3, mat_multiply_matrix_vector_id3,
+    mat_check_identity_matrix_i3, mat_dabs, mat_dmod1, mat_get_determinant_d3,
+    mat_get_determinant_i3, mat_get_metric, mat_get_similar_matrix_d3, mat_inverse_matrix_d3,
+    mat_is_int_matrix, mat_multiply_matrix_d3, mat_multiply_matrix_di3,
+    mat_multiply_matrix_vector_id3,
 };
 use crate::overlap::OverlapChecker;
 use std::f64::consts::PI;
@@ -24,11 +26,32 @@ const NUM_ATTEMPT: i32 = 100;
 
 // 相对轴向量，用于生成所有可能的晶格基矢量变换矩阵 (3x3x3 - 1 = 26 个方向)
 static RELATIVE_AXES: [[i32; 3]; 26] = [
-    [1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0], [0, -1, 0], [0, 0, -1],
-    [0, 1, 1], [1, 0, 1], [1, 1, 0], [0, -1, -1], [-1, 0, -1], [-1, -1, 0],
-    [0, 1, -1], [-1, 0, 1], [1, -1, 0], [0, -1, 1], [1, 0, -1], [-1, 1, 0],
-    [1, 1, 1], [-1, -1, -1], [-1, 1, 1], [1, -1, 1], [1, 1, -1], [1, -1, -1],
-    [-1, 1, -1], [-1, -1, 1],
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+    [-1, 0, 0],
+    [0, -1, 0],
+    [0, 0, -1],
+    [0, 1, 1],
+    [1, 0, 1],
+    [1, 1, 0],
+    [0, -1, -1],
+    [-1, 0, -1],
+    [-1, -1, 0],
+    [0, 1, -1],
+    [-1, 0, 1],
+    [1, -1, 0],
+    [0, -1, 1],
+    [1, 0, -1],
+    [-1, 1, 0],
+    [1, 1, 1],
+    [-1, -1, -1],
+    [-1, 1, 1],
+    [1, -1, 1],
+    [1, 1, -1],
+    [1, -1, -1],
+    [-1, 1, -1],
+    [-1, -1, 1],
 ];
 
 static IDENTITY: [[i32; 3]; 3] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
@@ -162,7 +185,11 @@ impl MagneticSymmetry {
 // --- Public API ---
 
 /// 获取晶胞的对称操作
-pub fn get_operation(primitive: &Cell, symprec: f64, angle_tolerance: f64) -> Result<Symmetry, SymError> {
+pub fn get_operation(
+    primitive: &Cell,
+    symprec: f64,
+    angle_tolerance: f64,
+) -> Result<Symmetry, SymError> {
     debug::debug_print(format_args!("get_operations:\n"));
     get_operations(primitive, symprec, angle_tolerance)
 }
@@ -202,7 +229,8 @@ pub fn get_pure_translation(cell: &Cell, symprec: f64) -> Result<Vec<Vec3>, SymE
         } else {
             debug::warning_print(format_args!(
                 "spglib: Finding pure translation failed.\n        cell->size {}, multi {}\n",
-                cell.len(), multi
+                cell.len(),
+                multi
             ));
         }
     } else {
@@ -233,7 +261,11 @@ pub fn reduce_pure_translation(
 
 // --- Internal Functions ---
 
-fn get_operations(primitive: &Cell, symprec: f64, angle_symprec: f64) -> Result<Symmetry, SymError> {
+fn get_operations(
+    primitive: &Cell,
+    symprec: f64,
+    angle_symprec: f64,
+) -> Result<Symmetry, SymError> {
     debug::debug_print(format_args!("get_operations:\n"));
 
     let lattice_sym = get_lattice_symmetry(primitive, symprec, angle_symprec);
@@ -279,10 +311,10 @@ fn reduce_operations(
                     symprec,
                     false,
                 ) == Ok(true)
-                {
-                    rot_list.push(symmetry.rot[j]);
-                    trans_list.push(symmetry.trans[j]);
-                }
+            {
+                rot_list.push(symmetry.rot[j]);
+                trans_list.push(symmetry.trans[j]);
+            }
         }
     }
 
@@ -304,14 +336,8 @@ fn get_translation(rot: &Mat3I, cell: &Cell, symprec: f64, is_identity: bool) ->
 
     let origin = mat_multiply_matrix_vector_id3(rot, &cell.position[min_atom_index]);
 
-    let (is_found, num_trans) = search_translation_part(
-        cell,
-        rot,
-        min_atom_index,
-        &origin,
-        symprec,
-        is_identity,
-    )?;
+    let (is_found, num_trans) =
+        search_translation_part(cell, rot, min_atom_index, &origin, symprec, is_identity)?;
 
     if num_trans == 0 {
         return None;
@@ -477,14 +503,8 @@ fn get_layer_translation(
 
     let origin = mat_multiply_matrix_vector_id3(rot, &cell.position[min_atom_index]);
 
-    let (is_found, num_trans) = search_layer_translation_part(
-        cell,
-        rot,
-        min_atom_index,
-        &origin,
-        symprec,
-        is_identity,
-    )?;
+    let (is_found, num_trans) =
+        search_layer_translation_part(cell, rot, min_atom_index, &origin, symprec, is_identity)?;
 
     if num_trans == 0 {
         return None;
@@ -700,10 +720,10 @@ pub fn get_lattice_symmetry(cell: &Cell, symprec: f64, angle_symprec: f64) -> Po
                             if (axes[0][1] != 0
                                 || axes[1][0] != 0
                                 || axes[1][2] != 0
-                                || axes[2][1] != 0)
-                            => {
-                                continue;
-                            }
+                                || axes[2][1] != 0) =>
+                        {
+                            continue;
+                        }
                         _ => {}
                     }
 
@@ -743,10 +763,10 @@ pub fn get_lattice_symmetry(cell: &Cell, symprec: f64, angle_symprec: f64) -> Po
             && ((aperiodic_axis.is_none() && rot_list.len() <= 48)
                 || (aperiodic_axis.is_some() && rot_list.len() <= 24)
                 || angle_tol < 0.0)
-            {
-                lattice_sym.rot = rot_list;
-                return transform_pointsymmetry(&lattice_sym, &cell.lattice, &min_lattice);
-            }
+        {
+            lattice_sym.rot = rot_list;
+            return transform_pointsymmetry(&lattice_sym, &cell.lattice, &min_lattice);
+        }
     }
 
     debug::debug_print(format_args!("get_lattice_symmetry failed.\n"));
@@ -785,10 +805,9 @@ fn is_identity_metric(
             let sin_dtheta2 = 1.0 - x * x;
             let length_ave2 =
                 ((length_orig[j] + length_rot[j]) * (length_orig[k] + length_rot[k])) / 4.0;
-            if sin_dtheta2 > SIN_DTHETA2_CUTOFF
-                && sin_dtheta2 * length_ave2 > symprec * symprec {
-                    return false;
-                }
+            if sin_dtheta2 > SIN_DTHETA2_CUTOFF && sin_dtheta2 * length_ave2 > symprec * symprec {
+                return false;
+            }
         }
     }
     true
@@ -808,7 +827,9 @@ fn transform_pointsymmetry(
     let mut lat_sym_new = PointSymmetry::new();
     let mut rot_list = Vec::new();
 
-    let inv_mat = mat_inverse_matrix_d3(original_lattice, 0.0).ok().unwrap_or([[0.0; 3]; 3]);
+    let inv_mat = mat_inverse_matrix_d3(original_lattice, 0.0)
+        .ok()
+        .unwrap_or([[0.0; 3]; 3]);
     let trans_mat = mat_multiply_matrix_d3(&inv_mat, new_lattice);
 
     for i in 0..lat_sym_orig.len() {

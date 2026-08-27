@@ -8,10 +8,9 @@
 use crate::SymError;
 use crate::debug;
 use crate::mathfunc::{
-    Mat3, Vec3, mat_cast_matrix_3d_to_3i, mat_dabs,
-    mat_dmod1, mat_get_determinant_d3, mat_get_determinant_i3,
-    mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_multiply_matrix_vector_d3,
-    mat_multiply_matrix_vector_id3, mat_nint, mat_norm_squared_d3,
+    Mat3, Vec3, mat_cast_matrix_3d_to_3i, mat_dabs, mat_dmod1, mat_get_determinant_d3,
+    mat_get_determinant_i3, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
+    mat_multiply_matrix_vector_d3, mat_multiply_matrix_vector_id3, mat_nint, mat_norm_squared_d3,
 };
 
 const INCREASE_RATE: f64 = 2.0;
@@ -505,7 +504,10 @@ fn set_positions_and_tensors(
     for i in 0..trimmed_cell.len() {
         for j in 0..3 {
             trimmed_cell.position[i][j] /= multi;
-            if trimmed_cell.aperiodic_axis.is_none_or(|ap| j != ap.axis_index()) {
+            if trimmed_cell
+                .aperiodic_axis
+                .is_none_or(|ap| j != ap.axis_index())
+            {
                 trimmed_cell.position[i][j] = mat_dmod1(trimmed_cell.position[i][j]);
             }
         }
@@ -584,11 +586,10 @@ fn get_overlap_table(
                         )
                     };
 
-                    if is_overlap
-                        && overlap_table[j] == j {
-                            overlap_table[i] = j;
-                            break;
-                        }
+                    if is_overlap && overlap_table[j] == j {
+                        overlap_table[i] = j;
+                        break;
+                    }
                 }
             }
         }
@@ -695,12 +696,7 @@ mod tests {
         let snapshot = magnetic.clone();
 
         assert!(matches!(
-            magnetic.set_cell_with_tensors(
-                &other_lattice,
-                &other_positions,
-                &[6, 6],
-                &[0.0; 5]
-            ),
+            magnetic.set_cell_with_tensors(&other_lattice, &other_positions, &[6, 6], &[0.0; 5]),
             Err(SymError::InvalidInput)
         ));
         assert!(matches!(

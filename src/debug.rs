@@ -68,7 +68,14 @@ pub fn debug_print_vectors_d3(a: &[[f64; 3]]) {
     let stdout = io::stdout();
     let mut handle = stdout.lock();
     for (i, vec) in a.iter().enumerate() {
-        let _ = writeln!(handle, "{}: {:.6} {:.6} {:.6}", i + 1, vec[0], vec[1], vec[2]);
+        let _ = writeln!(
+            handle,
+            "{}: {:.6} {:.6} {:.6}",
+            i + 1,
+            vec[0],
+            vec[1],
+            vec[2]
+        );
     }
 }
 
@@ -91,7 +98,11 @@ pub fn debug_print_vectors_with_label(a: &[[f64; 3]], b: &[i32]) {
     let mut handle = stdout.lock();
     for (i, vec) in a.iter().enumerate() {
         let label = if i < b.len() { b[i] } else { 0 };
-        let _ = writeln!(handle, "{}: {:.6} {:.6} {:.6}", label, vec[0], vec[1], vec[2]);
+        let _ = writeln!(
+            handle,
+            "{}: {:.6} {:.6} {:.6}",
+            label, vec[0], vec[1], vec[2]
+        );
     }
 }
 
@@ -136,10 +147,10 @@ mod tests {
     // 为了测试不同的环境变量状态，我们需要在测试中模拟或重置（但在 Rust 标准库中重置 OnceLock 是不安全的/不支持的）。
     // 因此，这里的测试主要验证逻辑正确性。在实际单元测试中，针对全局单例的测试比较棘手。
     // 下面的测试代码假设是分别运行的，或者我们接受 OnceLock 初始化后不可变的特性。
-    // 
+    //
     // 为了让测试通过，我们这里仅测试默认行为和打印函数不 Panic。
     // 如果需要严格测试环境变量切换，需要将 OnceLock 替换为每次读取（仅用于测试配置）或使用 AtomicBool 手动管理。
-    
+
     #[test]
     fn test_print_functions_no_panic() {
         // 确保在没有设置环境变量的情况下调用这些函数不会崩溃
@@ -156,7 +167,7 @@ mod tests {
         debug_print_vectors_with_label(&vecs_d, &labels);
         debug_print(format_args!("Test debug print: {}\n", 123));
     }
-    
+
     // 注意：由于 OnceLock 的存在，test_debug_enabled 等修改环境变量的测试
     // 在同一个进程中只能生效一次。如果必须测试动态开关，建议在非生产构建中移除 OnceLock。
 }

@@ -5,18 +5,19 @@
 //! 并恢复原始晶胞中的对称操作。
 
 use crate::SymError;
-use crate::cell::{is_overlap, is_overlap_with_same_type, layer_is_overlap_with_same_type, AperiodicAxis, Cell};
+use crate::cell::{
+    AperiodicAxis, Cell, is_overlap, is_overlap_with_same_type, layer_is_overlap_with_same_type,
+};
 use crate::debug;
 use crate::mathfunc::{
     Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d,
-    mat_check_identity_matrix_d3, mat_check_identity_matrix_i3,
-    mat_cross_product_d3, mat_dmod1, mat_get_determinant_i3, mat_get_metric,
-    mat_inverse_matrix_d3, mat_multiply_matrix_d3, mat_multiply_matrix_di3, mat_multiply_matrix_vector_d3,
-    mat_multiply_matrix_vector_id3, mat_norm_squared_d3,
-    mat_transpose_matrix_d3,
+    mat_check_identity_matrix_d3, mat_check_identity_matrix_i3, mat_cross_product_d3, mat_dmod1,
+    mat_get_determinant_i3, mat_get_metric, mat_inverse_matrix_d3, mat_multiply_matrix_d3,
+    mat_multiply_matrix_di3, mat_multiply_matrix_vector_d3, mat_multiply_matrix_vector_id3,
+    mat_norm_squared_d3, mat_transpose_matrix_d3,
 };
-use crate::pointgroup::{get_pointgroup, Holohedry};
-use crate::site_symmetry::{ssm_get_exact_positions, ExactPositions};
+use crate::pointgroup::{Holohedry, get_pointgroup};
+use crate::site_symmetry::{ExactPositions, ssm_get_exact_positions};
 use crate::spacegroup::Spacegroup;
 use crate::spg_database::get_spacegroup_operations;
 use crate::symmetry::Symmetry;
@@ -135,12 +136,7 @@ fn get_wyckoff_positions(
     )?;
 
     // Map bravais-level data to cell-level
-    for (i, (wyckoff, &mapped_atom)) in output
-        .wyckoffs
-        .iter_mut()
-        .zip(mapping_table)
-        .enumerate()
-    {
+    for (i, (wyckoff, &mapped_atom)) in output.wyckoffs.iter_mut().zip(mapping_table).enumerate() {
         let Some(mapped_atom) = mapped_atom else {
             debug::warning_print(format_args!(
                 "spglib: missing bravais mapping for atom {}\n",
@@ -152,9 +148,7 @@ fn get_wyckoff_positions(
     }
     for (symbol, &mapped_atom) in output.site_symmetry_symbols.iter_mut().zip(mapping_table) {
         let Some(mapped_atom) = mapped_atom else {
-            debug::warning_print(format_args!(
-                "spglib: missing bravais mapping for atom\n"
-            ));
+            debug::warning_print(format_args!("spglib: missing bravais mapping for atom\n"));
             return None;
         };
         *symbol = site_sym_symbols_bravais[mapped_atom].clone();
@@ -217,7 +211,11 @@ fn get_bravais_exact_positions_and_lattice(
     conv_prim.lattice = get_conventional_lattice(spacegroup).ok()?;
 
     // Set aperiodic axis
-    conv_prim.aperiodic_axis = if spacegroup.hall_number > 0 { None } else { Some(AperiodicAxis::Z) };
+    conv_prim.aperiodic_axis = if spacegroup.hall_number > 0 {
+        None
+    } else {
+        Some(AperiodicAxis::Z)
+    };
 
     // Get exact positions via site symmetry
     let ExactPositions {
@@ -226,12 +224,12 @@ fn get_bravais_exact_positions_and_lattice(
         equivalent_atoms: equiv_atoms_prim,
         site_symmetry_symbols: site_symmetry_symbols_prim,
     } = ssm_get_exact_positions(
-            &conv_prim,
-            &conv_sym,
-            num_pure_trans,
-            spacegroup.hall_number,
-            symprec,
-        )?;
+        &conv_prim,
+        &conv_sym,
+        num_pure_trans,
+        spacegroup.hall_number,
+        symprec,
+    )?;
 
     // Copy exact positions back to conv_prim
     let n_atoms = conv_prim.len();
@@ -628,9 +626,8 @@ fn set_equivalent_atoms_broken_symmetry(
             for j in 0..cell.len() {
                 if mapping_table[i] == mapping_table[j] {
                     if i == j {
-                        equiv_atoms_cell[i] = equiv_atoms_cell[search_layer_equivalent_atom(
-                            i, cell, symmetry, aperiodic, symprec,
-                        )];
+                        equiv_atoms_cell[i] = equiv_atoms_cell
+                            [search_layer_equivalent_atom(i, cell, symmetry, aperiodic, symprec)];
                     } else {
                         equiv_atoms_cell[i] = equiv_atoms_cell[j];
                     }
@@ -663,7 +660,8 @@ fn search_equivalent_atom(
     symprec: f64,
 ) -> usize {
     for i in 0..symmetry.len() {
-        let mut pos_rot = mat_multiply_matrix_vector_id3(&symmetry.rot[i], &cell.position[atom_index]);
+        let mut pos_rot =
+            mat_multiply_matrix_vector_id3(&symmetry.rot[i], &cell.position[atom_index]);
         for (coordinate, translation) in pos_rot.iter_mut().zip(&symmetry.trans[i]) {
             *coordinate += translation;
         }
@@ -691,7 +689,8 @@ fn search_layer_equivalent_atom(
     symprec: f64,
 ) -> usize {
     for i in 0..symmetry.len() {
-        let mut pos_rot = mat_multiply_matrix_vector_id3(&symmetry.rot[i], &cell.position[atom_index]);
+        let mut pos_rot =
+            mat_multiply_matrix_vector_id3(&symmetry.rot[i], &cell.position[atom_index]);
         for (coordinate, translation) in pos_rot.iter_mut().zip(&symmetry.trans[i]) {
             *coordinate += translation;
         }
@@ -791,7 +790,9 @@ fn get_corners(t_mat: &Mat3I) -> [[i32; 8]; 3] {
     // O is already initialized to zero.
     // a, b, c
     for i in 0..3 {
-        for j in 0..3 { corners[j][i + 1] = t_mat[j][i]; }
+        for j in 0..3 {
+            corners[j][i + 1] = t_mat[j][i];
+        }
     }
     // b+c, c+a, a+b
     for i in 0..3 {
@@ -800,7 +801,9 @@ fn get_corners(t_mat: &Mat3I) -> [[i32; 8]; 3] {
         }
     }
     // a+b+c
-    for i in 0..3 { corners[i][7] = t_mat[i][0] + t_mat[i][1] + t_mat[i][2]; }
+    for i in 0..3 {
+        corners[i][7] = t_mat[i][0] + t_mat[i][1] + t_mat[i][2];
+    }
     corners
 }
 
@@ -988,7 +991,9 @@ pub fn find_similar_bravais_lattice(spacegroup: &mut Spacegroup, symprec: f64) -
             }
             let tmp_mat_d = mat_cast_matrix_3i_to_3d(&conv_sym.rot[i]);
             let tmp_inv = mat_inverse_matrix_d3(&tmp_mat_d, 0.0);
-            let Ok(tmp_inv) = tmp_inv else { continue; };
+            let Ok(tmp_inv) = tmp_inv else {
+                continue;
+            };
 
             let mut p = mat_multiply_matrix_vector_d3(&tmp_inv, &spacegroup.origin_shift);
             let tmp_vec = mat_multiply_matrix_vector_d3(&tmp_inv, &conv_sym.trans[i]);

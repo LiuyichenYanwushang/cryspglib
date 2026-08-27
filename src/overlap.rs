@@ -4,12 +4,12 @@
 //! 两个原子位置是否在给定精度下等价。
 
 use crate::SymError;
-use crate::cell::Cell;
 #[cfg(test)]
 use crate::cell::AperiodicAxis;
+use crate::cell::Cell;
 use crate::mathfunc::{
-    Mat3, Vec3, mat_multiply_matrix_vector_d3, mat_multiply_matrix_vector_id3,
-    mat_nint, mat_norm_squared_d3,
+    Mat3, Vec3, mat_multiply_matrix_vector_d3, mat_multiply_matrix_vector_id3, mat_nint,
+    mat_norm_squared_d3,
 };
 use std::cmp::Ordering;
 
@@ -38,7 +38,7 @@ pub struct OverlapChecker {
     pub types_sorted: Vec<i32>,
     pub pos_sorted: Vec<Vec3>,     // 已排序的原子位置
     pub periodic_axes: [usize; 2], // 用于层状结构
-    
+
     // 缓存区，避免重复分配内存 (对应 C 中的 blob 和 argsort_work)
     perm_temp: Vec<usize>,
     distance_temp: Vec<f64>,
@@ -542,8 +542,12 @@ mod tests {
         let b_type = 1;
         let c_type = 2;
 
-        assert!(has_overlap_with_same_type(&a, &b, a_type, b_type, &lattice, 1e-5));
-        assert!(!has_overlap_with_same_type(&a, &b, a_type, c_type, &lattice, 1e-5));
+        assert!(has_overlap_with_same_type(
+            &a, &b, a_type, b_type, &lattice, 1e-5
+        ));
+        assert!(!has_overlap_with_same_type(
+            &a, &b, a_type, c_type, &lattice, 1e-5
+        ));
     }
 
     #[test]

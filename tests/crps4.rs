@@ -74,9 +74,8 @@ fn test_crps4() {
         24, 24, 24, 24, 24, 24, 24, 24, // Cr (8)
         15, 15, 15, 15, 15, 15, 15, 15, // P (8)
         16, 16, 16, 16, 16, 16, 16, 16, // S (32)
-        16, 16, 16, 16, 16, 16, 16, 16,
-        16, 16, 16, 16, 16, 16, 16, 16,
-        16, 16, 16, 16, 16, 16, 16, 16,
+        16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+        16,
     ];
 
     let dataset = Crystal::new(lattice, positions.to_vec(), types.to_vec())
@@ -87,13 +86,19 @@ fn test_crps4() {
         .expect("dataset failed for CrPS4");
 
     // C2 (#5), Hall 9, 点群 2 (C₂)
-    assert_eq!(dataset.spacegroup_number, 5,
-        "CrPS₄ expected C2 (#5), got #{}", dataset.spacegroup_number);
-    assert_eq!(dataset.hall_number, 9,
-        "expected Hall 9, got {}", dataset.hall_number);
+    assert_eq!(
+        dataset.spacegroup_number, 5,
+        "CrPS₄ expected C2 (#5), got #{}",
+        dataset.spacegroup_number
+    );
+    assert_eq!(
+        dataset.hall_number, 9,
+        "expected Hall 9, got {}",
+        dataset.hall_number
+    );
 
-    let sg_type = SpaceGroupType::from_hall(dataset.hall_number)
-        .expect("SpaceGroupType::from_hall failed");
+    let sg_type =
+        SpaceGroupType::from_hall(dataset.hall_number).expect("SpaceGroupType::from_hall failed");
     assert_eq!(sg_type.international_short.trim(), "C2");
     assert_eq!(sg_type.schoenflies.trim(), "C2^3");
 
@@ -103,10 +108,16 @@ fn test_crps4() {
     assert_eq!(pg_number, 3, "point group should be 2 (C2)");
 
     // C2 底心: 2 个点群操作 × 4 个底心平移 = 8 个对称操作
-    assert_eq!(dataset.n_operations, 8,
-        "expected 8 symmetry ops (C2 with C-centering), got {}", dataset.n_operations);
+    assert_eq!(
+        dataset.n_operations, 8,
+        "expected 8 symmetry ops (C2 with C-centering), got {}",
+        dataset.n_operations
+    );
 
     // 标准晶胞: 24 原子（C 底心约化）
-    assert_eq!(dataset.n_std_atoms, 24,
-        "standard cell should be 24 atoms, got {}", dataset.n_std_atoms);
+    assert_eq!(
+        dataset.n_std_atoms, 24,
+        "standard cell should be 24 atoms, got {}",
+        dataset.n_std_atoms
+    );
 }

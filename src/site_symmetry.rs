@@ -5,8 +5,10 @@
 //! 参考: R. W. Grosse-Kunstleve and P. D. Adams,
 //! Acta Cryst. (2002). A58, 60-65
 
-use crate::cell::{is_overlap, is_overlap_with_same_type, layer_is_overlap,
-                   layer_is_overlap_with_same_type, AperiodicAxis, Cell};
+use crate::cell::{
+    AperiodicAxis, Cell, is_overlap, is_overlap_with_same_type, layer_is_overlap,
+    layer_is_overlap_with_same_type,
+};
 use crate::debug;
 use crate::mathfunc::*;
 use crate::sitesym_database::*;
@@ -55,13 +57,19 @@ pub(crate) fn ssm_get_exact_positions(
         } = get_exact_positions(conv_prim, conv_sym, tolerance)?;
 
         let (wyckoffs, symbols) = match set_wyckoffs_labels(
-            &positions, &equiv_atoms, conv_prim, conv_sym,
-            num_pure_trans, hall_number, symprec,
+            &positions,
+            &equiv_atoms,
+            conv_prim,
+            conv_sym,
+            num_pure_trans,
+            hall_number,
+            symprec,
         ) {
             Some(v) => v,
             None => {
                 debug::debug_print(format_args!(
-                    "spglib: ssm_get_exact_positions failed (attempt={}).\n", i
+                    "spglib: ssm_get_exact_positions failed (attempt={}).\n",
+                    i
                 ));
                 tolerance *= INCREASE_RATE;
                 continue;
@@ -203,8 +211,7 @@ fn set_exact_location(
                 for (sum_value, &rotation) in sum_row.iter_mut().zip(&conv_sym.rot[i][j]) {
                     *sum_value += rotation as f64;
                 }
-                *sum_translation +=
-                    conv_sym.trans[i][j] - (pos[j] - position[j]).round();
+                *sum_translation += conv_sym.trans[i][j] - (pos[j] - position[j]).round();
             }
             num_site_sym += 1;
         }
@@ -282,8 +289,7 @@ fn set_layer_exact_location(
                 for (sum_value, &rotation) in sum_row.iter_mut().zip(&conv_sym.rot[i][j]) {
                     *sum_value += rotation as f64;
                 }
-                *sum_translation +=
-                    conv_sym.trans[i][j] - (pos[j] - position[j]).round();
+                *sum_translation += conv_sym.trans[i][j] - (pos[j] - position[j]).round();
             }
             num_site_sym += 1;
         }
@@ -330,12 +336,16 @@ fn set_wyckoffs_labels(
         for i in 0..n {
             if i == equiv_atoms[i] {
                 debug::debug_print(format_args!(
-                    "num_equiv_atoms[{}]: {}\n", i, nums_equiv_atoms[i]
+                    "num_equiv_atoms[{}]: {}\n",
+                    i, nums_equiv_atoms[i]
                 ));
                 let w = get_wyckoff_notation(
-                    &positions[i], conv_sym,
-                    nums_equiv_atoms[i] * num_pure_trans, &conv_prim.lattice,
-                    hall_number, symprec,
+                    &positions[i],
+                    conv_sym,
+                    nums_equiv_atoms[i] * num_pure_trans,
+                    &conv_prim.lattice,
+                    hall_number,
+                    symprec,
                 );
                 match w {
                     Some((letter, sym)) => {
@@ -350,9 +360,13 @@ fn set_wyckoffs_labels(
         for i in 0..n {
             if i == equiv_atoms[i] {
                 let w = get_layer_wyckoff_notation(
-                    &positions[i], conv_sym,
-                    nums_equiv_atoms[i] * num_pure_trans, &conv_prim.lattice,
-                    hall_number, AperiodicAxis::Z, symprec,
+                    &positions[i],
+                    conv_sym,
+                    nums_equiv_atoms[i] * num_pure_trans,
+                    &conv_prim.lattice,
+                    hall_number,
+                    AperiodicAxis::Z,
+                    symprec,
                 );
                 match w {
                     Some((letter, sym)) => {
@@ -419,13 +433,14 @@ fn get_wyckoff_notation(
             }
 
             // 一致性检查: num_sym == num_sitesym * m 且 m == ref_multiplicity
-            if num_sitesym * multiplicity == n as i32
-                && multiplicity == ref_multiplicity
-            {
+            if num_sitesym * multiplicity == n as i32 && multiplicity == ref_multiplicity {
                 // 数据库是反序的 (gfedcba), wyckoff 按 a=0, b=1, c=2... 排列
                 let wyckoff_letter = indices_wyc_count - i - 1;
                 let symbol = ssmdb_get_site_symmetry_symbol(idx);
-                return Some((crate::WyckoffLetter::from_index(wyckoff_letter).ok()?, symbol));
+                return Some((
+                    crate::WyckoffLetter::from_index(wyckoff_letter).ok()?,
+                    symbol,
+                ));
             }
         }
     }
@@ -464,26 +479,29 @@ fn get_layer_wyckoff_notation(
             let mut num_sitesym = 0;
             for k in 0..n {
                 if layer_is_overlap(
-                    &pos_rot[j], &pos_rot[k], bravais_lattice, aperiodic, symprec,
+                    &pos_rot[j],
+                    &pos_rot[k],
+                    bravais_lattice,
+                    aperiodic,
+                    symprec,
                 ) {
                     let mut orbit = mat_multiply_matrix_vector_id3(&rot, &pos_rot[k]);
                     for l in 0..3 {
                         orbit[l] += trans[l];
                     }
-                    if layer_is_overlap(
-                        &pos_rot[k], &orbit, bravais_lattice, aperiodic, symprec,
-                    ) {
+                    if layer_is_overlap(&pos_rot[k], &orbit, bravais_lattice, aperiodic, symprec) {
                         num_sitesym += 1;
                     }
                 }
             }
 
-            if num_sitesym * multiplicity == n as i32
-                && multiplicity == ref_multiplicity
-            {
+            if num_sitesym * multiplicity == n as i32 && multiplicity == ref_multiplicity {
                 let wyckoff_letter = indices_wyc_count - i - 1;
                 let symbol = ssmdb_get_site_symmetry_symbol(idx);
-                return Some((crate::WyckoffLetter::from_index(wyckoff_letter).ok()?, symbol));
+                return Some((
+                    crate::WyckoffLetter::from_index(wyckoff_letter).ok()?,
+                    symbol,
+                ));
             }
         }
     }

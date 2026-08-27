@@ -2,9 +2,7 @@
 //!
 //! 所有测试走公共 API `Crystal` + `SymmetryAnalysis`，覆盖 Type-1/2/3/4 真实物理系统。
 
-use cryspglib::{
-    Crystal, MagneticSpaceGroupType, MagneticType, SymError, SymmetryOps,
-};
+use cryspglib::{Crystal, MagneticSpaceGroupType, MagneticType, SymError, SymmetryOps};
 
 const SYMPREC: f64 = 1e-5;
 
@@ -23,7 +21,10 @@ fn run_dataset(
     if let Some(m) = moments {
         cry = cry.with_magnetic(m.to_vec()).unwrap();
     }
-    let result = cry.analyze().symprec(SYMPREC).magnetic_dataset()
+    let result = cry
+        .analyze()
+        .symprec(SYMPREC)
+        .magnetic_dataset()
         .unwrap_or_else(|e| panic!("{}: magnetic_dataset failed: {:?}", label, e));
     eprintln!("=== {} ===", label);
     eprintln!("{}", result);
@@ -52,9 +53,8 @@ fn pm3m_ops() -> (Vec<[[i32; 3]; 3]>, Vec<[f64; 3]>) {
 #[test]
 fn test_api_type1() {
     let (rots, trans) = pm3m_ops();
-    let result = MagneticSpaceGroupType::classify(
-        &rots, &trans, None, &cubic_lattice(), SYMPREC,
-    ).unwrap();
+    let result =
+        MagneticSpaceGroupType::classify(&rots, &trans, None, &cubic_lattice(), SYMPREC).unwrap();
     assert_eq!(result.type_, MagneticType::Ordinary);
     assert!(result.uni_number > 0);
 }
@@ -67,8 +67,13 @@ fn test_api_type2() {
     let all_trans: Vec<_> = trans.iter().chain(trans.iter()).cloned().collect();
     let timerev: Vec<bool> = (0..n).map(|_| false).chain((0..n).map(|_| true)).collect();
     let result = MagneticSpaceGroupType::classify(
-        &all_rots, &all_trans, Some(&timerev), &cubic_lattice(), SYMPREC,
-    ).unwrap();
+        &all_rots,
+        &all_trans,
+        Some(&timerev),
+        &cubic_lattice(),
+        SYMPREC,
+    )
+    .unwrap();
     assert_eq!(result.type_, MagneticType::Grey);
     assert!(result.uni_number > 0);
 }
@@ -76,10 +81,13 @@ fn test_api_type2() {
 #[test]
 fn test_api_type3() {
     let (rots, trans) = pm3m_ops();
-    let timerev: Vec<bool> = rots.iter().map(|r| !cryspglib::mathfunc::is_proper(r)).collect();
-    let result = MagneticSpaceGroupType::classify(
-        &rots, &trans, Some(&timerev), &cubic_lattice(), SYMPREC,
-    ).unwrap();
+    let timerev: Vec<bool> = rots
+        .iter()
+        .map(|r| !cryspglib::mathfunc::is_proper(r))
+        .collect();
+    let result =
+        MagneticSpaceGroupType::classify(&rots, &trans, Some(&timerev), &cubic_lattice(), SYMPREC)
+            .unwrap();
     assert_eq!(result.type_, MagneticType::BlackWhite);
     assert!(result.uni_number > 0);
 }
@@ -93,7 +101,11 @@ fn test_api_reports_operation_only_ambiguity() {
     let lattice = [[1.0, 0.0, 0.0], [0.0, 1.3, 0.0], [0.0, 0.0, 1.7]];
 
     let result = MagneticSpaceGroupType::classify(
-        &rotations, &translations, Some(&time_reversals), &lattice, SYMPREC,
+        &rotations,
+        &translations,
+        Some(&time_reversals),
+        &lattice,
+        SYMPREC,
     );
 
     assert!(matches!(result, Err(SymError::MagneticUniAmbiguous)));
@@ -202,7 +214,10 @@ fn test_fe_sc_100() {
     let moments = [[1.0, 0.0, 0.0]];
     let r = run_dataset("Fe SC [100]", &lattice, &positions, &types, Some(&moments));
     assert_eq!(r.spacegroup_number, 221, "non-mag: Pm-3m");
-    assert_eq!(r.uni_number, 1005, "[100] and [001] must match the same UNI");
+    assert_eq!(
+        r.uni_number, 1005,
+        "[100] and [001] must match the same UNI"
+    );
     assert_eq!(r.bns_number.trim(), "123.345");
     assert_eq!(r.magnetic_type, MagneticType::BlackWhite);
 }
@@ -216,11 +231,14 @@ fn test_fe_bcc_afm_111() {
     let n = (3.0_f64).sqrt();
     let positions = [[0.0, 0.0, 0.0], [0.5, 0.5, 0.5]];
     let types = [26, 26];
-    let moments = [
-        [1.0 / n, 1.0 / n, 1.0 / n],
-        [-1.0 / n, -1.0 / n, -1.0 / n],
-    ];
-    let r = run_dataset("Fe BCC AFM [111]", &lattice, &positions, &types, Some(&moments));
+    let moments = [[1.0 / n, 1.0 / n, 1.0 / n], [-1.0 / n, -1.0 / n, -1.0 / n]];
+    let r = run_dataset(
+        "Fe BCC AFM [111]",
+        &lattice,
+        &positions,
+        &types,
+        Some(&moments),
+    );
     assert_eq!(r.spacegroup_number, 229, "non-mag: Im-3m");
     assert!(r.uni_number > 0, "AFM [111] must match a DB entry");
     assert_eq!(r.magnetic_type, MagneticType::AntiTranslation);
@@ -290,29 +308,26 @@ fn test_graphene_afm_z() {
     // lattice[cart][vec]: rows=x/y/z, cols=a/b/c
     // a=(1,0,0), b=(1/2,√3/2,0), c=(0,0,2) → hexagonal #191
     let lattice = [
-        [1.0, 0.5, 0.0],    // row x: a_x, b_x, c_x
+        [1.0, 0.5, 0.0],      // row x: a_x, b_x, c_x
         [0.0, s3 / 2.0, 0.0], // row y: a_y, b_y, c_y
-        [0.0, 0.0, 2.0],    // row z: a_z, b_z, c_z
+        [0.0, 0.0, 2.0],      // row z: a_z, b_z, c_z
     ];
     // Sublattice A at origin, sublattice B at nearest-neighbor position
     // τ_B = (1/3, 1/3, 0) in fractional coords → C-C bond along δ₁ direction
-    let positions = [
-        [0.0, 0.0, 0.0],
-        [1.0 / 3.0, 1.0 / 3.0, 0.0],
-    ];
+    let positions = [[0.0, 0.0, 0.0], [1.0 / 3.0, 1.0 / 3.0, 0.0]];
     let types = [6, 6];
     // AFM: opposite z-spins on A and B sublattices
-    let moments = [
-        [0.0, 0.0, 1.0],
-        [0.0, 0.0, -1.0],
-    ];
+    let moments = [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]];
     // The identification must be stable across reasonable tolerances.
     for &sp in &[1e-3, 1e-4, 1e-5, 1e-6] {
         let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
             .unwrap()
             .with_magnetic(moments.to_vec())
             .unwrap();
-        let r = cry.analyze().symprec(sp).magnetic_dataset()
+        let r = cry
+            .analyze()
+            .symprec(sp)
+            .magnetic_dataset()
             .unwrap_or_else(|e| panic!("symprec={sp}: magnetic_dataset failed: {e:?}"));
 
         assert_eq!(r.spacegroup_number, 191, "symprec={sp}");
@@ -341,23 +356,19 @@ fn test_graphene_afm_z() {
 #[test]
 fn test_graphene_bilayer_z() {
     let s3 = (3.0_f64).sqrt();
-    let lattice = [
-        [1.0, 0.5, 0.0],
-        [0.0, s3 / 2.0, 0.0],
-        [0.0, 0.0, 2.0],
-    ];
+    let lattice = [[1.0, 0.5, 0.0], [0.0, s3 / 2.0, 0.0], [0.0, 0.0, 2.0]];
     // Atom A at z=0.51, atom B at z=0.49 (fractional coords)
-    let positions = [
-        [0.0, 0.0, 0.51],
-        [1.0 / 3.0, 1.0 / 3.0, 0.49],
-    ];
+    let positions = [[0.0, 0.0, 0.51], [1.0 / 3.0, 1.0 / 3.0, 0.49]];
     let types = [6, 6];
 
     // --- Non-magnetic ---
     // Broken z-mirror: P6/mmm (#191) → P-3m1 (#164), 24→12 ops
     {
         let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec()).unwrap();
-        let r = cry.analyze().symprec(1e-5).magnetic_dataset()
+        let r = cry
+            .analyze()
+            .symprec(1e-5)
+            .magnetic_dataset()
             .unwrap_or_else(|e| panic!("bilayer non-mag: {e:?}"));
         assert_eq!(r.spacegroup_number, 164, "non-mag: P-3m1");
         assert_eq!(r.hall_number, 456);
@@ -368,15 +379,15 @@ fn test_graphene_bilayer_z() {
     // --- FM: both moments along +z ---
     // Type-3 BlackWhite, UNI=1319, BNS=164.89
     {
-        let moments = [
-            [0.0, 0.0, 1.0],
-            [0.0, 0.0, 1.0],
-        ];
+        let moments = [[0.0, 0.0, 1.0], [0.0, 0.0, 1.0]];
         let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
             .unwrap()
             .with_magnetic(moments.to_vec())
             .unwrap();
-        let r = cry.analyze().symprec(1e-5).magnetic_dataset()
+        let r = cry
+            .analyze()
+            .symprec(1e-5)
+            .magnetic_dataset()
             .unwrap_or_else(|e| panic!("bilayer FM: {e:?}"));
         assert_eq!(r.spacegroup_number, 164);
         assert_eq!(r.hall_number, 456);
@@ -389,15 +400,15 @@ fn test_graphene_bilayer_z() {
     // --- AFM: one +z, one -z ---
     // Type-3 BlackWhite, UNI=1318, BNS=164.88
     {
-        let moments = [
-            [0.0, 0.0, 1.0],
-            [0.0, 0.0, -1.0],
-        ];
+        let moments = [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]];
         let cry = Crystal::new(lattice, positions.to_vec(), types.to_vec())
             .unwrap()
             .with_magnetic(moments.to_vec())
             .unwrap();
-        let r = cry.analyze().symprec(1e-5).magnetic_dataset()
+        let r = cry
+            .analyze()
+            .symprec(1e-5)
+            .magnetic_dataset()
             .unwrap_or_else(|e| panic!("bilayer AFM: {e:?}"));
         assert_eq!(r.spacegroup_number, 164);
         assert_eq!(r.hall_number, 456);
@@ -495,8 +506,8 @@ fn test_mnal2o4_afm_z() {
     let types = [
         25, 25, 25, 25, 25, 25, 25, 25, // Mn
         13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, // Al
-        8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-        8, 8, 8, 8, 8, 8, 8, 8, // O
+        8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+        8, 8, // O
     ];
 
     // --- Non-magnetic: spinel Fd-3m (#227) ---

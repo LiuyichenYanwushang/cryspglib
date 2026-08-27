@@ -63,13 +63,19 @@ fn test_la2nio4() {
         .expect("dataset failed for La2NiO4");
 
     // P4₂/ncm (#138), Hall 422, 点群 4/mmm (D₄ₕ)
-    assert_eq!(dataset.spacegroup_number, 138,
-        "La₂NiO₄ expected P4₂/ncm (#138), got #{}", dataset.spacegroup_number);
-    assert_eq!(dataset.hall_number, 422,
-        "expected Hall 422, got {}", dataset.hall_number);
+    assert_eq!(
+        dataset.spacegroup_number, 138,
+        "La₂NiO₄ expected P4₂/ncm (#138), got #{}",
+        dataset.spacegroup_number
+    );
+    assert_eq!(
+        dataset.hall_number, 422,
+        "expected Hall 422, got {}",
+        dataset.hall_number
+    );
 
-    let sg_type = SpaceGroupType::from_hall(dataset.hall_number)
-        .expect("SpaceGroupType::from_hall failed");
+    let sg_type =
+        SpaceGroupType::from_hall(dataset.hall_number).expect("SpaceGroupType::from_hall failed");
     assert_eq!(sg_type.international_short.trim(), "P4_2/ncm");
     assert_eq!(sg_type.schoenflies.trim(), "D4h^16");
 
@@ -79,10 +85,16 @@ fn test_la2nio4() {
     assert_eq!(pg_number, 15, "point group should be 4/mmm (D4h)");
 
     // D₄ₕ 点群: 16 个对称操作
-    assert_eq!(dataset.n_operations, 16,
-        "expected 16 symmetry ops (D4h), got {}", dataset.n_operations);
+    assert_eq!(
+        dataset.n_operations, 16,
+        "expected 16 symmetry ops (D4h), got {}",
+        dataset.n_operations
+    );
 
     // 原胞: 28 原子（无纯平移约化）
-    assert_eq!(dataset.n_atoms, 28,
-        "primitive should have 28 atoms, got {}", dataset.n_atoms);
+    assert_eq!(
+        dataset.n_atoms, 28,
+        "primitive should have 28 atoms, got {}",
+        dataset.n_atoms
+    );
 }

@@ -6,10 +6,10 @@
 
 include!("msg_database_gen.rs");
 
+use crate::MagneticType;
 use crate::debug;
 use crate::mathfunc::Mat3I;
 use crate::symmetry::{MagneticSymmetry, Symmetry};
-use crate::MagneticType;
 
 /// 获取磁性空间群类型。
 pub fn get_magnetic_spacegroup_type(uni_number: usize) -> &'static MagneticSpacegroupType {
@@ -55,10 +55,7 @@ pub fn get_spacegroup_operations(
 }
 
 /// 获取标准变换。
-pub fn get_std_transformations(
-    uni_number: usize,
-    hall_number: usize,
-) -> Option<Symmetry> {
+pub fn get_std_transformations(uni_number: usize, hall_number: usize) -> Option<Symmetry> {
     let hall_number_offset = get_hall_number_offset(uni_number, hall_number)?;
     let mut sym = Symmetry::with_capacity(7);
     // Identity transformation as first element

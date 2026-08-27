@@ -16,15 +16,14 @@ use crate::mathfunc::{
     mat_nint,
 };
 use crate::msg_database::{
-    get_magnetic_spacegroup_type, get_spacegroup_operations,
-    get_std_transformations, get_uni_candidates,
+    get_magnetic_spacegroup_type, get_spacegroup_operations, get_std_transformations,
+    get_uni_candidates,
 };
 use crate::pointgroup::get_transformation_matrix;
 use crate::primitive::get_primitive_symmetry;
 use crate::refinement::find_similar_bravais_lattice;
 use crate::spacegroup::{
-    Spacegroup, get_centering, get_initial_conventional_symmetry,
-    search_spacegroup_with_symmetry,
+    Spacegroup, get_centering, get_initial_conventional_symmetry, search_spacegroup_with_symmetry,
 };
 use crate::spg_database::{Centering, get_spacegroup_type};
 use crate::symmetry::{MagneticSymmetry, Symmetry};
@@ -108,9 +107,10 @@ pub fn identify_with_parent_hall(
     symprec: f64,
 ) -> Result<MagneticDataset, SymError> {
     if let Some(hall_number) = parent_hall_number
-        && let Some(dataset) = match_exact_parent_setting(magnetic_symmetry, hall_number, symprec) {
-            return Ok(dataset);
-        }
+        && let Some(dataset) = match_exact_parent_setting(magnetic_symmetry, hall_number, symprec)
+    {
+        return Ok(dataset);
+    }
 
     // Type-IV standardization is not injective: distinct BNS parent groups
     // can have the same standardized XSG representation.  Build the complete
@@ -155,9 +155,10 @@ pub fn identify_with_parent_hall(
                 symprec,
             );
             if parent_hall_number.is_some()
-                && let Some(dataset) = canonical_fallback {
-                    return Ok(dataset);
-                }
+                && let Some(dataset) = canonical_fallback
+            {
+                return Ok(dataset);
+            }
         }
     }
 
@@ -317,8 +318,7 @@ fn match_exact_parent_setting(
 ) -> Option<MagneticDataset> {
     let [min_uni, max_uni] = get_uni_candidates(hall_number)?;
     for uni_number in min_uni..=max_uni {
-        let Some(database_symmetry) = get_spacegroup_operations(uni_number, hall_number)
-        else {
+        let Some(database_symmetry) = get_spacegroup_operations(uni_number, hall_number) else {
             continue;
         };
         if !is_equal(magnetic_symmetry, &database_symmetry, symprec) {
@@ -430,8 +430,7 @@ fn type_iv_canonical_index() -> &'static HashMap<CanonicalMagneticKey, Vec<Canon
             let [num_halls, first_hall] =
                 crate::msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING[uni_number];
             for hall_number in first_hall as usize..(first_hall + num_halls) as usize {
-                let Some(database_symmetry) =
-                    get_spacegroup_operations(uni_number, hall_number)
+                let Some(database_symmetry) = get_spacegroup_operations(uni_number, hall_number)
                 else {
                     continue;
                 };
@@ -482,9 +481,9 @@ fn choose_canonical_candidate(
         && let Some(candidate) = candidates
             .iter()
             .find(|candidate| candidate.hall_number == parent_hall)
-        {
-            return Some(candidate.clone());
-        }
+    {
+        return Some(candidate.clone());
+    }
 
     for candidate in candidates {
         let Some(database_symmetry) =
@@ -525,8 +524,7 @@ fn dataset_from_canonical_candidate(
         &origin_shift,
         magnetic_symmetry,
     )?;
-    let database_symmetry =
-        get_spacegroup_operations(candidate.uni_number, candidate.hall_number)?;
+    let database_symmetry = get_spacegroup_operations(candidate.uni_number, candidate.hall_number)?;
     if !is_equal(&transformed, &database_symmetry, symprec) {
         return None;
     }
@@ -577,7 +575,8 @@ fn get_reference_space_group(
         };
 
     // 3. 确定 MSG 类型 + 获取代表元
-    let msgtype_num = get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.len(), sym_xsg.len())?;
+    let msgtype_num =
+        get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.len(), sym_xsg.len())?;
     let representatives = build_representatives(msgtype_num, magnetic_symmetry)?;
 
     // 4. 选择参考设置: type-4 用 XSG, 其他用 FSG
@@ -629,7 +628,8 @@ fn build_fallback_reference(
     let sym_xsg = extract_symmetry(magnetic_symmetry, false, symprec)?;
 
     // 2. 确定磁性类型
-    let msgtype_num = get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.len(), sym_xsg.len())?;
+    let msgtype_num =
+        get_magnetic_space_group_type(magnetic_symmetry, sym_fsg.len(), sym_xsg.len())?;
 
     // 3. 用非磁 Hall 编号构建参考 Spacegroup
     let spg_type = get_spacegroup_type(parent_hall_number);
@@ -1081,8 +1081,7 @@ fn get_changed_pure_translations(
             let mut ok = true;
             'matrix: for row in tmat {
                 for &value in row {
-                    if (value * denominator as f64
-                        - mat_nint(value * denominator as f64) as f64)
+                    if (value * denominator as f64 - mat_nint(value * denominator as f64) as f64)
                         .abs()
                         > symprec
                     {
@@ -1148,9 +1147,8 @@ fn get_changed_magnetic_symmetry(
         get_distinct_changed_magnetic_symmetry(tmat, shift, representatives)?;
 
     // 2. 收集原始磁性对称中的纯平移（仅 timerev=0），变换到参考设置
-    let pure_trans = crate::spin::collect_pure_translations_from_magnetic_symmetry(
-        magnetic_symmetry,
-    );
+    let pure_trans =
+        crate::spin::collect_pure_translations_from_magnetic_symmetry(magnetic_symmetry);
     let changed_pure_trans = get_changed_pure_translations(tmat, &pure_trans, symprec)?;
 
     // 3. 从 XSG 对称性中收集因子群（仅去重旋转部分，timerev=0）
@@ -1188,8 +1186,7 @@ fn get_changed_magnetic_symmetry(
 
                 // timerev = changed_representatives.timerev XOR changed_factors.timerev
                 // (factors 都是 ordinary，所以 XOR 就是 representatives 的 timerev)
-                let timerev =
-                    changed_representatives.timerev[j] != changed_factors.timerev[k];
+                let timerev = changed_representatives.timerev[j] != changed_factors.timerev[k];
                 changed.push(rot, trans, timerev);
             }
         }
@@ -1285,22 +1282,13 @@ mod tests {
     fn changed_pure_translations_rejects_unsafe_determinants() {
         let translations = [[0.0, 0.0, 0.0]];
         let singular = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.0]];
-        let nan = [
-            [f64::NAN, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ];
-        let infinite = [
-            [f64::INFINITY, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ];
+        let nan = [[f64::NAN, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+        let infinite = [[f64::INFINITY, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
         let tiny = [[1e-12, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
         for transform in [singular, nan, infinite, tiny] {
             assert!(
-                super::get_changed_pure_translations(&transform, &translations, SYMPREC)
-                    .is_none()
+                super::get_changed_pure_translations(&transform, &translations, SYMPREC).is_none()
             );
         }
     }
@@ -1350,9 +1338,7 @@ mod tests {
         let translations = [[0.0, 0.0, 0.0]];
         let transform = [[0.3, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
-        assert!(
-            super::get_changed_pure_translations(&transform, &translations, SYMPREC).is_none()
-        );
+        assert!(super::get_changed_pure_translations(&transform, &translations, SYMPREC).is_none());
     }
 
     #[test]
@@ -1360,9 +1346,7 @@ mod tests {
         let translations = [[0.0, 0.0, 0.0]];
         let transform = [[2.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 0.5]];
 
-        assert!(
-            super::get_changed_pure_translations(&transform, &translations, SYMPREC).is_none()
-        );
+        assert!(super::get_changed_pure_translations(&transform, &translations, SYMPREC).is_none());
     }
 
     /// Type-1 (Ordinary): 所有 timerev=false
@@ -1454,13 +1438,11 @@ mod tests {
         ));
 
         let bns_37 =
-            super::identify_with_parent_hall(&cubic_lattice(), &input, Some(182), SYMPREC)
-                .unwrap();
+            super::identify_with_parent_hall(&cubic_lattice(), &input, Some(182), SYMPREC).unwrap();
         assert_eq!(bns_37.uni_number, 282);
 
         let bns_36 =
-            super::identify_with_parent_hall(&cubic_lattice(), &input, Some(176), SYMPREC)
-                .unwrap();
+            super::identify_with_parent_hall(&cubic_lattice(), &input, Some(176), SYMPREC).unwrap();
         assert_eq!(bns_36.uni_number, 275);
     }
 
@@ -1490,8 +1472,7 @@ mod tests {
 
         for uni in [282usize, 283, 284] {
             for hall in 182usize..=184 {
-                let magnetic =
-                    crate::msg_database::get_spacegroup_operations(uni, hall).unwrap();
+                let magnetic = crate::msg_database::get_spacegroup_operations(uni, hall).unwrap();
                 let automatic =
                     super::identify_magnetic_space_group_type(&lattice, &magnetic, SYMPREC);
                 if uni == 283 {
@@ -1525,12 +1506,8 @@ mod tests {
                     .unwrap();
             let reference =
                 super::get_reference_space_group(&cubic_lattice(), &magnetic, SYMPREC).unwrap();
-            let result = super::identify_with_parent_hall(
-                &cubic_lattice(),
-                &magnetic,
-                Some(hall),
-                SYMPREC,
-            );
+            let result =
+                super::identify_with_parent_hall(&cubic_lattice(), &magnetic, Some(hall), SYMPREC);
 
             eprintln!(
                 "UNI {uni} input Hall {hall}: FSG Hall {} SG{} order {} P {:?} p {:?}; \

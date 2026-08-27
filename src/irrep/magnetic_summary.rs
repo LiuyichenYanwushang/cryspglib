@@ -741,9 +741,7 @@ fn magnetic_operation_keys(
             if (scaled - rounded).abs() / 12.0 > TRANSLATION_TOLERANCE {
                 return Err(MagneticIrrepError::OperationsInconsistentWithUni {
                     uni,
-                    reason: format!(
-                        "operation {index} translation is not quantized in twelfths"
-                    ),
+                    reason: format!("operation {index} translation is not quantized in twelfths"),
                 });
             }
             translation_twelfths[axis] = (rounded as i32).rem_euclid(12);
@@ -768,10 +766,7 @@ fn magnetic_operation_keys(
     Ok(keys)
 }
 
-fn validate_operations_for_uni(
-    uni: usize,
-    ops: &SymmetryOps,
-) -> Result<(), MagneticIrrepError> {
+fn validate_operations_for_uni(uni: usize, ops: &SymmetryOps) -> Result<(), MagneticIrrepError> {
     if uni == 0 || uni > 1651 {
         return Err(MagneticIrrepError::InvalidUni(uni));
     }

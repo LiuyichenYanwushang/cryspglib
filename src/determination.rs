@@ -6,9 +6,9 @@
 use crate::SymError;
 use crate::cell::Cell;
 use crate::debug;
-use crate::primitive::{get_primitive, Primitive};
-use crate::refinement::{get_exact_structure_and_symmetry, ExactStructure};
-use crate::spacegroup::{search_spacegroup, Spacegroup};
+use crate::primitive::{Primitive, get_primitive};
+use crate::refinement::{ExactStructure, get_exact_structure_and_symmetry};
+use crate::spacegroup::{Spacegroup, search_spacegroup};
 
 const REDUCE_RATE_OUTER: f64 = 0.9;
 const NUM_ATTEMPT_OUTER: i32 = 10;
@@ -40,7 +40,8 @@ pub fn determine_all(
 
     let mut tolerance = symprec;
     for _ in 0..NUM_ATTEMPT_OUTER {
-        if let Ok(mut container) = get_spacegroup_and_primitive(cell, hall_number, tolerance, angle_symprec)
+        if let Ok(mut container) =
+            get_spacegroup_and_primitive(cell, hall_number, tolerance, angle_symprec)
         {
             let exstr = {
                 let sg = container
@@ -51,10 +52,7 @@ pub fn determine_all(
                     .primitive
                     .as_ref()
                     .ok_or(SymError::SpacegroupSearchFailed)?;
-                let prim_cell = prim
-                    .cell
-                    .as_ref()
-                    .ok_or(SymError::SpacegroupSearchFailed)?;
+                let prim_cell = prim.cell.as_ref().ok_or(SymError::SpacegroupSearchFailed)?;
                 get_exact_structure_and_symmetry(
                     sg,
                     prim_cell,
@@ -100,12 +98,8 @@ fn get_spacegroup_and_primitive(
             let prim_tol = primitive.tolerance;
             let prim_angle_tol = primitive.angle_tolerance;
 
-            let spacegroup = search_spacegroup(
-                &primitive,
-                hall_number,
-                prim_tol,
-                prim_angle_tol,
-            ).ok();
+            let spacegroup =
+                search_spacegroup(&primitive, hall_number, prim_tol, prim_angle_tol).ok();
             if let Some(spacegroup) = spacegroup {
                 return Ok(DataContainer {
                     spacegroup: Some(spacegroup),

@@ -54,9 +54,10 @@ impl NiggliParams {
 fn get_num_attempts() -> i32 {
     if let Ok(val_str) = env::var("SPGLIB_NUM_ATTEMPTS") {
         if let Ok(val) = val_str.parse::<i32>()
-            && val > 0 {
-                return val;
-            }
+            && val > 0
+        {
+            return val;
+        }
         debug::warning_print(format_args!(
             "spglib: Could not parse SPGLIB_NUM_ATTEMPTS={}\n",
             val_str
@@ -80,7 +81,11 @@ pub fn get_micro_version() -> i32 {
 /// eps: 容差
 /// aperiodic_axis: None=体材料, Some(X/Y/Z)=非周期轴
 /// 成功返回 `Ok(())`，失败返回 `Err(SymError::NiggliFailed)`。
-pub fn reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<AperiodicAxis>) -> Result<(), SymError> {
+pub fn reduce(
+    lattice: &mut Mat3,
+    eps: f64,
+    aperiodic_axis: Option<AperiodicAxis>,
+) -> Result<(), SymError> {
     let mut p = NiggliParams::new(lattice, eps);
     let mut succeeded = false;
 
@@ -194,13 +199,18 @@ pub fn reduce(lattice: &mut Mat3, eps: f64, aperiodic_axis: Option<AperiodicAxis
     // Finalize: copy back to lattice
     *lattice = p.lattice;
 
-    if succeeded { Ok(()) } else { Err(SymError::NiggliFailed) }
+    if succeeded {
+        Ok(())
+    } else {
+        Err(SymError::NiggliFailed)
+    }
 }
 
 fn layer_swap_axis(p: &mut NiggliParams, aperiodic_axis: AperiodicAxis) -> bool {
     if aperiodic_axis == AperiodicAxis::X {
         p.tmat = [[0.0, 0.0, -1.0], [0.0, -1.0, 0.0], [-1.0, 0.0, 0.0]];
-    } else { // Y
+    } else {
+        // Y
         p.tmat = [[-1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, -1.0, 0.0]];
     }
     reset(p)
