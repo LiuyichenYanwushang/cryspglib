@@ -4836,37 +4836,13 @@ mod tests {
     }
 
     #[test]
-    fn type_a_character_helpers_reject_invalid_magnetic_indices() {
+    fn type_a_character_helper_rejects_invalid_magnetic_indices() {
         let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], false);
         let mag = vec![id.clone()];
 
         assert!(
             type_a_antiunitary_chars(&mag, &[0], &[1.0], std::slice::from_ref(&id), 0, gamma(),)
                 .is_none()
-        );
-        assert!(
-            type_a_antiunitary_chars_high_dim(
-                &mag,
-                &[99],
-                &[2.0],
-                std::slice::from_ref(&id),
-                99,
-                &[],
-                &[],
-            )
-            .is_none()
-        );
-        assert!(
-            type_a_antiunitary_chars_high_dim_ordered(
-                &mag,
-                &[99],
-                &[2.0],
-                &[id],
-                usize::MAX,
-                &[],
-                2,
-            )
-            .is_none()
         );
     }
 

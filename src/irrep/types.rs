@@ -59,15 +59,6 @@ pub struct CompoundMetadata {
     pub semantics: CompoundCharacterSemantics,
 }
 
-/// Error returned when stored irrep matrices cannot be aligned with a supplied
-/// symmetry-operation order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum MatrixReorderError {
-    /// No unambiguous rotation mapping exists between the two operation lists.
-    #[error("could not map supplied symmetry operations to stored irrep rotations")]
-    OperationMappingFailed,
-}
-
 /// Representation space occupied by a typed character row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RepresentationSpaceKind {
@@ -1119,72 +1110,20 @@ impl IrrepRecord {
             [self._char_start as usize..(self._char_start as usize + self._char_count as usize)]
     }
 
-    /// Full irrep matrices for each operator, flattened: op0(row0,row1,...), op1(...), ...
+    /// Legacy raw/source-provenance irrep matrices, flattened by source row.
     ///
-    /// **Order**: ISOTROPY (PIR_data.txt) order — NOT spglib H_ops order.
-    /// Use [`Self::matrices_reordered`] to reorder to spglib H_ops order.
-    ///
-    /// The total number of elements is `opcount × dim²`.
-    /// For operator `g`, the matrix D(g) is at offset `g × dim²` with
-    /// row-major layout: D[0][0], D[0][1], ..., D[dim-1][dim-1].
+    /// The storage has no operation-aware semantics: its source
+    /// representatives and basis/gauge are not proven aligned with
+    /// [`Self::pir_rotations`], [`Self::pir_translations`], or canonical Hall
+    /// operations. Do not use this slice as an operation-aware matrix row.
+    /// When present, its length is `character_count × dim²`; each source row
+    /// uses row-major layout.
     pub fn matrices(&self) -> &'static [f64] {
         if self._mat_count == 0 {
             return &[];
         }
         &self::generated_data::MATRICES
             [self._mat_start as usize..(self._mat_start + self._mat_count) as usize]
-    }
-
-    /// Full irrep matrices reordered to match spglib H_ops order.
-    ///
-    /// Only those H_ops that match a PIR operation (via rotation matrix)
-    /// get matrix data.  Unmatched ops get zero-filled blocks.
-    /// Returns an empty `Vec` if no matrix data are stored. Returns an error
-    /// instead of silently treating PIR order as H_ops order when mapping fails.
-    pub fn matrices_reordered(
-        &self,
-        h_seitz: &[crate::irrep::wigner::SeitzOp],
-    ) -> Result<Vec<f64>, MatrixReorderError> {
-        let mats = self.matrices();
-        let rots = self.pir_rotations();
-        if mats.is_empty() {
-            return Ok(Vec::new());
-        }
-        if rots.is_empty() {
-            return Err(MatrixReorderError::OperationMappingFailed);
-        }
-        let dim = self.dim as usize;
-        let n_pir_ops = self._char_count as usize;
-        let block_size = dim * dim;
-
-        // Build partial H_ops → PIR map (only for ops in the little group)
-        let h_to_pir = match crate::irrep::wigner::build_h_to_cir_map(h_seitz, rots) {
-            Some(m) => m,
-            None => {
-                // Full mapping failed — try matching only ops present in PIR
-                let n_cir = rots.len() / 9;
-                let h_count = h_seitz.len().min(n_cir);
-                if h_count == 0 {
-                    return Err(MatrixReorderError::OperationMappingFailed);
-                }
-                crate::irrep::wigner::build_h_to_cir_map(&h_seitz[..h_count], rots)
-                    .ok_or(MatrixReorderError::OperationMappingFailed)?
-            }
-        };
-
-        let mut reordered = vec![0.0f64; mats.len()];
-        for (h_idx, &pir_idx) in h_to_pir.iter().take(n_pir_ops).enumerate() {
-            if pir_idx >= n_pir_ops {
-                continue;
-            }
-            let src_start = pir_idx * block_size;
-            let dst_start = h_idx * block_size;
-            if src_start + block_size <= mats.len() && dst_start + block_size <= reordered.len() {
-                reordered[dst_start..dst_start + block_size]
-                    .copy_from_slice(&mats[src_start..src_start + block_size]);
-            }
-        }
-        Ok(reordered)
     }
 
     /// Isotropy subgroups for this irrep — no index arithmetic needed.

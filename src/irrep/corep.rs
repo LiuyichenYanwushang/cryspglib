@@ -1646,6 +1646,22 @@ mod tests {
         }
     }
 
+    #[test]
+    fn sg5_y1_raw_matrices_keep_shape_without_operation_contract() {
+        let y1 = crate::irrep::query::irreps_of(5)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "Y1")
+            .expect("SG 5 Y1 scalar irrep");
+        let matrices = y1.matrices();
+        assert!(!matrices.is_empty(), "SG 5 Y1 should retain raw matrices");
+        let dim = y1.dim as usize;
+        assert_eq!(
+            matrices.len(),
+            y1.characters().len() * dim * dim,
+            "raw source matrix storage shape"
+        );
+    }
+
     /// SG 128.406 (P4'/m'nc') at Z point — verified against BCS
     /// https://cryst.ehu.es/cgi-bin/cryst/programs/corepresentations.pl
     ///
@@ -2528,36 +2544,19 @@ mod tests {
             );
         }
 
-        // Test matrix reordering for a P-point irrep with matrix data
+        // Legacy matrices remain readable as raw source data only; no
+        // operation-aware reorder API is available for this unphased storage.
         if let Some(p1) = scalar.first() {
             let mats = p1.matrices();
             if !mats.is_empty() {
                 println!("  {}: {} matrix elements", p1.ml, mats.len());
-                let h_ops = get_parent_operations(sg).unwrap();
-                let h_seitz = ops_to_seitz(&h_ops);
-                let reordered = p1.matrices_reordered(&h_seitz).unwrap();
-                assert_eq!(
-                    reordered.len(),
-                    mats.len(),
-                    "Reordered matrix should have same size"
-                );
-                // Identity should be at H[0] position (1,0,0 in original)
                 let dim = p1.dim as usize;
-                if dim > 0 && reordered.len() >= dim * dim {
-                    let trace: f64 = (0..dim).map(|d| reordered[d * dim + d]).sum();
-                    assert!(
-                        (trace - p1.dim as f64).abs() < 0.5,
-                        "Reordered identity trace should ≈ dim"
-                    );
-                }
-                println!("  Matrix reordering OK ({} elements)", reordered.len());
-
-                let mut unmappable = h_seitz.clone();
-                unmappable[0].rot = [[2, 0, 0], [0, 2, 0], [0, 0, 2]];
                 assert_eq!(
-                    p1.matrices_reordered(&unmappable),
-                    Err(crate::irrep::types::MatrixReorderError::OperationMappingFailed)
+                    mats.len(),
+                    p1.characters().len() * dim * dim,
+                    "Raw matrix storage should match character_count × dim²"
                 );
+                println!("  Raw matrix storage shape OK ({} elements)", mats.len());
             }
         }
     }
@@ -2807,12 +2806,12 @@ mod tests {
                 if !mats.is_empty() {
                     let dim = ir.dim as usize;
                     assert!(
-                        mats.len() % (dim * dim) == 0,
-                        "SG{} {}: matrix len {} not divisible by dim²={}",
+                        mats.len() == chars.len() * dim * dim,
+                        "SG{} {}: matrix len {} != character_count × dim²={}",
                         sg,
                         ir.ml,
                         mats.len(),
-                        dim * dim
+                        chars.len() * dim * dim
                     );
                 }
             }
