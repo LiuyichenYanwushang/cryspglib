@@ -663,6 +663,55 @@ def _parse_pir_characters():
 
 # ── CIR (Complex Irreducible Representations) parsing ────────────────────────
 
+CIR_RECORD_COUNT = 11202
+CIR_KVECTOR_INT_COUNT = 555920
+CIR_OPERATION_ROW_COUNT = 133246
+CIR_IRTRANSLATION_ROW_COUNT = 68612
+CIR_COMPLEX_TOKEN_COUNT = 7121956
+CIR_LINE_COUNT = 877084
+CIR_IRTYPE_COUNTS = {1: 7796, 2: 155, 3: 3251}
+CIR_KCOUNT_RATIO_COUNTS = {1: 6252, 2: 4950}
+
+# These are the exact spellings emitted by the CIR writer.  Components must
+# also belong to PIR_MATRIX_TOKEN_SPELLINGS; this separate frozen set records
+# the observed pair grammar rather than accepting arbitrary Python floats.
+CIR_COMPLEX_TOKEN_SPELLINGS = frozenset({
+    "(-0.18301,-0.68301)", "(-0.18301,0.68301)",
+    "(-0.25000,-0.25000)", "(-0.25000,0.25000)",
+    "(-0.25882,-0.96593)", "(-0.25882,0.96593)",
+    "(-0.35355,-0.61237)", "(-0.35355,0.61237)",
+    "(-0.43301,-0.43301)", "(-0.43301,0.43301)",
+    "(-0.50000,-0.50000)", "(-0.50000,-0.86603)",
+    "(-0.50000,0)", "(-0.50000,0.50000)",
+    "(-0.50000,0.86603)", "(-0.61237,-0.35355)",
+    "(-0.61237,0.35355)", "(-0.68301,-0.18301)",
+    "(-0.68301,0.18301)", "(-0.70711,-0.70711)",
+    "(-0.70711,0)", "(-0.70711,0.70711)",
+    "(-0.86603,-0.50000)", "(-0.86603,0)",
+    "(-0.86603,0.50000)", "(-0.96593,-0.25882)",
+    "(-0.96593,0.25882)", "(-1,0)", "(0,-0.50000)",
+    "(0,-0.70711)", "(0,-0.86603)", "(0,-1)", "(0,0)",
+    "(0,0.50000)", "(0,0.70711)", "(0,0.86603)", "(0,1)",
+    "(0.18301,-0.68301)", "(0.18301,0.68301)",
+    "(0.25000,-0.25000)", "(0.25000,0.25000)",
+    "(0.25882,-0.96593)", "(0.25882,0.96593)",
+    "(0.35355,-0.61237)", "(0.35355,0.61237)",
+    "(0.43301,-0.43301)", "(0.43301,0.43301)",
+    "(0.50000,-0.50000)", "(0.50000,-0.86603)", "(0.50000,0)",
+    "(0.50000,0.50000)", "(0.50000,0.86603)",
+    "(0.61237,-0.35355)", "(0.61237,0.35355)",
+    "(0.68301,-0.18301)", "(0.68301,0.18301)",
+    "(0.70711,-0.70711)", "(0.70711,0)", "(0.70711,0.70711)",
+    "(0.86603,-0.50000)", "(0.86603,0)", "(0.86603,0.50000)",
+    "(0.96593,-0.25882)", "(0.96593,0.25882)", "(1,0)",
+})
+
+_CIR_HEADER_RE = re.compile(
+    r'^\s*([0-9]+)\s+([0-9]+)\s+"([^"]*)"\s+"([^"]*)"\s+'
+    r'([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s*$'
+)
+_CIR_COMPLEX_RE = re.compile(r'^\(([^,]+),([^\)]+)\)$')
+
 def _read_cir_lines():
     """Read CIR_data.txt from the zip archive."""
     zip_path = os.path.join(ISO_DIR, "CIR_data.zip")
@@ -671,19 +720,149 @@ def _read_cir_lines():
         return io.TextIOWrapper(f).readlines()
 
 
-def _parse_complex(s):
-    """Parse a complex number in (real,imag) format. Returns (real, imag)."""
-    m = re.match(r'\(([^,]+),([^)]+)\)', s)
-    if m:
-        return float(m.group(1)), float(m.group(2))
-    # Try plain float
-    try:
-        return float(s), 0.0
-    except ValueError:
-        return 0.0, 0.0
+def _parse_cir_header(line, line_number):
+    """Parse and validate one exact nine-field CIR record header."""
+    match = _CIR_HEADER_RE.fullmatch(line)
+    if match is None:
+        raise ValueError(f"malformed CIR header at line {line_number}")
+    values = {
+        "irnumber": int(match.group(1)),
+        "sg": int(match.group(2)),
+        "space_group_symbol": match.group(3).strip(),
+        "label": match.group(4).strip(),
+        "dim": int(match.group(5)),
+        "irtype": int(match.group(6)),
+        "kcount": int(match.group(7)),
+        "pmkcount": int(match.group(8)),
+        "opcount": int(match.group(9)),
+    }
+    if values["irnumber"] <= 0:
+        raise ValueError(f"invalid CIR header field irnumber at line {line_number}")
+    if not 1 <= values["sg"] <= 230:
+        raise ValueError(f"invalid CIR header field sg at line {line_number}")
+    if not values["space_group_symbol"]:
+        raise ValueError(f"invalid CIR header field space-group symbol at line {line_number}")
+    if not values["label"]:
+        raise ValueError(f"invalid CIR header field irrep label at line {line_number}")
+    if not 1 <= values["dim"] <= 48:
+        raise ValueError(f"invalid CIR header field dim at line {line_number}")
+    if values["irtype"] not in (1, 2, 3):
+        raise ValueError(f"invalid CIR header field irtype at line {line_number}")
+    for name in ("kcount", "pmkcount", "opcount"):
+        if not 1 <= values[name] <= 48:
+            raise ValueError(f"invalid CIR header field {name} at line {line_number}")
+    if values["kcount"] not in (values["pmkcount"], 2 * values["pmkcount"]):
+        raise ValueError(f"invalid CIR kcount/pmkcount relation at line {line_number}")
+    return values
 
 
-def _parse_cir_characters(needed_labels=None):
+def _read_exact_cir_block(lines, start, count, context, parse_token):
+    """Read exactly ``count`` tokens, retaining strict line boundaries."""
+    values = []
+    line_index = start
+    while len(values) < count:
+        if line_index >= len(lines):
+            raise ValueError(
+                f"truncated CIR block for {context}: expected {count}, got {len(values)}"
+            )
+        tokens = lines[line_index].strip().split()
+        if not tokens:
+            raise ValueError(f"empty CIR block line {line_index + 1} for {context}")
+        remaining = count - len(values)
+        if len(tokens) > remaining:
+            raise ValueError(
+                f"extra CIR tokens at line {line_index + 1} for {context}: "
+                f"expected {remaining}, got {len(tokens)}"
+            )
+        for token in tokens:
+            values.append(parse_token(token, line_index + 1, context))
+        line_index += 1
+    return values, line_index
+
+
+def _parse_cir_integer(token, line_number, context):
+    if re.fullmatch(r'[+-]?\d+', token) is None:
+        raise ValueError(f"non-integer CIR token {token!r} at line {line_number} for {context}")
+    return int(token)
+
+
+def _parse_complex(s, line_number=None, context="CIR matrix"):
+    """Parse one exact archived ``(real,imag)`` CIR token."""
+    if s not in CIR_COMPLEX_TOKEN_SPELLINGS:
+        location = "" if line_number is None else f" at line {line_number}"
+        raise ValueError(f"unknown CIR complex token {s!r}{location} for {context}")
+    match = _CIR_COMPLEX_RE.fullmatch(s)
+    if match is None:
+        raise ValueError(f"malformed CIR complex token {s!r} for {context}")
+    real_token, imag_token = match.groups()
+    if real_token not in PIR_MATRIX_TOKEN_SPELLINGS or imag_token not in PIR_MATRIX_TOKEN_SPELLINGS:
+        raise ValueError(f"unknown CIR complex component in {s!r} for {context}")
+    real, imag = float(real_token), float(imag_token)
+    if not math.isfinite(real) or not math.isfinite(imag):
+        raise ValueError(f"non-finite CIR complex token {s!r} for {context}")
+    return real, imag
+
+
+def _parse_cir_complex_block(lines, start, count, context):
+    values = []
+    spellings = []
+    line_index = start
+    while len(values) < count:
+        if line_index >= len(lines):
+            raise ValueError(
+                f"truncated CIR complex block for {context}: "
+                f"expected {count}, got {len(values)}"
+            )
+        tokens = lines[line_index].strip().split()
+        if not tokens:
+            raise ValueError(f"empty CIR complex block line {line_index + 1} for {context}")
+        remaining = count - len(values)
+        if len(tokens) > remaining:
+            raise ValueError(
+                f"extra CIR complex tokens at line {line_index + 1} for {context}: "
+                f"expected {remaining}, got {len(tokens)}"
+            )
+        for token in tokens:
+            values.append(_parse_complex(token, line_index + 1, context))
+            spellings.append(token)
+        line_index += 1
+    return values, spellings, line_index
+
+
+def _parse_cir_operation_row(lines, start, context):
+    values, next_line = _read_exact_cir_block(
+        lines, start, 16, context,
+        lambda token, line_number, block_context: _parse_cir_integer(
+            token, line_number, block_context
+        ),
+    )
+    if next_line != start + 1:
+        raise ValueError(f"CIR operation row must occupy one line for {context}")
+    denom = values[15]
+    if denom <= 0:
+        raise ValueError(f"invalid CIR operation denominator for {context}")
+    if any(values[index] % denom for index in (0, 1, 2, 4, 5, 6, 8, 9, 10)):
+        raise ValueError(f"CIR rotation is not divisible by denominator for {context}")
+    if values[12:15] != [0, 0, 0]:
+        raise ValueError(f"invalid CIR augmented bottom row for {context}")
+    return values, next_line
+
+
+def _parse_cir_irtranslation_row(lines, start, context):
+    values, next_line = _read_exact_cir_block(
+        lines, start, 4, context,
+        lambda token, line_number, block_context: _parse_cir_integer(
+            token, line_number, block_context
+        ),
+    )
+    if next_line != start + 1:
+        raise ValueError(f"CIR irtranslation row must occupy one line for {context}")
+    if values[3] <= 0:
+        raise ValueError(f"invalid CIR irtranslation denominator for {context}")
+    return values, next_line
+
+
+def _parse_cir_lines(lines, needed_labels=None, validate_census=True):
     """Parse CIR_data.txt and return character + matrix data.
 
     Args:
@@ -694,8 +873,6 @@ def _parse_cir_characters(needed_labels=None):
         cir_chars: dict (sg, label) -> {'dim', 'opcount', 'chars': [(re,im,rounded_re)]}
         cir_matrices: dict (sg, label) -> flattened list of (real, imag) pairs
     """
-    lines = _read_cir_lines()
-
     def _round_char(x, eps=1e-8):
         if abs(x) < eps:
             return 0.0
@@ -711,52 +888,74 @@ def _parse_cir_characters(needed_labels=None):
     cir_chars = {}
     cir_matrices = {}  # (sg, label) -> [(re, im), ...] flattened
     cir_irnumber_map = {}  # (SG#, ML_label) -> stable ISO-IR CIR irnumber
-    i = 3  # skip 3 header lines
+    irtype_counts = defaultdict(int)
+    kcount_ratio_counts = defaultdict(int)
+    kvector_int_count = 0
+    operation_row_count = 0
+    irtranslation_rows = 0
+    complex_token_count = 0
+    complex_token_spellings = set()
+    expected_irnumber = 1
+    i = 3  # skip 3 title lines
 
     while i < len(lines):
-        s = lines[i].strip()
-        if not s:
-            i += 1
-            continue
-        tokens = s.split()
-        if not tokens or not tokens[0].isdigit():
-            i += 1
-            continue
-
-        quoted = re.findall(r'"([^"]*)"', s)
-        if len(quoted) < 2:
-            i += 1
-            continue
-
-        sg = int(tokens[1])
-        irnumber = int(tokens[0])
-        label = quoted[1].strip()
-        after_line = s[s.rindex('"') + 1:].strip().split()
-        if len(after_line) < 5:
-            i += 1
-            continue
-
-        dim = int(after_line[0])
-        star_count = int(after_line[2]) if len(after_line) > 2 else 1
-        if star_count <= 0 or dim <= 0 or dim % star_count != 0:
+        header_line = lines[i]
+        if not header_line.strip():
+            raise ValueError(f"unexpected blank CIR line at line {i + 1}")
+        header = _parse_cir_header(header_line, i + 1)
+        irnumber = header["irnumber"]
+        sg = header["sg"]
+        label = header["label"]
+        dim = header["dim"]
+        irtype = header["irtype"]
+        kcount = header["kcount"]
+        pmkcount = header["pmkcount"]
+        opcount = header["opcount"]
+        if irnumber != expected_irnumber:
             raise ValueError(
-                f"invalid CIR dimension/star count for SG{sg} {label!r}: "
-                f"dim={dim}, star_count={star_count}"
+                f"unexpected CIR irnumber {irnumber} at line {i + 1}; "
+                f"expected {expected_irnumber}"
             )
-        little_dim = dim // star_count
-        opcount = int(after_line[4])
+        expected_irnumber += 1
+        irtype_counts[irtype] += 1
+        kcount_ratio_counts[kcount // pmkcount] += 1
 
-        # CIR stores one augmented 4x4 k-vector record per star arm.  The
-        # fourth header field is the number of physically irreducible k
-        # vectors, not an additional multiplier.  Using that field here leaves
-        # a star-arm record in the stream whenever the two counts differ, where
-        # it is then mistaken for the identity operation.
-        kvec_remaining = star_count * 16
-        while kvec_remaining > 0 and i < len(lines) - 1:
-            i += 1
-            if i >= len(lines):
-                break
-            kvec_remaining -= len(lines[i].strip().split())
+        kvector_values, i = _read_exact_cir_block(
+            lines, i + 1, 16 * kcount, f"SG{sg} {label!r} k-vector",
+            lambda token, line_number, context: _parse_cir_integer(
+                token, line_number, context
+            ),
+        )
+        kvector_int_count += len(kvector_values)
+        for arm in range(kcount):
+            base = 16 * arm
+            constant_denom = kvector_values[base + 3]
+            if constant_denom <= 0:
+                raise ValueError(
+                    f"invalid CIR constant k-vector denominator at line {i} "
+                    f"for SG{sg} {label!r}"
+                )
+            for numerator_start, denominator_offset in ((4, 7), (8, 11), (12, 15)):
+                denominator = kvector_values[base + denominator_offset]
+                numerators = kvector_values[base + numerator_start:base + numerator_start + 3]
+                if denominator == 0:
+                    if any(numerators):
+                        raise ValueError(
+                            f"zero CIR parameter denominator with nonzero numerator "
+                            f"at line {i} for SG{sg} {label!r}"
+                        )
+                elif denominator < 0:
+                    raise ValueError(
+                        f"invalid CIR parameter k-vector denominator at line {i} "
+                        f"for SG{sg} {label!r}"
+                    )
+        special = all(kvector_values[offset] == 0 for offset in (4, 5, 6, 8, 9, 10, 12, 13, 14))
+
+        if dim % kcount != 0:
+            raise ValueError(
+                f"invalid CIR dimension/star count for SG{sg} {label!r}: dim={dim}, kcount={kcount}"
+            )
+        little_dim = dim // kcount
 
         # Read operator matrices + complex irrep matrices
         chars = []
@@ -766,68 +965,30 @@ def _parse_cir_characters(needed_labels=None):
         all_matrices = []  # flattened complex matrix elements for all ops
         store_matrices = (needed_labels is None) or ((sg, label) in needed_labels)
 
-        for _op in range(opcount):
-            # Advance to operator augmented 4×4 matrix (16 ints).
-            # For complex irreps, there may be conjugate complex values
-            # before the next operator matrix — skip those.
-            i += 1
-            while i < len(lines):
-                op_str = lines[i].strip()
-                if not op_str:
-                    i += 1
-                    continue
-                # Operator matrix line starts with a digit or minus sign
-                if op_str[0].isdigit() or op_str[0] == '-':
-                    op_parts = op_str.split()
-                    if len(op_parts) >= 16:
-                        try:
-                            op_nums = [int(x) for x in op_parts[:16]]
-                            denom = op_nums[15] if op_nums[15] != 0 else 1
-                            r00 = op_nums[0] // denom; r01 = op_nums[1] // denom; r02 = op_nums[2] // denom
-                            r10 = op_nums[4] // denom; r11 = op_nums[5] // denom; r12 = op_nums[6] // denom
-                            r20 = op_nums[8] // denom; r21 = op_nums[9] // denom; r22 = op_nums[10] // denom
-                            rots.append([r00, r01, r02, r10, r11, r12, r20, r21, r22])
-                            trans.append([
-                                float(op_nums[3]) / float(denom),
-                                float(op_nums[7]) / float(denom),
-                                float(op_nums[11]) / float(denom),
-                            ])
-                        except ValueError:
-                            pass
-                    break
-                # Complex value line (conjugate from previous op): skip
-                i += 1
-            if i >= len(lines):
-                break
-
-            # Move to the optional irtranslation / complex irrep matrix line.
-            i += 1
-            if i >= len(lines):
-                break
-
-            # CIR records may contain a four-integer irtranslation even at
-            # labels traditionally regarded as special k-points.  Complex
-            # matrix values are always written as ``(real,imag)``, so this is
-            # unambiguous and does not need a label heuristic.
-            next_parts = lines[i].strip().split()
-            if (len(next_parts) == 4
-                    and all(re.fullmatch(r'-?\d+', value) for value in next_parts)):
-                i += 1
-                if i >= len(lines):
-                    break
-
-            # Read complex matrix: dim² complex numbers as (real,imag) pairs
-            complex_vals = []  # list of (real, imag)
-            needed = dim * dim
-            while len(complex_vals) < needed and i < len(lines):
-                for token in lines[i].strip().split():
-                    re_val, im_val = _parse_complex(token)
-                    complex_vals.append((re_val, im_val))
-                    if len(complex_vals) >= needed:
-                        break
-                if len(complex_vals) >= needed:
-                    break
-                i += 1
+        for op_index in range(opcount):
+            context = f"SG{sg} {label!r} operation {op_index}"
+            op_nums, i = _parse_cir_operation_row(lines, i, context)
+            operation_row_count += 1
+            denom = op_nums[15]
+            rots.append([
+                op_nums[0] // denom, op_nums[1] // denom, op_nums[2] // denom,
+                op_nums[4] // denom, op_nums[5] // denom, op_nums[6] // denom,
+                op_nums[8] // denom, op_nums[9] // denom, op_nums[10] // denom,
+            ])
+            trans.append([
+                float(op_nums[3]) / float(denom),
+                float(op_nums[7]) / float(denom),
+                float(op_nums[11]) / float(denom),
+            ])
+            irtranslation = None
+            if not special:
+                irtranslation, i = _parse_cir_irtranslation_row(lines, i, context)
+                irtranslation_rows += 1
+            complex_vals, spellings, i = _parse_cir_complex_block(
+                lines, i, dim * dim, context
+            )
+            complex_token_count += dim * dim
+            complex_token_spellings.update(spellings)
 
             if store_matrices:
                 all_matrices.extend(complex_vals)
@@ -837,9 +998,8 @@ def _parse_cir_characters(needed_labels=None):
             trace_im = 0.0
             for d in range(dim):
                 idx = d * dim + d
-                if idx < len(complex_vals):
-                    trace_re += complex_vals[idx][0]
-                    trace_im += complex_vals[idx][1]
+                trace_re += complex_vals[idx][0]
+                trace_im += complex_vals[idx][1]
 
             chars.append((trace_re, trace_im, _round_char(trace_re)))
 
@@ -847,9 +1007,8 @@ def _parse_cir_characters(needed_labels=None):
             little_trace_im = 0.0
             for d in range(little_dim):
                 idx = d * dim + d
-                if idx < len(complex_vals):
-                    little_trace_re += complex_vals[idx][0]
-                    little_trace_im += complex_vals[idx][1]
+                little_trace_re += complex_vals[idx][0]
+                little_trace_im += complex_vals[idx][1]
             little_chars.append((little_trace_re, little_trace_im))
 
         if len(rots) != opcount or len(trans) != opcount or len(chars) != opcount:
@@ -865,7 +1024,7 @@ def _parse_cir_characters(needed_labels=None):
                 raise ValueError(f"duplicate CIR source irnumber {irnumber}")
             cir_chars[key] = {
                 'dim': dim,
-                'star_count': star_count,
+                'star_count': kcount,
                 'little_dim': little_dim,
                 'opcount': opcount,
                 'chars': chars,  # list of (re, im, rounded_re)
@@ -880,15 +1039,41 @@ def _parse_cir_characters(needed_labels=None):
         else:
             raise ValueError(f"duplicate CIR source key {key!r}")
 
-        # Advance to next irrep header
-        i += 1
-        while i < len(lines):
-            nxt = lines[i].strip()
-            if nxt and nxt.split()[0].isdigit() and '"' in nxt:
-                break
-            i += 1
+    if validate_census and (expected_irnumber != CIR_RECORD_COUNT + 1 or i != len(lines)):
+        raise ValueError(
+            f"CIR archive EOF/census mismatch: records={expected_irnumber - 1}, "
+            f"cursor={i}/{len(lines)}, expected {CIR_RECORD_COUNT}/{CIR_LINE_COUNT}"
+        )
+    census = {
+        "records": expected_irnumber - 1,
+        "kvector_ints": kvector_int_count,
+        "operation_rows": operation_row_count,
+        "irtranslation_rows": irtranslation_rows,
+        "complex_tokens": complex_token_count,
+        "complex_token_spellings": frozenset(complex_token_spellings),
+        "cursor_eof": i,
+        "irtype_counts": dict(irtype_counts),
+        "kcount_ratio_counts": dict(kcount_ratio_counts),
+    }
+    expected = {
+        "records": CIR_RECORD_COUNT,
+        "kvector_ints": CIR_KVECTOR_INT_COUNT,
+        "operation_rows": CIR_OPERATION_ROW_COUNT,
+        "irtranslation_rows": CIR_IRTRANSLATION_ROW_COUNT,
+        "complex_tokens": CIR_COMPLEX_TOKEN_COUNT,
+        "complex_token_spellings": CIR_COMPLEX_TOKEN_SPELLINGS,
+        "cursor_eof": CIR_LINE_COUNT,
+        "irtype_counts": CIR_IRTYPE_COUNTS,
+        "kcount_ratio_counts": CIR_KCOUNT_RATIO_COUNTS,
+    }
+    if validate_census and census != expected:
+        raise ValueError(f"CIR archive structural census mismatch: observed={census!r}, expected={expected!r}")
+    return cir_chars, cir_matrices, census
 
-    return cir_chars, cir_matrices
+
+def _parse_cir_characters(needed_labels=None):
+    """Parse the pinned CIR archive through the strict structural cursor."""
+    return _parse_cir_lines(_read_cir_lines(), needed_labels=needed_labels)[:2]
 
 
 def _build_real_matrix(cir_matrices, sg, parts):

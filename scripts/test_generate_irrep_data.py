@@ -283,5 +283,189 @@ class PirStructureTests(unittest.TestCase):
         )
 
 
+class CirStructureTests(unittest.TestCase):
+    @staticmethod
+    def _header(
+        irnumber=1,
+        sg=1,
+        symbol="P1",
+        label="GM1",
+        dim=1,
+        irtype=1,
+        kcount=1,
+        pmkcount=1,
+        opcount=1,
+    ):
+        return (
+            f' {irnumber} {sg} "{symbol}" "{label}" {dim} {irtype} '
+            f"{kcount} {pmkcount} {opcount}"
+        )
+
+    @staticmethod
+    def _kvector(special=True):
+        values = [0] * 16
+        values[3] = 1
+        if not special:
+            values[4] = 1
+            values[7] = 2
+        return " ".join(map(str, values))
+
+    @staticmethod
+    def _operation(denominator=1):
+        values = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, denominator]
+        return " ".join(map(str, values))
+
+    @staticmethod
+    def _mini_record(special=True, matrix="(1,0)", irnumber=1, label="GM1"):
+        lines = ["title 1", "title 2", "title 3"]
+        lines.append(CirStructureTests._header(irnumber=irnumber, label=label))
+        lines.append(CirStructureTests._kvector(special=special))
+        lines.append(CirStructureTests._operation())
+        if not special:
+            lines.append("0 0 0 1")
+        lines.append(matrix)
+        return lines
+
+    def test_cir_header_requires_exact_fields_and_ascii_integers(self):
+        valid = self._header(symbol="P-1", label="GM1+")
+        self.assertEqual(generator._parse_cir_header(valid, 4)["label"], "GM1+")
+        malformed = (
+            "EXTRA " + valid,
+            valid + " EXTRA",
+            '1 1 "P1" "GM1" "THIRD" 1 1 1 1 1',
+            '1 1 "P1" "GM1" 1 1 1 1',
+            self._header(irnumber="+1"),
+            self._header(sg="-1"),
+            self._header(dim="+1"),
+            self._header(irtype="-1"),
+            self._header(kcount="+1"),
+            self._header(pmkcount="-1"),
+            self._header(opcount="+1"),
+        )
+        for line in malformed:
+            with self.assertRaisesRegex(ValueError, "malformed CIR header"):
+                generator._parse_cir_header(line, 4)
+
+    def test_cir_header_validates_ranges_and_count_relation(self):
+        invalid = (
+            self._header(irnumber=0),
+            self._header(sg=0),
+            self._header(sg=231),
+            self._header(symbol=""),
+            self._header(label=""),
+            self._header(dim=0),
+            self._header(dim=49),
+            self._header(irtype=0),
+            self._header(irtype=4),
+            self._header(kcount=0),
+            self._header(kcount=49),
+            self._header(pmkcount=0),
+            self._header(opcount=0),
+            self._header(kcount=3, pmkcount=2),
+        )
+        for line in invalid:
+            with self.assertRaisesRegex(ValueError, "invalid CIR"):
+                generator._parse_cir_header(line, 4)
+        self.assertEqual(
+            generator._parse_cir_header(
+                self._header(symbol="P-1", label="GM1-", kcount=2), 4
+            )["kcount"],
+            2,
+        )
+
+    def test_cir_kvector_multiline_and_exact_boundary(self):
+        first = " ".join(str(value) for value in range(16))
+        second = " ".join(str(value) for value in range(16, 32))
+        values, next_line = generator._read_exact_cir_block(
+            [first, second], 0, 32, "synthetic CIR k-vector", generator._parse_cir_integer
+        )
+        self.assertEqual(values, list(range(32)))
+        self.assertEqual(next_line, 2)
+        with self.assertRaisesRegex(ValueError, "extra CIR tokens"):
+            generator._read_exact_cir_block(
+                [first + " 16"], 0, 16, "synthetic CIR k-vector", generator._parse_cir_integer
+            )
+
+    def test_cir_mini_records_are_structurally_consumed(self):
+        chars, matrices, census = generator._parse_cir_lines(
+            self._mini_record(special=True), validate_census=False
+        )
+        self.assertEqual(chars[(1, "GM1")]["chars"], [(1.0, 0.0, 1.0)])
+        self.assertEqual(matrices[(1, "GM1")], [(1.0, 0.0)])
+        self.assertEqual(census["cursor_eof"], 7)
+        chars, _matrices, census = generator._parse_cir_lines(
+            self._mini_record(special=False), validate_census=False
+        )
+        self.assertEqual(chars[(1, "GM1")]["chars"][0][0], 1.0)
+        self.assertEqual(census["irtranslation_rows"], 1)
+
+    def test_cir_rejects_payload_truncation_and_extra_tokens(self):
+        operation = self._operation()
+        cases = (
+            self._mini_record(special=False)[:-2] + ["0 0 0 1"],
+            self._mini_record(special=True) + ["EXTRA"],
+            self._mini_record(special=True)[:-1] + ["(1,0) (0,0)"],
+            self._mini_record(special=False)[:5] + ["0 0 0 1 9", "(1,0)"],
+            self._mini_record(special=True)[:5] + [operation, "(1,0)junk"],
+        )
+        for lines in cases:
+            with self.assertRaises(ValueError):
+                generator._parse_cir_lines(lines, validate_census=False)
+
+    def test_cir_rejects_bad_operation_and_translation_rows(self):
+        for operation in (
+            "1 0 0 0 0 1 0 0 0 0 1 0 0 0 0",
+            self._operation() + " 0",
+            "not-an-operation",
+            self._operation(denominator=0),
+        ):
+            lines = self._mini_record()[:5] + [operation, "(1,0)"]
+            with self.assertRaises(ValueError):
+                generator._parse_cir_lines(lines, validate_census=False)
+        lines = self._mini_record(special=False)
+        lines[6] = "0 0 0 0"
+        with self.assertRaises(ValueError):
+            generator._parse_cir_lines(lines, validate_census=False)
+
+    def test_cir_kvector_denominator_rules_are_explicit(self):
+        values = [0] * 16
+        values[3] = 1
+        values[4] = 1
+        values[7] = 0
+        lines = self._mini_record(special=True)
+        lines[4] = " ".join(map(str, values))
+        with self.assertRaisesRegex(ValueError, "zero CIR parameter denominator"):
+            generator._parse_cir_lines(lines, validate_census=False)
+
+    def test_cir_rejects_invalid_complex_spellings_without_silent_zero(self):
+        for token in ("CORRUPTED", "1", "(nan,0)", "(1,)", "(1,0)junk", "(1.00000,0)"):
+            with self.assertRaises(ValueError):
+                generator._parse_cir_lines(
+                    self._mini_record(matrix=token), validate_census=False
+                )
+
+    def test_cir_irnumber_sequence_is_global(self):
+        for sequence in ((1, 3), (1, 1), (1, 2, 4)):
+            lines = ["title 1", "title 2", "title 3"]
+            for number in sequence:
+                lines.extend(self._mini_record(irnumber=number, label=f"GM{number}")[3:])
+            with self.assertRaisesRegex(ValueError, "unexpected CIR irnumber"):
+                generator._parse_cir_lines(lines, validate_census=False)
+
+    def test_cir_archive_structural_census(self):
+        _chars, _matrices, census = generator._parse_cir_lines(generator._read_cir_lines())
+        self.assertEqual(census, {
+            "records": 11202,
+            "kvector_ints": 555920,
+            "operation_rows": 133246,
+            "irtranslation_rows": 68612,
+            "complex_tokens": 7121956,
+            "complex_token_spellings": generator.CIR_COMPLEX_TOKEN_SPELLINGS,
+            "cursor_eof": 877084,
+            "irtype_counts": {1: 7796, 2: 155, 3: 3251},
+            "kcount_ratio_counts": {1: 6252, 2: 4950},
+        })
+
+
 if __name__ == "__main__":
     unittest.main()
