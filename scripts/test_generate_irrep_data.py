@@ -101,8 +101,21 @@ class PinnedArchiveBoundaryTests(unittest.TestCase):
 
 class PirStructureTests(unittest.TestCase):
     @staticmethod
-    def _header():
-        return '  1  2  "P 1  "  "GM1  "  3  1  1  1  1  '
+    def _header(
+        irnumber=1,
+        sg=2,
+        space_group_symbol="P 1",
+        ir_label="GM1",
+        dim=3,
+        irtype=1,
+        kcount=1,
+        pmkcount=1,
+        opcount=1,
+    ):
+        return (
+            f'  {irnumber}  {sg}  "{space_group_symbol}"  "{ir_label}"  '
+            f"{dim}  {irtype}  {kcount}  {pmkcount}  {opcount}  "
+        )
 
     @staticmethod
     def _operation_row():
@@ -152,6 +165,54 @@ class PirStructureTests(unittest.TestCase):
         for line in malformed:
             with self.assertRaisesRegex(ValueError, "malformed PIR header"):
                 generator._parse_pir_header(line, 23)
+
+    def test_header_validates_every_integer_field(self):
+        fields = (
+            "irnumber",
+            "sg",
+            "dim",
+            "irtype",
+            "kcount",
+            "pmkcount",
+            "opcount",
+        )
+        for field in fields:
+            for invalid in ("+1", "-1"):
+                with self.assertRaisesRegex(ValueError, "malformed PIR header"):
+                    generator._parse_pir_header(
+                        self._header(**{field: invalid}), 29
+                    )
+
+    def test_header_semantic_ranges_and_kcount_relation(self):
+        invalid_headers = (
+            self._header(sg=0),
+            self._header(sg=231),
+            self._header(space_group_symbol=""),
+            self._header(ir_label=""),
+            self._header(dim=0),
+            self._header(irtype=0),
+            self._header(irtype=4),
+            self._header(kcount=0),
+            self._header(pmkcount=0),
+            self._header(kcount=3, pmkcount=2),
+            self._header(opcount=0),
+        )
+        for line in invalid_headers:
+            with self.assertRaisesRegex(ValueError, "invalid PIR header field"):
+                generator._parse_pir_header(line, 31)
+
+        self.assertEqual(
+            generator._parse_pir_header(
+                self._header(space_group_symbol="P-1", ir_label="GM1+"), 37
+            ),
+            (1, 2, "GM1+", 3, 1, 1),
+        )
+        self.assertEqual(
+            generator._parse_pir_header(
+                self._header(space_group_symbol="P 1", ir_label="GM1-", kcount=2), 41
+            ),
+            (1, 2, "GM1-", 3, 1, 1),
+        )
 
     def test_pir_irnumber_must_be_global_and_consecutive(self):
         for sequence in ((1, 3), (1, 1), (1, 2, 4)):

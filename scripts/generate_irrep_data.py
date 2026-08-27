@@ -230,8 +230,8 @@ PIR_MATRIX_TOKEN_SPELLINGS = frozenset({
     "0.68301", "0.70711", "0.86603", "0.96593", "1",
 })
 _PIR_HEADER_RE = re.compile(
-    r'^\s*([+-]?\d+)\s+([+-]?\d+)\s+"([^"]*)"\s+"([^"]*)"\s+'
-    r'([+-]?\d+)\s+([+-]?\d+)\s+([+-]?\d+)\s+([+-]?\d+)\s+([+-]?\d+)\s*$'
+    r'^\s*([0-9]+)\s+([0-9]+)\s+"([^"]*)"\s+"([^"]*)"\s+'
+    r'([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s*$'
 )
 
 def _read_pir_lines():
@@ -243,21 +243,60 @@ def _read_pir_lines():
 
 
 def _parse_pir_header(line, line_number):
-    """Parse one official nine-field PIR record header."""
+    """Parse and validate one official nine-field PIR record header."""
     match = _PIR_HEADER_RE.fullmatch(line)
     if match is None:
         raise ValueError(f"malformed PIR header at line {line_number}")
     try:
-        return (
-            int(match.group(1)),
-            int(match.group(2)),
-            match.group(4).strip(),
-            int(match.group(5)),
-            int(match.group(8)),
-            int(match.group(9)),
+        irnumber = int(match.group(1))
+        sg = int(match.group(2))
+        space_group_symbol = match.group(3)
+        ir_label = match.group(4)
+        dim, irtype, kcount, pmkcount, opcount = (
+            int(match.group(index)) for index in range(5, 10)
         )
     except ValueError as error:
         raise ValueError(f"non-integer PIR header field at line {line_number}") from error
+
+    fields = {
+        "irnumber": irnumber,
+        "sg": sg,
+        "space_group_symbol": space_group_symbol.strip(),
+        "ir_label": ir_label.strip(),
+        "dim": dim,
+        "irtype": irtype,
+        "kcount": kcount,
+        "pmkcount": pmkcount,
+        "opcount": opcount,
+    }
+    if irnumber <= 0:
+        raise ValueError(f"invalid PIR header field irnumber at line {line_number}")
+    if not 1 <= sg <= 230:
+        raise ValueError(f"invalid PIR header field sg={sg} at line {line_number}")
+    if not fields["space_group_symbol"]:
+        raise ValueError(f"invalid PIR header field space-group symbol at line {line_number}")
+    if not fields["ir_label"]:
+        raise ValueError(f"invalid PIR header field irrep label at line {line_number}")
+    if dim <= 0:
+        raise ValueError(f"invalid PIR header field dim={dim} at line {line_number}")
+    if irtype not in (1, 2, 3):
+        raise ValueError(f"invalid PIR header field irtype={irtype} at line {line_number}")
+    if kcount <= 0:
+        raise ValueError(f"invalid PIR header field kcount={kcount} at line {line_number}")
+    if pmkcount <= 0:
+        raise ValueError(f"invalid PIR header field pmkcount={pmkcount} at line {line_number}")
+    if kcount not in (pmkcount, 2 * pmkcount):
+        raise ValueError(
+            f"invalid PIR header field kcount={kcount}, pmkcount={pmkcount} "
+            f"at line {line_number}"
+        )
+    if opcount <= 0:
+        raise ValueError(f"invalid PIR header field opcount={opcount} at line {line_number}")
+
+    # Callers need only the source number, SG/ML identity, dimension, and the
+    # two counts that govern the record payload; every other header field was
+    # parsed and validated above before being intentionally discarded.
+    return irnumber, sg, fields["ir_label"], dim, pmkcount, opcount
 
 
 def _require_pir_irnumber(actual, expected, line_number, sg, label):
