@@ -55,22 +55,33 @@ from direction_map import build_direction_map
 # ── zip-based file reading ──────────────────────────────────────────────────
 
 def _open_zip_path(zip_name, inner_path):
-    """Open a file from inside a zip archive, or from extracted dir if exists."""
-    extracted = os.path.join(ISO_DIR, zip_name.replace('.zip', ''), inner_path)
-    if os.path.exists(extracted):
-        return open(extracted)
+    """Open a UTF-8 member from one pinned ZIP archive.
+
+    Generated data has one authoritative input path: the verified ZIP archive.
+    Extracted directories are deliberately ignored.  The member name must be
+    unique when matched by archive-relative suffix.  The member is copied into
+    memory before the ``ZipFile`` is closed, so the returned text stream stays
+    valid for its caller's ``with`` block.
+    """
     zip_path = os.path.join(ISO_DIR, zip_name)
-    if os.path.exists(zip_path):
-        zf = zipfile.ZipFile(zip_path)
-        # Find matching file inside zip
-        for name in zf.namelist():
-            if name.endswith(inner_path) or name == inner_path:
-                return io.TextIOWrapper(zf.open(name))
-        raise FileNotFoundError(f"{inner_path} not found in {zip_name}")
-    raise FileNotFoundError(f"Neither {extracted} nor {zip_path} found")
+    if not os.path.isfile(zip_path):
+        raise FileNotFoundError(f"required ZIP archive not found: {zip_path}")
+    with zipfile.ZipFile(zip_path) as zf:
+        matches = [
+            name for name in zf.namelist()
+            if name == inner_path or name.endswith("/" + inner_path)
+        ]
+        if not matches:
+            raise FileNotFoundError(f"{inner_path} not found in {zip_name}")
+        if len(matches) > 1:
+            raise ValueError(
+                f"ambiguous archive member {inner_path!r} in {zip_name}: {matches}"
+            )
+        contents = zf.read(matches[0])
+    return io.TextIOWrapper(io.BytesIO(contents), encoding="utf-8")
 
 def read_file(inner_path, zip_name="iso.zip"):
-    """Read lines from a file inside a zip archive."""
+    """Read lines from a member of a pinned ZIP archive."""
     with _open_zip_path(zip_name, inner_path) as f:
         return f.readlines()
 
@@ -945,9 +956,10 @@ def _resolve_compound_constituents(sg, ml, cir_data):
     and accepted generated component data are checked by the caller before
     this identity is frozen into generated metadata.
 
-    ``None`` denotes an ordinary (non-compound) label.  A compound-looking
-    label that is malformed, unresolved, ambiguous, or has more than two
-    constituents raises ``ValueError`` so generation cannot silently omit it.
+    ``None`` denotes a label not recognized by the compound grammar.  A
+    recognized compound with malformed, unresolved, ambiguous, or more than
+    two constituents raises ``ValueError``; later generation checks likewise
+    fail hard rather than silently omitting the record.
     """
     parts = _decompose_compound_label(ml)
     if parts is None:
@@ -966,8 +978,6 @@ def _resolve_compound_constituents(sg, ml, cir_data):
         entries.append(entry)
     if any(entry.get('irnumber') is None for entry in entries):
         raise ValueError(f"compound SG{sg} {ml!r} has CIR constituent without irnumber")
-    if any(entry.get('sg', sg) != sg for entry in entries):
-        raise ValueError(f"compound SG{sg} {ml!r} has a constituent from another SG")
     if any(entry['opcount'] != entries[0]['opcount'] for entry in entries[1:]):
         raise ValueError(f"compound SG{sg} {ml!r} has mismatched CIR operation counts")
     return {'parts': parts, 'entries': entries}
@@ -2662,15 +2672,19 @@ def generate_rust_data(data):
             cir_comp_flat.extend(comp_chars)
             # Always extend rotations to keep arrays in sync.
             total_rots_needed = len(parts) * n_ops * 9
-            if len(comp_rots) == total_rots_needed:
-                cir_comp_rots.extend(comp_rots)
-            else:
-                cir_comp_rots.extend([0] * total_rots_needed)
+            if len(comp_rots) != total_rots_needed:
+                raise ValueError(
+                    f"compound SG{sg[i]} {ml[i]!r} has {len(comp_rots)} "
+                    f"rotation values; expected {total_rots_needed}"
+                )
+            cir_comp_rots.extend(comp_rots)
             total_trans_needed = len(parts) * n_ops * 3
-            if len(comp_trans) == total_trans_needed:
-                cir_comp_trans.extend(comp_trans)
-            else:
-                cir_comp_trans.extend([0.0] * total_trans_needed)
+            if len(comp_trans) != total_trans_needed:
+                raise ValueError(
+                    f"compound SG{sg[i]} {ml[i]!r} has {len(comp_trans)} "
+                    f"translation values; expected {total_trans_needed}"
+                )
+            cir_comp_trans.extend(comp_trans)
 
             # Make previously rotation-less compound PIR records part of
             # the same Hall-order pipeline as every other scalar record.
