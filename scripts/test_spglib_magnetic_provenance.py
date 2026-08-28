@@ -21,6 +21,17 @@ ARTIFACT = Path(__file__).parent / "data/spglib_magnetic_provenance_v1.json"
 MANIFEST = Path(__file__).parent / "data/spglib_magnetic_provenance_v1.manifest.json"
 GOLDEN_ARTIFACT_BYTES = 1_537_875
 GOLDEN_ARTIFACT_SHA256 = "933a52a6696e7f6a1a2e426825ad92c377c6e96330e18c5c045d659798d740b9"
+REAL_DECLARATION_SIGNATURES = {
+    "spacegroup_types": "static SpacegroupType const spacegroup_types[] =",
+    "symmetry_operation_index": "static int const symmetry_operation_index[][2] =",
+    "symmetry_operations": "static int const symmetry_operations[] =",
+    "magnetic_spacegroup_types": "static const MagneticSpacegroupType magnetic_spacegroup_types[] =",
+    "magnetic_spacegroup_uni_mapping": "static const int magnetic_spacegroup_uni_mapping[][2] =",
+    "magnetic_spacegroup_hall_mapping": "static const int magnetic_spacegroup_hall_mapping[][2] =",
+    "magnetic_spacegroup_operation_index": "static const int magnetic_spacegroup_operation_index[][18][2] =",
+    "magnetic_symmetry_operations": "static const int magnetic_symmetry_operations[] =",
+    "alternative_transformations": "static const int alternative_transformations[][18][7] =",
+}
 
 
 class MagneticProvenanceTests(unittest.TestCase):
@@ -257,6 +268,8 @@ class MagneticProvenanceTests(unittest.TestCase):
                          '"http://example.invalid"')
         self.assertEqual(extractor._parse_initializer('{"http://example.invalid"}'),
                          ["http://example.invalid"])
+        self.assertEqual(extractor._parse_initializer(r'{"\x41\101\n"}'),
+                         ["AA\n"])
         with self.assertRaises(extractor.ExtractionError):
             extractor._parse_initializer("{1/**/2}")
         with self.assertRaises(extractor.ExtractionError):
@@ -270,7 +283,7 @@ class MagneticProvenanceTests(unittest.TestCase):
             with self.subTest(spelling=spelling):
                 with self.assertRaises(extractor.ExtractionError):
                     extractor._parse_initializer("{" + spelling + "}")
-        for spelling in (r'"\u002f"', r'"\/"'):
+        for spelling in (r'"\u002f"', r'"\/"', r'"\x110000"', r'"\xD800"'):
             with self.subTest(spelling=spelling):
                 with self.assertRaises(extractor.ExtractionError):
                     extractor._parse_initializer("{" + spelling + "}")
@@ -288,6 +301,8 @@ class MagneticProvenanceTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(extractor.ExtractionError):
                     extractor.canonical_json(value)
+        with self.assertRaises(extractor.ExtractionError):
+            extractor.canonical_json({"x": "\ud800"})
 
     def test_committed_manifest_corruption_fails_closed(self):
         artifact_bytes = ARTIFACT.read_bytes()
@@ -341,6 +356,71 @@ class MagneticProvenanceTests(unittest.TestCase):
                 extractor.write_outputs(root / "not-a-checkout", symlink, hardlink)
             with self.assertRaises(extractor.ExtractionError):
                 extractor.write_outputs(root / "not-a-checkout", same, same)
+
+    def test_atomic_write_wraps_parent_errors_and_cleans_temp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent_file = root / "parent"
+            parent_file.write_bytes(b"old parent")
+            with self.assertRaises(extractor.ExtractionError):
+                extractor._atomic_write(parent_file / "artifact.json", b"new")
+            self.assertEqual(parent_file.read_bytes(), b"old parent")
+            self.assertEqual(list(root.iterdir()), [parent_file])
+
+            target = root / "existing.json"
+            target.write_bytes(b"old target")
+            with mock.patch.object(extractor.os, "replace", side_effect=OSError("injected")):
+                with self.assertRaises(extractor.ExtractionError):
+                    extractor._atomic_write(target, b"new target")
+            self.assertEqual(target.read_bytes(), b"old target")
+            self.assertEqual(sorted(path.name for path in root.iterdir()),
+                             ["existing.json", "parent"])
+
+    def test_real_pinned_declaration_signatures_are_strict(self):
+        self.assertEqual(set(REAL_DECLARATION_SIGNATURES),
+                         set(extractor.PINNED_DECLARATIONS))
+        for name, signature in REAL_DECLARATION_SIGNATURES.items():
+            with self.subTest(name=name):
+                valid = signature + " {1};"
+                self.assertEqual(extractor._initializer_text(valid, name), "{1}")
+
+                missing_type = valid[valid.index(name):]
+                with self.assertRaises(extractor.ExtractionError):
+                    extractor._initializer_text(missing_type, name)
+
+                wrong_dimension = signature.replace("[]", "[1]", 1) + " {1};"
+                with self.assertRaises(extractor.ExtractionError):
+                    extractor._initializer_text(wrong_dimension, name)
+
+                trailing = signature + " {1} junk;"
+                with self.assertRaises(extractor.ExtractionError):
+                    extractor._initializer_text(trailing, name)
+
+    @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for checkout tests")
+    def test_pinned_blob_ignores_dirty_and_crlf_worktree(self):
+        expected_artifact = ARTIFACT.read_bytes()
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory) / "checkout"
+            subprocess.run(
+                ["git", "clone", "--no-hardlinks", "--local",
+                 str(UPSTREAM), str(checkout)],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            source_paths = [checkout / "src/msg_database.c",
+                            checkout / "src/spg_database.c"]
+            for path in source_paths:
+                path.write_bytes(path.read_bytes() + b"\n/* dirty worktree */\n")
+            self.assertTrue(extractor._git_output(checkout, ["status", "--short"]))
+            artifact, _ = extractor.extract(checkout)
+            self.assertEqual(extractor.canonical_json(artifact), expected_artifact)
+
+            for path in source_paths:
+                path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+                self.assertIn(b"\r\n", path.read_bytes())
+            artifact, _ = extractor.extract(checkout)
+            self.assertEqual(extractor.canonical_json(artifact), expected_artifact)
 
     @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for blob tests")
     def test_git_source_uses_pinned_blob_without_working_tree_read(self):

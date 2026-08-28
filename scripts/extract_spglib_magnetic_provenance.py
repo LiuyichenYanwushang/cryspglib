@@ -356,6 +356,21 @@ def _tokens(text):
     return result
 
 
+def _c_escape_character(codepoint, token, escape_position):
+    if (not isinstance(codepoint, int) or not 0 <= codepoint <= 0x10FFFF
+            or 0xD800 <= codepoint <= 0xDFFF):
+        raise ExtractionError(
+            f"invalid Unicode scalar in C string {token!r} at offset "
+            f"{escape_position}: U+{codepoint:X}"
+        )
+    try:
+        return chr(codepoint)
+    except (ValueError, UnicodeError) as error:
+        raise ExtractionError(
+            f"invalid C string escape in {token!r} at offset {escape_position}"
+        ) from error
+
+
 def _decode_c_string(token):
     if not (isinstance(token, str) and len(token) >= 2
             and token[0] == '"' and token[-1] == '"'):
@@ -374,6 +389,7 @@ def _decode_c_string(token):
             value.append(char)
             position += 1
             continue
+        escape_position = position
         position += 1
         if position >= end:
             raise ExtractionError("unterminated C string escape")
@@ -387,7 +403,13 @@ def _decode_c_string(token):
             position += 1
             while position < end and position - start < 3 and token[position] in "01234567":
                 position += 1
-            value.append(chr(int(token[start:position], 8)))
+            try:
+                codepoint = int(token[start:position], 8)
+            except ValueError as error:
+                raise ExtractionError(
+                    f"invalid octal escape in {token!r} at offset {escape_position}"
+                ) from error
+            value.append(_c_escape_character(codepoint, token, escape_position))
             continue
         if escaped == "x":
             position += 1
@@ -396,10 +418,23 @@ def _decode_c_string(token):
                 position += 1
             if start == position:
                 raise ExtractionError("C hexadecimal escape requires digits")
-            value.append(chr(int(token[start:position], 16)))
+            try:
+                codepoint = int(token[start:position], 16)
+            except ValueError as error:
+                raise ExtractionError(
+                    f"invalid hexadecimal escape in {token!r} at offset {escape_position}"
+                ) from error
+            value.append(_c_escape_character(codepoint, token, escape_position))
             continue
         raise ExtractionError("unsupported/non-C string escape")
-    return CString("".join(value))
+    decoded = "".join(value)
+    try:
+        decoded.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise ExtractionError(
+            f"C string {token!r} is not valid UTF-8"
+        ) from error
+    return CString(decoded)
 
 
 def _parse_initializer(text):
@@ -1152,9 +1187,9 @@ def canonical_json(value):
             separators=(",", ":"),
             allow_nan=False,
         )
-    except (TypeError, ValueError) as error:
+        return (encoded + "\n").encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as error:
         raise ExtractionError("value cannot be represented as strict JSON") from error
-    return (encoded + "\n").encode("utf-8")
 
 
 def _validate_output_targets(output, manifest):
@@ -1182,9 +1217,9 @@ def _validate_output_targets(output, manifest):
 
 def _atomic_write(path, data):
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
     temporary_path = None
     try:
+        path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
         )
