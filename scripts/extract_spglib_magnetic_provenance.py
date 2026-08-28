@@ -11,6 +11,7 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 from pathlib import Path
 
 
@@ -24,11 +25,21 @@ ROTATION_PAYLOAD = ROTATION_RADIX ** ROTATION_DIGITS
 TRANSLATION_DIGITS = 3
 TRANSLATION_PAYLOAD = TRANSLATION_DENOMINATOR ** TRANSLATION_DIGITS
 MSG_OPERATION_SCALE = 34_012_224
+# Names matching the upstream decoder's terminology are kept alongside the
+# descriptive names above for callers that want to state the C contract.
+ROT_RADIX = ROTATION_RADIX
+ROT_WIDTH = ROTATION_DIGITS
+ROT_SCALE = ROTATION_PAYLOAD
+TRANS_RADIX = TRANSLATION_DENOMINATOR
+TRANS_WIDTH = TRANSLATION_DIGITS
+TRANS_SCALE = TRANSLATION_PAYLOAD
+SPACE_OPERATION_SCALE = MSG_OPERATION_SCALE
 MAGNETIC_OPERATION_ENCODING_LIMIT = 2 * MSG_OPERATION_SCALE
 SPG_OPERATION_COUNT = 8_147
 SPG_STANDARD_OPERATION_END = 7_389
 MSG_OPERATION_COUNT = 76_683
 MSG_ACTIVE_SPAN_COUNT = 4_479
+ALTERNATIVE_TRANSFORMATION_VALUE_COUNT = 536
 SPG_HALL_COUNT = 531
 SPG_HALL_SETTINGS = SPG_HALL_COUNT - 1
 MSG_UNI_COUNT = 1_652
@@ -39,32 +50,121 @@ EXPECTED_SOURCES = {
     "spg_database.c": "1ad4d3fd4ee2b39d43bf102bd6464bc6d1e07bc825dc4ac40df0235501823896",
 }
 EXPECTED_TYPE_COUNTS = {"1": 230, "2": 230, "3": 674, "4": 517}
+EXPECTED_UPSTREAM_TAG = "v2.5.0"
+EXPECTED_UPSTREAM_COMMIT = "e4531bb49371dce3e807c2095a4d9d9b7245c524"
 
 
 class ExtractionError(ValueError):
     """Raised for any malformed or unexpected upstream initializer."""
 
 
-def _sha256(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
 def _strip_comments(text):
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    return re.sub(r"//[^\n]*", "", text)
+    """Remove C comments without changing token boundaries or strings."""
+    result = []
+    state = "normal"
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if state == "normal":
+            if char == '"':
+                result.append(char)
+                state = "string"
+                index += 1
+            elif char == "'":
+                result.append(char)
+                state = "char"
+                index += 1
+            elif char == "/" and index + 1 < len(text) and text[index + 1] == "/":
+                result.append(" ")
+                state = "line-comment"
+                index += 2
+            elif char == "/" and index + 1 < len(text) and text[index + 1] == "*":
+                result.append(" ")
+                state = "block-comment"
+                index += 2
+            else:
+                result.append(char)
+                index += 1
+        elif state == "string":
+            result.append(char)
+            if char == "\\":
+                if index + 1 >= len(text):
+                    raise ExtractionError("unterminated C string escape")
+                result.append(text[index + 1])
+                index += 2
+            elif char == '"':
+                state = "normal"
+                index += 1
+            elif char in "\r\n":
+                raise ExtractionError("newline in C string literal")
+            else:
+                index += 1
+        elif state == "char":
+            result.append(char)
+            if char == "\\":
+                if index + 1 >= len(text):
+                    raise ExtractionError("unterminated C character escape")
+                result.append(text[index + 1])
+                index += 2
+            elif char == "'":
+                state = "normal"
+                index += 1
+            elif char in "\r\n":
+                raise ExtractionError("newline in C character literal")
+            else:
+                index += 1
+        elif state == "line-comment":
+            if char in "\r\n":
+                result.append(char)
+                state = "normal"
+            index += 1
+        else:
+            if char == "*" and index + 1 < len(text) and text[index + 1] == "/":
+                result.append(" ")
+                state = "normal"
+                index += 2
+            else:
+                if char in "\r\n":
+                    result.append(char)
+                index += 1
+    if state == "block-comment":
+        raise ExtractionError("unterminated C block comment")
+    if state == "string":
+        raise ExtractionError("unterminated C string literal")
+    if state == "char":
+        raise ExtractionError("unterminated C character literal")
+    return "".join(result)
 
 
 def _initializer_text(source, name):
+    source = _strip_comments(source)
     declaration = re.compile(r"\b" + re.escape(name) + r"\b(?:\s*\[[^\]]*\])*\s*=")
-    matches = list(declaration.finditer(source))
+    matches = []
+    for candidate in declaration.finditer(source):
+        before = source[:candidate.start()]
+        escaped = False
+        quote = None
+        for char in before:
+            if quote is not None:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == quote:
+                    quote = None
+            elif char in ('"', "'"):
+                quote = char
+        if quote is None:
+            matches.append(candidate)
     if not matches:
         raise ExtractionError("missing initializer " + name)
     if len(matches) != 1:
         raise ExtractionError("duplicate initializer " + name)
     match = matches[0]
-    start = source.find("{", match.end())
-    if start < 0:
+    opening = re.match(r"\s*(\{)", source[match.end():])
+    if opening is None:
         raise ExtractionError("missing opening brace for " + name)
+    start = match.end() + opening.start(1)
     depth = 0
     quote = False
     escaped = False
@@ -85,27 +185,128 @@ def _initializer_text(source, name):
         elif char == "}":
             depth -= 1
             if depth == 0:
+                trailer = source[index + 1:]
+                if re.match(r"\s*;", trailer) is None:
+                    raise ExtractionError("trailing initializer tokens")
                 return source[start:index + 1]
             if depth < 0:
                 break
     raise ExtractionError("unbalanced initializer " + name)
 
 
-_TOKEN = re.compile(r"\s*(\{|\}|,|[-+]?[0-9]+|\"(?:\\.|[^\"])*\"|[A-Za-z_][A-Za-z_0-9]*)")
-
-
 def _tokens(text):
+    text = _strip_comments(text)
     result = []
     position = 0
     while position < len(text):
-        match = _TOKEN.match(text, position)
-        if match is None:
-            if text[position:].strip():
-                raise ExtractionError("unexpected initializer text near " + repr(text[position:position + 30]))
-            break
-        result.append(match.group(1))
-        position = match.end()
+        char = text[position]
+        if char.isspace():
+            position += 1
+            continue
+        if char in "{},":
+            result.append(char)
+            position += 1
+            continue
+        if char == "-":
+            result.append(char)
+            position += 1
+            continue
+        if char == "+":
+            raise ExtractionError("explicit plus is not allowed in pinned C integers")
+        if char == '"':
+            start = position
+            position += 1
+            escaped = False
+            while position < len(text):
+                current = text[position]
+                if current in "\r\n":
+                    raise ExtractionError("newline in C string literal")
+                if escaped:
+                    escaped = False
+                elif current == "\\":
+                    escaped = True
+                elif current == '"':
+                    position += 1
+                    break
+                position += 1
+            else:
+                raise ExtractionError("unterminated C string literal")
+            if escaped:
+                raise ExtractionError("unterminated C string escape")
+            result.append(text[start:position])
+            continue
+        if char in "0123456789":
+            start = position
+            while position < len(text) and text[position] in "0123456789":
+                position += 1
+            spelling = text[start:position]
+            if len(spelling) > 1 and spelling.startswith("0"):
+                raise ExtractionError("non-canonical or invalid-octal integer: " + spelling)
+            if (position < len(text)
+                    and (("A" <= text[position] <= "Z")
+                         or ("a" <= text[position] <= "z")
+                         or text[position] in "._")):
+                raise ExtractionError("malformed integer spelling near " + spelling)
+            result.append(spelling)
+            continue
+        if (("A" <= char <= "Z") or ("a" <= char <= "z") or char == "_"):
+            start = position
+            position += 1
+            while position < len(text) and (
+                    ("A" <= text[position] <= "Z")
+                    or ("a" <= text[position] <= "z")
+                    or text[position] in "0123456789_"):
+                position += 1
+            result.append(text[start:position])
+            continue
+        raise ExtractionError("unexpected initializer text near " + repr(text[position:position + 30]))
     return result
+
+
+def _decode_c_string(token):
+    if not (isinstance(token, str) and len(token) >= 2
+            and token[0] == '"' and token[-1] == '"'):
+        raise ExtractionError("invalid C string")
+    value = []
+    position = 1
+    end = len(token) - 1
+    simple_escapes = {
+        "a": "\a", "b": "\b", "f": "\f", "n": "\n",
+        "r": "\r", "t": "\t", "v": "\v", "\\": "\\",
+        '"': '"', "?": "?", "'": "'",
+    }
+    while position < end:
+        char = token[position]
+        if char != "\\":
+            value.append(char)
+            position += 1
+            continue
+        position += 1
+        if position >= end:
+            raise ExtractionError("unterminated C string escape")
+        escaped = token[position]
+        if escaped in simple_escapes:
+            value.append(simple_escapes[escaped])
+            position += 1
+            continue
+        if escaped in "01234567":
+            start = position
+            position += 1
+            while position < end and position - start < 3 and token[position] in "01234567":
+                position += 1
+            value.append(chr(int(token[start:position], 8)))
+            continue
+        if escaped == "x":
+            position += 1
+            start = position
+            while position < end and token[position] in "0123456789abcdefABCDEF":
+                position += 1
+            if start == position:
+                raise ExtractionError("C hexadecimal escape requires digits")
+            value.append(chr(int(token[start:position], 16)))
+            continue
+        raise ExtractionError("unsupported/non-C string escape")
+    return "".join(value)
 
 
 def _parse_initializer(text):
@@ -139,17 +340,18 @@ def _parse_initializer(text):
                 raise ExtractionError("expected comma or closing brace")
         if token in ("{", "}", ","):
             raise ExtractionError("unexpected delimiter")
+        if token == "-":
+            cursor += 1
+            if cursor >= len(tokens) or not re.fullmatch(r"[0-9]+", tokens[cursor]):
+                raise ExtractionError("minus must precede an integer")
+            token = tokens[cursor]
+            cursor += 1
+            return -int(token)
         cursor += 1
-        if re.fullmatch(r"[-+]?[0-9]+", token):
+        if re.fullmatch(r"[0-9]+", token):
             return int(token)
         if token.startswith('"'):
-            try:
-                value = json.loads(token)
-            except json.JSONDecodeError as error:
-                raise ExtractionError("invalid C string") from error
-            if not isinstance(value, str):
-                raise ExtractionError("initializer string is not text")
-            return value
+            return _decode_c_string(token)
         return token
 
     value = parse_value()
@@ -159,7 +361,7 @@ def _parse_initializer(text):
 
 
 def _ints(value, name):
-    if not isinstance(value, list) or not all(isinstance(item, int) for item in value):
+    if not isinstance(value, list) or not all(type(item) is int for item in value):
         raise ExtractionError(name + " must be an integer array")
     return value
 
@@ -171,7 +373,7 @@ def _normalize_rows(value, rows, columns, name):
     for row in value:
         if not isinstance(row, list) or len(row) > columns:
             raise ExtractionError(name + " has an invalid row width")
-        if not all(isinstance(item, int) for item in row):
+        if not all(type(item) is int for item in row):
             raise ExtractionError(name + " contains non-integer entries")
         result.append(row + [0] * (columns - len(row)))
     result.extend([[0] * columns for _ in range(rows - len(result))])
@@ -239,16 +441,57 @@ def _decode_magnetic_operation(encoded):
             "time_reversal": time_reversal}
 
 
+def _git_output(upstream, arguments):
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(upstream), *arguments],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="strict",
+        )
+    except (OSError, UnicodeError, subprocess.CalledProcessError) as error:
+        raise ExtractionError(f"unable to verify git provenance for {upstream}") from error
+    return result.stdout.strip()
+
+
+def _verify_upstream_provenance(upstream):
+    upstream = Path(upstream)
+    if _git_output(upstream, ["rev-parse", "--is-inside-work-tree"]) != "true":
+        raise ExtractionError(f"{upstream}: not a git work tree")
+    head = _git_output(upstream, ["rev-parse", "HEAD"])
+    if head != EXPECTED_UPSTREAM_COMMIT:
+        raise ExtractionError(
+            f"{upstream}: git HEAD {head!r} is not {EXPECTED_UPSTREAM_COMMIT}"
+        )
+    tags = _git_output(upstream, ["tag", "--points-at", "HEAD"]).splitlines()
+    if EXPECTED_UPSTREAM_TAG not in tags:
+        raise ExtractionError(
+            f"{upstream}: HEAD is not tagged exactly {EXPECTED_UPSTREAM_TAG}"
+        )
+
+
 def _source(path, expected_hash):
     path = Path(path)
-    actual = _sha256(path)
+    try:
+        source_bytes = path.read_bytes()
+    except OSError as error:
+        raise ExtractionError(f"unable to read source {path}") from error
+    actual = hashlib.sha256(source_bytes).hexdigest()
     if actual != expected_hash:
         raise ExtractionError(f"{path}: SHA256 mismatch: {actual}")
-    return _strip_comments(path.read_text(encoding="utf-8")), actual
+    try:
+        source_text = source_bytes.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        raise ExtractionError(f"{path}: source is not strict UTF-8") from error
+    return _strip_comments(source_text), actual
 
 
 def extract(upstream):
     upstream = Path(upstream)
+    _verify_upstream_provenance(upstream)
     msg_path = upstream / "src/msg_database.c"
     spg_path = upstream / "src/spg_database.c"
     msg, msg_hash = _source(msg_path, EXPECTED_SOURCES["msg_database.c"])
@@ -262,15 +505,19 @@ def extract(upstream):
     spg_numbers = []
     for entry in spg_types:
         if (not isinstance(entry, list) or len(entry) != 9
-                or not isinstance(entry[0], int)
+                or type(entry[0]) is not int
                 or not all(isinstance(item, str) for item in entry[1:7])
                 or entry[7] not in {"CENTERING_ERROR", "PRIMITIVE", "C_FACE", "A_FACE", "BODY", "FACE", "R_CENTER"}
-                or not isinstance(entry[8], int)):
+                or type(entry[8]) is not int):
             raise ExtractionError("spacegroup_types entry has invalid grammar")
         spg_numbers.append(entry[0])
+    if (spg_types[0][0] != 0 or spg_types[0][7] != "CENTERING_ERROR"
+            or spg_types[0][8] != 0):
+        raise ExtractionError("spacegroup type sentinel mismatch")
     spg_operation_index = []
     for entry in spg_index:
-        if not isinstance(entry, list) or len(entry) != 2 or not all(isinstance(x, int) for x in entry):
+        if (not isinstance(entry, list) or len(entry) != 2
+                or not all(type(x) is int for x in entry)):
             raise ExtractionError("spg operation index entry must have width 2")
         spg_operation_index.append(entry)
     if len(spg_operations) != SPG_OPERATION_COUNT or spg_operations[0] != 0:
@@ -299,9 +546,9 @@ def extract(upstream):
     magnetic_operations = _ints(_parse_initializer(_initializer_text(msg, "magnetic_symmetry_operations")), "magnetic_symmetry_operations")
     transformations = _parse_initializer(_initializer_text(msg, "alternative_transformations"))
     if not all(isinstance(row, list) and len(row) == 6
-               and isinstance(row[0], int) and isinstance(row[1], int)
+               and type(row[0]) is int and type(row[1]) is int
                and isinstance(row[2], str) and isinstance(row[3], str)
-               and isinstance(row[4], int) and isinstance(row[5], int)
+               and type(row[4]) is int and type(row[5]) is int
                for row in msg_types):
         raise ExtractionError("magnetic spacegroup type row width mismatch")
     if len(msg_types) != MSG_UNI_COUNT or len(uni_mapping) != MSG_UNI_COUNT:
@@ -313,7 +560,8 @@ def extract(upstream):
            for item in magnetic_operations[1:]):
         raise ExtractionError("magnetic operation encoding out of range")
     uni_mapping = [
-        [int(row[0]), int(row[1])] if isinstance(row, list) and len(row) == 2 and all(isinstance(x, int) for x in row)
+        [row[0], row[1]] if (isinstance(row, list) and len(row) == 2
+                              and all(type(x) is int for x in row))
         else (_ for _ in ()).throw(ExtractionError("UNI mapping row width mismatch"))
         for row in uni_mapping
     ]
@@ -322,7 +570,8 @@ def extract(upstream):
     if msg_types[0] != [0, 0, "", "", 0, 0]:
         raise ExtractionError("magnetic type sentinel mismatch")
     for uni, row in enumerate(msg_types[1:], 1):
-        if row[0] != uni or not isinstance(row[1], int) or not isinstance(row[4], int) or row[5] not in (1, 2, 3, 4):
+        if (row[0] != uni or type(row[1]) is not int
+                or type(row[4]) is not int or row[5] not in (1, 2, 3, 4)):
             raise ExtractionError("magnetic type row identity/range mismatch")
     type_counts = {str(kind): sum(row[5] == kind for row in msg_types[1:]) for kind in (1, 2, 3, 4)}
     if type_counts != EXPECTED_TYPE_COUNTS:
@@ -337,6 +586,7 @@ def extract(upstream):
         raise ExtractionError("magnetic database dummy transformation mismatch")
 
     active_spans = []
+    transformation_value_count = 0
     for uni in range(1, MSG_UNI_COUNT):
         hall_count, first_hall = uni_mapping[uni]
         if hall_count < 1 or hall_count > MSG_HALL_SLOTS:
@@ -359,6 +609,8 @@ def extract(upstream):
                 continue
             first_zero = next((index for index, value in enumerate(values)
                                if value == 0), len(values))
+            if first_zero == len(values):
+                raise ExtractionError("alternative transformation terminator missing")
             if any(value == 0 for value in values[:first_zero]):
                 raise ExtractionError("invalid transformation zero terminator")
             if any(value != 0 for value in values[first_zero:]):
@@ -367,6 +619,7 @@ def extract(upstream):
                    or not 0 < value < MSG_OPERATION_SCALE
                    for value in values[:first_zero]):
                 raise ExtractionError("transformation encoding out of range")
+            transformation_value_count += first_zero
 
     if len(active_spans) != MSG_ACTIVE_SPAN_COUNT:
         raise ExtractionError("magnetic active span census mismatch")
@@ -377,6 +630,8 @@ def extract(upstream):
         previous_end = end
     if previous_end != len(magnetic_operations):
         raise ExtractionError("magnetic operation span boundary mismatch")
+    if transformation_value_count != ALTERNATIVE_TRANSFORMATION_VALUE_COUNT:
+        raise ExtractionError("alternative transformation value census mismatch")
 
     expected_witnesses = {
         16484: {"rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1],
@@ -434,8 +689,109 @@ def extract(upstream):
     }
 
 
+def _reject_json_float(value):
+    raise ExtractionError("JSON floating-point values are not allowed")
+
+
+def _reject_json_constant(value):
+    raise ExtractionError("JSON non-finite numeric constant is not allowed")
+
+
+def _validate_json_value(value, path="$" ):
+    if value is None or isinstance(value, (bool, int, str)):
+        return
+    if isinstance(value, float):
+        raise ExtractionError(f"JSON floating-point value at {path}")
+    if isinstance(value, list):
+        for index, item in enumerate(value):
+            _validate_json_value(item, f"{path}[{index}]")
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ExtractionError(f"JSON object key at {path} is not text")
+            _validate_json_value(item, f"{path}.{key}")
+        return
+    raise ExtractionError(f"unsupported JSON value at {path}")
+
+
+def _parse_json_bytes(data, name="JSON"):
+    if not isinstance(data, bytes):
+        raise ExtractionError(f"{name}: expected bytes")
+    try:
+        value = json.loads(
+            data.decode("utf-8", errors="strict"),
+            parse_float=_reject_json_float,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ExtractionError) as error:
+        if isinstance(error, ExtractionError):
+            raise
+        raise ExtractionError(f"{name}: invalid strict JSON") from error
+    _validate_json_value(value)
+    return value
+
+
+def _load_json(path):
+    path = Path(path)
+    try:
+        data = path.read_bytes()
+    except OSError as error:
+        raise ExtractionError(f"unable to read JSON {path}") from error
+    return _parse_json_bytes(data, str(path))
+
+
+def validate_manifest(manifest, artifact_bytes, artifact_name):
+    """Validate a manifest's closed provenance and artifact commitment."""
+    if not isinstance(artifact_bytes, bytes):
+        raise ExtractionError("artifact commitment must be bytes")
+    _validate_json_value(manifest)
+    if not isinstance(manifest, dict):
+        raise ExtractionError("manifest must be a JSON object")
+    expected_keys = {
+        "schema", "repository", "tag", "commit", "sources",
+        "extractor_schema_version", "artifact",
+    }
+    if set(manifest) != expected_keys:
+        raise ExtractionError("manifest schema keys mismatch")
+    if manifest["schema"] != MANIFEST_SCHEMA:
+        raise ExtractionError("manifest schema mismatch")
+    if manifest["repository"] != "https://github.com/spglib/spglib":
+        raise ExtractionError("manifest repository mismatch")
+    if manifest["tag"] != EXPECTED_UPSTREAM_TAG:
+        raise ExtractionError("manifest tag mismatch")
+    if manifest["commit"] != EXPECTED_UPSTREAM_COMMIT:
+        raise ExtractionError("manifest commit mismatch")
+    if manifest["extractor_schema_version"] != EXTRACTOR_VERSION:
+        raise ExtractionError("manifest extractor version mismatch")
+    expected_sources = [
+        {"path": "src/msg_database.c", "sha256": EXPECTED_SOURCES["msg_database.c"]},
+        {"path": "src/spg_database.c", "sha256": EXPECTED_SOURCES["spg_database.c"]},
+    ]
+    if manifest["sources"] != expected_sources:
+        raise ExtractionError("manifest source commitments mismatch")
+    expected_artifact = {
+        "path": str(artifact_name),
+        "bytes": len(artifact_bytes),
+        "sha256": hashlib.sha256(artifact_bytes).hexdigest(),
+    }
+    if manifest["artifact"] != expected_artifact:
+        raise ExtractionError("manifest artifact commitment mismatch")
+
+
 def canonical_json(value):
-    return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    _validate_json_value(value)
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as error:
+        raise ExtractionError("value cannot be represented as strict JSON") from error
+    return (encoded + "\n").encode("utf-8")
 
 
 def write_outputs(upstream, output, manifest):
@@ -449,8 +805,8 @@ def write_outputs(upstream, output, manifest):
     manifest_value = {
         "schema": MANIFEST_SCHEMA,
         "repository": "https://github.com/spglib/spglib",
-        "tag": "v2.5.0",
-        "commit": "e4531bb49371dce3e807c2095a4d9d9b7245c524",
+        "tag": EXPECTED_UPSTREAM_TAG,
+        "commit": EXPECTED_UPSTREAM_COMMIT,
         "sources": [
             {"path": "src/msg_database.c", "sha256": details["msg_database.c"]},
             {"path": "src/spg_database.c", "sha256": details["spg_database.c"]},

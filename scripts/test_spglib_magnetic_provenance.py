@@ -2,10 +2,10 @@
 """Focused tests for the pinned spglib magnetic provenance extractor."""
 
 import hashlib
-import json
 import os
 import sys
 import tempfile
+from unittest import mock
 import unittest
 from pathlib import Path
 
@@ -13,7 +13,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 import extract_spglib_magnetic_provenance as extractor
 
 
-UPSTREAM = Path("/tmp/spglib-v2.5.0")
+UPSTREAM = (Path(os.environ["SPGLIB_V2_5_0_SOURCE"])
+            if os.environ.get("SPGLIB_V2_5_0_SOURCE") else None)
 ARTIFACT = Path(__file__).parent / "data/spglib_magnetic_provenance_v1.json"
 MANIFEST = Path(__file__).parent / "data/spglib_magnetic_provenance_v1.manifest.json"
 
@@ -21,8 +22,13 @@ MANIFEST = Path(__file__).parent / "data/spglib_magnetic_provenance_v1.manifest.
 class MagneticProvenanceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.artifact, cls.details = extractor.extract(UPSTREAM)
+        if UPSTREAM is None:
+            cls.artifact = None
+            cls.details = None
+        else:
+            cls.artifact, cls.details = extractor.extract(UPSTREAM)
 
+    @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for regeneration tests")
     def test_pinned_source_hashes_and_census(self):
         self.assertEqual(self.details["msg_database.c"], extractor.EXPECTED_SOURCES["msg_database.c"])
         self.assertEqual(self.details["spg_database.c"], extractor.EXPECTED_SOURCES["spg_database.c"])
@@ -37,6 +43,7 @@ class MagneticProvenanceTests(unittest.TestCase):
         )
         self.assertEqual(self.artifact["msg"]["magnetic_symmetry_operations"][0], 0)
 
+    @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for regeneration tests")
     def test_normalized_dimensions_and_ranges(self):
         msg = self.artifact["msg"]
         self.assertEqual(
@@ -124,6 +131,7 @@ class MagneticProvenanceTests(unittest.TestCase):
                  for item in decoded], expected_group,
             )
 
+    @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for regeneration tests")
     def test_key_uni_operations_decode_antiunitary(self):
         msg = self.artifact["msg"]
         for uni in (7, 9):
@@ -134,20 +142,29 @@ class MagneticProvenanceTests(unittest.TestCase):
             self.assertTrue(all(len(operation["rotation"]) == 9 for operation in decoded))
             self.assertTrue(all(len(operation["translation_numerator"]) == 3 for operation in decoded))
 
+    def test_committed_artifact_and_manifest_integrity(self):
+        artifact_bytes = ARTIFACT.read_bytes()
+        artifact = extractor._parse_json_bytes(artifact_bytes, str(ARTIFACT))
+        self.assertEqual(artifact["schema"], extractor.SCHEMA)
+        self.assertEqual(extractor.canonical_json(artifact), artifact_bytes)
+        manifest_bytes = MANIFEST.read_bytes()
+        manifest = extractor._parse_json_bytes(manifest_bytes, str(MANIFEST))
+        extractor.validate_manifest(manifest, artifact_bytes, ARTIFACT.name)
+        self.assertEqual(extractor.canonical_json(manifest), manifest_bytes)
+
+    @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for regeneration tests")
     def test_canonical_artifact_and_manifest_hash(self):
         artifact_bytes = extractor.canonical_json(self.artifact)
         self.assertEqual(artifact_bytes[-1:], b"\n")
-        self.assertNotIn(b".0", artifact_bytes)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "artifact.json"
             manifest = Path(directory) / "manifest.json"
             extractor.write_outputs(UPSTREAM, output, manifest)
             self.assertEqual(output.read_bytes(), ARTIFACT.read_bytes())
-            value = json.loads(manifest.read_text())
-            self.assertEqual(value["artifact"]["bytes"], output.stat().st_size)
-            self.assertEqual(value["artifact"]["sha256"], hashlib.sha256(output.read_bytes()).hexdigest())
-            self.assertEqual(value["schema"], extractor.MANIFEST_SCHEMA)
+            value = extractor._load_json(manifest)
+            extractor.validate_manifest(value, output.read_bytes(), output.name)
 
+    @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for regeneration tests")
     def test_two_runs_are_byte_identical(self):
         with tempfile.TemporaryDirectory() as directory:
             first = Path(directory) / "first.json"
@@ -167,6 +184,12 @@ class MagneticProvenanceTests(unittest.TestCase):
         with self.assertRaises(extractor.ExtractionError):
             extractor._parse_initializer("{1} trailing")
         with self.assertRaises(extractor.ExtractionError):
+            extractor._initializer_text("int x[] = junk {1};", "x")
+        with self.assertRaises(extractor.ExtractionError):
+            extractor._initializer_text("int x[] = {1} junk;", "x")
+        with self.assertRaises(extractor.ExtractionError):
+            extractor._initializer_text("int x[] = {1}", "x")
+        with self.assertRaises(extractor.ExtractionError):
             extractor._normalize_rows([[1, 2, 3]], 1, 2, "fixture")
 
     def test_initializer_partial_rows_zero_fill_and_corrupt_tokens_reject(self):
@@ -180,6 +203,85 @@ class MagneticProvenanceTests(unittest.TestCase):
         with self.assertRaises(extractor.ExtractionError):
             extractor._decode_magnetic_operation(extractor.MSG_OPERATION_SCALE * 2)
 
+    def test_strict_c_comments_numbers_and_strings(self):
+        self.assertEqual(extractor._strip_comments('"http://example.invalid"'),
+                         '"http://example.invalid"')
+        self.assertEqual(extractor._parse_initializer('{"http://example.invalid"}'),
+                         ["http://example.invalid"])
+        with self.assertRaises(extractor.ExtractionError):
+            extractor._parse_initializer("{1/**/2}")
+        for spelling in ("09", "012", "+1", "1.5", "1e3"):
+            with self.subTest(spelling=spelling):
+                with self.assertRaises(extractor.ExtractionError):
+                    extractor._parse_initializer("{" + spelling + "}")
+        for spelling in (r'"\u002f"', r'"\/"'):
+            with self.subTest(spelling=spelling):
+                with self.assertRaises(extractor.ExtractionError):
+                    extractor._parse_initializer("{" + spelling + "}")
+
+    def test_json_no_float_is_recursive_and_strict(self):
+        for text in (
+            b'{"x":1.5}', b'{"x":1e3}', b'{"x":NaN}',
+            b'{"x":Infinity}', b'{"x":-Infinity}',
+            b'{"x":[{"y":1.5}]}',
+        ):
+            with self.subTest(text=text):
+                with self.assertRaises(extractor.ExtractionError):
+                    extractor._parse_json_bytes(text, "fixture")
+        for value in ({"x": 1.5}, {"x": float("nan")}, {"x": float("inf")}):
+            with self.subTest(value=value):
+                with self.assertRaises(extractor.ExtractionError):
+                    extractor.canonical_json(value)
+
+    def test_committed_manifest_corruption_fails_closed(self):
+        artifact_bytes = ARTIFACT.read_bytes()
+        manifest_bytes = MANIFEST.read_bytes()
+        broken_bytes = manifest_bytes.replace(
+            extractor.EXPECTED_UPSTREAM_COMMIT.encode("ascii"), b"0" * 40
+        )
+        self.assertNotEqual(broken_bytes, manifest_bytes)
+        with tempfile.TemporaryDirectory() as directory:
+            broken = Path(directory) / "broken.json"
+            broken.write_bytes(broken_bytes)
+            broken_manifest = extractor._load_json(broken)
+            with self.assertRaises(extractor.ExtractionError):
+                extractor.validate_manifest(broken_manifest, artifact_bytes, ARTIFACT.name)
+
+    def test_upstream_provenance_is_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(extractor.ExtractionError):
+                extractor._verify_upstream_provenance(Path(directory))
+        with mock.patch.object(
+            extractor, "_git_output", side_effect=["true", "wrong-commit"]
+        ):
+            with self.assertRaises(extractor.ExtractionError):
+                extractor._verify_upstream_provenance(Path("/pinned/source"))
+        with mock.patch.object(
+            extractor, "_git_output",
+            side_effect=["true", extractor.EXPECTED_UPSTREAM_COMMIT, "other-tag"],
+        ):
+            with self.assertRaises(extractor.ExtractionError):
+                extractor._verify_upstream_provenance(Path("/pinned/source"))
+
+    @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for source tests")
+    def test_source_bytes_are_read_once_and_strictly_decoded(self):
+        path = UPSTREAM / "src/msg_database.c"
+        source_bytes = path.read_bytes()
+        expected_hash = hashlib.sha256(source_bytes).hexdigest()
+        with mock.patch.object(Path, "read_text", side_effect=AssertionError("TOCTOU read")):
+            with mock.patch.object(Path, "read_bytes", wraps=path.read_bytes) as read_bytes:
+                source, actual_hash = extractor._source(path, expected_hash)
+        self.assertEqual(actual_hash, expected_hash)
+        self.assertTrue(source)
+        self.assertEqual(read_bytes.call_count, 1)
+        with tempfile.TemporaryDirectory() as directory:
+            invalid = Path(directory) / "invalid.c"
+            invalid_bytes = b"\xff"
+            invalid.write_bytes(invalid_bytes)
+            with self.assertRaises(extractor.ExtractionError):
+                extractor._source(invalid, hashlib.sha256(invalid_bytes).hexdigest())
+
+    @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for source tests")
     def test_manifest_source_hash_corruption_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "msg_database.c"
