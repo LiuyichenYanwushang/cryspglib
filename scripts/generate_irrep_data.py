@@ -11,8 +11,9 @@ All arrays in data_irreps.txt and data_isotropy.txt are PARALLEL:
 position N in one array corresponds to position N in all others.
 """
 
-import re, sys, os, zipfile, io, math, hashlib
+import re, sys, os, zipfile, io, math, hashlib, struct
 from collections import defaultdict
+from typing import NamedTuple
 
 SCRIPT_DIR = os.path.dirname(__file__)
 ISO_DIR = os.path.join(SCRIPT_DIR, "..", "isotropy_subgroup")
@@ -229,6 +230,78 @@ PIR_MATRIX_TOKEN_SPELLINGS = frozenset({
     "0.25882", "0.35355", "0.43301", "0.50000", "0.61237",
     "0.68301", "0.70711", "0.86603", "0.96593", "1",
 })
+
+
+class Radical4(NamedTuple):
+    """Exact codebook value ``(a+b√2+c√3+d√6)/4`` for archived scalars."""
+
+    a: int
+    b: int
+    c: int
+    d: int
+
+    def __add__(self, other):
+        if not isinstance(other, Radical4):
+            return NotImplemented
+        return Radical4(
+            self.a + other.a,
+            self.b + other.b,
+            self.c + other.c,
+            self.d + other.d,
+        )
+
+    def __neg__(self):
+        return Radical4(-self.a, -self.b, -self.c, -self.d)
+
+    def is_zero(self):
+        return self == Radical4(0, 0, 0, 0)
+
+    def materialize(self):
+        return (
+            self.a
+            + self.b * math.sqrt(2.0)
+            + self.c * math.sqrt(3.0)
+            + self.d * math.sqrt(6.0)
+        ) / 4.0
+
+
+_PIR_RADICAL4_CODEBOOK = {
+    "-1": Radical4(-4, 0, 0, 0),
+    "-0.96593": Radical4(0, -1, 0, -1),
+    "-0.86603": Radical4(0, 0, -2, 0),
+    "-0.70711": Radical4(0, -2, 0, 0),
+    "-0.68301": Radical4(-1, 0, -1, 0),
+    "-0.61237": Radical4(0, 0, 0, -1),
+    "-0.50000": Radical4(-2, 0, 0, 0),
+    "-0.43301": Radical4(0, 0, -1, 0),
+    "-0.35355": Radical4(0, -1, 0, 0),
+    "-0.25882": Radical4(0, 1, 0, -1),
+    "-0.25000": Radical4(-1, 0, 0, 0),
+    "-0.18301": Radical4(1, 0, -1, 0),
+    "0": Radical4(0, 0, 0, 0),
+    "0.18301": Radical4(-1, 0, 1, 0),
+    "0.25000": Radical4(1, 0, 0, 0),
+    "0.25882": Radical4(0, -1, 0, 1),
+    "0.35355": Radical4(0, 1, 0, 0),
+    "0.43301": Radical4(0, 0, 1, 0),
+    "0.50000": Radical4(2, 0, 0, 0),
+    "0.61237": Radical4(0, 0, 0, 1),
+    "0.68301": Radical4(1, 0, 1, 0),
+    "0.70711": Radical4(0, 2, 0, 0),
+    "0.86603": Radical4(0, 0, 2, 0),
+    "0.96593": Radical4(0, 1, 0, 1),
+    "1": Radical4(4, 0, 0, 0),
+}
+if frozenset(_PIR_RADICAL4_CODEBOOK) != PIR_MATRIX_TOKEN_SPELLINGS:
+    raise AssertionError("PIR Radical4 codebook spelling set is not exact")
+
+
+def _decode_pir_matrix_token(token):
+    """Decode one archived PIR scalar by exact spelling identity."""
+    try:
+        return _PIR_RADICAL4_CODEBOOK[token]
+    except KeyError as error:
+        raise ValueError(f"unknown PIR matrix token {token!r}") from error
 _PIR_HEADER_RE = re.compile(
     r'^\s*([0-9]+)\s+([0-9]+)\s+"([^"]*)"\s+"([^"]*)"\s+'
     r'([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s*$'
@@ -347,7 +420,7 @@ def _read_exact_pir_int_block(lines, start, count, context):
 
 
 def _read_exact_pir_float_block(lines, start, count, context):
-    """Read exactly ``count`` matrix scalar tokens with provenance checks."""
+    """Read exactly ``count`` matrix scalar tokens with exact codebook values."""
     values = []
     spellings = []
     line_index = start
@@ -374,13 +447,7 @@ def _read_exact_pir_float_block(lines, start, count, context):
                     f"unknown PIR matrix token {token!r} at line "
                     f"{line_index + 1} for {context}"
                 )
-            try:
-                values.append(float(token))
-            except ValueError as error:
-                raise ValueError(
-                    f"non-numeric PIR matrix token {token!r} at line "
-                    f"{line_index + 1} for {context}"
-                ) from error
+            values.append(_decode_pir_matrix_token(token))
             spellings.append(token)
         line_index += 1
     return values, spellings, line_index
@@ -507,21 +574,6 @@ def _parse_pir_kvectors():
 
 # ── PIR character parsing ─────────────────────────────────────────────────────
 
-def _round_char(x, eps=1e-8):
-    """Round a character value to clean floating point, removing numerical noise."""
-    if abs(x) < eps:
-        return 0.0
-    r = round(x)
-    if abs(x - r) < eps:
-        return float(r)
-    # Try common rational fractions
-    for n in range(-12, 13):
-        for d in (2, 3, 4, 6, 8):
-            if abs(x - n / d) < eps:
-                return n / d
-    return round(x, 10)
-
-
 def _format_rust_f64(value):
     """Format a finite float as a Rust ``f64`` literal without changing it.
 
@@ -543,6 +595,28 @@ def _format_rust_f64(value):
     if not math.isclose(parsed, value, rel_tol=5e-10, abs_tol=1e-15):
         raise AssertionError(
             f"Rust f64 formatting changed {value!r} to {literal!r} ({parsed!r})"
+        )
+    return literal
+
+
+def _format_scalar_roundtrip_f64(value):
+    """Format a scalar with Python's shortest IEEE-754 round-trip spelling."""
+    if not math.isfinite(value):
+        raise ValueError(f"cannot emit non-finite scalar f64 literal: {value!r}")
+    if value == 0.0 and math.copysign(1.0, value) < 0.0:
+        raise ValueError("cannot emit negative zero scalar f64 literal")
+    literal = repr(value)
+    if "e" in literal or "E" in literal:
+        mantissa, exponent = re.split("[eE]", literal)
+        if "." not in mantissa:
+            mantissa += ".0"
+        literal = f"{mantissa}e{exponent}"
+    elif "." not in literal:
+        literal += ".0"
+    parsed = float(literal)
+    if struct.pack(">d", parsed) != struct.pack(">d", value):
+        raise AssertionError(
+            f"scalar f64 formatter changed bits for {value!r}: {literal!r}"
         )
     return literal
 
@@ -623,16 +697,16 @@ def _parse_pir_characters():
                 float(op_nums[11]) / float(denom),
             ])
 
-            # Store raw matrix values (keep full precision)
-            all_matrices.extend(matrix_vals)
+            # Materialize each exact source matrix component exactly once at
+            # the public f64 boundary.
+            all_matrices.extend(value.materialize() for value in matrix_vals)
 
             # Compute trace (sum of diagonal elements)
-            trace = 0.0
+            trace = Radical4(0, 0, 0, 0)
             for d in range(dim):
                 idx = d * dim + d
-                if idx < len(matrix_vals):
-                    trace += matrix_vals[idx]
-            chars.append(_round_char(trace))
+                trace += matrix_vals[idx]
+            chars.append(trace.materialize())
 
         chars_map[key] = chars
         matrices_map[key] = all_matrices
@@ -798,10 +872,13 @@ def _parse_complex(s, line_number=None, context="CIR matrix"):
     real_token, imag_token = match.groups()
     if real_token not in PIR_MATRIX_TOKEN_SPELLINGS or imag_token not in PIR_MATRIX_TOKEN_SPELLINGS:
         raise ValueError(f"unknown CIR complex component in {s!r} for {context}")
-    real, imag = float(real_token), float(imag_token)
-    if not math.isfinite(real) or not math.isfinite(imag):
-        raise ValueError(f"non-finite CIR complex token {s!r} for {context}")
-    return real, imag
+    try:
+        return (
+            _PIR_RADICAL4_CODEBOOK[real_token],
+            _PIR_RADICAL4_CODEBOOK[imag_token],
+        )
+    except KeyError as error:
+        raise ValueError(f"unknown CIR complex component in {s!r} for {context}") from error
 
 
 def _parse_cir_complex_block(lines, start, count, context):
@@ -874,18 +951,6 @@ def _parse_cir_lines(lines, needed_labels=None, validate_census=True):
         cir_chars: dict (sg, label) -> {'dim', 'opcount', 'chars': [(re,im,rounded_re)]}
         cir_matrices: dict (sg, label) -> flattened list of (real, imag) pairs
     """
-    def _round_char(x, eps=1e-8):
-        if abs(x) < eps:
-            return 0.0
-        r = round(x)
-        if abs(x - r) < eps:
-            return float(r)
-        for n in range(-12, 13):
-            for d in (2, 3, 4, 6, 8):
-                if abs(x - n / d) < eps:
-                    return n / d
-        return round(x, 10)
-
     cir_chars = {}
     cir_matrices = {}  # (sg, label) -> [(re, im), ...] flattened
     cir_irnumber_map = {}  # (SG#, ML_label) -> stable ISO-IR CIR irnumber
@@ -992,25 +1057,32 @@ def _parse_cir_lines(lines, needed_labels=None, validate_census=True):
             complex_token_spellings.update(spellings)
 
             if store_matrices:
-                all_matrices.extend(complex_vals)
+                all_matrices.extend(
+                    (real.materialize(), imag.materialize())
+                    for real, imag in complex_vals
+                )
 
             # Compute complex trace
-            trace_re = 0.0
-            trace_im = 0.0
+            trace_re = Radical4(0, 0, 0, 0)
+            trace_im = Radical4(0, 0, 0, 0)
             for d in range(dim):
                 idx = d * dim + d
                 trace_re += complex_vals[idx][0]
                 trace_im += complex_vals[idx][1]
 
-            chars.append((trace_re, trace_im, _round_char(trace_re)))
+            trace_re_value = trace_re.materialize()
+            trace_im_value = trace_im.materialize()
+            chars.append((trace_re_value, trace_im_value, trace_re_value))
 
-            little_trace_re = 0.0
-            little_trace_im = 0.0
+            little_trace_re = Radical4(0, 0, 0, 0)
+            little_trace_im = Radical4(0, 0, 0, 0)
             for d in range(little_dim):
                 idx = d * dim + d
                 little_trace_re += complex_vals[idx][0]
                 little_trace_im += complex_vals[idx][1]
-            little_chars.append((little_trace_re, little_trace_im))
+            little_chars.append(
+                (little_trace_re.materialize(), little_trace_im.materialize())
+            )
 
         if len(rots) != opcount or len(trans) != opcount or len(chars) != opcount:
             raise ValueError(
@@ -1367,24 +1439,10 @@ def _lookup_cir_chars(cir_data, sg_num, ml_label):
                     summed = []
                     for op_idx in range(n_ops):
                         total = sum(ch[op_idx] for ch in all_chars)
-                        summed.append(_round_char_cir(total))
+                        summed.append(total)
                     return summed
 
     return []
-
-
-def _round_char_cir(x, eps=1e-8):
-    """Round character value (same as _round_char but accessible here)."""
-    if abs(x) < eps:
-        return 0.0
-    r = round(x)
-    if abs(x - r) < eps:
-        return float(r)
-    for n in range(-12, 13):
-        for d in (2, 3, 4, 6, 8):
-            if abs(x - n / d) < eps:
-                return n / d
-    return round(x, 10)
 
 
 # ── main parsing ─────────────────────────────────────────────────────────────
@@ -2183,10 +2241,10 @@ def _reorder_to_spglib_order(
                             kx * delta[0] + ky * delta[1] + kz * delta[2]) / kd
                         phase_re = math.cos(theta)
                         phase_im = math.sin(theta)
-                        little_chars_real[start + h] = (
-                            old_re[source] * phase_re - old_im[source] * phase_im)
-                        little_chars_imag[start + h] = (
-                            old_re[source] * phase_im + old_im[source] * phase_re)
+                        phased_real, phased_imag = _phase_real_imag(
+                            old_re[source], old_im[source], phase_re, phase_im)
+                        little_chars_real[start + h] = phased_real
+                        little_chars_imag[start + h] = phased_imag
                         little_chars_valid[start + h] = old_valid[source]
             if not needs_resize:
                 dim_sq = mat_counts[i] // n_ops if n_ops else 1
@@ -2384,7 +2442,24 @@ def _phase_character(value, target_translation, source_translation, kvec):
     theta = 2.0 * math.pi * (
         kx * delta[0] + ky * delta[1] + kz * delta[2]) / kd
     phase = complex(math.cos(theta), math.sin(theta))
-    return value * phase
+    phased = value * phase
+    # An exact algebraic zero remains zero under a Bloch phase.  Constructing
+    # it explicitly avoids carrying a signed IEEE zero from multiplication;
+    # no nonzero derived phase value is rounded or thresholded here.
+    return complex(
+        0.0 if phased.real == 0.0 else phased.real,
+        0.0 if phased.imag == 0.0 else phased.imag,
+    )
+
+
+def _phase_real_imag(real, imag, phase_re, phase_im):
+    """Apply a phase while preserving exact zero as positive IEEE zero."""
+    phased_real = real * phase_re - imag * phase_im
+    phased_imag = real * phase_im + imag * phase_re
+    return (
+        0.0 if phased_real == 0.0 else phased_real,
+        0.0 if phased_imag == 0.0 else phased_imag,
+    )
 
 
 def _align_cir_characters(values, source_rots, source_trans,
@@ -2634,10 +2709,10 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                 kx * delta[0] + ky * delta[1] + kz * delta[2]) / kd
             phase_re = math.cos(theta)
             phase_im = math.sin(theta)
-            new_little_real[new_start + h] = (
-                old_re[source] * phase_re - old_im[source] * phase_im)
-            new_little_imag[new_start + h] = (
-                old_re[source] * phase_im + old_im[source] * phase_re)
+            phased_real, phased_imag = _phase_real_imag(
+                old_re[source], old_im[source], phase_re, phase_im)
+            new_little_real[new_start + h] = phased_real
+            new_little_imag[new_start + h] = phased_imag
             new_little_valid[new_start + h] = old_valid[source]
 
     # Rebuild matrices_flat
@@ -2997,7 +3072,9 @@ def generate_rust_data(data):
     if missing_chars > 0:
         print(f"  Warning: {missing_chars}/{len(ml)} irreps have no character data")
     if cir_filled > 0:
-        print(f"  (CIR fallback filled {cir_filled} character tables)")
+        raise AssertionError(
+            f"pinned generation unexpectedly used CIR character fallback: {cir_filled}"
+        )
     valid_little_tables = sum(
         1 for i in range(len(ml))
         if char_counts[i] > 0 and little_chars_valid[char_starts[i]] == 1
@@ -3552,7 +3629,17 @@ def generate_rust_data(data):
             )
     print(f"  ✓ All {len(ml)} scalar identity characters match authoritative dimensions")
 
+    if not spinor_starts or spinor_starts[0] != 95178:
+        raise AssertionError(
+            f"unexpected scalar CHARACTERS boundary: "
+            f"{spinor_starts[0] if spinor_starts else None}, expected 95178"
+        )
+    scalar_char_boundary = spinor_starts[0]
+
     lines = []
+    def _fmt_char(v):
+        return _format_rust_f64(v)
+
     lines.append("// Auto-generated from iso_data files by scripts/generate_irrep_data.py")
     lines.append("// DO NOT EDIT MANUALLY")
     lines.append("")
@@ -3562,12 +3649,14 @@ def generate_rust_data(data):
     lines.append(f"pub static CHARACTERS: [f64; {len(chars_flat)}] = [")
     # Write in chunks of 10 values per line for readability.
     # Always produce valid f64 literals (integer values need ".0" suffix).
-    def _fmt_char(v):
-        return _format_rust_f64(v)
-
     for chunk_start in range(0, len(chars_flat), 10):
         chunk = chars_flat[chunk_start:chunk_start + 10]
-        vals = ", ".join(_fmt_char(v) for v in chunk)
+        vals = ", ".join(
+            _format_scalar_roundtrip_f64(value)
+            if index < scalar_char_boundary
+            else _format_rust_f64(value)
+            for index, value in enumerate(chunk, start=chunk_start)
+        )
         lines.append(f"    {vals},")
     lines.append("];")
     lines.append("")
@@ -3577,12 +3666,16 @@ def generate_rust_data(data):
     lines.append(f"pub static SCALAR_LITTLE_CHARS_REAL: [f64; {len(little_chars_real)}] = [")
     for chunk_start in range(0, len(little_chars_real), 10):
         chunk = little_chars_real[chunk_start:chunk_start + 10]
-        lines.append(f"    {', '.join(_fmt_char(v) for v in chunk)},")
+        lines.append(
+            f"    {', '.join(_format_scalar_roundtrip_f64(v) for v in chunk)},"
+        )
     lines.append("];")
     lines.append(f"pub static SCALAR_LITTLE_CHARS_IMAG: [f64; {len(little_chars_imag)}] = [")
     for chunk_start in range(0, len(little_chars_imag), 10):
         chunk = little_chars_imag[chunk_start:chunk_start + 10]
-        lines.append(f"    {', '.join(_fmt_char(v) for v in chunk)},")
+        lines.append(
+            f"    {', '.join(_format_scalar_roundtrip_f64(v) for v in chunk)},"
+        )
     lines.append("];")
     lines.append(f"pub static SCALAR_LITTLE_CHARS_VALID: [u8; {len(little_chars_valid)}] = [")
     for chunk_start in range(0, len(little_chars_valid), 20):
@@ -3596,7 +3689,7 @@ def generate_rust_data(data):
     lines.append(f"pub static MATRICES: [f64; {len(matrices_flat)}] = [")
     for chunk_start in range(0, len(matrices_flat), 10):
         chunk = matrices_flat[chunk_start:chunk_start + 10]
-        vals = ", ".join(_fmt_char(v) for v in chunk)
+        vals = ", ".join(_format_scalar_roundtrip_f64(v) for v in chunk)
         lines.append(f"    {vals},")
     lines.append("];")
     lines.append("")
@@ -3629,7 +3722,7 @@ def generate_rust_data(data):
     lines.append(f"pub static CIR_COMPONENT_CHARS: [f64; {len(cir_comp_flat)}] = [")
     for chunk_start in range(0, len(cir_comp_flat), 10):
         chunk = cir_comp_flat[chunk_start:chunk_start + 10]
-        vals = ", ".join(_fmt_char(v) for v in chunk)
+        vals = ", ".join(_format_scalar_roundtrip_f64(v) for v in chunk)
         lines.append(f"    {vals},")
     lines.append("];")
     lines.append("")

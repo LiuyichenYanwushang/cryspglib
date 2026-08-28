@@ -2,6 +2,7 @@
 
 import os
 import sys
+import struct
 import tempfile
 import unittest
 import zipfile
@@ -97,6 +98,61 @@ class PinnedArchiveBoundaryTests(unittest.TestCase):
             malformed[field] = value
             with self.assertRaisesRegex(ValueError, "offset"):
                 generator._validate_pir_storage_alignment(**malformed)
+
+
+class Radical4CodebookTests(unittest.TestCase):
+    def test_codebook_has_exact_pinned_spellings_and_tuples(self):
+        self.assertEqual(
+            frozenset(generator._PIR_RADICAL4_CODEBOOK),
+            generator.PIR_MATRIX_TOKEN_SPELLINGS,
+        )
+        self.assertEqual(len(generator._PIR_RADICAL4_CODEBOOK), 25)
+        self.assertEqual(
+            generator._decode_pir_matrix_token("-0.96593"),
+            generator.Radical4(0, -1, 0, -1),
+        )
+        self.assertEqual(
+            generator._decode_pir_matrix_token("0.70711"),
+            generator.Radical4(0, 2, 0, 0),
+        )
+        for spelling in ("+1", "1.00000", "0.70710", "unknown"):
+            with self.assertRaises(ValueError):
+                generator._decode_pir_matrix_token(spelling)
+
+    def test_radical4_signs_and_exact_trace_cancellation(self):
+        value = generator.Radical4(1, -2, 3, -4)
+        self.assertTrue((-value + value).is_zero())
+        self.assertEqual(
+            generator._decode_pir_matrix_token("0.96593")
+            + generator._decode_pir_matrix_token("0.25882"),
+            generator.Radical4(0, 0, 0, 2),
+        )
+        self.assertAlmostEqual(
+            (
+                generator._decode_pir_matrix_token("0.96593")
+                + generator._decode_pir_matrix_token("0.25882")
+            ).materialize(),
+            2**0.5 * 3**0.5 / 2,
+        )
+        self.assertEqual(
+            generator._decode_pir_matrix_token("0.68301")
+            + generator._decode_pir_matrix_token("0.18301"),
+            generator.Radical4(0, 0, 2, 0),
+        )
+        self.assertTrue(
+            (
+                generator._decode_pir_matrix_token("0.25000")
+                + generator._decode_pir_matrix_token("-0.25000")
+            ).is_zero()
+        )
+
+    def test_scalar_formatter_is_shortest_ieee_roundtrip(self):
+        for value in (1.047197638e-10, 1e-300, 0.0, 1.0, -1.0):
+            literal = generator._format_scalar_roundtrip_f64(value)
+            self.assertEqual(struct.pack(">d", float(literal)), struct.pack(">d", value))
+        self.assertEqual(generator._format_scalar_roundtrip_f64(1.0), "1.0")
+        with self.assertRaises(ValueError):
+            generator._format_scalar_roundtrip_f64(-0.0)
 
 
 class PirStructureTests(unittest.TestCase):
@@ -243,7 +299,7 @@ class PirStructureTests(unittest.TestCase):
             )
         )
         self.assertIsNone(irtranslation)
-        self.assertEqual(matrix, [1.0])
+        self.assertEqual(matrix, [generator.Radical4(4, 0, 0, 0)])
         self.assertEqual(spellings, ["1"])
         self.assertEqual(next_line, 2)
 
@@ -255,7 +311,7 @@ class PirStructureTests(unittest.TestCase):
             )
         )
         self.assertEqual(irtranslation, [0, 0, 0, 1])
-        self.assertEqual(matrix, [1.0])
+        self.assertEqual(matrix, [generator.Radical4(4, 0, 0, 0)])
         self.assertEqual(next_line, 3)
 
     def test_malformed_pir_structure_is_rejected(self):
@@ -522,6 +578,16 @@ class CirStructureTests(unittest.TestCase):
                 generator._parse_cir_lines(
                     self._mini_record(matrix=token), validate_census=False
                 )
+
+    def test_cir_complex_components_use_the_pir_radical_decoder(self):
+        self.assertEqual(len(generator.CIR_COMPLEX_TOKEN_SPELLINGS), 65)
+        real, imag = generator._parse_complex("(0.96593,0.25882)")
+        self.assertEqual(real, generator.Radical4(0, 1, 0, 1))
+        self.assertEqual(imag, generator.Radical4(0, -1, 0, 1))
+        self.assertEqual(
+            real + imag,
+            generator.Radical4(0, 0, 0, 2),
+        )
 
     def test_cir_irnumber_sequence_is_global(self):
         for sequence in ((1, 3), (1, 1), (1, 2, 4)):
