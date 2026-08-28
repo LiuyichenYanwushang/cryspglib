@@ -2920,169 +2920,71 @@ fn reduce01_with_lattice(t: &[f64; 3]) -> ([f64; 3], [i32; 3]) {
     (tr, l)
 }
 
-/// Build index map from `h_seitz` (spglib H_ops order) to CIR operation order.
+/// Build the strict index map from final-Hall `h_seitz` order to PIR operation order.
 ///
-/// Returns `None` if any H operation cannot be matched (e.g., missing rotation data).
-/// Build mapping from H_ops to PIR/CIR operations using full Seitz matching.
-///
-/// Unlike [`build_h_to_cir_map`] (rotation-only), this matches by both
-/// rotation AND translation (modulo lattice), eliminating ambiguity when
-/// the same rotation appears with different fractional translations
-/// (e.g. in nonsymmorphic groups).
+/// This is the only scalar character-operation pairing helper. Both operation
+/// universes must be complete and equal-sized; rotations must match exactly
+/// and fractional translations must match directly within
+/// [`SEITZ_TRANS_TOL`]. Integer-lattice shifts and rotation-only matches are
+/// intentionally rejected because they can carry a different Bloch phase.
 pub fn build_h_to_irrep_op_map(
     h_seitz: &[SeitzOp],
     irrep_rots: &[i32],
     irrep_trans: &[f64],
 ) -> Option<Vec<usize>> {
     let n_ops = h_seitz.len();
-    let n_ir_ops = irrep_rots.len() / 9;
-    debug_log!(
-        "build_h_to_irrep_op_map: H ops={} irrep ops={} translations={}",
-        n_ops,
-        n_ir_ops,
-        irrep_trans.len() / 3
-    );
-    if n_ir_ops == 0 {
+    if n_ops == 0 || irrep_rots.len() % 9 != 0 {
         return None;
     }
-
-    // Fast path: if data and H_ops are already in the same order (canonical Hall),
-    // verify with a quick rotation+translation check and return identity mapping.
-    if irrep_trans.len() >= n_ir_ops * 3 && n_ops == n_ir_ops {
-        let aligned = (0..n_ops).all(|i| {
-            let h = &h_seitz[i];
-            let roff = i * 9;
-            let toff = i * 3;
-            roff + 8 < irrep_rots.len()
-                && irrep_rots[roff] == h.rot[0][0]
-                && irrep_rots[roff + 1] == h.rot[0][1]
-                && irrep_rots[roff + 2] == h.rot[0][2]
-                && irrep_rots[roff + 3] == h.rot[1][0]
-                && irrep_rots[roff + 4] == h.rot[1][1]
-                && irrep_rots[roff + 5] == h.rot[1][2]
-                && irrep_rots[roff + 6] == h.rot[2][0]
-                && irrep_rots[roff + 7] == h.rot[2][1]
-                && irrep_rots[roff + 8] == h.rot[2][2]
-                && (0..3).all(|k| (h.trans[k] - irrep_trans[toff + k]).abs() < SEITZ_TRANS_TOL)
-        });
-        if aligned {
-            return Some((0..n_ops).collect());
-        }
+    let n_ir_ops = irrep_rots.len() / 9;
+    let expected_trans_len = n_ir_ops.checked_mul(3)?;
+    if n_ir_ops == 0 || n_ops != n_ir_ops || irrep_trans.len() != expected_trans_len {
+        return None;
     }
-
-    // Slow path: fallback O(n*m) matching (for non-canonical Hall settings)
-    if irrep_trans.len() < n_ir_ops * 3 {
-        // No translation data — fall back to rotation-only
-        return build_h_to_cir_map(h_seitz, irrep_rots);
-    }
+    let mut used = vec![false; n_ir_ops];
     let mut map = Vec::with_capacity(n_ops);
-    let mut exact_failed = false;
-    for h in h_seitz.iter().take(n_ops) {
+    for h in h_seitz {
         let mut found = None;
         for ir_idx in 0..n_ir_ops {
-            let r_match = {
-                let off = ir_idx * 9;
-                off + 8 < irrep_rots.len()
-                    && irrep_rots[off] == h.rot[0][0]
-                    && irrep_rots[off + 1] == h.rot[0][1]
-                    && irrep_rots[off + 2] == h.rot[0][2]
-                    && irrep_rots[off + 3] == h.rot[1][0]
-                    && irrep_rots[off + 4] == h.rot[1][1]
-                    && irrep_rots[off + 5] == h.rot[1][2]
-                    && irrep_rots[off + 6] == h.rot[2][0]
-                    && irrep_rots[off + 7] == h.rot[2][1]
-                    && irrep_rots[off + 8] == h.rot[2][2]
-            };
-            if !r_match {
-                continue;
-            }
+            let roff = ir_idx * 9;
             let toff = ir_idx * 3;
-            let t_ok = (0..3).all(|k| {
-                let d = h.trans[k] - irrep_trans[toff + k];
-                (d - d.round()).abs() < SEITZ_TRANS_TOL
-            });
-            if t_ok {
-                if found.is_some() {
-                    debug_log!(
-                        "build_h_to_irrep_op_map: H[{}] has duplicate exact PIR matches",
-                        map.len()
-                    );
-                    exact_failed = true;
-                    break;
+            let rotation_matches = irrep_rots[roff..roff + 9]
+                == [
+                    h.rot[0][0],
+                    h.rot[0][1],
+                    h.rot[0][2],
+                    h.rot[1][0],
+                    h.rot[1][1],
+                    h.rot[1][2],
+                    h.rot[2][0],
+                    h.rot[2][1],
+                    h.rot[2][2],
+                ];
+            let translation_matches = (0..3)
+                .all(|axis| (h.trans[axis] - irrep_trans[toff + axis]).abs() < SEITZ_TRANS_TOL);
+            if rotation_matches && translation_matches {
+                if found.is_some() || used[ir_idx] {
+                    return None;
                 }
                 found = Some(ir_idx);
             }
         }
-        if exact_failed {
-            break;
-        }
-        if found.is_none() {
-            debug_log!(
-                "build_h_to_irrep_op_map: no PIR match for H[{}] R={:?} t={:?}",
-                map.len(),
-                h.rot,
-                h.trans
-            );
-            exact_failed = true;
-            break;
-        }
-        map.push(found.expect("checked above"));
+        let ir_idx = found?;
+        used[ir_idx] = true;
+        map.push(ir_idx);
     }
-    if !exact_failed {
-        return Some(map);
-    }
-
-    // Older generated files did not retain the independent PIR translation
-    // offset, so `IrrepRecord::pir_translations()` can be unavailable or
-    // misaligned even while the rotation order is exact. Rotation-only
-    // fallback is safe only for an equal-size bijection in which every PIR
-    // rotation is unique. In particular, do not guess between centered-cell
-    // representatives that share a rotation but carry different Bloch phases.
-    if n_ops != n_ir_ops {
-        return None;
-    }
-    let mut rotation_map = Vec::with_capacity(n_ops);
-    let mut used = vec![false; n_ir_ops];
-    let pir_rotations_unique = (0..n_ir_ops).all(|left| {
-        ((left + 1)..n_ir_ops)
-            .all(|right| irrep_rots[left * 9..left * 9 + 9] != irrep_rots[right * 9..right * 9 + 9])
-    });
-    if !pir_rotations_unique {
-        return None;
-    }
-    for h in h_seitz {
-        let matches: Vec<_> = (0..n_ir_ops)
-            .filter(|&ir_idx| {
-                let off = ir_idx * 9;
-                irrep_rots[off] == h.rot[0][0]
-                    && irrep_rots[off + 1] == h.rot[0][1]
-                    && irrep_rots[off + 2] == h.rot[0][2]
-                    && irrep_rots[off + 3] == h.rot[1][0]
-                    && irrep_rots[off + 4] == h.rot[1][1]
-                    && irrep_rots[off + 5] == h.rot[1][2]
-                    && irrep_rots[off + 6] == h.rot[2][0]
-                    && irrep_rots[off + 7] == h.rot[2][1]
-                    && irrep_rots[off + 8] == h.rot[2][2]
-            })
-            .collect();
-        if matches.len() != 1 {
-            return None;
-        }
-        used[matches[0]] = true;
-        rotation_map.push(matches[0]);
-    }
-    if used.iter().all(|used| *used) {
-        debug_log!("build_h_to_irrep_op_map: using unique-PIR-rotation fallback");
-        Some(rotation_map)
+    if used.iter().all(|matched| *matched) {
+        Some(map)
     } else {
         None
     }
 }
 
-/// Build mapping from H_ops to PIR/CIR operations using rotation-only matching.
+/// Build a legacy diagnostic map from H operations using rotation-only matching.
 ///
-/// DEPRECATED: prefer [`build_h_to_irrep_op_map`] when translation data is available.
-/// Rotation-only matching can be ambiguous for nonsymmorphic groups.
+/// This function has no translation or phase semantics and must not be used to
+/// pair final-Hall operations with scalar character values. Use
+/// [`build_h_to_irrep_op_map`] for that purpose.
 pub fn build_h_to_cir_map(h_seitz: &[SeitzOp], cir_rots: &[i32]) -> Option<Vec<usize>> {
     let n_ops = h_seitz.len();
     let n_cir_ops = cir_rots.len() / 9;
@@ -4881,6 +4783,75 @@ mod tests {
             build_h_to_spin_map_exact(&[h], &[exact.clone(), exact], &[0, 1]),
             vec![None],
             "duplicate exact candidates must be rejected as ambiguous"
+        );
+    }
+
+    #[test]
+    fn scalar_operation_map_requires_direct_full_seitz_bijection() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let inversion = [[-1, 0, 0], [0, -1, 0], [0, 0, -1]];
+        let h = [
+            SeitzOp {
+                rot: identity,
+                trans: [0.25, 0.0, 0.0],
+                timerev: false,
+            },
+            SeitzOp {
+                rot: inversion,
+                trans: [0.0, 0.0, 0.0],
+                timerev: false,
+            },
+        ];
+        let flat_rotations = |ops: &[SeitzOp]| {
+            ops.iter()
+                .flat_map(|op| op.rot.iter().flat_map(|row| row.iter().copied()))
+                .collect::<Vec<_>>()
+        };
+        let flat_translations =
+            |ops: &[SeitzOp]| ops.iter().flat_map(|op| op.trans).collect::<Vec<_>>();
+        let stored = [h[1].clone(), h[0].clone()];
+        let mut stored_translations = flat_translations(&stored);
+        stored_translations[3] += 1.0e-10;
+        assert_eq!(
+            build_h_to_irrep_op_map(&h, &flat_rotations(&stored), &stored_translations,),
+            Some(vec![1, 0])
+        );
+
+        let mut integer_shift = flat_translations(&stored);
+        integer_shift[3] += 1.0;
+        assert_eq!(
+            build_h_to_irrep_op_map(&h, &flat_rotations(&stored), &integer_shift),
+            None
+        );
+        let mut different_fraction = flat_translations(&stored);
+        different_fraction[3] = 0.5;
+        assert_eq!(
+            build_h_to_irrep_op_map(&h, &flat_rotations(&stored), &different_fraction),
+            None
+        );
+
+        let duplicate_h = [h[0].clone(), h[0].clone()];
+        let duplicate_stored = [h[0].clone(), h[0].clone()];
+        assert_eq!(
+            build_h_to_irrep_op_map(
+                &duplicate_h,
+                &flat_rotations(&duplicate_stored),
+                &flat_translations(&duplicate_stored),
+            ),
+            None
+        );
+
+        assert_eq!(
+            build_h_to_irrep_op_map(&h, &flat_rotations(&stored)[..8], &stored_translations),
+            None
+        );
+        assert_eq!(
+            build_h_to_irrep_op_map(&h, &flat_rotations(&stored), &stored_translations[..3]),
+            None
+        );
+        assert_eq!(
+            build_h_to_irrep_op_map(&h[..1], &flat_rotations(&stored), &stored_translations),
+            None
         );
     }
 

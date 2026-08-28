@@ -528,10 +528,12 @@ pub fn compute_corepresentation(
     if !h_irrep.spinor && h_irrep.raw_cir_component_count() == 0 {
         let pir_rots = h_irrep.pir_rotations();
         let pir_trans = h_irrep.pir_translations();
-        let map = if pir_trans.len() == pir_rots.len() / 9 * 3 {
+        let map = if pir_rots.len() % 9 == 0
+            && (pir_rots.len() / 9).checked_mul(3) == Some(pir_trans.len())
+        {
             wigner::build_h_to_irrep_op_map(&h_seitz, pir_rots, pir_trans)
         } else {
-            wigner::build_h_to_cir_map(&h_seitz, pir_rots)
+            None
         }
         .ok_or_else(|| CorepComputationError::UnsupportedClassification {
             uni: uni_number,
@@ -2914,6 +2916,41 @@ mod tests {
             checked
         );
         println!("Scalar irreps: {} total, all well-formed ✓", checked);
+    }
+
+    #[test]
+    fn test_all_scalar_pir_operation_maps_are_exact_bijections() {
+        let mut checked = 0usize;
+        for sg in 1u8..=230 {
+            let hall_ops = crate::irrep::bridge::canonical_hall_ops(sg).unwrap();
+            let hall_seitz = wigner::ops_to_seitz(&hall_ops);
+            for ir in crate::irrep::query::irreps_of(sg) {
+                if ir.spinor {
+                    continue;
+                }
+                checked += 1;
+                let map = wigner::build_h_to_irrep_op_map(
+                    &hall_seitz,
+                    ir.pir_rotations(),
+                    ir.pir_translations(),
+                )
+                .unwrap_or_else(|| {
+                    panic!(
+                        "SG{} {}: strict PIR operation map failed (H={}, PIR rotations={}, PIR translations={})",
+                        sg,
+                        ir.ml,
+                        hall_seitz.len(),
+                        ir.pir_rotations().len() / 9,
+                        ir.pir_translations().len() / 3,
+                    )
+                });
+                assert_eq!(map.len(), hall_seitz.len());
+                let mut sorted = map.clone();
+                sorted.sort_unstable();
+                assert_eq!(sorted, (0..hall_seitz.len()).collect::<Vec<_>>());
+            }
+        }
+        assert_eq!(checked, 4777);
     }
 
     /// Regression: high-dimension image labels (e.g. "K1536a") must not
