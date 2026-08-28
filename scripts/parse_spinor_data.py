@@ -68,7 +68,7 @@ _EXACT_PAULI_VALUES = [
 
 
 def _round_to_exact_pauli(val, tol=1e-10):
-    """Round a floating-point Pauli coefficient to the nearest exact value."""
+    """Legacy-only rounding of a materialized Pauli coefficient."""
     for exact in _EXACT_PAULI_VALUES:
         if abs(val - exact) < tol:
             return exact
@@ -76,7 +76,7 @@ def _round_to_exact_pauli(val, tol=1e-10):
 
 
 def _round_amplitude(val):
-    """Round amplitude to exact value {0, 1/√2, 1}.
+    """Legacy-only rounding of an already materialized amplitude.
 
     Uses a relaxed tolerance because spin.dat files store amplitudes with
     only ~5 significant digits (e.g. 0.70711 for 1/√2 ≈ 0.70710678).
@@ -235,6 +235,15 @@ def find_tables_dir():
     return tables_dir
 
 
+def verified_spin_source_paths():
+    """Return the verified raw source paths consumed by legacy and exact parsers."""
+    tables_dir, _source_hashes = _verified_spin_source_manifest()
+    files = tuple(sorted(glob.glob(os.path.join(tables_dir, "irreps-SG=*-spin.dat"))))
+    if len(files) != 230:
+        raise ValueError(f"expected 230 pinned spin source files, found {len(files)}")
+    return files
+
+
 def _round_char(x, eps=1e-8):
     """Round character value to clean float."""
     if abs(x) < eps:
@@ -261,7 +270,7 @@ def _round_char(x, eps=1e-8):
 
 
 def _decode_character_polar(values, n_ops):
-    """Decode a spin.dat character row.
+    """Legacy-only decode of a materialized spin.dat character row.
 
     Rows contain either ``n`` real characters, or ``n`` amplitudes followed
     by ``n`` phases in units of pi.  The phase half was historically
@@ -288,7 +297,7 @@ def _decode_character_polar(values, n_ops):
 
 
 def parse_spinor_file(filepath):
-    """Parse one spin.dat file.
+    """Legacy f64 parse of one spin.dat file.
 
     Returns:
         sg: int, space group number
