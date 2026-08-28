@@ -9,6 +9,7 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(__file__))
 import generate_irrep_data as generator
+import parse_spinor_data
 
 
 class PinnedArchiveBoundaryTests(unittest.TestCase):
@@ -63,6 +64,61 @@ class PinnedArchiveBoundaryTests(unittest.TestCase):
             generator.PINNED_ARCHIVE_SHA256 = expected
             with self.assertRaisesRegex(ValueError, "pinned archive hash mismatch"):
                 generator._verify_pinned_archives()
+
+    def test_irreptables_record_provenance_is_pinned(self):
+        expected = parse_spinor_data.IRREPTABLES_RECORD_SHA256
+        try:
+            parse_spinor_data.IRREPTABLES_RECORD_SHA256 = "0" * 64
+            with self.assertRaisesRegex(ValueError, "RECORD hash mismatch"):
+                parse_spinor_data._verified_irreptables_distribution()
+        finally:
+            parse_spinor_data.IRREPTABLES_RECORD_SHA256 = expected
+
+    def test_irreptables_version_is_pinned(self):
+        expected = parse_spinor_data.IRREPTABLES_VERSION
+        try:
+            parse_spinor_data.IRREPTABLES_VERSION = "0.0.0"
+            with self.assertRaisesRegex(FileNotFoundError, "exactly one"):
+                parse_spinor_data._verified_irreptables_distribution()
+        finally:
+            parse_spinor_data.IRREPTABLES_VERSION = expected
+
+    def test_spin_source_manifest_rejects_missing_and_corrupt_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package_root = os.path.dirname(directory)
+            manifest = {}
+            with self.assertRaisesRegex(ValueError, "expected 1 pinned spin source files"):
+                parse_spinor_data._verify_spin_source_files(
+                    directory, package_root, manifest, expected_count=1
+                )
+            source = os.path.join(directory, "irreps-SG=3-spin.dat")
+            with open(source, "wb") as stream:
+                stream.write(b"pinned source")
+            relative = os.path.relpath(source, package_root).replace(os.sep, "/")
+            manifest[relative] = "0" * 64
+            with self.assertRaisesRegex(ValueError, "spin source file hash mismatch"):
+                parse_spinor_data._verify_spin_source_files(
+                    directory, package_root, manifest, expected_count=1
+                )
+
+    def test_spin_source_rows_keep_raw_file_order_ordinals(self):
+        with tempfile.NamedTemporaryFile(mode="w", suffix="-spin.dat") as stream:
+            stream.write(
+                "SG=3\n"
+                "symmetries=\n"
+                "kpoint GM : 0 0 0 : 1\n"
+                "-GM1 1 1.0\n"
+                "-GM2 1 1.0\n"
+            )
+            stream.flush()
+            _sg, _ops, irreps = parse_spinor_data.parse_spinor_file(stream.name)
+            self.assertEqual([row["source_row_ordinal"] for row in irreps], [0, 1])
+
+    def test_spin_source_sg_duplicates_are_rejected(self):
+        with self.assertRaisesRegex(ValueError, "each SG exactly once"):
+            parse_spinor_data._validate_spin_source_sgs(
+                list(range(1, 230)) + [229]
+            )
 
     def test_ambiguous_suffix_member_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1597,14 +1597,9 @@ def parse_all():
     print(f"  Parsed {len(cir_data)} CIR character entries, {len(cir_matrices)} matrix entries")
 
     print("Parsing spinor (double-valued) irrep data from irrepTables...")
-    try:
-        from parse_spinor_data import parse_all_spinor
-        spinor_irreps, spinor_ops = parse_all_spinor()
-        print(f"  Parsed {len(spinor_irreps)} spinor irreps, {len(spinor_ops)} SG spin op tables")
-    except (ImportError, FileNotFoundError) as e:
-        print(f"  Skipping spinor data: {e}")
-        spinor_irreps = []
-        spinor_ops = {}
+    from parse_spinor_data import parse_all_spinor
+    spinor_irreps, spinor_ops = parse_all_spinor()
+    print(f"  Parsed {len(spinor_irreps)} spinor irreps, {len(spinor_ops)} SG spin op tables")
 
     return {
         "n_irreps": n_irreps + len(spinor_irreps),
@@ -3942,6 +3937,17 @@ def generate_rust_data(data):
                     f"{selected_dim}×{cir_entry['star_count']}"
                 )
 
+        if compound:
+            source_identity = {
+                "kind": "compound",
+                "metadata_index": compound_metadata_indices[i],
+            }
+        else:
+            source_identity = {
+                "kind": "ordinary_scalar",
+                "cir_irnumber": cir_data[(sg_num, ml_label)]["irnumber"],
+            }
+
         mat_s = mat_starts[i]
         mat_c = mat_counts[i]
         scalar_records.append({
@@ -3955,6 +3961,7 @@ def generate_rust_data(data):
             "mag_iso_s": mag_iso_s, "mag_iso_c": mag_iso_c,
             "cir_s": cir_comp_starts[i], "cir_c": cir_comp_counts[i], "cir_o": cir_comp_ops[i],
             "compound_metadata_index": compound_metadata_indices[i],
+            "source_identity": source_identity,
             "pir_rot_s": pir_rot_starts[i],
             "spin_lg_count": 0,
             "spin_lg_op_s": 0,
@@ -4000,6 +4007,11 @@ def generate_rust_data(data):
             "mag_iso_s": 0, "mag_iso_c": 0,
             "cir_s": 0, "cir_c": 0, "cir_o": 0,
             "compound_metadata_index": 0,
+            "source_identity": {
+                "kind": "spin",
+                "sg": sir["sg"],
+                "source_row_ordinal": sir["source_row_ordinal"],
+            },
             "pir_rot_s": pir_rot_starts[len(ml) + idx],
             "spin_lg_count": spin_lg_counts[idx],
             "spin_lg_op_s": spin_lg_op_starts[idx],
@@ -4011,13 +4023,33 @@ def generate_rust_data(data):
     # Now emit IrrepRecord entries in SG order
     lines.append("/// All irreducible representations (scalar + spinor), ordered by SG then k-point.")
     lines.append(f"pub static IRREPS: [IrrepRecord; {total_irreps}] = [")
+    irrep_idx = 0
     for s in range(1, 231):
         for entry_type, entry_idx in sg_entries.get(s, []):
             if entry_type == "scalar":
                 r = scalar_records[entry_idx]
             else:
                 r = spinor_records[entry_idx]
+            source_identity = r["source_identity"]
+            if source_identity["kind"] == "ordinary_scalar":
+                source_identity_literal = (
+                    "IrrepSourceIdentity::OrdinaryScalar { cir_irnumber: "
+                    f"{source_identity['cir_irnumber']} }}"
+                )
+            elif source_identity["kind"] == "compound":
+                source_identity_literal = (
+                    "IrrepSourceIdentity::Compound { metadata_index: "
+                    f"{source_identity['metadata_index']} }}"
+                )
+            else:
+                source_identity_literal = (
+                    "IrrepSourceIdentity::Spin { sg: "
+                    f"{source_identity['sg']}, source_row_ordinal: "
+                    f"{source_identity['source_row_ordinal']} }}"
+                )
             lines.append(f"    IrrepRecord {{")
+            lines.append(f"        _id: IrrepId::new({irrep_idx}),")
+            lines.append(f"        _source_identity: {source_identity_literal},")
             lines.append(f"        sg: {r['sg']},")
             lines.append(f'        ml: "{escape_rust_str(r["ml"])}",')
             lines.append(f'        bc: "{escape_rust_str(r["bc"])}",')
@@ -4050,6 +4082,7 @@ def generate_rust_data(data):
             lines.append(f"        _spin_imag_start: {r['spin_extra_s']},")
             lines.append(f"        _spin_imag_count: {r['spin_extra_c']},")
             lines.append(f"    }},")
+            irrep_idx += 1
     lines.append("];")
     lines.append("")
 

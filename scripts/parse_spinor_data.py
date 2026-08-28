@@ -36,8 +36,18 @@ For crystallographic point-group rotations, the Pauli coefficients
 take values only from the set {0, ±½, ±1/√2, ±√3/2, ±1}.
 These are stored as f64 rounded to the nearest exact algebraic value.
 """
+import base64
+import hashlib
 import math, os, re, sys, glob
 from collections import defaultdict
+
+IRREPTABLES_VERSION = "1.0.0"
+IRREPTABLES_RECORD_SHA256 = (
+    "726a945eb60ffeae968b8196e125494bdf870870f693c5a32c70b7761aa091bb"
+)
+IRREPTABLES_SG3_SOURCE_SHA256 = (
+    "75020a002c7006503a15c13fe89040a229989f4c025dd0e90a1ea2f68818dbfc"
+)
 
 # ── Exact Pauli coefficient rounding ────────────────────────────────────
 # For crystallographic double-group operations, the Pauli coefficients
@@ -122,22 +132,107 @@ def _rationalize_kvector(coords):
     raise ValueError(f"Unsupported spin.dat k-vector coordinates: {coords!r}")
 
 
-def find_tables_dir():
-    """Locate the irrepTables data directory."""
-    candidates = []
-    for p in sys.path:
-        d = os.path.join(p, "irreptables", "tables")
-        if os.path.isdir(d):
-            candidates.append(d)
-    # Also try user site-packages
+def _package_roots():
+    roots = list(sys.path)
     import site
-    for sp in site.getusersitepackages(), site.getsitepackages()[0] if site.getsitepackages() else []:
-        d = os.path.join(sp, "irreptables", "tables")
-        if os.path.isdir(d) and d not in candidates:
-            candidates.append(d)
-    if candidates:
-        return candidates[0]
-    raise FileNotFoundError("irreptables/tables directory not found. pip install irreptables")
+    roots.extend(site.getusersitepackages().split(os.pathsep))
+    roots.extend(site.getsitepackages())
+    return [root for root in dict.fromkeys(roots) if root]
+
+
+def _verified_irreptables_distribution():
+    """Return the sole verified irreptables package root and RECORD manifest."""
+    candidates = []
+    for root in _package_roots():
+        for dist_info in glob.glob(os.path.join(root, "irreptables-*.dist-info")):
+            metadata_path = os.path.join(dist_info, "METADATA")
+            record_path = os.path.join(dist_info, "RECORD")
+            if not (os.path.isfile(metadata_path) and os.path.isfile(record_path)):
+                continue
+            with open(metadata_path, encoding="utf-8") as stream:
+                metadata = stream.read()
+            version = next(
+                (line.split(":", 1)[1].strip()
+                 for line in metadata.splitlines()
+                 if line.startswith("Version:")),
+                None,
+            )
+            if version == IRREPTABLES_VERSION:
+                candidates.append((os.path.dirname(dist_info), record_path))
+    if len(candidates) != 1:
+        raise FileNotFoundError(
+            "expected exactly one irreptables==1.0.0 distribution with RECORD, "
+            f"found {len(candidates)}"
+        )
+
+    package_root, record_path = candidates[0]
+    with open(record_path, "rb") as stream:
+        record_bytes = stream.read()
+    actual_record_hash = hashlib.sha256(record_bytes).hexdigest()
+    if actual_record_hash != IRREPTABLES_RECORD_SHA256:
+        raise ValueError(
+            "irreptables RECORD hash mismatch: "
+            f"expected {IRREPTABLES_RECORD_SHA256}, got {actual_record_hash}"
+        )
+
+    manifest = {}
+    for line in record_bytes.decode("utf-8").splitlines():
+        fields = line.split(",")
+        if len(fields) < 3 or not fields[1].startswith("sha256="):
+            continue
+        path, digest = fields[0], fields[1][len("sha256="):]
+        manifest[path] = bytes.hex(base64.urlsafe_b64decode(digest + "=="))
+    return package_root, manifest
+
+
+def _verify_spin_source_files(tables_dir, package_root, manifest, expected_count=230):
+    files = sorted(glob.glob(os.path.join(tables_dir, "irreps-SG=*-spin.dat")))
+    if len(files) != expected_count:
+        raise ValueError(
+            f"expected {expected_count} pinned spin source files, found {len(files)}"
+        )
+    source_hashes = {}
+    for filepath in files:
+        relpath = os.path.relpath(filepath, package_root).replace(os.sep, "/")
+        expected = manifest.get(relpath)
+        if expected is None:
+            raise ValueError(f"spin source file {relpath} is absent from RECORD")
+        with open(filepath, "rb") as stream:
+            actual = hashlib.sha256(stream.read()).hexdigest()
+        if actual != expected:
+            raise ValueError(
+                f"spin source file hash mismatch for {relpath}: "
+                f"expected {expected}, got {actual}"
+            )
+        source_hashes[relpath] = actual
+    return tables_dir, source_hashes
+
+
+def _validate_spin_source_sgs(sg_numbers):
+    expected = list(range(1, 231))
+    if sorted(sg_numbers) != expected:
+        raise ValueError(
+            "spin source files must contain each SG exactly once; "
+            f"found SGs {sorted(sg_numbers)}"
+        )
+
+
+def _verified_spin_source_manifest():
+    package_root, manifest = _verified_irreptables_distribution()
+    tables_dir = os.path.join(package_root, "irreptables", "tables")
+    _tables_dir, source_hashes = _verify_spin_source_files(
+        tables_dir, package_root, manifest
+    )
+    sg3_relpath = "irreptables/tables/irreps-SG=3-spin.dat"
+    if source_hashes.get(sg3_relpath) != IRREPTABLES_SG3_SOURCE_SHA256:
+        raise ValueError("SG3 spin source hash does not match the pinned provenance")
+    return tables_dir, source_hashes
+
+
+def find_tables_dir():
+    """Locate and cryptographically verify the irreptables data directory."""
+    tables_dir, _source_hashes = _verified_spin_source_manifest()
+    return tables_dir
 
 
 def _round_char(x, eps=1e-8):
@@ -253,6 +348,7 @@ def parse_spinor_file(filepath):
     current_k = None
     current_kvec = None
     current_op_indices = None
+    source_row_ordinal = 0
 
     while i < len(lines):
         line = lines[i].strip()
@@ -297,7 +393,9 @@ def parse_spinor_file(filepath):
                 "characters": chars_real,
                 "characters_imag": chars_imag,
                 "op_indices": current_op_indices,
+                "source_row_ordinal": source_row_ordinal,
             })
+            source_row_ordinal += 1
 
         i += 1
 
@@ -312,15 +410,26 @@ def parse_all_spinor():
         all_spin_ops: dict SG# -> list of spin op dicts (rot, trans, su2)
                       su2[4] = Pauli coefficients (u₀, u₁, u₂, u₃)
     """
-    tables_dir = find_tables_dir()
+    tables_dir, source_hashes = _verified_spin_source_manifest()
     files = sorted(glob.glob(os.path.join(tables_dir, "irreps-SG=*-spin.dat")))
+    if len(files) != 230:
+        raise ValueError(f"expected 230 pinned spin source files, found {len(files)}")
 
     all_irreps = []
     all_spin_ops = {}  # SG# -> list of spin ops
     for f in files:
         sg, spin_ops, irreps = parse_spinor_file(f)
+        relpath = os.path.relpath(f, os.path.dirname(os.path.dirname(tables_dir))).replace(
+            os.sep, "/"
+        )
+        source_hash = source_hashes[relpath]
+        for irrep in irreps:
+            irrep["source_file"] = relpath
+            irrep["source_file_sha256"] = source_hash
         all_spin_ops[sg] = spin_ops
         all_irreps.extend(irreps)
+
+    _validate_spin_source_sgs(all_spin_ops)
 
     # Sort by SG then by k-label for contiguity
     all_irreps.sort(key=lambda x: (x["sg"], x["k_label"], x["ml_label"]))

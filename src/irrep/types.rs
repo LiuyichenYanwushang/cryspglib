@@ -16,6 +16,34 @@ use num_complex::Complex64;
 
 // ── Compact record types (flat-array storage) ───────────────────────────────
 
+/// Stable index of one record in the generated [`generated_data::IRREPS`] table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
+pub struct IrrepId(u16);
+
+impl IrrepId {
+    /// Construct an ID from its generated table index.
+    pub const fn new(index: u16) -> Self {
+        Self(index)
+    }
+
+    /// Return the generated table index.
+    pub const fn index(self) -> u16 {
+        self.0
+    }
+}
+
+/// Frozen generation-time identity of an irrep's authoritative source row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IrrepSourceIdentity {
+    /// Ordinary scalar row identified by its exact CIR `irnumber`.
+    OrdinaryScalar { cir_irnumber: u32 },
+    /// Physical compound row identified by its frozen compound metadata.
+    Compound { metadata_index: u16 },
+    /// Spin row identified by its source file SG and raw row ordinal.
+    Spin { sg: u8, source_row_ordinal: u16 },
+}
+
 /// How a scalar physical compound record is assembled from CIR rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompoundCharacterSemantics {
@@ -487,6 +515,10 @@ impl KVector {
 /// without needing to know global indices.
 #[derive(Debug, Clone, Copy)]
 pub struct IrrepRecord {
+    /// Stable generated-table identity.
+    pub(crate) _id: IrrepId,
+    /// Frozen generation-time source identity.
+    pub(crate) _source_identity: IrrepSourceIdentity,
     /// Space group number (1–230)
     pub sg: u8,
     /// CDML / Miller-Love label: `"GM4+"`, `"X1-"`
@@ -558,6 +590,16 @@ pub struct IrrepRecord {
 }
 
 impl IrrepRecord {
+    /// Stable index in the generated [`generated_data::IRREPS`] table.
+    pub const fn id(&self) -> IrrepId {
+        self._id
+    }
+
+    /// Frozen identity of the authoritative generation-time source row.
+    pub const fn source_identity(&self) -> IrrepSourceIdentity {
+        self._source_identity
+    }
+
     /// Rational wave vector associated with this irrep.
     pub const fn k_vector(&self) -> KVector {
         KVector::new([self.kx, self.ky, self.kz], self.kd)
@@ -1327,6 +1369,7 @@ pub mod generated_data {
 #[cfg(test)]
 mod compound_metadata_tests {
     use num_complex::Complex64;
+    use std::collections::BTreeSet;
 
     use super::CompoundCharacterSemantics::{ConjugateRealification, DistinctComponentSum};
 
@@ -1375,6 +1418,107 @@ mod compound_metadata_tests {
         assert_eq!(seen, 672);
         assert_eq!(realified, 153);
         assert_eq!(distinct, 519);
+    }
+
+    #[test]
+    fn generated_irrep_ids_and_source_identities_are_frozen() {
+        let records = &super::generated_data::IRREPS;
+        assert_eq!(records.len(), 8388);
+        let ids = records
+            .iter()
+            .map(|record| record.id())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(ids.len(), records.len());
+        for (index, record) in records.iter().enumerate() {
+            assert_eq!(record.id().index() as usize, index);
+            match record.source_identity() {
+                super::IrrepSourceIdentity::OrdinaryScalar { cir_irnumber } => {
+                    assert!(!record.spinor);
+                    assert!(cir_irnumber > 0);
+                    assert_eq!(record.cir_component_count(), 0);
+                }
+                super::IrrepSourceIdentity::Compound { metadata_index } => {
+                    assert!(!record.spinor);
+                    assert_eq!(record.compound_metadata().unwrap().cir_irnumbers.len(), 2);
+                    assert_eq!(record._compound_metadata_index, metadata_index);
+                }
+                super::IrrepSourceIdentity::Spin {
+                    sg,
+                    source_row_ordinal: _,
+                } => {
+                    assert!(record.spinor);
+                    assert_eq!(record.sg, sg);
+                }
+            }
+        }
+        assert_eq!(
+            records
+                .iter()
+                .filter(|record| matches!(
+                    record.source_identity(),
+                    super::IrrepSourceIdentity::OrdinaryScalar { .. }
+                ))
+                .count(),
+            4105
+        );
+        assert_eq!(
+            records
+                .iter()
+                .filter(|record| matches!(
+                    record.source_identity(),
+                    super::IrrepSourceIdentity::Compound { .. }
+                ))
+                .count(),
+            672
+        );
+        assert_eq!(
+            records
+                .iter()
+                .filter(|record| matches!(
+                    record.source_identity(),
+                    super::IrrepSourceIdentity::Spin { .. }
+                ))
+                .count(),
+            3611
+        );
+
+        let scalar_sources = records
+            .iter()
+            .filter_map(|record| match record.source_identity() {
+                super::IrrepSourceIdentity::OrdinaryScalar { cir_irnumber } => Some(cir_irnumber),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(scalar_sources.len(), 4105);
+        let compound_sources = records
+            .iter()
+            .filter_map(|record| match record.source_identity() {
+                super::IrrepSourceIdentity::Compound { metadata_index } => Some(metadata_index),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(compound_sources.len(), 672);
+        let spin_sources = records
+            .iter()
+            .filter_map(|record| match record.source_identity() {
+                super::IrrepSourceIdentity::Spin {
+                    sg,
+                    source_row_ordinal,
+                } => Some((sg, source_row_ordinal)),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(spin_sources.len(), 3611);
+
+        let sg3 = records
+            .iter()
+            .filter(|record| record.sg == 3 && record.spinor)
+            .collect::<Vec<_>>();
+        let a3 = sg3.iter().find(|record| record.ml == "A3").unwrap();
+        let a4 = sg3.iter().find(|record| record.ml == "A4").unwrap();
+        assert_eq!(a3.id().index(), 64);
+        assert_eq!(a4.id().index(), 65);
+        assert_ne!(a3.source_identity(), a4.source_identity());
     }
 
     #[test]
