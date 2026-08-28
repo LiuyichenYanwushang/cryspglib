@@ -40,6 +40,7 @@ import base64
 import hashlib
 import math, os, re, sys, glob
 from collections import defaultdict
+from fractions import Fraction
 
 IRREPTABLES_VERSION = "1.0.0"
 IRREPTABLES_RECORD_SHA256 = (
@@ -342,7 +343,11 @@ def parse_spinor_file(filepath):
             amp = [float(x) for x in parts[12:16]]
             phase = [float(x) for x in parts[16:20]]
             su2 = _amp_phase_to_pauli(amp, phase)
-            spin_ops.append({"rot": rot, "trans": trans, "su2": su2})
+            spin_ops.append({
+                "rot": rot, "trans": trans, "su2": su2,
+                "raw_rotation": parts[0:9], "raw_translation": parts[9:12],
+                "raw_amp": parts[12:16], "raw_phase": parts[16:20],
+            })
         elif len(parts) >= 16:
             # Fallback for files without the extra 4 columns
             rot = [int(x) for x in parts[0:9]]
@@ -350,12 +355,17 @@ def parse_spinor_file(filepath):
             amp = [float(x) for x in parts[12:16]]
             phase = [0.0, 0.0, 0.0, 0.0]
             su2 = _amp_phase_to_pauli(amp, phase)
-            spin_ops.append({"rot": rot, "trans": trans, "su2": su2})
+            spin_ops.append({
+                "rot": rot, "trans": trans, "su2": su2,
+                "raw_rotation": parts[0:9], "raw_translation": parts[9:12],
+                "raw_amp": parts[12:16], "raw_phase": ["0.0"] * 4,
+            })
         i += 1
 
     # Parse kpoints and irreps
     current_k = None
     current_kvec = None
+    current_k_tokens = None
     current_op_indices = None
     source_row_ordinal = 0
 
@@ -367,6 +377,7 @@ def parse_spinor_file(filepath):
             parts = line.split(":")
             k_name = parts[0].replace("kpoint", "").strip()
             coords = [float(x) for x in parts[1].strip().split()]
+            current_k_tokens = parts[1].strip().split()
             op_indices = [int(x) - 1 for x in parts[2].strip().split()]  # 0-indexed
             current_k = k_name
             current_kvec = coords
@@ -403,6 +414,11 @@ def parse_spinor_file(filepath):
                 "characters_imag": chars_imag,
                 "op_indices": current_op_indices,
                 "source_row_ordinal": source_row_ordinal,
+                "raw_k_label": current_k,
+                "raw_k_tokens": current_k_tokens,
+                "raw_operation_tokens": [str(x + 1) for x in current_op_indices or []],
+                "raw_dimension": parts[1],
+                "raw_character_tokens": parts[2:],
             })
             source_row_ordinal += 1
 
@@ -419,13 +435,31 @@ def parse_all_spinor():
         all_spin_ops: dict SG# -> list of spin op dicts (rot, trans, su2)
                       su2[4] = Pauli coefficients (u₀, u₁, u₂, u₃)
     """
+    import spinor_exact
+
     tables_dir, source_hashes = _verified_spin_source_manifest()
-    files = sorted(glob.glob(os.path.join(tables_dir, "irreps-SG=*-spin.dat")))
-    if len(files) != 230:
-        raise ValueError(f"expected 230 pinned spin source files, found {len(files)}")
+    files = list(verified_spin_source_paths())
+    # The exact sidecar owns the verified source-path lookup and caches the
+    # immutable default bundle, so repeated generator passes do not rerun the
+    # full algebraic validator in the same process.
+    exact_files = spinor_exact.parse_all_exact()
+    spinor_exact.validate_exact_sources(exact_files)
+    exact_hashes = spinor_exact.source_spelling_hashes(exact_files)
+    # Keep the exact sidecar's golden assertions in the production gate.
+    for name, expected in spinor_exact.DOMAIN_GOLDENS.items():
+        if exact_hashes[name] != expected:
+            raise ValueError(f"exact {name} spelling hash mismatch")
+    for name, expected in (
+        ("combined", spinor_exact.COMBINED_GOLDEN),
+        ("su2_pair", spinor_exact.SU2_PAIR_GOLDEN),
+        ("character_pair", spinor_exact.CHARACTER_PAIR_GOLDEN),
+    ):
+        if exact_hashes[name] != expected:
+            raise ValueError(f"exact {name} spelling hash mismatch")
 
     all_irreps = []
     all_spin_ops = {}  # SG# -> list of spin ops
+    exact_by_sg = {source.sg: source for source in exact_files}
     for f in files:
         sg, spin_ops, irreps = parse_spinor_file(f)
         relpath = os.path.relpath(f, os.path.dirname(os.path.dirname(tables_dir))).replace(
@@ -437,6 +471,34 @@ def parse_all_spinor():
             irrep["source_file_sha256"] = source_hash
         all_spin_ops[sg] = spin_ops
         all_irreps.extend(irreps)
+
+        exact_source = exact_by_sg.get(sg)
+        if exact_source is None or len(exact_source.operations) != len(spin_ops):
+            raise ValueError(f"legacy/exact SG {sg} operation linkage mismatch")
+        for exact_op, legacy_op in zip(exact_source.operations, spin_ops):
+            if (tuple(exact_op.rotation) != tuple(legacy_op["rot"])
+                    or exact_op.raw_rotation != tuple(legacy_op["raw_rotation"])
+                    or exact_op.raw_translation != tuple(legacy_op["raw_translation"])
+                    or exact_op.raw_amp != tuple(legacy_op["raw_amp"])
+                    or exact_op.raw_phase != tuple(legacy_op["raw_phase"])):
+                raise ValueError(f"legacy/exact SG {sg} rotation linkage mismatch")
+            if any(float(raw) != value for raw, value in
+                   zip(exact_op.raw_translation, legacy_op["trans"])):
+                raise ValueError(f"legacy/exact SG {sg} translation linkage mismatch")
+        if len(exact_source.rows) != len(irreps):
+            raise ValueError(f"legacy/exact SG {sg} row linkage mismatch")
+        for exact_row, legacy_row in zip(exact_source.rows, irreps):
+            legacy_k = tuple(Fraction(value, legacy_row["kd"]) for value in (
+                legacy_row["kx"], legacy_row["ky"], legacy_row["kz"]
+            ))
+            if (exact_row.source_row_ordinal != legacy_row["source_row_ordinal"]
+                    or exact_row.label != legacy_row["ml_label"]
+                    or exact_row.dimension != legacy_row["dim"]
+                    or exact_row.k != legacy_k
+                    or exact_row.raw_k != tuple(legacy_row["raw_k_tokens"])
+                    or exact_row.operation_indices != tuple(legacy_row["op_indices"])
+                    or exact_row.raw_characters != tuple(legacy_row["raw_character_tokens"])):
+                raise ValueError(f"legacy/exact SG {sg} row token linkage mismatch")
 
     _validate_spin_source_sgs(all_spin_ops)
 
