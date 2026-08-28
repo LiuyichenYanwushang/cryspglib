@@ -659,34 +659,6 @@ pub fn compute_corepresentation(
         Ok((ct, WignerSource::ScalarPIR))
     }?;
 
-    // 8. Compute Type A antiunitary characters
-    let au_chars = if h_irrep.spinor {
-        // The stored spinor data contains little-group characters but no
-        // representation matrices/intertwiner for anti-linear operations.
-        // Never feed its local character order into the scalar H-order path.
-        None
-    } else if corep_type == CorepType::A && !antiunitary.is_empty() {
-        if h_dim == 1 {
-            wigner::type_a_antiunitary_chars(
-                &mag_seitz,
-                &mag_lg,
-                &h_chars,
-                &h_seitz,
-                antiunitary[0],
-                h_irrep.k_vector(),
-            )
-            .map(|(chars, _u)| chars)
-        } else {
-            // The legacy PIR matrices are source-representative data and are
-            // not phase-aligned with final-Hall Seitz operations. Until
-            // phase-aligned complex selected-arm matrices are generated, do
-            // not fabricate high-dimensional Type-A antiunitary characters.
-            None
-        }
-    } else {
-        None
-    };
-
     // Spinor character tables are stored in little-group-local order, while
     // op_map contains indices into the complete H operation list. Convert the
     // index domain explicitly; leaving a missing entry as None lets the strict
@@ -734,6 +706,146 @@ pub fn compute_corepresentation(
             .collect::<Vec<_>>()
     } else {
         op_map.clone()
+    };
+
+    // The public Corepresentation character surface is real-valued.  Check
+    // the exact complex values that will feed its unitary columns before any
+    // anti-unitary completion or realification can discard an imaginary part.
+    if matches!(corep_type, CorepType::A | CorepType::B) {
+        if h_irrep.spinor {
+            let row = h_irrep
+                .spinor_selected_arm_view()
+                .map_err(|error| CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "complex unitary character lookup unavailable for {:?} spinor row: {}; the current real-valued corepresentation API cannot represent complex unitary characters",
+                        corep_type, error
+                    ),
+                })?;
+            for &mag_idx in &unitary {
+                let local_index = character_op_map
+                    .get(mag_idx)
+                    .copied()
+                    .flatten()
+                    .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!(
+                            "complex unitary character lookup unavailable for {:?} at magnetic operation {}: missing typed spinor operation mapping; the current real-valued corepresentation API cannot represent complex unitary characters",
+                            corep_type, mag_idx
+                        ),
+                    })?;
+                let value = row.values().get(local_index).copied().ok_or_else(|| {
+                    CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!(
+                            "complex unitary character lookup unavailable for {:?} at magnetic operation {}: typed spinor index {} is out of range; the current real-valued corepresentation API cannot represent complex unitary characters",
+                            corep_type, mag_idx, local_index
+                        ),
+                    }
+                })?;
+                if value.im != 0.0 {
+                    return Err(CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!(
+                            "complex unitary character for {:?} at magnetic operation {} is {}{}i; the current real-valued corepresentation API cannot represent complex unitary characters",
+                            corep_type,
+                            mag_idx,
+                            value.re,
+                            if value.im.is_sign_negative() {
+                                format!("{}", value.im)
+                            } else {
+                                format!("+{}", value.im)
+                            }
+                        ),
+                    });
+                }
+            }
+        } else {
+            let values = h_complex_chars.as_ref().ok_or_else(|| {
+                CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "complex unitary character lookup unavailable for {:?}: selected scalar typed row is missing; the current real-valued corepresentation API cannot represent complex unitary characters",
+                        corep_type
+                    ),
+                }
+            })?;
+            for &mag_idx in &unitary {
+                let h_index = character_op_map
+                    .get(mag_idx)
+                    .copied()
+                    .flatten()
+                    .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!(
+                            "complex unitary character lookup unavailable for {:?} at magnetic operation {}: missing scalar H-operation mapping; the current real-valued corepresentation API cannot represent complex unitary characters",
+                            corep_type, mag_idx
+                        ),
+                    })?;
+                let value = values.get(h_index).copied().ok_or_else(|| {
+                    CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!(
+                            "complex unitary character lookup unavailable for {:?} at magnetic operation {}: H index {} is out of range; the current real-valued corepresentation API cannot represent complex unitary characters",
+                            corep_type, mag_idx, h_index
+                        ),
+                    }
+                })?;
+                if value.im != 0.0 {
+                    return Err(CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!(
+                            "complex unitary character for {:?} at magnetic operation {} is {}{}i; the current real-valued corepresentation API cannot represent complex unitary characters",
+                            corep_type,
+                            mag_idx,
+                            value.re,
+                            if value.im.is_sign_negative() {
+                                format!("{}", value.im)
+                            } else {
+                                format!("+{}", value.im)
+                            }
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    // Compute Type A antiunitary characters only after the real-valued unitary
+    // character guard above has accepted the operation-aware input.
+    let au_chars = if h_irrep.spinor {
+        // The stored spinor data contains little-group characters but no
+        // representation matrices/intertwiner for anti-linear operations.
+        // Never feed its local character order into the scalar H-order path.
+        None
+    } else if corep_type == CorepType::A && !antiunitary.is_empty() {
+        if h_dim == 1 {
+            wigner::type_a_antiunitary_chars(
+                &mag_seitz,
+                &mag_lg,
+                &h_chars,
+                &h_seitz,
+                antiunitary[0],
+                h_irrep.k_vector(),
+            )
+            .map(|(chars, _u)| chars)
+        } else {
+            // The legacy PIR matrices are source-representative data and are
+            // not phase-aligned with final-Hall Seitz operations. Until
+            // phase-aligned complex selected-arm matrices are generated, do
+            // not fabricate high-dimensional Type-A antiunitary characters.
+            None
+        }
+    } else {
+        None
     };
 
     // 9. Build corep character table
@@ -1477,6 +1589,101 @@ pub fn magnetic_isotropy_coreps_of_sg_k(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_complex_unitary_corep_rejected(
+        sg: u8,
+        label: &str,
+        uni: usize,
+        expected_type: CorepType,
+    ) {
+        let irrep = irreps_of(sg)
+            .iter()
+            .find(|irrep| irrep.ml == label)
+            .unwrap_or_else(|| panic!("missing SG {sg} {label}"));
+        if irrep.spinor {
+            let row = irrep
+                .spinor_selected_arm_view()
+                .expect("typed spinor selected-arm row");
+            assert!(
+                row.values().iter().any(|value| value.im != 0.0),
+                "SG {sg} {label} must have a nonzero typed imaginary character"
+            );
+            assert!(
+                row.values()
+                    .iter()
+                    .zip(row.operations())
+                    .any(|(value, operation)| {
+                        value.re == 0.0
+                            && value.im == -1.0
+                            && operation.seitz.rotation == [-1, 0, 0, 0, 1, 0, 0, 0, -1]
+                    }),
+                "SG {sg} {label} must have typed C2y character -i"
+            );
+        } else {
+            let row = irrep
+                .ordinary_scalar_selected_arm_block_trace()
+                .expect("typed scalar selected-arm row");
+            assert!(
+                row.values().iter().any(|value| value.im != 0.0),
+                "SG {sg} {label} must have a nonzero typed imaginary character"
+            );
+            assert!(
+                row.values()
+                    .iter()
+                    .any(|value| value.re == 0.0 && value.im == -1.0),
+                "SG {sg} {label} must have a typed -i character"
+            );
+        }
+
+        let mag_ops = get_magnetic_operations(uni)
+            .unwrap_or_else(|| panic!("missing magnetic operations for UNI {uni}"));
+        let error = compute_corepresentation(irrep, uni, &mag_ops)
+            .expect_err("complex unitary characters must be rejected by the real API");
+        match error {
+            CorepComputationError::UnsupportedClassification {
+                uni: error_uni,
+                source_irrep,
+                reason,
+            } => {
+                assert_eq!(error_uni, uni);
+                assert_eq!(source_irrep, label);
+                assert!(
+                    reason.contains(&format!("complex unitary character for {expected_type:?}"))
+                );
+                assert!(reason.contains(
+                    "the current real-valued corepresentation API cannot represent complex unitary characters"
+                ));
+            }
+            other => panic!("unexpected SG {sg} {label} UNI {uni} error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn scalar_type_a_rejects_complex_unitary_character_witness() {
+        // SG 44 W1 at k=(1,1,1)/2 has typed -i selected-arm columns; BNS
+        // 44.229 is UNI 327.
+        assert_complex_unitary_corep_rejected(44, "W1", 327, CorepType::A);
+    }
+
+    #[test]
+    fn scalar_type_b_rejects_complex_unitary_character_witness() {
+        // SG 44 W1 at k=(1,1,1)/2 has typed -i selected-arm columns; BNS
+        // 44.233 is UNI 331.
+        assert_complex_unitary_corep_rejected(44, "W1", 331, CorepType::B);
+    }
+
+    #[test]
+    fn spinor_type_a_rejects_complex_unitary_character_witness() {
+        // SG 3 GM3 has a typed C2y column with χ=-i; UNI 8 is grey Type A.
+        assert_complex_unitary_corep_rejected(3, "GM3", 8, CorepType::A);
+    }
+
+    #[test]
+    fn spinor_type_b_rejects_complex_unitary_character_witness() {
+        // SG 3 C3 at k=(1,1,0)/2 has a typed C2y column with χ=-i; UNI 13
+        // (BNS 3.6) is Type B.
+        assert_complex_unitary_corep_rejected(3, "C3", 13, CorepType::B);
+    }
 
     #[test]
     fn symmetry_operations_query_reports_invalid_space_group() {

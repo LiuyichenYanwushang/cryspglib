@@ -1388,8 +1388,8 @@ mod tests {
     }
 
     #[test]
-    fn bns_52_318_reports_compound_corep_error() {
-        let error = magnetic_irrep_summary_by_bns("52.318")
+    fn bns_182_183_reports_compound_corep_error() {
+        let error = magnetic_irrep_summary_by_bns("182.183")
             .expect_err("compound corepresentation must fail closed in summaries");
         match error {
             MagneticIrrepError::CorepComputationFailed {
@@ -1399,13 +1399,13 @@ mod tests {
                 source_irrep,
                 reason,
             } => {
-                assert_eq!(uni, 416);
-                assert_eq!(sg, 52);
-                assert_eq!(k_label, "S");
-                assert_eq!(source_irrep, "S1S2");
+                assert_eq!(uni, 1413);
+                assert_eq!(sg, 173);
+                assert_eq!(k_label, "GM");
+                assert_eq!(source_irrep, "GM3GM5");
                 assert!(reason.contains("compound corepresentations"));
             }
-            other => panic!("unexpected 52.318 summary error: {other:?}"),
+            other => panic!("unexpected 182.183 summary error: {other:?}"),
         }
     }
 
