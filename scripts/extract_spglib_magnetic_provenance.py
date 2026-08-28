@@ -11,8 +11,10 @@ import argparse
 from dataclasses import dataclass
 import hashlib
 import json
+import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -74,6 +76,10 @@ PINNED_DECLARATIONS = {
     "magnetic_spacegroup_uni_mapping": (
         r"^[ \t]*static[ \t]+const[ \t]+int[ \t]+"
         r"magnetic_spacegroup_uni_mapping[ \t]*\[[ \t]*\][ \t]*\[[ \t]*2[ \t]*\][ \t]*="
+    ),
+    "magnetic_spacegroup_hall_mapping": (
+        r"^[ \t]*static[ \t]+const[ \t]+int[ \t]+"
+        r"magnetic_spacegroup_hall_mapping[ \t]*\[[ \t]*\][ \t]*\[[ \t]*2[ \t]*\][ \t]*="
     ),
     "magnetic_spacegroup_operation_index": (
         r"^[ \t]*static[ \t]+const[ \t]+int[ \t]+"
@@ -529,6 +535,39 @@ def _decode_magnetic_operation(encoded):
             "time_reversal": time_reversal}
 
 
+def _validate_hall_mapping(hall_mapping, uni_mapping, msg_types, spg_numbers):
+    """Check the bidirectional Hall↔UNI index and parent SG relation."""
+    if not isinstance(hall_mapping, list) or len(hall_mapping) != SPG_HALL_COUNT:
+        raise ExtractionError("magnetic Hall mapping census mismatch")
+    for hall, pair in enumerate(hall_mapping):
+        if (not isinstance(pair, list) or len(pair) != 2
+                or not all(type(value) is int for value in pair)):
+            raise ExtractionError(f"magnetic Hall mapping row {hall} is invalid")
+    if hall_mapping[0] != [0, 0] or uni_mapping[0] != [0, 0]:
+        raise ExtractionError("magnetic Hall mapping dummy mismatch")
+    if uni_mapping[1] != [1, 1]:
+        raise ExtractionError("UNI1 mapping witness mismatch")
+    for hall, (smallest_uni, largest_uni) in enumerate(hall_mapping[1:], 1):
+        if not 1 <= smallest_uni <= largest_uni < MSG_UNI_COUNT:
+            raise ExtractionError("magnetic Hall mapping UNI range mismatch")
+        expected_unis = []
+        for uni in range(1, MSG_UNI_COUNT):
+            hall_count, first_hall = uni_mapping[uni]
+            if first_hall <= hall < first_hall + hall_count:
+                expected_unis.append(uni)
+        if expected_unis != list(range(smallest_uni, largest_uni + 1)):
+            raise ExtractionError("magnetic Hall mapping is not bidirectional")
+    for uni in range(1, MSG_UNI_COUNT):
+        hall_count, first_hall = uni_mapping[uni]
+        parent_spacegroup = msg_types[uni][4]
+        for hall in range(first_hall, first_hall + hall_count):
+            smallest_uni, largest_uni = hall_mapping[hall]
+            if not smallest_uni <= uni <= largest_uni:
+                raise ExtractionError("UNI Hall mapping inverse mismatch")
+            if spg_numbers[hall] != parent_spacegroup:
+                raise ExtractionError("UNI parent spacegroup mismatch")
+
+
 def _git_output(upstream, arguments):
     try:
         result = subprocess.run(
@@ -667,6 +706,7 @@ def extract(upstream):
 
     msg_types = _parse_initializer(_initializer_text(msg, "magnetic_spacegroup_types"))
     uni_mapping = _parse_initializer(_initializer_text(msg, "magnetic_spacegroup_uni_mapping"))
+    hall_mapping = _parse_initializer(_initializer_text(msg, "magnetic_spacegroup_hall_mapping"))
     operation_index = _parse_initializer(_initializer_text(msg, "magnetic_spacegroup_operation_index"))
     magnetic_operations = _ints(_parse_initializer(_initializer_text(msg, "magnetic_symmetry_operations")), "magnetic_symmetry_operations")
     transformations = _parse_initializer(_initializer_text(msg, "alternative_transformations"))
@@ -701,6 +741,7 @@ def extract(upstream):
     type_counts = {str(kind): sum(row[5] == kind for row in msg_types[1:]) for kind in (1, 2, 3, 4)}
     if type_counts != EXPECTED_TYPE_COUNTS:
         raise ExtractionError(f"magnetic type census mismatch: {type_counts}")
+    _validate_hall_mapping(hall_mapping, uni_mapping, msg_types, spg_numbers)
     decoded_operations = [_decode_magnetic_operation(item) for item in magnetic_operations]
 
     if uni_mapping[0] != [0, 0] or operation_index[0][0] != [0, 0]:
@@ -736,8 +777,6 @@ def extract(upstream):
                                if value == 0), len(values))
             if first_zero == len(values):
                 raise ExtractionError("alternative transformation terminator missing")
-            if any(value == 0 for value in values[:first_zero]):
-                raise ExtractionError("invalid transformation zero terminator")
             if any(value != 0 for value in values[first_zero:]):
                 raise ExtractionError("nonzero transformation tail")
             if any(not isinstance(value, int) or isinstance(value, bool)
@@ -788,6 +827,7 @@ def extract(upstream):
         "spg_database.c": spg_hash,
         "type_counts": type_counts,
         "decoded_magnetic_operations": decoded_operations,
+        "magnetic_spacegroup_hall_mapping": hall_mapping,
     }
 
 
@@ -1117,14 +1157,62 @@ def canonical_json(value):
     return (encoded + "\n").encode("utf-8")
 
 
-def write_outputs(upstream, output, manifest):
-    artifact, details = extract(upstream)
+def _validate_output_targets(output, manifest):
     output = Path(output)
     manifest = Path(manifest)
+    try:
+        if output.resolve(strict=False) == manifest.resolve(strict=False):
+            raise ExtractionError("artifact and manifest paths must differ")
+        output_stat = os.stat(output)
+    except FileNotFoundError:
+        output_stat = None
+    except OSError as error:
+        raise ExtractionError("unable to inspect artifact/manifest paths") from error
+    try:
+        manifest_stat = os.stat(manifest)
+    except FileNotFoundError:
+        manifest_stat = None
+    except OSError as error:
+        raise ExtractionError("unable to inspect artifact/manifest paths") from error
+    if (output_stat is not None and manifest_stat is not None
+            and output_stat.st_dev == manifest_stat.st_dev
+            and output_stat.st_ino == manifest_stat.st_ino):
+        raise ExtractionError("artifact and manifest must not share an inode")
+
+
+def _atomic_write(path, data):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+        )
+        temporary_path = Path(temporary_name)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
+    except OSError as error:
+        raise ExtractionError(f"unable to atomically write {path}") from error
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError:
+                pass
+
+
+def write_outputs(upstream, output, manifest):
+    output = Path(output)
+    manifest = Path(manifest)
+    _validate_output_targets(output, manifest)
+    artifact, details = extract(upstream)
     artifact_bytes = canonical_json(artifact)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(artifact_bytes)
     manifest_value = {
         "schema": MANIFEST_SCHEMA,
         "repository": "https://github.com/spglib/spglib",
@@ -1138,7 +1226,8 @@ def write_outputs(upstream, output, manifest):
         "artifact": {"path": str(output.name), "bytes": len(artifact_bytes),
                       "sha256": hashlib.sha256(artifact_bytes).hexdigest()},
     }
-    manifest.write_bytes(canonical_json(manifest_value))
+    _atomic_write(output, artifact_bytes)
+    _atomic_write(manifest, canonical_json(manifest_value))
     return artifact, details, manifest_value
 
 

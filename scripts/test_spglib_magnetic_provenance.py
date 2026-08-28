@@ -223,10 +223,34 @@ class MagneticProvenanceTests(unittest.TestCase):
         with self.assertRaises(extractor.ExtractionError):
             extractor.validate_artifact(tampered)
         tampered = copy.deepcopy(artifact)
-        tampered["msg"]["magnetic_spacegroup_operation_index"] = \
+        tampered["msg"]["magnetic_spacegroup_operation_index"] = (
             tampered["msg"]["magnetic_spacegroup_operation_index"][:-1]
+        )
         with self.assertRaises(extractor.ExtractionError):
             extractor.validate_artifact(tampered)
+
+    @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for mapping tests")
+    def test_hall_mapping_and_parent_spacegroup_invariants(self):
+        msg_types = [
+            [row["uni"], row["litvin"], row["bns"], row["og"],
+             row["parent_spacegroup"], row["type"]]
+            for row in self.artifact["msg"]["magnetic_spacegroup_types"]
+        ]
+        hall_mapping = copy.deepcopy(self.details["magnetic_spacegroup_hall_mapping"])
+        extractor._validate_hall_mapping(
+            hall_mapping,
+            self.artifact["msg"]["magnetic_spacegroup_uni_mapping"],
+            msg_types,
+            self.artifact["spg"]["spacegroup_number"],
+        )
+        self.assertEqual(self.artifact["msg"]["magnetic_spacegroup_uni_mapping"][1], [1, 1])
+        tampered = copy.deepcopy(self.artifact["msg"]["magnetic_spacegroup_uni_mapping"])
+        tampered[1] = [1, 2]
+        with self.assertRaises(extractor.ExtractionError):
+            extractor._validate_hall_mapping(
+                hall_mapping, tampered, msg_types,
+                self.artifact["spg"]["spacegroup_number"],
+            )
 
     def test_strict_c_comments_numbers_and_strings(self):
         self.assertEqual(extractor._strip_comments('"http://example.invalid"'),
@@ -294,6 +318,29 @@ class MagneticProvenanceTests(unittest.TestCase):
         ):
             with self.assertRaises(extractor.ExtractionError):
                 extractor._verify_upstream_provenance(Path("/pinned/source"))
+
+    def test_output_targets_reject_same_path_and_inode_aliases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            same = root / "same.json"
+            with self.assertRaises(extractor.ExtractionError):
+                extractor._validate_output_targets(same, same)
+            target = root / "target.json"
+            target.write_bytes(b"artifact")
+            hardlink = root / "hardlink.json"
+            os.link(target, hardlink)
+            with self.assertRaises(extractor.ExtractionError):
+                extractor._validate_output_targets(target, hardlink)
+            with self.assertRaises(extractor.ExtractionError):
+                extractor.write_outputs(root / "not-a-checkout", target, hardlink)
+            symlink = root / "symlink.json"
+            os.symlink(target, symlink)
+            with self.assertRaises(extractor.ExtractionError):
+                extractor._validate_output_targets(symlink, hardlink)
+            with self.assertRaises(extractor.ExtractionError):
+                extractor.write_outputs(root / "not-a-checkout", symlink, hardlink)
+            with self.assertRaises(extractor.ExtractionError):
+                extractor.write_outputs(root / "not-a-checkout", same, same)
 
     @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for blob tests")
     def test_git_source_uses_pinned_blob_without_working_tree_read(self):
