@@ -124,6 +124,41 @@ pub enum CharacterViewError {
 
 const SEITZ_IDENTITY_TOLERANCE: f64 = 1e-8;
 
+/// Whether one complex-character component is bounded by representational
+/// floating-point roundoff for the selected representation dimension.
+pub(crate) fn character_component_is_roundoff_zero(component: f64, dimension: usize) -> bool {
+    dimension > 0
+        && component.is_finite()
+        && component.abs() <= 2.0 * f64::EPSILON * dimension as f64
+}
+
+#[cfg(test)]
+mod character_roundoff_tests {
+    use super::character_component_is_roundoff_zero;
+
+    #[test]
+    fn accepts_only_the_dimension_scaled_roundoff_boundary() {
+        let dimension = 3;
+        let boundary = 2.0 * f64::EPSILON * dimension as f64;
+        assert!(character_component_is_roundoff_zero(boundary, dimension));
+        assert!(character_component_is_roundoff_zero(-boundary, dimension));
+        assert!(!character_component_is_roundoff_zero(
+            f64::from_bits(boundary.to_bits() + 1),
+            dimension
+        ));
+        assert!(!character_component_is_roundoff_zero(f64::NAN, dimension));
+        assert!(!character_component_is_roundoff_zero(
+            f64::INFINITY,
+            dimension
+        ));
+        assert!(!character_component_is_roundoff_zero(
+            f64::NEG_INFINITY,
+            dimension
+        ));
+        assert!(!character_component_is_roundoff_zero(0.0, 0));
+    }
+}
+
 /// Owned, operation-aware character values in one explicitly named space.
 #[derive(Debug, Clone)]
 pub struct CharacterRow {

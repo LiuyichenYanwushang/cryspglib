@@ -160,6 +160,7 @@ struct SeitzColumnKey {
 #[derive(Debug)]
 struct TypedCharacterTableRow {
     irrep: &'static IrrepRecord,
+    dimension: usize,
     entries: BTreeMap<SeitzColumnKey, (SeitzOperation, Complex64)>,
 }
 
@@ -235,7 +236,28 @@ fn typed_character_table_row(
     if entries.is_empty() {
         return Err("typed character row has no operation entries".to_string());
     }
-    Ok(TypedCharacterTableRow { irrep, entries })
+    let dimension = if irrep.spinor {
+        irrep
+            .spinor_selected_arm_view()
+            .map_err(|error| error.to_string())?
+            .dimension()
+    } else if irrep.raw_cir_component_count() > 0 {
+        irrep
+            .compound_selected_arm_view()
+            .map_err(|error| error.to_string())?
+            .block_trace()
+            .dimension()
+    } else {
+        irrep
+            .ordinary_scalar_selected_arm_block_trace()
+            .map_err(|error| error.to_string())?
+            .dimension()
+    };
+    Ok(TypedCharacterTableRow {
+        irrep,
+        dimension,
+        entries,
+    })
 }
 
 fn format_seitz_operation(operation: SeitzOperation) -> String {
@@ -268,7 +290,18 @@ fn format_complex_part(value: f64) -> String {
     }
 }
 
-fn format_complex_value(value: Complex64) -> String {
+fn format_complex_value(value: Complex64, dimension: usize) -> String {
+    let real = if character_component_is_roundoff_zero(value.re, dimension) {
+        0.0
+    } else {
+        value.re
+    };
+    let imag = if character_component_is_roundoff_zero(value.im, dimension) {
+        0.0
+    } else {
+        value.im
+    };
+    let value = Complex64::new(real, imag);
     if value.im == 0.0 {
         return format_complex_part(value.re);
     }
@@ -363,7 +396,7 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
                 typed_row
                     .entries
                     .get(key)
-                    .map(|(_, value)| format_complex_value(*value))
+                    .map(|(_, value)| format_complex_value(*value, typed_row.dimension))
                     .unwrap_or_default()
             }))
             .collect();
@@ -1001,6 +1034,42 @@ mod tests {
         assert!(
             spinor_table.contains(&format!("| {} |", spinor.ml)),
             "spinor row was not rendered: {spinor_table}"
+        );
+    }
+
+    #[test]
+    fn test_formatter_roundoff_witnesses_preserve_real_complex_values() {
+        let w1 = irreps_of(44)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "W1")
+            .expect("SG 44 W1 scalar irrep");
+        let w1_table = format_character_table(44, w1.kx, w1.ky, w1.kz, w1.kd);
+        assert!(
+            w1_table
+                .lines()
+                .any(|line| { line.starts_with("| W1 |") && line.contains("| -1i |") })
+        );
+
+        let a2 = irreps_of(144)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "A2")
+            .expect("SG 144 A2 scalar irrep");
+        let a2_table = format_character_table(144, a2.kx, a2.ky, a2.kz, a2.kd);
+        assert!(
+            a2_table
+                .lines()
+                .any(|line| { line.starts_with("| A2 |") && line.contains("1.047198e-10i") })
+        );
+
+        let h2 = irreps_of(151)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "H2")
+            .expect("SG 151 H2 scalar irrep");
+        let h2_table = format_character_table(151, h2.kx, h2.ky, h2.kz, h2.kd);
+        assert!(
+            h2_table
+                .lines()
+                .any(|line| { line.starts_with("| H2 |") && line.contains("1.047198e-10i") })
         );
     }
 

@@ -94,7 +94,7 @@
 //! - Stokes, Campbell & Hatch, ISOTROPY Suite documentation
 //! - Bilbao Crystallographic Server: <https://cryst.ehu.es/cgi-bin/cryst/programs/corepresentations.pl>
 
-use super::types::IrrepRecord;
+use super::types::{IrrepRecord, character_component_is_roundoff_zero};
 use super::wigner::{self, SeitzOp, filter_little_group_with_transform, ops_to_seitz};
 #[cfg(test)]
 use super::wigner::{
@@ -737,6 +737,17 @@ pub fn compute_corepresentation(
                         corep_type, error
                     ),
                 })?;
+            if row.dimension() != h_dim {
+                return Err(CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "typed spinor selected dimension {} disagrees with computed dimension {}",
+                        row.dimension(),
+                        h_dim
+                    ),
+                });
+            }
             for &mag_idx in &unitary {
                 let local_index = character_op_map
                     .get(mag_idx)
@@ -760,7 +771,10 @@ pub fn compute_corepresentation(
                         ),
                     }
                 })?;
-                if value.im != 0.0 {
+                if !value.re.is_finite()
+                    || !value.im.is_finite()
+                    || (value.im != 0.0 && !character_component_is_roundoff_zero(value.im, h_dim))
+                {
                     return Err(CorepComputationError::UnsupportedClassification {
                         uni: uni_number,
                         source_irrep: h_irrep.ml.to_string(),
@@ -812,7 +826,10 @@ pub fn compute_corepresentation(
                         ),
                     }
                 })?;
-                if value.im != 0.0 {
+                if !value.re.is_finite()
+                    || !value.im.is_finite()
+                    || (value.im != 0.0 && !character_component_is_roundoff_zero(value.im, h_dim))
+                {
                     return Err(CorepComputationError::UnsupportedClassification {
                         uni: uni_number,
                         source_irrep: h_irrep.ml.to_string(),
@@ -1720,7 +1737,7 @@ mod tests {
                     .iter()
                     .zip(row.operations())
                     .any(|(value, operation)| {
-                        value.re == 0.0
+                        character_component_is_roundoff_zero(value.re, row.dimension())
                             && value.im == -1.0
                             && operation.seitz.rotation == [-1, 0, 0, 0, 1, 0, 0, 0, -1]
                     }),
@@ -1735,9 +1752,10 @@ mod tests {
                 "SG {sg} {label} must have a nonzero typed imaginary character"
             );
             assert!(
-                row.values()
-                    .iter()
-                    .any(|value| value.re == 0.0 && value.im == -1.0),
+                row.values().iter().any(|value| {
+                    character_component_is_roundoff_zero(value.re, row.dimension())
+                        && value.im == -1.0
+                }),
                 "SG {sg} {label} must have a typed -i character"
             );
         }
@@ -1790,6 +1808,41 @@ mod tests {
         // SG 3 C3 at k=(1,1,0)/2 has a typed C2y column with χ=-i; UNI 13
         // (BNS 3.6) is Type B.
         assert_complex_unitary_corep_rejected(3, "C3", 13, CorepType::B);
+    }
+
+    #[test]
+    fn sg178_h3_rejects_non_roundoff_complex_unitary_character() {
+        let h3 = irreps_of(178)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "H3")
+            .expect("SG 178 H3 scalar irrep");
+        let row = h3
+            .ordinary_scalar_selected_arm_block_trace()
+            .expect("typed SG 178 H3 row");
+        assert!(row.values().iter().any(|value| {
+            value.im == -1.0471976378421115e-10
+                && !character_component_is_roundoff_zero(value.im, row.dimension())
+        }));
+
+        let mag_ops = get_magnetic_operations(1385).expect("UNI 1385 operations");
+        let error = compute_corepresentation(h3, 1385, &mag_ops)
+            .expect_err("SG 178 H3 UNI 1385 has a real-unrepresentable unitary character");
+        match error {
+            CorepComputationError::UnsupportedClassification {
+                uni,
+                source_irrep,
+                reason,
+            } => {
+                assert_eq!(uni, 1385);
+                assert_eq!(source_irrep, "H3");
+                assert!(reason.contains("complex unitary character for"));
+                assert!(reason.contains("-0.00000000010471976378421115i"));
+                assert!(reason.contains(
+                    "the current real-valued corepresentation API cannot represent complex unitary characters"
+                ));
+            }
+            other => panic!("unexpected SG 178 H3 UNI 1385 error: {other:?}"),
+        }
     }
 
     #[test]
