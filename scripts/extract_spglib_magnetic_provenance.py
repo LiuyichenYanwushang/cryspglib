@@ -53,6 +53,37 @@ EXPECTED_TYPE_COUNTS = {"1": 230, "2": 230, "3": 674, "4": 517}
 EXPECTED_UPSTREAM_TAG = "v2.5.0"
 EXPECTED_UPSTREAM_COMMIT = "e4531bb49371dce3e807c2095a4d9d9b7245c524"
 
+MAGNETIC_DECODER_WITNESSES = {
+    16484: {"rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            "translation_numerator": [0, 0, 0], "time_reversal": 0},
+    34146806: {"rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+               "translation_numerator": [0, 0, 6], "time_reversal": 1},
+    3198: {"rotation": [-1, 0, 0, 0, -1, 0, 0, 0, -1],
+           "translation_numerator": [0, 0, 0], "time_reversal": 0},
+    34133520: {"rotation": [-1, 0, 0, 0, -1, 0, 0, 0, -1],
+               "translation_numerator": [0, 0, 6], "time_reversal": 1},
+    3360: {"rotation": [-1, 0, 0, 0, 1, 0, 0, 0, -1],
+           "translation_numerator": [0, 0, 0], "time_reversal": 0},
+    34028708: {"rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+               "translation_numerator": [0, 0, 0], "time_reversal": 1},
+    34015584: {"rotation": [-1, 0, 0, 0, 1, 0, 0, 0, -1],
+               "translation_numerator": [0, 0, 0], "time_reversal": 1},
+    3200: {"rotation": [-1, 0, 0, 0, -1, 0, 0, 0, 1],
+           "translation_numerator": [0, 0, 0], "time_reversal": 0},
+    34015424: {"rotation": [-1, 0, 0, 0, -1, 0, 0, 0, 1],
+               "translation_numerator": [0, 0, 0], "time_reversal": 1},
+    16320: {"rotation": [1, 0, 0, 0, -1, 0, 0, 0, -1],
+            "translation_numerator": [0, 0, 0], "time_reversal": 0},
+    34028544: {"rotation": [1, 0, 0, 0, -1, 0, 0, 0, -1],
+               "translation_numerator": [0, 0, 0], "time_reversal": 1},
+}
+UNI7_RAW_WITNESS = [16484, 3198, 34146806, 34133520]
+UNI9_RAW_WITNESSES = [
+    [16484, 3360, 34028708, 34015584],
+    [16484, 3200, 34028708, 34015424],
+    [16484, 16320, 34028708, 34028544],
+]
+
 
 class ExtractionError(ValueError):
     """Raised for any malformed or unexpected upstream initializer."""
@@ -381,12 +412,11 @@ def _normalize_rows(value, rows, columns, name):
 
 
 def _normalize_3d(value, rows, columns, width, name):
-    if not isinstance(value, list) or len(value) > rows:
+    if not isinstance(value, list) or len(value) != rows:
         raise ExtractionError(name + " has an invalid outer count")
     result = []
     for row in value:
         result.append(_normalize_rows(row, columns, width, name))
-    result.extend([[[0] * width for _ in range(columns)] for _ in range(rows - len(result))])
     return result
 
 
@@ -633,31 +663,7 @@ def extract(upstream):
     if transformation_value_count != ALTERNATIVE_TRANSFORMATION_VALUE_COUNT:
         raise ExtractionError("alternative transformation value census mismatch")
 
-    expected_witnesses = {
-        16484: {"rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1],
-                "translation_numerator": [0, 0, 0], "time_reversal": 0},
-        34146806: {"rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1],
-                   "translation_numerator": [0, 0, 6], "time_reversal": 1},
-        3198: {"rotation": [-1, 0, 0, 0, -1, 0, 0, 0, -1],
-               "translation_numerator": [0, 0, 0], "time_reversal": 0},
-        34133520: {"rotation": [-1, 0, 0, 0, -1, 0, 0, 0, -1],
-                   "translation_numerator": [0, 0, 6], "time_reversal": 1},
-        3360: {"rotation": [-1, 0, 0, 0, 1, 0, 0, 0, -1],
-               "translation_numerator": [0, 0, 0], "time_reversal": 0},
-        34028708: {"rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1],
-                   "translation_numerator": [0, 0, 0], "time_reversal": 1},
-        34015584: {"rotation": [-1, 0, 0, 0, 1, 0, 0, 0, -1],
-                   "translation_numerator": [0, 0, 0], "time_reversal": 1},
-        3200: {"rotation": [-1, 0, 0, 0, -1, 0, 0, 0, 1],
-               "translation_numerator": [0, 0, 0], "time_reversal": 0},
-        34015424: {"rotation": [-1, 0, 0, 0, -1, 0, 0, 0, 1],
-                   "translation_numerator": [0, 0, 0], "time_reversal": 1},
-        16320: {"rotation": [1, 0, 0, 0, -1, 0, 0, 0, -1],
-                "translation_numerator": [0, 0, 0], "time_reversal": 0},
-        34028544: {"rotation": [1, 0, 0, 0, -1, 0, 0, 0, -1],
-                   "translation_numerator": [0, 0, 0], "time_reversal": 1},
-    }
-    for encoded, expected in expected_witnesses.items():
+    for encoded, expected in MAGNETIC_DECODER_WITNESSES.items():
         if _decode_magnetic_operation(encoded) != expected:
             raise ExtractionError(f"magnetic decoder witness mismatch: {encoded}")
 
@@ -681,6 +687,7 @@ def extract(upstream):
             "alternative_transformations": transformations,
         },
     }
+    validate_artifact(artifact)
     return artifact, {
         "msg_database.c": msg_hash,
         "spg_database.c": spg_hash,
@@ -713,6 +720,227 @@ def _validate_json_value(value, path="$" ):
             _validate_json_value(item, f"{path}.{key}")
         return
     raise ExtractionError(f"unsupported JSON value at {path}")
+
+
+def _validate_artifact_tree(value, path="$" ):
+    """Reject non-schema JSON types, including bool masquerading as int."""
+    if type(value) is int or type(value) is str:
+        return
+    if type(value) is list:
+        for index, item in enumerate(value):
+            _validate_artifact_tree(item, f"{path}[{index}]")
+        return
+    if type(value) is dict:
+        for key, item in value.items():
+            if type(key) is not str:
+                raise ExtractionError(f"artifact key at {path} is not text")
+            _validate_artifact_tree(item, f"{path}.{key}")
+        return
+    raise ExtractionError(f"unsupported artifact value at {path}")
+
+
+def _artifact_keys(value, expected, name):
+    if type(value) is not dict or set(value) != set(expected):
+        raise ExtractionError(f"{name} keys mismatch")
+
+
+def _artifact_list(value, length, name):
+    if type(value) is not list or len(value) != length:
+        raise ExtractionError(f"{name} length mismatch")
+
+
+def _artifact_int(value, name):
+    if type(value) is not int:
+        raise ExtractionError(f"{name} must be an integer")
+
+
+def _artifact_int_pair(value, name):
+    if type(value) is not list or len(value) != 2:
+        raise ExtractionError(f"{name} must be a pair")
+    if type(value[0]) is not int or type(value[1]) is not int:
+        raise ExtractionError(f"{name} must contain integers")
+
+
+def _validate_artifact_spg(spg):
+    _artifact_keys(spg, {"spacegroup_number", "symmetry_operation_index",
+                         "symmetry_operations"}, "artifact spg")
+    numbers = spg["spacegroup_number"]
+    _artifact_list(numbers, SPG_HALL_COUNT, "spacegroup_number")
+    if any(type(value) is not int or not 0 <= value <= 230 for value in numbers):
+        raise ExtractionError("spacegroup number range/type mismatch")
+    if numbers[0] != 0:
+        raise ExtractionError("spacegroup number sentinel mismatch")
+
+    operation_index = spg["symmetry_operation_index"]
+    _artifact_list(operation_index, SPG_HALL_COUNT, "symmetry_operation_index")
+    for hall_number, pair in enumerate(operation_index):
+        _artifact_int_pair(pair, f"symmetry_operation_index[{hall_number}]")
+    if operation_index[0] != [0, 0]:
+        raise ExtractionError("spg operation index dummy mismatch")
+
+    operations = spg["symmetry_operations"]
+    _artifact_list(operations, SPG_OPERATION_COUNT, "symmetry_operations")
+    if operations[0] != 0:
+        raise ExtractionError("spg operation sentinel mismatch")
+    if any(type(value) is not int or not 0 < value < MSG_OPERATION_SCALE
+           for value in operations[1:]):
+        raise ExtractionError("spg operation encoding out of range")
+    previous_end = 1
+    for hall_number, pair in enumerate(operation_index[1:], 1):
+        order, offset = pair
+        if order <= 0 or offset < 1 or offset + order > len(operations):
+            raise ExtractionError("spg operation span out of range")
+        if offset + order > SPG_STANDARD_OPERATION_END or offset != previous_end:
+            raise ExtractionError("spg operation spans are not contiguous")
+        previous_end = offset + order
+    if previous_end != SPG_STANDARD_OPERATION_END:
+        raise ExtractionError("spg operation standard boundary mismatch")
+    for value in operations[1:]:
+        if _decode_magnetic_operation(value)["time_reversal"] != 0:
+            raise ExtractionError("spg operation has time reversal")
+
+
+def _validate_artifact_msg(msg):
+    _artifact_keys(
+        msg,
+        {"magnetic_spacegroup_types", "magnetic_spacegroup_uni_mapping",
+         "magnetic_spacegroup_operation_index", "magnetic_symmetry_operations",
+         "alternative_transformations"},
+        "artifact msg",
+    )
+    types = msg["magnetic_spacegroup_types"]
+    _artifact_list(types, MSG_UNI_COUNT, "magnetic_spacegroup_types")
+    type_keys = {"uni", "litvin", "bns", "og", "parent_spacegroup", "type"}
+    for uni, row in enumerate(types):
+        _artifact_keys(row, type_keys, f"magnetic_spacegroup_types[{uni}]")
+        for field in ("uni", "litvin", "parent_spacegroup", "type"):
+            _artifact_int(row[field], f"magnetic_spacegroup_types[{uni}].{field}")
+        if type(row["bns"]) is not str or type(row["og"]) is not str:
+            raise ExtractionError("magnetic type labels must be strings")
+        if uni == 0:
+            if row != {"uni": 0, "litvin": 0, "bns": "", "og": "",
+                       "parent_spacegroup": 0, "type": 0}:
+                raise ExtractionError("magnetic type sentinel mismatch")
+        elif (row["uni"] != uni or not 1 <= row["litvin"] <= MSG_UNI_COUNT - 1
+              or not 1 <= row["parent_spacegroup"] <= 230
+              or row["type"] not in (1, 2, 3, 4)):
+            raise ExtractionError("magnetic type identity/range mismatch")
+    type_counts = {
+        str(kind): sum(row["type"] == kind for row in types[1:])
+        for kind in (1, 2, 3, 4)
+    }
+    if type_counts != EXPECTED_TYPE_COUNTS:
+        raise ExtractionError(f"magnetic type census mismatch: {type_counts}")
+
+    mapping = msg["magnetic_spacegroup_uni_mapping"]
+    _artifact_list(mapping, MSG_UNI_COUNT, "magnetic_spacegroup_uni_mapping")
+    for uni, pair in enumerate(mapping):
+        _artifact_int_pair(pair, f"magnetic_spacegroup_uni_mapping[{uni}]")
+    if mapping[0] != [0, 0]:
+        raise ExtractionError("magnetic mapping dummy mismatch")
+
+    operation_index = msg["magnetic_spacegroup_operation_index"]
+    _artifact_list(operation_index, MSG_UNI_COUNT,
+                   "magnetic_spacegroup_operation_index")
+    for uni, row in enumerate(operation_index):
+        _artifact_list(row, MSG_HALL_SLOTS,
+                       f"magnetic_spacegroup_operation_index[{uni}]")
+        for slot, pair in enumerate(row):
+            _artifact_int_pair(pair,
+                               f"magnetic_spacegroup_operation_index[{uni}][{slot}]")
+    if any(pair != [0, 0] for pair in operation_index[0]):
+        raise ExtractionError("magnetic operation index dummy mismatch")
+
+    operations = msg["magnetic_symmetry_operations"]
+    _artifact_list(operations, MSG_OPERATION_COUNT, "magnetic_symmetry_operations")
+    if operations[0] != 0:
+        raise ExtractionError("magnetic operation sentinel mismatch")
+    if any(type(value) is not int or not 0 < value < MAGNETIC_OPERATION_ENCODING_LIMIT
+           for value in operations[1:]):
+        raise ExtractionError("magnetic operation encoding out of range")
+    for value in operations:
+        _decode_magnetic_operation(value)
+
+    active_spans = []
+    for uni in range(1, MSG_UNI_COUNT):
+        hall_count, first_hall = mapping[uni]
+        if hall_count < 1 or hall_count > MSG_HALL_SLOTS:
+            raise ExtractionError("UNI Hall count out of range")
+        if (first_hall < 1 or first_hall > SPG_HALL_SETTINGS
+                or first_hall + hall_count - 1 > SPG_HALL_SETTINGS):
+            raise ExtractionError("UNI mapping range mismatch")
+        for slot, (order, offset) in enumerate(operation_index[uni]):
+            if slot < hall_count:
+                if order <= 0 or offset < 1 or offset + order > len(operations):
+                    raise ExtractionError("magnetic operation span out of range")
+                active_spans.append((offset, offset + order))
+            elif [order, offset] != [0, 0]:
+                raise ExtractionError("nonzero operation index beyond Hall count")
+    if len(active_spans) != MSG_ACTIVE_SPAN_COUNT:
+        raise ExtractionError("magnetic active span census mismatch")
+    previous_end = 1
+    for start, end in sorted(active_spans):
+        if start != previous_end or end <= start:
+            raise ExtractionError("magnetic operation spans are not contiguous")
+        previous_end = end
+    if previous_end != len(operations):
+        raise ExtractionError("magnetic operation span boundary mismatch")
+
+    transformations = msg["alternative_transformations"]
+    _artifact_list(transformations, MSG_UNI_COUNT, "alternative_transformations")
+    transformation_value_count = 0
+    for uni, row in enumerate(transformations):
+        _artifact_list(row, MSG_HALL_SLOTS,
+                       f"alternative_transformations[{uni}]")
+        for slot, values in enumerate(row):
+            _artifact_list(values, 7,
+                           f"alternative_transformations[{uni}][{slot}]")
+            if uni == 0 or slot >= mapping[uni][0]:
+                if any(value != 0 for value in values):
+                    raise ExtractionError("nonzero transformation in inactive slot")
+                continue
+            first_zero = next((index for index, value in enumerate(values)
+                               if value == 0), len(values))
+            if first_zero == len(values):
+                raise ExtractionError("alternative transformation terminator missing")
+            if any(value != 0 and not 0 < value < MSG_OPERATION_SCALE
+                   for value in values[:first_zero]):
+                raise ExtractionError("transformation encoding out of range")
+            if any(value != 0 for value in values[first_zero:]):
+                raise ExtractionError("nonzero transformation tail")
+            transformation_value_count += first_zero
+    if transformation_value_count != ALTERNATIVE_TRANSFORMATION_VALUE_COUNT:
+        raise ExtractionError("alternative transformation value census mismatch")
+
+    def decoded(raw):
+        return _decode_magnetic_operation(raw)
+
+    for raw, expected in MAGNETIC_DECODER_WITNESSES.items():
+        if decoded(raw) != expected:
+            raise ExtractionError(f"magnetic decoder witness mismatch: {raw}")
+
+    def span(uni, slot):
+        order, offset = operation_index[uni][slot]
+        return operations[offset:offset + order]
+
+    if span(7, 0) != UNI7_RAW_WITNESS:
+        raise ExtractionError("UNI7 raw witness mismatch")
+    for slot, expected in enumerate(UNI9_RAW_WITNESSES):
+        if span(9, slot) != expected:
+            raise ExtractionError(f"UNI9 raw witness mismatch at slot {slot}")
+
+
+def validate_artifact(data):
+    """Validate a parsed artifact independently of its manifest."""
+    _validate_artifact_tree(data)
+    _artifact_keys(data, {"schema", "translation_denominator", "spg", "msg"},
+                   "artifact")
+    if data["schema"] != SCHEMA:
+        raise ExtractionError("artifact schema mismatch")
+    if data["translation_denominator"] != TRANSLATION_DENOMINATOR:
+        raise ExtractionError("artifact translation denominator mismatch")
+    _validate_artifact_spg(data["spg"])
+    _validate_artifact_msg(data["msg"])
 
 
 def _parse_json_bytes(data, name="JSON"):

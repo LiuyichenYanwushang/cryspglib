@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Focused tests for the pinned spglib magnetic provenance extractor."""
 
+import copy
 import hashlib
 import os
 import sys
@@ -17,6 +18,8 @@ UPSTREAM = (Path(os.environ["SPGLIB_V2_5_0_SOURCE"])
             if os.environ.get("SPGLIB_V2_5_0_SOURCE") else None)
 ARTIFACT = Path(__file__).parent / "data/spglib_magnetic_provenance_v1.json"
 MANIFEST = Path(__file__).parent / "data/spglib_magnetic_provenance_v1.manifest.json"
+GOLDEN_ARTIFACT_BYTES = 1_537_875
+GOLDEN_ARTIFACT_SHA256 = "933a52a6696e7f6a1a2e426825ad92c377c6e96330e18c5c045d659798d740b9"
 
 
 class MagneticProvenanceTests(unittest.TestCase):
@@ -144,8 +147,10 @@ class MagneticProvenanceTests(unittest.TestCase):
 
     def test_committed_artifact_and_manifest_integrity(self):
         artifact_bytes = ARTIFACT.read_bytes()
+        self.assertEqual(len(artifact_bytes), GOLDEN_ARTIFACT_BYTES)
+        self.assertEqual(hashlib.sha256(artifact_bytes).hexdigest(), GOLDEN_ARTIFACT_SHA256)
         artifact = extractor._parse_json_bytes(artifact_bytes, str(ARTIFACT))
-        self.assertEqual(artifact["schema"], extractor.SCHEMA)
+        extractor.validate_artifact(artifact)
         self.assertEqual(extractor.canonical_json(artifact), artifact_bytes)
         manifest_bytes = MANIFEST.read_bytes()
         manifest = extractor._parse_json_bytes(manifest_bytes, str(MANIFEST))
@@ -193,15 +198,30 @@ class MagneticProvenanceTests(unittest.TestCase):
             extractor._normalize_rows([[1, 2, 3]], 1, 2, "fixture")
 
     def test_initializer_partial_rows_zero_fill_and_corrupt_tokens_reject(self):
-        self.assertEqual(extractor._normalize_rows([[1]], 2, 2, "fixture"), [[1, 0], [0, 0]])
-        self.assertEqual(extractor._normalize_3d([[[1]]], 2, 2, 2, "fixture"),
+        self.assertEqual(extractor._normalize_rows([[1]], 2, 2, "fixture"),
+                         [[1, 0], [0, 0]])
+        self.assertEqual(extractor._normalize_3d([[[1]], []], 2, 2, 2, "fixture"),
                          [[[1, 0], [0, 0]], [[0, 0], [0, 0]]])
+        with self.assertRaises(extractor.ExtractionError):
+            extractor._normalize_3d([[[1]]], 2, 2, 2, "fixture")
         with self.assertRaises(extractor.ExtractionError):
             extractor._ints(extractor._parse_initializer("{1, nope}"), "fixture")
         with self.assertRaises(extractor.ExtractionError):
             extractor._decode_magnetic_operation(-1)
         with self.assertRaises(extractor.ExtractionError):
             extractor._decode_magnetic_operation(extractor.MSG_OPERATION_SCALE * 2)
+
+    def test_artifact_validator_rejects_boolean_and_missing_outer_row(self):
+        artifact = extractor._load_json(ARTIFACT)
+        tampered = copy.deepcopy(artifact)
+        tampered["msg"]["magnetic_symmetry_operations"][1] = True
+        with self.assertRaises(extractor.ExtractionError):
+            extractor.validate_artifact(tampered)
+        tampered = copy.deepcopy(artifact)
+        tampered["msg"]["magnetic_spacegroup_operation_index"] = \
+            tampered["msg"]["magnetic_spacegroup_operation_index"][:-1]
+        with self.assertRaises(extractor.ExtractionError):
+            extractor.validate_artifact(tampered)
 
     def test_strict_c_comments_numbers_and_strings(self):
         self.assertEqual(extractor._strip_comments('"http://example.invalid"'),
