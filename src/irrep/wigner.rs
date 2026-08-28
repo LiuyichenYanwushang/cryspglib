@@ -4089,7 +4089,10 @@ include!("wigner_extra.rs");
 /// - Anti-unitary: $$\tilde{\chi}(a_0 h) = 0$$
 ///
 /// **Type C** (dimension = 2d, paired with conjugate):
-/// - Unitary: $$\tilde{\chi}(h) = 2\,\mathrm{Re}[\chi_i(h)]$$
+/// - Unitary: $$\tilde{\chi}(h) = \chi_i(h) + \chi_{partner}(h)$$
+///   (this becomes $2\,\mathrm{Re}[\chi_i(h)]$ only when the caller has
+///   proved that the partner is the `a₀` conjugate under direct pure time
+///   reversal)
 /// - Anti-unitary: $$\tilde{\chi}(a_0 h) = 0$$
 ///
 /// # Parameters
@@ -4099,13 +4102,15 @@ include!("wigner_extra.rs");
 /// * `mag_lg_indices` — which magnetic ops are in the little group
 /// * `op_map` — for each magnetic op, the corresponding H op index (or None)
 /// * `h_chars` — H's irrep character table (real-valued for PIR)
+/// * `partner_chars` — Type C's operation-aware character table for the
+///   paired irrep, supplied by a caller that established the pairing
 pub(crate) fn build_corep_chars(
     corep_type: &CorepType,
     mag_ops: &SymmetryOps,
     mag_lg_indices: &[usize],
     op_map: &[Option<usize>],
     h_chars: &[f64],
-    partner_chars: Option<&[f64]>, // for Type C: character table of paired irrep
+    partner_chars: Option<&[f64]>, // Type C: character table of paired irrep
     au_chars: Option<&[f64]>,      // for Type A: pre-computed antiunitary chars
 ) -> Result<Vec<f64>, &'static str> {
     let n_lg = mag_lg_indices.len();
@@ -4117,6 +4122,9 @@ pub(crate) fn build_corep_chars(
     }
     if corep_type == &CorepType::A && au_chars.is_some_and(|chars| chars.len() < n_lg) {
         return Err("Type-A antiunitary character table is shorter than the magnetic little group");
+    }
+    if corep_type == &CorepType::C && partner_chars.is_none() {
+        return Err("Type-C corep requires explicit partner characters");
     }
     let mut chars = vec![0.0; n_lg];
 
@@ -4160,12 +4168,11 @@ pub(crate) fn build_corep_chars(
                     let chi_i = *h_chars
                         .get(hi)
                         .ok_or("H-operation mapping exceeds the character table")?;
-                    let chi_partner = if let Some(pc) = partner_chars {
-                        *pc.get(hi)
-                            .ok_or("partner character table is shorter than the H mapping")?
-                    } else {
-                        chi_i
-                    };
+                    let pc =
+                        partner_chars.ok_or("Type-C corep requires explicit partner characters")?;
+                    let chi_partner = *pc
+                        .get(hi)
+                        .ok_or("partner character table is shorter than the H mapping")?;
                     chars[out_idx] = chi_i + chi_partner;
                 }
             }
@@ -4758,6 +4765,30 @@ mod tests {
         )
         .unwrap();
         assert_eq!(valid, vec![2.0, 0.0]);
+
+        assert!(
+            build_corep_chars(
+                &CorepType::C,
+                &mag_ops,
+                &[0, 1],
+                &[Some(0), None],
+                &[1.0],
+                None,
+                None,
+            )
+            .is_err()
+        );
+        let valid_type_c = build_corep_chars(
+            &CorepType::C,
+            &mag_ops,
+            &[0, 1],
+            &[Some(0), None],
+            &[1.0],
+            Some(&[2.0]),
+            None,
+        )
+        .unwrap();
+        assert_eq!(valid_type_c, vec![3.0, 0.0]);
     }
 
     #[test]

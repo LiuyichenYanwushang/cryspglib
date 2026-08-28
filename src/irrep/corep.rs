@@ -819,6 +819,33 @@ pub fn compute_corepresentation(
         }
     }
 
+    // Type C needs an operation-aware partner row.  The implicit 2Re(seed)
+    // shortcut is valid only when the magnetic little group contains direct
+    // pure time reversal, whose spatial action is exactly {I|0}Θ in this
+    // data-Hall frame.  In particular, a translated antiunitary is not an
+    // equivalent representative because its Bloch phase changes the partner.
+    let has_direct_pure_theta = antiunitary.iter().copied().any(|mag_idx| {
+        mag_ops_data
+            .operations
+            .get(mag_idx)
+            .is_some_and(|operation| {
+                operation.time_reversal
+                    && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+                    && operation
+                        .translation
+                        .iter()
+                        .all(|translation| translation.abs() < 1.0e-8)
+            })
+    });
+    if corep_type == CorepType::C && !has_direct_pure_theta {
+        return Err(CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: "Type-C partner requires operation-aware a0-conjugated characters; 2Re only valid for direct pure time reversal {I|0}Θ in the magnetic little group"
+                .to_string(),
+        });
+    }
+
     // Compute Type A antiunitary characters only after the real-valued unitary
     // character guard above has accepted the operation-aware input.
     let au_chars = if h_irrep.spinor {
@@ -849,13 +876,14 @@ pub fn compute_corepresentation(
     };
 
     // 9. Build corep character table
+    let partner_chars = (corep_type == CorepType::C).then_some(h_chars.as_slice());
     let characters = wigner::build_corep_chars(
         &corep_type,
         &mag_ops_data,
         &mag_lg,
         &character_op_map,
         &h_chars,
-        None,
+        partner_chars,
         au_chars.as_deref(),
     )
     .map_err(|reason| CorepComputationError::UnsupportedClassification {
@@ -1870,6 +1898,161 @@ mod tests {
             .expect("SG 1 GM2 spinor irrep");
         assert_eq!(spinor.raw_cir_component_count(), 0);
         assert!(spinor.corepresentation(2).is_ok());
+    }
+
+    #[test]
+    fn scalar_type_c_rejects_translated_antiunitary_partner_fallback() {
+        let seed = irreps_of(2)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "Z1+")
+            .expect("SG 2 Z1+ scalar irrep");
+        let partner = irreps_of(2)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "Z1-")
+            .expect("SG 2 Z1- scalar partner irrep");
+        let seed_row = seed
+            .ordinary_scalar_selected_arm_block_trace()
+            .expect("typed SG 2 Z1+ row");
+        let partner_row = partner
+            .ordinary_scalar_selected_arm_block_trace()
+            .expect("typed SG 2 Z1- row");
+        assert_eq!(seed_row.operations(), partner_row.operations());
+        let identity = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+        let inversion = [-1, 0, 0, 0, -1, 0, 0, 0, -1];
+        let value_for = |row: &crate::irrep::types::CharacterRow, rotation| {
+            row.values()
+                .iter()
+                .zip(row.operations())
+                .find(|(_, operation)| operation.rotation == rotation)
+                .map(|(value, _)| *value)
+                .expect("typed operation rotation")
+        };
+        assert_eq!(value_for(&seed_row, identity), Complex64::new(1.0, 0.0));
+        assert_eq!(value_for(&seed_row, inversion), Complex64::new(1.0, 0.0));
+        assert_eq!(
+            value_for(&partner_row, inversion),
+            Complex64::new(-1.0, 0.0)
+        );
+
+        let mag_ops = get_magnetic_operations(7).expect("UNI 7 operations");
+        let h_info = identify_unitary_subgroup_with_hall(7).expect("UNI 7 unitary subgroup");
+        let mag_ops_data = operations_in_data_hall_frame(&mag_ops, h_info.msg_to_data.as_ref())
+            .expect("UNI 7 data-Hall operations");
+        let canonical_translations: Vec<_> = h_info
+            .ops_from_hall
+            .operations
+            .iter()
+            .filter(|operation| operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+            .map(|operation| operation.translation)
+            .collect();
+        let mag_lg = filter_little_group_with_transform(
+            seed.kx,
+            seed.ky,
+            seed.kz,
+            seed.kd,
+            &mag_ops_data,
+            None,
+            Some(&canonical_translations),
+        );
+        assert!(!mag_lg.iter().any(|&index| {
+            let operation = &mag_ops_data.operations[index];
+            operation.time_reversal
+                && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+                && operation
+                    .translation
+                    .iter()
+                    .all(|translation| translation.abs() < 1.0e-8)
+        }));
+        assert!(mag_lg.iter().any(|&index| {
+            let operation = &mag_ops_data.operations[index];
+            operation.time_reversal
+                && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+                && (operation.translation[2] - 0.5).abs() < 1.0e-8
+        }));
+
+        let error = compute_corepresentation(seed, 7, &mag_ops)
+            .expect_err("translated Type-C partner must not use the 2Re fallback");
+        match error {
+            CorepComputationError::UnsupportedClassification {
+                uni,
+                source_irrep,
+                reason,
+            } => {
+                assert_eq!(uni, 7);
+                assert_eq!(source_irrep, "Z1+");
+                assert!(
+                    reason.contains(
+                        "Type-C partner requires operation-aware a0-conjugated characters"
+                    )
+                );
+                assert!(reason.contains("2Re only valid for direct pure time reversal"));
+            }
+            other => panic!("unexpected SG 2 Z1+ UNI 7 error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn spinor_type_c_direct_pure_theta_keeps_explicit_partner_result() {
+        let seed = irreps_of(3)
+            .iter()
+            .find(|irrep| irrep.spinor && irrep.ml == "A3")
+            .expect("SG 3 A3 spinor irrep");
+        let partner = irreps_of(3)
+            .iter()
+            .find(|irrep| irrep.spinor && irrep.ml == "A4")
+            .expect("SG 3 A4 spinor partner irrep");
+        let seed_row = seed.spinor_selected_arm_view().expect("typed SG 3 A3 row");
+        let partner_row = partner
+            .spinor_selected_arm_view()
+            .expect("typed SG 3 A4 row");
+        assert_eq!(seed_row.operations(), partner_row.operations());
+        assert_eq!(
+            seed_row.values(),
+            &[Complex64::new(1.0, 0.0), Complex64::new(0.0, -1.0)]
+        );
+        assert_eq!(
+            partner_row.values(),
+            &[Complex64::new(1.0, 0.0), Complex64::new(0.0, 1.0)]
+        );
+
+        let mag_ops = get_magnetic_operations(9).expect("UNI 9 operations");
+        let h_info = identify_unitary_subgroup_with_hall(9).expect("UNI 9 unitary subgroup");
+        let mag_ops_data = operations_in_data_hall_frame(&mag_ops, h_info.msg_to_data.as_ref())
+            .expect("UNI 9 data-Hall operations");
+        let canonical_translations: Vec<_> = h_info
+            .ops_from_hall
+            .operations
+            .iter()
+            .filter(|operation| operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+            .map(|operation| operation.translation)
+            .collect();
+        let mag_lg = filter_little_group_with_transform(
+            seed.kx,
+            seed.ky,
+            seed.kz,
+            seed.kd,
+            &mag_ops_data,
+            None,
+            Some(&canonical_translations),
+        );
+        assert!(mag_lg.iter().any(|&index| {
+            let operation = &mag_ops_data.operations[index];
+            operation.time_reversal
+                && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+                && operation
+                    .translation
+                    .iter()
+                    .all(|translation| translation.abs() < 1.0e-8)
+        }));
+
+        let corep = compute_corepresentation(seed, 9, &mag_ops)
+            .expect("direct pure-theta Type-C corep should remain supported");
+        assert_eq!(corep.corep_type, CorepType::C);
+        assert_eq!(corep.source, WignerSource::SpinorSU2);
+        assert_eq!(corep.dim, 2);
+        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+        assert_eq!(corep.characters, vec![2.0, 0.0, 0.0, 0.0]);
+        assert_eq!(corep.timerev, vec![false, false, true, true]);
     }
 
     #[test]
