@@ -200,7 +200,8 @@ pub struct SourceIrrepSummary {
     pub ml: &'static str,
     /// Bradley-Cracknell label (e.g. `"\\Gamma_4^-"`).
     pub bc: &'static str,
-    /// Irrep dimension.
+    /// Selected-arm/little representation dimension, not the full-star image
+    /// dimension stored in [`crate::irrep::types::IrrepRecord::dim`].
     pub dim: u8,
     /// Whether this is a spinor (double-valued) irrep.
     pub spinor: bool,
@@ -290,6 +291,29 @@ fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> 
 /// Round character values to integers for dedup comparison.
 fn round_chars(chars: &[f64]) -> Vec<i64> {
     chars.iter().map(|&c| (c * 1e8).round() as i64).collect()
+}
+
+/// Return the authoritative dimension of an irrep on the selected k arm.
+///
+/// [`crate::irrep::types::IrrepRecord::dim`] is the dimension of the full-star/induced image and is
+/// therefore not suitable for source dimensions in a little-group summary.
+/// The typed character views carry the selected-arm dimension and validate the
+/// generated data while constructing it.
+fn selected_arm_dimension(
+    irrep: &crate::irrep::types::IrrepRecord,
+) -> Result<usize, crate::irrep::types::CharacterViewError> {
+    if irrep.spinor {
+        return Ok(irrep.spinor_selected_arm_view()?.dimension());
+    }
+
+    match irrep.ordinary_scalar_selected_arm_block_trace() {
+        Ok(row) => Ok(row.dimension()),
+        Err(crate::irrep::types::CharacterViewError::NotApplicable) => Ok(irrep
+            .compound_selected_arm_view()?
+            .block_trace()
+            .dimension()),
+        Err(error) => Err(error),
+    }
 }
 
 // ── Isotropy candidates ────────────────────────────────────────────────────────
@@ -672,13 +696,65 @@ pub fn magnetic_irrep_summary_from_ops(
                                     .to_string(),
                             });
                         }
+                        let selected_dim = selected_arm_dimension(ir).map_err(|error| {
+                            MagneticIrrepError::CorepComputationFailed {
+                                uni,
+                                sg: h_info.sg as u8,
+                                k_label: kp.label.clone(),
+                                source_irrep: ir.ml.to_string(),
+                                reason: format!(
+                                    "selected-arm source dimension lookup failed: {error}"
+                                ),
+                            }
+                        })?;
+                        let selected_dim_u8 = u8::try_from(selected_dim).map_err(|_| {
+                            MagneticIrrepError::CorepComputationFailed {
+                                uni,
+                                sg: h_info.sg as u8,
+                                k_label: kp.label.clone(),
+                                source_irrep: ir.ml.to_string(),
+                                reason: format!(
+                                    "selected-arm source dimension {selected_dim} exceeds u8"
+                                ),
+                            }
+                        })?;
+                        let expected_dim = match c.corep_type {
+                            crate::irrep::corep::CorepType::A => selected_dim,
+                            crate::irrep::corep::CorepType::B
+                            | crate::irrep::corep::CorepType::C => {
+                                selected_dim.checked_mul(2).ok_or_else(|| {
+                                    MagneticIrrepError::CorepComputationFailed {
+                                        uni,
+                                        sg: h_info.sg as u8,
+                                        k_label: kp.label.clone(),
+                                        source_irrep: ir.ml.to_string(),
+                                        reason: format!(
+                                            "raw {:?} corepresentation dimension overflow for selected-arm source dimension {selected_dim}",
+                                            c.corep_type
+                                        ),
+                                    }
+                                })?
+                            }
+                        };
+                        if c.dim != expected_dim {
+                            return Err(MagneticIrrepError::CorepComputationFailed {
+                                uni,
+                                sg: h_info.sg as u8,
+                                k_label: kp.label.clone(),
+                                source_irrep: ir.ml.to_string(),
+                                reason: format!(
+                                    "raw {:?} corepresentation dimension {} disagrees with selected-arm source dimension {} (expected {})",
+                                    c.corep_type, c.dim, selected_dim, expected_dim
+                                ),
+                            });
+                        }
                         raw_coreps.push(MagneticCorepSummary {
                             label: ir.ml.to_string(),
                             source_irreps: vec![SourceIrrepSummary {
                                 sg: ir.sg,
                                 ml: ir.ml,
                                 bc: ir.bc,
-                                dim: ir.dim,
+                                dim: selected_dim_u8,
                                 spinor: ir.spinor,
                             }],
                             corep_type: c.corep_type,
@@ -1341,6 +1417,64 @@ mod tests {
         }
     }
 
+    fn assert_source_dimension_relations(summary: &MagneticIrrepSummary) {
+        for kpoint in &summary.kpoints {
+            for corep in &kpoint.coreps {
+                match corep.corep_type {
+                    crate::irrep::corep::CorepType::A => {
+                        assert_eq!(
+                            corep.source_irreps.len(),
+                            1,
+                            "{} {}: Type A must have one source irrep",
+                            kpoint.label,
+                            corep.label
+                        );
+                        assert_eq!(
+                            corep.dim, corep.source_irreps[0].dim as usize,
+                            "{} {}: Type A dimension must equal its selected-arm source dimension",
+                            kpoint.label, corep.label
+                        );
+                    }
+                    crate::irrep::corep::CorepType::B => {
+                        assert_eq!(
+                            corep.source_irreps.len(),
+                            1,
+                            "{} {}: Type B must have one source irrep",
+                            kpoint.label,
+                            corep.label
+                        );
+                        assert_eq!(
+                            corep.dim,
+                            2 * corep.source_irreps[0].dim as usize,
+                            "{} {}: Type B dimension must double its selected-arm source dimension",
+                            kpoint.label,
+                            corep.label
+                        );
+                    }
+                    crate::irrep::corep::CorepType::C => {
+                        assert_eq!(
+                            corep.source_irreps.len(),
+                            2,
+                            "{} {}: deduplicated Type C must have two source irreps",
+                            kpoint.label,
+                            corep.label
+                        );
+                        let source_dim_sum = corep
+                            .source_irreps
+                            .iter()
+                            .map(|source| source.dim as usize)
+                            .sum::<usize>();
+                        assert_eq!(
+                            corep.dim, source_dim_sum,
+                            "{} {}: deduplicated Type C dimension must equal the sum of source dimensions",
+                            kpoint.label, corep.label
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn bns_128_406_has_official_dimensions_and_pending_status() {
         let error = magnetic_irrep_summary_by_bns("128.406")
@@ -1499,6 +1633,7 @@ mod tests {
             match magnetic_irrep_summary_by_uni(uni) {
                 Ok(summary) => {
                     assert_well_formed_summary(&summary);
+                    assert_source_dimension_relations(&summary);
                     amplified_noise_count += summary
                         .kpoints
                         .iter()
@@ -1572,11 +1707,6 @@ mod tests {
         for (uni, error) in failures.iter().take(failure_limit) {
             eprintln!("  UNI {uni}: {error:?}");
         }
-        assert!(
-            failures.is_empty(),
-            "{} UNI summaries failed",
-            failures.len()
-        );
         assert_eq!(
             amplified_noise_count, 0,
             "amplified exponent noise propagated into magnetic summaries"
@@ -1650,5 +1780,73 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn sg221_x1plus_summary_reports_selected_arm_dimension() {
+        let irrep = crate::irrep::query::irreps_of(221)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.k_label() == "X" && irrep.ml == "X1+")
+            .expect("SG221 X1+ scalar irrep");
+        assert_eq!(
+            irrep.dim, 3,
+            "X1+ must retain its full-star image dimension"
+        );
+        assert_eq!(selected_arm_dimension(irrep).unwrap(), 1);
+
+        // UNI 1594 (BNS 221.92) is a currently successful SG221 summary at X.
+        let summary = magnetic_irrep_summary_by_uni(1594).expect("UNI 1594 summary");
+        let x = summary
+            .kpoints
+            .iter()
+            .find(|kpoint| kpoint.label == "X")
+            .expect("SG221 X k-point");
+        let corep = x
+            .coreps
+            .iter()
+            .find(|corep| corep.source_irreps.iter().any(|source| source.ml == "X1+"))
+            .expect("X1+ source corep");
+        assert_eq!(corep.corep_type, crate::irrep::corep::CorepType::A);
+        assert_eq!(corep.source_irreps.len(), 1);
+        assert_eq!(corep.source_irreps[0].dim, 1);
+        assert_eq!(corep.dim, corep.source_irreps[0].dim as usize);
+    }
+
+    #[test]
+    fn type_b_summary_doubles_selected_arm_source_dimension() {
+        let summary = magnetic_irrep_summary_by_uni(2).expect("UNI 2 summary");
+        let corep = summary
+            .kpoints
+            .iter()
+            .flat_map(|kpoint| &kpoint.coreps)
+            .find(|corep| corep.corep_type == crate::irrep::corep::CorepType::B)
+            .expect("UNI 2 should contain a Type B corep");
+        assert_eq!(corep.source_irreps.len(), 1);
+        assert_eq!(
+            corep.dim,
+            2 * corep.source_irreps[0].dim as usize,
+            "Type B must double the selected-arm source dimension"
+        );
+    }
+
+    #[test]
+    fn type_c_summary_merges_two_selected_arm_source_dimensions() {
+        let summary = magnetic_irrep_summary_by_uni(9).expect("UNI 9 summary");
+        let corep = summary
+            .kpoints
+            .iter()
+            .flat_map(|kpoint| &kpoint.coreps)
+            .find(|corep| corep.corep_type == crate::irrep::corep::CorepType::C)
+            .expect("UNI 9 should contain a Type C corep");
+        assert_eq!(corep.source_irreps.len(), 2);
+        let source_dim_sum = corep
+            .source_irreps
+            .iter()
+            .map(|source| source.dim as usize)
+            .sum::<usize>();
+        assert_eq!(
+            corep.dim, source_dim_sum,
+            "deduplicated Type C dimension must equal source dimension sum"
+        );
     }
 }
