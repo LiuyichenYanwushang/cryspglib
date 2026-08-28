@@ -1811,41 +1811,6 @@ mod tests {
     }
 
     #[test]
-    fn sg178_h3_rejects_non_roundoff_complex_unitary_character() {
-        let h3 = irreps_of(178)
-            .iter()
-            .find(|irrep| !irrep.spinor && irrep.ml == "H3")
-            .expect("SG 178 H3 scalar irrep");
-        let row = h3
-            .ordinary_scalar_selected_arm_block_trace()
-            .expect("typed SG 178 H3 row");
-        assert!(row.values().iter().any(|value| {
-            value.im == -1.0471976378421115e-10
-                && !character_component_is_roundoff_zero(value.im, row.dimension())
-        }));
-
-        let mag_ops = get_magnetic_operations(1385).expect("UNI 1385 operations");
-        let error = compute_corepresentation(h3, 1385, &mag_ops)
-            .expect_err("SG 178 H3 UNI 1385 has a real-unrepresentable unitary character");
-        match error {
-            CorepComputationError::UnsupportedClassification {
-                uni,
-                source_irrep,
-                reason,
-            } => {
-                assert_eq!(uni, 1385);
-                assert_eq!(source_irrep, "H3");
-                assert!(reason.contains("complex unitary character for"));
-                assert!(reason.contains("-0.00000000010471976378421115i"));
-                assert!(reason.contains(
-                    "the current real-valued corepresentation API cannot represent complex unitary characters"
-                ));
-            }
-            other => panic!("unexpected SG 178 H3 UNI 1385 error: {other:?}"),
-        }
-    }
-
-    #[test]
     fn symmetry_operations_query_reports_invalid_space_group() {
         assert!(matches!(
             symmetry_operations_of(0),

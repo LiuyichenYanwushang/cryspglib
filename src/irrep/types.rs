@@ -143,6 +143,10 @@ mod character_roundoff_tests {
         assert!(character_component_is_roundoff_zero(boundary, dimension));
         assert!(character_component_is_roundoff_zero(-boundary, dimension));
         assert!(!character_component_is_roundoff_zero(
+            1.0471976378421115e-10,
+            1
+        ));
+        assert!(!character_component_is_roundoff_zero(
             f64::from_bits(boundary.to_bits() + 1),
             dimension
         ));
