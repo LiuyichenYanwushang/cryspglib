@@ -924,7 +924,7 @@ pub fn parent_spatial_sg(uni_number: usize) -> Option<usize> {
 ///
 /// For grey groups (Type II), a₀ must be pure θ (R = I), because (θg)² ≠ -g² in general.
 /// For black-white groups (Type III), any antiunitary representative works.
-pub fn select_spinor_a0(
+pub(crate) fn select_spinor_a0(
     antiunitary: &[usize],
     mag_seitz: &[crate::irrep::wigner::SeitzOp],
     is_grey: bool,

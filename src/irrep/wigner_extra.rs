@@ -1,7 +1,7 @@
 // Included by wigner.rs via include! — has access to all its imports and items.
 
 /// Compute Type A anti-unitary characters for 1D irreps.
-pub fn type_a_antiunitary_chars(
+pub(crate) fn type_a_antiunitary_chars(
     mag_seitz: &[SeitzOp],
     mag_lg_indices: &[usize],
     h_chars: &[f64],

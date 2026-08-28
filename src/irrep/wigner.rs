@@ -2980,101 +2980,6 @@ pub fn build_h_to_irrep_op_map(
     }
 }
 
-/// Build a legacy diagnostic map from H operations using rotation-only matching.
-///
-/// This function has no translation or phase semantics and must not be used to
-/// pair final-Hall operations with scalar character values. Use
-/// [`build_h_to_irrep_op_map`] for that purpose.
-pub fn build_h_to_cir_map(h_seitz: &[SeitzOp], cir_rots: &[i32]) -> Option<Vec<usize>> {
-    let n_ops = h_seitz.len();
-    let n_cir_ops = cir_rots.len() / 9;
-    if n_cir_ops == 0 {
-        return None;
-    }
-    let mut map = vec![0usize; n_ops];
-
-    debug_log!(
-        "build_h_to_cir_map: n_ops={} n_cir_ops={}",
-        n_ops,
-        n_cir_ops
-    );
-    for h_idx in 0..n_ops {
-        let h_op = &h_seitz[h_idx];
-        let r = &h_op.rot;
-        let found = (0..n_cir_ops).find(|&c| {
-            let off = c * 9;
-            off + 8 < cir_rots.len()
-                && cir_rots[off] == r[0][0]
-                && cir_rots[off + 1] == r[0][1]
-                && cir_rots[off + 2] == r[0][2]
-                && cir_rots[off + 3] == r[1][0]
-                && cir_rots[off + 4] == r[1][1]
-                && cir_rots[off + 5] == r[1][2]
-                && cir_rots[off + 6] == r[2][0]
-                && cir_rots[off + 7] == r[2][1]
-                && cir_rots[off + 8] == r[2][2]
-        });
-        match found {
-            Some(c) => map[h_idx] = c,
-            None => {
-                debug_log!(
-                    "build_h_to_cir_map: H[{}] R=[{},{},{};{},{},{};{},{},{}] not found in rots ({} ops)",
-                    h_idx,
-                    r[0][0],
-                    r[0][1],
-                    r[0][2],
-                    r[1][0],
-                    r[1][1],
-                    r[1][2],
-                    r[2][0],
-                    r[2][1],
-                    r[2][2],
-                    n_cir_ops
-                );
-                return None;
-            }
-        }
-    }
-    Some(map)
-}
-
-/// Reorder CIR complex characters from ISOTROPY order to H_ops (spglib) order.
-///
-/// After reordering, `out[2*h_idx]` and `out[2*h_idx+1]` give the (re, im)
-/// character for the operation at `h_seitz[h_idx]`.
-pub fn reorder_cir_chars(
-    cir_chars: &[f64],
-    h_to_cir: &[usize],
-) -> Result<Vec<f64>, WignerClassificationError> {
-    if !cir_chars.len().is_multiple_of(2) || cir_chars.iter().any(|value| !value.is_finite()) {
-        return Err(WignerClassificationError::new(
-            "CIR characters must be finite complex pairs",
-        ));
-    }
-    let n_ops = h_to_cir.len();
-    let output_len = n_ops
-        .checked_mul(2)
-        .ok_or_else(|| WignerClassificationError::new("CIR reorder length overflow"))?;
-    let mut reordered = vec![0.0f64; output_len];
-    for h_idx in 0..n_ops {
-        let c_idx = h_to_cir[h_idx];
-        let source = c_idx
-            .checked_mul(2)
-            .ok_or_else(|| WignerClassificationError::new("CIR operation index overflow"))?;
-        let source_imag = source
-            .checked_add(1)
-            .ok_or_else(|| WignerClassificationError::new("CIR operation index overflow"))?;
-        if source_imag >= cir_chars.len() {
-            return Err(WignerClassificationError::new(
-                "CIR operation map contains an out-of-range index",
-            ));
-        }
-        reordered[2 * h_idx] = cir_chars[source];
-        reordered[2 * h_idx + 1] = cir_chars[source_imag];
-    }
-    Ok(reordered)
-}
-
 /// Helper: read a complex character from (re, im) pair array.
 #[inline]
 fn cir_char_at(cir_chars: &[f64], op_idx: usize) -> Complex64 {
@@ -3350,7 +3255,7 @@ fn same_seitz_mod_lattice(a: &SeitzOp, b: &SeitzOp) -> bool {
 /// remains for Wigner classification and diagnostics only; it must not be
 /// used to pair final spinor character values with Seitz operations.  Final
 /// output uses [`build_h_to_spin_map_exact`].
-pub fn build_h_to_spin_map(
+pub(crate) fn build_h_to_spin_map(
     h_seitz: &[SeitzOp],
     spin_seitz: &[SeitzOp],
     spin_lg_op_indices: &[u16],
@@ -4165,57 +4070,6 @@ fn wigner_classify_spinor_primary(
     }
 }
 
-/// Find the partner irrep for Type C by comparing conjugate characters.
-///
-/// For each irrep Δ_j of H at the same k-point, compute the overlap
-///
-/// $$ \text{overlap}_{ij} = \frac{1}{|H|}
-///     \sum_{h \in H} \chi_i^{a_0}(h) \cdot \chi_j(h)^* $$
-///
-/// If Δ_j is equivalent to Δ_i^{a₀}, the overlap ≈ 1 (or the dimension d).
-/// For Type C, the partner is the irrep with the highest overlap.
-///
-/// Returns the index of the partner irrep in `candidates`, or `None` if
-/// no clear partner is found (Type A/B case).
-pub fn find_partner(
-    conj_chars: &[f64],
-    candidate_chars: &[&[f64]], // character tables of candidate irreps
-) -> Option<usize> {
-    let n_ops = conj_chars.len();
-    if n_ops == 0 || candidate_chars.is_empty() {
-        return None;
-    }
-
-    // Dimension of the conjugate irrep: χ(E)
-    let conj_dim = conj_chars[0].abs();
-    let norm = 1.0 / (n_ops as f64);
-
-    // For each candidate irrep, compute overlap with conjugate
-    let mut best_idx = None;
-    let mut best_overlap = 0.0f64;
-
-    for (j, chars_j) in candidate_chars.iter().enumerate() {
-        if chars_j.len() < n_ops {
-            continue;
-        }
-        // Dimension must match: Δⱼ ∼ Δᵢ^{a₀} ⇒ same dimension
-        if (chars_j[0].abs() - conj_dim).abs() > 0.01 {
-            continue;
-        }
-        let overlap: f64 = (0..n_ops).map(|h| conj_chars[h] * chars_j[h]).sum();
-        let overlap_norm = overlap.abs() * norm;
-
-        if overlap_norm > best_overlap {
-            best_overlap = overlap_norm;
-            best_idx = Some(j);
-        }
-    }
-
-    // Return partner if overlap is significantly above noise.
-    // For n-dimensional irrep, overlap ≈ d²/|H| per operation.
-    if best_overlap > 0.1 { best_idx } else { None }
-}
-
 // ── Type A intertwiner + matrix utilities ────────────────────────────────────
 
 include!("wigner_extra.rs");
@@ -4245,7 +4099,7 @@ include!("wigner_extra.rs");
 /// * `mag_lg_indices` — which magnetic ops are in the little group
 /// * `op_map` — for each magnetic op, the corresponding H op index (or None)
 /// * `h_chars` — H's irrep character table (real-valued for PIR)
-pub fn build_corep_chars(
+pub(crate) fn build_corep_chars(
     corep_type: &CorepType,
     mag_ops: &SymmetryOps,
     mag_lg_indices: &[usize],
@@ -4918,7 +4772,7 @@ mod tests {
     }
 
     #[test]
-    fn diagnostic_square_and_cir_reorder_reject_invalid_indices() {
+    fn diagnostic_square_rejects_invalid_indices() {
         let id = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], false);
         let theta = SeitzOp::new(id.rot, [0.0; 3], true);
         let magnetic_ops = [id.clone(), theta];
@@ -4931,15 +4785,6 @@ mod tests {
             )
             .is_err()
         );
-        assert!(reorder_cir_chars(&[1.0, 0.0], &[1]).is_err());
-        assert!(reorder_cir_chars(&[1.0, 0.0], &[usize::MAX]).is_err());
-        assert!(reorder_cir_chars(&[1.0], &[0]).is_err());
-    }
-
-    #[test]
-    fn cir_reorder_valid_control_preserves_complex_pairs() {
-        let reordered = reorder_cir_chars(&[1.0, 0.0, -1.0, 0.5], &[1, 0]).unwrap();
-        assert_eq!(reordered, vec![-1.0, 0.5, 1.0, 0.0]);
     }
 
     #[test]
