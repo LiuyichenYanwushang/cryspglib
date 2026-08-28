@@ -626,8 +626,10 @@ def _parse_pir_characters():
 	    chars_map:    (SG#, ML_label) -> [char1, char2, ..., charN]
 	    matrices_map: (SG#, ML_label) -> [m11, m12, ..., mNN] flat values
 
-    Parses the irrep matrix elements from PIR_data.txt, computes the character
-    (trace) for each symmetry operation, and rounds to clean float values.
+    Parses the irrep matrix elements from PIR_data.txt. Official 25-token
+    components remain exact ``Radical4`` values through trace accumulation;
+    each matrix element and completed trace is materialized exactly once as
+    binary64.
     """
     lines = _read_pir_lines()
 
