@@ -824,20 +824,8 @@ pub fn compute_corepresentation(
     // pure time reversal, whose spatial action is exactly {I|0}Θ in this
     // data-Hall frame.  In particular, a translated antiunitary is not an
     // equivalent representative because its Bloch phase changes the partner.
-    let has_direct_pure_theta = antiunitary.iter().copied().any(|mag_idx| {
-        mag_ops_data
-            .operations
-            .get(mag_idx)
-            .is_some_and(|operation| {
-                operation.time_reversal
-                    && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
-                    && operation
-                        .translation
-                        .iter()
-                        .all(|translation| translation.abs() < 1.0e-8)
-            })
-    });
-    if corep_type == CorepType::C && !has_direct_pure_theta {
+    let direct_pure_theta_index = direct_pure_time_reversal_index(&antiunitary, &mag_ops_data);
+    if corep_type == CorepType::C && direct_pure_theta_index.is_none() {
         return Err(CorepComputationError::UnsupportedClassification {
             uni: uni_number,
             source_irrep: h_irrep.ml.to_string(),
@@ -853,22 +841,19 @@ pub fn compute_corepresentation(
         // representation matrices/intertwiner for anti-linear operations.
         // Never feed its local character order into the scalar H-order path.
         None
-    } else if corep_type == CorepType::A && !antiunitary.is_empty() {
-        if h_dim == 1 {
+    } else if corep_type == CorepType::A && !antiunitary.is_empty() && h_dim == 1 {
+        if let Some(a0_idx) = direct_pure_theta_index {
             wigner::type_a_antiunitary_chars(
                 &mag_seitz,
                 &mag_lg,
                 &h_chars,
                 &h_seitz,
-                antiunitary[0],
+                h_dim,
+                a0_idx,
                 h_irrep.k_vector(),
             )
             .map(|(chars, _u)| chars)
         } else {
-            // The legacy PIR matrices are source-representative data and are
-            // not phase-aligned with final-Hall Seitz operations. Until
-            // phase-aligned complex selected-arm matrices are generated, do
-            // not fabricate high-dimensional Type-A antiunitary characters.
             None
         }
     } else {
@@ -925,6 +910,26 @@ pub fn compute_corepresentation(
 }
 
 // ── Magnetic operations ──────────────────────────────────────────────────────
+
+/// Return the actual magnetic little-group index of a direct `{I|0}Theta`, if
+/// one is present.  This deliberately inspects the transformed data-Hall
+/// operations rather than normalized Seitz representatives: translated
+/// antiunitaries are not equivalent for the character formulas used here.
+fn direct_pure_time_reversal_index(
+    antiunitary: &[usize],
+    mag_ops_data: &SymmetryOps,
+) -> Option<usize> {
+    antiunitary.iter().copied().find(|&index| {
+        mag_ops_data.operations.get(index).is_some_and(|operation| {
+            operation.time_reversal
+                && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+                && operation
+                    .translation
+                    .iter()
+                    .all(|translation| translation.abs() < 1.0e-8)
+        })
+    })
+}
 
 /// Transform magnetic operations into the ISOTROPY data-Hall frame while
 /// preserving their database indices and time-reversal flags.
@@ -1776,12 +1781,82 @@ mod tests {
         assert_eq!(corep.dim, 1);
         assert!(corep.antiunitary_order > 0);
         assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+        assert!(corep.timerev.iter().zip(&corep.characters).any(
+            |(&is_antiunitary, &character)| is_antiunitary && (character - 1.0).abs() < 1.0e-8
+        ));
         assert!(
             corep
                 .characters
                 .iter()
                 .all(|character| character.is_finite())
         );
+    }
+
+    #[test]
+    fn translated_type_a_scalar_keeps_antiunitary_characters_pending() {
+        let gm1 = crate::irrep::query::irreps_of(1)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "GM1")
+            .expect("SG 1 GM1 scalar irrep");
+        let mag_ops = get_magnetic_operations(3).expect("UNI 3 operations");
+        let h_info = identify_unitary_subgroup_with_hall(3).expect("UNI 3 unitary subgroup");
+        let mag_ops_data = operations_in_data_hall_frame(&mag_ops, h_info.msg_to_data.as_ref())
+            .expect("UNI 3 data-Hall operations");
+        let canonical_translations: Vec<_> = h_info
+            .ops_from_hall
+            .operations
+            .iter()
+            .filter(|operation| operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+            .map(|operation| operation.translation)
+            .collect();
+        let mag_lg = filter_little_group_with_transform(
+            gm1.kx,
+            gm1.ky,
+            gm1.kz,
+            gm1.kd,
+            &mag_ops_data,
+            None,
+            Some(&canonical_translations),
+        );
+        assert!(
+            direct_pure_time_reversal_index(
+                &mag_lg
+                    .iter()
+                    .copied()
+                    .filter(|&index| mag_ops_data.operations[index].time_reversal)
+                    .collect::<Vec<_>>(),
+                &mag_ops_data,
+            )
+            .is_none()
+        );
+        assert!(mag_lg.iter().any(|&index| {
+            let operation = &mag_ops_data.operations[index];
+            operation.time_reversal
+                && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+                && (operation.translation[2] - 0.5).abs() < 1.0e-8
+        }));
+
+        let corep = compute_corepresentation(gm1, 3, &mag_ops)
+            .expect("translated Type-A scalar corep remains partially representable");
+        assert_eq!(corep.corep_type, CorepType::A);
+        assert_eq!(corep.source, WignerSource::ScalarPIR);
+        assert_eq!(corep.dim, 1);
+        assert_eq!(corep.characters.len(), corep.timerev.len());
+        assert!(corep.characters.iter().zip(&corep.timerev).any(
+            |(&character, &is_antiunitary)| { !is_antiunitary && (character - 1.0).abs() < 1.0e-8 }
+        ));
+        assert!(
+            corep
+                .characters
+                .iter()
+                .zip(&corep.timerev)
+                .all(|(&character, &is_antiunitary)| { !is_antiunitary || character == 0.0 })
+        );
+        assert!(matches!(
+            corep.completeness,
+            CharacterCompleteness::TypeAAntiunitaryPending { count }
+                if count == corep.antiunitary_order
+        ));
     }
 
     #[test]

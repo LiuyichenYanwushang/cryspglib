@@ -4797,8 +4797,86 @@ mod tests {
         let mag = vec![id.clone()];
 
         assert!(
-            type_a_antiunitary_chars(&mag, &[0], &[1.0], std::slice::from_ref(&id), 0, gamma(),)
+            type_a_antiunitary_chars(&mag, &[0], &[1.0], std::slice::from_ref(&id), 1, 0, gamma(),)
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn type_a_character_helper_requires_direct_pure_theta_and_exact_inputs() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let id = SeitzOp::new(identity, [0.0; 3], false);
+        let theta = SeitzOp::new(identity, [0.0; 3], true);
+        let translated_theta = SeitzOp::new(identity, [0.0, 0.0, 0.5], true);
+        let h = std::slice::from_ref(&id);
+
+        assert!(
+            type_a_antiunitary_chars(
+                &[id.clone(), translated_theta],
+                &[0, 1],
+                &[1.0],
+                h,
+                1,
+                1,
+                gamma()
+            )
+            .is_none()
+        );
+        assert!(
+            type_a_antiunitary_chars(&[id.clone(), theta.clone()], &[0], &[1.0], h, 1, 1, gamma())
+                .is_none()
+        );
+        assert!(
+            type_a_antiunitary_chars(
+                &[id.clone(), theta.clone()],
+                &[0, 1],
+                &[1.0],
+                h,
+                2,
+                1,
+                gamma()
+            )
+            .is_none()
+        );
+        assert!(
+            type_a_antiunitary_chars(&[id.clone(), theta.clone()], &[0, 1], &[], h, 1, 1, gamma())
+                .is_none()
+        );
+        assert!(
+            type_a_antiunitary_chars(
+                &[id.clone(), theta.clone()],
+                &[0, 1],
+                &[1.0, 2.0],
+                h,
+                1,
+                1,
+                gamma()
+            )
+            .is_none()
+        );
+
+        let (antiunitary_chars, u) =
+            type_a_antiunitary_chars(&[id.clone(), theta], &[0, 1], &[1.0], h, 1, 1, gamma())
+                .expect("direct pure theta should be accepted");
+        assert_eq!(antiunitary_chars, vec![0.0, 1.0]);
+        assert_eq!(u, Complex64::new(1.0, 0.0));
+
+        let shifted_h = [SeitzOp {
+            rot: identity,
+            trans: [1.0, 0.0, 0.0],
+            timerev: false,
+        }];
+        assert!(
+            type_a_antiunitary_chars(
+                &[id, SeitzOp::new(identity, [0.0; 3], true)],
+                &[0, 1],
+                &[1.0],
+                &shifted_h,
+                1,
+                1,
+                gamma(),
+            )
+            .is_none()
         );
     }
 
