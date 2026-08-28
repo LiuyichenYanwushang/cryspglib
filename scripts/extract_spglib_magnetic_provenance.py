@@ -8,6 +8,7 @@ the two pinned upstream C files and never imports the generated Rust tables.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import hashlib
 import json
 import re
@@ -53,6 +54,43 @@ EXPECTED_TYPE_COUNTS = {"1": 230, "2": 230, "3": 674, "4": 517}
 EXPECTED_UPSTREAM_TAG = "v2.5.0"
 EXPECTED_UPSTREAM_COMMIT = "e4531bb49371dce3e807c2095a4d9d9b7245c524"
 
+PINNED_DECLARATIONS = {
+    "spacegroup_types": (
+        r"^[ \t]*static[ \t]+SpacegroupType[ \t]+const[ \t]+"
+        r"spacegroup_types[ \t]*\[[ \t]*\][ \t]*="
+    ),
+    "symmetry_operation_index": (
+        r"^[ \t]*static[ \t]+int[ \t]+const[ \t]+"
+        r"symmetry_operation_index[ \t]*\[[ \t]*\][ \t]*\[[ \t]*2[ \t]*\][ \t]*="
+    ),
+    "symmetry_operations": (
+        r"^[ \t]*static[ \t]+int[ \t]+const[ \t]+"
+        r"symmetry_operations[ \t]*\[[ \t]*\][ \t]*="
+    ),
+    "magnetic_spacegroup_types": (
+        r"^[ \t]*static[ \t]+const[ \t]+MagneticSpacegroupType[ \t]+"
+        r"magnetic_spacegroup_types[ \t]*\[[ \t]*\][ \t]*="
+    ),
+    "magnetic_spacegroup_uni_mapping": (
+        r"^[ \t]*static[ \t]+const[ \t]+int[ \t]+"
+        r"magnetic_spacegroup_uni_mapping[ \t]*\[[ \t]*\][ \t]*\[[ \t]*2[ \t]*\][ \t]*="
+    ),
+    "magnetic_spacegroup_operation_index": (
+        r"^[ \t]*static[ \t]+const[ \t]+int[ \t]+"
+        r"magnetic_spacegroup_operation_index[ \t]*\[[ \t]*\][ \t]*\[[ \t]*18[ \t]*\]"
+        r"[ \t]*\[[ \t]*2[ \t]*\][ \t]*="
+    ),
+    "magnetic_symmetry_operations": (
+        r"^[ \t]*static[ \t]+const[ \t]+int[ \t]+"
+        r"magnetic_symmetry_operations[ \t]*\[[ \t]*\][ \t]*="
+    ),
+    "alternative_transformations": (
+        r"^[ \t]*static[ \t]+const[ \t]+int[ \t]+"
+        r"alternative_transformations[ \t]*\[[ \t]*\][ \t]*\[[ \t]*18[ \t]*\]"
+        r"[ \t]*\[[ \t]*7[ \t]*\][ \t]*="
+    ),
+}
+
 MAGNETIC_DECODER_WITNESSES = {
     16484: {"rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1],
             "translation_numerator": [0, 0, 0], "time_reversal": 0},
@@ -89,6 +127,20 @@ class ExtractionError(ValueError):
     """Raised for any malformed or unexpected upstream initializer."""
 
 
+class CString(str):
+    """A decoded C string literal, distinct from a bare identifier."""
+
+
+class Identifier(str):
+    """A bare C identifier used only by the pinned enum-like fields."""
+
+
+@dataclass(frozen=True)
+class _Token:
+    kind: str
+    value: str
+
+
 def _strip_comments(text):
     """Remove C comments without changing token boundaries or strings."""
     result = []
@@ -96,6 +148,8 @@ def _strip_comments(text):
     index = 0
     while index < len(text):
         char = text[index]
+        if char == "\\" and index + 1 < len(text) and text[index + 1] in "\r\n":
+            raise ExtractionError("backslash-newline line splice is not supported")
         if state == "normal":
             if char == '"':
                 result.append(char)
@@ -169,7 +223,9 @@ def _strip_comments(text):
 
 def _initializer_text(source, name):
     source = _strip_comments(source)
-    declaration = re.compile(r"\b" + re.escape(name) + r"\b(?:\s*\[[^\]]*\])*\s*=")
+    if name not in PINNED_DECLARATIONS:
+        raise ExtractionError("unrecognized pinned initializer " + name)
+    declaration = re.compile(PINNED_DECLARATIONS[name], flags=re.MULTILINE)
     matches = []
     for candidate in declaration.finditer(source):
         before = source[:candidate.start()]
@@ -235,11 +291,11 @@ def _tokens(text):
             position += 1
             continue
         if char in "{},":
-            result.append(char)
+            result.append(_Token({"{": "lbrace", "}": "rbrace", ",": "comma"}[char], char))
             position += 1
             continue
         if char == "-":
-            result.append(char)
+            result.append(_Token("minus", char))
             position += 1
             continue
         if char == "+":
@@ -264,7 +320,7 @@ def _tokens(text):
                 raise ExtractionError("unterminated C string literal")
             if escaped:
                 raise ExtractionError("unterminated C string escape")
-            result.append(text[start:position])
+            result.append(_Token("cstring", text[start:position]))
             continue
         if char in "0123456789":
             start = position
@@ -278,7 +334,7 @@ def _tokens(text):
                          or ("a" <= text[position] <= "z")
                          or text[position] in "._")):
                 raise ExtractionError("malformed integer spelling near " + spelling)
-            result.append(spelling)
+            result.append(_Token("integer", spelling))
             continue
         if (("A" <= char <= "Z") or ("a" <= char <= "z") or char == "_"):
             start = position
@@ -288,7 +344,7 @@ def _tokens(text):
                     or ("a" <= text[position] <= "z")
                     or text[position] in "0123456789_"):
                 position += 1
-            result.append(text[start:position])
+            result.append(_Token("identifier", text[start:position]))
             continue
         raise ExtractionError("unexpected initializer text near " + repr(text[position:position + 30]))
     return result
@@ -337,7 +393,7 @@ def _decode_c_string(token):
             value.append(chr(int(token[start:position], 16)))
             continue
         raise ExtractionError("unsupported/non-C string escape")
-    return "".join(value)
+    return CString("".join(value))
 
 
 def _parse_initializer(text):
@@ -349,41 +405,43 @@ def _parse_initializer(text):
         if cursor >= len(tokens):
             raise ExtractionError("truncated initializer")
         token = tokens[cursor]
-        if token == "{":
+        if token.kind == "lbrace":
             cursor += 1
             values = []
-            if cursor < len(tokens) and tokens[cursor] == "}":
+            if cursor < len(tokens) and tokens[cursor].kind == "rbrace":
                 cursor += 1
                 return values
             while True:
                 values.append(parse_value())
                 if cursor >= len(tokens):
                     raise ExtractionError("unterminated initializer list")
-                if tokens[cursor] == ",":
+                if tokens[cursor].kind == "comma":
                     cursor += 1
-                    if cursor < len(tokens) and tokens[cursor] == "}":
+                    if cursor < len(tokens) and tokens[cursor].kind == "rbrace":
                         cursor += 1
                         return values
                     continue
-                if tokens[cursor] == "}":
+                if tokens[cursor].kind == "rbrace":
                     cursor += 1
                     return values
                 raise ExtractionError("expected comma or closing brace")
-        if token in ("{", "}", ","):
+        if token.kind in ("lbrace", "rbrace", "comma"):
             raise ExtractionError("unexpected delimiter")
-        if token == "-":
+        if token.kind == "minus":
             cursor += 1
-            if cursor >= len(tokens) or not re.fullmatch(r"[0-9]+", tokens[cursor]):
+            if cursor >= len(tokens) or tokens[cursor].kind != "integer":
                 raise ExtractionError("minus must precede an integer")
-            token = tokens[cursor]
+            token_value = tokens[cursor].value
             cursor += 1
-            return -int(token)
+            return -int(token_value)
         cursor += 1
-        if re.fullmatch(r"[0-9]+", token):
-            return int(token)
-        if token.startswith('"'):
-            return _decode_c_string(token)
-        return token
+        if token.kind == "integer":
+            return int(token.value)
+        if token.kind == "cstring":
+            return _decode_c_string(token.value)
+        if token.kind == "identifier":
+            return Identifier(token.value)
+        raise ExtractionError("unknown initializer token kind")
 
     value = parse_value()
     if cursor != len(tokens):
@@ -503,29 +561,65 @@ def _verify_upstream_provenance(upstream):
         )
 
 
+def _source_from_bytes(label, source_bytes, expected_hash):
+    if type(source_bytes) is not bytes:
+        raise ExtractionError(f"{label}: git blob did not return bytes")
+    actual = hashlib.sha256(source_bytes).hexdigest()
+    if actual != expected_hash:
+        raise ExtractionError(f"{label}: SHA256 mismatch: {actual}")
+    try:
+        source_text = source_bytes.decode("utf-8", errors="strict")
+    except UnicodeDecodeError as error:
+        raise ExtractionError(f"{label}: source is not strict UTF-8") from error
+    return _strip_comments(source_text), actual
+
+
 def _source(path, expected_hash):
     path = Path(path)
     try:
         source_bytes = path.read_bytes()
     except OSError as error:
         raise ExtractionError(f"unable to read source {path}") from error
-    actual = hashlib.sha256(source_bytes).hexdigest()
-    if actual != expected_hash:
-        raise ExtractionError(f"{path}: SHA256 mismatch: {actual}")
+    return _source_from_bytes(path, source_bytes, expected_hash)
+
+
+def _git_blob(upstream, relative_path):
+    object_name = f"{EXPECTED_UPSTREAM_COMMIT}:{relative_path}"
     try:
-        source_text = source_bytes.decode("utf-8", errors="strict")
-    except UnicodeDecodeError as error:
-        raise ExtractionError(f"{path}: source is not strict UTF-8") from error
-    return _strip_comments(source_text), actual
+        result = subprocess.run(
+            ["git", "-C", str(upstream), "cat-file", "blob", object_name],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as error:
+        raise ExtractionError(f"unable to run git cat-file for {relative_path}") from error
+    except subprocess.CalledProcessError as error:
+        stderr = error.stderr
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace").strip()
+        raise ExtractionError(
+            f"git cat-file failed for {relative_path}: {stderr or 'unknown error'}"
+        ) from error
+    if type(result.stdout) is not bytes:
+        raise ExtractionError(f"git cat-file returned non-binary output for {relative_path}")
+    return result.stdout
+
+
+def _git_source(upstream, relative_path, expected_hash):
+    source_bytes = _git_blob(upstream, relative_path)
+    return _source_from_bytes(f"{upstream}:{relative_path}", source_bytes, expected_hash)
 
 
 def extract(upstream):
     upstream = Path(upstream)
     _verify_upstream_provenance(upstream)
-    msg_path = upstream / "src/msg_database.c"
-    spg_path = upstream / "src/spg_database.c"
-    msg, msg_hash = _source(msg_path, EXPECTED_SOURCES["msg_database.c"])
-    spg, spg_hash = _source(spg_path, EXPECTED_SOURCES["spg_database.c"])
+    msg, msg_hash = _git_source(
+        upstream, "src/msg_database.c", EXPECTED_SOURCES["msg_database.c"]
+    )
+    spg, spg_hash = _git_source(
+        upstream, "src/spg_database.c", EXPECTED_SOURCES["spg_database.c"]
+    )
 
     spg_types = _parse_initializer(_initializer_text(spg, "spacegroup_types"))
     spg_index = _parse_initializer(_initializer_text(spg, "symmetry_operation_index"))
@@ -536,7 +630,8 @@ def extract(upstream):
     for entry in spg_types:
         if (not isinstance(entry, list) or len(entry) != 9
                 or type(entry[0]) is not int
-                or not all(isinstance(item, str) for item in entry[1:7])
+                or not all(type(item) is CString for item in entry[1:7])
+                or type(entry[7]) is not Identifier
                 or entry[7] not in {"CENTERING_ERROR", "PRIMITIVE", "C_FACE", "A_FACE", "BODY", "FACE", "R_CENTER"}
                 or type(entry[8]) is not int):
             raise ExtractionError("spacegroup_types entry has invalid grammar")
@@ -577,7 +672,7 @@ def extract(upstream):
     transformations = _parse_initializer(_initializer_text(msg, "alternative_transformations"))
     if not all(isinstance(row, list) and len(row) == 6
                and type(row[0]) is int and type(row[1]) is int
-               and isinstance(row[2], str) and isinstance(row[3], str)
+               and type(row[2]) is CString and type(row[3]) is CString
                and type(row[4]) is int and type(row[5]) is int
                for row in msg_types):
         raise ExtractionError("magnetic spacegroup type row width mismatch")
@@ -677,7 +772,7 @@ def extract(upstream):
         },
         "msg": {
             "magnetic_spacegroup_types": [
-                {"uni": row[0], "litvin": row[1], "bns": row[2], "og": row[3],
+                {"uni": row[0], "litvin": row[1], "bns": str(row[2]), "og": str(row[3]),
                  "parent_spacegroup": row[4], "type": row[5]}
                 for row in msg_types
             ],

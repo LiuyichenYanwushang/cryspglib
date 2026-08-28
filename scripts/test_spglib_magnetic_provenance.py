@@ -4,6 +4,7 @@
 import copy
 import hashlib
 import os
+import subprocess
 import sys
 import tempfile
 from unittest import mock
@@ -195,6 +196,10 @@ class MagneticProvenanceTests(unittest.TestCase):
         with self.assertRaises(extractor.ExtractionError):
             extractor._initializer_text("int x[] = {1}", "x")
         with self.assertRaises(extractor.ExtractionError):
+            extractor._initializer_text("x = {1};", "x")
+        with self.assertRaises(extractor.ExtractionError):
+            extractor._initializer_text("x[] = {1};", "x")
+        with self.assertRaises(extractor.ExtractionError):
             extractor._normalize_rows([[1, 2, 3]], 1, 2, "fixture")
 
     def test_initializer_partial_rows_zero_fill_and_corrupt_tokens_reject(self):
@@ -230,6 +235,13 @@ class MagneticProvenanceTests(unittest.TestCase):
                          ["http://example.invalid"])
         with self.assertRaises(extractor.ExtractionError):
             extractor._parse_initializer("{1/**/2}")
+        with self.assertRaises(extractor.ExtractionError):
+            extractor._parse_initializer("{1\\\n,2}")
+        parsed = extractor._parse_initializer("{\"quoted\", bare_identifier}")
+        self.assertEqual(parsed[0], "quoted")
+        self.assertIs(type(parsed[0]), extractor.CString)
+        self.assertEqual(parsed[1], "bare_identifier")
+        self.assertIs(type(parsed[1]), extractor.Identifier)
         for spelling in ("09", "012", "+1", "1.5", "1e3"):
             with self.subTest(spelling=spelling):
                 with self.assertRaises(extractor.ExtractionError):
@@ -282,6 +294,29 @@ class MagneticProvenanceTests(unittest.TestCase):
         ):
             with self.assertRaises(extractor.ExtractionError):
                 extractor._verify_upstream_provenance(Path("/pinned/source"))
+
+    @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for blob tests")
+    def test_git_source_uses_pinned_blob_without_working_tree_read(self):
+        path = UPSTREAM / "src/msg_database.c"
+        source_bytes = path.read_bytes()
+        expected_hash = hashlib.sha256(source_bytes).hexdigest()
+        with mock.patch.object(extractor, "_git_blob", return_value=source_bytes) as git_blob:
+            with mock.patch.object(Path, "read_bytes", side_effect=AssertionError("working tree read")):
+                source, actual_hash = extractor._git_source(
+                    UPSTREAM, "src/msg_database.c", expected_hash
+                )
+        self.assertTrue(source)
+        self.assertEqual(actual_hash, expected_hash)
+        git_blob.assert_called_once_with(UPSTREAM, "src/msg_database.c")
+
+    def test_git_blob_reports_binary_subprocess_errors(self):
+        error = subprocess.CalledProcessError(
+            1, ["git"], stderr=b"fatal: missing blob\n"
+        )
+        with mock.patch.object(extractor.subprocess, "run", side_effect=error):
+            with self.assertRaises(extractor.ExtractionError) as raised:
+                extractor._git_blob(Path("/pinned/source"), "src/msg_database.c")
+        self.assertIn("missing blob", str(raised.exception))
 
     @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for source tests")
     def test_source_bytes_are_read_once_and_strictly_decoded(self):
