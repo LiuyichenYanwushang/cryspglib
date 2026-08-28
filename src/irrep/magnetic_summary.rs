@@ -636,23 +636,60 @@ pub fn magnetic_irrep_summary_from_ops(
             for &idx in &kp.irreps {
                 let ir = &h_irreps[idx];
                 match crate::irrep::corep::compute_corepresentation(ir, uni, mag_ops) {
-                    Ok(c) => raw_coreps.push(MagneticCorepSummary {
-                        label: ir.ml.to_string(),
-                        source_irreps: vec![SourceIrrepSummary {
-                            sg: ir.sg,
-                            ml: ir.ml,
-                            bc: ir.bc,
-                            dim: ir.dim,
-                            spinor: ir.spinor,
-                        }],
-                        corep_type: c.corep_type,
-                        source: c.source,
-                        dim: c.dim,
-                        characters: c.characters,
-                        timerev: c.timerev,
-                        completeness: c.completeness,
-                        isotropy_candidates: Vec::new(),
-                    }),
+                    Ok(c) => {
+                        let aligned = c.characters.len() == operations.len()
+                            && c.timerev.len() == operations.len()
+                            && c.magnetic_operation_indices.len() == operations.len()
+                            && c.operations.len() == operations.len()
+                            && c.timerev.iter().zip(&operations).all(
+                                |(time_reversal, operation)| {
+                                    *time_reversal == operation.time_reversal
+                                },
+                            )
+                            && c
+                                .magnetic_operation_indices
+                                .iter()
+                                .zip(&operations)
+                                .all(|(index, operation)| {
+                                    *index == operation.magnetic_operation_index
+                                })
+                            && c.operations.iter().zip(&operations).all(
+                                |(corep_operation, summary_operation)| {
+                                    corep_operation.rotation == summary_operation.rotation
+                                        && corep_operation.translation
+                                            == summary_operation.translation
+                                        && corep_operation.time_reversal
+                                            == summary_operation.time_reversal
+                                },
+                            );
+                        if !aligned {
+                            return Err(MagneticIrrepError::CorepComputationFailed {
+                                uni,
+                                sg: h_info.sg as u8,
+                                k_label: kp.label.clone(),
+                                source_irrep: ir.ml.to_string(),
+                                reason: "corepresentation character columns are not paired with the constructed magnetic little-group operations"
+                                    .to_string(),
+                            });
+                        }
+                        raw_coreps.push(MagneticCorepSummary {
+                            label: ir.ml.to_string(),
+                            source_irreps: vec![SourceIrrepSummary {
+                                sg: ir.sg,
+                                ml: ir.ml,
+                                bc: ir.bc,
+                                dim: ir.dim,
+                                spinor: ir.spinor,
+                            }],
+                            corep_type: c.corep_type,
+                            source: c.source,
+                            dim: c.dim,
+                            characters: c.characters,
+                            timerev: c.timerev,
+                            completeness: c.completeness,
+                            isotropy_candidates: Vec::new(),
+                        });
+                    }
                     Err(err) => {
                         return Err(MagneticIrrepError::CorepComputationFailed {
                             uni,
@@ -662,27 +699,6 @@ pub fn magnetic_irrep_summary_from_ops(
                             reason: err.to_string(),
                         });
                     }
-                }
-            }
-            for corep in &raw_coreps {
-                let aligned = corep.characters.len() == operations.len()
-                    && corep.timerev.len() == operations.len()
-                    && corep
-                        .timerev
-                        .iter()
-                        .zip(&operations)
-                        .all(|(time_reversal, operation)| {
-                            *time_reversal == operation.time_reversal
-                        });
-                if !aligned {
-                    return Err(MagneticIrrepError::CorepComputationFailed {
-                        uni,
-                        sg: h_info.sg as u8,
-                        k_label: kp.label.clone(),
-                        source_irrep: corep.label.clone(),
-                        reason: "character columns are not aligned with magnetic little-group operations"
-                            .to_string(),
-                    });
                 }
             }
             let coreps = dedup_coreps(raw_coreps);
@@ -1114,6 +1130,29 @@ mod tests {
         assert_eq!(by_uni.uni, by_bns.uni);
         assert_eq!(by_uni.unitary_sg, by_bns.unitary_sg);
         assert_eq!(by_uni.kpoints.len(), by_bns.kpoints.len());
+    }
+
+    #[test]
+    fn summary_corep_columns_remain_aligned_with_operation_columns() {
+        let summary = magnetic_irrep_summary_by_bns("1.2").unwrap();
+        for kpoint in &summary.kpoints {
+            for corep in &kpoint.coreps {
+                assert_eq!(corep.characters.len(), kpoint.operations.len());
+                assert_eq!(corep.timerev.len(), kpoint.operations.len());
+                for (character, time_reversal, operation) in corep
+                    .characters
+                    .iter()
+                    .zip(&corep.timerev)
+                    .zip(&kpoint.operations)
+                    .map(|((character, time_reversal), operation)| {
+                        (character, time_reversal, operation)
+                    })
+                {
+                    assert!(character.is_finite());
+                    assert_eq!(*time_reversal, operation.time_reversal);
+                }
+            }
+        }
     }
 
     #[test]

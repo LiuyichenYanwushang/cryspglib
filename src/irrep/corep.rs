@@ -272,12 +272,26 @@ pub enum CharacterCompleteness {
 }
 
 /// The computed magnetic co-representation of an irrep.
+///
+/// The four per-column vectors below are aligned by index: each
+/// `characters[i]`, `timerev[i]`, `magnetic_operation_indices[i]`, and
+/// `operations[i]` describes one column of the magnetic little-group
+/// subsequence.  They are not in the order of the complete input
+/// `SymmetryOps`; `operations` uses the ISOTROPY data-Hall frame, while
+/// `magnetic_operation_indices` still refers to the complete input list.
 #[derive(Debug, Clone)]
 pub struct Corepresentation {
-    /// Character χ̃(g) for each magnetic operation (same order as SymmetryOps).
+    /// Character χ̃(g) for each magnetic little-group operation.
     pub characters: Vec<f64>,
-    /// Which operations are anti-unitary.
+    /// Whether each corresponding magnetic little-group operation is
+    /// anti-unitary.
     pub timerev: Vec<bool>,
+    /// Original indices of the corresponding operations in the complete
+    /// `SymmetryOps` input.  These remain stable through the data-Hall
+    /// setting transform.
+    pub magnetic_operation_indices: Vec<usize>,
+    /// The corresponding operations in the ISOTROPY data-Hall frame.
+    pub operations: Vec<crate::SymmetryOp>,
     /// Co-representation type.
     pub corep_type: CorepType,
     /// Which Wigner path produced this classification.
@@ -885,6 +899,47 @@ pub fn compute_corepresentation(
 
     let dim = wigner::corep_dim(&corep_type, h_dim);
 
+    let magnetic_operation_indices = mag_lg.clone();
+    let operations: Vec<crate::SymmetryOp> = magnetic_operation_indices
+        .iter()
+        .map(|&index| {
+            mag_ops_data.operations.get(index).copied().ok_or_else(|| {
+                CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "magnetic little-group operation index {index} is out of bounds"
+                    ),
+                }
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    let timerev: Vec<bool> = operations
+        .iter()
+        .map(|operation| operation.time_reversal)
+        .collect();
+    if characters.len() != timerev.len()
+        || characters.len() != magnetic_operation_indices.len()
+        || characters.len() != operations.len()
+        || magnetic_operation_indices.len()
+            != magnetic_operation_indices
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .len()
+        || timerev
+            .iter()
+            .zip(&operations)
+            .any(|(time_reversal, operation)| *time_reversal != operation.time_reversal)
+    {
+        return Err(CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: "magnetic character columns are not a unique, operation-aligned little-group pairing"
+                .to_string(),
+        });
+    }
+
     let completeness = match corep_type {
         CorepType::A if !antiunitary.is_empty() && au_chars.is_none() => {
             CharacterCompleteness::TypeAAntiunitaryPending {
@@ -896,10 +951,9 @@ pub fn compute_corepresentation(
 
     Ok(Corepresentation {
         characters,
-        timerev: mag_lg
-            .iter()
-            .map(|&i| mag_ops_data.operations[i].time_reversal)
-            .collect(),
+        timerev,
+        magnetic_operation_indices,
+        operations,
         corep_type,
         source,
         dim,
@@ -1623,6 +1677,26 @@ pub fn magnetic_isotropy_coreps_of_sg_k(
 mod tests {
     use super::*;
 
+    fn identity_character(corep: &Corepresentation) -> f64 {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let column = corep
+            .operations
+            .iter()
+            .position(|operation| {
+                !operation.time_reversal
+                    && operation.rotation == identity
+                    && operation
+                        .translation
+                        .iter()
+                        .all(|translation| translation.abs() < 1.0e-8)
+            })
+            .expect("magnetic little group must contain unitary identity");
+        *corep
+            .characters
+            .get(column)
+            .expect("identity operation must have a character")
+    }
+
     fn assert_complex_unitary_corep_rejected(
         sg: u8,
         label: &str,
@@ -1748,7 +1822,7 @@ mod tests {
         for (label, c) in &coreps {
             assert!(c.dim > 0, "dim > 0 for {}", label);
             assert!(
-                (c.characters[0] - c.dim as f64).abs() < 0.01,
+                (identity_character(c) - c.dim as f64).abs() < 0.01,
                 "χ(id) = dim for {}",
                 label
             );
@@ -1857,6 +1931,38 @@ mod tests {
             CharacterCompleteness::TypeAAntiunitaryPending { count }
                 if count == corep.antiunitary_order
         ));
+    }
+
+    #[test]
+    fn corep_columns_pair_with_noncontiguous_magnetic_operations() {
+        let v1 = crate::irrep::query::irreps_of(5)
+            .iter()
+            .find(|irrep| !irrep.spinor && irrep.ml == "V1")
+            .expect("SG 5 V1 scalar irrep");
+        let corep = v1
+            .corepresentation(21)
+            .expect("SG 5 V1 corepresentation for UNI 21");
+
+        assert_eq!(corep.corep_type, CorepType::A);
+        assert_eq!(corep.source, WignerSource::ScalarPIR);
+        assert_eq!(corep.dim, 1);
+        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+        assert_eq!(corep.magnetic_operation_indices, vec![0, 4, 5, 7]);
+        assert_eq!(corep.characters, vec![1.0, -1.0, -1.0, 1.0]);
+        assert_eq!(corep.timerev, vec![false, true, false, true]);
+        assert_eq!(corep.operations.len(), 4);
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let expected = [
+            ([0.0, 0.0, 0.0], false),
+            ([0.5, 0.5, 0.0], true),
+            ([0.5, 0.5, 0.0], false),
+            ([0.0, 0.0, 0.0], true),
+        ];
+        for (operation, (translation, time_reversal)) in corep.operations.iter().zip(expected) {
+            assert_eq!(operation.rotation, identity);
+            assert_eq!(operation.translation, translation);
+            assert_eq!(operation.time_reversal, time_reversal);
+        }
     }
 
     #[test]
@@ -2927,6 +3033,7 @@ mod tests {
 
         // Collect computed coreps by label pattern for BCS comparison
         for (label, c) in &coreps {
+            let chi_identity = identity_character(c);
             let type_str = match c.corep_type {
                 CorepType::A => "A",
                 CorepType::B => "B",
@@ -2934,18 +3041,18 @@ mod tests {
             };
             println!(
                 "{:<8} {:<4} {:<8} {:<8.1}",
-                label, c.dim, type_str, c.characters[0]
+                label, c.dim, type_str, chi_identity
             );
 
             // Basic invariants
-            assert!(c.characters[0] > 0.0, "χ(id) must be > 0 for {}", label);
+            assert!(chi_identity > 0.0, "χ(id) must be > 0 for {}", label);
             assert!(c.dim > 0, "dim must be > 0 for {}", label);
 
             // χ(id) always equals corep dimension
             assert!(
-                (c.characters[0] - c.dim as f64).abs() < 0.01,
+                (chi_identity - c.dim as f64).abs() < 0.01,
                 "χ(id)={} should equal dim={} for {}",
-                c.characters[0],
+                chi_identity,
                 c.dim,
                 label
             );
@@ -3034,6 +3141,7 @@ mod tests {
         // 4. Compute coreps one by one
         for ir in &l_irreps {
             if let Ok(c) = ir.corepresentation(uni) {
+                let chi_identity = identity_character(&c);
                 let type_str = match c.corep_type {
                     CorepType::A => "A",
                     CorepType::B => "B",
@@ -3041,12 +3149,12 @@ mod tests {
                 };
                 println!(
                     "  {}: dim={} type={} χ(id)={:.1}",
-                    ir.ml, c.dim, type_str, c.characters[0]
+                    ir.ml, c.dim, type_str, chi_identity
                 );
 
                 assert!(c.dim > 0);
                 assert!(
-                    (c.characters[0] - c.dim as f64).abs() < 0.01,
+                    (chi_identity - c.dim as f64).abs() < 0.01,
                     "χ(id) should equal dim for {}",
                     ir.ml
                 );
