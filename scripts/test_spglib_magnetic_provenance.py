@@ -59,6 +59,71 @@ class MagneticProvenanceTests(unittest.TestCase):
                 self.assertGreater(offset, 0)
                 self.assertLessEqual(offset + order, len(operations))
 
+    def test_decoder_witnesses_exact(self):
+        expected = {
+            16484: ([1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 0], 0),
+            34146806: ([1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 6], 1),
+            3198: ([-1, 0, 0, 0, -1, 0, 0, 0, -1], [0, 0, 0], 0),
+            34133520: ([-1, 0, 0, 0, -1, 0, 0, 0, -1], [0, 0, 6], 1),
+            3360: ([-1, 0, 0, 0, 1, 0, 0, 0, -1], [0, 0, 0], 0),
+            34028708: ([1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 0], 1),
+            34015584: ([-1, 0, 0, 0, 1, 0, 0, 0, -1], [0, 0, 0], 1),
+            3200: ([-1, 0, 0, 0, -1, 0, 0, 0, 1], [0, 0, 0], 0),
+            34015424: ([-1, 0, 0, 0, -1, 0, 0, 0, 1], [0, 0, 0], 1),
+            16320: ([1, 0, 0, 0, -1, 0, 0, 0, -1], [0, 0, 0], 0),
+            34028544: ([1, 0, 0, 0, -1, 0, 0, 0, -1], [0, 0, 0], 1),
+        }
+        for raw, (rotation, translation, time_reversal) in expected.items():
+            self.assertEqual(
+                extractor._decode_magnetic_operation(raw),
+                {"rotation": rotation, "translation_numerator": translation,
+                 "time_reversal": time_reversal},
+            )
+
+        uni7 = [extractor._decode_magnetic_operation(raw) for raw in
+                [16484, 3198, 34146806, 34133520]]
+        self.assertEqual([item["rotation"] for item in uni7], [
+            [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            [-1, 0, 0, 0, -1, 0, 0, 0, -1],
+            [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            [-1, 0, 0, 0, -1, 0, 0, 0, -1],
+        ])
+        self.assertEqual([item["translation_numerator"] for item in uni7],
+                         [[0, 0, 0], [0, 0, 0], [0, 0, 6], [0, 0, 6]])
+        self.assertEqual([item["time_reversal"] for item in uni7], [0, 0, 1, 1])
+
+        uni9_groups = [
+            [16484, 3360, 34028708, 34015584],
+            [16484, 3200, 34028708, 34015424],
+            [16484, 16320, 34028708, 34028544],
+        ]
+        expected_groups = [
+            [
+                ([1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 0], 0),
+                ([-1, 0, 0, 0, 1, 0, 0, 0, -1], [0, 0, 0], 0),
+                ([1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 0], 1),
+                ([-1, 0, 0, 0, 1, 0, 0, 0, -1], [0, 0, 0], 1),
+            ],
+            [
+                ([1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 0], 0),
+                ([-1, 0, 0, 0, -1, 0, 0, 0, 1], [0, 0, 0], 0),
+                ([1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 0], 1),
+                ([-1, 0, 0, 0, -1, 0, 0, 0, 1], [0, 0, 0], 1),
+            ],
+            [
+                ([1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 0], 0),
+                ([1, 0, 0, 0, -1, 0, 0, 0, -1], [0, 0, 0], 0),
+                ([1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 0], 1),
+                ([1, 0, 0, 0, -1, 0, 0, 0, -1], [0, 0, 0], 1),
+            ],
+        ]
+        for raw_group, expected_group in zip(uni9_groups, expected_groups):
+            decoded = [extractor._decode_magnetic_operation(raw) for raw in raw_group]
+            self.assertEqual(
+                [(item["rotation"], item["translation_numerator"], item["time_reversal"])
+                 for item in decoded], expected_group,
+            )
+
     def test_key_uni_operations_decode_antiunitary(self):
         msg = self.artifact["msg"]
         for uni in (7, 9):
