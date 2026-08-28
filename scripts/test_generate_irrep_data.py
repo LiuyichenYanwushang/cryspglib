@@ -316,9 +316,25 @@ class CirStructureTests(unittest.TestCase):
         return " ".join(map(str, values))
 
     @staticmethod
-    def _mini_record(special=True, matrix="(1,0)", irnumber=1, label="GM1"):
+    def _mini_record(
+        special=True,
+        matrix="(1,0)",
+        irnumber=1,
+        label="GM1",
+        dim=1,
+        kcount=1,
+        pmkcount=1,
+        opcount=1,
+    ):
         lines = ["title 1", "title 2", "title 3"]
-        lines.append(CirStructureTests._header(irnumber=irnumber, label=label))
+        lines.append(CirStructureTests._header(
+            irnumber=irnumber,
+            label=label,
+            dim=dim,
+            kcount=kcount,
+            pmkcount=pmkcount,
+            opcount=opcount,
+        ))
         lines.append(CirStructureTests._kvector(special=special))
         lines.append(CirStructureTests._operation())
         if not special:
@@ -386,6 +402,29 @@ class CirStructureTests(unittest.TestCase):
                 [first + " 16"], 0, 16, "synthetic CIR k-vector", generator._parse_cir_integer
             )
 
+    def test_cir_integer_tokens_are_canonical_ascii(self):
+        self.assertEqual(generator._parse_cir_integer("-1", 1, "test"), -1)
+        for token in ("+1", "01", "-0", "１"):
+            with self.assertRaisesRegex(ValueError, "non-integer CIR token"):
+                generator._parse_cir_integer(token, 1, "test")
+
+        for line_index in (4, 5, 6):
+            for bad_token in ("+1", "１"):
+                lines = self._mini_record(special=False)
+                values = lines[line_index].split()
+                values[0] = bad_token
+                lines[line_index] = " ".join(values)
+                with self.assertRaisesRegex(ValueError, "non-integer CIR token"):
+                    generator._parse_cir_lines(lines, validate_census=False)
+
+        negative_kvector = self._mini_record()
+        values = negative_kvector[4].split()
+        values[0] = "-1"
+        negative_kvector[4] = " ".join(values)
+        _chars, _matrices, _census = generator._parse_cir_lines(
+            negative_kvector, validate_census=False
+        )
+
     def test_cir_mini_records_are_structurally_consumed(self):
         chars, matrices, census = generator._parse_cir_lines(
             self._mini_record(special=True), validate_census=False
@@ -427,6 +466,21 @@ class CirStructureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             generator._parse_cir_lines(lines, validate_census=False)
 
+        bottom_bad = self._mini_record()
+        bottom = bottom_bad[5].split()
+        bottom[12] = "1"
+        bottom_bad[5] = " ".join(bottom)
+        with self.assertRaisesRegex(ValueError, "bottom row"):
+            generator._parse_cir_lines(bottom_bad, validate_census=False)
+
+        nondivisible = self._mini_record()
+        operation = nondivisible[5].split()
+        operation[0] = "1"
+        operation[15] = "2"
+        nondivisible[5] = " ".join(operation)
+        with self.assertRaisesRegex(ValueError, "not divisible"):
+            generator._parse_cir_lines(nondivisible, validate_census=False)
+
     def test_cir_kvector_denominator_rules_are_explicit(self):
         values = [0] * 16
         values[3] = 1
@@ -436,6 +490,31 @@ class CirStructureTests(unittest.TestCase):
         lines[4] = " ".join(map(str, values))
         with self.assertRaisesRegex(ValueError, "zero CIR parameter denominator"):
             generator._parse_cir_lines(lines, validate_census=False)
+
+    def test_cir_nontrivial_little_dim_and_needed_labels_consume_all_input(self):
+        dim_two = self._mini_record(
+            irnumber=2,
+            label="GM2",
+            dim=2,
+            matrix="(1,0) (0,0) (0,0) (1,0)",
+        )
+        lines = self._mini_record(label="GM1")[3:] + dim_two[3:]
+        chars, matrices, census = generator._parse_cir_lines(
+            ["title 1", "title 2", "title 3"] + lines,
+            needed_labels={(1, "GM2")},
+            validate_census=False,
+        )
+        self.assertEqual(chars[(1, "GM2")]["little_dim"], 2)
+        self.assertNotIn((1, "GM1"), matrices)
+        self.assertIn((1, "GM2"), matrices)
+        self.assertEqual(census["cursor_eof"], len(lines) + 3)
+
+    def test_cir_trailing_blank_or_nonheader_is_rejected(self):
+        for trailing in ("", "trailing garbage"):
+            with self.assertRaises(ValueError):
+                generator._parse_cir_lines(
+                    self._mini_record() + [trailing], validate_census=False
+                )
 
     def test_cir_rejects_invalid_complex_spellings_without_silent_zero(self):
         for token in ("CORRUPTED", "1", "(nan,0)", "(1,)", "(1,0)junk", "(1.00000,0)"):

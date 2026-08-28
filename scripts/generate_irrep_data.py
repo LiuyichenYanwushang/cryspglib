@@ -711,6 +711,7 @@ _CIR_HEADER_RE = re.compile(
     r'([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s*$'
 )
 _CIR_COMPLEX_RE = re.compile(r'^\(([^,]+),([^\)]+)\)$')
+_CIR_INTEGER_RE = re.compile(r'(?:0|[1-9][0-9]*|-[1-9][0-9]*)')
 
 def _read_cir_lines():
     """Read CIR_data.txt from the zip archive."""
@@ -781,7 +782,7 @@ def _read_exact_cir_block(lines, start, count, context, parse_token):
 
 
 def _parse_cir_integer(token, line_number, context):
-    if re.fullmatch(r'[+-]?\d+', token) is None:
+    if _CIR_INTEGER_RE.fullmatch(token) is None:
         raise ValueError(f"non-integer CIR token {token!r} at line {line_number} for {context}")
     return int(token)
 
