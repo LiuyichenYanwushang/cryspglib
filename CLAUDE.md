@@ -10,7 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 和不变量可被公开字段绕过的问题。每个阶段必须全量测试、clippy 零警告、git
 提交，并通过独立 reviewer 的极简严格复审后才算完成。
 
-已完成阶段（提交 `dad5dd8` → `ee9286a`；当前 HEAD `a84f160`）：
+已完成阶段（提交 `dad5dd8` → `ee9286a`；角色数据/summary 后续基线
+`ba2d997`、`969a89c`、`daf04eb`）：
 
 1. `Crystal::new` / `with_magnetic` / `SymmetryOps::from_parallel*` 全部返回
    `Result`，不再 panic；README 与 doctest 同步。
@@ -72,11 +73,11 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 corep/summary 产品化。每次全扫、根因确认和修复后都必须更新本节；不能只在
 对话中报告。
 
-### 当前最终状态（更新至 2026-08-10）
+### 当前最终状态（更新至 2026-08-27）
 
-磁 symmetry/corep 主线与第一轮 API 安全化已提交为
-`e8610d3 fix: harden magnetic symmetry APIs`，本地 `main` 当前领先远端一个提交；
-2026-08-10 的 Rust-native API 收口与 clippy 清零仍在工作树中，尚未提交或推送。
+磁 symmetry/corep 主线、Rust-native API 收口、有限域类型化、全仓库 rustfmt、
+角色科学计数法修复、exact scalar Hall phase materialization，以及 partial magnetic
+summary 均已提交。相关基线依次为 `ba2d997`、`969a89c`、`daf04eb`。
 后续开发和回归应以下面这组最新结论为基线，而不是再沿用早期“部分磁群不支持”
 或“只预览 6 个特征标”的判断。
 
@@ -1013,6 +1014,9 @@ seq sg "symbol" "label" dim irtype kcount pmkcount opcount
 CIR/PIR 映射或角色拟合时仍必须把本节的回归作为独立 gate；不得通过按数值模式
 替换生成数组来掩盖数据问题。
 
+最终修复提交为 `ba2d997 fix: preserve scientific notation in irrep data`，已推送至
+`origin/main`。
+
 #### 审计范围与已确认的健康边界
 
 - 扫描全部 230 个空间群中的 `4777` 个 scalar record 和 `3611` 个 spinor record，
@@ -1725,3 +1729,70 @@ spglib port 的主要公共 API 已全部从 `Option<T>` 迁移到 `Result<T, Sy
 4. **100% 通过后仍追问边界**：reciprocal_exact=3611 后仍发现 centered cell 问题
 5. **入口数据出错时停止下游修复**：UNI187 的 unitary 操作本身错了
 6. **穷举 convention，让数据说话**：不确定 Rk vs R⁻ᵀk 时两个都算，比较 exact match
+
+---
+
+## 当前 magnetic corep 未支持边界（2026-08-30）
+
+普通 230 个空间群的 typed scalar/spinor 角色数据与 operation pairing 已经可用。
+当前真正的功能缺口集中在磁性 corepresentation 构造：
+
+1. **Magnetic compound corep**：compound selected-arm 数据存在，但尚未建立
+   operation-aware constituent orbit/pairing。`compute_corepresentation()` 必须结构化
+   拒绝，不能把 compound block trace 当作一个不可约 seed，也不能用标签拆分猜测。
+2. **一般 Type-C partner**：`2 Re(chi)` 只在磁小群包含 direct pure
+   `{I|0}Theta` 时成立。带平移或非平凡空间部分的 antiunitary representative 需要
+   显式计算 `chi(a0^-1 h a0)^*`、lattice shift 与 Bloch phase；当前缺少这条
+   operation-aware partner 数据链，因此必须拒绝。
+3. **Spinor full-Seitz phase mapping**：stored spin source representative 与实际
+   magnetic operation 相差 lattice/centering translation 时，不能 rotation-only 复用
+   character。尚未施加可证明的 exact Bloch phase时必须拒绝。
+4. **Legacy real-valued corep surface**：`Corepresentation.characters: Vec<f64>` 无法
+   表达 genuinely complex Type-A/Type-B unitary characters。严格 API 返回
+   `ComplexUnitaryCharacters`，partial summary 保留已完成的 Wigner type/source/dimension，
+   供 typed `Complex64` consumer 重建。Rustb `9cbc7b8` 已采用此路径；这项不再是
+   Rustb `calculate_irrep()` 的主要阻塞，但 cryspglib 的 legacy surface 仍有限制。
+
+另有两项应明确标为“不完整”而不是伪成功：
+
+- Type-A antiunitary characters 缺少一般 intertwiner matrix。spinor Type-A、scalar
+  高维 Type-A，以及没有 direct pure Theta 的 scalar Type-A 可返回
+  `TypeAAntiunitaryPending`；placeholder zero 不是计算结果。
+- 当前 summary 是 fixed-k magnetic-little-group corep，不是 full k-star
+  corepresentation；spinor isotropy subgroup 数据也明确标为
+  `SpinorNoIsotropyData`。
+
+2026-08-30 release 全量 partial-summary census：
+
+- 1,651/1,651 UNI 可返回 partial summary，summary-level fatal error 为 0；
+- 保留 28,823 个安全 corep；
+- unresolved source occurrences：compound 4,820（1,027 UNI），general Type-C
+  12,430（930 UNI），spin full-Seitz phase 5,669（477 UNI），legacy real-surface
+  complex A/B 6,556（844 UNI）；
+- Type-A antiunitary pending 17,330 个 corep，涉及 1,378 UNI。
+
+上述 UNI 集合彼此重叠，occurrence 也不是静态数据库 unique-record 数。严格
+`magnetic_irrep_summary_by_uni()` 因 first-error 语义只有 76/1,651 个 UNI 能生成
+全表；面向分析程序应使用 partial API，并逐 source 显示 unavailable reason。
+
+## Python 数据工具保留策略（2026-08-30）
+
+仓库现有 29 个 Python 文件、约 21,698 行。它们**不是 Rust build/runtime
+依赖**：仓库没有 `build.rs` 调用 Python，Rust API 只读取已提交的
+`src/irrep/generated_data.rs`；`Cargo.toml` 也把 `scripts/` 排除在发布 crate 之外。
+
+Python 仍应保留在源码仓库中，因为它承担科学数据的可再生性和独立审计：
+
+- 直接生成链：`generate_irrep_data.py`、`parse_spinor_data.py`、
+  `direction_map.py`、`iso_irrep_data_hall.py` 及固定 data/manifest；
+- authority/再生链：`iso_irrep_exact.py`、`derive_iso_irrep_data_hall.py`、
+  `freeze_iso_irrep_data_hall.py`、spglib magnetic provenance extractor/loader、
+  `spinor_exact.py`；
+- 对应 `test_*.py` 是 generator/parser/operation-order/phase convention 的科学
+  regression oracle，不能只因 Rust tests 通过就删除。
+
+可后续精简的是一次性诊断脚本，例如 `debug_*`、`check_*` 和已经被正式测试覆盖的
+旧 validation probe。删除前必须先证明其中没有唯一 oracle，并把仍有价值的 witness
+迁入正式 `test_*.py`。优先做目录分层（generation / audit / legacy_debug）和共享解析
+库去重；不要为了减少 Python 行数而立即用 Rust 重写稳定的离线生成链，也不要继续
+扩展与角色计算无关的通用 provenance 框架。
