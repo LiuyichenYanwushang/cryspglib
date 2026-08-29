@@ -1192,6 +1192,23 @@ def canonical_json(value):
         raise ExtractionError("value cannot be represented as strict JSON") from error
 
 
+def parse_and_validate_committed_pair(artifact_bytes: bytes,
+                                      manifest_bytes: bytes,
+                                      artifact_name: str) -> dict:
+    """Parse and close a caller-provided artifact/manifest byte pair."""
+    if type(artifact_name) is not str:
+        raise ExtractionError("artifact name must be text")
+    artifact = _parse_json_bytes(artifact_bytes, "artifact")
+    manifest = _parse_json_bytes(manifest_bytes, "manifest")
+    validate_artifact(artifact)
+    validate_manifest(manifest, artifact_bytes, artifact_name)
+    if canonical_json(artifact) != artifact_bytes:
+        raise ExtractionError("artifact is not canonical JSON")
+    if canonical_json(manifest) != manifest_bytes:
+        raise ExtractionError("manifest is not canonical JSON")
+    return artifact
+
+
 def _validate_output_targets(output, manifest):
     output = Path(output)
     manifest = Path(manifest)

@@ -169,6 +169,22 @@ class MagneticProvenanceTests(unittest.TestCase):
         extractor.validate_manifest(manifest, artifact_bytes, ARTIFACT.name)
         self.assertEqual(extractor.canonical_json(manifest), manifest_bytes)
 
+    def test_thin_committed_pair_parser_closes_canonical_bytes(self):
+        artifact_bytes = ARTIFACT.read_bytes()
+        manifest_bytes = MANIFEST.read_bytes()
+        artifact = extractor.parse_and_validate_committed_pair(
+            artifact_bytes, manifest_bytes, ARTIFACT.name
+        )
+        self.assertEqual(extractor.canonical_json(artifact), artifact_bytes)
+        with self.assertRaises(extractor.ExtractionError):
+            extractor.parse_and_validate_committed_pair(
+                b"{}", manifest_bytes, ARTIFACT.name
+            )
+        with self.assertRaises(extractor.ExtractionError):
+            extractor.parse_and_validate_committed_pair(
+                artifact_bytes, manifest_bytes[:-1], ARTIFACT.name
+            )
+
     @unittest.skipUnless(UPSTREAM is not None, "set SPGLIB_V2_5_0_SOURCE for regeneration tests")
     def test_canonical_artifact_and_manifest_hash(self):
         artifact_bytes = extractor.canonical_json(self.artifact)
