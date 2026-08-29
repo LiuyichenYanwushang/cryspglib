@@ -15,8 +15,8 @@ The committed sidecar binds the external PIR/CIR ZIPs and the committed
 spglib artifact/manifest by their fixed path, byte length, and SHA-256.  It
 does not bind Python source hashes: the code is versioned by Git, and keeping
 those hashes here would make the freezer self-referential.  This stage has no
-runtime loader or final-byte golden in production code; the focused tests
-freeze the committed pair's bytes and SHA independently.
+runtime loader.  The final artifact/manifest byte commitments below are used
+only as an integrity gate for this frozen pair, never as Hall-search input.
 """
 
 from __future__ import annotations
@@ -104,6 +104,19 @@ _EXPECTED_CENSUS = {
     ],
 }
 
+# These commitments identify the one sidecar pair produced by this schema
+# version.  They are an integrity boundary, not a derivation or Hall search
+# input.  A changed derivation must deliberately introduce a new schema/frozen
+# pair rather than silently becoming accepted by this validator.
+FINAL_ARTIFACT_BYTE_LENGTH = 697_730
+FINAL_ARTIFACT_SHA256 = (
+    "35bcb00958021eb6fc5a330f8dbf85a80be78ccec324f441e6138cdba4b617e0"
+)
+FINAL_MANIFEST_BYTE_LENGTH = 869
+FINAL_MANIFEST_SHA256 = (
+    "bc6aa7a94d698f2193e7cb623b16dded2dd8e0307d502cf28b68c554f364d7e2"
+)
+
 
 class FreezeError(ValueError):
     """Base class for typed sidecar construction and validation failures."""
@@ -125,7 +138,7 @@ def _error(context: str, message: str):
     raise FreezeSchemaError(f"{context}: {message}")
 
 
-def _validate_json_tree(value, context: str = "$", *, allow_none: bool = True):
+def _validate_json_tree(value, context: str = "$"):
     """Require the exact built-in JSON value types used by this sidecar."""
 
     if type(value) is dict:
@@ -134,11 +147,11 @@ def _validate_json_tree(value, context: str = "$", *, allow_none: bool = True):
                 _error(context, "object keys must be exact strings")
             if any(ord(char) < 0x20 or ord(char) > 0x7E for char in key):
                 _error(context, "object keys must be printable ASCII")
-            _validate_json_tree(child, f"{context}.{key}", allow_none=allow_none)
+            _validate_json_tree(child, f"{context}.{key}")
         return
     if type(value) is list:
         for index, child in enumerate(value):
-            _validate_json_tree(child, f"{context}[{index}]", allow_none=allow_none)
+            _validate_json_tree(child, f"{context}[{index}]")
         return
     if type(value) is str:
         if any(ord(char) < 0x20 or ord(char) > 0x7E for char in value):
@@ -146,16 +159,14 @@ def _validate_json_tree(value, context: str = "$", *, allow_none: bool = True):
         return
     if type(value) is int:
         return
-    if allow_none and value is None:
-        return
-    _error(context, "bool, float, tuple, and non-built-in values are forbidden")
+    _error(context, "null, bool, float, tuple, and non-built-in values are forbidden")
 
 
 def canonical_json(value) -> bytes:
     """Encode one exact printable-ASCII JSON tree with one final LF."""
 
-    _validate_json_tree(value)
     try:
+        _validate_json_tree(value)
         encoded = json.dumps(
             value,
             sort_keys=True,
@@ -163,6 +174,8 @@ def canonical_json(value) -> bytes:
             ensure_ascii=True,
             allow_nan=False,
         ).encode("ascii")
+    except RecursionError as error:
+        raise FreezeSchemaError("JSON value is too deeply nested") from error
     except (TypeError, ValueError, UnicodeError) as error:
         raise FreezeSchemaError("unable to encode canonical JSON") from error
     return encoded + b"\n"
@@ -198,11 +211,18 @@ def _parse_canonical_json(data: bytes, context: str):
         )
     except FreezeError:
         raise
+    except RecursionError as error:
+        raise FreezeSchemaError(f"{context} is too deeply nested") from error
     except (UnicodeError, ValueError, TypeError) as error:
         raise FreezeSchemaError(f"{context} is not valid JSON") from error
-    _validate_json_tree(value, context)
-    if canonical_json(value) != data:
-        raise FreezeSchemaError(f"{context} is not canonical JSON")
+    try:
+        _validate_json_tree(value, context)
+        if canonical_json(value) != data:
+            raise FreezeSchemaError(f"{context} is not canonical JSON")
+    except FreezeError:
+        raise
+    except RecursionError as error:
+        raise FreezeSchemaError(f"{context} is too deeply nested") from error
     return value
 
 
@@ -665,8 +685,12 @@ def build_manifest(artifact_bytes: bytes) -> dict:
     }
 
 
-def parse_and_validate_pair(artifact_bytes: bytes, manifest_bytes: bytes):
-    """Parse and semantically validate a canonical artifact/manifest pair."""
+def _parse_and_validate_uncommitted_pair(artifact_bytes: bytes, manifest_bytes: bytes):
+    """Validate a canonical pair structurally for internal build/test use.
+
+    This seam deliberately does not accept the frozen authority commitment;
+    it is never an authority acceptance boundary.
+    """
 
     artifact = _parse_canonical_json(artifact_bytes, "artifact")
     manifest = _parse_canonical_json(manifest_bytes, "manifest")
@@ -694,6 +718,35 @@ def parse_and_validate_pair(artifact_bytes: bytes, manifest_bytes: bytes):
     return artifact, manifest
 
 
+def _verify_final_bytes(data, expected_length: int, expected_sha256: str,
+                        context: str):
+    if type(data) is not bytes:
+        raise FreezeSchemaError(f"{context} must be exact bytes")
+    if len(data) != expected_length:
+        raise FreezeIntegrityError(f"{context} byte length is not frozen")
+    if hashlib.sha256(data).hexdigest() != expected_sha256:
+        raise FreezeIntegrityError(f"{context} SHA-256 is not frozen")
+
+
+def parse_and_validate_pair(artifact_bytes: bytes, manifest_bytes: bytes):
+    """Accept only the committed frozen pair, then run full validation.
+
+    The final byte/SHA gate is an integrity check for this sidecar pair.  It
+    is not a Hall-selection input and does not participate in derivation.
+    General structural checking for build/test seams is private.
+    """
+
+    _verify_final_bytes(
+        artifact_bytes, FINAL_ARTIFACT_BYTE_LENGTH, FINAL_ARTIFACT_SHA256,
+        "artifact",
+    )
+    _verify_final_bytes(
+        manifest_bytes, FINAL_MANIFEST_BYTE_LENGTH, FINAL_MANIFEST_SHA256,
+        "manifest",
+    )
+    return _parse_and_validate_uncommitted_pair(artifact_bytes, manifest_bytes)
+
+
 def _path_argument(value, context: str) -> Path:
     try:
         raw = os.fspath(value)
@@ -715,6 +768,35 @@ def _reject_same_target(output: Path, manifest: Path):
             raise FreezeInvariantError("artifact and manifest paths share an inode")
     except OSError as error:
         raise FreezeIntegrityError("unable to inspect output inodes") from error
+
+
+def _replacement_identity(path: Path, context: str) -> Path:
+    """Resolve the directory used by ``os.replace`` before any build work."""
+
+    try:
+        parent = path.parent.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise FreezeIntegrityError(
+            f"{context} parent cannot be resolved"
+        ) from error
+    try:
+        is_directory = parent.is_dir()
+    except OSError as error:
+        raise FreezeIntegrityError(
+            f"{context} parent cannot be inspected"
+        ) from error
+    if not is_directory:
+        raise FreezeIntegrityError(f"{context} parent is not a directory")
+    return parent / path.name
+
+
+def _reject_same_replacement_identity(output: Path, manifest: Path):
+    output_identity = _replacement_identity(output, "output")
+    manifest_identity = _replacement_identity(manifest, "manifest")
+    if output_identity == manifest_identity:
+        raise FreezeInvariantError(
+            "artifact and manifest replacement identities must differ"
+        )
 
 
 def _make_temp(path: Path, payload: bytes) -> Path:
@@ -759,10 +841,17 @@ def _fsync_directory(path: Path):
 
 
 def write_outputs(output, manifest):
-    """Build, validate, and atomically write artifact and manifest paths."""
+    """Build and atomically replace two files in commit-marker order.
+
+    Each file is replaced atomically, with the manifest written last as the
+    commit marker.  The pair is not transactional: if the second replacement
+    fails, a new artifact may coexist with a missing or old manifest, and a
+    consumer will fail closed on the pair's frozen commitment mismatch.
+    """
 
     output_path = _path_argument(output, "output")
     manifest_path = _path_argument(manifest, "manifest")
+    _reject_same_replacement_identity(output_path, manifest_path)
     _reject_same_target(output_path, manifest_path)
     artifact = build_artifact()
     artifact_bytes = canonical_json(artifact)

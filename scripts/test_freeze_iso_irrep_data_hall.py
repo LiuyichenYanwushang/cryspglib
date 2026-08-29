@@ -179,12 +179,22 @@ class FreezeDataHallTests(unittest.TestCase):
             pass
 
         for value in (
-            {"value": True}, {"value": 1.0}, {"value": (1,)},
+            {"value": None}, {"value": True}, {"value": 1.0}, {"value": (1,)},
             {"value": StringSubclass("x")}, {"value": "é"},
         ):
             with self.subTest(value=value):
                 with self.assertRaises(freeze.FreezeSchemaError):
                     _canonical(value)
+
+        nested = 0
+        for _ in range(2_000):
+            nested = [nested]
+        with self.assertRaises(freeze.FreezeSchemaError):
+            _canonical(nested)
+
+        nested_bytes = b"[" * 2_000 + b"0" + b"]" * 2_000 + b"\n"
+        with self.assertRaises(freeze.FreezeSchemaError):
+            freeze._parse_canonical_json(nested_bytes, "deep")
 
     def test_pair_parser_rejects_encoding_and_schema_corruption(self):
         corruptions = {
@@ -201,31 +211,95 @@ class FreezeDataHallTests(unittest.TestCase):
         decoded = json.loads(self.artifact_bytes.decode("ascii"))
         decoded["unexpected"] = 1
         broken = _canonical(decoded)
-        with self.assertRaises(freeze.FreezeSchemaError):
+        with self.assertRaises(freeze.FreezeIntegrityError):
             freeze.parse_and_validate_pair(broken, self.manifest_bytes)
+        with self.assertRaises(freeze.FreezeSchemaError):
+            freeze._parse_and_validate_uncommitted_pair(
+                broken, self.manifest_bytes
+            )
 
         decoded = json.loads(self.artifact_bytes.decode("ascii"))
         del decoded["census"]
-        with self.assertRaises(freeze.FreezeSchemaError):
+        with self.assertRaises(freeze.FreezeIntegrityError):
             freeze.parse_and_validate_pair(_canonical(decoded), self.manifest_bytes)
+        with self.assertRaises(freeze.FreezeSchemaError):
+            freeze._parse_and_validate_uncommitted_pair(
+                _canonical(decoded), self.manifest_bytes
+            )
 
         duplicate = b'{"schema":"x","schema":"y"}\n'
-        with self.assertRaises(freeze.FreezeSchemaError):
+        with self.assertRaises(freeze.FreezeIntegrityError):
             freeze.parse_and_validate_pair(duplicate, self.manifest_bytes)
+        with self.assertRaises(freeze.FreezeSchemaError):
+            freeze._parse_and_validate_uncommitted_pair(
+                duplicate, self.manifest_bytes
+            )
 
     def test_pair_parser_rejects_synchronized_semantic_mutations(self):
-        decoded = deepcopy(self.artifact)
-        decoded["spacegroups"][0]["data_hall"] = 2
-        broken_artifact = _canonical(decoded)
-        broken_manifest = deepcopy(self.manifest)
-        broken_manifest["artifact"]["bytes"] = len(broken_artifact)
-        broken_manifest["artifact"]["sha256"] = hashlib.sha256(
-            broken_artifact
-        ).hexdigest()
-        with self.assertRaises(freeze.FreezeError):
-            freeze.parse_and_validate_pair(
-                broken_artifact, _canonical(broken_manifest)
+        def resigned(mutator):
+            decoded = deepcopy(self.artifact)
+            mutator(decoded)
+            broken_artifact = _canonical(decoded)
+            broken_manifest = deepcopy(self.manifest)
+            broken_manifest["artifact"]["bytes"] = len(broken_artifact)
+            broken_manifest["artifact"]["sha256"] = hashlib.sha256(
+                broken_artifact
+            ).hexdigest()
+            return broken_artifact, _canonical(broken_manifest)
+
+        mutations = {
+            "SG5 Hall 9 to 10": lambda value: value["spacegroups"][4].__setitem__(
+                "data_hall", 10
+            ),
+            "raw candidate replacement": lambda value: value["spacegroups"][4].__setitem__(
+                "raw_candidate_halls", [9, 10, 12]
+            ),
+            "anchor increment": lambda value: value["spacegroups"][4].__setitem__(
+                "pir_anchor_irnumber",
+                value["spacegroups"][4]["pir_anchor_irnumber"] + 1,
+            ),
+            "fake C symbol": lambda value: value["spacegroups"][4].__setitem__(
+                "source_symbol", "C FAKE"
+            ),
+        }
+        for name, mutator in mutations.items():
+            with self.subTest(mutation=name):
+                broken_artifact, broken_manifest = resigned(mutator)
+                with self.assertRaises(freeze.FreezeIntegrityError):
+                    freeze.parse_and_validate_pair(broken_artifact, broken_manifest)
+
+        def permute_p_mapping(value):
+            record = value["spacegroups"][1]
+            record["source_to_hall"][0]["hall_operation_index"], record[
+                "source_to_hall"
+            ][1]["hall_operation_index"] = (
+                record["source_to_hall"][1]["hall_operation_index"],
+                record["source_to_hall"][0]["hall_operation_index"],
             )
+            record["hall_to_source"][0]["source_operation_index"], record[
+                "hall_to_source"
+            ][1]["source_operation_index"] = (
+                record["hall_to_source"][1]["source_operation_index"],
+                record["hall_to_source"][0]["source_operation_index"],
+            )
+
+        broken_artifact, broken_manifest = resigned(permute_p_mapping)
+        with self.assertRaises(freeze.FreezeIntegrityError):
+            freeze.parse_and_validate_pair(broken_artifact, broken_manifest)
+
+        def shift_hall_mapping(value):
+            record = value["spacegroups"][4]
+            record["hall_to_source"][0]["lattice_shift_numerator"][0] += 12
+            record["source_to_hall"][0]["lattice_shift_numerator"][0] -= 12
+            record["census"] = freeze._aggregate_census(
+                value["spacegroups"],
+                value["census"]["pir_records"],
+                value["census"]["cir_records"],
+            )
+
+        broken_artifact, broken_manifest = resigned(shift_hall_mapping)
+        with self.assertRaises(freeze.FreezeIntegrityError):
+            freeze.parse_and_validate_pair(broken_artifact, broken_manifest)
 
         decoded = deepcopy(self.artifact)
         decoded["inputs"]["pir_zip"]["sha256"] = "0" * 64
@@ -269,6 +343,33 @@ class FreezeDataHallTests(unittest.TestCase):
             with self.assertRaises(freeze.FreezeInvariantError):
                 freeze.write_outputs(output, hardlink)
 
+    def test_replacement_identity_rejects_aliases_before_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            real = root / "real"
+            real.mkdir()
+            alias = root / "alias"
+            os.symlink(real, alias, target_is_directory=True)
+            output = real / "same.json"
+            manifest = alias / "same.json"
+            with mock.patch.object(
+                freeze, "build_artifact", side_effect=AssertionError("built")
+            ) as builder:
+                with self.assertRaises(freeze.FreezeInvariantError):
+                    freeze.write_outputs(output, manifest)
+            self.assertEqual(builder.call_count, 0)
+
+            sub = root / "sub"
+            sub.mkdir()
+            output = sub / ".." / "same2.json"
+            manifest = root / "same2.json"
+            with mock.patch.object(
+                freeze, "build_artifact", side_effect=AssertionError("built")
+            ) as builder:
+                with self.assertRaises(freeze.FreezeInvariantError):
+                    freeze.write_outputs(output, manifest)
+            self.assertEqual(builder.call_count, 0)
+
     def test_atomic_write_failure_cleans_staged_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -292,6 +393,9 @@ class FreezeDataHallTests(unittest.TestCase):
                     with self.assertRaises(freeze.FreezeIntegrityError):
                         freeze.write_outputs(output, manifest)
             self.assertEqual(len(calls), 2)
+            self.assertTrue(output.exists())
+            self.assertEqual(output.read_bytes(), self.artifact_bytes)
+            self.assertFalse(manifest.exists())
             self.assertEqual(list(root.glob(".*.tmp")), [])
 
     def test_source_has_no_forbidden_runtime_fallbacks(self):
