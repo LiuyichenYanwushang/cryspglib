@@ -1359,6 +1359,7 @@ def _validate_database_crosslinks(
     ):
         seen_irnumbers = set()
         seen_keys = set()
+        previous_irnumber = None
         for record in records:
             if record.archive is not archive:
                 raise SourceInvariantError(
@@ -1372,7 +1373,16 @@ def _validate_database_crosslinks(
                 raise SourceInvariantError(
                     f"duplicate {archive.value} irnumber {record.irnumber}"
                 )
+            if (
+                previous_irnumber is not None
+                and record.irnumber <= previous_irnumber
+            ):
+                raise SourceInvariantError(
+                    f"{archive.value} records are not in strictly increasing "
+                    f"irnumber order: {previous_irnumber} then {record.irnumber}"
+                )
             seen_irnumbers.add(record.irnumber)
+            previous_irnumber = record.irnumber
             key = (record.spacegroup, record.irrep_label)
             if key in seen_keys:
                 raise SourceInvariantError(

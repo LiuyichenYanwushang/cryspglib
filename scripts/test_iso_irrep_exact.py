@@ -462,6 +462,129 @@ class UniverseAndCacheTests(unittest.TestCase):
                 (record, altered_record), (), tuple(slots)
             )
 
+    def test_database_preserves_archive_irnumber_order(self):
+        identity = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+
+        for archive in (exact.SourceArchive.PIR, exact.SourceArchive.CIR):
+            with self.subTest(archive=archive):
+                base = exact.parse_exact_source_text(
+                    _synthetic_source(archive), archive
+                )[0]
+                second = replace(base, irnumber=2, irrep_label="GM2")
+                records = (base, second)
+                if archive is exact.SourceArchive.PIR:
+                    pir_records, cir_records = records, ()
+                    numbers = (1, 2)
+                else:
+                    pir_records, cir_records = (), records
+                    numbers = (1, 2)
+                universe = exact.ExactSpaceGroupUniverse(
+                    1,
+                    "P1",
+                    exact.Centering.P,
+                    (base.operations[0],),
+                    numbers if archive is exact.SourceArchive.PIR else (),
+                    numbers if archive is exact.SourceArchive.CIR else (),
+                )
+                slots = [None] * 231
+                slots[1] = universe
+                database = exact.ExactIsoIrrepDatabase(
+                    pir_records, cir_records, tuple(slots)
+                )
+                self.assertEqual(
+                    database.source_universe(1).operations[0].rotation,
+                    identity,
+                )
+
+                reversed_universe = replace(
+                    universe,
+                    pir_irnumbers=tuple(reversed(numbers)) if archive is exact.SourceArchive.PIR else (),
+                    cir_irnumbers=tuple(reversed(numbers)) if archive is exact.SourceArchive.CIR else (),
+                )
+                reversed_slots = list(slots)
+                reversed_slots[1] = reversed_universe
+                with self.assertRaises(exact.SourceInvariantError):
+                    exact.ExactIsoIrrepDatabase(
+                        tuple(reversed(records)) if archive is exact.SourceArchive.PIR else (),
+                        () if archive is exact.SourceArchive.PIR else tuple(reversed(records)),
+                        tuple(reversed_slots),
+                    )
+
+    def test_database_rejects_cross_sg_archive_reversal(self):
+        for archive in (exact.SourceArchive.PIR, exact.SourceArchive.CIR):
+            with self.subTest(archive=archive):
+                base = exact.parse_exact_source_text(
+                    _synthetic_source(archive), archive
+                )[0]
+                sg_two = replace(
+                    base,
+                    irnumber=2,
+                    spacegroup=2,
+                    irrep_label="GM2",
+                )
+                records = (base, sg_two)
+                universe_one = exact.ExactSpaceGroupUniverse(
+                    1,
+                    "P1",
+                    exact.Centering.P,
+                    base.operations,
+                    (1,) if archive is exact.SourceArchive.PIR else (),
+                    (1,) if archive is exact.SourceArchive.CIR else (),
+                )
+                universe_two = exact.ExactSpaceGroupUniverse(
+                    2,
+                    "P1",
+                    exact.Centering.P,
+                    sg_two.operations,
+                    (2,) if archive is exact.SourceArchive.PIR else (),
+                    (2,) if archive is exact.SourceArchive.CIR else (),
+                )
+                slots = [None] * 231
+                slots[1] = universe_one
+                slots[2] = universe_two
+                if archive is exact.SourceArchive.PIR:
+                    exact.ExactIsoIrrepDatabase(records, (), tuple(slots))
+                else:
+                    exact.ExactIsoIrrepDatabase((), records, tuple(slots))
+                with self.assertRaises(exact.SourceInvariantError):
+                    if archive is exact.SourceArchive.PIR:
+                        exact.ExactIsoIrrepDatabase(
+                            tuple(reversed(records)), (), tuple(slots)
+                        )
+                    else:
+                        exact.ExactIsoIrrepDatabase(
+                            (), tuple(reversed(records)), tuple(slots)
+                        )
+
+    def test_database_allows_ordered_partial_archive_gaps(self):
+        for archive in (exact.SourceArchive.PIR, exact.SourceArchive.CIR):
+            with self.subTest(archive=archive):
+                base = exact.parse_exact_source_text(
+                    _synthetic_source(archive), archive
+                )[0]
+                third = replace(base, irnumber=3, irrep_label="GM3")
+                records = (base, third)
+                universe = exact.ExactSpaceGroupUniverse(
+                    1,
+                    "P1",
+                    exact.Centering.P,
+                    base.operations,
+                    (1, 3) if archive is exact.SourceArchive.PIR else (),
+                    (1, 3) if archive is exact.SourceArchive.CIR else (),
+                )
+                slots = [None] * 231
+                slots[1] = universe
+                if archive is exact.SourceArchive.PIR:
+                    database = exact.ExactIsoIrrepDatabase(records, (), tuple(slots))
+                else:
+                    database = exact.ExactIsoIrrepDatabase((), records, tuple(slots))
+                self.assertEqual(
+                    database.source_universe(1).pir_irnumbers
+                    if archive is exact.SourceArchive.PIR
+                    else database.source_universe(1).cir_irnumbers,
+                    (1, 3),
+                )
+
     def test_source_lines_snapshot_and_input_boundary(self):
         source_lines = _synthetic_source(exact.SourceArchive.PIR).splitlines()
         self.assertEqual(
