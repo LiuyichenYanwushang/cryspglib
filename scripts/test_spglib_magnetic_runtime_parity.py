@@ -183,6 +183,96 @@ class RuntimeParityTests(unittest.TestCase):
                 ((1, 0, 0), (0, 1, 0), (0, 0, 1)), (0, 0, 0)
             ))
 
+    @staticmethod
+    def _section_layout(frame):
+        layout = []
+        offset = 16
+        for _ in range(parity.SECTION_COUNT):
+            tag = frame[offset:offset + 4]
+            count, length = struct.unpack_from("<QQ", frame, offset + 4)
+            payload = offset + 20
+            layout.append((tag, offset, payload, length, count))
+            offset = payload + length
+        return layout
+
+    def _assert_frame_rejected(self, frame):
+        with self.assertRaises(parity.FrameError):
+            parity.parse_frame(frame)
+
+    def test_parser_rejects_bad_counts_and_fixed_lengths(self):
+        layout = self._section_layout(self.expected)
+
+        count_zero = bytearray(self.expected)
+        struct.pack_into("<Q", count_zero, layout[0][1] + 4, 0)
+        self._assert_frame_rejected(bytes(count_zero))
+
+        count_huge = bytearray(self.expected)
+        struct.pack_into("<Q", count_huge, layout[1][1] + 4, 0xFFFFFFFFFFFFFFFF)
+        self._assert_frame_rejected(bytes(count_huge))
+
+        deleted = bytearray(self.expected)
+        _, _, payload, length, _ = layout[0]
+        del deleted[payload + length - 4:payload + length]
+        struct.pack_into("<Q", deleted, layout[0][1] + 12, length - 4)
+        self._assert_frame_rejected(bytes(deleted))
+
+    def test_parser_rejects_truncation_duplicate_and_trailing(self):
+        layout = self._section_layout(self.expected)
+
+        truncated = self.expected[:-1]
+        self._assert_frame_rejected(truncated)
+
+        duplicate = bytearray(self.expected)
+        duplicate[layout[1][1]:layout[1][1] + 4] = b"SGNO"
+        self._assert_frame_rejected(bytes(duplicate))
+
+        self._assert_frame_rejected(self.expected + b"\0")
+
+    def test_parser_rejects_mtyp_invalid_utf8_and_nul(self):
+        layout = self._section_layout(self.expected)
+        mtyp_payload = layout[3][2]
+        # Record 1 is the first active metadata row; its BNS string starts
+        # after the four i32 fields and the u32 byte-length prefix.
+        string_byte = mtyp_payload + 24 + 16 + 4
+
+        invalid_utf8 = bytearray(self.expected)
+        invalid_utf8[string_byte] = 0xFF
+        self._assert_frame_rejected(bytes(invalid_utf8))
+
+        nul = bytearray(self.expected)
+        nul[string_byte] = 0
+        self._assert_frame_rejected(bytes(nul))
+
+    def test_parser_rejects_variable_payload_errors_and_bad_sequence(self):
+        layout = self._section_layout(self.expected)
+
+        truncated = bytearray(self.expected)
+        _, _, payload, length, _ = layout[12]
+        del truncated[payload + length - 1:payload + length]
+        struct.pack_into("<Q", truncated, layout[12][1] + 12, length - 1)
+        self._assert_frame_rejected(bytes(truncated))
+
+        extra = bytearray(self.expected)
+        extra[payload + length:payload + length] = b"\0"
+        struct.pack_into("<Q", extra, layout[12][1] + 12, length + 1)
+        self._assert_frame_rejected(bytes(extra))
+
+        bad_translation = bytearray(self.expected)
+        # SAPI[1] header is 4 bytes; the first operation's translation begins
+        # after its nine signed rotation bytes.
+        sapi_payload = layout[10][2]
+        bad_translation[sapi_payload + 4 + 9] = 12
+        self._assert_frame_rejected(bytes(bad_translation))
+
+        bad_timerev = bytearray(self.expected)
+        mapi_payload = layout[11][2]
+        bad_timerev[mapi_payload + 6 + 9 + 3] = 2
+        self._assert_frame_rejected(bytes(bad_timerev))
+
+        bad_sequence = bytearray(self.expected)
+        struct.pack_into("<H", bad_sequence, mapi_payload + 2, 2)
+        self._assert_frame_rejected(bytes(bad_sequence))
+
     def _run_rust_frame(self):
         environment = os.environ.copy()
         environment.pop("SPGLIB_DEBUG", None)

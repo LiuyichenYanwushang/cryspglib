@@ -27,6 +27,17 @@ SECTION_COUNTS = (
     531, 531, 8147, 1652, 1652, 531, 1652 * 18, 76683,
     1652 * 18, 8146, 530, 4479, 4479,
 )
+_FIXED_SECTION_WIDTHS = {
+    "SGNO": 4,
+    "SGIX": 8,
+    "SGRW": 4,
+    "MUNI": 8,
+    "MHLL": 8,
+    "MIDX": 8,
+    "MRAW": 4,
+    "MALT": 28,
+    "SDEC": 20,
+}
 SPG_HALL_COUNT = 531
 SPG_HALL_SETTINGS = 530
 SPG_OPERATION_COUNT = 8147
@@ -298,6 +309,112 @@ def build_expected_frame(database=None) -> bytes:
     return MAGIC + struct.pack("<II", VERSION, SECTION_COUNT) + b"".join(sections)
 
 
+def _require_payload(payload: bytes, offset: int, length: int, label: str) -> int:
+    end = offset + length
+    if end > len(payload):
+        raise FrameError(f"{label} is truncated")
+    return end
+
+
+def _validate_mtyp_payload(payload: bytes, record_count: int) -> None:
+    offset = 0
+    for record in range(record_count):
+        offset = _require_payload(payload, offset, 16, f"MTYP[{record}] header")
+        for field in ("bns", "og"):
+            offset = _require_payload(payload, offset, 4, f"MTYP[{record}].{field} length")
+            length = struct.unpack_from("<I", payload, offset - 4)[0]
+            value_offset = offset
+            end = _require_payload(payload, value_offset, length, f"MTYP[{record}].{field}")
+            value = payload[value_offset:end]
+            if b"\0" in value:
+                raise FrameError(f"MTYP[{record}].{field} contains NUL")
+            try:
+                value.decode("utf-8", "strict")
+            except UnicodeDecodeError as error:
+                raise FrameError(f"MTYP[{record}].{field} is not UTF-8") from error
+            offset = end
+    if offset != len(payload):
+        raise FrameError("MTYP has trailing bytes")
+
+
+def _validate_operation_payload(
+    payload: bytes, offset: int, count: int, magnetic: bool, label: str
+) -> int:
+    width = 13 if magnetic else 12
+    for index in range(count):
+        end = _require_payload(payload, offset, width, f"{label}[{index}]")
+        rotation = struct.unpack_from("<9b", payload, offset)
+        if any(value not in (-1, 0, 1) for value in rotation):
+            raise FrameError(f"{label}[{index}] rotation is outside -1..1")
+        translation = payload[offset + 9:offset + 12]
+        if any(value >= TRANSLATION_DENOMINATOR for value in translation):
+            raise FrameError(f"{label}[{index}] translation is out of range")
+        if magnetic and payload[offset + 12] not in (0, 1):
+            raise FrameError(f"{label}[{index}] time reversal is out of range")
+        offset = end
+    return offset
+
+
+def _validate_sapi_payload(payload: bytes, record_count: int) -> None:
+    offset = 0
+    for record in range(record_count):
+        offset = _require_payload(payload, offset, 4, f"SAPI[{record}] header")
+        hall, count = struct.unpack_from("<HH", payload, offset - 4)
+        if hall != record + 1 or count == 0:
+            raise FrameError(f"SAPI[{record}] header is not canonical")
+        offset = _validate_operation_payload(payload, offset, count, False, f"SAPI[{hall}]")
+    if offset != len(payload):
+        raise FrameError("SAPI has trailing bytes")
+
+
+def _validate_msg_variable_payload(
+    payload: bytes, record_count: int, magnetic: bool, label: str
+) -> None:
+    offset = 0
+    previous = None
+    for record in range(record_count):
+        offset = _require_payload(payload, offset, 6, f"{label}[{record}] header")
+        uni, hall, count = struct.unpack_from("<HHH", payload, offset - 6)
+        if not 1 <= uni < MSG_UNI_COUNT or not 1 <= hall < SPG_HALL_COUNT or count == 0:
+            raise FrameError(f"{label}[{record}] header is out of range")
+        if previous is None:
+            if (uni, hall) != (1, 1):
+                raise FrameError(f"{label}[{record}] does not start at UNI1/Hall1")
+        elif uni == previous[0]:
+            if hall != previous[1] + 1:
+                raise FrameError(f"{label}[{record}] Hall sequence is not contiguous")
+        elif uni == previous[0] + 1:
+            # A new UNI starts at its first active Hall; the exact mapping is
+            # checked by the typed loader/Rust parity comparison.
+            pass
+        else:
+            raise FrameError(f"{label}[{record}] UNI sequence is not contiguous")
+        offset = _validate_operation_payload(payload, offset, count, magnetic, f"{label}[{uni},{hall}]")
+        previous = (uni, hall)
+    if offset != len(payload):
+        raise FrameError(f"{label} has trailing bytes")
+
+
+def _validate_section_payload(tag: str, count: int, payload: bytes) -> None:
+    if tag in _FIXED_SECTION_WIDTHS:
+        expected_length = count * _FIXED_SECTION_WIDTHS[tag]
+        if len(payload) != expected_length:
+            raise FrameError(
+                f"{tag} payload length {len(payload)} != {expected_length}"
+            )
+        return
+    if tag == "MTYP":
+        _validate_mtyp_payload(payload, count)
+    elif tag == "SAPI":
+        _validate_sapi_payload(payload, count)
+    elif tag == "MAPI":
+        _validate_msg_variable_payload(payload, count, True, tag)
+    elif tag == "TAPI":
+        _validate_msg_variable_payload(payload, count, False, tag)
+    else:
+        raise FrameError(f"no parser for section {tag!r}")
+
+
 def parse_frame(frame: bytes) -> tuple[tuple[str, int, bytes], ...]:
     """Strictly parse a canonical frame and return `(tag, count, payload)` rows."""
     if type(frame) is not bytes:
@@ -321,11 +438,17 @@ def parse_frame(frame: bytes) -> tuple[tuple[str, int, bytes], ...]:
         if tag != expected_tag:
             raise FrameError(f"section {index} tag {tag!r} != {expected_tag!r}")
         count, payload_length = struct.unpack_from("<QQ", frame, offset + 4)
+        expected_count = SECTION_COUNTS[index]
+        if count != expected_count:
+            raise FrameError(
+                f"section {tag} record count {count} != {expected_count}"
+            )
         offset += 20
         end = offset + payload_length
         if end > len(frame):
             raise FrameError(f"section {tag} payload is truncated")
         payload = frame[offset:end]
+        _validate_section_payload(tag, count, payload)
         result.append((tag, count, payload))
         offset = end
     if offset != len(frame):
