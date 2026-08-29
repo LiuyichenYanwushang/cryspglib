@@ -27,6 +27,18 @@ import threading
 from typing import Optional
 
 
+_NATIVE_DATACLASS_SLOTS = False
+try:
+    _NATIVE_DATACLASS_SLOTS = "slots" in __import__(
+        "inspect"
+    ).signature(dataclass).parameters
+except (TypeError, ValueError):
+    pass
+_DATACLASS_OPTIONS = {"frozen": True}
+if _NATIVE_DATACLASS_SLOTS:
+    _DATACLASS_OPTIONS["slots"] = True
+
+
 _MODULE_DIR = Path(__file__).resolve().parent
 _DATA_DIR = _MODULE_DIR / "data"
 _ARTIFACT_NAME = "iso_irrep_data_hall_v1.json"
@@ -222,8 +234,12 @@ def _exact_shift(value, context: str):
     )
 
 
-@dataclass(frozen=True)
+@dataclass(**_DATACLASS_OPTIONS)
 class SourceToHallMapping:
+    if not _NATIVE_DATACLASS_SLOTS:
+        __slots__ = (
+            "source_operation_index", "hall_operation_index", "shift_numerator"
+        )
     source_operation_index: int
     hall_operation_index: int
     shift_numerator: tuple
@@ -234,8 +250,12 @@ class SourceToHallMapping:
         _exact_shift(self.shift_numerator, "shift_numerator")
 
 
-@dataclass(frozen=True)
+@dataclass(**_DATACLASS_OPTIONS)
 class HallToSourceMapping:
+    if not _NATIVE_DATACLASS_SLOTS:
+        __slots__ = (
+            "hall_operation_index", "source_operation_index", "shift_numerator"
+        )
     hall_operation_index: int
     source_operation_index: int
     shift_numerator: tuple
@@ -246,8 +266,16 @@ class HallToSourceMapping:
         _exact_shift(self.shift_numerator, "shift_numerator")
 
 
-@dataclass(frozen=True)
+@dataclass(**_DATACLASS_OPTIONS)
 class DataHallFrame:
+    if not _NATIVE_DATACLASS_SLOTS:
+        __slots__ = (
+            "spacegroup", "source_symbol", "centering",
+            "pir_anchor_irnumber", "cir_anchor_irnumber",
+            "raw_candidate_halls", "data_hall", "basis", "origin_numerator",
+            "source_operation_count", "hall_operation_count", "source_to_hall",
+            "hall_to_source",
+        )
     spacegroup: int
     source_symbol: str
     centering: str
@@ -266,8 +294,19 @@ class DataHallFrame:
         _validate_frame(self)
 
 
-@dataclass(frozen=True)
+@dataclass(**_DATACLASS_OPTIONS)
 class DataHallCensus:
+    if not _NATIVE_DATACLASS_SLOTS:
+        __slots__ = (
+            "pir_records", "cir_records", "source_representatives",
+            "raw_unique", "raw_ambiguous", "raw_missing",
+            "raw_ambiguous_spacegroups", "filtered_unique",
+            "filtered_ambiguous", "filtered_missing", "selected_hall_operations",
+            "source_to_hall", "source_to_hall_nonzero", "hall_to_source",
+            "hall_to_source_nonzero", "hall_to_source_shifts",
+            "hall_to_source_cosets", "expanded_normalization_nonzero",
+            "expanded_normalization_shifts", "centering_counts",
+        )
     pir_records: int
     cir_records: int
     source_representatives: int
@@ -293,8 +332,10 @@ class DataHallCensus:
         _validate_census_fields(self)
 
 
-@dataclass(frozen=True)
+@dataclass(**_DATACLASS_OPTIONS)
 class DataHallProvenanceDatabase:
+    if not _NATIVE_DATACLASS_SLOTS:
+        __slots__ = ("frames", "census")
     frames: tuple
     census: DataHallCensus
 

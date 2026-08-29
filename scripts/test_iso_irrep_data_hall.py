@@ -19,6 +19,17 @@ DATA_DIR = Path(__file__).parent / "data"
 ARTIFACT = DATA_DIR / "iso_irrep_data_hall_v1.json"
 MANIFEST = DATA_DIR / "iso_irrep_data_hall_v1.manifest.json"
 
+# Keep these literals independent of the loader constants and committed JSON
+# parsing, so accidental changes to either side cannot make this test vacuous.
+GOLDEN_ARTIFACT_BYTES = 697_730
+GOLDEN_ARTIFACT_SHA256 = (
+    "35bcb00958021eb6fc5a330f8dbf85a80be78ccec324f441e6138cdba4b617e0"
+)
+GOLDEN_MANIFEST_BYTES = 869
+GOLDEN_MANIFEST_SHA256 = (
+    "bc6aa7a94d698f2193e7cb623b16dded2dd8e0307d502cf28b68c554f364d7e2"
+)
+
 
 def _canonical(value):
     return json.dumps(
@@ -40,14 +51,18 @@ class DataHallLoaderTests(unittest.TestCase):
         loader._reset_cache_for_test()
 
     def test_fixed_pair_census_and_witnesses(self):
-        self.assertEqual(len(self.artifact_bytes), loader.ARTIFACT_BYTE_LENGTH)
+        self.assertEqual(len(self.artifact_bytes), GOLDEN_ARTIFACT_BYTES)
         self.assertEqual(
-            hashlib.sha256(self.artifact_bytes).hexdigest(), loader.ARTIFACT_SHA256
+            hashlib.sha256(self.artifact_bytes).hexdigest(), GOLDEN_ARTIFACT_SHA256
         )
-        self.assertEqual(len(self.manifest_bytes), loader.MANIFEST_BYTE_LENGTH)
+        self.assertEqual(len(self.manifest_bytes), GOLDEN_MANIFEST_BYTES)
         self.assertEqual(
-            hashlib.sha256(self.manifest_bytes).hexdigest(), loader.MANIFEST_SHA256
+            hashlib.sha256(self.manifest_bytes).hexdigest(), GOLDEN_MANIFEST_SHA256
         )
+        self.assertEqual(loader.ARTIFACT_BYTE_LENGTH, GOLDEN_ARTIFACT_BYTES)
+        self.assertEqual(loader.ARTIFACT_SHA256, GOLDEN_ARTIFACT_SHA256)
+        self.assertEqual(loader.MANIFEST_BYTE_LENGTH, GOLDEN_MANIFEST_BYTES)
+        self.assertEqual(loader.MANIFEST_SHA256, GOLDEN_MANIFEST_SHA256)
         database = self.database
         self.assertIs(type(database), loader.DataHallProvenanceDatabase)
         self.assertIs(type(database.frames), tuple)
@@ -129,6 +144,10 @@ class DataHallLoaderTests(unittest.TestCase):
             if isinstance(value, (list, dict)):
                 self.fail("mutable payload leaked into public graph")
             if is_dataclass(value) and not isinstance(value, type):
+                self.assertFalse(
+                    hasattr(value, "__dict__"),
+                    f"dataclass {type(value).__name__} unexpectedly has __dict__",
+                )
                 for field in fields(value):
                     visit(getattr(value, field.name))
             elif type(value) is tuple:
@@ -148,6 +167,25 @@ class DataHallLoaderTests(unittest.TestCase):
             replace(self.database.census, centering_counts=[])
         with self.assertRaises(loader.DataHallSchemaError):
             loader.DataHallProvenanceDatabase(list(self.database.frames), self.database.census)
+
+        database = self.database
+        frame = database.frames[0]
+        census = database.census
+        source_mapping = frame.source_to_hall[0]
+        hall_mapping = frame.hall_to_source[0]
+        for value in (database, census, frame, source_mapping, hall_mapping):
+            with self.subTest(value=type(value).__name__):
+                with self.assertRaises(AttributeError):
+                    value.__dict__
+                with self.assertRaises((AttributeError, TypeError)):
+                    value.__dict__ = {}
+
+        current_database = loader.load_committed_data_hall_provenance()
+        current_frame = current_database.frames[0]
+        self.assertIs(loader.data_hall_frame(1), current_frame)
+        self.assertEqual(loader.data_hall_for_spacegroup(1), 1)
+        self.assertEqual(current_frame.source_to_hall[0], source_mapping)
+        self.assertEqual(current_frame.hall_to_source[0], hall_mapping)
 
     def test_private_parser_rejects_encoding_and_semantic_corruption(self):
         for data in (
