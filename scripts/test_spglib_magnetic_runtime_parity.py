@@ -9,6 +9,7 @@ from pathlib import Path
 import struct
 import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -86,6 +87,13 @@ class RuntimeParityTests(unittest.TestCase):
     def setUpClass(cls):
         cls.database = provenance.load_committed_provenance()
         cls.expected = parity.build_expected_frame(cls.database)
+        cls._cargo_target = tempfile.TemporaryDirectory(
+            prefix="cryspglib-magnetic-parity-target-"
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._cargo_target.cleanup()
 
     def test_python_frame_is_deterministic_and_strictly_structured(self):
         self.assertEqual(self.expected, parity.build_expected_frame(self.database))
@@ -278,11 +286,9 @@ class RuntimeParityTests(unittest.TestCase):
         environment.pop("SPGLIB_DEBUG", None)
         environment.pop("SPGLIB_INFO", None)
         environment["SPGLIB_WARNING"] = "OFF"
-        # The surrounding workspace may expose a read-only target directory;
-        # an explicit temporary target keeps this repo-only gate runnable.
-        environment.setdefault(
-            "CARGO_TARGET_DIR", "/tmp/cryspglib-magnetic-parity-target"
-        )
+        # Both release invocations in this class share one isolated target;
+        # no caller-provided target directory can affect the gate.
+        environment["CARGO_TARGET_DIR"] = self._cargo_target.name
         if extra_environment:
             environment.update(extra_environment)
         return subprocess.run(
