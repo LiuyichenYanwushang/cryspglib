@@ -273,7 +273,7 @@ class RuntimeParityTests(unittest.TestCase):
         struct.pack_into("<H", bad_sequence, mapi_payload + 2, 2)
         self._assert_frame_rejected(bytes(bad_sequence))
 
-    def _run_rust_frame(self):
+    def _run_rust_process(self, extra_environment=None):
         environment = os.environ.copy()
         environment.pop("SPGLIB_DEBUG", None)
         environment.pop("SPGLIB_INFO", None)
@@ -283,7 +283,9 @@ class RuntimeParityTests(unittest.TestCase):
         environment.setdefault(
             "CARGO_TARGET_DIR", "/tmp/cryspglib-magnetic-parity-target"
         )
-        result = subprocess.run(
+        if extra_environment:
+            environment.update(extra_environment)
+        return subprocess.run(
             [
                 "cargo", "run", "--release", "--quiet", "--example",
                 "magnetic_database_parity_dump",
@@ -294,12 +296,26 @@ class RuntimeParityTests(unittest.TestCase):
             stderr=subprocess.PIPE,
             timeout=300,
         )
+
+    def _run_rust_frame(self):
+        result = self._run_rust_process()
         if result.returncode != 0:
             self.fail(
                 "Rust parity example failed with status "
                 f"{result.returncode}: {result.stderr.decode('utf-8', 'replace')}"
             )
         return result.stdout
+
+    @unittest.skipUnless(
+        os.environ.get("CRYSPGLIB_RUN_MAGNETIC_DB_PARITY") == "1",
+        "set CRYSPGLIB_RUN_MAGNETIC_DB_PARITY=1 for the Rust runtime gate",
+    )
+    def test_rust_rejects_diagnostic_environment_without_stdout(self):
+        result = self._run_rust_process({"SPGLIB_DEBUG": "1"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, b"")
+        self.assertIn(b"SPGLIB_DEBUG", result.stderr)
+        self.assertIn(b"binary parity output", result.stderr)
 
     def _assert_frame_equal(self, expected: bytes, actual: bytes):
         expected_sections = parity.parse_frame(expected)

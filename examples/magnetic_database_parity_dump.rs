@@ -748,7 +748,19 @@ fn build_frame() -> Result<Vec<u8>> {
     Ok(frame)
 }
 
+fn reject_diagnostic_environment() -> Result<()> {
+    for variable in ["SPGLIB_DEBUG", "SPGLIB_INFO"] {
+        if std::env::var_os(variable).is_some() {
+            return error(format!(
+                "{variable} set: binary parity output requires diagnostics disabled"
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn run() -> Result<()> {
+    reject_diagnostic_environment()?;
     let frame = build_frame()?;
     let stdout = io::stdout();
     let mut output = io::BufWriter::new(stdout.lock());
