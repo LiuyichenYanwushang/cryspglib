@@ -2824,10 +2824,11 @@ def _sidecar_source_hall_mapping(frame, sg_num, label, source_rots,
     """Validate one scalar source row against its sidecar Hall mapping.
 
     The sidecar supplies the operation permutation and exact lattice shift;
-    the legacy Hall table remains the source of the historical decimal
-    translations used by the existing phase materialization code.  When the
-    exact source frame and target are supplied, this also checks the source
-    binary64 bridge and exact mapping direction.
+    the legacy Hall table is retained only for its selected operation order
+    and historical decimal bridge diagnostic.  Scalar phase and translation
+    materialization uses the exact target, never a legacy translation
+    subtraction.  When the exact source frame and target are supplied, this
+    also checks the source binary64 bridge and exact mapping direction.
     """
     source_count = frame.source_operation_count
     hall_count = frame.hall_operation_count
@@ -2942,8 +2943,9 @@ def _reorder_to_spglib_order(
     """Reorder per-irrep data from ISOTROPY order into spglib Hall order.
 
     Scalar Hall selection is supplied by the fixed data--Hall sidecar.  The
-    legacy Hall table is used only for its selected operation order and
-    historical decimal translations.
+    legacy Hall table is used only for its selected operation order and the
+    fixed ten-decimal bridge diagnostic; scalar phase/translation values come
+    from the exact sidecar target.
 
     Returns per-irrep list: None if unmapped, otherwise list[h_idx→pir_idx].
     Spinor entries appended after scalar entries.
@@ -3036,21 +3038,13 @@ def _reorder_to_spglib_order(
                     old_re = little_chars_real[start:start + n_ops]
                     old_im = little_chars_imag[start:start + n_ops]
                     old_valid = little_chars_valid[start:start + n_ops]
-                    old_trans = pir_trans_flat[
-                        pir_trans_starts[i]:pir_trans_starts[i] + n_ops * 3]
-                    kx, ky, kz, kd = _lookup_kvec(kvec_map, sg_num, ml[i])
+                    kvec = _lookup_kvec(kvec_map, sg_num, ml[i])
                     for h, source in enumerate(mapping):
                         if source is None or source >= n_ops:
                             little_chars_valid[start + h] = 0
                             continue
-                        delta = [
-                            hall_trans[h][axis] - old_trans[source * 3 + axis]
-                            for axis in range(3)
-                        ]
-                        theta = 2.0 * math.pi * (
-                            kx * delta[0] + ky * delta[1] + kz * delta[2]) / kd
-                        phase_re = math.cos(theta)
-                        phase_im = math.sin(theta)
+                        phase_re, phase_im = _exact_shift_phase(
+                            exact_target.shift_numerators[h], kvec)
                         phased_real, phased_imag = _phase_real_imag(
                             old_re[source], old_im[source], phase_re, phase_im)
                         little_chars_real[start + h] = phased_real
@@ -3065,6 +3059,16 @@ def _reorder_to_spglib_order(
                     if pir_trans_flat is not None and pir_trans_starts is not None:
                         _apply_reorder(
                             pir_trans_flat, pir_trans_starts[i], n_ops, mapping, 3)
+                        exact_translations = exact_target.translations_f64
+                        if len(exact_translations) != n_ops:
+                            raise ValueError(
+                                f"scalar SG{sg_num} {ml[i]!r} exact translation "
+                                "count does not match source operation count"
+                            )
+                        for h, translation in enumerate(exact_translations):
+                            pir_trans_flat[
+                                pir_trans_starts[i] + h * 3:
+                                pir_trans_starts[i] + (h + 1) * 3] = translation
             char_counts[i] = len(mapping)
             sg_hall_choice[sg_num] = (hall_num, mapping, hall_target[1])
             reorder_results.append(mapping)
@@ -3110,26 +3114,39 @@ def _reorder_to_spglib_order(
             # Reorder selected-arm CIR data for every component.  Full Seitz
             # representatives can differ by a lattice vector between source
             # and Hall tables, so the corresponding Bloch phase is mandatory.
-            hall_trans = hall_targets[i][1]
+            if not 1 <= sg[i] <= 230 or sg[i] - 1 >= len(exact_scalar_hall_targets):
+                raise ValueError(
+                    f"compound SG{sg[i]} {ml[i]!r} has no exact Hall target"
+                )
+            exact_target = exact_scalar_hall_targets[sg[i] - 1]
+            exact_translations = exact_target.translations_f64
             kvec = _lookup_kvec(kvec_map, sg[i], ml[i])
             for comp in range(n_comp):
                 comp_char_start = cir_start + comp * cir_ops * 2
                 comp_trans_start = (cir_start // 2) * 3 + comp * cir_ops * 3
                 old_chars = cir_comp_flat[
                     comp_char_start:comp_char_start + cir_ops * 2]
-                old_trans = cir_comp_trans[
-                    comp_trans_start:comp_trans_start + cir_ops * 3]
                 for h, source in enumerate(mapping):
                     source_value = complex(
                         old_chars[source * 2], old_chars[source * 2 + 1])
-                    source_translation = old_trans[source * 3:source * 3 + 3]
-                    value = _phase_character(
-                        source_value, hall_trans[h], source_translation, kvec)
-                    cir_comp_flat[comp_char_start + h * 2] = value.real
-                    cir_comp_flat[comp_char_start + h * 2 + 1] = value.imag
+                    phase_re, phase_im = _exact_shift_phase(
+                        exact_target.shift_numerators[h], kvec)
+                    phased_real, phased_imag = _phase_real_imag(
+                        source_value.real, source_value.imag, phase_re, phase_im)
+                    cir_comp_flat[comp_char_start + h * 2] = phased_real
+                    cir_comp_flat[comp_char_start + h * 2 + 1] = phased_imag
                 comp_rot_start = (cir_start // 2) * 9 + comp * cir_ops * 9
                 _apply_reorder(cir_comp_rots, comp_rot_start, cir_ops, mapping, 9)
                 _apply_reorder(cir_comp_trans, comp_trans_start, cir_ops, mapping, 3)
+                if len(exact_translations) != cir_ops:
+                    raise ValueError(
+                        f"compound SG{sg[i]} {ml[i]!r} exact translation count "
+                        "does not match operation count"
+                    )
+                for h, translation in enumerate(exact_translations):
+                    cir_comp_trans[
+                        comp_trans_start + h * 3:
+                        comp_trans_start + (h + 1) * 3] = translation
             cir_reordered += 1
 
     if cir_reordered > 0:
@@ -3310,6 +3327,35 @@ def _phase_real_imag(real, imag, phase_re, phase_im):
     )
 
 
+def _exact_shift_phase(shift_numerator, kvec):
+    """Return ``exp(+2*pi*i*k.q/(kd*12))`` from exact source integers.
+
+    ``shift_numerator`` is the unwrapped H2S numerator in the convention
+    ``hall = source + shift/12``.  The rational turn count is constructed
+    before converting to binary64; no source/target translation subtraction,
+    modulo reduction, tolerance, or snapping is involved.  An exact zero
+    turn count returns the exact identity phase so a zero sidecar shift cannot
+    inherit decimal-source roundoff.
+    """
+    if (type(shift_numerator) is not tuple
+            or len(shift_numerator) != 3
+            or any(type(value) is not int for value in shift_numerator)):
+        raise ValueError("exact Hall shift must be a tuple of three integers")
+    if (type(kvec) is not tuple or len(kvec) != 4
+            or any(type(value) is not int for value in kvec)):
+        raise ValueError("exact k-vector must be a tuple of four integers")
+    kx, ky, kz, kd = kvec
+    if kd <= 0:
+        raise ValueError("exact k-vector denominator must be positive")
+    numerator = kx * shift_numerator[0]
+    numerator += ky * shift_numerator[1] + kz * shift_numerator[2]
+    turns = Fraction(numerator, kd * TRANSLATION_DENOMINATOR)
+    if turns == 0:
+        return 1.0, 0.0
+    theta = 2.0 * math.pi * float(turns)
+    return math.cos(theta), math.sin(theta)
+
+
 def _align_cir_characters(values, source_rots, source_trans,
                           target_rots, target_trans, kvec):
     """Align one CIR character row to a target full-Seitz operation order."""
@@ -3452,7 +3498,7 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                           spinor_starts, spinor_counts,
                           reorder_map_per_irrep=None,
                           orig_char_counts=None,
-                          hall_targets=None):
+                          hall_targets=None, exact_scalar_hall_targets=None):
     """Rebuild flat arrays with padded entries for compound irreps expanded to Hall size."""
     n_scalar = len(char_starts)
     plans_by_idx = {i: (hall_ops, cir_to_hall) for i, hall_ops, cir_to_hall in padding_plans}
@@ -3471,6 +3517,16 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
     for i in range(n_scalar):
         if i not in plans_by_idx and _needs_resize(i):
             resize_plans[i] = reorder_map_per_irrep[i]
+
+    def _exact_target_for(index):
+        if (exact_scalar_hall_targets is None
+                or not 1 <= sg[index] <= 230
+                or sg[index] - 1 >= len(exact_scalar_hall_targets)):
+            raise ValueError(f"missing exact Hall target for scalar irrep {index}")
+        target = exact_scalar_hall_targets[sg[index] - 1]
+        if type(target) is not _ExactScalarHallTarget:
+            raise ValueError(f"invalid exact Hall target for scalar irrep {index}")
+        return target
 
     # Rebuild chars_flat
     new_chars = []
@@ -3533,30 +3589,21 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
     new_little_imag = _rebuild_parallel_character_array(little_chars_imag, 0.0)
     new_little_valid = _rebuild_parallel_character_array(little_chars_valid, 0)
     for i, mapping in resize_plans.items():
-        target = hall_targets[i] if hall_targets is not None else None
-        if target is None:
-            continue
-        _hall_rots, hall_trans = target
+        exact_target = _exact_target_for(i)
+        exact_shifts = exact_target.shift_numerators
+        if len(exact_shifts) != len(mapping):
+            raise ValueError(f"exact Hall shift count mismatch for resized irrep {i}")
         old_n = orig_char_counts[i]
         old_re = little_chars_real[char_starts[i]:char_starts[i] + old_n]
         old_im = little_chars_imag[char_starts[i]:char_starts[i] + old_n]
         old_valid = little_chars_valid[char_starts[i]:char_starts[i] + old_n]
-        old_trans = pir_trans_flat[
-            pir_trans_starts[i]:pir_trans_starts[i] + old_n * 3]
-        kx, ky, kz, kd = _lookup_kvec(kvec_map, sg[i], ml[i])
+        kvec = _lookup_kvec(kvec_map, sg[i], ml[i])
         new_start = new_char_starts[i]
         for h, source in enumerate(mapping):
             if source is None or source >= old_n:
                 new_little_valid[new_start + h] = 0
                 continue
-            delta = [
-                hall_trans[h][axis] - old_trans[source * 3 + axis]
-                for axis in range(3)
-            ]
-            theta = 2.0 * math.pi * (
-                kx * delta[0] + ky * delta[1] + kz * delta[2]) / kd
-            phase_re = math.cos(theta)
-            phase_im = math.sin(theta)
+            phase_re, phase_im = _exact_shift_phase(exact_shifts[h], kvec)
             phased_real, phased_imag = _phase_real_imag(
                 old_re[source], old_im[source], phase_re, phase_im)
             new_little_real[new_start + h] = phased_real
@@ -3646,29 +3693,24 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
     new_trans_starts = []
     for i in range(n_scalar):
         new_trans_starts.append(len(new_trans))
-        old_end = (pir_trans_starts[i + 1]
-                   if i + 1 < n_scalar else len(pir_trans_flat))
+        exact_target = _exact_target_for(i)
+        exact_translations = exact_target.translations_f64
         if i in plans_by_idx:
             hall_ops, cir_to_hall = plans_by_idx[i]
-            old_ops = len(cir_to_hall)
-            old_t = pir_trans_flat[pir_trans_starts[i]:pir_trans_starts[i] + old_ops * 3]
-            for h in range(hall_ops):
-                ci = next((cii for cii, hi in enumerate(cir_to_hall) if hi == h), None)
-                if ci is not None and ci < old_ops:
-                    new_trans.extend(old_t[ci * 3:(ci + 1) * 3])
-                else:
-                    new_trans.extend([0.0] * 3)
+            if len(exact_translations) != hall_ops:
+                raise ValueError(f"exact Hall translation count mismatch for irrep {i}")
+            for translation in exact_translations:
+                new_trans.extend(translation)
         elif i in resize_plans:
-            target = hall_targets[i] if hall_targets is not None else None
-            if target is None:
-                raise ValueError(f"missing Hall target for resized irrep {i}")
-            _hall_rots, hall_trans = target
-            if len(hall_trans) != len(resize_plans[i]):
-                raise ValueError(f"Hall translation count mismatch for irrep {i}")
-            for translation in hall_trans:
+            if len(exact_translations) != len(resize_plans[i]):
+                raise ValueError(f"exact Hall translation count mismatch for irrep {i}")
+            for translation in exact_translations:
                 new_trans.extend(translation)
         else:
-            new_trans.extend(pir_trans_flat[pir_trans_starts[i]:old_end])
+            if len(exact_translations) != char_counts[i]:
+                raise ValueError(f"exact Hall translation count mismatch for irrep {i}")
+            for translation in exact_translations:
+                new_trans.extend(translation)
 
     # Rebuild cir_comp_flat and cir_comp_rots
     new_cir_flat = []
@@ -3682,12 +3724,15 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
             new_cir_starts.append(0)
             continue
         new_cir_starts.append(len(new_cir_flat))
+        exact_target = _exact_target_for(i)
+        exact_translations = exact_target.translations_f64
         if i in plans_by_idx:
             hall_ops, cir_to_hall = plans_by_idx[i]
+            if len(exact_translations) != hall_ops:
+                raise ValueError(f"exact Hall translation count mismatch for irrep {i}")
             for comp in range(n_comp):
                 old_start = cir_comp_starts[i] + comp * old_ops * 2
                 old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
-                old_trans_start = (cir_comp_starts[i] // 2) * 3 + comp * old_ops * 3
                 for h in range(hall_ops):
                     ci = None
                     for cii, hi in enumerate(cir_to_hall):
@@ -3698,12 +3743,11 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                         new_cir_flat.append(cir_comp_flat[old_start + ci * 2])
                         new_cir_flat.append(cir_comp_flat[old_start + ci * 2 + 1])
                         new_cir_rots.extend(cir_comp_rots[old_rot_start + ci * 9:old_rot_start + (ci + 1) * 9])
-                        new_cir_trans.extend(cir_comp_trans[old_trans_start + ci * 3:old_trans_start + (ci + 1) * 3])
                     else:
                         new_cir_flat.append(0.0)
                         new_cir_flat.append(0.0)
                         new_cir_rots.extend([0] * 9)
-                        new_cir_trans.extend([0.0] * 3)
+                    new_cir_trans.extend(exact_translations[h])
             cir_comp_ops[i] = hall_ops
         else:
             # Check if this mapped entry needs CIR expansion too
@@ -3713,25 +3757,28 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                 target = hall_targets[i] if hall_targets is not None else None
                 if target is None:
                     raise ValueError(f"missing Hall target for resized CIR irrep {i}")
-                hall_rots, hall_trans = target
+                hall_rots, _hall_trans = target
+                if (len(exact_translations) != hall_ops
+                        or len(exact_target.shift_numerators) != hall_ops):
+                    raise ValueError(f"exact Hall target count mismatch for irrep {i}")
                 kvec = _lookup_kvec(kvec_map, sg[i], ml[i])
                 for comp in range(n_comp):
                     old_start = cir_comp_starts[i] + comp * old_ops * 2
                     old_rot_start = (cir_comp_starts[i] // 2) * 9 + comp * old_ops * 9
-                    old_trans_start = (cir_comp_starts[i] // 2) * 3 + comp * old_ops * 3
                     for h in range(hall_ops):
                         ci = mapping[h]
                         if ci is not None and ci < old_ops:
                             source_value = complex(
                                 cir_comp_flat[old_start + ci * 2],
                                 cir_comp_flat[old_start + ci * 2 + 1])
-                            source_translation = cir_comp_trans[
-                                old_trans_start + ci * 3:old_trans_start + (ci + 1) * 3]
-                            value = _phase_character(
-                                source_value, hall_trans[h], source_translation, kvec)
-                            new_cir_flat.extend([value.real, value.imag])
+                            phase_re, phase_im = _exact_shift_phase(
+                                exact_target.shift_numerators[h], kvec)
+                            phased_real, phased_imag = _phase_real_imag(
+                                source_value.real, source_value.imag,
+                                phase_re, phase_im)
+                            new_cir_flat.extend([phased_real, phased_imag])
                             new_cir_rots.extend(hall_rots[h])
-                            new_cir_trans.extend(hall_trans[h])
+                            new_cir_trans.extend(exact_translations[h])
                         else:
                             new_cir_flat.append(0.0)
                             new_cir_flat.append(0.0)
@@ -3745,10 +3792,11 @@ def _apply_padding_plans(padding_plans, chars_flat, char_starts, char_counts,
                 old_rot_start = (cir_comp_starts[i] // 2) * 9
                 total_rots = n_comp * old_ops * 9
                 new_cir_rots.extend(cir_comp_rots[old_rot_start:old_rot_start + total_rots])
-                old_trans_start = (cir_comp_starts[i] // 2) * 3
-                total_trans = n_comp * old_ops * 3
-                new_cir_trans.extend(
-                    cir_comp_trans[old_trans_start:old_trans_start + total_trans])
+                if len(exact_translations) != old_ops:
+                    raise ValueError(f"exact Hall translation count mismatch for irrep {i}")
+                for _component in range(n_comp):
+                    for translation in exact_translations:
+                        new_cir_trans.extend(translation)
 
     # Copy back, preserving spinor data at the end.
     # Use spinor_starts[0] as the true scalar/spinor boundary, because
@@ -4319,7 +4367,9 @@ def generate_rust_data(data):
                              spinor_starts, spinor_counts,
                              reorder_map_per_irrep=reorder_map_per_irrep,
                              orig_char_counts=orig_char_counts,
-                             hall_targets=hall_targets)
+                             hall_targets=hall_targets,
+                             exact_scalar_hall_targets=data.get(
+                                 "exact_scalar_hall_targets"))
 
     # The final arrays are now in data-Hall order.  Freeze and verify the
     # operation binding only after every reorder/padding mutation is complete.
@@ -4566,7 +4616,7 @@ def generate_rust_data(data):
     lines.append(f"pub static PIR_TRANS: [f64; {len(pir_trans_flat)}] = [")
     for chunk_start in range(0, len(pir_trans_flat), 3):
         chunk = pir_trans_flat[chunk_start:chunk_start + 3]
-        vals = ", ".join(_fmt_char(v) for v in chunk)
+        vals = ", ".join(_format_scalar_roundtrip_f64(v) for v in chunk)
         lines.append(f"    {vals},")
     lines.append("];")
     lines.append("")

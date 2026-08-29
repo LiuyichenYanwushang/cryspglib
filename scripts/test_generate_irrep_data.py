@@ -6,6 +6,7 @@ import struct
 import tempfile
 import hashlib
 import json
+from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -371,14 +372,19 @@ class DataHallSelectionTests(unittest.TestCase):
         self.assertNotIn("best_exact_count", source)
         self.assertNotIn("rot_cache", source)
 
-    def test_decimal_phase_regression_does_not_use_exact_sidecar_shift(self):
-        phased = generator._phase_character(
-            1.0 + 0.0j,
-            [0.3333333333, 0.0, 0.0],
-            [1.0 / 3.0, 0.0, 0.0],
-            (1, 0, 0, 2),
-        )
-        self.assertEqual(phased.imag, -1.0471976378421116e-10)
+    def test_zero_exact_shift_is_not_perturbed_by_decimal_source(self):
+        phase_re, phase_im = generator._exact_shift_phase(
+            (0, 0, 0), (1, 0, 0, 2))
+        phased_re, phased_im = generator._phase_real_imag(
+            1.0, 0.0, phase_re, phase_im)
+        self.assertEqual(phased_re, 1.0)
+        self.assertEqual(phased_im, 0.0)
+
+    def test_exact_translation_serializer_preserves_fraction_bits(self):
+        exact = float(Fraction(1, 3))
+        literal = generator._format_scalar_roundtrip_f64(exact)
+        self.assertEqual(literal, "0.3333333333333333")
+        self.assertNotEqual(literal, "0.3333333333")
 
 
 class Radical4CodebookTests(unittest.TestCase):
@@ -1023,6 +1029,69 @@ class ExactScalarProvenanceTests(unittest.TestCase):
             generator._sidecar_source_hall_mapping(
                 frame, 5, "GM1", source_rots, bad_source_trans,
                 hall_rots, hall_trans, source_frame, exact_target)
+
+    def test_exact_shift_phase_sign_zero_and_unwrapped_value(self):
+        phase_re, phase_im = generator._exact_shift_phase((6, 0, 0), (1, 0, 0, 2))
+        self.assertAlmostEqual(phase_re, 0.0, places=15)
+        self.assertAlmostEqual(phase_im, 1.0, places=15)
+        negative_re, negative_im = generator._exact_shift_phase(
+            (-6, 0, 0), (1, 0, 0, 2))
+        self.assertAlmostEqual(negative_re, 0.0, places=15)
+        self.assertAlmostEqual(negative_im, -1.0, places=15)
+        zero_re, zero_im = generator._exact_shift_phase((0, 0, 0), (1, 0, 0, 3))
+        self.assertEqual(zero_re, 1.0)
+        self.assertEqual(zero_im, 0.0)
+        half_re, half_im = generator._exact_shift_phase((12, 0, 0), (1, 0, 0, 2))
+        self.assertAlmostEqual(half_re, -1.0, places=15)
+        self.assertAlmostEqual(half_im, 0.0, places=15)
+
+    def test_phase_c_resize_uses_exact_shift_and_translations(self):
+        identity = (1, 0, 0, 0, 1, 0, 0, 0, 1)
+        target = generator._ExactScalarHallTarget(
+            1, 1, (0, 0), ((0, 0, 0), (6, 0, 0)),
+            (identity, identity), ((0, 0, 0), (6, 0, 0)),
+            ((0.0, 0.0, 0.0), (0.5, 0.0, 0.0)),
+        )
+        chars_flat = [1.0, 1.0]
+        char_starts = [0]
+        char_counts = [2]
+        little_real = [1.0]
+        little_imag = [0.0]
+        little_valid = [1]
+        matrices = [1.0]
+        mat_starts = [0]
+        mat_counts = [1]
+        pir_rots = list(identity)
+        pir_rot_starts = [0]
+        pir_trans = [0.0, 0.0, 0.0]
+        pir_trans_starts = [0]
+        cir_flat = [1.0, 0.0]
+        cir_rots = list(identity)
+        cir_trans = [0.0, 0.0, 0.0]
+        cir_starts = [0]
+        cir_counts = [1]
+        cir_ops = [1]
+        generator._apply_padding_plans(
+            [], chars_flat, char_starts, char_counts,
+            little_real, little_imag, little_valid,
+            [1], ["GM1"], {(1, "GM1"): (1, 0, 0, 2)},
+            matrices, mat_starts, mat_counts,
+            pir_rots, pir_rot_starts, pir_trans, pir_trans_starts,
+            cir_flat, cir_rots, cir_trans,
+            cir_starts, cir_counts, cir_ops,
+            [], [], reorder_map_per_irrep=[[0, 0]], orig_char_counts=[1],
+            hall_targets=[([identity, identity], [[0.0, 0.0, 0.0],
+                                                 [0.5, 0.0, 0.0]])],
+            exact_scalar_hall_targets=(target,),
+        )
+        self.assertEqual(pir_trans, [0.0, 0.0, 0.0, 0.5, 0.0, 0.0])
+        self.assertEqual(cir_trans, [0.0, 0.0, 0.0, 0.5, 0.0, 0.0])
+        self.assertAlmostEqual(little_real[0], 1.0, places=15)
+        self.assertEqual(little_imag[0], 0.0)
+        self.assertAlmostEqual(little_real[1], 0.0, places=15)
+        self.assertAlmostEqual(little_imag[1], 1.0, places=15)
+        self.assertAlmostEqual(cir_flat[2], 0.0, places=15)
+        self.assertAlmostEqual(cir_flat[3], 1.0, places=15)
 
 
 if __name__ == "__main__":
