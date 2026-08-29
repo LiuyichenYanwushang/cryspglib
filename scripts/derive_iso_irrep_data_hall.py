@@ -228,6 +228,36 @@ def _distribution(values: Counter) -> Distribution:
     return tuple(sorted((tuple(key), count) for key, count in values.items()))
 
 
+def _centering_residues(centering: str) -> Tuple[Int3, ...]:
+    return tuple(
+        _numerators_over_12(vector, f"{centering} centering coset")
+        for vector in _centering_cosets_for(centering)
+    )
+
+
+def _validate_distribution(value, context: str) -> Distribution:
+    if type(value) is not tuple:
+        raise DataHallSchemaError(f"{context} must be a tuple")
+    rows = []
+    for index, row in enumerate(value):
+        if type(row) is not tuple or len(row) != 2:
+            raise DataHallSchemaError(f"{context}[{index}] is malformed")
+        key, count = row
+        if type(key) is not tuple or len(key) != 3:
+            raise DataHallSchemaError(f"{context}[{index}] key is malformed")
+        if any(type(component) is not int for component in key):
+            raise DataHallSchemaError(f"{context}[{index}] key is not integer")
+        if type(count) is not int or count <= 0:
+            raise DataHallSchemaError(f"{context}[{index}] count is not positive")
+        rows.append((key, count))
+    result = tuple(rows)
+    if tuple(sorted(result)) != result:
+        raise DataHallInvariantError(f"{context} is not canonically sorted")
+    if len({key for key, _ in result}) != len(result):
+        raise DataHallInvariantError(f"{context} contains duplicate keys")
+    return result  # type: ignore[return-value]
+
+
 @dataclass(frozen=True)
 class SourceToHall:
     """Ordered source-operation to selected-Hall-operation mapping."""
@@ -247,7 +277,11 @@ class SourceToHall:
         )
         if source_index < 0 or hall_index < 0:
             raise DataHallInvariantError("SourceToHall operation index is negative")
-        _require_int3(self.shift_numerator, "SourceToHall.shift_numerator")
+        shift = _require_int3(self.shift_numerator, "SourceToHall.shift_numerator")
+        if any(value % TRANSLATION_DENOMINATOR for value in shift):
+            raise DataHallInvariantError(
+                "SourceToHall.shift_numerator must represent an integer shift"
+            )
 
 
 @dataclass(frozen=True)
@@ -329,14 +363,19 @@ class ExactDataHallFrame:
         )
         if source_count <= 0 or hall_count <= 0:
             raise DataHallInvariantError("operation counts must be positive")
+        expected_hall_count = source_count * len(_centering_cosets_for(self.centering))
+        if hall_count != expected_hall_count:
+            raise DataHallInvariantError(
+                "hall_operation_count does not match source count and centering"
+            )
         if type(self.source_to_hall) is not tuple or len(self.source_to_hall) != source_count:
             raise DataHallInvariantError("source_to_hall cardinality mismatch")
         if type(self.hall_to_source) is not tuple or len(self.hall_to_source) != hall_count:
             raise DataHallInvariantError("hall_to_source cardinality mismatch")
-        if any(not isinstance(mapping, SourceToHall)
+        if any(type(mapping) is not SourceToHall
                for mapping in self.source_to_hall):
             raise DataHallSchemaError("source_to_hall contains a wrong type")
-        if any(not isinstance(mapping, HallToSource)
+        if any(type(mapping) is not HallToSource
                for mapping in self.hall_to_source):
             raise DataHallSchemaError("hall_to_source contains a wrong type")
         if any(mapping.source_operation_index != index
@@ -355,10 +394,24 @@ class ExactDataHallFrame:
             raise DataHallInvariantError("hall_to_source source index is out of range")
         if len({mapping.source_operation_index for mapping in self.hall_to_source}) < source_count:
             raise DataHallInvariantError("hall_to_source does not cover source operations")
+        expected_residues = set(_centering_residues(self.centering))
+        residues_by_source = [[] for _ in range(source_count)]
+        for mapping in self.hall_to_source:
+            residues_by_source[mapping.source_operation_index].append(
+                tuple(value % TRANSLATION_DENOMINATOR
+                      for value in mapping.shift_numerator)
+            )
+        for source_index, residues in enumerate(residues_by_source):
+            if len(residues) != len(expected_residues) or set(residues) != expected_residues:
+                raise DataHallInvariantError(
+                    f"hall_to_source centering residues are incomplete for source {source_index}"
+                )
         for mapping in self.source_to_hall:
             inverse = self.hall_to_source[mapping.hall_operation_index]
             if inverse.source_operation_index != mapping.source_operation_index:
                 raise DataHallInvariantError("source/Hall mapping direction disagrees")
+            if inverse.shift_numerator != tuple(-value for value in mapping.shift_numerator):
+                raise DataHallInvariantError("source/Hall mapping shifts are not opposite")
 
 
 @dataclass(frozen=True)
@@ -410,6 +463,20 @@ class DerivationCensus:
                 raise DataHallInvariantError(f"DerivationCensus.{field} is negative")
         if type(self.raw_ambiguous_spacegroups) is not tuple:
             raise DataHallSchemaError("raw ambiguous SG census must be a tuple")
+        if self.raw_unique + self.raw_ambiguous + self.raw_missing != 230:
+            raise DataHallInvariantError("raw Hall census does not sum to 230")
+        if len(self.raw_ambiguous_spacegroups) != self.raw_ambiguous:
+            raise DataHallInvariantError("raw ambiguity count and SG tuple disagree")
+        if self.filtered_unique + self.filtered_ambiguous + self.filtered_missing != 230:
+            raise DataHallInvariantError("filtered Hall census does not sum to 230")
+        if self.source_to_hall != self.source_representatives:
+            raise DataHallInvariantError("source-to-Hall census disagrees with representatives")
+        if self.hall_to_source != self.selected_hall_operations:
+            raise DataHallInvariantError("Hall-to-source census disagrees with operations")
+        if self.source_to_hall_nonzero > self.source_to_hall:
+            raise DataHallInvariantError("source-to-Hall nonzero count exceeds total")
+        if self.hall_to_source_nonzero > self.hall_to_source:
+            raise DataHallInvariantError("Hall-to-source nonzero count exceeds total")
         if any(type(value) is not int or not 1 <= value <= 230
                for value in self.raw_ambiguous_spacegroups):
             raise DataHallSchemaError("raw ambiguous SG census is malformed")
@@ -419,30 +486,49 @@ class DerivationCensus:
             "hall_to_source_shifts", "hall_to_source_cosets",
             "expanded_normalization_shifts",
         ):
-            value = getattr(self, field)
-            if type(value) is not tuple:
-                raise DataHallSchemaError(f"DerivationCensus.{field} must be a tuple")
-            if tuple(sorted(value)) != value:
-                raise DataHallInvariantError(f"DerivationCensus.{field} is not ordered")
-            if any(
-                type(row) is not tuple or len(row) != 2
-                or type(row[0]) is not tuple or len(row[0]) != 3
-                or any(type(component) is not int for component in row[0])
-                or type(row[1]) is not int or row[1] <= 0
-                for row in value
-            ):
-                raise DataHallSchemaError(f"DerivationCensus.{field} is malformed")
+            _validate_distribution(getattr(self, field), f"DerivationCensus.{field}")
+        if sum(count for _, count in self.hall_to_source_shifts) != self.hall_to_source:
+            raise DataHallInvariantError("Hall-to-source shift distribution total mismatch")
+        if sum(count for _, count in self.hall_to_source_cosets) != self.hall_to_source:
+            raise DataHallInvariantError("Hall-to-source coset distribution total mismatch")
+        if sum(count for _, count in self.expanded_normalization_shifts) != self.hall_to_source:
+            raise DataHallInvariantError("expanded normalization distribution total mismatch")
+        shift_nonzero = sum(
+            count for shift, count in self.hall_to_source_shifts
+            if shift != (0, 0, 0)
+        )
+        if shift_nonzero != self.hall_to_source_nonzero:
+            raise DataHallInvariantError("Hall-to-source nonzero count mismatch")
+        cosets_from_shifts = Counter(
+            tuple(value % TRANSLATION_DENOMINATOR for value in shift)
+            for shift, count in self.hall_to_source_shifts
+            for _ in range(count)
+        )
+        if _distribution(cosets_from_shifts) != self.hall_to_source_cosets:
+            raise DataHallInvariantError("Hall-to-source cosets disagree with shifts")
+        expanded_nonzero = sum(
+            count for shift, count in self.expanded_normalization_shifts
+            if shift != (0, 0, 0)
+        )
+        if expanded_nonzero != self.expanded_normalization_nonzero:
+            raise DataHallInvariantError("expanded normalization nonzero count mismatch")
         if type(self.centering_counts) is not tuple:
             raise DataHallSchemaError("centering census must be a tuple")
-        if any(
-            type(row) is not tuple or len(row) != 2 or type(row[0]) is not str
-            or type(row[1]) is not int or row[1] < 0
-            for row in self.centering_counts
-        ):
+        expected_centering_names = ("P", "A", "B", "C", "F", "I", "R")
+        if len(self.centering_counts) != len(expected_centering_names):
             raise DataHallSchemaError("centering census is malformed")
+        for index, row in enumerate(self.centering_counts):
+            if type(row) is not tuple or len(row) != 2:
+                raise DataHallSchemaError("centering census row is malformed")
+            if row[0] != expected_centering_names[index]:
+                raise DataHallInvariantError("centering census order/name mismatch")
+            if type(row[1]) is not int or row[1] < 0:
+                raise DataHallSchemaError("centering census count is malformed")
+        if sum(count for _, count in self.centering_counts) != 230:
+            raise DataHallInvariantError("centering census does not sum to 230")
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, init=False)
 class ExactDataHallDatabase:
     """Immutable ordered result returned by :func:`derive_data_hall_frames`."""
 
@@ -450,17 +536,6 @@ class ExactDataHallDatabase:
 
     frames: Tuple[ExactDataHallFrame, ...]
     census: DerivationCensus
-
-    def __post_init__(self):
-        if type(self.frames) is not tuple or len(self.frames) != 230:
-            raise DataHallInvariantError("data-Hall result must contain 230 frames")
-        if any(not isinstance(frame, ExactDataHallFrame)
-               for frame in self.frames):
-            raise DataHallSchemaError("data-Hall result contains a wrong frame type")
-        if any(frame.spacegroup != index for index, frame in enumerate(self.frames, 1)):
-            raise DataHallInvariantError("data-Hall frames are not ordered 1..230")
-        if not isinstance(self.census, DerivationCensus):
-            raise DataHallSchemaError("data-Hall result census has a wrong type")
 
     def source_frame(self, spacegroup: int) -> ExactDataHallFrame:
         if type(spacegroup) is not int or not 1 <= spacegroup <= 230:
@@ -793,6 +868,117 @@ def _records_and_count(source_database):
     return pir_records, cir_records
 
 
+def _frame_aggregate(frames):
+    raw_counts = Counter()
+    raw_ambiguous = []
+    centering_counts = Counter()
+    source_representatives = 0
+    selected_hall_operations = 0
+    source_to_hall_total = 0
+    source_to_hall_nonzero = 0
+    hall_to_source_total = 0
+    hall_to_source_nonzero = 0
+    hall_shift_counts = Counter()
+    hall_coset_counts = Counter()
+    expanded_shift_counts = Counter()
+    for frame in frames:
+        raw_count = len(frame.raw_candidate_halls)
+        raw_counts[raw_count] += 1
+        if raw_count > 1:
+            raw_ambiguous.append(frame.spacegroup)
+        centering_counts[frame.centering] += 1
+        source_representatives += frame.source_operation_count
+        selected_hall_operations += frame.hall_operation_count
+        source_to_hall_total += len(frame.source_to_hall)
+        source_to_hall_nonzero += sum(
+            mapping.shift_numerator != (0, 0, 0)
+            for mapping in frame.source_to_hall
+        )
+        hall_to_source_total += len(frame.hall_to_source)
+        frame_hall_shifts = Counter(
+            tuple(mapping.shift_numerator) for mapping in frame.hall_to_source
+        )
+        for shift, count in frame_hall_shifts.items():
+            hall_shift_counts[shift] += count
+            if shift != (0, 0, 0):
+                hall_to_source_nonzero += count
+        for mapping in frame.hall_to_source:
+            residue = tuple(
+                value % TRANSLATION_DENOMINATOR
+                for value in mapping.shift_numerator
+            )
+            hall_coset_counts[residue] += 1
+            expanded_shift_counts[tuple(
+                residue[index] - mapping.shift_numerator[index]
+                for index in range(3)
+            )] += 1
+    return (
+        raw_counts[1], len(raw_ambiguous), raw_counts[0], tuple(raw_ambiguous),
+        230, 0, 0, centering_counts,
+        source_representatives, selected_hall_operations, source_to_hall_total,
+        source_to_hall_nonzero, hall_to_source_total, hall_to_source_nonzero,
+        _distribution(hall_shift_counts), _distribution(hall_coset_counts),
+        _distribution(expanded_shift_counts),
+    )
+
+
+def _validate_database_graph(database: ExactDataHallDatabase) -> None:
+    if type(database.frames) is not tuple or len(database.frames) != 230:
+        raise DataHallInvariantError("data-Hall result must contain 230 frames")
+    if any(type(frame) is not ExactDataHallFrame for frame in database.frames):
+        raise DataHallSchemaError("data-Hall result contains a wrong frame type")
+    if any(frame.spacegroup != index for index, frame in enumerate(database.frames, 1)):
+        raise DataHallInvariantError("data-Hall frames are not ordered 1..230")
+    if type(database.census) is not DerivationCensus:
+        raise DataHallSchemaError("data-Hall result census has a wrong type")
+    (
+        raw_unique, raw_ambiguous, raw_missing, raw_ambiguous_sgs,
+        filtered_unique, filtered_ambiguous, filtered_missing, centering_counts,
+        source_representatives, selected_hall_operations, source_to_hall_total,
+        source_to_hall_nonzero, hall_to_source_total, hall_to_source_nonzero,
+        hall_shifts, hall_cosets, expanded_shifts,
+    ) = _frame_aggregate(database.frames)
+    expected = (
+        ("raw_unique", raw_unique),
+        ("raw_ambiguous", raw_ambiguous),
+        ("raw_missing", raw_missing),
+        ("raw_ambiguous_spacegroups", raw_ambiguous_sgs),
+        ("filtered_unique", filtered_unique),
+        ("filtered_ambiguous", filtered_ambiguous),
+        ("filtered_missing", filtered_missing),
+        ("source_representatives", source_representatives),
+        ("selected_hall_operations", selected_hall_operations),
+        ("source_to_hall", source_to_hall_total),
+        ("source_to_hall_nonzero", source_to_hall_nonzero),
+        ("hall_to_source", hall_to_source_total),
+        ("hall_to_source_nonzero", hall_to_source_nonzero),
+        ("hall_to_source_shifts", hall_shifts),
+        ("hall_to_source_cosets", hall_cosets),
+        ("expanded_normalization_shifts", expanded_shifts),
+        ("centering_counts", tuple(
+            (name, centering_counts.get(name, 0))
+            for name, _ in EXPECTED_CENTERING_COUNTS
+        )),
+    )
+    for field, value in expected:
+        if getattr(database.census, field) != value:
+            raise DataHallInvariantError(
+                f"database census field {field} disagrees with frames"
+            )
+
+
+def _make_database(frames, census) -> ExactDataHallDatabase:
+    """Construct only after all source-derived and frame-derived checks pass."""
+
+    if type(frames) is not tuple or type(census) is not DerivationCensus:
+        raise DataHallSchemaError("validated data-Hall factory inputs are malformed")
+    database = object.__new__(ExactDataHallDatabase)
+    object.__setattr__(database, "frames", frames)
+    object.__setattr__(database, "census", census)
+    _validate_database_graph(database)
+    return database
+
+
 def _derive_from_databases(source_database, provenance, *, enforce_census: bool):
     pir_records, cir_records = _records_and_count(source_database)
     if enforce_census and (
@@ -926,7 +1112,7 @@ def _derive_from_databases(source_database, provenance, *, enforce_census: bool)
             for name, _ in EXPECTED_CENTERING_COUNTS
         ),
     )
-    return ExactDataHallDatabase(tuple(frames), census)
+    return _make_database(tuple(frames), census)
 
 
 def derive_data_hall_frames(source_db=None, spg_db=None) -> ExactDataHallDatabase:

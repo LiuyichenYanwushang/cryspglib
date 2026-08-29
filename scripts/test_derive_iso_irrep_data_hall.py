@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Focused tests for the pure exact ISO-IR data-Hall derivation."""
 
-from dataclasses import FrozenInstanceError, fields, is_dataclass
+from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from fractions import Fraction
 import hashlib
 import io
@@ -264,10 +264,15 @@ class DataHallDerivationTests(unittest.TestCase):
         with self.assertRaises(hall.DataHallDerivationError):
             hall._raw_candidates(source, ambiguous)
 
-        with self.assertRaises(hall.DataHallDerivationError):
+        with self.assertRaisesRegex(hall.DataHallDerivationError, "source-to-Hall mapping"):
             hall._mapping_for_selected_hall(
                 hall._source_operations(source),
-                (_fake_operation(((-1, 0, 0), (0, -1, 0), (0, 0, -1))),),
+                (
+                    (
+                        ((-1, 0, 0), (0, -1, 0), (0, 0, -1)),
+                        (Fraction(0),) * 3,
+                    ),
+                ),
                 hall._centering_cosets_for("P"),
                 "synthetic missing mapping",
             )
@@ -308,6 +313,107 @@ class DataHallDerivationTests(unittest.TestCase):
             first = fields(value)[0].name
             with self.assertRaises(FrozenInstanceError):
                 setattr(value, first, None)
+
+    def test_frame_constructor_closes_mapping_invariants(self):
+        sg1 = self.result.source_frame(1)
+        with self.assertRaises(hall.DataHallInvariantError):
+            hall.SourceToHall(0, 0, (1, 0, 0))
+
+        with self.assertRaises(hall.DataHallInvariantError):
+            replace(
+                sg1,
+                hall_to_source=(hall.HallToSource(0, 0, (12, 0, 0)),),
+            )
+
+        sg5 = self.result.source_frame(5)
+        bad_c = list(sg5.hall_to_source)
+        original = bad_c[0]
+        bad_c[0] = hall.HallToSource(
+            original.hall_operation_index,
+            original.source_operation_index,
+            (original.shift_numerator[0] + 1,
+             original.shift_numerator[1],
+             original.shift_numerator[2]),
+        )
+        with self.assertRaises(hall.DataHallInvariantError):
+            replace(sg5, hall_to_source=tuple(bad_c))
+
+        with self.assertRaises(hall.DataHallInvariantError):
+            hall.ExactDataHallFrame(
+                spacegroup=1,
+                source_symbol="P1",
+                centering="P",
+                raw_candidate_halls=(1,),
+                data_hall=1,
+                source_operation_count=1,
+                hall_operation_count=2,
+                source_to_hall=(hall.SourceToHall(0, 0, (0, 0, 0)),),
+                hall_to_source=(
+                    hall.HallToSource(0, 0, (0, 0, 0)),
+                    hall.HallToSource(1, 0, (0, 0, 0)),
+                ),
+            )
+
+        class MappingSubclass(hall.SourceToHall):
+            pass
+
+        with self.assertRaises(hall.DataHallSchemaError):
+            replace(
+                sg1,
+                source_to_hall=(MappingSubclass(0, 0, (0, 0, 0)),),
+            )
+
+    def test_census_arithmetic_and_distribution_invariants(self):
+        census = self.result.census
+        with self.assertRaises(hall.DataHallInvariantError):
+            replace(census, raw_unique=census.raw_unique - 1)
+        with self.assertRaises(hall.DataHallInvariantError):
+            replace(census, raw_ambiguous_spacegroups=())
+        with self.assertRaises(hall.DataHallInvariantError):
+            replace(
+                census,
+                hall_to_source_shifts=census.hall_to_source_shifts +
+                (census.hall_to_source_shifts[0],),
+            )
+        with self.assertRaises(hall.DataHallInvariantError):
+            replace(
+                census,
+                hall_to_source_cosets=(((0, 0, 0), 4_425),),
+            )
+        with self.assertRaises(hall.DataHallInvariantError):
+            replace(
+                census,
+                expanded_normalization_shifts=(((0, 0, 0), 4_425),),
+            )
+        with self.assertRaises(hall.DataHallInvariantError):
+            replace(
+                census,
+                centering_counts=tuple(reversed(census.centering_counts)),
+            )
+
+    def test_database_factory_is_closed_and_recomputes_frames(self):
+        with self.assertRaises(TypeError):
+            hall.ExactDataHallDatabase(self.result.frames, self.result.census)
+
+        class FrameSubclass(hall.ExactDataHallFrame):
+            pass
+
+        class CensusSubclass(hall.DerivationCensus):
+            pass
+
+        fake_frame = object.__new__(FrameSubclass)
+        with self.assertRaises(hall.DataHallSchemaError):
+            hall._make_database((fake_frame,) * 230, self.result.census)
+        fake_census = object.__new__(CensusSubclass)
+        with self.assertRaises(hall.DataHallSchemaError):
+            hall._make_database(self.result.frames, fake_census)
+
+        all_sg1 = tuple(
+            replace(self.result.source_frame(1), spacegroup=spacegroup)
+            for spacegroup in range(1, 231)
+        )
+        with self.assertRaises(hall.DataHallInvariantError):
+            hall._make_database(all_sg1, self.result.census)
 
     def test_module_is_pure_and_has_no_runtime_fallback(self):
         text = Path(hall.__file__).read_text(encoding="utf-8")
