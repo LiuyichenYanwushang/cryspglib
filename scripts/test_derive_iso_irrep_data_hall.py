@@ -3,12 +3,15 @@
 
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from fractions import Fraction
+import copy
 import hashlib
 import io
+import pickle
 from pathlib import Path
 import re
 import unittest
 import zipfile
+import weakref
 from types import SimpleNamespace
 
 from . import derive_iso_irrep_data_hall as hall
@@ -498,6 +501,107 @@ class DataHallDerivationTests(unittest.TestCase):
         bad_counts = ((MutableStr("P"), 149),) + self.result.census.centering_counts[1:]
         with self.assertRaises(hall.DataHallSchemaError):
             replace(self.result.census, centering_counts=bad_counts)
+
+    def test_authority_boundary_rejects_forged_slot_graphs(self):
+        # Filling both slots is not enough: only the lexical boundary's
+        # weak-reference registration can make an ExactDataHallDatabase real.
+        forged = object.__new__(hall.ExactDataHallDatabase)
+        object.__setattr__(forged, "frames", self.result.frames)
+        object.__setattr__(forged, "census", self.result.census)
+        for operation in (
+            lambda: forged.source_frame(1),
+            lambda: forged.spacegroups,
+            lambda: iter(forged),
+        ):
+            with self.subTest(operation=operation):
+                with self.assertRaises(hall.DataHallInvariantError):
+                    operation()
+
+        # A malicious subclass may override __new__ and fill the inherited
+        # slots, but public access still requires the exact concrete type.
+        class ForgedSubclass(hall.ExactDataHallDatabase):
+            def __new__(cls):
+                value = object.__new__(cls)
+                object.__setattr__(value, "frames", self.result.frames)
+                object.__setattr__(value, "census", self.result.census)
+                return value
+
+        forged_subclass = ForgedSubclass()
+        with self.assertRaises(hall.DataHallInvariantError):
+            forged_subclass.source_frame(1)
+
+        # The all-Hall-1 shape is semantically plausible enough to pass many
+        # shallow checks, but it is still not an authority allocation.
+        all_hall1 = tuple(
+            replace(self.result.source_frame(1), spacegroup=spacegroup)
+            for spacegroup in range(1, 231)
+        )
+        forged_all_hall1 = object.__new__(hall.ExactDataHallDatabase)
+        object.__setattr__(forged_all_hall1, "frames", all_hall1)
+        object.__setattr__(forged_all_hall1, "census", self.result.census)
+        with self.assertRaises(hall.DataHallInvariantError):
+            forged_all_hall1.source_frame(1)
+
+        uninitialized_frame = object.__new__(hall.ExactDataHallFrame)
+        with self.assertRaises(hall.DataHallInvariantError):
+            hall._authority_fingerprint(
+                (uninitialized_frame,), self.result.census
+            )
+
+    def test_authority_fingerprint_rejects_mutation_and_recovers(self):
+        original_frames = self.result.frames
+        original_census = self.result.census
+
+        changed_frame = replace(
+            original_frames[0], source_symbol=original_frames[0].source_symbol + "!"
+        )
+        object.__setattr__(self.result, "frames", (changed_frame,) + original_frames[1:])
+        try:
+            with self.assertRaises(hall.DataHallInvariantError):
+                self.result.source_frame(1)
+        finally:
+            object.__setattr__(self.result, "frames", original_frames)
+        self.assertIs(self.result.source_frame(1), original_frames[0])
+
+        object.__setattr__(
+            self.result,
+            "census",
+            replace(original_census, raw_unique=219, raw_missing=1),
+        )
+        try:
+            with self.assertRaises(hall.DataHallInvariantError):
+                _ = self.result.spacegroups
+        finally:
+            object.__setattr__(self.result, "census", original_census)
+        self.assertIs(self.result.census, original_census)
+
+        frame = original_frames[0]
+        original_symbol = frame.source_symbol
+        object.__setattr__(frame, "source_symbol", original_symbol + "!")
+        try:
+            with self.assertRaises(hall.DataHallInvariantError):
+                self.result.source_frame(1)
+        finally:
+            object.__setattr__(frame, "source_symbol", original_symbol)
+
+        mapping = frame.source_to_hall[0]
+        original_shift = mapping.shift_numerator
+        object.__setattr__(mapping, "shift_numerator", (12, 0, 0))
+        try:
+            with self.assertRaises(hall.DataHallInvariantError):
+                iter(self.result)
+        finally:
+            object.__setattr__(mapping, "shift_numerator", original_shift)
+        self.assertIs(self.result.source_frame(1), frame)
+
+    def test_authority_result_cannot_copy_or_pickle(self):
+        self.assertIs(weakref.ref(self.result)(), self.result)
+        with self.assertRaises(TypeError):
+            copy.copy(self.result)
+        with self.assertRaises(TypeError):
+            copy.deepcopy(self.result)
+        with self.assertRaises(TypeError):
+            pickle.loads(pickle.dumps(self.result))
 
     def test_module_is_pure_and_has_no_runtime_fallback(self):
         text = Path(hall.__file__).read_text(encoding="utf-8")

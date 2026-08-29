@@ -27,7 +27,9 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from fractions import Fraction
+import threading
 from typing import Optional, Tuple
+import weakref
 
 try:  # ``scripts`` is normally imported as a namespace package.
     from . import iso_irrep_exact
@@ -530,11 +532,76 @@ class DerivationCensus:
             raise DataHallInvariantError("centering census does not sum to 230")
 
 
+def _authority_fingerprint(frames, census):
+    """Take a collision-free semantic snapshot of the complete result graph."""
+
+    try:
+        frame_snapshot = tuple(
+            (
+                frame.spacegroup,
+                frame.source_symbol,
+                frame.centering,
+                frame.raw_candidate_halls,
+                frame.data_hall,
+                frame.source_operation_count,
+                frame.hall_operation_count,
+                tuple(
+                    (
+                        mapping.source_operation_index,
+                        mapping.hall_operation_index,
+                        mapping.shift_numerator,
+                    )
+                    for mapping in frame.source_to_hall
+                ),
+                tuple(
+                    (
+                        mapping.hall_operation_index,
+                        mapping.source_operation_index,
+                        mapping.shift_numerator,
+                    )
+                    for mapping in frame.hall_to_source
+                ),
+            )
+            for frame in frames
+        )
+        census_snapshot = (
+            census.pir_records,
+            census.cir_records,
+            census.source_representatives,
+            census.raw_unique,
+            census.raw_ambiguous,
+            census.raw_missing,
+            census.raw_ambiguous_spacegroups,
+            census.filtered_unique,
+            census.filtered_ambiguous,
+            census.filtered_missing,
+            census.selected_hall_operations,
+            census.source_to_hall,
+            census.source_to_hall_nonzero,
+            census.hall_to_source,
+            census.hall_to_source_nonzero,
+            census.hall_to_source_shifts,
+            census.hall_to_source_cosets,
+            census.expanded_normalization_nonzero,
+            census.expanded_normalization_shifts,
+            census.centering_counts,
+        )
+    except AttributeError as error:
+        raise DataHallInvariantError(
+            "authority graph contains an uninitialized leaf"
+        ) from error
+    except Exception as error:
+        if isinstance(error, IsoIrrepDataHallError):
+            raise
+        raise DataHallInvariantError("authority graph fingerprint failed") from error
+    return frame_snapshot, census_snapshot
+
+
 @dataclass(frozen=True, init=False)
 class ExactDataHallDatabase:
     """Immutable ordered result returned by :func:`derive_data_hall_frames`."""
 
-    __slots__ = ("frames", "census")
+    __slots__ = ("frames", "census", "__weakref__")
 
     frames: Tuple[ExactDataHallFrame, ...]
     census: DerivationCensus
@@ -542,6 +609,15 @@ class ExactDataHallDatabase:
     def __new__(cls, *args, **kwargs):
         raise TypeError(
             "ExactDataHallDatabase is a pinned-authority result; use derive_data_hall_frames()"
+        )
+
+    def __reduce_ex__(self, protocol):
+        # Prevent copy/pickle reconstruction from bypassing the lexical
+        # authority registry.  ``object.__new__`` remains useful to focused
+        # negative tests, but such an unregistered object cannot be exposed by
+        # any database accessor.
+        raise TypeError(
+            "ExactDataHallDatabase cannot be copied or unpickled outside the authority boundary"
         )
 
     def source_frame(self, spacegroup: int) -> ExactDataHallFrame:
@@ -931,7 +1007,7 @@ def _frame_aggregate(frames):
     )
 
 
-def _validate_database_graph(frames, census) -> None:
+def _validate_database_graph_impl(frames, census) -> None:
     if type(frames) is not tuple or len(frames) != 230:
         raise DataHallInvariantError("data-Hall result must contain 230 frames")
     if any(type(frame) is not ExactDataHallFrame for frame in frames):
@@ -940,6 +1016,12 @@ def _validate_database_graph(frames, census) -> None:
         raise DataHallInvariantError("data-Hall frames are not ordered 1..230")
     if type(census) is not DerivationCensus:
         raise DataHallSchemaError("data-Hall result census has a wrong type")
+    # Re-run every leaf validator on each public check.  The authority
+    # fingerprint detects semantic changes; these checks additionally reject
+    # a structurally malformed graph introduced with object.__setattr__.
+    for frame in frames:
+        ExactDataHallFrame.__post_init__(frame)
+    DerivationCensus.__post_init__(census)
     (
         raw_unique, raw_ambiguous, raw_missing, raw_ambiguous_sgs,
         filtered_unique, filtered_ambiguous, filtered_missing, centering_counts,
@@ -976,16 +1058,23 @@ def _validate_database_graph(frames, census) -> None:
             )
 
 
-def _checked_database_state(database: ExactDataHallDatabase):
+def _validate_database_graph(frames, census) -> None:
+    """Validate a result graph and normalize malformed-leaf failures."""
+
     try:
-        frames = database.frames
-        census = database.census
+        _validate_database_graph_impl(frames, census)
+    except IsoIrrepDataHallError:
+        raise
     except AttributeError as error:
         raise DataHallInvariantError(
-            "ExactDataHallDatabase is not initialized"
+            "data-Hall result graph contains an uninitialized leaf"
         ) from error
-    _validate_database_graph(frames, census)
-    return frames, census
+
+
+def _checked_database_state(database: ExactDataHallDatabase):
+    """Check the lexical authority boundary before exposing any fields."""
+
+    return _check_database_authority(database)
 
 
 def _derive_from_databases(source_database, provenance, *, enforce_census: bool):
@@ -1124,33 +1213,93 @@ def _derive_from_databases(source_database, provenance, *, enforce_census: bool)
     return tuple(frames), census
 
 
-def derive_data_hall_frames() -> ExactDataHallDatabase:
-    """Derive all exact direct-source Hall frames in memory.
+def _make_authority_boundary():
+    """Build the only pinned-result allocator and its private state checker.
 
-    With no arguments, only the public committed exact ISO-IR and spglib
-    provenance loaders are called and the complete pinned census is enforced.
-    The function is intentionally strict and argument-free: callers cannot
-    inject a prebuilt frame/census graph into the pinned-authority result.
-    Private helpers below the public boundary remain available to focused
-    synthetic tests.
+    The registry deliberately lives in this closure rather than at module
+    scope.  It retains weak references plus a complete primitive semantic
+    snapshot, so a caller cannot turn ``object.__new__`` or ``object.__setattr__``
+    into an unverified authority result.  The callback checks both the object
+    id and weak-reference identity before removing an entry, making id reuse
+    harmless.
     """
 
-    try:
-        source_db = iso_irrep_exact.load_exact_iso_irrep_sources()
-        spg_db = spglib_magnetic_provenance.load_committed_provenance()
-    except (ValueError, OSError, TypeError) as error:
-        raise DataHallDerivationError("authoritative input loader failed") from error
-    frames, census = _derive_from_databases(
-        source_db, spg_db, enforce_census=True
-    )
-    _validate_database_graph(frames, census)
-    # This is deliberately the sole authority-object allocation site.  The
-    # public constructor is disabled, and private synthetic seams return only
-    # raw frame/census tuples.
-    database = object.__new__(ExactDataHallDatabase)
-    object.__setattr__(database, "frames", frames)
-    object.__setattr__(database, "census", census)
-    return database
+    lock = threading.RLock()
+    registry = {}
+
+    def remove(database_id, reference):
+        with lock:
+            entry = registry.get(database_id)
+            if entry is not None and entry[0] is reference:
+                registry.pop(database_id, None)
+
+    def register(database, fingerprint):
+        database_id = id(database)
+        reference = weakref.ref(
+            database,
+            lambda ref, database_id=database_id: remove(database_id, ref),
+        )
+        with lock:
+            registry[database_id] = (reference, fingerprint)
+
+    def check(database):
+        if type(database) is not ExactDataHallDatabase:
+            raise DataHallInvariantError(
+                "database is not an exact pinned-authority result"
+            )
+        database_id = id(database)
+        with lock:
+            entry = registry.get(database_id)
+            if entry is None:
+                raise DataHallInvariantError(
+                    "database is not registered at the pinned-authority boundary"
+                )
+            reference, fingerprint = entry
+            if reference() is not database:
+                raise DataHallInvariantError(
+                    "database authority registration does not match object identity"
+                )
+        try:
+            frames = database.frames
+            census = database.census
+        except AttributeError as error:
+            raise DataHallInvariantError(
+                "ExactDataHallDatabase is not initialized"
+            ) from error
+        actual_fingerprint = _authority_fingerprint(frames, census)
+        if actual_fingerprint != fingerprint:
+            raise DataHallInvariantError(
+                "database graph differs from its allocation-time authority snapshot"
+            )
+        _validate_database_graph(frames, census)
+        return frames, census
+
+    def derive():
+        """Load pinned inputs and allocate one verified authority result."""
+
+        try:
+            source_db = iso_irrep_exact.load_exact_iso_irrep_sources()
+            spg_db = spglib_magnetic_provenance.load_committed_provenance()
+        except (ValueError, OSError, TypeError) as error:
+            raise DataHallDerivationError("authoritative input loader failed") from error
+        frames, census = _derive_from_databases(
+            source_db, spg_db, enforce_census=True
+        )
+        _validate_database_graph(frames, census)
+        # This is the sole authority-object allocation site.  The public
+        # constructor is disabled, and private synthetic seams return only
+        # raw frame/census tuples.  Registration is last, after every check.
+        database = object.__new__(ExactDataHallDatabase)
+        object.__setattr__(database, "frames", frames)
+        object.__setattr__(database, "census", census)
+        fingerprint = _authority_fingerprint(database.frames, database.census)
+        register(database, fingerprint)
+        return database
+
+    return derive, check
+
+
+derive_data_hall_frames, _check_database_authority = _make_authority_boundary()
 
 
 __all__ = [
