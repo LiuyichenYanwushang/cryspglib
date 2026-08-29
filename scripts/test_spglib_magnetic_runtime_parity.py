@@ -281,6 +281,78 @@ class RuntimeParityTests(unittest.TestCase):
         struct.pack_into("<H", bad_sequence, mapi_payload + 2, 2)
         self._assert_frame_rejected(bytes(bad_sequence))
 
+    def test_parser_rejects_cross_section_operation_mutations(self):
+        layout = self._section_layout(self.expected)
+        sdec_payload = layout[9][2]
+        sgrw_payload = layout[2][2]
+
+        bad_rotation = bytearray(self.expected)
+        bad_rotation[sdec_payload + 8] = 127
+        self._assert_frame_rejected(bytes(bad_rotation))
+
+        bad_translation = bytearray(self.expected)
+        bad_translation[sdec_payload + 8 + 9] = 12
+        self._assert_frame_rejected(bytes(bad_translation))
+
+        bad_raw_index = bytearray(self.expected)
+        struct.pack_into("<I", bad_raw_index, sdec_payload, 2)
+        self._assert_frame_rejected(bytes(bad_raw_index))
+
+        bad_determinant = bytearray(self.expected)
+        # Identity with one legal rotation entry changed to zero has det=0.
+        bad_determinant[sdec_payload + 8 + 4] = 0
+        self._assert_frame_rejected(bytes(bad_determinant))
+
+        bad_encoding_link = bytearray(self.expected)
+        replacement = struct.unpack_from("<i", self.expected, sgrw_payload + 12)[0]
+        struct.pack_into("<i", bad_encoding_link, sdec_payload + 4, replacement)
+        self._assert_frame_rejected(bytes(bad_encoding_link))
+
+    def test_parser_rejects_span_and_derived_header_mutations(self):
+        layout = self._section_layout(self.expected)
+
+        # Reallocate one operation from SAPI Hall 2 to Hall 1 while retaining
+        # every operation byte and the total payload length.
+        sapi_payload = layout[10][2]
+        reallocated = bytearray(self.expected)
+        first_count = struct.unpack_from("<H", reallocated, sapi_payload + 2)[0]
+        second_header = sapi_payload + 4 + first_count * 12
+        second_count = struct.unpack_from("<H", reallocated, second_header + 2)[0]
+        self.assertGreaterEqual(second_count, 1)
+        struct.pack_into("<H", reallocated, sapi_payload + 2, first_count + 1)
+        struct.pack_into("<H", reallocated, second_header + 2, second_count - 1)
+        self._assert_frame_rejected(bytes(reallocated))
+
+        mapi_payload = layout[11][2]
+        bad_mapi_count = bytearray(self.expected)
+        count = struct.unpack_from("<H", bad_mapi_count, mapi_payload + 4)[0]
+        struct.pack_into("<H", bad_mapi_count, mapi_payload + 4, count + 1)
+        self._assert_frame_rejected(bytes(bad_mapi_count))
+
+        # Keep every MAPI header locally range-valid, but make the complete
+        # 4479-record sequence cover only UNI 1..9; cross-table derivation
+        # must reject it against MUNI/MIDX.
+        only_first_unis = bytearray(self.expected)
+        cursor = mapi_payload
+        for record in range(parity.MSG_ACTIVE_SPAN_COUNT):
+            count = struct.unpack_from("<H", only_first_unis, cursor + 4)[0]
+            uni = record // 530 + 1
+            hall = record % 530 + 1
+            self.assertLessEqual(uni, 9)
+            struct.pack_into("<HH", only_first_unis, cursor, uni, hall)
+            cursor += 6 + 13 * count
+        self._assert_frame_rejected(bytes(only_first_unis))
+
+        tapi_payload = layout[12][2]
+        bad_tapi_count = bytearray(self.expected)
+        count = struct.unpack_from("<H", bad_tapi_count, tapi_payload + 4)[0]
+        struct.pack_into("<H", bad_tapi_count, tapi_payload + 4, count - 1)
+        self._assert_frame_rejected(bytes(bad_tapi_count))
+
+        bad_identity = bytearray(self.expected)
+        bad_identity[tapi_payload + 6] = 0
+        self._assert_frame_rejected(bytes(bad_identity))
+
     def _run_rust_process(self, extra_environment=None):
         environment = os.environ.copy()
         environment.pop("SPGLIB_DEBUG", None)

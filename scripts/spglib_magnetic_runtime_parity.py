@@ -41,6 +41,7 @@ _FIXED_SECTION_WIDTHS = {
 SPG_HALL_COUNT = 531
 SPG_HALL_SETTINGS = 530
 SPG_OPERATION_COUNT = 8147
+SPG_STANDARD_OPERATION_END = 7389
 MSG_UNI_COUNT = 1652
 MSG_HALL_SLOTS = 18
 MSG_OPERATION_COUNT = 76683
@@ -316,10 +317,13 @@ def _require_payload(payload: bytes, offset: int, length: int, label: str) -> in
     return end
 
 
-def _validate_mtyp_payload(payload: bytes, record_count: int) -> None:
+def _parse_mtyp_records(payload: bytes, record_count: int):
     offset = 0
+    records = []
     for record in range(record_count):
         offset = _require_payload(payload, offset, 16, f"MTYP[{record}] header")
+        values = _unpack_from(payload, "<4i", offset - 16, f"MTYP[{record}] header")
+        strings = []
         for field in ("bns", "og"):
             offset = _require_payload(payload, offset, 4, f"MTYP[{record}].{field} length")
             length = struct.unpack_from("<I", payload, offset - 4)[0]
@@ -332,9 +336,16 @@ def _validate_mtyp_payload(payload: bytes, record_count: int) -> None:
                 value.decode("utf-8", "strict")
             except UnicodeDecodeError as error:
                 raise FrameError(f"MTYP[{record}].{field} is not UTF-8") from error
+            strings.append(value.decode("utf-8", "strict"))
             offset = end
+        records.append((*values, *strings))
     if offset != len(payload):
         raise FrameError("MTYP has trailing bytes")
+    return tuple(records)
+
+
+def _validate_mtyp_payload(payload: bytes, record_count: int) -> None:
+    _parse_mtyp_records(payload, record_count)
 
 
 def _validate_operation_payload(
@@ -415,45 +426,377 @@ def _validate_section_payload(tag: str, count: int, payload: bytes) -> None:
         raise FrameError(f"no parser for section {tag!r}")
 
 
+def _unpack_from(payload: bytes, format_string: str, offset: int, label: str):
+    try:
+        return struct.unpack_from(format_string, payload, offset)
+    except (IndexError, struct.error) as error:
+        raise FrameError(f"{label} is truncated") from error
+
+
+def _parse_i32_rows(payload: bytes, row_count: int, width: int, label: str):
+    rows = []
+    for row in range(row_count):
+        offset = row * width * 4
+        values = _unpack_from(
+            payload, "<" + "i" * width, offset, f"{label}[{row}]"
+        )
+        rows.append(tuple(values))
+    return tuple(rows)
+
+
+def _parse_operation_payload(
+    payload: bytes, offset: int, magnetic: bool, label: str
+):
+    width = 13 if magnetic else 12
+    end = _require_payload(payload, offset, width, label)
+    rotation = tuple(_unpack_from(payload, "<9b", offset, f"{label}.rotation"))
+    if any(value not in (-1, 0, 1) for value in rotation):
+        raise FrameError(f"{label} rotation is outside -1..1")
+    translation = tuple(payload[offset + 9:offset + 12])
+    if any(value >= TRANSLATION_DENOMINATOR for value in translation):
+        raise FrameError(f"{label} translation is out of range")
+    time_reversal = payload[offset + 12] if magnetic else None
+    if magnetic and time_reversal not in (0, 1):
+        raise FrameError(f"{label} time reversal is out of range")
+    determinant = (
+        rotation[0] * (rotation[4] * rotation[8] - rotation[5] * rotation[7])
+        - rotation[1] * (rotation[3] * rotation[8] - rotation[5] * rotation[6])
+        + rotation[2] * (rotation[3] * rotation[7] - rotation[4] * rotation[6])
+    )
+    if determinant not in (-1, 1):
+        raise FrameError(f"{label} rotation determinant is not ±1")
+    return rotation, translation, time_reversal, end
+
+
+def _decode_exact_operation(encoded: int, label: str):
+    try:
+        return provenance._decode_operation(encoded)
+    except provenance.MagneticProvenanceError as error:
+        raise FrameError(f"{label} cannot be decoded exactly") from error
+
+
+def _compare_wire_operation(wire, expected, magnetic: bool, label: str) -> None:
+    rotation, translation, time_reversal = wire
+    expected_rotation = tuple(
+        value for row in expected.rotation for value in row
+    )
+    if rotation != expected_rotation:
+        raise FrameError(f"{label} rotation does not match encoded operation")
+    if translation != expected.translation_numerator:
+        raise FrameError(f"{label} translation does not match encoded operation")
+    expected_time = int(expected.time_reversal)
+    if magnetic:
+        if time_reversal != expected_time:
+            raise FrameError(f"{label} time reversal does not match encoded operation")
+    elif time_reversal is not None or expected_time != 0:
+        raise FrameError(f"{label} unexpectedly has time reversal")
+
+
+def _parse_sdec_relations(payloads) -> None:
+    sgrw = _parse_i32_rows(payloads["SGRW"], SPG_OPERATION_COUNT, 1, "SGRW")
+    raw_codes = tuple(row[0] for row in sgrw)
+    offset = 0
+    for index in range(1, SPG_OPERATION_COUNT):
+        raw_index = _unpack_from(payloads["SDEC"], "<I", offset, f"SDEC[{index}].index")[0]
+        encoded = _unpack_from(payloads["SDEC"], "<i", offset + 4, f"SDEC[{index}].encoded")[0]
+        if raw_index != index:
+            raise FrameError(f"SDEC[{index}] raw index is not canonical")
+        if encoded != raw_codes[index]:
+            raise FrameError(f"SDEC[{index}] does not match SGRW[{index}]")
+        wire = _parse_operation_payload(
+            payloads["SDEC"], offset + 8, False, f"SDEC[{index}]"
+        )
+        expected = _decode_exact_operation(encoded, f"SDEC[{index}]")
+        _compare_wire_operation(wire[:3], expected, False, f"SDEC[{index}]")
+        offset += 20
+    if offset != len(payloads["SDEC"]):
+        raise FrameError("SDEC has trailing bytes")
+
+
+def _checked_spg_spans(payloads):
+    rows = _parse_i32_rows(payloads["SGIX"], SPG_HALL_COUNT, 2, "SGIX")
+    if rows[0] != (0, 0):
+        raise FrameError("SGIX sentinel mismatch")
+    spans = []
+    previous_end = 1
+    for hall in range(1, SPG_HALL_COUNT):
+        order, offset = rows[hall]
+        if order <= 0 or offset < 1 or offset > SPG_STANDARD_OPERATION_END:
+            raise FrameError(f"SGIX Hall {hall} span is out of range")
+        if order > SPG_STANDARD_OPERATION_END - offset:
+            raise FrameError(f"SGIX Hall {hall} span overflows standard table")
+        if offset != previous_end:
+            raise FrameError(f"SGIX Hall {hall} span is not adjacent")
+        previous_end = offset + order
+        spans.append((order, offset))
+    if previous_end != SPG_STANDARD_OPERATION_END:
+        raise FrameError("SGIX standard span boundary mismatch")
+    return tuple(spans)
+
+
+def _parse_sapi_relations(payloads, spg_spans) -> None:
+    sgrw = _parse_i32_rows(payloads["SGRW"], SPG_OPERATION_COUNT, 1, "SGRW")
+    raw_codes = tuple(row[0] for row in sgrw)
+    offset = 0
+    for hall, (order, raw_offset) in enumerate(spg_spans, 1):
+        record_hall, record_count = _unpack_from(
+            payloads["SAPI"], "<HH", offset, f"SAPI[{hall}] header"
+        )
+        if record_hall != hall or record_count != order:
+            raise FrameError(f"SAPI[{hall}] header does not match SGIX")
+        offset += 4
+        for index in range(order):
+            wire = _parse_operation_payload(
+                payloads["SAPI"], offset, False, f"SAPI[{hall}][{index}]"
+            )
+            encoded = raw_codes[raw_offset + index]
+            expected = _decode_exact_operation(encoded, f"SAPI[{hall}][{index}]")
+            _compare_wire_operation(
+                wire[:3], expected, False, f"SAPI[{hall}][{index}]"
+            )
+            offset += 12
+    if offset != len(payloads["SAPI"]):
+        raise FrameError("SAPI has trailing bytes")
+
+
+def _checked_msg_spans(payloads):
+    muni_rows = _parse_i32_rows(payloads["MUNI"], MSG_UNI_COUNT, 2, "MUNI")
+    if muni_rows[0] != (0, 0):
+        raise FrameError("MUNI sentinel mismatch")
+    midx_rows = _parse_i32_rows(
+        payloads["MIDX"], MSG_UNI_COUNT * MSG_HALL_SLOTS, 2, "MIDX"
+    )
+    if any(midx_rows[slot] != (0, 0) for slot in range(MSG_HALL_SLOTS)):
+        raise FrameError("MIDX sentinel row is nonzero")
+    active = []
+    seen = set()
+    for uni in range(1, MSG_UNI_COUNT):
+        count, first = muni_rows[uni]
+        if not 1 <= count <= MSG_HALL_SLOTS:
+            raise FrameError(f"MUNI UNI {uni} Hall count is out of range")
+        if not 1 <= first <= SPG_HALL_SETTINGS or first + count - 1 > SPG_HALL_SETTINGS:
+            raise FrameError(f"MUNI UNI {uni} Hall range is out of range")
+        for slot in range(MSG_HALL_SLOTS):
+            order, offset = midx_rows[uni * MSG_HALL_SLOTS + slot]
+            if slot >= count:
+                if (order, offset) != (0, 0):
+                    raise FrameError(f"MIDX UNI {uni} inactive slot {slot} is nonzero")
+                continue
+            if order <= 0 or offset < 1 or offset > MSG_OPERATION_COUNT:
+                raise FrameError(f"MIDX UNI {uni} slot {slot} span is out of range")
+            if order > MSG_OPERATION_COUNT - offset:
+                raise FrameError(f"MIDX UNI {uni} slot {slot} span overflows table")
+            for raw_index in range(offset, offset + order):
+                if raw_index in seen:
+                    raise FrameError(f"MIDX raw index {raw_index} is duplicated")
+                seen.add(raw_index)
+            active.append((uni, first + slot, order, offset))
+    if len(active) != MSG_ACTIVE_SPAN_COUNT:
+        raise FrameError("MIDX active span census mismatch")
+    if seen != set(range(1, MSG_OPERATION_COUNT)):
+        raise FrameError("MIDX spans do not cover MRAW exactly once")
+    return tuple(active), muni_rows
+
+
+def _validate_metadata_and_hall_relations(payloads, muni_rows) -> None:
+    sgno_rows = _parse_i32_rows(payloads["SGNO"], SPG_HALL_COUNT, 1, "SGNO")
+    spacegroup_numbers = tuple(row[0] for row in sgno_rows)
+    if spacegroup_numbers[0] != 0 or any(
+        not 1 <= value <= 230 for value in spacegroup_numbers[1:]
+    ):
+        raise FrameError("SGNO sentinel or range mismatch")
+
+    metadata = _parse_mtyp_records(payloads["MTYP"], MSG_UNI_COUNT)
+    if metadata[0] != (0, 0, 0, 0, "", ""):
+        raise FrameError("MTYP sentinel mismatch")
+    type_counts = {1: 0, 2: 0, 3: 0, 4: 0}
+    for uni in range(1, MSG_UNI_COUNT):
+        row_uni, litvin, parent, kind, _, _ = metadata[uni]
+        if row_uni != uni or not 1 <= litvin < MSG_UNI_COUNT:
+            raise FrameError(f"MTYP UNI {uni} identity/range mismatch")
+        if not 1 <= parent <= 230 or kind not in type_counts:
+            raise FrameError(f"MTYP UNI {uni} parent/type mismatch")
+        type_counts[kind] += 1
+        count, first = muni_rows[uni]
+        for hall in range(first, first + count):
+            if spacegroup_numbers[hall] != parent:
+                raise FrameError(f"MTYP UNI {uni} parent disagrees at Hall {hall}")
+    if type_counts != {1: 230, 2: 230, 3: 674, 4: 517}:
+        raise FrameError("MTYP type census mismatch")
+
+    mhll_rows = _parse_i32_rows(payloads["MHLL"], SPG_HALL_COUNT, 2, "MHLL")
+    if mhll_rows[0] != (0, 0):
+        raise FrameError("MHLL sentinel mismatch")
+    for hall in range(1, SPG_HALL_SETTINGS + 1):
+        expected_unis = tuple(
+            uni for uni in range(1, MSG_UNI_COUNT)
+            if muni_rows[uni][1] <= hall < muni_rows[uni][1] + muni_rows[uni][0]
+        )
+        if not expected_unis or expected_unis != tuple(
+            range(expected_unis[0], expected_unis[-1] + 1)
+        ):
+            raise FrameError(f"MHLL Hall {hall} inverse range is not continuous")
+        if mhll_rows[hall] != (expected_unis[0], expected_unis[-1]):
+            raise FrameError(f"MHLL Hall {hall} does not match MUNI")
+
+
+def _parse_mapi_relations(payloads, active_spans):
+    mraw_rows = _parse_i32_rows(payloads["MRAW"], MSG_OPERATION_COUNT, 1, "MRAW")
+    raw_codes = tuple(row[0] for row in mraw_rows)
+    if raw_codes[0] != 0:
+        raise FrameError("MRAW sentinel mismatch")
+    offset = 0
+    for record, (uni, hall, order, raw_offset) in enumerate(active_spans):
+        record_uni, record_hall, record_count = _unpack_from(
+            payloads["MAPI"], "<HHH", offset, f"MAPI[{record}] header"
+        )
+        if (record_uni, record_hall, record_count) != (uni, hall, order):
+            raise FrameError(f"MAPI[{record}] header does not match MUNI/MIDX")
+        offset += 6
+        for index in range(order):
+            wire = _parse_operation_payload(
+                payloads["MAPI"], offset, True, f"MAPI[{uni},{hall}][{index}]"
+            )
+            encoded = raw_codes[raw_offset + index]
+            expected = _decode_exact_operation(encoded, f"MAPI[{uni},{hall}][{index}]")
+            _compare_wire_operation(
+                wire[:3], expected, True, f"MAPI[{uni},{hall}][{index}]"
+            )
+            offset += 13
+    if offset != len(payloads["MAPI"]):
+        raise FrameError("MAPI has trailing bytes")
+
+
+def _checked_alternative_prefixes(payloads, muni_rows):
+    malt_rows = _parse_i32_rows(
+        payloads["MALT"], MSG_UNI_COUNT * MSG_HALL_SLOTS, 7, "MALT"
+    )
+    prefixes = {}
+    occurrences = 0
+    for uni in range(MSG_UNI_COUNT):
+        active_count = 0 if uni == 0 else muni_rows[uni][0]
+        for slot in range(MSG_HALL_SLOTS):
+            values = malt_rows[uni * MSG_HALL_SLOTS + slot]
+            first_zero = next(
+                (index for index, value in enumerate(values) if value == 0),
+                len(values),
+            )
+            if slot >= active_count:
+                if any(value != 0 for value in values):
+                    raise FrameError(f"MALT UNI {uni} inactive slot {slot} is nonzero")
+                continue
+            if first_zero > 6 or any(value != 0 for value in values[first_zero:]):
+                raise FrameError(f"MALT UNI {uni} slot {slot} terminator/tail is invalid")
+            prefix = values[:first_zero]
+            if any(not 0 < value < provenance.SPACE_OPERATION_SCALE for value in prefix):
+                raise FrameError(f"MALT UNI {uni} slot {slot} encoding is invalid")
+            prefixes[(uni, slot)] = prefix
+            occurrences += len(prefix)
+    if occurrences != ALT_VALUE_COUNT:
+        raise FrameError("MALT alternative occurrence census mismatch")
+    return prefixes
+
+
+def _parse_tapi_relations(payloads, active_spans, muni_rows):
+    prefixes = _checked_alternative_prefixes(payloads, muni_rows)
+    offset = 0
+    for record, (uni, hall, expected_order, _) in enumerate(active_spans):
+        slot = hall - muni_rows[uni][1]
+        prefix = prefixes[(uni, slot)]
+        record_uni, record_hall, record_count = _unpack_from(
+            payloads["TAPI"], "<HHH", offset, f"TAPI[{record}] header"
+        )
+        if (record_uni, record_hall) != (uni, hall):
+            raise FrameError(f"TAPI[{record}] header does not match MUNI/MIDX")
+        if record_count != len(prefix) + 1:
+            raise FrameError(f"TAPI[{uni},{hall}] count does not match MALT")
+        if expected_order <= 0:
+            raise FrameError(f"TAPI[{uni},{hall}] has invalid source span")
+        offset += 6
+        for index in range(record_count):
+            wire = _parse_operation_payload(
+                payloads["TAPI"], offset, False, f"TAPI[{uni},{hall}][{index}]"
+            )
+            if index == 0:
+                if wire[:2] != (
+                    (1, 0, 0, 0, 1, 0, 0, 0, 1), (0, 0, 0)
+                ):
+                    raise FrameError(f"TAPI[{uni},{hall}] first operation is not identity")
+                expected = None
+            else:
+                encoded = prefix[index - 1]
+                expected = _decode_exact_operation(
+                    encoded, f"TAPI[{uni},{hall}][{index}]"
+                )
+                _compare_wire_operation(
+                    wire[:3], expected, False, f"TAPI[{uni},{hall}][{index}]"
+                )
+            offset += 12
+    if offset != len(payloads["TAPI"]):
+        raise FrameError("TAPI has trailing bytes")
+
+
+def _validate_cross_section_relations(payloads) -> None:
+    _parse_sdec_relations(payloads)
+    spg_spans = _checked_spg_spans(payloads)
+    _parse_sapi_relations(payloads, spg_spans)
+    active_spans, muni_rows = _checked_msg_spans(payloads)
+    _validate_metadata_and_hall_relations(payloads, muni_rows)
+    _parse_mapi_relations(payloads, active_spans)
+    _parse_tapi_relations(payloads, active_spans, muni_rows)
+
+
 def parse_frame(frame: bytes) -> tuple[tuple[str, int, bytes], ...]:
     """Strictly parse a canonical frame and return `(tag, count, payload)` rows."""
-    if type(frame) is not bytes:
-        raise FrameError("frame is not bytes")
-    header_length = len(MAGIC) + 8
-    if len(frame) < header_length or frame[:len(MAGIC)] != MAGIC:
-        raise FrameError("frame magic mismatch")
-    version, section_count = struct.unpack_from("<II", frame, len(MAGIC))
-    if version != VERSION or section_count != SECTION_COUNT:
-        raise FrameError("frame version/section count mismatch")
-    offset = header_length
-    result = []
-    for index, expected_tag in enumerate(SECTION_TAGS):
-        if offset + 20 > len(frame):
-            raise FrameError(f"section {index} header is truncated")
-        tag_bytes = frame[offset:offset + 4]
-        try:
-            tag = tag_bytes.decode("ascii")
-        except UnicodeDecodeError as error:
-            raise FrameError(f"section {index} tag is not ASCII") from error
-        if tag != expected_tag:
-            raise FrameError(f"section {index} tag {tag!r} != {expected_tag!r}")
-        count, payload_length = struct.unpack_from("<QQ", frame, offset + 4)
-        expected_count = SECTION_COUNTS[index]
-        if count != expected_count:
-            raise FrameError(
-                f"section {tag} record count {count} != {expected_count}"
+    try:
+        if type(frame) is not bytes:
+            raise FrameError("frame is not bytes")
+        header_length = len(MAGIC) + 8
+        if len(frame) < header_length or frame[:len(MAGIC)] != MAGIC:
+            raise FrameError("frame magic mismatch")
+        version, section_count = _unpack_from(
+            frame, "<II", len(MAGIC), "frame header"
+        )
+        if version != VERSION or section_count != SECTION_COUNT:
+            raise FrameError("frame version/section count mismatch")
+        offset = header_length
+        result = []
+        for index, expected_tag in enumerate(SECTION_TAGS):
+            if offset + 20 > len(frame):
+                raise FrameError(f"section {index} header is truncated")
+            tag_bytes = frame[offset:offset + 4]
+            try:
+                tag = tag_bytes.decode("ascii")
+            except UnicodeDecodeError as error:
+                raise FrameError(f"section {index} tag is not ASCII") from error
+            if tag != expected_tag:
+                raise FrameError(f"section {index} tag {tag!r} != {expected_tag!r}")
+            count, payload_length = _unpack_from(
+                frame, "<QQ", offset + 4, f"section {tag} header"
             )
-        offset += 20
-        end = offset + payload_length
-        if end > len(frame):
-            raise FrameError(f"section {tag} payload is truncated")
-        payload = frame[offset:end]
-        _validate_section_payload(tag, count, payload)
-        result.append((tag, count, payload))
-        offset = end
-    if offset != len(frame):
-        raise FrameError("frame has trailing bytes")
-    return tuple(result)
+            expected_count = SECTION_COUNTS[index]
+            if count != expected_count:
+                raise FrameError(
+                    f"section {tag} record count {count} != {expected_count}"
+                )
+            offset += 20
+            end = offset + payload_length
+            if end > len(frame):
+                raise FrameError(f"section {tag} payload is truncated")
+            payload = frame[offset:end]
+            result.append((tag, count, payload))
+            offset = end
+        if offset != len(frame):
+            raise FrameError("frame has trailing bytes")
+        for tag, count, payload in result:
+            _validate_section_payload(tag, count, payload)
+        payloads = {tag: payload for tag, _, payload in result}
+        _validate_cross_section_relations(payloads)
+        return tuple(result)
+    except FrameError:
+        raise
+    except (IndexError, MemoryError, OverflowError, struct.error, ValueError) as error:
+        raise FrameError("frame validation failed") from error
 
 
 def expected_section_metadata(database=None):
