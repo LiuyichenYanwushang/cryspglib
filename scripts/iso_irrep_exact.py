@@ -14,6 +14,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
+from functools import lru_cache
 import hashlib
 import io
 from pathlib import Path
@@ -324,6 +325,12 @@ class ExactSourceRecord:
             raise SourceInvariantError(
                 "parameterized ExactSourceRecord requires every irtranslation"
             )
+        _validate_operations(
+            self.operations,
+            self.spacegroup,
+            self.irrep_label,
+            check_closure=True,
+        )
 
     @property
     def opcount(self) -> int:
@@ -442,6 +449,17 @@ class ExactIsoIrrepDatabase:
                     f"ExactIsoIrrepDatabase universe slot {index} has "
                     f"spacegroup {universe.spacegroup}"
                 )
+        if (
+            not self.pir_records
+            and not self.cir_records
+            and all(universe is None for universe in self.universes)
+        ):
+            return
+        _validate_database_crosslinks(
+            self.pir_records,
+            self.cir_records,
+            self.universes,
+        )
 
     def source_universe(self, spacegroup: int) -> ExactSpaceGroupUniverse:
         return _lookup_universe(self.universes, spacegroup)
@@ -874,6 +892,18 @@ def _rotation_product(left: Rotation3, right: Rotation3) -> Rotation3:
     )  # type: ignore[return-value]
 
 
+@lru_cache(maxsize=512)
+def _rotation_signature_closed(rotations: tuple[Rotation3, ...]) -> bool:
+    """Return whether one immutable ordered rotation signature is closed."""
+
+    rotation_set = set(rotations)
+    return all(
+        _rotation_product(left, right) in rotation_set
+        for left in rotation_set
+        for right in rotation_set
+    )
+
+
 def _validate_operations(
     operations: Sequence[ExactSeitz],
     spacegroup: int,
@@ -899,12 +929,8 @@ def _validate_operations(
     first = operations[0]
     if first.rotation != _IDENTITY_ROTATION or first.translation != _ZERO_TRANSLATION:
         raise SourceInvariantError(f"{context} operation slot 0 is not exact {{I|0}}")
-    if not check_closure:
-        return
-    for left in rotation_set:
-        for right in rotation_set:
-            if _rotation_product(left, right) not in rotation_set:
-                raise SourceInvariantError(f"{context} rotation set is not multiplication-closed")
+    if check_closure and not _rotation_signature_closed(rotations):
+        raise SourceInvariantError(f"{context} rotation set is not multiplication-closed")
 
 
 def _parse_records_from_lines(
@@ -941,10 +967,6 @@ def _parse_records_from_lines(
 
     records = []
     seen_keys = set()
-    # Cache closure by the ordered rotation tuple, rather than by SG number:
-    # a malformed same-SG record with a different operation set must still be
-    # checked before the later universe-folding comparison.
-    closure_checked = set()
     expected_irnumber = 1
     index = 3
     while index < len(lines):
@@ -1049,15 +1071,6 @@ def _parse_records_from_lines(
                 ascii_validated=ascii_validated,
             )
 
-        rotation_key = tuple(operation.rotation for operation in operations)
-        _validate_operations(
-            operations,
-            spacegroup,
-            label,
-            check_closure=rotation_key not in closure_checked,
-        )
-        closure_checked.add(rotation_key)
-
         records.append(
             ExactSourceRecord(
                 archive=archive,
@@ -1126,18 +1139,19 @@ def parse_exact_source_lines(
 
     if not isinstance(archive, SourceArchive):
         raise TypeError("archive must be a SourceArchive")
-    if not isinstance(lines, (tuple, list)):
+    if type(lines) not in (list, tuple):
         raise TypeError("source lines must be a list or tuple of str")
-    if any(type(line) is not str for line in lines):
+    snapshot = tuple(lines)
+    if any(type(line) is not str for line in snapshot):
         raise TypeError("source lines must contain only str")
-    for index, line in enumerate(lines):
+    for index, line in enumerate(snapshot):
         _validate_ascii_text(line, f"{archive.value} source line {index + 1}", require_final_lf=False)
         if "\n" in line:
             raise SourceSchemaError(
                 f"{archive.value} source line {index + 1} contains an embedded LF"
             )
     return _parse_records_from_lines(
-        lines,
+        snapshot,
         archive,
         validate_census=validate_census,
         ascii_validated=True,
@@ -1327,6 +1341,92 @@ def _build_universes(
             )
         )
     return tuple(universes)
+
+
+def _validate_database_crosslinks(
+    pir_records: tuple[ExactSourceRecord, ...],
+    cir_records: tuple[ExactSourceRecord, ...],
+    universes: tuple[Optional[ExactSpaceGroupUniverse], ...],
+) -> None:
+    """Require one exact record/universe graph, including partial graphs."""
+
+    grouped: dict[int, dict[SourceArchive, list[ExactSourceRecord]]] = defaultdict(
+        lambda: {SourceArchive.PIR: [], SourceArchive.CIR: []}
+    )
+    for archive, records in (
+        (SourceArchive.PIR, pir_records),
+        (SourceArchive.CIR, cir_records),
+    ):
+        seen_irnumbers = set()
+        seen_keys = set()
+        for record in records:
+            if record.archive is not archive:
+                raise SourceInvariantError(
+                    f"{archive.value} records contain a mismatched archive tag"
+                )
+            if record.irnumber <= 0:
+                raise SourceInvariantError(
+                    f"{archive.value} record irnumber must be positive"
+                )
+            if record.irnumber in seen_irnumbers:
+                raise SourceInvariantError(
+                    f"duplicate {archive.value} irnumber {record.irnumber}"
+                )
+            seen_irnumbers.add(record.irnumber)
+            key = (record.spacegroup, record.irrep_label)
+            if key in seen_keys:
+                raise SourceInvariantError(
+                    f"duplicate {archive.value} source key {key!r}"
+                )
+            seen_keys.add(key)
+            grouped[record.spacegroup][archive].append(record)
+
+    for spacegroup in range(1, 231):
+        by_archive = grouped.get(spacegroup)
+        pir = [] if by_archive is None else by_archive[SourceArchive.PIR]
+        cir = [] if by_archive is None else by_archive[SourceArchive.CIR]
+        all_records = pir + cir
+        universe = universes[spacegroup]
+        if bool(all_records) != (universe is not None):
+            raise SourceInvariantError(
+                f"SG{spacegroup} records/universe presence mismatch"
+            )
+        if universe is None:
+            continue
+        baseline = all_records[0]
+        for record in all_records[1:]:
+            if record.space_group_symbol != baseline.space_group_symbol:
+                raise SourceInvariantError(
+                    f"SG{spacegroup} source symbols differ"
+                )
+            if record.centering is not baseline.centering:
+                raise SourceInvariantError(
+                    f"SG{spacegroup} source centerings differ"
+                )
+            if record.operations != baseline.operations:
+                raise SourceInvariantError(
+                    f"SG{spacegroup} ordered Seitz operations differ"
+                )
+        if universe.space_group_symbol != baseline.space_group_symbol:
+            raise SourceInvariantError(
+                f"SG{spacegroup} universe symbol differs from records"
+            )
+        if universe.centering is not baseline.centering:
+            raise SourceInvariantError(
+                f"SG{spacegroup} universe centering differs from records"
+            )
+        if universe.operations != baseline.operations:
+            raise SourceInvariantError(
+                f"SG{spacegroup} universe operations differ from records"
+            )
+        if universe.pir_irnumbers != tuple(record.irnumber for record in pir):
+            raise SourceInvariantError(
+                f"SG{spacegroup} universe PIR irnumbers differ from records"
+            )
+        if universe.cir_irnumbers != tuple(record.irnumber for record in cir):
+            raise SourceInvariantError(
+                f"SG{spacegroup} universe CIR irnumbers differ from records"
+            )
 
 
 def _assemble_database(

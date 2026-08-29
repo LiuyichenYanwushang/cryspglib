@@ -364,6 +364,15 @@ class UniverseAndCacheTests(unittest.TestCase):
         with self.assertRaises(exact.SourceInvariantError):
             replace(nonspecial, irtranslations=(None,))
 
+        inversion_raw = (-1, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1)
+        inversion = exact.ExactSeitz(
+            ((-1, 0, 0), (0, -1, 0), (0, 0, -1)),
+            zero,
+            inversion_raw,
+        )
+        with self.assertRaises(exact.SourceInvariantError):
+            replace(special, operations=(inversion,), irtranslations=(None,))
+
     def test_public_universe_and_database_slots_are_semantic(self):
         record = exact.parse_exact_source_text(
             _synthetic_source(exact.SourceArchive.PIR), exact.SourceArchive.PIR
@@ -407,6 +416,93 @@ class UniverseAndCacheTests(unittest.TestCase):
         slots[2] = universe
         with self.assertRaises(exact.SourceInvariantError):
             exact.ExactIsoIrrepDatabase((), (), tuple(slots))
+
+        # A one-sided graph is a valid synthetic partial database when its
+        # universe and record references agree exactly.
+        slots = [None] * 231
+        slots[1] = universe
+        database = exact.ExactIsoIrrepDatabase((record,), (), tuple(slots))
+        self.assertIs(database.universes[1], universe)
+
+        # A universe must not dangle without records, and records must not
+        # dangle without a universe slot.
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactIsoIrrepDatabase((), (), tuple(slots))
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactIsoIrrepDatabase((record,), (), (None,) * 231)
+
+        for altered_universe in (
+            replace(universe, space_group_symbol="P2"),
+            replace(universe, pir_irnumbers=(2,)),
+        ):
+            altered_slots = [None] * 231
+            altered_slots[1] = altered_universe
+            with self.assertRaises(exact.SourceInvariantError):
+                exact.ExactIsoIrrepDatabase((record,), (), tuple(altered_slots))
+
+        inversion = exact.ExactSeitz(
+            ((-1, 0, 0), (0, -1, 0), (0, 0, -1)),
+            (Fraction(0),) * 3,
+            (-1, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1),
+        )
+        altered_universe = replace(
+            universe,
+            operations=(record.operations[0], inversion),
+        )
+        altered_slots = [None] * 231
+        altered_slots[1] = altered_universe
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactIsoIrrepDatabase((record,), (), tuple(altered_slots))
+
+        # The crosslink pass also compares every same-SG record, rather than
+        # accepting the first record as an unchecked baseline.
+        altered_record = replace(record, irrep_label="GM2", space_group_symbol="P2")
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactIsoIrrepDatabase(
+                (record, altered_record), (), tuple(slots)
+            )
+
+    def test_source_lines_snapshot_and_input_boundary(self):
+        source_lines = _synthetic_source(exact.SourceArchive.PIR).splitlines()
+        self.assertEqual(
+            exact.parse_exact_source_lines(source_lines, exact.SourceArchive.PIR)[0].irnumber,
+            1,
+        )
+
+        class MutatingList(list):
+            def __iter__(self):
+                self[3] = "mutated while iterating"
+                return super().__iter__()
+
+        with self.assertRaises(TypeError):
+            exact.parse_exact_source_lines(
+                MutatingList(source_lines), exact.SourceArchive.PIR
+            )
+        with self.assertRaises(TypeError):
+            exact.parse_exact_source_lines(
+                iter(source_lines), exact.SourceArchive.PIR
+            )
+
+        original_lines = list(source_lines)
+        expected_snapshot = tuple(original_lines)
+        captured = []
+
+        def capture(snapshot, archive, *, validate_census, ascii_validated):
+            captured.append(snapshot)
+            original_lines[3] = "mutated after snapshot"
+            return ()
+
+        with mock.patch.object(
+            exact, "_parse_records_from_lines", side_effect=capture
+        ):
+            self.assertEqual(
+                exact.parse_exact_source_lines(
+                    original_lines, exact.SourceArchive.PIR
+                ),
+                (),
+            )
+        self.assertEqual(captured, [expected_snapshot])
+        self.assertIs(type(captured[0]), tuple)
 
     def test_single_flight(self):
         old_database = exact._DATABASE
