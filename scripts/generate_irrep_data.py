@@ -2001,6 +2001,152 @@ class _SidecarHallChoices(dict):
         self.selected_hall_targets = {}
 
 
+def _reject_duplicate_json_pairs(pairs):
+    """Build a JSON object while rejecting every duplicate member name."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON object key {key!r}")
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json_constant(value):
+    raise ValueError(f"non-finite JSON number {value!r}")
+
+
+def _parse_hall_operations_payload(payload):
+    """Parse and structurally validate one hall_operations JSON payload.
+
+    The caller may apply the fixed byte/hash gate before calling this pure
+    parser.  This function deliberately performs the complete schema and
+    aggregate checks as well, so an in-memory payload test cannot accidentally
+    exercise only the outer digest gate.
+    """
+    import json
+
+    if type(payload) is not bytes:
+        raise ValueError("hall_operations payload must be exact bytes")
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError("hall_operations.json is not valid UTF-8") from error
+    try:
+        raw = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicate_json_pairs,
+            parse_constant=_reject_nonfinite_json_constant,
+        )
+    except (ValueError, TypeError, RecursionError) as error:
+        raise ValueError(f"hall_operations.json parse error: {error}") from error
+
+    if type(raw) is not dict:
+        raise ValueError("hall_operations.json root must be an exact object")
+    expected_hall_keys = {str(hall_num) for hall_num in range(1, 531)}
+    for key in raw:
+        if type(key) is not str or key not in expected_hall_keys:
+            raise ValueError(
+                f"hall_operations.json has noncanonical root Hall key {key!r}"
+            )
+    if set(raw) != expected_hall_keys:
+        missing = sorted(expected_hall_keys.difference(raw))
+        extra = sorted(set(raw).difference(expected_hall_keys))
+        raise ValueError(
+            "hall_operations.json root keys must be exactly \"1\"..\"530\": "
+            f"missing={missing}, extra={extra}"
+        )
+
+    sg_halls = defaultdict(list)
+    operation_total = 0
+    for hall_num in range(1, 531):
+        hall_key = str(hall_num)
+        entry = raw[hall_key]
+        context = f"Hall{hall_num}"
+        if type(entry) is not dict:
+            raise ValueError(f"{context} entry must be an exact object")
+        expected_entry_keys = {"sg", "rots", "trans"}
+        if set(entry) != expected_entry_keys:
+            missing = sorted(expected_entry_keys.difference(entry))
+            extra = sorted(set(entry).difference(expected_entry_keys))
+            raise ValueError(
+                f"{context} entry keys mismatch: missing={missing}, extra={extra}"
+            )
+
+        sg_num = entry["sg"]
+        if type(sg_num) is not int or not 1 <= sg_num <= 230:
+            raise ValueError(f"{context} sg must be exact integer in 1..230")
+        hall_rots = entry["rots"]
+        hall_trans = entry["trans"]
+        if type(hall_rots) is not list or not hall_rots:
+            raise ValueError(f"{context} rots must be a non-empty exact list")
+        if type(hall_trans) is not list or not hall_trans:
+            raise ValueError(f"{context} trans must be a non-empty exact list")
+        if len(hall_rots) != len(hall_trans):
+            raise ValueError(
+                f"{context} rots/trans length mismatch: "
+                f"{len(hall_rots)} != {len(hall_trans)}"
+            )
+
+        seen_rows = set()
+        for operation_index, (rotation, translation) in enumerate(
+                zip(hall_rots, hall_trans)):
+            if type(rotation) is not list or len(rotation) != 9:
+                raise ValueError(
+                    f"{context} operation {operation_index} rotation must be "
+                    "an exact list of length 9"
+                )
+            for component_index, component in enumerate(rotation):
+                if type(component) is not int or component not in (-1, 0, 1):
+                    raise ValueError(
+                        f"{context} operation {operation_index} rotation "
+                        f"component {component_index} must be exact -1/0/1"
+                    )
+            if type(translation) is not list or len(translation) != 3:
+                raise ValueError(
+                    f"{context} operation {operation_index} translation must be "
+                    "an exact list of length 3"
+                )
+            for component_index, component in enumerate(translation):
+                if type(component) is not float:
+                    raise ValueError(
+                        f"{context} operation {operation_index} translation "
+                        f"component {component_index} must be exact float"
+                    )
+                if not math.isfinite(component) or not 0.0 <= component < 1.0:
+                    raise ValueError(
+                        f"{context} operation {operation_index} translation "
+                        f"component {component_index} must be finite in [0,1)"
+                    )
+            row = (tuple(rotation), tuple(translation))
+            if row in seen_rows:
+                raise ValueError(
+                    f"{context} operation {operation_index} duplicates a Seitz row"
+                )
+            seen_rows.add(row)
+
+        operation_total += len(hall_rots)
+        sg_halls[sg_num].append((hall_num, hall_rots, hall_trans))
+
+    expected_sgs = set(range(1, 231))
+    if set(sg_halls) != expected_sgs:
+        missing = sorted(expected_sgs.difference(sg_halls))
+        extra = sorted(set(sg_halls).difference(expected_sgs))
+        raise ValueError(
+            f"hall_operations.json SG coverage mismatch: missing={missing}, "
+            f"extra={extra}"
+        )
+    if len(sg_halls) != 230:
+        raise ValueError(
+            f"hall_operations.json has {len(sg_halls)} SGs, expected 230"
+        )
+    if operation_total != 7388:
+        raise ValueError(
+            "hall_operations.json operation census mismatch: "
+            f"expected 7388, got {operation_total}"
+        )
+    return sg_halls
+
+
 def _load_hall_operations():
     """Load the pinned legacy Hall table used for output materialization.
 
@@ -2008,7 +2154,6 @@ def _load_hall_operations():
     order after the frozen sidecar has selected a Hall number.  Its digest is
     an input-integrity gate, not a Hall-setting search or tie-break.
     """
-    import json
     hall_path = os.path.join(SCRIPT_DIR, "hall_operations.json")
     try:
         with open(hall_path, "rb") as source:
@@ -2028,27 +2173,7 @@ def _load_hall_operations():
             "hall_operations.json SHA-256 mismatch: "
             f"expected {HALL_OPERATIONS_SHA256}, got {digest}"
         )
-    try:
-        raw = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, ValueError) as error:
-        raise ValueError("hall_operations.json is not valid UTF-8 JSON") from error
-    if not isinstance(raw, dict):
-        raise ValueError("hall_operations.json root must be an object")
-    # raw: {"517": {"sg": 221, "rots": [[...], ...], "trans": [[...], ...]}, ...}
-    # Build sg → [(hall_number, rots_list, trans_list)] index
-    sg_halls = defaultdict(list)
-    for hall_str, hd in raw.items():
-        try:
-            hall_num = int(hall_str)
-            sg_num = hd["sg"]
-            hall_rots = hd["rots"]
-            hall_trans = hd.get("trans", [])
-        except (KeyError, TypeError, ValueError, AttributeError) as error:
-            raise ValueError(
-                f"malformed hall_operations.json entry {hall_str!r}"
-            ) from error
-        sg_halls[sg_num].append((hall_num, hall_rots, hall_trans))
-    return sg_halls
+    return _parse_hall_operations_payload(payload)
 
 
 def _prepare_sidecar_hall_choices(data_hall_database, sg_halls):

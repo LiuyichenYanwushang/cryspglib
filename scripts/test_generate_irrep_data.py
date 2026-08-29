@@ -5,6 +5,7 @@ import sys
 import struct
 import tempfile
 import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -38,6 +39,16 @@ class PinnedArchiveBoundaryTests(unittest.TestCase):
             for name, contents in members.items():
                 archive.writestr(name, contents)
         return path
+
+    @staticmethod
+    def _hall_tree():
+        path = os.path.join(generator.SCRIPT_DIR, "hall_operations.json")
+        with open(path, "rb") as stream:
+            return json.loads(stream.read().decode("utf-8"))
+
+    @staticmethod
+    def _hall_tree_payload(tree):
+        return json.dumps(tree, separators=(",", ":")).encode("utf-8")
 
     def test_valid_zip_is_read_without_extracted_directory(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -155,6 +166,78 @@ class PinnedArchiveBoundaryTests(unittest.TestCase):
         self.assertEqual(
             generator.HALL_OPERATIONS_SHA256, _EXPECTED_HALL_OPERATIONS_SHA256
         )
+
+    def test_hall_payload_parser_accepts_full_aggregate(self):
+        path = os.path.join(generator.SCRIPT_DIR, "hall_operations.json")
+        with open(path, "rb") as stream:
+            payload = stream.read()
+        parsed = generator._parse_hall_operations_payload(payload)
+        self.assertEqual(sorted(parsed), list(range(1, 231)))
+        self.assertEqual(
+            sum(len(entry[1]) for entries in parsed.values() for entry in entries),
+            7388,
+        )
+
+    def test_hall_payload_parser_rejects_missing_hall4(self):
+        tree = self._hall_tree()
+        del tree["4"]
+        with self.assertRaisesRegex(ValueError, "root keys"):
+            generator._parse_hall_operations_payload(self._hall_tree_payload(tree))
+
+    def test_hall_payload_parser_rejects_hall4_extra_field(self):
+        tree = self._hall_tree()
+        tree["4"]["extra"] = 0
+        with self.assertRaisesRegex(ValueError, "Hall4 entry keys"):
+            generator._parse_hall_operations_payload(self._hall_tree_payload(tree))
+
+    def test_hall_payload_parser_rejects_duplicate_root_key1(self):
+        tree = self._hall_tree()
+        entries = []
+        encoded_first = json.dumps(tree["1"], separators=(",", ":"))
+        entries.extend(["\"1\":" + encoded_first,
+                        "\"1\":" + encoded_first])
+        for hall_num in range(2, 531):
+            hall_key = str(hall_num)
+            entries.append(
+                json.dumps(hall_key) + ":" +
+                json.dumps(tree[hall_key], separators=(",", ":"))
+            )
+        payload = ("{" + ",".join(entries) + "}").encode("utf-8")
+        with self.assertRaisesRegex(ValueError, "duplicate JSON object key"):
+            generator._parse_hall_operations_payload(payload)
+
+    def test_hall_payload_parser_rejects_hall4_missing_trans(self):
+        tree = self._hall_tree()
+        del tree["4"]["trans"]
+        with self.assertRaisesRegex(ValueError, "Hall4 entry keys"):
+            generator._parse_hall_operations_payload(self._hall_tree_payload(tree))
+
+    def test_hall_payload_parser_rejects_nonfinite_translation(self):
+        tree = self._hall_tree()
+        tree["4"]["trans"][0][0] = float("nan")
+        with self.assertRaisesRegex(ValueError, "non-finite"):
+            generator._parse_hall_operations_payload(self._hall_tree_payload(tree))
+
+    def test_hall_payload_parser_rejects_parallel_length_mismatch(self):
+        tree = self._hall_tree()
+        tree["4"]["trans"].pop()
+        with self.assertRaisesRegex(ValueError, "Hall4 rots/trans length"):
+            generator._parse_hall_operations_payload(self._hall_tree_payload(tree))
+
+    def test_hall_payload_parser_rejects_duplicate_seitz_row(self):
+        tree = self._hall_tree()
+        hall_key = next(
+            key for key in tree if len(tree[key]["rots"]) > 1)
+        tree[hall_key]["rots"][1] = list(tree[hall_key]["rots"][0])
+        tree[hall_key]["trans"][1] = list(tree[hall_key]["trans"][0])
+        with self.assertRaisesRegex(ValueError, "duplicates a Seitz row"):
+            generator._parse_hall_operations_payload(self._hall_tree_payload(tree))
+
+    def test_hall_payload_parser_rejects_nonexact_component_types(self):
+        tree = self._hall_tree()
+        tree["4"]["sg"] = True
+        with self.assertRaisesRegex(ValueError, "Hall4 sg"):
+            generator._parse_hall_operations_payload(self._hall_tree_payload(tree))
 
     def test_pir_parallel_offsets_are_strictly_linked(self):
         args = dict(
