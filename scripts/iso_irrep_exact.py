@@ -151,6 +151,21 @@ class ExactSeitz:
         _require_tuple(self.raw_augmented, 16, "ExactSeitz.raw_augmented")
         if any(type(value) is not int for value in self.raw_augmented):
             raise TypeError("ExactSeitz.raw_augmented entries must be int")
+        decoded_rotation, decoded_translation = _decode_seitz_raw(
+            self.raw_augmented,
+            context="ExactSeitz",
+            error_type=SourceInvariantError,
+        )
+        if _rotation_determinant(decoded_rotation) not in (-1, 1):
+            raise SourceInvariantError("ExactSeitz raw rotation is not GL(3,Z)")
+        if decoded_rotation != self.rotation:
+            raise SourceInvariantError(
+                "ExactSeitz rotation disagrees with raw_augmented"
+            )
+        if decoded_translation != self.translation:
+            raise SourceInvariantError(
+                "ExactSeitz translation disagrees with raw_augmented"
+            )
 
 
 @dataclass(frozen=True)
@@ -174,6 +189,19 @@ class ExactKArm:
         _require_tuple(self.raw_augmented, 16, "ExactKArm.raw_augmented")
         if any(type(value) is not int for value in self.raw_augmented):
             raise TypeError("ExactKArm.raw_augmented entries must be int")
+        decoded_constant, decoded_parameters = _decode_k_arm_raw(
+            self.raw_augmented,
+            context="ExactKArm",
+            error_type=SourceInvariantError,
+        )
+        if decoded_constant != self.constant:
+            raise SourceInvariantError(
+                "ExactKArm constant disagrees with raw_augmented"
+            )
+        if decoded_parameters != self.parameters:
+            raise SourceInvariantError(
+                "ExactKArm parameters disagree with raw_augmented"
+            )
 
 
 @dataclass(frozen=True)
@@ -190,6 +218,15 @@ class ExactIrTranslation:
         _require_tuple(self.raw, 4, "ExactIrTranslation.raw")
         if any(type(value) is not int for value in self.raw):
             raise TypeError("ExactIrTranslation.raw entries must be int")
+        decoded_vector = _decode_irtranslation_raw(
+            self.raw,
+            context="ExactIrTranslation",
+            error_type=SourceInvariantError,
+        )
+        if decoded_vector != self.vector:
+            raise SourceInvariantError(
+                "ExactIrTranslation vector disagrees with raw"
+            )
 
 
 @dataclass(frozen=True)
@@ -226,16 +263,49 @@ class ExactSourceRecord:
         for name in ("dimension", "irtype", "kcount", "pmkcount"):
             if type(getattr(self, name)) is not int:
                 raise TypeError(f"ExactSourceRecord.{name} must be int")
+        if self.irnumber <= 0:
+            raise SourceInvariantError("ExactSourceRecord.irnumber must be positive")
+        if not 1 <= self.spacegroup <= 230:
+            raise SourceInvariantError("ExactSourceRecord.spacegroup outside 1..230")
+        _validate_semantic_field(self.space_group_symbol, "ExactSourceRecord.space_group_symbol")
+        _validate_semantic_field(self.irrep_label, "ExactSourceRecord.irrep_label")
+        if self.space_group_symbol[0] != self.centering.value:
+            raise SourceInvariantError(
+                "ExactSourceRecord symbol/centering mismatch"
+            )
+        if not 1 <= self.dimension <= 48:
+            raise SourceInvariantError("ExactSourceRecord.dimension outside 1..48")
+        if self.irtype not in (1, 2, 3):
+            raise SourceInvariantError("ExactSourceRecord.irtype outside {1,2,3}")
+        for name in ("kcount", "pmkcount"):
+            value = getattr(self, name)
+            if not 1 <= value <= 48:
+                raise SourceInvariantError(
+                    f"ExactSourceRecord.{name} outside 1..48"
+                )
+        if self.kcount not in (self.pmkcount, 2 * self.pmkcount):
+            raise SourceInvariantError(
+                "ExactSourceRecord kcount/pmkcount relation is invalid"
+            )
+        divisibility_count = self.pmkcount if self.archive is SourceArchive.PIR else self.kcount
+        if self.dimension % divisibility_count:
+            raise SourceInvariantError(
+                "ExactSourceRecord dimension/count divisibility is invalid"
+            )
         _require_tuple(self.k_arms, None, "ExactSourceRecord.k_arms")
         _require_tuple(self.operations, None, "ExactSourceRecord.operations")
         _require_tuple(self.irtranslations, None, "ExactSourceRecord.irtranslations")
         if not self.k_arms or not self.operations:
-            raise ValueError("ExactSourceRecord must contain k arms and operations")
+            raise SourceInvariantError(
+                "ExactSourceRecord must contain k arms and operations"
+            )
+        if len(self.operations) > 48:
+            raise SourceInvariantError("ExactSourceRecord operation count outside 1..48")
         if len(self.irtranslations) != len(self.operations):
-            raise ValueError("ExactSourceRecord translation/op count mismatch")
+            raise SourceInvariantError("ExactSourceRecord translation/op count mismatch")
         expected_arms = self.pmkcount if self.archive is SourceArchive.PIR else self.kcount
         if len(self.k_arms) != expected_arms:
-            raise ValueError("ExactSourceRecord k-arm count mismatch")
+            raise SourceInvariantError("ExactSourceRecord k-arm count mismatch")
         if any(not isinstance(arm, ExactKArm) for arm in self.k_arms):
             raise TypeError("ExactSourceRecord.k_arms entries must be ExactKArm")
         if any(not isinstance(operation, ExactSeitz) for operation in self.operations):
@@ -245,6 +315,15 @@ class ExactSourceRecord:
             for translation in self.irtranslations
         ):
             raise TypeError("ExactSourceRecord.irtranslations entries must be ExactIrTranslation or None")
+        if self.special:
+            if any(translation is not None for translation in self.irtranslations):
+                raise SourceInvariantError(
+                    "special ExactSourceRecord must not contain irtranslations"
+                )
+        elif any(translation is None for translation in self.irtranslations):
+            raise SourceInvariantError(
+                "parameterized ExactSourceRecord requires every irtranslation"
+            )
 
     @property
     def opcount(self) -> int:
@@ -283,13 +362,49 @@ class ExactSpaceGroupUniverse:
             raise TypeError("ExactSpaceGroupUniverse.space_group_symbol must be str")
         if not isinstance(self.centering, Centering):
             raise TypeError("ExactSpaceGroupUniverse.centering must be Centering")
+        if not 1 <= self.spacegroup <= 230:
+            raise SourceInvariantError(
+                "ExactSpaceGroupUniverse.spacegroup outside 1..230"
+            )
+        _validate_semantic_field(
+            self.space_group_symbol,
+            "ExactSpaceGroupUniverse.space_group_symbol",
+        )
+        if self.space_group_symbol[0] != self.centering.value:
+            raise SourceInvariantError(
+                "ExactSpaceGroupUniverse symbol/centering mismatch"
+            )
         _require_tuple(self.operations, None, "ExactSpaceGroupUniverse.operations")
         _require_tuple(self.pir_irnumbers, None, "ExactSpaceGroupUniverse.pir_irnumbers")
         _require_tuple(self.cir_irnumbers, None, "ExactSpaceGroupUniverse.cir_irnumbers")
+        if not self.operations:
+            raise SourceInvariantError("ExactSpaceGroupUniverse has no operations")
         if any(not isinstance(operation, ExactSeitz) for operation in self.operations):
             raise TypeError("ExactSpaceGroupUniverse.operations entries must be ExactSeitz")
-        if any(type(number) is not int for number in self.pir_irnumbers + self.cir_irnumbers):
-            raise TypeError("ExactSpaceGroupUniverse irnumbers must be int")
+        for name, numbers in (
+            ("pir_irnumbers", self.pir_irnumbers),
+            ("cir_irnumbers", self.cir_irnumbers),
+        ):
+            if any(type(number) is not int for number in numbers):
+                raise TypeError(f"ExactSpaceGroupUniverse {name} must contain int")
+            if any(number <= 0 for number in numbers):
+                raise SourceInvariantError(
+                    f"ExactSpaceGroupUniverse {name} must contain positive irnumbers"
+                )
+            if len(set(numbers)) != len(numbers):
+                raise SourceInvariantError(
+                    f"ExactSpaceGroupUniverse {name} contains duplicate irnumbers"
+                )
+        if not self.pir_irnumbers and not self.cir_irnumbers:
+            raise SourceInvariantError(
+                "ExactSpaceGroupUniverse must contain PIR or CIR irnumbers"
+            )
+        _validate_operations(
+            self.operations,
+            self.spacegroup,
+            self.space_group_symbol,
+            check_closure=True,
+        )
 
 
 @dataclass(frozen=True)
@@ -321,6 +436,12 @@ class ExactIsoIrrepDatabase:
             for universe in self.universes
         ):
             raise TypeError("ExactIsoIrrepDatabase.universes entries are malformed")
+        for index, universe in enumerate(self.universes[1:], start=1):
+            if universe is not None and universe.spacegroup != index:
+                raise SourceInvariantError(
+                    f"ExactIsoIrrepDatabase universe slot {index} has "
+                    f"spacegroup {universe.spacegroup}"
+                )
 
     def source_universe(self, spacegroup: int) -> ExactSpaceGroupUniverse:
         return _lookup_universe(self.universes, spacegroup)
@@ -335,6 +456,15 @@ _ZERO_TRANSLATION = (Fraction(0), Fraction(0), Fraction(0))
 
 def _error(error_type: type[IsoIrrepExactError], message: str) -> IsoIrrepExactError:
     return error_type(message)
+
+
+def _validate_semantic_field(value: str, context: str) -> None:
+    """Validate a decoded quoted field after its official right padding."""
+
+    if not value or value[0] == " " or value[-1] == " " or '"' in value:
+        raise SourceInvariantError(f"{context} is not a non-empty semantic field")
+    if any(not (0x20 <= ord(character) <= 0x7E) for character in value):
+        raise SourceInvariantError(f"{context} is not printable ASCII")
 
 
 def _parse_integer(token: str, *, context: str, unsigned: bool = False) -> int:
@@ -421,7 +551,13 @@ def _parse_padded_field(field: str, width: int, name: str, archive: SourceArchiv
     return semantic
 
 
-def _parse_header(line: str, archive: SourceArchive, line_number: int) -> tuple[int, int, str, str, int, int, int, int, int]:
+def _parse_header(
+    line: str,
+    archive: SourceArchive,
+    line_number: int,
+    *,
+    ascii_validated: bool = False,
+) -> tuple[int, int, str, str, int, int, int, int, int]:
     """Parse the exact ``(i5,i4,a,5i3)`` official writer output."""
 
     if type(line) is not str:
@@ -432,7 +568,8 @@ def _parse_header(line: str, archive: SourceArchive, line_number: int) -> tuple[
             f"malformed {archive.value} header at line {line_number}: "
             f"expected {expected_length} characters, got {len(line)}"
         )
-    _validate_ascii_text(line, f"{archive.value} header line {line_number}", require_final_lf=False)
+    if not ascii_validated:
+        _validate_ascii_text(line, f"{archive.value} header line {line_number}", require_final_lf=False)
     irnumber = _parse_fixed_unsigned(line[0:5], 5, "irnumber", archive, line_number)
     spacegroup = _parse_fixed_unsigned(line[5:9], 4, "spacegroup", archive, line_number)
     label_width = 8 if archive is SourceArchive.PIR else 4
@@ -482,13 +619,20 @@ def _parse_header(line: str, archive: SourceArchive, line_number: int) -> tuple[
     return (irnumber, spacegroup, symbol, label, dimension, irtype, kcount, pmkcount, opcount)
 
 
-def _line_tokens(lines: Sequence[str], index: int, *, context: str) -> list[str]:
+def _line_tokens(
+    lines: Sequence[str],
+    index: int,
+    *,
+    context: str,
+    ascii_validated: bool = False,
+) -> list[str]:
     if index >= len(lines):
         raise SourceSchemaError(f"truncated {context}")
     line = lines[index]
     if not line.strip():
         raise SourceSchemaError(f"blank line {index + 1} in {context}")
-    _validate_ascii_text(line, f"{context} line {index + 1}", require_final_lf=False)
+    if not ascii_validated:
+        _validate_ascii_text(line, f"{context} line {index + 1}", require_final_lf=False)
     # The Fortran writer separates values with ordinary ASCII spaces.  Do not
     # let str.split() silently accept tabs, NBSP, or other Unicode separators.
     return [token for token in line.split(" ") if token]
@@ -501,13 +645,19 @@ def _read_exact_block(
     *,
     context: str,
     parser,
+    ascii_validated: bool = False,
 ) -> tuple[tuple, int]:
     """Read exactly ``count`` tokens, rejecting terminal-line overrun/blank."""
 
     values = []
     index = start
     while len(values) < count:
-        tokens = _line_tokens(lines, index, context=context)
+        tokens = _line_tokens(
+            lines,
+            index,
+            context=context,
+            ascii_validated=ascii_validated,
+        )
         remaining = count - len(values)
         if len(tokens) > remaining:
             raise SourceSchemaError(
@@ -526,13 +676,19 @@ def _skip_exact_block(
     *,
     context: str,
     parser,
+    ascii_validated: bool = False,
 ) -> int:
     """Validate and skip exactly ``count`` tokens without retaining a block."""
 
     consumed = 0
     index = start
     while consumed < count:
-        tokens = _line_tokens(lines, index, context=context)
+        tokens = _line_tokens(
+            lines,
+            index,
+            context=context,
+            ascii_validated=ascii_validated,
+        )
         remaining = count - consumed
         if len(tokens) > remaining:
             raise SourceSchemaError(
@@ -553,8 +709,14 @@ def _read_exact_row(
     *,
     context: str,
     parser,
+    ascii_validated: bool = False,
 ) -> tuple[tuple, int]:
-    tokens = _line_tokens(lines, start, context=context)
+    tokens = _line_tokens(
+        lines,
+        start,
+        context=context,
+        ascii_validated=ascii_validated,
+    )
     if len(tokens) != count:
         raise SourceSchemaError(
             f"{context} line {start + 1} has {len(tokens)} tokens, expected {count}"
@@ -590,74 +752,110 @@ def _parse_matrix_token(token: str, archive: SourceArchive, line_number: int, co
     return token
 
 
-def _parse_k_arms(raw_values: tuple[int, ...], arm_count: int, archive: SourceArchive, context: str) -> tuple[ExactKArm, ...]:
-    arms = []
-    for arm_index in range(arm_count):
-        base = arm_index * 16
-        raw = tuple(raw_values[base:base + 16])
-        constant_denominator = raw[3]
-        if constant_denominator <= 0:
-            raise SourceSchemaError(
-                f"invalid {archive.value} constant k denominator for {context} arm {arm_index}"
-            )
-        constant = tuple(
-            Fraction(raw[offset], constant_denominator) for offset in (0, 1, 2)
-        )
-        parameters = []
-        for numerator_offset, denominator_offset in ((4, 7), (8, 11), (12, 15)):
-            denominator = raw[denominator_offset]
-            numerators = raw[numerator_offset:numerator_offset + 3]
-            if denominator == 0:
-                if any(numerators):
-                    raise SourceSchemaError(
-                        f"zero {archive.value} parameter denominator with nonzero numerator "
-                        f"for {context} arm {arm_index}"
-                    )
-                parameters.append(None)
-            elif denominator > 0:
-                parameters.append(tuple(Fraction(n, denominator) for n in numerators))
-            else:
-                raise SourceSchemaError(
-                    f"negative {archive.value} parameter denominator for {context} arm {arm_index}"
-                )
-        arms.append(
-            ExactKArm(
-                constant=constant,
-                parameters=tuple(parameters),  # type: ignore[arg-type]
-                raw_augmented=raw,  # type: ignore[arg-type]
-            )
-        )
-    return tuple(arms)
-
-
-def _parse_operation(raw: tuple[int, ...], archive: SourceArchive, context: str) -> ExactSeitz:
+def _decode_seitz_raw(
+    raw: tuple[int, ...],
+    *,
+    context: str,
+    error_type,
+) -> tuple[Rotation3, Fraction3]:
     denominator = raw[15]
     if denominator <= 0:
-        raise SourceSchemaError(f"invalid {archive.value} operation denominator for {context}")
+        raise error_type(f"invalid operation denominator for {context}")
     rotation_offsets = (0, 1, 2, 4, 5, 6, 8, 9, 10)
     if any(raw[offset] % denominator for offset in rotation_offsets):
-        raise SourceSchemaError(f"rotation is not divisible by denominator for {context}")
+        raise error_type(f"rotation is not divisible by denominator for {context}")
     if raw[12:15] != (0, 0, 0):
-        raise SourceSchemaError(f"invalid augmented bottom row for {context}")
+        raise error_type(f"invalid augmented bottom row for {context}")
     rotation = (
         tuple(raw[offset] // denominator for offset in (0, 1, 2)),
         tuple(raw[offset] // denominator for offset in (4, 5, 6)),
         tuple(raw[offset] // denominator for offset in (8, 9, 10)),
     )
     translation = tuple(Fraction(raw[offset], denominator) for offset in (3, 7, 11))
+    return rotation, translation  # type: ignore[return-value]
+
+
+def _decode_k_arm_raw(
+    raw: tuple[int, ...],
+    *,
+    context: str,
+    error_type,
+) -> tuple[Fraction3, tuple[OptionalFraction3, OptionalFraction3, OptionalFraction3]]:
+    constant_denominator = raw[3]
+    if constant_denominator <= 0:
+        raise error_type(f"invalid constant k denominator for {context}")
+    constant = tuple(
+        Fraction(raw[offset], constant_denominator) for offset in (0, 1, 2)
+    )
+    parameters = []
+    for numerator_offset, denominator_offset in ((4, 7), (8, 11), (12, 15)):
+        denominator = raw[denominator_offset]
+        numerators = raw[numerator_offset:numerator_offset + 3]
+        if denominator == 0:
+            if any(numerators):
+                raise error_type(
+                    f"zero parameter denominator with nonzero numerator for {context}"
+                )
+            parameters.append(None)
+        elif denominator > 0:
+            parameters.append(tuple(Fraction(n, denominator) for n in numerators))
+        else:
+            raise error_type(f"negative parameter denominator for {context}")
+    return constant, tuple(parameters)  # type: ignore[return-value]
+
+
+def _decode_irtranslation_raw(
+    raw: tuple[int, ...],
+    *,
+    context: str,
+    error_type,
+) -> Fraction3:
+    denominator = raw[3]
+    if denominator <= 0:
+        raise error_type(f"invalid irtranslation denominator for {context}")
+    return tuple(Fraction(raw[offset], denominator) for offset in (0, 1, 2))  # type: ignore[return-value]
+
+
+def _parse_k_arms(raw_values: tuple[int, ...], arm_count: int, archive: SourceArchive, context: str) -> tuple[ExactKArm, ...]:
+    arms = []
+    for arm_index in range(arm_count):
+        base = arm_index * 16
+        raw = tuple(raw_values[base:base + 16])
+        constant, parameters = _decode_k_arm_raw(
+            raw,
+            context=f"{archive.value} {context} arm {arm_index}",
+            error_type=SourceSchemaError,
+        )
+        arms.append(
+            ExactKArm(
+                constant=constant,
+                parameters=parameters,
+                raw_augmented=raw,
+            )
+        )
+    return tuple(arms)
+
+
+def _parse_operation(raw: tuple[int, ...], archive: SourceArchive, context: str) -> ExactSeitz:
+    rotation, translation = _decode_seitz_raw(
+        raw,
+        context=f"{archive.value} {context}",
+        error_type=SourceSchemaError,
+    )
     return ExactSeitz(
-        rotation=rotation,  # type: ignore[arg-type]
-        translation=translation,  # type: ignore[arg-type]
-        raw_augmented=raw,  # type: ignore[arg-type]
+        rotation=rotation,
+        translation=translation,
+        raw_augmented=raw,
     )
 
 
 def _parse_irtranslation(raw: tuple[int, ...], archive: SourceArchive, context: str) -> ExactIrTranslation:
-    denominator = raw[3]
-    if denominator <= 0:
-        raise SourceSchemaError(f"invalid {archive.value} irtranslation denominator for {context}")
-    vector = tuple(Fraction(raw[offset], denominator) for offset in (0, 1, 2))
-    return ExactIrTranslation(vector=vector, raw=raw)  # type: ignore[arg-type]
+    vector = _decode_irtranslation_raw(
+        raw,
+        context=f"{archive.value} {context}",
+        error_type=SourceSchemaError,
+    )
+    return ExactIrTranslation(vector=vector, raw=raw)
 
 
 def _rotation_determinant(rotation: Rotation3) -> int:
@@ -714,7 +912,24 @@ def _parse_records_from_lines(
     archive: SourceArchive,
     *,
     validate_census: bool,
+    ascii_validated: bool = False,
 ) -> tuple[ExactSourceRecord, ...]:
+    # Callers may pass ascii_validated=True only after proving that every
+    # logical line is printable ASCII without an embedded LF.  The public
+    # text/lines seams establish that precondition once, avoiding a second
+    # character-by-character scan of the full source payload.
+    if not ascii_validated:
+        for line_number, line in enumerate(lines, start=1):
+            _validate_ascii_text(
+                line,
+                f"{archive.value} source line {line_number}",
+                require_final_lf=False,
+            )
+            if "\n" in line:
+                raise SourceSchemaError(
+                    f"{archive.value} source line {line_number} contains an embedded LF"
+                )
+        ascii_validated = True
     titles = _PIR_TITLES if archive is SourceArchive.PIR else _CIR_TITLES
     if len(lines) < 3:
         raise SourceSchemaError(f"truncated {archive.value} title block")
@@ -745,7 +960,12 @@ def _parse_records_from_lines(
             kcount,
             pmkcount,
             opcount,
-        ) = _parse_header(lines[index], archive, index + 1)
+        ) = _parse_header(
+            lines[index],
+            archive,
+            index + 1,
+            ascii_validated=ascii_validated,
+        )
         if irnumber != expected_irnumber:
             raise SourceInvariantError(
                 f"unexpected {archive.value} irnumber {irnumber} at line {index + 1}; "
@@ -778,6 +998,7 @@ def _parse_records_from_lines(
             16 * k_payload_count,
             context=f"{archive.value} SG{spacegroup} {label!r} k payload",
             parser=_parse_payload_integer,
+            ascii_validated=ascii_validated,
         )
         k_arms = _parse_k_arms(
             raw_k,
@@ -800,6 +1021,7 @@ def _parse_records_from_lines(
                 16,
                 context=context,
                 parser=_parse_payload_integer,
+                ascii_validated=ascii_validated,
             )
             operations.append(_parse_operation(raw_operation, archive, context))
             if special:
@@ -811,6 +1033,7 @@ def _parse_records_from_lines(
                     4,
                     context=f"{context} irtranslation",
                     parser=_parse_payload_integer,
+                    ascii_validated=ascii_validated,
                 )
                 irtranslations.append(_parse_irtranslation(raw_translation, archive, context))
             # Matrix data is an exact source token block, intentionally not
@@ -823,6 +1046,7 @@ def _parse_records_from_lines(
                 parser=lambda token, line_number, matrix_context: _parse_matrix_token(
                     token, archive, line_number, matrix_context
                 ),
+                ascii_validated=ascii_validated,
             )
 
         rotation_key = tuple(operation.rotation for operation in operations)
@@ -884,6 +1108,7 @@ def parse_exact_source_text(
         _source_lines(text, f"{archive.value} source text"),
         archive,
         validate_census=validate_census,
+        ascii_validated=True,
     )
 
 
@@ -893,7 +1118,11 @@ def parse_exact_source_lines(
     *,
     validate_census: bool = False,
 ) -> tuple[ExactSourceRecord, ...]:
-    """Parse an already split source through the same strict seam."""
+    """Parse already-split synthetic logical lines.
+
+    This seam is for parser fixtures only.  It does not verify archive bytes,
+    ZIP members, or a final LF, and is not an archive-authority boundary.
+    """
 
     if not isinstance(archive, SourceArchive):
         raise TypeError("archive must be a SourceArchive")
@@ -907,7 +1136,12 @@ def parse_exact_source_lines(
             raise SourceSchemaError(
                 f"{archive.value} source line {index + 1} contains an embedded LF"
             )
-    return _parse_records_from_lines(lines, archive, validate_census=validate_census)
+    return _parse_records_from_lines(
+        lines,
+        archive,
+        validate_census=validate_census,
+        ascii_validated=True,
+    )
 
 
 def _parse_archive_text(
@@ -1061,12 +1295,6 @@ def _build_universes(
         if baseline is None:  # defensive; the branch above makes this unreachable.
             universes.append(None)
             continue
-        _validate_operations(
-            baseline.operations,
-            spacegroup,
-            baseline.irrep_label,
-            check_closure=True,
-        )
         for record in all_records[1:]:
             if record.space_group_symbol != baseline.space_group_symbol:
                 raise SourceInvariantError(
@@ -1166,6 +1394,7 @@ def _load_uncached() -> ExactIsoIrrepDatabase:
         _source_lines(pir_text, "PIR source text"),
         SourceArchive.PIR,
         validate_census=True,
+        ascii_validated=True,
     )
     # Release the decoded member before reading the larger CIR source.
     del pir_text
@@ -1174,6 +1403,7 @@ def _load_uncached() -> ExactIsoIrrepDatabase:
         _source_lines(cir_text, "CIR source text"),
         SourceArchive.CIR,
         validate_census=True,
+        ascii_validated=True,
     )
     del cir_text
     return _assemble_database(pir_records, cir_records, validate_census=True)

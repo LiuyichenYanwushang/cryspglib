@@ -89,11 +89,11 @@ class SyntheticParserTests(unittest.TestCase):
         lines = good.splitlines()
         lines[4] = "0 0 0"  # k payload short, followed by operation row
         with self.assertRaises(exact.SourceSchemaError):
-            exact.parse_exact_source_text("\n".join(lines), exact.SourceArchive.PIR)
+            exact.parse_exact_source_text("\n".join(lines) + "\n", exact.SourceArchive.PIR)
         lines = good.splitlines()
         lines[4] += " 0"  # terminal k line overrun
         with self.assertRaises(exact.SourceSchemaError):
-            exact.parse_exact_source_text("\n".join(lines), exact.SourceArchive.PIR)
+            exact.parse_exact_source_text("\n".join(lines) + "\n", exact.SourceArchive.PIR)
         with self.assertRaises(exact.SourceSchemaError):
             exact.parse_exact_source_text(good.replace("\n1\n", "\n\n1\n"), exact.SourceArchive.PIR)
 
@@ -146,13 +146,24 @@ class SyntheticParserTests(unittest.TestCase):
             changed = header[:0] + (" " * max(0, 5 - len(token))) + token + header[5:]
             with self.assertRaises(exact.IsoIrrepExactError):
                 exact.parse_exact_source_text(
-                    "\n".join((good.splitlines()[:3] + [changed] + good.splitlines()[4:])),
+                    "\n".join((good.splitlines()[:3] + [changed] + good.splitlines()[4:])) + "\n",
                     exact.SourceArchive.PIR,
                 )
         lines = good.split("\n")[:-1]
         lines[3] += "\n"
         with self.assertRaises(exact.SourceSchemaError):
             exact.parse_exact_source_lines(lines, exact.SourceArchive.PIR)
+        header = good.splitlines()[3]
+        leading_symbol = header[:11] + " " + header[12:]
+        leading_label = header[:24] + " " + header[25:]
+        for malformed_header in (leading_symbol, leading_label):
+            malformed_lines = good.splitlines()
+            malformed_lines[3] = malformed_header
+            with self.assertRaises(exact.SourceSchemaError):
+                exact.parse_exact_source_text(
+                    "\n".join(malformed_lines) + "\n",
+                    exact.SourceArchive.PIR,
+                )
 
     def test_payload_integer_paths_reject_noncanonical_ascii(self):
         for line_index in (4, 5):
@@ -297,6 +308,105 @@ class UniverseAndCacheTests(unittest.TestCase):
             exact.ExactIsoIrrepDatabase((), (), [None] * 231)
         with self.assertRaises(TypeError):
             replace(universe, operations=list(universe.operations))
+
+    def test_public_graph_rejects_raw_and_decoded_mismatches(self):
+        special = exact.parse_exact_source_text(
+            _synthetic_source(exact.SourceArchive.PIR), exact.SourceArchive.PIR
+        )[0]
+        nonspecial = exact.parse_exact_source_text(
+            _synthetic_source(exact.SourceArchive.PIR, special=False), exact.SourceArchive.PIR
+        )[0]
+        zero = (Fraction(0),) * 3
+        identity = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+
+        # A raw zero augmented row has no positive denominator, even though
+        # the decoded/public fields below look like the identity.
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactSeitz(identity, zero, (0,) * 16)
+        operation_raw = list(special.operations[0].raw_augmented)
+        operation_raw[3] = 1
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactSeitz(
+                special.operations[0].rotation,
+                special.operations[0].translation,
+                tuple(operation_raw),
+            )
+
+        arm_raw = list(special.k_arms[0].raw_augmented)
+        arm_raw[0] = 1
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactKArm(
+                special.k_arms[0].constant,
+                special.k_arms[0].parameters,
+                tuple(arm_raw),
+            )
+        parameter_raw = list(special.k_arms[0].raw_augmented)
+        parameter_raw[4] = 1
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactKArm(
+                special.k_arms[0].constant,
+                special.k_arms[0].parameters,
+                tuple(parameter_raw),
+            )
+
+        translation = nonspecial.irtranslations[0]
+        translation_raw = list(translation.raw)
+        translation_raw[0] = 1
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactIrTranslation(translation.vector, tuple(translation_raw))
+
+        with self.assertRaises(exact.SourceInvariantError):
+            replace(special, spacegroup=0)
+        with self.assertRaises(exact.SourceInvariantError):
+            replace(special, centering=exact.Centering.C)
+        with self.assertRaises(exact.SourceInvariantError):
+            replace(special, irtranslations=(translation,))
+        with self.assertRaises(exact.SourceInvariantError):
+            replace(nonspecial, irtranslations=(None,))
+
+    def test_public_universe_and_database_slots_are_semantic(self):
+        record = exact.parse_exact_source_text(
+            _synthetic_source(exact.SourceArchive.PIR), exact.SourceArchive.PIR
+        )[0]
+        universe = exact.ExactSpaceGroupUniverse(
+            1,
+            "P1",
+            exact.Centering.P,
+            record.operations,
+            (1,),
+            (),
+        )
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactSpaceGroupUniverse(
+                1,
+                "P1",
+                exact.Centering.P,
+                record.operations,
+                (),
+                (),
+            )
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactSpaceGroupUniverse(
+                1,
+                "P1",
+                exact.Centering.P,
+                record.operations,
+                (1, 1),
+                (),
+            )
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactSpaceGroupUniverse(
+                1,
+                "P1",
+                exact.Centering.C,
+                record.operations,
+                (1,),
+                (),
+            )
+        slots = [None] * 231
+        slots[2] = universe
+        with self.assertRaises(exact.SourceInvariantError):
+            exact.ExactIsoIrrepDatabase((), (), tuple(slots))
 
     def test_single_flight(self):
         old_database = exact._DATABASE
@@ -468,12 +578,14 @@ class ArchiveTests(unittest.TestCase):
                     expected_bytes=len(utf8),
                     expected_sha256=hashlib.sha256(utf8).hexdigest(),
                 )
+            not_a_zip = b"not a zip"
+            path.write_bytes(not_a_zip)
             with self.assertRaises(exact.ArchiveIntegrityError):
                 exact._read_verified_member(
                     exact.SourceArchive.PIR,
                     path=path,
-                    expected_bytes=len(b"not a zip"),
-                    expected_sha256=hashlib.sha256(b"not a zip").hexdigest(),
+                    expected_bytes=len(not_a_zip),
+                    expected_sha256=hashlib.sha256(not_a_zip).hexdigest(),
                 )
             with mock.patch.object(Path, "read_bytes", side_effect=NotImplementedError):
                 with self.assertRaises(exact.ArchiveIntegrityError):
