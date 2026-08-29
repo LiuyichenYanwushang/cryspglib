@@ -108,6 +108,26 @@ class MagneticLoaderTests(unittest.TestCase):
         artifact = ARTIFACT.read_bytes()
         manifest = MANIFEST.read_bytes()
         loader._reset_cache_for_test()
+
+        class TrackingLock:
+            def __init__(self):
+                self._lock = threading.Lock()
+                self._attempts_lock = threading.Lock()
+                self.attempt_count = 0
+                self.second_attempt = threading.Event()
+
+            def __enter__(self):
+                with self._attempts_lock:
+                    self.attempt_count += 1
+                    if self.attempt_count == 2:
+                        self.second_attempt.set()
+                self._lock.acquire()
+                return self
+
+            def __exit__(self, exception_type, exception, traceback):
+                self._lock.release()
+
+        tracking_lock = TrackingLock()
         start = threading.Barrier(3)
         results = [None, None]
         errors = [None, None]
@@ -120,6 +140,10 @@ class MagneticLoaderTests(unittest.TestCase):
             return payloads[path.name]
 
         def build_database(*args, **kwargs):
+            if not tracking_lock.second_attempt.wait(timeout=10):
+                raise AssertionError(
+                    "second loader lock attempt did not occur during initialization"
+                )
             return sentinel
 
         def invoke(index):
@@ -131,20 +155,26 @@ class MagneticLoaderTests(unittest.TestCase):
 
         threads = [threading.Thread(target=invoke, args=(index,)) for index in range(2)]
         try:
-            with mock.patch.object(
-                loader.Path, "read_bytes", autospec=True, side_effect=read_bytes
-            ) as read_mock:
+            with mock.patch.object(loader, "_CACHE_LOCK", tracking_lock):
                 with mock.patch.object(
-                    loader, "_from_bytes", side_effect=build_database
-                ) as builder_mock:
-                    for thread in threads:
-                        thread.start()
-                    start.wait(timeout=10)
-                    for thread in threads:
-                        thread.join(timeout=90)
-                    self.assertTrue(all(not thread.is_alive() for thread in threads))
-                    self.assertEqual(read_mock.call_count, 2)
-                    self.assertEqual(builder_mock.call_count, 1)
+                    loader.Path, "read_bytes", autospec=True, side_effect=read_bytes
+                ) as read_mock:
+                    with mock.patch.object(
+                        loader, "_from_bytes", side_effect=build_database
+                    ) as builder_mock:
+                        for thread in threads:
+                            thread.start()
+                        start.wait(timeout=10)
+                        for thread in threads:
+                            thread.join(timeout=30)
+            self.assertTrue(all(not thread.is_alive() for thread in threads))
+            self.assertEqual(tracking_lock.attempt_count, 2)
+            self.assertTrue(
+                tracking_lock.second_attempt.is_set(),
+                "second loader lock attempt did not occur during initialization",
+            )
+            self.assertEqual(read_mock.call_count, 2)
+            self.assertEqual(builder_mock.call_count, 1)
             self.assertEqual(reads, {
                 ARTIFACT.name: 1,
                 MANIFEST.name: 1,
