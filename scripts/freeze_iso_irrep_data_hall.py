@@ -750,7 +750,7 @@ def parse_and_validate_pair(artifact_bytes: bytes, manifest_bytes: bytes):
 def _path_argument(value, context: str) -> Path:
     try:
         raw = os.fspath(value)
-    except TypeError as error:
+    except (TypeError, OSError, RuntimeError, ValueError, UnicodeError) as error:
         raise FreezeSchemaError(f"{context} is not a path") from error
     if type(raw) is not str:
         raise FreezeSchemaError(f"{context} is not a native path")

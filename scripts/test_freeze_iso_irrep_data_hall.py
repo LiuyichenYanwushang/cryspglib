@@ -416,6 +416,33 @@ class FreezeDataHallTests(unittest.TestCase):
                             freeze.write_outputs(invalid, root / "manifest.json")
                     self.assertEqual(builder.call_count, 0)
 
+    def test_pathlike_failures_are_schema_errors_before_build(self):
+        class ExplodingPath:
+            def __init__(self, error):
+                self.error = error
+
+            def __fspath__(self):
+                raise self.error
+
+        errors = (
+            OSError("synthetic path failure"),
+            RuntimeError("synthetic path failure"),
+            ValueError("synthetic path failure"),
+            UnicodeEncodeError("ascii", "\ud800", 0, 1, "synthetic path failure"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "manifest.json"
+            for error in errors:
+                with self.subTest(error=type(error).__name__):
+                    with mock.patch.object(
+                        freeze,
+                        "build_artifact",
+                        side_effect=AssertionError("built"),
+                    ) as builder:
+                        with self.assertRaises(freeze.FreezeSchemaError):
+                            freeze.write_outputs(ExplodingPath(error), manifest)
+                    self.assertEqual(builder.call_count, 0)
+
     def test_atomic_write_failure_cleans_staged_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
