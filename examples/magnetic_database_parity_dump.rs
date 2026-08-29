@@ -406,6 +406,11 @@ fn build_sapi() -> Result<Vec<u8>> {
         if operations.len() != raw[0] as usize {
             return error(format!("SAPI Hall {hall} span/API order mismatch"));
         }
+        if operations.rot.len() != operations.trans.len()
+            || operations.rot.len() != raw[0] as usize
+        {
+            return error(format!("SAPI Hall {hall} runtime vector lengths mismatch"));
+        }
         append_u16(&mut payload, checked_u16(hall, &format!("SAPI[{hall}] Hall"))?);
         append_u16(&mut payload, checked_u16(operations.len(), &format!("SAPI[{hall}] count"))?);
         for (index, (&rotation, &translation)) in operations
@@ -452,6 +457,106 @@ fn check_magnetic_runtime_operation(
     Ok(())
 }
 
+fn compare_magnetic_alias(
+    uni: usize,
+    first_hall: usize,
+    alias: &cryspglib::symmetry::MagneticSymmetry,
+    real: &cryspglib::symmetry::MagneticSymmetry,
+) -> Result<()> {
+    if alias.rot.len() != alias.trans.len()
+        || alias.rot.len() != alias.timerev.len()
+        || real.rot.len() != real.trans.len()
+        || real.rot.len() != real.timerev.len()
+        || alias.rot.len() != real.rot.len()
+    {
+        return error(format!(
+            "MAPI UNI {uni} Hall=0/{first_hall} alias vector lengths mismatch"
+        ));
+    }
+    for index in 0..alias.rot.len() {
+        if alias.rot[index] != real.rot[index]
+            || alias.timerev[index] != real.timerev[index]
+            || alias.trans[index]
+                .iter()
+                .zip(real.trans[index].iter())
+                .any(|(left, right)| left.to_bits() != right.to_bits())
+        {
+            return error(format!(
+                "MAPI UNI {uni} Hall=0/{first_hall} alias differs at operation {index}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn compare_transformation_alias(
+    uni: usize,
+    first_hall: usize,
+    alias: &cryspglib::symmetry::Symmetry,
+    real: &cryspglib::symmetry::Symmetry,
+) -> Result<()> {
+    if alias.rot.len() != alias.trans.len()
+        || real.rot.len() != real.trans.len()
+        || alias.rot.len() != real.rot.len()
+    {
+        return error(format!(
+            "TAPI UNI {uni} Hall=0/{first_hall} alias vector lengths mismatch"
+        ));
+    }
+    for index in 0..alias.rot.len() {
+        if alias.rot[index] != real.rot[index]
+            || alias.trans[index]
+                .iter()
+                .zip(real.trans[index].iter())
+                .any(|(left, right)| left.to_bits() != right.to_bits())
+        {
+            return error(format!(
+                "TAPI UNI {uni} Hall=0/{first_hall} alias differs at transformation {index}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_zero_alias_contract() -> Result<()> {
+    if spg_database::get_operation(0).is_some()
+        || spg_database::get_spacegroup_operations(0).is_some()
+    {
+        return error("SPG Hall=0 unexpectedly accepted as a real query");
+    }
+    if msg_database::get_spacegroup_operations(0, 0).is_some()
+        || msg_database::get_spacegroup_operations(0, 1).is_some()
+        || msg_database::get_std_transformations(0, 0).is_some()
+        || msg_database::get_std_transformations(0, 1).is_some()
+    {
+        return error("MSG UNI=0 unexpectedly accepted as a real query");
+    }
+    Ok(())
+}
+
+fn validate_uni_zero_alias(uni: usize, first_hall: usize) -> Result<()> {
+    if !(1..=SPG_HALL_SETTINGS).contains(&first_hall) {
+        return error(format!("MAPI UNI {uni} first Hall is out of range"));
+    }
+    let alias_operations = msg_database::get_spacegroup_operations(uni, 0)
+        .ok_or_else(|| format!("MAPI UNI {uni} Hall=0 alias lookup failed"))?;
+    let real_operations = msg_database::get_spacegroup_operations(uni, first_hall)
+        .ok_or_else(|| format!("MAPI UNI {uni} first Hall {first_hall} lookup failed"))?;
+    compare_magnetic_alias(uni, first_hall, &alias_operations, &real_operations)?;
+
+    let alias_transformations = msg_database::get_std_transformations(uni, 0)
+        .ok_or_else(|| format!("TAPI UNI {uni} Hall=0 alias lookup failed"))?;
+    let real_transformations = msg_database::get_std_transformations(uni, first_hall)
+        .ok_or_else(|| format!("TAPI UNI {uni} first Hall {first_hall} lookup failed"))?;
+    compare_transformation_alias(
+        uni,
+        first_hall,
+        &alias_transformations,
+        &real_transformations,
+    )?;
+    Ok(())
+}
+
 fn build_mapi() -> Result<Vec<u8>> {
     let mut payload = Vec::new();
     let mut visited = vec![false; MSG_OPERATION_COUNT];
@@ -460,6 +565,7 @@ fn build_mapi() -> Result<Vec<u8>> {
         let mapping = msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING[uni];
         let count = usize::try_from(mapping[0]).map_err(|_| format!("MAPI UNI {uni} count negative"))?;
         let first = usize::try_from(mapping[1]).map_err(|_| format!("MAPI UNI {uni} first negative"))?;
+        validate_uni_zero_alias(uni, first)?;
         for slot in 0..count {
             let hall = first + slot;
             if !(1..=SPG_HALL_SETTINGS).contains(&hall) {
@@ -479,7 +585,11 @@ fn build_mapi() -> Result<Vec<u8>> {
             }
             let operations = msg_database::get_spacegroup_operations(uni, hall)
                 .ok_or_else(|| format!("MAPI UNI {uni} Hall {hall} runtime lookup failed"))?;
-            if operations.len() != order {
+            if operations.len() != order
+                || operations.rot.len() != operations.trans.len()
+                || operations.rot.len() != operations.timerev.len()
+                || operations.rot.len() != order
+            {
                 return error(format!("MAPI {uni}/{hall} span/API order mismatch"));
             }
             append_u16(&mut payload, checked_u16(uni, &format!("MAPI {uni} UNI"))?);
@@ -559,6 +669,11 @@ fn build_tapi() -> Result<Vec<u8>> {
             if transformations.len() != first_zero + 1 {
                 return error(format!("TAPI {uni}/{hall} count mismatch"));
             }
+            if transformations.rot.len() != transformations.trans.len()
+                || transformations.rot.len() != first_zero + 1
+            {
+                return error(format!("TAPI {uni}/{hall} runtime vector lengths mismatch"));
+            }
             let (identity_rotation, identity_translation) =
                 (transformations.rot[0], transformations.trans[0]);
             check_identity(identity_rotation, identity_translation, &format!("TAPI {uni}/{hall}[0]"))?;
@@ -598,6 +713,7 @@ fn build_tapi() -> Result<Vec<u8>> {
 }
 
 fn build_frame() -> Result<Vec<u8>> {
+    validate_zero_alias_contract()?;
     let sgno = build_sgno()?;
     let sgix = build_sgix()?;
     let sgrw = build_sgrw()?;
