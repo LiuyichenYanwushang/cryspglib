@@ -594,6 +594,47 @@ class DataHallDerivationTests(unittest.TestCase):
             object.__setattr__(mapping, "shift_numerator", original_shift)
         self.assertIs(self.result.source_frame(1), frame)
 
+        class ExplodingStr(str):
+            def __eq__(self, other):
+                raise RuntimeError("comparison must never reach this payload")
+
+        class PayloadStr(str):
+            pass
+
+        def assert_rejected(accessor):
+            with self.assertRaises(hall.IsoIrrepDataHallError):
+                accessor()
+
+        original_index = mapping.source_operation_index
+        for bad_index in (False, 0.0):
+            object.__setattr__(mapping, "source_operation_index", bad_index)
+            try:
+                assert_rejected(lambda: self.result.source_frame(1))
+            finally:
+                object.__setattr__(mapping, "source_operation_index", original_index)
+
+        original_shift = mapping.shift_numerator
+        for bad_shift in ((False, 0, 0), [0, 0, 0]):
+            object.__setattr__(mapping, "shift_numerator", bad_shift)
+            try:
+                assert_rejected(lambda: self.result.source_frame(1))
+            finally:
+                object.__setattr__(mapping, "shift_numerator", original_shift)
+
+        original_symbol = frame.source_symbol
+        for bad_symbol in (PayloadStr(original_symbol), ExplodingStr(original_symbol)):
+            object.__setattr__(frame, "source_symbol", bad_symbol)
+            try:
+                for accessor in (
+                    lambda: self.result.source_frame(1),
+                    lambda: self.result.spacegroups,
+                    lambda: iter(self.result),
+                ):
+                    assert_rejected(accessor)
+            finally:
+                object.__setattr__(frame, "source_symbol", original_symbol)
+        self.assertIs(self.result.source_frame(1), frame)
+
     def test_authority_result_cannot_copy_or_pickle(self):
         self.assertIs(weakref.ref(self.result)(), self.result)
         with self.assertRaises(TypeError):

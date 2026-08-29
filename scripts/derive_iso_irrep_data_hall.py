@@ -532,59 +532,168 @@ class DerivationCensus:
             raise DataHallInvariantError("centering census does not sum to 230")
 
 
+def _raise_fingerprint_schema(context: str):
+    raise DataHallSchemaError(f"{context} is malformed")
+
+
+def _fingerprint_int(value, context: str):
+    if type(value) is not int:
+        raise DataHallSchemaError(f"{context} must be an exact integer")
+    return ("int", value)
+
+
+def _fingerprint_str(value, context: str):
+    if type(value) is not str:
+        raise DataHallSchemaError(f"{context} must be an exact string")
+    return ("str", value)
+
+
+def _fingerprint_int_tuple(value, context: str, *, length: Optional[int] = None):
+    if type(value) is not tuple:
+        raise DataHallSchemaError(f"{context} must be an exact tuple")
+    if length is not None and len(value) != length:
+        raise DataHallSchemaError(f"{context} has the wrong length")
+    return tuple(
+        _fingerprint_int(item, f"{context}[{index}]")
+        for index, item in enumerate(value)
+    )
+
+
+def _fingerprint_distribution(value, context: str):
+    if type(value) is not tuple:
+        raise DataHallSchemaError(f"{context} must be an exact tuple")
+    rows = []
+    for index, row in enumerate(value):
+        if type(row) is not tuple or len(row) != 2:
+            raise DataHallSchemaError(f"{context}[{index}] is malformed")
+        rows.append((
+            _fingerprint_int_tuple(row[0], f"{context}[{index}].key", length=3),
+            _fingerprint_int(row[1], f"{context}[{index}].count"),
+        ))
+    return tuple(rows)
+
+
 def _authority_fingerprint(frames, census):
-    """Take a collision-free semantic snapshot of the complete result graph."""
+    """Take a strict, collision-free primitive snapshot of the result graph."""
 
     try:
-        frame_snapshot = tuple(
-            (
-                frame.spacegroup,
-                frame.source_symbol,
-                frame.centering,
-                frame.raw_candidate_halls,
-                frame.data_hall,
-                frame.source_operation_count,
-                frame.hall_operation_count,
-                tuple(
-                    (
-                        mapping.source_operation_index,
-                        mapping.hall_operation_index,
-                        mapping.shift_numerator,
+        if type(frames) is not tuple:
+            raise DataHallSchemaError("authority frames are not an exact tuple")
+        frame_snapshot = []
+        for frame_index, frame in enumerate(frames):
+            if type(frame) is not ExactDataHallFrame:
+                raise DataHallSchemaError(
+                    f"authority frame {frame_index} has a wrong exact type"
+                )
+            if type(frame.source_to_hall) is not tuple:
+                raise DataHallSchemaError("authority source_to_hall is not an exact tuple")
+            if type(frame.hall_to_source) is not tuple:
+                raise DataHallSchemaError("authority hall_to_source is not an exact tuple")
+            source_to_hall = []
+            for mapping_index, mapping in enumerate(frame.source_to_hall):
+                if type(mapping) is not SourceToHall:
+                    raise DataHallSchemaError(
+                        f"authority source_to_hall[{mapping_index}] has a wrong exact type"
                     )
-                    for mapping in frame.source_to_hall
-                ),
-                tuple(
-                    (
-                        mapping.hall_operation_index,
+                source_to_hall.append((
+                    _fingerprint_int(
                         mapping.source_operation_index,
+                        "SourceToHall.source_operation_index",
+                    ),
+                    _fingerprint_int(
+                        mapping.hall_operation_index,
+                        "SourceToHall.hall_operation_index",
+                    ),
+                    _fingerprint_int_tuple(
                         mapping.shift_numerator,
+                        "SourceToHall.shift_numerator",
+                        length=3,
+                    ),
+                ))
+            hall_to_source = []
+            for mapping_index, mapping in enumerate(frame.hall_to_source):
+                if type(mapping) is not HallToSource:
+                    raise DataHallSchemaError(
+                        f"authority hall_to_source[{mapping_index}] has a wrong exact type"
                     )
-                    for mapping in frame.hall_to_source
+                hall_to_source.append((
+                    _fingerprint_int(
+                        mapping.hall_operation_index,
+                        "HallToSource.hall_operation_index",
+                    ),
+                    _fingerprint_int(
+                        mapping.source_operation_index,
+                        "HallToSource.source_operation_index",
+                    ),
+                    _fingerprint_int_tuple(
+                        mapping.shift_numerator,
+                        "HallToSource.shift_numerator",
+                        length=3,
+                    ),
+                ))
+            frame_snapshot.append((
+                _fingerprint_int(frame.spacegroup, "ExactDataHallFrame.spacegroup"),
+                _fingerprint_str(frame.source_symbol, "ExactDataHallFrame.source_symbol"),
+                _fingerprint_str(frame.centering, "ExactDataHallFrame.centering"),
+                _fingerprint_int_tuple(
+                    frame.raw_candidate_halls,
+                    "ExactDataHallFrame.raw_candidate_halls",
                 ),
+                _fingerprint_int(frame.data_hall, "ExactDataHallFrame.data_hall"),
+                _fingerprint_int(
+                    frame.source_operation_count,
+                    "ExactDataHallFrame.source_operation_count",
+                ),
+                _fingerprint_int(
+                    frame.hall_operation_count,
+                    "ExactDataHallFrame.hall_operation_count",
+                ),
+                tuple(source_to_hall),
+                tuple(hall_to_source),
+            ))
+        if len(frames) != 230:
+            raise DataHallSchemaError("authority frames are not an exact 230-tuple")
+
+        if type(census) is not DerivationCensus:
+            raise DataHallSchemaError("authority census has a wrong exact type")
+        if type(census.centering_counts) is not tuple:
+            raise DataHallSchemaError("authority centering_counts is not an exact tuple")
+        census_snapshot = tuple(
+            _fingerprint_int(getattr(census, field), f"DerivationCensus.{field}")
+            for field in (
+                "pir_records", "cir_records", "source_representatives",
+                "raw_unique", "raw_ambiguous", "raw_missing",
+                "filtered_unique", "filtered_ambiguous", "filtered_missing",
+                "selected_hall_operations", "source_to_hall", "source_to_hall_nonzero",
+                "hall_to_source", "hall_to_source_nonzero",
+                "expanded_normalization_nonzero",
             )
-            for frame in frames
-        )
-        census_snapshot = (
-            census.pir_records,
-            census.cir_records,
-            census.source_representatives,
-            census.raw_unique,
-            census.raw_ambiguous,
-            census.raw_missing,
-            census.raw_ambiguous_spacegroups,
-            census.filtered_unique,
-            census.filtered_ambiguous,
-            census.filtered_missing,
-            census.selected_hall_operations,
-            census.source_to_hall,
-            census.source_to_hall_nonzero,
-            census.hall_to_source,
-            census.hall_to_source_nonzero,
-            census.hall_to_source_shifts,
-            census.hall_to_source_cosets,
-            census.expanded_normalization_nonzero,
-            census.expanded_normalization_shifts,
-            census.centering_counts,
+        ) + (
+            _fingerprint_int_tuple(
+                census.raw_ambiguous_spacegroups,
+                "DerivationCensus.raw_ambiguous_spacegroups",
+            ),
+            _fingerprint_distribution(
+                census.hall_to_source_shifts,
+                "DerivationCensus.hall_to_source_shifts",
+            ),
+            _fingerprint_distribution(
+                census.hall_to_source_cosets,
+                "DerivationCensus.hall_to_source_cosets",
+            ),
+            _fingerprint_distribution(
+                census.expanded_normalization_shifts,
+                "DerivationCensus.expanded_normalization_shifts",
+            ),
+            tuple(
+                (
+                    _fingerprint_str(row[0], "DerivationCensus.centering_counts.name"),
+                    _fingerprint_int(row[1], "DerivationCensus.centering_counts.count"),
+                )
+                if type(row) is tuple and len(row) == 2
+                else _raise_fingerprint_schema("centering census row")
+                for row in census.centering_counts
+            ),
         )
     except AttributeError as error:
         raise DataHallInvariantError(
@@ -594,7 +703,7 @@ def _authority_fingerprint(frames, census):
         if isinstance(error, IsoIrrepDataHallError):
             raise
         raise DataHallInvariantError("authority graph fingerprint failed") from error
-    return frame_snapshot, census_snapshot
+    return tuple(frame_snapshot), census_snapshot
 
 
 @dataclass(frozen=True, init=False)
@@ -1020,6 +1129,10 @@ def _validate_database_graph_impl(frames, census) -> None:
     # fingerprint detects semantic changes; these checks additionally reject
     # a structurally malformed graph introduced with object.__setattr__.
     for frame in frames:
+        for mapping in frame.source_to_hall:
+            SourceToHall.__post_init__(mapping)
+        for mapping in frame.hall_to_source:
+            HallToSource.__post_init__(mapping)
         ExactDataHallFrame.__post_init__(frame)
     DerivationCensus.__post_init__(census)
     (
@@ -1065,9 +1178,13 @@ def _validate_database_graph(frames, census) -> None:
         _validate_database_graph_impl(frames, census)
     except IsoIrrepDataHallError:
         raise
-    except AttributeError as error:
+    except (AttributeError, TypeError) as error:
         raise DataHallInvariantError(
             "data-Hall result graph contains an uninitialized leaf"
+        ) from error
+    except Exception as error:
+        raise DataHallInvariantError(
+            "data-Hall result graph validation failed"
         ) from error
 
 
