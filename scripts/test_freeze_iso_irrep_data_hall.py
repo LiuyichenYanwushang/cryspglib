@@ -370,6 +370,52 @@ class FreezeDataHallTests(unittest.TestCase):
                     freeze.write_outputs(output, manifest)
             self.assertEqual(builder.call_count, 0)
 
+    def test_replacement_target_is_bound_before_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first"
+            second = root / "second"
+            first.mkdir()
+            second.mkdir()
+            alias = root / "alias"
+            os.symlink(second, alias, target_is_directory=True)
+            output = first / "same.json"
+            manifest = alias / "same.json"
+
+            def retarget_then_build():
+                alias.unlink()
+                os.symlink(first, alias, target_is_directory=True)
+                return self.artifact
+
+            with mock.patch.object(
+                freeze, "build_artifact", side_effect=retarget_then_build
+            ):
+                written_artifact, written_manifest = freeze.write_outputs(
+                    output, manifest
+                )
+            self.assertEqual(output.read_bytes(), written_artifact)
+            self.assertEqual((second / "same.json").read_bytes(), written_manifest)
+            self.assertEqual((alias / "same.json").read_bytes(), written_artifact)
+
+    def test_native_path_string_errors_precede_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            invalid_paths = (
+                root / "bad\x00.json",
+                root / "bad\x00parent" / "artifact.json",
+                root / "\ud800.json",
+            )
+            for invalid in invalid_paths:
+                with self.subTest(path=repr(str(invalid))):
+                    with mock.patch.object(
+                        freeze,
+                        "build_artifact",
+                        side_effect=AssertionError("built"),
+                    ) as builder:
+                        with self.assertRaises(freeze.FreezeSchemaError):
+                            freeze.write_outputs(invalid, root / "manifest.json")
+                    self.assertEqual(builder.call_count, 0)
+
     def test_atomic_write_failure_cleans_staged_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

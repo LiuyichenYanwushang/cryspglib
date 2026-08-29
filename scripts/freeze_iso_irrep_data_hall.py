@@ -754,9 +754,12 @@ def _path_argument(value, context: str) -> Path:
         raise FreezeSchemaError(f"{context} is not a path") from error
     if type(raw) is not str:
         raise FreezeSchemaError(f"{context} is not a native path")
+    if "\x00" in raw:
+        raise FreezeSchemaError(f"{context} contains a NUL byte")
     try:
+        os.fsencode(raw)
         return Path(raw).absolute()
-    except (OSError, ValueError) as error:
+    except (OSError, RuntimeError, ValueError, UnicodeError) as error:
         raise FreezeSchemaError(f"{context} is invalid") from error
 
 
@@ -766,7 +769,9 @@ def _reject_same_target(output: Path, manifest: Path):
     try:
         if output.exists() and manifest.exists() and os.path.samefile(output, manifest):
             raise FreezeInvariantError("artifact and manifest paths share an inode")
-    except OSError as error:
+    except FreezeError:
+        raise
+    except (OSError, RuntimeError, ValueError, UnicodeError) as error:
         raise FreezeIntegrityError("unable to inspect output inodes") from error
 
 
@@ -775,13 +780,13 @@ def _replacement_identity(path: Path, context: str) -> Path:
 
     try:
         parent = path.parent.resolve(strict=True)
-    except (OSError, RuntimeError) as error:
+    except (OSError, RuntimeError, ValueError, UnicodeError) as error:
         raise FreezeIntegrityError(
             f"{context} parent cannot be resolved"
         ) from error
     try:
         is_directory = parent.is_dir()
-    except OSError as error:
+    except (OSError, RuntimeError, ValueError, UnicodeError) as error:
         raise FreezeIntegrityError(
             f"{context} parent cannot be inspected"
         ) from error
@@ -797,10 +802,19 @@ def _reject_same_replacement_identity(output: Path, manifest: Path):
         raise FreezeInvariantError(
             "artifact and manifest replacement identities must differ"
         )
+    _reject_same_target(output_identity, manifest_identity)
+    return output_identity, manifest_identity
 
 
 def _make_temp(path: Path, payload: bytes) -> Path:
-    if not path.parent.exists() or not path.parent.is_dir():
+    try:
+        parent_exists = path.parent.exists()
+        parent_is_directory = path.parent.is_dir()
+    except (OSError, RuntimeError, ValueError, UnicodeError) as error:
+        raise FreezeIntegrityError(
+            f"unable to inspect output directory: {path.parent}"
+        ) from error
+    if not parent_exists or not parent_is_directory:
         raise FreezeIntegrityError(f"output directory does not exist: {path.parent}")
     descriptor = None
     temporary = None
@@ -814,16 +828,16 @@ def _make_temp(path: Path, payload: bytes) -> Path:
             stream.flush()
             os.fsync(stream.fileno())
         return Path(temporary)
-    except OSError as error:
+    except (OSError, RuntimeError, ValueError, UnicodeError) as error:
         if descriptor is not None:
             try:
                 os.close(descriptor)
-            except OSError:
+            except (OSError, ValueError):
                 pass
         if temporary is not None:
             try:
                 os.unlink(temporary)
-            except OSError:
+            except (OSError, ValueError, UnicodeError):
                 pass
         raise FreezeIntegrityError(f"unable to stage {path}") from error
 
@@ -833,11 +847,14 @@ def _fsync_directory(path: Path):
     try:
         descriptor = os.open(str(path), os.O_RDONLY)
         os.fsync(descriptor)
-    except OSError as error:
+    except (OSError, RuntimeError, ValueError, UnicodeError) as error:
         raise FreezeIntegrityError(f"unable to fsync output directory {path}") from error
     finally:
         if descriptor is not None:
-            os.close(descriptor)
+            try:
+                os.close(descriptor)
+            except (OSError, ValueError):
+                pass
 
 
 def write_outputs(output, manifest):
@@ -851,8 +868,9 @@ def write_outputs(output, manifest):
 
     output_path = _path_argument(output, "output")
     manifest_path = _path_argument(manifest, "manifest")
-    _reject_same_replacement_identity(output_path, manifest_path)
-    _reject_same_target(output_path, manifest_path)
+    output_path, manifest_path = _reject_same_replacement_identity(
+        output_path, manifest_path
+    )
     artifact = build_artifact()
     artifact_bytes = canonical_json(artifact)
     manifest_bytes = canonical_json(build_manifest(artifact_bytes))
@@ -870,14 +888,14 @@ def write_outputs(output, manifest):
             _fsync_directory(manifest_path.parent)
     except FreezeError:
         raise
-    except OSError as error:
+    except (OSError, RuntimeError, ValueError, UnicodeError) as error:
         raise FreezeIntegrityError("atomic output replacement failed") from error
     finally:
         for temporary in temporary_paths:
             if temporary is not None:
                 try:
                     os.unlink(str(temporary))
-                except OSError:
+                except (OSError, ValueError, UnicodeError):
                     pass
     return artifact_bytes, manifest_bytes
 
