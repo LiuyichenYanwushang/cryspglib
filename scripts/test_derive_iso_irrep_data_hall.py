@@ -88,6 +88,28 @@ class _FakeProvenance:
         return self.operations
 
 
+class _AllIdentitySourceDatabase:
+    def __init__(self):
+        self.pir_records = ()
+        self.cir_records = ()
+        identity = _fake_operation(hall.IDENTITY_ROTATION)
+        self.universes = (None,) + tuple(
+            _fake_source((identity,), spacegroup=spacegroup)
+            for spacegroup in range(1, 231)
+        )
+
+    def source_universe(self, spacegroup):
+        return self.universes[spacegroup]
+
+
+class _AllIdentityProvenance:
+    def spacegroup_number_for_hall(self, hall_number):
+        return hall_number if 1 <= hall_number <= 230 else 0
+
+    def spg_operations(self, hall_number):
+        return (_fake_operation(hall.IDENTITY_ROTATION),)
+
+
 def _fake_operation(rotation, translation=(Fraction(0),) * 3):
     return SimpleNamespace(rotation=rotation, translation=translation)
 
@@ -153,6 +175,10 @@ class DataHallDerivationTests(unittest.TestCase):
         )
 
     def test_fixed_witnesses_and_lookup(self):
+        self.assertIs(type(self.result), hall.ExactDataHallDatabase)
+        iter_frames, iter_census = self.result
+        self.assertIs(iter_frames, self.result.frames)
+        self.assertIs(iter_census, self.result.census)
         pir_first = self.source_database.pir_records[0]
         cir_first = self.source_database.cir_records[0]
         for record in (pir_first, cir_first):
@@ -391,9 +417,60 @@ class DataHallDerivationTests(unittest.TestCase):
                 centering_counts=tuple(reversed(census.centering_counts)),
             )
 
+        large = 10**12
+        large_census = replace(
+            census,
+            source_representatives=large,
+            source_to_hall=large,
+            selected_hall_operations=large,
+            hall_to_source=large,
+            hall_to_source_shifts=(((0, 0, 0), large),),
+            hall_to_source_cosets=(((0, 0, 0), large),),
+            expanded_normalization_shifts=(((0, 0, 0), large),),
+            source_to_hall_nonzero=0,
+            hall_to_source_nonzero=0,
+            expanded_normalization_nonzero=0,
+        )
+        self.assertEqual(large_census.hall_to_source, large)
+
     def test_database_factory_is_closed_and_recomputes_frames(self):
+        for args, kwargs in (
+            ((), {}),
+            ((self.result.frames,), {}),
+            ((self.result.frames, self.result.census), {}),
+            ((), {"frames": self.result.frames, "census": self.result.census}),
+        ):
+            with self.subTest(args=args, kwargs=kwargs):
+                with self.assertRaises(TypeError):
+                    hall.ExactDataHallDatabase(*args, **kwargs)
+
+        uninitialized = object.__new__(hall.ExactDataHallDatabase)
+        with self.assertRaises(hall.DataHallInvariantError):
+            uninitialized.source_frame(1)
+        with self.assertRaises(hall.DataHallInvariantError):
+            _ = uninitialized.spacegroups
+        with self.assertRaises(hall.DataHallInvariantError):
+            iter(uninitialized)
+
+        for args, kwargs in (
+            ((object(), object()), {}),
+            ((object(),), {}),
+            ((), {"source_db": object(), "spg_db": object()}),
+        ):
+            with self.subTest(public_args=args, public_kwargs=kwargs):
+                with self.assertRaises(TypeError):
+                    hall.derive_data_hall_frames(*args, **kwargs)
+        self.assertFalse(hasattr(hall, "derive_data_hall_authority"))
+        self.assertFalse(hasattr(hall, "_make_database"))
+
+        raw_frames, raw_census = hall._derive_from_databases(
+            _AllIdentitySourceDatabase(), _AllIdentityProvenance(), enforce_census=False
+        )
+        self.assertIsInstance(raw_frames, tuple)
+        self.assertIsInstance(raw_census, hall.DerivationCensus)
+        self.assertNotIsInstance((raw_frames, raw_census), hall.ExactDataHallDatabase)
         with self.assertRaises(TypeError):
-            hall.ExactDataHallDatabase(self.result.frames, self.result.census)
+            hall.ExactDataHallDatabase(raw_frames, raw_census)
 
         class FrameSubclass(hall.ExactDataHallFrame):
             pass
@@ -403,17 +480,24 @@ class DataHallDerivationTests(unittest.TestCase):
 
         fake_frame = object.__new__(FrameSubclass)
         with self.assertRaises(hall.DataHallSchemaError):
-            hall._make_database((fake_frame,) * 230, self.result.census)
+            hall._validate_database_graph((fake_frame,) * 230, self.result.census)
         fake_census = object.__new__(CensusSubclass)
         with self.assertRaises(hall.DataHallSchemaError):
-            hall._make_database(self.result.frames, fake_census)
+            hall._validate_database_graph(self.result.frames, fake_census)
 
         all_sg1 = tuple(
             replace(self.result.source_frame(1), spacegroup=spacegroup)
             for spacegroup in range(1, 231)
         )
         with self.assertRaises(hall.DataHallInvariantError):
-            hall._make_database(all_sg1, self.result.census)
+            hall._validate_database_graph(all_sg1, self.result.census)
+
+        class MutableStr(str):
+            pass
+
+        bad_counts = ((MutableStr("P"), 149),) + self.result.census.centering_counts[1:]
+        with self.assertRaises(hall.DataHallSchemaError):
+            replace(self.result.census, centering_counts=bad_counts)
 
     def test_module_is_pure_and_has_no_runtime_fallback(self):
         text = Path(hall.__file__).read_text(encoding="utf-8")

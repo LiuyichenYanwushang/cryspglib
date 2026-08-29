@@ -499,11 +499,11 @@ class DerivationCensus:
         )
         if shift_nonzero != self.hall_to_source_nonzero:
             raise DataHallInvariantError("Hall-to-source nonzero count mismatch")
-        cosets_from_shifts = Counter(
-            tuple(value % TRANSLATION_DENOMINATOR for value in shift)
-            for shift, count in self.hall_to_source_shifts
-            for _ in range(count)
-        )
+        cosets_from_shifts = Counter()
+        for shift, count in self.hall_to_source_shifts:
+            cosets_from_shifts[
+                tuple(value % TRANSLATION_DENOMINATOR for value in shift)
+            ] += count
         if _distribution(cosets_from_shifts) != self.hall_to_source_cosets:
             raise DataHallInvariantError("Hall-to-source cosets disagree with shifts")
         expanded_nonzero = sum(
@@ -520,9 +520,11 @@ class DerivationCensus:
         for index, row in enumerate(self.centering_counts):
             if type(row) is not tuple or len(row) != 2:
                 raise DataHallSchemaError("centering census row is malformed")
+            if type(row[0]) is not str or type(row[1]) is not int:
+                raise DataHallSchemaError("centering census row scalar types are malformed")
             if row[0] != expected_centering_names[index]:
                 raise DataHallInvariantError("centering census order/name mismatch")
-            if type(row[1]) is not int or row[1] < 0:
+            if row[1] < 0:
                 raise DataHallSchemaError("centering census count is malformed")
         if sum(count for _, count in self.centering_counts) != 230:
             raise DataHallInvariantError("centering census does not sum to 230")
@@ -537,16 +539,23 @@ class ExactDataHallDatabase:
     frames: Tuple[ExactDataHallFrame, ...]
     census: DerivationCensus
 
+    def __new__(cls, *args, **kwargs):
+        raise TypeError(
+            "ExactDataHallDatabase is a pinned-authority result; use derive_data_hall_frames()"
+        )
+
     def source_frame(self, spacegroup: int) -> ExactDataHallFrame:
+        frames, _ = _checked_database_state(self)
         if type(spacegroup) is not int or not 1 <= spacegroup <= 230:
             raise DataHallLookupError("spacegroup must be an exact int in 1..230")
-        return self.frames[spacegroup - 1]
+        return frames[spacegroup - 1]
 
     # These names make the immutable result convenient to consume without
     # exposing any alternate mutable representation.
     @property
     def spacegroups(self) -> Tuple[ExactDataHallFrame, ...]:
-        return self.frames
+        frames, _ = _checked_database_state(self)
+        return frames
 
     def source_universe(self, spacegroup: int) -> ExactDataHallFrame:
         return self.source_frame(spacegroup)
@@ -554,8 +563,8 @@ class ExactDataHallDatabase:
     def __iter__(self):
         """Permit ``frames, census = derive_data_hall_frames()`` ergonomics."""
 
-        yield self.frames
-        yield self.census
+        frames, census = _checked_database_state(self)
+        return iter((frames, census))
 
 
 # Names used by an earlier draft are harmless aliases, but the canonical API
@@ -922,14 +931,14 @@ def _frame_aggregate(frames):
     )
 
 
-def _validate_database_graph(database: ExactDataHallDatabase) -> None:
-    if type(database.frames) is not tuple or len(database.frames) != 230:
+def _validate_database_graph(frames, census) -> None:
+    if type(frames) is not tuple or len(frames) != 230:
         raise DataHallInvariantError("data-Hall result must contain 230 frames")
-    if any(type(frame) is not ExactDataHallFrame for frame in database.frames):
+    if any(type(frame) is not ExactDataHallFrame for frame in frames):
         raise DataHallSchemaError("data-Hall result contains a wrong frame type")
-    if any(frame.spacegroup != index for index, frame in enumerate(database.frames, 1)):
+    if any(frame.spacegroup != index for index, frame in enumerate(frames, 1)):
         raise DataHallInvariantError("data-Hall frames are not ordered 1..230")
-    if type(database.census) is not DerivationCensus:
+    if type(census) is not DerivationCensus:
         raise DataHallSchemaError("data-Hall result census has a wrong type")
     (
         raw_unique, raw_ambiguous, raw_missing, raw_ambiguous_sgs,
@@ -937,7 +946,7 @@ def _validate_database_graph(database: ExactDataHallDatabase) -> None:
         source_representatives, selected_hall_operations, source_to_hall_total,
         source_to_hall_nonzero, hall_to_source_total, hall_to_source_nonzero,
         hall_shifts, hall_cosets, expanded_shifts,
-    ) = _frame_aggregate(database.frames)
+    ) = _frame_aggregate(frames)
     expected = (
         ("raw_unique", raw_unique),
         ("raw_ambiguous", raw_ambiguous),
@@ -961,22 +970,22 @@ def _validate_database_graph(database: ExactDataHallDatabase) -> None:
         )),
     )
     for field, value in expected:
-        if getattr(database.census, field) != value:
+        if getattr(census, field) != value:
             raise DataHallInvariantError(
                 f"database census field {field} disagrees with frames"
             )
 
 
-def _make_database(frames, census) -> ExactDataHallDatabase:
-    """Construct only after all source-derived and frame-derived checks pass."""
-
-    if type(frames) is not tuple or type(census) is not DerivationCensus:
-        raise DataHallSchemaError("validated data-Hall factory inputs are malformed")
-    database = object.__new__(ExactDataHallDatabase)
-    object.__setattr__(database, "frames", frames)
-    object.__setattr__(database, "census", census)
-    _validate_database_graph(database)
-    return database
+def _checked_database_state(database: ExactDataHallDatabase):
+    try:
+        frames = database.frames
+        census = database.census
+    except AttributeError as error:
+        raise DataHallInvariantError(
+            "ExactDataHallDatabase is not initialized"
+        ) from error
+    _validate_database_graph(frames, census)
+    return frames, census
 
 
 def _derive_from_databases(source_database, provenance, *, enforce_census: bool):
@@ -1112,36 +1121,36 @@ def _derive_from_databases(source_database, provenance, *, enforce_census: bool)
             for name, _ in EXPECTED_CENTERING_COUNTS
         ),
     )
-    return _make_database(tuple(frames), census)
+    return tuple(frames), census
 
 
-def derive_data_hall_frames(source_db=None, spg_db=None) -> ExactDataHallDatabase:
+def derive_data_hall_frames() -> ExactDataHallDatabase:
     """Derive all exact direct-source Hall frames in memory.
 
     With no arguments, only the public committed exact ISO-IR and spglib
     provenance loaders are called and the complete pinned census is enforced.
-    Supplying both databases is a test seam: all operation/mapping invariants
-    still apply, while a synthetic complete fixture may omit the production
-    census.  Supplying only one database is an error.
+    The function is intentionally strict and argument-free: callers cannot
+    inject a prebuilt frame/census graph into the pinned-authority result.
+    Private helpers below the public boundary remain available to focused
+    synthetic tests.
     """
 
-    if (source_db is None) != (spg_db is None):
-        raise TypeError("source_db and spg_db must be supplied together")
-    enforce_census = source_db is None
-    if source_db is None:
-        try:
-            source_db = iso_irrep_exact.load_exact_iso_irrep_sources()
-            spg_db = spglib_magnetic_provenance.load_committed_provenance()
-        except IsoIrrepDataHallError:
-            raise
-        except (ValueError, OSError, TypeError) as error:
-            raise DataHallDerivationError("authoritative input loader failed") from error
-    return _derive_from_databases(source_db, spg_db, enforce_census=enforce_census)
-
-
-# Internal spelling retained for focused tests and downstream callers that
-# want to make the production-vs-synthetic census choice explicit.
-derive_data_hall_authority = derive_data_hall_frames
+    try:
+        source_db = iso_irrep_exact.load_exact_iso_irrep_sources()
+        spg_db = spglib_magnetic_provenance.load_committed_provenance()
+    except (ValueError, OSError, TypeError) as error:
+        raise DataHallDerivationError("authoritative input loader failed") from error
+    frames, census = _derive_from_databases(
+        source_db, spg_db, enforce_census=True
+    )
+    _validate_database_graph(frames, census)
+    # This is deliberately the sole authority-object allocation site.  The
+    # public constructor is disabled, and private synthetic seams return only
+    # raw frame/census tuples.
+    database = object.__new__(ExactDataHallDatabase)
+    object.__setattr__(database, "frames", frames)
+    object.__setattr__(database, "census", census)
+    return database
 
 
 __all__ = [
@@ -1150,5 +1159,5 @@ __all__ = [
     "DerivationCensus", "ExactDataHallDatabase", "ExactDataHallFrame",
     "HallToSource", "HallToSourceMapping", "IsoIrrepDataHallError",
     "SourceToHall", "SourceToHallMapping", "TRANSLATION_DENOMINATOR",
-    "derive_data_hall_authority", "derive_data_hall_frames",
+    "derive_data_hall_frames",
 ]
