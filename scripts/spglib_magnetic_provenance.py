@@ -11,9 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum
 from fractions import Fraction
-import functools
 import hashlib
 from pathlib import Path
+import threading
 from typing import Optional, Tuple
 
 try:
@@ -76,6 +76,21 @@ class MagneticProvenanceError(ValueError):
 
 class MagneticProvenanceIntegrityError(MagneticProvenanceError):
     """The fixed bytes or their cryptographic commitments are invalid."""
+
+
+def _resolve_data_dir():
+    try:
+        module_path = Path(__file__).resolve()
+    except (OSError, RuntimeError) as error:
+        raise MagneticProvenanceIntegrityError(
+            "unable to resolve magnetic provenance module path"
+        ) from error
+    return module_path.parent / "data"
+
+
+# Resolve this while importing the module.  The public loader must not depend
+# on the caller's later working directory or on a mutable relative __file__.
+_DATA_DIR = _resolve_data_dir()
 
 
 class MagneticProvenanceSchemaError(MagneticProvenanceError):
@@ -300,6 +315,10 @@ class MagneticProvenanceDatabase:
         self, uni: int, hall: int
     ) -> Tuple[ExactSeitzOperation, ...]:
         return self.msg.std_transformations(uni, hall)
+
+
+_CACHE_LOCK = threading.Lock()
+_CACHED_DATABASE = None  # type: Optional[MagneticProvenanceDatabase]
 
 
 def _decode_operation(encoded: int) -> ExactSeitzOperation:
@@ -981,6 +1000,10 @@ def _from_bytes(artifact_bytes, manifest_bytes, artifact_name=_ARTIFACT_NAME):
                         ARTIFACT_SHA256, "artifact")
     _verify_fixed_bytes(manifest_bytes, MANIFEST_BYTE_LENGTH,
                         MANIFEST_SHA256, "manifest")
+    return _from_pair_bytes(artifact_bytes, manifest_bytes, artifact_name)
+
+
+def _from_pair_bytes(artifact_bytes, manifest_bytes, artifact_name):
     try:
         artifact = _extractor.parse_and_validate_committed_pair(
             artifact_bytes, manifest_bytes, artifact_name
@@ -992,25 +1015,50 @@ def _from_bytes(artifact_bytes, manifest_bytes, artifact_name=_ARTIFACT_NAME):
     return _build_database(artifact)
 
 
-@functools.lru_cache(maxsize=1)
+def _from_uncommitted_pair_for_test(
+    artifact_bytes, manifest_bytes, artifact_name=_ARTIFACT_NAME
+):
+    """Build a typed database from a test-mutated, synchronized byte pair."""
+    if artifact_name != _ARTIFACT_NAME:
+        raise MagneticProvenanceIntegrityError("artifact name is not committed")
+    return _from_pair_bytes(artifact_bytes, manifest_bytes, artifact_name)
+
+
+def _reset_cache_for_test():
+    """Clear the singleton for isolated tests; never part of the public API."""
+    global _CACHED_DATABASE
+    with _CACHE_LOCK:
+        _CACHED_DATABASE = None
+
+
 def load_committed_provenance() -> MagneticProvenanceDatabase:
     """Load and validate only the committed repository artifact pair."""
-    artifact_path = Path(__file__).resolve().parent / "data" / _ARTIFACT_NAME
-    manifest_path = Path(__file__).resolve().parent / "data" / _MANIFEST_NAME
-    try:
-        artifact_bytes = artifact_path.read_bytes()
-    except OSError as error:
-        raise MagneticProvenanceIntegrityError(
-            f"unable to read committed artifact {artifact_path}"
-        ) from error
-    _verify_fixed_bytes(artifact_bytes, ARTIFACT_BYTE_LENGTH,
-                        ARTIFACT_SHA256, "artifact")
-    try:
-        manifest_bytes = manifest_path.read_bytes()
-    except OSError as error:
-        raise MagneticProvenanceIntegrityError(
-            f"unable to read committed manifest {manifest_path}"
-        ) from error
-    _verify_fixed_bytes(manifest_bytes, MANIFEST_BYTE_LENGTH,
-                        MANIFEST_SHA256, "manifest")
-    return _from_bytes(artifact_bytes, manifest_bytes, _ARTIFACT_NAME)
+    global _CACHED_DATABASE
+    cached = _CACHED_DATABASE
+    if cached is not None:
+        return cached
+    with _CACHE_LOCK:
+        cached = _CACHED_DATABASE
+        if cached is not None:
+            return cached
+        artifact_path = _DATA_DIR / _ARTIFACT_NAME
+        manifest_path = _DATA_DIR / _MANIFEST_NAME
+        try:
+            artifact_bytes = artifact_path.read_bytes()
+        except OSError as error:
+            raise MagneticProvenanceIntegrityError(
+                f"unable to read committed artifact {artifact_path}"
+            ) from error
+        _verify_fixed_bytes(artifact_bytes, ARTIFACT_BYTE_LENGTH,
+                            ARTIFACT_SHA256, "artifact")
+        try:
+            manifest_bytes = manifest_path.read_bytes()
+        except OSError as error:
+            raise MagneticProvenanceIntegrityError(
+                f"unable to read committed manifest {manifest_path}"
+            ) from error
+        _verify_fixed_bytes(manifest_bytes, MANIFEST_BYTE_LENGTH,
+                            MANIFEST_SHA256, "manifest")
+        database = _from_bytes(artifact_bytes, manifest_bytes, _ARTIFACT_NAME)
+        _CACHED_DATABASE = database
+        return database

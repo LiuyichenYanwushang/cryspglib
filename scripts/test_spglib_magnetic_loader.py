@@ -4,12 +4,17 @@
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 from fractions import Fraction
 import hashlib
+import os
+import subprocess
 import sys
+import tempfile
+import threading
 import unittest
 from unittest import mock
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+import extract_spglib_magnetic_provenance as extractor
 import spglib_magnetic_provenance as loader
 
 
@@ -30,6 +35,23 @@ class MagneticLoaderTests(unittest.TestCase):
     def setUpClass(cls):
         cls.database = loader.load_committed_provenance()
 
+    @staticmethod
+    def _synchronized_pair(mutator):
+        artifact_bytes = ARTIFACT.read_bytes()
+        manifest_bytes = MANIFEST.read_bytes()
+        artifact = extractor._parse_json_bytes(artifact_bytes, "artifact")
+        manifest = extractor._parse_json_bytes(manifest_bytes, "manifest")
+        mutator(artifact)
+        artifact_bytes = extractor.canonical_json(artifact)
+        manifest["artifact"]["bytes"] = len(artifact_bytes)
+        manifest["artifact"]["sha256"] = hashlib.sha256(artifact_bytes).hexdigest()
+        manifest_bytes = extractor.canonical_json(manifest)
+        return artifact_bytes, manifest_bytes
+
+    def _restore_cached_database(self):
+        with loader._CACHE_LOCK:
+            loader._CACHED_DATABASE = self.database
+
     def test_fixed_trust_root_and_cached_immutable_result(self):
         artifact = ARTIFACT.read_bytes()
         manifest = MANIFEST.read_bytes()
@@ -39,10 +61,37 @@ class MagneticLoaderTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(manifest).hexdigest(), GOLDEN_MANIFEST_SHA256)
         self.assertIs(self.database, loader.load_committed_provenance())
 
+    def test_relative_import_freezes_absolute_data_path(self):
+        repo = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as other_directory:
+            probe = "\n".join((
+                "import os, sys",
+                "sys.path.insert(0, 'scripts')",
+                "import spglib_magnetic_provenance as loader",
+                "assert not os.path.isabs(loader.__file__), loader.__file__",
+                "assert loader._DATA_DIR.is_absolute(), loader._DATA_DIR",
+                "os.chdir(sys.argv[1])",
+                "database = loader.load_committed_provenance()",
+                "print(len(database.spg.operation_index), len(database.msg.metadata))",
+            ))
+            environment = os.environ.copy()
+            environment["PYTHONDONTWRITEBYTECODE"] = "1"
+            result = subprocess.run(
+                [sys.executable, "-c", probe, other_directory],
+                cwd=str(repo),
+                env=environment,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+                timeout=90,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "531 1652")
+
     def test_loader_reads_each_committed_file_once(self):
         artifact = ARTIFACT.read_bytes()
         manifest = MANIFEST.read_bytes()
-        loader.load_committed_provenance.cache_clear()
+        loader._reset_cache_for_test()
         try:
             sentinel = object()
             with mock.patch.object(
@@ -52,7 +101,102 @@ class MagneticLoaderTests(unittest.TestCase):
                     self.assertIs(loader.load_committed_provenance(), sentinel)
             self.assertEqual(read_bytes.call_count, 2)
         finally:
-            loader.load_committed_provenance.cache_clear()
+            loader._reset_cache_for_test()
+            self._restore_cached_database()
+
+    def test_concurrent_cold_load_is_single_flight(self):
+        artifact = ARTIFACT.read_bytes()
+        manifest = MANIFEST.read_bytes()
+        loader._reset_cache_for_test()
+        start = threading.Barrier(3)
+        results = [None, None]
+        errors = [None, None]
+        reads = {}
+        payloads = {ARTIFACT.name: artifact, MANIFEST.name: manifest}
+        sentinel = object()
+
+        def read_bytes(path):
+            reads[path.name] = reads.get(path.name, 0) + 1
+            return payloads[path.name]
+
+        def build_database(*args, **kwargs):
+            return sentinel
+
+        def invoke(index):
+            try:
+                start.wait(timeout=10)
+                results[index] = loader.load_committed_provenance()
+            except BaseException as error:  # report thread failures below
+                errors[index] = error
+
+        threads = [threading.Thread(target=invoke, args=(index,)) for index in range(2)]
+        try:
+            with mock.patch.object(
+                loader.Path, "read_bytes", autospec=True, side_effect=read_bytes
+            ) as read_mock:
+                with mock.patch.object(
+                    loader, "_from_bytes", side_effect=build_database
+                ) as builder_mock:
+                    for thread in threads:
+                        thread.start()
+                    start.wait(timeout=10)
+                    for thread in threads:
+                        thread.join(timeout=90)
+                    self.assertTrue(all(not thread.is_alive() for thread in threads))
+                    self.assertEqual(read_mock.call_count, 2)
+                    self.assertEqual(builder_mock.call_count, 1)
+            self.assertEqual(reads, {
+                ARTIFACT.name: 1,
+                MANIFEST.name: 1,
+            })
+            self.assertEqual(errors, [None, None])
+            self.assertIs(results[0], sentinel)
+            self.assertIs(results[1], sentinel)
+        finally:
+            for thread in threads:
+                if thread.is_alive():
+                    thread.join(timeout=1)
+            loader._reset_cache_for_test()
+            self._restore_cached_database()
+
+    def test_decoder_rejects_sentinel_limit_and_bool_with_decode_error(self):
+        # A pair-level invalid encoding is rejected by the authoritative
+        # extractor schema before typed conversion; these exercise the typed
+        # codec classification directly.
+        for encoded in (0, loader.MAGNETIC_OPERATION_ENCODING_LIMIT, True):
+            with self.subTest(encoded=encoded):
+                with self.assertRaises(loader.MagneticProvenanceDecodeError):
+                    loader._decode_operation(encoded)
+
+    def test_test_only_pair_seam_rejects_typed_duplicate(self):
+        def mutate(artifact):
+            order, offset = artifact["spg"]["symmetry_operation_index"][2]
+            self.assertEqual(order, 2)
+            operations = artifact["spg"]["symmetry_operations"]
+            operations[offset] = operations[offset + 1]
+
+        artifact_bytes, manifest_bytes = self._synchronized_pair(mutate)
+        parsed = extractor.parse_and_validate_committed_pair(
+            artifact_bytes, manifest_bytes, ARTIFACT.name
+        )
+        self.assertEqual(
+            parsed["spg"]["symmetry_operations"][2],
+            parsed["spg"]["symmetry_operations"][3],
+        )
+        with self.assertRaises(loader.MagneticProvenanceInvariantError):
+            loader._from_uncommitted_pair_for_test(
+                artifact_bytes, manifest_bytes, ARTIFACT.name
+            )
+
+    def test_test_only_pair_seam_wraps_schema_corruption(self):
+        def mutate(artifact):
+            artifact["spg"]["symmetry_operations"].pop()
+
+        artifact_bytes, manifest_bytes = self._synchronized_pair(mutate)
+        with self.assertRaises(loader.MagneticProvenanceSchemaError):
+            loader._from_uncommitted_pair_for_test(
+                artifact_bytes, manifest_bytes, ARTIFACT.name
+            )
 
     def test_dataclasses_are_frozen_slotted_and_nested_data_are_tuples(self):
         objects = (
