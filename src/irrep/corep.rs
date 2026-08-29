@@ -331,6 +331,18 @@ pub enum CorepComputationError {
         source_irrep: String,
         reason: String,
     },
+    /// Wigner classification succeeded, but the legacy real-valued public
+    /// character surface cannot encode a non-real unitary character.
+    /// Operation-aware complex consumers may safely reconstruct the unitary
+    /// row from the typed source representation using this classification.
+    ComplexUnitaryCharacters {
+        uni: usize,
+        source_irrep: String,
+        corep_type: CorepType,
+        source: WignerSource,
+        dimension: usize,
+        reason: String,
+    },
     /// The computed character table contains NaN or infinity.
     NonFiniteCharacters { uni: usize, source_irrep: String },
 }
@@ -382,6 +394,18 @@ impl std::fmt::Display for CorepComputationError {
                 write!(
                     f,
                     "unsupported Wigner classification for UNI {} source irrep {}: {}",
+                    uni, source_irrep, reason
+                )
+            }
+            CorepComputationError::ComplexUnitaryCharacters {
+                uni,
+                source_irrep,
+                reason,
+                ..
+            } => {
+                write!(
+                    f,
+                    "unsupported real-valued character surface for UNI {} source irrep {}: {}",
                     uni, source_irrep, reason
                 )
             }
@@ -775,9 +799,12 @@ pub fn compute_corepresentation(
                     || !value.im.is_finite()
                     || (value.im != 0.0 && !character_component_is_roundoff_zero(value.im, h_dim))
                 {
-                    return Err(CorepComputationError::UnsupportedClassification {
+                    return Err(CorepComputationError::ComplexUnitaryCharacters {
                         uni: uni_number,
                         source_irrep: h_irrep.ml.to_string(),
+                        corep_type,
+                        source,
+                        dimension: wigner::corep_dim(&corep_type, h_dim),
                         reason: format!(
                             "complex unitary character for {:?} at magnetic operation {} is {}{}i; the current real-valued corepresentation API cannot represent complex unitary characters",
                             corep_type,
@@ -830,9 +857,12 @@ pub fn compute_corepresentation(
                     || !value.im.is_finite()
                     || (value.im != 0.0 && !character_component_is_roundoff_zero(value.im, h_dim))
                 {
-                    return Err(CorepComputationError::UnsupportedClassification {
+                    return Err(CorepComputationError::ComplexUnitaryCharacters {
                         uni: uni_number,
                         source_irrep: h_irrep.ml.to_string(),
+                        corep_type,
+                        source,
+                        dimension: wigner::corep_dim(&corep_type, h_dim),
                         reason: format!(
                             "complex unitary character for {:?} at magnetic operation {} is {}{}i; the current real-valued corepresentation API cannot represent complex unitary characters",
                             corep_type,
@@ -1765,13 +1795,18 @@ mod tests {
         let error = compute_corepresentation(irrep, uni, &mag_ops)
             .expect_err("complex unitary characters must be rejected by the real API");
         match error {
-            CorepComputationError::UnsupportedClassification {
+            CorepComputationError::ComplexUnitaryCharacters {
                 uni: error_uni,
                 source_irrep,
+                corep_type,
+                dimension,
                 reason,
+                ..
             } => {
                 assert_eq!(error_uni, uni);
                 assert_eq!(source_irrep, label);
+                assert_eq!(corep_type, expected_type);
+                assert_eq!(dimension, if expected_type == CorepType::B { 2 } else { 1 });
                 assert!(
                     reason.contains(&format!("complex unitary character for {expected_type:?}"))
                 );
@@ -1811,7 +1846,7 @@ mod tests {
     }
 
     #[test]
-    fn sg178_h3_rejects_non_roundoff_complex_unitary_character() {
+    fn sg178_h3_exact_phase_is_real_representable() {
         let h3 = irreps_of(178)
             .iter()
             .find(|irrep| !irrep.spinor && irrep.ml == "H3")
@@ -1819,30 +1854,14 @@ mod tests {
         let row = h3
             .ordinary_scalar_selected_arm_block_trace()
             .expect("typed SG 178 H3 row");
-        assert!(row.values().iter().any(|value| {
-            value.im == -1.0471976378421115e-10
-                && !character_component_is_roundoff_zero(value.im, row.dimension())
+        assert!(row.values().iter().all(|value| {
+            value.im == 0.0 || character_component_is_roundoff_zero(value.im, row.dimension())
         }));
 
         let mag_ops = get_magnetic_operations(1385).expect("UNI 1385 operations");
-        let error = compute_corepresentation(h3, 1385, &mag_ops)
-            .expect_err("SG 178 H3 UNI 1385 has a real-unrepresentable unitary character");
-        match error {
-            CorepComputationError::UnsupportedClassification {
-                uni,
-                source_irrep,
-                reason,
-            } => {
-                assert_eq!(uni, 1385);
-                assert_eq!(source_irrep, "H3");
-                assert!(reason.contains("complex unitary character for"));
-                assert!(reason.contains("-0.00000000010471976378421115i"));
-                assert!(reason.contains(
-                    "the current real-valued corepresentation API cannot represent complex unitary characters"
-                ));
-            }
-            other => panic!("unexpected SG 178 H3 UNI 1385 error: {other:?}"),
-        }
+        let corep = compute_corepresentation(h3, 1385, &mag_ops)
+            .expect("the exact Hall phase removes the former spurious complex rejection");
+        assert!(corep.characters.iter().all(|value| value.is_finite()));
     }
 
     #[test]

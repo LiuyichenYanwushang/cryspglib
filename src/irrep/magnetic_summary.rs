@@ -107,6 +107,42 @@ pub struct MagneticIrrepSummary {
     pub kpoints: Vec<MagneticKPointSummary>,
 }
 
+/// A magnetic-irrep summary together with source corepresentations that could
+/// not be constructed safely.
+///
+/// The ordinary [`magnetic_irrep_summary_by_uni`] API remains strict and
+/// returns the first such failure.  This partial form is intended for band
+/// analysis programs that can conservatively report an unresolved label for
+/// only the affected band dimensions while retaining independently verified
+/// labels elsewhere.
+#[derive(Debug, Clone)]
+pub struct PartialMagneticIrrepSummary {
+    pub summary: MagneticIrrepSummary,
+    pub unresolved_coreps: Vec<UnresolvedMagneticCorep>,
+}
+
+/// One source H-irrep whose magnetic corepresentation is unavailable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnresolvedMagneticCorep {
+    pub uni: usize,
+    pub sg: u8,
+    pub k_label: String,
+    pub source_irrep: String,
+    pub spinor: bool,
+    /// Authoritative selected-arm source dimension when it remains available.
+    /// Every corepresentation induced from this source has at least this
+    /// dimension.
+    pub minimum_dimension: Option<usize>,
+    /// Wigner type when classification completed before a legacy output
+    /// surface rejected the character row.
+    pub classified_type: Option<crate::irrep::corep::CorepType>,
+    /// Classification backend paired with [`Self::classified_type`].
+    pub wigner_source: Option<crate::irrep::corep::WignerSource>,
+    /// Full corepresentation dimension paired with a completed classification.
+    pub classified_dimension: Option<usize>,
+    pub reason: String,
+}
+
 /// Summary of magnetic corepresentations at a single k-point.
 #[derive(Debug, Clone)]
 pub struct MagneticKPointSummary {
@@ -560,6 +596,24 @@ pub fn magnetic_irrep_summary_by_uni(
     magnetic_irrep_summary_from_ops(uni, &mag_ops)
 }
 
+/// Compute every safely available magnetic corepresentation for a UNI number.
+///
+/// Unlike [`magnetic_irrep_summary_by_uni`], a source-specific
+/// [`MagneticIrrepError::CorepComputationFailed`] does not discard unrelated
+/// k-points and corepresentations.  Each omitted source is returned in
+/// [`PartialMagneticIrrepSummary::unresolved_coreps`]; structural/database
+/// errors remain fatal.
+pub fn magnetic_irrep_summary_by_uni_partial(
+    uni: usize,
+) -> Result<PartialMagneticIrrepSummary, MagneticIrrepError> {
+    if uni == 0 || uni > 1651 {
+        return Err(MagneticIrrepError::InvalidUni(uni));
+    }
+    let mag_ops = SymmetryOps::from_magnetic_database(uni)
+        .map_err(|_| MagneticIrrepError::MissingMagneticOperations(uni))?;
+    magnetic_irrep_summary_from_ops_partial(uni, &mag_ops)
+}
+
 /// Compute magnetic irrep summary from a BNS label (e.g. `"221.97"`).
 pub fn magnetic_irrep_summary_by_bns(
     bns: &str,
@@ -582,6 +636,22 @@ pub fn magnetic_irrep_summary_from_ops(
     uni: usize,
     mag_ops: &SymmetryOps,
 ) -> Result<MagneticIrrepSummary, MagneticIrrepError> {
+    Ok(magnetic_irrep_summary_from_ops_impl(uni, mag_ops, false)?.summary)
+}
+
+/// Partial counterpart of [`magnetic_irrep_summary_from_ops`].
+pub fn magnetic_irrep_summary_from_ops_partial(
+    uni: usize,
+    mag_ops: &SymmetryOps,
+) -> Result<PartialMagneticIrrepSummary, MagneticIrrepError> {
+    magnetic_irrep_summary_from_ops_impl(uni, mag_ops, true)
+}
+
+fn magnetic_irrep_summary_from_ops_impl(
+    uni: usize,
+    mag_ops: &SymmetryOps,
+    retain_partial: bool,
+) -> Result<PartialMagneticIrrepSummary, MagneticIrrepError> {
     validate_operations_for_uni(uni, mag_ops)?;
 
     // 1. Identify H (unitary subgroup) with Hall setting information.
@@ -618,6 +688,7 @@ pub fn magnetic_irrep_summary_from_ops(
     let h_irreps = crate::irrep::query::irreps_of(h_info.sg as u8);
 
     // 6. Build k-point summaries with little group metadata and coreps.
+    let mut unresolved_coreps = Vec::new();
     let kpoints: Result<Vec<MagneticKPointSummary>, MagneticIrrepError> = h_kpoints
         .into_iter()
         .map(|kp| {
@@ -767,13 +838,38 @@ pub fn magnetic_irrep_summary_from_ops(
                         });
                     }
                     Err(err) => {
-                        return Err(MagneticIrrepError::CorepComputationFailed {
+                        let (classified_type, wigner_source, classified_dimension) = match &err {
+                            crate::irrep::corep::CorepComputationError::ComplexUnitaryCharacters {
+                                corep_type,
+                                source,
+                                dimension,
+                                ..
+                            } => (Some(*corep_type), Some(*source), Some(*dimension)),
+                            _ => (None, None, None),
+                        };
+                        let failure = UnresolvedMagneticCorep {
                             uni,
                             sg: ir.sg,
                             k_label: kp.label.clone(),
                             source_irrep: ir.ml.to_string(),
+                            spinor: ir.spinor,
+                            minimum_dimension: selected_arm_dimension(ir).ok(),
+                            classified_type,
+                            wigner_source,
+                            classified_dimension,
                             reason: err.to_string(),
-                        });
+                        };
+                        if retain_partial {
+                            unresolved_coreps.push(failure);
+                        } else {
+                            return Err(MagneticIrrepError::CorepComputationFailed {
+                                uni: failure.uni,
+                                sg: failure.sg,
+                                k_label: failure.k_label,
+                                source_irrep: failure.source_irrep,
+                                reason: failure.reason,
+                            });
+                        }
                     }
                 }
             }
@@ -794,14 +890,17 @@ pub fn magnetic_irrep_summary_from_ops(
         .collect();
     let kpoints = kpoints?;
 
-    Ok(MagneticIrrepSummary {
-        uni,
-        bns_label: msg.bns_number.trim().to_string(),
-        magnetic_type: msg.type_,
-        parent_sg: msg.number as u8,
-        unitary_sg: h_info.sg as u8,
-        unitary_hall: h_info.hall,
-        kpoints,
+    Ok(PartialMagneticIrrepSummary {
+        summary: MagneticIrrepSummary {
+            uni,
+            bns_label: msg.bns_number.trim().to_string(),
+            magnetic_type: msg.type_,
+            parent_sg: msg.number as u8,
+            unitary_sg: h_info.sg as u8,
+            unitary_hall: h_info.hall,
+            kpoints,
+        },
+        unresolved_coreps,
     })
 }
 
@@ -1580,6 +1679,57 @@ mod tests {
             }
             other => panic!("unexpected 182.183 summary error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn partial_summary_retains_safe_coreps_and_reports_compound_source() {
+        let partial = magnetic_irrep_summary_by_uni_partial(1413)
+            .expect("partial summaries must retain independently safe coreps");
+        assert_eq!(partial.summary.uni, 1413);
+        assert!(
+            partial
+                .summary
+                .kpoints
+                .iter()
+                .flat_map(|point| &point.coreps)
+                .next()
+                .is_some(),
+            "the partial summary must not discard every safe corep"
+        );
+        let failure = partial
+            .unresolved_coreps
+            .iter()
+            .find(|failure| failure.k_label == "GM" && failure.source_irrep == "GM3GM5")
+            .expect("the omitted compound source must remain explicit");
+        assert_eq!(failure.sg, 173);
+        assert!(!failure.spinor);
+        assert!(
+            failure
+                .minimum_dimension
+                .is_some_and(|dimension| dimension > 0)
+        );
+        assert!(failure.reason.contains("compound corepresentations"));
+    }
+
+    #[test]
+    fn partial_summary_preserves_completed_complex_classification() {
+        let partial = magnetic_irrep_summary_by_uni_partial(1440)
+            .expect("complex source rows must be available to typed consumers");
+        let failure = partial
+            .unresolved_coreps
+            .iter()
+            .find(|failure| {
+                failure.k_label == "K" && failure.source_irrep == "K3" && !failure.spinor
+            })
+            .expect("SG 187 K3 must exercise the legacy real-surface boundary");
+        assert_eq!(
+            failure.classified_type,
+            Some(crate::irrep::corep::CorepType::A)
+        );
+        assert_eq!(failure.minimum_dimension, Some(1));
+        assert_eq!(failure.classified_dimension, Some(1));
+        assert!(failure.wigner_source.is_some());
+        assert!(failure.reason.contains("complex unitary character"));
     }
 
     #[test]

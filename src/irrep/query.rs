@@ -1038,7 +1038,7 @@ mod tests {
     }
 
     #[test]
-    fn test_formatter_roundoff_witnesses_preserve_real_complex_values() {
+    fn test_formatter_preserves_real_complex_values_without_spurious_phase_noise() {
         let w1 = irreps_of(44)
             .iter()
             .find(|irrep| !irrep.spinor && irrep.ml == "W1")
@@ -1055,22 +1055,22 @@ mod tests {
             .find(|irrep| !irrep.spinor && irrep.ml == "A2")
             .expect("SG 144 A2 scalar irrep");
         let a2_table = format_character_table(144, a2.kx, a2.ky, a2.kz, a2.kd);
-        assert!(
-            a2_table
-                .lines()
-                .any(|line| { line.starts_with("| A2 |") && line.contains("1.047198e-10i") })
-        );
+        let a2_row = a2_table
+            .lines()
+            .find(|line| line.starts_with("| A2 |"))
+            .expect("SG 144 A2 formatted row");
+        assert!(!a2_row.contains("1.047198e-10i"), "{a2_row}");
 
         let h2 = irreps_of(151)
             .iter()
             .find(|irrep| !irrep.spinor && irrep.ml == "H2")
             .expect("SG 151 H2 scalar irrep");
         let h2_table = format_character_table(151, h2.kx, h2.ky, h2.kz, h2.kd);
-        assert!(
-            h2_table
-                .lines()
-                .any(|line| { line.starts_with("| H2 |") && line.contains("1.047198e-10i") })
-        );
+        let h2_row = h2_table
+            .lines()
+            .find(|line| line.starts_with("| H2 |"))
+            .expect("SG 151 H2 formatted row");
+        assert!(!h2_row.contains("1.047198e-10i"), "{h2_row}");
     }
 
     #[test]
