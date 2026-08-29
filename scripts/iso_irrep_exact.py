@@ -15,11 +15,13 @@ from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
 import hashlib
+import io
 from pathlib import Path
 import re
 import threading
 from typing import Iterable, Optional, Sequence, Tuple
 import zipfile
+import zlib
 
 try:  # ``scripts`` is normally imported as a namespace package.
     from .generate_irrep_data import (
@@ -122,6 +124,13 @@ RawIrTranslation = Tuple[int, int, int, int]
 OptionalFraction3 = Optional[Fraction3]
 
 
+def _require_tuple(value, length: Optional[int], context: str) -> None:
+    if type(value) is not tuple:
+        raise TypeError(f"{context} must be an immutable tuple")
+    if length is not None and len(value) != length:
+        raise TypeError(f"{context} must have length {length}")
+
+
 @dataclass(frozen=True)
 class ExactSeitz:
     __slots__ = ("rotation", "translation", "raw_augmented")
@@ -129,6 +138,19 @@ class ExactSeitz:
     rotation: Rotation3
     translation: Fraction3
     raw_augmented: RawAugmented
+
+    def __post_init__(self):
+        _require_tuple(self.rotation, 3, "ExactSeitz.rotation")
+        if any(type(row) is not tuple or len(row) != 3 for row in self.rotation):
+            raise TypeError("ExactSeitz.rotation must be a 3x3 tuple")
+        if any(type(value) is not int for row in self.rotation for value in row):
+            raise TypeError("ExactSeitz.rotation entries must be int")
+        _require_tuple(self.translation, 3, "ExactSeitz.translation")
+        if any(type(value) is not Fraction for value in self.translation):
+            raise TypeError("ExactSeitz.translation entries must be Fraction")
+        _require_tuple(self.raw_augmented, 16, "ExactSeitz.raw_augmented")
+        if any(type(value) is not int for value in self.raw_augmented):
+            raise TypeError("ExactSeitz.raw_augmented entries must be int")
 
 
 @dataclass(frozen=True)
@@ -139,6 +161,20 @@ class ExactKArm:
     parameters: tuple[OptionalFraction3, OptionalFraction3, OptionalFraction3]
     raw_augmented: RawKVector
 
+    def __post_init__(self):
+        _require_tuple(self.constant, 3, "ExactKArm.constant")
+        if any(type(value) is not Fraction for value in self.constant):
+            raise TypeError("ExactKArm.constant entries must be Fraction")
+        _require_tuple(self.parameters, 3, "ExactKArm.parameters")
+        for parameter in self.parameters:
+            if parameter is not None:
+                _require_tuple(parameter, 3, "ExactKArm parameter")
+                if any(type(value) is not Fraction for value in parameter):
+                    raise TypeError("ExactKArm parameter entries must be Fraction")
+        _require_tuple(self.raw_augmented, 16, "ExactKArm.raw_augmented")
+        if any(type(value) is not int for value in self.raw_augmented):
+            raise TypeError("ExactKArm.raw_augmented entries must be int")
+
 
 @dataclass(frozen=True)
 class ExactIrTranslation:
@@ -146,6 +182,14 @@ class ExactIrTranslation:
 
     vector: Fraction3
     raw: RawIrTranslation
+
+    def __post_init__(self):
+        _require_tuple(self.vector, 3, "ExactIrTranslation.vector")
+        if any(type(value) is not Fraction for value in self.vector):
+            raise TypeError("ExactIrTranslation.vector entries must be Fraction")
+        _require_tuple(self.raw, 4, "ExactIrTranslation.raw")
+        if any(type(value) is not int for value in self.raw):
+            raise TypeError("ExactIrTranslation.raw entries must be int")
 
 
 @dataclass(frozen=True)
@@ -169,6 +213,38 @@ class ExactSourceRecord:
     k_arms: tuple[ExactKArm, ...]
     operations: tuple[ExactSeitz, ...]
     irtranslations: tuple[Optional[ExactIrTranslation], ...]
+
+    def __post_init__(self):
+        if not isinstance(self.archive, SourceArchive):
+            raise TypeError("ExactSourceRecord.archive must be SourceArchive")
+        if type(self.irnumber) is not int or type(self.spacegroup) is not int:
+            raise TypeError("ExactSourceRecord source numbers must be int")
+        if type(self.space_group_symbol) is not str or type(self.irrep_label) is not str:
+            raise TypeError("ExactSourceRecord symbols and labels must be str")
+        if not isinstance(self.centering, Centering):
+            raise TypeError("ExactSourceRecord.centering must be Centering")
+        for name in ("dimension", "irtype", "kcount", "pmkcount"):
+            if type(getattr(self, name)) is not int:
+                raise TypeError(f"ExactSourceRecord.{name} must be int")
+        _require_tuple(self.k_arms, None, "ExactSourceRecord.k_arms")
+        _require_tuple(self.operations, None, "ExactSourceRecord.operations")
+        _require_tuple(self.irtranslations, None, "ExactSourceRecord.irtranslations")
+        if not self.k_arms or not self.operations:
+            raise ValueError("ExactSourceRecord must contain k arms and operations")
+        if len(self.irtranslations) != len(self.operations):
+            raise ValueError("ExactSourceRecord translation/op count mismatch")
+        expected_arms = self.pmkcount if self.archive is SourceArchive.PIR else self.kcount
+        if len(self.k_arms) != expected_arms:
+            raise ValueError("ExactSourceRecord k-arm count mismatch")
+        if any(not isinstance(arm, ExactKArm) for arm in self.k_arms):
+            raise TypeError("ExactSourceRecord.k_arms entries must be ExactKArm")
+        if any(not isinstance(operation, ExactSeitz) for operation in self.operations):
+            raise TypeError("ExactSourceRecord.operations entries must be ExactSeitz")
+        if any(
+            translation is not None and not isinstance(translation, ExactIrTranslation)
+            for translation in self.irtranslations
+        ):
+            raise TypeError("ExactSourceRecord.irtranslations entries must be ExactIrTranslation or None")
 
     @property
     def opcount(self) -> int:
@@ -200,6 +276,21 @@ class ExactSpaceGroupUniverse:
     pir_irnumbers: tuple[int, ...]
     cir_irnumbers: tuple[int, ...]
 
+    def __post_init__(self):
+        if type(self.spacegroup) is not int:
+            raise TypeError("ExactSpaceGroupUniverse.spacegroup must be int")
+        if type(self.space_group_symbol) is not str:
+            raise TypeError("ExactSpaceGroupUniverse.space_group_symbol must be str")
+        if not isinstance(self.centering, Centering):
+            raise TypeError("ExactSpaceGroupUniverse.centering must be Centering")
+        _require_tuple(self.operations, None, "ExactSpaceGroupUniverse.operations")
+        _require_tuple(self.pir_irnumbers, None, "ExactSpaceGroupUniverse.pir_irnumbers")
+        _require_tuple(self.cir_irnumbers, None, "ExactSpaceGroupUniverse.cir_irnumbers")
+        if any(not isinstance(operation, ExactSeitz) for operation in self.operations):
+            raise TypeError("ExactSpaceGroupUniverse.operations entries must be ExactSeitz")
+        if any(type(number) is not int for number in self.pir_irnumbers + self.cir_irnumbers):
+            raise TypeError("ExactSpaceGroupUniverse irnumbers must be int")
+
 
 @dataclass(frozen=True)
 class ExactIsoIrrepDatabase:
@@ -209,6 +300,28 @@ class ExactIsoIrrepDatabase:
     cir_records: tuple[ExactSourceRecord, ...]
     universes: tuple[Optional[ExactSpaceGroupUniverse], ...]
 
+    def __post_init__(self):
+        _require_tuple(self.pir_records, None, "ExactIsoIrrepDatabase.pir_records")
+        _require_tuple(self.cir_records, None, "ExactIsoIrrepDatabase.cir_records")
+        _require_tuple(self.universes, 231, "ExactIsoIrrepDatabase.universes")
+        if any(
+            not isinstance(record, ExactSourceRecord)
+            or record.archive is not SourceArchive.PIR
+            for record in self.pir_records
+        ):
+            raise TypeError("ExactIsoIrrepDatabase.pir_records entries must be PIR records")
+        if any(
+            not isinstance(record, ExactSourceRecord)
+            or record.archive is not SourceArchive.CIR
+            for record in self.cir_records
+        ):
+            raise TypeError("ExactIsoIrrepDatabase.cir_records entries must be CIR records")
+        if self.universes[0] is not None or any(
+            universe is not None and not isinstance(universe, ExactSpaceGroupUniverse)
+            for universe in self.universes
+        ):
+            raise TypeError("ExactIsoIrrepDatabase.universes entries are malformed")
+
     def source_universe(self, spacegroup: int) -> ExactSpaceGroupUniverse:
         return _lookup_universe(self.universes, spacegroup)
 
@@ -216,6 +329,8 @@ class ExactIsoIrrepDatabase:
 _SIGNED_INTEGER_RE = re.compile(r"(?:0|-[1-9][0-9]*|[1-9][0-9]*)\Z", re.ASCII)
 _UNSIGNED_INTEGER_RE = re.compile(r"(?:0|[1-9][0-9]*)\Z", re.ASCII)
 _CIR_COMPLEX_TOKEN_RE = re.compile(r"\(([^,]+),([^\)]+)\)\Z", re.ASCII)
+_IDENTITY_ROTATION = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+_ZERO_TRANSLATION = (Fraction(0), Fraction(0), Fraction(0))
 
 
 def _error(error_type: type[IsoIrrepExactError], message: str) -> IsoIrrepExactError:
@@ -230,89 +345,127 @@ def _parse_integer(token: str, *, context: str, unsigned: bool = False) -> int:
         raise SourceSchemaError(f"non-canonical integer {token!r} for {context}")
     # The regular expression has already excluded Unicode digits and signs
     # that Python's int() would otherwise accept.
-    return int(token)
+    try:
+        return int(token)
+    except ValueError as error:
+        # Keep even a syntactically canonical but excessively long integer
+        # inside the typed source-schema error boundary (Python may reject it
+        # because of its interpreter-wide integer conversion limit).
+        raise SourceSchemaError(f"invalid integer {token!r} for {context}") from error
 
 
-def _is_ascii_space(char: str) -> bool:
-    return char in " \t"
+def _validate_ascii_text(text: str, context: str, *, require_final_lf: bool) -> None:
+    """Require source text to be printable ASCII records separated by LF."""
+
+    if type(text) is not str:
+        raise TypeError(f"{context} must be str")
+    if require_final_lf and not text.endswith("\n"):
+        raise SourceSchemaError(f"{context} is missing its final LF")
+    for position, character in enumerate(text):
+        if character == "\n":
+            continue
+        codepoint = ord(character)
+        if codepoint < 0x20 or codepoint > 0x7E:
+            raise SourceSchemaError(
+                f"{context} contains non-printable/non-ASCII character "
+                f"U+{codepoint:04X} at offset {position}"
+            )
+
+
+def _source_lines(text: str, context: str) -> tuple[str, ...]:
+    _validate_ascii_text(text, context, require_final_lf=True)
+    # ``splitlines`` would silently accept CRLF and Unicode line separators;
+    # this explicit split is part of the official source grammar.
+    pieces = text.split("\n")
+    if not pieces or pieces[-1] != "":  # defensive after the final-LF check
+        raise SourceSchemaError(f"{context} is missing its final LF")
+    return tuple(pieces[:-1])
+
+
+def _parse_fixed_unsigned(field: str, width: int, name: str, archive: SourceArchive, line_number: int) -> int:
+    if len(field) != width:
+        raise SourceSchemaError(
+            f"{archive.value} header {name} is not width {width} at line {line_number}"
+        )
+    digits = field.lstrip(" ")
+    value = _parse_integer(
+        digits,
+        context=f"{archive.value} header {name} at line {line_number}",
+        unsigned=True,
+    )
+    if field != str(value).rjust(width, " "):
+        raise SourceSchemaError(
+            f"non-canonical {archive.value} header {name} at line {line_number}"
+        )
+    return value
+
+
+def _parse_padded_field(field: str, width: int, name: str, archive: SourceArchive, line_number: int) -> str:
+    if len(field) != width:
+        raise SourceSchemaError(
+            f"{archive.value} header {name} is not width {width} at line {line_number}"
+        )
+    if any(not (0x20 <= ord(character) <= 0x7E) for character in field):
+        raise SourceSchemaError(
+            f"{archive.value} header {name} is not printable ASCII at line {line_number}"
+        )
+    semantic = field.rstrip(" ")
+    if not semantic or field[0] == " " or '"' in semantic:
+        raise SourceSchemaError(
+            f"invalid {archive.value} header {name} padding/content at line {line_number}"
+        )
+    if field != semantic + " " * (width - len(semantic)):
+        raise SourceSchemaError(
+            f"invalid {archive.value} header {name} right-padding at line {line_number}"
+        )
+    return semantic
 
 
 def _parse_header(line: str, archive: SourceArchive, line_number: int) -> tuple[int, int, str, str, int, int, int, int, int]:
-    """Parse the exact nine-field quoted header without a permissive regex."""
+    """Parse the exact ``(i5,i4,a,5i3)`` official writer output."""
 
-    position = 0
-    length = len(line)
-
-    def skip_space() -> None:
-        nonlocal position
-        while position < length and _is_ascii_space(line[position]):
-            position += 1
-
-    def read_unsigned(field: str) -> int:
-        nonlocal position
-        start = position
-        while position < length and not _is_ascii_space(line[position]):
-            position += 1
-        if start == position:
-            raise SourceSchemaError(
-                f"missing {archive.value} header field {field} at line {line_number}"
-            )
-        return _parse_integer(line[start:position], context=f"{archive.value} header {field}", unsigned=True)
-
-    def read_quoted(field: str) -> str:
-        nonlocal position
-        if position >= length or line[position] != '"':
-            raise SourceSchemaError(
-                f"missing quoted {archive.value} header field {field} at line {line_number}"
-            )
-        position += 1
-        start = position
-        end = line.find('"', position)
-        if end < 0:
-            raise SourceSchemaError(
-                f"unterminated quoted {archive.value} header field {field} at line {line_number}"
-            )
-        value = line[start:end]
-        position = end + 1
-        if position < length and not _is_ascii_space(line[position]):
-            raise SourceSchemaError(
-                f"unexpected character after quoted {field} at line {line_number}"
-            )
-        return value.strip()
-
-    skip_space()
-    irnumber = read_unsigned("irnumber")
-    skip_space()
-    spacegroup = read_unsigned("spacegroup")
-    skip_space()
-    raw_symbol = read_quoted("space-group symbol")
-    skip_space()
-    raw_label = read_quoted("irrep label")
-    symbol = raw_symbol.strip()
-    label = raw_label.strip()
-    values = []
-    for field in ("dimension", "irtype", "kcount", "pmkcount", "opcount"):
-        skip_space()
-        values.append(read_unsigned(field))
-    skip_space()
-    if position != length:
+    if type(line) is not str:
+        raise TypeError("header line must be str")
+    expected_length = 48 if archive is SourceArchive.PIR else 44
+    if len(line) != expected_length:
         raise SourceSchemaError(
-            f"extra {archive.value} header fields at line {line_number}"
+            f"malformed {archive.value} header at line {line_number}: "
+            f"expected {expected_length} characters, got {len(line)}"
         )
+    _validate_ascii_text(line, f"{archive.value} header line {line_number}", require_final_lf=False)
+    irnumber = _parse_fixed_unsigned(line[0:5], 5, "irnumber", archive, line_number)
+    spacegroup = _parse_fixed_unsigned(line[5:9], 4, "spacegroup", archive, line_number)
+    label_width = 8 if archive is SourceArchive.PIR else 4
+    if line[9:11] != ' "' or line[21:24] != '" "':
+        raise SourceSchemaError(f"malformed {archive.value} header literals at line {line_number}")
+    raw_symbol = line[11:21]
+    symbol = _parse_padded_field(raw_symbol, 10, "space-group symbol", archive, line_number)
+    label_start = 24
+    label_end = label_start + label_width
+    if line[label_end] != '"':
+        raise SourceSchemaError(f"malformed {archive.value} header label quote at line {line_number}")
+    raw_label = line[label_start:label_end]
+    label = _parse_padded_field(raw_label, label_width, "irrep label", archive, line_number)
+    numeric_start = label_end + 1
+    values = []
+    for offset, field in enumerate(("dimension", "irtype", "kcount", "pmkcount", "opcount")):
+        start = numeric_start + offset * 3
+        values.append(_parse_fixed_unsigned(line[start:start + 3], 3, field, archive, line_number))
+    if line != (
+        f"{irnumber:5d}{spacegroup:4d} \"{raw_symbol}\" \"{raw_label}\""
+        + "".join(str(value).rjust(3, " ") for value in values)
+    ):
+        raise SourceSchemaError(f"non-canonical {archive.value} header at line {line_number}")
     dimension, irtype, kcount, pmkcount, opcount = values
 
-    if not raw_symbol:
-        raise SourceSchemaError(f"empty space-group symbol at line {line_number}")
+    if not 1 <= irnumber:
+        raise SourceSchemaError(f"irnumber {irnumber} must be positive at line {line_number}")
     try:
         Centering(raw_symbol[0])
     except ValueError as error:
         raise SourceSchemaError(
             f"unknown centering {raw_symbol[0]!r} at line {line_number}"
         ) from error
-    if not label:
-        raise SourceSchemaError(f"empty irrep label at line {line_number}")
-    if irnumber <= 0:
-        raise SourceSchemaError(f"irnumber {irnumber} must be positive at line {line_number}")
     if not 1 <= spacegroup <= 230:
         raise SourceSchemaError(f"spacegroup {spacegroup} outside 1..230 at line {line_number}")
     if not 1 <= dimension <= 48:
@@ -335,9 +488,10 @@ def _line_tokens(lines: Sequence[str], index: int, *, context: str) -> list[str]
     line = lines[index]
     if not line.strip():
         raise SourceSchemaError(f"blank line {index + 1} in {context}")
-    # Source rows are ASCII-token records.  split() is only used for the
-    # separators; every integer token still passes the canonical ASCII gate.
-    return line.split()
+    _validate_ascii_text(line, f"{context} line {index + 1}", require_final_lf=False)
+    # The Fortran writer separates values with ordinary ASCII spaces.  Do not
+    # let str.split() silently accept tabs, NBSP, or other Unicode separators.
+    return [token for token in line.split(" ") if token]
 
 
 def _read_exact_block(
@@ -506,6 +660,55 @@ def _parse_irtranslation(raw: tuple[int, ...], archive: SourceArchive, context: 
     return ExactIrTranslation(vector=vector, raw=raw)  # type: ignore[arg-type]
 
 
+def _rotation_determinant(rotation: Rotation3) -> int:
+    a, b, c = rotation
+    return (
+        a[0] * (b[1] * c[2] - b[2] * c[1])
+        - a[1] * (b[0] * c[2] - b[2] * c[0])
+        + a[2] * (b[0] * c[1] - b[1] * c[0])
+    )
+
+
+def _rotation_product(left: Rotation3, right: Rotation3) -> Rotation3:
+    return tuple(
+        tuple(sum(left[row][index] * right[index][column] for index in range(3)) for column in range(3))
+        for row in range(3)
+    )  # type: ignore[return-value]
+
+
+def _validate_operations(
+    operations: Sequence[ExactSeitz],
+    spacegroup: int,
+    label: str,
+    *,
+    check_closure: bool,
+) -> None:
+    """Validate GL(3,Z), ordered identity, uniqueness, and rotation closure."""
+
+    context = f"SG{spacegroup} {label!r}"
+    if not operations:
+        raise SourceInvariantError(f"{context} has no Seitz operations")
+    for operation in operations:
+        determinant = _rotation_determinant(operation.rotation)
+        if determinant not in (-1, 1):
+            raise SourceInvariantError(
+                f"{context} has a non-GL(3,Z) rotation determinant {determinant}"
+            )
+    rotations = tuple(operation.rotation for operation in operations)
+    rotation_set = set(rotations)
+    if len(rotation_set) != len(rotations):
+        raise SourceInvariantError(f"{context} contains duplicate rotations")
+    first = operations[0]
+    if first.rotation != _IDENTITY_ROTATION or first.translation != _ZERO_TRANSLATION:
+        raise SourceInvariantError(f"{context} operation slot 0 is not exact {{I|0}}")
+    if not check_closure:
+        return
+    for left in rotation_set:
+        for right in rotation_set:
+            if _rotation_product(left, right) not in rotation_set:
+                raise SourceInvariantError(f"{context} rotation set is not multiplication-closed")
+
+
 def _parse_records_from_lines(
     lines: Sequence[str],
     archive: SourceArchive,
@@ -523,6 +726,10 @@ def _parse_records_from_lines(
 
     records = []
     seen_keys = set()
+    # Cache closure by the ordered rotation tuple, rather than by SG number:
+    # a malformed same-SG record with a different operation set must still be
+    # checked before the later universe-folding comparison.
+    closure_checked = set()
     expected_irnumber = 1
     index = 3
     while index < len(lines):
@@ -558,6 +765,13 @@ def _parse_records_from_lines(
 
         index += 1
         k_payload_count = pmkcount if archive is SourceArchive.PIR else kcount
+        divisibility_count = pmkcount if archive is SourceArchive.PIR else kcount
+        if dimension % divisibility_count:
+            raise SourceInvariantError(
+                f"{archive.value} SG{spacegroup} {label!r} dimension {dimension} "
+                f"is not divisible by {('pmkcount' if archive is SourceArchive.PIR else 'kcount')} "
+                f"{divisibility_count}"
+            )
         raw_k, index = _read_exact_block(
             lines,
             index,
@@ -611,6 +825,15 @@ def _parse_records_from_lines(
                 ),
             )
 
+        rotation_key = tuple(operation.rotation for operation in operations)
+        _validate_operations(
+            operations,
+            spacegroup,
+            label,
+            check_closure=rotation_key not in closure_checked,
+        )
+        closure_checked.add(rotation_key)
+
         records.append(
             ExactSourceRecord(
                 archive=archive,
@@ -657,7 +880,11 @@ def parse_exact_source_text(
         raise TypeError("archive must be a SourceArchive")
     if type(text) is not str:
         raise TypeError("source text must be str")
-    return _parse_records_from_lines(text.splitlines(), archive, validate_census=validate_census)
+    return _parse_records_from_lines(
+        _source_lines(text, f"{archive.value} source text"),
+        archive,
+        validate_census=validate_census,
+    )
 
 
 def parse_exact_source_lines(
@@ -674,6 +901,12 @@ def parse_exact_source_lines(
         raise TypeError("source lines must be a list or tuple of str")
     if any(type(line) is not str for line in lines):
         raise TypeError("source lines must contain only str")
+    for index, line in enumerate(lines):
+        _validate_ascii_text(line, f"{archive.value} source line {index + 1}", require_final_lf=False)
+        if "\n" in line:
+            raise SourceSchemaError(
+                f"{archive.value} source line {index + 1} contains an embedded LF"
+            )
     return _parse_records_from_lines(lines, archive, validate_census=validate_census)
 
 
@@ -688,6 +921,22 @@ def _parse_archive_text(
     return parse_exact_source_text(text, archive, validate_census=validate_census)
 
 
+def _zip_basename(name: str) -> str:
+    normalized = name.replace("\\", "/")
+    return normalized.rstrip("/").rsplit("/", 1)[-1]
+
+
+def _unsafe_zip_name(name: str) -> bool:
+    """Reject traversal/absolute archive names before selecting a member."""
+
+    normalized = name.replace("\\", "/")
+    if normalized.startswith("/") or normalized.startswith("\\"):
+        return True
+    if re.match(r"^[A-Za-z]:", normalized):
+        return True
+    return any(part == ".." for part in normalized.split("/"))
+
+
 def _read_verified_member(
     archive: SourceArchive,
     *,
@@ -699,7 +948,7 @@ def _read_verified_member(
         raise TypeError("archive must be a SourceArchive")
     if path is None:
         path = PIR_ARCHIVE_PATH if archive is SourceArchive.PIR else CIR_ARCHIVE_PATH
-    else:
+    elif not hasattr(path, "read_bytes"):
         path = Path(path)
     expected_bytes = (
         PIR_ARCHIVE_BYTES if archive is SourceArchive.PIR else CIR_ARCHIVE_BYTES
@@ -708,16 +957,30 @@ def _read_verified_member(
         PIR_ARCHIVE_SHA256 if archive is SourceArchive.PIR else CIR_ARCHIVE_SHA256
     ) if expected_sha256 is None else expected_sha256
     try:
-        actual_bytes = path.stat().st_size
-        if actual_bytes != expected_bytes:
-            raise ArchiveIntegrityError(
-                f"{archive.value} archive byte-size mismatch: expected {expected_bytes}, got {actual_bytes}"
-            )
+        # This is intentionally the sole path read.  Verification and ZIP
+        # parsing both consume this immutable snapshot, avoiding a TOCTOU
+        # window between stat/hash and opening the archive again.
         archive_bytes = path.read_bytes()
-    except ArchiveIntegrityError:
-        raise
-    except OSError as error:
+    except (
+        OSError,
+        IOError,
+        NotImplementedError,
+        RuntimeError,
+        EOFError,
+        ValueError,
+        zipfile.BadZipFile,
+        zipfile.LargeZipFile,
+        KeyError,
+        zlib.error,
+    ) as error:
         raise ArchiveIntegrityError(f"unable to read {archive.value} archive {path}") from error
+    if type(archive_bytes) is not bytes:
+        raise ArchiveIntegrityError(f"{archive.value} archive read did not return bytes")
+    actual_bytes = len(archive_bytes)
+    if actual_bytes != expected_bytes:
+        raise ArchiveIntegrityError(
+            f"{archive.value} archive byte-size mismatch: expected {expected_bytes}, got {actual_bytes}"
+        )
     actual_sha256 = hashlib.sha256(archive_bytes).hexdigest()
     if actual_sha256 != expected_sha256:
         raise ArchiveIntegrityError(
@@ -725,12 +988,21 @@ def _read_verified_member(
         )
     member_name = "PIR_data.txt" if archive is SourceArchive.PIR else "CIR_data.txt"
     try:
-        with zipfile.ZipFile(path) as zip_file:
-            matches = tuple(
-                name
-                for name in zip_file.namelist()
-                if name == member_name or name.endswith("/" + member_name)
-            )
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as zip_file:
+            infos = tuple(zip_file.infolist())
+            names = tuple(info.filename for info in infos)
+            if any(_unsafe_zip_name(name) for name in names):
+                raise ArchiveIntegrityError(
+                    f"{archive.value} archive contains an unsafe member path"
+                )
+            if any(
+                _zip_basename(name) == member_name and name != member_name
+                for name in names
+            ):
+                raise ArchiveIntegrityError(
+                    f"{archive.value} archive contains a non-root {member_name!r} collision"
+                )
+            matches = tuple(info for info in infos if info.filename == member_name)
             if len(matches) != 1:
                 raise ArchiveIntegrityError(
                     f"{archive.value} archive member {member_name!r} matched {len(matches)} entries"
@@ -738,15 +1010,16 @@ def _read_verified_member(
             member_bytes = zip_file.read(matches[0])
     except ArchiveIntegrityError:
         raise
-    except (OSError, zipfile.BadZipFile, KeyError) as error:
+    except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile, KeyError,
+            NotImplementedError, RuntimeError, EOFError, ValueError, zlib.error) as error:
         raise ArchiveIntegrityError(
             f"unable to read authoritative {member_name} from {archive.value} archive"
         ) from error
     try:
-        return member_bytes.decode("utf-8", errors="strict")
-    except UnicodeDecodeError as error:
+        return member_bytes.decode("ascii", errors="strict")
+    except (UnicodeDecodeError, UnicodeError) as error:
         raise SourceSchemaError(
-            f"authoritative {member_name} member is not strict UTF-8"
+            f"authoritative {member_name} member is not strict ASCII"
         ) from error
 
 
@@ -788,6 +1061,12 @@ def _build_universes(
         if baseline is None:  # defensive; the branch above makes this unreachable.
             universes.append(None)
             continue
+        _validate_operations(
+            baseline.operations,
+            spacegroup,
+            baseline.irrep_label,
+            check_closure=True,
+        )
         for record in all_records[1:]:
             if record.space_group_symbol != baseline.space_group_symbol:
                 raise SourceInvariantError(
@@ -884,13 +1163,17 @@ def _assemble_database(
 def _load_uncached() -> ExactIsoIrrepDatabase:
     pir_text = _read_verified_member(SourceArchive.PIR)
     pir_records = _parse_records_from_lines(
-        pir_text.splitlines(), SourceArchive.PIR, validate_census=True
+        _source_lines(pir_text, "PIR source text"),
+        SourceArchive.PIR,
+        validate_census=True,
     )
     # Release the decoded member before reading the larger CIR source.
     del pir_text
     cir_text = _read_verified_member(SourceArchive.CIR)
     cir_records = _parse_records_from_lines(
-        cir_text.splitlines(), SourceArchive.CIR, validate_census=True
+        _source_lines(cir_text, "CIR source text"),
+        SourceArchive.CIR,
+        validate_census=True,
     )
     del cir_text
     return _assemble_database(pir_records, cir_records, validate_census=True)
@@ -920,6 +1203,8 @@ def _lookup_universe(
     spacegroup: int,
 ) -> ExactSpaceGroupUniverse:
     _validate_spacegroup(spacegroup)
+    if type(universes) is not tuple or len(universes) != 231:
+        raise SourceLookupError("source universes must be an immutable 231-entry tuple")
     universe = universes[spacegroup]
     if universe is None:
         raise SourceLookupError(f"no source universe for SG{spacegroup}")
