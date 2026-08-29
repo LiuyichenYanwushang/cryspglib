@@ -2,10 +2,12 @@
 """Focused tests for the independent frozen data--Hall provenance loader."""
 
 import ast
+import copy
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 import hashlib
 import json
 import os
+import pickle
 from pathlib import Path
 import tempfile
 import threading
@@ -186,6 +188,44 @@ class DataHallLoaderTests(unittest.TestCase):
         self.assertEqual(loader.data_hall_for_spacegroup(1), 1)
         self.assertEqual(current_frame.source_to_hall[0], source_mapping)
         self.assertEqual(current_frame.hall_to_source[0], hall_mapping)
+
+    def test_value_roundtrips_without_dict(self):
+        database = loader.load_committed_data_hall_provenance()
+        values = (
+            database,
+            database.census,
+            database.frames[0],
+            database.frames[0].source_to_hall[0],
+            database.frames[0].hall_to_source[0],
+        )
+        for value in values:
+            with self.subTest(value=type(value).__name__):
+                for restored in (
+                    pickle.loads(pickle.dumps(value)),
+                    copy.copy(value),
+                    copy.deepcopy(value),
+                ):
+                    self.assertIs(type(restored), type(value))
+                    self.assertEqual(restored, value)
+                    self.assertFalse(hasattr(restored, "__dict__"))
+
+        self.assertIs(loader.data_hall_frame(1), database.frames[0])
+        self.assertEqual(loader.data_hall_for_spacegroup(1), 1)
+
+    def test_legacy_slots_state_protocol(self):
+        if loader._NATIVE_DATACLASS_SLOTS:
+            self.skipTest("native dataclass slots provide the state protocol")
+        value = loader.SourceToHallMapping(2, 3, (12, 0, -12))
+        state = value.__getstate__()
+        self.assertIs(type(state), tuple)
+        self.assertEqual(state, (2, 3, (12, 0, -12)))
+        restored = object.__new__(type(value))
+        restored.__setstate__(list(state))
+        self.assertEqual(restored, value)
+        with self.assertRaises(TypeError):
+            restored.__setstate__({"state": state})
+        with self.assertRaises(ValueError):
+            restored.__setstate__(state[:-1])
 
     def test_private_parser_rejects_encoding_and_semantic_corruption(self):
         for data in (

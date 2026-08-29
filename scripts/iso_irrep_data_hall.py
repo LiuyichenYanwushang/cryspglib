@@ -19,7 +19,7 @@ fixed committed authority.
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 import hashlib
 import json
 from pathlib import Path
@@ -37,6 +37,25 @@ except (TypeError, ValueError):
 _DATACLASS_OPTIONS = {"frozen": True}
 if _NATIVE_DATACLASS_SLOTS:
     _DATACLASS_OPTIONS["slots"] = True
+
+
+class _LegacySlottedValue:
+    """Provide dataclass's slotted pickle state protocol on Python 3.7."""
+
+    __slots__ = ()
+
+    if not _NATIVE_DATACLASS_SLOTS:
+        def __getstate__(self):
+            return tuple(getattr(self, field.name) for field in fields(self))
+
+        def __setstate__(self, state):
+            if type(state) not in (tuple, list):
+                raise TypeError("slotted dataclass state must be a tuple or list")
+            dataclass_fields = fields(self)
+            if len(state) != len(dataclass_fields):
+                raise ValueError("slotted dataclass state has the wrong length")
+            for field, value in zip(dataclass_fields, state):
+                object.__setattr__(self, field.name, value)
 
 
 _MODULE_DIR = Path(__file__).resolve().parent
@@ -235,7 +254,7 @@ def _exact_shift(value, context: str):
 
 
 @dataclass(**_DATACLASS_OPTIONS)
-class SourceToHallMapping:
+class SourceToHallMapping(_LegacySlottedValue):
     if not _NATIVE_DATACLASS_SLOTS:
         __slots__ = (
             "source_operation_index", "hall_operation_index", "shift_numerator"
@@ -251,7 +270,7 @@ class SourceToHallMapping:
 
 
 @dataclass(**_DATACLASS_OPTIONS)
-class HallToSourceMapping:
+class HallToSourceMapping(_LegacySlottedValue):
     if not _NATIVE_DATACLASS_SLOTS:
         __slots__ = (
             "hall_operation_index", "source_operation_index", "shift_numerator"
@@ -267,7 +286,7 @@ class HallToSourceMapping:
 
 
 @dataclass(**_DATACLASS_OPTIONS)
-class DataHallFrame:
+class DataHallFrame(_LegacySlottedValue):
     if not _NATIVE_DATACLASS_SLOTS:
         __slots__ = (
             "spacegroup", "source_symbol", "centering",
@@ -295,7 +314,7 @@ class DataHallFrame:
 
 
 @dataclass(**_DATACLASS_OPTIONS)
-class DataHallCensus:
+class DataHallCensus(_LegacySlottedValue):
     if not _NATIVE_DATACLASS_SLOTS:
         __slots__ = (
             "pir_records", "cir_records", "source_representatives",
@@ -333,7 +352,7 @@ class DataHallCensus:
 
 
 @dataclass(**_DATACLASS_OPTIONS)
-class DataHallProvenanceDatabase:
+class DataHallProvenanceDatabase(_LegacySlottedValue):
     if not _NATIVE_DATACLASS_SLOTS:
         __slots__ = ("frames", "census")
     frames: tuple
