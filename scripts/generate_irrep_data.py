@@ -13,6 +13,7 @@ position N in one array corresponds to position N in all others.
 
 import re, sys, os, zipfile, io, math, hashlib, struct
 from collections import defaultdict
+from fractions import Fraction
 from typing import NamedTuple
 
 SCRIPT_DIR = os.path.dirname(__file__)
@@ -318,6 +319,215 @@ _PIR_HEADER_RE = re.compile(
     r'^\s*([0-9]+)\s+([0-9]+)\s+"([^"]*)"\s+"([^"]*)"\s+'
     r'([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)\s*$'
 )
+
+
+class _ExactScalarOperation(NamedTuple):
+    """One normalized source Seitz operation with denominator twelve."""
+
+    rotation: tuple
+    translation_numerator: tuple
+
+
+class _ExactScalarArchiveRecord(NamedTuple):
+    """The first-record source operation table for one archive/SG."""
+
+    spacegroup: int
+    anchor_irnumber: int
+    operations: tuple
+
+
+class _ExactScalarSourceFrame(NamedTuple):
+    """The shared PIR/CIR scalar source universe for one space group."""
+
+    spacegroup: int
+    pir_anchor_irnumber: int
+    cir_anchor_irnumber: int
+    operations: tuple
+
+
+class _ExactScalarHallTarget(NamedTuple):
+    """Exact selected Hall operations in ``hall = source + shift/12`` form."""
+
+    spacegroup: int
+    data_hall: int
+    hall_to_source: tuple
+    shift_numerators: tuple
+    rotations: tuple
+    translation_numerators: tuple
+    translations_f64: tuple
+
+
+def _rotation_determinant(rotation):
+    """Return the determinant of a flat 3x3 integer rotation."""
+    a, b, c, d, e, f, g, h, i = rotation
+    return (a * (e * i - f * h)
+            - b * (d * i - f * g)
+            + c * (d * h - e * g))
+
+
+def _decode_exact_scalar_operation(op_nums, context):
+    """Decode one raw 16-integer PIR/CIR Seitz row exactly over /12.
+
+    The source files carry a row-major homogeneous matrix whose final token
+    is a positive rational denominator.  Rotation and translation are kept
+    separate so no binary64 value is involved in provenance construction.
+    """
+    try:
+        row_length = len(op_nums)
+    except (TypeError, AttributeError) as error:
+        raise ValueError(
+            f"{context} operation row must contain exactly 16 integers"
+        ) from error
+    if row_length != 16:
+        raise ValueError(
+            f"{context} operation row has {row_length} integers, expected 16"
+        )
+    if any(type(value) is not int for value in op_nums):
+        raise ValueError(f"{context} operation row contains a non-exact integer")
+
+    denominator = op_nums[15]
+    if denominator <= 0:
+        raise ValueError(f"{context} operation denominator must be positive")
+    if TRANSLATION_DENOMINATOR % denominator != 0:
+        raise ValueError(
+            f"{context} operation denominator {denominator} does not divide "
+            f"{TRANSLATION_DENOMINATOR}"
+        )
+    rotation_indices = (0, 1, 2, 4, 5, 6, 8, 9, 10)
+    if any(op_nums[index] % denominator for index in rotation_indices):
+        raise ValueError(
+            f"{context} rotation numerators are not divisible by denominator"
+        )
+    if any(op_nums[index] != 0 for index in (12, 13, 14)):
+        raise ValueError(f"{context} operation has an invalid homogeneous bottom row")
+
+    rotation = tuple(op_nums[index] // denominator for index in rotation_indices)
+    if any(component not in (-1, 0, 1) for component in rotation):
+        raise ValueError(f"{context} rotation has an invalid integer domain")
+    if _rotation_determinant(rotation) not in (-1, 1):
+        raise ValueError(f"{context} rotation determinant is not ±1")
+
+    scale = TRANSLATION_DENOMINATOR // denominator
+    translation = tuple(op_nums[index] * scale for index in (3, 7, 11))
+    return _ExactScalarOperation(rotation, translation)
+
+
+def _same_f64_bits(left, right):
+    """Compare two exact Python floats without invoking approximate equality."""
+    return (type(left) is float and type(right) is float
+            and struct.pack(">d", left) == struct.pack(">d", right))
+
+
+def _record_exact_scalar_archive_operations(
+        archive, source_operations, source_anchors, sg, irnumber, operations):
+    """Retain one exact operation table per SG and compare all later rows."""
+    operation_tuple = tuple(operations)
+    if not operation_tuple:
+        raise ValueError(f"{archive} SG{sg} has no scalar source operations")
+    if any(type(operation) is not _ExactScalarOperation
+           for operation in operation_tuple):
+        raise ValueError(f"{archive} SG{sg} has an invalid exact source operation")
+    rotations = tuple(operation.rotation for operation in operation_tuple)
+    if len(set(rotations)) != len(rotations):
+        raise ValueError(
+            f"{archive} SG{sg} source rotation table contains duplicates"
+        )
+    previous = source_operations.get(sg)
+    if previous is None:
+        source_operations[sg] = operation_tuple
+        source_anchors[sg] = irnumber
+    elif previous != operation_tuple:
+        raise ValueError(
+            f"{archive} SG{sg} source operation order/table differs from its "
+            "first record"
+        )
+
+
+def _freeze_exact_scalar_archive_records(
+        archive, source_operations, source_anchors, require_all=True):
+    """Freeze and census one archive's 230 source-universe snapshots."""
+    expected_sgs = set(range(1, 231))
+    if require_all and (
+            set(source_operations) != expected_sgs
+            or set(source_anchors) != expected_sgs):
+        missing = sorted(expected_sgs.difference(source_operations))
+        extra = sorted(set(source_operations).difference(expected_sgs))
+        raise ValueError(
+            f"{archive} source universe coverage mismatch: missing={missing}, "
+            f"extra={extra}"
+        )
+    sgs = range(1, 231) if require_all else sorted(source_operations)
+    records = tuple(
+        _ExactScalarArchiveRecord(sg, source_anchors[sg], source_operations[sg])
+        for sg in sgs
+    )
+    if require_all and len(records) != 230:
+        raise ValueError(f"{archive} source frame census mismatch: {len(records)}")
+    return records
+
+
+def _merge_exact_scalar_source_frames(
+        pir_records, cir_records, data_hall_database=None):
+    """Require PIR/CIR source universes to agree and optionally bind anchors."""
+    if type(pir_records) is not tuple or type(cir_records) is not tuple:
+        raise ValueError("PIR/CIR source snapshots must be exact tuples")
+    if len(pir_records) != 230 or len(cir_records) != 230:
+        raise ValueError(
+            f"PIR/CIR source frame census mismatch: {len(pir_records)}/"
+            f"{len(cir_records)}"
+        )
+    pir_by_sg = {}
+    cir_by_sg = {}
+    for archive, records, target in (
+            ("PIR", pir_records, pir_by_sg),
+            ("CIR", cir_records, cir_by_sg)):
+        for record in records:
+            if type(record) is not _ExactScalarArchiveRecord:
+                raise ValueError(f"{archive} source snapshot has invalid record")
+            if (type(record.spacegroup) is not int
+                    or not 1 <= record.spacegroup <= 230
+                    or record.spacegroup in target):
+                raise ValueError(f"{archive} source snapshot has invalid SG order")
+            target[record.spacegroup] = record
+    if set(pir_by_sg) != set(range(1, 231)) or set(cir_by_sg) != set(range(1, 231)):
+        raise ValueError("PIR/CIR source snapshots do not cover SG1..SG230")
+
+    frames = []
+    for sg in range(1, 231):
+        pir = pir_by_sg[sg]
+        cir = cir_by_sg[sg]
+        if pir.operations != cir.operations:
+            raise ValueError(f"PIR/CIR SG{sg} source operation order differs")
+        frames.append(_ExactScalarSourceFrame(
+            sg, pir.anchor_irnumber, cir.anchor_irnumber, pir.operations))
+    frames = tuple(frames)
+    source_operation_total = sum(len(frame.operations) for frame in frames)
+    if source_operation_total != 2609:
+        raise ValueError(
+            f"source operation census mismatch: expected 2609, "
+            f"got {source_operation_total}"
+        )
+
+    if data_hall_database is not None:
+        try:
+            authority_frames = data_hall_database.frames
+        except (AttributeError, TypeError) as error:
+            raise ValueError("data-Hall authority has no frames") from error
+        if type(authority_frames) is not tuple or len(authority_frames) != 230:
+            raise ValueError("data-Hall authority frame census mismatch")
+        for index, (frame, authority) in enumerate(zip(frames, authority_frames), 1):
+            if authority.spacegroup != index:
+                raise ValueError(f"data-Hall authority SG slot mismatch at SG{index}")
+            if (frame.pir_anchor_irnumber != authority.pir_anchor_irnumber
+                    or frame.cir_anchor_irnumber != authority.cir_anchor_irnumber):
+                raise ValueError(
+                    f"SG{index} source anchor disagrees with data-Hall sidecar"
+                )
+            if len(frame.operations) != authority.source_operation_count:
+                raise ValueError(
+                    f"SG{index} source operation count disagrees with data-Hall sidecar"
+                )
+    return frames
 
 def _read_pir_lines():
     """Read PIR_data.txt from the zip archive."""
@@ -651,6 +861,8 @@ def _parse_pir_characters():
     rots_map = {}     # (SG#, ML_label) -> [[r00..r22], ...] per operation
     trans_map = {}   # (SG#, ML_label) -> [[t0,t1,t2], ...] per operation
     kvector_map = {} # (SG#, ML_label) -> all augmented k-vector integers
+    scalar_source_operations = {}
+    scalar_source_anchors = {}
     irtranslation_rows = 0
     matrix_scalar_tokens = 0
     matrix_token_spellings = set()
@@ -688,11 +900,15 @@ def _parse_pir_characters():
         chars = []
         rots = []         # rotation matrices: list of [r00..r22], 9 ints per op
         trans = []        # translations: list of [t0,t1,t2], 3 f64 per op
+        exact_operations = []
         all_matrices = []  # flat: op0_row0, op0_row1, ..., op1_row0, ...
         for op_index in range(opcount):
             context = f"SG{sg} {label!r} operation {op_index}"
             op_nums, irtranslation, matrix_vals, spellings, i = (
                 _read_pir_operation_payload(lines, i, dim, special, context)
+            )
+            exact_operations.append(
+                _decode_exact_scalar_operation(op_nums, context)
             )
             if irtranslation is not None:
                 irtranslation_rows += 1
@@ -727,6 +943,10 @@ def _parse_pir_characters():
         rots_map[key] = rots
         trans_map[key] = trans
         dim_map[key] = dim
+        _record_exact_scalar_archive_operations(
+            "PIR", scalar_source_operations, scalar_source_anchors,
+            sg, irnumber, exact_operations
+        )
         record_count += 1
 
     census = {
@@ -746,7 +966,13 @@ def _parse_pir_characters():
             "PIR archive structural census mismatch: "
             f"observed={census!r}, expected={expected_census!r}"
         )
-    return chars_map, matrices_map, rots_map, dim_map, trans_map, kvector_map, census
+    scalar_source_records = _freeze_exact_scalar_archive_records(
+        "PIR", scalar_source_operations, scalar_source_anchors
+    )
+    return (
+        chars_map, matrices_map, rots_map, dim_map, trans_map, kvector_map,
+        scalar_source_records, census
+    )
 
 
 # ── CIR (Complex Irreducible Representations) parsing ────────────────────────
@@ -964,10 +1190,14 @@ def _parse_cir_lines(lines, needed_labels=None, validate_census=True):
     Returns:
         cir_chars: dict (sg, label) -> {'dim', 'opcount', 'chars': [(re,im,rounded_re)]}
         cir_matrices: dict (sg, label) -> flattened list of (real, imag) pairs
+        source_records: exact one-per-SG scalar operation snapshots
+        census: structural integer/token census
     """
     cir_chars = {}
     cir_matrices = {}  # (sg, label) -> [(re, im), ...] flattened
     cir_irnumber_map = {}  # (SG#, ML_label) -> stable ISO-IR CIR irnumber
+    scalar_source_operations = {}
+    scalar_source_anchors = {}
     irtype_counts = defaultdict(int)
     kcount_ratio_counts = defaultdict(int)
     kvector_int_count = 0
@@ -1042,12 +1272,16 @@ def _parse_cir_lines(lines, needed_labels=None, validate_census=True):
         little_chars = []  # trace of the first (stored-k) star-arm block
         rots = []         # rotation matrices: list of [r00,r01,r02,r10,r11,r12,r20,r21,r22]
         trans = []        # fractional translations: list of [t0,t1,t2]
+        exact_operations = []
         all_matrices = []  # flattened complex matrix elements for all ops
         store_matrices = (needed_labels is None) or ((sg, label) in needed_labels)
 
         for op_index in range(opcount):
             context = f"SG{sg} {label!r} operation {op_index}"
             op_nums, i = _parse_cir_operation_row(lines, i, context)
+            exact_operations.append(
+                _decode_exact_scalar_operation(op_nums, context)
+            )
             operation_row_count += 1
             denom = op_nums[15]
             rots.append([
@@ -1105,6 +1339,11 @@ def _parse_cir_lines(lines, needed_labels=None, validate_census=True):
                 f"characters={len(chars)}/{opcount}"
             )
 
+        _record_exact_scalar_archive_operations(
+            "CIR", scalar_source_operations, scalar_source_anchors,
+            sg, irnumber, exact_operations
+        )
+
         key = (sg, label)
         if key not in cir_chars:
             if irnumber in cir_irnumber_map.values():
@@ -1155,12 +1394,16 @@ def _parse_cir_lines(lines, needed_labels=None, validate_census=True):
     }
     if validate_census and census != expected:
         raise ValueError(f"CIR archive structural census mismatch: observed={census!r}, expected={expected!r}")
-    return cir_chars, cir_matrices, census
+    scalar_source_records = _freeze_exact_scalar_archive_records(
+        "CIR", scalar_source_operations, scalar_source_anchors,
+        require_all=validate_census
+    )
+    return cir_chars, cir_matrices, scalar_source_records, census
 
 
 def _parse_cir_characters(needed_labels=None):
     """Parse the pinned CIR archive through the strict structural cursor."""
-    return _parse_cir_lines(_read_cir_lines(), needed_labels=needed_labels)[:2]
+    return _parse_cir_lines(_read_cir_lines(), needed_labels=needed_labels)
 
 
 def _build_real_matrix(cir_matrices, sg, parts):
@@ -1577,7 +1820,8 @@ def parse_all():
 
     print("Parsing PIR_data.txt characters and matrices...")
     (chars_map, matrices_map, rots_map, pir_dim_map,
-     pir_trans_map, pir_kvector_map, pir_census) = _parse_pir_characters()
+     pir_trans_map, pir_kvector_map, pir_source_records,
+     pir_census) = _parse_pir_characters()
     print(f"  Parsed {len(chars_map)} character table entries")
     print(f"  Parsed {len(matrices_map)} matrix data entries")
     if {
@@ -1605,8 +1849,21 @@ def parse_all():
                     needed_cir.add((sg_numbers[i], p))
 
     print(f"Parsing CIR_data.txt (fallback for {len(needed_cir)} needed labels)...")
-    cir_data, cir_matrices = _parse_cir_characters(needed_labels=needed_cir)
+    (cir_data, cir_matrices, cir_source_records,
+     cir_census) = _parse_cir_characters(needed_labels=needed_cir)
     print(f"  Parsed {len(cir_data)} CIR character entries, {len(cir_matrices)} matrix entries")
+
+    data_hall_database = load_committed_data_hall_provenance()
+    scalar_source_frames = _merge_exact_scalar_source_frames(
+        pir_source_records, cir_source_records, data_hall_database
+    )
+    exact_scalar_hall_targets = _build_exact_scalar_hall_targets(
+        data_hall_database, scalar_source_frames
+    )
+    print(
+        f"  Exact scalar source universes: {len(scalar_source_frames)} SGs, "
+        f"{sum(len(frame.operations) for frame in scalar_source_frames)} source ops"
+    )
 
     print("Parsing spinor (double-valued) irrep data from irrepTables...")
     from parse_spinor_data import parse_all_spinor
@@ -1643,6 +1900,9 @@ def parse_all():
         "dir_map": dir_map,
         "kvec_map": kvec_map,
         "pir_kvector_map": pir_kvector_map,
+        "scalar_source_frames": scalar_source_frames,
+        "exact_scalar_hall_targets": exact_scalar_hall_targets,
+        "data_hall_database": data_hall_database,
         "pir_census": pir_census,
         "chars_map": chars_map,
         "matrices_map": matrices_map,
@@ -2176,7 +2436,238 @@ def _load_hall_operations():
     return _parse_hall_operations_payload(payload)
 
 
-def _prepare_sidecar_hall_choices(data_hall_database, sg_halls):
+def _build_exact_scalar_hall_targets(data_hall_database, scalar_source_frames):
+    """Build exact selected Hall Seitz operations from source plus H2S shifts.
+
+    The frozen mapping uses the explicit convention ``hall = source + q/12``.
+    No translation is reduced modulo one here; each target numerator must
+    already be in the selected Hall representative's canonical ``[0, 12)``
+    domain.
+    """
+    try:
+        authority_frames = data_hall_database.frames
+    except (AttributeError, TypeError) as error:
+        raise ValueError("data-Hall authority has no frames") from error
+    if (type(authority_frames) is not tuple
+            or type(scalar_source_frames) is not tuple
+            or len(authority_frames) != 230
+            or len(scalar_source_frames) != 230):
+        raise ValueError("exact scalar Hall target frame census must be 230")
+
+    targets = []
+    source_operation_total = 0
+    hall_operation_total = 0
+    for sg_num, (authority, source_frame) in enumerate(
+            zip(authority_frames, scalar_source_frames), 1):
+        context = f"SG{sg_num}"
+        if type(source_frame) is not _ExactScalarSourceFrame:
+            raise ValueError(f"{context} has an invalid exact source frame")
+        if source_frame.spacegroup != sg_num:
+            raise ValueError(f"{context} exact source frame slot mismatch")
+        try:
+            source_count = authority.source_operation_count
+            hall_count = authority.hall_operation_count
+            data_hall = authority.data_hall
+            source_to_hall = authority.source_to_hall
+            hall_to_source = authority.hall_to_source
+        except (AttributeError, TypeError) as error:
+            raise ValueError(f"{context} data-Hall frame is incomplete") from error
+        if (type(source_count) is not int or type(hall_count) is not int
+                or type(data_hall) is not int
+                or source_count <= 0 or hall_count <= 0
+                or not 1 <= data_hall <= 530):
+            raise ValueError(f"{context} data-Hall frame has invalid counts/number")
+        operations = source_frame.operations
+        if type(operations) is not tuple or len(operations) != source_count:
+            raise ValueError(
+                f"{context} exact source operation count mismatch: "
+                f"{len(operations) if hasattr(operations, '__len__') else 'invalid'} "
+                f"!= {source_count}"
+            )
+        for operation_index, operation in enumerate(operations):
+            if type(operation) is not _ExactScalarOperation:
+                raise ValueError(
+                    f"{context} exact source operation {operation_index} is invalid"
+                )
+            if (type(operation.rotation) is not tuple
+                    or len(operation.rotation) != 9
+                    or any(type(value) is not int for value in operation.rotation)
+                    or type(operation.translation_numerator) is not tuple
+                    or len(operation.translation_numerator) != 3
+                    or any(type(value) is not int
+                           for value in operation.translation_numerator)):
+                raise ValueError(
+                    f"{context} exact source operation {operation_index} is malformed"
+                )
+            if any(value not in (-1, 0, 1) for value in operation.rotation):
+                raise ValueError(
+                    f"{context} exact source operation {operation_index} has an "
+                    "invalid rotation domain"
+                )
+            if _rotation_determinant(operation.rotation) not in (-1, 1):
+                raise ValueError(
+                    f"{context} exact source operation {operation_index} has an "
+                    "invalid determinant"
+                )
+        if type(source_to_hall) is not tuple or len(source_to_hall) != source_count:
+            raise ValueError(f"{context} source-to-Hall mapping count mismatch")
+        if type(hall_to_source) is not tuple or len(hall_to_source) != hall_count:
+            raise ValueError(f"{context} Hall-to-source mapping count mismatch")
+
+        source_bindings = []
+        seen_halls = set()
+        for source_index, binding in enumerate(source_to_hall):
+            try:
+                binding_source = binding.source_operation_index
+                binding_hall = binding.hall_operation_index
+                shift = binding.shift_numerator
+            except (AttributeError, TypeError) as error:
+                raise ValueError(
+                    f"{context} source-to-Hall binding {source_index} is incomplete"
+                ) from error
+            if (type(binding_source) is not int
+                    or type(binding_hall) is not int
+                    or binding_source != source_index
+                    or not 0 <= binding_hall < hall_count
+                    or binding_hall in seen_halls
+                    or type(shift) is not tuple
+                    or len(shift) != 3
+                    or any(type(value) is not int for value in shift)):
+                raise ValueError(
+                    f"{context} source-to-Hall binding {source_index} is invalid"
+                )
+            if any(value % TRANSLATION_DENOMINATOR for value in shift):
+                raise ValueError(
+                    f"{context} source-to-Hall binding {source_index} has a "
+                    "non-integral lattice shift"
+                )
+            seen_halls.add(binding_hall)
+            source_bindings.append((binding_hall, shift))
+
+        hall_bindings = []
+        for hall_index, binding in enumerate(hall_to_source):
+            try:
+                binding_hall = binding.hall_operation_index
+                binding_source = binding.source_operation_index
+                shift = binding.shift_numerator
+            except (AttributeError, TypeError) as error:
+                raise ValueError(
+                    f"{context} Hall-to-source binding {hall_index} is incomplete"
+                ) from error
+            if (type(binding_hall) is not int
+                    or type(binding_source) is not int
+                    or binding_hall != hall_index
+                    or not 0 <= binding_source < source_count
+                    or type(shift) is not tuple
+                    or len(shift) != 3
+                    or any(type(value) is not int for value in shift)):
+                raise ValueError(
+                    f"{context} Hall-to-source binding {hall_index} is invalid"
+                )
+            source_hall, source_shift = source_bindings[binding_source]
+            if source_hall == hall_index and tuple(-value for value in source_shift) != shift:
+                raise ValueError(
+                    f"{context} source/Hall mapping shift is not inverse at "
+                    f"Hall[{hall_index}]"
+                )
+            hall_bindings.append((binding_source, shift))
+
+        for source_index, (hall_index, source_shift) in enumerate(source_bindings):
+            hall_source, hall_shift = hall_bindings[hall_index]
+            if (hall_source != source_index
+                    or hall_shift != tuple(-value for value in source_shift)):
+                raise ValueError(
+                    f"{context} source/Hall mapping is not inverse for "
+                    f"source[{source_index}]"
+                )
+
+        target_rotations = []
+        target_translation_numerators = []
+        target_translations_f64 = []
+        for hall_index, (source_index, shift) in enumerate(hall_bindings):
+            source_operation = operations[source_index]
+            target_rotation = source_operation.rotation
+            target_numerator = tuple(
+                source_operation.translation_numerator[axis] + shift[axis]
+                for axis in range(3)
+            )
+            if any(not 0 <= value < TRANSLATION_DENOMINATOR
+                   for value in target_numerator):
+                raise ValueError(
+                    f"{context} Hall[{hall_index}] target translation is outside "
+                    f"the canonical 0..{TRANSLATION_DENOMINATOR - 1} domain"
+                )
+            target_rotations.append(target_rotation)
+            target_translation_numerators.append(target_numerator)
+            target_translations_f64.append(tuple(
+                float(Fraction(value, TRANSLATION_DENOMINATOR))
+                for value in target_numerator
+            ))
+
+        targets.append(_ExactScalarHallTarget(
+            sg_num,
+            data_hall,
+            tuple(source_index for source_index, _shift in hall_bindings),
+            tuple(shift for _source_index, shift in hall_bindings),
+            tuple(target_rotations),
+            tuple(target_translation_numerators),
+            tuple(target_translations_f64),
+        ))
+        source_operation_total += source_count
+        hall_operation_total += hall_count
+
+    if source_operation_total != 2609 or hall_operation_total != 4425:
+        raise ValueError(
+            "exact scalar Hall target operation census mismatch: "
+            f"source={source_operation_total}, Hall={hall_operation_total}"
+        )
+    return tuple(targets)
+
+
+def _round_exact_translation_to_10_decimal(numerator):
+    """Round ``numerator / 12`` to ten decimals using exact half-even rules."""
+    if type(numerator) is not int or not 0 <= numerator < TRANSLATION_DENOMINATOR:
+        raise ValueError(
+            f"exact target numerator must be in 0..{TRANSLATION_DENOMINATOR - 1}"
+        )
+    scale = 10 ** 10
+    quotient, remainder = divmod(numerator * scale, TRANSLATION_DENOMINATOR)
+    doubled = 2 * remainder
+    if doubled > TRANSLATION_DENOMINATOR or (
+            doubled == TRANSLATION_DENOMINATOR and quotient % 2):
+        quotient += 1
+    integer_part, fractional_part = divmod(quotient, scale)
+    return float(f"{integer_part}.{fractional_part:010d}")
+
+
+def _validate_exact_legacy_hall_bridge(exact_target, hall_rots, hall_trans, context):
+    """Require legacy decimal Hall rows to be exact rounded views of a target."""
+    if type(exact_target) is not _ExactScalarHallTarget:
+        raise ValueError(f"{context} exact Hall target has an invalid type")
+    if (len(hall_rots) != len(exact_target.rotations)
+            or len(hall_trans) != len(exact_target.translation_numerators)):
+        raise ValueError(f"{context} legacy/exact Hall operation count mismatch")
+    for hall_index, (rotation, translation, expected_rotation, numerator) in enumerate(
+            zip(hall_rots, hall_trans, exact_target.rotations,
+                exact_target.translation_numerators)):
+        if tuple(rotation) != expected_rotation:
+            raise ValueError(
+                f"{context} Hall[{hall_index}] legacy/exact rotation mismatch"
+            )
+        expected_translation = tuple(
+            _round_exact_translation_to_10_decimal(value) for value in numerator
+        )
+        if (len(translation) != 3
+                or any(not _same_f64_bits(actual, expected)
+                       for actual, expected in zip(translation, expected_translation))):
+            raise ValueError(
+                f"{context} Hall[{hall_index}] legacy translation is not the "
+                "fixed ten-decimal exact bridge"
+            )
+
+
+def _prepare_sidecar_hall_choices(
+        data_hall_database, sg_halls, exact_scalar_hall_targets=None):
     """Bind every SG's sidecar Hall number to one legacy Hall entry."""
     try:
         frames = data_hall_database.frames
@@ -2210,6 +2701,14 @@ def _prepare_sidecar_hall_choices(data_hall_database, sg_halls):
                 f"SG{sg_num} Hall{hall_num} operation count mismatch: "
                 f"rots={len(hall_rots)}, trans={len(hall_trans)}, "
                 f"expected={frame.hall_operation_count}"
+            )
+        if exact_scalar_hall_targets is not None:
+            if (type(exact_scalar_hall_targets) is not tuple
+                    or len(exact_scalar_hall_targets) != 230):
+                raise ValueError("exact scalar Hall target census must be 230")
+            _validate_exact_legacy_hall_bridge(
+                exact_scalar_hall_targets[sg_num - 1], hall_rots, hall_trans,
+                f"SG{sg_num} Hall{hall_num}"
             )
         choices[sg_num] = (hall_num, None, hall_trans)
         choices.selected_hall_targets[sg_num] = (hall_rots, hall_trans)
@@ -2320,12 +2819,15 @@ def _reorder_spin_ops_to_hall(spin_op_rots, spin_op_trans, spin_op_su2,
 
 
 def _sidecar_source_hall_mapping(frame, sg_num, label, source_rots,
-                                 source_trans, hall_rots, hall_trans):
+                                 source_trans, hall_rots, hall_trans,
+                                 exact_source_frame=None, exact_target=None):
     """Validate one scalar source row against its sidecar Hall mapping.
 
     The sidecar supplies the operation permutation and exact lattice shift;
     the legacy Hall table remains the source of the historical decimal
-    translations used by the existing phase materialization code.
+    translations used by the existing phase materialization code.  When the
+    exact source frame and target are supplied, this also checks the source
+    binary64 bridge and exact mapping direction.
     """
     source_count = frame.source_operation_count
     hall_count = frame.hall_operation_count
@@ -2385,13 +2887,42 @@ def _sidecar_source_hall_mapping(frame, sg_num, label, source_rots,
             raise ValueError(
                 f"SG{sg_num} {label!r} sidecar shift mismatch at Hall[{hall_index}]"
             )
-        for axis in range(3):
-            expected = source_translation[axis] + (
-                shift[axis] / TRANSLATION_DENOMINATOR)
-            if abs(hall_translation[axis] - expected) >= 1e-8:
+        if exact_source_frame is not None:
+            if type(exact_source_frame) is not _ExactScalarSourceFrame:
                 raise ValueError(
-                    f"SG{sg_num} {label!r} translation mismatch at Hall[{hall_index}] "
-                    f"source[{source_index}] axis {axis}"
+                    f"SG{sg_num} {label!r} exact source frame is invalid"
+                )
+            try:
+                exact_operation = exact_source_frame.operations[source_index]
+            except (IndexError, TypeError) as error:
+                raise ValueError(
+                    f"SG{sg_num} {label!r} exact source operation is missing at "
+                    f"source[{source_index}]"
+                ) from error
+            if (type(exact_operation) is not _ExactScalarOperation
+                    or tuple(source_rotation) != exact_operation.rotation):
+                raise ValueError(
+                    f"SG{sg_num} {label!r} exact/source rotation mismatch at "
+                    f"source[{source_index}]"
+                )
+            expected_source = tuple(
+                float(Fraction(value, TRANSLATION_DENOMINATOR))
+                for value in exact_operation.translation_numerator
+            )
+            if any(not _same_f64_bits(actual, expected)
+                   for actual, expected in zip(source_translation, expected_source)):
+                raise ValueError(
+                    f"SG{sg_num} {label!r} source translation is not the exact "
+                    f"/12 binary64 bridge at source[{source_index}]"
+                )
+        if exact_target is not None:
+            if type(exact_target) is not _ExactScalarHallTarget:
+                raise ValueError(f"SG{sg_num} {label!r} exact Hall target is invalid")
+            if (exact_target.hall_to_source[hall_index] != source_index
+                    or exact_target.shift_numerators[hall_index] != tuple(shift)):
+                raise ValueError(
+                    f"SG{sg_num} {label!r} exact Hall mapping mismatch at "
+                    f"Hall[{hall_index}]"
                 )
         mapping.append(source_index)
     return mapping
@@ -2406,7 +2937,8 @@ def _reorder_to_spglib_order(
         spinor_irreps=None, spinor_starts=None, spinor_counts=None,
         cir_comp_flat=None, cir_comp_rots=None, cir_comp_trans=None,
         cir_comp_starts=None, cir_comp_counts=None, cir_comp_ops=None,
-        kvec_map=None, data_hall_database=None):
+        kvec_map=None, data_hall_database=None, scalar_source_frames=None,
+        exact_scalar_hall_targets=None):
     """Reorder per-irrep data from ISOTROPY order into spglib Hall order.
 
     Scalar Hall selection is supplied by the fixed data--Hall sidecar.  The
@@ -2419,12 +2951,16 @@ def _reorder_to_spglib_order(
     sg_halls = _load_hall_operations()
     if data_hall_database is None:
         data_hall_database = load_committed_data_hall_provenance()
+    n_scalar = len(ml)
+    if exact_scalar_hall_targets is None and scalar_source_frames is not None:
+        exact_scalar_hall_targets = _build_exact_scalar_hall_targets(
+            data_hall_database, scalar_source_frames
+        )
     sg_hall_choice = _prepare_sidecar_hall_choices(
-        data_hall_database, sg_halls)
+        data_hall_database, sg_halls, exact_scalar_hall_targets)
     if spinor_irreps is None:
         spinor_irreps = []
 
-    n_scalar = len(ml)
     reorder_results = []
     hall_targets = [None] * n_scalar  # per scalar irrep: (Hall rotations, translations)
     orig_char_counts = list(char_counts)  # Save ISOTROPY sizes before reorder
@@ -2449,6 +2985,12 @@ def _reorder_to_spglib_order(
         if not 1 <= sg_num <= 230:
             raise ValueError(f"scalar row {i} has invalid SG{sg_num}")
         frame = data_hall_database.frames[sg_num - 1]
+        if scalar_source_frames is None or exact_scalar_hall_targets is None:
+            raise ValueError(
+                "scalar source frames and exact Hall targets are required"
+            )
+        source_frame = scalar_source_frames[sg_num - 1]
+        exact_target = exact_scalar_hall_targets[sg_num - 1]
         if n_ops != frame.source_operation_count:
             raise ValueError(
                 f"scalar SG{sg_num} {ml[i]!r} has {n_ops} source operations; "
@@ -2477,7 +3019,8 @@ def _reorder_to_spglib_order(
             raise ValueError(f"SG{sg_num} has no selected legacy Hall target")
         hall_rots, hall_trans = hall_target
         mapping = _sidecar_source_hall_mapping(
-            frame, sg_num, ml[i], pir_rots, pir_trans, hall_rots, hall_trans)
+            frame, sg_num, ml[i], pir_rots, pir_trans, hall_rots, hall_trans,
+            source_frame, exact_target)
 
         if mapping:
             hall_targets[i] = hall_target
@@ -3734,7 +4277,10 @@ def generate_rust_data(data):
         cir_comp_trans=cir_comp_trans,
         cir_comp_starts=cir_comp_starts, cir_comp_counts=cir_comp_counts,
         cir_comp_ops=cir_comp_ops,
-        kvec_map=kvec_map)
+        kvec_map=kvec_map,
+        data_hall_database=data.get("data_hall_database"),
+        scalar_source_frames=data.get("scalar_source_frames"),
+        exact_scalar_hall_targets=data.get("exact_scalar_hall_targets"))
     # CIR component data is also reordered in-place.
     # CIR components are selected-arm complex characters in data-Hall order.
     # Runtime consumes this order directly; CIR rotations remain as an older-

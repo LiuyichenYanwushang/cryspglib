@@ -336,10 +336,20 @@ class DataHallSelectionTests(unittest.TestCase):
             hall_operation_count=frame.hall_operation_count,
             hall_to_source=tuple(bad_bindings),
         )
-        with self.assertRaisesRegex(ValueError, "translation mismatch"):
+        exact_target = generator._ExactScalarHallTarget(
+            5, 9,
+            tuple(binding.source_operation_index
+                  for binding in frame.hall_to_source),
+            tuple(tuple(binding.shift_numerator)
+                  for binding in frame.hall_to_source),
+            tuple(tuple(rotation) for rotation in hall_rots),
+            tuple((0, 0, 0) for _ in hall_rots),
+            tuple((0.0, 0.0, 0.0) for _ in hall_rots),
+        )
+        with self.assertRaisesRegex(ValueError, "exact Hall mapping mismatch"):
             generator._sidecar_source_hall_mapping(
                 bad_frame, 5, "GM1", source_rots, source_trans,
-                hall_rots, hall_trans)
+                hall_rots, hall_trans, exact_target=exact_target)
 
     def test_compound_padding_uses_sidecar_source_to_hall(self):
         _database, frame, hall_rots, hall_trans, sg_halls = (
@@ -447,6 +457,43 @@ class PirStructureTests(unittest.TestCase):
     @staticmethod
     def _operation_row():
         return "1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"
+
+    def test_exact_scalar_operation_decoder_normalizes_to_denominator12(self):
+        row = [2, 0, 0, 1, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2]
+        decoded = generator._decode_exact_scalar_operation(row, "PIR SG1 op0")
+        self.assertEqual(
+            decoded,
+            generator._ExactScalarOperation(
+                (1, 0, 0, 0, 1, 0, 0, 0, 1), (6, 0, 0)
+            ),
+        )
+
+    def test_exact_scalar_operation_decoder_rejects_bad_rows(self):
+        valid = [int(token) for token in self._operation_row().split()]
+        cases = []
+        cases.append((valid[:-1], "15 integers, expected 16"))
+        nonexact = list(valid)
+        nonexact[0] = True
+        cases.append((nonexact, "non-exact integer"))
+        bad_denominator = list(valid)
+        bad_denominator[15] = 5
+        cases.append((bad_denominator, "does not divide"))
+        bad_rotation_division = list(valid)
+        bad_rotation_division[0] = 1
+        bad_rotation_division[15] = 2
+        cases.append((bad_rotation_division, "not divisible"))
+        bad_bottom = list(valid)
+        bad_bottom[12] = 1
+        cases.append((bad_bottom, "homogeneous bottom"))
+        bad_determinant = list(valid)
+        bad_determinant[10] = 0
+        cases.append((bad_determinant, "determinant"))
+        bad_domain = list(valid)
+        bad_domain[0] = 2
+        cases.append((bad_domain, "integer domain"))
+        for row, message in cases:
+            with self.assertRaisesRegex(ValueError, message):
+                generator._decode_exact_scalar_operation(row, "synthetic op")
 
     @staticmethod
     def _kvector(nonzero=False):
@@ -600,7 +647,10 @@ class PirStructureTests(unittest.TestCase):
 
     def test_archive_structural_census(self):
         parsed = generator._parse_pir_characters()
+        source_records = parsed[-2]
         census = parsed[-1]
+        self.assertEqual(len(source_records), 230)
+        self.assertEqual(sum(len(record.operations) for record in source_records), 2609)
         self.assertEqual(census["records"], 10294)
         self.assertEqual(census["irtranslation_rows"], 64588)
         self.assertEqual(census["matrix_scalar_tokens"], 8977752)
@@ -748,18 +798,18 @@ class CirStructureTests(unittest.TestCase):
         values = negative_kvector[4].split()
         values[0] = "-1"
         negative_kvector[4] = " ".join(values)
-        _chars, _matrices, _census = generator._parse_cir_lines(
+        _chars, _matrices, _source_records, _census = generator._parse_cir_lines(
             negative_kvector, validate_census=False
         )
 
     def test_cir_mini_records_are_structurally_consumed(self):
-        chars, matrices, census = generator._parse_cir_lines(
+        chars, matrices, _source_records, census = generator._parse_cir_lines(
             self._mini_record(special=True), validate_census=False
         )
         self.assertEqual(chars[(1, "GM1")]["chars"], [(1.0, 0.0, 1.0)])
         self.assertEqual(matrices[(1, "GM1")], [(1.0, 0.0)])
         self.assertEqual(census["cursor_eof"], 7)
-        chars, _matrices, census = generator._parse_cir_lines(
+        chars, _matrices, _source_records, census = generator._parse_cir_lines(
             self._mini_record(special=False), validate_census=False
         )
         self.assertEqual(chars[(1, "GM1")]["chars"][0][0], 1.0)
@@ -826,7 +876,7 @@ class CirStructureTests(unittest.TestCase):
             matrix="(1,0) (0,0) (0,0) (1,0)",
         )
         lines = self._mini_record(label="GM1")[3:] + dim_two[3:]
-        chars, matrices, census = generator._parse_cir_lines(
+        chars, matrices, _source_records, census = generator._parse_cir_lines(
             ["title 1", "title 2", "title 3"] + lines,
             needed_labels={(1, "GM2")},
             validate_census=False,
@@ -869,7 +919,10 @@ class CirStructureTests(unittest.TestCase):
                 generator._parse_cir_lines(lines, validate_census=False)
 
     def test_cir_archive_structural_census(self):
-        _chars, _matrices, census = generator._parse_cir_lines(generator._read_cir_lines())
+        _chars, _matrices, source_records, census = generator._parse_cir_lines(
+            generator._read_cir_lines())
+        self.assertEqual(len(source_records), 230)
+        self.assertEqual(sum(len(record.operations) for record in source_records), 2609)
         self.assertEqual(census, {
             "records": 11202,
             "kvector_ints": 555920,
@@ -881,6 +934,95 @@ class CirStructureTests(unittest.TestCase):
             "irtype_counts": {1: 7796, 2: 155, 3: 3251},
             "kcount_ratio_counts": {1: 6252, 2: 4950},
         })
+
+
+class ExactScalarProvenanceTests(unittest.TestCase):
+    @staticmethod
+    def _operation(rotation, translation=(0, 0, 0)):
+        return generator._ExactScalarOperation(tuple(rotation), tuple(translation))
+
+    @classmethod
+    def _two_operations(cls):
+        identity = cls._operation((1, 0, 0, 0, 1, 0, 0, 0, 1))
+        inversion = cls._operation((-1, 0, 0, 0, 1, 0, 0, 0, -1))
+        return identity, inversion
+
+    def test_archive_snapshot_rejects_order_subset_and_duplicate_tables(self):
+        identity, inversion = self._two_operations()
+        for archive in ("PIR", "CIR"):
+            source_operations = {}
+            source_anchors = {}
+            generator._record_exact_scalar_archive_operations(
+                archive, source_operations, source_anchors, 1, 7,
+                (identity, inversion))
+            for operations in ((inversion, identity), (identity,)):
+                with self.assertRaisesRegex(ValueError, "order/table differs"):
+                    generator._record_exact_scalar_archive_operations(
+                        archive, source_operations, source_anchors, 1, 8, operations)
+            with self.assertRaisesRegex(ValueError, "duplicates"):
+                generator._record_exact_scalar_archive_operations(
+                    archive, {}, {}, 1, 8, (identity, identity))
+
+    def test_pir_cir_snapshot_mismatch_is_rejected(self):
+        identity, inversion = self._two_operations()
+        pir = tuple(
+            generator._ExactScalarArchiveRecord(sg, sg, (identity,))
+            for sg in range(1, 231))
+        cir_records = list(pir)
+        cir_records[4] = generator._ExactScalarArchiveRecord(5, 5, (inversion,))
+        with self.assertRaisesRegex(ValueError, "PIR/CIR SG5 source operation order"):
+            generator._merge_exact_scalar_source_frames(pir, tuple(cir_records))
+
+    def test_exact_target_bridge_is_bitwise_and_has_no_modulo(self):
+        identity = (1, 0, 0, 0, 1, 0, 0, 0, 1)
+        target = generator._ExactScalarHallTarget(
+            1, 1, (0,), ((0, 0, 0),), (identity,), ((4, 0, 0),),
+            ((float(1) / 3.0, 0.0, 0.0),))
+        rounded = generator._round_exact_translation_to_10_decimal(4)
+        self.assertTrue(generator._same_f64_bits(rounded, float("0.3333333333")))
+        generator._validate_exact_legacy_hall_bridge(
+            target, [identity], [[rounded, 0.0, 0.0]], "synthetic")
+        with self.assertRaisesRegex(ValueError, "fixed ten-decimal"):
+            generator._validate_exact_legacy_hall_bridge(
+                target, [identity], [[0.3333333334, 0.0, 0.0]], "synthetic")
+        with self.assertRaisesRegex(ValueError, "0..11"):
+            generator._round_exact_translation_to_10_decimal(12)
+        with self.assertRaisesRegex(ValueError, "0..11"):
+            generator._round_exact_translation_to_10_decimal(-1)
+
+    def test_sg5_exact_mapping_direction_and_source_float_bridge(self):
+        database = generator.load_committed_data_hall_provenance()
+        frame = database.frames[4]
+        hall_rots, hall_trans = next(
+            (entry[1], entry[2]) for entry in generator._load_hall_operations()[5]
+            if entry[0] == 9)
+        identity, inversion = self._two_operations()
+        source_frame = generator._ExactScalarSourceFrame(
+            5, frame.pir_anchor_irnumber, frame.cir_anchor_irnumber,
+            (identity, inversion))
+        h2s = frame.hall_to_source
+        exact_target = generator._ExactScalarHallTarget(
+            5, 9,
+            tuple(binding.source_operation_index for binding in h2s),
+            tuple(tuple(binding.shift_numerator) for binding in h2s),
+            tuple(tuple(rotation) for rotation in hall_rots),
+            tuple(tuple(binding.shift_numerator) for binding in h2s),
+            tuple(tuple(float(value) / 12.0 for value in binding.shift_numerator)
+                  for binding in h2s),
+        )
+        self.assertEqual(exact_target.hall_to_source[:4], (0, 1, 0, 1))
+        self.assertEqual(exact_target.shift_numerators[2], (6, 6, 0))
+        source_rots = [hall_rots[0], hall_rots[1]]
+        source_trans = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+        mapping = generator._sidecar_source_hall_mapping(
+            frame, 5, "GM1", source_rots, source_trans,
+            hall_rots, hall_trans, source_frame, exact_target)
+        self.assertEqual(mapping, [0, 1, 0, 1])
+        bad_source_trans = [[0.0, 0.0, 0.0], [1e-12, 0.0, 0.0]]
+        with self.assertRaisesRegex(ValueError, "exact /12 binary64 bridge"):
+            generator._sidecar_source_hall_mapping(
+                frame, 5, "GM1", source_rots, bad_source_trans,
+                hall_rots, hall_trans, source_frame, exact_target)
 
 
 if __name__ == "__main__":
