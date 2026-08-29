@@ -495,6 +495,8 @@ def _compare_wire_operation(wire, expected, magnetic: bool, label: str) -> None:
 def _parse_sdec_relations(payloads) -> None:
     sgrw = _parse_i32_rows(payloads["SGRW"], SPG_OPERATION_COUNT, 1, "SGRW")
     raw_codes = tuple(row[0] for row in sgrw)
+    if raw_codes[0] != 0:
+        raise FrameError("SGRW sentinel mismatch")
     offset = 0
     for index in range(1, SPG_OPERATION_COUNT):
         raw_index = _unpack_from(payloads["SDEC"], "<I", offset, f"SDEC[{index}].index")[0]

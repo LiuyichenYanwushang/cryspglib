@@ -308,6 +308,12 @@ class RuntimeParityTests(unittest.TestCase):
         struct.pack_into("<i", bad_encoding_link, sdec_payload + 4, replacement)
         self._assert_frame_rejected(bytes(bad_encoding_link))
 
+    def test_parser_rejects_nonzero_sgrw_sentinel(self):
+        layout = self._section_layout(self.expected)
+        bad_sentinel = bytearray(self.expected)
+        struct.pack_into("<i", bad_sentinel, layout[2][2], 1)
+        self._assert_frame_rejected(bytes(bad_sentinel))
+
     def test_parser_rejects_span_and_derived_header_mutations(self):
         layout = self._section_layout(self.expected)
 
