@@ -4,12 +4,22 @@ import os
 import sys
 import struct
 import tempfile
+import hashlib
+from pathlib import Path
+from types import SimpleNamespace
 import unittest
 import zipfile
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(__file__))
 import generate_irrep_data as generator
 import parse_spinor_data
+
+
+_EXPECTED_HALL_OPERATIONS_BYTE_LENGTH = 481408
+_EXPECTED_HALL_OPERATIONS_SHA256 = (
+    "ebd1cf36668fb8c0efd633b2d7728c51ca1b404a3cc02ed871ece47b46a0d1c8"
+)
 
 
 class PinnedArchiveBoundaryTests(unittest.TestCase):
@@ -130,6 +140,22 @@ class PinnedArchiveBoundaryTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "ambiguous archive member"):
                 generator._open_zip_path("iso.zip", "data.txt")
 
+    def test_legacy_hall_table_has_independent_pinned_commitment(self):
+        path = os.path.join(generator.SCRIPT_DIR, "hall_operations.json")
+        with open(path, "rb") as stream:
+            payload = stream.read()
+        self.assertEqual(len(payload), _EXPECTED_HALL_OPERATIONS_BYTE_LENGTH)
+        self.assertEqual(
+            hashlib.sha256(payload).hexdigest(), _EXPECTED_HALL_OPERATIONS_SHA256
+        )
+        self.assertEqual(
+            generator.HALL_OPERATIONS_BYTE_LENGTH,
+            _EXPECTED_HALL_OPERATIONS_BYTE_LENGTH,
+        )
+        self.assertEqual(
+            generator.HALL_OPERATIONS_SHA256, _EXPECTED_HALL_OPERATIONS_SHA256
+        )
+
     def test_pir_parallel_offsets_are_strictly_linked(self):
         args = dict(
             sg=[4],
@@ -154,6 +180,112 @@ class PinnedArchiveBoundaryTests(unittest.TestCase):
             malformed[field] = value
             with self.assertRaisesRegex(ValueError, "offset"):
                 generator._validate_pir_storage_alignment(**malformed)
+
+
+class DataHallSelectionTests(unittest.TestCase):
+    @staticmethod
+    def _sg5_source_and_target():
+        database = generator.load_committed_data_hall_provenance()
+        frame = database.frames[4]
+        sg_halls = generator._load_hall_operations()
+        selected = [entry for entry in sg_halls[5] if entry[0] == 9]
+        if len(selected) != 1:
+            raise AssertionError("synthetic SG5 witness needs unique Hall9")
+        _hall_number, hall_rots, hall_trans = selected[0]
+        return database, frame, hall_rots, hall_trans, sg_halls
+
+    def test_sidecar_sg5_mapping_ignores_other_raw_candidates(self):
+        _database, frame, hall_rots, hall_trans, sg_halls = (
+            self._sg5_source_and_target())
+        source_rots = hall_rots[:2]
+        source_trans = hall_trans[:2]
+        self.assertEqual(
+            generator._sidecar_source_hall_mapping(
+                frame, 5, "GM1", source_rots, source_trans,
+                hall_rots, hall_trans),
+            [0, 1, 0, 1],
+        )
+
+        permuted = {spacegroup: list(entries)
+                    for spacegroup, entries in sg_halls.items()}
+        permuted[5].reverse()
+        choices = generator._prepare_sidecar_hall_choices(
+            generator.load_committed_data_hall_provenance(), permuted)
+        self.assertEqual(choices[5][0], 9)
+        self.assertEqual(len(choices[5][2]), frame.hall_operation_count)
+        self.assertIn(10, [entry[0] for entry in permuted[5]])
+
+    def test_selected_hall_missing_or_duplicated_fails_closed(self):
+        database, frame, _hall_rots, _hall_trans, sg_halls = (
+            self._sg5_source_and_target())
+        missing_frames = list(database.frames)
+        missing_frames[4] = SimpleNamespace(
+            spacegroup=5, data_hall=999, hall_operation_count=frame.hall_operation_count)
+        missing_database = SimpleNamespace(frames=tuple(missing_frames))
+        with self.assertRaisesRegex(ValueError, "legacy table matches"):
+            generator._prepare_sidecar_hall_choices(missing_database, sg_halls)
+
+        duplicated = {spacegroup: list(entries)
+                      for spacegroup, entries in sg_halls.items()}
+        selected = next(entry for entry in duplicated[5] if entry[0] == 9)
+        duplicated[5].append(selected)
+        with self.assertRaisesRegex(ValueError, "legacy table matches"):
+            generator._prepare_sidecar_hall_choices(database, duplicated)
+
+    def test_selected_rotation_and_sidecar_shift_mismatch_fail_closed(self):
+        _database, frame, hall_rots, hall_trans, _sg_halls = (
+            self._sg5_source_and_target())
+        source_rots = hall_rots[:2]
+        source_trans = hall_trans[:2]
+        bad_rots = [list(rotation) for rotation in hall_rots]
+        bad_rots[0][0] = 0
+        with self.assertRaisesRegex(ValueError, "rotation mismatch"):
+            generator._sidecar_source_hall_mapping(
+                frame, 5, "GM1", source_rots, source_trans,
+                bad_rots, hall_trans)
+
+        bad_bindings = list(frame.hall_to_source)
+        bad_bindings[0] = SimpleNamespace(
+            hall_operation_index=0, source_operation_index=0,
+            shift_numerator=(12, 0, 0))
+        bad_frame = SimpleNamespace(
+            source_operation_count=frame.source_operation_count,
+            hall_operation_count=frame.hall_operation_count,
+            hall_to_source=tuple(bad_bindings),
+        )
+        with self.assertRaisesRegex(ValueError, "translation mismatch"):
+            generator._sidecar_source_hall_mapping(
+                bad_frame, 5, "GM1", source_rots, source_trans,
+                hall_rots, hall_trans)
+
+    def test_compound_padding_uses_sidecar_source_to_hall(self):
+        _database, frame, hall_rots, hall_trans, sg_halls = (
+            self._sg5_source_and_target())
+        choices = generator._prepare_sidecar_hall_choices(
+            generator.load_committed_data_hall_provenance(), sg_halls)
+        source_rots = hall_rots[:2]
+        cir_rots = [value for rotation in source_rots for value in rotation]
+        with mock.patch.object(
+                generator, "_load_hall_operations",
+                side_effect=AssertionError("padding must not search Hall candidates")):
+            plans = generator._build_padding_plans(
+                [5], ["compound"], [0], [1], [2], cir_rots, [None],
+                sg_hall_choice=choices)
+        self.assertEqual(plans, [(0, frame.hall_operation_count, [0, 1])])
+
+    def test_scalar_selection_has_no_legacy_candidate_score(self):
+        source = Path(generator.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("best_exact_count", source)
+        self.assertNotIn("rot_cache", source)
+
+    def test_decimal_phase_regression_does_not_use_exact_sidecar_shift(self):
+        phased = generator._phase_character(
+            1.0 + 0.0j,
+            [0.3333333333, 0.0, 0.0],
+            [1.0 / 3.0, 0.0, 0.0],
+            (1, 0, 0, 2),
+        )
+        self.assertEqual(phased.imag, -1.0471976378421116e-10)
 
 
 class Radical4CodebookTests(unittest.TestCase):

@@ -53,6 +53,18 @@ def _verify_pinned_archives():
 sys.path.insert(0, os.path.dirname(__file__))
 from direction_map import build_direction_map
 
+# The frozen ISO--IR data--Hall sidecar is the sole scalar Hall-setting
+# authority.  Keep this import usable both when this file is run directly and
+# when the scripts directory is imported as a package.
+try:
+    from .iso_irrep_data_hall import (
+        TRANSLATION_DENOMINATOR, load_committed_data_hall_provenance,
+    )
+except ImportError:
+    from iso_irrep_data_hall import (
+        TRANSLATION_DENOMINATOR, load_committed_data_hall_provenance,
+    )
+
 # ── zip-based file reading ──────────────────────────────────────────────────
 
 def _open_zip_path(zip_name, inner_path):
@@ -1972,31 +1984,126 @@ def _lookup_matrices(matrices_map, sg_num, ml_label, kvec_map=None):
     return []  # not found
 
 
+HALL_OPERATIONS_BYTE_LENGTH = 481408
+HALL_OPERATIONS_SHA256 = (
+    "ebd1cf36668fb8c0efd633b2d7728c51ca1b404a3cc02ed871ece47b46a0d1c8"
+)
+
+
+class _SidecarHallChoices(dict):
+    """Internal dict carrying the one sidecar frame snapshot to Phase C."""
+
+    __slots__ = ("data_hall_frames", "selected_hall_targets")
+
+    def __init__(self, data_hall_frames):
+        super().__init__()
+        self.data_hall_frames = data_hall_frames
+        self.selected_hall_targets = {}
+
+
 def _load_hall_operations():
-    """Load spglib Hall symmetry operations exported by the Rust test."""
+    """Load the pinned legacy Hall table used for output materialization.
+
+    This table supplies historical ten-decimal translations and operation
+    order after the frozen sidecar has selected a Hall number.  Its digest is
+    an input-integrity gate, not a Hall-setting search or tie-break.
+    """
     import json
     hall_path = os.path.join(SCRIPT_DIR, "hall_operations.json")
-    if not os.path.exists(hall_path):
-        print("  Note: hall_operations.json not found — skipping spglib reorder")
-        return {}
-    with open(hall_path) as f:
-        raw = json.load(f)
+    try:
+        with open(hall_path, "rb") as source:
+            payload = source.read()
+    except OSError as error:
+        raise ValueError(
+            f"required hall_operations.json is unreadable: {hall_path}"
+        ) from error
+    if len(payload) != HALL_OPERATIONS_BYTE_LENGTH:
+        raise ValueError(
+            "hall_operations.json byte-length mismatch: "
+            f"expected {HALL_OPERATIONS_BYTE_LENGTH}, got {len(payload)}"
+        )
+    digest = hashlib.sha256(payload).hexdigest()
+    if digest != HALL_OPERATIONS_SHA256:
+        raise ValueError(
+            "hall_operations.json SHA-256 mismatch: "
+            f"expected {HALL_OPERATIONS_SHA256}, got {digest}"
+        )
+    try:
+        raw = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ValueError("hall_operations.json is not valid UTF-8 JSON") from error
+    if not isinstance(raw, dict):
+        raise ValueError("hall_operations.json root must be an object")
     # raw: {"517": {"sg": 221, "rots": [[...], ...], "trans": [[...], ...]}, ...}
     # Build sg → [(hall_number, rots_list, trans_list)] index
     sg_halls = defaultdict(list)
     for hall_str, hd in raw.items():
-        sg_halls[hd["sg"]].append((int(hall_str), hd["rots"], hd.get("trans", [])))
+        try:
+            hall_num = int(hall_str)
+            sg_num = hd["sg"]
+            hall_rots = hd["rots"]
+            hall_trans = hd.get("trans", [])
+        except (KeyError, TypeError, ValueError, AttributeError) as error:
+            raise ValueError(
+                f"malformed hall_operations.json entry {hall_str!r}"
+            ) from error
+        sg_halls[sg_num].append((hall_num, hall_rots, hall_trans))
     return sg_halls
+
+
+def _prepare_sidecar_hall_choices(data_hall_database, sg_halls):
+    """Bind every SG's sidecar Hall number to one legacy Hall entry."""
+    try:
+        frames = data_hall_database.frames
+    except (AttributeError, TypeError) as error:
+        raise ValueError("data-Hall authority has no frames") from error
+    if len(frames) != 230:
+        raise ValueError(
+            f"data-Hall authority has {len(frames)} frames, expected 230"
+        )
+    choices = _SidecarHallChoices(frames)
+    for sg_num in range(1, 231):
+        frame = frames[sg_num - 1]
+        if frame.spacegroup != sg_num:
+            raise ValueError(
+                f"data-Hall frame index mismatch: slot {sg_num}, "
+                f"frame SG{frame.spacegroup}"
+            )
+        matches = [
+            entry for entry in sg_halls.get(sg_num, [])
+            if entry[0] == frame.data_hall
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                f"SG{sg_num} selected Hall {frame.data_hall} has "
+                f"{len(matches)} legacy table matches"
+            )
+        hall_num, hall_rots, hall_trans = matches[0]
+        if (len(hall_rots) != frame.hall_operation_count
+                or len(hall_trans) != frame.hall_operation_count):
+            raise ValueError(
+                f"SG{sg_num} Hall{hall_num} operation count mismatch: "
+                f"rots={len(hall_rots)}, trans={len(hall_trans)}, "
+                f"expected={frame.hall_operation_count}"
+            )
+        choices[sg_num] = (hall_num, None, hall_trans)
+        choices.selected_hall_targets[sg_num] = (hall_rots, hall_trans)
+    return choices
 
 
 def _reorder_spin_ops_to_hall(spin_op_rots, spin_op_trans, spin_op_su2,
                                 spin_op_sg_start, spin_op_sg_count,
                                 spin_lg_op_indices_flat, spin_lg_op_starts,
                                 spin_lg_op_counts, sg_hall_choice):
-    """Reorder SPIN_OP data per SG from Bilbao order to spglib Hall order."""
+    """Reorder SPIN_OP data using legacy Hall rotations only.
+
+    The ISO source sidecar does not describe spin-source ordering.  It supplies
+    only the already selected Hall number through ``sg_hall_choice``; spin
+    source rotations retain this legacy rotation-only matching path.
+    """
     sg_halls = _load_hall_operations()
     if not sg_halls:
-        return
+        raise ValueError("hall_operations.json contains no Hall operations")
 
     reordered_sgs = 0
     total_spin_ops = len(spin_op_rots) // 9
@@ -2018,18 +2125,7 @@ def _reorder_spin_ops_to_hall(spin_op_rots, spin_op_trans, spin_op_su2,
         # Get canonical Hall for this SG
         hall_info = sg_hall_choice.get(sg_num)
         if hall_info is None:
-            # No canonical Hall — keep original order
-            new_pos = len(new_rots) // 9
-            new_sg_start[sg_num] = new_pos
-            new_sg_count[sg_num] = count
-            mapping = {i: i for i in range(count)}
-            for i in range(count):
-                o = old_start + i
-                new_rots.extend(spin_op_rots[o*9:(o+1)*9])
-                new_trans.extend(spin_op_trans[o*3:(o+1)*3])
-                new_su2.extend(spin_op_su2[o*4:(o+1)*4])
-            sg_bilbao_to_new[sg_num] = mapping
-            continue
+            raise ValueError(f"spin SG{sg_num} has no sidecar-selected Hall")
 
         hall_num = hall_info[0]
         hall_rots = None
@@ -2039,18 +2135,9 @@ def _reorder_spin_ops_to_hall(spin_op_rots, spin_op_trans, spin_op_su2,
                 break
 
         if hall_rots is None:
-            # Fallback: keep original order
-            new_pos = len(new_rots) // 9
-            new_sg_start[sg_num] = new_pos
-            new_sg_count[sg_num] = count
-            mapping = {i: new_pos + i for i in range(count)}
-            for i in range(count):
-                o = old_start + i
-                new_rots.extend(spin_op_rots[o*9:(o+1)*9])
-                new_trans.extend(spin_op_trans[o*3:(o+1)*3])
-                new_su2.extend(spin_op_su2[o*4:(o+1)*4])
-            sg_bilbao_to_new[sg_num] = mapping
-            continue
+            raise ValueError(
+                f"spin SG{sg_num} selected Hall{hall_num} is missing"
+            )
 
         # Build Bilbao→Hall position mapping
         n_hall = len(hall_rots)
@@ -2107,6 +2194,84 @@ def _reorder_spin_ops_to_hall(spin_op_rots, spin_op_trans, spin_op_su2,
     return sg_bilbao_to_new
 
 
+def _sidecar_source_hall_mapping(frame, sg_num, label, source_rots,
+                                 source_trans, hall_rots, hall_trans):
+    """Validate one scalar source row against its sidecar Hall mapping.
+
+    The sidecar supplies the operation permutation and exact lattice shift;
+    the legacy Hall table remains the source of the historical decimal
+    translations used by the existing phase materialization code.
+    """
+    source_count = frame.source_operation_count
+    hall_count = frame.hall_operation_count
+    if len(source_rots) != source_count or len(source_trans) != source_count:
+        raise ValueError(
+            f"SG{sg_num} {label!r} source operation data has incomplete "
+            f"rotation/translation rows: rots={len(source_rots)}, "
+            f"trans={len(source_trans)}, expected={source_count}"
+        )
+    if len(hall_rots) != hall_count or len(hall_trans) != hall_count:
+        raise ValueError(
+            f"SG{sg_num} {label!r} selected Hall operation count mismatch: "
+            f"rots={len(hall_rots)}, trans={len(hall_trans)}, expected={hall_count}"
+        )
+    hall_to_source = frame.hall_to_source
+    if len(hall_to_source) != hall_count:
+        raise ValueError(
+            f"SG{sg_num} {label!r} sidecar Hall mapping length mismatch: "
+            f"got {len(hall_to_source)}, expected {hall_count}"
+        )
+    mapping = []
+    for hall_index, binding in enumerate(hall_to_source):
+        if binding.hall_operation_index != hall_index:
+            raise ValueError(
+                f"SG{sg_num} {label!r} sidecar Hall index mismatch at "
+                f"slot {hall_index}: {binding.hall_operation_index}"
+            )
+        source_index = binding.source_operation_index
+        if not 0 <= source_index < source_count:
+            raise ValueError(
+                f"SG{sg_num} {label!r} sidecar source index {source_index} "
+                f"out of range at Hall[{hall_index}]"
+            )
+        try:
+            source_rotation = source_rots[source_index]
+            hall_rotation = hall_rots[hall_index]
+            source_translation = source_trans[source_index]
+            hall_translation = hall_trans[hall_index]
+        except (IndexError, TypeError) as error:
+            raise ValueError(
+                f"SG{sg_num} {label!r} incomplete operation data at "
+                f"Hall[{hall_index}]/source[{source_index}]"
+            ) from error
+        if (len(source_rotation) != 9 or len(hall_rotation) != 9
+                or tuple(hall_rotation) != tuple(source_rotation)):
+            raise ValueError(
+                f"SG{sg_num} {label!r} rotation mismatch at Hall[{hall_index}] "
+                f"source[{source_index}]"
+            )
+        if len(source_translation) != 3 or len(hall_translation) != 3:
+            raise ValueError(
+                f"SG{sg_num} {label!r} translation row mismatch at "
+                f"Hall[{hall_index}] source[{source_index}]"
+            )
+        shift = binding.shift_numerator
+        if len(shift) != 3:
+            raise ValueError(
+                f"SG{sg_num} {label!r} sidecar shift mismatch at Hall[{hall_index}]"
+            )
+        for axis in range(3):
+            expected = source_translation[axis] + (
+                shift[axis] / TRANSLATION_DENOMINATOR)
+            if abs(hall_translation[axis] - expected) >= 1e-8:
+                raise ValueError(
+                    f"SG{sg_num} {label!r} translation mismatch at Hall[{hall_index}] "
+                    f"source[{source_index}] axis {axis}"
+                )
+        mapping.append(source_index)
+    return mapping
+
+
 def _reorder_to_spglib_order(
         sg, ml, chars_flat, char_starts, char_counts,
         matrices_flat, mat_starts, mat_counts,
@@ -2116,23 +2281,27 @@ def _reorder_to_spglib_order(
         spinor_irreps=None, spinor_starts=None, spinor_counts=None,
         cir_comp_flat=None, cir_comp_rots=None, cir_comp_trans=None,
         cir_comp_starts=None, cir_comp_counts=None, cir_comp_ops=None,
-        kvec_map=None):
+        kvec_map=None, data_hall_database=None):
     """Reorder per-irrep data from ISOTROPY order into spglib Hall order.
 
-    For compound irreps without PIR rotations, falls back to CIR component
-    rotations (CIR_ROTS) to build the mapping.
+    Scalar Hall selection is supplied by the fixed data--Hall sidecar.  The
+    legacy Hall table is used only for its selected operation order and
+    historical decimal translations.
 
     Returns per-irrep list: None if unmapped, otherwise list[h_idx→pir_idx].
     Spinor entries appended after scalar entries.
     """
     sg_halls = _load_hall_operations()
-    if not sg_halls:
-        return [None] * (len(ml) + len(spinor_irreps))
+    if data_hall_database is None:
+        data_hall_database = load_committed_data_hall_provenance()
+    sg_hall_choice = _prepare_sidecar_hall_choices(
+        data_hall_database, sg_halls)
+    if spinor_irreps is None:
+        spinor_irreps = []
 
     n_scalar = len(ml)
     reorder_results = []
     hall_targets = [None] * n_scalar  # per scalar irrep: (Hall rotations, translations)
-    sg_hall_choice = {}  # sg → mapping list
     orig_char_counts = list(char_counts)  # Save ISOTROPY sizes before reorder
 
     mapped_count = 0
@@ -2143,80 +2312,57 @@ def _reorder_to_spglib_order(
         n_ops = char_counts[i]
         pir_rots = rots_map.get((sg_num, ml[i]), [])
 
-        if n_ops == 0 or not pir_rots:
+        if n_ops == 0:
             reorder_results.append(None)
             unmapped_count += 1
             continue
+        if not pir_rots:
+            raise ValueError(
+                f"scalar SG{sg_num} {ml[i]!r} has no source rotations"
+            )
 
-        hall_candidates = sg_halls.get(sg_num, [])
+        if not 1 <= sg_num <= 230:
+            raise ValueError(f"scalar row {i} has invalid SG{sg_num}")
+        frame = data_hall_database.frames[sg_num - 1]
+        if n_ops != frame.source_operation_count:
+            raise ValueError(
+                f"scalar SG{sg_num} {ml[i]!r} has {n_ops} source operations; "
+                f"sidecar expects {frame.source_operation_count}"
+            )
+        if len(pir_rots) != n_ops:
+            raise ValueError(
+                f"scalar SG{sg_num} {ml[i]!r} has incomplete source rotations: "
+                f"got {len(pir_rots)}, expected {n_ops}"
+            )
+        if (pir_trans_flat is None or pir_trans_starts is None
+                or i >= len(pir_trans_starts)):
+            raise ValueError(
+                f"scalar SG{sg_num} {ml[i]!r} has no complete source translations"
+            )
+        trans_start = pir_trans_starts[i]
+        if trans_start < 0 or trans_start + n_ops * 3 > len(pir_trans_flat):
+            raise ValueError(
+                f"scalar SG{sg_num} {ml[i]!r} has incomplete source translations"
+            )
+        raw_trans = pir_trans_flat[trans_start:trans_start + n_ops * 3]
+        pir_trans = [raw_trans[j:j + 3] for j in range(0, len(raw_trans), 3)]
+        hall_num = sg_hall_choice[sg_num][0]
+        hall_target = sg_hall_choice.selected_hall_targets.get(sg_num)
+        if hall_target is None:
+            raise ValueError(f"SG{sg_num} has no selected legacy Hall target")
+        hall_rots, hall_trans = hall_target
+        mapping = _sidecar_source_hall_mapping(
+            frame, sg_num, ml[i], pir_rots, pir_trans, hall_rots, hall_trans)
 
-        best_mapping = None
-        best_hall_target = None
-        best_hall_num = None
-        best_exact_count = -1
-        pir_trans = []
-        if pir_trans_flat is not None and pir_trans_starts is not None:
-            trans_start = pir_trans_starts[i]
-            raw_trans = pir_trans_flat[trans_start:trans_start + n_ops * 3]
-            pir_trans = [raw_trans[j:j + 3] for j in range(0, len(raw_trans), 3)]
-        for hall_num, hall_rots, hall_trans in hall_candidates:
-            if len(hall_rots) == 0:
-                continue
-            mapping = []
-            rot_cache = {}  # rotation_tuple → ISOTROPY index
-            exact_count = 0
-            for h_rot, h_trans in zip(hall_rots, hall_trans):
-                rot_key = tuple(h_rot)
-                rotation_matches = [
-                    p_idx for p_idx, p_rot in enumerate(pir_rots)
-                    if len(p_rot) == 9 and len(h_rot) == 9
-                    and all(h_rot[d] == p_rot[d] for d in range(9))
-                ]
-                exact_matches = [
-                    p_idx for p_idx in rotation_matches
-                    if p_idx < len(pir_trans)
-                    and all(
-                        abs((h_trans[axis] - pir_trans[p_idx][axis])
-                            - round(h_trans[axis] - pir_trans[p_idx][axis]))
-                        < 1e-8
-                        for axis in range(3)
-                    )
-                ]
-                if exact_matches:
-                    found = exact_matches[0]
-                    exact_count += 1
-                elif rot_key in rot_cache:
-                    # Centered Hall tables can contain several translations
-                    # for one rotation while a primitive source table stores
-                    # only one representative.  Reuse its canonical source
-                    # operation; Phase C expands the missing cosets.
-                    found = rot_cache[rot_key]
-                else:
-                    found = rotation_matches[0] if rotation_matches else None
-                if found is not None:
-                    rot_cache[rot_key] = found
-                mapping.append(found)
-            mapped_op_count = sum(1 for m in mapping if m is not None)
-            # Several Hall settings can have the same rotation multiset but
-            # different origins.  Prefer the one whose full Seitz operations
-            # match the PIR source table most closely.  This removes the
-            # origin-setting ambiguity deterministically and preserves the
-            # projective multiplication phases at Brillouin-zone boundaries.
-            if mapped_op_count == len(hall_rots) and exact_count > best_exact_count:
-                best_mapping = mapping
-                best_hall_target = (hall_rots, hall_trans)
-                best_hall_num = hall_num
-                best_exact_count = exact_count
-
-        if best_mapping:
-            hall_targets[i] = best_hall_target
-            needs_resize = len(best_mapping) != n_ops
+        if mapping:
+            hall_targets[i] = hall_target
+            needs_resize = len(mapping) != n_ops
             # A centered conventional Hall group can contain more operation
             # representatives than the primitive ISOTROPY table.  Defer all
             # mutations in that case: applying only the first n targets would
             # overwrite source entries that the later expansion still needs.
             if not needs_resize:
-                _apply_reorder(chars_flat, char_starts[i], n_ops, best_mapping, 1)
+                _apply_reorder(chars_flat, char_starts[i], n_ops, mapping, 1)
                 if little_chars_real is not None:
                     start = char_starts[i]
                     old_re = little_chars_real[start:start + n_ops]
@@ -2224,9 +2370,8 @@ def _reorder_to_spglib_order(
                     old_valid = little_chars_valid[start:start + n_ops]
                     old_trans = pir_trans_flat[
                         pir_trans_starts[i]:pir_trans_starts[i] + n_ops * 3]
-                    hall_trans = best_hall_target[1]
                     kx, ky, kz, kd = _lookup_kvec(kvec_map, sg_num, ml[i])
-                    for h, source in enumerate(best_mapping):
+                    for h, source in enumerate(mapping):
                         if source is None or source >= n_ops:
                             little_chars_valid[start + h] = 0
                             continue
@@ -2246,19 +2391,31 @@ def _reorder_to_spglib_order(
             if not needs_resize:
                 dim_sq = mat_counts[i] // n_ops if n_ops else 1
                 if dim_sq > 0 and mat_counts[i] > 0:
-                    _apply_reorder(matrices_flat, mat_starts[i], n_ops, best_mapping, dim_sq)
+                    _apply_reorder(matrices_flat, mat_starts[i], n_ops, mapping, dim_sq)
                 if n_ops > 0:
-                    _apply_reorder(pir_rots_flat, pir_rot_starts[i], n_ops, best_mapping, 9)
+                    _apply_reorder(pir_rots_flat, pir_rot_starts[i], n_ops, mapping, 9)
                     if pir_trans_flat is not None and pir_trans_starts is not None:
                         _apply_reorder(
-                            pir_trans_flat, pir_trans_starts[i], n_ops, best_mapping, 3)
-            char_counts[i] = len(best_mapping)
-            sg_hall_choice[sg_num] = (best_hall_num, best_mapping, best_hall_target[1])
-            reorder_results.append(best_mapping)
+                            pir_trans_flat, pir_trans_starts[i], n_ops, mapping, 3)
+            char_counts[i] = len(mapping)
+            sg_hall_choice[sg_num] = (hall_num, mapping, hall_target[1])
+            reorder_results.append(mapping)
             mapped_count += 1
         else:
             reorder_results.append(None)
             unmapped_count += 1
+
+    missing_scalar = [
+        i for i, mapping in enumerate(reorder_results)
+        if i < n_scalar and mapping is None
+    ]
+    if missing_scalar:
+        details = ", ".join(
+            f"SG{sg[i]} {ml[i]!r}" for i in missing_scalar[:5])
+        raise ValueError(
+            "sidecar scalar operation mapping is incomplete: "
+            f"{len(missing_scalar)} rows ({details})"
+        )
 
     # ── Reorder CIR component data for compound irreps ──
     cir_reordered = 0
@@ -2330,25 +2487,32 @@ def _reorder_to_spglib_order(
 
 
 def _build_padding_plans(sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops,
-                          cir_comp_rots, reorder_results):
-    """Build padding plans for unmapped compound irreps using CIR_ROTS matching.
+                          cir_comp_rots, reorder_results, sg_hall_choice=None):
+    """Build the legacy padding shape from sidecar source-to-Hall mappings.
 
-    For unmapped entries (reorder_results[i] is None) that have CIR data,
-    match the first component's CIR rotation matrices against Hall operations
-    to build a cir_to_hall mapping. Each plan is (irrep_idx, hall_ops, cir_to_hall).
-
-    Returns list of padding plans.
+    No Hall candidates are searched here.  The function is retained for the
+    old Phase-C plan shape, but each mapping is taken directly from the fixed
+    sidecar and validated against the selected legacy Hall rotations.
     """
-    sg_halls = _load_hall_operations()
-    if not sg_halls:
-        return []
+    if sg_hall_choice is None:
+        sg_halls = _load_hall_operations()
+        data_hall_database = load_committed_data_hall_provenance()
+        sg_hall_choice = _prepare_sidecar_hall_choices(
+            data_hall_database, sg_halls)
+    try:
+        frames = sg_hall_choice.data_hall_frames
+        selected_targets = sg_hall_choice.selected_hall_targets
+    except AttributeError as error:
+        raise ValueError(
+            "padding plans require sidecar Hall choices"
+        ) from error
 
     padding_plans = []  # [(irrep_idx, hall_ops, cir_to_hall), ...]
     n_scalar = len(ml)
 
     for i in range(n_scalar):
         if reorder_results[i] is not None:
-            continue  # Already mapped via PIR_ROTS
+            continue  # Already mapped via the sidecar source mapping.
         if cir_comp_counts[i] == 0:
             continue  # No CIR data at all
 
@@ -2356,45 +2520,64 @@ def _build_padding_plans(sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops,
         if n_ops == 0:
             continue
 
-        # Get first component's CIR rotation matrices
+        sg_num = sg[i]
+        if not 1 <= sg_num <= 230:
+            raise ValueError(f"padding row {i} has invalid SG{sg_num}")
+        frame = frames[sg_num - 1]
+        if n_ops != frame.source_operation_count:
+            raise ValueError(
+                f"padding SG{sg_num} {ml[i]!r} has {n_ops} source operations; "
+                f"sidecar expects {frame.source_operation_count}"
+            )
         rot_start = (cir_comp_starts[i] // 2) * 9
         cir_rots = []
         for op_idx in range(n_ops):
-            r9 = cir_comp_rots[rot_start + op_idx * 9:rot_start + (op_idx + 1) * 9]
+            r9 = cir_comp_rots[
+                rot_start + op_idx * 9:rot_start + (op_idx + 1) * 9]
+            if len(r9) != 9:
+                raise ValueError(
+                    f"padding SG{sg_num} {ml[i]!r} has incomplete CIR rotations"
+                )
             cir_rots.append(r9)
 
-        sg_num = sg[i]
-        hall_candidates = sg_halls.get(sg_num, [])
+        hall_target = selected_targets.get(sg_num)
+        if hall_target is None:
+            raise ValueError(f"padding SG{sg_num} has no selected Hall target")
+        hall_rots, _hall_trans = hall_target
+        hall_ops = frame.hall_operation_count
+        if len(hall_rots) != hall_ops:
+            raise ValueError(
+                f"padding SG{sg_num} selected Hall rotation count mismatch"
+            )
 
-        best_plan = None
-        for hall_num, hall_rots, hall_trans in hall_candidates:
-            hall_ops = len(hall_rots)
-            if hall_ops == 0 or n_ops > hall_ops:
-                continue
-
-            # Match each CIR op → Hall op
-            cir_to_hall = []  # cir_to_hall[ci] = hi
-            for ci, c_rot in enumerate(cir_rots):
-                found = None
-                for hi, h_rot in enumerate(hall_rots):
-                    if all(c_rot[d] == h_rot[d] for d in range(9)):
-                        found = hi
-                        break
-                cir_to_hall.append(found)
-
-            if None not in cir_to_hall:
-                # Verify identity maps to identity
-                if cir_to_hall[0] != 0:
-                    print(f"  WARNING padding: SG{sg_num} {ml[i]}: "
-                          f"CIR identity → Hall[{cir_to_hall[0]}], not 0")
-                best_plan = (i, hall_ops, cir_to_hall)
-                break  # Use first matching Hall setting
-
-        if best_plan:
-            padding_plans.append(best_plan)
-        else:
-            print(f"  WARNING padding: SG{sg_num} {ml[i]}: "
-                  f"no Hall setting matches all CIR rots (n_ops={n_ops})")
+        source_to_hall = frame.source_to_hall
+        if len(source_to_hall) != n_ops:
+            raise ValueError(
+                f"padding SG{sg_num} sidecar source mapping count mismatch"
+            )
+        cir_to_hall = []  # cir_to_hall[source] = hall
+        seen_halls = set()
+        for source_index, binding in enumerate(source_to_hall):
+            if binding.source_operation_index != source_index:
+                raise ValueError(
+                    f"padding SG{sg_num} sidecar source index mismatch at "
+                    f"source[{source_index}]"
+                )
+            hall_index = binding.hall_operation_index
+            if not 0 <= hall_index < hall_ops or hall_index in seen_halls:
+                raise ValueError(
+                    f"padding SG{sg_num} sidecar Hall index mismatch at "
+                    f"source[{source_index}]"
+                )
+            if (len(hall_rots[hall_index]) != 9
+                    or tuple(cir_rots[source_index]) != tuple(hall_rots[hall_index])):
+                raise ValueError(
+                    f"padding SG{sg_num} {ml[i]!r} rotation mismatch at "
+                    f"source[{source_index}]/Hall[{hall_index}]"
+                )
+            seen_halls.add(hall_index)
+            cir_to_hall.append(hall_index)
+        padding_plans.append((i, hall_ops, cir_to_hall))
 
     return padding_plans
 
@@ -3437,7 +3620,11 @@ def generate_rust_data(data):
     # ── Phase C: CIR padding for unmapped compound irreps ──
     padding_plans = _build_padding_plans(
         sg, ml, cir_comp_starts, cir_comp_counts, cir_comp_ops, cir_comp_rots,
-        reorder_map_per_irrep)
+        reorder_map_per_irrep, sg_hall_choice=sg_hall_choice)
+    if padding_plans:
+        raise ValueError(
+            "sidecar direct mapping unexpectedly left compound padding plans"
+        )
     # Data already mapped in Phase B stays in place.  Centered conventional
     # Hall groups are expanded here, with Bloch phases applied for every
     # changed Seitz representative.
