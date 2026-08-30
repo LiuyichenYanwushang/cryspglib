@@ -1590,8 +1590,7 @@ mod tests {
                 assert_eq!(sg, 118);
                 assert_eq!(k_label, "Z");
                 assert_eq!(source_irrep, "Z1Z4");
-                assert!(reason.contains("compound corepresentations"));
-                assert!(reason.contains("complex operation-aware"));
+                assert!(reason.contains("constituent-orbit Wigner analysis"));
             }
             other => panic!("unexpected 128.406 summary error: {other:?}"),
         }
@@ -1675,7 +1674,7 @@ mod tests {
                 assert_eq!(sg, 173);
                 assert_eq!(k_label, "GM");
                 assert_eq!(source_irrep, "GM3GM5");
-                assert!(reason.contains("compound corepresentations"));
+                assert!(reason.contains("constituent-orbit Wigner analysis"));
             }
             other => panic!("unexpected 182.183 summary error: {other:?}"),
         }
@@ -1708,7 +1707,7 @@ mod tests {
                 .minimum_dimension
                 .is_some_and(|dimension| dimension > 0)
         );
-        assert!(failure.reason.contains("compound corepresentations"));
+        assert!(failure.reason.contains("constituent-orbit Wigner analysis"));
     }
 
     #[test]

@@ -22,8 +22,8 @@ fn bcs_sg128_406_z_has_official_dimensions() {
             assert_eq!(sg, 118);
             assert_eq!(k_label, "Z");
             assert_eq!(source_irrep, "Z1Z4");
-            assert!(reason.contains("compound corepresentations"));
-            assert!(reason.contains("complex operation-aware"));
+            assert!(reason.contains("constituent-orbit Wigner analysis"));
+            assert!(reason.contains("physical aggregate block trace"));
         }
         other => panic!("unexpected BNS 128.406 error: {other:?}"),
     }

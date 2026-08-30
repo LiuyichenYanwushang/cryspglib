@@ -94,7 +94,7 @@
 //! - Stokes, Campbell & Hatch, ISOTROPY Suite documentation
 //! - Bilbao Crystallographic Server: <https://cryst.ehu.es/cgi-bin/cryst/programs/corepresentations.pl>
 
-use super::types::{IrrepRecord, character_component_is_roundoff_zero};
+use super::types::{IrrepRecord, KVector, character_component_is_roundoff_zero};
 use super::wigner::{self, SeitzOp, filter_little_group_with_transform, ops_to_seitz};
 #[cfg(test)]
 use super::wigner::{
@@ -468,21 +468,15 @@ pub fn compute_corepresentation(
         return Err(CorepComputationError::InvalidUni { uni: uni_number });
     }
 
-    // Compound PIR records currently expose semantic complex selected-arm
-    // data, but this f64 corepresentation surface cannot represent their
-    // operation-aware complex characters safely.  Fail before reading any
-    // raw PIR/CIR rows rather than silently realifying or pairing legacy
-    // full-star storage with magnetic operations.
-    if h_irrep.raw_cir_component_count() > 0 {
-        let reason = if h_irrep.compound_metadata().is_none() {
-            "generated compound metadata missing/inconsistent"
-        } else {
-            "compound corepresentations need complex operation-aware constituent pairing"
-        };
+    // A compound record is usable without antiunitary operations through its
+    // typed physical selected-arm block trace.  Missing semantic metadata is
+    // still a hard data error; antiunitary compound classification is guarded
+    // later, after the actual magnetic little group is known.
+    if h_irrep.raw_cir_component_count() > 0 && h_irrep.compound_metadata().is_none() {
         return Err(CorepComputationError::UnsupportedClassification {
             uni: uni_number,
             source_irrep: h_irrep.ml.to_string(),
-            reason: reason.to_string(),
+            reason: "generated compound metadata missing/inconsistent".to_string(),
         });
     }
 
@@ -591,10 +585,19 @@ pub fn compute_corepresentation(
         .copied()
         .collect();
 
-    // Restrict scalar, non-compound ISO-IR representations from the full
-    // induced star representation to the selected k-arm. Spinor records are
-    // already little-group data, while compound PIRs are classified through
-    // their stored complex components below.
+    if h_irrep.raw_cir_component_count() > 0 && !antiunitary.is_empty() {
+        return Err(CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: "antiunitary compound classification requires constituent-orbit Wigner analysis; the physical aggregate block trace is not an irreducible seed"
+                .to_string(),
+        });
+    }
+
+    // Restrict scalar ISO-IR representations from the full induced star
+    // representation to the selected k-arm. Ordinary rows use their typed
+    // selected block trace; compound rows use the semantic physical sum (or
+    // realification) supplied by `compound_selected_arm_view`.
     if !h_irrep.spinor && h_irrep.raw_cir_component_count() == 0 {
         let pir_rots = h_irrep.pir_rotations();
         let pir_trans = h_irrep.pir_translations();
@@ -635,6 +638,55 @@ pub fn compute_corepresentation(
         h_chars = little.characters;
         h_complex_chars = Some(little.complex_characters);
         h_dim = little.dim;
+    } else if !h_irrep.spinor {
+        let compound = h_irrep.compound_selected_arm_view().map_err(|error| {
+            CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!("typed compound selected-arm row failed: {error}"),
+            }
+        })?;
+        let row = compound.block_trace();
+        let rotations = row
+            .operations()
+            .iter()
+            .flat_map(|operation| operation.rotation)
+            .collect::<Vec<_>>();
+        let translations = row
+            .operations()
+            .iter()
+            .flat_map(|operation| operation.translation)
+            .collect::<Vec<_>>();
+        let map = wigner::build_h_to_irrep_op_map(&h_seitz, &rotations, &translations)
+            .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!(
+                    "compound selected-arm operation map could not be built (H ops={}, typed ops={})",
+                    h_seitz.len(),
+                    row.operations().len()
+                ),
+            })?;
+        let complex_characters = map
+            .iter()
+            .map(|&source_index| {
+                row.values().get(source_index).copied().ok_or_else(|| {
+                    CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!(
+                            "compound selected-arm operation index {source_index} is out of range"
+                        ),
+                    }
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        h_dim = row.dimension();
+        h_chars = complex_characters
+            .iter()
+            .map(|character| character.re)
+            .collect();
+        h_complex_chars = Some(complex_characters);
     }
 
     // 7. Wigner test: dispatch by irrep type
@@ -912,19 +964,102 @@ pub fn compute_corepresentation(
         }
     }
 
-    // Type C needs an operation-aware partner row.  The implicit 2Re(seed)
-    // shortcut is valid only when the magnetic little group contains direct
-    // pure time reversal, whose spatial action is exactly {I|0}Θ in this
-    // data-Hall frame.  In particular, a translated antiunitary is not an
-    // equivalent representative because its Bloch phase changes the partner.
+    // Type C needs the operation-aware row
+    // chi_partner(h) = chi(a0^-1 h a0)^*.  Scalar rows can now construct it
+    // from exact Seitz conjugation, including the residual lattice phase.
+    // Spin rows additionally need the double-group central sign; until that
+    // conjugation path is connected, only direct pure time reversal is safe.
     let direct_pure_theta_index = direct_pure_time_reversal_index(&antiunitary, &mag_ops_data);
-    if corep_type == CorepType::C && direct_pure_theta_index.is_none() {
-        return Err(CorepComputationError::UnsupportedClassification {
-            uni: uni_number,
-            source_irrep: h_irrep.ml.to_string(),
-            reason: "Type-C partner requires operation-aware a0-conjugated characters; 2Re only valid for direct pure time reversal {I|0}Θ in the magnetic little group"
-                .to_string(),
-        });
+    let type_c_partner_complex = if corep_type != CorepType::C {
+        None
+    } else if h_irrep.spinor {
+        if direct_pure_theta_index.is_none() {
+            return Err(CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: "spin Type-C partner still needs the SU(2) central sign for a0-conjugated operations; 2Re is valid only for direct pure time reversal {I|0}Theta"
+                    .to_string(),
+            });
+        }
+        None
+    } else {
+        let source_characters = h_complex_chars.as_ref().ok_or_else(|| {
+            CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: "scalar Type-C source has no complex selected-arm character row"
+                    .to_string(),
+            }
+        })?;
+        Some(
+            scalar_a0_conjugated_partner_characters(
+                antiunitary[0],
+                &mag_seitz,
+                &h_seitz,
+                source_characters,
+                h_irrep.k_vector(),
+            )
+            .map_err(|reason| CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!("scalar Type-C partner construction failed: {reason}"),
+            })?,
+        )
+    };
+
+    if let Some(partner) = &type_c_partner_complex {
+        let source_characters = h_complex_chars.as_ref().expect("checked above");
+        let corep_dimension = wigner::corep_dim(&corep_type, h_dim);
+        for &mag_idx in &unitary {
+            let h_index = character_op_map
+                .get(mag_idx)
+                .copied()
+                .flatten()
+                .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "scalar Type-C magnetic operation {mag_idx} has no canonical H mapping"
+                    ),
+                })?;
+            let source_value = source_characters.get(h_index).copied().ok_or_else(|| {
+                CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!("scalar Type-C source has no canonical H column {h_index}"),
+                }
+            })?;
+            let partner_value = partner.get(h_index).copied().ok_or_else(|| {
+                CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!("scalar Type-C partner has no canonical H column {h_index}"),
+                }
+            })?;
+            let value = source_value + partner_value;
+            if !value.re.is_finite()
+                || !value.im.is_finite()
+                || (value.im != 0.0
+                    && !character_component_is_roundoff_zero(value.im, corep_dimension))
+            {
+                return Err(CorepComputationError::ComplexUnitaryCharacters {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    corep_type,
+                    source,
+                    dimension: corep_dimension,
+                    reason: format!(
+                        "operation-aware Type-C character at magnetic operation {mag_idx} is {}{}i",
+                        value.re,
+                        if value.im.is_sign_negative() {
+                            format!("{}", value.im)
+                        } else {
+                            format!("+{}", value.im)
+                        }
+                    ),
+                });
+            }
+        }
     }
 
     // Compute Type A antiunitary characters only after the real-valued unitary
@@ -954,7 +1089,17 @@ pub fn compute_corepresentation(
     };
 
     // 9. Build corep character table
-    let partner_chars = (corep_type == CorepType::C).then_some(h_chars.as_slice());
+    let type_c_partner_real = type_c_partner_complex.as_ref().map(|characters| {
+        characters
+            .iter()
+            .map(|character| character.re)
+            .collect::<Vec<_>>()
+    });
+    let partner_chars = if corep_type == CorepType::C {
+        Some(type_c_partner_real.as_deref().unwrap_or(h_chars.as_slice()))
+    } else {
+        None
+    };
     let characters = wigner::build_corep_chars(
         &corep_type,
         &mag_ops_data,
@@ -1094,12 +1239,22 @@ fn reconstruct_complex_classified_corepresentation(
     source: WignerSource,
     dimension: usize,
 ) -> Result<ComplexCorepresentation, CorepComputationError> {
-    if !matches!(corep_type, CorepType::A | CorepType::B) {
+    if !matches!(corep_type, CorepType::A | CorepType::B | CorepType::C) {
         return Err(CorepComputationError::UnsupportedClassification {
             uni: uni_number,
             source_irrep: h_irrep.ml.to_string(),
-            reason: "complex compatibility recovery is defined only for classified Type-A/Type-B sources"
-                .to_string(),
+            reason:
+                "complex compatibility recovery requires a classified Type-A/Type-B/Type-C source"
+                    .to_string(),
+        });
+    }
+    if corep_type == CorepType::C && h_irrep.spinor {
+        return Err(CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason:
+                "general spin Type-C recovery requires the SU(2) central sign of a0-conjugation"
+                    .to_string(),
         });
     }
 
@@ -1167,6 +1322,23 @@ fn reconstruct_complex_classified_corepresentation(
                 .zip(row.operations().iter().map(|operation| operation.seitz))
                 .collect::<Vec<_>>(),
         )
+    } else if h_irrep.raw_cir_component_count() > 0 {
+        let compound = h_irrep.compound_selected_arm_view().map_err(|error| {
+            CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!("typed compound selected-arm row failed: {error}"),
+            }
+        })?;
+        let row = compound.block_trace();
+        (
+            row.dimension(),
+            row.values()
+                .iter()
+                .copied()
+                .zip(row.operations().iter().copied())
+                .collect::<Vec<_>>(),
+        )
     } else {
         let row = h_irrep
             .ordinary_scalar_selected_arm_block_trace()
@@ -1195,6 +1367,71 @@ fn reconstruct_complex_classified_corepresentation(
         });
     }
 
+    let type_c_partner = if corep_type == CorepType::C {
+        let canonical_h_operations = source_entries
+            .iter()
+            .map(|(_, operation)| {
+                SeitzOp::new(
+                    [
+                        [
+                            operation.rotation[0],
+                            operation.rotation[1],
+                            operation.rotation[2],
+                        ],
+                        [
+                            operation.rotation[3],
+                            operation.rotation[4],
+                            operation.rotation[5],
+                        ],
+                        [
+                            operation.rotation[6],
+                            operation.rotation[7],
+                            operation.rotation[8],
+                        ],
+                    ],
+                    operation.translation,
+                    false,
+                )
+            })
+            .collect::<Vec<_>>();
+        let source_characters = source_entries
+            .iter()
+            .map(|(character, _)| *character)
+            .collect::<Vec<_>>();
+        let mag_seitz = ops_to_seitz(&mag_ops_data);
+        let a0_index = magnetic_operation_indices
+            .iter()
+            .copied()
+            .find(|&index| {
+                mag_ops_data
+                    .operations
+                    .get(index)
+                    .is_some_and(|operation| operation.time_reversal)
+            })
+            .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: "classified Type-C magnetic little group has no antiunitary operation"
+                    .to_string(),
+            })?;
+        Some(
+            scalar_a0_conjugated_partner_characters(
+                a0_index,
+                &mag_seitz,
+                &canonical_h_operations,
+                &source_characters,
+                h_irrep.k_vector(),
+            )
+            .map_err(|reason| CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!("complex Type-C recovery failed: {reason}"),
+            })?,
+        )
+    } else {
+        None
+    };
+
     let mut characters = Vec::with_capacity(operations.len());
     let mut timerev = Vec::with_capacity(operations.len());
     for (column, operation) in operations.iter().enumerate() {
@@ -1212,7 +1449,8 @@ fn reconstruct_complex_classified_corepresentation(
             .expect("3x3 rotation has nine entries");
         let matches = source_entries
             .iter()
-            .filter(|(_, source_operation)| {
+            .enumerate()
+            .filter(|(_, (_, source_operation))| {
                 source_operation.rotation == target_rotation
                     && source_operation.translation == operation.translation
             })
@@ -1227,8 +1465,26 @@ fn reconstruct_complex_classified_corepresentation(
                 ),
             });
         };
-        let factor = if corep_type == CorepType::B { 2.0 } else { 1.0 };
-        let value = entry.0 * factor;
+        let source_index = entry.0;
+        let source_value = (entry.1).0;
+        let value = match corep_type {
+            CorepType::A => source_value,
+            CorepType::B => source_value * 2.0,
+            CorepType::C => {
+                source_value
+                    + type_c_partner
+                        .as_ref()
+                        .and_then(|partner| partner.get(source_index))
+                        .copied()
+                        .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+                            uni: uni_number,
+                            source_irrep: h_irrep.ml.to_string(),
+                            reason: format!(
+                                "Type-C partner has no canonical H column {source_index}"
+                            ),
+                        })?
+            }
+        };
         if !value.re.is_finite() || !value.im.is_finite() {
             return Err(CorepComputationError::NonFiniteCharacters {
                 uni: uni_number,
@@ -1280,6 +1536,70 @@ fn direct_pure_time_reversal_index(
                     .all(|translation| translation.abs() < 1.0e-8)
         })
     })
+}
+
+/// Construct the operation-aware antiunitary partner
+/// `chi_partner(h) = chi(a0^-1 h a0)^*` for an ordinary scalar row.
+///
+/// Exact reduction retains the integer lattice translation produced by the
+/// raw conjugation. Its Bloch phase is applied before complex conjugation, so
+/// translated antiunitary representatives do not fall back to `2 Re(chi)`.
+fn scalar_a0_conjugated_partner_characters(
+    a0_index: usize,
+    magnetic_operations: &[SeitzOp],
+    canonical_h_operations: &[SeitzOp],
+    source_characters: &[Complex64],
+    k_vector: KVector,
+) -> Result<Vec<Complex64>, String> {
+    if source_characters.len() != canonical_h_operations.len() {
+        return Err(format!(
+            "source character count {} does not match canonical H order {}",
+            source_characters.len(),
+            canonical_h_operations.len()
+        ));
+    }
+    let a0 = magnetic_operations
+        .get(a0_index)
+        .ok_or_else(|| format!("antiunitary representative index {a0_index} is out of range"))?;
+    if !a0.timerev {
+        return Err(format!("magnetic operation {a0_index} is not antiunitary"));
+    }
+    let [kx, ky, kz] = k_vector.numerators;
+    let kd = k_vector.denominator;
+    canonical_h_operations
+        .iter()
+        .enumerate()
+        .map(|(h_index, h)| {
+            let reduction = wigner::conjugate_and_reduce_exact_seitz(
+                a0,
+                h,
+                canonical_h_operations,
+            )
+            .map_err(|error| {
+                format!(
+                    "a0^-1 h[{h_index}] a0 could not be reduced in the canonical H table: {error}"
+                )
+            })?;
+            let source = source_characters
+                .get(reduction.op_index)
+                .copied()
+                .ok_or_else(|| {
+                    format!(
+                        "conjugated H operation index {} is outside the source character row",
+                        reduction.op_index
+                    )
+                })?;
+            let phase = wigner::bloch_phase(kx, ky, kz, kd, &reduction.lattice_shift);
+            let value = (source * phase).conj();
+            if value.re.is_finite() && value.im.is_finite() {
+                Ok(value)
+            } else {
+                Err(format!(
+                    "a0-conjugated partner character at H operation {h_index} is non-finite"
+                ))
+            }
+        })
+        .collect()
 }
 
 /// Transform magnetic operations into the ISOTROPY data-Hall frame while
@@ -2379,12 +2699,8 @@ mod tests {
     }
 
     #[test]
-    fn compound_corepresentations_fail_closed_with_structured_errors() {
-        for (sg, label, uni) in [
-            (9u8, "M1M2", 44usize),
-            (182, "H1H2", 1410),
-            (46, "W1W2", 340),
-        ] {
+    fn antiunitary_compound_corepresentations_fail_closed_with_structured_errors() {
+        for (sg, label, uni) in [(182u8, "H1H2", 1410usize), (46, "W1W2", 340)] {
             let irrep = irreps_of(sg)
                 .iter()
                 .find(|irrep| irrep.ml == label)
@@ -2403,10 +2719,36 @@ mod tests {
                 } => {
                     assert_eq!(error_uni, uni);
                     assert_eq!(source_irrep, label);
-                    assert!(reason.contains("complex operation-aware constituent pairing"));
+                    assert!(reason.contains("constituent-orbit Wigner analysis"));
                 }
                 other => panic!("unexpected compound corep error: {other:?}"),
             }
+        }
+    }
+
+    #[test]
+    fn type_i_compound_corepresentations_use_typed_selected_arm_block_traces() {
+        for (sg, label, uni, expected_dim) in [
+            (9u8, "M1M2", 44usize, 2usize),
+            (76u8, "R1R2", 667usize, 2usize),
+        ] {
+            let irrep = irreps_of(sg)
+                .iter()
+                .find(|irrep| irrep.ml == label)
+                .unwrap_or_else(|| panic!("missing SG {sg} {label} compound irrep"));
+            let corep = irrep
+                .corepresentation(uni)
+                .unwrap_or_else(|error| panic!("SG {sg} {label} UNI {uni}: {error}"));
+            assert_eq!(corep.corep_type, CorepType::A);
+            assert_eq!(corep.source, WignerSource::TrivialNoAntiunitary);
+            assert_eq!(corep.dim, expected_dim);
+            assert_eq!(corep.antiunitary_order, 0);
+            assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+            assert_eq!(
+                identity_character(&corep),
+                expected_dim as f64,
+                "SG {sg} {label} must expose the selected-arm dimension"
+            );
         }
     }
 
@@ -2430,21 +2772,16 @@ mod tests {
     }
 
     #[test]
-    fn high_level_compute_coreps_propagates_compound_rejection() {
-        let error = compute_coreps("9.37", "M")
-            .expect_err("compute_coreps must not skip unsupported compound records");
-        match error {
-            CorepComputationError::UnsupportedClassification {
-                uni,
-                source_irrep,
-                reason,
-            } => {
-                assert_eq!(uni, 44);
-                assert_eq!(source_irrep, "M1M2");
-                assert!(reason.contains("compound corepresentations"));
-            }
-            other => panic!("unexpected propagated error: {other:?}"),
-        }
+    fn high_level_type_i_compound_coreps_are_not_dropped() {
+        let coreps = compute_coreps("9.37", "M")
+            .expect("Type-I compound selected-arm rows are fully representable");
+        let (_, corep) = coreps
+            .iter()
+            .find(|(label, _)| label == "M1M2")
+            .expect("M1M2 high-level corep");
+        assert_eq!(corep.dim, 2);
+        assert_eq!(corep.antiunitary_order, 0);
+        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
     }
 
     #[test]
@@ -2465,7 +2802,7 @@ mod tests {
     }
 
     #[test]
-    fn scalar_type_c_rejects_translated_antiunitary_partner_fallback() {
+    fn scalar_type_c_uses_exact_translated_antiunitary_partner() {
         let seed = irreps_of(2)
             .iter()
             .find(|irrep| !irrep.spinor && irrep.ml == "Z1+")
@@ -2534,25 +2871,27 @@ mod tests {
                 && (operation.translation[2] - 0.5).abs() < 1.0e-8
         }));
 
-        let error = compute_corepresentation(seed, 7, &mag_ops)
-            .expect_err("translated Type-C partner must not use the 2Re fallback");
-        match error {
-            CorepComputationError::UnsupportedClassification {
-                uni,
-                source_irrep,
-                reason,
-            } => {
-                assert_eq!(uni, 7);
-                assert_eq!(source_irrep, "Z1+");
-                assert!(
-                    reason.contains(
-                        "Type-C partner requires operation-aware a0-conjugated characters"
-                    )
-                );
-                assert!(reason.contains("2Re only valid for direct pure time reversal"));
-            }
-            other => panic!("unexpected SG 2 Z1+ UNI 7 error: {other:?}"),
-        }
+        let corep = compute_corepresentation(seed, 7, &mag_ops)
+            .expect("translated Type-C partner must be constructed exactly");
+        assert_eq!(corep.corep_type, CorepType::C);
+        assert_eq!(corep.source, WignerSource::ScalarPIR);
+        assert_eq!(corep.dim, 2);
+        assert_eq!(corep.characters, vec![2.0, 0.0, 0.0, 0.0]);
+        assert_eq!(corep.timerev, vec![false, false, true, true]);
+        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+
+        let complex = seed
+            .complex_corepresentation(7)
+            .expect("complex API keeps the same operation-aware Type-C result");
+        assert_eq!(
+            complex.characters,
+            vec![
+                Complex64::new(2.0, 0.0),
+                Complex64::ZERO,
+                Complex64::ZERO,
+                Complex64::ZERO,
+            ]
+        );
     }
 
     #[test]
@@ -6905,24 +7244,29 @@ mod tests {
             p_spinor.len()
         );
 
-        // 5. Compound PIR characters are intentionally fail-closed.  The
-        // old path classified P1P1 from unphased full-PIR data and could not
-        // represent its complex operation-aware constituent characters.
-        let error = super::compute_coreps(bns, "P")
-            .expect_err("compound corepresentation must be rejected explicitly");
-        match error {
-            CorepComputationError::UnsupportedClassification {
-                uni: error_uni,
-                source_irrep,
-                reason,
-            } => {
-                assert_eq!(error_uni, uni);
-                assert_eq!(source_irrep, "P1P1");
-                assert!(reason.contains("compound corepresentations"));
-                assert!(reason.contains("complex operation-aware"));
-            }
-            other => panic!("unexpected compound corep error: {other:?}"),
-        }
+        // 5. The full MSG is grey, but no antiunitary operation fixes this P
+        // arm. Therefore the local problem is all-unitary and the compound
+        // physical selected-arm block trace is complete without constituent
+        // Wigner analysis.
+        let compound = p_scalar
+            .iter()
+            .copied()
+            .find(|irrep| irrep.raw_cir_component_count() > 0)
+            .expect("SG 197 P point compound scalar source");
+        let corep = compute_corepresentation(compound, uni, &mag_ops)
+            .expect("all-unitary compound little-group row must be representable");
+        assert_eq!(corep.corep_type, CorepType::A);
+        assert_eq!(corep.source, WignerSource::TrivialNoAntiunitary);
+        assert_eq!(corep.antiunitary_order, 0);
+        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+        assert_eq!(
+            corep.dim,
+            compound
+                .compound_selected_arm_view()
+                .expect("typed compound row")
+                .block_trace()
+                .dimension()
+        );
     }
 
     /// The formerly incomplete SG5 L-point spin table is now centered-Hall complete.

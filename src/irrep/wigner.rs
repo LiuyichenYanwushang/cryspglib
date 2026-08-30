@@ -619,6 +619,266 @@ impl SeitzOp {
     }
 }
 
+/// Common denominator of all translations in the pinned crystallographic
+/// operation tables used by the irrep/corep pipeline.
+///
+/// The conversion from the public `f64` operation surface to this grid is a
+/// checked input boundary.  All multiplication, inversion, conjugation, and
+/// canonical reduction below is integer arithmetic.
+pub const EXACT_SEITZ_TRANSLATION_DENOMINATOR: i32 = 12;
+
+/// A Seitz operation whose translation is an unwrapped numerator over 12.
+///
+/// Unlike [`SeitzOp`], `translation_numerator` is deliberately not reduced
+/// modulo the conventional cell.  This lets a product retain the lattice
+/// translation that must contribute a Bloch phase when it is reduced back to
+/// a canonical Hall representative.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExactSeitzOp {
+    pub rot: Mat3I,
+    pub translation_numerator: [i32; 3],
+    pub timerev: bool,
+}
+
+/// Exact result of reducing a raw product to a canonical Hall operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExactSeitzReduction {
+    /// Index in the supplied canonical operation table.
+    pub op_index: usize,
+    /// Integer conventional-cell translation `L` in
+    /// `raw = {E|L} canonical[op_index]`.
+    pub lattice_shift: [i32; 3],
+}
+
+/// Exact spatial reduction together with the double-group central element.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExactDoubleSeitzReduction {
+    pub spatial: ExactSeitzReduction,
+    /// `Same` for the canonical lift and `EBar` for its negative.
+    pub spin_central: LiftRelation,
+}
+
+/// Failure at the checked f64→exact boundary or during exact reduction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExactSeitzError {
+    NonFiniteTranslation,
+    TranslationOffTwelfthGrid,
+    NonUnimodularRotation,
+    ArithmeticOverflow,
+    MissingCanonicalMatch,
+    AmbiguousCanonicalMatch,
+    InvalidSpinLiftTable,
+    UnrelatedSpinLift,
+}
+
+impl std::fmt::Display for ExactSeitzError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let message = match self {
+            Self::NonFiniteTranslation => "Seitz translation is non-finite",
+            Self::TranslationOffTwelfthGrid => {
+                "Seitz translation is not on the pinned denominator-12 grid"
+            }
+            Self::NonUnimodularRotation => "Seitz rotation is not unimodular",
+            Self::ArithmeticOverflow => "exact Seitz arithmetic overflowed",
+            Self::MissingCanonicalMatch => "raw Seitz operation has no canonical Hall match",
+            Self::AmbiguousCanonicalMatch => {
+                "raw Seitz operation has more than one canonical Hall match"
+            }
+            Self::InvalidSpinLiftTable => "canonical SU(2) lift table has invalid width",
+            Self::UnrelatedSpinLift => "composed SU(2) lift is not the canonical lift up to sign",
+        };
+        f.write_str(message)
+    }
+}
+
+impl std::error::Error for ExactSeitzError {}
+
+impl ExactSeitzOp {
+    /// Convert a materialized database operation to the exact denominator-12
+    /// domain.  The tolerance is used only to recognize the pinned decimal
+    /// serialization of thirds; it is never used in group algebra.
+    pub fn try_from_seitz(operation: &SeitzOp) -> Result<Self, ExactSeitzError> {
+        let mut translation_numerator = [0i32; 3];
+        for (target, &value) in translation_numerator.iter_mut().zip(&operation.trans) {
+            if !value.is_finite() {
+                return Err(ExactSeitzError::NonFiniteTranslation);
+            }
+            let scaled = value * EXACT_SEITZ_TRANSLATION_DENOMINATOR as f64;
+            let rounded = scaled.round();
+            if (scaled - rounded).abs() > 2.0e-8
+                || rounded < i32::MIN as f64
+                || rounded > i32::MAX as f64
+            {
+                return Err(ExactSeitzError::TranslationOffTwelfthGrid);
+            }
+            *target = rounded as i32;
+        }
+        let determinant = mat_get_determinant_i3(&operation.rot);
+        if determinant != 1 && determinant != -1 {
+            return Err(ExactSeitzError::NonUnimodularRotation);
+        }
+        Ok(Self {
+            rot: operation.rot,
+            translation_numerator,
+            timerev: operation.timerev,
+        })
+    }
+
+    /// Compose without reducing the translation modulo the conventional cell.
+    pub fn compose_raw(&self, right: &Self) -> Result<Self, ExactSeitzError> {
+        let rot = mat_multiply_matrix_i3(&self.rot, &right.rot);
+        let mut translation_numerator = [0i32; 3];
+        for (axis, target) in translation_numerator.iter_mut().enumerate() {
+            let mut value = self.translation_numerator[axis];
+            for inner in 0..3 {
+                value = value
+                    .checked_add(
+                        self.rot[axis][inner]
+                            .checked_mul(right.translation_numerator[inner])
+                            .ok_or(ExactSeitzError::ArithmeticOverflow)?,
+                    )
+                    .ok_or(ExactSeitzError::ArithmeticOverflow)?;
+            }
+            *target = value;
+        }
+        Ok(Self {
+            rot,
+            translation_numerator,
+            timerev: self.timerev ^ right.timerev,
+        })
+    }
+
+    /// Invert without reducing the translation.
+    pub fn inverse_raw(&self) -> Result<Self, ExactSeitzError> {
+        let inverse_transpose = inverse_transpose_unimodular(&self.rot)
+            .ok_or(ExactSeitzError::NonUnimodularRotation)?;
+        let inverse = [
+            [
+                inverse_transpose[0][0],
+                inverse_transpose[1][0],
+                inverse_transpose[2][0],
+            ],
+            [
+                inverse_transpose[0][1],
+                inverse_transpose[1][1],
+                inverse_transpose[2][1],
+            ],
+            [
+                inverse_transpose[0][2],
+                inverse_transpose[1][2],
+                inverse_transpose[2][2],
+            ],
+        ];
+        let mut translation_numerator = [0i32; 3];
+        for (axis, target) in translation_numerator.iter_mut().enumerate() {
+            let mut value = 0i32;
+            for inner in 0..3 {
+                value = value
+                    .checked_sub(
+                        inverse[axis][inner]
+                            .checked_mul(self.translation_numerator[inner])
+                            .ok_or(ExactSeitzError::ArithmeticOverflow)?,
+                    )
+                    .ok_or(ExactSeitzError::ArithmeticOverflow)?;
+            }
+            *target = value;
+        }
+        Ok(Self {
+            rot: inverse,
+            translation_numerator,
+            timerev: self.timerev,
+        })
+    }
+}
+
+/// Convert a complete canonical operation table to the exact grid.
+pub fn exact_seitz_table(operations: &[SeitzOp]) -> Result<Vec<ExactSeitzOp>, ExactSeitzError> {
+    operations
+        .iter()
+        .map(ExactSeitzOp::try_from_seitz)
+        .collect()
+}
+
+/// Reduce an unwrapped exact operation to a unique canonical representative.
+pub fn reduce_exact_seitz(
+    raw: &ExactSeitzOp,
+    canonical: &[ExactSeitzOp],
+) -> Result<ExactSeitzReduction, ExactSeitzError> {
+    let mut result = None;
+    for (op_index, operation) in canonical.iter().enumerate() {
+        if raw.rot != operation.rot || raw.timerev != operation.timerev {
+            continue;
+        }
+        let mut lattice_shift = [0i32; 3];
+        let mut matches = true;
+        for axis in 0..3 {
+            let difference = raw.translation_numerator[axis]
+                .checked_sub(operation.translation_numerator[axis])
+                .ok_or(ExactSeitzError::ArithmeticOverflow)?;
+            if difference % EXACT_SEITZ_TRANSLATION_DENOMINATOR != 0 {
+                matches = false;
+                break;
+            }
+            lattice_shift[axis] = difference / EXACT_SEITZ_TRANSLATION_DENOMINATOR;
+        }
+        if !matches {
+            continue;
+        }
+        if result.is_some() {
+            return Err(ExactSeitzError::AmbiguousCanonicalMatch);
+        }
+        result = Some(ExactSeitzReduction {
+            op_index,
+            lattice_shift,
+        });
+    }
+    result.ok_or(ExactSeitzError::MissingCanonicalMatch)
+}
+
+/// Compute `a⁻¹ h a` exactly and reduce it once to the canonical table.
+pub fn conjugate_and_reduce_exact_seitz(
+    a: &SeitzOp,
+    h: &SeitzOp,
+    canonical: &[SeitzOp],
+) -> Result<ExactSeitzReduction, ExactSeitzError> {
+    let a = ExactSeitzOp::try_from_seitz(a)?;
+    let h = ExactSeitzOp::try_from_seitz(h)?;
+    let canonical = exact_seitz_table(canonical)?;
+    let raw = a.inverse_raw()?.compose_raw(&h)?.compose_raw(&a)?;
+    reduce_exact_seitz(&raw, &canonical)
+}
+
+/// Compose two spatial operations and their pinned SU(2) lifts, then reduce
+/// to the canonical double-group operation.
+pub fn compose_and_reduce_exact_double_seitz(
+    left: &SeitzOp,
+    left_lift: &[f64; 4],
+    right: &SeitzOp,
+    right_lift: &[f64; 4],
+    canonical: &[SeitzOp],
+    canonical_lifts: &[f64],
+) -> Result<ExactDoubleSeitzReduction, ExactSeitzError> {
+    if canonical_lifts.len() != canonical.len().saturating_mul(4) {
+        return Err(ExactSeitzError::InvalidSpinLiftTable);
+    }
+    let left = ExactSeitzOp::try_from_seitz(left)?;
+    let right = ExactSeitzOp::try_from_seitz(right)?;
+    let canonical_exact = exact_seitz_table(canonical)?;
+    let raw = left.compose_raw(&right)?;
+    let spatial = reduce_exact_seitz(&raw, &canonical_exact)?;
+    let composed_lift = su2_compose(left_lift, right_lift);
+    let start = spatial.op_index * 4;
+    let target_lift: [f64; 4] = canonical_lifts[start..start + 4]
+        .try_into()
+        .map_err(|_| ExactSeitzError::InvalidSpinLiftTable)?;
+    let spin_central = su2_lift_relation(&composed_lift, &target_lift)
+        .ok_or(ExactSeitzError::UnrelatedSpinLift)?;
+    Ok(ExactDoubleSeitzReduction {
+        spatial,
+        spin_central,
+    })
+}
+
 /// Compose two Seitz operations: `g1 ∘ g2` means apply g2 first, then g1.
 ///
 /// $$\{R_1|\mathbf{t}_1\} \circ \{R_2|\mathbf{t}_2\}
@@ -1035,6 +1295,16 @@ pub fn wigner_classify(
             "antiunitary representative must have time reversal",
         ));
     }
+    let exact_h = exact_seitz_table(h_seitz).map_err(|error| {
+        WignerClassificationError::new(format!(
+            "unitary Hall table cannot enter exact Seitz arithmetic: {error}"
+        ))
+    })?;
+    let exact_a0 = ExactSeitzOp::try_from_seitz(a0).map_err(|error| {
+        WignerClassificationError::new(format!(
+            "antiunitary representative cannot enter exact Seitz arithmetic: {error}"
+        ))
+    })?;
 
     let mut w_sum: f64 = 0.0;
 
@@ -1052,35 +1322,36 @@ pub fn wigner_classify(
             )));
         }
 
-        let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
-        let h_spatial = SeitzOp::new(h.rot, h.trans, false);
-        let (g0h, l1) = compose_seitz(&g0_spatial, &h_spatial);
-        let (sq, lattice_sq) = square_seitz(&g0h);
-
-        let matched = find_seitz(&sq.rot, &sq.trans, h_seitz).ok_or_else(|| {
+        let exact_h_op = ExactSeitzOp::try_from_seitz(h).map_err(|error| {
             WignerClassificationError::new(format!(
-                "square of (a0·h) for unitary operation index {} is absent from the unitary little group",
-                h_mag_idx
+                "unitary operation index {h_mag_idx} cannot enter exact Seitz arithmetic: {error}"
             ))
         })?;
-        debug_assert!(matched.op_index < h_chars.len());
+        let raw_square = exact_a0
+            .compose_raw(&exact_h_op)
+            .and_then(|product| product.compose_raw(&product))
+            .map_err(|error| {
+                WignerClassificationError::new(format!(
+                    "exact square of (a0·h) failed for unitary operation index {h_mag_idx}: {error}"
+                ))
+            })?;
+        let reduced = reduce_exact_seitz(&raw_square, &exact_h).map_err(|error| {
+            WignerClassificationError::new(format!(
+                "exact square of (a0·h) for unitary operation index {h_mag_idx} is absent from the unitary little group or is ambiguous: {error}"
+            ))
+        })?;
+        debug_assert!(reduced.op_index < h_chars.len());
 
-        // Total lattice shift = L_sq + L_match + L1 + R_{g0h}·L1
-        let r_l1 = mat_vec_i32(&g0h.rot, &l1);
-        let total_lattice = add3(
-            &add3(&lattice_sq, &matched.lattice_shift),
-            &add3(&l1, &r_l1),
-        );
-        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
-        let contrib = h_chars[matched.op_index] * phase.re;
+        let phase = bloch_phase(kx, ky, kz, kd, &reduced.lattice_shift);
+        let contrib = h_chars[reduced.op_index] * phase.re;
         w_sum += contrib;
         debug_log!(
             "    wigner: h[{}]→H[{}] L={:?} ph={:.2} χ={:.2} → {:.2}",
             h_mag_idx,
-            matched.op_index,
-            total_lattice,
+            reduced.op_index,
+            reduced.lattice_shift,
             phase.re,
-            h_chars[matched.op_index],
+            h_chars[reduced.op_index],
             contrib
         );
     }
@@ -1175,6 +1446,16 @@ pub fn wigner_classify_cir(
             "antiunitary representative must have time reversal",
         ));
     }
+    let exact_h = exact_seitz_table(h_seitz).map_err(|error| {
+        WignerClassificationError::new(format!(
+            "unitary Hall table cannot enter exact Seitz arithmetic: {error}"
+        ))
+    })?;
+    let exact_a0 = ExactSeitzOp::try_from_seitz(a0).map_err(|error| {
+        WignerClassificationError::new(format!(
+            "antiunitary representative cannot enter exact Seitz arithmetic: {error}"
+        ))
+    })?;
     let mut w_sum = Complex64::new(0.0, 0.0);
     #[cfg(feature = "debug-corep")]
     let mut n_plus = 0u32;
@@ -1194,24 +1475,26 @@ pub fn wigner_classify_cir(
                 h_mag_idx
             )));
         }
-        let g0_spatial = SeitzOp::new(a0.rot, a0.trans, false);
-        let h_spatial = SeitzOp::new(h.rot, h.trans, false);
-        let (g0h, l1) = compose_seitz(&g0_spatial, &h_spatial);
-        let (sq, lattice_sq) = square_seitz(&g0h);
-
-        let matched = find_seitz(&sq.rot, &sq.trans, h_seitz).ok_or_else(|| {
+        let exact_h_op = ExactSeitzOp::try_from_seitz(h).map_err(|error| {
             WignerClassificationError::new(format!(
-                "square of (a0·h) for unitary operation index {} is absent from the unitary little group",
-                h_mag_idx
+                "unitary operation index {h_mag_idx} cannot enter exact Seitz arithmetic: {error}"
             ))
         })?;
-        let r_l1 = mat_vec_i32(&g0h.rot, &l1);
-        let total_lattice = add3(
-            &add3(&lattice_sq, &matched.lattice_shift),
-            &add3(&l1, &r_l1),
-        );
-        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
-        let chi = cir_char_at(cir_chars, matched.op_index);
+        let raw_square = exact_a0
+            .compose_raw(&exact_h_op)
+            .and_then(|product| product.compose_raw(&product))
+            .map_err(|error| {
+                WignerClassificationError::new(format!(
+                    "exact square of (a0·h) failed for unitary operation index {h_mag_idx}: {error}"
+                ))
+            })?;
+        let reduced = reduce_exact_seitz(&raw_square, &exact_h).map_err(|error| {
+            WignerClassificationError::new(format!(
+                "exact square of (a0·h) for unitary operation index {h_mag_idx} is absent from the unitary little group or is ambiguous: {error}"
+            ))
+        })?;
+        let phase = bloch_phase(kx, ky, kz, kd, &reduced.lattice_shift);
+        let chi = cir_char_at(cir_chars, reduced.op_index);
         w_sum += chi * phase;
         // Phase parity stats
         #[cfg(feature = "debug-corep")]
@@ -1223,8 +1506,8 @@ pub fn wigner_classify_cir(
         debug_log!(
             "    cir: h[{}]→H[{}] Lz_par={} ph={:.2} χ={:.2} → {:.2}",
             h_mag_idx,
-            matched.op_index,
-            ((total_lattice[2] % 2) + 2) % 2,
+            reduced.op_index,
+            ((reduced.lattice_shift[2] % 2) + 2) % 2,
             phase,
             chi,
             chi * phase
@@ -1288,6 +1571,11 @@ pub fn wigner_classify_cir_direct(
             h_seitz.len()
         )));
     }
+    let exact_h = exact_seitz_table(h_seitz).map_err(|error| {
+        WignerClassificationError::new(format!(
+            "unitary Hall table cannot enter exact Seitz arithmetic: {error}"
+        ))
+    })?;
 
     let mut sum = Complex64::ZERO;
     for &b_idx in antiunitary_mag_indices {
@@ -1297,16 +1585,23 @@ pub fn wigner_classify_cir_direct(
                 b_idx
             ))
         })?;
-        let (square, square_lattice) = square_seitz(b);
-        let matched = find_seitz(&square.rot, &square.trans, h_seitz).ok_or_else(|| {
+        let exact_b = ExactSeitzOp::try_from_seitz(b).map_err(|error| {
             WignerClassificationError::new(format!(
-                "square of antiunitary operation {} is absent from the unitary little group",
-                b_idx
+                "antiunitary operation {b_idx} cannot enter exact Seitz arithmetic: {error}"
             ))
         })?;
-        let total_lattice = add3(&square_lattice, &matched.lattice_shift);
-        let phase = bloch_phase(kx, ky, kz, kd, &total_lattice);
-        sum += cir_char_at(cir_chars, matched.op_index) * phase;
+        let raw_square = exact_b.compose_raw(&exact_b).map_err(|error| {
+            WignerClassificationError::new(format!(
+                "exact square of antiunitary operation {b_idx} failed: {error}"
+            ))
+        })?;
+        let reduced = reduce_exact_seitz(&raw_square, &exact_h).map_err(|error| {
+            WignerClassificationError::new(format!(
+                "exact square of antiunitary operation {b_idx} is absent from the unitary little group or is ambiguous: {error}"
+            ))
+        })?;
+        let phase = bloch_phase(kx, ky, kz, kd, &reduced.lattice_shift);
+        sum += cir_char_at(cir_chars, reduced.op_index) * phase;
     }
 
     let w = sum / antiunitary_mag_indices.len() as f64;
@@ -4278,6 +4573,99 @@ mod tests {
         // t = 0.7 + 0.5 = 1.2 → 0.2 with lattice shift [1,0,0]
         assert!((result.trans[0] - 0.2).abs() < 1e-9);
         assert_eq!(lattice, [1, 0, 0]);
+    }
+
+    #[test]
+    fn exact_reduction_keeps_screw_and_centering_lattice_shifts() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let c2z = [[-1, 0, 0], [0, -1, 0], [0, 0, 1]];
+        let canonical = exact_seitz_table(&[
+            SeitzOp::new(identity, [0.0, 0.0, 0.0], false),
+            SeitzOp::new(c2z, [0.0, 0.0, 0.5], false),
+        ])
+        .unwrap();
+        let screw = canonical[1];
+        let square = screw.compose_raw(&screw).unwrap();
+        assert_eq!(square.translation_numerator, [0, 0, 12]);
+        assert_eq!(
+            reduce_exact_seitz(&square, &canonical).unwrap(),
+            ExactSeitzReduction {
+                op_index: 0,
+                lattice_shift: [0, 0, 1],
+            }
+        );
+
+        let centered = ExactSeitzOp {
+            rot: identity,
+            translation_numerator: [6, 6, 0],
+            timerev: false,
+        };
+        let centered_square = centered.compose_raw(&centered).unwrap();
+        assert_eq!(
+            reduce_exact_seitz(&centered_square, &canonical[..1]).unwrap(),
+            ExactSeitzReduction {
+                op_index: 0,
+                lattice_shift: [1, 1, 0],
+            }
+        );
+    }
+
+    #[test]
+    fn exact_antiunitary_conjugation_returns_the_bloch_lattice_shift() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let inversion = [[-1, 0, 0], [0, -1, 0], [0, 0, -1]];
+        let a0 = SeitzOp::new(identity, [0.0, 0.0, 0.5], true);
+        let h = SeitzOp::new(inversion, [0.0, 0.0, 0.0], false);
+        let canonical = [SeitzOp::new(identity, [0.0, 0.0, 0.0], false), h.clone()];
+        assert_eq!(
+            conjugate_and_reduce_exact_seitz(&a0, &h, &canonical).unwrap(),
+            ExactSeitzReduction {
+                op_index: 1,
+                lattice_shift: [0, 0, -1],
+            }
+        );
+        let phase = bloch_phase(0, 0, 1, 2, &[0, 0, -1]);
+        assert_eq!(phase.re, -1.0);
+        assert!(phase.im.abs() <= 2.0 * f64::EPSILON);
+    }
+
+    #[test]
+    fn exact_double_reduction_reports_the_ebar_lift() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let c2z = [[-1, 0, 0], [0, -1, 0], [0, 0, 1]];
+        let canonical = [
+            SeitzOp::new(identity, [0.0; 3], false),
+            SeitzOp::new(c2z, [0.0; 3], false),
+        ];
+        let lifts = [
+            1.0, 0.0, 0.0, 0.0, // +I
+            0.0, 0.0, 0.0, 1.0, // +i sigma_z
+        ];
+        let reduction = compose_and_reduce_exact_double_seitz(
+            &canonical[1],
+            &[0.0, 0.0, 0.0, 1.0],
+            &canonical[1],
+            &[0.0, 0.0, 0.0, 1.0],
+            &canonical,
+            &lifts,
+        )
+        .unwrap();
+        assert_eq!(reduction.spatial.op_index, 0);
+        assert_eq!(reduction.spatial.lattice_shift, [0, 0, 0]);
+        assert_eq!(reduction.spin_central, LiftRelation::EBar);
+    }
+
+    #[test]
+    fn exact_seitz_boundary_rejects_off_grid_translations() {
+        let off_grid = SeitzOp {
+            rot: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            trans: [0.1, 0.0, 0.0],
+            timerev: false,
+        };
+        assert_eq!(
+            ExactSeitzOp::try_from_seitz(&off_grid),
+            Err(ExactSeitzError::TranslationOffTwelfthGrid)
+        );
     }
 
     #[test]
