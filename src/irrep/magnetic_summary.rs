@@ -42,6 +42,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use num_complex::Complex64;
+use rayon::prelude::*;
 
 use crate::SymmetryOps;
 
@@ -785,6 +786,10 @@ pub fn magnetic_irrep_summary(
 }
 
 /// Compute magnetic irrep summary from a UNI number (1–1651).
+///
+/// Independent high-symmetry k points are evaluated with Rayon. The returned
+/// k-point, corepresentation, unresolved-source, and error order remains the
+/// canonical database order regardless of the Rayon thread count.
 pub fn magnetic_irrep_summary_by_uni(
     uni: usize,
 ) -> Result<MagneticIrrepSummary, MagneticIrrepError> {
@@ -855,7 +860,7 @@ fn magnetic_irrep_summary_from_ops_impl(
     validate_operations_for_uni(uni, mag_ops)?;
 
     // 1. Identify H (unitary subgroup) with Hall setting information.
-    let h_info = crate::irrep::corep::identify_unitary_subgroup_with_hall(uni)
+    let h_info = crate::irrep::corep::cached_unitary_subgroup_with_hall(uni)
         .ok_or(MagneticIrrepError::MissingUnitarySubgroup(uni))?;
 
     // 2. Get MSG metadata.
@@ -888,10 +893,10 @@ fn magnetic_irrep_summary_from_ops_impl(
     let h_irreps = crate::irrep::query::irreps_of(h_info.sg as u8);
 
     // 6. Build k-point summaries with little group metadata and coreps.
-    let mut unresolved_coreps = Vec::new();
-    let kpoints: Result<Vec<MagneticKPointSummary>, MagneticIrrepError> = h_kpoints
-        .into_iter()
+    let kpoint_results = h_kpoints
+        .into_par_iter()
         .map(|kp| {
+            let mut unresolved_coreps = Vec::new();
             let (kx, ky, kz, kd) = kp.coords;
             let mag_lg = crate::irrep::wigner::filter_little_group_with_transform(
                 kx,
@@ -1118,19 +1123,28 @@ fn magnetic_irrep_summary_from_ops_impl(
             let coreps = dedup_coreps(raw_coreps);
             let coreps = attach_isotropy_candidates(coreps, h_irreps);
 
-            Ok(MagneticKPointSummary {
-                label: kp.label,
-                coords: kp.coords,
-                little_group_order: mag_lg.len(),
-                unitary_order,
-                antiunitary_order,
-                operations,
-                conjugacy_classes,
-                coreps,
-            })
+            Ok((
+                MagneticKPointSummary {
+                    label: kp.label,
+                    coords: kp.coords,
+                    little_group_order: mag_lg.len(),
+                    unitary_order,
+                    antiunitary_order,
+                    operations,
+                    conjugacy_classes,
+                    coreps,
+                },
+                unresolved_coreps,
+            ))
         })
-        .collect();
-    let kpoints = kpoints?;
+        .collect::<Vec<Result<_, MagneticIrrepError>>>();
+    let mut kpoints = Vec::with_capacity(kpoint_results.len());
+    let mut unresolved_coreps = Vec::new();
+    for result in kpoint_results {
+        let (kpoint, mut unresolved) = result?;
+        kpoints.push(kpoint);
+        unresolved_coreps.append(&mut unresolved);
+    }
 
     Ok(PartialMagneticIrrepSummary {
         summary: MagneticIrrepSummary {
@@ -1580,6 +1594,29 @@ mod tests {
         assert_eq!(by_uni.uni, by_bns.uni);
         assert_eq!(by_uni.unitary_sg, by_bns.unitary_sg);
         assert_eq!(by_uni.kpoints.len(), by_bns.kpoints.len());
+    }
+
+    #[test]
+    fn parallel_kpoint_collection_preserves_database_order() {
+        let serial_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        let parallel_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        let serial = serial_pool.install(|| {
+            format_magnetic_irrep_summary(
+                &magnetic_irrep_summary_by_uni(1440).expect("serial UNI 1440 summary"),
+            )
+        });
+        let parallel = parallel_pool.install(|| {
+            format_magnetic_irrep_summary(
+                &magnetic_irrep_summary_by_uni(1440).expect("parallel UNI 1440 summary"),
+            )
+        });
+        assert_eq!(serial, parallel);
     }
 
     #[test]

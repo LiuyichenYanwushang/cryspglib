@@ -109,7 +109,8 @@ use crate::SymmetryOps;
 use crate::mathfunc::{Mat3I, mat_inverse_matrix_d3};
 use crate::spg_database::{get_spacegroup_operations, get_spacegroup_type};
 use num_complex::Complex64;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::OnceLock;
 
 macro_rules! debug_log {
     ($($arg:tt)*) => {
@@ -529,7 +530,7 @@ pub fn compute_corepresentation(
     }
 
     // 1. Identify H first — needed for setting transform.
-    let h_info = identify_unitary_subgroup_with_hall(uni_number)
+    let h_info = cached_unitary_subgroup_with_hall(uni_number)
         .ok_or(CorepComputationError::MissingUnitarySubgroup { uni: uni_number })?;
     // Use the pre-computed MSG→data-Hall transform from H identification.
     // This ensures the magnetic little group, Seitz composition, and spin
@@ -1655,7 +1656,7 @@ fn prepare_compound_corep_context(
     if uni_number == 0 || uni_number > 1651 {
         return Err(CorepComputationError::InvalidUni { uni: uni_number });
     }
-    let h_info = identify_unitary_subgroup_with_hall(uni_number)
+    let h_info = cached_unitary_subgroup_with_hall(uni_number)
         .ok_or(CorepComputationError::MissingUnitarySubgroup { uni: uni_number })?;
     if h_info.ops_from_hall.is_empty() {
         return Err(CorepComputationError::EmptyUnitaryOperations { uni: uni_number });
@@ -1840,7 +1841,7 @@ fn reconstruct_complex_classified_corepresentation(
                     .to_string(),
         });
     }
-    let h_info = identify_unitary_subgroup_with_hall(uni_number)
+    let h_info = cached_unitary_subgroup_with_hall(uni_number)
         .ok_or(CorepComputationError::MissingUnitarySubgroup { uni: uni_number })?;
     let mag_ops_data = operations_in_data_hall_frame(mag_ops, h_info.msg_to_data.as_ref())
         .ok_or_else(|| CorepComputationError::UnsupportedClassification {
@@ -2628,6 +2629,7 @@ fn get_parent_operations(sg: u8) -> Result<SymmetryOps, crate::SymError> {
 // ── High-level API ───────────────────────────────────────────────────────────
 
 /// Identified unitary subgroup of a magnetic space group, with correct Hall setting.
+#[derive(Clone)]
 pub struct UnitarySubgroupInfo {
     pub sg: usize,
     /// Hall setting identified by spglib (may differ from ISOTROPY data Hall).
@@ -2663,7 +2665,7 @@ impl UnitarySubgroupInfo {
 
 /// Identify the unitary subgroup of a magnetic space group (SG number only).
 pub fn identify_unitary_subgroup(uni_number: usize) -> Option<usize> {
-    identify_unitary_subgroup_with_hall(uni_number).map(|info| info.sg)
+    cached_unitary_subgroup_with_hall(uni_number).map(|info| info.sg)
 }
 
 /// Look up the parent spatial space group number G ⊃ H for a magnetic group.
@@ -2745,6 +2747,31 @@ fn transform_applies_to_all_ops(xf: &wigner::SettingTransform, ops: &SymmetryOps
 /// This ensures the H_ops setting matches the MSG, rather than using the
 /// first-Hall setting which may differ in origin/basis.
 pub fn identify_unitary_subgroup_with_hall(uni_number: usize) -> Option<UnitarySubgroupInfo> {
+    cached_unitary_subgroup_with_hall(uni_number).cloned()
+}
+
+pub(crate) fn cached_unitary_subgroup_with_hall(
+    uni_number: usize,
+) -> Option<&'static UnitarySubgroupInfo> {
+    if uni_number == 0 || uni_number > 1651 {
+        return None;
+    }
+    unitary_subgroup_cache()[uni_number]
+        .get_or_init(|| identify_unitary_subgroup_with_hall_uncached(uni_number))
+        .as_ref()
+}
+
+fn unitary_subgroup_cache() -> &'static [OnceLock<Option<UnitarySubgroupInfo>>] {
+    static CACHE: OnceLock<Box<[OnceLock<Option<UnitarySubgroupInfo>>]>> = OnceLock::new();
+    CACHE.get_or_init(|| {
+        (0..=1651)
+            .map(|_| OnceLock::new())
+            .collect::<Vec<_>>()
+            .into_boxed_slice()
+    })
+}
+
+fn identify_unitary_subgroup_with_hall_uncached(uni_number: usize) -> Option<UnitarySubgroupInfo> {
     let mag_ops = get_magnetic_operations(uni_number)?;
     let msg_type = crate::MagneticSpaceGroupType::from_uni(uni_number).ok()?;
 
@@ -3035,24 +3062,30 @@ fn standard_setting_transform(
 
 /// BNS label → UNI number.
 pub fn uni_from_bns(bns: &str) -> Option<usize> {
-    for uni in 1..=1651usize {
-        let t = crate::msg_database::get_magnetic_spacegroup_type(uni);
-        if t.bns_number == bns {
-            return Some(uni);
-        }
-    }
-    None
+    magnetic_label_indices().0.get(bns).copied()
 }
 
 /// OG label → UNI number.
 pub fn uni_from_og(og: &str) -> Option<usize> {
-    for uni in 1..=1651usize {
-        let t = crate::msg_database::get_magnetic_spacegroup_type(uni);
-        if t.og_number == og {
-            return Some(uni);
+    magnetic_label_indices().1.get(og).copied()
+}
+
+type MagneticLabelIndices = (HashMap<&'static str, usize>, HashMap<&'static str, usize>);
+
+fn magnetic_label_indices() -> &'static MagneticLabelIndices {
+    static INDICES: OnceLock<MagneticLabelIndices> = OnceLock::new();
+    INDICES.get_or_init(|| {
+        let mut bns = HashMap::with_capacity(1651);
+        let mut og = HashMap::with_capacity(1651);
+        for uni in 1..=1651 {
+            let group = crate::msg_database::get_magnetic_spacegroup_type(uni);
+            // Match the former ascending linear scan even if a future
+            // database accidentally repeats a label.
+            bns.entry(group.bns_number).or_insert(uni);
+            og.entry(group.og_number).or_insert(uni);
         }
-    }
-    None
+        (bns, og)
+    })
 }
 
 /// Compute all corepresentations for a magnetic SG at a k-point.
@@ -4484,6 +4517,20 @@ mod tests {
         assert!(identify_unitary_subgroup(2).is_some(), "UNI 2 should work");
     }
 
+    #[test]
+    fn cached_unitary_subgroup_results_are_independent_owned_values() {
+        let mut first = identify_unitary_subgroup_with_hall(1066)
+            .expect("UNI 1066 unitary subgroup must be identifiable");
+        let operation_count = first.ops_from_hall.len();
+        first.ops_from_hall.operations.clear();
+
+        let second = identify_unitary_subgroup_with_hall(1066)
+            .expect("cached UNI 1066 unitary subgroup must remain available");
+        assert_eq!(second.sg, 118);
+        assert_eq!(second.ops_from_hall.len(), operation_count);
+        assert!(!second.ops_from_hall.is_empty());
+    }
+
     /// Cross-validate compound CIR data against its full-star PIR dimension.
     ///
     /// The stored CIR rows contain the selected arm and include Hall-setting
@@ -4585,6 +4632,15 @@ mod tests {
         // Non-existent labels
         assert_eq!(uni_from_bns("nonexistent"), None);
         assert_eq!(uni_from_og("999.999.999"), None);
+    }
+
+    #[test]
+    fn cached_magnetic_label_indices_cover_the_database() {
+        for uni in 1..=1651 {
+            let group = crate::msg_database::get_magnetic_spacegroup_type(uni);
+            assert_eq!(uni_from_bns(group.bns_number), Some(uni));
+            assert_eq!(uni_from_og(group.og_number), Some(uni));
+        }
     }
 
     /// SG 128 Γ-point double group irreps — verified against BCS

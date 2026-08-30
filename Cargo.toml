@@ -20,6 +20,7 @@ exclude = [
 [dependencies]
 thiserror = "2"
 num-complex = "0.4"
+rayon = "1.10"
 
 [features]
 debug-corep = []  # enable verbose Wigner test diagnostics (eprintln!)
