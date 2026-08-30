@@ -16,6 +16,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(__file__))
 import generate_irrep_data as generator
 import parse_spinor_data
+import spinor_exact
 
 
 _EXPECTED_HALL_OPERATIONS_BYTE_LENGTH = 481408
@@ -141,6 +142,74 @@ class PinnedArchiveBoundaryTests(unittest.TestCase):
             parse_spinor_data._validate_spin_source_sgs(
                 list(range(1, 230)) + [229]
             )
+
+    def test_exact_spin_hall_transport_expands_centering_and_keeps_phase_sign(self):
+        identity = (1, 0, 0, 0, 1, 0, 0, 0, 1)
+        zero = (Fraction(0), Fraction(0), Fraction(0))
+        matrix_identity = (
+            spinor_exact.Complex24(spinor_exact.ONE, spinor_exact.ZERO),
+            spinor_exact.Complex24(),
+            spinor_exact.Complex24(),
+            spinor_exact.Complex24(spinor_exact.ONE, spinor_exact.ZERO),
+        )
+        source = spinor_exact.ExactSpinOperation(
+            identity, zero, matrix_identity
+        )
+        target = generator._ExactScalarHallTarget(
+            5,
+            9,
+            (0, 0),
+            ((0, 0, 0), (6, 6, 0)),
+            (identity, identity),
+            ((0, 0, 0), (6, 6, 0)),
+            ((0.0, 0.0, 0.0), (0.5, 0.5, 0.0)),
+        )
+        frame = generator._build_exact_spin_hall_frame(
+            5, ({"_exact_operation": source},), target
+        )
+        row = spinor_exact.ExactSpinRow(
+            0,
+            1,
+            "V",
+            "V1",
+            (Fraction(1, 2), Fraction(1, 2), Fraction(0)),
+            (0,),
+            (spinor_exact.Complex24(spinor_exact.ONE, spinor_exact.ZERO),),
+        )
+        indices, values = generator._transport_exact_spin_row(row, frame)
+        self.assertEqual(indices, (0, 1))
+        self.assertEqual(
+            values,
+            (
+                spinor_exact.Complex24(spinor_exact.ONE, spinor_exact.ZERO),
+                spinor_exact.Complex24(-spinor_exact.ONE, spinor_exact.ZERO),
+            ),
+        )
+
+        quarter_target = target._replace(
+            shift_numerators=((0, 0, 0), (6, 0, 0)),
+            translation_numerators=((0, 0, 0), (6, 0, 0)),
+            translations_f64=((0.0, 0.0, 0.0), (0.5, 0.0, 0.0)),
+        )
+        quarter_frame = generator._build_exact_spin_hall_frame(
+            5, ({"_exact_operation": source},), quarter_target
+        )
+        quarter_row = row.__class__(
+            0,
+            1,
+            "V",
+            "V1",
+            (Fraction(1, 2), Fraction(0), Fraction(0)),
+            (0,),
+            row.characters,
+        )
+        _indices, quarter_values = generator._transport_exact_spin_row(
+            quarter_row, quarter_frame
+        )
+        self.assertEqual(
+            quarter_values[1],
+            spinor_exact.Complex24(spinor_exact.ZERO, spinor_exact.ONE),
+        )
 
     def test_ambiguous_suffix_member_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

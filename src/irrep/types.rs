@@ -632,7 +632,7 @@ impl IrrepRecord {
         &super::generated_data::SPIN_IMAG_CHARS[start..start + len]
     }
 
-    /// Spin symmetry operations with SU(2) lifts for any space group.
+    /// Canonical data-Hall symmetry operations with pinned SU(2) lifts.
     ///
     /// This is a standalone version — does not require an `IrrepRecord`.
     /// Get the ISOTROPY setting (basis matrix + origin shift) for a space group.
@@ -666,7 +666,7 @@ impl IrrepRecord {
         (rots, trans, su2)
     }
 
-    /// Spin symmetry operations with SU(2) lifts for this irrep's space group.
+    /// Canonical data-Hall operations with pinned SU(2) lifts for this SG.
     ///
     /// Returns `(rotations, translations, pauli_su2)` slices where:
     /// - `rotations`: 9 i32 per op (3×3 rotation matrix, row-major)

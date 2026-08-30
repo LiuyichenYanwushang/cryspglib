@@ -357,6 +357,23 @@ class _ExactScalarHallTarget(NamedTuple):
     translations_f64: tuple
 
 
+class _ExactSpinHallOperation(NamedTuple):
+    """One spin operation transported to the canonical data-Hall row."""
+
+    source_operation_index: int
+    rotation: tuple
+    translation: tuple
+    source_to_target_shift: tuple
+    pauli_su2: tuple
+
+
+class _ExactSpinHallFrame(NamedTuple):
+    """Canonical Hall spin operations for one space group."""
+
+    spacegroup: int
+    operations: tuple
+
+
 def _rotation_determinant(rotation):
     """Return the determinant of a flat 3x3 integer rotation."""
     a, b, c, d, e, f, g, h, i = rotation
@@ -2715,107 +2732,231 @@ def _prepare_sidecar_hall_choices(
     return choices
 
 
-def _reorder_spin_ops_to_hall(spin_op_rots, spin_op_trans, spin_op_su2,
-                                spin_op_sg_start, spin_op_sg_count,
-                                spin_lg_op_indices_flat, spin_lg_op_starts,
-                                spin_lg_op_counts, sg_hall_choice):
-    """Reorder SPIN_OP data using legacy Hall rotations only.
+def _build_exact_spin_hall_frame(spacegroup, source_operations, scalar_target):
+    """Transport one exact spin source table to canonical Hall representatives.
 
-    The ISO source sidecar does not describe spin-source ordering.  It supplies
-    only the already selected Hall number through ``sg_hall_choice``; spin
-    source rotations retain this legacy rotation-only matching path.
+    Direct source/target operation matching is by the unique rotation.  The
+    returned shift is not database metadata guessed at runtime: it is the
+    exact difference between the already canonical Hall representative and
+    the pinned spin source representative.  Runtime group multiplication and
+    conjugation perform their own exact reductions separately.
     """
-    sg_halls = _load_hall_operations()
-    if not sg_halls:
-        raise ValueError("hall_operations.json contains no Hall operations")
+    if type(spacegroup) is not int or not 1 <= spacegroup <= 230:
+        raise ValueError("spin Hall frame spacegroup must be in 1..230")
+    if type(scalar_target) is not _ExactScalarHallTarget:
+        raise ValueError(f"SG{spacegroup} has no exact scalar Hall target")
+    if scalar_target.spacegroup != spacegroup:
+        raise ValueError(f"SG{spacegroup} scalar Hall target slot mismatch")
+    if type(source_operations) is not tuple or not source_operations:
+        raise ValueError(f"SG{spacegroup} exact spin source table is empty")
 
-    reordered_sgs = 0
-    total_spin_ops = len(spin_op_rots) // 9
-    # Build new arrays
-    new_rots = []
-    new_trans = []
-    new_su2 = []
-    new_sg_start = [0] * 231
-    new_sg_count = [0] * 231
-    # Build old→new mapping per SG. Both keys and values are SG-local
-    # operation indices because spin_lg_op_indices are SG-local.
-    sg_bilbao_to_new = {}  # sg_num → {old_local: new_local}
-
-    for sg_num in range(1, 231):
-        count = spin_op_sg_count[sg_num]
-        if count == 0:
-            continue
-        old_start = spin_op_sg_start[sg_num]
-        # Get canonical Hall for this SG
-        hall_info = sg_hall_choice.get(sg_num)
-        if hall_info is None:
-            raise ValueError(f"spin SG{sg_num} has no sidecar-selected Hall")
-
-        hall_num = hall_info[0]
-        hall_rots = None
-        for h_num, h_rots, h_trans in sg_halls.get(sg_num, []):
-            if h_num == hall_num:
-                hall_rots = h_rots
-                break
-
-        if hall_rots is None:
+    source_by_rotation = {}
+    for source_index, legacy_operation in enumerate(source_operations):
+        if type(legacy_operation) is not dict:
+            raise ValueError(f"SG{spacegroup} spin operation {source_index} is malformed")
+        exact_operation = legacy_operation.get("_exact_operation")
+        try:
+            rotation = tuple(exact_operation.rotation)
+            translation = tuple(exact_operation.translation)
+            pauli_su2 = tuple(exact_operation.pauli_components())
+        except (AttributeError, TypeError) as error:
             raise ValueError(
-                f"spin SG{sg_num} selected Hall{hall_num} is missing"
+                f"SG{spacegroup} spin operation {source_index} lacks exact provenance"
+            ) from error
+        if (len(rotation) != 9 or len(translation) != 3 or len(pauli_su2) != 4
+                or any(type(value) is not int for value in rotation)
+                or any(type(value) is not Fraction for value in translation)):
+            raise ValueError(f"SG{spacegroup} exact spin operation {source_index} is invalid")
+        if rotation in source_by_rotation:
+            raise ValueError(f"SG{spacegroup} exact spin source rotations are not unique")
+        source_by_rotation[rotation] = (source_index, translation, pauli_su2)
+
+    identity = (1, 0, 0, 0, 1, 0, 0, 0, 1)
+    hall_translations = tuple(
+        tuple(Fraction(value, TRANSLATION_DENOMINATOR) for value in numerator)
+        for numerator in scalar_target.translation_numerators
+    )
+    translation_cosets = {
+        tuple(value % 1 for value in translation)
+        for rotation, translation in zip(scalar_target.rotations, hall_translations)
+        if rotation == identity
+    }
+    if not translation_cosets or (Fraction(0),) * 3 not in translation_cosets:
+        raise ValueError(f"SG{spacegroup} canonical Hall translation lattice is invalid")
+
+    operations = []
+    for hall_index, (rotation, target_translation) in enumerate(
+            zip(scalar_target.rotations, hall_translations)):
+        source = source_by_rotation.get(rotation)
+        if source is None:
+            raise ValueError(
+                f"SG{spacegroup} Hall operation {hall_index} has no spin source rotation"
+            )
+        source_index, source_translation, pauli_su2 = source
+        shift = tuple(
+            target_translation[axis] - source_translation[axis]
+            for axis in range(3)
+        )
+        if tuple(value % 1 for value in shift) not in translation_cosets:
+            raise ValueError(
+                f"SG{spacegroup} Hall operation {hall_index} differs from its spin "
+                "source by a non-lattice translation"
+            )
+        operations.append(_ExactSpinHallOperation(
+            source_index, rotation, target_translation, shift, pauli_su2
+        ))
+    return _ExactSpinHallFrame(spacegroup, tuple(operations))
+
+
+def _build_exact_spin_hall_frames(spinor_ops_data, scalar_targets):
+    """Build all 230 canonical spin Hall frames and enforce their census."""
+    if type(spinor_ops_data) is not dict or type(scalar_targets) is not tuple:
+        raise ValueError("exact spin Hall inputs are malformed")
+    if len(scalar_targets) != 230 or set(spinor_ops_data) != set(range(1, 231)):
+        raise ValueError("exact spin Hall inputs must cover SG 1..230")
+    frames = tuple(
+        _build_exact_spin_hall_frame(
+            spacegroup, tuple(spinor_ops_data[spacegroup]), scalar_targets[spacegroup - 1]
+        )
+        for spacegroup in range(1, 231)
+    )
+    if sum(len(frame.operations) for frame in frames) != 4425:
+        raise ValueError("exact spin Hall operation census must be 4425")
+    return frames
+
+
+def _transport_exact_spin_row(exact_row, frame):
+    """Expand and phase one exact source row in canonical Hall order."""
+    try:
+        source_positions = {
+            source_index: position
+            for position, source_index in enumerate(exact_row.operation_indices)
+        }
+        source_values = exact_row.characters
+        k_vector = exact_row.k
+    except (AttributeError, TypeError) as error:
+        raise ValueError("spin row lacks exact source provenance") from error
+    if (len(source_positions) != len(exact_row.operation_indices)
+            or len(source_values) != len(source_positions)
+            or len(k_vector) != 3):
+        raise ValueError("exact spin row has inconsistent operation/value data")
+
+    # Every observed source→Hall Bloch phase is a quarter turn.  Keeping this
+    # exact preserves mathematical zeros and prevents a new tolerance/snap
+    # boundary from entering the generated character table.
+    import spinor_exact
+    phases = (
+        spinor_exact.Complex24(spinor_exact.ONE, spinor_exact.ZERO),
+        spinor_exact.Complex24(spinor_exact.ZERO, spinor_exact.ONE),
+        spinor_exact.Complex24(-spinor_exact.ONE, spinor_exact.ZERO),
+        spinor_exact.Complex24(spinor_exact.ZERO, -spinor_exact.ONE),
+    )
+    hall_indices = []
+    values = []
+    for hall_index, operation in enumerate(frame.operations):
+        source_position = source_positions.get(operation.source_operation_index)
+        if source_position is None:
+            continue
+        turns = sum(
+            (k_vector[axis] * operation.source_to_target_shift[axis]
+             for axis in range(3)),
+            Fraction(0),
+        )
+        quarter_turns = turns * 4
+        if quarter_turns.denominator != 1:
+            raise ValueError(
+                f"SG{frame.spacegroup} spin Hall phase is not a quarter turn: {turns}"
+            )
+        phase = phases[int(quarter_turns) % 4]
+        hall_indices.append(hall_index)
+        values.append(phase * source_values[source_position])
+    if not hall_indices:
+        raise ValueError(f"SG{frame.spacegroup} spin row has no canonical Hall operations")
+    return tuple(hall_indices), tuple(values)
+
+
+def _materialize_exact_spin_hall_data(
+        spinor_irreps, spinor_ops_data, scalar_targets,
+        chars_flat, spinor_starts, spinor_counts,
+        spin_extra_flat, spin_extra_starts, spin_extra_counts,
+        spin_op_rots, spin_op_trans, spin_op_su2,
+        spin_op_sg_start, spin_op_sg_count,
+        spin_lg_counts, spin_lg_op_indices_flat,
+        spin_lg_op_starts, spin_lg_op_counts,
+        pir_rots_flat, pir_rot_starts, scalar_irrep_count):
+    """Replace legacy spin storage with exact canonical Hall rows."""
+    frames = _build_exact_spin_hall_frames(spinor_ops_data, scalar_targets)
+    if (not spinor_irreps or not spinor_starts
+            or len(spinor_irreps) != len(spinor_starts)
+            or len(pir_rot_starts) != scalar_irrep_count + len(spinor_irreps)):
+        raise ValueError("spin Hall materialization arrays have inconsistent counts")
+
+    spin_op_rots.clear()
+    spin_op_trans.clear()
+    spin_op_su2.clear()
+    spin_op_sg_start[:] = [0] * 231
+    spin_op_sg_count[:] = [0] * 231
+    for frame in frames:
+        spin_op_sg_start[frame.spacegroup] = len(spin_op_rots) // 9
+        spin_op_sg_count[frame.spacegroup] = len(frame.operations)
+        if len(frame.operations) > 255:
+            raise ValueError(f"SG{frame.spacegroup} spin Hall operation count exceeds u8")
+        for operation in frame.operations:
+            spin_op_rots.extend(operation.rotation)
+            spin_op_trans.extend(float(value) for value in operation.translation)
+            spin_op_su2.extend(value.materialize() for value in operation.pauli_su2)
+
+    scalar_char_boundary = spinor_starts[0]
+    del chars_flat[scalar_char_boundary:]
+    spin_extra_flat.clear()
+    spin_lg_op_indices_flat.clear()
+    spin_pir_boundary = pir_rot_starts[scalar_irrep_count]
+    del pir_rots_flat[spin_pir_boundary:]
+
+    total_columns = 0
+    for index, sir in enumerate(spinor_irreps):
+        exact_row = sir.get("_exact_row")
+        frame = frames[sir["sg"] - 1]
+        hall_indices, exact_values = _transport_exact_spin_row(exact_row, frame)
+        if len(hall_indices) > 255:
+            raise ValueError(
+                f"spinor SG{sir['sg']} {sir['ml_label']!r} Hall row exceeds u8"
+            )
+        materialized = tuple(value.materialize() for value in exact_values)
+        if any(not math.isfinite(component) for value in materialized for component in value):
+            raise ValueError(
+                f"spinor SG{sir['sg']} {sir['ml_label']!r} materialized non-finite data"
             )
 
-        # Build Bilbao→Hall position mapping
-        n_hall = len(hall_rots)
-        bilbao_to_hall = {}
-        hall_to_bilbao = {}
-        for bi in range(count):
-            b_rot = spin_op_rots[(old_start + bi)*9:(old_start + bi)*9 + 9]
-            for hi, h_rot in enumerate(hall_rots):
-                if all(b_rot[d] == h_rot[d] for d in range(9)):
-                    bilbao_to_hall[bi] = hi
-                    hall_to_bilbao[hi] = bi
-                    break
+        spinor_starts[index] = len(chars_flat)
+        spinor_counts[index] = len(hall_indices)
+        spin_extra_starts[index] = len(spin_extra_flat)
+        spin_extra_counts[index] = len(hall_indices)
+        spin_lg_counts[index] = len(hall_indices)
+        spin_lg_op_starts[index] = len(spin_lg_op_indices_flat)
+        spin_lg_op_counts[index] = len(hall_indices)
+        spin_lg_op_indices_flat.extend(hall_indices)
+        chars_flat.extend(value[0] for value in materialized)
+        spin_extra_flat.extend(value[1] for value in materialized)
 
-        # Build new arrays in Hall order
-        new_pos = len(new_rots) // 9
-        new_sg_start[sg_num] = new_pos
-        holes = 0
-        mapping = {}
-        for hi in range(n_hall):
-            bi = hall_to_bilbao.get(hi)
-            if bi is not None:
-                o = old_start + bi
-                new_rots.extend(spin_op_rots[o*9:(o+1)*9])
-                new_trans.extend(spin_op_trans[o*3:(o+1)*3])
-                new_su2.extend(spin_op_su2[o*4:(o+1)*4])
-                mapping[bi] = hi - holes
-            else:
-                holes += 1
-        new_count = n_hall - holes
-        new_sg_count[sg_num] = new_count
-        sg_bilbao_to_new[sg_num] = mapping
-        if holes > 0:
-            reordered_sgs += 1  # count SGs with missing spin ops
+        pir_rot_starts[scalar_irrep_count + index] = len(pir_rots_flat)
+        for hall_index in hall_indices:
+            pir_rots_flat.extend(frame.operations[hall_index].rotation)
 
-    # Replace arrays
-    spin_op_rots[:] = new_rots
-    spin_op_trans[:] = new_trans
-    spin_op_su2[:] = new_su2
-    spin_op_sg_start[:] = new_sg_start
-    spin_op_sg_count[:] = new_sg_count
+        sir["characters"] = [value[0] for value in materialized]
+        sir["characters_imag"] = [value[1] for value in materialized]
+        sir["op_indices"] = list(hall_indices)
+        total_columns += len(hall_indices)
 
-    # Update spin_lg_op_indices using the mapping
-    for i in range(len(spin_lg_op_indices_flat)):
-        old_val = spin_lg_op_indices_flat[i]
-        # Find which SG this index belongs to
-        # spin_lg_op_indices are per-irrep; each irrep belongs to an SG
-        # We need to find the irrep for index i and its SG
-        # For now, use a simple approach: scan through spin_lg_op_starts to find the irrep
-        # The SG is determined by the spinor_irreps order
-        pass  # This is done separately (see below)
-
-    print(f"  SPIN_OP reorder: {len(sg_bilbao_to_new)} SGs processed, "
-          f"spin ops reordered to Hall order ({total_spin_ops} → {len(spin_op_rots)//9} total)")
-    return sg_bilbao_to_new
+    if total_columns != 46972:
+        raise ValueError(
+            f"canonical spin Hall character census expected 46972, got {total_columns}"
+        )
+    print(
+        "  Exact SPIN_OP Hall materialization: 230 SGs, "
+        f"{len(spin_op_rots) // 9} operations, {total_columns} character columns"
+    )
+    return frames
 
 
 def _sidecar_source_hall_mapping(frame, sg_num, label, source_rots,
@@ -4296,8 +4437,6 @@ def generate_rust_data(data):
             spin_op_rots.extend(op['rot'])
             spin_op_trans.extend(op['trans'])
             spin_op_su2.extend(op['su2'])
-    total_spin_ops = len(spin_op_rots) // 9
-
     # ── Spinor little-group character counts ──
     spin_lg_counts = []
     spin_lg_op_indices_flat = []  # op_indices flattened
@@ -4420,41 +4559,34 @@ def generate_rust_data(data):
                 f"{expected} disagrees with final χ(E)=({little_re},{little_im})"
             )
 
-    # ── Phase D: Reorder SPIN_OP data to spglib Hall order ──
-    sg_bilbao_to_new = _reorder_spin_ops_to_hall(
+    # ── Phase D: materialize exact spin rows in canonical data-Hall order ──
+    # Direct matching now has identical canonical representatives (L=0 at
+    # runtime).  Source-representative shifts and their Bloch phases are
+    # consumed exactly once here; later multiplication/conjugation reductions
+    # independently return their own lattice shift and double-group sign.
+    _materialize_exact_spin_hall_data(
+        spinor_irreps, spinor_ops_data,
+        data.get("exact_scalar_hall_targets"),
+        chars_flat, spinor_starts, spinor_counts,
+        spin_extra_flat, spin_extra_starts, spin_extra_counts,
         spin_op_rots, spin_op_trans, spin_op_su2,
         spin_op_sg_start, spin_op_sg_count,
-        spin_lg_op_indices_flat, spin_lg_op_starts, spin_lg_op_counts,
-        sg_hall_choice)
-
-    # Update SG-local spin_lg_op_indices using the old→new local mapping.
-    if sg_bilbao_to_new:
-        updated_count = 0
-        for i, sir in enumerate(spinor_irreps):
-            sg_num = sir['sg']
-            mapping = sg_bilbao_to_new.get(sg_num, {})
-            if not mapping:
-                continue
-            start = spin_lg_op_starts[i]
-            count = spin_lg_op_counts[i]
-            for j in range(count):
-                old_local = spin_lg_op_indices_flat[start + j]
-                new_local = mapping.get(old_local, old_local)
-                spin_lg_op_indices_flat[start + j] = new_local
-                updated_count += 1
-        print(f"  Updated {updated_count} spin_lg_op_indices after SPIN_OP reorder")
+        spin_lg_counts, spin_lg_op_indices_flat,
+        spin_lg_op_starts, spin_lg_op_counts,
+        pir_rots_flat, pir_rot_starts, len(ml))
 
     # Spinor rows are a strict indexed view: all four counts are identical,
     # indices are a permutation of distinct SG-local operations, and every SG
     # table has complete rotation/translation/SU(2) parallel arrays.
     for sg_num in range(1, 231):
-        ops = spinor_ops_data.get(sg_num, [])
         if (len(spin_op_rots) % 9 != 0 or len(spin_op_trans) % 3 != 0
                 or len(spin_op_su2) % 4 != 0):
             raise ValueError("global spin operation arrays have invalid widths")
         sg_start = spin_op_sg_start[sg_num]
         sg_count = spin_op_sg_count[sg_num]
-        if (len(ops) != sg_count or sg_start + sg_count > len(spin_op_rots) // 9
+        expected_count = len(data["exact_scalar_hall_targets"][sg_num - 1].rotations)
+        if (expected_count != sg_count
+                or sg_start + sg_count > len(spin_op_rots) // 9
                 or sg_start + sg_count > len(spin_op_trans) // 3
                 or sg_start + sg_count > len(spin_op_su2) // 4):
             raise ValueError(f"spin operation table SG{sg_num} has inconsistent widths")
@@ -4666,8 +4798,8 @@ def generate_rust_data(data):
     lines.append("")
 
     # ── Spinor (double-group) operation arrays ──
-    lines.append("/// Spinor symmetry operations with SU(2) lifts, indexed by SG number.")
-    lines.append("/// Use [`SPIN_OP_SG_INDEX`] to find start and count for each SG.")
+    lines.append("/// Canonical data-Hall spin operations with pinned SU(2) lifts.")
+    lines.append("/// Use [`SPIN_OP_SG_INDEX`] to find the complete Hall-ordered SG table.")
     lines.append(f"pub static SPIN_OP_ROTS: [i32; {len(spin_op_rots)}] = [")
     for chunk_start in range(0, len(spin_op_rots), 9):
         chunk = spin_op_rots[chunk_start:chunk_start + 9]
@@ -4682,7 +4814,7 @@ def generate_rust_data(data):
         lines.append(f"    {vals},")
     lines.append("];")
     lines.append("")
-    lines.append(f"/// SU(2) Pauli coefficients [u₀,u₁,u₂,u₃] per spin operation.")
+    lines.append(f"/// Pinned SU(2) Pauli coefficients [u₀,u₁,u₂,u₃] per Hall operation.")
     lines.append(f"/// U = u₀·I + i(u₁·σx + u₂·σy + u₃·σz).")
     lines.append(f"/// Verified 229/229 SGs at 100% closure.")
     lines.append(f"pub static SPIN_OP_SU2: [f64; {len(spin_op_su2)}] = [")

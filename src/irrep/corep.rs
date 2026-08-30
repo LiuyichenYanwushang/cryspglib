@@ -2620,7 +2620,7 @@ mod tests {
     }
 
     #[test]
-    fn sg5_l2_uni20_rejects_unphased_spin_character_mapping() {
+    fn sg5_l2_uni20_uses_canonical_centered_spin_character_mapping() {
         let l2 = crate::irrep::query::irreps_of(5)
             .iter()
             .find(|irrep| irrep.spinor && irrep.ml == "L2")
@@ -2628,37 +2628,23 @@ mod tests {
         let row = l2
             .spinor_selected_arm_view()
             .expect("SG 5 L2 typed spinor row");
-        assert_eq!(row.len(), 1);
-        let (source_value, source_operation) = row.entry(0).expect("SG 5 L2 source operation");
-        assert!((source_value.re - 1.0).abs() < 1.0e-8);
-        assert!(source_value.im.abs() < 1.0e-8);
-        assert!(
-            source_operation
-                .seitz
-                .translation
-                .iter()
-                .all(|translation| translation.abs() < 1.0e-8)
-        );
+        assert_eq!(row.len(), 2);
+        let (identity_value, identity_operation) =
+            row.entry(0).expect("SG 5 L2 identity operation");
+        let (centered_value, centered_operation) =
+            row.entry(1).expect("SG 5 L2 centered operation");
+        assert!((identity_value.re - 1.0).abs() < 1.0e-8);
+        assert!(identity_value.im.abs() < 1.0e-8);
+        assert!((centered_value.re + 1.0).abs() < 1.0e-8);
+        assert!(centered_value.im.abs() < 1.0e-8);
+        assert_eq!(identity_operation.seitz.translation, [0.0, 0.0, 0.0]);
+        assert_eq!(centered_operation.seitz.translation, [0.5, 0.5, 0.0]);
 
         let mag_ops = get_magnetic_operations(20).expect("UNI 20 operations");
-        let error = compute_corepresentation(l2, 20, &mag_ops)
-            .expect_err("unphased SG 5 L2 spin mapping must be rejected");
-        match error {
-            CorepComputationError::UnsupportedClassification {
-                uni,
-                source_irrep,
-                reason,
-            } => {
-                assert_eq!(uni, 20);
-                assert_eq!(source_irrep, "L2");
-                assert!(
-                    reason.contains(
-                        "phase-aligned exact full-Seitz spin character mapping unavailable"
-                    )
-                );
-            }
-            other => panic!("unexpected SG 5 L2 error: {other:?}"),
-        }
+        let corep = compute_corepresentation(l2, 20, &mag_ops)
+            .expect("canonical SG 5 L2 spin mapping must be available");
+        assert_eq!(corep.characters, vec![1.0, -1.0]);
+        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
     }
 
     #[test]
@@ -3788,6 +3774,50 @@ mod tests {
             total
         );
         println!("Spinor irreps: {} total, all well-formed ✓", total);
+    }
+
+    #[test]
+    fn all_spin_operation_tables_are_complete_canonical_hall_rows() {
+        let mut operation_count = 0usize;
+        for sg in 1u8..=230 {
+            let hall =
+                crate::irrep::bridge::canonical_hall_ops(sg).expect("canonical Hall operations");
+            let (rotations, translations, su2) = IrrepRecord::spin_ops_for_sg(sg);
+            assert_eq!(rotations.len(), hall.len() * 9, "SG{sg} rotation count");
+            assert_eq!(
+                translations.len(),
+                hall.len() * 3,
+                "SG{sg} translation count"
+            );
+            assert_eq!(su2.len(), hall.len() * 4, "SG{sg} SU(2) count");
+            for (index, operation) in hall.operations.iter().enumerate() {
+                let expected_rotation: [i32; 9] = operation
+                    .rotation
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .expect("3x3 Hall rotation");
+                assert_eq!(
+                    rotations[index * 9..(index + 1) * 9],
+                    expected_rotation,
+                    "SG{sg} operation {index} rotation"
+                );
+                assert!(
+                    translations[index * 3..(index + 1) * 3]
+                        .iter()
+                        .zip(operation.translation)
+                        // spglib's public Hall table retains historical
+                        // decimal thirds; generated spin storage uses the
+                        // exact rational materialization.
+                        .all(|(left, right)| (left - right).abs() < 1.0e-8),
+                    "SG{sg} operation {index} translation"
+                );
+            }
+            operation_count += hall.len();
+        }
+        assert_eq!(operation_count, 4425);
     }
 
     /// Database format sanity: all irrep k-vectors have reasonable denominators.
@@ -6806,18 +6836,23 @@ mod tests {
             "Unitary little group at P-point should be non-empty"
         );
 
-        // The empty antiunitary little group is still identified above, but
-        // final spinor characters require an exact source Seitz map too.
-        let error = p5
-            .corepresentation(uni)
-            .expect_err("unphased spin operation mapping must be rejected");
-        match error {
-            CorepComputationError::UnsupportedClassification { reason, .. } => assert!(
-                reason
-                    .contains("phase-aligned exact full-Seitz spin character mapping unavailable")
-            ),
-            other => panic!("unexpected P-point spinor error: {other:?}"),
-        }
+        // The legacy f64 surface must reject the genuine -i column, while the
+        // lossless API preserves it and the no-antiunitary Type-A result.
+        assert!(matches!(
+            p5.corepresentation(uni),
+            Err(CorepComputationError::ComplexUnitaryCharacters { .. })
+        ));
+        let corep = p5
+            .complex_corepresentation(uni)
+            .expect("canonical complex P5 row must be representable");
+        assert_eq!(corep.corep_type, CorepType::A);
+        assert_eq!(corep.source, WignerSource::TrivialNoAntiunitary);
+        assert!(
+            corep
+                .characters
+                .iter()
+                .any(|value| { value.re.abs() < 1.0e-8 && (value.im + 1.0).abs() < 1.0e-8 })
+        );
     }
 
     /// - BNS → UNI mapping
@@ -6890,124 +6925,29 @@ mod tests {
         }
     }
 
-    /// Simplest spinor Wigner failure: UNI 21 (BNS 5.14), SG 5 (C2), L-point.
-    ///
-    /// This is the absolute simplest case found — only 1 little-group operation.
-    /// The Wigner sum has a single term: W = χ̃(a₀h) for h=E (identity).
-    ///
-    /// The antiunitary square is just (a₀)², so the failure reduces to:
-    ///   (U_a₀)² ≠ ±U_{identity} = ±[1, 0, 0, 0]
-    /// This means the SU(2) database's lift for a₀'s rotation, when squared,
-    /// does not give ±identity — a fundamental gauge inconsistency for this
-    /// single operation.
+    /// The formerly incomplete SG5 L-point spin table is now centered-Hall complete.
     #[test]
-    fn test_simplest_spinor_failure_uni21() {
+    fn test_sg5_centered_spin_corep_uni21() {
         let uni = 21usize; // BNS 5.14, SG 5 (C2), grey group
-        let mag_ops = get_magnetic_operations(uni).unwrap();
         let h_info = identify_unitary_subgroup_with_hall(uni).unwrap();
         let h_sg = h_info.sg as u8;
 
         assert_eq!(h_sg, 5, "Unitary subgroup of 5.14 should be SG 5 (C2)");
 
         let h_irreps = crate::irrep::query::irreps_of(h_sg);
-        // L-point spinor irrep: n_lg=1
         let l_spinor = h_irreps
             .iter()
-            .find(|r| r.spinor && r.k_label() == "L" && r.spin_lg_char_count() == 1)
-            .expect("SG 5 should have L-point spinor irrep with n_lg=1");
+            .find(|r| r.spinor && r.ml == "L2")
+            .expect("SG 5 should have the L2 spinor irrep");
+        assert_eq!(l_spinor.spin_lg_char_count(), 2);
+        let row = l_spinor.spinor_selected_arm_view().unwrap();
+        assert_eq!(row.entry(0).unwrap().1.seitz.translation, [0.0, 0.0, 0.0]);
+        assert_eq!(row.entry(1).unwrap().1.seitz.translation, [0.5, 0.5, 0.0]);
 
-        println!(
-            "SG {} {} k=({},{},{})/{} n_lg={} dim={}",
-            l_spinor.sg,
-            l_spinor.ml,
-            l_spinor.kx,
-            l_spinor.ky,
-            l_spinor.kz,
-            l_spinor.kd,
-            l_spinor.spin_lg_char_count(),
-            l_spinor.dim
-        );
-
-        // One little-group op: should be identity
-        let (h_rots, h_trans, h_su2) = l_spinor.spin_ops();
-        let h_spin_seitz = wigner::build_spin_seitz(h_rots, h_trans);
-        let indices = l_spinor.spin_lg_op_indices();
-        assert_eq!(indices.len(), 1, "Exactly 1 little-group op");
-        let gsi = indices[0] as usize;
-
-        println!(
-            "LG op: spin[{}] rot={:?} su2={:?}",
-            gsi,
-            h_spin_seitz[gsi].rot,
-            wigner::spin_su2_at(h_su2, gsi)
-        );
-
-        // Find a₀ (first antiunitary op)
-        let mag_seitz = ops_to_seitz(&mag_ops);
-        let mag_lg =
-            filter_little_group(l_spinor.kx, l_spinor.ky, l_spinor.kz, l_spinor.kd, &mag_ops);
-        let a0_idx = mag_lg
-            .iter()
-            .find(|&&i| mag_ops.operations[i].time_reversal)
-            .copied()
-            .expect("Should have antiunitary op");
-
-        let a0 = &mag_seitz[a0_idx];
-        let a0_spin = h_spin_seitz
-            .iter()
-            .position(|s| s.rot == a0.rot)
-            .expect("a0 rotation should be in spin ops");
-        let u_a0 = wigner::spin_su2_at(h_su2, a0_spin).unwrap();
-
-        println!("a₀: spin[{}] rot={:?} u_a₀={:?}", a0_spin, a0.rot, u_a0);
-        println!("a₀² in SO(3): rot={:?}", wigner::square_seitz(a0).0.rot);
-
-        // The Wigner sum has ONE term: χ̃(a₀·E) = ±χ((a₀)²)
-        // In SU(2): u_sq = (U_a₀)², compare with u_k = lift of a₀² rotation
-        let u_sq_old = wigner::su2_compose(&u_a0, &u_a0);
-        let sq_rot = wigner::square_seitz(a0).0.rot;
-        let sq_spin = h_spin_seitz
-            .iter()
-            .position(|s| s.rot == sq_rot)
-            .expect("sq rotation should be in spin ops");
-        let u_k = wigner::spin_su2_at(h_su2, sq_spin).unwrap();
-
-        println!("(U_a₀)² = {:?}", u_sq_old);
-        println!("U_sq (from DB) = {:?} (rot={:?})", u_k, sq_rot);
-        println!(
-            "rel(U²): {:?}",
-            wigner::su2_same_up_to_sign(&u_sq_old, &u_k)
-        );
-
-        // J-left formula
-        let j = [0.0, 0.0, 1.0, 0.0];
-        let ju = wigner::su2_compose(&j, &u_a0);
-        let ju_star = [ju[0], -ju[1], -ju[2], -ju[3]];
-        let u_sq_j = wigner::su2_compose(&ju, &ju_star);
-        println!("(J·U_a₀)(J·U_a₀)* = {:?}", u_sq_j);
-        println!("rel(J): {:?}", wigner::su2_same_up_to_sign(&u_sq_j, &u_k));
-
-        // Check the full compute_corepresentation path
-        let corep = compute_corepresentation(l_spinor, uni, &mag_ops);
-        println!(
-            "\nFull compute_corepresentation result: {:?}",
-            corep.as_ref().map(|c| c.corep_type)
-        );
-
-        // For n_lg=1: U_a₀² vs U_k determines Wigner type
-        let su2_rel = wigner::su2_same_up_to_sign(&u_sq_old, &u_k);
-        println!("SU(2) relation: {:?}", su2_rel);
-        assert!(su2_rel.is_some(), "SU(2) relation should be well-defined");
-        match corep {
-            Err(CorepComputationError::UnsupportedClassification { reason, .. }) => {
-                assert!(
-                    reason.contains(
-                        "phase-aligned exact full-Seitz spin character mapping unavailable"
-                    )
-                );
-            }
-            other => panic!("unexpected n_lg=1 spinor result: {other:?}"),
-        }
+        let corep = l_spinor
+            .complex_corepresentation(uni)
+            .expect("complete centered Hall data should remove the old mapping failure");
+        assert_eq!(corep.source, WignerSource::SpinorSU2);
     }
 
     /// Quick scan to find the simplest failing magnetic group.
