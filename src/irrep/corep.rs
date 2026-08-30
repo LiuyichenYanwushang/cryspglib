@@ -1045,16 +1045,9 @@ pub fn compute_corepresentation(
     let type_c_partner_complex = if corep_type != CorepType::C {
         None
     } else if h_irrep.spinor {
-        let a0_index = identity_rotation_antiunitary_index.ok_or_else(|| {
-            CorepComputationError::UnsupportedClassification {
-                uni: uni_number,
-                source_irrep: h_irrep.ml.to_string(),
-                reason: "spin Type-C partner with non-identity spatial a0 still needs an authoritative parent-to-unitary-frame SU(2) transport"
-                    .to_string(),
-            }
-        })?;
         let row = spin_type_c_row.as_ref().expect("constructed above");
-        Some(
+        let a0_index = identity_rotation_antiunitary_index.unwrap_or(antiunitary[0]);
+        let partner = if identity_rotation_antiunitary_index.is_some() {
             spin_identity_a0_conjugated_partner_characters(
                 a0_index,
                 &mag_seitz,
@@ -1062,7 +1055,45 @@ pub fn compute_corepresentation(
                 row.values(),
                 h_irrep.k_vector(),
             )
-            .map_err(|reason| CorepComputationError::UnsupportedClassification {
+        } else {
+            let h_spin = h_irrep.spin_ops();
+            let g_sg = parent_spatial_sg(uni_number).unwrap_or(h_irrep.sg as usize) as u8;
+            let g_spin = if g_sg == h_irrep.sg {
+                h_spin
+            } else {
+                IrrepRecord::spin_ops_for_sg(g_sg)
+            };
+            let context = wigner::SpinLiftContext {
+                h: h_spin,
+                g: g_spin,
+                sg: h_irrep.sg,
+            };
+            let parent_a0 = mag_seitz_msg.get(a0_index).ok_or_else(|| {
+                CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!("parent-frame antiunitary index {a0_index} is out of range"),
+                }
+            })?;
+            let a0_lift = wigner::parent_spin_lift_in_h_frame(parent_a0, &context, setting_xf)
+                .map_err(|reason| CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "spin Type-C parent-to-unitary SU(2) transport failed: {reason}"
+                    ),
+                })?;
+            spin_a0_conjugated_partner_characters(
+                a0_index,
+                &mag_seitz,
+                &a0_lift,
+                row.operations(),
+                row.values(),
+                h_irrep.k_vector(),
+            )
+        };
+        Some(
+            partner.map_err(|reason| CorepComputationError::UnsupportedClassification {
                 uni: uni_number,
                 source_irrep: h_irrep.ml.to_string(),
                 reason: format!("spin Type-C partner construction failed: {reason}"),
@@ -1954,39 +1985,76 @@ fn reconstruct_complex_classified_corepresentation(
                     .to_string(),
             })?;
         if let Some(row) = &spin_source_row {
-            let identity_a0 = identity_rotation_time_reversal_index(
-                &magnetic_operation_indices
-                    .iter()
-                    .copied()
-                    .filter(|&index| {
-                        mag_ops_data
-                            .operations
-                            .get(index)
-                            .is_some_and(|operation| operation.time_reversal)
-                    })
-                    .collect::<Vec<_>>(),
-                &mag_ops_data,
-            )
-            .ok_or_else(|| CorepComputationError::UnsupportedClassification {
-                uni: uni_number,
-                source_irrep: h_irrep.ml.to_string(),
-                reason: "complex spin Type-C recovery requires an identity-rotation antiunitary representative until parent-frame SU(2) transport is available"
-                    .to_string(),
-            })?;
-            Some(
-                spin_identity_a0_conjugated_partner_characters(
-                    identity_a0,
-                    &mag_seitz,
-                    row.operations(),
-                    row.values(),
-                    h_irrep.k_vector(),
-                )
-                .map_err(|reason| {
-                    CorepComputationError::UnsupportedClassification {
+            let antiunitary = magnetic_operation_indices
+                .iter()
+                .copied()
+                .filter(|&index| {
+                    mag_ops_data
+                        .operations
+                        .get(index)
+                        .is_some_and(|operation| operation.time_reversal)
+                })
+                .collect::<Vec<_>>();
+            let identity_a0 = identity_rotation_time_reversal_index(&antiunitary, &mag_ops_data);
+            let chosen_a0 = identity_a0.unwrap_or(a0_index);
+            let partner =
+                if identity_a0.is_some() {
+                    spin_identity_a0_conjugated_partner_characters(
+                        chosen_a0,
+                        &mag_seitz,
+                        row.operations(),
+                        row.values(),
+                        h_irrep.k_vector(),
+                    )
+                } else {
+                    let parent_operations = ops_to_seitz(mag_ops);
+                    let parent_a0 = parent_operations.get(chosen_a0).ok_or_else(|| {
+                        CorepComputationError::UnsupportedClassification {
+                            uni: uni_number,
+                            source_irrep: h_irrep.ml.to_string(),
+                            reason: format!(
+                                "parent-frame antiunitary index {chosen_a0} is out of range"
+                            ),
+                        }
+                    })?;
+                    let h_spin = h_irrep.spin_ops();
+                    let g_sg = parent_spatial_sg(uni_number).unwrap_or(h_irrep.sg as usize) as u8;
+                    let g_spin = if g_sg == h_irrep.sg {
+                        h_spin
+                    } else {
+                        IrrepRecord::spin_ops_for_sg(g_sg)
+                    };
+                    let context = wigner::SpinLiftContext {
+                        h: h_spin,
+                        g: g_spin,
+                        sg: h_irrep.sg,
+                    };
+                    let a0_lift = wigner::parent_spin_lift_in_h_frame(
+                        parent_a0,
+                        &context,
+                        h_info.msg_to_data.as_ref(),
+                    )
+                    .map_err(|reason| CorepComputationError::UnsupportedClassification {
                         uni: uni_number,
                         source_irrep: h_irrep.ml.to_string(),
-                        reason: format!("complex spin Type-C recovery failed: {reason}"),
-                    }
+                        reason: format!(
+                            "complex spin Type-C parent-to-unitary SU(2) transport failed: {reason}"
+                        ),
+                    })?;
+                    spin_a0_conjugated_partner_characters(
+                        chosen_a0,
+                        &mag_seitz,
+                        &a0_lift,
+                        row.operations(),
+                        row.values(),
+                        h_irrep.k_vector(),
+                    )
+                };
+            Some(
+                partner.map_err(|reason| CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!("complex spin Type-C recovery failed: {reason}"),
                 })?,
             )
         } else {
@@ -2228,6 +2296,41 @@ fn spin_identity_a0_conjugated_partner_characters(
         ));
     }
 
+    spin_a0_conjugated_partner_characters(
+        a0_index,
+        magnetic_operations,
+        &[1.0, 0.0, 0.0, 0.0],
+        canonical_spin_operations,
+        source_characters,
+        k_vector,
+    )
+}
+
+/// Construct a spinor Type-C partner for a general antiunitary spatial
+/// representative whose SU(2) lift has been globally transported into the H
+/// spin frame.
+fn spin_a0_conjugated_partner_characters(
+    a0_index: usize,
+    magnetic_operations: &[SeitzOp],
+    a0_lift_in_h_frame: &[f64; 4],
+    canonical_spin_operations: &[SpinSeitzOperation],
+    source_characters: &[Complex64],
+    k_vector: KVector,
+) -> Result<Vec<Complex64>, String> {
+    if source_characters.len() != canonical_spin_operations.len() {
+        return Err(format!(
+            "source character count {} does not match canonical spin order {}",
+            source_characters.len(),
+            canonical_spin_operations.len()
+        ));
+    }
+    let a0 = magnetic_operations
+        .get(a0_index)
+        .ok_or_else(|| format!("antiunitary representative index {a0_index} is out of range"))?;
+    if !a0.timerev {
+        return Err(format!("magnetic operation {a0_index} is not antiunitary"));
+    }
+
     let canonical_h_operations = canonical_spin_operations
         .iter()
         .map(|operation| {
@@ -2268,13 +2371,14 @@ fn spin_identity_a0_conjugated_partner_characters(
                         reduction.op_index
                     )
                 })?;
-            let lift_relation = wigner::su2_lift_relation(
+            let lift_relation = wigner::conjugated_spin_lift_relation(
+                a0_lift_in_h_frame,
                 &canonical_spin_operations[h_index].su2,
                 &target_operation.su2,
             )
             .ok_or_else(|| {
                 format!(
-                    "raw lift of h[{h_index}] is unrelated to canonical conjugated lift {}",
+                    "transported lift of a0^-1 h[{h_index}] a0 is unrelated to canonical conjugated lift {}",
                     reduction.op_index
                 )
             })?;
@@ -3871,6 +3975,36 @@ mod tests {
                 corep.dim
             ));
         }
+    }
+
+    #[test]
+    fn spinor_type_c_nonidentity_a0_uses_global_parent_frame_transport() {
+        let seed = irreps_of(6)
+            .iter()
+            .find(|irrep| irrep.spinor && irrep.ml == "GM3")
+            .expect("SG6 GM3 spinor source");
+        let corep = seed
+            .complex_corepresentation(51)
+            .expect("signed-permutation parent/H spin transport must classify UNI51");
+        assert_eq!(corep.corep_type, CorepType::C);
+        assert_eq!(corep.source, WignerSource::SpinorSU2);
+        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+        assert_eq!(
+            corep.dim,
+            2 * seed.spinor_selected_arm_view().unwrap().dimension()
+        );
+        assert_eq!(corep.characters.len(), corep.operations.len());
+        assert!(
+            corep
+                .characters
+                .iter()
+                .zip(&corep.timerev)
+                .all(|(character, time_reversal)| {
+                    character.re.is_finite()
+                        && character.im.is_finite()
+                        && (!*time_reversal || *character == Complex64::ZERO)
+                })
+        );
     }
 
     #[test]

@@ -394,6 +394,160 @@ fn compute_signed_perm_spin_parity(
     })
 }
 
+fn signed_permutation_axial_frame(
+    setting_xf: Option<&SettingTransform>,
+) -> Option<([[i32; 3]; 3], [f64; 4])> {
+    let p = if let Some(transform) = setting_xf {
+        let mut p = [[0i32; 3]; 3];
+        for (row_index, row) in transform.basis.iter().enumerate() {
+            let mut nonzero = 0usize;
+            for (column_index, &value) in row.iter().enumerate() {
+                if !value.is_finite() || (value - value.round()).abs() > 1.0e-8 {
+                    return None;
+                }
+                let value = value.round() as i32;
+                if !matches!(value, -1..=1) {
+                    return None;
+                }
+                nonzero += usize::from(value != 0);
+                p[row_index][column_index] = value;
+            }
+            if nonzero != 1 {
+                return None;
+            }
+        }
+        if (0..3).any(|column| (0..3).filter(|&row| p[row][column] != 0).count() != 1) {
+            return None;
+        }
+        p
+    } else {
+        [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+    };
+    let determinant = mat_get_determinant_i3(&p);
+    if determinant != 1 && determinant != -1 {
+        return None;
+    }
+    let q = if determinant == -1 {
+        p.map(|row| row.map(|value| -value))
+    } else {
+        p
+    };
+    Some((q, signed_perm_to_quat(&q)?))
+}
+
+fn spin_lift_for_spatial_rotation(
+    rotation: &Mat3I,
+    spin_rotations: &[i32],
+    spin_lifts: &[f64],
+) -> Option<[f64; 4]> {
+    if spin_rotations.len() % 9 != 0 || spin_lifts.len() != spin_rotations.len() / 9 * 4 {
+        return None;
+    }
+    let candidates_for = |target: &Mat3I| {
+        (0..spin_rotations.len() / 9)
+            .filter(|&index| {
+                spin_rotations[index * 9..(index + 1) * 9]
+                    == [
+                        target[0][0],
+                        target[0][1],
+                        target[0][2],
+                        target[1][0],
+                        target[1][1],
+                        target[1][2],
+                        target[2][0],
+                        target[2][1],
+                        target[2][2],
+                    ]
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut candidates = candidates_for(rotation);
+    if candidates.is_empty() {
+        let axial = rotation.map(|row| row.map(|value| -value));
+        candidates = candidates_for(&axial);
+    }
+    let first = *candidates.first()?;
+    let reference: [f64; 4] = spin_lifts[first * 4..first * 4 + 4].try_into().ok()?;
+    if candidates.iter().copied().all(|index| {
+        let candidate: Option<[f64; 4]> = spin_lifts[index * 4..index * 4 + 4].try_into().ok();
+        candidate.is_some_and(|candidate| su2_lift_relation(&reference, &candidate).is_some())
+    }) {
+        Some(reference)
+    } else {
+        None
+    }
+}
+
+/// Transport a parent-space-group spin lift into the unitary subgroup's
+/// data-Hall spin frame.
+///
+/// The sign of the returned lift is intentionally unspecified: it cancels in
+/// `U_a^-1 U_h U_a`.  What is proved here is the global adjoint frame.  Every
+/// H spin lift must agree, up to the double-group centre, with the transformed
+/// parent lift of the same spatial operation; a per-operation sign guess is
+/// never accepted.
+pub(crate) fn parent_spin_lift_in_h_frame(
+    parent_operation: &SeitzOp,
+    context: &SpinLiftContext,
+    setting_xf: Option<&SettingTransform>,
+) -> Result<[f64; 4], &'static str> {
+    let (h_rotations, _h_translations, h_lifts) = context.h;
+    let (g_rotations, _g_translations, g_lifts) = context.g;
+    if h_rotations.len() % 9 != 0
+        || h_lifts.len() != h_rotations.len() / 9 * 4
+        || g_rotations.len() % 9 != 0
+        || g_lifts.len() != g_rotations.len() / 9 * 4
+    {
+        return Err("spin lift tables have inconsistent lengths");
+    }
+    let (q, u_q) = signed_permutation_axial_frame(setting_xf)
+        .ok_or("parent-to-unitary spin frame is not a signed permutation")?;
+    let u_q_inverse = quat_conj(&u_q);
+    let transport = |lift: &[f64; 4]| su2_compose(&su2_compose(&u_q, lift), &u_q_inverse);
+
+    // Validate the frame against the entire canonical H point-operation
+    // universe.  Translation does not enter SU(2), while duplicate spatial
+    // rotations in nonsymmorphic tables are required to carry related lifts.
+    let q_inverse = [
+        [q[0][0], q[1][0], q[2][0]],
+        [q[0][1], q[1][1], q[2][1]],
+        [q[0][2], q[1][2], q[2][2]],
+    ];
+    for h_index in 0..h_rotations.len() / 9 {
+        let h_rotation = [
+            [
+                h_rotations[h_index * 9],
+                h_rotations[h_index * 9 + 1],
+                h_rotations[h_index * 9 + 2],
+            ],
+            [
+                h_rotations[h_index * 9 + 3],
+                h_rotations[h_index * 9 + 4],
+                h_rotations[h_index * 9 + 5],
+            ],
+            [
+                h_rotations[h_index * 9 + 6],
+                h_rotations[h_index * 9 + 7],
+                h_rotations[h_index * 9 + 8],
+            ],
+        ];
+        let parent_rotation =
+            mat_multiply_matrix_i3(&mat_multiply_matrix_i3(&q_inverse, &h_rotation), &q);
+        let parent_lift = spin_lift_for_spatial_rotation(&parent_rotation, g_rotations, g_lifts)
+            .ok_or("an H rotation has no unique parent spin lift")?;
+        let h_lift: [f64; 4] = h_lifts[h_index * 4..h_index * 4 + 4]
+            .try_into()
+            .map_err(|_| "an H spin lift has invalid width")?;
+        if su2_lift_relation(&transport(&parent_lift), &h_lift).is_none() {
+            return Err("parent and unitary spin tables do not share one global adjoint frame");
+        }
+    }
+
+    let parent_lift = spin_lift_for_spatial_rotation(&parent_operation.rot, g_rotations, g_lifts)
+        .ok_or("antiunitary spatial rotation has no unique parent spin lift")?;
+    Ok(transport(&parent_lift))
+}
+
 /// Negate a Pauli coefficient vector (multiply by Ebar).
 #[inline]
 fn neg_pauli(v: &[f64; 4]) -> [f64; 4] {
@@ -3458,6 +3612,21 @@ pub fn su2_lift_relation(a: &[f64; 4], b: &[f64; 4]) -> Option<LiftRelation> {
     }
 }
 
+/// Compare `U_a^-1 U_h U_a` with a canonical target lift.
+///
+/// The result is invariant under `U_a -> -U_a`, which is why an
+/// antiunitary spatial lift transported only up to the double-group centre is
+/// sufficient for partner-character construction.
+pub(crate) fn conjugated_spin_lift_relation(
+    a_lift: &[f64; 4],
+    h_lift: &[f64; 4],
+    target_lift: &[f64; 4],
+) -> Option<LiftRelation> {
+    let inverse = quat_conj(a_lift);
+    let conjugated = su2_compose(&su2_compose(&inverse, h_lift), a_lift);
+    su2_lift_relation(&conjugated, target_lift)
+}
+
 /// Legacy wrapper.  Prefer [`su2_lift_relation`].
 /// Returns `Some(false)` for [`LiftRelation::Same`] and `Some(true)` for [`LiftRelation::EBar`].
 pub fn su2_same_up_to_sign(a: &[f64; 4], b: &[f64; 4]) -> Option<bool> {
@@ -4653,6 +4822,50 @@ mod tests {
         assert_eq!(reduction.spatial.op_index, 0);
         assert_eq!(reduction.spatial.lattice_shift, [0, 0, 0]);
         assert_eq!(reduction.spin_central, LiftRelation::EBar);
+    }
+
+    #[test]
+    fn conjugated_spin_lift_is_invariant_under_central_sign_of_a0() {
+        let half = std::f64::consts::FRAC_1_SQRT_2;
+        let a0 = [half, 0.0, 0.0, half];
+        let negative_a0 = a0.map(|value| -value);
+        let h = [0.0, 1.0, 0.0, 0.0];
+        let target = su2_compose(&su2_compose(&quat_conj(&a0), &h), &a0);
+
+        assert_eq!(
+            conjugated_spin_lift_relation(&a0, &h, &target),
+            Some(LiftRelation::Same)
+        );
+        assert_eq!(
+            conjugated_spin_lift_relation(&negative_a0, &h, &target),
+            Some(LiftRelation::Same)
+        );
+        assert_eq!(
+            conjugated_spin_lift_relation(&a0, &h, &target.map(|value| -value)),
+            Some(LiftRelation::EBar)
+        );
+    }
+
+    #[test]
+    fn parent_spin_transport_rejects_unproved_nonsigned_frame() {
+        static ROTATIONS: [i32; 9] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+        static TRANSLATIONS: [f64; 3] = [0.0; 3];
+        static SU2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
+        let context = SpinLiftContext {
+            h: (&ROTATIONS, &TRANSLATIONS, &SU2),
+            g: (&ROTATIONS, &TRANSLATIONS, &SU2),
+            sg: 1,
+        };
+        let parent_a0 = SeitzOp::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.0; 3], true);
+        let shear = SettingTransform {
+            basis: [[1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            origin: [0.0; 3],
+        };
+
+        assert_eq!(
+            parent_spin_lift_in_h_frame(&parent_a0, &context, Some(&shear)),
+            Err("parent-to-unitary spin frame is not a signed permutation")
+        );
     }
 
     #[test]
