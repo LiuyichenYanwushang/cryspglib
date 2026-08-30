@@ -306,6 +306,38 @@ pub struct Corepresentation {
     pub completeness: CharacterCompleteness,
 }
 
+/// Operation-aligned magnetic co-representation with complex characters.
+///
+/// This is the lossless counterpart of [`Corepresentation`].  Unitary
+/// little-group characters are intrinsically complex in general, so callers
+/// that perform irrep fitting should prefer this type.  Pending Type-A
+/// anti-unitary columns retain compatibility zeroes and must be interpreted
+/// together with [`CharacterCompleteness`].
+#[derive(Debug, Clone)]
+pub struct ComplexCorepresentation {
+    /// Character for each magnetic little-group operation.  The columns are
+    /// aligned with `timerev`, `magnetic_operation_indices`, and `operations`.
+    pub characters: Vec<Complex64>,
+    /// Whether each corresponding operation is anti-unitary.
+    pub timerev: Vec<bool>,
+    /// Indices in the complete input magnetic-operation list.
+    pub magnetic_operation_indices: Vec<usize>,
+    /// Operations in the ISOTROPY data-Hall frame.
+    pub operations: Vec<crate::SymmetryOp>,
+    /// Co-representation type.
+    pub corep_type: CorepType,
+    /// Which Wigner path produced this classification.
+    pub source: WignerSource,
+    /// Dimension of the magnetic co-representation.
+    pub dim: usize,
+    /// Number of unitary operations.
+    pub unitary_order: usize,
+    /// Number of anti-unitary operations.
+    pub antiunitary_order: usize,
+    /// Whether every requested column was constructed.
+    pub completeness: CharacterCompleteness,
+}
+
 /// Error returned when a magnetic co-representation cannot be computed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CorepComputationError {
@@ -1010,6 +1042,224 @@ pub fn compute_corepresentation(
     })
 }
 
+/// Compute an operation-aligned magnetic co-representation without discarding
+/// complex unitary characters.
+///
+/// The legacy [`compute_corepresentation`] entry point intentionally keeps its
+/// real-valued compatibility contract.  When that contract is the only reason
+/// classification failed, this function reconstructs the already-classified
+/// A/B unitary row from the typed source representation and returns it as
+/// [`Complex64`].  All structural, operation-mapping, Type-C, compound, and
+/// spin-transport failures remain fail-closed.
+pub fn compute_corepresentation_complex(
+    h_irrep: &IrrepRecord,
+    uni_number: usize,
+    mag_ops: &SymmetryOps,
+) -> Result<ComplexCorepresentation, CorepComputationError> {
+    match compute_corepresentation(h_irrep, uni_number, mag_ops) {
+        Ok(corep) => Ok(ComplexCorepresentation {
+            characters: corep
+                .characters
+                .iter()
+                .copied()
+                .map(|value| Complex64::new(value, 0.0))
+                .collect(),
+            timerev: corep.timerev,
+            magnetic_operation_indices: corep.magnetic_operation_indices,
+            operations: corep.operations,
+            corep_type: corep.corep_type,
+            source: corep.source,
+            dim: corep.dim,
+            unitary_order: corep.unitary_order,
+            antiunitary_order: corep.antiunitary_order,
+            completeness: corep.completeness,
+        }),
+        Err(CorepComputationError::ComplexUnitaryCharacters {
+            corep_type,
+            source,
+            dimension,
+            ..
+        }) => reconstruct_complex_classified_corepresentation(
+            h_irrep, uni_number, mag_ops, corep_type, source, dimension,
+        ),
+        Err(error) => Err(error),
+    }
+}
+
+fn reconstruct_complex_classified_corepresentation(
+    h_irrep: &IrrepRecord,
+    uni_number: usize,
+    mag_ops: &SymmetryOps,
+    corep_type: CorepType,
+    source: WignerSource,
+    dimension: usize,
+) -> Result<ComplexCorepresentation, CorepComputationError> {
+    if !matches!(corep_type, CorepType::A | CorepType::B) {
+        return Err(CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: "complex compatibility recovery is defined only for classified Type-A/Type-B sources"
+                .to_string(),
+        });
+    }
+
+    let h_info = identify_unitary_subgroup_with_hall(uni_number)
+        .ok_or(CorepComputationError::MissingUnitarySubgroup { uni: uni_number })?;
+    let mag_ops_data = operations_in_data_hall_frame(mag_ops, h_info.msg_to_data.as_ref())
+        .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: "MSG operation could not be transformed to the ISOTROPY data-Hall frame"
+                .to_string(),
+        })?;
+    let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let canonical_translations = h_info
+        .ops_from_hall
+        .operations
+        .iter()
+        .filter(|operation| operation.rotation == identity)
+        .map(|operation| operation.translation)
+        .collect::<Vec<_>>();
+    let magnetic_operation_indices = filter_little_group_with_transform(
+        h_irrep.kx,
+        h_irrep.ky,
+        h_irrep.kz,
+        h_irrep.kd,
+        &mag_ops_data,
+        None,
+        Some(&canonical_translations),
+    );
+    if magnetic_operation_indices.is_empty() {
+        return Err(CorepComputationError::EmptyMagneticLittleGroup {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+        });
+    }
+
+    let operations = magnetic_operation_indices
+        .iter()
+        .map(|&index| {
+            mag_ops_data.operations.get(index).copied().ok_or_else(|| {
+                CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "magnetic little-group operation index {index} is out of bounds"
+                    ),
+                }
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let (source_dimension, source_entries) = if h_irrep.spinor {
+        let row = h_irrep.spinor_selected_arm_view().map_err(|error| {
+            CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!("typed spinor selected-arm row failed: {error}"),
+            }
+        })?;
+        (
+            row.dimension(),
+            row.values()
+                .iter()
+                .copied()
+                .zip(row.operations().iter().map(|operation| operation.seitz))
+                .collect::<Vec<_>>(),
+        )
+    } else {
+        let row = h_irrep
+            .ordinary_scalar_selected_arm_block_trace()
+            .map_err(|error| CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!("typed scalar selected-arm row failed: {error}"),
+            })?;
+        (
+            row.dimension(),
+            row.values()
+                .iter()
+                .copied()
+                .zip(row.operations().iter().copied())
+                .collect::<Vec<_>>(),
+        )
+    };
+    let expected_dimension = wigner::corep_dim(&corep_type, source_dimension);
+    if dimension != expected_dimension {
+        return Err(CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: format!(
+                "classified corep dimension {dimension} disagrees with typed source dimension {source_dimension} (expected {expected_dimension})"
+            ),
+        });
+    }
+
+    let mut characters = Vec::with_capacity(operations.len());
+    let mut timerev = Vec::with_capacity(operations.len());
+    for (column, operation) in operations.iter().enumerate() {
+        timerev.push(operation.time_reversal);
+        if operation.time_reversal {
+            characters.push(Complex64::ZERO);
+            continue;
+        }
+        let target_rotation: [i32; 9] = operation
+            .rotation
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("3x3 rotation has nine entries");
+        let matches = source_entries
+            .iter()
+            .filter(|(_, source_operation)| {
+                source_operation.rotation == target_rotation
+                    && source_operation.translation == operation.translation
+            })
+            .collect::<Vec<_>>();
+        let [entry] = matches.as_slice() else {
+            return Err(CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!(
+                    "unitary column {column} matched {} typed complete Seitz source operations",
+                    matches.len()
+                ),
+            });
+        };
+        let factor = if corep_type == CorepType::B { 2.0 } else { 1.0 };
+        let value = entry.0 * factor;
+        if !value.re.is_finite() || !value.im.is_finite() {
+            return Err(CorepComputationError::NonFiniteCharacters {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+            });
+        }
+        characters.push(value);
+    }
+
+    let unitary_order = timerev.iter().filter(|&&value| !value).count();
+    let antiunitary_order = timerev.len() - unitary_order;
+    let completeness = match corep_type {
+        CorepType::A if antiunitary_order > 0 => CharacterCompleteness::TypeAAntiunitaryPending {
+            count: antiunitary_order,
+        },
+        _ => CharacterCompleteness::Complete,
+    };
+    Ok(ComplexCorepresentation {
+        characters,
+        timerev,
+        magnetic_operation_indices,
+        operations,
+        corep_type,
+        source,
+        dim: dimension,
+        unitary_order,
+        antiunitary_order,
+        completeness,
+    })
+}
+
 // ── Magnetic operations ──────────────────────────────────────────────────────
 
 /// Return the actual magnetic little-group index of a direct `{I|0}Theta`, if
@@ -1629,6 +1879,20 @@ impl IrrepRecord {
             .ok_or(CorepComputationError::MissingMagneticOperations { uni: uni_number })?;
         compute_corepresentation(self, uni_number, &mag_ops)
     }
+
+    /// Compute the lossless operation-aligned complex co-representation.
+    ///
+    /// Unlike [`Self::corepresentation`], this preserves genuinely complex
+    /// Type-A/Type-B unitary characters.  Unsupported partner, compound, and
+    /// operation-transport cases remain structured errors.
+    pub fn complex_corepresentation(
+        &self,
+        uni_number: usize,
+    ) -> Result<ComplexCorepresentation, CorepComputationError> {
+        let mag_ops = get_magnetic_operations(uni_number)
+            .ok_or(CorepComputationError::MissingMagneticOperations { uni: uni_number })?;
+        compute_corepresentation_complex(self, uni_number, &mag_ops)
+    }
 }
 
 // ── Magnetic isotropy → corepresentation bridge ────────────────────────────
@@ -1843,6 +2107,53 @@ mod tests {
         // SG 3 C3 at k=(1,1,0)/2 has a typed C2y column with χ=-i; UNI 13
         // (BNS 3.6) is Type B.
         assert_complex_unitary_corep_rejected(3, "C3", 13, CorepType::B);
+    }
+
+    #[test]
+    fn complex_corep_api_preserves_classified_type_a_and_b_characters() {
+        for (sg, label, uni, expected_type, expected_dim) in [
+            (44, "W1", 327, CorepType::A, 1usize),
+            (44, "W1", 331, CorepType::B, 2usize),
+            (3, "GM3", 8, CorepType::A, 1usize),
+            (3, "C3", 13, CorepType::B, 2usize),
+        ] {
+            let irrep = irreps_of(sg)
+                .iter()
+                .find(|irrep| irrep.ml == label)
+                .unwrap_or_else(|| panic!("missing SG {sg} {label}"));
+            let mag_ops = get_magnetic_operations(uni)
+                .unwrap_or_else(|| panic!("missing magnetic operations for UNI {uni}"));
+            let corep =
+                compute_corepresentation_complex(irrep, uni, &mag_ops).unwrap_or_else(|error| {
+                    panic!("complex corep SG {sg} {label} UNI {uni} failed: {error}")
+                });
+            assert_eq!(corep.corep_type, expected_type);
+            assert_eq!(corep.dim, expected_dim);
+            assert_eq!(corep.characters.len(), corep.operations.len());
+            assert_eq!(corep.characters.len(), corep.timerev.len());
+            assert!(
+                corep
+                    .characters
+                    .iter()
+                    .zip(&corep.timerev)
+                    .any(|(value, time_reversal)| !*time_reversal && value.im.abs() >= 0.5)
+            );
+
+            let identity = corep
+                .operations
+                .iter()
+                .position(|operation| {
+                    !operation.time_reversal
+                        && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+                        && operation
+                            .translation
+                            .iter()
+                            .all(|value| value.abs() < 1.0e-8)
+                })
+                .expect("complex corep must contain unitary identity");
+            assert!((corep.characters[identity].re - expected_dim as f64).abs() < 1.0e-8);
+            assert!(corep.characters[identity].im.abs() < 1.0e-8);
+        }
     }
 
     #[test]
