@@ -73,11 +73,11 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 corep/summary 产品化。每次全扫、根因确认和修复后都必须更新本节；不能只在
 对话中报告。
 
-### 当前最终状态（更新至 2026-08-27）
+### 当前最终状态（更新至 2026-08-30）
 
 磁 symmetry/corep 主线、Rust-native API 收口、有限域类型化、全仓库 rustfmt、
-角色科学计数法修复、exact scalar Hall phase materialization，以及 partial magnetic
-summary 均已提交。相关基线依次为 `ba2d997`、`969a89c`、`daf04eb`。
+角色科学计数法修复、exact scalar Hall phase materialization，以及严格复数
+magnetic summary 均已实现。相关历史基线依次为 `ba2d997`、`969a89c`、`daf04eb`。
 后续开发和回归应以下面这组最新结论为基线，而不是再沿用早期“部分磁群不支持”
 或“只预览 6 个特征标”的判断。
 
@@ -86,11 +86,11 @@ summary 均已提交。相关基线依次为 `ba2d997`、`969a89c`、`daf04eb`�
 | 磁数据库与群代数 | `UNI 1..=1651` 全覆盖；数据库内 `4479/4479` 个 UNI–Hall setting 均通过严格群闭包、逆元、恒等元、陪集及类型一致性检查。 |
 | setting 识别与消歧 | 给定 parent/family Hall 时 `4479/4479` 精确回环；仅凭操作自动识别时有 `4461` 个唯一结果和 `18` 个显式 `MagneticUniAmbiguous`，歧义只涉及 `{275,282}`、`{277,284}` 两组，`UNI 283` 唯一。程序不得猜选候选，必须用 parent Hall/setting 上下文消歧。 |
 | ISOTROPY/Hall 嵌入 | `1651/1651` 个 unitary subgroup、detected Hall 与 data Hall setting 已完成一致嵌入。 |
-| 高对称点与 corep | 用户可按 UNI、BNS 或磁操作输入磁群，取得高对称点列表；选定高对称点后可得到 fixed-`k` magnetic little-group coreps、维数、Wigner 类型和特征标。全库审计共覆盖 `10,390` 个高对称点、`54,717` 个 coreps。 |
+| 高对称点与 corep | 用户可按 UNI、BNS 或磁操作输入磁群，取得高对称点列表；选定高对称点后可得到 fixed-`k` magnetic little-group coreps、维数、Wigner 类型和复特征标。全库审计共覆盖 `10,390` 个高对称点、`52,793` 个按正式来源去重的 coreps。 |
 | 正式特征标表 | 已提供“每个磁操作一列”和“每个共轭类一列”两种 Markdown 正式表格；不再截断到前 6 个特征标，并附操作/列标签图例。入口为 `format_magnetic_character_table` 与 `format_magnetic_character_table_by_class`。 |
 | 目标磁群回归 | `BNS 128.406` 与 `BNS 52.318` 已不再返回“计算不支持”；`128.406@Z` 稳定给出维数 `2,2,2,4` 的四个 coreps，正式操作表包含 `g1..g16` 全部 16 列。 |
 | CIR 数据生成 | CIR 解析器支持复合反幺正矩阵：`11,202` 个原始 coreps 中复合反幺正项 `672` 个、拒绝 `0`；`8,388` 个可映射到磁数据库的 coreps 中未映射 `0`。 |
-| 验证 | 全 `1651` UNI release summary 审计：成功 `1651`、失败 `0`、`10,390` k 点、`54,717` coreps、π 型放大噪声 `0`；常规 release 测试：通过 `283`、失败 `0`、忽略 `3`，另有 doc-tests `26/26` 通过；`cargo clippy -p cryspglib --all-targets --release -- -D warnings` 为零警告。 |
+| 验证 | 全 `1651` UNI release summary 审计：成功 `1651`、失败 `0`、`10,390` k 点、`52,793` coreps、π 型放大噪声 `0`；release all-targets 为 lib `287 passed / 4 ignored`、integration `62 passed`，doc-tests `26 passed`。 |
 
 必须保留以下语义边界：
 
@@ -501,7 +501,7 @@ centered-cell 允许的严格 Seitz embedding 后，`detected_hall_embed=1651`�
    按 character-compatible 共轭类分列的正式表格入口。`128.406@Z` 回归明确要求
    `g1..g16` 全部出现且不得含省略号。
 10. 最新 release 全量 summary gate：`success=1651`、`failure=0`、`kpoints=10390`、
-    `coreps=54717`。gate 对每个结果验证 operation/character 列数、共轭类分割、
+    `coreps=52793`。gate 对每个结果验证 operation/character 列数、共轭类分割、
     有限值及 `χ(E)=dim`，不是只检查 API 返回 `Ok`。
 11. 2026-08-10 Rust-native API 收口后 `cargo test --package cryspglib --release`：
     lib `196 passed / 0 failed / 3 ignored`，七个 integration binaries 合计
@@ -624,7 +624,7 @@ pub struct MagneticCorepSummary {
     pub corep_type: crate::irrep::corep::CorepType,
     pub source: crate::irrep::corep::WignerSource,
     pub dim: usize,
-    pub characters: Vec<f64>,
+    pub characters: Vec<Option<num_complex::Complex64>>,
     pub timerev: Vec<bool>,
     pub completeness: crate::irrep::corep::CharacterCompleteness,
     pub isotropy_candidates: Vec<CorepIsotropyCandidate>,
@@ -1183,7 +1183,7 @@ data-Hall operation 与 summary column 之间仍缺少完整、显式、可验�
 - formatter 修复后完整再生成只改变 758 个已知污染字段；静态 π 型扫描为零。
 - SG144 A2 最小回归和 literal 往返 gate 已加入。
 - 全 `1651` UNI summary gate 结果为 `success=1651`、`failure=0`、
-  `kpoints=10390`、`coreps=54717`、`amplified_noise=0`。
+  `kpoints=10390`、`coreps=52793`、`amplified_noise=0`。
 - 仍需长期加强 `χ(E)=dim`、`|χ(g)|≤dim`、角色正交性、整数 multiplicity、
   cyclotomic 可识别性，以及 compound constituent/selected-arm 的机器可读语义。
 - 独立显式 Hamiltonian/orbit oracle 仍应覆盖 SG161、167、169、170、178、179
@@ -1753,25 +1753,31 @@ spglib port 的主要公共 API 已全部从 `Option<T>` 迁移到 `Result<T, Sy
    permutation，而从整组 pinned SU(2) adjoint actions 解一个全局 frame。相关提交：
    `1de71e1`、`83ca8e8`。
 
-Rustb 的 release-only `exhaustive_partial_complex_corep_recovery_census` 已把上述
-能力作为硬回归门。全 1,651 UNI 的当前结果是：
+严格 `magnetic_irrep_summary_by_uni()` 现在是 operation-aware 的复数接口：
+`MagneticCorepSummary.characters` 使用 `Vec<Option<Complex64>>`。`Some(z)` 表示
+正式计算值，物理零也必须写作 `Some(0)`；只有尚无 canonical intertwiner 的
+Type-A 反幺正列才是 `None`。ordinary、spinor 与 compound plural 结果均在
+cryspglib 内按 source provenance 合并，consumer 不再重建 source row。
 
+cryspglib 与 Rustb 的 release-only 全量 gate 已把该接口作为唯一生产路径。全
+1,651 UNI 的当前结果是：
+
+- `summaries=1651`；
 - `points=10390`；
-- `recovered_sources=15343`；
-- `recovered_type_c_sources=4240`；
-- `merged_coreps=13247`；
-- `still_unresolved=0`。
+- `coreps=52793`；
+- strict-summary failure `0`。
 
-因此 compound、一般 Type-C、centering/lattice phase 和一般 SU(2) frame 已不再让
-Rustb 的 `calculate_irrep()` 产生上游数据型 `???`。
+因此 compound、一般 Type-C、centering/lattice phase、一般 SU(2) frame 以及
+genuinely complex character 已不再需要 Rustb 的 partial-summary recovery，也不应
+再因 legacy `f64` 投影产生上游数据型 `???`。
 
 仍需明确保留的边界：
 
-- **Legacy real-valued surface**：`Corepresentation.characters: Vec<f64>` 和严格
-  `magnetic_irrep_summary_by_uni()` 不能表达 genuinely complex unitary characters。
-  当前严格 summary 审计为 389/1,651 UNI 成功、1,262 因该 legacy/first-error surface
-  失败；这不是 formal row 缺失。分析程序应使用 partial summary，再调用 typed
-  `complex_corepresentation()` / `compound_complex_corepresentations()`。
+- **Legacy real-valued surface**：`Corepresentation.characters: Vec<f64>` 等旧入口
+  仅保留为 deprecated compatibility API；它们会丢失 genuinely complex unitary
+  character，不得再用于 summary 或 Rustb 能带标记。底层调试可直接调用
+  `complex_corepresentation()` / `compound_complex_corepresentations()`，上层分析
+  应优先使用严格复数 summary。
 - **Type-A antiunitary trace**：一般高维或 spinor Type-A 尚无 canonical intertwiner
   matrix，返回 `TypeAAntiunitaryPending`。placeholder zero 不是计算值；Wigner type 与
   unitary row 足以完成当前 Rustb formal fitting。

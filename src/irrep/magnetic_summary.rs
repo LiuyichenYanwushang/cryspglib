@@ -31,7 +31,8 @@
 //!
 //!     for c in &kp.coreps {
 //!         let srcs: Vec<&str> = c.source_irreps.iter().map(|s| s.ml).collect();
-//!         let chi0 = c.characters.first().map_or("N/A".to_string(), |v| format!("{:.0}", v));
+//!         let chi0 = c.characters.first().and_then(|value| *value)
+//!             .map_or("N/A".to_string(), |value| format!("{}", value));
 //!         println!("  {:20}  type={:?}  dim={}  χ(E)={}  src=[{}]",
 //!             c.label, c.corep_type, c.dim, chi0, srcs.join(", "));
 //!     }
@@ -39,6 +40,8 @@
 //! ```
 
 use std::collections::{BTreeSet, HashMap};
+
+use num_complex::Complex64;
 
 use crate::SymmetryOps;
 
@@ -218,7 +221,11 @@ pub struct MagneticCorepSummary {
     /// Dimension of the magnetic irrep.
     pub dim: usize,
     /// Character χ̃(g) for each magnetic operation.
-    pub characters: Vec<f64>,
+    ///
+    /// `None` is used only for anti-unitary Type-A columns whose intertwiner
+    /// has not been constructed. Defined zeroes remain `Some(0)` and
+    /// unitary characters retain their full complex value.
+    pub characters: Vec<Option<Complex64>>,
     /// Which operations are anti-unitary.
     pub timerev: Vec<bool>,
     /// Whether the character table is complete.
@@ -269,6 +276,65 @@ pub enum IsotropyCandidateRelation {
     SpinorNoIsotropyData,
 }
 
+fn summary_characters(
+    corep: &crate::irrep::corep::ComplexCorepresentation,
+    uni: usize,
+    source_irrep: &str,
+) -> Result<Vec<Option<Complex64>>, crate::irrep::corep::CorepComputationError> {
+    if corep.characters.len() != corep.timerev.len() {
+        return Err(
+            crate::irrep::corep::CorepComputationError::UnsupportedClassification {
+                uni,
+                source_irrep: source_irrep.to_string(),
+                reason: format!(
+                    "complex character/timerev length mismatch: {} vs {}",
+                    corep.characters.len(),
+                    corep.timerev.len()
+                ),
+            },
+        );
+    }
+
+    let pending_antiunitary = match corep.completeness {
+        crate::irrep::corep::CharacterCompleteness::Complete => false,
+        crate::irrep::corep::CharacterCompleteness::TypeAAntiunitaryPending { count } => {
+            let actual = corep.timerev.iter().filter(|&&value| value).count();
+            if count != actual {
+                return Err(
+                    crate::irrep::corep::CorepComputationError::UnsupportedClassification {
+                        uni,
+                        source_irrep: source_irrep.to_string(),
+                        reason: format!(
+                            "pending antiunitary count {count} disagrees with operation columns {actual}"
+                        ),
+                    },
+                );
+            }
+            true
+        }
+    };
+
+    corep
+        .characters
+        .iter()
+        .copied()
+        .zip(corep.timerev.iter().copied())
+        .enumerate()
+        .map(|(column, (value, time_reversal))| {
+            if !value.re.is_finite() || !value.im.is_finite() {
+                return Err(
+                    crate::irrep::corep::CorepComputationError::UnsupportedClassification {
+                        uni,
+                        source_irrep: source_irrep.to_string(),
+                        reason: format!("complex character column {column} is not finite: {value}"),
+                    },
+                );
+            }
+            Ok((!pending_antiunitary || !time_reversal).then_some(value))
+        })
+        .collect()
+}
+
 fn compound_coreps_for_summary(
     irrep: &crate::irrep::types::IrrepRecord,
     uni: usize,
@@ -311,29 +377,7 @@ fn compound_coreps_for_summary(
                 },
             );
         }
-        let mut characters = Vec::with_capacity(corep.characters.len());
-        for (column, value) in corep.characters.iter().copied().enumerate() {
-            let scale = (corep.dim as f64)
-                .max(1.0)
-                .max(value.re.abs())
-                .max(value.im.abs());
-            if !value.re.is_finite()
-                || !value.im.is_finite()
-                || value.im.abs() > 8.0 * f64::EPSILON * scale
-            {
-                return Err(
-                    crate::irrep::corep::CorepComputationError::UnsupportedClassification {
-                        uni,
-                        source_irrep: irrep.ml.to_string(),
-                        reason: format!(
-                            "compound constituent branches are classified, but branch {:?} column {column} has the genuinely complex character {}; use compound_complex_corepresentations()",
-                            corep.corep_type, value
-                        ),
-                    },
-                );
-            }
-            characters.push(value.re);
-        }
+        let characters = summary_characters(&corep, uni, irrep.ml)?;
         let source_irreps = branch
             .sources
             .iter()
@@ -405,7 +449,9 @@ fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> 
             && c.source_irreps
                 .iter()
                 .all(|source| Some(source.spinor) == spinor_family)
-            && c.characters.iter().all(|&ch| ch.is_finite());
+            && c.characters.iter().all(|character| {
+                character.is_none_or(|value| value.re.is_finite() && value.im.is_finite())
+            });
         if !can_dedup {
             // Pass through — never merge non-C entries.
             groups.push(vec![c]);
@@ -467,9 +513,20 @@ fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> 
         .collect()
 }
 
-/// Round character values to integers for dedup comparison.
-fn round_chars(chars: &[f64]) -> Vec<i64> {
-    chars.iter().map(|&c| (c * 1e8).round() as i64).collect()
+/// Round character values for dedup comparison while preserving undefined
+/// Type-A anti-unitary columns and the complex plane.
+fn round_chars(chars: &[Option<Complex64>]) -> Vec<Option<(i64, i64)>> {
+    chars
+        .iter()
+        .map(|character| {
+            character.map(|value| {
+                (
+                    (value.re * 1e8).round() as i64,
+                    (value.im * 1e8).round() as i64,
+                )
+            })
+        })
+        .collect()
 }
 
 /// Return the authoritative dimension of an irrep on the selected k arm.
@@ -873,7 +930,7 @@ fn magnetic_irrep_summary_from_ops_impl(
             let mut raw_coreps: Vec<MagneticCorepSummary> = Vec::new();
             for &idx in &kp.irreps {
                 let ir = &h_irreps[idx];
-                if antiunitary_order > 0 && ir.cir_component_count() > 0 {
+                if ir.cir_component_count() > 0 {
                     match compound_coreps_for_summary(ir, uni, mag_ops, &operations) {
                         Ok(coreps) => raw_coreps.extend(coreps),
                         Err(err) => {
@@ -906,7 +963,7 @@ fn magnetic_irrep_summary_from_ops_impl(
                     }
                     continue;
                 }
-                match crate::irrep::corep::compute_corepresentation(ir, uni, mag_ops) {
+                match crate::irrep::corep::compute_corepresentation_complex(ir, uni, mag_ops) {
                     Ok(c) => {
                         let aligned = c.characters.len() == operations.len()
                             && c.timerev.len() == operations.len()
@@ -995,6 +1052,15 @@ fn magnetic_irrep_summary_from_ops_impl(
                                 ),
                             });
                         }
+                        let characters = summary_characters(&c, uni, ir.ml).map_err(|error| {
+                            MagneticIrrepError::CorepComputationFailed {
+                                uni,
+                                sg: h_info.sg as u8,
+                                k_label: kp.label.clone(),
+                                source_irrep: ir.ml.to_string(),
+                                reason: error.to_string(),
+                            }
+                        })?;
                         raw_coreps.push(MagneticCorepSummary {
                             label: ir.ml.to_string(),
                             source_irreps: vec![SourceIrrepSummary {
@@ -1007,7 +1073,7 @@ fn magnetic_irrep_summary_from_ops_impl(
                             corep_type: c.corep_type,
                             source: c.source,
                             dim: c.dim,
-                            characters: c.characters,
+                            characters,
                             timerev: c.timerev,
                             completeness: c.completeness,
                             isotropy_candidates: Vec::new(),
@@ -1227,7 +1293,7 @@ fn format_operation(operation: &MagneticLittleGroupOperation) -> String {
     )
 }
 
-fn format_character(value: f64) -> String {
+fn format_real_character(value: f64) -> String {
     if value.abs() < 1e-10 {
         return "0".to_string();
     }
@@ -1240,6 +1306,34 @@ fn format_character(value: f64) -> String {
         .trim_end_matches('0')
         .trim_end_matches('.')
         .to_string()
+}
+
+fn format_character(value: Complex64) -> String {
+    if value.im.abs() < 1e-10 {
+        return format_real_character(value.re);
+    }
+    if value.re.abs() < 1e-10 {
+        let imaginary = format_real_character(value.im);
+        return match imaginary.as_str() {
+            "1" => "i".to_string(),
+            "-1" => "-i".to_string(),
+            _ => format!("{imaginary}i"),
+        };
+    }
+
+    let real = format_real_character(value.re);
+    let imaginary = format_real_character(value.im.abs());
+    let sign = if value.im.is_sign_negative() {
+        "-"
+    } else {
+        "+"
+    };
+    let imaginary = if imaginary == "1" {
+        "i".to_string()
+    } else {
+        format!("{imaginary}i")
+    };
+    format!("{real}{sign}{imaginary}")
 }
 
 fn completeness_label(completeness: &crate::irrep::corep::CharacterCompleteness) -> String {
@@ -1257,7 +1351,11 @@ fn same_character_signature(kpoint: &MagneticKPointSummary, left: usize, right: 
             .characters
             .get(left)
             .zip(corep.characters.get(right))
-            .is_some_and(|(left, right)| (left - right).abs() < 1e-8)
+            .is_some_and(|(left, right)| match (left, right) {
+                (Some(left), Some(right)) => (*left - *right).norm() < 1e-8,
+                (None, None) => true,
+                _ => false,
+            })
     })
 }
 
@@ -1346,12 +1444,13 @@ pub fn format_magnetic_character_table_with_columns(
             corep.dim.to_string(),
             completeness_label(&corep.completeness),
         ];
-        row.extend(display_columns.iter().map(|(_, members)| {
-            corep
-                .characters
-                .get(members[0])
-                .map_or_else(|| "?".to_string(), |value| format_character(*value))
-        }));
+        row.extend(display_columns.iter().map(
+            |(_, members)| match corep.characters.get(members[0]) {
+                Some(Some(value)) => format_character(*value),
+                Some(None) => "N/A".to_string(),
+                None => "?".to_string(),
+            },
+        ));
         lines.push(format!("| {} |", row.join(" | ")));
     }
 
@@ -1499,7 +1598,19 @@ mod tests {
                         (character, time_reversal, operation)
                     })
                 {
-                    assert!(character.is_finite());
+                    match character {
+                        Some(value) => {
+                            assert!(value.re.is_finite());
+                            assert!(value.im.is_finite());
+                        }
+                        None => {
+                            assert!(operation.time_reversal);
+                            assert!(matches!(
+                                corep.completeness,
+                                crate::irrep::corep::CharacterCompleteness::TypeAAntiunitaryPending { .. }
+                            ));
+                        }
+                    }
                     assert_eq!(*time_reversal, operation.time_reversal);
                 }
             }
@@ -1679,13 +1790,17 @@ mod tests {
             for corep in &kpoint.coreps {
                 assert_eq!(corep.characters.len(), kpoint.operations.len());
                 assert_eq!(corep.timerev.len(), kpoint.operations.len());
-                assert!(corep.characters.iter().all(|value| value.is_finite()));
+                assert!(corep.characters.iter().all(|value| {
+                    value.is_none_or(|value| value.re.is_finite() && value.im.is_finite())
+                }));
+                let identity_character =
+                    corep.characters[identity].expect("unitary identity character must be defined");
                 assert!(
-                    (corep.characters[identity] - corep.dim as f64).abs() < 1e-6,
+                    (identity_character - Complex64::new(corep.dim as f64, 0.0)).norm() < 1e-6,
                     "{} {}: χ(E)={} != dim={}",
                     kpoint.label,
                     corep.label,
-                    corep.characters[identity],
+                    identity_character,
                     corep.dim
                 );
             }
@@ -1695,54 +1810,43 @@ mod tests {
     fn assert_source_dimension_relations(summary: &MagneticIrrepSummary) {
         for kpoint in &summary.kpoints {
             for corep in &kpoint.coreps {
+                assert!(!corep.source_irreps.is_empty());
+                let source_dim_sum = corep
+                    .source_irreps
+                    .iter()
+                    .map(|source| source.dim as usize)
+                    .sum::<usize>();
                 match corep.corep_type {
                     crate::irrep::corep::CorepType::A => {
                         assert_eq!(
-                            corep.source_irreps.len(),
-                            1,
-                            "{} {}: Type A must have one source irrep",
-                            kpoint.label,
-                            corep.label
-                        );
-                        assert_eq!(
-                            corep.dim, corep.source_irreps[0].dim as usize,
-                            "{} {}: Type A dimension must equal its selected-arm source dimension",
+                            corep.dim, source_dim_sum,
+                            "{} {}: Type A dimension must equal the sum of its selected-arm source dimensions",
                             kpoint.label, corep.label
                         );
                     }
                     crate::irrep::corep::CorepType::B => {
                         assert_eq!(
-                            corep.source_irreps.len(),
-                            1,
-                            "{} {}: Type B must have one source irrep",
-                            kpoint.label,
-                            corep.label
-                        );
-                        assert_eq!(
                             corep.dim,
-                            2 * corep.source_irreps[0].dim as usize,
-                            "{} {}: Type B dimension must double its selected-arm source dimension",
+                            2 * source_dim_sum,
+                            "{} {}: Type B dimension must double the sum of its selected-arm source dimensions",
                             kpoint.label,
                             corep.label
                         );
                     }
                     crate::irrep::corep::CorepType::C => {
+                        let source_dim = corep.source_irreps[0].dim as usize;
+                        assert!(
+                            corep
+                                .source_irreps
+                                .iter()
+                                .all(|source| source.dim as usize == source_dim)
+                        );
                         assert_eq!(
-                            corep.source_irreps.len(),
-                            2,
-                            "{} {}: deduplicated Type C must have two source irreps",
+                            corep.dim,
+                            2 * source_dim,
+                            "{} {}: Type C must double the common partner-source dimension",
                             kpoint.label,
                             corep.label
-                        );
-                        let source_dim_sum = corep
-                            .source_irreps
-                            .iter()
-                            .map(|source| source.dim as usize)
-                            .sum::<usize>();
-                        assert_eq!(
-                            corep.dim, source_dim_sum,
-                            "{} {}: deduplicated Type C dimension must equal the sum of source dimensions",
-                            kpoint.label, corep.label
                         );
                     }
                 }
@@ -1751,26 +1855,30 @@ mod tests {
     }
 
     #[test]
-    fn bns_128_406_exposes_classified_compound_complex_boundary() {
-        let error = magnetic_irrep_summary_by_bns("128.406")
-            .expect_err("compound corepresentation must fail closed in summaries");
-        match error {
-            MagneticIrrepError::CorepComputationFailed {
-                uni,
-                sg,
-                k_label,
-                source_irrep,
-                reason,
-            } => {
-                assert_eq!(uni, 1066);
-                assert_eq!(sg, 118);
-                assert_eq!(k_label, "Z");
-                assert_eq!(source_irrep, "Z1Z4");
-                assert!(reason.contains("compound constituent branches are classified"));
-                assert!(reason.contains("compound_complex_corepresentations"));
-            }
-            other => panic!("unexpected 128.406 summary error: {other:?}"),
-        }
+    fn bns_128_406_preserves_complex_compound_characters() {
+        let summary = magnetic_irrep_summary_by_bns("128.406")
+            .expect("the strict summary must preserve compound complex rows");
+        let z = summary
+            .kpoints
+            .iter()
+            .find(|point| point.label == "Z")
+            .expect("missing Z point");
+        let compound = z
+            .coreps
+            .iter()
+            .find(|corep| {
+                corep.source == crate::irrep::corep::WignerSource::ScalarCIR
+                    && corep.corep_type == crate::irrep::corep::CorepType::C
+            })
+            .expect("missing compound Type-C branch");
+        assert!(
+            compound
+                .characters
+                .iter()
+                .flatten()
+                .any(|value| value.im.abs() > 1.0),
+            "the genuinely complex compound columns must not be projected to f64"
+        );
     }
 
     #[test]
@@ -1823,9 +1931,9 @@ mod tests {
             assert!(c.dim > 0, "corep {} has zero dimension", c.label);
             // Identity character (first) should be close to dim.
             if !c.characters.is_empty() {
-                let chi_e = c.characters[0];
+                let chi_e = c.characters[0].expect("identity character must be defined");
                 assert!(
-                    (chi_e - c.dim as f64).abs() < 1e-6,
+                    (chi_e - Complex64::new(c.dim as f64, 0.0)).norm() < 1e-6,
                     "corep {}: χ(E)={} != dim={}",
                     c.label,
                     chi_e,
@@ -1836,32 +1944,70 @@ mod tests {
     }
 
     #[test]
-    fn bns_182_183_reports_compound_complex_surface_boundary() {
-        let error = magnetic_irrep_summary_by_bns("182.183")
-            .expect_err("compound corepresentation must fail closed in summaries");
-        match error {
-            MagneticIrrepError::CorepComputationFailed {
-                uni,
-                sg,
-                k_label,
-                source_irrep,
-                reason,
-            } => {
-                assert_eq!(uni, 1413);
-                assert_eq!(sg, 173);
-                assert_eq!(k_label, "GM");
-                assert_eq!(source_irrep, "GM3GM5");
-                assert!(reason.contains("compound constituent branches are classified"));
-                assert!(reason.contains("compound_complex_corepresentations"));
-            }
-            other => panic!("unexpected 182.183 summary error: {other:?}"),
-        }
+    fn pending_type_a_columns_are_distinct_from_defined_zeroes() {
+        let pending_summary = magnetic_irrep_summary_by_uni(3).unwrap();
+        let pending_gm = pending_summary
+            .kpoints
+            .iter()
+            .find(|point| point.label == "GM")
+            .expect("missing anti-translation GM point");
+        let pending_antiunitary = pending_gm
+            .operations
+            .iter()
+            .position(|operation| operation.time_reversal)
+            .expect("UNI 3 must contain an antiunitary operation");
+        let type_a = pending_gm
+            .coreps
+            .iter()
+            .find(|corep| corep.corep_type == crate::irrep::corep::CorepType::A)
+            .expect("missing Type-A corepresentation");
+        assert_eq!(type_a.characters[pending_antiunitary], None);
+        assert!(format_magnetic_character_table(pending_gm).contains("N/A"));
+
+        let defined_summary = magnetic_irrep_summary_by_uni(2).unwrap();
+        let defined_gm = defined_summary
+            .kpoints
+            .iter()
+            .find(|point| point.label == "GM")
+            .expect("missing grey-P1 GM point");
+        let defined_antiunitary = defined_gm
+            .operations
+            .iter()
+            .position(|operation| operation.time_reversal)
+            .expect("grey P1 must contain time reversal");
+        let type_b = defined_gm
+            .coreps
+            .iter()
+            .find(|corep| corep.corep_type == crate::irrep::corep::CorepType::B)
+            .expect("missing Type-B corepresentation");
+        assert_eq!(
+            type_b.characters[defined_antiunitary],
+            Some(Complex64::new(0.0, 0.0))
+        );
     }
 
     #[test]
-    fn partial_summary_retains_safe_coreps_and_reports_compound_source() {
+    fn bns_182_183_includes_compound_branches() {
+        let summary = magnetic_irrep_summary_by_bns("182.183")
+            .expect("compound branches must be part of the strict summary");
+        let gm = summary
+            .kpoints
+            .iter()
+            .find(|point| point.label == "GM")
+            .expect("missing GM point");
+        assert!(gm.coreps.iter().any(|corep| {
+            corep.source == crate::irrep::corep::WignerSource::ScalarCIR
+                && corep
+                    .source_irreps
+                    .iter()
+                    .any(|source| source.ml == "GM3" || source.ml == "GM5")
+        }));
+    }
+
+    #[test]
+    fn partial_summary_has_no_compound_gap_after_complex_migration() {
         let partial = magnetic_irrep_summary_by_uni_partial(1413)
-            .expect("partial summaries must retain independently safe coreps");
+            .expect("partial compatibility surface must share the strict complex path");
         assert_eq!(partial.summary.uni, 1413);
         assert!(
             partial
@@ -1873,48 +2019,38 @@ mod tests {
                 .is_some(),
             "the partial summary must not discard every safe corep"
         );
-        let failure = partial
-            .unresolved_coreps
-            .iter()
-            .find(|failure| failure.k_label == "GM" && failure.source_irrep == "GM3GM5")
-            .expect("the omitted compound source must remain explicit");
-        assert_eq!(failure.sg, 173);
-        assert!(!failure.spinor);
-        assert!(
-            failure
-                .minimum_dimension
-                .is_some_and(|dimension| dimension > 0)
-        );
-        assert_eq!(
-            failure.wigner_source,
-            Some(crate::irrep::corep::WignerSource::ScalarCIR)
-        );
-        assert!(
-            failure
-                .reason
-                .contains("compound constituent branches are classified")
-        );
+        assert!(partial.unresolved_coreps.is_empty());
     }
 
     #[test]
-    fn partial_summary_preserves_completed_complex_classification() {
+    fn strict_summary_preserves_completed_complex_classification() {
         let partial = magnetic_irrep_summary_by_uni_partial(1440)
             .expect("complex source rows must be available to typed consumers");
-        let failure = partial
-            .unresolved_coreps
+        assert!(partial.unresolved_coreps.is_empty());
+        let corep = partial
+            .summary
+            .kpoints
             .iter()
-            .find(|failure| {
-                failure.k_label == "K" && failure.source_irrep == "K3" && !failure.spinor
+            .find(|point| point.label == "K")
+            .expect("missing K point")
+            .coreps
+            .iter()
+            .find(|corep| {
+                corep
+                    .source_irreps
+                    .iter()
+                    .any(|source| source.ml == "K3" && !source.spinor)
             })
-            .expect("SG 187 K3 must exercise the legacy real-surface boundary");
-        assert_eq!(
-            failure.classified_type,
-            Some(crate::irrep::corep::CorepType::A)
+            .expect("missing SG187 K3 corepresentation");
+        assert_eq!(corep.corep_type, crate::irrep::corep::CorepType::A);
+        assert_eq!(corep.dim, 1);
+        assert!(
+            corep
+                .characters
+                .iter()
+                .flatten()
+                .any(|value| value.im.abs() > 1.0e-6)
         );
-        assert_eq!(failure.minimum_dimension, Some(1));
-        assert_eq!(failure.classified_dimension, Some(1));
-        assert!(failure.wigner_source.is_some());
-        assert!(failure.reason.contains("complex unitary character"));
     }
 
     #[test]
@@ -1974,10 +2110,12 @@ mod tests {
                         .iter()
                         .flat_map(|kpoint| &kpoint.coreps)
                         .flat_map(|corep| &corep.characters)
+                        .flatten()
                         .filter(|value| {
-                            amplified_noise_targets
-                                .iter()
-                                .any(|target| (value.abs() - target).abs() < 2e-6)
+                            amplified_noise_targets.iter().any(|target| {
+                                (value.re.abs() - target).abs() < 2e-6
+                                    || (value.im.abs() - target).abs() < 2e-6
+                            })
                         })
                         .count();
                     kpoint_count += summary.kpoints.len();
@@ -2104,7 +2242,8 @@ mod tests {
                 let chi0 = c
                     .characters
                     .first()
-                    .map_or("N/A".to_string(), |v| format!("{:.0}", v));
+                    .and_then(|value| *value)
+                    .map_or("N/A".to_string(), |value| format!("{}", value));
                 println!(
                     "  {:20}  type={:?}  dim={}  χ(E)={}  src=[{}]",
                     c.label,

@@ -504,6 +504,9 @@ impl std::error::Error for CorepComputationError {}
 /// Compute the magnetic co-representation for an irrep of the unitary subgroup H.
 ///
 /// See [`compute_coreps`] for the high-level BNS+k-label API.
+#[deprecated(
+    note = "this compatibility API projects characters to f64; use compute_corepresentation_complex or the strict magnetic summary API"
+)]
 pub fn compute_corepresentation(
     h_irrep: &IrrepRecord,
     uni_number: usize,
@@ -1323,6 +1326,7 @@ pub fn compute_corepresentation_complex(
     uni_number: usize,
     mag_ops: &SymmetryOps,
 ) -> Result<ComplexCorepresentation, CorepComputationError> {
+    #[allow(deprecated)]
     match compute_corepresentation(h_irrep, uni_number, mag_ops) {
         Ok(corep) => Ok(ComplexCorepresentation {
             characters: corep
@@ -3052,6 +3056,10 @@ pub fn uni_from_og(og: &str) -> Option<usize> {
 }
 
 /// Compute all corepresentations for a magnetic SG at a k-point.
+#[deprecated(
+    note = "this compatibility API projects characters to f64; use magnetic_irrep_summary_by_bns for an operation-aligned complex table"
+)]
+#[allow(deprecated)]
 pub fn compute_coreps(
     bns: &str,
     k_label: &str,
@@ -3115,7 +3123,7 @@ impl IrrepRecord {
     ///     .find(|r| r.ml == "GM1").unwrap();
     ///
     /// // UNI 2 is the grey P1 magnetic group.
-    /// let corep = gm1.corepresentation(2)?;
+    /// let corep = gm1.complex_corepresentation(2)?;
     /// println!("Type: {:?}, dim: {}", corep.corep_type, corep.dim);
     /// for (i, &chi) in corep.characters.iter().enumerate() {
     ///     let tr = if corep.timerev[i] { " (θ)" } else { "" };
@@ -3127,6 +3135,10 @@ impl IrrepRecord {
     ///
     /// Note: `self` must be an irrep of the **unitary subgroup H**, not the
     /// parent SG. Use [`compute_coreps`] for automatic H identification.
+    #[deprecated(
+        note = "this compatibility API projects characters to f64; use complex_corepresentation"
+    )]
+    #[allow(deprecated)]
     pub fn corepresentation(
         &self,
         uni_number: usize,
@@ -3221,6 +3233,10 @@ impl std::fmt::Display for MagneticIsotropyCorep {
 ///     println!("{}", r.describe());
 /// }
 /// ```
+#[deprecated(
+    note = "this compatibility API projects characters to f64; use the strict magnetic summary API"
+)]
+#[allow(deprecated)]
 pub fn magnetic_isotropy_coreps_of_irrep(ir: &IrrepRecord) -> Vec<MagneticIsotropyCorep> {
     ir.magnetic_subgroups()
         .iter()
@@ -3241,6 +3257,10 @@ pub fn magnetic_isotropy_coreps_of_irrep(ir: &IrrepRecord) -> Vec<MagneticIsotro
 /// co-representations for their magnetic isotropy subgroups.
 ///
 /// Returns entries grouped by irrep.
+#[deprecated(
+    note = "this compatibility API projects characters to f64; use the strict magnetic summary API"
+)]
+#[allow(deprecated)]
 pub fn magnetic_isotropy_coreps_of_sg_k(
     sg: u8,
     kx: i8,
@@ -3256,6 +3276,7 @@ pub fn magnetic_isotropy_coreps_of_sg_k(
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // These tests intentionally retain coverage of the legacy f64 surface.
 mod tests {
     use super::*;
 

@@ -222,7 +222,7 @@ fn main() {
         if ir.spinor {
             continue;
         }
-        match ir.corepresentation(uni) {
+        match ir.complex_corepresentation(uni) {
             Ok(corep) => {
                 println!(
                     "  {}: type={:?} dim={} χ(id)={:.1}",

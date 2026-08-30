@@ -79,7 +79,7 @@ fn main() {
     }
 
     // ━━━ 磁共表示 (corepresentation) ━━━
-    let corep = gm4m_direct.corepresentation(1599);
+    let corep = gm4m_direct.complex_corepresentation(1599);
     match corep {
         Ok(c) => {
             println!("\nMagnetic corep for 221.97 (UNI 1599) at GM:");
