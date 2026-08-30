@@ -485,6 +485,10 @@ def parse_all_spinor():
             if any(float(raw) != value for raw, value in
                    zip(exact_op.raw_translation, legacy_op["trans"])):
                 raise ValueError(f"legacy/exact SG {sg} translation linkage mismatch")
+            # Generation-only consumers may now transport the exact source
+            # Seitz/SU(2) operation without re-parsing or reverse-engineering
+            # the legacy materialized floats.
+            legacy_op["_exact_operation"] = exact_op
         if len(exact_source.rows) != len(irreps):
             raise ValueError(f"legacy/exact SG {sg} row linkage mismatch")
         for exact_row, legacy_row in zip(exact_source.rows, irreps):
@@ -499,6 +503,9 @@ def parse_all_spinor():
                     or exact_row.operation_indices != tuple(legacy_row["op_indices"])
                     or exact_row.raw_characters != tuple(legacy_row["raw_character_tokens"])):
                 raise ValueError(f"legacy/exact SG {sg} row token linkage mismatch")
+            # Keep source identity and exact character values attached while
+            # the legacy dictionaries are sorted for generator consumption.
+            legacy_row["_exact_row"] = exact_row
 
     _validate_spin_source_sgs(all_spin_ops)
 

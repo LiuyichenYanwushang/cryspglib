@@ -13,6 +13,40 @@ sys.path.insert(0, os.path.dirname(__file__))
 import spinor_exact as exact
 
 
+class ExactSpinMaterializationTests(unittest.TestCase):
+    def test_terminal_materialization_and_pauli_components(self):
+        radical = exact.Radical24(
+            Fraction(1, 3), Fraction(1, 2), Fraction(-1, 4), Fraction(1, 6)
+        )
+        self.assertEqual(
+            radical.materialize(),
+            float(Fraction(1, 3))
+            + float(Fraction(1, 2)) * 2.0**0.5
+            - float(Fraction(1, 4)) * 3.0**0.5
+            + float(Fraction(1, 6)) * 6.0**0.5,
+        )
+        value = exact.Complex24(radical, -radical)
+        self.assertEqual(
+            value.materialize(), (radical.materialize(), -radical.materialize())
+        )
+
+        u0 = exact.Radical24(Fraction(1, 2))
+        u1 = exact.Radical24(b=Fraction(1, 2))
+        u2 = exact.Radical24(c=Fraction(1, 2))
+        u3 = exact.Radical24(d=Fraction(1, 2))
+        operation = exact.ExactSpinOperation(
+            (),
+            (),
+            (
+                exact.Complex24(u0, u3),
+                exact.Complex24(u2, u1),
+                exact.Complex24(-u2, u1),
+                exact.Complex24(u0, -u3),
+            ),
+        )
+        self.assertEqual(operation.pauli_components(), (u0, u1, u2, u3))
+
+
 class ExactSpinSourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -67,6 +67,19 @@ class Radical24:
     def is_zero(self):
         return self == ZERO
 
+    def materialize(self):
+        """Convert the exact radical to binary64 exactly once.
+
+        This is intentionally a terminal operation.  Source parsing and all
+        representation transport stay in :class:`Radical24`/`Complex24`.
+        """
+        return (
+            float(self.a)
+            + float(self.b) * 2.0**0.5
+            + float(self.c) * 3.0**0.5
+            + float(self.d) * 6.0**0.5
+        )
+
 
 ZERO = Radical24()
 ONE = Radical24(Fraction(1))
@@ -103,6 +116,10 @@ class Complex24:
     def conjugate(self):
         return Complex24(self.re, -self.im)
 
+    def materialize(self):
+        """Convert both exact components to binary64 exactly once."""
+        return self.re.materialize(), self.im.materialize()
+
     def __pow__(self, exponent):
         if not isinstance(exponent, int) or exponent < 0:
             raise ValueError("Complex24 powers require a nonnegative integer")
@@ -138,6 +155,10 @@ class ExactSpinOperation:
     raw_translation: tuple = ()
     raw_amp: tuple = ()
     raw_phase: tuple = ()
+
+    def pauli_components(self):
+        """Return exact ``(u0, u1, u2, u3)`` Pauli coefficients."""
+        return _pauli_components(self.su2)
 
 
 @dataclass(frozen=True)
