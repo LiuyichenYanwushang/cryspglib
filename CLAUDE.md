@@ -1732,48 +1732,53 @@ spglib port 的主要公共 API 已全部从 `Option<T>` 迁移到 `Result<T, Sy
 
 ---
 
-## 当前 magnetic corep 未支持边界（2026-08-30）
+## 当前 magnetic corep 能力与剩余边界（2026-08-30）
 
-普通 230 个空间群的 typed scalar/spinor 角色数据与 operation pairing 已经可用。
-当前真正的功能缺口集中在磁性 corepresentation 构造：
+普通 230 个空间群的 typed scalar/spinor 角色数据、operation pairing，以及 Rustb
+能带标记所需的 fixed-k magnetic corepresentation 数据链已经可用。此前三项主要
+阻断已经关闭：
 
-1. **Magnetic compound corep**：compound selected-arm 数据存在，但尚未建立
-   operation-aware constituent orbit/pairing。`compute_corepresentation()` 必须结构化
-   拒绝，不能把 compound block trace 当作一个不可约 seed，也不能用标签拆分猜测。
-2. **一般 Type-C partner**：`2 Re(chi)` 只在磁小群包含 direct pure
-   `{I|0}Theta` 时成立。带平移或非平凡空间部分的 antiunitary representative 需要
-   显式计算 `chi(a0^-1 h a0)^*`、lattice shift 与 Bloch phase；当前缺少这条
-   operation-aware partner 数据链，因此必须拒绝。
-3. **Spinor full-Seitz phase mapping**：stored spin source representative 与实际
-   magnetic operation 相差 lattice/centering translation 时，不能 rotation-only 复用
-   character。尚未施加可证明的 exact Bloch phase时必须拒绝。
-4. **Legacy real-valued corep surface**：`Corepresentation.characters: Vec<f64>` 无法
-   表达 genuinely complex Type-A/Type-B unitary characters。严格 API 返回
-   `ComplexUnitaryCharacters`，partial summary 保留已完成的 Wigner type/source/dimension，
-   供 typed `Complex64` consumer 重建。Rustb `9cbc7b8` 已采用此路径；这项不再是
-   Rustb `calculate_irrep()` 的主要阻塞，但 cryspglib 的 legacy surface 仍有限制。
+1. **Magnetic compound corep**：`compound_complex_corepresentations()` 在 CIR
+   constituent 层做 Wigner 分类，显式建立 antiunitary constituent orbit；固定
+   constituent、内部交换和外部 partner 都保持 source provenance。Rustb 只消费该
+   plural API 并按 provenance 合并，不解析 compound label。相关提交：`efc7e24`、
+   `9e956c4`、Rustb `da4df70`。
+2. **一般 Type-C partner**：不再把所有 Type-C 简化为 `2 Re(chi)`。scalar 与
+   spinor 均计算 `chi(a0^-1 h a0)^*`，exact Seitz reduction 返回 canonical operation
+   与 lattice shift，再施加 Bloch phase。spinor 另外比较 SU(2) lift 的
+   Same/EBar central sign。相关提交：`0851ca9`、`83ca8e8`。
+3. **Spinor full-Seitz / setting transport**：stored spin representative 到实际
+   Hall operation 的 translation difference 在真实 Hall translation lattice 中验证，
+   character 乘精确方向的 Bloch phase；parent/H setting 不再局限于 signed
+   permutation，而从整组 pinned SU(2) adjoint actions 解一个全局 frame。相关提交：
+   `1de71e1`、`83ca8e8`。
 
-另有两项应明确标为“不完整”而不是伪成功：
+Rustb 的 release-only `exhaustive_partial_complex_corep_recovery_census` 已把上述
+能力作为硬回归门。全 1,651 UNI 的当前结果是：
 
-- Type-A antiunitary characters 缺少一般 intertwiner matrix。spinor Type-A、scalar
-  高维 Type-A，以及没有 direct pure Theta 的 scalar Type-A 可返回
-  `TypeAAntiunitaryPending`；placeholder zero 不是计算结果。
-- 当前 summary 是 fixed-k magnetic-little-group corep，不是 full k-star
-  corepresentation；spinor isotropy subgroup 数据也明确标为
-  `SpinorNoIsotropyData`。
+- `points=10390`；
+- `recovered_sources=15343`；
+- `recovered_type_c_sources=4240`；
+- `merged_coreps=13247`；
+- `still_unresolved=0`。
 
-2026-08-30 release 全量 partial-summary census：
+因此 compound、一般 Type-C、centering/lattice phase 和一般 SU(2) frame 已不再让
+Rustb 的 `calculate_irrep()` 产生上游数据型 `???`。
 
-- 1,651/1,651 UNI 可返回 partial summary，summary-level fatal error 为 0；
-- 保留 28,823 个安全 corep；
-- unresolved source occurrences：compound 4,820（1,027 UNI），general Type-C
-  12,430（930 UNI），spin full-Seitz phase 5,669（477 UNI），legacy real-surface
-  complex A/B 6,556（844 UNI）；
-- Type-A antiunitary pending 17,330 个 corep，涉及 1,378 UNI。
+仍需明确保留的边界：
 
-上述 UNI 集合彼此重叠，occurrence 也不是静态数据库 unique-record 数。严格
-`magnetic_irrep_summary_by_uni()` 因 first-error 语义只有 76/1,651 个 UNI 能生成
-全表；面向分析程序应使用 partial API，并逐 source 显示 unavailable reason。
+- **Legacy real-valued surface**：`Corepresentation.characters: Vec<f64>` 和严格
+  `magnetic_irrep_summary_by_uni()` 不能表达 genuinely complex unitary characters。
+  当前严格 summary 审计为 389/1,651 UNI 成功、1,262 因该 legacy/first-error surface
+  失败；这不是 formal row 缺失。分析程序应使用 partial summary，再调用 typed
+  `complex_corepresentation()` / `compound_complex_corepresentations()`。
+- **Type-A antiunitary trace**：一般高维或 spinor Type-A 尚无 canonical intertwiner
+  matrix，返回 `TypeAAntiunitaryPending`。placeholder zero 不是计算值；Wigner type 与
+  unitary row 足以完成当前 Rustb formal fitting。
+- **表示范围**：当前 summary 是 fixed-k magnetic-little-group corep，不是 full
+  k-star corepresentation；spinor isotropy subgroup 仍标为
+  `SpinorNoIsotropyData`。非 primitive cell 的 band unfolding 也仍由 consumer
+  显式拒绝。
 
 ## Python 数据工具保留策略（2026-08-30）
 
