@@ -446,6 +446,18 @@ fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> 
             let mut extra_sources: Vec<_> =
                 group.into_iter().flat_map(|c| c.source_irreps).collect();
             merged.source_irreps.append(&mut extra_sources);
+            // Several parent PIR records can expose the same reciprocal
+            // constituent pair.  They are alternate provenance for one
+            // Type-C corepresentation, not additional copies of its source
+            // irreps.  Keep each typed source identity exactly once so that
+            // the reported dimension remains the sum over the pair rather
+            // than over duplicate parent records.
+            merged
+                .source_irreps
+                .sort_by_key(|source| (source.sg, source.ml, source.bc, source.dim, source.spinor));
+            merged.source_irreps.dedup_by_key(|source| {
+                (source.sg, source.ml, source.bc, source.dim, source.spinor)
+            });
             // Build combined label: sort source ML labels and join with " + ".
             let mut labels: Vec<&str> = merged.source_irreps.iter().map(|s| s.ml).collect();
             labels.sort();
