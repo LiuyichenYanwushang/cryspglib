@@ -97,7 +97,8 @@
 //! - Bilbao Crystallographic Server: <https://cryst.ehu.es/cgi-bin/cryst/programs/corepresentations.pl>
 
 use super::types::{
-    IrrepRecord, KVector, SpinSeitzOperation, character_component_is_roundoff_zero,
+    CompoundSelectedArmCharacter, IrrepRecord, KVector, SeitzOperation, SpinSeitzOperation,
+    character_component_is_roundoff_zero,
 };
 use super::wigner::{self, SeitzOp, filter_little_group_with_transform, ops_to_seitz};
 #[cfg(test)]
@@ -340,6 +341,46 @@ pub struct ComplexCorepresentation {
     pub antiunitary_order: usize,
     /// Whether every requested column was constructed.
     pub completeness: CharacterCompleteness,
+}
+
+/// Provenance kind of one constituent in a compound magnetic branch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompoundCorepSourceKind {
+    /// An authoritative CIR source row embedded in the physical record.
+    AuthoritativeCir,
+    /// The generated conjugate half of a physical realification.
+    ConjugateRealification,
+    /// The exact antiunitary partner row lies outside this physical record.
+    DerivedAntiunitaryPartner,
+}
+
+/// One irreducible CIR seed carried by a compound physical source record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompoundCorepSource {
+    /// Position in the two-dimensional compound constituent list.
+    pub component: usize,
+    /// Stable CIR `irnumber` of the authoritative seed.
+    pub irnumber: u32,
+    /// Miller--Love label of the authoritative seed.
+    pub label: &'static str,
+    /// Selected-arm CIR dimension.
+    pub dimension: usize,
+    /// Whether this identity is authoritative or derived.
+    pub kind: CompoundCorepSourceKind,
+}
+
+/// One magnetic co-representation branch induced by a compound source.
+///
+/// A compound physical record can contain two independently fixed CIR
+/// constituents and therefore produce two magnetic corepresentations.  It can
+/// also contain a reciprocal Type-C pair, in which case both source entries
+/// are attached to one deduplicated branch.
+#[derive(Debug, Clone)]
+pub struct CompoundComplexCorepresentation {
+    /// CIR seeds represented by this magnetic branch.
+    pub sources: Vec<CompoundCorepSource>,
+    /// Operation-aligned lossless magnetic character row.
+    pub corep: ComplexCorepresentation,
 }
 
 /// Error returned when a magnetic co-representation cannot be computed.
@@ -1279,6 +1320,460 @@ pub fn compute_corepresentation_complex(
         ),
         Err(error) => Err(error),
     }
+}
+
+#[derive(Debug, Clone)]
+struct CompoundSeedRow {
+    source: CompoundCorepSource,
+    values: Vec<Complex64>,
+    operations: Vec<SeitzOperation>,
+}
+
+#[derive(Debug)]
+struct CompoundCorepContext {
+    mag_ops_data: SymmetryOps,
+    mag_lg: Vec<usize>,
+    mag_seitz: Vec<SeitzOp>,
+    h_seitz: Vec<SeitzOp>,
+    op_map: Vec<Option<usize>>,
+    unitary: Vec<usize>,
+    antiunitary: Vec<usize>,
+}
+
+/// Compute every magnetic branch induced by one compound scalar source.
+///
+/// Unlike [`compute_corepresentation_complex`], this API is intentionally
+/// plural.  The physical PIR record is generally reducible on the selected
+/// arm: two CIR constituents can be fixed independently by the antiunitary
+/// action, exchanged as one Type-C pair, or sent to partners outside the
+/// record.  Wigner classification is therefore performed on each irreducible
+/// CIR seed, never on the aggregate block trace.
+pub fn compute_compound_corepresentations_complex(
+    h_irrep: &IrrepRecord,
+    uni_number: usize,
+    mag_ops: &SymmetryOps,
+) -> Result<Vec<CompoundComplexCorepresentation>, CorepComputationError> {
+    if h_irrep.spinor || h_irrep.raw_cir_component_count() == 0 {
+        return Err(CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: "plural compound classification requires a scalar compound source".to_string(),
+        });
+    }
+    if h_irrep.compound_metadata().is_none() {
+        return Err(CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: "generated compound metadata missing/inconsistent".to_string(),
+        });
+    }
+
+    let view = h_irrep.compound_selected_arm_view().map_err(|error| {
+        CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: format!("typed compound selected-arm row failed: {error}"),
+        }
+    })?;
+    let seeds = compound_seed_rows(&view);
+    let context = prepare_compound_corep_context(h_irrep, uni_number, mag_ops)?;
+
+    // With no antiunitary operation fixing this arm, the physical compound
+    // block trace is itself the complete local Type-A row.  Keep the legacy
+    // singleton result rather than spuriously splitting a reducible physical
+    // band cluster into constituent labels.
+    if context.antiunitary.is_empty() {
+        let corep = compute_corepresentation_complex(h_irrep, uni_number, mag_ops)?;
+        return Ok(vec![CompoundComplexCorepresentation {
+            sources: seeds.into_iter().map(|seed| seed.source).collect(),
+            corep,
+        }]);
+    }
+
+    let mut branches = Vec::<CompoundComplexCorepresentation>::new();
+    for seed in seeds {
+        let h_values = compound_seed_in_h_order(h_irrep, uni_number, &seed, &context.h_seitz)?;
+        let flat_characters = h_values
+            .iter()
+            .flat_map(|value| [value.re, value.im])
+            .collect::<Vec<_>>();
+        let corep_type = wigner::wigner_classify_cir_direct(
+            &flat_characters,
+            &context.antiunitary,
+            &context.mag_seitz,
+            &context.h_seitz,
+            h_irrep.k_vector(),
+        )
+        .map_err(|error| CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: format!(
+                "compound CIR constituent {} Wigner classification failed: {error}",
+                seed.source.label
+            ),
+        })?;
+        let partner = scalar_a0_conjugated_partner_characters(
+            context.antiunitary[0],
+            &context.mag_seitz,
+            &context.h_seitz,
+            &h_values,
+            h_irrep.k_vector(),
+        )
+        .map_err(|reason| CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: format!(
+                "compound CIR constituent {} partner construction failed: {reason}",
+                seed.source.label
+            ),
+        })?;
+        let equivalent_to_partner =
+            complex_character_rows_equivalent(&h_values, &partner, seed.source.dimension);
+        if matches!(corep_type, CorepType::A | CorepType::B) && !equivalent_to_partner {
+            return Err(CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!(
+                    "compound CIR constituent {} classified {:?}, but its exact a0-conjugated character row is inequivalent",
+                    seed.source.label, corep_type
+                ),
+            });
+        }
+        if corep_type == CorepType::C && equivalent_to_partner {
+            return Err(CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!(
+                    "compound CIR constituent {} classified Type C, but its exact a0-conjugated character row is equivalent",
+                    seed.source.label
+                ),
+            });
+        }
+
+        let dimension = wigner::corep_dim(&corep_type, seed.source.dimension);
+        let mut characters = Vec::with_capacity(context.mag_lg.len());
+        for &magnetic_index in &context.mag_lg {
+            if context.mag_ops_data.operations[magnetic_index].time_reversal {
+                characters.push(Complex64::ZERO);
+                continue;
+            }
+            let h_index = context
+                .op_map
+                .get(magnetic_index)
+                .copied()
+                .flatten()
+                .ok_or_else(|| CorepComputationError::UnmappedUnitaryOperation {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                })?;
+            let source_value = h_values.get(h_index).copied().ok_or_else(|| {
+                CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "compound CIR constituent {} has no H column {h_index}",
+                        seed.source.label
+                    ),
+                }
+            })?;
+            let value = match corep_type {
+                CorepType::A => source_value,
+                CorepType::B => source_value * 2.0,
+                CorepType::C => {
+                    source_value
+                        + partner.get(h_index).copied().ok_or_else(|| {
+                            CorepComputationError::UnsupportedClassification {
+                                uni: uni_number,
+                                source_irrep: h_irrep.ml.to_string(),
+                                reason: format!(
+                                    "compound Type-C partner has no H column {h_index}"
+                                ),
+                            }
+                        })?
+                }
+            };
+            if !value.re.is_finite() || !value.im.is_finite() {
+                return Err(CorepComputationError::NonFiniteCharacters {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                });
+            }
+            characters.push(value);
+        }
+
+        let operations = context
+            .mag_lg
+            .iter()
+            .map(|&index| context.mag_ops_data.operations[index].clone())
+            .collect::<Vec<_>>();
+        let timerev = operations
+            .iter()
+            .map(|operation| operation.time_reversal)
+            .collect::<Vec<_>>();
+        let completeness = if corep_type == CorepType::A {
+            CharacterCompleteness::TypeAAntiunitaryPending {
+                count: context.antiunitary.len(),
+            }
+        } else {
+            CharacterCompleteness::Complete
+        };
+        let branch = CompoundComplexCorepresentation {
+            sources: vec![seed.source],
+            corep: ComplexCorepresentation {
+                characters,
+                timerev,
+                magnetic_operation_indices: context.mag_lg.clone(),
+                operations,
+                corep_type,
+                source: WignerSource::ScalarCIR,
+                dim: dimension,
+                unitary_order: context.unitary.len(),
+                antiunitary_order: context.antiunitary.len(),
+                completeness,
+            },
+        };
+
+        // Reciprocal Type-C seeds describe the same magnetic corep.  Fixed
+        // A/B constituents remain separate even if their rows happen to be
+        // numerically equal, because the physical source contains both copies.
+        if corep_type == CorepType::C {
+            if let Some(existing) = branches
+                .iter_mut()
+                .find(|existing| compound_corep_rows_equivalent(&existing.corep, &branch.corep))
+            {
+                existing.sources.extend(branch.sources);
+                continue;
+            }
+        }
+        branches.push(branch);
+    }
+
+    if branches.is_empty() {
+        return Err(CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: "compound constituent-orbit analysis produced no branches".to_string(),
+        });
+    }
+    // A Type-C branch always contains two H-irrep constituents.  When the
+    // reciprocal partner is not the other seed of this physical record, keep
+    // an explicit derived partner entry so dimensions and provenance remain
+    // plural without pretending that a second CIR source was found.
+    for branch in &mut branches {
+        if branch.corep.corep_type == CorepType::C && branch.sources.len() == 1 {
+            let mut partner = branch.sources[0].clone();
+            partner.kind = CompoundCorepSourceKind::DerivedAntiunitaryPartner;
+            branch.sources.push(partner);
+        }
+    }
+    Ok(branches)
+}
+
+fn compound_seed_rows(view: &CompoundSelectedArmCharacter) -> Vec<CompoundSeedRow> {
+    match view {
+        CompoundSelectedArmCharacter::ConjugateRealification { seed, .. } => vec![
+            CompoundSeedRow {
+                source: CompoundCorepSource {
+                    component: 0,
+                    irnumber: seed.irnumber,
+                    label: seed.label,
+                    dimension: seed.dimension,
+                    kind: CompoundCorepSourceKind::AuthoritativeCir,
+                },
+                values: seed.row.values().to_vec(),
+                operations: seed.row.operations().to_vec(),
+            },
+            CompoundSeedRow {
+                source: CompoundCorepSource {
+                    component: 1,
+                    irnumber: seed.irnumber,
+                    label: seed.label,
+                    dimension: seed.dimension,
+                    kind: CompoundCorepSourceKind::ConjugateRealification,
+                },
+                values: seed.row.values().iter().map(|value| value.conj()).collect(),
+                operations: seed.row.operations().to_vec(),
+            },
+        ],
+        CompoundSelectedArmCharacter::DistinctComponentSum { first, second, .. } => [first, second]
+            .into_iter()
+            .map(|constituent| CompoundSeedRow {
+                source: CompoundCorepSource {
+                    component: constituent.component,
+                    irnumber: constituent.irnumber,
+                    label: constituent.label,
+                    dimension: constituent.dimension,
+                    kind: CompoundCorepSourceKind::AuthoritativeCir,
+                },
+                values: constituent.row.values().to_vec(),
+                operations: constituent.row.operations().to_vec(),
+            })
+            .collect(),
+    }
+}
+
+fn prepare_compound_corep_context(
+    h_irrep: &IrrepRecord,
+    uni_number: usize,
+    mag_ops: &SymmetryOps,
+) -> Result<CompoundCorepContext, CorepComputationError> {
+    if uni_number == 0 || uni_number > 1651 {
+        return Err(CorepComputationError::InvalidUni { uni: uni_number });
+    }
+    let h_info = identify_unitary_subgroup_with_hall(uni_number)
+        .ok_or(CorepComputationError::MissingUnitarySubgroup { uni: uni_number })?;
+    if h_info.ops_from_hall.is_empty() {
+        return Err(CorepComputationError::EmptyUnitaryOperations { uni: uni_number });
+    }
+    let mag_ops_data = operations_in_data_hall_frame(mag_ops, h_info.msg_to_data.as_ref())
+        .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: "MSG operation could not be transformed to the ISOTROPY data-Hall frame"
+                .to_string(),
+        })?;
+    let canonical_translations = h_info
+        .ops_from_hall
+        .operations
+        .iter()
+        .filter(|operation| operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        .map(|operation| operation.translation)
+        .collect::<Vec<_>>();
+    let mag_lg = filter_little_group_with_transform(
+        h_irrep.kx,
+        h_irrep.ky,
+        h_irrep.kz,
+        h_irrep.kd,
+        &mag_ops_data,
+        None,
+        Some(&canonical_translations),
+    );
+    if mag_lg.is_empty() {
+        return Err(CorepComputationError::EmptyMagneticLittleGroup {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+        });
+    }
+    let mag_seitz = ops_to_seitz(&mag_ops_data);
+    let h_seitz = ops_to_seitz(&h_info.ops_from_hall);
+    let op_map = (0..mag_ops.len())
+        .map(|index| {
+            if mag_ops_data.operations[index].time_reversal {
+                None
+            } else {
+                let operation = &mag_seitz[index];
+                wigner::find_seitz(&operation.rot, &operation.trans, &h_seitz)
+                    .map(|mapping| mapping.op_index)
+            }
+        })
+        .collect::<Vec<_>>();
+    if op_map
+        .iter()
+        .enumerate()
+        .any(|(index, mapping)| !mag_ops_data.operations[index].time_reversal && mapping.is_none())
+    {
+        return Err(CorepComputationError::UnmappedUnitaryOperation {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+        });
+    }
+    let unitary = mag_lg
+        .iter()
+        .copied()
+        .filter(|&index| !mag_ops_data.operations[index].time_reversal)
+        .collect::<Vec<_>>();
+    let antiunitary = mag_lg
+        .iter()
+        .copied()
+        .filter(|&index| mag_ops_data.operations[index].time_reversal)
+        .collect::<Vec<_>>();
+    Ok(CompoundCorepContext {
+        mag_ops_data,
+        mag_lg,
+        mag_seitz,
+        h_seitz,
+        op_map,
+        unitary,
+        antiunitary,
+    })
+}
+
+fn compound_seed_in_h_order(
+    h_irrep: &IrrepRecord,
+    uni_number: usize,
+    seed: &CompoundSeedRow,
+    h_seitz: &[SeitzOp],
+) -> Result<Vec<Complex64>, CorepComputationError> {
+    let rotations = seed
+        .operations
+        .iter()
+        .flat_map(|operation| operation.rotation)
+        .collect::<Vec<_>>();
+    let translations = seed
+        .operations
+        .iter()
+        .flat_map(|operation| operation.translation)
+        .collect::<Vec<_>>();
+    let map = wigner::build_h_to_irrep_op_map(h_seitz, &rotations, &translations).ok_or_else(
+        || CorepComputationError::UnsupportedClassification {
+            uni: uni_number,
+            source_irrep: h_irrep.ml.to_string(),
+            reason: format!(
+                "compound CIR constituent {} could not be bound bijectively to the canonical H operation table",
+                seed.source.label
+            ),
+        },
+    )?;
+    map.iter()
+        .map(|&source_index| {
+            seed.values.get(source_index).copied().ok_or_else(|| {
+                CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "compound CIR constituent {} operation index {source_index} is out of range",
+                        seed.source.label
+                    ),
+                }
+            })
+        })
+        .collect()
+}
+
+fn complex_character_rows_equivalent(
+    left: &[Complex64],
+    right: &[Complex64],
+    dimension: usize,
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            let scale = (dimension as f64)
+                .max(1.0)
+                .max(left.norm())
+                .max(right.norm());
+            (*left - *right).norm() <= 8.0 * f64::EPSILON * scale
+        })
+}
+
+fn compound_corep_rows_equivalent(
+    left: &ComplexCorepresentation,
+    right: &ComplexCorepresentation,
+) -> bool {
+    left.corep_type == right.corep_type
+        && left.dim == right.dim
+        && left.timerev == right.timerev
+        && left.magnetic_operation_indices == right.magnetic_operation_indices
+        && left.operations.len() == right.operations.len()
+        && left
+            .operations
+            .iter()
+            .zip(&right.operations)
+            .all(|(left, right)| {
+                left.rotation == right.rotation
+                    && left.translation == right.translation
+                    && left.time_reversal == right.time_reversal
+            })
+        && complex_character_rows_equivalent(&left.characters, &right.characters, left.dim)
 }
 
 fn reconstruct_complex_classified_corepresentation(
@@ -2420,6 +2915,21 @@ impl IrrepRecord {
             .ok_or(CorepComputationError::MissingMagneticOperations { uni: uni_number })?;
         compute_corepresentation_complex(self, uni_number, &mag_ops)
     }
+
+    /// Compute every operation-aligned magnetic branch of a compound scalar
+    /// source record.
+    ///
+    /// This is plural because the two irreducible CIR constituents can be
+    /// fixed separately by the antiunitary action.  Ordinary and spinor
+    /// records return a structured not-applicable error.
+    pub fn compound_complex_corepresentations(
+        &self,
+        uni_number: usize,
+    ) -> Result<Vec<CompoundComplexCorepresentation>, CorepComputationError> {
+        let mag_ops = get_magnetic_operations(uni_number)
+            .ok_or(CorepComputationError::MissingMagneticOperations { uni: uni_number })?;
+        compute_compound_corepresentations_complex(self, uni_number, &mag_ops)
+    }
 }
 
 // ── Magnetic isotropy → corepresentation bridge ────────────────────────────
@@ -2931,6 +3441,108 @@ mod tests {
                 other => panic!("unexpected compound corep error: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn antiunitary_compound_plural_api_classifies_constituent_orbits() {
+        for (sg, label, uni) in [
+            (182u8, "H1H2", 1410usize),
+            (46, "W1W2", 340),
+            (83, "GM3+GM4+", 1005),
+        ] {
+            let irrep = irreps_of(sg)
+                .iter()
+                .find(|irrep| irrep.ml == label)
+                .unwrap_or_else(|| panic!("missing SG {sg} {label} compound irrep"));
+            let branches = irrep
+                .compound_complex_corepresentations(uni)
+                .unwrap_or_else(|error| panic!("SG {sg} {label} UNI {uni}: {error}"));
+            assert!(!branches.is_empty());
+            for branch in &branches {
+                assert!(!branch.sources.is_empty());
+                assert_eq!(
+                    branch.corep.characters.len(),
+                    branch.corep.magnetic_operation_indices.len()
+                );
+                assert_eq!(branch.corep.characters.len(), branch.corep.operations.len());
+                assert_eq!(branch.corep.characters.len(), branch.corep.timerev.len());
+                assert_eq!(branch.corep.source, WignerSource::ScalarCIR);
+                assert!(branch.corep.dim > 0);
+                assert!(
+                    branch
+                        .corep
+                        .characters
+                        .iter()
+                        .all(|value| value.re.is_finite() && value.im.is_finite())
+                );
+            }
+            println!(
+                "SG {sg} {label} UNI {uni}: {} branches {:?}",
+                branches.len(),
+                branches
+                    .iter()
+                    .map(|branch| (
+                        branch.corep.corep_type,
+                        branch.corep.dim,
+                        branch
+                            .sources
+                            .iter()
+                            .map(|source| (source.label, source.kind))
+                            .collect::<Vec<_>>()
+                    ))
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "full 1651-UNI compound constituent-orbit census"]
+    fn exhaustive_compound_plural_corepresentation_census() {
+        let mut records = 0usize;
+        let mut branches = 0usize;
+        let mut type_counts = [0usize; 3];
+        let mut failures = Vec::new();
+        for uni in 1usize..=1651 {
+            let Some(h_info) = identify_unitary_subgroup_with_hall(uni) else {
+                continue;
+            };
+            let Some(mag_ops) = get_magnetic_operations(uni) else {
+                continue;
+            };
+            for irrep in irreps_of(h_info.sg as u8)
+                .iter()
+                .filter(|irrep| !irrep.spinor && irrep.raw_cir_component_count() > 0)
+            {
+                records += 1;
+                match compute_compound_corepresentations_complex(irrep, uni, &mag_ops) {
+                    Ok(result) => {
+                        branches += result.len();
+                        for branch in result {
+                            type_counts[match branch.corep.corep_type {
+                                CorepType::A => 0,
+                                CorepType::B => 1,
+                                CorepType::C => 2,
+                            }] += 1;
+                        }
+                    }
+                    Err(error) => failures.push((uni, irrep.sg, irrep.ml, error.to_string())),
+                }
+            }
+        }
+        println!(
+            "compound plural census: records={records} branches={branches} A={} B={} C={} failures={}",
+            type_counts[0],
+            type_counts[1],
+            type_counts[2],
+            failures.len()
+        );
+        for failure in failures.iter().take(20) {
+            println!("  failure: {failure:?}");
+        }
+        assert!(
+            failures.is_empty(),
+            "compound plural failures: {failures:?}"
+        );
     }
 
     #[test]

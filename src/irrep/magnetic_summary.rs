@@ -269,6 +269,122 @@ pub enum IsotropyCandidateRelation {
     SpinorNoIsotropyData,
 }
 
+fn compound_coreps_for_summary(
+    irrep: &crate::irrep::types::IrrepRecord,
+    uni: usize,
+    mag_ops: &SymmetryOps,
+    operations: &[MagneticLittleGroupOperation],
+) -> Result<Vec<MagneticCorepSummary>, crate::irrep::corep::CorepComputationError> {
+    let branches =
+        crate::irrep::corep::compute_compound_corepresentations_complex(irrep, uni, mag_ops)?;
+    let mut summaries = Vec::with_capacity(branches.len());
+    for branch in branches {
+        let corep = branch.corep;
+        let aligned = corep.characters.len() == operations.len()
+            && corep.timerev.len() == operations.len()
+            && corep.magnetic_operation_indices.len() == operations.len()
+            && corep.operations.len() == operations.len()
+            && corep
+                .timerev
+                .iter()
+                .zip(operations)
+                .all(|(time_reversal, operation)| *time_reversal == operation.time_reversal)
+            && corep
+                .magnetic_operation_indices
+                .iter()
+                .zip(operations)
+                .all(|(index, operation)| *index == operation.magnetic_operation_index)
+            && corep.operations.iter().zip(operations).all(
+                |(corep_operation, summary_operation)| {
+                    corep_operation.rotation == summary_operation.rotation
+                        && corep_operation.translation == summary_operation.translation
+                        && corep_operation.time_reversal == summary_operation.time_reversal
+                },
+            );
+        if !aligned {
+            return Err(
+                crate::irrep::corep::CorepComputationError::UnsupportedClassification {
+                    uni,
+                    source_irrep: irrep.ml.to_string(),
+                    reason: "compound plural character columns are not paired with the magnetic little-group operations"
+                        .to_string(),
+                },
+            );
+        }
+        let mut characters = Vec::with_capacity(corep.characters.len());
+        for (column, value) in corep.characters.iter().copied().enumerate() {
+            let scale = (corep.dim as f64)
+                .max(1.0)
+                .max(value.re.abs())
+                .max(value.im.abs());
+            if !value.re.is_finite()
+                || !value.im.is_finite()
+                || value.im.abs() > 8.0 * f64::EPSILON * scale
+            {
+                return Err(
+                    crate::irrep::corep::CorepComputationError::UnsupportedClassification {
+                        uni,
+                        source_irrep: irrep.ml.to_string(),
+                        reason: format!(
+                            "compound constituent branches are classified, but branch {:?} column {column} has the genuinely complex character {}; use compound_complex_corepresentations()",
+                            corep.corep_type, value
+                        ),
+                    },
+                );
+            }
+            characters.push(value.re);
+        }
+        let source_irreps = branch
+            .sources
+            .iter()
+            .map(|source| SourceIrrepSummary {
+                sg: irrep.sg,
+                ml: source.label,
+                bc: irrep.bc,
+                dim: u8::try_from(source.dimension).unwrap_or(u8::MAX),
+                spinor: false,
+            })
+            .collect::<Vec<_>>();
+        if source_irreps.iter().any(|source| source.dim == u8::MAX) {
+            return Err(
+                crate::irrep::corep::CorepComputationError::UnsupportedClassification {
+                    uni,
+                    source_irrep: irrep.ml.to_string(),
+                    reason: "compound constituent dimension exceeds u8".to_string(),
+                },
+            );
+        }
+        let label = branch
+            .sources
+            .iter()
+            .map(|source| match source.kind {
+                crate::irrep::corep::CompoundCorepSourceKind::AuthoritativeCir => {
+                    source.label.to_string()
+                }
+                crate::irrep::corep::CompoundCorepSourceKind::ConjugateRealification => {
+                    format!("conj({})", source.label)
+                }
+                crate::irrep::corep::CompoundCorepSourceKind::DerivedAntiunitaryPartner => {
+                    format!("a0({})", source.label)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" + ");
+        summaries.push(MagneticCorepSummary {
+            label,
+            source_irreps,
+            corep_type: corep.corep_type,
+            source: corep.source,
+            dim: corep.dim,
+            characters,
+            timerev: corep.timerev,
+            completeness: corep.completeness,
+            isotropy_candidates: Vec::new(),
+        });
+    }
+    Ok(summaries)
+}
+
 // ── Type-C dedup ───────────────────────────────────────────────────────────────
 
 /// Deduplicate coreps by
@@ -745,6 +861,39 @@ fn magnetic_irrep_summary_from_ops_impl(
             let mut raw_coreps: Vec<MagneticCorepSummary> = Vec::new();
             for &idx in &kp.irreps {
                 let ir = &h_irreps[idx];
+                if antiunitary_order > 0 && ir.cir_component_count() > 0 {
+                    match compound_coreps_for_summary(ir, uni, mag_ops, &operations) {
+                        Ok(coreps) => raw_coreps.extend(coreps),
+                        Err(err) => {
+                            let failure = UnresolvedMagneticCorep {
+                                uni,
+                                sg: ir.sg,
+                                k_label: kp.label.clone(),
+                                source_irrep: ir.ml.to_string(),
+                                spinor: false,
+                                minimum_dimension: selected_arm_dimension(ir).ok(),
+                                classified_type: None,
+                                wigner_source: Some(
+                                    crate::irrep::corep::WignerSource::ScalarCIR,
+                                ),
+                                classified_dimension: None,
+                                reason: err.to_string(),
+                            };
+                            if retain_partial {
+                                unresolved_coreps.push(failure);
+                            } else {
+                                return Err(MagneticIrrepError::CorepComputationFailed {
+                                    uni: failure.uni,
+                                    sg: failure.sg,
+                                    k_label: failure.k_label,
+                                    source_irrep: failure.source_irrep,
+                                    reason: failure.reason,
+                                });
+                            }
+                        }
+                    }
+                    continue;
+                }
                 match crate::irrep::corep::compute_corepresentation(ir, uni, mag_ops) {
                     Ok(c) => {
                         let aligned = c.characters.len() == operations.len()
@@ -1590,7 +1739,7 @@ mod tests {
     }
 
     #[test]
-    fn bns_128_406_has_official_dimensions_and_pending_status() {
+    fn bns_128_406_exposes_classified_compound_complex_boundary() {
         let error = magnetic_irrep_summary_by_bns("128.406")
             .expect_err("compound corepresentation must fail closed in summaries");
         match error {
@@ -1605,7 +1754,8 @@ mod tests {
                 assert_eq!(sg, 118);
                 assert_eq!(k_label, "Z");
                 assert_eq!(source_irrep, "Z1Z4");
-                assert!(reason.contains("constituent-orbit Wigner analysis"));
+                assert!(reason.contains("compound constituent branches are classified"));
+                assert!(reason.contains("compound_complex_corepresentations"));
             }
             other => panic!("unexpected 128.406 summary error: {other:?}"),
         }
@@ -1674,7 +1824,7 @@ mod tests {
     }
 
     #[test]
-    fn bns_182_183_reports_compound_corep_error() {
+    fn bns_182_183_reports_compound_complex_surface_boundary() {
         let error = magnetic_irrep_summary_by_bns("182.183")
             .expect_err("compound corepresentation must fail closed in summaries");
         match error {
@@ -1689,7 +1839,8 @@ mod tests {
                 assert_eq!(sg, 173);
                 assert_eq!(k_label, "GM");
                 assert_eq!(source_irrep, "GM3GM5");
-                assert!(reason.contains("constituent-orbit Wigner analysis"));
+                assert!(reason.contains("compound constituent branches are classified"));
+                assert!(reason.contains("compound_complex_corepresentations"));
             }
             other => panic!("unexpected 182.183 summary error: {other:?}"),
         }
@@ -1722,7 +1873,15 @@ mod tests {
                 .minimum_dimension
                 .is_some_and(|dimension| dimension > 0)
         );
-        assert!(failure.reason.contains("constituent-orbit Wigner analysis"));
+        assert_eq!(
+            failure.wigner_source,
+            Some(crate::irrep::corep::WignerSource::ScalarCIR)
+        );
+        assert!(
+            failure
+                .reason
+                .contains("compound constituent branches are classified")
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@ use cryspglib::irrep::magnetic_summary::{MagneticIrrepError, magnetic_irrep_summ
 #[test]
 fn bcs_sg128_406_z_has_official_dimensions() {
     let error = magnetic_irrep_summary_by_bns("128.406")
-        .expect_err("compound corepresentation must fail closed in summaries");
+        .expect_err("the real-valued summary must reject genuinely complex compound branches");
     match error {
         MagneticIrrepError::CorepComputationFailed {
             uni,
@@ -22,8 +22,8 @@ fn bcs_sg128_406_z_has_official_dimensions() {
             assert_eq!(sg, 118);
             assert_eq!(k_label, "Z");
             assert_eq!(source_irrep, "Z1Z4");
-            assert!(reason.contains("constituent-orbit Wigner analysis"));
-            assert!(reason.contains("physical aggregate block trace"));
+            assert!(reason.contains("compound constituent branches are classified"));
+            assert!(reason.contains("compound_complex_corepresentations"));
         }
         other => panic!("unexpected BNS 128.406 error: {other:?}"),
     }
