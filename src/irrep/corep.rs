@@ -1786,6 +1786,18 @@ fn complex_character_rows_equivalent(
         })
 }
 
+/// Validate redundant source representatives without modifying either value.
+///
+/// The pinned spin tables historically materialize ten-decimal source values,
+/// so this check allows their serialization error while preserving the chosen
+/// representative verbatim.  It is only applied after exact rotation and Hall
+/// translation-lattice membership have proved that the candidates represent
+/// the same target group element.
+fn spin_transport_values_equivalent(left: Complex64, right: Complex64) -> bool {
+    let scale = 1.0_f64.max(left.norm()).max(right.norm());
+    (left - right).norm() <= 2.0e-9 * scale
+}
+
 fn compound_corep_rows_equivalent(
     left: &ComplexCorepresentation,
     right: &ComplexCorepresentation,
@@ -1926,6 +1938,45 @@ fn reconstruct_complex_classified_corepresentation(
                 .collect::<Vec<_>>(),
         )
     };
+    let source_seitz = source_entries
+        .iter()
+        .map(|(_, operation)| SeitzOp {
+            rot: [
+                [
+                    operation.rotation[0],
+                    operation.rotation[1],
+                    operation.rotation[2],
+                ],
+                [
+                    operation.rotation[3],
+                    operation.rotation[4],
+                    operation.rotation[5],
+                ],
+                [
+                    operation.rotation[6],
+                    operation.rotation[7],
+                    operation.rotation[8],
+                ],
+            ],
+            trans: operation.translation,
+            timerev: false,
+        })
+        .collect::<Vec<_>>();
+    let target_seitz = operations
+        .iter()
+        .map(|operation| SeitzOp {
+            rot: operation.rotation,
+            trans: operation.translation,
+            timerev: operation.time_reversal,
+        })
+        .collect::<Vec<_>>();
+    let spin_character_candidates = spin_source_row.as_ref().map(|_| {
+        wigner::build_phase_aligned_spin_character_candidates(
+            &target_seitz,
+            &source_seitz,
+            &ops_to_seitz(&h_info.ops_from_hall),
+        )
+    });
     let expected_dimension = wigner::corep_dim(&corep_type, source_dimension);
     if dimension != expected_dimension {
         return Err(CorepComputationError::UnsupportedClassification {
@@ -1938,32 +1989,6 @@ fn reconstruct_complex_classified_corepresentation(
     }
 
     let type_c_partner = if corep_type == CorepType::C {
-        let canonical_h_operations = source_entries
-            .iter()
-            .map(|(_, operation)| {
-                SeitzOp::new(
-                    [
-                        [
-                            operation.rotation[0],
-                            operation.rotation[1],
-                            operation.rotation[2],
-                        ],
-                        [
-                            operation.rotation[3],
-                            operation.rotation[4],
-                            operation.rotation[5],
-                        ],
-                        [
-                            operation.rotation[6],
-                            operation.rotation[7],
-                            operation.rotation[8],
-                        ],
-                    ],
-                    operation.translation,
-                    false,
-                )
-            })
-            .collect::<Vec<_>>();
         let source_characters = source_entries
             .iter()
             .map(|(character, _)| *character)
@@ -2062,7 +2087,7 @@ fn reconstruct_complex_classified_corepresentation(
                 scalar_a0_conjugated_partner_characters(
                     a0_index,
                     &mag_seitz,
-                    &canonical_h_operations,
+                    &source_seitz,
                     &source_characters,
                     h_irrep.k_vector(),
                 )
@@ -2087,49 +2112,154 @@ fn reconstruct_complex_classified_corepresentation(
             characters.push(Complex64::ZERO);
             continue;
         }
-        let target_rotation: [i32; 9] = operation
-            .rotation
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("3x3 rotation has nine entries");
-        let matches = source_entries
-            .iter()
-            .enumerate()
-            .filter(|(_, (_, source_operation))| {
-                source_operation.rotation == target_rotation
-                    && source_operation.translation == operation.translation
-            })
-            .collect::<Vec<_>>();
-        let [entry] = matches.as_slice() else {
-            return Err(CorepComputationError::UnsupportedClassification {
-                uni: uni_number,
-                source_irrep: h_irrep.ml.to_string(),
-                reason: format!(
-                    "unitary column {column} matched {} typed complete Seitz source operations",
-                    matches.len()
-                ),
-            });
-        };
-        let source_index = entry.0;
-        let source_value = (entry.1).0;
-        let value = match corep_type {
-            CorepType::A => source_value,
-            CorepType::B => source_value * 2.0,
-            CorepType::C => {
-                source_value
-                    + type_c_partner
-                        .as_ref()
-                        .and_then(|partner| partner.get(source_index))
-                        .copied()
+        let spin_transports = if let Some(candidate_rows) = &spin_character_candidates {
+            let bindings = candidate_rows.get(column).ok_or_else(|| {
+                CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "unitary spin column {column} is outside the phase-aligned candidate table"
+                    ),
+                }
+            })?;
+            if bindings.is_empty()
+                || (bindings.len() > 1
+                    && bindings
+                        .iter()
+                        .all(|binding| binding.translation_numerator == [0, 0, 0]))
+            {
+                return Err(CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "unitary spin column {column} has {} structurally valid character transports",
+                        bindings.len()
+                    ),
+                });
+            }
+            let k = h_irrep.k_vector();
+            let transported = bindings
+                .iter()
+                .map(|binding| {
+                    let translation = binding.translation_numerator.map(|numerator| {
+                        numerator as f64 / wigner::EXACT_SEITZ_TRANSLATION_DENOMINATOR as f64
+                    });
+                    let phase = wigner::bloch_phase_f64(
+                        k.numerators[0],
+                        k.numerators[1],
+                        k.numerators[2],
+                        k.denominator,
+                        &translation,
+                    );
+                    let value = source_entries
+                        .get(binding.source_index)
+                        .map(|entry| entry.0 * phase)
                         .ok_or_else(|| CorepComputationError::UnsupportedClassification {
                             uni: uni_number,
                             source_irrep: h_irrep.ml.to_string(),
                             reason: format!(
-                                "Type-C partner has no canonical H column {source_index}"
+                                "source character index {} is out of range",
+                                binding.source_index
                             ),
-                        })?
+                        })?;
+                    Ok((*binding, phase, value))
+                })
+                .collect::<Result<Vec<_>, CorepComputationError>>()?;
+            let reference = transported[0].2;
+            if transported
+                .iter()
+                .skip(1)
+                .any(|(_, _, value)| !spin_transport_values_equivalent(reference, *value))
+            {
+                return Err(CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "unitary spin column {column} has lattice-equivalent sources with inconsistent phase-transported characters"
+                    ),
+                });
+            }
+            Some(transported)
+        } else {
+            let target_rotation: [i32; 9] = operation
+                .rotation
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .try_into()
+                .expect("3x3 rotation has nine entries");
+            let matches = source_entries
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, source_operation))| {
+                    source_operation.rotation == target_rotation
+                        && source_operation.translation == operation.translation
+                })
+                .collect::<Vec<_>>();
+            let [entry] = matches.as_slice() else {
+                return Err(CorepComputationError::UnsupportedClassification {
+                    uni: uni_number,
+                    source_irrep: h_irrep.ml.to_string(),
+                    reason: format!(
+                        "unitary column {column} matched {} typed complete Seitz source operations",
+                        matches.len()
+                    ),
+                });
+            };
+            Some(vec![(
+                wigner::SpinCharacterBinding {
+                    source_index: entry.0,
+                    translation_numerator: [0, 0, 0],
+                },
+                Complex64::new(1.0, 0.0),
+                (entry.1).0,
+            )])
+        };
+        let spin_transports = spin_transports.expect("constructed for every unitary column");
+        let (binding, phase, source_value) = spin_transports[0];
+        let source_index = binding.source_index;
+        let value = match corep_type {
+            CorepType::A => source_value,
+            CorepType::B => source_value * 2.0,
+            CorepType::C => {
+                let partner = type_c_partner.as_ref().ok_or_else(|| {
+                    CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: "classified Type-C source has no partner row".to_string(),
+                    }
+                })?;
+                let partner_value = partner
+                    .get(source_index)
+                    .copied()
+                    .map(|value| value * phase)
+                    .ok_or_else(|| CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!("Type-C partner has no canonical H column {source_index}"),
+                    })?;
+                if spin_transports
+                    .iter()
+                    .skip(1)
+                    .any(|(candidate_binding, candidate_phase, _)| {
+                        partner
+                            .get(candidate_binding.source_index)
+                            .copied()
+                            .map(|value| value * *candidate_phase)
+                            .is_none_or(|candidate| {
+                                !spin_transport_values_equivalent(partner_value, candidate)
+                            })
+                    })
+                {
+                    return Err(CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!(
+                            "unitary spin column {column} has lattice-equivalent sources with inconsistent transported Type-C partners"
+                        ),
+                    });
+                }
+                source_value + partner_value
             }
         };
         if !value.re.is_finite() || !value.im.is_finite() {
@@ -4072,6 +4202,33 @@ mod tests {
             .expect("canonical SG 5 L2 spin mapping must be available");
         assert_eq!(corep.characters, vec![1.0, -1.0]);
         assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+    }
+
+    #[test]
+    fn rhombohedral_spin_complex_recovery_proves_redundant_lattice_transports() {
+        let source = crate::irrep::query::irreps_of(148)
+            .iter()
+            .find(|irrep| irrep.spinor && irrep.ml == "T5")
+            .expect("SG148 T5 spinor source");
+        let corep = source
+            .complex_corepresentation(1250)
+            .expect("lattice-equivalent rhombohedral source columns must transport consistently");
+        assert_eq!(corep.source, WignerSource::SpinorSU2);
+        assert_eq!(corep.characters.len(), corep.operations.len());
+        assert!(
+            corep
+                .characters
+                .iter()
+                .all(|value| value.re.is_finite() && value.im.is_finite())
+        );
+        assert!(
+            corep
+                .characters
+                .iter()
+                .zip(&corep.timerev)
+                .any(|(value, time_reversal)| !time_reversal && value.im.abs() > 0.5),
+            "the complex API must retain the genuinely complex unitary row"
+        );
     }
 
     #[test]

@@ -3804,6 +3804,124 @@ pub(crate) fn build_h_to_spin_map_exact(
         .collect()
 }
 
+/// One proven transport from a stored spin-character representative to a
+/// target Hall representative of the same spatial operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SpinCharacterBinding {
+    /// Position in the selected-arm spin character row.
+    pub source_index: usize,
+    /// Unwrapped translation numerator `L/12` in
+    /// `target = {E|L/12} source`.
+    pub translation_numerator: [i32; 3],
+}
+
+/// Bind target Hall operations to stored spin-character representatives while
+/// retaining the Bloch translation phase.
+///
+/// A candidate is accepted only when its rotation is identical and the exact
+/// translation difference belongs to the translation subgroup of the supplied
+/// Hall operation table.  This admits centered conventional-cell vectors and
+/// integer lattice shifts, but never a rotation-only guess.  Missing or
+/// ambiguous columns remain `None` for the caller to reject.
+#[cfg(test)]
+pub(crate) fn build_phase_aligned_spin_character_map(
+    targets: &[SeitzOp],
+    sources: &[SeitzOp],
+    hall_operations: &[SeitzOp],
+) -> Vec<Option<SpinCharacterBinding>> {
+    build_phase_aligned_spin_character_candidates(targets, sources, hall_operations)
+        .into_iter()
+        .map(|candidates| match candidates.as_slice() {
+            [binding] => Some(*binding),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Return every translation-lattice candidate for each target column.
+///
+/// Exact representative matches take precedence.  Multiple exact matches are
+/// preserved so callers reject structurally duplicated rows.  When no exact
+/// representative exists, callers may accept multiple lattice-equivalent
+/// candidates only after proving that their phase-transported representation
+/// values agree.
+pub(crate) fn build_phase_aligned_spin_character_candidates(
+    targets: &[SeitzOp],
+    sources: &[SeitzOp],
+    hall_operations: &[SeitzOp],
+) -> Vec<Vec<SpinCharacterBinding>> {
+    let exact_targets = match exact_seitz_table(targets) {
+        Ok(operations) => operations,
+        Err(_) => return vec![Vec::new(); targets.len()],
+    };
+    let exact_sources = match exact_seitz_table(sources) {
+        Ok(operations) => operations,
+        Err(_) => return vec![Vec::new(); targets.len()],
+    };
+    let exact_hall = match exact_seitz_table(hall_operations) {
+        Ok(operations) => operations,
+        Err(_) => return vec![Vec::new(); targets.len()],
+    };
+    let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let mut translation_residues = exact_hall
+        .iter()
+        .filter(|operation| operation.rot == identity && !operation.timerev)
+        .map(|operation| {
+            operation
+                .translation_numerator
+                .map(|value| value.rem_euclid(EXACT_SEITZ_TRANSLATION_DENOMINATOR))
+        })
+        .collect::<Vec<_>>();
+    translation_residues.sort_unstable();
+    translation_residues.dedup();
+    if !translation_residues.contains(&[0, 0, 0]) {
+        return vec![Vec::new(); targets.len()];
+    }
+
+    exact_targets
+        .iter()
+        .map(|target| {
+            if target.timerev {
+                return Vec::new();
+            }
+            let candidates = exact_sources
+                .iter()
+                .enumerate()
+                .filter_map(|(source_index, source)| {
+                    if source.timerev || source.rot != target.rot {
+                        return None;
+                    }
+                    let translation_numerator = [
+                        target.translation_numerator[0] - source.translation_numerator[0],
+                        target.translation_numerator[1] - source.translation_numerator[1],
+                        target.translation_numerator[2] - source.translation_numerator[2],
+                    ];
+                    let residue = translation_numerator
+                        .map(|value| value.rem_euclid(EXACT_SEITZ_TRANSLATION_DENOMINATOR));
+                    translation_residues
+                        .binary_search(&residue)
+                        .is_ok()
+                        .then_some(SpinCharacterBinding {
+                            source_index,
+                            translation_numerator,
+                        })
+                })
+                .collect::<Vec<_>>();
+            let direct = candidates
+                .iter()
+                .copied()
+                .filter(|binding| binding.translation_numerator == [0, 0, 0])
+                .collect::<Vec<_>>();
+            match direct.as_slice() {
+                [_] => return direct,
+                [] => {}
+                _ => return direct,
+            }
+            candidates
+        })
+        .collect()
+}
+
 /// Build a Vec<SeitzOp> from the spin-op flat arrays (public for testing).
 pub fn build_spin_seitz(spin_op_rots: &[i32], spin_op_trans: &[f64]) -> Vec<SeitzOp> {
     let n = (spin_op_rots.len() / 9).min(spin_op_trans.len() / 3);
@@ -5245,6 +5363,65 @@ mod tests {
             build_h_to_spin_map_exact(&[h], &[exact.clone(), exact], &[0, 1]),
             vec![None],
             "duplicate exact candidates must be rejected as ambiguous"
+        );
+    }
+
+    #[test]
+    fn phase_aligned_spin_map_retains_centering_and_integer_shifts() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let source = SeitzOp::new(identity, [0.0, 0.0, 0.0], false);
+        let centered = SeitzOp::new(identity, [0.5, 0.5, 0.0], false);
+        let integer_shifted = SeitzOp {
+            rot: identity,
+            trans: [1.0, 0.0, 0.0],
+            timerev: false,
+        };
+        let hall = [source.clone(), centered.clone()];
+
+        assert_eq!(
+            build_phase_aligned_spin_character_map(
+                &[source.clone(), centered, integer_shifted],
+                std::slice::from_ref(&source),
+                &hall,
+            ),
+            vec![
+                Some(SpinCharacterBinding {
+                    source_index: 0,
+                    translation_numerator: [0, 0, 0],
+                }),
+                Some(SpinCharacterBinding {
+                    source_index: 0,
+                    translation_numerator: [6, 6, 0],
+                }),
+                Some(SpinCharacterBinding {
+                    source_index: 0,
+                    translation_numerator: [12, 0, 0],
+                }),
+            ]
+        );
+    }
+
+    #[test]
+    fn phase_aligned_spin_map_rejects_nonlattice_and_ambiguous_sources() {
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let source = SeitzOp::new(identity, [0.0, 0.0, 0.0], false);
+        let target = SeitzOp::new(identity, [0.25, 0.0, 0.0], false);
+        let hall = [source.clone()];
+        assert_eq!(
+            build_phase_aligned_spin_character_map(
+                std::slice::from_ref(&target),
+                std::slice::from_ref(&source),
+                &hall,
+            ),
+            vec![None]
+        );
+        assert_eq!(
+            build_phase_aligned_spin_character_map(
+                std::slice::from_ref(&source),
+                &[source.clone(), source.clone()],
+                &hall,
+            ),
+            vec![None]
         );
     }
 
