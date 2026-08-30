@@ -40,7 +40,7 @@
 //! |------|-----------|----------------|-------------------|------------------------|
 //! | **Type A** | $$\Delta_i^{a_0} \sim \Delta_i$$, $$W = +1$$ | $$d_i$$ | $$\chi_{\Delta_i}(h)$$ | $$\chi_{\Delta_i}(a_0 h)$$ (real) |
 //! | **Type B** | $$\Delta_i^{a_0} \sim \Delta_i$$, $$W = -1$$ | $$2d_i$$ (Kramers) | $$2\chi_{\Delta_i}(h)$$ | $$0$$ |
-//! | **Type C** | $$\Delta_i^{a_0} \nsim \Delta_i$$, $$W = 0$$ | $$2d_i$$ | $$2\,\mathrm{Re}[\chi_{\Delta_i}(h)]$$ | $$0$$ |
+//! | **Type C** | $$\Delta_i^{a_0} \nsim \Delta_i$$, $$W = 0$$ | $$2d_i$$ | $$\chi_{\Delta_i}(h)+\chi_{\Delta_i}(a_0^{-1}ha_0)^*$$ | $$0$$ |
 //!
 //! **Type C** pairs two inequivalent irreps $$\Delta_i, \Delta_j$$ of $$H$$
 //! (where $$\Delta_j \sim \Delta_i^{a_0}$$). The corep is
@@ -53,6 +53,8 @@
 //! $$
 //!
 //! where $$K$$ denotes complex conjugation.
+//! The familiar $$2\,\mathrm{Re}\,\chi(h)$$ form is only the direct pure-time-
+//! reversal special case in which $$a_0^{-1}ha_0=h$$ operation by operation.
 //!
 //! ## Workflow
 //!
@@ -94,7 +96,9 @@
 //! - Stokes, Campbell & Hatch, ISOTROPY Suite documentation
 //! - Bilbao Crystallographic Server: <https://cryst.ehu.es/cgi-bin/cryst/programs/corepresentations.pl>
 
-use super::types::{IrrepRecord, KVector, character_component_is_roundoff_zero};
+use super::types::{
+    IrrepRecord, KVector, SpinSeitzOperation, character_component_is_roundoff_zero,
+};
 use super::wigner::{self, SeitzOp, filter_little_group_with_transform, ops_to_seitz};
 #[cfg(test)]
 use super::wigner::{
@@ -965,23 +969,64 @@ pub fn compute_corepresentation(
     }
 
     // Type C needs the operation-aware row
-    // chi_partner(h) = chi(a0^-1 h a0)^*.  Scalar rows can now construct it
-    // from exact Seitz conjugation, including the residual lattice phase.
-    // Spin rows additionally need the double-group central sign; until that
-    // conjugation path is connected, only direct pure time reversal is safe.
+    // chi_partner(h) = chi(a0^-1 h a0)^*.  Scalar rows construct it from exact
+    // Seitz conjugation, including the residual lattice phase.  Spin rows can
+    // do the same whenever the antiunitary representative has identity spatial
+    // rotation: then U_a0 is central and the remaining Same/EBar relation is
+    // determined directly from the pinned canonical source/target lifts.
     let direct_pure_theta_index = direct_pure_time_reversal_index(&antiunitary, &mag_ops_data);
-    let type_c_partner_complex = if corep_type != CorepType::C {
-        None
-    } else if h_irrep.spinor {
-        if direct_pure_theta_index.is_none() {
+    let identity_rotation_antiunitary_index =
+        identity_rotation_time_reversal_index(&antiunitary, &mag_ops_data);
+    let spin_type_c_row = if corep_type == CorepType::C && h_irrep.spinor {
+        let row = h_irrep.spinor_selected_arm_view().map_err(|error| {
+            CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!("typed spinor Type-C row failed: {error}"),
+            }
+        })?;
+        if row.dimension() != h_dim {
             return Err(CorepComputationError::UnsupportedClassification {
                 uni: uni_number,
                 source_irrep: h_irrep.ml.to_string(),
-                reason: "spin Type-C partner still needs the SU(2) central sign for a0-conjugated operations; 2Re is valid only for direct pure time reversal {I|0}Theta"
-                    .to_string(),
+                reason: format!(
+                    "typed spinor Type-C dimension {} disagrees with computed dimension {}",
+                    row.dimension(),
+                    h_dim
+                ),
             });
         }
+        h_chars = row.values().iter().map(|character| character.re).collect();
+        Some(row)
+    } else {
         None
+    };
+    let type_c_partner_complex = if corep_type != CorepType::C {
+        None
+    } else if h_irrep.spinor {
+        let a0_index = identity_rotation_antiunitary_index.ok_or_else(|| {
+            CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: "spin Type-C partner with non-identity spatial a0 still needs an authoritative parent-to-unitary-frame SU(2) transport"
+                    .to_string(),
+            }
+        })?;
+        let row = spin_type_c_row.as_ref().expect("constructed above");
+        Some(
+            spin_identity_a0_conjugated_partner_characters(
+                a0_index,
+                &mag_seitz,
+                row.operations(),
+                row.values(),
+                h_irrep.k_vector(),
+            )
+            .map_err(|reason| CorepComputationError::UnsupportedClassification {
+                uni: uni_number,
+                source_irrep: h_irrep.ml.to_string(),
+                reason: format!("spin Type-C partner construction failed: {reason}"),
+            })?,
+        )
     } else {
         let source_characters = h_complex_chars.as_ref().ok_or_else(|| {
             CorepComputationError::UnsupportedClassification {
@@ -1008,7 +1053,11 @@ pub fn compute_corepresentation(
     };
 
     if let Some(partner) = &type_c_partner_complex {
-        let source_characters = h_complex_chars.as_ref().expect("checked above");
+        let source_characters = if let Some(row) = &spin_type_c_row {
+            row.values()
+        } else {
+            h_complex_chars.as_deref().expect("checked above")
+        };
         let corep_dimension = wigner::corep_dim(&corep_type, h_dim);
         for &mag_idx in &unitary {
             let h_index = character_op_map
@@ -1019,21 +1068,21 @@ pub fn compute_corepresentation(
                     uni: uni_number,
                     source_irrep: h_irrep.ml.to_string(),
                     reason: format!(
-                        "scalar Type-C magnetic operation {mag_idx} has no canonical H mapping"
+                        "Type-C magnetic operation {mag_idx} has no canonical source mapping"
                     ),
                 })?;
             let source_value = source_characters.get(h_index).copied().ok_or_else(|| {
                 CorepComputationError::UnsupportedClassification {
                     uni: uni_number,
                     source_irrep: h_irrep.ml.to_string(),
-                    reason: format!("scalar Type-C source has no canonical H column {h_index}"),
+                    reason: format!("Type-C source has no canonical column {h_index}"),
                 }
             })?;
             let partner_value = partner.get(h_index).copied().ok_or_else(|| {
                 CorepComputationError::UnsupportedClassification {
                     uni: uni_number,
                     source_irrep: h_irrep.ml.to_string(),
-                    reason: format!("scalar Type-C partner has no canonical H column {h_index}"),
+                    reason: format!("Type-C partner has no canonical column {h_index}"),
                 }
             })?;
             let value = source_value + partner_value;
@@ -1194,8 +1243,9 @@ pub fn compute_corepresentation(
 /// real-valued compatibility contract.  When that contract is the only reason
 /// classification failed, this function reconstructs the already-classified
 /// A/B unitary row from the typed source representation and returns it as
-/// [`Complex64`].  All structural, operation-mapping, Type-C, compound, and
-/// spin-transport failures remain fail-closed.
+/// [`Complex64`].  Operation-aware scalar Type-C and identity-rotation spin
+/// Type-C rows are preserved as well.  Structural, compound antiunitary, and
+/// unresolved parent-frame spin-transport cases remain fail-closed.
 pub fn compute_corepresentation_complex(
     h_irrep: &IrrepRecord,
     uni_number: usize,
@@ -1248,16 +1298,6 @@ fn reconstruct_complex_classified_corepresentation(
                     .to_string(),
         });
     }
-    if corep_type == CorepType::C && h_irrep.spinor {
-        return Err(CorepComputationError::UnsupportedClassification {
-            uni: uni_number,
-            source_irrep: h_irrep.ml.to_string(),
-            reason:
-                "general spin Type-C recovery requires the SU(2) central sign of a0-conjugation"
-                    .to_string(),
-        });
-    }
-
     let h_info = identify_unitary_subgroup_with_hall(uni_number)
         .ok_or(CorepComputationError::MissingUnitarySubgroup { uni: uni_number })?;
     let mag_ops_data = operations_in_data_hall_frame(mag_ops, h_info.msg_to_data.as_ref())
@@ -1306,14 +1346,18 @@ fn reconstruct_complex_classified_corepresentation(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let (source_dimension, source_entries) = if h_irrep.spinor {
-        let row = h_irrep.spinor_selected_arm_view().map_err(|error| {
+    let spin_source_row = if h_irrep.spinor {
+        Some(h_irrep.spinor_selected_arm_view().map_err(|error| {
             CorepComputationError::UnsupportedClassification {
                 uni: uni_number,
                 source_irrep: h_irrep.ml.to_string(),
                 reason: format!("typed spinor selected-arm row failed: {error}"),
             }
-        })?;
+        })?)
+    } else {
+        None
+    };
+    let (source_dimension, source_entries) = if let Some(row) = &spin_source_row {
         (
             row.dimension(),
             row.values()
@@ -1414,20 +1458,60 @@ fn reconstruct_complex_classified_corepresentation(
                 reason: "classified Type-C magnetic little group has no antiunitary operation"
                     .to_string(),
             })?;
-        Some(
-            scalar_a0_conjugated_partner_characters(
-                a0_index,
-                &mag_seitz,
-                &canonical_h_operations,
-                &source_characters,
-                h_irrep.k_vector(),
+        if let Some(row) = &spin_source_row {
+            let identity_a0 = identity_rotation_time_reversal_index(
+                &magnetic_operation_indices
+                    .iter()
+                    .copied()
+                    .filter(|&index| {
+                        mag_ops_data
+                            .operations
+                            .get(index)
+                            .is_some_and(|operation| operation.time_reversal)
+                    })
+                    .collect::<Vec<_>>(),
+                &mag_ops_data,
             )
-            .map_err(|reason| CorepComputationError::UnsupportedClassification {
+            .ok_or_else(|| CorepComputationError::UnsupportedClassification {
                 uni: uni_number,
                 source_irrep: h_irrep.ml.to_string(),
-                reason: format!("complex Type-C recovery failed: {reason}"),
-            })?,
-        )
+                reason: "complex spin Type-C recovery requires an identity-rotation antiunitary representative until parent-frame SU(2) transport is available"
+                    .to_string(),
+            })?;
+            Some(
+                spin_identity_a0_conjugated_partner_characters(
+                    identity_a0,
+                    &mag_seitz,
+                    row.operations(),
+                    row.values(),
+                    h_irrep.k_vector(),
+                )
+                .map_err(|reason| {
+                    CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!("complex spin Type-C recovery failed: {reason}"),
+                    }
+                })?,
+            )
+        } else {
+            Some(
+                scalar_a0_conjugated_partner_characters(
+                    a0_index,
+                    &mag_seitz,
+                    &canonical_h_operations,
+                    &source_characters,
+                    h_irrep.k_vector(),
+                )
+                .map_err(|reason| {
+                    CorepComputationError::UnsupportedClassification {
+                        uni: uni_number,
+                        source_irrep: h_irrep.ml.to_string(),
+                        reason: format!("complex Type-C recovery failed: {reason}"),
+                    }
+                })?,
+            )
+        }
     } else {
         None
     };
@@ -1538,6 +1622,21 @@ fn direct_pure_time_reversal_index(
     })
 }
 
+/// Return an actual antiunitary little-group operation whose spatial rotation
+/// is the identity.  Its translation may be nonzero: anti-translations are the
+/// important case where direct `2 Re(chi)` is wrong but no nontrivial spatial
+/// SU(2) conjugator is required.
+fn identity_rotation_time_reversal_index(
+    antiunitary: &[usize],
+    mag_ops_data: &SymmetryOps,
+) -> Option<usize> {
+    antiunitary.iter().copied().find(|&index| {
+        mag_ops_data.operations.get(index).is_some_and(|operation| {
+            operation.time_reversal && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+        })
+    })
+}
+
 /// Construct the operation-aware antiunitary partner
 /// `chi_partner(h) = chi(a0^-1 h a0)^*` for an ordinary scalar row.
 ///
@@ -1596,6 +1695,114 @@ fn scalar_a0_conjugated_partner_characters(
             } else {
                 Err(format!(
                     "a0-conjugated partner character at H operation {h_index} is non-finite"
+                ))
+            }
+        })
+        .collect()
+}
+
+/// Construct a spinor Type-C partner for an antiunitary representative whose
+/// spatial rotation is the identity.
+///
+/// For `a0 = {I|t}Theta`, time reversal commutes with every SU(2) rotation, so
+/// the raw conjugated lift is the lift of `h` itself.  Exact spatial reduction
+/// supplies the Bloch lattice shift, while comparing that raw lift with the
+/// canonical lift of the reduced target supplies the double-group central
+/// `EBar` sign.  No parent-space-group lift or frame guess is involved.
+fn spin_identity_a0_conjugated_partner_characters(
+    a0_index: usize,
+    magnetic_operations: &[SeitzOp],
+    canonical_spin_operations: &[SpinSeitzOperation],
+    source_characters: &[Complex64],
+    k_vector: KVector,
+) -> Result<Vec<Complex64>, String> {
+    if source_characters.len() != canonical_spin_operations.len() {
+        return Err(format!(
+            "source character count {} does not match canonical spin order {}",
+            source_characters.len(),
+            canonical_spin_operations.len()
+        ));
+    }
+    let a0 = magnetic_operations
+        .get(a0_index)
+        .ok_or_else(|| format!("antiunitary representative index {a0_index} is out of range"))?;
+    let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    if !a0.timerev || a0.rot != identity {
+        return Err(format!(
+            "magnetic operation {a0_index} is not an identity-rotation antiunitary"
+        ));
+    }
+
+    let canonical_h_operations = canonical_spin_operations
+        .iter()
+        .map(|operation| {
+            let rotation = operation.seitz.rotation;
+            SeitzOp::new(
+                [
+                    [rotation[0], rotation[1], rotation[2]],
+                    [rotation[3], rotation[4], rotation[5]],
+                    [rotation[6], rotation[7], rotation[8]],
+                ],
+                operation.seitz.translation,
+                false,
+            )
+        })
+        .collect::<Vec<_>>();
+    let [kx, ky, kz] = k_vector.numerators;
+    let kd = k_vector.denominator;
+
+    canonical_h_operations
+        .iter()
+        .enumerate()
+        .map(|(h_index, h)| {
+            let reduction = wigner::conjugate_and_reduce_exact_seitz(
+                a0,
+                h,
+                &canonical_h_operations,
+            )
+            .map_err(|error| {
+                format!(
+                    "a0^-1 h[{h_index}] a0 could not be reduced in the canonical spin table: {error}"
+                )
+            })?;
+            let target_operation = canonical_spin_operations
+                .get(reduction.op_index)
+                .ok_or_else(|| {
+                    format!(
+                        "conjugated spin operation index {} is outside the canonical row",
+                        reduction.op_index
+                    )
+                })?;
+            let lift_relation = wigner::su2_lift_relation(
+                &canonical_spin_operations[h_index].su2,
+                &target_operation.su2,
+            )
+            .ok_or_else(|| {
+                format!(
+                    "raw lift of h[{h_index}] is unrelated to canonical conjugated lift {}",
+                    reduction.op_index
+                )
+            })?;
+            let central_sign = match lift_relation {
+                wigner::LiftRelation::Same => 1.0,
+                wigner::LiftRelation::EBar => -1.0,
+            };
+            let source = source_characters
+                .get(reduction.op_index)
+                .copied()
+                .ok_or_else(|| {
+                    format!(
+                        "conjugated spin operation index {} is outside the source character row",
+                        reduction.op_index
+                    )
+                })?;
+            let phase = wigner::bloch_phase(kx, ky, kz, kd, &reduction.lattice_shift);
+            let value = (source * central_sign * phase).conj();
+            if value.re.is_finite() && value.im.is_finite() {
+                Ok(value)
+            } else {
+                Err(format!(
+                    "a0-conjugated spin partner character at operation {h_index} is non-finite"
                 ))
             }
         })
@@ -2203,8 +2410,8 @@ impl IrrepRecord {
     /// Compute the lossless operation-aligned complex co-representation.
     ///
     /// Unlike [`Self::corepresentation`], this preserves genuinely complex
-    /// Type-A/Type-B unitary characters.  Unsupported partner, compound, and
-    /// operation-transport cases remain structured errors.
+    /// Type-A/Type-B/Type-C unitary characters.  Unsupported compound and
+    /// unresolved operation-transport cases remain structured errors.
     pub fn complex_corepresentation(
         &self,
         uni_number: usize,
@@ -2956,6 +3163,141 @@ mod tests {
         assert_eq!(corep.completeness, CharacterCompleteness::Complete);
         assert_eq!(corep.characters, vec![2.0, 0.0, 0.0, 0.0]);
         assert_eq!(corep.timerev, vec![false, false, true, true]);
+    }
+
+    #[test]
+    fn spinor_type_c_translated_theta_uses_exact_lift_and_bloch_phase() {
+        let seed = irreps_of(2)
+            .iter()
+            .find(|irrep| irrep.spinor && irrep.ml == "Z2")
+            .expect("SG 2 Z2 spinor irrep");
+        let partner = irreps_of(2)
+            .iter()
+            .find(|irrep| irrep.spinor && irrep.ml == "Z3")
+            .expect("SG 2 Z3 spinor partner irrep");
+        let seed_row = seed.spinor_selected_arm_view().expect("typed SG 2 Z2 row");
+        let partner_row = partner
+            .spinor_selected_arm_view()
+            .expect("typed SG 2 Z3 row");
+        assert_eq!(seed_row.operations(), partner_row.operations());
+
+        let mag_ops = get_magnetic_operations(7).expect("UNI 7 operations");
+        let h_info = identify_unitary_subgroup_with_hall(7).expect("UNI 7 unitary subgroup");
+        let mag_ops_data = operations_in_data_hall_frame(&mag_ops, h_info.msg_to_data.as_ref())
+            .expect("UNI 7 data-Hall operations");
+        let canonical_translations: Vec<_> = h_info
+            .ops_from_hall
+            .operations
+            .iter()
+            .filter(|operation| operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+            .map(|operation| operation.translation)
+            .collect();
+        let mag_lg = filter_little_group_with_transform(
+            seed.kx,
+            seed.ky,
+            seed.kz,
+            seed.kd,
+            &mag_ops_data,
+            None,
+            Some(&canonical_translations),
+        );
+        assert!(direct_pure_time_reversal_index(&mag_lg, &mag_ops_data).is_none());
+        assert!(identity_rotation_time_reversal_index(&mag_lg, &mag_ops_data).is_some());
+
+        let corep = compute_corepresentation(seed, 7, &mag_ops)
+            .expect("translated-theta spin Type-C corep must be constructed exactly");
+        assert_eq!(corep.corep_type, CorepType::C);
+        assert_eq!(corep.source, WignerSource::SpinorSU2);
+        assert_eq!(corep.dim, 2);
+        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+
+        for ((&actual, &time_reversal), operation) in corep
+            .characters
+            .iter()
+            .zip(&corep.timerev)
+            .zip(&corep.operations)
+        {
+            if time_reversal {
+                assert_eq!(actual, 0.0);
+                continue;
+            }
+            let target_rotation: [i32; 9] = operation
+                .rotation
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .try_into()
+                .expect("3x3 rotation has nine entries");
+            let matches = seed_row
+                .operations()
+                .iter()
+                .enumerate()
+                .filter(|(_, source)| {
+                    source.seitz.rotation == target_rotation
+                        && source.seitz.translation == operation.translation
+                })
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            let [source_index] = matches.as_slice() else {
+                panic!("unitary operation matched {} spin columns", matches.len());
+            };
+            let expected = seed_row.values()[*source_index] + partner_row.values()[*source_index];
+            assert!(character_component_is_roundoff_zero(expected.im, corep.dim));
+            assert!((actual - expected.re).abs() < 1.0e-12);
+        }
+
+        let complex = seed
+            .complex_corepresentation(7)
+            .expect("complex API preserves translated-theta spin Type-C");
+        assert_eq!(complex.corep_type, CorepType::C);
+        assert_eq!(complex.dim, corep.dim);
+        assert_eq!(complex.characters.len(), corep.characters.len());
+        for (complex_value, &real_value) in complex.characters.iter().zip(&corep.characters) {
+            assert!((complex_value.re - real_value).abs() < 1.0e-12);
+            assert!(character_component_is_roundoff_zero(
+                complex_value.im,
+                corep.dim
+            ));
+        }
+    }
+
+    #[test]
+    fn complex_api_preserves_genuinely_complex_spin_type_c_characters() {
+        let seed = irreps_of(10)
+            .iter()
+            .find(|irrep| irrep.spinor && irrep.ml == "Y3")
+            .expect("SG 10 Y3 spinor irrep");
+        let mag_ops = get_magnetic_operations(54).expect("UNI 54 operations");
+
+        let legacy = compute_corepresentation(seed, 54, &mag_ops)
+            .expect_err("real compatibility surface must reject complex Type-C characters");
+        assert!(matches!(
+            legacy,
+            CorepComputationError::ComplexUnitaryCharacters {
+                corep_type: CorepType::C,
+                ..
+            }
+        ));
+
+        let complex = compute_corepresentation_complex(seed, 54, &mag_ops)
+            .expect("complex API must preserve the classified Type-C row");
+        assert_eq!(complex.corep_type, CorepType::C);
+        assert_eq!(complex.source, WignerSource::SpinorSU2);
+        assert_eq!(complex.completeness, CharacterCompleteness::Complete);
+        assert!(
+            complex
+                .characters
+                .iter()
+                .zip(&complex.timerev)
+                .any(|(character, time_reversal)| !time_reversal && character.im.abs() > 1.0)
+        );
+        assert!(
+            complex
+                .characters
+                .iter()
+                .zip(&complex.timerev)
+                .all(|(character, time_reversal)| !time_reversal || *character == Complex64::ZERO)
+        );
     }
 
     #[test]

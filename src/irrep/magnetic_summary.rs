@@ -271,7 +271,8 @@ pub enum IsotropyCandidateRelation {
 
 // ── Type-C dedup ───────────────────────────────────────────────────────────────
 
-/// Deduplicate coreps by `(corep_type, dim, rounded characters, timerev)`.
+/// Deduplicate coreps by
+/// `(corep_type, spinor-family, dim, rounded characters, timerev)`.
 ///
 /// Only Type-C coreps with finite character values are eligible for merging.
 /// Other valid coreps pass through without deduplication. Unsupported and
@@ -281,8 +282,13 @@ fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> 
 
     for c in coreps {
         // Only Type-C with finite characters can be deduplicated.
+        let spinor_family = c.source_irreps.first().map(|source| source.spinor);
         let can_dedup = c.corep_type == crate::irrep::corep::CorepType::C
             && c.dim > 0
+            && spinor_family.is_some()
+            && c.source_irreps
+                .iter()
+                .all(|source| Some(source.spinor) == spinor_family)
             && c.characters.iter().all(|&ch| ch.is_finite());
         if !can_dedup {
             // Pass through — never merge non-C entries.
@@ -290,13 +296,22 @@ fn dedup_coreps(coreps: Vec<MagneticCorepSummary>) -> Vec<MagneticCorepSummary> 
             continue;
         }
 
-        let key = (c.dim, round_chars(&c.characters), c.timerev.clone());
+        let key = (
+            spinor_family.expect("dedup requires a uniform source family"),
+            c.dim,
+            round_chars(&c.characters),
+            c.timerev.clone(),
+        );
         let found = groups.iter_mut().find(|g| {
             let first = &g[0];
             first.corep_type == crate::irrep::corep::CorepType::C
-                && first.dim == key.0
-                && round_chars(&first.characters) == key.1
-                && first.timerev == key.2
+                && first
+                    .source_irreps
+                    .iter()
+                    .all(|source| source.spinor == key.0)
+                && first.dim == key.1
+                && round_chars(&first.characters) == key.2
+                && first.timerev == key.3
         });
         match found {
             Some(group) => group.push(c),
@@ -1997,5 +2012,44 @@ mod tests {
             corep.dim, source_dim_sum,
             "deduplicated Type C dimension must equal source dimension sum"
         );
+    }
+
+    #[test]
+    fn type_c_dedup_keeps_scalar_and_spinor_families_separate() {
+        let summary = magnetic_irrep_summary_by_uni(7).expect("UNI 7 summary");
+        let z = summary
+            .kpoints
+            .iter()
+            .find(|kpoint| kpoint.label == "Z")
+            .expect("UNI 7 Z point");
+        let type_c = z
+            .coreps
+            .iter()
+            .filter(|corep| corep.corep_type == crate::irrep::corep::CorepType::C)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            type_c.len(),
+            2,
+            "Z has one scalar and one spin Type-C corep"
+        );
+        let scalar = type_c
+            .iter()
+            .find(|corep| corep.source_irreps.iter().all(|source| !source.spinor))
+            .expect("scalar Z Type-C pair");
+        let spinor = type_c
+            .iter()
+            .find(|corep| corep.source_irreps.iter().all(|source| source.spinor))
+            .expect("spinor Z Type-C pair");
+        let sorted_labels = |corep: &MagneticCorepSummary| {
+            let mut labels = corep
+                .source_irreps
+                .iter()
+                .map(|source| source.ml)
+                .collect::<Vec<_>>();
+            labels.sort_unstable();
+            labels
+        };
+        assert_eq!(sorted_labels(scalar), vec!["Z1+", "Z1-"]);
+        assert_eq!(sorted_labels(spinor), vec!["Z2", "Z3"]);
     }
 }
