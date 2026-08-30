@@ -120,7 +120,7 @@ pub use spin::{TensorParity, TimeReversalPolicy};
 // Version constants
 // ---------------------------------------------------------------------------
 /// Library version.
-pub const VERSION: &str = "0.2.0";
+pub const VERSION: &str = "0.2.1";
 
 // ---------------------------------------------------------------------------
 // Error codes

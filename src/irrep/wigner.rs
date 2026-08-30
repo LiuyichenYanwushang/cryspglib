@@ -2792,6 +2792,7 @@ pub fn wigner_direct_anti_coset(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DirectAntiFailure {
     MissingSpinData,
+    OriginSolveFailed,
     IndexOutOfRange,
     CharacterTableMismatch,
     SpinTableMismatch,
@@ -2810,6 +2811,7 @@ impl DirectAntiFailure {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::MissingSpinData => "missing_spin_data",
+            Self::OriginSolveFailed => "origin_solve_failed",
             Self::IndexOutOfRange => "index_out_of_range",
             Self::CharacterTableMismatch => "character_table_mismatch",
             Self::SpinTableMismatch => "spin_table_mismatch",
@@ -2885,18 +2887,22 @@ pub struct PerTermTrace {
     pub u_sq_g: [f64; 4],
 }
 
-static HALL_TO_SPIN_ORIGINS: OnceLock<[[f64; 3]; 231]> = OnceLock::new();
+static HALL_TO_SPIN_ORIGINS: OnceLock<[Option<[f64; 3]>; 231]> = OnceLock::new();
 static HALL_TRANSLATION_LATTICES: OnceLock<Vec<Vec<[f64; 3]>>> = OnceLock::new();
 const SEITZ_TRANS_TOL: f64 = 1e-5;
 
-fn hall_to_spin_origin_for_sg(sg: u8) -> [f64; 3] {
-    HALL_TO_SPIN_ORIGINS.get_or_init(build_hall_to_spin_origins)[sg as usize]
+fn hall_to_spin_origin_for_sg(sg: u8) -> Option<[f64; 3]> {
+    HALL_TO_SPIN_ORIGINS
+        .get_or_init(build_hall_to_spin_origins)
+        .get(sg as usize)
+        .copied()
+        .flatten()
 }
 
-fn build_hall_to_spin_origins() -> [[f64; 3]; 231] {
-    let mut origins = [[0.0; 3]; 231];
+fn build_hall_to_spin_origins() -> [Option<[f64; 3]>; 231] {
+    let mut origins = [None; 231];
     for sg in 1u8..=230 {
-        origins[sg as usize] = solve_hall_to_spin_origin_for_sg(sg).unwrap_or([0.0; 3]);
+        origins[sg as usize] = solve_hall_to_spin_origin_for_sg(sg);
     }
     origins
 }
@@ -3187,7 +3193,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
     // into `SG_DATA_HALL[sg]` order but retain Bilbao/spin translations, so
     // the origin has to be solved from Hall ops vs spin ops, not taken from
     // `isotropy_origin` subgroup records.
-    let origin = hall_to_spin_origin_for_sg(ctx.sg);
+    let origin = hall_to_spin_origin_for_sg(ctx.sg).ok_or(DirectAntiFailure::OriginSolveFailed)?;
     let to_bilbao =
         |rot: Mat3I, trans: [f64; 3]| -> [f64; 3] { apply_spin_origin_shift(rot, trans, origin) };
 
@@ -4556,7 +4562,12 @@ fn wigner_classify_spinor_primary(
 
     // Data-Hall → spin-table origin shift. a₀ comes from MSG/data-Hall and
     // needs conversion; h is from spin_seitz and is already in spin convention.
-    let origin = hall_to_spin_origin_for_sg(ctx.sg);
+    let origin = hall_to_spin_origin_for_sg(ctx.sg).ok_or_else(|| {
+        WignerClassificationError::new(format!(
+            "spinor primary: Hall-to-spin origin solve failed for SG {}",
+            ctx.sg
+        ))
+    })?;
     let to_bilbao =
         |rot: Mat3I, trans: [f64; 3]| -> [f64; 3] { apply_spin_origin_shift(rot, trans, origin) };
 
@@ -4987,6 +4998,18 @@ pub fn corep_dim(corep_type: &CorepType, h_dim: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hall_to_spin_origin_solver_covers_every_space_group() {
+        assert!(hall_to_spin_origin_for_sg(0).is_none());
+        for sg in 1u8..=230 {
+            assert!(
+                hall_to_spin_origin_for_sg(sg).is_some(),
+                "missing Hall-to-spin origin for SG {sg}"
+            );
+        }
+        assert!(hall_to_spin_origin_for_sg(231).is_none());
+    }
 
     fn gamma() -> KVector {
         KVector::new([0, 0, 0], 1)

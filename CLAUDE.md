@@ -90,7 +90,7 @@ magnetic summary 均已实现。相关历史基线依次为 `ba2d997`、`969a89c
 | 正式特征标表 | 已提供“每个磁操作一列”和“每个共轭类一列”两种 Markdown 正式表格；不再截断到前 6 个特征标，并附操作/列标签图例。入口为 `format_magnetic_character_table` 与 `format_magnetic_character_table_by_class`。 |
 | 目标磁群回归 | `BNS 128.406` 与 `BNS 52.318` 已不再返回“计算不支持”；`128.406@Z` 稳定给出维数 `2,2,2,4` 的四个 coreps，正式操作表包含 `g1..g16` 全部 16 列。 |
 | CIR 数据生成 | CIR 解析器支持复合反幺正矩阵：`11,202` 个原始 coreps 中复合反幺正项 `672` 个、拒绝 `0`；`8,388` 个可映射到磁数据库的 coreps 中未映射 `0`。 |
-| 验证 | 全 `1651` UNI release summary 审计：成功 `1651`、失败 `0`、`10,390` k 点、`52,793` coreps、π 型放大噪声 `0`；release all-targets 为 lib `287 passed / 4 ignored`、integration `62 passed`，doc-tests `26 passed`。 |
+| 验证 | 全 `1651` UNI release summary 审计：成功 `1651`、失败 `0`、`10,390` k 点、`52,793` coreps、π 型放大噪声 `0`；release all-targets 为 lib `291 passed / 4 ignored`、integration `62 passed`，doc-tests `26 passed`。 |
 
 必须保留以下语义边界：
 
@@ -1531,13 +1531,13 @@ Core irrep diagnostics pass as of 2026-07-03.  The full spinor Wigner sweep repo
 
 | Binary / Location | 当前结果 | Description |
 |-------|-------|-------------|
-| `src/lib.rs`（全部 unit modules） | `222 passed / 3 ignored` | Wigner、BCS、API、输入契约、setting 与磁群回归 |
-| `tests/irrep_validation.rs` | `33 passed` | Full-sweep validation: every SG has irreps, dimensions match, labels well-formed, k-vectors positive, generated characters contain no amplified exponent noise |
+| `src/lib.rs`（全部 unit modules） | `291 passed / 4 ignored` | Wigner、BCS、API、输入契约、setting 与磁群回归 |
+| `tests/irrep_validation.rs` | `34 passed` | Full-sweep validation: every SG has irreps, dimensions match, labels well-formed, k-vectors positive, generated characters contain no amplified exponent noise |
 | `tests/magnetic_integration.rs` | `17 passed` | Magnetic structure analysis and Result/error contracts end-to-end |
 | `tests/magnetic_symmetry_coverage.rs` | `6 passed` | 1651 UNI / 4479 setting group algebra, round-trip and ambiguity policy |
 | `tests/{cof3,crps4,la2nio4,bcs_corep_validation}.rs` | `5 passed` | Reference material cases |
 | doc-tests | `26 passed` | Public Rust API examples compile and run |
-| **常规 release 总计** | **`283 tests + 26 doctests passed; 3 ignored`** | 另行执行的 1651 summary audit 也通过，`amplified_noise=0` |
+| **常规 release 总计** | **`353 tests + 26 doctests passed; 4 ignored`** | 另行执行的 1651 summary audit 也通过，`amplified_noise=0` |
 
 Key diagnostic tests (most useful for Wigner debugging):
 
