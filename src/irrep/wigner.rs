@@ -478,6 +478,206 @@ fn spin_lift_for_spatial_rotation(
     }
 }
 
+fn rotation_in_parent_frame(
+    h_rotation: &Mat3I,
+    setting_xf: Option<&SettingTransform>,
+) -> Option<Mat3I> {
+    let Some(transform) = setting_xf else {
+        return Some(*h_rotation);
+    };
+    let basis_inverse = mat_inverse_matrix_d3(&transform.basis, 1.0e-10).ok()?;
+    let mut transformed = [[0.0; 3]; 3];
+    for (row, transformed_row) in transformed.iter_mut().enumerate() {
+        for (column, value) in transformed_row.iter_mut().enumerate() {
+            *value = (0..3)
+                .flat_map(|left| {
+                    (0..3).map(move |right| {
+                        basis_inverse[row][left]
+                            * h_rotation[left][right] as f64
+                            * transform.basis[right][column]
+                    })
+                })
+                .sum();
+        }
+    }
+    let mut parent = [[0i32; 3]; 3];
+    for row in 0..3 {
+        for column in 0..3 {
+            let rounded = transformed[row][column].round();
+            if (transformed[row][column] - rounded).abs() > 1.0e-8
+                || rounded < i32::MIN as f64
+                || rounded > i32::MAX as f64
+            {
+                return None;
+            }
+            parent[row][column] = rounded as i32;
+        }
+    }
+    matches!(mat_get_determinant_i3(&parent), -1 | 1).then_some(parent)
+}
+
+fn normalized_vec3(vector: [f64; 3]) -> Option<[f64; 3]> {
+    let norm = vector.iter().map(|value| value * value).sum::<f64>().sqrt();
+    (norm > 1.0e-10 && norm.is_finite()).then(|| vector.map(|value| value / norm))
+}
+
+fn cross3(left: [f64; 3], right: [f64; 3]) -> [f64; 3] {
+    [
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    ]
+}
+
+fn dot3(left: [f64; 3], right: [f64; 3]) -> f64 {
+    left.iter().zip(right).map(|(a, b)| a * b).sum()
+}
+
+fn frame_from_axes(primary: [f64; 3], secondary: Option<[f64; 3]>) -> Option<Mat3> {
+    let x = normalized_vec3(primary)?;
+    let seed = secondary.unwrap_or_else(|| {
+        let axis = x
+            .iter()
+            .enumerate()
+            .min_by(|left, right| left.1.abs().total_cmp(&right.1.abs()))
+            .map(|(axis, _)| axis)
+            .unwrap_or(0);
+        let mut seed = [0.0; 3];
+        seed[axis] = 1.0;
+        seed
+    });
+    let projection = dot3(seed, x);
+    let y = normalized_vec3([
+        seed[0] - projection * x[0],
+        seed[1] - projection * x[1],
+        seed[2] - projection * x[2],
+    ])?;
+    let z = normalized_vec3(cross3(x, y))?;
+    Some([[x[0], y[0], z[0]], [x[1], y[1], z[1]], [x[2], y[2], z[2]]])
+}
+
+fn rotation_from_frames(source: &Mat3, target: &Mat3) -> Mat3 {
+    let source_transpose = [
+        [source[0][0], source[1][0], source[2][0]],
+        [source[0][1], source[1][1], source[2][1]],
+        [source[0][2], source[1][2], source[2][2]],
+    ];
+    mat_multiply_matrix_d3(target, &source_transpose)
+}
+
+fn quaternion_from_proper_rotation(rotation: &Mat3) -> Option<[f64; 4]> {
+    let determinant = rotation[0][0]
+        * (rotation[1][1] * rotation[2][2] - rotation[1][2] * rotation[2][1])
+        - rotation[0][1] * (rotation[1][0] * rotation[2][2] - rotation[1][2] * rotation[2][0])
+        + rotation[0][2] * (rotation[1][0] * rotation[2][1] - rotation[1][1] * rotation[2][0]);
+    if !determinant.is_finite() || (determinant - 1.0).abs() > 1.0e-7 {
+        return None;
+    }
+    let trace = rotation[0][0] + rotation[1][1] + rotation[2][2];
+    let quaternion = if trace > 0.0 {
+        let scale = (trace + 1.0).sqrt() * 2.0;
+        [
+            0.25 * scale,
+            (rotation[2][1] - rotation[1][2]) / scale,
+            (rotation[0][2] - rotation[2][0]) / scale,
+            (rotation[1][0] - rotation[0][1]) / scale,
+        ]
+    } else if rotation[0][0] > rotation[1][1] && rotation[0][0] > rotation[2][2] {
+        let scale = (1.0 + rotation[0][0] - rotation[1][1] - rotation[2][2]).sqrt() * 2.0;
+        [
+            (rotation[2][1] - rotation[1][2]) / scale,
+            0.25 * scale,
+            (rotation[0][1] + rotation[1][0]) / scale,
+            (rotation[0][2] + rotation[2][0]) / scale,
+        ]
+    } else if rotation[1][1] > rotation[2][2] {
+        let scale = (1.0 + rotation[1][1] - rotation[0][0] - rotation[2][2]).sqrt() * 2.0;
+        [
+            (rotation[0][2] - rotation[2][0]) / scale,
+            (rotation[0][1] + rotation[1][0]) / scale,
+            0.25 * scale,
+            (rotation[1][2] + rotation[2][1]) / scale,
+        ]
+    } else {
+        let scale = (1.0 + rotation[2][2] - rotation[0][0] - rotation[1][1]).sqrt() * 2.0;
+        [
+            (rotation[1][0] - rotation[0][1]) / scale,
+            (rotation[0][2] + rotation[2][0]) / scale,
+            (rotation[1][2] + rotation[2][1]) / scale,
+            0.25 * scale,
+        ]
+    };
+    let norm = quaternion
+        .iter()
+        .map(|value| value * value)
+        .sum::<f64>()
+        .sqrt();
+    (norm > 1.0e-10 && norm.is_finite()).then(|| quaternion.map(|value| value / norm))
+}
+
+fn spin_frame_candidate_is_global(
+    candidate: &[f64; 4],
+    paired_lifts: &[([f64; 4], [f64; 4])],
+) -> bool {
+    let inverse = quat_conj(candidate);
+    paired_lifts.iter().all(|(parent, h)| {
+        let transported = su2_compose(&su2_compose(candidate, parent), &inverse);
+        su2_lift_relation(&transported, h).is_some()
+    })
+}
+
+fn solve_global_spin_frame(paired_lifts: &[([f64; 4], [f64; 4])]) -> Option<[f64; 4]> {
+    let axes = paired_lifts
+        .iter()
+        .filter_map(|(parent, h)| {
+            Some((
+                normalized_vec3([parent[1], parent[2], parent[3]])?,
+                normalized_vec3([h[1], h[2], h[3]])?,
+            ))
+        })
+        .collect::<Vec<_>>();
+    for first in 0..axes.len() {
+        for second in first + 1..axes.len() {
+            if dot3(axes[first].0, axes[second].0).abs() > 1.0 - 1.0e-7
+                || dot3(axes[first].1, axes[second].1).abs() > 1.0 - 1.0e-7
+            {
+                continue;
+            }
+            let source_frame = frame_from_axes(axes[first].0, Some(axes[second].0))?;
+            for first_sign in [-1.0, 1.0] {
+                for second_sign in [-1.0, 1.0] {
+                    let target_frame = frame_from_axes(
+                        axes[first].1.map(|value| first_sign * value),
+                        Some(axes[second].1.map(|value| second_sign * value)),
+                    )?;
+                    let candidate = quaternion_from_proper_rotation(&rotation_from_frames(
+                        &source_frame,
+                        &target_frame,
+                    ))?;
+                    if spin_frame_candidate_is_global(&candidate, paired_lifts) {
+                        return Some(candidate);
+                    }
+                }
+            }
+        }
+    }
+    if let Some((source_axis, target_axis)) = axes.first().copied() {
+        let source_frame = frame_from_axes(source_axis, None)?;
+        for sign in [-1.0, 1.0] {
+            let target_frame = frame_from_axes(target_axis.map(|value| sign * value), None)?;
+            let candidate = quaternion_from_proper_rotation(&rotation_from_frames(
+                &source_frame,
+                &target_frame,
+            ))?;
+            if spin_frame_candidate_is_global(&candidate, paired_lifts) {
+                return Some(candidate);
+            }
+        }
+    }
+    let identity = [1.0, 0.0, 0.0, 0.0];
+    spin_frame_candidate_is_global(&identity, paired_lifts).then_some(identity)
+}
+
 /// Transport a parent-space-group spin lift into the unitary subgroup's
 /// data-Hall spin frame.
 ///
@@ -500,19 +700,11 @@ pub(crate) fn parent_spin_lift_in_h_frame(
     {
         return Err("spin lift tables have inconsistent lengths");
     }
-    let (q, u_q) = signed_permutation_axial_frame(setting_xf)
-        .ok_or("parent-to-unitary spin frame is not a signed permutation")?;
-    let u_q_inverse = quat_conj(&u_q);
-    let transport = |lift: &[f64; 4]| su2_compose(&su2_compose(&u_q, lift), &u_q_inverse);
-
-    // Validate the frame against the entire canonical H point-operation
-    // universe.  Translation does not enter SU(2), while duplicate spatial
-    // rotations in nonsymmorphic tables are required to carry related lifts.
-    let q_inverse = [
-        [q[0][0], q[1][0], q[2][0]],
-        [q[0][1], q[1][1], q[2][1]],
-        [q[0][2], q[1][2], q[2][2]],
-    ];
+    // Build the complete parent/H lift correspondence first.  For general
+    // crystallographic basis changes the fractional matrix need not itself be
+    // orthogonal, so the Cartesian spin frame is solved from these pinned
+    // adjoint actions rather than guessed from the basis coefficients.
+    let mut paired_lifts = Vec::with_capacity(h_rotations.len() / 9);
     for h_index in 0..h_rotations.len() / 9 {
         let h_rotation = [
             [
@@ -531,17 +723,24 @@ pub(crate) fn parent_spin_lift_in_h_frame(
                 h_rotations[h_index * 9 + 8],
             ],
         ];
-        let parent_rotation =
-            mat_multiply_matrix_i3(&mat_multiply_matrix_i3(&q_inverse, &h_rotation), &q);
+        let parent_rotation = rotation_in_parent_frame(&h_rotation, setting_xf)
+            .ok_or("an H rotation could not be transformed to the parent frame")?;
         let parent_lift = spin_lift_for_spatial_rotation(&parent_rotation, g_rotations, g_lifts)
             .ok_or("an H rotation has no unique parent spin lift")?;
         let h_lift: [f64; 4] = h_lifts[h_index * 4..h_index * 4 + 4]
             .try_into()
             .map_err(|_| "an H spin lift has invalid width")?;
-        if su2_lift_relation(&transport(&parent_lift), &h_lift).is_none() {
-            return Err("parent and unitary spin tables do not share one global adjoint frame");
-        }
+        paired_lifts.push((parent_lift, h_lift));
     }
+
+    let signed_candidate = signed_permutation_axial_frame(setting_xf)
+        .map(|(_, lift)| lift)
+        .filter(|lift| spin_frame_candidate_is_global(lift, &paired_lifts));
+    let u_q = signed_candidate
+        .or_else(|| solve_global_spin_frame(&paired_lifts))
+        .ok_or("parent and unitary spin tables do not share one global adjoint frame")?;
+    let u_q_inverse = quat_conj(&u_q);
+    let transport = |lift: &[f64; 4]| su2_compose(&su2_compose(&u_q, lift), &u_q_inverse);
 
     let parent_lift = spin_lift_for_spatial_rotation(&parent_operation.rot, g_rotations, g_lifts)
         .ok_or("antiunitary spatial rotation has no unique parent spin lift")?;
@@ -3623,7 +3822,12 @@ pub(crate) fn conjugated_spin_lift_relation(
     target_lift: &[f64; 4],
 ) -> Option<LiftRelation> {
     let inverse = quat_conj(a_lift);
-    let conjugated = su2_compose(&su2_compose(&inverse, h_lift), a_lift);
+    // The pinned Bilbao coefficients use U = u0 I + i u.sigma, whereas
+    // `su2_compose(left, right)` is Hamilton-quaternion composition and thus
+    // materializes the matrix product U(right) U(left) in that convention.
+    // Reverse the coefficient arguments so this follows the same
+    // a^-1 h a order as `conjugate_and_reduce_exact_seitz`.
+    let conjugated = su2_compose(&su2_compose(a_lift, h_lift), &inverse);
     su2_lift_relation(&conjugated, target_lift)
 }
 
@@ -4948,7 +5152,7 @@ mod tests {
         let a0 = [half, 0.0, 0.0, half];
         let negative_a0 = a0.map(|value| -value);
         let h = [0.0, 1.0, 0.0, 0.0];
-        let target = su2_compose(&su2_compose(&quat_conj(&a0), &h), &a0);
+        let target = su2_compose(&su2_compose(&a0, &h), &quat_conj(&a0));
 
         assert_eq!(
             conjugated_spin_lift_relation(&a0, &h, &target),
@@ -4965,7 +5169,21 @@ mod tests {
     }
 
     #[test]
-    fn parent_spin_transport_rejects_unproved_nonsigned_frame() {
+    fn conjugated_spin_lift_respects_bilbao_matrix_order() {
+        // Real SG149/UNI1312 geometry: the old quaternion argument order
+        // produced an unrelated axis, while exact matrix a^-1 h a is -i sx.
+        let a0 = [0.5, 0.0, 0.0, -3.0_f64.sqrt() / 2.0];
+        let h = [0.0, 0.5, -3.0_f64.sqrt() / 2.0, 0.0];
+        let target = [0.0, -1.0, 0.0, 0.0];
+
+        assert_eq!(
+            conjugated_spin_lift_relation(&a0, &h, &target),
+            Some(LiftRelation::Same)
+        );
+    }
+
+    #[test]
+    fn parent_spin_transport_accepts_underdetermined_trivial_h_frame() {
         static ROTATIONS: [i32; 9] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
         static TRANSLATIONS: [f64; 3] = [0.0; 3];
         static SU2: [f64; 4] = [1.0, 0.0, 0.0, 0.0];
@@ -4982,7 +5200,7 @@ mod tests {
 
         assert_eq!(
             parent_spin_lift_in_h_frame(&parent_a0, &context, Some(&shear)),
-            Err("parent-to-unitary spin frame is not a signed permutation")
+            Ok([1.0, 0.0, 0.0, 0.0])
         );
     }
 

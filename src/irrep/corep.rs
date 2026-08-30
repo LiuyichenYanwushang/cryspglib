@@ -4177,6 +4177,89 @@ mod tests {
     }
 
     #[test]
+    fn spinor_type_c_accepts_a_general_crystallographic_spin_frame() {
+        const UNI: usize = 96;
+        let h_info = identify_unitary_subgroup_with_hall(UNI)
+            .expect("UNI96 unitary subgroup and setting transform");
+        let transform = h_info
+            .msg_to_data
+            .as_ref()
+            .expect("UNI96 must exercise a nontrivial setting transform");
+        let basis = &transform.basis;
+        let signed_permutation = (0..3).all(|row| {
+            (0..3)
+                .filter(|&column| basis[row][column].abs() > 1.0e-8)
+                .count()
+                == 1
+        }) && (0..3).all(|column| {
+            (0..3)
+                .filter(|&row| basis[row][column].abs() > 1.0e-8)
+                .count()
+                == 1
+        }) && basis
+            .iter()
+            .flatten()
+            .all(|value| (*value - value.round()).abs() < 1.0e-8 && value.round().abs() <= 1.0);
+        assert!(
+            !signed_permutation,
+            "UNI96 must not regress to the old signed-permutation-only path"
+        );
+
+        let mag_ops = get_magnetic_operations(UNI).expect("UNI96 magnetic operations");
+        let mag_ops_data = operations_in_data_hall_frame(&mag_ops, Some(transform))
+            .expect("UNI96 operations in data-Hall frame");
+        let canonical_translations = h_info
+            .ops_from_hall
+            .operations
+            .iter()
+            .filter(|operation| operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+            .map(|operation| operation.translation)
+            .collect::<Vec<_>>();
+
+        let mut witness = None;
+        for source in irreps_of(h_info.sg as u8)
+            .iter()
+            .filter(|source| source.spinor)
+        {
+            let mag_lg = filter_little_group_with_transform(
+                source.kx,
+                source.ky,
+                source.kz,
+                source.kd,
+                &mag_ops_data,
+                None,
+                Some(&canonical_translations),
+            );
+            let has_identity_rotation_antiunitary = mag_lg.iter().any(|&index| {
+                let operation = &mag_ops_data.operations[index];
+                operation.time_reversal && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+            });
+            let Ok(corep) = source.complex_corepresentation(UNI) else {
+                continue;
+            };
+            if corep.corep_type == CorepType::C && !has_identity_rotation_antiunitary {
+                witness = Some((source, corep));
+                break;
+            }
+        }
+
+        let (source, corep) = witness.expect("UNI96 general-frame spin Type-C witness");
+        assert_eq!(corep.source, WignerSource::SpinorSU2);
+        assert_eq!(corep.completeness, CharacterCompleteness::Complete);
+        assert_eq!(
+            corep.dim,
+            2 * source.spinor_selected_arm_view().unwrap().dimension()
+        );
+        assert_eq!(corep.characters.len(), corep.operations.len());
+        assert!(
+            corep
+                .characters
+                .iter()
+                .all(|character| { character.re.is_finite() && character.im.is_finite() })
+        );
+    }
+
+    #[test]
     fn sg5_l2_uni20_uses_canonical_centered_spin_character_mapping() {
         let l2 = crate::irrep::query::irreps_of(5)
             .iter()
