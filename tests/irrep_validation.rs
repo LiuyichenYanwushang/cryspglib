@@ -228,6 +228,9 @@ fn sg230_last() {
 #[test]
 fn subgroup_indices_valid() {
     for ir in IRREPS.iter() {
+        if ir.spinor {
+            continue;
+        }
         let subs = ir.subgroups();
         for sub in subs {
             assert!(

@@ -73,6 +73,11 @@ pub fn irreps_of(sg: u8) -> &'static [IrrepRecord] {
 /// Prefer [`IrrepRecord::subgroups`] for more ergonomic access.
 ///
 /// Returns an empty slice if the index is out of range.
+///
+/// # Panics
+///
+/// Panics if `irrep_index` selects a double-valued (spinor) irrep, for which
+/// conventional crystallographic isotropy subgroups are unsupported.
 pub fn subgroups_of(irrep_index: usize) -> &'static [IsotropyRecord] {
     if irrep_index >= IRREPS.len() {
         return &[];

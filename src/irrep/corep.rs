@@ -5346,6 +5346,9 @@ mod tests {
     fn test_all_isotropy_subgroups_are_well_formed() {
         for sg in 1u8..=230 {
             for ir in crate::irrep::query::irreps_of(sg) {
+                if ir.spinor {
+                    continue;
+                }
                 for sub in ir.subgroups() {
                     assert!(
                         sub.sg >= 1 && sub.sg <= 230,

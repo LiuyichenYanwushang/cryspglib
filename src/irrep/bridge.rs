@@ -106,10 +106,11 @@ impl SpaceGroup {
         query::format_magnetic_isotropy_table(self.spacegroup_number as u8, kx, ky, kz, kd)
     }
 
-    /// Irreps at a specific k-point label with their isotropy subgroups.
+    /// Scalar irreps at a specific k-point label with their isotropy subgroups.
     pub fn irreps_with_isotropy_at_k(&self, label: &str) -> Vec<(&'static IrrepRecord, String)> {
         self.irreps_at_k(label)
             .into_iter()
+            .filter(|ir| !ir.spinor)
             .map(|ir| {
                 let subs = ir.subgroups();
                 let desc = if subs.is_empty() {

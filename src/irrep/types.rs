@@ -1209,6 +1209,12 @@ impl IrrepRecord {
 
     /// Isotropy subgroups for this irrep — no index arithmetic needed.
     ///
+    /// # Panics
+    ///
+    /// Panics when called on a double-valued (spinor) irrep. Conventional
+    /// crystallographic isotropy subgroups describe single-valued order
+    /// parameters and are not defined by this database for spinor states.
+    ///
     /// # Examples
     ///
     /// ```
@@ -1223,6 +1229,7 @@ impl IrrepRecord {
     /// }
     /// ```
     pub fn subgroups(&self) -> &'static [IsotropyRecord] {
+        assert!(!self.spinor, "spinor isotropy subgroups are unsupported");
         &self::generated_data::ISOTROPY_SUBGROUPS
             [self._iso_start as usize..(self._iso_start + self._iso_count) as usize]
     }
@@ -1231,6 +1238,12 @@ impl IrrepRecord {
     ///
     /// When the order parameter of this irrep condenses, the system
     /// can lower its symmetry to one of these magnetic space groups.
+    ///
+    /// # Panics
+    ///
+    /// Panics when called on a double-valued (spinor) irrep. Conventional
+    /// magnetic isotropy subgroups describe single-valued order parameters
+    /// and are not defined by this database for spinor states.
     ///
     /// # Examples
     ///
@@ -1246,6 +1259,7 @@ impl IrrepRecord {
     /// }
     /// ```
     pub fn magnetic_subgroups(&self) -> &'static [MagneticIsotropyRecord] {
+        assert!(!self.spinor, "spinor isotropy subgroups are unsupported");
         if self._mag_iso_count == 0 {
             return &[];
         }
@@ -1320,6 +1334,28 @@ impl std::fmt::Display for MagneticIsotropyRecord {
             "UNI {} ({}) dir={}",
             self.mag_sg, self.bns_label, self.direction
         )
+    }
+}
+
+#[cfg(test)]
+mod spinor_isotropy_tests {
+    fn spinor_irrep() -> &'static super::IrrepRecord {
+        crate::irrep::query::irreps_of(1)
+            .iter()
+            .find(|irrep| irrep.spinor)
+            .expect("SG 1 should contain a spinor irrep")
+    }
+
+    #[test]
+    #[should_panic(expected = "spinor isotropy subgroups are unsupported")]
+    fn ordinary_isotropy_query_rejects_spinor_irreps() {
+        let _ = spinor_irrep().subgroups();
+    }
+
+    #[test]
+    #[should_panic(expected = "spinor isotropy subgroups are unsupported")]
+    fn magnetic_isotropy_query_rejects_spinor_irreps() {
+        let _ = spinor_irrep().magnetic_subgroups();
     }
 }
 
