@@ -144,6 +144,61 @@ def parse_ints(lines, sections, name):
                 pass
     return data
 
+def require_per_record(values, stride, records, name):
+    """Fail closed unless ``values`` holds exactly ``stride`` entries per record.
+
+    Every isotropy array is parallel to the isotropy record table; a silent
+    stride mismatch (for example reading the 4-integer ``(x, y, z, d)`` origin
+    as if it were 3 fractions) is exactly the class of bug this check exists to
+    catch.
+    """
+    expected = stride * records
+    if len(values) != expected:
+        raise ValueError(
+            f"{name}: expected {expected} values "
+            f"({stride} per record x {records} records), got {len(values)}"
+        )
+
+
+# Translation denominators that can occur in crystallographic origin shifts.
+ALLOWED_ORIGIN_DENOMINATORS = frozenset({1, 2, 3, 4, 6, 8, 12, 16, 24})
+
+
+def _det3(row_major):
+    """Determinant of a row-major 3x3 integer matrix."""
+    return (
+        row_major[0] * (row_major[4] * row_major[8] - row_major[5] * row_major[7])
+        - row_major[1] * (row_major[3] * row_major[8] - row_major[5] * row_major[6])
+        + row_major[2] * (row_major[3] * row_major[7] - row_major[4] * row_major[6])
+    )
+
+
+def validate_isotropy_geometry(basis, origin, records, subgroup_numbers,
+                               max_subgroup, label):
+    """Structural checks for the isotropy geometry arrays.
+
+    ``basis`` holds 9 integers per record (primitive subgroup basis vectors in
+    the parent conventional basis) and ``origin`` holds 4 integers per record
+    ``(x, y, z, d)``.  A degenerate basis or a non-crystallographic denominator
+    would silently corrupt every downstream coordinate transformation.
+    """
+    for i in range(records):
+        b = basis[i * 9:(i + 1) * 9]
+        det = _det3(b)
+        if det == 0:
+            raise ValueError(f"{label}: singular subgroup basis at record {i}: {b}")
+        o = origin[i * 4:(i + 1) * 4]
+        if o[3] <= 0 or o[3] not in ALLOWED_ORIGIN_DENOMINATORS:
+            raise ValueError(
+                f"{label}: invalid origin denominator at record {i}: {o}"
+            )
+        sg = subgroup_numbers[i]
+        if not 1 <= sg <= max_subgroup:
+            raise ValueError(
+                f"{label}: subgroup number out of range at record {i}: {sg}"
+            )
+
+
 def parse_floats(lines, sections, name):
     """Extract float values from a section."""
     start = sections[name] + 1
@@ -1774,16 +1829,27 @@ def parse_all():
     iso_order       = parse_ints(iso_lines, iso_sec, "isotropy_order")
     iso_ferroic     = parse_ints(iso_lines, iso_sec, "isotropy_ferroic")
 
-    # basis and origin are floats
-    iso_basis_raw   = parse_floats(iso_lines, iso_sec, "isotropy_basis")
-    iso_origin_raw  = parse_floats(iso_lines, iso_sec, "isotropy_origin")
+    # Subgroup lattice basis (9 integers per record, rows = primitive basis
+    # vectors of the subgroup lattice in the parent conventional basis) and the
+    # origin shift encoded as four integers (x, y, z, d) for (x/d, y/d, z/d).
+    iso_basis       = parse_ints(iso_lines, iso_sec, "isotropy_basis")
+    iso_origin      = parse_ints(iso_lines, iso_sec, "isotropy_origin")
+    require_per_record(iso_basis, 9, len(iso_subgroups), "isotropy_basis")
+    require_per_record(iso_origin, 4, len(iso_subgroups), "isotropy_origin")
 
     # direction labels, dimension, and free parameter count for direction mapping
     iso_dir_labels  = parse_labels(iso_lines, iso_sec, "isotropy_orderparam_label")
     iso_dir_dim     = parse_ints(iso_lines, iso_sec, "isotropy_orderparam_dim")
     iso_dir_free    = parse_ints(iso_lines, iso_sec, "isotropy_orderparam_freeparam")
+    require_per_record(iso_dir_labels, 1, len(iso_subgroups), "isotropy_orderparam_label")
+    require_per_record(iso_dir_dim, 1, len(iso_subgroups), "isotropy_orderparam_dim")
+    require_per_record(iso_dir_free, 1, len(iso_subgroups), "isotropy_orderparam_freeparam")
+    validate_isotropy_geometry(
+        iso_basis, iso_origin, len(iso_subgroups), iso_subgroups, 230, "isotropy"
+    )
 
     print(f"  {len(iso_irrep)} iso entries, {len(iso_subgroups)} subgroups, {len(iso_irrep_ptr)} ptrs")
+    print(f"  {len(iso_basis) // 9} basis matrices, {len(iso_origin) // 4} origin shifts")
     print(f"  {len(iso_dir_labels)} direction labels")
     if iso_dir_labels:
         print(f"  direction label[1]={iso_dir_labels[1] if len(iso_dir_labels)>1 else 'N/A'}")
@@ -1802,7 +1868,20 @@ def parse_all():
     mag_iso_ptr      = parse_ints(mag_lines, mag_sec, "mag_iso_irrep_pointer")
     mag_nlabel       = parse_labels(mag_lines, mag_sec, "mag_nlabel")
     mag_bns_label    = parse_labels(mag_lines, mag_sec, "mag_bns_label")
+    # Same geometry encoding as the non-magnetic table.
+    mag_iso_basis    = parse_ints(mag_lines, mag_sec, "mag_iso_basis")
+    mag_iso_origin   = parse_ints(mag_lines, mag_sec, "mag_iso_origin")
+    require_per_record(mag_iso_basis, 9, len(mag_iso_sg), "mag_iso_basis")
+    require_per_record(mag_iso_origin, 4, len(mag_iso_sg), "mag_iso_origin")
+    mag_iso_dim      = parse_ints(mag_lines, mag_sec, "mag_iso_orderparam_dim")
+    mag_iso_free     = parse_ints(mag_lines, mag_sec, "mag_iso_orderparam_freeparam")
+    require_per_record(mag_iso_dim, 1, len(mag_iso_sg), "mag_iso_orderparam_dim")
+    require_per_record(mag_iso_free, 1, len(mag_iso_sg), "mag_iso_orderparam_freeparam")
+    validate_isotropy_geometry(
+        mag_iso_basis, mag_iso_origin, len(mag_iso_sg), mag_iso_sg, 1651, "mag_iso"
+    )
     print(f"  {len(mag_iso_sg)} mag iso entries, {len(mag_iso_ptr)} ptrs, {len(mag_nlabel)} labels")
+    print(f"  {len(mag_iso_basis) // 9} mag basis matrices, {len(mag_iso_origin) // 4} mag origin shifts")
 
     # Direction labels for magnetic isotropy
     mag_iso_dir_labels = parse_labels(mag_lines, mag_sec, "mag_iso_orderparam_label")
@@ -1911,8 +1990,11 @@ def parse_all():
         "iso_domain_type": iso_domain_type,
         "iso_arms": iso_arms,
         "iso_order": iso_order,
-        "iso_basis_raw": iso_basis_raw,
-        "iso_origin_raw": iso_origin_raw,
+        "iso_basis": iso_basis,
+        "iso_origin": iso_origin,
+        "iso_dir_label": iso_dir_labels,
+        "iso_dir_dim": iso_dir_dim,
+        "iso_dir_free": iso_dir_free,
         "iso_ferroic": iso_ferroic,
         "dir_map": dir_map,
         "kvec_map": kvec_map,
@@ -1934,6 +2016,10 @@ def parse_all():
         "mag_nlabel": mag_nlabel,
         "mag_bns_label": mag_bns_label,
         "mag_dir_by_entry": mag_dir_by_entry,
+        "mag_iso_basis": mag_iso_basis,
+        "mag_iso_origin": mag_iso_origin,
+        "mag_iso_dim": mag_iso_dim,
+        "mag_iso_free": mag_iso_free,
     }
 
 # ── data assembly ────────────────────────────────────────────────────────────
@@ -5161,6 +5247,11 @@ def generate_rust_data(data):
     iso_dir = data["iso_direction"]
     iso_dom = data["iso_domains"]
     iso_arms = data["iso_arms"]
+    iso_basis = data["iso_basis"]
+    iso_origin = data["iso_origin"]
+    iso_dir_label = data["iso_dir_label"]
+    iso_dir_dim = data["iso_dir_dim"]
+    iso_dir_free = data["iso_dir_free"]
 
     n_irreps = len(ml)
     total_iso = len(iso_sg)
@@ -5176,13 +5267,32 @@ def generate_rust_data(data):
         dir_str = dir_map.get(dir_val, f"dir{dir_val}")
         symbol, sch = get_sg_symbol(sg_val)
 
+        basis_mat = iso_basis[i * 9:(i + 1) * 9]
+        basis_str = (
+            f"[[{basis_mat[0]}, {basis_mat[1]}, {basis_mat[2]}], "
+            f"[{basis_mat[3]}, {basis_mat[4]}, {basis_mat[5]}], "
+            f"[{basis_mat[6]}, {basis_mat[7]}, {basis_mat[8]}]]"
+        )
+        origin_vec = iso_origin[i * 4:(i + 1) * 4]
+        origin_str = (
+            f"[{origin_vec[0]}, {origin_vec[1]}, {origin_vec[2]}, {origin_vec[3]}]"
+        )
+        label_str = escape_rust_str(iso_dir_label[i]) if i < len(iso_dir_label) else "?"
+        dim_val = iso_dir_dim[i] if i < len(iso_dir_dim) else 0
+        free_val = iso_dir_free[i] if i < len(iso_dir_free) else 0
+
         lines.append(f"    IsotropyRecord {{")
         lines.append(f"        sg: {sg_val},")
         lines.append(f'        symbol: "{symbol}",')
         lines.append(f'        schoenflies: "{sch}",')
         lines.append(f'        direction: "{dir_str}",')
+        lines.append(f'        direction_label: "{label_str}",')
+        lines.append(f"        direction_dim: {dim_val},")
+        lines.append(f"        direction_free: {free_val},")
         lines.append(f"        domains: {dom_val},")
         lines.append(f"        arms: {arms_val},")
+        lines.append(f"        basis: {basis_str},")
+        lines.append(f"        origin: {origin_str},")
         lines.append(f"    }},")
     lines.append("];")
     lines.append("")
@@ -5192,6 +5302,10 @@ def generate_rust_data(data):
     mag_nlabel = data.get("mag_nlabel", [])
     mag_bns_label = data.get("mag_bns_label", [])
     mag_dir_by_entry = data.get("mag_dir_by_entry", {})
+    mag_iso_basis = data.get("mag_iso_basis", [])
+    mag_iso_origin = data.get("mag_iso_origin", [])
+    mag_iso_dim = data.get("mag_iso_dim", [])
+    mag_iso_free = data.get("mag_iso_free", [])
     total_mag_iso = len(mag_iso_sg_arr)
 
     lines.append("/// Magnetic isotropy subgroup records (flat, per-irrep ordering).")
@@ -5203,11 +5317,28 @@ def generate_rust_data(data):
         bns = mag_bns_label[msg - 1] if 1 <= msg <= len(mag_bns_label) else f"MSG{msg}"
         direction = mag_dir_by_entry.get(i, "(a)")
 
+        basis_mat = mag_iso_basis[i * 9:(i + 1) * 9]
+        basis_str = (
+            f"[[{basis_mat[0]}, {basis_mat[1]}, {basis_mat[2]}], "
+            f"[{basis_mat[3]}, {basis_mat[4]}, {basis_mat[5]}], "
+            f"[{basis_mat[6]}, {basis_mat[7]}, {basis_mat[8]}]]"
+        )
+        origin_vec = mag_iso_origin[i * 4:(i + 1) * 4]
+        origin_str = (
+            f"[{origin_vec[0]}, {origin_vec[1]}, {origin_vec[2]}, {origin_vec[3]}]"
+        )
+        dim_val = mag_iso_dim[i] if i < len(mag_iso_dim) else 0
+        free_val = mag_iso_free[i] if i < len(mag_iso_free) else 0
+
         lines.append(f"    MagneticIsotropyRecord {{")
         lines.append(f"        mag_sg: {msg},")
         lines.append(f'        bns_label: "{escape_rust_str(bns)}",')
         lines.append(f'        iso_label: "{escape_rust_str(iso_label)}",')
         lines.append(f'        direction: "{escape_rust_str(direction)}",')
+        lines.append(f"        direction_dim: {dim_val},")
+        lines.append(f"        direction_free: {free_val},")
+        lines.append(f"        basis: {basis_str},")
+        lines.append(f"        origin: {origin_str},")
         lines.append(f"    }},")
     lines.append("];")
     lines.append("")

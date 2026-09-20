@@ -1315,6 +1315,78 @@ impl IsotropyRecord {
             self.sg, self.symbol, self.schoenflies, self.domains, self.arms
         )
     }
+
+    /// Primitive basis vectors of the subgroup lattice in the parent's
+    /// conventional basis (rows).
+    pub const fn basis_matrix(&self) -> [[i32; 3]; 3] {
+        self.basis
+    }
+
+    /// Exact origin shift of the subgroup setting, as `(numerators, denominator)`.
+    ///
+    /// The origin is the position of the subgroup's origin with respect to the
+    /// parent's origin, in units of the parent's conventional basis vectors.
+    pub const fn origin_rational(&self) -> ([i32; 3], i32) {
+        (
+            [self.origin[0], self.origin[1], self.origin[2]],
+            self.origin[3],
+        )
+    }
+
+    /// Origin shift of the subgroup setting in fractional parent coordinates.
+    pub fn origin_shift(&self) -> [f64; 3] {
+        decode_origin(self.origin)
+    }
+
+    /// Whether the subgroup setting shares the parent's origin.
+    pub fn has_parent_origin(&self) -> bool {
+        self.origin[0] == 0 && self.origin[1] == 0 && self.origin[2] == 0
+    }
+
+    /// Whether the subgroup keeps the parent's conventional basis vectors.
+    pub fn has_parent_basis(&self) -> bool {
+        self.basis == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+    }
+}
+
+/// Decode the ISOTROPY origin encoding `[x, y, z, d]` into `[x/d, y/d, z/d]`.
+///
+/// The generator rejects non-positive denominators, so a valid denominator is
+/// a data invariant rather than a runtime condition.
+pub(crate) fn decode_origin(origin: [i32; 4]) -> [f64; 3] {
+    debug_assert!(
+        origin[3] > 0,
+        "isotropy origin denominator must be positive, got {}",
+        origin[3]
+    );
+    let d = origin[3] as f64;
+    [
+        origin[0] as f64 / d,
+        origin[1] as f64 / d,
+        origin[2] as f64 / d,
+    ]
+}
+
+impl MagneticIsotropyRecord {
+    /// Primitive basis vectors of the magnetic subgroup lattice in the
+    /// parent's conventional basis (rows).
+    pub const fn basis_matrix(&self) -> [[i32; 3]; 3] {
+        self.basis
+    }
+
+    /// Exact origin shift of the magnetic subgroup setting.
+    pub const fn origin_rational(&self) -> ([i32; 3], i32) {
+        (
+            [self.origin[0], self.origin[1], self.origin[2]],
+            self.origin[3],
+        )
+    }
+
+    /// Origin shift of the magnetic subgroup setting in fractional parent
+    /// coordinates.
+    pub fn origin_shift(&self) -> [f64; 3] {
+        decode_origin(self.origin)
+    }
 }
 
 impl std::fmt::Display for IsotropyRecord {
@@ -1360,6 +1432,10 @@ mod spinor_isotropy_tests {
 }
 
 /// Compact isotropy subgroup record for the generated flat array.
+///
+/// A record describes one possible symmetry lowering of a parent irrep: the
+/// order-parameter direction, the subgroup it stabilises, and the geometry that
+/// places the subgroup inside the parent's coordinate system.
 #[derive(Debug, Clone, Copy)]
 pub struct IsotropyRecord {
     /// Subgroup space group number (1–230)
@@ -1368,12 +1444,25 @@ pub struct IsotropyRecord {
     pub symbol: &'static str,
     /// Schoenflies symbol
     pub schoenflies: &'static str,
-    /// Order-parameter direction label
+    /// Order-parameter direction in components, e.g. `"(a,0,0)"`
     pub direction: &'static str,
+    /// ISOTROPY direction label, e.g. `"P1"`, `"C1"`, `"4D1"`
+    pub direction_label: &'static str,
+    /// Dimension of the order-parameter space this direction lives in
+    pub direction_dim: u8,
+    /// Number of free parameters along this direction
+    pub direction_free: u8,
     /// Number of domains
     pub domains: usize,
     /// Number of arms in the star
     pub arms: usize,
+    /// Primitive basis vectors of the subgroup lattice, expressed in the
+    /// parent's conventional basis (row vectors).
+    pub basis: [[i32; 3]; 3],
+    /// Origin of the subgroup setting relative to the parent origin, encoded
+    /// exactly as `[x, y, z, d]` meaning `(x/d, y/d, z/d)` in the parent's
+    /// conventional basis.
+    pub origin: [i32; 4],
 }
 
 /// A magnetic isotropy subgroup: the lower-symmetry magnetic space group
@@ -1390,6 +1479,16 @@ pub struct MagneticIsotropyRecord {
     pub iso_label: &'static str,
     /// Order-parameter direction label
     pub direction: &'static str,
+    /// Dimension of the order-parameter space this direction lives in
+    pub direction_dim: u8,
+    /// Number of free parameters along this direction
+    pub direction_free: u8,
+    /// Primitive basis vectors of the magnetic subgroup lattice, expressed in
+    /// the parent's conventional basis (row vectors).
+    pub basis: [[i32; 3]; 3],
+    /// Origin of the magnetic subgroup setting relative to the parent origin,
+    /// encoded exactly as `[x, y, z, d]` meaning `(x/d, y/d, z/d)`.
+    pub origin: [i32; 4],
 }
 
 /// Auto-generated data from iso_data files.
