@@ -549,10 +549,15 @@ pub fn identity_subduction(ordinal: usize) -> Result<Vec<IdentitySubduction>, Is
                     index: irrep_index,
                 })?;
         let label_index = crate::irrep::generated_data::ISOTROPY_SUBDUCE_DIRECTION[entry] as usize;
+        // Fail closed like the irrep index above: a sentinel `"?"` in the Dir
+        // column would silently look like a real label.
         let direction_label = crate::irrep::generated_data::ISOTROPY_DIRECTION_LABELS
             .get(label_index)
             .copied()
-            .unwrap_or("?");
+            .ok_or(IsotropyError::SubductionIndexOutOfRange {
+                entry,
+                index: label_index,
+            })?;
         result.push(IdentitySubduction {
             parent_sg: irrep.sg,
             parent_ml: irrep.ml,
@@ -1138,6 +1143,32 @@ mod tests {
         let r = parent_primitive_basis(167).unwrap();
         assert!((r[0][0] - 2.0 / 3.0).abs() < 1e-12);
         assert!((r[2][1] + 2.0 / 3.0).abs() < 1e-12);
+        // Pin the remaining orientations: a transposed C or A matrix spans a
+        // *different* lattice at the same volume, which volume and determinant
+        // checks cannot see.  `scripts/verify_isotropy_oracle.py` compares the
+        // converted basis against the program's printed cell as a lattice.
+        assert_eq!(
+            parent_primitive_basis(5).unwrap(), // C-centred
+            [[0.5, 0.5, 0.0], [-0.5, 0.5, 0.0], [0.0, 0.0, 1.0]]
+        );
+        assert_eq!(
+            parent_primitive_basis(38).unwrap(), // A-centred
+            [[0.0, 0.5, 0.5], [0.0, -0.5, 0.5], [1.0, 0.0, 0.0]]
+        );
+        // Every centring has the volume its multiplicity implies.
+        for sg in 1..=230u8 {
+            let basis = parent_primitive_basis(sg).unwrap();
+            let det = basis[0][0] * (basis[1][1] * basis[2][2] - basis[1][2] * basis[2][1])
+                - basis[0][1] * (basis[1][0] * basis[2][2] - basis[1][2] * basis[2][0])
+                + basis[0][2] * (basis[1][0] * basis[2][1] - basis[1][1] * basis[2][0]);
+            let expected = 1.0 / centering_multiplicity(sg).unwrap() as f64;
+            assert!(
+                (det.abs() - expected).abs() < 1e-12,
+                "SG {sg}: |det P| = {} but Z = {}",
+                det.abs(),
+                centering_multiplicity(sg).unwrap()
+            );
+        }
     }
 
     #[test]

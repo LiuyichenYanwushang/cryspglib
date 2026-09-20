@@ -114,17 +114,25 @@ def get_sections(lines):
     return sections
 
 def parse_labels(lines, sections, name):
-    """Extract '...' or \"...\" quoted labels from a section."""
+    """Extract '...' or \"...\" quoted labels from a section.
+
+    A single alternation is used so that a double-quoted span is consumed whole.
+    Scanning the two quote styles separately lets an apostrophe *inside* a
+    double-quoted label close a bogus single-quoted token: `mag_bns_label`
+    entries such as ``"P-1'"`` and ``"Ia'-3'd'"`` produced 2314 tokens instead
+    of 1651, which silently shifted every magnetic isotropy record's BNS symbol.
+    """
     start = sections[name] + 1
     keys = list(sections.keys())
     idx = keys.index(name)
     end = sections[keys[idx + 1]] if idx + 1 < len(keys) else len(lines)
     data = []
     for line in lines[start:end]:
-        for m in re.finditer(r'"([^"]*)"', line):
-            data.append(m.group(1).strip())
-        for m in re.finditer(r"'([^']*)'", line):
-            val = m.group(1).strip()
+        for m in re.finditer(r'"([^"]*)"|\'([^\']*)\'', line):
+            if m.group(1) is not None:
+                data.append(m.group(1).strip())
+                continue
+            val = m.group(2).strip()
             if val and val != '***':
                 data.append(val)
     return data
@@ -1975,6 +1983,25 @@ def parse_all():
     mag_iso_ptr      = parse_ints(mag_lines, mag_sec, "mag_iso_irrep_pointer")
     mag_nlabel       = parse_labels(mag_lines, mag_sec, "mag_nlabel")
     mag_bns_label    = parse_labels(mag_lines, mag_sec, "mag_bns_label")
+    # One label per magnetic space group (UNI 1..1651), indexed by
+    # `mag_iso_subgroup`.  A mis-tokenised label section silently shifts every
+    # record's BNS symbol (apostrophes in `"P-1'"` used to add 663 phantom
+    # tokens), so the length is part of the contract, not a detail.
+    if len(mag_nlabel) != 1651 or len(mag_bns_label) != 1651:
+        raise ValueError(
+            "mag_nlabel/mag_bns_label: expected one label per UNI (1651), got "
+            f"{len(mag_nlabel)} and {len(mag_bns_label)}"
+        )
+    for index, label in enumerate(mag_bns_label, start=1):
+        if not label or label.startswith("MSG"):
+            raise ValueError(f"mag_bns_label[{index}] is not a symbol: {label!r}")
+        # A mis-tokenised section shows up as labels carrying quote marks or
+        # whitespace (the old reader produced `'" "P_S1        " "P-1'`), so
+        # reject anything that is not one symbol token.
+        if '"' in label or any(character.isspace() for character in label):
+            raise ValueError(
+                f"mag_bns_label[{index}] is not a single token: {label!r}"
+            )
     # Same geometry encoding as the non-magnetic table.
     mag_iso_basis    = parse_ints(mag_lines, mag_sec, "mag_iso_basis")
     mag_iso_origin   = parse_ints(mag_lines, mag_sec, "mag_iso_origin")

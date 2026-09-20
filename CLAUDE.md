@@ -131,9 +131,11 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
   配 `DISPLAY IRREP` 给的是 **Wyckoff 位置**的诱导点群 irrep（手册 §SHOW
   FREQUENCY 原文），`SHOW COMPATIBILITY` 是 k 点兼容关系，`VALUE SUBGROUP` /
   `VALUE FREQUENCY` 只是对 `DISPLAY ISOTROPY` 的过滤器。`data_little.txt` 的
-  `little_subduce_*` 索引语义仍未文档化（无 subgroup 列、`pg_irrep` 索引空间与
-  点群标签表缺失；"Σ lif = 块数""每 irrep 含 [(1,dim)] 块"等结构假设均已证伪），
-  因此完整分导必须自行计算。
+  `little_subduce_*` 结构已解开（索引空间 = 10294 个紧凑 little irrep；块大小是
+  每 SG 常数；每块最后一行恒为 `[(dim,1)]`），但载荷只有 `(frequency, pg_irrep)`
+  对、**没有任何 SG/basis/origin/direction 键**，与 4777 个母群 irrep 的交集为空，
+  也没有任何官方命令打印它 → 无法与具体 isotropy 子群关联，完整分导必须自行计算
+  （配方见下文"完整分导的实施配方"）。
 - 磁 isotropy 表按**非磁母群的同一个 4777 个 irrep**索引，输出 UNI 1–1651；
   它不接受磁群 corep 作为输入，也没有分导表。
 
@@ -153,8 +155,10 @@ setting 差异已解释（见上一节），残余约 450 条单斜/三方 cell/
 生成器的字节可复现性记录（可复查）：在干净树上
 `python3 scripts/generate_irrep_data.py` 重新生成
 `src/irrep/generated_data.rs`，其 md5 必须等于
-`f994cf4874440118ef2f872b4f1e021b`（2026-09-20 修复磁方向标签/新增双值分导后的
-当前值；独立 reviewer 已在副本中复跑确认该流水线字节可复现）。
+`4bbd6db9858117d346d8c93b81bcfbf9`（2026-09-21 修复 `mag_bns_label` 词法解析后的
+当前值；修复前是 `f994cf4874440118ef2f872b4f1e021b`）。重新生成时除
+`MAGNETIC_ISOTROPY_SUBGROUPS` 的 `bns_label` 行（15546/16721 条）外，其它数组必须
+逐字节不变；独立 reviewer 已在副本中复跑确认该流水线字节可复现。
 
 ### 对抗性审查（2026-09-20）发现与修复
 
@@ -224,6 +228,73 @@ setting 差异已解释（见上一节），残余约 450 条单斜/三方 cell/
 7. **交付命令**：workspace 根不带 `-p` 的 `cargo test --release` 会因 sibling
    member `Rustb` 自身编译失败而 exit 101、0 测试执行；基线命令一律用
    `-p cryspglib`（见文件开头）。
+
+### 对抗性审查第二轮补充（2026-09-21 晚）
+
+第一轮 reviewer 的后续复核又发现/澄清了以下几条，均已复现处理：
+
+1. **P0：`mag_bns_label` 词法误解析**（`parse_labels` 同时抓两种引号，把
+   `"P-1'"`、`"Ia'-3'd'"` 里的撇号当成单引号定界符）→ 该节解析出 2314 个 token
+   而不是 1651，索引整体位移，**15546/16721 条磁记录携带错误 BNS 符号**
+   （UNI 6 打出 `'" "P_S1        " "P-1         " "P-11'` 而不是 `P-1'`）。
+   已改为"双引号优先"的单一 alternation，并加长度门禁（必须 1651）、
+   单词 token 门禁（无引号/空白）与**钉值回归**（UNI 3/6/1001/1651 →
+   `P_S1` / `P-1'` / `P4/m'mm` / `Ia'-3'd'`）。重新生成后只有 `bns_label` 行变化，
+   新 md5 见上一节；其它 20 个数组逐字节不变。
+2. **`irrep_label_pg` 其实存在且精确**（4777 项，与 `irrep_label` 平行；仅在 Γ 块
+   的 1313 条非空，与 `smodes_sample.out` 一致）。本文档早先写的"点群标签表缺失"
+   是错的；准确的限制是：它按 (母群 SG, 母群 irrep) 索引，**无法**给
+   `little_subduce_pg_irrep` 这类任意点群序号命名。旧 reader 会把它误解析成
+   4793 项（同样被（1）修复），但该节目前无消费者，故没有 shipped 数组受影响。
+3. **"C 心 primitive 基取向错误"是假阳性**：reviewer 用**primitive** 换算结果去比
+   官方打印的**conventional** 基。正确关系是 `W·P_parent == P_sub·B_printed`
+   （`P_sub` 在左，因为 `P_sub` 的行是打印基的组合系数；只有对称的 F 矩阵才与
+   右乘一致）。修正后 A/C/F/I/P/R 六类全部通过；`verify_isotropy_oracle.py` 现在
+   增加了**格相等**检查（把打印胞乘上子群 centring 后与换算基比较），体积/行列式
+   检查看不出的转置错误会被它抓住；`parent_primitive_basis` 的 7 个矩阵也在 Rust
+   测试里逐个钉住，并断言 `|det P| = 1/Z`。
+4. **分导锚点不是"同一 irrep"**：94271/94271 锚点属于同一**母群 SG**，但其中
+   15238 条指向**同一 SG 的另一个 irrep**（compound/高对称 irrep 合法共享子群），
+   只有 79033/94271 落在同一 irrep 内；生成器门禁与测试都按"同一 SG"表述。
+5. **磁 isotropy 表的空洞与陷阱**（16721 条）：230 个 Type-II（grey）UNI **完全
+   没有记录**，所以 `magnetic_isotropy_subgroups()` 对它们只能返回空；
+   1482/16721 条磁记录的 `direction` 在同母群 irrep 的常表里**不存在**
+   （例如 UNI 3 `M1` 的 `C1`），因此不能按方向标签做磁↔常表 join；
+   可 join 的 15239 条里只有 8887 条 basis 矩阵逐项相同，其余 6352 条是**同一格的
+   unimodular 换基**（`|det|` 15239/15239 相同），按矩阵相等 join 会产生假不匹配。
+6. **112 个母群 irrep（195 条记录）使用官方二进制不接受的旧 ML 拼写**
+   （SG23 `W1W1` vs 紧凑 `W1WA1`，SG82 `P1P1` vs `P1PA1`）：`VALUE IRREP W1W1`
+   打印空表，改用 `little_irr_full_label` 的紧凑拼写才有 4 行且与存储数据一致。
+   `IrrepRecord::ml` 因此不保证是官方可接受的标签（文档已注明；oracle gate 的
+   21 组用例不含它们）。
+7. **`little_subduce_*` 的结构已经解开，但仍不可用**：索引空间是
+   `little_irr_full_label` 的 **10294 个紧凑 little irrep**（不是 4777 个母群
+   irrep，两者交集为空 0/5517）；`little_subduce_irr_pointer[i]` 给出该 irrep 块
+   的 1-based 起始行；**块大小是每个空间群的常数**（SG221→14、SG225→12、
+   SG230→8、SG1→1 …）；**每个块的最后一行恒为 `[(dim,1)]`**（dim =
+   `little_irr_full_dim`，即 C1 恒等表示的分解）。载荷只有 (frequency, pg_irrep)
+   对，**没有任何 SG/basis/origin/direction 键**，官方也没有任何命令打印它
+   （`SHOW COMPATIBILITY/STAR/MODES/KDEGREE` 都不打印载荷），因此它无法与某个
+   isotropy 子群关联 → 完整分导必须自行计算。
+
+### 完整分导（母群 irrep → 子群全部 irrep + 重数）的实施配方
+
+数据里**没有**这张表（见上条第 7 点与 §4），可行且可验证的路线是自算：
+
+1. 母群 irrep 在 k 点的小群特征标：crate 已有 PIR/CIR（`_pir_rot_start` 提供
+   H_ops→PIR 顺序映射）。
+2. 子群 H 在母群帧中的操作：由 (W, origin) + 母群操作枚举出 H 的操作（同时满足
+   保格与 origin 条件）；可用官方 `SHOW ELEMENTS`（需先 `VALUE DIRECTION <lab>`）
+   作 oracle。[待实现]
+3. H 在自己 ISO setting 下的操作：`SymmetryOps::from_sg(sg_H)`；两者的
+   setting 变换用 `irrep::wigner::find_setting_transform`（纯 rotations/translations，
+   与磁群无关）求解，解必须通过完整操作集验证。
+4. 重数：`n_α = (1/|H_k|) Σ_{h∈H_k} χ_Δ(h) conj(χ_α(h))`，χ_α 取
+   `query::irreps_of(sg_H)` 在折叠 k（`k_H = P_H⁻¹ W P_G k_G`）处的 irrep。
+5. **现成回归 oracle**：`isotropy_subduce_*` 的 94271 条恒等分导必须与算出的
+   "子群恒等表示重数"逐条一致（这是最强的 gate）；另加 Frobenius 恒等式
+   `Σ_G i(G)·dim(G)/k_G = |P_parent|/|P_sub|`（1895 条 Γ 记录精确成立，
+   compound 标签要按 ML 分量数 `k_G` 折算，否则 3543 行会被重复计数）。
 
 ### 顺带清理
 

@@ -95,6 +95,16 @@ fn every_magnetic_isotropy_record_has_valid_geometry() {
             record.mag_sg
         );
         assert!(!record.bns_label.is_empty() && !record.iso_label.is_empty());
+        // A mis-tokenised label section shows up as a label carrying quote
+        // marks or whitespace: the reader used to fold the next labels into
+        // one token (`'" "P_S1        " "P-1         " "P-11'`), which left
+        // 15546 of these records with the wrong BNS symbol.
+        for (field, value) in [("bns_label", record.bns_label), ("iso_label", record.iso_label)] {
+            assert!(
+                !value.contains('"') && !value.chars().any(char::is_whitespace),
+                "record {index}: {field} {value:?} is not a single symbol"
+            );
+        }
         assert!(!record.direction.is_empty());
         assert!(
             ALLOWED_DETERMINANTS.contains(&det3(record.basis)),
@@ -113,6 +123,34 @@ fn every_magnetic_isotropy_record_has_valid_geometry() {
             !record.direction.starts_with("dir"),
             "record {index}: synthetic direction {:?}",
             record.direction
+        );
+    }
+}
+
+/// The BNS symbols are indexed by UNI, so a label list that is even one token
+/// too long shifts every record.  Pin the values that the pre-fix reader
+/// corrupted, so a regression cannot pass on a `!is_empty()` check.
+#[test]
+fn magnetic_bns_symbols_are_indexed_by_uni() {
+    // UNI 6 is BNS 2.6 `P-1'` (the apostrophe is what broke the old reader).
+    let bns_of = |uni: usize| {
+        MAGNETIC_ISOTROPY_SUBGROUPS
+            .iter()
+            .find(|record| record.mag_sg == uni)
+            .map(|record| record.bns_label)
+            .unwrap_or_else(|| panic!("no magnetic isotropy record for UNI {uni}"))
+    };
+    assert_eq!(bns_of(3), "P_S1");
+    assert_eq!(bns_of(6), "P-1'");
+    assert_eq!(bns_of(1001), "P4/m'mm");
+    assert_eq!(bns_of(1651), "Ia'-3'd'");
+    // Every label list entry must be a single symbol, for all UNIs present.
+    for record in MAGNETIC_ISOTROPY_SUBGROUPS {
+        assert!(
+            !record.bns_label.contains('"') && !record.bns_label.contains("  "),
+            "UNI {}: {:?}",
+            record.mag_sg,
+            record.bns_label
         );
     }
 }
@@ -457,6 +495,10 @@ fn subduction_tables_are_parallel_and_in_range() {
         );
         assert!(ISOTROPY_SUBDUCE_FREQUENCY[index] >= 1);
         assert!(!IRREPS[*irrep_index as usize - 1].spinor);
+        // The record anchor behind `ISOTROPY_SUBDUCE_DIRECTION` is a record of
+        // the *same parent space group* but usually of a different irrep
+        // (15238 of 94271 entries), so "same irrep" is not the invariant.  The
+        // anchor itself is not emitted; the generator gates it.
     }
 }
 
@@ -471,17 +513,18 @@ fn p222_r1_reaches_f222() {
     assert_eq!(subgroup.record.origin, [0, 0, 0, 1]);
     assert_eq!(subgroup_size(subgroup.record.basis).unwrap(), 2);
     // The program prints the F-centred conventional cell
-    // `(2,0,0),(0,2,0),(0,0,2)` for this transition.  Converting that printed
-    // cell back to a *primitive* basis of the subgroup — i.e. multiplying by
-    // the F-centring primitive basis `P_F` — must reproduce the stored basis in
-    // the parent's (here primitive) frame.  This pins the frame convention and
-    // the printed basis, where a determinant identity alone would not.
+    // `(2,0,0),(0,2,0),(0,0,2)` for this transition.  Its primitive lattice is
+    // that cell times the subgroup's own centring matrix, i.e. `P_F . printed`
+    // (row `j` of `P_F` holds the coefficients of the printed rows), which must
+    // reproduce the stored basis in the parent's (here primitive) frame.  This
+    // pins the printed basis and the frame convention, where a determinant
+    // identity alone would not.
     let printed = [[2.0f64, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]];
     let p_f = parent_primitive_basis(22).unwrap();
     let mut expected = [[0.0f64; 3]; 3];
-    for i in 0..3 {
-        for j in 0..3 {
-            expected[i][j] = (0..3).map(|t| printed[i][t] * p_f[t][j]).sum();
+    for j in 0..3 {
+        for i in 0..3 {
+            expected[j][i] = (0..3).map(|t| p_f[j][t] * printed[t][i]).sum();
         }
     }
     let stored = basis_in_parent_conventional(16, subgroup.record.basis).unwrap();

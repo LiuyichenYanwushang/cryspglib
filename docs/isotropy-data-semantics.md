@@ -113,9 +113,10 @@ printf 'PAGE 1000\nSC 250\nSET I ALL OR 1\nVALUE PARENT 139\nVALUE IRREP M1-\nSH
   （恒等表示）的次数；
 - `isotropy_subduce_domain`：domain 序号；
 - `isotropy_subduce_subgroup`：**已解开**——它是 1-based 的 isotropy 记录序号，
-  它指向的那条记录的 `direction` 标签正是官方打印的 Dir 列（94271/94271 落在被
-  分导 irrep 自己的记录区间内；30/30 抽样逐字符复现官方输出）。API 暴露为
-  `IdentitySubduction::direction_label`。
+  它指向的那条记录的 `direction` 标签正是官方打印的 Dir 列（94271/94271 锚点与
+  被分导 irrep 属于**同一母群 SG**；其中 79033 条落在同一 irrep 内，15238 条指向
+  同一 SG 的另一个 irrep，这是合法的 compound/高对称共享情形；30/30 抽样逐字符
+  复现官方输出）。API 暴露为 `IdentitySubduction::direction_label`。
 
 这正是官方 `SHOW FREQ`（加 `DIR` 时附 `Dir(domain)`）的输出，例如 SG 221 `GM4+`
 方向 `P1` → 子群 `#83 P4/m`：
@@ -132,9 +133,28 @@ API :  [("GM1+", 1, "P1", 1), ("GM3+", 1, "P1", 3), ("GM4+", 1, "P1", 1)]
 
 **边界**：本数据集只给“哪些母群 irrep 包含子群的恒等表示、重数多少”（Landau /
 铁性分类所需），**不给**某个母群 irrep 分解成子群全部 irrep 的完整分导表示
-（例如 Γ3+ ↓ P4/m = ?）。完整分解需要 ISODISTORT，或在本仓库自行实现字符表
-分导引擎；`data_little.txt` 中的 `little_subduce_*` 是可能的线索，但其索引语义
-未文档化，本轮未采用（未做猜测性实现）。
+（例如 Γ3+ ↓ P4/m = ?）。官方 `iso` 也没有这个能力：`SHOW FREQUENCY` 配
+`DISPLAY IRREP` 给的是 **Wyckoff 位置**的诱导点群 irrep（手册 §SHOW FREQUENCY），
+`SHOW COMPATIBILITY` 是 k 点兼容关系，`VALUE SUBGROUP` / `VALUE FREQUENCY` 只是
+`DISPLAY ISOTROPY` 的过滤器。
+
+`data_little.txt` 的 `little_subduce_*` 结构已经解开但**仍不可用**：
+
+- 索引空间是 `little_irr_full_label` / `little_irr_old_map` 的 **10294 个紧凑
+  little irrep**（不是本文档的 4777 个母群 irrep；两者交集为空 0/5517）；
+- `little_subduce_irr_pointer[i]`（1-based，0 = 无数据，5517/10294 非零）给出该
+  irrep 块的起始行，块大小是**每个空间群的常数**（SG221→14、SG225→12、SG230→8、
+  SG1→1 …），与 k 和 irrep 无关；
+- 每个块的最后一行恒为 `[(frequency, dim), pg_irrep=1)]`（5517/5517，dim =
+  `little_irr_full_dim`），即分解到平凡点群 C1 的退化情形；
+- 载荷只有 `(frequency, pg_irrep)` 对，`pg_irrep ∈ [1,12]`，**没有任何
+  SG/basis/origin/direction 键**，因此无法与具体 isotropy 子群关联；
+- 官方二进制没有任何命令打印该载荷（`SHOW COMPATIBILITY/STAR/MODES/KDEGREE` 都不
+  打印），所以它也拿不到独立的 oracle 校验。
+
+完整分解只能自行计算：用随包 PIR/CIR 矩阵限制到子群操作上（帧由
+`isotropy_basis` + `isotropy_origin` 给出），并用 §4 的 94271 条恒等分导作为
+trivial 列的回归 oracle。
 
 磁子群表没有对应的 `mag_iso_subduce_*`，因此磁子群只能给出几何 + UNI/BNS，
 给不出分导。
@@ -145,12 +165,13 @@ API :  [("GM1+", 1, "P1", 1), ("GM3+", 1, "P1", 3), ("GM4+", 1, "P1", 1)]
 
 1. 用 pinned 数据复现每条记录（`Size = |det W|`、方向标签、子群号）；
 2. 对 21 组 (SG, irrep)（覆盖 6 种 centering：A/C/F/I/P/R；B 面心不出现在标准
-   ITA setting）运行
-   官方 `iso`，逐行比对：
+   ITA setting）运行官方 `iso`（显式 `SET I ALL OR 1`，见 §3），逐行比对：
    - 子群号、方向标签一致；
    - `Size == |det W|`；
    - `|det Basis_官方| == Z(子群)·Size/Z(母群)`；
-   - `w_机器 · P − w_官方` 是母群格矢量（1 行已知例外，见 §3）。
+   - `W·P_母群 == P_子群·B_官方` 作为**格**相等（`P_子群·B_官方` 给出打印胞的
+     primitive 格；体积/行列式检查看不出基取向错误，这一条能看出来）；
+   - `w_机器 · P − w_官方` 逐位相同（不再需要 mod L 或豁免）。
 
 当前结果：`oracle rows checked: 42`，全部通过，且 origin 比较 **42/42 逐位相同**、
 无任何 allowlist 豁免（脚本显式运行 `SET I ALL OR 1`，见 §3）。规范表述是
@@ -170,11 +191,21 @@ API :  [("GM1+", 1, "P1", 1), ("GM3+", 1, "P1", 3), ("GM4+", 1, "P1", 1)]
 3. **抽样规模与分页**：gate 仅 42 行（0.28%）；程序分页上限 `PAGE ≤ 1000`，同一
    进程连续查询会被分页提示吞掉输入，全表验收必须按 (SG, irrep) 逐进程调用。
 4. **完整分导分解不在数据中**（§4）：`isotropy_subduce_*` 只给"包含子群恒等表示"
-   的母群 irrep 与频率 i(G)；`data_little.txt` 的 `little_subduce_*` 索引语义未文档化
-   （无 subgroup 列、`pg_irrep` 索引空间与点群标签表缺失，且 LLM 逆向的多条结构假设
-   已被证伪），官方 `iso` 也没有打印完整分解的命令——`SHOW FREQUENCY` 配
-   `DISPLAY IRREP` 给的是 **Wyckoff 位置**的诱导点群 irrep，不是子群 irrep 分解。
-   要得到"母群 irrep → 子群全部 irrep + 重数"必须自行计算。
+   的母群 irrep 与频率 i(G)；`little_subduce_*` 虽然结构已解开，但没有 subgroup
+   键、与 4777 个母群 irrep 交集为空，任何官方命令都不打印它；官方 `iso` 也没有
+   打印完整分解的命令（`SHOW FREQUENCY` 配 `DISPLAY IRREP` 给的是 **Wyckoff
+   位置**的诱导点群 irrep）。要得到"母群 irrep → 子群全部 irrep + 重数"必须自行
+   计算。
+5. **磁 isotropy 表的空洞**（§4）：16721 条只覆盖 1421 个 UNI，**230 个 Type-II
+   （grey）磁群完全没有记录**，`magnetic_isotropy_subgroups` 对它们只能返回空。
+   另有 1482/16721 条磁记录的方向标签在同母群 irrep 的常表里不存在（例如 UNI 3
+   `M1` 的 `C1` vs 常表 `P1, P3, S1`），所以**不能**按方向标签把磁表 join 到常表；
+   可 join 的 15239 条中只有 8887 条 basis 矩阵逐项相同，其余 6352 条是**同一格的
+   unimodular 换基**（`|det|` 15239/15239 相同），按矩阵相等 join 会产生假不匹配。
+6. **112 个母群 irrep（195 条记录）的 ML 标签官方不接受**（SG23 `W1W1` vs 紧凑
+   `W1WA1`，SG82 `P1P1` vs `P1PA1`）：`VALUE IRREP W1W1` 打印空表，紧凑拼写才有
+   4 行且与存储数据一致。`IrrepRecord::ml` 因此在 oracle gate 之外还要看
+   `little_irr_full_label` 的紧凑拼写。
 
 ## 7. Rust API 位置
 

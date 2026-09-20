@@ -1,1 +1,22 @@
 Isotropy, Version 9.6.1, Jan 2022
+Harold T. Stokes, Dorian M. Hatch, and Branton J. Campbell
+Brigham Young University
+*DISPLAY SETTING
+Current setting is International (new ed.) with conventional basis vectors.
+*PAGE 1000
+*SC 250
+*SET I ALL OR 1
+*VALUE PARENT 230
+*VALUE IRREP GM5+
+*SHOW SUBGROUP
+*SHOW BASIS
+*SHOW ORIGIN
+*SHOW SIZE
+*SHOW DIRECTION
+*DISPLAY ISOTROPY
+Subgroup Size Dir Basis Vectors                                Origin
+70 Fddd  1    P1  (0,0,-1),(1,1,0),(1,-1,0)                    (1,-1/4,-5/8)
+167 R-3c 1    P3  (1,0,-1),(0,-1,1),(-1/2,-1/2,-1/2)           (0,0,0)
+15 C2/c  1    C2  (0,1,0),(1,0,-1),(-1/2,1/2,-1/2)             (1/4,1/4,-1/4)
+2 P-1    1    S1  (-1/2,1/2,1/2),(1/2,-1/2,1/2),(1/2,1/2,-1/2) (0,0,0)
+*QUIT
