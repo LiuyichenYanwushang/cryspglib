@@ -120,6 +120,14 @@ let result = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
 | `MagneticSpaceGroupType::from_uni(n)` | Look up magnetic SG type by UNI number (`Result`) |
 | `HallNumber`, `UniNumber`, `SpaceGroupNumber` | Validated, non-zero database identifiers |
 | `OperationKind` | Explicit `Unitary` / `Antiunitary` magnetic-operation semantics |
+| `irrep::isotropy::isotropy_subgroup_for_direction(sg, ml, dir)` | Isotropy subgroup of one irrep for an order-parameter direction |
+| `IsotropySubgroup::identity_subduction()` | Parent irreps that become totally symmetric in the subgroup (`SHOW FREQUENCY`) |
+| `isotropy::origin_shift_in_parent_conventional(sg, origin)` | Origin shift of the subgroup setting in parent conventional coordinates |
+
+Isotropy subgroups carry the subgroup lattice basis and the origin shift of the
+subgroup setting, in the parent's primitive-cell frame; helpers convert them to
+the parent's conventional frame used by Stokes & Hatch (1988) and the ISOTROPY
+program. See `docs/isotropy-data-semantics.md` and `scripts/verify_isotropy_oracle.py`.
 
 Typed code should prefer `SpaceGroupType::from_hall_number`,
 `MagneticSpaceGroupType::from_uni_number`, and the corresponding

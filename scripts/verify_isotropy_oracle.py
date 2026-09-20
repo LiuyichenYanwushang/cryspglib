@@ -215,6 +215,13 @@ def machine_records():
 
 def run_oracle(sg, ml):
     """Run `iso` for one (space group, irrep) and return its printed rows."""
+    binary = os.path.join(ISO_DIR, "iso")
+    if not os.path.isfile(binary):
+        raise FileNotFoundError(
+            "the ISOTROPY binary is not extracted; run\n"
+            f"  unzip -o {os.path.join(ISO_DIR, 'iso.zip')} -d {ISO_DIR}\n"
+            "before using this oracle"
+        )
     commands = [
         "PAGE 20000",
         "SC 250",
@@ -230,7 +237,7 @@ def run_oracle(sg, ml):
     ]
     env = dict(os.environ, ISODATA=ISO_DIR + os.sep)
     result = subprocess.run(
-        [os.path.join(ISO_DIR, "iso")],
+        [binary],
         input="\n".join(commands) + "\n",
         capture_output=True,
         text=True,

@@ -106,8 +106,9 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 
 ### 验证 gate
 
-`python3 scripts/verify_isotropy_oracle.py`（需要 `isotropy_subgroup/iso.zip`
-已解压或直接使用 zip；脚本自行设置 `ISODATA`）用随包 `iso` 9.6.1 对 21 组
+`python3 scripts/verify_isotropy_oracle.py`（先用
+`unzip -o isotropy_subgroup/iso.zip -d isotropy_subgroup/` 解出 `iso` 二进制与
+数据文件；脚本自行设置 `ISODATA`）用随包 `iso` 9.6.1 对 21 组
 (SG, irrep)、覆盖 7 种 centering 的记录逐行比对子群号、方向标签、Size、
 `|det Basis|` 关系与 origin（差为母群格矢量）。当前 `42 rows`，全部通过；
 唯一例外 `SG 230 GM5+ P1` 已显式 allowlist（官方代表元与 pinned 数据既不差
