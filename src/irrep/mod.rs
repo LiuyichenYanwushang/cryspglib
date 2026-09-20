@@ -99,6 +99,7 @@ pub mod types;
 pub use types::generated_data;
 pub mod bridge;
 pub mod corep;
+pub mod isotropy;
 pub mod magnetic_summary;
 pub mod preamble;
 pub mod query;
