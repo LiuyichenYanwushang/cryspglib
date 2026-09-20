@@ -176,7 +176,6 @@ fn main() {
                     let u_a0 = spin_su2_at(g_spin_su2, am);
                     println!("      u_a0={:?}", u_a0);
                     // Try per-term: does (a0*h)^2 match back?
-                    let (_, _origin) = IrrepRecord::sg_setting(ctx.sg);
                     let a0_bilbao =
                         SeitzOp::new(a0.rot, [a0.trans[0], a0.trans[1], a0.trans[2]], false);
                     let h_spin_seitz = build_spin_seitz(ctx.h.0, ctx.h.1);

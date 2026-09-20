@@ -577,11 +577,16 @@ fn build_mapi() -> Result<Vec<u8>> {
             if order == 0 || offset == 0 || offset + order > MSG_OPERATION_COUNT {
                 return error(format!("MAPI {uni}/{hall} span invalid"));
             }
-            for index in offset..offset + order {
-                if visited[index] {
+            for (index, was_visited) in visited
+                .iter_mut()
+                .enumerate()
+                .skip(offset)
+                .take(order)
+            {
+                if *was_visited {
                     return error(format!("MAPI raw index {index} visited twice"));
                 }
-                visited[index] = true;
+                *was_visited = true;
             }
             let operations = msg_database::get_spacegroup_operations(uni, hall)
                 .ok_or_else(|| format!("MAPI UNI {uni} Hall {hall} runtime lookup failed"))?;

@@ -67,6 +67,62 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 
 ---
 
+## Isotropy subgroup 几何与分导（2026-09-20 起）
+
+目标：给定 (空间群, k 点, 不可约表示, 序参量方向) 返回 isotropy subgroup，
+并给出该子群在母群坐标系中的几何（基变换 + 中心点平移），以及母群 irrep 对该
+子群的分导信息。数据全部来自 pinned `isotropy_subgroup/iso.zip`
+（`data_isotropy.txt` 15239 条、`data_magnetic.txt` 16721 条）。
+
+### 已落地的 API
+
+- `irrep::isotropy::isotropy_subgroup_for_direction(sg, ml, direction)`：按
+  方向描述串 `"(a,0,0)"`、ISO 方向标签 `"P1"` 或表内序号选取；
+  `isotropy_subgroups[_at_k]`、`magnetic_isotropy_subgroups[_for_direction]`。
+- 几何换算：`subgroup_size`、`parent_primitive_basis`、
+  `basis_in_parent_conventional`、`origin_shift_in_parent_conventional`。
+- 分导：`IsotropySubgroup::identity_subduction()` /
+  `irrep::isotropy::identity_subduction(ordinal)`，即官方 `SHOW FREQUENCY`：
+  哪些母群 irrep 的分导表示包含子群恒等表示、重数 `i(G)`、domain 序号。
+- 格式化：`format_isotropy_subgroups`、`format_magnetic_isotropy_subgroups`、
+  `format_identity_subduction`（均输出母群 conventional 基下的几何）。
+
+### 数据语义（已用官方二进制钉死，勿凭直觉假设）
+
+- `isotropy_basis` / `isotropy_origin` 表达在**母群 primitive 胞**帧中，不是书里
+  打印的 conventional 帧：官方程序打印子群的 ITA conventional 基。
+  #16 P222 → #22 F222 的例子：机器 `(0,1,1),(1,0,1),(1,1,0)`（det 2），
+  官方 `(2,0,0),(0,2,0),(0,0,2)`（det 8 = Z_F·size）。
+- `Size = |det basis|`（**不乘**母群 centering 数）；`|det Basis_官方| =
+  Z(子群)·Size/Z(母群)`。
+- `isotropy_origin` 每条 4 整数 `(x,y,z,d)` = `(x/d,y/d,z/d)`，分母 ∈
+  {1,2,3,4,6,8,12,16,24}；#167 R-3c 的 `(0,1/2,0)` 在六方 conventional 基下是
+  `(-1/6,1/6,1/6)`，与官方输出一致。
+- 分导表只给“母群 irrep 包含子群恒等表示”的频率，**不给**完整分导分解
+  （例如 Γ3+ ↓ P4/m 的全部 irrep）；后者需要 ISODISTORT 或自写字符表分导引擎。
+  `data_little.txt` 的 `little_subduce_*` 索引语义未文档化，本轮未采用。
+- 磁 isotropy 表按**非磁母群的同一个 4777 个 irrep**索引，输出 UNI 1–1651；
+  它不接受磁群 corep 作为输入，也没有分导表。
+
+### 验证 gate
+
+`python3 scripts/verify_isotropy_oracle.py`（需要 `isotropy_subgroup/iso.zip`
+已解压或直接使用 zip；脚本自行设置 `ISODATA`）用随包 `iso` 9.6.1 对 21 组
+(SG, irrep)、覆盖 7 种 centering 的记录逐行比对子群号、方向标签、Size、
+`|det Basis|` 关系与 origin（差为母群格矢量）。当前 `42 rows`，全部通过；
+唯一例外 `SG 230 GM5+ P1` 已显式 allowlist（官方代表元与 pinned 数据既不差
+母群格矢量也不差子群格矢量）。
+
+### 顺带清理
+
+- 删除 `src/irrep/settings_data.rs` 与 `scripts/extract_sg_settings.py`：该表
+  用 stride 3 误读 4 整数的 origin，且其来源（每个 SG 首个 irrep 的首条
+  isotropy 记录）恒为 identity/零，属既错又空的表；`IrrepRecord::sg_setting`
+  与 corep.rs 中三处 debug 输出的 “bilbao 修正” 一并删除（该修正恒为 no-op，
+  仅保留 mod-1 归一化）。
+
+---
+
 ## 磁 symmetry 全覆盖实时账本（2026-07-31 起）
 
 用户当前优先目标：先覆盖并修正全部 1–1651 UNI 的磁对称性，再继续上层

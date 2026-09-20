@@ -440,7 +440,7 @@ fn spin_lift_for_spatial_rotation(
     spin_rotations: &[i32],
     spin_lifts: &[f64],
 ) -> Option<[f64; 4]> {
-    if spin_rotations.len() % 9 != 0 || spin_lifts.len() != spin_rotations.len() / 9 * 4 {
+    if !spin_rotations.len().is_multiple_of(9) || spin_lifts.len() != spin_rotations.len() / 9 * 4 {
         return None;
     }
     let candidates_for = |target: &Mat3I| {
@@ -1125,11 +1125,13 @@ impl ExactSeitzOp {
         let mut translation_numerator = [0i32; 3];
         for (axis, target) in translation_numerator.iter_mut().enumerate() {
             let mut value = 0i32;
-            for inner in 0..3 {
+            for (coefficient, numerator) in
+                inverse[axis].iter().zip(self.translation_numerator.iter())
+            {
                 value = value
                     .checked_sub(
-                        inverse[axis][inner]
-                            .checked_mul(self.translation_numerator[inner])
+                        coefficient
+                            .checked_mul(*numerator)
                             .ok_or(ExactSeitzError::ArithmeticOverflow)?,
                     )
                     .ok_or(ExactSeitzError::ArithmeticOverflow)?;
@@ -1164,7 +1166,7 @@ pub fn reduce_exact_seitz(
         }
         let mut lattice_shift = [0i32; 3];
         let mut matches = true;
-        for axis in 0..3 {
+        for (axis, shift) in lattice_shift.iter_mut().enumerate() {
             let difference = raw.translation_numerator[axis]
                 .checked_sub(operation.translation_numerator[axis])
                 .ok_or(ExactSeitzError::ArithmeticOverflow)?;
@@ -1172,7 +1174,7 @@ pub fn reduce_exact_seitz(
                 matches = false;
                 break;
             }
-            lattice_shift[axis] = difference / EXACT_SEITZ_TRANSLATION_DENOMINATOR;
+            *shift = difference / EXACT_SEITZ_TRANSLATION_DENOMINATOR;
         }
         if !matches {
             continue;
@@ -3587,7 +3589,7 @@ pub fn build_h_to_irrep_op_map(
     irrep_trans: &[f64],
 ) -> Option<Vec<usize>> {
     let n_ops = h_seitz.len();
-    if n_ops == 0 || irrep_rots.len() % 9 != 0 {
+    if n_ops == 0 || !irrep_rots.len().is_multiple_of(9) {
         return None;
     }
     let n_ir_ops = irrep_rots.len() / 9;
@@ -3599,7 +3601,7 @@ pub fn build_h_to_irrep_op_map(
     let mut map = Vec::with_capacity(n_ops);
     for h in h_seitz {
         let mut found = None;
-        for ir_idx in 0..n_ir_ops {
+        for (ir_idx, is_used) in used.iter_mut().enumerate() {
             let roff = ir_idx * 9;
             let toff = ir_idx * 3;
             let rotation_matches = irrep_rots[roff..roff + 9]
@@ -3617,7 +3619,7 @@ pub fn build_h_to_irrep_op_map(
             let translation_matches = (0..3)
                 .all(|axis| (h.trans[axis] - irrep_trans[toff + axis]).abs() < SEITZ_TRANS_TOL);
             if rotation_matches && translation_matches {
-                if found.is_some() || used[ir_idx] {
+                if found.is_some() || *is_used {
                     return None;
                 }
                 found = Some(ir_idx);

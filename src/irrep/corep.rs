@@ -650,7 +650,7 @@ pub fn compute_corepresentation(
     if !h_irrep.spinor && h_irrep.raw_cir_component_count() == 0 {
         let pir_rots = h_irrep.pir_rotations();
         let pir_trans = h_irrep.pir_translations();
-        let map = if pir_rots.len() % 9 == 0
+        let map = if pir_rots.len().is_multiple_of(9)
             && (pir_rots.len() / 9).checked_mul(3) == Some(pir_trans.len())
         {
             wigner::build_h_to_irrep_op_map(&h_seitz, pir_rots, pir_trans)
@@ -1540,7 +1540,7 @@ pub fn compute_compound_corepresentations_complex(
         let operations = context
             .mag_lg
             .iter()
-            .map(|&index| context.mag_ops_data.operations[index].clone())
+            .map(|&index| context.mag_ops_data.operations[index])
             .collect::<Vec<_>>();
         let timerev = operations
             .iter()
@@ -1572,14 +1572,13 @@ pub fn compute_compound_corepresentations_complex(
         // Reciprocal Type-C seeds describe the same magnetic corep.  Fixed
         // A/B constituents remain separate even if their rows happen to be
         // numerically equal, because the physical source contains both copies.
-        if corep_type == CorepType::C {
-            if let Some(existing) = branches
+        if corep_type == CorepType::C
+            && let Some(existing) = branches
                 .iter_mut()
                 .find(|existing| compound_corep_rows_equivalent(&existing.corep, &branch.corep))
-            {
-                existing.sources.extend(branch.sources);
-                continue;
-            }
+        {
+            existing.sources.extend(branch.sources);
+            continue;
         }
         branches.push(branch);
     }
@@ -6623,29 +6622,12 @@ mod tests {
                 println!("  Antiunitary ops in LG:");
                 for &b_idx in &antiunitary {
                     let b = &mag_seitz[b_idx];
+                    // The ISOTROPY space-group settings are the identity for every
+                    // space group, so the historical Bilbao-frame origin
+                    // correction was a no-op; only the mod-1 normalization is
+                    // kept.
                     let b_bilbao = {
-                        let (_, origin) = IrrepRecord::sg_setting(ctx.sg);
-                        let mut t = [
-                            b.trans[0]
-                                - ((1.0 - b.rot[0][0] as f64)
-                                    * origin.first().copied().unwrap_or(0.0)
-                                    + (-b.rot[0][1] as f64)
-                                        * origin.get(1).copied().unwrap_or(0.0)
-                                    + (-b.rot[0][2] as f64)
-                                        * origin.get(2).copied().unwrap_or(0.0)),
-                            b.trans[1]
-                                - ((-b.rot[1][0] as f64) * origin.first().copied().unwrap_or(0.0)
-                                    + (1.0 - b.rot[1][1] as f64)
-                                        * origin.get(1).copied().unwrap_or(0.0)
-                                    + (-b.rot[1][2] as f64)
-                                        * origin.get(2).copied().unwrap_or(0.0)),
-                            b.trans[2]
-                                - ((-b.rot[2][0] as f64) * origin.first().copied().unwrap_or(0.0)
-                                    + (-b.rot[2][1] as f64)
-                                        * origin.get(1).copied().unwrap_or(0.0)
-                                    + (1.0 - b.rot[2][2] as f64)
-                                        * origin.get(2).copied().unwrap_or(0.0)),
-                        ];
+                        let mut t = b.trans;
                         for value in &mut t {
                             *value = (*value % 1.0 + 1.0) % 1.0;
                         }
@@ -8175,23 +8157,13 @@ mod tests {
                 let g_spin_seitz = crate::irrep::wigner::build_spin_seitz(g_rots, g_trans);
                 let lg_set: std::collections::HashSet<usize> =
                     indices.iter().map(|&x| x as usize).collect();
-                let (_, origin) = IrrepRecord::sg_setting(ctx.sg);
                 let a0 = &mag_seitz[a0_idx];
-                let to_bilbao = |rot: crate::mathfunc::Mat3I, trans: [f64; 3]| -> [f64; 3] {
-                    if origin.len() < 3 {
-                        return trans;
-                    }
+                // The ISOTROPY space-group settings are the identity for every
+                // space group, so only the mod-1 normalization remains.
+                let to_bilbao = |_rot: crate::mathfunc::Mat3I, trans: [f64; 3]| -> [f64; 3] {
                     let mut t = trans;
-                    for i in 0..3 {
-                        let d: f64 = (0..3)
-                            .map(|j| {
-                                (if i == j { 1.0 } else { 0.0 } - rot[i][j] as f64) * origin[j]
-                            })
-                            .sum();
-                        t[i] = (t[i] - d) % 1.0;
-                        if t[i] < 0.0 {
-                            t[i] += 1.0;
-                        }
+                    for value in &mut t {
+                        *value = (*value % 1.0 + 1.0) % 1.0;
                     }
                     t
                 };
@@ -8901,7 +8873,6 @@ mod tests {
                 let (g_spin_rots, g_spin_trans, g_spin_su2) = ctx.g;
                 let h_spin_seitz = wigner::build_spin_seitz(h_spin_rots, h_spin_trans);
                 let g_spin_seitz = wigner::build_spin_seitz(g_spin_rots, g_spin_trans);
-                let (_, origin) = IrrepRecord::sg_setting(ctx.sg);
                 let id_rot: crate::mathfunc::Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
                 println!(
@@ -8922,20 +8893,12 @@ mod tests {
                         (b.rot, b.trans)
                     };
 
-                    let to_bilbao = |rot: crate::mathfunc::Mat3I, trans: [f64; 3]| -> [f64; 3] {
+                    // The ISOTROPY space-group settings are the identity for every
+                    // space group, so only the mod-1 normalization remains.
+                    let to_bilbao = |_rot: crate::mathfunc::Mat3I, trans: [f64; 3]| -> [f64; 3] {
                         let mut t = trans;
-                        for i in 0..3 {
-                            let d: f64 = (0..3)
-                                .map(|j| {
-                                    let delta = if i == j { 1.0 } else { 0.0 };
-                                    (delta - rot[i][j] as f64)
-                                        * origin.get(j).copied().unwrap_or(0.0)
-                                })
-                                .sum();
-                            t[i] = (t[i] - d) % 1.0;
-                            if t[i] < 0.0 {
-                                t[i] += 1.0;
-                            }
+                        for value in &mut t {
+                            *value = (*value % 1.0 + 1.0) % 1.0;
                         }
                         t
                     };

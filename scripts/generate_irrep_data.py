@@ -1830,12 +1830,43 @@ def parse_all():
     iso_ferroic     = parse_ints(iso_lines, iso_sec, "isotropy_ferroic")
 
     # Subgroup lattice basis (9 integers per record, rows = primitive basis
-    # vectors of the subgroup lattice in the parent conventional basis) and the
+    # vectors of the subgroup lattice in the parent primitive frame) and the
     # origin shift encoded as four integers (x, y, z, d) for (x/d, y/d, z/d).
     iso_basis       = parse_ints(iso_lines, iso_sec, "isotropy_basis")
     iso_origin      = parse_ints(iso_lines, iso_sec, "isotropy_origin")
     require_per_record(iso_basis, 9, len(iso_subgroups), "isotropy_basis")
     require_per_record(iso_origin, 4, len(iso_subgroups), "isotropy_origin")
+
+    # Subduction frequencies: for each isotropy record, the parent irreps whose
+    # restriction contains the trivial irrep of the subgroup, with the
+    # multiplicity i(G) and the domain index.  This is exactly what the ISO
+    # program prints for SHOW FREQUENCY.
+    iso_subduce_ptr = parse_ints(iso_lines, iso_sec, "isotropy_subduce_pointer")
+    iso_subduce_irrep = parse_ints(iso_lines, iso_sec, "isotropy_subduce_irrep")
+    iso_subduce_freq = parse_ints(iso_lines, iso_sec, "isotropy_subduce_frequency")
+    iso_subduce_domain = parse_ints(iso_lines, iso_sec, "isotropy_subduce_domain")
+    if len(iso_subduce_ptr) != len(iso_subgroups) + 1:
+        raise ValueError(
+            "isotropy_subduce_pointer: expected one start offset per isotropy "
+            f"record plus a sentinel ({len(iso_subgroups) + 1}), got "
+            f"{len(iso_subduce_ptr)}"
+        )
+    for name, values in (
+        ("isotropy_subduce_irrep", iso_subduce_irrep),
+        ("isotropy_subduce_frequency", iso_subduce_freq),
+        ("isotropy_subduce_domain", iso_subduce_domain),
+    ):
+        if len(values) != len(iso_subduce_irrep):
+            raise ValueError(
+                f"{name}: {len(values)} entries do not match the subduction "
+                f"table of {len(iso_subduce_irrep)} entries"
+            )
+    for index, irrep_index in enumerate(iso_subduce_irrep):
+        if not 1 <= irrep_index <= len(iso_irrep_ptr) - 1:
+            raise ValueError(
+                f"isotropy_subduce_irrep: irrep index {irrep_index} out of "
+                f"range at entry {index}"
+            )
 
     # direction labels, dimension, and free parameter count for direction mapping
     iso_dir_labels  = parse_labels(iso_lines, iso_sec, "isotropy_orderparam_label")
@@ -1849,6 +1880,7 @@ def parse_all():
     )
 
     print(f"  {len(iso_irrep)} iso entries, {len(iso_subgroups)} subgroups, {len(iso_irrep_ptr)} ptrs")
+    print(f"  {len(iso_subduce_irrep)} subduction entries")
     print(f"  {len(iso_basis) // 9} basis matrices, {len(iso_origin) // 4} origin shifts")
     print(f"  {len(iso_dir_labels)} direction labels")
     if iso_dir_labels:
@@ -1996,6 +2028,10 @@ def parse_all():
         "iso_dir_dim": iso_dir_dim,
         "iso_dir_free": iso_dir_free,
         "iso_ferroic": iso_ferroic,
+        "iso_subduce_ptr": iso_subduce_ptr,
+        "iso_subduce_irrep": iso_subduce_irrep,
+        "iso_subduce_freq": iso_subduce_freq,
+        "iso_subduce_domain": iso_subduce_domain,
         "dir_map": dir_map,
         "kvec_map": kvec_map,
         "pir_kvector_map": pir_kvector_map,
@@ -5087,6 +5123,7 @@ def generate_rust_data(data):
             "mag_iso_s": mag_iso_s, "mag_iso_c": mag_iso_c,
             "cir_s": cir_comp_starts[i], "cir_c": cir_comp_counts[i], "cir_o": cir_comp_ops[i],
             "compound_metadata_index": compound_metadata_indices[i],
+            "source_ordinal": i,
             "source_identity": source_identity,
             "pir_rot_s": pir_rot_starts[i],
             "spin_lg_count": 0,
@@ -5150,6 +5187,10 @@ def generate_rust_data(data):
     lines.append("/// All irreducible representations (scalar + spinor), ordered by SG then k-point.")
     lines.append(f"pub static IRREPS: [IrrepRecord; {total_irreps}] = [")
     irrep_idx = 0
+    # Source isotropy tables index the ISO irrep order, which this generator
+    # reorders into SG order; remember the mapping so subduction references can
+    # be translated to final IRREPS indices.
+    source_to_final = {}
     for s in range(1, 231):
         for entry_type, entry_idx in sg_entries.get(s, []):
             if entry_type == "scalar":
@@ -5208,6 +5249,8 @@ def generate_rust_data(data):
             lines.append(f"        _spin_imag_start: {r['spin_extra_s']},")
             lines.append(f"        _spin_imag_count: {r['spin_extra_c']},")
             lines.append(f"    }},")
+            if not r["spinor"]:
+                source_to_final[r["source_ordinal"]] = irrep_idx
             irrep_idx += 1
     lines.append("];")
     lines.append("")
@@ -5342,8 +5385,54 @@ def generate_rust_data(data):
         lines.append(f"    }},")
     lines.append("];")
     lines.append("")
-    lines.append("// SG setting data: basis matrices and origin shifts from ISOTROPY.")
-    lines.append("include!(\"settings_data.rs\");")
+
+    # ── Subduction frequencies (identity irrep of the isotropy subgroup) ──
+    subduce_ptr = data["iso_subduce_ptr"]
+    subduce_irrep = data["iso_subduce_irrep"]
+    if len(source_to_final) != len(ml):
+        raise ValueError(
+            f"source irrep map covers {len(source_to_final)} of {len(ml)} scalar irreps"
+        )
+    subduce_irrep = [
+        1 + source_to_final[source_index - 1] for source_index in subduce_irrep
+    ]
+    subduce_freq = data["iso_subduce_freq"]
+    subduce_domain = data["iso_subduce_domain"]
+    total_subduce = len(subduce_irrep)
+
+    lines.append(
+        "/// Start offset of each isotropy record's subduction entries, plus a\n"
+        "/// sentinel (length = ISOTROPY_SUBGROUPS.len() + 1)."
+    )
+    lines.append(
+        f"pub static ISOTROPY_SUBDUCE_RANGES: [u32; {len(subduce_ptr)}] = ["
+    )
+    for value in subduce_ptr:
+        lines.append(f"    {value},")
+    lines.append("];")
+    lines.append("")
+    lines.append(
+        "/// Parent irrep index (into `IRREPS`) that subduces the trivial irrep of\n"
+        "/// the isotropy subgroup, one entry per subduction record."
+    )
+    lines.append(
+        f"pub static ISOTROPY_SUBDUCE_IRREP: [u16; {total_subduce}] = ["
+    )
+    for value in subduce_irrep:
+        lines.append(f"    {value},")
+    lines.append("];")
+    lines.append("")
+    lines.append("/// Subduction frequency `i(G)` per subduction record.")
+    lines.append(f"pub static ISOTROPY_SUBDUCE_FREQUENCY: [u8; {total_subduce}] = [")
+    for value in subduce_freq:
+        lines.append(f"    {value},")
+    lines.append("];")
+    lines.append("")
+    lines.append("/// Domain index per subduction record (printed by SHOW FREQUENCY DIRECTION).")
+    lines.append(f"pub static ISOTROPY_SUBDUCE_DOMAIN: [u16; {total_subduce}] = [")
+    for value in subduce_domain:
+        lines.append(f"    {value},")
+    lines.append("];")
     lines.append("")
 
     return "\n".join(lines)

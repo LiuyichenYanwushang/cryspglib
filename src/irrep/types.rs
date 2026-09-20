@@ -632,26 +632,6 @@ impl IrrepRecord {
         &super::generated_data::SPIN_IMAG_CHARS[start..start + len]
     }
 
-    /// Canonical data-Hall symmetry operations with pinned SU(2) lifts.
-    ///
-    /// This is a standalone version — does not require an `IrrepRecord`.
-    /// Get the ISOTROPY setting (basis matrix + origin shift) for a space group.
-    ///
-    /// Returns `(basis_3x3_row_major, origin_3vec)` as f64 slices.
-    /// Basis is always identity (same axes as ITA), origin has 205/230 non-trivial.
-    pub fn sg_setting(sg: u8) -> (&'static [f64], &'static [f64]) {
-        let idx = sg.saturating_sub(1) as usize;
-        if idx >= 230 {
-            return (&[], &[]);
-        }
-        let b_start = idx * 9;
-        let o_start = idx * 3;
-        (
-            &super::generated_data::SG_SETTING_BASIS[b_start..b_start + 9],
-            &super::generated_data::SG_SETTING_ORIGIN[o_start..o_start + 3],
-        )
-    }
-
     pub fn spin_ops_for_sg(sg: u8) -> (&'static [i32], &'static [f64], &'static [f64]) {
         let sg_idx = sg as usize;
         if sg_idx == 0 || sg_idx > 230 {
@@ -746,7 +726,7 @@ impl IrrepRecord {
             return Err(CharacterViewError::MissingData);
         }
         let rotation_start = self._pir_rot_start as usize;
-        if rotation_start % 9 != 0 {
+        if !rotation_start.is_multiple_of(9) {
             return Err(CharacterViewError::MisalignedStorage);
         }
         let rotation_len = count
@@ -858,7 +838,7 @@ impl IrrepRecord {
             return Err(CharacterViewError::MissingData);
         }
         let rotation_start = self._pir_rot_start as usize;
-        if rotation_start % 9 != 0 {
+        if !rotation_start.is_multiple_of(9) {
             return Err(CharacterViewError::MisalignedStorage);
         }
         let start = rotation_start / 9;
@@ -961,7 +941,7 @@ impl IrrepRecord {
         if component >= 2 || self._cir_count != 2 {
             return Err(CharacterViewError::InvalidComponent);
         }
-        if self._cir_start % 2 != 0 {
+        if !self._cir_start.is_multiple_of(2) {
             return Err(CharacterViewError::MisalignedStorage);
         }
         let operations = self.typed_pir_operations()?;
@@ -1009,7 +989,9 @@ impl IrrepRecord {
             return Err(CharacterViewError::OperationOrderMismatch);
         }
         let values = raw
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| Complex64::new(pair[0], pair[1]))
             .collect();
         let row = CharacterRow::from_parts(
@@ -1144,6 +1126,7 @@ impl IrrepRecord {
     ///
     /// Returns `(re, im)` pairs in the generated data-Hall operation order.
     /// [`Self::raw_cir_rotations`] contains the corresponding rotations.
+    #[cfg_attr(not(feature = "debug-corep"), allow(dead_code))]
     pub(crate) fn raw_cir_component_chars(&self, comp: usize) -> &'static [f64] {
         if comp >= self._cir_count as usize {
             return &[];
@@ -1156,6 +1139,7 @@ impl IrrepRecord {
     /// Rotation matrices for CIR operations of a specific component.
     ///
     /// Returns 9×n_ops i32 values (r00,r01,r02, r10,r11,r12, r20,r21,r22 per op).
+    #[cfg_attr(not(feature = "debug-corep"), allow(dead_code))]
     pub(crate) fn raw_cir_rotations(&self, comp: usize) -> &'static [i32] {
         if comp >= self._cir_count as usize {
             return &[];
@@ -1457,11 +1441,19 @@ pub struct IsotropyRecord {
     /// Number of arms in the star
     pub arms: usize,
     /// Primitive basis vectors of the subgroup lattice, expressed in the
-    /// parent's conventional basis (row vectors).
+    /// **parent's primitive-cell frame** (row vectors).
+    ///
+    /// For a primitive parent this coincides with the conventional basis.  For
+    /// centred lattices it does not; use
+    /// [`crate::irrep::isotropy::basis_in_parent_conventional`] to convert.
     pub basis: [[i32; 3]; 3],
-    /// Origin of the subgroup setting relative to the parent origin, encoded
-    /// exactly as `[x, y, z, d]` meaning `(x/d, y/d, z/d)` in the parent's
-    /// conventional basis.
+    /// Origin of the subgroup setting relative to the parent origin, in the
+    /// parent's primitive-cell frame, encoded exactly as `[x, y, z, d]` meaning
+    /// `(x/d, y/d, z/d)`.
+    ///
+    /// Use [`crate::irrep::isotropy::origin_shift_in_parent_conventional`] to
+    /// obtain the value in the parent's conventional basis (the "Origin" column
+    /// of Stokes & Hatch, 1988).
     pub origin: [i32; 4],
 }
 
@@ -1484,10 +1476,11 @@ pub struct MagneticIsotropyRecord {
     /// Number of free parameters along this direction
     pub direction_free: u8,
     /// Primitive basis vectors of the magnetic subgroup lattice, expressed in
-    /// the parent's conventional basis (row vectors).
+    /// the parent's primitive-cell frame (row vectors).
     pub basis: [[i32; 3]; 3],
     /// Origin of the magnetic subgroup setting relative to the parent origin,
-    /// encoded exactly as `[x, y, z, d]` meaning `(x/d, y/d, z/d)`.
+    /// in the parent's primitive-cell frame, encoded exactly as
+    /// `[x, y, z, d]` meaning `(x/d, y/d, z/d)`.
     pub origin: [i32; 4],
 }
 
