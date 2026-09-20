@@ -126,8 +126,12 @@ let result = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
 
 Isotropy subgroups carry the subgroup lattice basis and the origin shift of the
 subgroup setting, in the parent's primitive-cell frame; helpers convert them to
-the parent's conventional frame used by Stokes & Hatch (1988) and the ISOTROPY
-program. See `docs/isotropy-data-semantics.md` and `scripts/verify_isotropy_oracle.py`.
+the parent's conventional frame, which is the frame Stokes & Hatch (1988) print
+in. The ISOTROPY binary prints its own `Origin` column in the ITA setting
+currently selected by `SET I`: the tables were recorded in origin choice 1 for
+most parents while the program defaults to origin choice 2, so run it with
+`SET I ALL OR 1` before comparing that column. See
+`docs/isotropy-data-semantics.md` and `scripts/verify_isotropy_oracle.py`.
 
 Typed code should prefer `SpaceGroupType::from_hall_number`,
 `MagneticSpaceGroupType::from_uni_number`, and the corresponding

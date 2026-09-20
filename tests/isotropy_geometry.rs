@@ -12,7 +12,7 @@ use cryspglib::irrep::generated_data::{
     MAGNETIC_ISOTROPY_SUBGROUPS,
 };
 use cryspglib::irrep::isotropy::{
-    IsotropyDirection, basis_in_parent_conventional, centering_multiplicity,
+    IsotropyDirection, IsotropyError, basis_in_parent_conventional, centering_multiplicity,
     double_valued_subduction, format_identity_subduction, format_isotropy_subgroups,
     format_magnetic_isotropy_subgroups, identity_subduction, isotropy_subgroup_for_direction,
     isotropy_subgroups, isotropy_subgroups_at_k, k_vectors_agree,
@@ -167,22 +167,37 @@ fn magnetic_direction_selection_uses_the_per_record_label() {
     assert_ne!(p3.ordinal, c1.ordinal);
 }
 
+/// Ordinals are 0-based positions in the flat isotropy table.  Pin a handful
+/// against `data_isotropy.txt` (`isotropy_irrep_pointer` is 1-based, so an
+/// irrep's records start at `pointer[k-1]-1`); a loop that compares the API
+/// record with the very array the API sliced it from cannot fail, so this test
+/// carries the coverage instead.
 #[test]
-fn ordinals_address_their_own_records() {
-    for sg in 1..=230u8 {
-        for irrep in query::irreps_of(sg) {
-            if irrep.spinor {
-                continue;
-            }
-            for subgroup in isotropy_subgroups(sg, irrep.ml).expect("subgroups") {
-                let stored = &ISOTROPY_SUBGROUPS[subgroup.ordinal];
-                assert_eq!(stored.sg, subgroup.record.sg, "SG {sg} {}", irrep.ml);
-                assert_eq!(stored.direction, subgroup.record.direction);
-                assert_eq!(stored.basis, subgroup.record.basis);
-                assert_eq!(stored.origin, subgroup.record.origin);
-            }
-        }
+fn pinned_ordinals_address_the_expected_records() {
+    let cases: [(u8, &str, IsotropyDirection<'_>, usize, usize); 6] = [
+        (16, "R1", IsotropyDirection::Label("P1"), 314, 22),
+        (139, "M1-", IsotropyDirection::Label("P1"), 6213, 126),
+        (221, "GM3+", IsotropyDirection::Label("P1"), 12397, 123),
+        (221, "GM3+", IsotropyDirection::Label("C1"), 12398, 47),
+        (221, "GM4+", IsotropyDirection::Label("P1"), 12400, 83),
+        (221, "GM4+", IsotropyDirection::Label("S1"), 12402, 2),
+    ];
+    for (sg, ml, direction, ordinal, subgroup_sg) in cases {
+        let subgroup = isotropy_subgroup_for_direction(sg, ml, direction)
+            .unwrap_or_else(|error| panic!("SG {sg} {ml} {direction:?}: {error}"));
+        assert_eq!(subgroup.ordinal, ordinal, "SG {sg} {ml} {direction:?}");
+        assert_eq!(subgroup.record.sg, subgroup_sg, "SG {sg} {ml}");
+        // The ordinal must address the same record in the flat generated table.
+        let stored = &ISOTROPY_SUBGROUPS[ordinal];
+        assert_eq!(stored.sg, subgroup_sg, "ordinal {ordinal}");
+        assert_eq!(stored.basis, subgroup.record.basis, "ordinal {ordinal}");
+        assert_eq!(stored.origin, subgroup.record.origin, "ordinal {ordinal}");
+        // ... and `identity_subduction` must resolve that same ordinal.
+        assert!(identity_subduction(ordinal).is_ok(), "ordinal {ordinal}");
     }
+    // Consecutive records of one irrep keep their source order and labels.
+    assert_eq!(ISOTROPY_SUBGROUPS[12397].direction_label, "P1");
+    assert_eq!(ISOTROPY_SUBGROUPS[12398].direction_label, "C1");
 }
 
 #[test]
@@ -208,7 +223,49 @@ fn formatters_render_geometry_and_subduction() {
 }
 
 #[test]
-fn errors_are_displayable() {
+fn errors_report_their_variant_and_are_displayable() {
+    // A message alone would accept any wrong variant, so assert the variant
+    // (and the payload where it carries one) for every reachable error path.
+    assert!(matches!(
+        isotropy_subgroups(0, "GM1"),
+        Err(IsotropyError::InvalidSpaceGroup(0))
+    ));
+    assert!(matches!(
+        isotropy_subgroups(221, "NOPE"),
+        Err(IsotropyError::UnknownIrrep { .. })
+    ));
+    assert!(matches!(
+        isotropy_subgroups_at_k(221, KVector::new([1, 0, 0], 2), "GM3+"),
+        Err(IsotropyError::IrrepNotAtKPoint { .. })
+    ));
+    assert!(matches!(
+        isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Descriptor("(zzz)")),
+        Err(IsotropyError::DirectionNotFound { .. })
+    ));
+    assert!(matches!(
+        subgroup_size([[0, 0, 0], [0, 0, 0], [0, 0, 0]]),
+        Err(IsotropyError::SingularSubgroupBasis { .. })
+    ));
+    assert!(matches!(
+        subgroup_size([[1 << 21, 0, 0], [0, 1 << 21, 0], [0, 0, 1 << 22]]),
+        Err(IsotropyError::SubgroupSizeOverflow { determinant }) if determinant == 1i128 << 64
+    ));
+    assert!(matches!(
+        identity_subduction(usize::MAX),
+        Err(IsotropyError::InvalidIsotropyRecord { .. })
+    ));
+    assert!(matches!(
+        origin_shift_in_parent_conventional(221, [0, 0, 0, 0]),
+        Err(IsotropyError::InvalidOrigin { origin }) if origin == [0, 0, 0, 0]
+    ));
+    assert!(matches!(
+        isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Index(usize::MAX)),
+        Err(IsotropyError::SubgroupIndexOutOfRange { .. })
+    ));
+    // `MissingCentering` is unreachable for sg in 1..=230 (the centering is
+    // derived from the Hall database, see the coverage test below); the spinor
+    // path is asserted in the library's own unit tests.
+
     let errors = [
         isotropy_subgroups(0, "GM1").unwrap_err(),
         isotropy_subgroups(221, "NOPE").unwrap_err(),
@@ -216,12 +273,16 @@ fn errors_are_displayable() {
         isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Descriptor("(zzz)"))
             .unwrap_err(),
         subgroup_size([[0, 0, 0], [0, 0, 0], [0, 0, 0]]).unwrap_err(),
+        subgroup_size([[1 << 21, 0, 0], [0, 1 << 21, 0], [0, 0, 1 << 22]]).unwrap_err(),
         identity_subduction(usize::MAX).unwrap_err(),
         origin_shift_in_parent_conventional(221, [0, 0, 0, 0]).unwrap_err(),
+        isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Index(usize::MAX))
+            .unwrap_err(),
     ];
     for error in errors {
         let text = error.to_string();
         assert!(!text.is_empty(), "{error:?}");
+        assert!(!text.contains('?'), "message hides a value: {text}");
         let _: &dyn std::error::Error = &error;
     }
 }
@@ -264,7 +325,6 @@ fn isotropy_ranges_partition_the_table_per_irrep() {
             }
             let subgroups = isotropy_subgroups(sg, irrep.ml)
                 .unwrap_or_else(|error| panic!("SG {sg} {}: {error}", irrep.ml));
-            assert_eq!(subgroups.len(), irrep.subgroups().len());
             for subgroup in &subgroups {
                 ordinals.push(subgroup.ordinal);
             }
@@ -348,6 +408,22 @@ fn double_valued_subduction_tables_tile() {
         let expected =
             (ISOTROPY_W_SUBDUCE_RANGES[ordinal + 1] - ISOTROPY_W_SUBDUCE_RANGES[ordinal]) as usize;
         assert_eq!(entries.len(), expected, "ordinal {ordinal}");
+        // Compare content, not just the length derived from the same range: an
+        // off-by-one in the range/pointer arithmetic must fail here.  The W
+        // ranges are 0-based start offsets (unlike the 1-based scalar ones).
+        for (offset, entry) in entries.iter().enumerate() {
+            let packed = ISOTROPY_W_SUBDUCE_RANGES[ordinal] as usize + offset;
+            let label_index = ISOTROPY_W_SUBDUCE_IRREP[packed] as usize - 1;
+            assert_eq!(entry.parent_ml, IRREP_W_LABELS[label_index], "packed {packed}");
+            assert_eq!(
+                entry.parent_sg, IRREP_W_SPACE_GROUP[label_index],
+                "packed {packed}"
+            );
+            assert_eq!(
+                entry.frequency, ISOTROPY_W_SUBDUCE_FREQUENCY[packed] as u16,
+                "packed {packed}"
+            );
+        }
     }
 }
 
@@ -392,10 +468,25 @@ fn p222_r1_reaches_f222() {
         .expect("R1 has a P1 direction");
     assert_eq!(subgroup.record.sg, 22);
     assert_eq!(subgroup.record.basis, [[0, 1, 1], [1, 0, 1], [1, 1, 0]]);
+    assert_eq!(subgroup.record.origin, [0, 0, 0, 1]);
     assert_eq!(subgroup_size(subgroup.record.basis).unwrap(), 2);
-    // The ISOTROPY program prints the F-centred conventional cell
-    // (2,0,0),(0,2,0),(0,0,2) for this transition, whose volume is
-    // Z(F222) * Size / Z(P222) = 4 * 2 / 1 = 8 parent conventional cells.
+    // The program prints the F-centred conventional cell
+    // `(2,0,0),(0,2,0),(0,0,2)` for this transition.  Converting that printed
+    // cell back to a *primitive* basis of the subgroup — i.e. multiplying by
+    // the F-centring primitive basis `P_F` — must reproduce the stored basis in
+    // the parent's (here primitive) frame.  This pins the frame convention and
+    // the printed basis, where a determinant identity alone would not.
+    let printed = [[2.0f64, 0.0, 0.0], [0.0, 2.0, 0.0], [0.0, 0.0, 2.0]];
+    let p_f = parent_primitive_basis(22).unwrap();
+    let mut expected = [[0.0f64; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            expected[i][j] = (0..3).map(|t| printed[i][t] * p_f[t][j]).sum();
+        }
+    }
+    let stored = basis_in_parent_conventional(16, subgroup.record.basis).unwrap();
+    assert_eq!(stored, expected, "printed cell must rebuild the stored basis");
+    // Volume relation printed by the program: |det Basis| = Z(sub)*Size/Z(parent).
     assert_eq!(
         centering_multiplicity(22).unwrap() * subgroup_size(subgroup.record.basis).unwrap()
             / centering_multiplicity(16).unwrap(),
@@ -480,6 +571,48 @@ fn centering_multiplicities_cover_every_space_group() {
     assert_eq!(centering_multiplicity(225).unwrap(), 4); // Fm-3m
     assert_eq!(centering_multiplicity(167).unwrap(), 3); // R-3c
     assert_eq!(centering_multiplicity(229).unwrap(), 2); // Im-3m
+}
+
+/// `scripts/verify_isotropy_oracle.py` carries its own hand-typed 230-entry
+/// centering table, which selects the parent lattice used by every origin
+/// comparison.  A drift between the two would silently validate against the
+/// wrong lattice, so parse the Python table and tie it to the Rust
+/// implementation instead of trusting two copies to stay equal.
+#[test]
+fn oracle_script_centering_table_matches_the_rust_implementation() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/scripts/verify_isotropy_oracle.py");
+    let script = std::fs::read_to_string(path).expect("the oracle script ships with the repo");
+    let block = script
+        .split("CENTERING_LETTER = {")
+        .nth(1)
+        .expect("centering table present")
+        .split('}')
+        .next()
+        .expect("table terminator");
+    let mut checked = 0usize;
+    for entry in block.split(',') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let (key, value) = entry.split_once(':').expect("key: value");
+        let sg: u8 = key.trim().parse().expect("space group number");
+        let letter = value.trim().trim_matches('"');
+        let expected = match letter {
+            "P" => 1,
+            "A" | "B" | "C" | "I" => 2,
+            "R" => 3,
+            "F" => 4,
+            other => panic!("SG {sg}: unknown centering letter {other:?}"),
+        };
+        assert_eq!(
+            centering_multiplicity(sg).unwrap(),
+            expected,
+            "SG {sg} is {letter}-centred in the oracle script"
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 230, "the oracle table must cover every space group");
 }
 
 #[test]

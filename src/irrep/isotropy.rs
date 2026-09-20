@@ -88,6 +88,13 @@ pub enum IsotropyError {
         direction: String,
     },
     /// The direction matches more than one isotropy subgroup.
+    ///
+    /// Defensive: the pinned tables contain no duplicate direction label and no
+    /// duplicate descriptor within an irrep (0 of 15239 ordinary and 0 of 16721
+    /// magnetic records), so no public query can currently reach this variant.
+    /// It is kept — and unit-tested through the shared selector — so that a
+    /// future dataset cannot silently resolve an ambiguous lookup to an
+    /// arbitrary subgroup.
     DirectionAmbiguous {
         sg: u8,
         ml: String,
@@ -106,7 +113,10 @@ pub enum IsotropyError {
     /// Origin shift encoding with a non-positive denominator.
     InvalidOrigin { origin: [i32; 4] },
     /// Subgroup basis determinant that does not fit a lattice size.
-    SubgroupSizeOverflow { determinant: i64 },
+    ///
+    /// Carries the exact determinant, which is always nonzero for this variant
+    /// (a zero determinant is [`IsotropyError::SingularSubgroupBasis`]).
+    SubgroupSizeOverflow { determinant: i128 },
     /// A generated subduction table pointed outside its irrep table.
     SubductionIndexOutOfRange { entry: usize, index: usize },
     /// The parent space group has no centering information in the database.
@@ -193,9 +203,22 @@ impl std::error::Error for IsotropyError {}
 /// How to pick one isotropy subgroup of an irrep.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IsotropyDirection<'a> {
-    /// Component description exactly as stored, e.g. `"(a,0,0)"`.
+    /// Component description, e.g. `"(a,0,0)"`.
+    ///
+    /// Provenance: this notation is **cryspglib's**, built from
+    /// `(direction_dim, direction_free, direction_label)` by
+    /// `scripts/direction_map.py`; the ISOTROPY archive stores only the
+    /// direction *code*, the label (`"P1"`, `"C2"`, …) and those two counts.
+    /// Directions of dimension ≤ 3 use explicit components
+    /// (`"(a,0)"`, `"(a,b,0)"`, …); higher-dimensional directions use the
+    /// compact form `"<label>(<free>)/<dim>D"`, e.g. `"P1(1)/4D"`.  For
+    /// magnetic records no component notation exists at all (the field holds
+    /// the ISOTROPY label), so a `Descriptor` lookup there returns
+    /// [`IsotropyError::DirectionNotFound`].
     Descriptor(&'a str),
-    /// ISOTROPY direction label, e.g. `"P1"` or `"4D1"`.
+    /// ISOTROPY direction label, e.g. `"P1"` or `"4D1"`.  This is the `Dir`
+    /// column of the program's `DISPLAY ISOTROPY` table and the only selector
+    /// that works for both ordinary and magnetic records.
     Label(&'a str),
     /// Position in this irrep's isotropy subgroup list (0-based, table order).
     Index(usize),
@@ -769,19 +792,31 @@ pub fn basis_in_parent_conventional(
 /// w_primitive · P`, with `P` the parent's primitive basis.  Values are only
 /// defined modulo the parent's lattice.
 ///
-/// # Not the printed "Origin" column in general
+/// # Relation to the program's printed "Origin" column
 ///
-/// The bundled ISOTROPY program prints its own Origin column, and a table-wide
-/// sweep (`scripts/verify_isotropy_oracle.py` runs a sample of it) shows that
-/// this frame-converted value differs from the printed one by a
-/// **record-dependent** offset for a sizeable minority of records — the offset
-/// is neither a parent-lattice vector nor a per-space-group constant
-/// (counterexample: SG 139 `M1-` direction `P1` stores `(2,2,2)` in the
-/// primitive frame, i.e. the parent origin, while the program prints
-/// `(1/4,1/4,1/4)`).  The convention that maps one to the other is **not
-/// pinned**; do not present either value as the other.  Use
-/// [`IsotropyRecord::origin_rational`] / [`IsotropyRecord::origin_shift`] when
-/// the verbatim upstream data is what you need.
+/// The bundled ISOTROPY program prints the *same* origin re-expressed in
+/// whatever ITA setting is currently selected (`SET I …`), and its factory
+/// default is **origin choice 2 for every space group**, while the pinned data
+/// tables were recorded in a mixed setting: origin choice 1 for 189 of the 230
+/// parents and origin choice 2 for the space groups 227/228 class.
+///
+/// Consequences:
+///
+/// * Run the oracle with `SET I ALL OR 1` and this function's value equals the
+///   printed column **exactly** for all 42 sampled rows of
+///   `scripts/verify_isotropy_oracle.py` (no exemptions), and for
+///   13978/15035 rows of a full-table default-setting sweep (92.97%).
+/// * Under the program's default setting, 2797/15035 rows (18.60%) print a
+///   different representative; for SG 139 `M1-` direction `P1` the stored
+///   `(2,2,2)` becomes `(1,1,1)` here while the default prints
+///   `(1/4,1/4,1/4)`.
+/// * A residual class of ~995 rows over 41 parents differs by a *cell* or
+///   *axis* choice (monoclinic and trigonal space groups) that `SET I` does not
+///   reach; those rows still disagree.  See
+///   `docs/isotropy-data-semantics.md` §3.
+///
+/// Use [`IsotropyRecord::origin_rational`] / [`IsotropyRecord::origin_shift`]
+/// when the verbatim upstream value (in the recorded setting) is what you need.
 pub fn origin_shift_in_parent_conventional(
     parent_sg: u8,
     origin: [i32; 4],
@@ -810,10 +845,13 @@ pub(crate) fn decode_origin_checked(origin: [i32; 4]) -> Result<[f64; 3], Isotro
 
 /// Determinant of a row-major 3x3 integer matrix.
 ///
-/// Computed in `i64` so that caller-supplied bases cannot overflow `i32`; the
-/// generated tables only contain small entries.
-fn det3(m: [[i32; 3]; 3]) -> i64 {
-    let m = m.map(|row| row.map(i64::from));
+/// Computed in `i128`: every product of two `i32` entries fits in `i64`, and
+/// the six-term sum of such products fits in `i128`, so no caller-supplied
+/// basis can overflow this determinant.  `i64` is *not* enough — for example
+/// `diag(2^21, 2^21, 2^22)` has determinant `2^64` and overflows `i64`,
+/// which silently turned a valid lattice into a "singular basis" verdict.
+fn det3(m: [[i32; 3]; 3]) -> i128 {
+    let m = m.map(|row| row.map(i128::from));
     m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
         + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
@@ -869,10 +907,12 @@ pub fn format_isotropy_subgroups(sg: u8, ml: &str) -> Result<String, IsotropyErr
         ));
     }
     lines.push(
-        "\n*Origin* is the stored primitive-frame shift converted with the parent's \
-         primitive basis; it equals the ISOTROPY program's printed Origin only \
-         when the stored setting already matches the program's default (see \
-         `origin_shift_in_parent_conventional`)."
+        "\n*Origin* is the stored shift converted with the parent's primitive \
+         basis, i.e. the value the ISOTROPY program prints when run in the ITA \
+         setting the tables were recorded in (`SET I ALL OR 1`).  The program's \
+         factory default is origin choice 2 for every space group, which prints \
+         a different representative for 18.6% of the table; see \
+         `origin_shift_in_parent_conventional`."
             .to_string(),
     );
     Ok(lines.join("\n"))
@@ -1014,16 +1054,70 @@ mod tests {
 
     #[test]
     fn centred_parent_origin_conversion_uses_the_primitive_basis() {
-        // #229 Im-3m, Γ4- along (a,0,0) → #107 I4mm: same lattice, so the size
-        // is 1 and the origin is the parent origin in both frames.
-        let sub =
+        // #139 I4/mmm, `M1-` direction `P1` → #126 P4/nnc.  The stored origin
+        // (2,2,2) is in the parent **primitive** frame; the I-centred primitive
+        // basis `(-1/2,1/2,1/2) …` sends it to (1,1,1) in the parent
+        // conventional frame.  A wrong (identity) basis would return (2,2,2),
+        // so this pins the frame conversion instead of a fixed point that every
+        // basis matrix happens to share.
+        //
+        // This is deliberately *not* the program's default-printing of the
+        // Origin column: the ISO binary in its factory setting prints
+        // (1/4,1/4,1/4) for this row, and the two differ by (3/4,3/4,3/4),
+        // which is not a parent lattice vector.  Running the oracle in the
+        // recorded ITA setting (`SET I ALL OR 1`) prints (1,1,1) instead; see
+        // `docs/isotropy-data-semantics.md` §3.
+        let sub = isotropy_subgroup_for_direction(139, "M1-", IsotropyDirection::Label("P1"))
+            .expect("M1- has a P1 direction");
+        assert_eq!(sub.record.sg, 126);
+        assert_eq!(sub.record.origin, [2, 2, 2, 1]);
+        assert_eq!(
+            origin_shift_in_parent_conventional(139, sub.record.origin).unwrap(),
+            [1.0, 1.0, 1.0]
+        );
+        // A primitive parent keeps the two frames identical; #229 Im-3m Γ4-
+        // along (a,0,0) → #107 I4mm has a zero shift.
+        let primitive =
             isotropy_subgroup_for_direction(229, "GM4-", IsotropyDirection::Descriptor("(a,0,0)"))
                 .expect("Γ4- has an (a,0,0) direction");
-        assert_eq!(sub.record.sg, 107);
-        assert_eq!(subgroup_size(sub.record.basis).unwrap(), 1);
+        assert_eq!(primitive.record.sg, 107);
+        assert_eq!(subgroup_size(primitive.record.basis).unwrap(), 1);
+    }
+
+    #[test]
+    fn subgroup_size_is_total_for_extreme_bases() {
+        // `diag(2^21, 2^21, 2^22)` has determinant 2^64: valid as a lattice
+        // (nonzero) but far outside `u32`.  An `i64` determinant overflows here
+        // and reports a *singular* basis in release, or panics in debug, so the
+        // exact determinant must survive to the error value.
+        let huge = [
+            [1 << 21, 0, 0],
+            [0, 1 << 21, 0],
+            [0, 0, 1 << 22],
+        ];
         assert_eq!(
-            origin_shift_in_parent_conventional(229, sub.record.origin).unwrap(),
-            [0.0, 0.0, 0.0]
+            subgroup_size(huge),
+            Err(IsotropyError::SubgroupSizeOverflow {
+                determinant: 1i128 << 64
+            })
+        );
+        // Negative orientation is a size, not an error: |det| = 2^31 fits `u32`.
+        assert_eq!(
+            subgroup_size([[i32::MIN, 0, 0], [0, 1, 0], [0, 0, 1]]),
+            Ok(1u32 << 31)
+        );
+        // Extremal entries with a zero row stay singular rather than becoming
+        // an overflow verdict.
+        assert!(matches!(
+            subgroup_size([[i32::MAX, 0, 0], [0, i32::MAX, 0], [0, 0, 0]]),
+            Err(IsotropyError::SingularSubgroupBasis { .. })
+        ));
+        // A large but representable basis still reports its exact determinant.
+        assert_eq!(
+            subgroup_size([[1 << 20, 0, 0], [0, 1 << 20, 0], [0, 0, 1 << 20]]),
+            Err(IsotropyError::SubgroupSizeOverflow {
+                determinant: 1i128 << 60
+            })
         );
     }
 
@@ -1054,6 +1148,16 @@ mod tests {
             isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Descriptor("(a,0)"))
                 .expect("(a,0) selects the same record");
         assert_eq!(by_label.ordinal, by_descriptor.ordinal);
+        // 0-based ordinal into the flat isotropy table, pinned against
+        // `data_isotropy.txt` (`isotropy_irrep_pointer` is 1-based).
+        assert_eq!(by_label.ordinal, 12397);
+        assert_eq!(by_label.record.sg, 123);
+        assert_eq!(by_label.record.direction_label, "P1");
+        // The next record of the same irrep is the C1 direction for #47.
+        let second = isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Label("C1"))
+            .expect("C1 selects the second direction");
+        assert_eq!(second.ordinal, 12398);
+        assert_eq!(second.record.sg, 47);
     }
 
     #[test]
@@ -1070,6 +1174,37 @@ mod tests {
 
         let bad_sg = isotropy_subgroups(231, "GM1");
         assert!(matches!(bad_sg, Err(IsotropyError::InvalidSpaceGroup(231))));
+
+        // Index selectors are bounds-checked on both the ordinary and the
+        // magnetic table.
+        assert!(matches!(
+            isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Index(usize::MAX)),
+            Err(IsotropyError::SubgroupIndexOutOfRange { index, .. }) if index == usize::MAX
+        ));
+        assert!(matches!(
+            magnetic_isotropy_subgroup_for_direction(
+                221,
+                "GM3+",
+                IsotropyDirection::Index(usize::MAX)
+            ),
+            Err(IsotropyError::SubgroupIndexOutOfRange { .. })
+        ));
+        // The pinned tables contain no duplicate direction label or descriptor,
+        // so the ambiguity branch is unreachable through the public API; drive
+        // the shared selector directly so the branch is still executed and its
+        // payload checked instead of rotting untested.
+        assert_eq!(
+            select_unique(&["P1", "P2"], "P2", |value: &&'static str| *value, 221, "GM3+").unwrap(),
+            1
+        );
+        assert!(matches!(
+            select_unique(&["P1", "P1"], "P1", |value: &&'static str| *value, 221, "GM3+"),
+            Err(IsotropyError::DirectionAmbiguous { matches, .. }) if matches == 2
+        ));
+        assert!(matches!(
+            select_unique(&["P1"], "P2", |value: &&'static str| *value, 221, "GM3+"),
+            Err(IsotropyError::DirectionNotFound { .. })
+        ));
     }
 
     #[test]
@@ -1123,7 +1258,62 @@ mod tests {
         let table = format_isotropy_subgroups(221, "GM3+").expect("table renders");
         assert!(table.contains("| Size |"));
         assert!(table.contains("#123 P4/mmm"));
-        assert!(table.contains("(1,0,0),(0,1,0),(0,0,1)"));
+        // Exactly one rendered data row, pinned field by field.  `| 1 |` alone
+        // would match almost any table.
+        assert!(
+            table.contains(
+                "| 0 | #123 P4/mmm | P1 | (a,0) | 2 | 1 | (1,0,0),(0,1,0),(0,0,1) | (0,0,0) | 3 | 1 |"
+            ),
+            "{table}"
+        );
+        assert!(
+            table.contains("| 1 | #47 Pmmm | C1 | (a,b) | 2 | 1 | (1,0,0),(0,1,0),(0,0,1) | (0,0,0) | 6 | 1 |"),
+            "{table}"
+        );
+    }
+
+    /// The component strings used by [`IsotropyDirection::Descriptor`] are a
+    /// cryspglib notation derived from `(dim, free, label)` by
+    /// `scripts/direction_map.py`, not a string the ISOTROPY archive stores.
+    /// Pin the two halves of that convention: explicit components for
+    /// `dim <= 3`, and the compact `LABEL(free)/DIMD` form above.
+    #[test]
+    fn direction_descriptors_follow_the_documented_notation() {
+        let two_dim =
+            isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Label("P1"))
+                .expect("GM3+ has P1");
+        assert_eq!(two_dim.record.direction, "(a,0)");
+        assert_eq!(two_dim.record.direction_dim, 2);
+        assert_eq!(two_dim.record.direction_free, 1);
+
+        // Four-dimensional directions use the compact form instead of listing
+        // components; #22 F222 `L1` has a single 4D direction with 1 free
+        // parameter, stored as `P1(1)/4D`.
+        let four_dim = isotropy_subgroup_for_direction(22, "L1", IsotropyDirection::Label("P1"))
+            .expect("L1 has a P1 direction");
+        assert_eq!(four_dim.record.direction_dim, 4);
+        assert_eq!(four_dim.record.direction_free, 1);
+        assert_eq!(four_dim.record.direction, "P1(1)/4D");
+    }
+
+    #[test]
+    fn magnetic_direction_lookup_uses_iso_labels_not_descriptors() {
+        // Magnetic records only carry the program's direction label (`P1`,
+        // `4D1`, …); no component descriptor exists for them, so a descriptor
+        // lookup must fail closed instead of silently matching a wrong record.
+        let by_label =
+            magnetic_isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Label("P1"))
+                .expect("magnetic P1 direction resolves");
+        assert!(!by_label.record.direction.is_empty());
+        assert!(!by_label.record.direction.contains('('));
+        assert!(matches!(
+            magnetic_isotropy_subgroup_for_direction(
+                221,
+                "GM3+",
+                IsotropyDirection::Descriptor("(a,0)")
+            ),
+            Err(IsotropyError::DirectionNotFound { .. })
+        ));
     }
 
     /// Expected values are the `SHOW FREQ DIR` output of the bundled

@@ -28,6 +28,18 @@ coordinates):
 * ``w_machine . P - w_oracle`` is a lattice vector of the parent,
 * subgroup number and direction label are identical.
 
+The **origin** needs one more qualifier.  The program prints its ``Origin``
+column in whatever ITA setting is currently selected (``SET I``), and its
+factory default is *origin choice 2 for every space group*, while the pinned
+data tables were recorded in a mixed setting: origin choice 1 for most parents
+and origin choice 2 for the space groups 227/228 class.  This script therefore
+runs ``SET I ALL OR 1`` so the oracle prints the setting the tables were
+recorded in; without it roughly 18.6% of the whole table appears to disagree
+(for SG 139 ``M1-`` ``P1`` the default prints ``(1/4,1/4,1/4)`` while the stored
+``(2,2,2)`` is ``(1,1,1)``, which is exactly what OR 1 prints).  A residual
+class of rows whose *cell/axis* choice differs (monoclinic, trigonal) is still
+not reachable through ``SET I``; see ``docs/isotropy-data-semantics.md`` §3.
+
 Usage::
 
     python3 scripts/verify_isotropy_oracle.py
@@ -130,12 +142,6 @@ CENTERING_LETTER = {
 
 CENTERING_Z = {"P": 1, "A": 2, "B": 2, "C": 2, "I": 2, "F": 4, "R": 3}
 
-# The ISO 9.6.1 binary prints a different origin representative for this single
-# record than the pinned data file; the difference is a lattice vector of
-# neither the parent nor the subgroup, and every other sampled row agrees, so
-# the pinned upstream value is kept and the row is exempted here.
-KNOWN_ORIGIN_EXCEPTIONS = {(230, "GM5+", "P1")}
-
 # (space group, Miller-Love irrep) pairs spanning every centering and
 # 1-, 2- and 3-dimensional irreps.
 CASES = [
@@ -227,6 +233,10 @@ def run_oracle(sg, ml):
     commands = [
         "PAGE 1000",
         "SC 250",
+        # Print the Origin column in the ITA setting the data tables were
+        # recorded in (origin choice 1); the factory default is origin choice 2
+        # for every space group and disagrees for 18.6% of the whole table.
+        "SET I ALL OR 1",
         f"VALUE PARENT {sg}",
         f"VALUE IRREP {ml}",
         "SHOW SUBGROUP",
@@ -307,7 +317,8 @@ def to_conventional(vector, primitive_basis):
 def main():
     records = machine_records()
     checked_rows = 0
-    skipped_origins = 0
+    exact_origins = 0
+    lattice_origins = 0
     failures = []
 
     for sg, ml in CASES:
@@ -358,24 +369,22 @@ def main():
                     f"{where}: |det Basis| {oracle_det} != Z_sub {z_sub} * "
                     f"size {machine_row['size']} / Z_parent {z_parent}"
                 )
-            # The stored origin is in the parent primitive frame.
-            if (sg, ml, label) in KNOWN_ORIGIN_EXCEPTIONS:
-                skipped_origins += 1
+            # The stored origin is in the parent primitive frame; with the
+            # oracle pinned to the recorded setting the two must agree exactly,
+            # up to the lattice translation that separates two representatives
+            # of the same coset.
+            converted = to_conventional(machine_row["origin"], primitive_basis)
+            delta = [converted[i] - oracle_row["origin"][i] for i in range(3)]
+            if all(value == 0 for value in delta):
+                exact_origins += 1
+            elif in_lattice(delta, primitive_basis):
+                lattice_origins += 1
             else:
-                converted = to_conventional(machine_row["origin"], primitive_basis)
-                delta = [converted[i] - oracle_row["origin"][i] for i in range(3)]
-                if not in_lattice(delta, primitive_basis):
-                    failures.append(
-                        f"{where}: origin {oracle_row['origin']} != {converted} mod L"
-                    )
+                failures.append(
+                    f"{where}: origin {oracle_row['origin']} != {converted} mod L"
+                )
 
-    checked_origins = checked_rows - skipped_origins
     print(f"oracle rows checked: {checked_rows}")
-    if skipped_origins:
-        print(
-            f"origin checks skipped by allowlist: {skipped_origins} "
-            f"({sorted(KNOWN_ORIGIN_EXCEPTIONS)})"
-        )
     if failures:
         print(f"FAILURES: {len(failures)}")
         for failure in failures[:25]:
@@ -384,7 +393,9 @@ def main():
     print(
         f"all oracle rows agree with the vendored isotropy data "
         f"(subgroup/size/basis/label on {checked_rows} rows, origin on "
-        f"{checked_origins})"
+        f"{exact_origins + lattice_origins}: {exact_origins} exact, "
+        f"{lattice_origins} differing by a parent lattice vector; "
+        f"no exemptions)"
     )
     return 0
 

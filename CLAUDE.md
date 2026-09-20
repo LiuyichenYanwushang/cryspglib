@@ -39,8 +39,12 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo clippy -p cryspglib --all-targets --release -- -D warnings
 ```
 
-当前结果为 222 lib tests + 61 integration tests 全绿、3 ignored；26 doctests
-全绿；clippy 零警告。
+当前基线（2026-09-21，第二轮审查修复后，`-p cryspglib` 限定到本 crate）：
+lib `310 passed / 4 ignored`，integration `82 passed`，doctest `27 passed`，
+严格 all-target clippy 零警告。
+注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
+`Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
+后端同时启用），与本 crate 无关，但会让整条命令以 exit 101 结束、0 个测试执行。
 
 ### 2026-08-26 有限域类型化
 
@@ -99,14 +103,22 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 - `isotropy_origin` 每条 4 整数 `(x,y,z,d)` = `(x/d,y/d,z/d)`，分母 ∈
   {1,2,3,4,6,8,12,16,24}；#167 R-3c 的 `(0,1/2,0)` 在六方 conventional 基下是
   `(-1/6,1/6,1/6)`，与官方输出一致。
-- **已知未决（对抗性审查，2026-09-20）**：`w_prim · P` 只是坐标帧换算，
-  **不普遍等于**官方打印的 Origin 列。全表 4777 个 (SG, irrep)、15044 条可比对
-  记录中约 **18.6%** 不满足 `w_prim·P ≡ w_printed (mod L_parent)`，且偏移逐记录
-  变化、不是每 SG 常数（SG 141/227/230 内部都有多种偏移；例如父群 SG 139
-  irrep `M1-` 方向 `P1` 存 `(2,2,2)`、官方打印 `(1/4,1/4,1/4)`）。原先记为
-  "唯一例外"的 `SG 230 GM5+ P1` 只是这一大类的一个实例。该约定**尚未钉死**；
-  在钉死之前，`origin_shift_in_parent_conventional` 的文档只承诺帧换算，
-  任何"这就是书中 Origin 列"的说法都视为错误。
+- **origin 约定已钉死（对抗性审查第二轮，2026-09-20，主线程独立复现）**：
+  官方 Origin 列不是"另一个位置"，而是**同一存储 origin 在程序当前 ITA setting
+  下的表达式**。`SET I` 切换 origin choice；出厂默认是"所有空间群 choice 2"，
+  而 pinned 数据表记录在混合 setting 下（230 个母群中 189 个是 choice 1，
+  SG 227/228 一类是 choice 2），这个差值就是整表的 18.6%。
+  决定性复现：`SET I ALL OR 1` 后 SG 139 `M1-` `P1` 打印 `(1,1,1)`
+  = 存储 `(2,2,2)·P` 逐位相同；默认打印 `(1/4,1/4,1/4)`。
+  `SET I ALL OR 2` ≡ 默认（15035/15035）；OR1 下全表 13978/15035 逐位相同
+  （92.97%）、14040/15035 模母群格相同（93.38%），189/230 母群完全一致。
+  `SHOW ELEMENTS` 证明该列是 setting 标签而非位置（默认与 OR1 打印**模 L 相同的
+  同一组操作**，而 Origin 移动 `(3/4,3/4,3/4) ∉ L_parent`）。已排除
+  `w·B_printed`、domain/arm、`*_old` 三种假设。
+  残余：约 995 条 / 41 个母群来自单斜/三方的 **cell/axis choice**（SG 227/228 的
+  545 条可用 `SET I 227/228 OR 2` 关闭，其余约 450 条未关闭）。
+  契约：`origin_shift_in_parent_conventional` = **记录 setting** 下的值
+  = 官方 `SET I ALL OR 1` 的打印。
 - 分导表（`isotropy_subduce_*`）的 `isotropy_subduce_subgroup` 列已解开：它是
   1-based isotropy 记录序号，指向记录的 `direction` 就是官方 `SHOW FREQ DIR` 的
   Dir 列（94271/94271 落在对应 irrep 区间内，30/30 抽样逐字符一致）；API 暴露为
@@ -115,8 +127,13 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
   `double_valued_subduction()` 暴露（回归：SG 225 `W5` 方向 `S60` → 9 标量 +
   `3 DT5, 3 SM3, 3 SM4`）。
 - 分导表只给“母群 irrep 包含子群恒等表示”的频率，**不给**完整分导分解
-  （例如 Γ3+ ↓ P4/m 的全部 irrep）；后者需要 ISODISTORT 或自写字符表分导引擎。
-  `data_little.txt` 的 `little_subduce_*` 索引语义未文档化，本轮未采用。
+  （例如 Γ3+ ↓ P4/m 的全部 irrep）。官方 `iso` 也没有该功能：`SHOW FREQUENCY`
+  配 `DISPLAY IRREP` 给的是 **Wyckoff 位置**的诱导点群 irrep（手册 §SHOW
+  FREQUENCY 原文），`SHOW COMPATIBILITY` 是 k 点兼容关系，`VALUE SUBGROUP` /
+  `VALUE FREQUENCY` 只是对 `DISPLAY ISOTROPY` 的过滤器。`data_little.txt` 的
+  `little_subduce_*` 索引语义仍未文档化（无 subgroup 列、`pg_irrep` 索引空间与
+  点群标签表缺失；"Σ lif = 块数""每 irrep 含 [(1,dim)] 块"等结构假设均已证伪），
+  因此完整分导必须自行计算。
 - 磁 isotropy 表按**非磁母群的同一个 4777 个 irrep**索引，输出 UNI 1–1651；
   它不接受磁群 corep 作为输入，也没有分导表。
 
@@ -126,13 +143,12 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 `unzip -o isotropy_subgroup/iso.zip -d isotropy_subgroup/` 解出 `iso` 二进制与
 数据文件；脚本自行设置 `ISODATA`）用随包 `iso` 9.6.1 对 21 组
 (SG, irrep)、覆盖 6 种 centering（A/C/F/I/P/R；B 面心不出现在标准 ITA
-setting）的记录逐行比对子群号、方向标签、Size、`|det Basis|` 关系与 origin
-（差为母群格矢量）。**注意这只是 42 行抽样（0.28%）**：全表扫描显示 origin
-约定仍有约 18.6% 不一致（见上一节），因此脚本通过不等于 origin 全表一致。
-当前 `42 rows`，全部通过；其中 1 行的 origin 比较被显式
-allowlist 跳过（`SG 230 GM5+ P1`，官方代表元与 pinned 数据既不差母群格矢量也不差
-子群格矢量），脚本在结论行分别报告几何比较行数与 origin 比较行数，不把豁免混进
-"全部通过"。
+setting）的记录逐行比对子群号、方向标签、Size、`|det Basis|` 关系与 origin。
+脚本现在显式运行 **`SET I ALL OR 1`**（见上一节 origin 约定），因此 origin 比较
+是**逐位相同**而不是"差为母群格矢量"，且**没有 allowlist**：当前
+`oracle rows checked: 42`，`origin on 42: 42 exact, 0 differing by a parent
+lattice vector; no exemptions`。这仍只是 42 行抽样（0.28%）；全表 18.6% 的默认
+setting 差异已解释（见上一节），残余约 450 条单斜/三方 cell/axis choice 未关闭。
 
 生成器的字节可复现性记录（可复查）：在干净树上
 `python3 scripts/generate_irrep_data.py` 重新生成
@@ -153,10 +169,17 @@ allowlist 跳过（`SG 230 GM5+ P1`，官方代表元与 pinned 数据既不差�
    0 重复），并加两条门禁：per-record 长度校验 + 禁止合成标签；回归
    `magnetic_direction_selection_uses_the_per_record_label`（SG 9 `L1`：`P1`→UNI 48，
    `P3`/`C1`→UNI 3，基矢各异）与 `magnetic_direction_labels_are_unique_within_each_irrep`。
-2. **P1：origin 契约过强**（见上一节"已知未决"）：文档已降级为"仅坐标帧换算"，
-   不再声称等于官方 Origin 列。
-3. **P1：`subgroup_size` 在 i32 溢出**（debug panic / release 回绕）：改用 i64
-   行列式 + `SubgroupSizeOverflow` 错误；`k_vectors_agree` 对 `d = 0` 返回 false；
+2. **P1：origin 契约过强**（第一轮结论，第二轮已反转为"约定已钉死"）：第一轮曾把
+   `w_prim·P` 与官方默认输出的差异记为"未钉死约定"，第二轮用 `SET I ALL OR 1`
+   证明差异就是 ITA **origin choice setting**，文档与 oracle gate 均已按新结论重写
+   （见上一节）。第一轮"逐记录变化、非每 SG 常数"的措辞是错的：默认 setting 下
+   它正是每 SG/每子群组常数，等于对应的 ITA setting 变换。
+3. **P1：`subgroup_size` 溢出**：第一轮把 i32 行列式改成 **i64** 并不充分——i64
+   本身对极端 i32 输入也会溢出（见证 `diag(2^21,2^21,2^22)`，真值 `2^64`：release
+   返回伪 `SingularSubgroupBasis{det:0}`、debug panic）。第二轮改为 **i128** 行列式，
+   `SubgroupSizeOverflow { determinant: i128 }` 现在携带真实行列式，并加回归
+   `subgroup_size_is_total_for_extreme_bases`（含 `i32::MIN` 与极大奇异基）。
+   同类加固：`k_vectors_agree` 对 `d = 0` 返回 false；
    `origin_shift_in_parent_conventional` 对 `d ≤ 0` 返回 `InvalidOrigin`；
    `format_*` 不再用 `unwrap_or(零)` 吞掉换算错误。
 4. **P1/P2：分导表不完整**：`isotropy_subduce_subgroup` 即 Dir 列锚点（已暴露为
@@ -167,9 +190,40 @@ allowlist 跳过（`SG 230 GM5+ P1`，官方代表元与 pinned 数据既不差�
    分导条目的 parent SG 一致性（94271 条全部满足）、ISO→IRREPS 索引翻译改为
    双射 + (SG, 标签) 恒等校验、pointer 表与 per-record 数组的长度校验。
 6. **文档纠错**：`SHOW FREQUENCY` 并非可运行命令（官方为 `SHOW FREQ [DIR]`）；
-   oracle 覆盖为 6 种 centering（B 面心不在标准 setting 中）；脚本结论行分别
-   报告几何行数与 origin 行数并显式列出豁免行；`direction_label` 前缀不是
-   `i(G)` 的简写；`isotropy.rs` 的 `origin_shift()` 改为返回 `Option`。
+   oracle 覆盖为 6 种 centering（B 面心不在标准 setting 中）；`direction_label`
+   前缀不是 `i(G)` 的简写；`isotropy.rs` 的 `origin_shift()` 改为返回 `Option`。
+
+### 对抗性审查第二轮（2026-09-21）发现与修复
+
+第二轮四个 reviewer（磁标签与分导 / origin 与文档 / 声明与测试质量 / 全表内部
+一致性）针对第一轮修复本身复核。主线程逐条复现后处理：
+
+1. **P1：`subgroup_size` 的 i64 行列式仍会溢出**（见上第 3 条）→ 改 i128 + 回归。
+2. **origin 约定钉死**（见上第 2 条）→ 文档/oracle/Rust doc 全部改写；
+   `scripts/verify_isotropy_oracle.py` 增加 `SET I ALL OR 1`、删除唯一 allowlist，
+   42/42 origin 逐位相同。
+3. **声明精度**：commit message 里"21 个既有数组全部逐字节不变"不成立——
+   `MAGNETIC_ISOTROPY_SUBGROUPS` 正是 P0 修复对象（字段级：`direction` 变
+   15724/16721，其余字段 0 变化）；正确表述是"20/21 不变，1 个为修复而变"。
+4. **测试质量**：`ordinals_address_their_own_records` 与 `:267` 的比较是
+   `T[i]==T[i]` 恒真；`double_valued_subduction_tables_tile` 只比长度；
+   若干测试只断言 `!is_empty()`/范围。已改为**钉住具体值**：新增
+   `pinned_ordinals_address_the_expected_records`（SG 16/139/221 的 ordinal 与子群号
+   对照 `data_isotropy.txt`）、双值分导逐项比对 `IRREP_W_LABELS`/`..._SPACE_GROUP`、
+   HNF 比较复现官方打印的 `diag(2,2,2)`、formatter 断言整行文本、
+   `subgroup_size` 极端基回归。
+5. **缺失的负例**：`SubgroupIndexOutOfRange`/`InvalidOrigin`/`SingularSubgroupBasis`/
+   `SubgroupSizeOverflow` 此前无 variant 断言，现全部 `matches!` 断言（含 payload）；
+   `DirectionAmbiguous` 在 pinned 数据下**不可达**（0 重复标签/描述串），文档已注明，
+   并新增直接驱动共享选择器 `select_unique` 的单元测试，使该分支被真实执行。
+6. **`IsotropyDirection::Descriptor` 的来源**：描述串（`"(a,0)"`）不是归档数据，
+   而是 `scripts/direction_map.py` 由 `(dim, free, label)` **生成**的 cryspglib
+   记法：8280 条为 `dim ≤ 3` 的显式分量、6959 条（46%）是 `dim ≥ 4` 的紧凑形式
+   `LABEL(free)/DIMD`。文档已如实说明；磁记录只有 ISO 标签，`Descriptor` 查询在
+   磁表上必然返回 `DirectionNotFound`，并有回归固定该行为。
+7. **交付命令**：workspace 根不带 `-p` 的 `cargo test --release` 会因 sibling
+   member `Rustb` 自身编译失败而 exit 101、0 测试执行；基线命令一律用
+   `-p cryspglib`（见文件开头）。
 
 ### 顺带清理
 

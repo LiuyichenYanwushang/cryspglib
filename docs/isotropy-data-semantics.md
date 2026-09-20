@@ -55,7 +55,7 @@ C  (1/2,1/2,0),(-1/2,1/2,0),(0,0,1)
 R  (2/3,1/3,1/3),(-1/3,1/3,1/3),(-1/3,-2/3,1/3)   # hexagonal axes
 ```
 
-## 3. Origin 的编码、坐标系，以及尚未钉死的打印约定
+## 3. Origin 的编码、坐标系，以及官方打印约定（已钉死）
 
 `isotropy_origin` 每条 4 个整数 `(x, y, z, d)`，即
 `(x/d, y/d, z/d)`，同样是**母群 primitive 胞**下的坐标；分母集合为
@@ -72,18 +72,37 @@ Rust API：
 - `origin_shift_in_parent_conventional(sg, origin)`：纯坐标帧换算
   `w_conv = w_prim · P`。
 
-**重要更正（对抗性审查后，2026-09-20）**：`w_prim · P` **不普遍等于**官方程序
-打印的 Origin 列。对全部 4777 个 (SG, irrep) 做扫描（15044 条可比对记录）后，
-约 **18.6%** 的记录两者之差既不是母群格矢量、也不是"每 SG 常数"：同一空间群内
-不同记录可以有不同偏移（SG 141、227、230 内部都出现多种偏移，多数记录偏移为
-0）。反例：父群 SG 139（I4/mmm）irrep `M1-` 方向 `P1` 在 primitive 帧存入
-`(2,2,2)`（等价于母群原点），官方打印 `(1/4,1/4,1/4)`，差向量不属于 I 格。
-原先记为"唯一例外"的 `SG 230 GM5+ P1` 只是这一大类中的一个实例。
+**结论（对抗性审查第二轮，2026-09-20，已由主线程独立复现）**：官方 Origin 列不是
+"另一个物理位置"，而是**同一存储 origin 在程序当前 ITA setting 下的表达式**。
+`SET I` 切换母群/子群的 origin choice；出厂默认是"所有空间群 origin choice 2"，
+而 pinned 数据表记录在混合 setting 下——230 个母群中 189 个是 choice 1，SG 227/228
+一类是 choice 2。这个差值正好解释了整表的 18.6%。
 
-因此：该函数的文档已改为"仅坐标帧换算"并显式声明该差异；
-`scripts/verify_isotropy_oracle.py` 只是 **21 组 / 42 行抽样**，其通过不构成
-origin 全表一致性的证据；官方打印 Origin 与存储值之间的确切约定**仍未钉死**
-（见 §6）。
+复现（主线程已跑）：
+
+```bash
+cd isotropy_subgroup
+printf 'PAGE 1000\nSC 250\nSET I ALL OR 1\nVALUE PARENT 139\nVALUE IRREP M1-\nSHOW SUBGROUP\nSHOW BASIS\nSHOW ORIGIN\nSHOW SIZE\nSHOW DIRECTION\nDISPLAY ISOTROPY\nQUIT\n' | ISODATA=$PWD/ ./iso
+# -> 126 P4/nnc 2  P1  (1,0,0),(0,1,0),(0,0,1) (1,1,1)  == 存储 (2,2,2)·P 逐位相同
+# 去掉 SET I ALL OR 1（出厂默认）同一行打印 (1/4,1/4,1/4)
+```
+
+- `SET I ALL OR 2` 的输出与默认逐行相同（15035/15035），即默认就是 choice 2。
+- `SET I ALL OR 1` 下全表 13978/15035 逐位相同（92.97%）、14040/15035 模母群格相同
+  （93.38%）；189/230 个母群完全一致，且不存在"默认一致但 OR1 不一致"的母群。
+- `SHOW ELEMENTS`（需先用 `VALUE DIRECTION <lab>` 选方向）在默认与 OR1 下打印
+  **模母群格相同的同一组母群操作**，而 Origin 列移动 `(3/4,3/4,3/4) ∉ L_parent`：
+  该列是 setting 标签而非位置，所以任何纯坐标帧换算都不可能普遍复现默认输出。
+- 已排除的假设：`w · B_printed`（SG 139 `P1` 的 `(a,0)` 与 `(a,a)` 存储
+  `(basis,origin)` 完全相同却打印不同 origin）、domain/arm 差异、`*_old` 字段。
+- 残余：约 995 条 / 41 个母群来自**其它 ITA setting**（单斜与三方晶系的 cell/axis
+  choice）。其中 SG 227/228 的 545 条可用 `SET I 227/228 OR 2` 关闭；单斜/三方约
+  450 条用 `SET I <sg> CELL k` / `AX RH|HEX` 未关闭，是唯一仍未钉死的一类。
+
+契约：`origin_shift_in_parent_conventional` 给出**记录 setting 下**的值，等于官方在
+`SET I ALL OR 1` 下的打印；官方出厂默认会打印另一个代表元（相差一个 ITA setting
+变换）。`scripts/verify_isotropy_oracle.py` 现已显式运行 `SET I ALL OR 1`：42 行
+抽样全部逐位相同、**无豁免**（此前依赖 mod L 谓词 + 1 行 allowlist）。
 
 ## 4. 分导（subduction）：`isotropy_subduce_*`
 
@@ -133,22 +152,29 @@ API :  [("GM1+", 1, "P1", 1), ("GM3+", 1, "P1", 3), ("GM4+", 1, "P1", 1)]
    - `|det Basis_官方| == Z(子群)·Size/Z(母群)`；
    - `w_机器 · P − w_官方` 是母群格矢量（1 行已知例外，见 §3）。
 
-当前结果：`oracle rows checked: 42`，全部通过。其中 1 行的 origin 比较被显式
-allowlist 跳过（`SG 230 GM5+ P1`，见 §3），脚本会在结论行分别报告子群/Size/Basis/
-标签的比较行数与 origin 的比较行数，不会把豁免行混进"全部通过"。规范表述是
+当前结果：`oracle rows checked: 42`，全部通过，且 origin 比较 **42/42 逐位相同**、
+无任何 allowlist 豁免（脚本显式运行 `SET I ALL OR 1`，见 §3）。规范表述是
 "6 种 centering"（A/C/F/I/P/R）；脚本里定义的 B 面心在标准 ITA setting 中不出现，
 因此没有对应用例。
 
 ## 6. 已知未决项（对抗性审查发现，未修复）
 
-1. **官方 Origin 与存储 origin 的换算约定未钉死**（§3）：约 18.6% 记录不满足
-   `w_prim·P ≡ w_printed (mod L_parent)`，偏移逐记录变化而非每 SG 常数。钉死它
-   需要逐记录类测定 affine offset（对存储 origin 施加已知扰动、观察打印值），或
-   改用 ISODISTORT 的等价定义。在此之前不得把 `w_prim·P` 说成"书中 Origin 列"。
+1. **其它 ITA setting 的残余**（§3）：origin choice 已钉死，但约 995 条 / 41 个
+   母群来自单斜与三方晶系的 **cell/axis choice**。SG 227/228 的 545 条可用
+   `SET I 227/228 OR 2` 关闭；其余约 450 条（SG 3–41、63–68、151/152、178/179）
+   用 `SET I <sg> CELL k` / `AX RH|HEX` 未能关闭。在这些记录上
+   `origin_shift_in_parent_conventional` 仍是记录 setting 的值，与官方默认输出
+   相差一个 setting 变换。
 2. **compound CIR irrep 无 oracle 覆盖**：官方对 SG199 `P1P1/P2P2/P3P3` 之类
    compound 标签打印空表（112 对 / 195 条记录），当前 21 组用例中没有 compound。
 3. **抽样规模与分页**：gate 仅 42 行（0.28%）；程序分页上限 `PAGE ≤ 1000`，同一
    进程连续查询会被分页提示吞掉输入，全表验收必须按 (SG, irrep) 逐进程调用。
+4. **完整分导分解不在数据中**（§4）：`isotropy_subduce_*` 只给"包含子群恒等表示"
+   的母群 irrep 与频率 i(G)；`data_little.txt` 的 `little_subduce_*` 索引语义未文档化
+   （无 subgroup 列、`pg_irrep` 索引空间与点群标签表缺失，且 LLM 逆向的多条结构假设
+   已被证伪），官方 `iso` 也没有打印完整分解的命令——`SHOW FREQUENCY` 配
+   `DISPLAY IRREP` 给的是 **Wyckoff 位置**的诱导点群 irrep，不是子群 irrep 分解。
+   要得到"母群 irrep → 子群全部 irrep + 重数"必须自行计算。
 
 ## 7. Rust API 位置
 
