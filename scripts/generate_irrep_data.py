@@ -173,24 +173,41 @@ def _det3(row_major):
     )
 
 
+# Determinants of the stored subgroup bases.  The ISOTROPY tables only ever
+# describe orientation-preserving sublattices, and the reachable volume ratios
+# are small integers; anything else means the stride or the section moved.
+ALLOWED_BASIS_DETERMINANTS = frozenset({1, 2, 3, 4, 6, 8, 16, 32})
+
+
 def validate_isotropy_geometry(basis, origin, records, subgroup_numbers,
                                max_subgroup, label):
     """Structural checks for the isotropy geometry arrays.
 
-    ``basis`` holds 9 integers per record (primitive subgroup basis vectors in
-    the parent conventional basis) and ``origin`` holds 4 integers per record
-    ``(x, y, z, d)``.  A degenerate basis or a non-crystallographic denominator
-    would silently corrupt every downstream coordinate transformation.
+    ``basis`` holds 9 integers per record (primitive subgroup basis vectors) and
+    ``origin`` holds 4 integers per record ``(x, y, z, d)``.  A degenerate or
+    mirrored basis, an unreduced origin, a non-crystallographic denominator or a
+    plausible-but-wrong numerator would silently corrupt every downstream
+    coordinate transformation, so each is rejected here rather than trusted.
     """
     for i in range(records):
         b = basis[i * 9:(i + 1) * 9]
         det = _det3(b)
-        if det == 0:
-            raise ValueError(f"{label}: singular subgroup basis at record {i}: {b}")
+        if det <= 0 or det not in ALLOWED_BASIS_DETERMINANTS:
+            raise ValueError(
+                f"{label}: unexpected subgroup basis determinant {det} at "
+                f"record {i}: {b}"
+            )
         o = origin[i * 4:(i + 1) * 4]
         if o[3] <= 0 or o[3] not in ALLOWED_ORIGIN_DENOMINATORS:
             raise ValueError(
                 f"{label}: invalid origin denominator at record {i}: {o}"
+            )
+        # Origin representatives are signed and may sit outside the unit cell
+        # (the shift is defined modulo the lattice), but they are always in
+        # lowest terms: a common factor means the encoding was rescaled.
+        if math.gcd(math.gcd(abs(o[0]), abs(o[1])), math.gcd(abs(o[2]), o[3])) != 1:
+            raise ValueError(
+                f"{label}: origin {o} at record {i} is not in lowest terms"
             )
         sg = subgroup_numbers[i]
         if not 1 <= sg <= max_subgroup:
@@ -1840,7 +1857,7 @@ def parse_all():
     # Subduction frequencies: for each isotropy record, the parent irreps whose
     # restriction contains the trivial irrep of the subgroup, with the
     # multiplicity i(G) and the domain index.  This is exactly what the ISO
-    # program prints for SHOW FREQUENCY.
+    # program prints for SHOW FREQ (with SHOW FREQ DIR adding the domain).
     iso_subduce_ptr = parse_ints(iso_lines, iso_sec, "isotropy_subduce_pointer")
     iso_subduce_irrep = parse_ints(iso_lines, iso_sec, "isotropy_subduce_irrep")
     iso_subduce_freq = parse_ints(iso_lines, iso_sec, "isotropy_subduce_frequency")
@@ -1867,6 +1884,51 @@ def parse_all():
                 f"isotropy_subduce_irrep: irrep index {irrep_index} out of "
                 f"range at entry {index}"
             )
+    # Every subduction entry must belong to the same parent space group as the
+    # isotropy record it hangs off; a misaligned pointer would otherwise attach
+    # irreps of an unrelated group to the record.  `sg_numbers` is the parent
+    # space group of each source irrep, parsed above.
+    isotropy_parent = parse_ints(iso_lines, iso_sec, "isotropy_parent")
+    for record, parent in enumerate(isotropy_parent):
+        for entry in range(iso_subduce_ptr[record] - 1, iso_subduce_ptr[record + 1] - 1):
+            entry_sg = sg_numbers[iso_subduce_irrep[entry] - 1]
+            if entry_sg != parent:
+                raise ValueError(
+                    f"isotropy_subduce: record {record} (parent SG {parent}) "
+                    f"references irrep {iso_subduce_irrep[entry]} of SG {entry_sg}"
+                )
+
+    # Double-valued (spinor) subduction entries: `count` is per record, the
+    # irrep/frequency pairs are packed in record order.  The ISO program prints
+    # them on the same SHOW FREQ line as the scalar entries.
+    iso_w_subduce_count = parse_ints(iso_lines, iso_sec, "isotropy_w_subduce_count")
+    iso_w_subduce_irrep = parse_ints(iso_lines, iso_sec, "isotropy_w_subduce_irrep")
+    iso_w_subduce_freq = parse_ints(iso_lines, iso_sec, "isotropy_w_subduce_frequency")
+    require_per_record(
+        iso_w_subduce_count, 1, len(iso_subgroups), "isotropy_w_subduce_count"
+    )
+    if len(iso_w_subduce_irrep) != sum(iso_w_subduce_count):
+        raise ValueError(
+            "isotropy_w_subduce_irrep: expected "
+            f"{sum(iso_w_subduce_count)} packed entries, got "
+            f"{len(iso_w_subduce_irrep)}"
+        )
+    if len(iso_w_subduce_freq) != len(iso_w_subduce_irrep):
+        raise ValueError(
+            "isotropy_w_subduce_frequency: length does not match "
+            "isotropy_w_subduce_irrep"
+        )
+
+    # `isotropy_subduce_subgroup` anchors each subduction entry at an isotropy
+    # record; its direction label is the program's Dir column.  Require every
+    # anchor to be a valid record ordinal.
+    iso_subduce_anchor = parse_ints(iso_lines, iso_sec, "isotropy_subduce_subgroup")
+    for index, anchor in enumerate(iso_subduce_anchor):
+        if not 1 <= anchor <= len(iso_subgroups):
+            raise ValueError(
+                f"isotropy_subduce_subgroup: anchor {anchor} out of range at "
+                f"entry {index}"
+            )
 
     # direction labels, dimension, and free parameter count for direction mapping
     iso_dir_labels  = parse_labels(iso_lines, iso_sec, "isotropy_orderparam_label")
@@ -1875,6 +1937,19 @@ def parse_all():
     require_per_record(iso_dir_labels, 1, len(iso_subgroups), "isotropy_orderparam_label")
     require_per_record(iso_dir_dim, 1, len(iso_subgroups), "isotropy_orderparam_dim")
     require_per_record(iso_dir_free, 1, len(iso_subgroups), "isotropy_orderparam_freeparam")
+    # Every remaining per-record array is parallel to the isotropy table; a
+    # dropped token must abort here rather than fall back to a plausible default
+    # in the emitter.
+    for name, values in (
+        ("isotropy_irrep", iso_irrep),
+        ("isotropy_direction", iso_direction),
+        ("isotropy_domain_count", iso_domains),
+        ("isotropy_domain_type_count", iso_domain_type),
+        ("isotropy_arms", iso_arms),
+        ("isotropy_order", iso_order),
+        ("isotropy_ferroic", iso_ferroic),
+    ):
+        require_per_record(values, 1, len(iso_subgroups), name)
     validate_isotropy_geometry(
         iso_basis, iso_origin, len(iso_subgroups), iso_subgroups, 230, "isotropy"
     )
@@ -1909,28 +1984,49 @@ def parse_all():
     mag_iso_free     = parse_ints(mag_lines, mag_sec, "mag_iso_orderparam_freeparam")
     require_per_record(mag_iso_dim, 1, len(mag_iso_sg), "mag_iso_orderparam_dim")
     require_per_record(mag_iso_free, 1, len(mag_iso_sg), "mag_iso_orderparam_freeparam")
+    require_per_record(mag_iso_irrep, 1, len(mag_iso_sg), "mag_iso_irrep")
+    # The irrep pointer table carries one start offset per parent irrep plus a
+    # sentinel, exactly like the non-magnetic `isotropy_irrep_pointer`.
+    # The magnetic table is keyed by the same parent irreps as the
+    # non-magnetic one, so the two pointer tables must have the same shape.
+    if len(mag_iso_ptr) != len(iso_irrep_ptr):
+        raise ValueError(
+            "mag_iso_irrep_pointer: expected one offset per parent irrep plus a "
+            f"sentinel ({len(iso_irrep_ptr)}), got {len(mag_iso_ptr)}"
+        )
+    if any(b < a for a, b in zip(mag_iso_ptr, mag_iso_ptr[1:])):
+        raise ValueError("mag_iso_irrep_pointer: offsets are not monotone")
     validate_isotropy_geometry(
         mag_iso_basis, mag_iso_origin, len(mag_iso_sg), mag_iso_sg, 1651, "mag_iso"
     )
     print(f"  {len(mag_iso_sg)} mag iso entries, {len(mag_iso_ptr)} ptrs, {len(mag_nlabel)} labels")
     print(f"  {len(mag_iso_basis) // 9} mag basis matrices, {len(mag_iso_origin) // 4} mag origin shifts")
 
-    # Direction labels for magnetic isotropy
+    # Direction labels for magnetic isotropy.  `mag_iso_orderparam_label` is
+    # parallel to the isotropy record table (one label per record), exactly like
+    # the non-magnetic `isotropy_orderparam_label`; `mag_iso_orderparam_pointer`
+    # indexes the unrelated `mag_iso_orderparam` code array and must NOT be used
+    # to look labels up.
     mag_iso_dir_labels = parse_labels(mag_lines, mag_sec, "mag_iso_orderparam_label")
-    # Map direction codes to labels (similar to non-mag dir_map)
     mag_iso_dir_code  = parse_ints(mag_lines, mag_sec, "mag_iso_orderparam")
     mag_iso_dir_ptr   = parse_ints(mag_lines, mag_sec, "mag_iso_orderparam_pointer")
-    # Build mag direction lookup: entry index → direction string
+    require_per_record(
+        mag_iso_dir_labels, 1, len(mag_iso_sg), "mag_iso_orderparam_label"
+    )
+    # The pointer array addresses `mag_iso_orderparam`; keep it pinned to that
+    # array so a future format change cannot silently reintroduce the
+    # out-of-range lookup that produced synthetic `dir<code>` labels.
+    if any(not 1 <= offset <= len(mag_iso_dir_code) for offset in mag_iso_dir_ptr):
+        raise ValueError(
+            "mag_iso_orderparam_pointer: offset outside mag_iso_orderparam"
+        )
     mag_dir_by_entry = {}
-    for entry_idx in range(len(mag_iso_sg)):
-        if entry_idx < len(mag_iso_dir_ptr) and mag_iso_dir_ptr[entry_idx] > 0:
-            ptr = mag_iso_dir_ptr[entry_idx] - 1  # 1-based → 0-based
-            if ptr < len(mag_iso_dir_labels):
-                mag_dir_by_entry[entry_idx] = mag_iso_dir_labels[ptr]
-            else:
-                mag_dir_by_entry[entry_idx] = f"dir{ptr}"
-        else:
-            mag_dir_by_entry[entry_idx] = "(a)"
+    for entry_idx, label in enumerate(mag_iso_dir_labels):
+        if not label:
+            raise ValueError(
+                f"mag_iso_orderparam_label: empty direction label at record {entry_idx}"
+            )
+        mag_dir_by_entry[entry_idx] = label
     print(f"  {len(mag_dir_by_entry)} direction labels mapped")
 
     print("Parsing data_space.txt...")
@@ -2032,6 +2128,12 @@ def parse_all():
         "iso_subduce_irrep": iso_subduce_irrep,
         "iso_subduce_freq": iso_subduce_freq,
         "iso_subduce_domain": iso_subduce_domain,
+        "iso_subduce_anchor": iso_subduce_anchor,
+        "iso_w_subduce_count": iso_w_subduce_count,
+        "iso_w_subduce_irrep": iso_w_subduce_irrep,
+        "iso_w_subduce_freq": iso_w_subduce_freq,
+        "irrep_w_labels": parse_labels(irr_lines, irr_sec, "irrep_w_label"),
+        "irrep_w_space_group": parse_ints(irr_lines, irr_sec, "irrep_w_space_group"),
         "dir_map": dir_map,
         "kvec_map": kvec_map,
         "pir_kvector_map": pir_kvector_map,
@@ -5191,6 +5293,7 @@ def generate_rust_data(data):
     # reorders into SG order; remember the mapping so subduction references can
     # be translated to final IRREPS indices.
     source_to_final = {}
+    emitted_sg_ml = []
     for s in range(1, 231):
         for entry_type, entry_idx in sg_entries.get(s, []):
             if entry_type == "scalar":
@@ -5249,6 +5352,7 @@ def generate_rust_data(data):
             lines.append(f"        _spin_imag_start: {r['spin_extra_s']},")
             lines.append(f"        _spin_imag_count: {r['spin_extra_c']},")
             lines.append(f"    }},")
+            emitted_sg_ml.append((r["sg"], r["ml"]))
             if not r["spinor"]:
                 source_to_final[r["source_ordinal"]] = irrep_idx
             irrep_idx += 1
@@ -5389,16 +5493,69 @@ def generate_rust_data(data):
     # ── Subduction frequencies (identity irrep of the isotropy subgroup) ──
     subduce_ptr = data["iso_subduce_ptr"]
     subduce_irrep = data["iso_subduce_irrep"]
-    if len(source_to_final) != len(ml):
+    # The translation must be a bijection on the scalar source indices (the
+    # emitted table also contains spinor records, so positions shift); verify
+    # both that every scalar irrep is mapped and that the translated entries
+    # still name the same (space group, label) as their source.
+    if sorted(source_to_final) != list(range(len(ml))):
         raise ValueError(
-            f"source irrep map covers {len(source_to_final)} of {len(ml)} scalar irreps"
+            f"source irrep map covers {len(source_to_final)} of {len(ml)} scalar "
+            "irreps or is not a bijection"
         )
-    subduce_irrep = [
-        1 + source_to_final[source_index - 1] for source_index in subduce_irrep
-    ]
+    source_sg_numbers = data["sg_numbers"]
+    translated = []
+    for source_index in subduce_irrep:
+        source_sg = source_sg_numbers[source_index - 1]
+        source_ml = ml[source_index - 1]
+        emitted = source_to_final[source_index - 1]
+        emitted_sg, emitted_ml = emitted_sg_ml[emitted]
+        if (emitted_sg, emitted_ml) != (source_sg, source_ml):
+            raise ValueError(
+                f"subduction index translation is wrong: source irrep "
+                f"{source_index} ({source_sg} {source_ml}) mapped to emitted "
+                f"({emitted_sg} {emitted_ml})"
+            )
+        translated.append(emitted + 1)
+    subduce_irrep = translated
     subduce_freq = data["iso_subduce_freq"]
     subduce_domain = data["iso_subduce_domain"]
     total_subduce = len(subduce_irrep)
+
+    # Dir column: each subduction entry is anchored at an isotropy record whose
+    # own direction label is what the program prints.
+    subduce_anchor = data["iso_subduce_anchor"]
+    per_record_direction = data["iso_dir_label"]
+    direction_labels = []
+    direction_index = {}
+    subduce_direction = []
+    for anchor in subduce_anchor:
+        label = per_record_direction[anchor - 1]
+        if label not in direction_index:
+            direction_index[label] = len(direction_labels)
+            direction_labels.append(label)
+        subduce_direction.append(direction_index[label])
+    direction_label_table = direction_labels
+
+    # Double-valued (spinor) subduction: cumulative offsets over the per-record
+    # counts, then the packed irrep/frequency pairs.
+    w_count = data["iso_w_subduce_count"]
+    w_irrep = data["iso_w_subduce_irrep"]
+    w_freq = data["iso_w_subduce_freq"]
+    w_labels = data["irrep_w_labels"]
+    w_space_group = data["irrep_w_space_group"]
+    if len(w_labels) != len(w_space_group):
+        raise ValueError("irrep_w_label / irrep_w_space_group length mismatch")
+    for value in w_irrep:
+        if not 1 <= value <= len(w_labels):
+            raise ValueError(
+                f"isotropy_w_subduce_irrep: index {value} outside the "
+                f"{len(w_labels)}-entry double-valued irrep table"
+            )
+    w_ranges = [0]
+    for count in w_count:
+        w_ranges.append(w_ranges[-1] + count)
+    if w_ranges[-1] != len(w_irrep):
+        raise ValueError("isotropy_w_subduce_count does not sum to the packed table")
 
     lines.append(
         "/// Start offset of each isotropy record's subduction entries, plus a\n"
@@ -5428,9 +5585,69 @@ def generate_rust_data(data):
         lines.append(f"    {value},")
     lines.append("];")
     lines.append("")
-    lines.append("/// Domain index per subduction record (printed by SHOW FREQUENCY DIRECTION).")
+    lines.append("/// Domain index per subduction record (printed by SHOW FREQ DIR).")
     lines.append(f"pub static ISOTROPY_SUBDUCE_DOMAIN: [u16; {total_subduce}] = [")
     for value in subduce_domain:
+        lines.append(f"    {value},")
+    lines.append("];")
+    lines.append("")
+    lines.append("/// Distinct direction labels referenced by the subduction anchors.")
+    lines.append(
+        f"pub static ISOTROPY_DIRECTION_LABELS: [&str; {len(direction_label_table)}] = ["
+    )
+    for label in direction_label_table:
+        lines.append(f'    "{escape_rust_str(label)}",')
+    lines.append("];")
+    lines.append("")
+    lines.append(
+        "/// Index into `ISOTROPY_DIRECTION_LABELS` for each subduction record\\n"
+        "/// (the Dir column of the ISOTROPY program's SHOW FREQ DIR output)."
+    )
+    lines.append(
+        f"pub static ISOTROPY_SUBDUCE_DIRECTION: [u16; {total_subduce}] = ["
+    )
+    for value in subduce_direction:
+        lines.append(f"    {value},")
+    lines.append("];")
+    lines.append("")
+    lines.append(
+        "/// Double-valued (spinor) subduction: start offsets per isotropy record,\\n"
+        "/// plus a sentinel (length = ISOTROPY_SUBGROUPS.len() + 1)."
+    )
+    lines.append(
+        f"pub static ISOTROPY_W_SUBDUCE_RANGES: [u32; {len(w_ranges)}] = ["
+    )
+    for value in w_ranges:
+        lines.append(f"    {value},")
+    lines.append("];")
+    lines.append("")
+    lines.append("/// Miller-Love label of each double-valued parent irrep.")
+    lines.append(f"pub static IRREP_W_LABELS: [&str; {len(w_labels)}] = [")
+    for label in w_labels:
+        lines.append(f'    "{escape_rust_str(label)}",')
+    lines.append("];")
+    lines.append("")
+    lines.append("/// Space group of each double-valued parent irrep.")
+    lines.append(
+        f"pub static IRREP_W_SPACE_GROUP: [u8; {len(w_space_group)}] = ["
+    )
+    for value in w_space_group:
+        lines.append(f"    {value},")
+    lines.append("];")
+    lines.append("")
+    lines.append("/// Index into `IRREP_W_LABELS` per double-valued subduction entry.")
+    lines.append(
+        f"pub static ISOTROPY_W_SUBDUCE_IRREP: [u16; {len(w_irrep)}] = ["
+    )
+    for value in w_irrep:
+        lines.append(f"    {value},")
+    lines.append("];")
+    lines.append("")
+    lines.append("/// Subduction frequency per double-valued subduction entry.")
+    lines.append(
+        f"pub static ISOTROPY_W_SUBDUCE_FREQUENCY: [u8; {len(w_freq)}] = ["
+    )
+    for value in w_freq:
         lines.append(f"    {value},")
     lines.append("];")
     lines.append("")

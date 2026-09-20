@@ -3271,7 +3271,7 @@ pub fn wigner_classify_spinor_direct_anti_diagnostic(
                                 }
                             }
                             eprintln!("  centering_shifts={:.6?}", centering_shifts);
-                            eprintln!("  sg_setting_origin={:.6?}", origin);
+                            eprintln!("  spin_origin={:.6?}", origin);
                             // Show how to_bilbao transforms b
                             let tb = to_bilbao(b_rot, b_trans);
                             eprintln!("  to_bilbao(b): [{:.6},{:.6},{:.6}]", tb[0], tb[1], tb[2]);

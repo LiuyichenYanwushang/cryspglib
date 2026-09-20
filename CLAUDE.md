@@ -78,7 +78,8 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 
 - `irrep::isotropy::isotropy_subgroup_for_direction(sg, ml, direction)`：按
   方向描述串 `"(a,0,0)"`、ISO 方向标签 `"P1"` 或表内序号选取；
-  `isotropy_subgroups[_at_k]`、`magnetic_isotropy_subgroups[_for_direction]`。
+  `isotropy_subgroups[_at_k]`、`magnetic_isotropy_subgroups` /
+  `magnetic_isotropy_subgroup_for_direction`。
 - 几何换算：`subgroup_size`、`parent_primitive_basis`、
   `basis_in_parent_conventional`、`origin_shift_in_parent_conventional`。
 - 分导：`IsotropySubgroup::identity_subduction()` /
@@ -98,6 +99,21 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 - `isotropy_origin` 每条 4 整数 `(x,y,z,d)` = `(x/d,y/d,z/d)`，分母 ∈
   {1,2,3,4,6,8,12,16,24}；#167 R-3c 的 `(0,1/2,0)` 在六方 conventional 基下是
   `(-1/6,1/6,1/6)`，与官方输出一致。
+- **已知未决（对抗性审查，2026-09-20）**：`w_prim · P` 只是坐标帧换算，
+  **不普遍等于**官方打印的 Origin 列。全表 4777 个 (SG, irrep)、15044 条可比对
+  记录中约 **18.6%** 不满足 `w_prim·P ≡ w_printed (mod L_parent)`，且偏移逐记录
+  变化、不是每 SG 常数（SG 141/227/230 内部都有多种偏移；例如父群 SG 139
+  irrep `M1-` 方向 `P1` 存 `(2,2,2)`、官方打印 `(1/4,1/4,1/4)`）。原先记为
+  "唯一例外"的 `SG 230 GM5+ P1` 只是这一大类的一个实例。该约定**尚未钉死**；
+  在钉死之前，`origin_shift_in_parent_conventional` 的文档只承诺帧换算，
+  任何"这就是书中 Origin 列"的说法都视为错误。
+- 分导表（`isotropy_subduce_*`）的 `isotropy_subduce_subgroup` 列已解开：它是
+  1-based isotropy 记录序号，指向记录的 `direction` 就是官方 `SHOW FREQ DIR` 的
+  Dir 列（94271/94271 落在对应 irrep 区间内，30/30 抽样逐字符一致）；API 暴露为
+  `IdentitySubduction::direction_label`。双值（spinor）分导 `isotropy_w_subduce_*`
+  （5756 条 / 1006 条记录）此前被整族丢弃，现由
+  `double_valued_subduction()` 暴露（回归：SG 225 `W5` 方向 `S60` → 9 标量 +
+  `3 DT5, 3 SM3, 3 SM4`）。
 - 分导表只给“母群 irrep 包含子群恒等表示”的频率，**不给**完整分导分解
   （例如 Γ3+ ↓ P4/m 的全部 irrep）；后者需要 ISODISTORT 或自写字符表分导引擎。
   `data_little.txt` 的 `little_subduce_*` 索引语义未文档化，本轮未采用。
@@ -109,18 +125,63 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 `python3 scripts/verify_isotropy_oracle.py`（先用
 `unzip -o isotropy_subgroup/iso.zip -d isotropy_subgroup/` 解出 `iso` 二进制与
 数据文件；脚本自行设置 `ISODATA`）用随包 `iso` 9.6.1 对 21 组
-(SG, irrep)、覆盖 7 种 centering 的记录逐行比对子群号、方向标签、Size、
-`|det Basis|` 关系与 origin（差为母群格矢量）。当前 `42 rows`，全部通过；
-唯一例外 `SG 230 GM5+ P1` 已显式 allowlist（官方代表元与 pinned 数据既不差
-母群格矢量也不差子群格矢量）。
+(SG, irrep)、覆盖 6 种 centering（A/C/F/I/P/R；B 面心不出现在标准 ITA
+setting）的记录逐行比对子群号、方向标签、Size、`|det Basis|` 关系与 origin
+（差为母群格矢量）。**注意这只是 42 行抽样（0.28%）**：全表扫描显示 origin
+约定仍有约 18.6% 不一致（见上一节），因此脚本通过不等于 origin 全表一致。
+当前 `42 rows`，全部通过；其中 1 行的 origin 比较被显式
+allowlist 跳过（`SG 230 GM5+ P1`，官方代表元与 pinned 数据既不差母群格矢量也不差
+子群格矢量），脚本在结论行分别报告几何比较行数与 origin 比较行数，不把豁免混进
+"全部通过"。
+
+生成器的字节可复现性记录（可复查）：在干净树上
+`python3 scripts/generate_irrep_data.py` 重新生成
+`src/irrep/generated_data.rs`，其 md5 必须等于
+`f994cf4874440118ef2f872b4f1e021b`（2026-09-20 修复磁方向标签/新增双值分导后的
+当前值；独立 reviewer 已在副本中复跑确认该流水线字节可复现）。
+
+### 对抗性审查（2026-09-20）发现与修复
+
+四个独立 reviewer（数据语义 / Rust API / 生成管线 / 声明审计）只读复核，全部
+发现均已在主线程复现后处理：
+
+1. **P0：磁 isotropy 方向标签取错数组**。生成器用 `mag_iso_orderparam_pointer`
+   （指向 163000 条 `mag_iso_orderparam`）去索引 per-record 的
+   `mag_iso_orderparam_label`（16721 条），造成 12112 条落到 `"dir<code>"` 兜底、
+   合计 15724/16721 条标签错误，并让 `magnetic_isotropy_subgroup_for_direction`
+   选中错误方向的子群。已改为按记录直接取标签（该数组 0 空值、每个 irrep 内
+   0 重复），并加两条门禁：per-record 长度校验 + 禁止合成标签；回归
+   `magnetic_direction_selection_uses_the_per_record_label`（SG 9 `L1`：`P1`→UNI 48，
+   `P3`/`C1`→UNI 3，基矢各异）与 `magnetic_direction_labels_are_unique_within_each_irrep`。
+2. **P1：origin 契约过强**（见上一节"已知未决"）：文档已降级为"仅坐标帧换算"，
+   不再声称等于官方 Origin 列。
+3. **P1：`subgroup_size` 在 i32 溢出**（debug panic / release 回绕）：改用 i64
+   行列式 + `SubgroupSizeOverflow` 错误；`k_vectors_agree` 对 `d = 0` 返回 false；
+   `origin_shift_in_parent_conventional` 对 `d ≤ 0` 返回 `InvalidOrigin`；
+   `format_*` 不再用 `unwrap_or(零)` 吞掉换算错误。
+4. **P1/P2：分导表不完整**：`isotropy_subduce_subgroup` 即 Dir 列锚点（已暴露为
+   `IdentitySubduction::direction_label`）；双值 `isotropy_w_subduce_*`
+   （5756 条 / 1006 条记录）此前整族缺失，现由 `double_valued_subduction()` 提供
+   （回归 SG 225 `W5` `S60`：9 标量 + `3 DT5, 3 SM3, 3 SM4`）。
+5. **生成器门禁加固**：子群基行列式集合 {1,2,3,4,6,8,16,32}、origin 最简分数、
+   分导条目的 parent SG 一致性（94271 条全部满足）、ISO→IRREPS 索引翻译改为
+   双射 + (SG, 标签) 恒等校验、pointer 表与 per-record 数组的长度校验。
+6. **文档纠错**：`SHOW FREQUENCY` 并非可运行命令（官方为 `SHOW FREQ [DIR]`）；
+   oracle 覆盖为 6 种 centering（B 面心不在标准 setting 中）；脚本结论行分别
+   报告几何行数与 origin 行数并显式列出豁免行；`direction_label` 前缀不是
+   `i(G)` 的简写；`isotropy.rs` 的 `origin_shift()` 改为返回 `Option`。
 
 ### 顺带清理
 
 - 删除 `src/irrep/settings_data.rs` 与 `scripts/extract_sg_settings.py`：该表
-  用 stride 3 误读 4 整数的 origin，且其来源（每个 SG 首个 irrep 的首条
-  isotropy 记录）恒为 identity/零，属既错又空的表；`IrrepRecord::sg_setting`
-  与 corep.rs 中三处 debug 输出的 “bilbao 修正” 一并删除（该修正恒为 no-op，
-  仅保留 mod-1 归一化）。
+  用 stride 3 误读 4 整数的 origin（205/230 个 SG 因此拿到非零垃圾整数，例如
+  SG14 `[0,0,3]`、SG230 `[-3,4,-7]`），且其来源（每个 SG 首个 irrep 的首条
+  isotropy 记录）按正确 stride 解码后恒为 identity/零，属既错又空的表。
+  `IrrepRecord::sg_setting` 与 corep.rs 中三处 debug 输出的 “bilbao 修正” 一并
+  删除：那三处都在 `#[cfg(test)] mod tests` 的 `diagnose_*` 测试里且不含任何
+  断言，因此测试结果与生产行为不变；只有诊断打印在 1e-16 量级上与旧输出不同
+  （旧修正用的垃圾整数在 mod 1 下等价于格矢量，但 `((t-k)%1+1)%1` 与
+  `(t%1+1)%1` 不是逐位相同）。
 
 ---
 
@@ -1574,7 +1635,6 @@ bash scripts/regenerate_all.sh
 | `irrep/wigner.rs` | Wigner test: Seitz composition, SU(2) composition, spinor classification |
 | `irrep/bridge.rs` | `impl SpaceGroup` — bridge APIs linking spglib port → irrep |
 | `irrep/generated_data.rs` | Auto-generated static arrays (~753k lines). `include!()`-d into `types.rs` |
-| `irrep/settings_data.rs` | Hall→setting mappings. `include!()`-d into `generated_data.rs` |
 | `irrep/wigner_extra.rs` | Pre-computed antiunitary character path. `include!()`-d into `wigner.rs` |
 | `irrep/preamble.rs` | Generated data prelude |
 | `irrep/{triclinic,monoclinic,orthorhombic,tetragonal,trigonal,hexagonal,cubic}.rs` | Per-crystal-system irrep data (`include!()`-d into `generated_data.rs`) |

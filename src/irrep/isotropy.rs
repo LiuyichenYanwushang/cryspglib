@@ -16,8 +16,10 @@
 //!
 //! - [`IsotropyRecord::direction`] is the order-parameter direction in
 //!   components, e.g. `"(a,0,0)"`; [`IsotropyRecord::direction_label`] is the
-//!   ISOTROPY label (`"P1"`, `"C1"`, `"4D1"`, …) whose prefix is the subduction
-//!   frequency `i(G)` defined in the book.
+//!   ISOTROPY direction label (`"P1"`, `"C1"`, `"S1"`, `"4D1"`, …).  Its
+//!   leading letter is the direction *type* prefix used by Stokes & Hatch; it is
+//!   not a shortcut for the subduction frequency `i(G)` of the condensing irrep
+//!   (use [`identity_subduction`] for that).
 //! - [`IsotropyRecord::basis`] holds a **primitive** basis of the subgroup
 //!   lattice (rows), and [`IsotropyRecord::origin`] the origin shift of the
 //!   subgroup setting, both expressed in the **parent's primitive-cell frame**:
@@ -34,11 +36,13 @@
 //!
 //! Both frames are available: [`basis_in_parent_conventional`] and
 //! [`origin_shift_in_parent_conventional`] convert the stored values with the
-//! parent's primitive basis.  The conversions are pinned against the bundled
-//! ISOTROPY `iso` binary by `scripts/verify_isotropy_oracle.py`.
+//! parent's primitive basis, and are checked against the bundled ISOTROPY `iso`
+//! binary by `scripts/verify_isotropy_oracle.py` (which keeps its own copy of
+//! the primitive-basis table so the two can disagree).
 //!
-//! A parent irrep can have several possible subgroups, one per direction.  The
-//! direction strings and ISOTROPY labels are unique within an irrep.
+//! A parent irrep can have several possible subgroups, one per direction; both
+//! the direction strings and the ISOTROPY labels are unique within an irrep
+//! (checked for every irrep of both tables by `tests/isotropy_geometry.rs`).
 //!
 //! # Example
 //!
@@ -99,6 +103,12 @@ pub enum IsotropyError {
     },
     /// Global isotropy record index out of range.
     InvalidIsotropyRecord { ordinal: usize, len: usize },
+    /// Origin shift encoding with a non-positive denominator.
+    InvalidOrigin { origin: [i32; 4] },
+    /// Subgroup basis determinant that does not fit a lattice size.
+    SubgroupSizeOverflow { determinant: i64 },
+    /// A generated subduction table pointed outside its irrep table.
+    SubductionIndexOutOfRange { entry: usize, index: usize },
     /// The parent space group has no centering information in the database.
     MissingCentering { sg: u8 },
     /// The subgroup basis is singular and cannot describe a lattice.
@@ -152,6 +162,18 @@ impl std::fmt::Display for IsotropyError {
                 f,
                 "isotropy record index {ordinal} is out of range (0-{})",
                 len.saturating_sub(1)
+            ),
+            Self::InvalidOrigin { origin } => {
+                write!(f, "origin shift {origin:?} has a non-positive denominator")
+            }
+            Self::SubgroupSizeOverflow { determinant } => write!(
+                f,
+                "subgroup basis determinant {determinant} does not fit a lattice size"
+            ),
+            Self::SubductionIndexOutOfRange { entry, index } => write!(
+                f,
+                "subduction entry {entry} references irrep index {index}, which is \
+                 outside the generated table"
             ),
             Self::MissingCentering { sg } => {
                 write!(f, "space group {sg} has no centering information")
@@ -248,22 +270,20 @@ pub fn irrep_by_label(sg: u8, ml: &str) -> Result<&'static IrrepRecord, Isotropy
 
 /// Whether two rational wave vectors denote the same point (up to reduction).
 pub fn k_vectors_agree(a: KVector, b: KVector) -> bool {
-    let (an, ad) = reduce_k(a);
-    let (bn, bd) = reduce_k(b);
-    an == bn && ad == bd
+    match (reduce_k(a), reduce_k(b)) {
+        (Some((an, ad)), Some((bn, bd))) => an == bn && ad == bd,
+        _ => false,
+    }
 }
 
-fn reduce_k(k: KVector) -> ([i32; 3], i32) {
+/// Reduce a wave vector to lowest terms with a positive denominator.
+///
+/// Returns `None` for a zero denominator, which is not a representable wave
+/// vector; callers must not treat it as an integer vector.
+fn reduce_k(k: KVector) -> Option<([i32; 3], i32)> {
     let d = k.denominator as i32;
     if d == 0 {
-        return (
-            [
-                k.numerators[0] as i32,
-                k.numerators[1] as i32,
-                k.numerators[2] as i32,
-            ],
-            1,
-        );
+        return None;
     }
     let mut g = d.abs();
     for n in k.numerators {
@@ -273,14 +293,14 @@ fn reduce_k(k: KVector) -> ([i32; 3], i32) {
         g = 1;
     }
     let sign = if d < 0 { -1 } else { 1 };
-    (
+    Some((
         [
             sign * k.numerators[0] as i32 / g,
             sign * k.numerators[1] as i32 / g,
             sign * k.numerators[2] as i32 / g,
         ],
         sign * d / g,
-    )
+    ))
 }
 
 fn gcd_i32(mut a: i32, mut b: i32) -> i32 {
@@ -420,8 +440,8 @@ pub fn magnetic_isotropy_subgroup_for_direction(
 /// subgroup, with the multiplicity `i(G)` used by Landau theory.
 ///
 /// This is the ISOTROPY "subduction frequency" table: the ISO program prints
-/// exactly these rows for `SHOW FREQUENCY` (with `SHOW FREQUENCY DIRECTION`
-/// adding the domain index).  It answers "which parent irreps become totally
+/// exactly these rows for `SHOW FREQ` (with `SHOW FREQ DIR` adding the domain
+/// index).  It answers "which parent irreps become totally
 /// symmetric in the distorted phase".
 ///
 /// The full decomposition of a parent irrep into *all* irreps of the subgroup
@@ -443,12 +463,37 @@ pub struct IdentitySubduction {
     pub frequency: u16,
     /// Domain index of the subduction entry.
     pub domain: u16,
+    /// Direction label the entry is anchored at (the `Dir` column of the
+    /// ISOTROPY program's `SHOW FREQ DIR` output).
+    pub direction_label: &'static str,
+}
+
+/// A double-valued (spinor) parent irrep whose restriction contains the trivial
+/// irrep of the isotropy subgroup.
+///
+/// The ISO program prints these on the same `SHOW FREQ [DIR]` line as the
+/// scalar entries; the double-valued tables carry Miller–Love labels only and
+/// no wave vector, so they are reported separately.
+#[derive(Debug, Clone, Copy)]
+pub struct DoubleValuedSubduction {
+    /// Space group of the double-valued parent irrep.
+    pub parent_sg: u8,
+    /// Miller–Love label of the double-valued parent irrep.
+    pub parent_ml: &'static str,
+    /// Subduction frequency `i(G)`.
+    pub frequency: u16,
 }
 
 impl IsotropySubgroup {
     /// Parent irreps that subduce the trivial irrep of this subgroup.
     pub fn identity_subduction(&self) -> Result<Vec<IdentitySubduction>, IsotropyError> {
         identity_subduction(self.ordinal)
+    }
+
+    /// Double-valued (spinor) parent irreps that subduce the trivial irrep of
+    /// this subgroup.
+    pub fn double_valued_subduction(&self) -> Result<Vec<DoubleValuedSubduction>, IsotropyError> {
+        double_valued_subduction(self.ordinal)
     }
 }
 
@@ -473,7 +518,18 @@ pub fn identity_subduction(ordinal: usize) -> Result<Vec<IdentitySubduction>, Is
     let mut result = Vec::with_capacity(end.saturating_sub(start));
     for entry in start..end {
         let irrep_index = crate::irrep::generated_data::ISOTROPY_SUBDUCE_IRREP[entry] as usize;
-        let irrep = &irreps[irrep_index - 1];
+        let irrep =
+            irreps
+                .get(irrep_index - 1)
+                .ok_or(IsotropyError::SubductionIndexOutOfRange {
+                    entry,
+                    index: irrep_index,
+                })?;
+        let label_index = crate::irrep::generated_data::ISOTROPY_SUBDUCE_DIRECTION[entry] as usize;
+        let direction_label = crate::irrep::generated_data::ISOTROPY_DIRECTION_LABELS
+            .get(label_index)
+            .copied()
+            .unwrap_or("?");
         result.push(IdentitySubduction {
             parent_sg: irrep.sg,
             parent_ml: irrep.ml,
@@ -482,6 +538,43 @@ pub fn identity_subduction(ordinal: usize) -> Result<Vec<IdentitySubduction>, Is
             parent_dim: irrep.dim,
             frequency: crate::irrep::generated_data::ISOTROPY_SUBDUCE_FREQUENCY[entry] as u16,
             domain: crate::irrep::generated_data::ISOTROPY_SUBDUCE_DOMAIN[entry],
+            direction_label,
+        });
+    }
+    Ok(result)
+}
+
+/// Double-valued (spinor) parent irreps that subduce the trivial irrep of an
+/// isotropy record.
+pub fn double_valued_subduction(
+    ordinal: usize,
+) -> Result<Vec<DoubleValuedSubduction>, IsotropyError> {
+    let ranges = &crate::irrep::generated_data::ISOTROPY_W_SUBDUCE_RANGES;
+    let records = ranges.len().saturating_sub(1);
+    if ordinal >= records {
+        return Err(IsotropyError::InvalidIsotropyRecord {
+            ordinal,
+            len: records,
+        });
+    }
+    let start = ranges[ordinal] as usize;
+    let end = ranges[ordinal + 1] as usize;
+    let labels = &crate::irrep::generated_data::IRREP_W_LABELS;
+    let groups = &crate::irrep::generated_data::IRREP_W_SPACE_GROUP;
+    let mut result = Vec::with_capacity(end.saturating_sub(start));
+    for entry in start..end {
+        let irrep_index = crate::irrep::generated_data::ISOTROPY_W_SUBDUCE_IRREP[entry] as usize;
+        let (Some(label), Some(sg)) = (labels.get(irrep_index - 1), groups.get(irrep_index - 1))
+        else {
+            return Err(IsotropyError::SubductionIndexOutOfRange {
+                entry,
+                index: irrep_index,
+            });
+        };
+        result.push(DoubleValuedSubduction {
+            parent_sg: *sg,
+            parent_ml: label,
+            frequency: crate::irrep::generated_data::ISOTROPY_W_SUBDUCE_FREQUENCY[entry] as u16,
         });
     }
     Ok(result)
@@ -496,11 +589,11 @@ pub fn format_identity_subduction(ordinal: usize) -> Result<String, IsotropyErro
         entries.len(),
         ordinal + 1
     ));
-    lines.push("| Parent irrep | BC | k | dim | i(G) | domain |".to_string());
-    lines.push("|--------------|----|---|-----|------|--------|".to_string());
+    lines.push("| Parent irrep | BC | k | dim | i(G) | Dir | domain |".to_string());
+    lines.push("|--------------|----|---|-----|------|-----|--------|".to_string());
     for entry in entries {
         lines.push(format!(
-            "| {} | {} | ({}/{}, {}/{}, {}/{}) | {} | {} | {} |",
+            "| {} | {} | ({}/{}, {}/{}, {}/{}) | {} | {} | {} | {} |",
             entry.parent_ml,
             entry.parent_bc,
             entry.parent_k.numerators[0],
@@ -511,8 +604,21 @@ pub fn format_identity_subduction(ordinal: usize) -> Result<String, IsotropyErro
             entry.parent_k.denominator,
             entry.parent_dim,
             entry.frequency,
+            entry.direction_label,
             entry.domain,
         ));
+    }
+    let double_valued = double_valued_subduction(ordinal)?;
+    if !double_valued.is_empty() {
+        lines.push(String::new());
+        lines.push("| Double-valued parent irrep | i(G) |".to_string());
+        lines.push("|----------------------------|------|".to_string());
+        for entry in double_valued {
+            lines.push(format!(
+                "| {} (SG {}) | {} |",
+                entry.parent_ml, entry.parent_sg, entry.frequency
+            ));
+        }
     }
     Ok(lines.join("\n"))
 }
@@ -587,7 +693,8 @@ pub fn subgroup_size(basis: [[i32; 3]; 3]) -> Result<u32, IsotropyError> {
     if det == 0 {
         return Err(IsotropyError::SingularSubgroupBasis { basis });
     }
-    Ok(det.unsigned_abs())
+    u32::try_from(det.unsigned_abs())
+        .map_err(|_| IsotropyError::SubgroupSizeOverflow { determinant: det })
 }
 
 /// Centering multiplicity `Z` of a space group (1, 2, 3 or 4).
@@ -658,15 +765,29 @@ pub fn basis_in_parent_conventional(
 
 /// Express the stored origin shift in the parent's conventional basis.
 ///
-/// This is the "Origin" column of Stokes & Hatch (1988): the position of the
-/// subgroup origin with respect to the parent origin, in parent conventional
-/// coordinates.  Values are only defined modulo the parent's lattice.
+/// This is a pure **frame conversion** of the stored value: `w_conventional =
+/// w_primitive · P`, with `P` the parent's primitive basis.  Values are only
+/// defined modulo the parent's lattice.
+///
+/// # Not the printed "Origin" column in general
+///
+/// The bundled ISOTROPY program prints its own Origin column, and a table-wide
+/// sweep (`scripts/verify_isotropy_oracle.py` runs a sample of it) shows that
+/// this frame-converted value differs from the printed one by a
+/// **record-dependent** offset for a sizeable minority of records — the offset
+/// is neither a parent-lattice vector nor a per-space-group constant
+/// (counterexample: SG 139 `M1-` direction `P1` stores `(2,2,2)` in the
+/// primitive frame, i.e. the parent origin, while the program prints
+/// `(1/4,1/4,1/4)`).  The convention that maps one to the other is **not
+/// pinned**; do not present either value as the other.  Use
+/// [`IsotropyRecord::origin_rational`] / [`IsotropyRecord::origin_shift`] when
+/// the verbatim upstream data is what you need.
 pub fn origin_shift_in_parent_conventional(
     parent_sg: u8,
     origin: [i32; 4],
 ) -> Result<[f64; 3], IsotropyError> {
     let primitive = parent_primitive_basis(parent_sg)?;
-    let w = crate::irrep::types::decode_origin(origin);
+    let w = decode_origin_checked(origin)?;
     let mut converted = [0.0f64; 3];
     for j in 0..3 {
         converted[j] = (0..3).map(|t| w[t] * primitive[t][j]).sum();
@@ -674,7 +795,25 @@ pub fn origin_shift_in_parent_conventional(
     Ok(converted)
 }
 
-fn det3(m: [[i32; 3]; 3]) -> i32 {
+/// Decode an origin shift, rejecting non-positive denominators.
+///
+/// Only a frame-free decode of the stored encoding; see
+/// [`origin_shift_in_parent_conventional`] for the frame conversion and its
+/// caveats.
+///
+/// The generated tables always satisfy this; the check keeps the public
+/// conversion helpers total for caller-supplied values.
+pub(crate) fn decode_origin_checked(origin: [i32; 4]) -> Result<[f64; 3], IsotropyError> {
+    crate::irrep::types::decode_origin_checked(origin)
+        .ok_or(IsotropyError::InvalidOrigin { origin })
+}
+
+/// Determinant of a row-major 3x3 integer matrix.
+///
+/// Computed in `i64` so that caller-supplied bases cannot overflow `i32`; the
+/// generated tables only contain small entries.
+fn det3(m: [[i32; 3]; 3]) -> i64 {
+    let m = m.map(|row| row.map(i64::from));
     m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
         - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
         + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
@@ -702,7 +841,7 @@ pub fn format_isotropy_subgroups(sg: u8, ml: &str) -> Result<String, IsotropyErr
         subgroups.len()
     ));
     lines.push(
-        "| # | Subgroup | Label | Direction | Dir | Size | Basis | Origin | Domains | Arms |"
+        "| # | Subgroup | Label | Direction | Dir | Size | Basis | Origin* | Domains | Arms |"
             .to_string(),
     );
     lines.push(
@@ -723,14 +862,19 @@ pub fn format_isotropy_subgroups(sg: u8, ml: &str) -> Result<String, IsotropyErr
             record.direction,
             record.direction_dim,
             size,
-            format_basis(basis_in_parent_conventional(sg, record.basis).unwrap_or([[0.0; 3]; 3])),
-            format_origin(
-                origin_shift_in_parent_conventional(sg, record.origin).unwrap_or([0.0; 3])
-            ),
+            format_basis(basis_in_parent_conventional(sg, record.basis)?),
+            format_origin(origin_shift_in_parent_conventional(sg, record.origin)?),
             record.domains,
             record.arms,
         ));
     }
+    lines.push(
+        "\n*Origin* is the stored primitive-frame shift converted with the parent's \
+         primitive basis; it equals the ISOTROPY program's printed Origin only \
+         when the stored setting already matches the program's default (see \
+         `origin_shift_in_parent_conventional`)."
+            .to_string(),
+    );
     Ok(lines.join("\n"))
 }
 
@@ -770,10 +914,8 @@ pub fn format_magnetic_isotropy_subgroups(sg: u8, ml: &str) -> Result<String, Is
             record.iso_label,
             record.direction,
             size,
-            format_basis(basis_in_parent_conventional(sg, record.basis).unwrap_or([[0.0; 3]; 3])),
-            format_origin(
-                origin_shift_in_parent_conventional(sg, record.origin).unwrap_or([0.0; 3])
-            ),
+            format_basis(basis_in_parent_conventional(sg, record.basis)?),
+            format_origin(origin_shift_in_parent_conventional(sg, record.origin)?),
         ));
     }
     Ok(lines.join("\n"))
@@ -861,7 +1003,7 @@ mod tests {
         let sub = isotropy_subgroup_for_direction(167, "GM3+", IsotropyDirection::Label("P1"))
             .expect("Γ3+ has a P1 direction");
         assert_eq!(sub.record.origin, [0, 1, 0, 2]);
-        assert_eq!(sub.record.origin_shift(), [0.0, 0.5, 0.0]);
+        assert_eq!(sub.record.origin_shift(), Some([0.0, 0.5, 0.0]));
         let converted =
             origin_shift_in_parent_conventional(167, sub.record.origin).expect("conversion");
         let expected = [-1.0 / 6.0, 1.0 / 6.0, 1.0 / 6.0];
@@ -984,24 +1126,43 @@ mod tests {
         assert!(table.contains("(1,0,0),(0,1,0),(0,0,1)"));
     }
 
-    /// Expected values are the `SHOW FREQUENCY DIRECTION` output of the bundled
+    /// Expected values are the `SHOW FREQ DIR` output of the bundled
     /// ISOTROPY binary, converted to `(Miller-Love label, frequency, domain)`.
     #[test]
     fn identity_subduction_matches_the_isotropy_program() {
         let cases = [
+            // (SG, irrep, direction, [(label, i(G), domain, Dir)])
             (
                 221,
                 "GM4+",
                 "(a,0,0)",
-                vec![("GM1+", 1u16, 1u16), ("GM3+", 1, 3), ("GM4+", 1, 1)],
+                vec![
+                    ("GM1+", 1u16, 1u16, "P1"),
+                    ("GM3+", 1, 3, "P1"),
+                    ("GM4+", 1, 1, "P1"),
+                ],
             ),
-            (221, "GM3+", "(a,0)", vec![("GM1+", 1, 1), ("GM3+", 1, 1)]),
-            (16, "R1", "(a)", vec![("GM1", 1, 1), ("R1", 1, 1)]),
+            (
+                221,
+                "GM3+",
+                "(a,0)",
+                vec![("GM1+", 1, 1, "P1"), ("GM3+", 1, 1, "P1")],
+            ),
+            (
+                16,
+                "R1",
+                "(a)",
+                vec![("GM1", 1, 1, "P1"), ("R1", 1, 1, "P1")],
+            ),
             (
                 225,
                 "GM4-",
                 "(a,0,0)",
-                vec![("GM1+", 1, 1), ("GM3+", 1, 3), ("GM4-", 1, 1)],
+                vec![
+                    ("GM1+", 1, 1, "P1"),
+                    ("GM3+", 1, 3, "P1"),
+                    ("GM4-", 1, 1, "P1"),
+                ],
             ),
         ];
         for (sg, ml, direction, expected) in cases {
@@ -1011,9 +1172,16 @@ mod tests {
             let entries = subgroup
                 .identity_subduction()
                 .unwrap_or_else(|error| panic!("SG {sg} {ml} {direction}: {error}"));
-            let actual: Vec<(&str, u16, u16)> = entries
+            let actual: Vec<(&str, u16, u16, &str)> = entries
                 .iter()
-                .map(|entry| (entry.parent_ml, entry.frequency, entry.domain))
+                .map(|entry| {
+                    (
+                        entry.parent_ml,
+                        entry.frequency,
+                        entry.domain,
+                        entry.direction_label,
+                    )
+                })
                 .collect();
             assert_eq!(actual, expected, "SG {sg} {ml} {direction}");
             assert!(entries.iter().all(|entry| entry.parent_sg == sg));

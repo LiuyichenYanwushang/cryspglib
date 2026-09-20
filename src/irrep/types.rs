@@ -1318,8 +1318,11 @@ impl IsotropyRecord {
     }
 
     /// Origin shift of the subgroup setting in fractional parent coordinates.
-    pub fn origin_shift(&self) -> [f64; 3] {
-        decode_origin(self.origin)
+    ///
+    /// Returns `None` when the encoded denominator is not positive; the
+    /// generated tables always satisfy this.
+    pub fn origin_shift(&self) -> Option<[f64; 3]> {
+        decode_origin_checked(self.origin)
     }
 
     /// Whether the subgroup setting shares the parent's origin.
@@ -1335,20 +1338,18 @@ impl IsotropyRecord {
 
 /// Decode the ISOTROPY origin encoding `[x, y, z, d]` into `[x/d, y/d, z/d]`.
 ///
-/// The generator rejects non-positive denominators, so a valid denominator is
-/// a data invariant rather than a runtime condition.
-pub(crate) fn decode_origin(origin: [i32; 4]) -> [f64; 3] {
-    debug_assert!(
-        origin[3] > 0,
-        "isotropy origin denominator must be positive, got {}",
-        origin[3]
-    );
+/// Returns `None` for a non-positive denominator instead of producing `NaN` or
+/// a sign-flipped shift; the generated tables always satisfy `d > 0`.
+pub(crate) fn decode_origin_checked(origin: [i32; 4]) -> Option<[f64; 3]> {
+    if origin[3] <= 0 {
+        return None;
+    }
     let d = origin[3] as f64;
-    [
+    Some([
         origin[0] as f64 / d,
         origin[1] as f64 / d,
         origin[2] as f64 / d,
-    ]
+    ])
 }
 
 impl MagneticIsotropyRecord {
@@ -1368,8 +1369,11 @@ impl MagneticIsotropyRecord {
 
     /// Origin shift of the magnetic subgroup setting in fractional parent
     /// coordinates.
-    pub fn origin_shift(&self) -> [f64; 3] {
-        decode_origin(self.origin)
+    ///
+    /// Returns `None` when the encoded denominator is not positive; the
+    /// generated tables always satisfy this.
+    pub fn origin_shift(&self) -> Option<[f64; 3]> {
+        decode_origin_checked(self.origin)
     }
 }
 

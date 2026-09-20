@@ -121,7 +121,7 @@ let result = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
 | `HallNumber`, `UniNumber`, `SpaceGroupNumber` | Validated, non-zero database identifiers |
 | `OperationKind` | Explicit `Unitary` / `Antiunitary` magnetic-operation semantics |
 | `irrep::isotropy::isotropy_subgroup_for_direction(sg, ml, dir)` | Isotropy subgroup of one irrep for an order-parameter direction |
-| `IsotropySubgroup::identity_subduction()` | Parent irreps that become totally symmetric in the subgroup (`SHOW FREQUENCY`) |
+| `IsotropySubgroup::identity_subduction()` | Parent irreps that become totally symmetric in the subgroup (`SHOW FREQ [DIR]`) |
 | `isotropy::origin_shift_in_parent_conventional(sg, origin)` | Origin shift of the subgroup setting in parent conventional coordinates |
 
 Isotropy subgroups carry the subgroup lattice basis and the origin shift of the

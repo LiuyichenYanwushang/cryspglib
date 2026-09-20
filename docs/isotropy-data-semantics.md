@@ -6,7 +6,7 @@
 （`iso`，Version 9.6.1, Jan 2022，x86-64 静态链接）做 oracle 得到，可复现：
 
 ```bash
-python3 scripts/verify_isotropy_oracle.py     # 42 行，8 种 centering
+python3 scripts/verify_isotropy_oracle.py     # 42 行，6 种 centering（B 面心在标准 ITA setting 中不出现）
 ```
 
 ## 1. 表结构与索引
@@ -55,7 +55,7 @@ C  (1/2,1/2,0),(-1/2,1/2,0),(0,0,1)
 R  (2/3,1/3,1/3),(-1/3,1/3,1/3),(-1/3,-2/3,1/3)   # hexagonal axes
 ```
 
-## 3. Origin 的编码与坐标系
+## 3. Origin 的编码、坐标系，以及尚未钉死的打印约定
 
 `isotropy_origin` 每条 4 个整数 `(x, y, z, d)`，即
 `(x/d, y/d, z/d)`，同样是**母群 primitive 胞**下的坐标；分母集合为
@@ -69,13 +69,21 @@ Rust API：
 
 - `IsotropyRecord::origin_rational()` / `origin_shift()`：原始（primitive）帧，
   精确有理数 / f64。
-- `origin_shift_in_parent_conventional(sg, origin)`：conventional 帧，与书本和
-  官方程序一致。
+- `origin_shift_in_parent_conventional(sg, origin)`：纯坐标帧换算
+  `w_conv = w_prim · P`。
 
-原点只在**母群格**意义下确定；不同代表元可以相差母群格矢量（oracle 校验即按
-“差为母群格矢量”判定）。全表 42 行抽样中仅 1 行例外（`SG 230 GM5+ P1`），官方
-程序打印的代表元与 pinned 数据既不差母群格矢量也不差子群格矢量；该行在
-`scripts/verify_isotropy_oracle.py` 中以显式 allowlist 记录，保留上游数据值。
+**重要更正（对抗性审查后，2026-09-20）**：`w_prim · P` **不普遍等于**官方程序
+打印的 Origin 列。对全部 4777 个 (SG, irrep) 做扫描（15044 条可比对记录）后，
+约 **18.6%** 的记录两者之差既不是母群格矢量、也不是"每 SG 常数"：同一空间群内
+不同记录可以有不同偏移（SG 141、227、230 内部都出现多种偏移，多数记录偏移为
+0）。反例：父群 SG 139（I4/mmm）irrep `M1-` 方向 `P1` 在 primitive 帧存入
+`(2,2,2)`（等价于母群原点），官方打印 `(1/4,1/4,1/4)`，差向量不属于 I 格。
+原先记为"唯一例外"的 `SG 230 GM5+ P1` 只是这一大类中的一个实例。
+
+因此：该函数的文档已改为"仅坐标帧换算"并显式声明该差异；
+`scripts/verify_isotropy_oracle.py` 只是 **21 组 / 42 行抽样**，其通过不构成
+origin 全表一致性的证据；官方打印 Origin 与存储值之间的确切约定**仍未钉死**
+（见 §6）。
 
 ## 4. 分导（subduction）：`isotropy_subduce_*`
 
@@ -85,16 +93,23 @@ Rust API：
 - `isotropy_subduce_frequency`：`i(G)`，该 irrep 的分导表示中包含子群单位表示
   （恒等表示）的次数；
 - `isotropy_subduce_domain`：domain 序号；
-- `isotropy_subduce_subgroup`：ISO 内部锚点记录序号，语义未在官方手册中定义，
-  **本仓库不导出**。
+- `isotropy_subduce_subgroup`：**已解开**——它是 1-based 的 isotropy 记录序号，
+  它指向的那条记录的 `direction` 标签正是官方打印的 Dir 列（94271/94271 落在被
+  分导 irrep 自己的记录区间内；30/30 抽样逐字符复现官方输出）。API 暴露为
+  `IdentitySubduction::direction_label`。
 
-这正是官方 `SHOW FREQUENCY` 的输出，例如 SG 221 `GM4+` 方向 `P1` → 子群
-`#83 P4/m`：
+这正是官方 `SHOW FREQ`（加 `DIR` 时附 `Dir(domain)`）的输出，例如 SG 221 `GM4+`
+方向 `P1` → 子群 `#83 P4/m`：
 
 ```
 官方:  83 P4/m  1 GM1+ P1(1), 1 GM3+ P1(3), 1 GM4+ P1(1)
-API :  [("GM1+", 1, 1), ("GM3+", 1, 3), ("GM4+", 1, 1)]
+API :  [("GM1+", 1, "P1", 1), ("GM3+", 1, "P1", 3), ("GM4+", 1, "P1", 1)]
 ```
+
+**双值（spinor）分导条目**同样属于这一行输出：`isotropy_w_subduce_*` 共 5756 条，
+覆盖 1006/15239 条记录，此前被整族丢弃；现在由
+`double_valued_subduction(ordinal)` / `IsotropySubgroup::double_valued_subduction()`
+提供。回归样例：SG 225 `W5` 方向 `S60` → 9 条标量 + `3 DT5, 3 SM3, 3 SM4`。
 
 **边界**：本数据集只给“哪些母群 irrep 包含子群的恒等表示、重数多少”（Landau /
 铁性分类所需），**不给**某个母群 irrep 分解成子群全部 irrep 的完整分导表示
@@ -110,16 +125,32 @@ API :  [("GM1+", 1, 1), ("GM3+", 1, 3), ("GM4+", 1, 1)]
 `scripts/verify_isotropy_oracle.py` 会：
 
 1. 用 pinned 数据复现每条记录（`Size = |det W|`、方向标签、子群号）；
-2. 对 21 组 (SG, irrep)（覆盖 P/A/B/C/I/F/R 七种 centering、1/2/3 维 irrep）运行
+2. 对 21 组 (SG, irrep)（覆盖 6 种 centering：A/C/F/I/P/R；B 面心不出现在标准
+   ITA setting）运行
    官方 `iso`，逐行比对：
    - 子群号、方向标签一致；
    - `Size == |det W|`；
    - `|det Basis_官方| == Z(子群)·Size/Z(母群)`；
    - `w_机器 · P − w_官方` 是母群格矢量（1 行已知例外，见 §3）。
 
-当前结果：`oracle rows checked: 42`，全部通过。
+当前结果：`oracle rows checked: 42`，全部通过。其中 1 行的 origin 比较被显式
+allowlist 跳过（`SG 230 GM5+ P1`，见 §3），脚本会在结论行分别报告子群/Size/Basis/
+标签的比较行数与 origin 的比较行数，不会把豁免行混进"全部通过"。规范表述是
+"6 种 centering"（A/C/F/I/P/R）；脚本里定义的 B 面心在标准 ITA setting 中不出现，
+因此没有对应用例。
 
-## 6. Rust API 位置
+## 6. 已知未决项（对抗性审查发现，未修复）
+
+1. **官方 Origin 与存储 origin 的换算约定未钉死**（§3）：约 18.6% 记录不满足
+   `w_prim·P ≡ w_printed (mod L_parent)`，偏移逐记录变化而非每 SG 常数。钉死它
+   需要逐记录类测定 affine offset（对存储 origin 施加已知扰动、观察打印值），或
+   改用 ISODISTORT 的等价定义。在此之前不得把 `w_prim·P` 说成"书中 Origin 列"。
+2. **compound CIR irrep 无 oracle 覆盖**：官方对 SG199 `P1P1/P2P2/P3P3` 之类
+   compound 标签打印空表（112 对 / 195 条记录），当前 21 组用例中没有 compound。
+3. **抽样规模与分页**：gate 仅 42 行（0.28%）；程序分页上限 `PAGE ≤ 1000`，同一
+   进程连续查询会被分页提示吞掉输入，全表验收必须按 (SG, irrep) 逐进程调用。
+
+## 7. Rust API 位置
 
 | 功能 | API |
 |---|---|
@@ -127,5 +158,5 @@ API :  [("GM1+", 1, 1), ("GM3+", 1, 3), ("GM4+", 1, 1)]
 | 某 irrep 的全部子群 | `irrep::isotropy::isotropy_subgroups`（可用 `_at_k` 校验 k） |
 | 磁子群 | `irrep::isotropy::magnetic_isotropy_subgroups(_for_direction)` |
 | 几何换算 | `subgroup_size`、`parent_primitive_basis`、`basis_in_parent_conventional`、`origin_shift_in_parent_conventional` |
-| 分导（恒等表示） | `IsotropySubgroup::identity_subduction`、`format_identity_subduction` |
+| 分导（恒等表示） | `identity_subduction`、`double_valued_subduction`、`format_identity_subduction` |
 | 表格输出 | `format_isotropy_subgroups`、`format_magnetic_isotropy_subgroups` |

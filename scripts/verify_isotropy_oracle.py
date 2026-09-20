@@ -73,6 +73,8 @@ PRIMITIVE_BASIS = {
         [0, Fraction(-1, 2), Fraction(1, 2)],
         [1, 0, 0],
     ],
+    # No standard ITA setting used by the pinned data is B-centred, so this
+    # entry is never exercised; the Rust table keeps it for completeness.
     "B": [
         [Fraction(1, 2), 0, Fraction(1, 2)],
         [Fraction(-1, 2), 0, Fraction(1, 2)],
@@ -94,7 +96,7 @@ PRIMITIVE_BASIS = {
 # Centering letter per space group (1-230).
 CENTERING_LETTER = {
     1: "P", 2: "P", 3: "P", 4: "P", 5: "C", 6: "P", 7: "P", 8: "C", 9: "C",
-    10: "P", 11: "P", 12: "C", 13: "C", 14: "P", 15: "C", 16: "P", 17: "P",
+    10: "P", 11: "P", 12: "C", 13: "P", 14: "P", 15: "C", 16: "P", 17: "P",
     18: "P", 19: "P", 20: "C", 21: "C", 22: "F", 23: "I", 24: "I", 25: "P",
     26: "P", 27: "P", 28: "P", 29: "P", 30: "P", 31: "P", 32: "P", 33: "P",
     34: "P", 35: "C", 36: "C", 37: "C", 38: "A", 39: "A", 40: "A", 41: "A",
@@ -223,7 +225,7 @@ def run_oracle(sg, ml):
             "before using this oracle"
         )
     commands = [
-        "PAGE 20000",
+        "PAGE 1000",
         "SC 250",
         f"VALUE PARENT {sg}",
         f"VALUE IRREP {ml}",
@@ -305,6 +307,7 @@ def to_conventional(vector, primitive_basis):
 def main():
     records = machine_records()
     checked_rows = 0
+    skipped_origins = 0
     failures = []
 
     for sg, ml in CASES:
@@ -356,7 +359,9 @@ def main():
                     f"size {machine_row['size']} / Z_parent {z_parent}"
                 )
             # The stored origin is in the parent primitive frame.
-            if (sg, ml, label) not in KNOWN_ORIGIN_EXCEPTIONS:
+            if (sg, ml, label) in KNOWN_ORIGIN_EXCEPTIONS:
+                skipped_origins += 1
+            else:
                 converted = to_conventional(machine_row["origin"], primitive_basis)
                 delta = [converted[i] - oracle_row["origin"][i] for i in range(3)]
                 if not in_lattice(delta, primitive_basis):
@@ -364,13 +369,23 @@ def main():
                         f"{where}: origin {oracle_row['origin']} != {converted} mod L"
                     )
 
+    checked_origins = checked_rows - skipped_origins
     print(f"oracle rows checked: {checked_rows}")
+    if skipped_origins:
+        print(
+            f"origin checks skipped by allowlist: {skipped_origins} "
+            f"({sorted(KNOWN_ORIGIN_EXCEPTIONS)})"
+        )
     if failures:
         print(f"FAILURES: {len(failures)}")
         for failure in failures[:25]:
             print("  " + failure)
         return 1
-    print("all oracle rows agree with the vendored isotropy data")
+    print(
+        f"all oracle rows agree with the vendored isotropy data "
+        f"(subgroup/size/basis/label on {checked_rows} rows, origin on "
+        f"{checked_origins})"
+    )
     return 0
 
 
