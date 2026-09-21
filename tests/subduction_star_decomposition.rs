@@ -4,6 +4,7 @@
 //! blocks on H_q, with a separate character inner product. In particular, the
 //! parent-side calculation did not use OrdinaryStar or its induction formula.
 
+use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{
     IsotropyDirection, isotropy_subgroup_for_direction, parent_primitive_basis,
 };
@@ -234,6 +235,7 @@ fn full_star_terms_and_reconstruction_match_independent_cir_witnesses() {
         let subgroup = isotropy_subgroup_for_direction(
             case.sg,
             case.condensate,
+            LabelConvention::Cdml,
             IsotropyDirection::Label(case.direction),
         )
         .unwrap();

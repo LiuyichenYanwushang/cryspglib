@@ -45,6 +45,7 @@ use num_complex::Complex64;
 use rayon::prelude::*;
 
 use crate::SymmetryOps;
+use crate::irrep::{IrrepLabels, LabelConvention};
 
 // ── Error type ─────────────────────────────────────────────────────────────────
 
@@ -150,8 +151,10 @@ pub struct UnresolvedMagneticCorep {
 /// Summary of magnetic corepresentations at a single k-point.
 #[derive(Debug, Clone)]
 pub struct MagneticKPointSummary {
-    /// k-point label (e.g. `"GM"`, `"X"`, `"Z"`).
+    /// CDML k-point label (e.g. `"GM"`, `"X"`, `"Z"`).
     pub label: String,
+    /// BC k-point label (e.g. `"Γ"`), if a genuine mapping is available.
+    pub bc_label: Option<String>,
     /// Fractional reciprocal coordinates `(kx, ky, kz, denom)`.
     pub coords: (i8, i8, i8, i8),
     /// Total number of operations in the magnetic little group.
@@ -242,13 +245,31 @@ pub struct SourceIrrepSummary {
     pub sg: u8,
     /// Miller-Love label (e.g. `"GM4-"`, `"Z1Z4"`).
     pub ml: &'static str,
-    /// Bradley-Cracknell label (e.g. `"\\Gamma_4^-"`).
+    /// Raw legacy BC field of the source row. It may be a placeholder,
+    /// synthesized spinor label, or the entire compound row's label.
+    /// Use [`Self::labels`] for verified labels of this source component.
     pub bc: &'static str,
     /// Selected-arm/little representation dimension, not the full-star image
     /// dimension stored in [`crate::irrep::types::IrrepRecord::dim`].
     pub dim: u8,
     /// Whether this is a spinor (double-valued) irrep.
     pub spinor: bool,
+}
+
+impl SourceIrrepSummary {
+    /// Both source labels, using a genuine mapping for this exact source row.
+    /// An individually named compound component without its own database row
+    /// has no verified BC label, even when the compound row has one.
+    pub fn labels(&self) -> IrrepLabels {
+        let matches = crate::irrep::query::find_irreps(self.sg, self.ml, LabelConvention::Cdml);
+        IrrepLabels {
+            cdml: self.ml,
+            bc: match matches.as_slice() {
+                [ir] if !self.spinor && !ir.spinor => ir.label(LabelConvention::Bc),
+                _ => None,
+            },
+        }
+    }
 }
 
 /// An isotropy subgroup candidate for a magnetic corep.
@@ -868,7 +889,7 @@ fn magnetic_irrep_summary_from_ops_impl(
         .map_err(|_| MagneticIrrepError::InvalidUni(uni))?;
 
     // 3. Get k-points from H's irrep data.
-    let h_kpoints = crate::irrep::query::kpoints_of(h_info.sg as u8);
+    let h_kpoints = crate::irrep::query::kpoints_of(h_info.sg as u8, LabelConvention::Cdml);
     if h_kpoints.is_empty() {
         return Err(MagneticIrrepError::MissingIrrepData {
             sg: h_info.sg as u8,
@@ -942,7 +963,7 @@ fn magnetic_irrep_summary_from_ops_impl(
                             let failure = UnresolvedMagneticCorep {
                                 uni,
                                 sg: ir.sg,
-                                k_label: kp.label.clone(),
+                                k_label: kp.labels.cdml.to_string(),
                                 source_irrep: ir.ml.to_string(),
                                 spinor: false,
                                 minimum_dimension: selected_arm_dimension(ir).ok(),
@@ -999,7 +1020,7 @@ fn magnetic_irrep_summary_from_ops_impl(
                             return Err(MagneticIrrepError::CorepComputationFailed {
                                 uni,
                                 sg: h_info.sg as u8,
-                                k_label: kp.label.clone(),
+                                k_label: kp.labels.cdml.to_string(),
                                 source_irrep: ir.ml.to_string(),
                                 reason: "corepresentation character columns are not paired with the constructed magnetic little-group operations"
                                     .to_string(),
@@ -1009,7 +1030,7 @@ fn magnetic_irrep_summary_from_ops_impl(
                             MagneticIrrepError::CorepComputationFailed {
                                 uni,
                                 sg: h_info.sg as u8,
-                                k_label: kp.label.clone(),
+                                k_label: kp.labels.cdml.to_string(),
                                 source_irrep: ir.ml.to_string(),
                                 reason: format!(
                                     "selected-arm source dimension lookup failed: {error}"
@@ -1020,7 +1041,7 @@ fn magnetic_irrep_summary_from_ops_impl(
                             MagneticIrrepError::CorepComputationFailed {
                                 uni,
                                 sg: h_info.sg as u8,
-                                k_label: kp.label.clone(),
+                                k_label: kp.labels.cdml.to_string(),
                                 source_irrep: ir.ml.to_string(),
                                 reason: format!(
                                     "selected-arm source dimension {selected_dim} exceeds u8"
@@ -1035,7 +1056,7 @@ fn magnetic_irrep_summary_from_ops_impl(
                                     MagneticIrrepError::CorepComputationFailed {
                                         uni,
                                         sg: h_info.sg as u8,
-                                        k_label: kp.label.clone(),
+                                        k_label: kp.labels.cdml.to_string(),
                                         source_irrep: ir.ml.to_string(),
                                         reason: format!(
                                             "raw {:?} corepresentation dimension overflow for selected-arm source dimension {selected_dim}",
@@ -1049,7 +1070,7 @@ fn magnetic_irrep_summary_from_ops_impl(
                             return Err(MagneticIrrepError::CorepComputationFailed {
                                 uni,
                                 sg: h_info.sg as u8,
-                                k_label: kp.label.clone(),
+                                k_label: kp.labels.cdml.to_string(),
                                 source_irrep: ir.ml.to_string(),
                                 reason: format!(
                                     "raw {:?} corepresentation dimension {} disagrees with selected-arm source dimension {} (expected {})",
@@ -1061,7 +1082,7 @@ fn magnetic_irrep_summary_from_ops_impl(
                             MagneticIrrepError::CorepComputationFailed {
                                 uni,
                                 sg: h_info.sg as u8,
-                                k_label: kp.label.clone(),
+                                k_label: kp.labels.cdml.to_string(),
                                 source_irrep: ir.ml.to_string(),
                                 reason: error.to_string(),
                             }
@@ -1097,7 +1118,7 @@ fn magnetic_irrep_summary_from_ops_impl(
                         let failure = UnresolvedMagneticCorep {
                             uni,
                             sg: ir.sg,
-                            k_label: kp.label.clone(),
+                            k_label: kp.labels.cdml.to_string(),
                             source_irrep: ir.ml.to_string(),
                             spinor: ir.spinor,
                             minimum_dimension: selected_arm_dimension(ir).ok(),
@@ -1125,7 +1146,8 @@ fn magnetic_irrep_summary_from_ops_impl(
 
             Ok((
                 MagneticKPointSummary {
-                    label: kp.label,
+                    label: kp.labels.cdml.to_string(),
+                    bc_label: kp.labels.bc,
                     coords: kp.coords,
                     little_group_order: mag_lg.len(),
                     unitary_order,
@@ -1433,6 +1455,8 @@ pub fn format_magnetic_character_table_with_columns(
     let mut lines = Vec::new();
     let mut header = vec![
         "corep".to_string(),
+        "source CDML".to_string(),
+        "source BC".to_string(),
         "type".to_string(),
         "dim".to_string(),
         "status".to_string(),
@@ -1452,8 +1476,23 @@ pub fn format_magnetic_character_table_with_columns(
             .join(" | ")
     ));
     for corep in &kpoint.coreps {
+        let labels: Vec<_> = corep
+            .source_irreps
+            .iter()
+            .map(|source| source.labels())
+            .collect();
         let mut row = vec![
             corep.label.clone(),
+            labels
+                .iter()
+                .map(|label| label.cdml)
+                .collect::<Vec<_>>()
+                .join(" + "),
+            labels
+                .iter()
+                .map(|label| label.bc.as_deref().unwrap_or("unavailable"))
+                .collect::<Vec<_>>()
+                .join(" + "),
             format!("{:?}", corep.corep_type),
             corep.dim.to_string(),
             completeness_label(&corep.completeness),
@@ -1530,8 +1569,9 @@ pub fn format_magnetic_kpoint_summary(kpoint: &MagneticKPointSummary) -> String 
     let mut lines = Vec::new();
     let (kx, ky, kz, kd) = kpoint.coords;
     lines.push(format!(
-        "k-point {}  ({}/{}, {}/{}, {}/{})  |LG|= {}  ({}U + {}A)",
+        "k-point CDML={} / BC={}  ({}/{}, {}/{}, {}/{})  |LG|= {}  ({}U + {}A)",
         kpoint.label,
+        kpoint.bc_label.as_deref().unwrap_or("unavailable"),
         kx,
         kd,
         ky,
@@ -2101,7 +2141,9 @@ mod tests {
         assert_eq!(z.operations.len(), 2);
 
         let operations = format_magnetic_character_table(z);
-        assert!(operations.contains("| corep | type | dim | status | g1 |"));
+        assert!(
+            operations.contains("| corep | source CDML | source BC | type | dim | status | g1 |")
+        );
         assert!(operations.contains("| g2 |"));
         assert!(operations.contains("Seitz operation (data-Hall frame)"));
         assert!(

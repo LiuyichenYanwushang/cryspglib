@@ -1,5 +1,6 @@
 //! Stored identity frequencies check the embeddings independently of reconstruction.
 
+use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{
     IsotropyDirection, isotropy_subgroup_for_direction, isotropy_subgroups,
 };
@@ -17,7 +18,7 @@ fn gamma(record: &IrrepRecord) -> bool {
 #[test]
 fn non_gamma_pullback_keeps_the_phase_of_removed_child_translations() {
     let subgroup =
-        isotropy_subgroup_for_direction(16, "R2", IsotropyDirection::Label("P1")).unwrap();
+        isotropy_subgroup_for_direction(16, "R2", LabelConvention::Cdml, IsotropyDirection::Label("P1")).unwrap();
     let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
     let probe = query::irreps_of(16)
         .iter()
@@ -43,7 +44,7 @@ fn frozen_pairs_preserve_stored_gamma_frequencies_for_all_condensing_k() {
     // expose errors hidden by the existing Gamma-condensate Frobenius gate.
     for sg in [16, 139, 167, 221, 225] {
         for condensing in query::irreps_of(sg).iter().filter(|record| !record.spinor) {
-            for subgroup in isotropy_subgroups(sg, condensing.ml).unwrap() {
+            for subgroup in isotropy_subgroups(sg, condensing.ml, LabelConvention::Cdml).unwrap() {
                 if !matches!(
                     (sg, subgroup.record.sg),
                     (221, 83 | 12 | 148 | 123 | 47) | (225, 8) | (16, 22) | (167, 15) | (139, 126)
@@ -103,7 +104,7 @@ fn full_stars_preserve_stored_frequencies_including_non_gamma_probes() {
     let mut missing = Vec::new();
     for sg in [16, 139, 167, 221, 225] {
         for condensing in query::irreps_of(sg).iter().filter(|record| !record.spinor) {
-            for subgroup in isotropy_subgroups(sg, condensing.ml).unwrap() {
+            for subgroup in isotropy_subgroups(sg, condensing.ml, LabelConvention::Cdml).unwrap() {
                 if !matches!(
                     (sg, subgroup.record.sg),
                     (221, 83 | 12 | 148 | 123 | 47) | (225, 8) | (16, 22) | (167, 15) | (139, 126)
@@ -191,7 +192,7 @@ fn compound_full_stars_preserve_stored_identity_frequencies() {
     let mut missing = Vec::new();
     for sg in [16, 19, 23, 45, 83, 139, 167, 221, 225] {
         for condensing in query::irreps_of(sg).iter().filter(|record| !record.spinor) {
-            for subgroup in isotropy_subgroups(sg, condensing.ml).unwrap() {
+            for subgroup in isotropy_subgroups(sg, condensing.ml, LabelConvention::Cdml).unwrap() {
                 if !matches!(
                     (sg, subgroup.record.sg),
                     (221, 83 | 12 | 148 | 123 | 47)

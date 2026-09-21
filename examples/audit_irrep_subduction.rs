@@ -72,6 +72,7 @@ use std::io::{self, BufWriter, Write};
 use std::process::ExitCode;
 use std::time::Instant;
 
+use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup, parent_primitive_basis, subgroup_size};
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::star::decompose::{
@@ -749,7 +750,7 @@ impl Auditor {
             if record.spinor || record.subgroups().is_empty() {
                 continue;
             }
-            let subgroups = isotropy::isotropy_subgroups(sg, record.ml)
+            let subgroups = isotropy::isotropy_subgroups(sg, record.ml, LabelConvention::Cdml)
                 .map_err(|error| format!("space group {sg} irrep {}: {error}", record.ml))?;
             if subgroups.len() != record.subgroups().len() {
                 self.anomaly(format!(
@@ -2102,7 +2103,9 @@ mod tests {
                 if record.spinor {
                     continue;
                 }
-                for subgroup in isotropy::isotropy_subgroups(sg, record.ml).unwrap() {
+                for subgroup in
+                    isotropy::isotropy_subgroups(sg, record.ml, LabelConvention::Cdml).unwrap()
+                {
                     condensates += 1;
                     let stored = subgroup.identity_subduction().unwrap();
                     identity_rows += stored.len();
@@ -2426,6 +2429,7 @@ mod tests {
         let subgroup = isotropy::isotropy_subgroup_for_direction(
             16,
             "R2",
+            LabelConvention::Cdml,
             isotropy::IsotropyDirection::Label("P1"),
         )
         .unwrap();

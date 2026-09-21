@@ -13,6 +13,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
 use cryspglib::irrep::subduce_irrep;
 use cryspglib::irrep::subduction::{
@@ -189,6 +190,7 @@ fn embedding_for(case: &Case) -> SubgroupEmbedding {
     let subgroup = isotropy_subgroup_for_direction(
         case.sg,
         &case.ml,
+        LabelConvention::Cdml,
         IsotropyDirection::Label(&case.direction),
     )
     .unwrap_or_else(|error| panic!("SG {} {} {}: {error}", case.sg, case.ml, case.direction));
@@ -430,7 +432,7 @@ fn swapping_the_two_cm_directions_is_detected() {
 
 #[test]
 fn embeddings_refuse_records_that_do_not_validate() {
-    let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+    let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
         .expect("golden record");
     assert!(SubgroupEmbedding::from_isotropy_subgroup(&subgroup).is_ok());
 
@@ -460,7 +462,7 @@ fn embeddings_refuse_records_that_do_not_validate() {
 fn gamma_subduction_of_the_golden_case_is_complete() {
     // The end-to-end deliverable of task 5: 221 GM4+ condenses along P1 into
     // #83 P4/m, and the parent's GM3+ subduces to GM1+ + GM2+.
-    let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+    let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
         .expect("condensing record");
     assert_eq!(subgroup.ordinal, 12400);
     assert_eq!(subgroup.record.sg, 83);
@@ -559,6 +561,7 @@ fn point_group_order(sg: u8) -> usize {
 /// `NoValidEmbedding` (30); deriving their per-record settings is task 9.
 #[test]
 fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
+    use cryspglib::irrep::LabelConvention;
     use cryspglib::irrep::isotropy::isotropy_subgroups;
     use cryspglib::irrep::query;
     use cryspglib::irrep::subduce_irrep_with_embedding;
@@ -577,7 +580,7 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
             if !is_gamma(probe) {
                 continue;
             }
-            let Ok(subgroups) = isotropy_subgroups(sg, probe.ml) else {
+            let Ok(subgroups) = isotropy_subgroups(sg, probe.ml, LabelConvention::Cdml) else {
                 continue;
             };
             for subgroup in subgroups {
@@ -826,7 +829,7 @@ fn non_gamma_probes_decompose_their_folded_block() {
         ),
     ];
     for (sg, ml, direction, probe_ml, folded, targets) in cases {
-        let subgroup = isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(direction))
+        let subgroup = isotropy_subgroup_for_direction(sg, ml, LabelConvention::Cdml, IsotropyDirection::Label(direction))
             .expect("condensing record");
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
         let probe = query::irreps_of(sg)
@@ -907,7 +910,7 @@ fn non_gamma_coverage_is_counted_not_assumed() {
         (221, "GM4+", "P2"),
         (139, "M1-", "P1"),
     ] {
-        let subgroup = isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(direction))
+        let subgroup = isotropy_subgroup_for_direction(sg, ml, LabelConvention::Cdml, IsotropyDirection::Label(direction))
             .expect("record");
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
         for probe in query::irreps_of(sg) {

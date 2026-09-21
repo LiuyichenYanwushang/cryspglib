@@ -43,10 +43,11 @@ python3 -m unittest discover -s scripts -p test_verify_isotropy_oracle.py
 python3 scripts/verify_isotropy_oracle.py
 ```
 
-当前基线（2026-09-21，永久回归测试补充后，`-p cryspglib` 限定到本 crate）：
-lib `311 passed / 4 ignored`，integration `84 passed`，doctest `27 passed`，
+当前基线（2026-09-21，显式 CDML/BC 查询与双标签输出后，`-p cryspglib` 限定到本 crate）：
+lib `387 passed / 4 ignored`，integration `137 passed`，doctest `27 passed`，
+`audit_irrep_subduction` 示例测试 `10 passed`，
 严格 all-target clippy 通过（Cargo 仍报告既有 workspace manifest 警告）；
-isotropy oracle 离线测试 `9 passed`，真实 oracle `48` 行、`26` 个描述串通过。
+isotropy oracle 离线测试 `9 passed`，真实 oracle `62` 行、`26` 个描述串通过。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
 后端同时启用），与本 crate 无关，但会让整条命令以 exit 101 结束、0 个测试执行。
@@ -85,7 +86,7 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 
 ### 已落地的 API
 
-- `irrep::isotropy::isotropy_subgroup_for_direction(sg, ml, direction)`：按
+- `irrep::isotropy::isotropy_subgroup_for_direction(sg, label, convention, direction)`：按
   方向描述串 `"(a,0,0)"`、ISO 方向标签 `"P1"` 或表内序号选取；
   `isotropy_subgroups[_at_k]`、`magnetic_isotropy_subgroups` /
   `magnetic_isotropy_subgroup_for_direction`。
@@ -98,6 +99,29 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
   `format_identity_subduction`（均输出母群 conventional 基下的几何）。
 
 ### 数据语义（已用官方二进制钉死，勿凭直觉假设）
+
+- **标签查询须显式指定约定（2026-09-21 用户要求）**：普通／磁 isotropy 的
+  label 查询现在接受 `LabelConvention::{Cdml,Bc}`，方向选择函数参数为
+  `(sg, label, convention, direction)`，无隐式默认。`query::find_irreps`、
+  k 点查询及 `SpaceGroup` bridge 同样显式选择。结果通过 `labels()` 同时给出
+  `cdml` 与可选 `bc`；格式化子群表显示两者。CDML 的 Γ 前缀是 `GM`，BC
+  的输出为 Unicode `Γ`，但**编号必须读实际 BC 表**：213 `X2` = BC `X1`，
+  123 `GM2+` = BC `Γ3+`。BC 重名必须保留所有候选／报歧义，可用 k 坐标
+  消歧；不能用第一条命中。12 条 `***` 和 3611 条由 ML 生成占位 BC 的
+  spinor 没有可靠 BC 对应，不能冒充 BC 支持。标签选择不改变几何坐标帧。
+  磁摘要同时输出 k 点及来源 irrep 的两套标签；compound 成分没有独立 BC
+  映射时返回 `None`，不能继承整个 compound 行的 BC 标签。
+- **k 点分组不可依赖 BC 是否存在**：同一坐标的 scalar/spinor 行必须留在
+  同一物理 k 点，CDML 模式全表为 1350 点／8388 行；BC 模式为 1342 点／
+  4765 行。独立 DSH 审查复现了按标签可用性分组会拆成 2692 点的问题；
+  已按坐标分组修复，`tests/irrep_labels.rs` 的 12 项测试钉住全表分区、
+  真正编号对应、重名、缺失映射与双标签输出。
+- **书版 basis 锚点**：1988 书 Table 1 p.1-325（扫描 PDF 第366页），
+  213 `X2` / `C23` →146 的 basis 是 `(2,-2,0),(0,2,-2),(2,2,2)`，
+  origin=0；两处横线是负号。9.6.1 程序打印的六方基与书中满足
+  `a_iso=b_book, b_iso=a_book, c_iso=-c_book`。详见
+  `docs/isotropy-data-semantics.md` §2.1，测试钉住两种 convention，勿把 OCR
+  丢失负号后的 `(2,2,0),(0,2,2),(2,2,2)` 当作书中常规胞。
 
 - `isotropy_basis` / `isotropy_origin` 表达在**母群 primitive 胞**帧中，不是书里
   打印的 conventional 帧：官方程序打印子群的 ITA conventional 基。

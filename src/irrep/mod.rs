@@ -100,6 +100,8 @@ pub use types::generated_data;
 pub mod bridge;
 pub mod corep;
 pub mod isotropy;
+pub mod labels;
+pub use labels::{IrrepLabels, LabelConvention};
 pub mod magnetic_summary;
 pub mod preamble;
 pub mod query;

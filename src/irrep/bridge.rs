@@ -6,6 +6,7 @@
 
 use crate::SpaceGroup;
 use crate::SymmetryOps;
+use crate::irrep::labels::LabelConvention;
 use crate::irrep::query;
 use crate::irrep::query::{IsotropyEntry, MagneticIsotropyEntry};
 use crate::irrep::types::IrrepRecord;
@@ -35,17 +36,26 @@ impl SpaceGroup {
         query::irreps_of(self.spacegroup_number as u8)
     }
 
-    /// Unique k-points and their irrep indices for this space group.
-    pub fn kpoints(&self) -> Vec<query::KPointSummary> {
-        query::kpoints_of(self.spacegroup_number as u8)
+    /// Unique k-points and their irrep indices under an explicit label
+    /// convention, with both label spellings on every summary.
+    ///
+    /// CDML keeps the literal `"GM"` Γ symbol; BC reads the stored
+    /// Bradley–Cracknell prefix (`"Γ"`) and skips records without a genuine BC
+    /// label.
+    pub fn kpoints(&self, convention: LabelConvention) -> Vec<query::KPointSummary> {
+        query::kpoints_of(self.spacegroup_number as u8, convention)
     }
 
-    /// Irreps at a specific k-point label (e.g. `"GM"`, `"X"`, `"R"`).
-    pub fn irreps_at_k(&self, label: &str) -> Vec<&'static IrrepRecord> {
-        self.irreps()
-            .iter()
-            .filter(|r| r.k_label() == label)
-            .collect()
+    /// Irreps at a k-point label under an explicit label convention.
+    ///
+    /// `label` is the k-point symbol: `"GM"` for CDML (matched literally,
+    /// `"Γ"` is never accepted) and `"Γ"` or raw LaTeX for BC.
+    pub fn irreps_at_k(
+        &self,
+        label: &str,
+        convention: LabelConvention,
+    ) -> Vec<&'static IrrepRecord> {
+        query::irreps_at_k_label(self.spacegroup_number as u8, label, convention)
     }
 
     /// Irreps at specific k-point coordinates (fractional, common denominator).
@@ -106,9 +116,14 @@ impl SpaceGroup {
         query::format_magnetic_isotropy_table(self.spacegroup_number as u8, kx, ky, kz, kd)
     }
 
-    /// Scalar irreps at a specific k-point label with their isotropy subgroups.
-    pub fn irreps_with_isotropy_at_k(&self, label: &str) -> Vec<(&'static IrrepRecord, String)> {
-        self.irreps_at_k(label)
+    /// Scalar irreps at a k-point label with their isotropy subgroups, under
+    /// an explicit label convention.
+    pub fn irreps_with_isotropy_at_k(
+        &self,
+        label: &str,
+        convention: LabelConvention,
+    ) -> Vec<(&'static IrrepRecord, String)> {
+        self.irreps_at_k(label, convention)
             .into_iter()
             .filter(|ir| !ir.spinor)
             .map(|ir| {

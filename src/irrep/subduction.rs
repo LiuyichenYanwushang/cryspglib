@@ -3034,11 +3034,12 @@ mod tests {
 
     #[test]
     fn folding_sends_a_zone_boundary_point_to_the_subgroup_block() {
+        use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         // 16 R1 -> #22 F222 is a 2x2x2 supercell, so the parent's X point folds
         // to a non-Gamma block of the subgroup and the parent's zone corners
         // fold onto subgroup points equivalent modulo the F reciprocal lattice.
-        let subgroup = isotropy_subgroup_for_direction(16, "R1", IsotropyDirection::Label("P1"))
+        let subgroup = isotropy_subgroup_for_direction(16, "R1", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
             .expect("R1 record");
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
         let probe = query::irreps_of(16)
@@ -3082,8 +3083,9 @@ mod tests {
 
     #[test]
     fn gamma_subduction_golden_case() {
+        use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
-        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
             .expect("golden record");
         let result = subduce_irrep(&subgroup, "GM3+").expect("golden decomposition");
 
@@ -3209,8 +3211,9 @@ mod tests {
 
     #[test]
     fn subduction_is_character_driven_not_hard_coded() {
+        use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
-        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
             .expect("golden record");
         let mut probes = 0;
         for record in crate::irrep::query::irreps_of(221) {
@@ -3254,9 +3257,10 @@ mod tests {
 
     #[test]
     fn compound_rows_are_expanded_into_complex_constituents() {
+        use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         use crate::irrep::types::CompoundSelectedArmCharacter;
-        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
             .expect("golden record");
         // 221 GM4+ is a 3-dimensional ordinary irrep; #83 realises its A_u part
         // as an ordinary row and its E_u part only as a compound row, so this
@@ -3451,12 +3455,13 @@ mod tests {
 
     #[test]
     fn subduction_depends_on_the_embedding_context() {
+        use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         // The same parent irrep on a different condensing direction and
         // subgroup: the decomposition must follow the embedding, not the label.
-        let first = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+        let first = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
             .expect("P1 record");
-        let second = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P2"))
+        let second = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P2"))
             .expect("P2 record");
         let one = subduce_irrep(&first, "GM3+").expect("decomposition on #83");
         let two = subduce_irrep(&second, "GM3+").expect("decomposition on #12");
@@ -3490,8 +3495,9 @@ mod tests {
 
     #[test]
     fn subduction_rejects_unsupported_probes_and_contexts() {
+        use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
-        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
             .expect("golden record");
         assert!(matches!(
             subduce_irrep(&subgroup, "NOPE"),
@@ -3517,7 +3523,8 @@ mod tests {
             ));
         }
         // A condensing irrep away from Gamma is out of scope here (task 7).
-        let away_subgroup = crate::irrep::isotropy::isotropy_subgroups(221, away.ml)
+        let away_subgroup =
+            crate::irrep::isotropy::isotropy_subgroups(221, away.ml, LabelConvention::Cdml)
             .expect("subgroups")
             .into_iter()
             .next();
@@ -3531,6 +3538,7 @@ mod tests {
 
     #[test]
     fn subgroup_embeddings_build_for_the_fixture_cases() {
+        use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         let cases = [
             (221u8, "GM4+", "P1"),
@@ -3545,7 +3553,7 @@ mod tests {
             (139, "M1-", "P1"),
         ];
         for (sg, ml, label) in cases {
-            let subgroup = isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(label))
+            let subgroup = isotropy_subgroup_for_direction(sg, ml, LabelConvention::Cdml, IsotropyDirection::Label(label))
                 .unwrap_or_else(|error| panic!("SG {sg} {ml} {label}: {error}"));
             let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup)
                 .unwrap_or_else(|error| panic!("SG {sg} {ml} {label}: {error}"));
@@ -3659,8 +3667,9 @@ mod tests {
 
     #[test]
     fn forged_isotropy_records_are_rejected() {
+        use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
-        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
             .expect("golden record");
         assert!(SubgroupEmbedding::from_isotropy_subgroup(&subgroup).is_ok());
 

@@ -47,11 +47,17 @@
 //! # Example
 //!
 //! ```
+//! use cryspglib::irrep::LabelConvention;
 //! use cryspglib::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
 //!
 //! // Pm-3m (221), Γ3+ order parameter along (a,0) → P4/mmm (123)
-//! let sub = isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Descriptor("(a,0)"))
-//!     .unwrap();
+//! let sub = isotropy_subgroup_for_direction(
+//!     221,
+//!     "GM3+",
+//!     LabelConvention::Cdml,
+//!     IsotropyDirection::Descriptor("(a,0)"),
+//! )
+//! .unwrap();
 //! assert_eq!(sub.record.sg, 123);
 //! assert_eq!(sub.record.symbol, "P4/mmm");
 //! ```
@@ -65,6 +71,8 @@
 //! Landau "allowed" filtering (invariant polynomials) and the subduction of
 //! parent irreps into the subgroup are separate steps.
 
+use crate::irrep::LabelConvention;
+use crate::irrep::labels::{IrrepLabels, normalize_bc_label};
 use crate::irrep::query;
 use crate::irrep::types::{IrrepRecord, IsotropyRecord, KVector, MagneticIsotropyRecord};
 
@@ -75,8 +83,15 @@ use crate::irrep::types::{IrrepRecord, IsotropyRecord, KVector, MagneticIsotropy
 pub enum IsotropyError {
     /// Space group number out of range (1–230).
     InvalidSpaceGroup(u8),
-    /// The space group has no scalar irrep with this Miller–Love label.
+    /// No irrep has the requested label (`ml` retains its legacy field name).
     UnknownIrrep { sg: u8, ml: String },
+    /// The selected convention assigns this label to multiple source rows.
+    AmbiguousIrrepLabel {
+        sg: u8,
+        label: String,
+        convention: LabelConvention,
+        matches: usize,
+    },
     /// The irrep exists but belongs to a different **k**-point.
     IrrepNotAtKPoint { sg: u8, ml: String, k: KVector },
     /// Double-valued irreps carry no isotropy-subgroup data.
@@ -134,6 +149,15 @@ impl std::fmt::Display for IsotropyError {
             Self::UnknownIrrep { sg, ml } => {
                 write!(f, "space group {sg} has no scalar irrep labelled {ml}")
             }
+            Self::AmbiguousIrrepLabel {
+                sg,
+                label,
+                convention,
+                matches,
+            } => write!(
+                f,
+                "space group {sg} has {matches} irreps labelled {label} in {convention:?}; specify the k-point or use CDML"
+            ),
             Self::IrrepNotAtKPoint { sg, ml, k } => write!(
                 f,
                 "irrep {ml} of space group {sg} is not at k = ({}/{}, {}/{}, {}/{})",
@@ -277,24 +301,96 @@ pub struct MagneticIsotropySubgroup {
     pub record: MagneticIsotropyRecord,
 }
 
+impl IsotropySubgroup {
+    /// CDML and Unicode-normalized Bradley–Cracknell labels of the condensing
+    /// irrep; `bc` is `None` only for the generator's `"***"` placeholder.
+    pub fn labels(&self) -> IrrepLabels {
+        IrrepLabels {
+            cdml: self.irrep_ml,
+            bc: normalized_bc_label(self.irrep_bc),
+        }
+    }
+}
+
+impl MagneticIsotropySubgroup {
+    /// CDML and Unicode-normalized Bradley–Cracknell labels of the parent
+    /// irrep; `bc` is `None` only for the generator's `"***"` placeholder.
+    pub fn labels(&self) -> IrrepLabels {
+        IrrepLabels {
+            cdml: self.irrep_ml,
+            bc: normalized_bc_label(self.irrep_bc),
+        }
+    }
+}
+
+/// Normalize a stored BC label, reporting the generator's `"***"` placeholder
+/// as unavailable instead of passing it through as a label.
+///
+/// Isotropy rows are scalar, so the spinor caveat of
+/// [`crate::irrep::types::IrrepRecord::label`] does not arise here.
+fn normalized_bc_label(raw: &'static str) -> Option<String> {
+    if raw == "***" {
+        None
+    } else {
+        Some(normalize_bc_label(raw))
+    }
+}
+
 // ── Lookup helpers ────────────────────────────────────────────────────────────
 
-/// Find a single-valued irrep of a space group by Miller–Love label.
-pub fn irrep_by_label(sg: u8, ml: &str) -> Result<&'static IrrepRecord, IsotropyError> {
+/// Resolve a scalar irrep using its actual CDML or BC label.
+///
+/// BC accepts Unicode (`Γ3+`) and stored LaTeX (`\Gamma_{3}^+`).
+/// Missing BC mappings are not replaced by CDML labels. Multiple matches
+/// return an error; use [`isotropy_subgroups_at_k`] to
+/// disambiguate by the database's wave-vector coordinates.
+pub fn irrep_by_label(
+    sg: u8,
+    label: &str,
+    convention: LabelConvention,
+) -> Result<&'static IrrepRecord, IsotropyError> {
+    resolve_irrep_label(sg, label, convention, None)
+}
+
+fn resolve_irrep_label(
+    sg: u8,
+    label: &str,
+    convention: LabelConvention,
+    k: Option<KVector>,
+) -> Result<&'static IrrepRecord, IsotropyError> {
     if sg == 0 || sg > 230 {
         return Err(IsotropyError::InvalidSpaceGroup(sg));
     }
-    let found = query::irreps_of(sg).iter().find(|ir| ir.ml == ml);
-    let Some(irrep) = found else {
+    let mut matches = query::find_irreps(sg, label, convention);
+    if matches.is_empty() {
         return Err(IsotropyError::UnknownIrrep {
             sg,
-            ml: ml.to_string(),
+            ml: label.to_string(),
         });
-    };
+    }
+    if let Some(k) = k {
+        matches.retain(|irrep| k_vectors_agree(irrep.k_vector(), k));
+        if matches.is_empty() {
+            return Err(IsotropyError::IrrepNotAtKPoint {
+                sg,
+                ml: label.to_string(),
+                k,
+            });
+        }
+    }
+    if matches.len() != 1 {
+        return Err(IsotropyError::AmbiguousIrrepLabel {
+            sg,
+            label: label.to_string(),
+            convention,
+            matches: matches.len(),
+        });
+    }
+    let irrep = matches[0];
     if irrep.spinor {
         return Err(IsotropyError::SpinorUnsupported {
             sg,
-            ml: ml.to_string(),
+            ml: irrep.ml.to_string(),
         });
     }
     Ok(irrep)
@@ -376,43 +472,44 @@ fn wrap_magnetic(
 
 // ── Non-magnetic queries ──────────────────────────────────────────────────────
 
-/// All isotropy subgroups of one irrep, in table order.
-pub fn isotropy_subgroups(sg: u8, ml: &str) -> Result<Vec<IsotropySubgroup>, IsotropyError> {
-    let irrep = irrep_by_label(sg, ml)?;
+/// All isotropy subgroups selected using CDML or BC irrep labels.
+/// Results retain both source labels; geometry stays in the recorded frame.
+pub fn isotropy_subgroups(
+    sg: u8,
+    label: &str,
+    convention: LabelConvention,
+) -> Result<Vec<IsotropySubgroup>, IsotropyError> {
+    let irrep = irrep_by_label(sg, label, convention)?;
     Ok((0..irrep.subgroups().len())
         .map(|local| wrap(irrep, local))
         .collect())
 }
 
-/// All isotropy subgroups of one irrep, after checking the **k**-point.
+/// Select by convention and exact wave vector, including ambiguous BC names.
+/// The wave vector remains in the database frame, regardless of label choice.
 pub fn isotropy_subgroups_at_k(
     sg: u8,
     k: KVector,
-    ml: &str,
+    label: &str,
+    convention: LabelConvention,
 ) -> Result<Vec<IsotropySubgroup>, IsotropyError> {
-    let irrep = irrep_by_label(sg, ml)?;
-    if !k_vectors_agree(irrep.k_vector(), k) {
-        return Err(IsotropyError::IrrepNotAtKPoint {
-            sg,
-            ml: ml.to_string(),
-            k,
-        });
-    }
+    let irrep = resolve_irrep_label(sg, label, convention, Some(k))?;
     Ok((0..irrep.subgroups().len())
         .map(|local| wrap(irrep, local))
         .collect())
 }
 
-/// The isotropy subgroup selected by direction, ISOTROPY label, or index.
+/// Select one isotropy subgroup using a CDML or BC irrep label.
 pub fn isotropy_subgroup_for_direction(
     sg: u8,
-    ml: &str,
+    label: &str,
+    convention: LabelConvention,
     direction: IsotropyDirection<'_>,
 ) -> Result<IsotropySubgroup, IsotropyError> {
-    let irrep = irrep_by_label(sg, ml)?;
+    let irrep = irrep_by_label(sg, label, convention)?;
     let local = select_local_index(
         irrep,
-        ml,
+        irrep.ml,
         direction,
         |record| record.direction,
         |record| record.direction_label,
@@ -422,12 +519,13 @@ pub fn isotropy_subgroup_for_direction(
 
 // ── Magnetic queries ──────────────────────────────────────────────────────────
 
-/// All magnetic isotropy subgroups of one irrep, in table order.
+/// Magnetic isotropy records selected by the nonmagnetic parent's CDML/BC irrep.
 pub fn magnetic_isotropy_subgroups(
     sg: u8,
-    ml: &str,
+    label: &str,
+    convention: LabelConvention,
 ) -> Result<Vec<MagneticIsotropySubgroup>, IsotropyError> {
-    let irrep = irrep_by_label(sg, ml)?;
+    let irrep = irrep_by_label(sg, label, convention)?;
     Ok(irrep
         .magnetic_subgroups()
         .iter()
@@ -436,13 +534,15 @@ pub fn magnetic_isotropy_subgroups(
         .collect())
 }
 
-/// The magnetic isotropy subgroup selected by direction label or index.
+/// Select one magnetic isotropy record by the parent's CDML or BC label.
 pub fn magnetic_isotropy_subgroup_for_direction(
     sg: u8,
-    ml: &str,
+    label: &str,
+    convention: LabelConvention,
     direction: IsotropyDirection<'_>,
 ) -> Result<MagneticIsotropySubgroup, IsotropyError> {
-    let irrep = irrep_by_label(sg, ml)?;
+    let irrep = irrep_by_label(sg, label, convention)?;
+    let ml = irrep.ml;
     let records = irrep.magnetic_subgroups();
     let local = match direction {
         IsotropyDirection::Index(index) => {
@@ -532,6 +632,26 @@ pub struct OtherWaveVectorSubduction {
     pub parent_ml: &'static str,
     /// Subduction frequency `i(G)`.
     pub frequency: u16,
+}
+
+impl IdentitySubduction {
+    /// Both labels of the parent irrep, with BC rendered in Unicode.
+    pub fn labels(&self) -> IrrepLabels {
+        IrrepLabels {
+            cdml: self.parent_ml,
+            bc: normalized_bc_label(self.parent_bc),
+        }
+    }
+}
+
+impl OtherWaveVectorSubduction {
+    /// The other-wave-vector table supplies CDML only; BC is unavailable.
+    pub fn labels(&self) -> IrrepLabels {
+        IrrepLabels {
+            cdml: self.parent_ml,
+            bc: None,
+        }
+    }
 }
 
 impl IsotropySubgroup {
@@ -646,13 +766,16 @@ pub fn format_identity_subduction(ordinal: usize) -> Result<String, IsotropyErro
         entries.len(),
         ordinal + 1
     ));
-    lines.push("| Parent irrep | BC | k | dim | i(G) | Dir | domain |".to_string());
+    lines.push("| Parent CDML | BC | k | dim | i(G) | Dir | domain |".to_string());
     lines.push("|--------------|----|---|-----|------|-----|--------|".to_string());
     for entry in entries {
         lines.push(format!(
             "| {} | {} | ({}/{}, {}/{}, {}/{}) | {} | {} | {} | {} |",
             entry.parent_ml,
-            entry.parent_bc,
+            entry
+                .labels()
+                .bc
+                .unwrap_or_else(|| "unavailable".to_string()),
             entry.parent_k.numerators[0],
             entry.parent_k.denominator,
             entry.parent_k.numerators[1],
@@ -668,11 +791,11 @@ pub fn format_identity_subduction(ordinal: usize) -> Result<String, IsotropyErro
     let other_wave_vector = other_wave_vector_subduction(ordinal)?;
     if !other_wave_vector.is_empty() {
         lines.push(String::new());
-        lines.push("| Other-wave-vector parent irrep | i(G) |".to_string());
-        lines.push("|--------------------------------|------|".to_string());
+        lines.push("| Other-wave-vector CDML | BC | i(G) |".to_string());
+        lines.push("|------------------------|----|------|".to_string());
         for entry in other_wave_vector {
             lines.push(format!(
-                "| {} (SG {}) | {} |",
+                "| {} (SG {}) | unavailable | {} |",
                 entry.parent_ml, entry.parent_sg, entry.frequency
             ));
         }
@@ -915,17 +1038,22 @@ fn det3(m: [[i32; 3]; 3]) -> i128 {
 
 // ── Formatting ────────────────────────────────────────────────────────────────
 
-/// Markdown table of the isotropy subgroups of one irrep, including the
-/// subgroup geometry (basis, origin, index).
-pub fn format_isotropy_subgroups(sg: u8, ml: &str) -> Result<String, IsotropyError> {
-    let subgroups = isotropy_subgroups(sg, ml)?;
-    let irrep = irrep_by_label(sg, ml)?;
+/// Query in the selected convention and display both CDML and BC labels.
+pub fn format_isotropy_subgroups(
+    sg: u8,
+    label: &str,
+    convention: LabelConvention,
+) -> Result<String, IsotropyError> {
+    let irrep = irrep_by_label(sg, label, convention)?;
+    let subgroups = isotropy_subgroups(sg, irrep.ml, LabelConvention::Cdml)?;
     let mut lines = Vec::new();
     lines.push(format!(
-        "// SG {} {} irrep {} at k=({}/{}, {}/{}, {}/{}), {} isotropy subgroup(s)",
+        "// SG {} irrep CDML={} / BC={} at k=({}/{}, {}/{}, {}/{}), {} isotropy subgroup(s)",
         sg,
-        irrep.bc,
         irrep.ml,
+        irrep
+            .label(LabelConvention::Bc)
+            .unwrap_or_else(|| "unavailable".to_string()),
         irrep.kx,
         irrep.kd,
         irrep.ky,
@@ -974,19 +1102,20 @@ pub fn format_isotropy_subgroups(sg: u8, ml: &str) -> Result<String, IsotropyErr
     Ok(lines.join("\n"))
 }
 
-/// Markdown table of the magnetic isotropy subgroups of one irrep.
-///
-/// The basis and origin are converted to the parent's conventional basis; the
-/// basis remains a primitive basis of the magnetic subgroup lattice.
-pub fn format_magnetic_isotropy_subgroups(sg: u8, ml: &str) -> Result<String, IsotropyError> {
-    let subgroups = magnetic_isotropy_subgroups(sg, ml)?;
-    let irrep = irrep_by_label(sg, ml)?;
+/// Query magnetic isotropy records in the selected convention, showing both labels.
+pub fn format_magnetic_isotropy_subgroups(
+    sg: u8,
+    label: &str,
+    convention: LabelConvention,
+) -> Result<String, IsotropyError> {
+    let irrep = irrep_by_label(sg, label, convention)?;
+    let subgroups = magnetic_isotropy_subgroups(sg, irrep.ml, LabelConvention::Cdml)?;
     let mut lines = Vec::new();
     lines.push(format!(
-        "// SG {} {} irrep {} at k=({}/{}, {}/{}, {}/{}), {} magnetic isotropy subgroup(s)",
+        "// SG {} irrep CDML={} / BC={} at k=({}/{}, {}/{}, {}/{}), {} magnetic isotropy subgroup(s)",
         sg,
-        irrep.bc,
         irrep.ml,
+        irrep.label(LabelConvention::Bc).unwrap_or_else(|| "unavailable".to_string()),
         irrep.kx,
         irrep.kd,
         irrep.ky,
@@ -1062,9 +1191,13 @@ mod tests {
 
     #[test]
     fn pm3m_gm3plus_along_a0_gives_p4mmm() {
-        let sub =
-            isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Descriptor("(a,0)"))
-                .expect("GM3+ has an (a,0) direction");
+        let sub = isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Descriptor("(a,0)"),
+        )
+        .expect("GM3+ has an (a,0) direction");
         assert_eq!(sub.record.sg, 123);
         assert_eq!(sub.record.symbol, "P4/mmm");
         assert_eq!(sub.record.direction_dim, 2);
@@ -1077,8 +1210,13 @@ mod tests {
 
     #[test]
     fn p222_r1_reaches_centred_f222_with_primitive_basis() {
-        let sub = isotropy_subgroup_for_direction(16, "R1", IsotropyDirection::Index(0))
-            .expect("R1 has an isotropy subgroup");
+        let sub = isotropy_subgroup_for_direction(
+            16,
+            "R1",
+            LabelConvention::Cdml,
+            IsotropyDirection::Index(0),
+        )
+        .expect("R1 has an isotropy subgroup");
         assert_eq!(sub.record.sg, 22);
         assert_eq!(sub.record.basis, [[0, 1, 1], [1, 0, 1], [1, 1, 0]]);
         assert_eq!(sub.record.origin, [0, 0, 0, 1]);
@@ -1096,8 +1234,13 @@ mod tests {
         // #167 R-3c, Γ3+ along (a,0) → #2 P-1 with a doubled cell.  The stored
         // primitive-frame origin (0, 1/2, 0) is (-1/6, 1/6, 1/6) in hexagonal
         // conventional coordinates, which is what the ISOTROPY program prints.
-        let sub = isotropy_subgroup_for_direction(167, "GM3+", IsotropyDirection::Label("P1"))
-            .expect("Γ3+ has a P1 direction");
+        let sub = isotropy_subgroup_for_direction(
+            167,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("Γ3+ has a P1 direction");
         assert_eq!(sub.record.origin, [0, 1, 0, 2]);
         assert_eq!(sub.record.origin_shift(), Some([0.0, 0.5, 0.0]));
         let converted =
@@ -1123,8 +1266,13 @@ mod tests {
         // which is not a parent lattice vector.  Running the oracle in the
         // recorded ITA setting (`SET I ALL OR 1`) prints (1,1,1) instead; see
         // `docs/isotropy-data-semantics.md` §3.
-        let sub = isotropy_subgroup_for_direction(139, "M1-", IsotropyDirection::Label("P1"))
-            .expect("M1- has a P1 direction");
+        let sub = isotropy_subgroup_for_direction(
+            139,
+            "M1-",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("M1- has a P1 direction");
         assert_eq!(sub.record.sg, 126);
         assert_eq!(sub.record.origin, [2, 2, 2, 1]);
         assert_eq!(
@@ -1133,9 +1281,13 @@ mod tests {
         );
         // A primitive parent keeps the two frames identical; #229 Im-3m Γ4-
         // along (a,0,0) → #107 I4mm has a zero shift.
-        let primitive =
-            isotropy_subgroup_for_direction(229, "GM4-", IsotropyDirection::Descriptor("(a,0,0)"))
-                .expect("Γ4- has an (a,0,0) direction");
+        let primitive = isotropy_subgroup_for_direction(
+            229,
+            "GM4-",
+            LabelConvention::Cdml,
+            IsotropyDirection::Descriptor("(a,0,0)"),
+        )
+        .expect("Γ4- has an (a,0,0) direction");
         assert_eq!(primitive.record.sg, 107);
         assert_eq!(subgroup_size(primitive.record.basis).unwrap(), 1);
     }
@@ -1220,11 +1372,20 @@ mod tests {
 
     #[test]
     fn direction_lookup_can_use_the_isotropy_label() {
-        let by_label = isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Label("P1"))
-            .expect("P1 selects the (a,0) direction");
-        let by_descriptor =
-            isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Descriptor("(a,0)"))
-                .expect("(a,0) selects the same record");
+        let by_label = isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("P1 selects the (a,0) direction");
+        let by_descriptor = isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Descriptor("(a,0)"),
+        )
+        .expect("(a,0) selects the same record");
         assert_eq!(by_label.ordinal, by_descriptor.ordinal);
         // 0-based ordinal into the flat isotropy table, pinned against
         // `data_isotropy.txt` (`isotropy_irrep_pointer` is 1-based).
@@ -1232,8 +1393,13 @@ mod tests {
         assert_eq!(by_label.record.sg, 123);
         assert_eq!(by_label.record.direction_label, "P1");
         // The next record of the same irrep is the C1 direction for #47.
-        let second = isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Label("C1"))
-            .expect("C1 selects the second direction");
+        let second = isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("C1"),
+        )
+        .expect("C1 selects the second direction");
         assert_eq!(second.ordinal, 12398);
         assert_eq!(second.record.sg, 47);
     }
@@ -1252,9 +1418,13 @@ mod tests {
             (225, "GM4-", "(a,a,b)", 8),   // Cm
         ];
         for (sg, ml, descriptor, expected_sg) in cases {
-            let subgroup =
-                isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Descriptor(descriptor))
-                    .unwrap_or_else(|error| panic!("SG {sg} {ml} {descriptor}: {error}"));
+            let subgroup = isotropy_subgroup_for_direction(
+                sg,
+                ml,
+                LabelConvention::Cdml,
+                IsotropyDirection::Descriptor(descriptor),
+            )
+            .unwrap_or_else(|error| panic!("SG {sg} {ml} {descriptor}: {error}"));
             assert_eq!(
                 subgroup.record.sg, expected_sg,
                 "SG {sg} {ml} {descriptor} selected #{} instead of #{expected_sg}",
@@ -1264,43 +1434,53 @@ mod tests {
             let by_label = isotropy_subgroup_for_direction(
                 sg,
                 ml,
+                LabelConvention::Cdml,
                 IsotropyDirection::Label(subgroup.record.direction_label),
             )
             .expect("label selects the same record");
             assert_eq!(by_label.ordinal, subgroup.ordinal);
         }
         // The complex separator is accepted interchangeably.
-        let complex =
-            isotropy_subgroup_for_direction(177, "L1", IsotropyDirection::Descriptor("(a,b,a)"))
-                .expect("(a,b,a) matches the program's (a;b;a)");
+        let complex = isotropy_subgroup_for_direction(
+            177,
+            "L1",
+            LabelConvention::Cdml,
+            IsotropyDirection::Descriptor("(a,b,a)"),
+        )
+        .expect("(a,b,a) matches the program's (a;b;a)");
         assert_eq!(complex.record.direction, "(a;b;a)");
     }
 
     #[test]
     fn unknown_direction_and_irrep_fail_closed() {
-        let missing =
-            isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Descriptor("(zzz)"));
+        let missing = isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Descriptor("(zzz)"),
+        );
         assert!(matches!(
             missing,
             Err(IsotropyError::DirectionNotFound { .. })
         ));
 
-        let unknown = isotropy_subgroups(221, "NOPE1");
+        let unknown = isotropy_subgroups(221, "NOPE1", LabelConvention::Cdml);
         assert!(matches!(unknown, Err(IsotropyError::UnknownIrrep { .. })));
 
-        let bad_sg = isotropy_subgroups(231, "GM1");
+        let bad_sg = isotropy_subgroups(231, "GM1", LabelConvention::Cdml);
         assert!(matches!(bad_sg, Err(IsotropyError::InvalidSpaceGroup(231))));
 
         // Index selectors are bounds-checked on both the ordinary and the
         // magnetic table.
         assert!(matches!(
-            isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Index(usize::MAX)),
+            isotropy_subgroup_for_direction(221, "GM3+", LabelConvention::Cdml, IsotropyDirection::Index(usize::MAX)),
             Err(IsotropyError::SubgroupIndexOutOfRange { index, .. }) if index == usize::MAX
         ));
         assert!(matches!(
             magnetic_isotropy_subgroup_for_direction(
                 221,
                 "GM3+",
+                LabelConvention::Cdml,
                 IsotropyDirection::Index(usize::MAX)
             ),
             Err(IsotropyError::SubgroupIndexOutOfRange { .. })
@@ -1348,7 +1528,7 @@ mod tests {
             .iter()
             .find(|irrep| irrep.spinor)
             .expect("SG 1 has a spinor irrep");
-        let result = isotropy_subgroups(1, spinor.ml);
+        let result = isotropy_subgroups(1, spinor.ml, LabelConvention::Cdml);
         assert!(matches!(
             result,
             Err(IsotropyError::SpinorUnsupported { .. })
@@ -1358,18 +1538,19 @@ mod tests {
     #[test]
     fn k_point_mismatch_is_reported() {
         let wrong_k = KVector::new([1, 0, 0], 2);
-        let result = isotropy_subgroups_at_k(221, wrong_k, "GM3+");
+        let result = isotropy_subgroups_at_k(221, wrong_k, "GM3+", LabelConvention::Cdml);
         assert!(matches!(
             result,
             Err(IsotropyError::IrrepNotAtKPoint { .. })
         ));
         let right_k = KVector::new([0, 0, 0], 1);
-        assert!(isotropy_subgroups_at_k(221, right_k, "GM3+").is_ok());
+        assert!(isotropy_subgroups_at_k(221, right_k, "GM3+", LabelConvention::Cdml).is_ok());
     }
 
     #[test]
     fn magnetic_table_is_keyed_by_non_magnetic_parent_irreps() {
-        let spinor_free = magnetic_isotropy_subgroups(221, "GM3+").expect("mag subgroups exist");
+        let spinor_free = magnetic_isotropy_subgroups(221, "GM3+", LabelConvention::Cdml)
+            .expect("mag subgroups exist");
         assert!(!spinor_free.is_empty());
         assert!(
             spinor_free
@@ -1390,7 +1571,8 @@ mod tests {
 
     #[test]
     fn formatting_includes_geometry_columns() {
-        let table = format_isotropy_subgroups(221, "GM3+").expect("table renders");
+        let table =
+            format_isotropy_subgroups(221, "GM3+", LabelConvention::Cdml).expect("table renders");
         assert!(table.contains("| Size |"));
         assert!(table.contains("#123 P4/mmm"));
         // Exactly one rendered data row, pinned field by field.  `| 1 |` alone
@@ -1416,8 +1598,13 @@ mod tests {
     /// `dim <= 3`, and the compact `LABEL(free)/DIMD` form above.
     #[test]
     fn direction_descriptors_follow_the_documented_notation() {
-        let two_dim = isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Label("P1"))
-            .expect("GM3+ has P1");
+        let two_dim = isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("GM3+ has P1");
         assert_eq!(two_dim.record.direction, "(a,0)");
         assert_eq!(two_dim.record.direction_dim, 2);
         assert_eq!(two_dim.record.direction_free, 1);
@@ -1425,8 +1612,13 @@ mod tests {
         // Four-dimensional directions use the compact form instead of listing
         // components; #22 F222 `L1` has a single 4D direction with 1 free
         // parameter, stored as `P1(1)/4D`.
-        let four_dim = isotropy_subgroup_for_direction(22, "L1", IsotropyDirection::Label("P1"))
-            .expect("L1 has a P1 direction");
+        let four_dim = isotropy_subgroup_for_direction(
+            22,
+            "L1",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("L1 has a P1 direction");
         assert_eq!(four_dim.record.direction_dim, 4);
         assert_eq!(four_dim.record.direction_free, 1);
         assert_eq!(four_dim.record.direction, "P1(1)/4D");
@@ -1437,15 +1629,20 @@ mod tests {
         // Magnetic records only carry the program's direction label (`P1`,
         // `4D1`, …); no component descriptor exists for them, so a descriptor
         // lookup must fail closed instead of silently matching a wrong record.
-        let by_label =
-            magnetic_isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Label("P1"))
-                .expect("magnetic P1 direction resolves");
+        let by_label = magnetic_isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("magnetic P1 direction resolves");
         assert!(!by_label.record.direction.is_empty());
         assert!(!by_label.record.direction.contains('('));
         assert!(matches!(
             magnetic_isotropy_subgroup_for_direction(
                 221,
                 "GM3+",
+                LabelConvention::Cdml,
                 IsotropyDirection::Descriptor("(a,0)")
             ),
             Err(IsotropyError::DirectionNotFound { .. })
@@ -1492,9 +1689,13 @@ mod tests {
             ),
         ];
         for (sg, ml, direction, expected) in cases {
-            let subgroup =
-                isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Descriptor(direction))
-                    .unwrap_or_else(|error| panic!("SG {sg} {ml} {direction}: {error}"));
+            let subgroup = isotropy_subgroup_for_direction(
+                sg,
+                ml,
+                LabelConvention::Cdml,
+                IsotropyDirection::Descriptor(direction),
+            )
+            .unwrap_or_else(|error| panic!("SG {sg} {ml} {direction}: {error}"));
             let entries = subgroup
                 .identity_subduction()
                 .unwrap_or_else(|error| panic!("SG {sg} {ml} {direction}: {error}"));
@@ -1530,5 +1731,23 @@ mod tests {
             identity_subduction(ranges.len()),
             Err(IsotropyError::InvalidIsotropyRecord { .. })
         ));
+    }
+
+    #[test]
+    fn labels_report_normalized_bc_and_the_missing_placeholder() {
+        let subgroup = isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("GM3+ has a P1 direction");
+        let labels = subgroup.labels();
+        assert_eq!(labels.cdml, "GM3+");
+        assert_eq!(labels.bc.as_deref(), Some("Γ3+"));
+        // No pinned isotropy row stores `"***"`, so drive the placeholder
+        // branch directly instead of leaving it untested.
+        assert_eq!(normalized_bc_label("***"), None);
+        assert_eq!(normalized_bc_label("\\Gamma_{3}^+").as_deref(), Some("Γ3+"));
     }
 }

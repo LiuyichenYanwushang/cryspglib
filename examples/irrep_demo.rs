@@ -7,6 +7,7 @@
 
 use cryspglib::Crystal;
 use cryspglib::SymmetryOps;
+use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::query::*;
 
 fn main() {
@@ -28,7 +29,7 @@ fn main() {
 
     // 桥接 API: 从 SpaceGroup 直接查 irreps
     println!("SG {} ({}):", ds.spacegroup_number, ds.international_symbol);
-    let gm_irreps = ds.irreps_at_k("GM");
+    let gm_irreps = ds.irreps_at_k("GM", LabelConvention::Cdml);
     println!("  Gamma point: {} irreps", gm_irreps.len());
 
     let gm4m = gm_irreps.iter().find(|r| r.ml == "GM4-").unwrap();
@@ -98,8 +99,13 @@ fn main() {
 
     // ━━━ 遍历所有 k 点 ━━━
     println!("\nAll k-points in SG 221:");
-    for kp in kpoints_of(221) {
-        println!("  {} ({} irreps)", kp.label, kp.irreps.len());
+    for kp in kpoints_of(221, LabelConvention::Cdml) {
+        println!(
+            "  CDML={} / BC={} ({} irreps)",
+            kp.labels.cdml,
+            kp.labels.bc.as_deref().unwrap_or("unavailable"),
+            kp.irreps.len()
+        );
     }
 
     // ━━━ 获取对称操作 (不通过 Crystal) ━━━

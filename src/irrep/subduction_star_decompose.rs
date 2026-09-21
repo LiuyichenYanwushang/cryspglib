@@ -1277,6 +1277,7 @@ fn reconstruct(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::irrep::LabelConvention;
     use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
     use crate::irrep::subduction::subduce_irrep_with_embedding;
 
@@ -1288,9 +1289,13 @@ mod tests {
     }
 
     fn embedding(parent: u8, ml: &str, direction: &str) -> SubgroupEmbedding {
-        let subgroup =
-            isotropy_subgroup_for_direction(parent, ml, IsotropyDirection::Label(direction))
-                .unwrap_or_else(|error| panic!("SG {parent} {ml} {direction}: {error}"));
+        let subgroup = isotropy_subgroup_for_direction(
+            parent,
+            ml,
+            LabelConvention::Cdml,
+            IsotropyDirection::Label(direction),
+        )
+        .unwrap_or_else(|error| panic!("SG {parent} {ml} {direction}: {error}"));
         SubgroupEmbedding::from_isotropy_subgroup(&subgroup)
             .unwrap_or_else(|error| panic!("SG {parent} {ml} {direction} embedding: {error}"))
     }
@@ -1300,8 +1305,13 @@ mod tests {
     }
 
     fn subgroup_of(parent: u8, ml: &str, direction: &str) -> IsotropySubgroup {
-        isotropy_subgroup_for_direction(parent, ml, IsotropyDirection::Label(direction))
-            .unwrap_or_else(|error| panic!("SG {parent} {ml} {direction}: {error}"))
+        isotropy_subgroup_for_direction(
+            parent,
+            ml,
+            LabelConvention::Cdml,
+            IsotropyDirection::Label(direction),
+        )
+        .unwrap_or_else(|error| panic!("SG {parent} {ml} {direction}: {error}"))
     }
 
     fn result_of(

@@ -16,6 +16,7 @@
 //!   zero and rejected the whole embedding.  This also pins the Bloch phase of
 //!   the non-Gamma probes that the repaired embedding unlocks.
 
+use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{
     IsotropyDirection, IsotropySubgroup, isotropy_subgroup_for_direction,
 };
@@ -32,7 +33,7 @@ fn rat(num: i128, den: i128) -> Rat {
 }
 
 fn subgroup(sg: u8, ml: &str, direction: &str) -> IsotropySubgroup {
-    isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(direction))
+    isotropy_subgroup_for_direction(sg, ml, LabelConvention::Cdml, IsotropyDirection::Label(direction))
         .unwrap_or_else(|error| panic!("SG {sg} {ml} {direction}: {error}"))
 }
 

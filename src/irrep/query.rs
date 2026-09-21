@@ -7,12 +7,13 @@
 //!
 //! ```
 //! use cryspglib::irrep::query::*;
+//! use cryspglib::irrep::LabelConvention;
 //!
 //! // List all irreps for a space group
 //! let irreps = irreps_of(221);  // Pm-3m
 //!
 //! // Get all unique k-points with their labels and coordinates
-//! let kpoints = kpoints_of(221);
+//! let kpoints = kpoints_of(221, LabelConvention::Cdml);
 //!
 //! // Print an operation-aware typed character table for the Γ point
 //! println!("{}", format_character_table(221, 0, 0, 0, 1));
@@ -38,6 +39,7 @@ use std::collections::BTreeMap;
 
 use num_complex::Complex64;
 
+use super::labels::{IrrepLabels, LabelConvention, normalize_bc_label};
 use super::preamble;
 use super::types::generated_data::*;
 use super::types::*;
@@ -110,41 +112,130 @@ pub fn sg_info(sg: u8) -> Option<(&'static str, &'static str)> {
 
 /// Summary of a k-point in the Brillouin zone.
 pub struct KPointSummary {
-    /// k-point label: `"GM"`, `"X"`, `"R"`, `"DT"`, etc.
-    pub label: String,
+    /// k-point symbol in both conventions: the CDML label (`"GM"`, `"X"`,
+    /// `"DT"`) and the BC label (`"Γ"`, `"X"`, `"Δ"`).  The BC half is `None`
+    /// only when none of the k-point's records carries a genuine BC label.
+    pub labels: IrrepLabels,
     /// Fractional reciprocal coordinates as `(kx, ky, kz, denom)`.
     /// The actual coordinate is `(kx/denom, ky/denom, kz/denom)`.
     pub coords: (i8, i8, i8, i8),
-    /// Indices into [`IRREPS`] for all irreps at this k-point.
+    /// SG-local indices into [`irreps_of`]'s slice for this space group (not
+    /// indices into the global `IRREPS` table).
     pub irreps: Vec<usize>,
 }
 
-/// Get all unique k-points for a space group, with their irreps.
-///
-/// Groups irreps by their `(kx, ky, kz, kd)` coordinates and
-/// returns a sorted list with k-point labels extracted from
-/// the first irrep's ML label.
-pub fn kpoints_of(sg: u8) -> Vec<KPointSummary> {
+/// Group by physical source coordinates, retaining scalar and spinor rows at
+/// the same point. BC availability of an irrep must not split a physical
+/// k-point (these groups also feed magnetic corepresentation calculations).
+fn kpoint_summaries(sg: u8, convention: LabelConvention) -> Vec<KPointSummary> {
     let irreps = irreps_of(sg);
     let mut groups: BTreeMap<(i8, i8, i8, i8), Vec<usize>> = BTreeMap::new();
 
     for (idx, ir) in irreps.iter().enumerate() {
-        let coords = (ir.kx, ir.ky, ir.kz, ir.kd);
-        groups.entry(coords).or_default().push(idx);
+        if convention == LabelConvention::Bc && ir.label(convention).is_none() {
+            continue;
+        }
+        groups
+            .entry((ir.kx, ir.ky, ir.kz, ir.kd))
+            .or_default()
+            .push(idx);
     }
 
     groups
         .into_iter()
-        .map(|(coords, ir_indices)| {
-            let first = &irreps[ir_indices[0]];
-            let label = first.k_label().to_string();
+        .map(|(coords, indices)| {
+            let cdml = irreps[indices[0]].k_label();
+            let mut known = indices
+                .iter()
+                .filter_map(|&index| irreps[index].k_label_with_convention(LabelConvention::Bc));
+            // The frozen table has one BC prefix per physical point. If a
+            // future source disagrees, report it unavailable instead of
+            // choosing one of the conflicting prefixes.
+            let bc = known
+                .next()
+                .filter(|first| known.all(|next| next == *first));
             KPointSummary {
-                label,
+                labels: IrrepLabels { cdml, bc },
                 coords,
-                irreps: ir_indices,
+                irreps: indices,
             }
         })
         .collect()
+}
+
+/// Get all unique k-points for a space group under an explicit label
+/// convention, with both label spellings on every summary.
+///
+/// Groups use physical coordinates in both conventions. CDML includes every
+/// record; BC includes only records with verified BC labels. Each summary
+/// carries its CDML prefix and the unique known BC prefix at that point (or
+/// `None` when unavailable or conflicting). Distinct coordinates can share a
+/// BC symbol: SG 1 calls both CDML `GM` and `Z` `Γ`.
+pub fn kpoints_of(sg: u8, convention: LabelConvention) -> Vec<KPointSummary> {
+    kpoint_summaries(sg, convention)
+}
+
+/// Find every irrep of `sg` whose label under `convention` equals `label`.
+///
+/// [`LabelConvention::Cdml`] compares the input **literally** against
+/// [`IrrepRecord::ml`]: `"GM4+"` matches, while `"Γ4+"`, `"\\Gamma_{4}^+"` and
+/// surrounding whitespace never do.  [`LabelConvention::Bc`] normalizes both
+/// sides: notation markup (`_`, `^`, `{`, `}`, `$`, whitespace) is ignored,
+/// so stored LaTeX such as `"\\Gamma_{3}^+"` and plain Unicode such as
+/// `"Γ₃⁺"` both match `"Γ3+"`, and the repeated Γ token that the generator
+/// leaves in a compound BC label normalizes to `Γ` (stored
+/// `"\\Gamma_{2}GM3"` → `"Γ2Γ3"`).
+///
+/// Signs, compound components and unparsed text are preserved, so `"+"` never
+/// collapses into `"-"` and an unknown command never turns into a match.  All
+/// matches in table order are returned — SG 1 has two different records labeled
+/// `Γ1`, SG 2 has two labeled `Γ1+` and two labeled `Γ1-` — never just the
+/// first.  Numbering always comes from the stored field of the requested
+/// convention, never from the other convention's `.ml`/`.bc` value.
+///
+/// Returns an empty vector for invalid SG numbers and for a label that only
+/// exists in the other convention.
+pub fn find_irreps(sg: u8, label: &str, convention: LabelConvention) -> Vec<&'static IrrepRecord> {
+    match convention {
+        LabelConvention::Cdml => irreps_of(sg).iter().filter(|ir| ir.ml == label).collect(),
+        LabelConvention::Bc => {
+            let wanted = normalize_bc_label(label);
+            irreps_of(sg)
+                .iter()
+                .filter(|ir| ir.label(LabelConvention::Bc).as_deref() == Some(wanted.as_str()))
+                .collect()
+        }
+    }
+}
+
+/// All irreps of `sg` at the k-point named `label` under `convention`.
+///
+/// `label` is the k-point symbol, not a full irrep label.  CDML matches the
+/// literal stored prefix (`"GM"`, `"X"`, `"DT"`), so `"Γ"` is never accepted.
+/// BC normalizes its input like [`find_irreps`] (`"Γ"` or `"\\Gamma"`), and
+/// unavailable BC records are skipped, so a BC result never falls back to a
+/// CDML k-point symbol.
+pub fn irreps_at_k_label(
+    sg: u8,
+    label: &str,
+    convention: LabelConvention,
+) -> Vec<&'static IrrepRecord> {
+    match convention {
+        LabelConvention::Cdml => irreps_of(sg)
+            .iter()
+            .filter(|ir| ir.k_label() == label)
+            .collect(),
+        LabelConvention::Bc => {
+            let wanted = normalize_bc_label(label);
+            irreps_of(sg)
+                .iter()
+                .filter(|ir| {
+                    ir.k_label_with_convention(LabelConvention::Bc).as_deref()
+                        == Some(wanted.as_str())
+                })
+                .collect()
+        }
+    }
 }
 
 /// Fractional-translation tolerance used when forming formatter columns.
@@ -377,7 +468,7 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
 
     // Header row
     let mut lines = Vec::new();
-    let header: Vec<String> = std::iter::once("ML".to_string())
+    let header: Vec<String> = std::iter::once("CDML".to_string())
         .chain(std::iter::once("BC".to_string()))
         .chain(
             columns
@@ -396,7 +487,12 @@ pub fn format_character_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String 
     // Data rows
     for typed_row in &typed_rows {
         let row: Vec<String> = std::iter::once(typed_row.irrep.ml.to_string())
-            .chain(std::iter::once(typed_row.irrep.bc.to_string()))
+            .chain(std::iter::once(
+                typed_row
+                    .irrep
+                    .label(LabelConvention::Bc)
+                    .unwrap_or_else(|| "unavailable".to_string()),
+            ))
             .chain(columns.iter().map(|(key, _)| {
                 typed_row
                     .entries
@@ -467,7 +563,7 @@ pub struct IsotropyEntry {
     pub k_label: String,
     /// Miller-Love irrep label (e.g. `"GM4-"`)
     pub ml_label: &'static str,
-    /// Bradley-Cracknell label
+    /// Raw legacy BC field, possibly `"***"`. Use [`Self::labels`] for display.
     pub bc_label: &'static str,
     /// Irrep dimension
     pub dim: u8,
@@ -482,12 +578,32 @@ pub struct MagneticIsotropyEntry {
     pub k_label: String,
     /// Miller-Love irrep label (e.g. `"GM4-"`)
     pub ml_label: &'static str,
-    /// Bradley-Cracknell label
+    /// Raw legacy BC field, possibly `"***"`. Use [`Self::labels`] for display.
     pub bc_label: &'static str,
     /// Irrep dimension
     pub dim: u8,
     /// The magnetic isotropy subgroup record
     pub subgroup: MagneticIsotropyRecord,
+}
+
+impl IsotropyEntry {
+    /// Both irrep labels; a missing BC mapping is `None`.
+    pub fn labels(&self) -> IrrepLabels {
+        IrrepLabels {
+            cdml: self.ml_label,
+            bc: (self.bc_label != "***").then(|| normalize_bc_label(self.bc_label)),
+        }
+    }
+}
+
+impl MagneticIsotropyEntry {
+    /// Both irrep labels; a missing BC mapping is `None`.
+    pub fn labels(&self) -> IrrepLabels {
+        IrrepLabels {
+            cdml: self.ml_label,
+            bc: (self.bc_label != "***").then(|| normalize_bc_label(self.bc_label)),
+        }
+    }
 }
 
 /// All isotropy subgroups across all irreps of a space group.
@@ -553,51 +669,77 @@ pub fn magnetic_isotropy_subgroups_of(sg: u8) -> Vec<MagneticIsotropyEntry> {
     entries
 }
 
-/// Find all irreps (across all 230 SGs) that have a specific isotropy subgroup.
+/// Find all scalar irreps (across all 230 SGs) that have a specific isotropy
+/// subgroup, selected under `convention`.
 ///
-/// Returns `(sg, ml_label, k_label)` for each matching irrep.
+/// Every matching source record is returned once, in `(sg, table order)`
+/// order, as a borrowed [`IrrepRecord`]: callers read the requested label from
+/// [`IrrepRecord::labels`] and the other convention stays available on the same
+/// record.  Identities are never merged by label spelling — SG 1 `GM1` and
+/// `Z1` both have the BC label `Γ1` and both appear.
+///
+/// Double-valued (spinor) irreps have no conventional isotropy subgroups and
+/// are always skipped.  Under [`LabelConvention::Bc`] records without a
+/// genuine BC label (the `"***"` placeholder rows) are skipped as well; under
+/// [`LabelConvention::Cdml`] every scalar match is returned.
 ///
 /// ```
 /// use cryspglib::irrep::query::*;
+/// use cryspglib::irrep::LabelConvention;
 ///
 /// // Find which irrep(s) have SG #1 (P1) as an isotropy subgroup
 /// // Every point group has at least some irreps that break to P1
-/// let results = irreps_with_subgroup(1);
+/// let results = irreps_with_subgroup(1, LabelConvention::Cdml);
 /// assert!(!results.is_empty());
+/// assert!(results[0].labels().bc.is_some() || results[0].bc == "***");
 /// ```
-pub fn irreps_with_subgroup(target_sg: usize) -> Vec<(u8, &'static str, String)> {
+pub fn irreps_with_subgroup(
+    target_sg: usize,
+    convention: LabelConvention,
+) -> Vec<&'static IrrepRecord> {
     let mut results = Vec::new();
     for sg in 1u8..=230 {
         for ir in irreps_of(sg) {
             if ir.spinor {
                 continue;
             }
-            for sub in ir.subgroups() {
-                if sub.sg == target_sg {
-                    results.push((sg, ir.ml, ir.k_label().to_string()));
-                    break; // each irrep listed once even if subgroup appears multiple times
-                }
+            if convention == LabelConvention::Bc && ir.label(LabelConvention::Bc).is_none() {
+                continue;
+            }
+            if ir.subgroups().iter().any(|sub| sub.sg == target_sg) {
+                results.push(ir);
             }
         }
     }
     results
 }
 
-/// Find all irreps that have a specific magnetic isotropy subgroup (by UNI number).
+/// Find all scalar irreps that have a specific magnetic isotropy subgroup
+/// (by UNI number), selected under `convention`.
 ///
-/// Returns `(sg, ml_label, k_label)` for each matching irrep.
-pub fn irreps_with_magnetic_subgroup(target_uni: usize) -> Vec<(u8, &'static str, String)> {
+/// Same contract as [`irreps_with_subgroup`]: each matching source record is
+/// returned once with both label spellings and its stable id/SG/k, duplicates
+/// of one BC spelling are not collapsed, and records without a BC label are
+/// skipped only when [`LabelConvention::Bc`] is requested.
+pub fn irreps_with_magnetic_subgroup(
+    target_uni: usize,
+    convention: LabelConvention,
+) -> Vec<&'static IrrepRecord> {
     let mut results = Vec::new();
     for sg in 1u8..=230 {
         for ir in irreps_of(sg) {
             if ir.spinor {
                 continue;
             }
-            for sub in ir.magnetic_subgroups() {
-                if sub.mag_sg == target_uni {
-                    results.push((sg, ir.ml, ir.k_label().to_string()));
-                    break;
-                }
+            if convention == LabelConvention::Bc && ir.label(LabelConvention::Bc).is_none() {
+                continue;
+            }
+            if ir
+                .magnetic_subgroups()
+                .iter()
+                .any(|sub| sub.mag_sg == target_uni)
+            {
+                results.push(ir);
             }
         }
     }
@@ -606,7 +748,7 @@ pub fn irreps_with_magnetic_subgroup(target_uni: usize) -> Vec<(u8, &'static str
 
 /// Format an isotropy subgroup table for a k-point as a markdown-style table.
 ///
-/// Columns: ML, BC, dim, subgroup SG#, HM symbol, direction, domains, arms.
+/// Columns: CDML, Unicode BC, dim, subgroup SG#, HM symbol, direction, domains, arms.
 pub fn format_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
     let irreps = irreps_of(sg);
     let matching: Vec<&IrrepRecord> = irreps
@@ -622,24 +764,27 @@ pub fn format_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
     }
 
     let mut lines = Vec::new();
-    let header = "| ML | BC | dim | Subgroup | Direction | Domains | Arms |";
+    let header = "| CDML | BC | dim | Subgroup | Direction | Domains | Arms |";
     let sep = "|---|----|-----|----------|-----------|---------|------|";
     lines.push(header.to_string());
     lines.push(sep.to_string());
 
     for ir in &matching {
         let subs = ir.subgroups();
+        let bc = ir
+            .label(LabelConvention::Bc)
+            .unwrap_or_else(|| "unavailable".to_string());
         if subs.is_empty() {
             lines.push(format!(
                 "| {} | {} | {} | (none) | | | |",
-                ir.ml, ir.bc, ir.dim
+                ir.ml, bc, ir.dim
             ));
             continue;
         }
         for sub in subs {
             lines.push(format!(
                 "| {} | {} | {} | #{} {} | {} | {} | {} |",
-                ir.ml, ir.bc, ir.dim, sub.sg, sub.symbol, sub.direction, sub.domains, sub.arms,
+                ir.ml, bc, ir.dim, sub.sg, sub.symbol, sub.direction, sub.domains, sub.arms,
             ));
         }
     }
@@ -667,7 +812,7 @@ pub fn format_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
 
 /// Format a magnetic isotropy subgroup table for a k-point.
 ///
-/// Columns: ML, BC, dim, UNI#, BNS label, direction.
+/// Columns: CDML, Unicode BC, dim, UNI#, BNS label, direction.
 pub fn format_magnetic_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) -> String {
     let irreps = irreps_of(sg);
     let matching: Vec<&IrrepRecord> = irreps
@@ -683,24 +828,24 @@ pub fn format_magnetic_isotropy_table(sg: u8, kx: i8, ky: i8, kz: i8, kd: i8) ->
     }
 
     let mut lines = Vec::new();
-    let header = "| ML | BC | dim | UNI# | BNS | Direction |";
+    let header = "| CDML | BC | dim | UNI# | BNS | Direction |";
     let sep = "|---|----|-----|------|-----|-----------|";
     lines.push(header.to_string());
     lines.push(sep.to_string());
 
     for ir in &matching {
         let subs = ir.magnetic_subgroups();
+        let bc = ir
+            .label(LabelConvention::Bc)
+            .unwrap_or_else(|| "unavailable".to_string());
         if subs.is_empty() {
-            lines.push(format!(
-                "| {} | {} | {} | (none) | | |",
-                ir.ml, ir.bc, ir.dim
-            ));
+            lines.push(format!("| {} | {} | {} | (none) | | |", ir.ml, bc, ir.dim));
             continue;
         }
         for sub in subs {
             lines.push(format!(
                 "| {} | {} | {} | {} | {} | {} |",
-                ir.ml, ir.bc, ir.dim, sub.mag_sg, sub.bns_label, sub.direction,
+                ir.ml, bc, ir.dim, sub.mag_sg, sub.bns_label, sub.direction,
             ));
         }
     }
@@ -798,16 +943,22 @@ mod tests {
     #[test]
     fn test_kpoints_of() {
         // SG 221 (Pm-3m) has high-symmetry k-points: Γ, X, M, R
-        let kps = kpoints_of(221);
-        assert!(!kps.is_empty());
+        let kps = kpoints_of(221, LabelConvention::Cdml);
+        assert_eq!(kps.len(), 4);
 
         // Should have at least Γ point
-        let gm_kps: Vec<_> = kps.iter().filter(|k| k.label == "GM").collect();
-        assert!(!gm_kps.is_empty(), "Expected GM (Γ) k-point for SG 221");
+        let gm_kps: Vec<_> = kps.iter().filter(|k| k.labels.cdml == "GM").collect();
+        assert_eq!(gm_kps.len(), 1, "one physical Γ point for SG 221");
+        assert_eq!(gm_kps[0].irreps.len(), 16);
+        assert_eq!(gm_kps[0].labels.bc.as_deref(), Some("Γ"));
 
         // Each k-point should have at least one irrep
         for kp in &kps {
-            assert!(!kp.irreps.is_empty(), "k-point {} has no irreps", kp.label);
+            assert!(
+                !kp.irreps.is_empty(),
+                "k-point {} has no irreps",
+                kp.labels.cdml
+            );
         }
 
         // All k-points should be unique by coords
@@ -823,8 +974,10 @@ mod tests {
 
     #[test]
     fn test_kpoints_of_invalid() {
-        assert!(kpoints_of(0).is_empty());
-        assert!(kpoints_of(231).is_empty());
+        assert!(kpoints_of(0, LabelConvention::Cdml).is_empty());
+        assert!(kpoints_of(231, LabelConvention::Cdml).is_empty());
+        assert!(kpoints_of(0, LabelConvention::Bc).is_empty());
+        assert!(kpoints_of(231, LabelConvention::Bc).is_empty());
     }
 
     #[test]
@@ -845,7 +998,7 @@ mod tests {
         let table = format_character_table(5, y1.kx, y1.ky, y1.kz, y1.kd);
         let header = table
             .lines()
-            .find(|line| line.starts_with("| ML |"))
+            .find(|line| line.starts_with("| CDML |"))
             .expect("typed formatter header");
         let y1_row = table
             .lines()
@@ -861,9 +1014,9 @@ mod tests {
 
     #[test]
     fn test_format_character_table_coalesces_sg144_gamma_translation_precision() {
-        let gamma = kpoints_of(144)
+        let gamma = kpoints_of(144, LabelConvention::Cdml)
             .into_iter()
-            .find(|kpoint| kpoint.label == "GM")
+            .find(|kpoint| kpoint.labels.cdml == "GM")
             .expect("SG 144 Gamma k-point");
         let irreps = irreps_of(144);
         let rows: Vec<_> = gamma
@@ -909,12 +1062,12 @@ mod tests {
         );
         let header = table
             .lines()
-            .find(|line| line.starts_with("| ML |"))
+            .find(|line| line.starts_with("| CDML |"))
             .expect("SG 144 Gamma formatter header");
         assert_eq!(
             header.trim_matches('|').split(" | ").count(),
             5,
-            "ML, BC, and three Seitz columns must remain distinct Markdown cells"
+            "CDML, BC, and three Seitz columns must remain distinct Markdown cells"
         );
         assert!(
             header.contains("\\|"),
@@ -946,7 +1099,7 @@ mod tests {
         let mut spinor_count = 0usize;
         for sg in 1..=230u8 {
             let irreps = irreps_of(sg);
-            for kpoint in kpoints_of(sg) {
+            for kpoint in kpoints_of(sg, LabelConvention::Cdml) {
                 kpoint_count += 1;
                 let mut union = BTreeMap::new();
                 let mut maximum = 0usize;
@@ -970,7 +1123,7 @@ mod tests {
                     union.len(),
                     maximum,
                     "SG {sg} {} formatter Seitz union inflated",
-                    kpoint.label
+                    kpoint.labels.cdml
                 );
                 let rendered = format_character_table(
                     sg,
@@ -981,13 +1134,15 @@ mod tests {
                 );
                 let header = rendered
                     .lines()
-                    .find(|line| line.starts_with("| ML |"))
-                    .unwrap_or_else(|| panic!("SG {sg} {} has no formatter header", kpoint.label));
+                    .find(|line| line.starts_with("| CDML |"))
+                    .unwrap_or_else(|| {
+                        panic!("SG {sg} {} has no formatter header", kpoint.labels.cdml)
+                    });
                 assert_eq!(
                     header.trim_matches('|').split(" | ").count(),
                     maximum + 2,
                     "SG {sg} {} rendered Seitz column count mismatch",
-                    kpoint.label
+                    kpoint.labels.cdml
                 );
             }
         }
@@ -1198,10 +1353,15 @@ mod tests {
     fn test_kpoints_partition_all_irreps() {
         for sg in 1u8..=230 {
             let irreps = super::irreps_of(sg);
-            let kps = super::kpoints_of(sg);
+            let kps = super::kpoints_of(sg, LabelConvention::Cdml);
             let mut covered = vec![false; irreps.len()];
             for kp in &kps {
-                assert!(!kp.irreps.is_empty(), "SG{} k-point {} empty", sg, kp.label);
+                assert!(
+                    !kp.irreps.is_empty(),
+                    "SG{} k-point {} empty",
+                    sg,
+                    kp.labels.cdml
+                );
                 for &idx in &kp.irreps {
                     assert!(idx < irreps.len());
                     assert!(!covered[idx], "SG{} irrep {} duplicate in kpoints", sg, idx);
@@ -1213,7 +1373,7 @@ mod tests {
                         "SG{} irrep {} k-coord mismatch with k-point {}",
                         sg,
                         ir.ml,
-                        kp.label
+                        kp.labels.cdml
                     );
                 }
             }

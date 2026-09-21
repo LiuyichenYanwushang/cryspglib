@@ -120,7 +120,7 @@ let result = fe.analyze().symprec(1e-5).magnetic_dataset().unwrap();
 | `MagneticSpaceGroupType::from_uni(n)` | Look up magnetic SG type by UNI number (`Result`) |
 | `HallNumber`, `UniNumber`, `SpaceGroupNumber` | Validated, non-zero database identifiers |
 | `OperationKind` | Explicit `Unitary` / `Antiunitary` magnetic-operation semantics |
-| `irrep::isotropy::isotropy_subgroup_for_direction(sg, ml, dir)` | Isotropy subgroup of one irrep for an order-parameter direction |
+| `irrep::isotropy::isotropy_subgroup_for_direction(sg, label, convention, dir)` | Isotropy subgroup selected with an explicit CDML/BC convention |
 | `IsotropySubgroup::identity_subduction()` | Parent irreps that become totally symmetric in the subgroup (`SHOW FREQ [DIR]`) |
 | `isotropy::origin_shift_in_parent_conventional(sg, origin)` | Origin shift of the subgroup setting in parent conventional coordinates |
 
@@ -132,6 +132,40 @@ currently selected by `SET I`: the tables were recorded in origin choice 1 for
 most parents while the program defaults to origin choice 2, so run it with
 `SET I ALL OR 1` before comparing that column. See
 `docs/isotropy-data-semantics.md` and `scripts/verify_isotropy_oracle.py`.
+
+Irrep label searches require `LabelConvention::Cdml` (`GM` at Γ) or
+`LabelConvention::Bc` (`Γ`). BC uses the actual database correspondence, not
+just a replacement of the k-point symbol: SG 213 CDML `X2` is BC `X1`, and
+SG 123 CDML `GM2+` is BC `Γ3+`.
+
+```rust
+use cryspglib::irrep::{LabelConvention, query};
+use cryspglib::irrep::isotropy::{
+    IsotropyDirection, isotropy_subgroup_for_direction,
+};
+
+let irrep = query::find_irreps(213, "X1", LabelConvention::Bc)[0];
+assert_eq!(irrep.labels().cdml, "X2");
+assert_eq!(irrep.labels().bc.as_deref(), Some("X1"));
+let subgroup = isotropy_subgroup_for_direction(
+    213, "X1", LabelConvention::Bc, IsotropyDirection::Label("C23"),
+).unwrap();
+assert_eq!(subgroup.record.sg, 146);
+let gamma = query::irreps_at_k_label(221, "Γ", LabelConvention::Bc);
+assert!(!gamma.is_empty());
+```
+
+There is no default label convention. Results expose both labels through
+`labels()`; isotropy formatters print both CDML and BC. Magnetic summaries also
+show both k-point and source-irrep labels; a compound component without its
+own verified BC mapping is displayed as unavailable. Convention selection also
+applies to k-point listings, reverse subgroup searches and magnetic isotropy
+queries. It selects labels; coordinates and geometry remain in the recorded
+frame. BC accepts plain Unicode and stored LaTeX. A singular lookup rejects
+ambiguous labels (e.g. SG 1 `Γ1`); the coordinate-qualified isotropy query can
+disambiguate them. Missing BC mappings and spinor rows whose legacy BC field
+was synthesized from CDML return `None` from `label(Bc)` and are omitted from
+BC searches. Existing callers must now pass their convention explicitly.
 
 Full scalar irrep subduction remains experimental and has partial setting and
 child-irrep coverage. The [full-table audit](docs/subduction-audit.md) reports

@@ -4,6 +4,7 @@
 //! `scripts/verify_isotropy_oracle.py`) and from Stokes & Hatch (1988); this
 //! test keeps them from drifting when the generated data is regenerated.
 
+use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::generated_data::{
     IRREP_W_LABELS, IRREP_W_SPACE_GROUP, IRREPS, ISOTROPY_DIRECTION_LABELS,
     ISOTROPY_SUBDUCE_DIRECTION, ISOTROPY_SUBDUCE_DOMAIN, ISOTROPY_SUBDUCE_FREQUENCY,
@@ -166,7 +167,7 @@ fn magnetic_direction_labels_are_unique_within_each_irrep() {
             if irrep.spinor {
                 continue;
             }
-            let subgroups = magnetic_isotropy_subgroups(sg, irrep.ml)
+            let subgroups = magnetic_isotropy_subgroups(sg, irrep.ml, LabelConvention::Cdml)
                 .unwrap_or_else(|error| panic!("SG {sg} {}: {error}", irrep.ml));
             let mut labels: Vec<&str> = subgroups.iter().map(|s| s.record.direction).collect();
             let total = labels.len();
@@ -189,20 +190,35 @@ fn magnetic_direction_labels_are_unique_within_each_irrep() {
 /// fix, `Label("P3")` returned the `P1` record.
 #[test]
 fn magnetic_direction_selection_uses_the_per_record_label() {
-    let p1 = magnetic_isotropy_subgroup_for_direction(9, "L1", IsotropyDirection::Label("P1"))
-        .expect("L1 has a P1 direction");
+    let p1 = magnetic_isotropy_subgroup_for_direction(
+        9,
+        "L1",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("P1"),
+    )
+    .expect("L1 has a P1 direction");
     assert_eq!(p1.record.mag_sg, 48);
     assert_eq!(p1.record.basis, [[-1, -1, 1], [1, 1, 1], [-1, 1, 1]]);
     assert_eq!(p1.record.origin, [1, 1, 1, 4]);
 
-    let p3 = magnetic_isotropy_subgroup_for_direction(9, "L1", IsotropyDirection::Label("P3"))
-        .expect("L1 has a P3 direction");
+    let p3 = magnetic_isotropy_subgroup_for_direction(
+        9,
+        "L1",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("P3"),
+    )
+    .expect("L1 has a P3 direction");
     assert_eq!(p3.record.mag_sg, 3);
     assert_eq!(p3.record.basis, [[0, 0, 1], [1, -1, 0], [2, 0, 0]]);
     assert_eq!(p3.record.origin, [0, 0, 0, 1]);
 
-    let c1 = magnetic_isotropy_subgroup_for_direction(9, "L1", IsotropyDirection::Label("C1"))
-        .expect("L1 has a C1 direction");
+    let c1 = magnetic_isotropy_subgroup_for_direction(
+        9,
+        "L1",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("C1"),
+    )
+    .expect("L1 has a C1 direction");
     assert_eq!(c1.record.mag_sg, 3);
     assert_eq!(c1.record.basis, [[1, 1, 1], [-1, -1, 1], [2, 0, 0]]);
     assert_ne!(p3.ordinal, c1.ordinal);
@@ -224,7 +240,7 @@ fn pinned_ordinals_address_the_expected_records() {
         (221, "GM4+", IsotropyDirection::Label("S1"), 12402, 2),
     ];
     for (sg, ml, direction, ordinal, subgroup_sg) in cases {
-        let subgroup = isotropy_subgroup_for_direction(sg, ml, direction)
+        let subgroup = isotropy_subgroup_for_direction(sg, ml, LabelConvention::Cdml, direction)
             .unwrap_or_else(|error| panic!("SG {sg} {ml} {direction:?}: {error}"));
         assert_eq!(subgroup.ordinal, ordinal, "SG {sg} {ml} {direction:?}");
         assert_eq!(subgroup.record.sg, subgroup_sg, "SG {sg} {ml}");
@@ -245,8 +261,9 @@ fn pinned_ordinals_address_the_expected_records() {
 fn sg213_x2_at_x_has_the_oracle_isotropy_subgroups() {
     // iso 9.6.1, SET I ALL OR 1, VALUE PARENT 213, VALUE IRREP X2,
     // SHOW SUBGROUP / SIZE / DIRECTION, DISPLAY ISOTROPY.
-    let subgroups = isotropy_subgroups_at_k(213, KVector::new([0, 1, 0], 2), "X2")
-        .expect("SG 213 X2 at X=(0,1/2,0)");
+    let subgroups =
+        isotropy_subgroups_at_k(213, KVector::new([0, 1, 0], 2), "X2", LabelConvention::Cdml)
+            .expect("SG 213 X2 at X=(0,1/2,0)");
     let actual: Vec<_> = subgroups
         .iter()
         .map(|subgroup| {
@@ -284,8 +301,13 @@ fn sg213_x2_at_x_has_the_oracle_isotropy_subgroups() {
 fn sg213_x2_c23_r3_preserves_basis_origin_and_identity_frequency() {
     // SHOW DIRECTION VECTOR: C23 (a,b;a,b;a,b). Six-dimensional
     // descriptors are not yet official API inputs, so select by ISO label.
-    let subgroup = isotropy_subgroup_for_direction(213, "X2", IsotropyDirection::Label("C23"))
-        .expect("X2 C23 -> R3");
+    let subgroup = isotropy_subgroup_for_direction(
+        213,
+        "X2",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("C23"),
+    )
+    .expect("X2 C23 -> R3");
     assert_eq!(subgroup.ordinal, 11600);
     assert_eq!(subgroup.record.sg, 146);
     assert_eq!(subgroup.record.symbol, "R3");
@@ -312,6 +334,11 @@ fn sg213_x2_c23_r3_preserves_basis_origin_and_identity_frequency() {
     ];
     assert_eq!(hexagonal, [[0, 2, -2], [2, -2, 0], [-2, -2, -2]]);
     assert_eq!(det3(hexagonal), 24);
+    // Stokes & Hatch (1988), Table 1 p. 1-325 (PDF page 366): the bars
+    // above two 2s mean MINUS. The 2022 program swaps a/b and reverses c.
+    let book = [[2, -2, 0], [0, 2, -2], [2, 2, 2]];
+    assert_eq!(hexagonal, [book[1], book[0], book[2].map(|x| -x)]);
+    assert_eq!(det3(book), 24);
     let entries = subgroup.identity_subduction().unwrap();
     let x2: Vec<_> = entries
         .iter()
@@ -322,21 +349,135 @@ fn sg213_x2_c23_r3_preserves_basis_origin_and_identity_frequency() {
 }
 
 #[test]
+fn isotropy_queries_select_actual_cdml_or_bc_labels() {
+    use cryspglib::irrep::isotropy::irrep_by_label;
+    // The same text X2 means different irreps in the two conventions.
+    assert_eq!(
+        irrep_by_label(213, "X2", LabelConvention::Bc).unwrap().ml,
+        "X1"
+    );
+    let expected = isotropy_subgroups(213, "X2", LabelConvention::Cdml).unwrap();
+    for label in ["X1", "X_{1}"] {
+        let actual = isotropy_subgroups(213, label, LabelConvention::Bc).unwrap();
+        assert_eq!(
+            actual.iter().map(|s| s.ordinal).collect::<Vec<_>>(),
+            expected.iter().map(|s| s.ordinal).collect::<Vec<_>>()
+        );
+        let subgroup = isotropy_subgroup_for_direction(
+            213,
+            label,
+            LabelConvention::Bc,
+            IsotropyDirection::Label("C23"),
+        )
+        .unwrap();
+        assert_eq!(subgroup.irrep_ml, "X2");
+        assert_eq!(subgroup.ordinal, 11600);
+        assert_eq!(subgroup.record.sg, 146);
+        let labels = subgroup.labels();
+        assert_eq!(labels.cdml, "X2");
+        assert_eq!(labels.bc.as_deref(), Some("X1"));
+    }
+    let magnetic = magnetic_isotropy_subgroups(213, "X1", LabelConvention::Bc).unwrap();
+    assert_eq!(
+        magnetic.iter().map(|s| s.ordinal).collect::<Vec<_>>(),
+        magnetic_isotropy_subgroups(213, "X2", LabelConvention::Cdml)
+            .unwrap()
+            .iter()
+            .map(|s| s.ordinal)
+            .collect::<Vec<_>>()
+    );
+    let bc = magnetic_isotropy_subgroup_for_direction(
+        213,
+        "X1",
+        LabelConvention::Bc,
+        IsotropyDirection::Label("C23"),
+    )
+    .unwrap();
+    let cdml = magnetic_isotropy_subgroup_for_direction(
+        213,
+        "X2",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("C23"),
+    )
+    .unwrap();
+    assert_eq!(bc.ordinal, cdml.ordinal);
+    let labels = bc.labels();
+    assert_eq!(labels.cdml, "X2");
+    assert_eq!(labels.bc.as_deref(), Some("X1"));
+    let table = format_isotropy_subgroups(213, "X1", LabelConvention::Bc).unwrap();
+    assert!(table.contains("irrep CDML=X2 / BC=X1 at k="), "{table}");
+    let magnetic_table =
+        format_magnetic_isotropy_subgroups(213, "X1", LabelConvention::Bc).unwrap();
+    assert!(
+        magnetic_table.contains("irrep CDML=X2 / BC=X1 at k="),
+        "{magnetic_table}"
+    );
+    // Actual numbering differs at Gamma too; replacing GM with Γ is wrong.
+    for label in ["Γ3+", r"\Gamma_{3}^+"] {
+        assert_eq!(
+            irrep_by_label(123, label, LabelConvention::Bc).unwrap().ml,
+            "GM2+"
+        );
+    }
+}
+
+#[test]
+fn ambiguous_bc_isotropy_labels_require_wave_vector_disambiguation() {
+    use cryspglib::irrep::isotropy::irrep_by_label;
+    assert!(matches!(
+        irrep_by_label(1, "Γ1", LabelConvention::Bc),
+        Err(IsotropyError::AmbiguousIrrepLabel {
+            sg: 1,
+            matches: 2,
+            ..
+        })
+    ));
+    for (k, ml) in [
+        (KVector::new([0, 0, 0], 1), "GM1"),
+        (KVector::new([0, 0, 1], 2), "Z1"),
+    ] {
+        let rows = isotropy_subgroups_at_k(1, k, "Γ1", LabelConvention::Bc).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].irrep_ml, ml);
+    }
+    assert!(matches!(
+        isotropy_subgroups_at_k(1, KVector::new([1, 0, 0], 2), "Γ1", LabelConvention::Bc),
+        Err(IsotropyError::IrrepNotAtKPoint { .. })
+    ));
+    for (label, convention) in [
+        ("***", LabelConvention::Bc),
+        ("GM1", LabelConvention::Bc),
+        ("Γ1", LabelConvention::Cdml),
+    ] {
+        assert!(matches!(
+            irrep_by_label(1, label, convention),
+            Err(IsotropyError::UnknownIrrep { .. })
+        ));
+    }
+}
+
+#[test]
 fn formatters_render_geometry_and_subduction() {
-    let table = format_isotropy_subgroups(221, "GM3+").expect("ordinary table");
+    let table =
+        format_isotropy_subgroups(221, "GM3+", LabelConvention::Cdml).expect("ordinary table");
     assert!(table.contains("#123 P4/mmm"));
     assert!(
         !table.contains('?'),
         "formatter hid a conversion error: {table}"
     );
 
-    let magnetic = format_magnetic_isotropy_subgroups(9, "L1").expect("magnetic table");
+    let magnetic =
+        format_magnetic_isotropy_subgroups(9, "L1", LabelConvention::Cdml).expect("magnetic table");
     assert!(magnetic.contains("| P3 |"), "{magnetic}");
     assert!(!magnetic.contains('?'), "{magnetic}");
 
-    let subgroup =
-        isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Descriptor("(a,0,0)"))
-            .expect("Γ4+ (a,0,0)");
+    let subgroup = isotropy_subgroup_for_direction(
+        221,
+        "GM4+",
+        LabelConvention::Cdml,
+        IsotropyDirection::Descriptor("(a,0,0)"),
+    )
+    .expect("Γ4+ (a,0,0)");
     let subduction = format_identity_subduction(subgroup.ordinal).expect("subduction table");
     assert!(subduction.contains("GM1+"), "{subduction}");
     assert!(subduction.contains("GM3+"), "{subduction}");
@@ -348,19 +489,29 @@ fn errors_report_their_variant_and_are_displayable() {
     // A message alone would accept any wrong variant, so assert the variant
     // (and the payload where it carries one) for every reachable error path.
     assert!(matches!(
-        isotropy_subgroups(0, "GM1"),
+        isotropy_subgroups(0, "GM1", LabelConvention::Cdml),
         Err(IsotropyError::InvalidSpaceGroup(0))
     ));
     assert!(matches!(
-        isotropy_subgroups(221, "NOPE"),
+        isotropy_subgroups(221, "NOPE", LabelConvention::Cdml),
         Err(IsotropyError::UnknownIrrep { .. })
     ));
     assert!(matches!(
-        isotropy_subgroups_at_k(221, KVector::new([1, 0, 0], 2), "GM3+"),
+        isotropy_subgroups_at_k(
+            221,
+            KVector::new([1, 0, 0], 2),
+            "GM3+",
+            LabelConvention::Cdml
+        ),
         Err(IsotropyError::IrrepNotAtKPoint { .. })
     ));
     assert!(matches!(
-        isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Descriptor("(zzz)")),
+        isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Descriptor("(zzz)")
+        ),
         Err(IsotropyError::DirectionNotFound { .. })
     ));
     assert!(matches!(
@@ -384,7 +535,12 @@ fn errors_report_their_variant_and_are_displayable() {
         Err(IsotropyError::InvalidOrigin { origin }) if origin == [0, 0, 0, 0]
     ));
     assert!(matches!(
-        isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Index(usize::MAX)),
+        isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Index(usize::MAX)
+        ),
         Err(IsotropyError::SubgroupIndexOutOfRange { .. })
     ));
     // `MissingCentering` is unreachable for sg in 1..=230 (the centering is
@@ -392,17 +548,33 @@ fn errors_report_their_variant_and_are_displayable() {
     // path is asserted in the library's own unit tests.
 
     let errors = [
-        isotropy_subgroups(0, "GM1").unwrap_err(),
-        isotropy_subgroups(221, "NOPE").unwrap_err(),
-        isotropy_subgroups_at_k(221, KVector::new([1, 0, 0], 2), "GM3+").unwrap_err(),
-        isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Descriptor("(zzz)"))
-            .unwrap_err(),
+        isotropy_subgroups(0, "GM1", LabelConvention::Cdml).unwrap_err(),
+        isotropy_subgroups(221, "NOPE", LabelConvention::Cdml).unwrap_err(),
+        isotropy_subgroups_at_k(
+            221,
+            KVector::new([1, 0, 0], 2),
+            "GM3+",
+            LabelConvention::Cdml,
+        )
+        .unwrap_err(),
+        isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Descriptor("(zzz)"),
+        )
+        .unwrap_err(),
         subgroup_size([[0, 0, 0], [0, 0, 0], [0, 0, 0]]).unwrap_err(),
         subgroup_size([[1 << 21, 0, 0], [0, 1 << 21, 0], [0, 0, 1 << 22]]).unwrap_err(),
         identity_subduction(usize::MAX).unwrap_err(),
         origin_shift_in_parent_conventional(221, [0, 0, 0, 0]).unwrap_err(),
-        isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Index(usize::MAX))
-            .unwrap_err(),
+        isotropy_subgroup_for_direction(
+            221,
+            "GM3+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Index(usize::MAX),
+        )
+        .unwrap_err(),
     ];
     for error in errors {
         let text = error.to_string();
@@ -419,7 +591,15 @@ fn wave_vector_helpers_reject_degenerate_input() {
         KVector::new([0, 0, 1], 0),
         KVector::new([0, 0, 1], 1)
     ));
-    assert!(isotropy_subgroups_at_k(221, KVector::new([0, 0, 0], 0), "GM3+").is_err());
+    assert!(
+        isotropy_subgroups_at_k(
+            221,
+            KVector::new([0, 0, 0], 0),
+            "GM3+",
+            LabelConvention::Cdml
+        )
+        .is_err()
+    );
     // Reduction and sign normalisation.
     assert!(k_vectors_agree(
         KVector::new([0, 0, 2], 4),
@@ -445,10 +625,10 @@ fn isotropy_ranges_partition_the_table_per_irrep() {
             if irrep.spinor {
                 // Spinor irreps have no isotropy data and must fail closed
                 // rather than panic.
-                assert!(isotropy_subgroups(sg, irrep.ml).is_err());
+                assert!(isotropy_subgroups(sg, irrep.ml, LabelConvention::Cdml).is_err());
                 continue;
             }
-            let subgroups = isotropy_subgroups(sg, irrep.ml)
+            let subgroups = isotropy_subgroups(sg, irrep.ml, LabelConvention::Cdml)
                 .unwrap_or_else(|error| panic!("SG {sg} {}: {error}", irrep.ml));
             for subgroup in &subgroups {
                 ordinals.push(subgroup.ordinal);
@@ -466,8 +646,13 @@ fn isotropy_ranges_partition_the_table_per_irrep() {
 /// which is what these entries are named after.
 #[test]
 fn other_wave_vector_subduction_matches_the_program() {
-    let subgroup = isotropy_subgroup_for_direction(225, "W5", IsotropyDirection::Label("S60"))
-        .expect("W5 has an S60 direction");
+    let subgroup = isotropy_subgroup_for_direction(
+        225,
+        "W5",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("S60"),
+    )
+    .expect("W5 has an S60 direction");
     let scalar = subgroup.identity_subduction().expect("scalar subduction");
     let actual: Vec<(&str, u16, &str)> = scalar
         .iter()
@@ -502,11 +687,11 @@ fn other_wave_vector_subduction_matches_the_program() {
     assert!(table.contains("| S60 |"), "{table}");
     assert!(
         table.ends_with(
-            "| Other-wave-vector parent irrep | i(G) |\n\
-             |--------------------------------|------|\n\
-             | DT5 (SG 225) | 3 |\n\
-             | SM3 (SG 225) | 3 |\n\
-             | SM4 (SG 225) | 3 |"
+            "| Other-wave-vector CDML | BC | i(G) |\n\
+             |------------------------|----|------|\n\
+             | DT5 (SG 225) | unavailable | 3 |\n\
+             | SM3 (SG 225) | unavailable | 3 |\n\
+             | SM4 (SG 225) | unavailable | 3 |"
         ),
         "{table}"
     );
@@ -562,9 +747,13 @@ fn descriptor_aliases_preserve_the_direction_and_embedding() {
             ),
         ];
         for alias in aliases {
-            let subgroup =
-                isotropy_subgroup_for_direction(parent, ml, IsotropyDirection::Descriptor(&alias))
-                    .unwrap_or_else(|error| panic!("SG {parent} {ml} {alias:?}: {error}"));
+            let subgroup = isotropy_subgroup_for_direction(
+                parent,
+                ml,
+                LabelConvention::Cdml,
+                IsotropyDirection::Descriptor(&alias),
+            )
+            .unwrap_or_else(|error| panic!("SG {parent} {ml} {alias:?}: {error}"));
             assert_eq!(subgroup.record.direction_label, label, "{alias:?}");
             assert_eq!(subgroup.record.sg, sg, "{alias:?}");
             assert_eq!(subgroup.record.basis, basis, "{alias:?}");
@@ -581,6 +770,7 @@ fn descriptor_aliases_preserve_the_direction_and_embedding() {
                 isotropy_subgroup_for_direction(
                     parent,
                     ml,
+                    LabelConvention::Cdml,
                     IsotropyDirection::Descriptor(descriptor)
                 ),
                 Err(IsotropyError::DirectionNotFound { .. })
@@ -683,8 +873,13 @@ fn subduction_tables_are_parallel_and_in_range() {
 /// program: Size 2, conventional basis `(2,0,0),(0,2,0),(0,0,2)`.
 #[test]
 fn p222_r1_reaches_f222() {
-    let subgroup = isotropy_subgroup_for_direction(16, "R1", IsotropyDirection::Label("P1"))
-        .expect("R1 has a P1 direction");
+    let subgroup = isotropy_subgroup_for_direction(
+        16,
+        "R1",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("P1"),
+    )
+    .expect("R1 has a P1 direction");
     assert_eq!(subgroup.record.sg, 22);
     assert_eq!(subgroup.record.basis, [[0, 1, 1], [1, 0, 1], [1, 1, 0]]);
     assert_eq!(subgroup.record.origin, [0, 0, 0, 1]);
@@ -722,8 +917,13 @@ fn p222_r1_reaches_f222() {
 /// coordinates, which is what the ISO program prints.
 #[test]
 fn r3c_gm3plus_origin_converts_to_hexagonal_axes() {
-    let subgroup = isotropy_subgroup_for_direction(167, "GM3+", IsotropyDirection::Label("P1"))
-        .expect("Γ3+ has a P1 direction");
+    let subgroup = isotropy_subgroup_for_direction(
+        167,
+        "GM3+",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("P1"),
+    )
+    .expect("Γ3+ has a P1 direction");
     assert_eq!(subgroup.record.sg, 15);
     assert_eq!(subgroup.record.basis, [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]);
     assert_eq!(subgroup.record.origin, [0, 1, 0, 2]);
@@ -738,9 +938,13 @@ fn r3c_gm3plus_origin_converts_to_hexagonal_axes() {
 /// #225 `Fm-3m`, Γ4- along `(a,0,0)` → #107 `I4mm` with the parent's lattice.
 #[test]
 fn fm3m_gm4minus_along_a0_keeps_the_lattice() {
-    let subgroup =
-        isotropy_subgroup_for_direction(225, "GM4-", IsotropyDirection::Descriptor("(a,0,0)"))
-            .expect("Γ4- has an (a,0,0) direction");
+    let subgroup = isotropy_subgroup_for_direction(
+        225,
+        "GM4-",
+        LabelConvention::Cdml,
+        IsotropyDirection::Descriptor("(a,0,0)"),
+    )
+    .expect("Γ4- has an (a,0,0) direction");
     assert_eq!(subgroup.record.sg, 107);
     assert_eq!(subgroup.record.direction_label, "P1");
     assert_eq!(subgroup_size(subgroup.record.basis).unwrap(), 1);
@@ -756,9 +960,13 @@ fn fm3m_gm4minus_along_a0_keeps_the_lattice() {
 /// #221 `Pm-3m`, Γ3+ along `(a,0)` → #123 `P4/mmm` with the parent's cell.
 #[test]
 fn pm3m_gm3plus_along_a0_keeps_the_cell() {
-    let subgroup =
-        isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Descriptor("(a,0)"))
-            .expect("Γ3+ has an (a,0) direction");
+    let subgroup = isotropy_subgroup_for_direction(
+        221,
+        "GM3+",
+        LabelConvention::Cdml,
+        IsotropyDirection::Descriptor("(a,0)"),
+    )
+    .expect("Γ3+ has an (a,0) direction");
     assert_eq!(subgroup.record.sg, 123);
     assert_eq!(subgroup.record.basis, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
     assert_eq!(subgroup.record.origin, [0, 0, 0, 1]);
@@ -773,7 +981,8 @@ fn pm3m_gm3plus_along_a0_keeps_the_cell() {
 /// UNI numbers, exactly like the pinned `data_magnetic.txt`.
 #[test]
 fn magnetic_isotropy_geometry_is_available() {
-    let subgroups = magnetic_isotropy_subgroups(221, "GM4+").expect("mag subgroups");
+    let subgroups =
+        magnetic_isotropy_subgroups(221, "GM4+", LabelConvention::Cdml).expect("mag subgroups");
     assert!(!subgroups.is_empty());
     assert!(subgroups.iter().all(|sub| sub.parent_sg == 221));
     assert!(
@@ -846,7 +1055,7 @@ fn oracle_script_centering_table_matches_the_rust_implementation() {
 
 #[test]
 fn out_of_range_space_groups_fail_closed() {
-    assert!(isotropy_subgroups(0, "GM1").is_err());
-    assert!(isotropy_subgroups(231, "GM1").is_err());
+    assert!(isotropy_subgroups(0, "GM1", LabelConvention::Cdml).is_err());
+    assert!(isotropy_subgroups(231, "GM1", LabelConvention::Cdml).is_err());
     assert!(parent_primitive_basis(231).is_err());
 }
