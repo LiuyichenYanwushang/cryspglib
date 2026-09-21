@@ -929,6 +929,31 @@ element/character 列、精确消元与对偶判定）。实测 **73 源中 65 �
 验收：release lib `389 passed / 4 ignored`、全部 integration（含新 4 项）、
 doctest `27 passed`、严格 all-target clippy 零警告。
 
+**第二十一至二十五轮（2026-09-22）：Mackey 原型、公式定型、数据侧凝固。**
+
+- 第二十一轮：Python 原型（`target/task9/explore/proto_freq.py`，未入库）跑通公式骨架，
+  `6D1`（P1 子群）三源全中（`DT1=6, DT2=6, SM1=12 = dim V'`），超胞情形偏高。
+- 第二十二轮：修正 little 群成员判据（只约束旋转 `Rv = v`）并写完整有限群投影：
+  `mult = 1/(|P_H|·n) Σ_R Σ_{T∈L_H/L_parent} χ_{V'}((R,t_R)(E,T))`；`6D1` 锚点自洽
+  （`n=6`、`Σ_T χ = 72` ⇒ `72/6 = 12`）。
+- 第二十三轮：证明「对 `T` 求平均」就是引擎已有的**折叠到子群 Γ 判定**，
+  因此 Rust 侧最小改动 = 复用 `trivial_content_with_embedding` 的臂枚举/折叠/块组装，
+  只换臂字符来源（冻结 little 表 + Bloch 相位）。
+- 第二十四轮：反例约束——用官方 `SHOW BASIS` 的子群基矢自写折叠判定会给出 12 而非
+  pinned 4（臂集合与帧/中心化约定），**禁止另写折叠判定**。
+- 第二十五轮：新增 `scripts/test_frozen_w_little_characters.py`（3 项，无需 cargo/iso），
+  从 Python 侧钉住生成文件 `src/irrep/w_little_characters_data.rs`（65/8 形状、
+  `χ(E)=dim`、`|χ|≤dim`、SG 196 `DT1=[1,1]`、`DT2=[1,-1]`、`SM1=[1]`），
+  与 `tests/w_little_characters.rs` 互为镜像；五个 Python 离线套件全绿。
+
+当轮复跑的三条 live gate（可复算）：w 行 oracle `28 组 / 1,150 记录 /
+5,756 oracle w 行 = 5,756 pinned / 0 不匹配`；几何 oracle `62 行 / 26 描述串 /
+62 origin 全精确`；w 结构门禁 `checks_failed=0` 且打印
+`frozen_characters: rows_with_frozen_table=5408 rows_blocked=348`。
+
+仍缺：引擎侧把 w 行算出来（5,408 行有冻结表；348 行卡在 SG 202/203/209/210 的
+`DT3`/`DT4`），之后 `--require-w-complete` 才能全表退出 0。
+
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
 `irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，
