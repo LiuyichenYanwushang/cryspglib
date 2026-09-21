@@ -244,6 +244,18 @@ pub enum FullStarError {
         /// Target label.
         ml: &'static str,
     },
+    /// The child table has no unique trivial row, so the trivial content of a
+    /// subduction onto that child is not defined by the table.
+    ///
+    /// An all-ones one-dimensional Gamma row is the trivial representation of
+    /// the child group in its own stored setting; there is exactly one of them
+    /// for every space group of the pinned table, so this variant reports a
+    /// broken child table rather than a physical possibility.
+    #[error("space group {sg} has no unique trivial Gamma irrep")]
+    MissingChildTrivialIrrep {
+        /// Child space group number.
+        sg: u8,
+    },
     /// Rebuilding the subduced character from the reported child irreps differs
     /// from the parent full-star character.
     #[error(
@@ -516,6 +528,152 @@ pub fn subduce_full_star_with_embedding(
     }
     let star = ScalarStar::new(probe)?;
     decompose_scalar_star(embedding, &star)
+}
+
+/// How often the trivial representation of the subgroup appears in the
+/// subduction of one scalar parent probe.
+///
+/// This is the quantity the pinned `isotropy_subduce_*` table stores as the
+/// subduction frequency of a parent irrep, and it is the only quantity that
+/// table constrains.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TrivialContent {
+    /// Multiplicity read through the frozen CIR source number of the child's
+    /// trivial row: the sum over the evaluated Gamma blocks of the multiplicity
+    /// of every target that carries that source.  This is the number the stored
+    /// table lists.
+    pub total: u32,
+    /// The same sum read through the child row's Miller-Love label.  The engine
+    /// fails closed with [`FullStarError::TargetSourceMismatch`] unless the two
+    /// readings agree, so a caller may use either.
+    pub by_label: u32,
+    /// Folded child stars evaluated because the subgroup's Gamma point is one of
+    /// their points.
+    pub gamma_stars: usize,
+    /// Folded child stars skipped because none of their points is the
+    /// subgroup's Gamma point.  They cannot contribute; see the theorem in
+    /// [`trivial_content_with_embedding`].
+    pub skipped_stars: usize,
+}
+
+/// Multiplicity of the subgroup's **trivial** representation in the subduction
+/// of one scalar parent probe.
+///
+/// Unlike [`subduce_full_star_with_embedding`] this stays exact when a folded
+/// child star has no stored child data, because such a star provably cannot
+/// contribute:
+///
+/// * every representation carried at the folded wave vector `q` acts on a child
+///   lattice translation `t` as the scalar `exp(-2 pi i q.t)`, so the parent
+///   star's character on that coset is a phase times its value at `q = 0`;
+/// * the trivial representation acts on every translation as `1`;
+/// * a common irreducible constituent of the two therefore needs
+///   `exp(-2 pi i q.t) = 1` for every translation `t` of the child lattice,
+///   i.e. `q = 0` modulo the **child** reciprocal lattice (centring extinctions
+///   included, exactly as [`Lattice::contains`] decides it);
+///
+/// so every folded star whose points are not the subgroup's Gamma point
+/// contributes zero to the trivial content -- no child `k`/character data is
+/// needed for it, and skipping it is not an approximation.  The Gamma blocks
+/// themselves are built by the same `build_block` stage the full decomposition
+/// uses, with the same character pairing and the same frozen child origin
+/// shift.
+///
+/// `subgroup`, `embedding` and `probe` are revalidated as one context first.
+/// Spinor probes are rejected exactly as in the full entry point, and a missing
+/// or ambiguous trivial child row is a
+/// [`FullStarError::MissingChildTrivialIrrep`] error rather than a silent zero.
+pub fn trivial_content_with_embedding(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    probe: &'static IrrepRecord,
+) -> Result<TrivialContent, FullStarError> {
+    validate_subduction_context(subgroup, embedding, probe)?;
+    if probe.spinor {
+        return Err(SubductionError::UnsupportedCharacterSpace {
+            sg: probe.sg,
+            ml: probe.ml.to_string(),
+        }
+        .into());
+    }
+    let child_sg = embedding.subgroup_sg();
+    let trivial = trivial_child_record(child_sg)
+        .ok_or(FullStarError::MissingChildTrivialIrrep { sg: child_sg })?;
+    let trivial_cir = match trivial.source_identity() {
+        IrrepSourceIdentity::OrdinaryScalar { cir_irnumber } => cir_irnumber,
+        IrrepSourceIdentity::Compound { .. } | IrrepSourceIdentity::Spin { .. } => {
+            return Err(FullStarError::MissingChildTrivialIrrep { sg: child_sg });
+        }
+    };
+
+    let star = ScalarStar::new(probe)?;
+    let folded = star.folded_stars(embedding)?;
+    let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
+    let child_reciprocal = child_cell.reciprocal()?;
+
+    let mut content = TrivialContent {
+        total: 0,
+        by_label: 0,
+        gamma_stars: 0,
+        skipped_stars: 0,
+    };
+    for folded_star in &folded {
+        let mut is_gamma = false;
+        for point in folded_star.points() {
+            if child_reciprocal.contains(point.q())? {
+                is_gamma = true;
+                break;
+            }
+        }
+        if !is_gamma {
+            content.skipped_stars += 1;
+            continue;
+        }
+        content.gamma_stars += 1;
+        let block = build_block(embedding, &star, folded_star, &child_cell, &child_reciprocal)?;
+        content.by_label += block.multiplicity(trivial.ml);
+        for target in block.targets() {
+            if target.dimension == trivial.dim && target.irnumber == trivial_cir {
+                content.total += target.multiplicity;
+            }
+        }
+    }
+    if content.by_label != content.total {
+        return Err(FullStarError::TargetSourceMismatch {
+            sg: child_sg,
+            ml: trivial.ml,
+        });
+    }
+    Ok(content)
+}
+
+/// The child table's trivial row: one-dimensional, at Gamma, and `+1` on every
+/// operation of its own stored setting.
+///
+/// `None` when the child has no such row or more than one of them, so the
+/// trivial content of a subduction onto it is not defined by the table.
+fn trivial_child_record(sg: u8) -> Option<&'static IrrepRecord> {
+    let mut found: Option<&'static IrrepRecord> = None;
+    for record in query::irreps_of(sg) {
+        if record.spinor || record.dim != 1 || record.k_vector().numerators != [0, 0, 0] {
+            continue;
+        }
+        let Ok(row) = record.ordinary_scalar_selected_arm_block_trace() else {
+            continue;
+        };
+        if row.dimension() == 1
+            && row
+                .values()
+                .iter()
+                .all(|value| (value - 1.0).norm() < SUBDUCTION_TOLERANCE)
+        {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(record);
+        }
+    }
+    found
 }
 
 /// The reusable core: decompose an already validated full parent star.
@@ -1298,6 +1456,66 @@ mod tests {
         .unwrap_or_else(|error| panic!("SG {parent} {ml} {direction}: {error}"));
         SubgroupEmbedding::from_isotropy_subgroup(&subgroup)
             .unwrap_or_else(|error| panic!("SG {parent} {ml} {direction} embedding: {error}"))
+    }
+
+    /// Every space group of the pinned table has exactly one trivial Gamma row,
+    /// so the `MissingChildTrivialIrrep` guard is unreachable data-wise and can
+    /// never turn a real subduction into a silent zero.
+    #[test]
+    fn every_space_group_has_one_trivial_gamma_row() {
+        for sg in 1u8..=230 {
+            let found = trivial_child_record(sg)
+                .unwrap_or_else(|| panic!("space group {sg} has no trivial Gamma row"));
+            assert_eq!(found.dim, 1, "space group {sg}");
+            assert_eq!(found.k_vector().numerators, [0, 0, 0], "space group {sg}");
+            assert!(!found.spinor, "space group {sg}");
+        }
+    }
+
+    /// The identity-only entry point reproduces the full decomposition's trivial
+    /// content whenever the full decomposition has data, and answers exactly
+    /// (with every non-Gamma star skipped) when it does not.
+    #[test]
+    fn trivial_content_skips_only_stars_that_cannot_carry_the_trivial_rep() {
+        // SG 221 GM4+ P1 -> #83 has a full decomposition for every probe.
+        let subgroup = subgroup_of(221, "GM4+", "P1");
+        let built = embedding(221, "GM4+", "P1");
+        let trivial = trivial_child_record(built.subgroup_sg()).unwrap();
+        for record in query::irreps_of(221)
+            .iter()
+            .filter(|record| !record.spinor)
+        {
+            let content = trivial_content_with_embedding(&subgroup, &built, record)
+                .unwrap_or_else(|error| panic!("SG 221 GM4+ P1 {}: {error}", record.ml));
+            let full = subduce_full_star_with_embedding(&subgroup, &built, record).unwrap();
+            let full_total: u32 = full
+                .blocks()
+                .iter()
+                .map(|block| block.multiplicity(trivial.ml))
+                .sum();
+            assert_eq!(content.total, full_total, "probe {}", record.ml);
+            assert_eq!(content.total, content.by_label, "probe {}", record.ml);
+            let folded = ScalarStar::new(record).unwrap().folded_stars(&built).unwrap();
+            assert_eq!(
+                content.gamma_stars + content.skipped_stars,
+                folded.len(),
+                "probe {}",
+                record.ml
+            );
+        }
+
+        // SG 196 W1 -> #24 folds onto child stars the #24 table has no k for.
+        let subgroup = subgroup_of(196, "W1", "P2");
+        let built = embedding(196, "W1", "P2");
+        assert!(matches!(
+            subduce_full_star_with_embedding(&subgroup, &built, probe(196, "W1")),
+            Err(FullStarError::MissingChildStarData { sg: 24, .. })
+        ));
+        let content = trivial_content_with_embedding(&subgroup, &built, probe(196, "W1")).unwrap();
+        assert_eq!(
+            (content.total, content.by_label, content.gamma_stars, content.skipped_stars),
+            (1, 1, 1, 2)
+        );
     }
 
     fn rat(num: i128, den: i128) -> Rat {

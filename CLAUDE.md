@@ -40,14 +40,18 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
 
 cd /home/liuyichen/TB_rs/cryspglib
 python3 -m unittest discover -s scripts -p test_verify_isotropy_oracle.py
+python3 -m unittest discover -s scripts -p test_check_other_wave_vector_rows.py
 python3 scripts/verify_isotropy_oracle.py
+python3 scripts/check_other_wave_vector_rows.py
 ```
 
-当前基线（2026-09-21，显式 CDML/BC 查询与双标签输出后，`-p cryspglib` 限定到本 crate）：
-lib `387 passed / 4 ignored`，integration `137 passed`，doctest `27 passed`，
-`audit_irrep_subduction` 示例测试 `10 passed`，
+当前基线（2026-09-22，任务 9 第六轮后，`-p cryspglib` 限定到本 crate）：
+lib `389 passed / 4 ignored`，integration `139 passed`，doctest `27 passed`，
 严格 all-target clippy 通过（Cargo 仍报告既有 workspace manifest 警告）；
-isotropy oracle 离线测试 `9 passed`，真实 oracle `62` 行、`26` 个描述串通过。
+isotropy oracle 离线测试 `9 passed`、真实 oracle `62` 行 / `26` 个描述串 / `62` 个
+origin 通过；其它波矢行门禁离线测试 `11 passed`、pinned 数据 `checks_failed=0`
+（73 源 / 1,006 记录 / 5,756 行，k 矢量与特征标行均不在归档中）；
+全表审计 `--require-complete` 退出 0、判词 `VERDICT complete scope=global`。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
 后端同时启用），与本 crate 无关，但会让整条命令以 exit 101 结束、0 个测试执行。
@@ -554,6 +558,70 @@ Frobenius 1,895/1,895，指向超胞/折叠 k 路径上「代表元带非零格�
 **剩余 60 行 = 16 条记录**（SG 5/12/15/67/68 与 13090/13106），它们的存储 origin 与
 打印 origin 相差**母群 cell choice**；`SET I <sg> CELL n` 会改变这些母群的 direction
 集合，记录不再一一对应，需要另找途径解析母群 setting。
+
+**第五轮（2026-09-21/22）把全表审计做到 `VERDICT clean`**：embedding 15,239/15,239、
+存储恒等正项 **94,111 通过 / 0 不匹配 / 0 假阳性**、Γ Frobenius 1,895/1,895、
+`hard_failures=0`，提交为 `fe2fd05`。三处修正：`SubgroupEmbedding.subgroup_lattice`
+改存候选自身映射推出的格（此前字段没跟着 `validate_candidate` 一起改）、
+`derive_shift_recorded.py` 对全部 1,057 条 origin 不符记录（不只引擎拒绝过的）推导
+记录帧位移、以及对审计点名的 107 条重新推导子群 Hall 行的 ITA origin choice。
+剩余 60 行 = 16 条记录（SG 5/12/15/67/68 与 13090/13106）由后续轮次解决。
+
+**第六轮（2026-09-22）：恒等内容第二条精确路径，普通恒等分导表范围内闭合。**
+
+审计仍报 14,713 条 probe `uncomputed_missing_data`（另有 160 条属于存储正项），
+原因是**折叠出的某个子群星没有随包离散 k 数据**；`trace_subduction` 新增的
+折叠星转储（失败时打印每个子群星的全部 q、模子群倒格的余数、是否 Γ，以及子群
+表的 k 点）显示：ordinal 10027（SG 196 `W1` `P2` → #24）的探针 `W1` 折叠出 3 个子群
+星，其中 2 个（q = (-2,-1/2,0) 与 (0,-1,1/2)）不在 #24 的离散表里，**第 3 个 q =
+(1,0,-1) 正是子群 Γ 点**，恒等重数 1，与存储频率 1 一致。
+
+于是新增引擎入口（`src/irrep/subduction_star_decompose.rs`）：
+
+- `trivial_content_with_embedding(subgroup, embedding, probe) -> TrivialContent
+  { total, by_label, gamma_stars, skipped_stars }`：只回答**恒等重数**。证明要点：
+  子群格平移 `t` 在任何 `q` 表示上作用为 `exp(-2πi q·t)`，恒等表示作用为 1，故共有
+  不可约成分要求 `q = 0` 模子群倒格（含 centering 消光）；因此非 Γ 折叠星对恒等
+  重数的贡献恒为 0，跳过它们**精确**而非近似。Γ 块仍走完整分解同一套 `build_block`
+  与冻结 child origin。`total`（按冻结 CIR 来源号）与 `by_label` 必须一致，否则
+  `TargetSourceMismatch`；子群没有唯一恒等 Γ 行时 `MissingChildTrivialIrrep`，绝不
+  返回 0（`every_space_group_has_one_trivial_gamma_row` 对 230 个 SG 钉住该行存在）。
+- 完整入口 `subduce_full_star_with_embedding` 的契约不变：缺子群数据仍报
+  `MissingChildStarData`、绝不部分返回，`TotalDimensionMismatch` 仍要求块覆盖整个
+  母群星。
+
+审计把探针结果分成 `full_success` 与 `identity_only` 两类，**两类都与存储表逐条比较**。
+全表运行 452 s、`--require-complete` 退出 0：
+
+| 项目 | 第六轮结果 |
+|---|---|
+| embedding | 15,239 / 15,239 |
+| probe 结果 | 351,547 完整 + 14,713 恒等-only = 366,260 全部有精确结果；0 缺数据 / 0 错误 / 0 embedding 不可用 |
+| 存储恒等正项 | **94,271 / 94,271 通过**；0 不匹配、0 假阳性（160 条由此前的 missing 变为恒等-only 通过） |
+| 未存储项 | 271,989 全为 0（引擎 114,770 + 几何 157,219） |
+| Γ Frobenius | 1,895 / 1,895 |
+| 生产自检 | 维数/整数重数/重建/CIR 来源不匹配全部 0 |
+| `hard_failures` | 0 |
+
+永久回归：`tests/subduction_identity_regressions.rs` 的
+`identity_only_content_answers_probes_without_full_child_data`（SG 196 四元组
+(1,1,1,2) 与 L1 的无 Γ 星情形）与
+`identity_only_content_agrees_with_the_full_decomposition_and_covers_the_pinned_set`
+（59 个冻结上下文：2,060 个 probe 上两条路径**逐条相等**，另 15 个 pinned 缺数据
+probe 由恒等-only 精确回答）；单元测试另钉住 230 个 SG 的恒等 Γ 行与 SG 221 全探针
+一致性。
+
+**范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
+“别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
+`irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，
+任何引擎都无法据此计算。新增 `scripts/check_other_wave_vector_rows.py`（+ 11 个
+离线测试）把这件事变成可执行检查：w 段必须**恰好**是那四张表（多出 k/矩阵段即失败）、
+数组长度与 1006/5756 相符、稀疏 pointer 的非零值集合等于带 w 记录的 1-based 起始
+偏移集合、源 SG 等于记录的母群 SG、频率 ∈ [1, dim]。审计也把每行的解析结果
+（`parent_sg_match` / `frozen_source` / `k_parameters=absent_from_pinned_archive`）
+写进 TSV，并新增 `--require-w-complete` 作为这条独立问题的门禁（全表运行时退出 2，
+摘要打印 `w_scope: rows=5756 ... uncomputed=5756`）；`--require-complete` 只门禁
+普通恒等分导表，其判词为 `VERDICT complete scope=global`。
 
 ### 分导任务 9 第一轮全表冻结（2026-09-21 晚，覆盖已满但一致性未过）
 

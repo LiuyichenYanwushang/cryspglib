@@ -19,9 +19,17 @@
 //!   when the exact folded-star geometry already proves that the trivial child
 //!   irrep cannot appear.  Geometry is an independent check on the computed
 //!   result, never a reason to skip the decomposition.
+//! * When that full decomposition has no child data for a folded star, the probe
+//!   is *not* written off: the engine's `trivial_content_with_embedding` answers
+//!   the identity content alone, exactly, by skipping the stars whose wave
+//!   vector is not the child's Gamma point (they provably cannot carry the
+//!   trivial representation; see that function's contract).  Such rows are
+//!   `identity_only` and are compared with the stored table exactly like a full
+//!   result; the row's detail keeps the full-decomposition error verbatim.
 //! * One TSV row is emitted per scalar probe, including probes whose embedding
 //!   is unavailable.  Such rows are `uncomputed` and can never count as passes.
-//! * The probe partition is `full_success + missing + error + uncomputed`, with
+//! * The probe partition is
+//!   `full_success + identity_only + missing + error + uncomputed`, with
 //!   `uncomputed = uncomputed_embedding + uncomputed_no_trivial`; it is checked
 //!   against `probes_total` both per record and globally.
 //! * The positive stored entries (the pinned 94271 identity rows) form a
@@ -38,10 +46,18 @@
 //! * Missing child data is `missing` (incomplete) and genuine engine
 //!   inconsistency is `error` (exit 1); neither is ignored or downgraded.
 //! * `other_wave_vector_subduction` rows (5756 over 1006 records) are a
-//!   separate single-valued table whose labels do not resolve to any
-//!   `IrrepRecord`, so their wave vectors are unknown: they stay `uncomputed`
-//!   and are part of incompleteness.  Identity closure never substitutes for
-//!   their missing parameters.
+//!   separate single-valued table naming parent irreps **at other wave
+//!   vectors**.  Each row is resolved here against the frozen source list
+//!   (`IRREP_W_LABELS`/`IRREP_W_SPACE_GROUP`, 73 entries, reached independently
+//!   of the accessor that produced the row) and its space group must be the
+//!   record's parent; a failure of either half is a hard failure.  Their
+//!   frequencies cannot be computed from the pinned archive at all -- it stores
+//!   those irreps as label, space group, dimension and type only, with no k
+//!   vector and no character row -- so they are reported in their own
+//!   `w_scope` line and their own completeness counter (`w_incomplete`), which
+//!   `--require-complete` deliberately does not gate on and
+//!   `--require-w-complete` does.  Identity closure never substitutes for their
+//!   missing parameters.
 //! * spinors are a separate unsupported space: spinor records are counted and
 //!   any spinor reference in these tables is reported, never computed.
 //! * the Frobenius check runs only on condensates at `Gamma` whose stored rows
@@ -62,8 +78,10 @@
 //! otherwise.
 //!
 //! Exit codes: `0` clean, `1` a genuine mismatch/inconsistency, `2`
-//! `--require-complete` with incomplete ordinary-table coverage (a missing or
-//! uncomputed full result, or missing `w` parameters), `3` CLI/IO failure.
+//! `--require-complete` with incomplete ordinary-table coverage (a probe with
+//! neither a full result nor an exact identity content, an uncompared stored
+//! row, or an unevaluated geometry/Frobenius gate), or `--require-w-complete`
+//! with other-wave-vector rows left uncomputed, `3` CLI/IO failure.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
@@ -72,11 +90,12 @@ use std::io::{self, BufWriter, Write};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use cryspglib::irrep::LabelConvention;
+use cryspglib::irrep::{LabelConvention, generated_data};
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup, parent_primitive_basis, subgroup_size};
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::star::decompose::{
     FullStarError, FullStarSubduction, subduce_full_star_with_embedding,
+    trivial_content_with_embedding,
 };
 use cryspglib::irrep::subduction::star::scalar_star::ScalarStar;
 use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubductionError, SubgroupEmbedding};
@@ -105,6 +124,7 @@ struct Options {
     ordinal: Option<usize>,
     output: Option<String>,
     require_complete: bool,
+    require_w_complete: bool,
     progress: usize,
     help: bool,
 }
@@ -116,6 +136,7 @@ impl Default for Options {
             ordinal: None,
             output: None,
             require_complete: false,
+            require_w_complete: false,
             progress: 500,
             help: false,
         }
@@ -152,6 +173,7 @@ impl Options {
                     options.output = Some(args.next().ok_or("--output needs a path")?.to_string());
                 }
                 "--require-complete" => options.require_complete = true,
+                "--require-w-complete" => options.require_w_complete = true,
                 "--progress" => {
                     let value = args.next().ok_or("--progress needs a record count")?;
                     options.progress = value
@@ -172,15 +194,23 @@ impl Options {
 
 const USAGE: &str = "\
 usage: audit_irrep_subduction [--parent N] [--ordinal N] [--output PATH]
-                              [--require-complete] [--progress N]
+                              [--require-complete] [--require-w-complete]
+                              [--progress N]
 
   --parent N          audit only the condensate records of space group N (1-230)
   --ordinal N         audit only the isotropy record with this global ordinal
   --output PATH       write the machine-readable TSV to PATH (default stdout)
-  --require-complete  exit 2 unless the ordinary table is complete in scope:
-                      every scalar probe has a full result (no embedding
-                      failure, no missing/uncomputed probe or stored row) and
-                      no `w` parameter row is left uncomputed
+  --require-complete  exit 2 unless the ordinary identity-subduction table is
+                      complete in scope: every embedding is frozen, every stored
+                      positive row is reproduced, every other probe has an exact
+                      result (full decomposition or exact identity content),
+                      and no geometry/Frobenius check is left unevaluated
+  --require-w-complete
+                      additionally require the 5756 other-wave-vector rows to be
+                      computed.  That is impossible with the pinned archive:
+                      the 73 irreps those rows name have no k vectors and no
+                      character rows in it (see the `w_scope` summary line), so
+                      this flag is the explicit gate for that separate question
   --progress N        print a progress line to stderr every N records (0 off)
 
 The TSV goes to stdout (or --output); the terse summary goes to stderr.";
@@ -193,6 +223,10 @@ The TSV goes to stdout (or --output); the terse summary goes to stderr.";
 struct ProbeCounts {
     total: usize,
     full_success: usize,
+    /// Probes the engine answered exactly for the identity content alone: the
+    /// full decomposition has no data for a folded star that provably cannot
+    /// contribute to that content.
+    identity_only: usize,
     missing: usize,
     error: usize,
     uncomputed_embedding: usize,
@@ -202,10 +236,11 @@ struct ProbeCounts {
 impl ProbeCounts {
     /// Probes handed to the production engine.
     fn attempted(&self) -> usize {
-        self.full_success + self.missing + self.error
+        self.full_success + self.identity_only + self.missing + self.error
     }
 
-    /// Probes with a valid embedding that the engine could not fully answer.
+    /// Probes with a valid embedding that the engine could not answer at all:
+    /// neither a full decomposition nor an exact identity content.
     fn incomplete(&self) -> usize {
         self.missing
     }
@@ -222,8 +257,9 @@ impl ProbeCounts {
     fn partition_error(&self) -> Option<String> {
         if self.partition_sum() != self.total {
             return Some(format!(
-                "probe partition {}+{}+{}+{}+{} = {} != probes_total {}",
+                "probe partition {}+{}+{}+{}+{}+{} = {} != probes_total {}",
                 self.full_success,
+                self.identity_only,
                 self.missing,
                 self.error,
                 self.uncomputed_embedding,
@@ -238,6 +274,7 @@ impl ProbeCounts {
     fn add(&mut self, other: &ProbeCounts) {
         self.total += other.total;
         self.full_success += other.full_success;
+        self.identity_only += other.identity_only;
         self.missing += other.missing;
         self.error += other.error;
         self.uncomputed_embedding += other.uncomputed_embedding;
@@ -391,8 +428,12 @@ struct Counts {
     gamma_record_non_gamma_probe: usize,
     w_records: usize,
     w_entries: usize,
-    w_resolved: usize,
-    w_unresolved: usize,
+    /// Rows whose `(label, space group)` pair is one of the 73 frozen
+    /// other-wave-vector sources and whose space group is the record's parent.
+    w_source_resolved: usize,
+    /// Rows that fail either half of that resolution: a real inconsistency in
+    /// the pinned pairing, not a missing-parameter question.
+    w_source_mismatch: usize,
     w_conflict: usize,
     w_computed: usize,
     spinor_records: usize,
@@ -451,9 +492,15 @@ impl Counts {
         self.entries.compared()
     }
 
-    /// Categories that make the ordinary table incomplete in scope: a missing
-    /// or uncomputed full result, an unverified absent-zero probe, and the
-    /// unresolved single-valued `w` parameters.
+    /// Categories that make the ordinary identity-subduction table incomplete
+    /// in scope: a probe with neither a full result nor an exact identity
+    /// content, a stored row left uncompared, an unchecked absent-zero probe,
+    /// or an unevaluated geometry/Frobenius gate.
+    ///
+    /// The other-wave-vector rows are *not* part of this scope: their k vectors
+    /// and character rows are absent from the pinned archive, so no engine can
+    /// compute them from it.  They are counted by [`Counts::w_incomplete`] and
+    /// gated separately by `--require-w-complete`.
     fn incomplete(&self) -> usize {
         self.probes.incomplete()
             + self.probes.uncomputed()
@@ -461,7 +508,13 @@ impl Counts {
             + self.geometry_filter_errors
             + self.basis_errors
             + self.frobenius_unevaluated
-            + self.w_entries.saturating_sub(self.w_computed)
+    }
+
+    /// Other-wave-vector rows left uncomputed, with the reason reported beside
+    /// them: the pinned archive carries no k vector and no character row for
+    /// the 73 irreps these rows name.
+    fn w_incomplete(&self) -> usize {
+        self.w_entries.saturating_sub(self.w_computed)
     }
 
     /// Categories that are genuine inconsistencies and fail the default run.
@@ -481,22 +534,25 @@ impl Counts {
             + self.label_source_disagreement
             + self.frobenius_mismatch
             + self.w_conflict
+            + self.w_source_mismatch
             + self.accounting_violations
             + self.census_mismatch
     }
 
-    fn verdict(&self, require_complete: bool) -> Verdict {
+    fn verdict(&self, require_complete: bool, require_w_complete: bool) -> Verdict {
         if self.hard_failures() > 0 {
             Verdict::Inconsistent
-        } else if require_complete && self.incomplete() > 0 {
+        } else if (require_complete && self.incomplete() > 0)
+            || (require_w_complete && self.w_incomplete() > 0)
+        {
             Verdict::Incomplete
         } else {
             Verdict::Clean
         }
     }
 
-    fn exit_code(&self, require_complete: bool) -> u8 {
-        match self.verdict(require_complete) {
+    fn exit_code(&self, require_complete: bool, require_w_complete: bool) -> u8 {
+        match self.verdict(require_complete, require_w_complete) {
             Verdict::Clean => 0,
             Verdict::Inconsistent => 1,
             Verdict::Incomplete => 2,
@@ -696,6 +752,66 @@ impl Auditor {
         self.emit(identity_line(
             context, kind, probe, stored, computed, status, detail,
         ));
+    }
+
+    /// Compare one computed trivial content with the stored table, update the
+    /// per-record tallies, and return the status of the emitted row.
+    ///
+    /// `success_status` separates a full decomposition from the identity-only
+    /// result of a probe whose non-Gamma folding star has no stored data.
+    #[allow(clippy::too_many_arguments)]
+    fn compare_trivial_content(
+        &mut self,
+        tally: &mut RecordTally,
+        context: &RecordContext<'_>,
+        probe: &IrrepRecord,
+        stored_row: Option<StoredRow>,
+        total: u32,
+        geometry: Geometry,
+        success_status: &'static str,
+    ) -> &'static str {
+        let ordinal = context.ordinal;
+        let sg = context.sg;
+        let child_sg = context.child_sg;
+        let direction = context.subgroup.record.direction_label;
+        let status = if let Some(row) = stored_row {
+            if total == u32::from(row.frequency) {
+                tally.entries.passed += 1;
+                success_status
+            } else {
+                tally.entries.mismatch += 1;
+                self.mismatch(format!(
+                    "ordinal {ordinal} parent {sg} subgroup {child_sg} direction {direction} \
+                     probe {}: stored frequency {} but the decomposition gives {total}",
+                    probe.ml, row.frequency
+                ));
+                "mismatch"
+            }
+        } else if total == 0 {
+            if geometry == Geometry::Reject {
+                tally.absent_zero_geometry += 1;
+            } else {
+                tally.absent_zero_engine += 1;
+            }
+            "absent_zero"
+        } else {
+            tally.absent_positive += 1;
+            self.mismatch(format!(
+                "ordinal {ordinal} parent {sg} subgroup {child_sg} direction {direction} \
+                 probe {}: not listed but the decomposition gives {total}",
+                probe.ml
+            ));
+            "absent_positive"
+        };
+        if geometry == Geometry::Reject && total > 0 {
+            tally.geometry_contradictions += 1;
+            self.mismatch(format!(
+                "ordinal {ordinal} probe {}: geometry proves zero but the decomposition gives \
+                 {total} trivial terms",
+                probe.ml
+            ));
+        }
+        status
     }
 
     fn trivial_child(&mut self, sg: u8) -> Option<&'static IrrepRecord> {
@@ -1038,71 +1154,24 @@ impl Auditor {
                         tally.probes.full_success += 1;
                         computed[probe_index] = Some(outcome.total);
                         let detail = production_detail(&outcome, geometry);
-                        if let Some(row) = stored_row {
-                            let status = if outcome.total == u32::from(row.frequency) {
-                                tally.entries.passed += 1;
-                                "passed"
-                            } else {
-                                tally.entries.mismatch += 1;
-                                self.mismatch(format!(
-                                    "ordinal {ordinal} parent {sg} subgroup {child_sg} direction {} \
-                                     probe {}: stored frequency {} but the decomposition gives {}",
-                                    subgroup.record.direction_label,
-                                    probe.ml,
-                                    row.frequency,
-                                    outcome.total
-                                ));
-                                "mismatch"
-                            };
-                            self.emit_probe(
-                                &ctx,
-                                kind,
-                                probe,
-                                Some(row),
-                                Some(&outcome),
-                                status,
-                                &detail,
-                            );
-                        } else if outcome.total == 0 {
-                            if geometry == Geometry::Reject {
-                                tally.absent_zero_geometry += 1;
-                            } else {
-                                tally.absent_zero_engine += 1;
-                            }
-                            self.emit_probe(
-                                &ctx,
-                                kind,
-                                probe,
-                                None,
-                                Some(&outcome),
-                                "absent_zero",
-                                &detail,
-                            );
-                        } else {
-                            tally.absent_positive += 1;
-                            self.mismatch(format!(
-                                "ordinal {ordinal} parent {sg} subgroup {child_sg} direction {} \
-                                 probe {}: not listed but the decomposition gives {}",
-                                subgroup.record.direction_label, probe.ml, outcome.total
-                            ));
-                            self.emit_probe(
-                                &ctx,
-                                kind,
-                                probe,
-                                None,
-                                Some(&outcome),
-                                "absent_positive",
-                                &detail,
-                            );
-                        }
-                        if geometry == Geometry::Reject && outcome.total > 0 {
-                            tally.geometry_contradictions += 1;
-                            self.mismatch(format!(
-                                "ordinal {ordinal} probe {}: geometry proves zero but the full \
-                                 decomposition gives {} trivial terms",
-                                probe.ml, outcome.total
-                            ));
-                        }
+                        let status = self.compare_trivial_content(
+                            &mut tally,
+                            &ctx,
+                            probe,
+                            stored_row,
+                            outcome.total,
+                            geometry,
+                            "passed",
+                        );
+                        self.emit_probe(
+                            &ctx,
+                            kind,
+                            probe,
+                            stored_row,
+                            Some(&outcome),
+                            status,
+                            &detail,
+                        );
                     }
                     Err(detail) => {
                         tally.probes.error += 1;
@@ -1126,6 +1195,51 @@ impl Auditor {
                 },
                 Err(error) => {
                     let call_kind = classify_call_error(&error);
+                    // A folded child star without stored data cannot carry the
+                    // subgroup's trivial representation (its wave vector is not
+                    // the child's Gamma point), so the identity content the
+                    // pinned table stores stays computable without it.  The
+                    // full decomposition is impossible, and the row says so.
+                    if call_kind.is_missing()
+                        && let Ok(content) =
+                            trivial_content_with_embedding(subgroup, embedding, probe)
+                    {
+                        tally.probes.identity_only += 1;
+                        computed[probe_index] = Some(content.total);
+                        let detail = format!(
+                            "geometry={} identity_only gamma_stars={} skipped_stars={} \
+                             trivial_by_label={} full_decomposition={error}",
+                            geometry.label(),
+                            content.gamma_stars,
+                            content.skipped_stars,
+                            content.by_label,
+                        );
+                        let status = self.compare_trivial_content(
+                            &mut tally,
+                            &ctx,
+                            probe,
+                            stored_row,
+                            content.total,
+                            geometry,
+                            "identity_only",
+                        );
+                        let outcome = CallOutcome {
+                            total: content.total,
+                            by_label: content.by_label,
+                            targets: 0,
+                            targets_without_source: 0,
+                        };
+                        self.emit_probe(
+                            &ctx,
+                            kind,
+                            probe,
+                            stored_row,
+                            Some(&outcome),
+                            status,
+                            &detail,
+                        );
+                        continue;
+                    }
                     self.bump_error(&format!("engine:{}", call_kind.label()));
                     let detail = format!("geometry={} {error}", geometry.label());
                     let status = if call_kind.is_missing() {
@@ -1205,19 +1319,45 @@ origin={},{},{},{}",
             );
         }
 
-        // ── Other-wave-vector rows: source availability only ─────────────────
+        // ── Other-wave-vector rows: frozen source resolution only ────────────
+        //
+        // These rows name parent irreps **at other wave vectors** (the `DT`/`SM`
+        // star labels of the cubic groups).  The pinned archive stores those 73
+        // irreps as label, space group, dimension and type only -- it carries no
+        // k vector and no character row for them -- so their subduction
+        // frequency cannot be computed from the pinned data by any engine.  The
+        // audit therefore resolves each row against the frozen source list
+        // itself (independent of the accessor that produced the entry) and says
+        // so per row; `w_scope` in the summary reports the outcome separately
+        // from the ordinary table's completeness.
         if !wave_entries.is_empty() {
             self.counts.w_records += 1;
             let mut seen: BTreeMap<&'static str, u16> = BTreeMap::new();
             for entry in &wave_entries {
                 self.counts.w_entries += 1;
-                let resolvable = query::irreps_of(sg)
+                let parent_sg_match = usize::from(entry.parent_sg) == usize::from(sg);
+                let frozen = generated_data::IRREP_W_LABELS
                     .iter()
-                    .any(|candidate| candidate.ml == entry.parent_ml);
-                if resolvable {
-                    self.counts.w_resolved += 1;
+                    .zip(generated_data::IRREP_W_SPACE_GROUP.iter())
+                    .any(|(label, source_sg)| {
+                        *label == entry.parent_ml && usize::from(*source_sg) == usize::from(sg)
+                    });
+                if frozen && parent_sg_match {
+                    self.counts.w_source_resolved += 1;
                 } else {
-                    self.counts.w_unresolved += 1;
+                    self.counts.w_source_mismatch += 1;
+                    self.mismatch(format!(
+                        "ordinal {ordinal}: other-wave-vector row {} of space group {} is not a \
+                         frozen source of parent space group {sg}",
+                        entry.parent_ml, entry.parent_sg
+                    ));
+                }
+                if entry.frequency == 0 {
+                    self.counts.w_source_mismatch += 1;
+                    self.mismatch(format!(
+                        "ordinal {ordinal}: other-wave-vector row {} carries frequency 0",
+                        entry.parent_ml
+                    ));
                 }
                 match seen.get(entry.parent_ml) {
                     Some(frequency) if *frequency != entry.frequency => {
@@ -1233,7 +1373,7 @@ origin={},{},{},{}",
                     }
                 }
                 self.emit(format!(
-                    "w_entry\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{}\t{}\t{}\t{sg}\t\tother_wave_vector\t{}\t\tuncomputed_w_parameters_missing\tstored_parent_sg={} label_resolvable={resolvable}",
+                    "w_entry\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{}\t{}\t{}\t{sg}\t\tother_wave_vector\t{}\t\tuncomputed_w_parameters_missing\tstored_parent_sg={} parent_sg_match={parent_sg_match} frozen_source={frozen} k_parameters=absent_from_pinned_archive",
                     subgroup.record.arms,
                     size.map_or_else(|| "unset".to_string(), |value| value.to_string()),
                     entry.parent_ml,
@@ -1530,8 +1670,9 @@ origin={},{},{},{}",
         );
         eprintln!("probes_total={}", counts.probes.total);
         eprintln!(
-            "probe_partition: full_success={} missing={} error={} uncomputed_embedding={} uncomputed_no_trivial={} uncomputed={} partition_sum={} rows_emitted={}",
+            "probe_partition: full_success={} identity_only={} missing={} error={} uncomputed_embedding={} uncomputed_no_trivial={} uncomputed={} partition_sum={} rows_emitted={}",
             counts.probes.full_success,
+            counts.probes.identity_only,
             counts.probes.missing,
             counts.probes.error,
             counts.probes.uncomputed_embedding,
@@ -1588,13 +1729,19 @@ origin={},{},{},{}",
             counts.label_source_disagreement
         );
         eprintln!(
-            "other_wave_vector: records={} rows={} resolved={} unresolved={} computed={} conflicts={}",
+            "other_wave_vector: records={} rows={} source_resolved={} source_mismatch={} computed={} conflicts={}",
             counts.w_records,
             counts.w_entries,
-            counts.w_resolved,
-            counts.w_unresolved,
+            counts.w_source_resolved,
+            counts.w_source_mismatch,
             counts.w_computed,
             counts.w_conflict
+        );
+        eprintln!(
+            "w_scope: rows={} computed={} uncomputed={} reason=k_vectors_and_character_rows_absent_from_pinned_archive gate=--require-w-complete",
+            counts.w_entries,
+            counts.w_computed,
+            counts.w_incomplete()
         );
         eprintln!(
             "completeness: missing_probes={} uncomputed_probes={} uncomputed_entries={} unresolved_entries={} duplicate_same={} geometry_filter_errors={} frobenius_unevaluated={} basis_errors={} w_uncomputed={}",
@@ -1609,12 +1756,16 @@ origin={},{},{},{}",
             counts.w_entries.saturating_sub(counts.w_computed)
         );
         eprintln!(
-            "coverage: embedded_records={}/{} positive_stored_compared={}/{} probe_full_success={}/{} absent_zero={} geometry_reject_absent={} frobenius_evaluated={}/{} w_computed={}/{}",
+            "coverage: embedded_records={}/{} positive_stored_compared={}/{} probe_full_success={}/{} probe_identity_only={}/{} probe_answered={}/{} absent_zero={} geometry_reject_absent={} frobenius_evaluated={}/{} w_computed={}/{}",
             counts.records_embedding_ok,
             counts.records,
             counts.positive_comparisons(),
             counts.entries.unique,
             counts.probes.full_success,
+            counts.probes.total,
+            counts.probes.identity_only,
+            counts.probes.total,
+            counts.probes.full_success + counts.probes.identity_only,
             counts.probes.total,
             counts.absent_zero(),
             counts.geometry_reject_absent,
@@ -1648,7 +1799,10 @@ origin={},{},{},{}",
             eprintln!("MISMATCH {message}");
         }
         eprintln!("elapsed={elapsed:.1}s");
-        let verdict = counts.verdict(self.options.require_complete);
+        let verdict = counts.verdict(
+            self.options.require_complete,
+            self.options.require_w_complete,
+        );
         let incomplete = counts.incomplete();
         let hard = counts.hard_failures();
         match verdict {
@@ -1656,16 +1810,27 @@ origin={},{},{},{}",
                 eprintln!("VERDICT inconsistent scope={scope} hard_failures={hard}");
             }
             Verdict::Incomplete => {
-                eprintln!("VERDICT incomplete scope={scope} incomplete_categories={incomplete}");
+                eprintln!(
+                    "VERDICT incomplete scope={scope} incomplete_categories={incomplete} \
+                     w_uncomputed={}",
+                    counts.w_incomplete()
+                );
             }
-            Verdict::Clean if self.options.require_complete => {
+            Verdict::Clean if self.options.require_complete || self.options.require_w_complete => {
                 eprintln!("VERDICT complete scope={scope}");
             }
             Verdict::Clean => {
-                eprintln!("VERDICT clean scope={scope} incomplete_categories={incomplete}");
+                eprintln!(
+                    "VERDICT clean scope={scope} incomplete_categories={incomplete} \
+                     w_uncomputed={}",
+                    counts.w_incomplete()
+                );
             }
         }
-        Ok((counts.exit_code(self.options.require_complete), counts))
+        Ok((
+            counts.exit_code(self.options.require_complete, self.options.require_w_complete),
+            counts,
+        ))
     }
 
     fn census_check(&mut self, distinct_probes: usize) {

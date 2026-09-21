@@ -5,9 +5,11 @@ use cryspglib::irrep::isotropy::{
     IsotropyDirection, isotropy_subgroup_for_direction, isotropy_subgroups,
 };
 use cryspglib::irrep::query;
+use cryspglib::irrep::isotropy::IsotropySubgroup;
 use cryspglib::irrep::subduction::star::decompose::{
-    FullStarError, subduce_full_star_with_embedding,
+    FullStarError, subduce_full_star_with_embedding, trivial_content_with_embedding,
 };
+use cryspglib::irrep::subduction::star::scalar_star::ScalarStar;
 use cryspglib::irrep::subduction::{SubgroupEmbedding, subduce_irrep_with_embedding};
 use cryspglib::irrep::types::{IrrepRecord, IrrepSourceIdentity};
 
@@ -275,4 +277,178 @@ fn compound_full_stars_preserve_stored_identity_frequencies() {
     // Positive complex multiplicities are pinned by the raw-CIR decomposition
     // witnesses in subduction_compound_stars; this is not full-table coverage.
     assert!(missing.is_empty(), "missing: {missing:?}");
+}
+
+/// One isotropy record of SG 196 by its global ordinal.
+fn sg196_record(ordinal: usize) -> (IsotropySubgroup, SubgroupEmbedding) {
+    let subgroup = isotropy_subgroups(196, "W1", LabelConvention::Cdml)
+        .unwrap()
+        .into_iter()
+        .find(|subgroup| subgroup.ordinal == ordinal)
+        .unwrap_or_else(|| panic!("SG 196 W1 has no isotropy record {ordinal}"));
+    let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
+    (subgroup, embedding)
+}
+
+/// The pinned frequency of one probe in a record's stored identity subduction.
+fn stored_frequency(subgroup: &IsotropySubgroup, ml: &str) -> u32 {
+    let entries = subgroup.identity_subduction().unwrap();
+    let frequencies: Vec<u32> = entries
+        .iter()
+        .filter(|entry| entry.parent_ml == ml)
+        .map(|entry| u32::from(entry.frequency))
+        .collect();
+    assert!(
+        frequencies.iter().all(|value| *value == frequencies[0]),
+        "probe {ml} appears with two frequencies"
+    );
+    frequencies.first().copied().unwrap_or(0)
+}
+
+/// A folded child star whose wave vector is not the child's Gamma point cannot
+/// carry the subgroup's trivial representation, so the pinned identity
+/// frequency stays exactly computable for probes whose *full* decomposition has
+/// no child data at all.
+#[test]
+fn identity_only_content_answers_probes_without_full_child_data() {
+    // SG 196 W1 -> #24 (I2_12_12_1), direction P2, Size 4.
+    let (subgroup, embedding) = sg196_record(10027);
+    assert_eq!((subgroup.record.sg, subgroup.record.direction_label), (24, "P2"));
+    let probe = |ml: &str| {
+        query::irreps_of(196)
+            .iter()
+            .find(|record| record.ml == ml)
+            .unwrap()
+    };
+
+    // W1 folds onto three child stars; two of them have no stored child k.
+    let w1 = probe("W1");
+    assert!(matches!(
+        subduce_full_star_with_embedding(&subgroup, &embedding, w1),
+        Err(FullStarError::MissingChildStarData { sg: 24, .. })
+    ));
+    let content = trivial_content_with_embedding(&subgroup, &embedding, w1).unwrap();
+    assert_eq!(
+        (content.total, content.by_label, content.gamma_stars, content.skipped_stars),
+        (1, 1, 1, 2)
+    );
+    assert_eq!(content.total, stored_frequency(&subgroup, "W1"));
+    assert_eq!(stored_frequency(&subgroup, "W1"), 1);
+
+    // The same geometry with a probe the pinned table does not list: the Gamma
+    // block really is decomposed, and it carries no trivial term.
+    let w2 = probe("W2");
+    assert!(matches!(
+        subduce_full_star_with_embedding(&subgroup, &embedding, w2),
+        Err(FullStarError::MissingChildStarData { sg: 24, .. })
+    ));
+    let content = trivial_content_with_embedding(&subgroup, &embedding, w2).unwrap();
+    assert_eq!((content.total, content.gamma_stars, content.skipped_stars), (0, 1, 2));
+    assert_eq!(stored_frequency(&subgroup, "W2"), 0);
+
+    // L1 folds onto no Gamma star at all, and its blocks do have child data, so
+    // the two entry points must agree on the zero.
+    let l1 = probe("L1");
+    let full = subduce_full_star_with_embedding(&subgroup, &embedding, l1).unwrap();
+    let trivial = trivial_record_of(embedding.subgroup_sg());
+    let full_total: u32 = full
+        .blocks()
+        .iter()
+        .map(|block| block.multiplicity(trivial.ml))
+        .sum();
+    let content = trivial_content_with_embedding(&subgroup, &embedding, l1).unwrap();
+    assert_eq!((content.total, content.gamma_stars, full_total), (0, 0, 0));
+    let folded = ScalarStar::new(l1).unwrap().folded_stars(&embedding).unwrap();
+    assert_eq!(
+        content.gamma_stars + content.skipped_stars,
+        folded.len(),
+        "every folded child star is either evaluated or skipped"
+    );
+    assert_eq!(stored_frequency(&subgroup, "L1"), 0);
+}
+
+/// The child's trivial Gamma irrep, found the way the audit finds it: a
+/// one-dimensional Gamma row that is `+1` on every operation.
+fn trivial_record_of(sg: u8) -> &'static IrrepRecord {
+    query::irreps_of(sg)
+        .iter()
+        .find(|record| {
+            gamma(record)
+                && record.dim == 1
+                && record
+                    .ordinary_scalar_selected_arm_block_trace()
+                    .is_ok_and(|row| row.values().iter().all(|value| (value - 1.0).norm() < 1e-9))
+        })
+        .expect("the child's trivial Gamma irrep")
+}
+
+/// The identity-only entry point must agree with the fully validated full-star
+/// decomposition wherever that one has data, and it must answer every probe of
+/// the pinned record set that the full path cannot.
+#[test]
+fn identity_only_content_agrees_with_the_full_decomposition_and_covers_the_pinned_set() {
+    let (mut agreements, mut covered_missing, mut positives) = (0, 0, 0);
+    for sg in [16, 139, 167, 221, 225] {
+        for condensing in query::irreps_of(sg).iter().filter(|record| !record.spinor) {
+            for subgroup in isotropy_subgroups(sg, condensing.ml, LabelConvention::Cdml).unwrap() {
+                if !matches!(
+                    (sg, subgroup.record.sg),
+                    (221, 83 | 12 | 148 | 123 | 47) | (225, 8) | (16, 22) | (167, 15) | (139, 126)
+                ) {
+                    continue;
+                }
+                let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
+                let trivial = trivial_record_of(embedding.subgroup_sg());
+                for probe in query::irreps_of(sg).iter().filter(|record| {
+                    matches!(
+                        record.source_identity(),
+                        IrrepSourceIdentity::OrdinaryScalar { .. }
+                    )
+                }) {
+                    let content = trivial_content_with_embedding(&subgroup, &embedding, probe)
+                        .unwrap_or_else(|error| {
+                            panic!("ordinal {}, probe {}: {error}", subgroup.ordinal, probe.ml)
+                        });
+                    assert_eq!(content.total, content.by_label);
+                    positives += usize::from(content.total != 0);
+                    match subduce_full_star_with_embedding(&subgroup, &embedding, probe) {
+                        Ok(result) => {
+                            let full_total: u32 = result
+                                .blocks()
+                                .iter()
+                                .map(|block| block.multiplicity(trivial.ml))
+                                .sum();
+                            assert_eq!(
+                                content.total, full_total,
+                                "ordinal {}, probe {}: identity-only content",
+                                subgroup.ordinal, probe.ml
+                            );
+                            agreements += 1;
+                        }
+                        Err(FullStarError::MissingChildStarData { .. }) => {
+                            // The pinned table is the oracle for exactly these.
+                            assert_eq!(
+                                content.total,
+                                stored_frequency(&subgroup, probe.ml),
+                                "ordinal {}, probe {}: covered pinned frequency",
+                                subgroup.ordinal,
+                                probe.ml
+                            );
+                            covered_missing += 1;
+                        }
+                        Err(error) => {
+                            panic!("ordinal {}, probe {}: {error}", subgroup.ordinal, probe.ml)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Pinned from the round-6 census: 2075 probes in total, of which 15
+    // (ordinals 13345/13346/13351, probes W1-W5) have no child data for their
+    // full star and are now answered exactly by the identity-only entry point;
+    // the other 2060 agree with the fully validated full-star decomposition, and
+    // 458 of all of them carry a positive trivial content.
+    assert_eq!((covered_missing, agreements, positives), (15, 2060, 458));
+    assert_eq!(covered_missing + agreements, 2075);
 }

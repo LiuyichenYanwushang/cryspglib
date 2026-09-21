@@ -404,3 +404,66 @@ compound 成功，79 个 spinor 不支持且未计入成功。加上既有五个
 新增四个自身嵌入来自实际 `SHOW ELEMENTS`，全部 basis=I、origin=0、Size=1；操作
 oracle 扩为 14 用例 / 90 代表。没有用“母群等于子群”绕过 setting 校验。全表逐记录
 setting、离散表缺失的子群 k、磁群与 spinor 仍按各自后续任务处理。
+
+## 13. 任务 9：恒等内容（identity-only）精确路径
+
+`subduce_full_star_with_embedding` 的契约不变：任何一个折叠子群星缺少随包离散
+k/irrep 数据就报 `MissingChildStarData`，**不部分返回**，并且仍然要求全部块的
+维数覆盖整个母群星（`TotalDimensionMismatch`）。恒等分导表只需要一个更弱但同样
+精确的量，因此任务 9 增加独立入口：
+
+```rust
+pub struct TrivialContent {
+    pub total: u32,        // 按子群恒等行的冻结 CIR 来源号累计的重数（存储表口径）
+    pub by_label: u32,     // 按子群 ML 标签累计的同一和；两者不等即 TargetSourceMismatch
+    pub gamma_stars: usize,
+    pub skipped_stars: usize,
+}
+pub fn trivial_content_with_embedding(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    probe: &'static IrrepRecord,
+) -> Result<TrivialContent, FullStarError>;
+```
+
+**为什么跳过非 Γ 块是精确的**：子群格平移 `t` 在折叠波矢 `q` 的任何表示上作用为
+标量 `exp(-2πi q·t)`，母群星在对应陪集上的特征标因此是该相位乘以 `q = 0` 处的值；
+子群恒等表示在每个平移上作用为 1。所以两者共有不可约成分要求
+`exp(-2πi q·t) = 1` 对所有子群格平移 `t` 成立，即 `q = 0` 模**子群**倒格（含
+centering 消光，判定用 `Lattice::contains`）。落在其它 `q` 的折叠星对恒等重数的
+贡献恒为 0，不需要任何子群数据，跳过它们不是近似。Γ 块本身仍由完整分解同一个
+`build_block` 阶段构造：同样的字符配对、同样的冻结 child origin shift。
+
+契约细节：
+
+- 上下文（subgroup/embedding/probe）先用与完整入口相同的
+  `validate_subduction_context` 重新校验；spinor probe 同样以
+  `UnsupportedCharacterSpace` 拒绝。
+- 子群必须存在唯一的“恒等 Γ 行”（一维、k = 0、在其自身存储 setting 下全为 +1）；
+  该行由 `trivial_child_record` 在随包表里查找，找不到或有多个时报
+  `MissingChildTrivialIrrep`，绝不返回 0。`every_space_group_has_one_trivial_gamma_row`
+  对 230 个空间群逐一钉住该行存在。
+- `by_label` 与 `total` 必须相等，否则报 `TargetSourceMismatch`（不是静默取其一）。
+- 返回值只对**恒等重数**成立；它不给出完整分导分解，调用方不得把它当作
+  `FullStarSubduction` 使用。
+
+永久回归（`tests/subduction_identity_regressions.rs`）：
+
+- `identity_only_content_answers_probes_without_full_child_data`：SG 196 `W1` P2 → #24，
+  探针 `W1`（k = (1/2,1,0)）的完整分解由 `MissingChildStarData` 拒绝，恒等-only
+  给出 `(total, by_label, gamma_stars, skipped_stars) = (1, 1, 1, 2)`，等于存储表
+  频率 1；同几何的 `W2` 未被存储表列出，恒等-only 给出 0；`L1` 折叠出的星没有 Γ
+  点，恒等-only 与完整分解都为 0，且 `gamma_stars + skipped_stars` 等于折叠星总数。
+- `identity_only_content_agrees_with_the_full_decomposition_and_covers_the_pinned_set`：
+  在任务 8 的 59 个冻结上下文里，2,060 个 probe 上恒等-only 与完整验证过的完整星
+  分解**逐条相等**，另外 15 个（ordinal 13345/13346/13351 的 `W1`–`W5`）完整分解
+  无数据、由恒等-only 精确回答并与存储表一致。
+- `src/irrep/subduction_star_decompose.rs` 单元测试另钉住 SG 221 `GM4+` P1 → #83 的
+  全部标量 probe 上两条路径一致，以及 SG 196 的上述四元组。
+
+全表审计（`examples/audit_irrep_subduction.rs`）据此把探针结果分为
+`full_success` 与 `identity_only` 两类，二者都与存储表逐条比较：14,713 条
+恒等-only 中 160 条是存储正项，全部复现，0 不匹配、0 假阳性。范围闭合的判词由
+`--require-complete` 给出；`other_wave_vector_subduction` 的 5,756 行因 pinned 归档
+没有其 73 个源 irrep 的 k 矢量与特征标行，单独由 `--require-w-complete` 与
+`w_scope` 行报告，未计入该范围。

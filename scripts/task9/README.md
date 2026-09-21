@@ -1,4 +1,4 @@
-# Task 9 setting pipeline (work in progress)
+# Task 9 setting pipeline (closed for the ordinary identity table)
 
 The full-subduction engine maps every isotropy record's subgroup into the parent
 frame of `SG_DATA_HALL`.  Two conventions are not in the stored tables and have
@@ -151,6 +151,47 @@ The 60 remaining rows are 16 records of SG 5/12/15/67/68 (plus 13090/13106) whos
 stored origin differs from the printed one by a parent **cell choice**;
 `SET I <sg> CELL n` changes the direction set of those parents, so the records no
 longer line up one-to-one and the parent setting needs another route.
+
+## Sixth pass: the ordinary identity table is closed (2026-09-22)
+
+The audit's 14,713 `uncomputed_missing_data` probes (160 of them stored
+positives) were *not* a setting problem either.  `examples/trace_subduction` now
+dumps the folded child stars when the full decomposition fails, and ordinal
+10027 (SG 196 `W1` `P2` -> #24) shows why they are answerable:
+
+```text
+folded child stars: 3
+  child star 0: q = (-2,-1/2,0), (2,1/2,0)          -> not Gamma, no #24 data
+  child star 1: q = (0,-1,1/2), (0,1,-1/2)          -> not Gamma, no #24 data
+  child star 2: q = (1,0,-1)                        -> Gamma, arms [0, 2]
+```
+
+Only the third star can carry the subgroup's trivial representation (a child
+lattice translation `t` acts on a representation at `q` as `exp(-2 pi i q.t)`,
+the trivial representation acts as `1`), so
+`trivial_content_with_embedding` evaluates the Gamma star with the same
+`build_block` stage and skips the other two exactly.  It returns 1 for `W1`
+(stored frequency 1), 0 for the unlisted `W2`, and 0 for `L1`, whose stars carry
+no Gamma point at all.
+
+| audit item | fifth pass | sixth pass |
+|---|---|---|
+| embeddings | 15,239 / 15,239 | 15,239 / 15,239 |
+| probes with an exact result | 351,547 of 366,260 | **366,260** (351,547 full + 14,713 identity-only) |
+| stored identity positives | 94,111 passed | **94,271 passed**, 0 mismatch, 0 false positive |
+| absent entries computed positive | 0 | 0 (271,989 zeros) |
+| Gamma Frobenius | 1,895 / 1,895 | 1,895 / 1,895 |
+| hard failures | 0 | 0 |
+| verdict | `clean ... incomplete_categories=20629` | `--require-complete` exit 0, `VERDICT complete scope=global` |
+
+The remaining `incomplete_categories` were the 5,756 `isotropy_w_subduce_*` rows.
+Those name 73 parent irreps **at other wave vectors**, and the pinned archive
+stores them as label, space group, dimension and type only -- no k vector and no
+character row -- so no engine can compute their frequencies from it.
+`scripts/check_other_wave_vector_rows.py` makes that executable (11 offline
+tests) and checks everything the archive does pin; the audit reports the rows in
+its own `w_scope` line and gates them with `--require-w-complete`, which exits 2
+while they are uncomputed.
 
 ## State after the first pass (2026-09-21)
 
