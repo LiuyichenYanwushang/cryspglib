@@ -1,0 +1,232 @@
+# 完整分导的坐标、表示与来源约定（任务 1）
+
+本文件是 `src/irrep/subduction.rs`（任务 3–12）的契约。它固定坐标帧、表示语义、
+来源身份、精度与首版不支持边界；**不含数值算法**。配套任务卡见
+`docs/full-irrep-subduction-plan.md`。下面所有数字都取自 pinned
+`isotropy_subgroup/iso.zip`（`data_isotropy.txt`）与随包 `iso` 9.6.1 在
+`SET I ALL OR 1` 下的输出，逐条可复现。
+
+## 1. 两个独立输入
+
+| 角色 | 输入 | 用途 | 不能混用 |
+|---|---|---|---|
+| 凝聚表示 | `(parent_sg, condensing_ml, IsotropyDirection)` | 决定子群 `H` 及其**具体嵌入** | 它的方向决定嵌入，不只是决定"哪一族子群" |
+| 被分导表示 | `(parent_sg, probe_ml)` | 要分解的对象 | 它不改变子群、不影响嵌入 |
+
+固定子群的键是**等距记录序号** `IsotropySubgroup::ordinal`（0-based，`data_isotropy.txt`
+记录序），不是 `(sg_H, 方向标签)`：同一 `sg_H` 可以由不同方向、不同嵌入得到
+（见 §2 例 B 与例 C）。任何以 `(sg_H, label)` 为键的缓存都必须在嵌入层再次校验。
+
+## 2. 坐标约定（列向量）
+
+以**已验证**的仿射变换为准（子群 conventional 帧 → 母群 conventional 帧）：
+
+```text
+x_G = T x_H + o
+R_G = T R_H T^-1
+t_G = T t_H + o - R_G o
+k_H = T^T k_G
+```
+
+- 子群 conventional 基矢按**行**存为 `B`，则 `T = B^T`。推导：`x_G = Σ_i x_H,i·B_i = B^T x_H`。
+- `k_H = T^T k_G` 由 Bloch 相位配对不变性 `k_G·x_G = k_H·x_H` 得到；origin 不改变 k，
+  只改变操作的平移代表元。
+- 操作一律用 Seitz 记号 `{R|t}`，`R` 行主序整数，`t` 为**该帧**的分数平移。
+
+存储数据到 `B` 的链路（`W` 是 `data_isotropy.txt` 的 `isotropy_basis`，行向量，
+母群 **primitive** 帧；`P_*` 来自 `irrep::isotropy::parent_primitive_basis(*)`）：
+
+```text
+W · P_parent      = 子群 primitive 基（母群 conventional 坐标）
+P_sub · B         = 同一个格的另一组基
+⇒ W · P_parent    = U · (P_sub · B)          U ∈ GL(3, Z), det U = ±1
+⇒ B               = P_sub^-1 · U^-1 · W · P_parent
+```
+
+**格相等或体积相等不足以证明 `U = I`**：`U` 是"有向对应"，必须显式求出并验证
+（§4）。`U` 的搜索范围只取小的 signed permutation/shear 候选，并且每个候选都必须
+通过 §4 的完整验证；若有多个候选通过（只差子群自同构、会置换 irrep 标签），
+按任务 4 走冻结元数据路径，不取第一项。
+
+### 手算例 A：221 `GM4+` / `P1` → #83 `P4/m`（首个黄金用例）
+
+存储记录（ordinal 12400）：`W = [[0,0,1],[0,-1,0],[1,0,0]]`，`origin = [0,0,0,1]`。
+官方 `SHOW BASIS`/`SHOW ORIGIN`：`(0,0,1),(0,-1,0),(1,0,0)` / `(0,0,0)`；
+`SHOW ELEMENTS`：8 个陪集代表
+`(E|0,0,0), (C2x|0,0,0), (C4x+|0,0,0), (C4x-|0,0,0), (I|0,0,0), (SGx|0,0,0), (S4x-|0,0,0), (S4x+|0,0,0)`。
+
+母群 221 与子群 #83 都是 P 点阵，`P_parent = P_sub = I`，官方基与 `W` 逐项相同
+⇒ `U = I`，`B = W`，`T = B^T = W = [[0,0,1],[0,-1,0],[1,0,0]]`（对称且 `T^-1 = T`），
+`o = (0,0,0)`。`k_G = (0,0,0)` ⇒ `k_H = T^T k_G = (0,0,0)`。
+
+操作映射核对（真算）：#83 的规范 setting（P4/m，唯一轴 c）里四重轴是 `C4z+`，
+即 `R_H = [[0,-1,0],[1,0,0],[0,0,1]]`；代入 `R_G = T R_H T^-1`（`T^-1 = T`）：
+
+```text
+T R_H   = [[0,0,1],[-1,0,0],[0,-1,0]]
+R_G     = (T R_H) T = [[1,0,0],[0,0,-1],[0,1,0]] = C4x+   ← 官方打印的第 3 个代表
+```
+
+即"子群自己 c 轴上的四重轴"在母群帧中是 x 上的四重轴（`B` 的第 3 行 `(1,0,0)`
+正是母群 x 轴）——`T` 必须显式携带方向信息，不能只看格。
+
+**陷阱（已核对）**：`SHOW ELEMENTS` 打印的 `C4x+` 等符号是**母群帧**里的名字，
+已经含有 `T` 的效果；把它再代进 `R_G = T R_H T^-1` 是错的。验证时必须用子群
+**自身 setting** 的操作做映射（判据见 §4）。判别依据：例 B 打印 `C2a`/`SGda`
+（立方母群的 ⟨110⟩ 对角轴名），而 #12 自身 setting 的同一操作叫 `C2y`/`SGy`。
+
+### 手算例 B：221 `GM4+` / `P2` → #12 `C2/m`（非对称换基、`U ≠ I`）
+
+存储（ordinal 12401）：`W = [[0,0,1],[1,0,0],[0,1,0]]`，origin `(0,0,0)`。
+官方：`B = (1,-1,0),(1,1,0),(0,0,1)`（`det B = 2 = Z_sub·Size/Z_parent = 2·1/1`），
+origin `(0,0,0)`。#12 是 C 心，`P_sub = [[1/2,1/2,0],[-1/2,1/2,0],[0,0,1]]`，于是
+
+```text
+P_sub · B = [[1,0,0],[0,1,0],[0,0,1]]        (逐行验算；等价地 B^-1 = P_sub)
+U         = W · (P_sub · B)^-1 = W           (det U = 1)
+T         = B^T = [[1,1,0],[-1,1,0],[0,0,1]]
+```
+
+所以对中心化子群，`B` 既不是 `W` 也不是 `W·P_parent`；`T` 由 §2 的链路给出，
+`U` 必须显式记录。官方 `SHOW ELEMENTS` 该行是
+`(E|0,0,0), (C2a|0,0,0), (I|0,0,0), (SGda|0,0,0)`（4 个陪集代表 = 2/m 的点群商）。
+用子群自身 setting 核对同一映射：`R_H = diag(-1,1,-1)`（`C2y`）与 `diag(1,-1,1)`
+（`SGy`），`T^-1 = [[1/2,-1/2,0],[1/2,1/2,0],[0,0,1]]`，
+
+```text
+T R_H T^-1 = [[0,1,0],[1,0,0],[0,0,-1]]   = C2a    (绕母群 [110] 的二重轴)
+T R_H T^-1 = [[0,-1,0],[-1,0,0],[0,0,1]]  = SGda   (⊥ [110] 的镜面)
+```
+（前者取 `R_H = C2y`，后者取 `R_H = SGy`。）
+
+与官方打印逐项一致。注意 `T` 的行列式为 2（`det B = 2`），**不是** unimodular；
+`o = (0,0,0)` 且 C 心的平移 `(1/2,1/2,0)_H` 经 `T` 映到 `(1,0,0)`（母群格矢量，
+与 `Size = 1` 一致）。
+
+k 换算示意（同一 `B`）：若 `k_G = (1/2,1/2,0)`（母群 M 点），则
+`k_H = B k_G = (0,1,0)`。别急着约化——C 心的子群倒格在 conventional 坐标里要求
+`h1 + h2` 为偶数，所以 `(0,1,0)` 是真正的非 Γ k（单斜 Y 点），不是 (`1/2,1/2,0)` 的
+零化。等价判定必须带子群 centring 消光，这正是任务 7 的范围。
+
+### 手算例 C：221 `GM3+` / `P1` → #123、`C1` → #47（`W`/`o` 相同、嵌入不同）
+
+两条记录的 `W = I`、`origin = (0,0,0)`，但官方 `SHOW ELEMENTS` 给出 **16** 与 **8**
+个陪集代表（#123 `P4/mmm` 的点群商 16，#47 `Pmmm` 的 8）。**`(W, origin)` 不含点群
+信息**，嵌入必须由子群自身的规范操作集经 `T/o` 搬入母群帧后验证得到。
+
+## 3. L_G 与 L_H
+
+- `L_G` = 母群平移格；`L_H` = 子群平移格（`W` 张成，母群 primitive 坐标）。二者满足
+  `L_H ⊆ L_G`，指数 `= |det W| = Size`。
+- 判断"某个操作属于母群"用 `L_G`；判断"两条操作在 H 内是同一元素"、做闭包/逆元去重
+  必须用 `L_H`。**模 `L_G` 相同不蕴含模 `L_H` 相同**（超胞/klassengleiche 情形），
+  任务 3 的测试必须钉死这一点。
+- 归约 `v → v + shift·L_H` 必须把 `shift`（整数组合）返回给调用者：非 Γ 的 Bloch 相位
+  与"操作代表元变更"都需要它；只返回代表元、丢弃 `shift` 的设计不成立。
+  `wigner.rs::ExactSeitzReduction.lattice_shift` 是同一形态的既有先例，但它只针对
+  canonical Hall 表、且分母固定 12（§7），不能直接复用。
+
+## 4. 嵌入的验证判据（任务 4 的前置契约）
+
+候选 `(T, o)` 只有同时满足下列全部条件才能产生 `SubgroupEmbedding`：
+
+1. 子群规范操作集（`SG_DATA_HALL[sg_H]` 的严格读取，§7）经 `(T,o)` 搬入母群帧后，
+   每个完整 Seitz 操作都落在母群操作集内（模 `L_G`，逐操作配对，不是只比旋转）；
+2. 该集合在模 `L_H` 下闭包、含逆元；映射后的**去重代表元数**必须等于由记录算出的
+   期望数——中心化胞的 conventional 操作数 ≠ 点群商阶数，所以期望数要按"子群自身
+   规范操作集取模 `T_H` 后的大小"来算，并由任务 2/4 的 fixture 逐个钉住。已核对的
+   见证：例 A 8（#83，2/m 商 8）、例 B 4（#12，2/m 商 4）、例 C 16（#123）与 8（#47）、
+   #139 `M1-` P1 16（#126）。`Size > 1`（超胞嵌入）的期望数由任务 4 用 fixture 与
+   子群号识别共同确定，不得在实现里用点群阶直接顶替；
+3. 子群号识别结果等于 `record.sg`；
+4. 若该 ordinal 在任务 2 的 fixture 集内，则与官方 `SHOW ELEMENTS` 逐操作相等；
+5. `IsotropySubgroup` 的 `parent_sg/ordinal/record` 上下文自洽（字段是 public，
+   伪造记录必须被拒绝，不能成为绕过验证的输入通道）。
+
+`SHOW ELEMENTS` 打印的是**母群帧**中的陪集代表，且**打印什么符号取决于子群是否
+在母群帧中命名得出来**：旋转用母群轴命名（例 A 的 `C4x±`、`SGx`、`S4x±`，
+例 B 的 `C2a`、`SGda` 这类立方 ⟨110⟩ 对角名），平移在母群 conventional 坐标，
+而且**不约化**（例 A/B 全为 `(0,0,0)`；#139 `M1-` 打印的 Origin 是 `(1,1,1)`、
+代表元含 `(C2x|0,2,2)`、`(I|5/2,5/2,5/2)`——整数 2 与 5/2 只有模 `L_G` 才等于
+0 与 `1/2`）。因此第 4 条的比较对象是"子群自身 setting 的操作经 `(T,o)` 搬入母群
+帧后的操作多重集"（先按 `L_G` 约化再比），**不是**把打印符号再套一次
+`R_G = T R_H T^-1`（§2 陷阱）。任务 2 的 fixture 必须同时钉住打印串与它对应的
+`(R_G, t_G)`（符号→矩阵表随 fixture 冻结），并把这条写成断言而不是注释。
+
+## 5. 表示语义：Γ / selected-arm / full-star，以及维数来源
+
+| 名称 | 含义 | 本引擎中的维数来源 |
+|---|---|---|
+| Γ | `k = 0`；小群 = 全点群 | `IrrepRecord::dim`（物理维数）、`CharacterRow::dimension()`（该行空间的维数） |
+| selected-arm | 只取星的一条臂，在臂的小群上解释 | `RepresentationSpaceKind::SelectedArmBlockTrace`；行仍按**完整 PIR 操作宇宙**索引，调用者必须自己限制到臂小群集合 |
+| full-star | 整个星（诱导表示） | 诱导表示维数 = `little_dim × star_size`；任务 8 才实现 |
+
+**首版（任务 5）只做 Γ、标量、普通（非 compound、非 spinor）请求**；其余输入返回
+`Unsupported`/`MissingIrrepData`，不返回部分项。`SelectedArmBlockTrace` 的行不是
+full-star 行：任务 7 的 selected-arm 结果必须用**独立名称**，任务 8 不得用
+"full-star trace ÷ 臂数"伪造它。
+
+## 6. 复/实语义与 compound 计数
+
+- 首版分解的是**复不可约成分**（复化后的限制表示）；`IrrepRecord::dim` 仍是物理
+  （可能为实）表示的维数，两者不得互相冒充。物理实表示的重新分组另行展示。
+- `CompoundMetadata::semantics` 决定行的组装方式，**必须**分别处理：
+  - `ConjugateRealification`：`χ = 2·Re(χ_CIR)`，该行范数为 2，**不能**喂给复不可约
+    特征标正交性内积；
+  - `DistinctComponentSum`：`χ = Σ χ_CIR`，按 constituent 分别分解。
+- **禁止**用 ML 标签的拼接长度推断 compound 的重复计数；目标项必须能追溯到
+  `CompoundMetadata::cir_irnumbers`/`cir_labels` 这样的**冻结 CIR 来源身份**。
+- 目标候选行必须是完整、互异的复不可约集合；先用 Gram 矩阵验证正交性（任务 6），
+  再套内积。
+
+## 7. 来源身份、严格 Hall 来源与精度
+
+- **来源身份 ≠ 显示标签**。`ml`/`bc` 是显示标签（112 个母群 irrep 的旧拼写官方二进制
+  不接受）；稳定身份来自 CIR/PIR 来源编号与冻结 provenance 串。输出条目必须带来源
+  身份，不能合成标签。
+- **`bridge::canonical_hall_ops()` 不是严格 API**：它有 `hall == 0 → from_sg` 与
+  `from_database` 失败 → `from_sg` **两处** first-Hall 回退。新引擎用私有
+  `strict_sg_hall_ops(sg)`（只读 `SG_DATA_HALL[sg]`，为 0 或加载失败即报
+  `StrictHallUnavailable`），公共 bridge 行为不变。
+- **精度**：`wigner.rs::ExactSeitzOp` 把平移固定为分母 12 的网格
+  （`ExactSeitzError::TranslationOffTwelfthGrid`），而 pinned origin 的分母包含
+  **16**、变换过程还会产生新分母（如 1/8、1/16 的组合）。因此引擎使用**本模块局部**
+  的 checked 有理类型，不改全库代数：
+
+```text
+Rat { num: i128, den: i128 }   // den > 0、gcd(num,den)=1，构造时归一
+checked_add / checked_sub / checked_mul / checked_div / is_integer / to_i32_checked
+Mat3R / Vec3R                   // 3×3 / 3 向量；inverse3 -> Result<_, SingularTransform>
+```
+
+  所有 `f64`/`i32` → 有理的转换走 checked 构造；**不得**用 `as` 强转、不得把分母
+  截到 12、不得把"取模后丢弃平移"当作归约。整数溢出必须报错。
+- `KVector { numerators: [i8;3], denominator: i8 }` 是窄整数类型；任务 7 的折叠 k
+  若超出其范围必须报错或另用宽表示，**不得截断**。
+
+## 8. 实际 API 清单（签名 / 帧 / 维数 / 精度）
+
+| API（已核对签名） | 帧 | 维数 / 精度 | 限制 |
+|---|---|---|---|
+| `query::irreps_of(sg: u8) -> &'static [IrrepRecord]` | ISO/data-Hall setting | `dim: u8`；`kx,ky,kz: i8`、`kd: i8` | 含 spinor 记录；compound 用拼接 ML 标签 |
+| `IrrepRecord::ordinary_scalar_selected_arm_block_trace() -> Result<CharacterRow, CharacterViewError>` | 行内 `operations` 与字符同帧（data-Hall/PIR 宇宙） | `CharacterRow::dimension()`；`Complex64` | `spinor` 或 compound 返回 `NotApplicable` |
+| `IrrepRecord::compound_selected_arm_view() -> Result<CompoundSelectedArmCharacter, CharacterViewError>` | 同上 | `ConjugateRealification{seed, block_trace}` / `DistinctComponentSum{first, second, block_trace}`；constituent 各自 `dimension` | 必须按 `semantics` 分支，不得把 `block_trace` 当单个复 irrep |
+| `IrrepRecord::spinor_selected_arm_view() -> Result<SpinCharacterRow, CharacterViewError>` | 同上 + SU(2) lift | `SpinSeitzOperation{seitz, pauli}` | 任务 11 之后单独处理，首版不用 |
+| `CharacterRow::{representation_space, dimension, len, values, get, entry, operations, operation}` | 行自带 | `Complex64` + `SeitzOperation{rotation:[i32;9], translation:[f64;3]}` | 构造函数已校验 identity 唯一/维数/有限性；平移是 f64，精确化需走 §7 的 checked 转换 |
+| `irrep::isotropy::isotropy_subgroup_for_direction(sg, ml, IsotropyDirection) -> Result<IsotropySubgroup, IsotropyError>` | 记录为 pinned 数据 | `record.basis: [[i32;3];3]`、`record.origin: [i32;4]` | 字段 public；嵌入层必须重新校验（§4.5） |
+| `irrep::isotropy::{parent_primitive_basis, basis_in_parent_conventional, origin_shift_in_parent_conventional, subgroup_size}` | primitive → conventional 换算 | f64 / `u32` | 只承诺帧换算与 Size；不代表官方 Basis/Origin 列（见 `docs/isotropy-data-semantics.md` §3） |
+| `SymmetryOps::from_database(hall: usize) -> Result<Self, SymError>` | 指定 Hall setting | 精确整数 R + f64 t | 新引擎的严格来源，经 `SG_DATA_HALL[sg]` |
+| `bridge::canonical_hall_ops(sg) -> Result<SymmetryOps, SymError>` | data-Hall，**有回退** | — | 不得当作严格 API（§7） |
+| `wigner::{ExactSeitzOp, exact_seitz_table, ExactSeitzReduction}` | canonical Hall 表 | 分母 12 网格、`lattice_shift: [i32;3]` | 不能承载 1/16 origin；按 L_H 泛化的部分在 `subduction.rs` 内实现 |
+| `query::k_vectors_agree(a: KVector, b: KVector) -> bool` | — | i8 窄整数 | `d = 0` 返回 false；折叠 k 的等价判定要按子群倒格做（任务 7） |
+
+## 9. 首版不支持边界（必须报错，不得部分返回）
+
+- 非 Γ（`k ≠ 0`）请求；多臂/full-star；compound 的复化内积；spinor/双群；磁子群
+  与磁共表示（任务 10–11）；参数化 k（不在 `query::irreps_of(sg_H)` 离散表中的
+  折叠 k）；无法唯一确定嵌入的 ordinal（任务 4 冻结路径之外的）。
+- 对应错误：`Unsupported`、`MissingIrrepData`、`AmbiguousEmbedding`、
+  `StrictHallUnavailable`、`SingularTransform`、`NonIntegralMultiplicity`、
+  `CharacterMismatch`、`DimensionSumMismatch`（任务 3/5 落地时确定到具体变体）。
+- 任何"返回空分解冒充成功"、"取候选第一项"、"放宽误差/加豁免"、"用 legacy
+  `characters()`/`matrices()` 与 Hall 操作配对"的做法都在本契约下不合格。
