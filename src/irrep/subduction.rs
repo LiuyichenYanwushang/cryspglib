@@ -24,12 +24,12 @@
 use crate::SymError;
 use crate::api::SymmetryOps;
 use crate::irrep::isotropy::{IsotropySubgroup, parent_primitive_basis};
+use crate::irrep::query;
+use crate::irrep::types::generated_data::{ISOTROPY_SUBGROUPS, SG_DATA_HALL};
 use crate::irrep::types::{
     CharacterRow, CompoundSelectedArmCharacter, IrrepRecord, IsotropyRecord, KVector,
     SeitzOperation,
 };
-use crate::irrep::query;
-use crate::irrep::types::generated_data::{ISOTROPY_SUBGROUPS, SG_DATA_HALL};
 use crate::mathfunc::Mat3I;
 use num_complex::Complex64;
 
@@ -101,6 +101,36 @@ pub enum SubductionError {
     /// the generated table.
     #[error("isotropy record {ordinal} does not match the generated table")]
     StaleIsotropyRecord { ordinal: usize },
+    /// A cached embedding and the isotropy record handed in with it belong to
+    /// different contexts.
+    ///
+    /// Reusing one [`SubgroupEmbedding`] across probes of the *same* record is
+    /// the point of [`subduce_irrep_with_embedding`]; reusing it for another
+    /// record silently mixes two contexts (subgroup number, setting and child
+    /// origin shift all come from the cached record), so the mismatch is
+    /// rejected instead of folded.
+    #[error(
+        "embedding context mismatch: subgroup (parent {parent_sg}, ordinal {ordinal}, \
+         subgroup {subgroup_sg}) but the cached embedding is (parent {embedding_parent_sg}, \
+         ordinal {embedding_ordinal}, subgroup {embedding_subgroup_sg})"
+    )]
+    EmbeddingContextMismatch {
+        parent_sg: u8,
+        ordinal: usize,
+        subgroup_sg: u8,
+        embedding_parent_sg: u8,
+        embedding_ordinal: usize,
+        embedding_subgroup_sg: u8,
+    },
+    /// The probe is not a member of the parent's generated irrep table.
+    ///
+    /// This staged API requires a reference into the generated `IRREPS` table:
+    /// a copied record can retain its source ID while its public fields change.
+    /// Only a record obtained from
+    /// [`query::irreps_of(parent_sg)`](crate::irrep::query::irreps_of) can be
+    /// interpreted in the parent's frame.
+    #[error("probe {ml} is not a record of the irrep table of space group {sg}")]
+    ForeignProbe { sg: u8, ml: &'static str },
     /// The parent space group has no scalar irrep with the requested label.
     #[error("space group {sg} has no irrep with label {ml}")]
     UnknownParentIrrep { sg: u8, ml: &'static str },
@@ -154,10 +184,6 @@ pub enum SubductionError {
     /// Two rows produced the same canonical source identity.
     #[error("target source {ml} (irnumber {irnumber}) appears twice")]
     DuplicateTargetSource { ml: &'static str, irnumber: u32 },
-    /// A compound row's constituents are not a complete complex-irreducible set
-    /// (their characters do not add up to the stored block trace).
-    #[error("compound row {ml} does not equal the sum of its constituents")]
-    InconsistentCompoundRow { ml: &'static str },
     /// A complex target row is not irreducible over the coset set.
     #[error("target {ml} has norm {norm} instead of 1; it is not a complex irrep")]
     TargetNotIrreducible { ml: &'static str, norm: f64 },
@@ -213,14 +239,12 @@ impl Rat {
         }
         let (num, den) = if den < 0 {
             (
-                num.checked_neg()
-                    .ok_or(SubductionError::RationalOverflow {
-                        operation: "normalize",
-                    })?,
-                den.checked_neg()
-                    .ok_or(SubductionError::RationalOverflow {
-                        operation: "normalize",
-                    })?,
+                num.checked_neg().ok_or(SubductionError::RationalOverflow {
+                    operation: "normalize",
+                })?,
+                den.checked_neg().ok_or(SubductionError::RationalOverflow {
+                    operation: "normalize",
+                })?,
             )
         } else {
             (num, den)
@@ -254,8 +278,7 @@ impl Rat {
             return Err(SubductionError::NonFiniteValue { value });
         }
         let scale = f64::from(
-            i32::try_from(denominator)
-                .map_err(|_| SubductionError::InvalidGrid { denominator })?,
+            i32::try_from(denominator).map_err(|_| SubductionError::InvalidGrid { denominator })?,
         );
         let scaled = value * scale;
         let rounded = scaled.round();
@@ -313,9 +336,8 @@ impl Rat {
     /// Checked addition.
     pub fn checked_add(self, other: Self) -> Result<Self, SubductionError> {
         let shared = gcd_positive(self.den.unsigned_abs(), other.den.unsigned_abs());
-        let shared = i128::try_from(shared).map_err(|_| SubductionError::RationalOverflow {
-            operation: "add",
-        })?;
+        let shared = i128::try_from(shared)
+            .map_err(|_| SubductionError::RationalOverflow { operation: "add" })?;
         let num = self
             .num
             .checked_mul(other.den / shared)
@@ -355,20 +377,22 @@ impl Rat {
     pub fn checked_mul(self, other: Self) -> Result<Self, SubductionError> {
         let left = gcd_positive(self.num.unsigned_abs(), other.den.unsigned_abs());
         let right = gcd_positive(other.num.unsigned_abs(), self.den.unsigned_abs());
-        let left = i128::try_from(left)
-            .map_err(|_| SubductionError::RationalOverflow { operation: "multiply" })?;
-        let right = i128::try_from(right)
-            .map_err(|_| SubductionError::RationalOverflow { operation: "multiply" })?;
-        let num = (self.num / left)
-            .checked_mul(other.num / right)
-            .ok_or(SubductionError::RationalOverflow {
+        let left = i128::try_from(left).map_err(|_| SubductionError::RationalOverflow {
+            operation: "multiply",
+        })?;
+        let right = i128::try_from(right).map_err(|_| SubductionError::RationalOverflow {
+            operation: "multiply",
+        })?;
+        let num = (self.num / left).checked_mul(other.num / right).ok_or(
+            SubductionError::RationalOverflow {
                 operation: "multiply",
-            })?;
-        let den = (self.den / right)
-            .checked_mul(other.den / left)
-            .ok_or(SubductionError::RationalOverflow {
+            },
+        )?;
+        let den = (self.den / right).checked_mul(other.den / left).ok_or(
+            SubductionError::RationalOverflow {
                 operation: "multiply",
-            })?;
+            },
+        )?;
         Self::new(num, den)
     }
 
@@ -380,11 +404,15 @@ impl Rat {
         let num = self
             .num
             .checked_mul(other.den)
-            .ok_or(SubductionError::RationalOverflow { operation: "divide" })?;
+            .ok_or(SubductionError::RationalOverflow {
+                operation: "divide",
+            })?;
         let den = self
             .den
             .checked_mul(other.num)
-            .ok_or(SubductionError::RationalOverflow { operation: "divide" })?;
+            .ok_or(SubductionError::RationalOverflow {
+                operation: "divide",
+            })?;
         Self::new(num, den)
     }
 }
@@ -518,7 +546,11 @@ impl Vec3R {
 
     /// Exact integer components, if every component is an `i32`.
     pub fn to_ints(&self) -> Result<[i32; 3], SubductionError> {
-        Ok([self.0[0].to_i32()?, self.0[1].to_i32()?, self.0[2].to_i32()?])
+        Ok([
+            self.0[0].to_i32()?,
+            self.0[1].to_i32()?,
+            self.0[2].to_i32()?,
+        ])
     }
 }
 
@@ -548,11 +580,7 @@ impl Mat3R {
 
     /// Diagonal matrix from exact integers.
     pub fn diagonal(values: [i32; 3]) -> Self {
-        Self::from_ints([
-            [values[0], 0, 0],
-            [0, values[1], 0],
-            [0, 0, values[2]],
-        ])
+        Self::from_ints([[values[0], 0, 0], [0, values[1], 0], [0, 0, values[2]]])
     }
 
     /// Rows.
@@ -651,8 +679,7 @@ impl Mat3R {
                 // Cofactor (row, column) of the transpose, i.e. the adjugate.
                 let rows: Vec<usize> = (0..3).filter(|index| *index != column).collect();
                 let columns: Vec<usize> = (0..3).filter(|index| *index != row).collect();
-                let first =
-                    self.0[rows[0]][columns[0]].checked_mul(self.0[rows[1]][columns[1]])?;
+                let first = self.0[rows[0]][columns[0]].checked_mul(self.0[rows[1]][columns[1]])?;
                 let second =
                     self.0[rows[0]][columns[1]].checked_mul(self.0[rows[1]][columns[0]])?;
                 let cofactor = first.checked_sub(second)?;
@@ -824,25 +851,22 @@ impl SeitzTransform {
             .checked_mul(&Mat3R::from_ints(operation.rotation()))?
             .checked_mul(&self.matrix)?;
         if !rotation.is_integral() {
-            return Err(SubductionError::NonIntegralRotationImage { rotation: Box::new(rotation) });
+            return Err(SubductionError::NonIntegralRotationImage {
+                rotation: Box::new(rotation),
+            });
         }
         let rotation = rotation.to_int_matrix()?;
         let rotated_origin =
             Mat3R::from_ints(operation.rotation()).checked_mul_vector(&self.origin)?;
-        let translation = inverse.map_point(
-            &operation
-                .translation()
-                .checked_add(&rotated_origin)?,
-        )?;
+        let translation =
+            inverse.map_point(&operation.translation().checked_add(&rotated_origin)?)?;
         Ok(ExactSeitz::new(rotation, translation))
     }
 
     /// Inverse map `x_H = T^-1 (x_G - o)`.
     pub fn inverse(&self) -> Result<Self, SubductionError> {
         let matrix = self.matrix.inverse()?;
-        let origin = matrix
-            .checked_mul_vector(&self.origin)?
-            .checked_neg()?;
+        let origin = matrix.checked_mul_vector(&self.origin)?.checked_neg()?;
         Ok(Self { matrix, origin })
     }
 
@@ -914,13 +938,32 @@ impl Lattice {
         Self::new(self.rows.inverse()?.transpose())
     }
 
-    /// Whether `rotation` fixes `wave_vector` modulo this lattice.
-    pub fn preserves(
-        &self,
-        rotation: Mat3I,
-        wave_vector: &Vec3R,
-    ) -> Result<bool, SubductionError> {
-        let image = Mat3R::from_ints(rotation).checked_mul_vector(wave_vector)?;
+    /// Whether a direct-space rotation `R` fixes the wave vector `k` modulo
+    /// **this** lattice.
+    ///
+    /// Convention, because the two matrices agree only for orthogonal `R`:
+    ///
+    /// * `self` is a **reciprocal** lattice `L*` (the caller passes
+    ///   `Lattice::reciprocal()` of the direct lattice `L` whose symmetry
+    ///   operations are being tested).  Membership is decided by `self` so a
+    ///   centred cell keeps its extinctions: for C-centring the difference must
+    ///   be an integer combination of `(1,1,0)`, `(-1,1,0)`, `(0,0,1)`, not of
+    ///   the primitive `Z^3` basis.
+    /// * `rotation` is a **direct-space column-action** rotation, `x' = R x`,
+    ///   exactly as stored in the Hall operations and in [`ExactSeitz`].
+    /// * `wave_vector` is in reciprocal-space coordinates (the same coordinates
+    ///   `k_H = T^T k_G` folds, i.e. conjugate to the direct fractional
+    ///   coordinates through `k . x`).
+    ///
+    /// The action on those coordinates is the contragredient one,
+    /// `k' = R^-T k`, *not* `R k`: `R k` is the action on direct-space
+    /// coordinates and is wrong for wave vectors.  A hexagonal `C3` such as
+    /// SG 143's `[[0,-1,0],[1,-1,0],[0,0,1]]` is not orthogonal, and there the
+    /// two differ: at `K = (1/3,1/3,0)` the contragredient image differs from
+    /// `k` by `(-1,0,0) ∈ L*`, while `R k` differs by `(-2/3,-1/3,0) ∉ L*`.
+    pub fn preserves(&self, rotation: Mat3I, wave_vector: &Vec3R) -> Result<bool, SubductionError> {
+        let action = Mat3R::from_ints(rotation).inverse()?.transpose();
+        let image = action.checked_mul_vector(wave_vector)?;
         self.contains(&image.checked_sub(wave_vector)?)
     }
 
@@ -982,7 +1025,10 @@ impl Lattice {
     /// Deduplicating modulo the *parent* lattice instead is a real error: for a
     /// supercell embedding two distinct subgroup elements can differ by a
     /// parent lattice vector.
-    pub fn deduplicate(&self, operations: &[ExactSeitz]) -> Result<Vec<ExactSeitz>, SubductionError> {
+    pub fn deduplicate(
+        &self,
+        operations: &[ExactSeitz],
+    ) -> Result<Vec<ExactSeitz>, SubductionError> {
         let mut out: Vec<ExactSeitz> = Vec::with_capacity(operations.len());
         for operation in operations {
             let reduced = operation.reduce(self)?;
@@ -1008,15 +1054,11 @@ fn floor_rational(value: Rat) -> Result<i128, SubductionError> {
     let quotient = value
         .numerator()
         .checked_div(value.denominator())
-        .ok_or(SubductionError::RationalOverflow {
-            operation: "floor",
-        })?;
+        .ok_or(SubductionError::RationalOverflow { operation: "floor" })?;
     let remainder = value
         .numerator()
         .checked_rem(value.denominator())
-        .ok_or(SubductionError::RationalOverflow {
-            operation: "floor",
-        })?;
+        .ok_or(SubductionError::RationalOverflow { operation: "floor" })?;
     if remainder < 0 {
         quotient
             .checked_sub(1)
@@ -1059,11 +1101,8 @@ pub fn strict_sg_hall_ops(sg: u8) -> Result<SgHallOperations, SubductionError> {
 }
 
 fn load_hall_operations(sg: u8, hall: usize) -> Result<SgHallOperations, SubductionError> {
-    let ops = SymmetryOps::from_database(hall).map_err(|source| SubductionError::HallLoadFailed {
-        sg,
-        hall,
-        source,
-    })?;
+    let ops = SymmetryOps::from_database(hall)
+        .map_err(|source| SubductionError::HallLoadFailed { sg, hall, source })?;
     let mut operations = Vec::with_capacity(ops.len());
     for op in ops.iter() {
         let translation = Vec3R::new([
@@ -1130,7 +1169,16 @@ pub fn signed_permutations() -> Vec<Mat3I> {
         [2, 0, 1],
         [2, 1, 0],
     ] {
-        for signs in [[1i32, 1, 1], [1, 1, -1], [1, -1, 1], [1, -1, -1], [-1, 1, 1], [-1, 1, -1], [-1, -1, 1], [-1, -1, -1]] {
+        for signs in [
+            [1i32, 1, 1],
+            [1, 1, -1],
+            [1, -1, 1],
+            [1, -1, -1],
+            [-1, 1, 1],
+            [-1, 1, -1],
+            [-1, -1, 1],
+            [-1, -1, -1],
+        ] {
             let mut matrix = [[0i32; 3]; 3];
             for row in 0..3 {
                 matrix[row][permutation[row]] = signs[row];
@@ -1168,19 +1216,19 @@ impl SubgroupEmbedding {
     /// representatives (modulo the subgroup lattice) must close under
     /// multiplication and inversion, and their count must equal the subgroup's
     /// point group order.  A single surviving candidate is used; several
-    /// survivors are resolved by [`CANONICAL_SETTING_U`], otherwise the
+    /// survivors are resolved by the frozen embedding metadata, otherwise the
     /// construction reports ambiguity instead of guessing.
     pub fn from_isotropy_subgroup(subgroup: &IsotropySubgroup) -> Result<Self, SubductionError> {
         let parent_sg = subgroup.parent_sg;
         if parent_sg == 0 || parent_sg > 230 {
             return Err(SubductionError::InvalidSpaceGroup { sg: parent_sg });
         }
-        let stored = ISOTROPY_SUBGROUPS
-            .get(subgroup.ordinal)
-            .ok_or(SubductionError::IsotropyOrdinalOutOfRange {
+        let stored = ISOTROPY_SUBGROUPS.get(subgroup.ordinal).ok_or(
+            SubductionError::IsotropyOrdinalOutOfRange {
                 ordinal: subgroup.ordinal,
                 len: ISOTROPY_SUBGROUPS.len(),
-            })?;
+            },
+        )?;
         if !same_record(stored, &subgroup.record) {
             return Err(SubductionError::StaleIsotropyRecord {
                 ordinal: subgroup.ordinal,
@@ -1193,19 +1241,26 @@ impl SubgroupEmbedding {
                 sg: parent_sg,
                 ml: subgroup.irrep_ml,
             })?;
-        if !irrep
-            .subgroups()
-            .iter()
-            .any(|record| same_record(record, &subgroup.record))
+        if irrep.spinor
+            || irrep.k_vector() != subgroup.k
+            || !irrep
+                .subgroups()
+                .iter()
+                .any(|record| std::ptr::eq(record, stored))
         {
             return Err(SubductionError::StaleIsotropyRecord {
                 ordinal: subgroup.ordinal,
             });
         }
-        let subgroup_sg = u8::try_from(subgroup.record.sg)
-            .map_err(|_| SubductionError::InvalidSubgroupNumber { sg: subgroup.record.sg })?;
+        let subgroup_sg = u8::try_from(subgroup.record.sg).map_err(|_| {
+            SubductionError::InvalidSubgroupNumber {
+                sg: subgroup.record.sg,
+            }
+        })?;
         if subgroup_sg == 0 {
-            return Err(SubductionError::InvalidSubgroupNumber { sg: subgroup.record.sg });
+            return Err(SubductionError::InvalidSubgroupNumber {
+                sg: subgroup.record.sg,
+            });
         }
 
         let parent_primitive = exact_primitive_basis(parent_sg)?;
@@ -1215,10 +1270,8 @@ impl SubgroupEmbedding {
         let basis_conventional = stored_basis.checked_mul(&parent_primitive)?;
         let subgroup_lattice = Lattice::new(basis_conventional)?;
         let origin = exact_origin(&subgroup.record.origin, &parent_primitive)?;
-        let parent_operations = reduce_operations(
-            &strict_sg_hall_ops(parent_sg)?.operations,
-            &parent_lattice,
-        )?;
+        let parent_operations =
+            reduce_operations(&strict_sg_hall_ops(parent_sg)?.operations, &parent_lattice)?;
         let frozen = FROZEN_EMBEDDINGS
             .iter()
             .find(|(parent, sg, ..)| *parent == parent_sg && *sg == subgroup_sg)
@@ -1239,11 +1292,8 @@ impl SubgroupEmbedding {
         let to_conventional = subgroup_primitive.inverse()?;
         let transform_for = |setting: Mat3I| -> Result<SeitzTransform, SubductionError> {
             let setting_matrix = Mat3R::from_ints(setting);
-            let basis = to_conventional.checked_mul(
-                &setting_matrix
-                    .inverse()?
-                    .checked_mul(&basis_conventional)?,
-            )?;
+            let basis = to_conventional
+                .checked_mul(&setting_matrix.inverse()?.checked_mul(&basis_conventional)?)?;
             Ok(SeitzTransform::new(basis.transpose(), origin))
         };
 
@@ -1268,18 +1318,14 @@ impl SubgroupEmbedding {
                         return Err(SubductionError::FrozenEmbeddingRejected {
                             subgroup_sg,
                             setting,
-                        })
+                        });
                     }
                 }
             }
             None => {
                 let candidates = signed_permutations();
-                let mut accepted: Vec<(
-                    Mat3I,
-                    SeitzTransform,
-                    Vec<ExactSeitz>,
-                    Vec<ExactSeitz>,
-                )> = Vec::new();
+                let mut accepted: Vec<(Mat3I, SeitzTransform, Vec<ExactSeitz>, Vec<ExactSeitz>)> =
+                    Vec::new();
                 for setting in &candidates {
                     let transform = transform_for(*setting)?;
                     if let Some((operations, representatives)) = validate_candidate(
@@ -1298,7 +1344,7 @@ impl SubgroupEmbedding {
                         return Err(SubductionError::NoValidEmbedding {
                             subgroup_sg,
                             candidates: candidates.len(),
-                        })
+                        });
                     }
                     1 => {
                         let (setting, transform, operations, representatives) = accepted.remove(0);
@@ -1308,7 +1354,7 @@ impl SubgroupEmbedding {
                         return Err(SubductionError::AmbiguousEmbedding {
                             subgroup_sg,
                             candidates: count,
-                        })
+                        });
                     }
                 }
             }
@@ -1404,7 +1450,8 @@ fn same_record(left: &IsotropyRecord, right: &IsotropyRecord) -> bool {
 
 /// The stored primitive basis as exact rationals.
 fn exact_primitive_basis(sg: u8) -> Result<Mat3R, SubductionError> {
-    let basis = parent_primitive_basis(sg).map_err(|_| SubductionError::InvalidSpaceGroup { sg })?;
+    let basis =
+        parent_primitive_basis(sg).map_err(|_| SubductionError::InvalidSpaceGroup { sg })?;
     let mut rows = [[Rat::ZERO; 3]; 3];
     for (row, values) in basis.iter().enumerate() {
         for (column, value) in values.iter().enumerate() {
@@ -1427,9 +1474,7 @@ fn exact_origin(origin: &[i32; 4], parent_primitive: &Mat3R) -> Result<Vec3R, Su
         Rat::new(i128::from(origin[1]), denominator)?,
         Rat::new(i128::from(origin[2]), denominator)?,
     ]);
-    parent_primitive
-        .transpose()
-        .checked_mul_vector(&primitive)
+    parent_primitive.transpose().checked_mul_vector(&primitive)
 }
 
 /// Re-express subgroup operations after an origin shift `delta` in the
@@ -1492,6 +1537,14 @@ fn validate_candidate(
     expected: usize,
 ) -> Result<Option<CandidateOperations>, SubductionError> {
     let mut operations = Vec::with_capacity(subgroup_operations.len());
+    // The mapped operations are kept **before** the parent-lattice reduction as
+    // well: reducing mod `L_G` can remove a vector in `L_G \ L_H`, and
+    // deduplicating those already-reduced representatives mod `L_H` would then
+    // report a class that the subgroup does not have (SG 139 `M1-` P1 -> #126:
+    // the inversion `(-I | 5/2,5/2,5/2)` reduces to translation zero mod `L_G`
+    // because `(1/2,1/2,1/2)` is an I-centring vector, but mod `L_H = Z^3` its
+    // representative is `(1/2,1/2,1/2)`, not zero).
+    let mut mapped_operations = Vec::with_capacity(subgroup_operations.len());
     for operation in subgroup_operations {
         let mapped = match transform.map_operation(operation) {
             Ok(mapped) => mapped,
@@ -1503,8 +1556,13 @@ fn validate_candidate(
             return Ok(None);
         }
         operations.push(reduced);
+        mapped_operations.push(mapped);
     }
-    let representatives = subgroup_lattice.deduplicate(&operations)?;
+    // Representatives are the subgroup's cosets modulo `L_H`, derived from the
+    // original mapped operations so `L_G \ L_H` translations survive; the
+    // parent-reduced `operations` above stay the membership view exposed by
+    // [`SubgroupEmbedding::operations`].
+    let representatives = subgroup_lattice.deduplicate(&mapped_operations)?;
     if representatives.len() != expected {
         return Ok(None);
     }
@@ -1560,7 +1618,7 @@ pub struct SubductionTarget {
     pub bc: &'static str,
     /// The physical row this constituent came from.
     pub row_ml: &'static str,
-    /// Physical dimension of the row.
+    /// Complex dimension of this irreducible constituent.
     pub dimension: u8,
     /// Which complex constituent of that row this target is.
     pub component: SubductionComponent,
@@ -1605,7 +1663,7 @@ impl IrrepSubduction {
         self.parent_bc
     }
 
-    /// Physical dimension of the subduced parent irrep.
+    /// Complex dimension of the restricted parent character space.
     pub const fn parent_dimension(&self) -> u8 {
         self.parent_dimension
     }
@@ -1663,9 +1721,8 @@ impl IrrepSubduction {
 ///
 /// `subgroup` carries both the condensing context (parent, irrep, direction,
 /// ordinal) and the embedding; `probe_ml` is the **subduced** parent irrep.
-/// Only Gamma, ordinary scalar irreps are accepted here: everything else needs
-/// the compound handling of task 6 or the k-folding of task 7 and is reported
-/// as an error rather than partially.
+/// This convenience entry point accepts Gamma scalar probes, including compound
+/// rows. Use [`subduce_irrep_with_embedding`] for supported non-Gamma probes.
 pub fn subduce_irrep(
     subgroup: &IsotropySubgroup,
     probe_ml: &str,
@@ -1686,7 +1743,7 @@ pub fn subduce_irrep(
             return Err(SubductionError::UnsupportedCharacterSpace {
                 sg: parent_sg,
                 ml: record.ml.to_string(),
-            })
+            });
         }
         Some(record) => record,
         None => {
@@ -1714,10 +1771,109 @@ pub fn subduce_irrep(
     subduce_irrep_with_embedding(subgroup, &embedding, probe)
 }
 
+/// Check that `subgroup`, `embedding` and `probe` still describe one context.
+///
+/// [`SubgroupEmbedding`] is expensive to build (it searches setting candidates),
+/// so it is cached and reused across the probes of one isotropy record.  The
+/// cache is only sound while the three inputs agree; this revalidates them
+/// without rebuilding the embedding:
+///
+/// * `IsotropySubgroup` has public fields, so its ordinal, its record and its
+///   irrep context are rechecked against the generated table.  The record must
+///   be the stored one **and** must be listed by the parent irrep that
+///   `irrep_ml` names, which is what ties parent, irrep and record together; an
+///   ordinal-only guard would accept a record whose fields were mutated.
+/// * the cached embedding must have been built from that same record: same
+///   parent, same ordinal, same subgroup number.  Its setting, child shift and
+///   operation lists all come from that record, so a mismatch would fold one
+///   record's k in another record's frame.
+/// * the probe must be the parent table's *own* record, by identity rather than
+///   by label: a label is not unique across space groups and a copy is a
+///   different object.
+fn validate_subduction_context(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    probe: &'static IrrepRecord,
+) -> Result<(), SubductionError> {
+    let parent_sg = subgroup.parent_sg;
+    if parent_sg == 0 || parent_sg > 230 {
+        return Err(SubductionError::InvalidSpaceGroup { sg: parent_sg });
+    }
+    let ordinal = subgroup.ordinal;
+    let stored =
+        ISOTROPY_SUBGROUPS
+            .get(ordinal)
+            .ok_or(SubductionError::IsotropyOrdinalOutOfRange {
+                ordinal,
+                len: ISOTROPY_SUBGROUPS.len(),
+            })?;
+    if !same_record(stored, &subgroup.record) {
+        return Err(SubductionError::StaleIsotropyRecord { ordinal });
+    }
+    let subgroup_sg = u8::try_from(subgroup.record.sg)
+        .ok()
+        .filter(|sg| *sg != 0)
+        .ok_or(SubductionError::InvalidSubgroupNumber {
+            sg: subgroup.record.sg,
+        })?;
+
+    // The record must belong to the irrep the context names.  `subgroups()`
+    // panics on spinor irreps, so that case is rejected before the lookup.
+    let irrep = query::irreps_of(parent_sg)
+        .iter()
+        .find(|record| record.ml == subgroup.irrep_ml)
+        .ok_or(SubductionError::UnknownParentIrrep {
+            sg: parent_sg,
+            ml: subgroup.irrep_ml,
+        })?;
+    if irrep.spinor
+        || irrep.k_vector() != subgroup.k
+        || !irrep
+            .subgroups()
+            .iter()
+            .any(|record| std::ptr::eq(record, stored))
+    {
+        return Err(SubductionError::StaleIsotropyRecord { ordinal });
+    }
+
+    if !query::irreps_of(parent_sg)
+        .iter()
+        .any(|record| std::ptr::eq(record, probe))
+    {
+        return Err(SubductionError::ForeignProbe {
+            sg: parent_sg,
+            ml: probe.ml,
+        });
+    }
+
+    if embedding.parent_sg() != parent_sg
+        || embedding.ordinal() != ordinal
+        || embedding.subgroup_sg() != subgroup_sg
+    {
+        return Err(SubductionError::EmbeddingContextMismatch {
+            parent_sg,
+            ordinal,
+            subgroup_sg,
+            embedding_parent_sg: embedding.parent_sg(),
+            embedding_ordinal: embedding.ordinal(),
+            embedding_subgroup_sg: embedding.subgroup_sg(),
+        });
+    }
+    Ok(())
+}
+
 /// [`subduce_irrep`] with an embedding that was already built and validated.
 ///
 /// Scanning many probes of the same subgroup should not rebuild the embedding
 /// (and re-run its candidate validation) for every probe.
+///
+/// Reuse is only sound while `subgroup`, `embedding` and `probe` still name one
+/// context, so every call revalidates the cheap identities first (see
+/// [`validate_subduction_context`]): the public `IsotropySubgroup` fields are
+/// rechecked against the generated table, the cached embedding must have been
+/// built from that exact record, and the probe must be the parent's own table
+/// record.  A stale record, a foreign probe or a mismatched embedding is an
+/// error, never a silently reinterpreted decomposition.
 ///
 /// Wave vectors are folded exactly: `k_H = T^T k_G` with checked rational
 /// arithmetic, then matched against the subgroup's stored k-points **modulo the
@@ -1731,6 +1887,7 @@ pub fn subduce_irrep_with_embedding(
     embedding: &SubgroupEmbedding,
     probe: &'static IrrepRecord,
 ) -> Result<IrrepSubduction, SubductionError> {
+    validate_subduction_context(subgroup, embedding, probe)?;
     let parent_sg = subgroup.parent_sg;
     let parent_lattice = *embedding.parent_lattice();
 
@@ -1744,11 +1901,7 @@ pub fn subduce_irrep_with_embedding(
         if !parent_reciprocal.preserves(operation.rotation(), &wave_vector)? {
             return Err(SubductionError::UnsupportedMultiArmStar {
                 sg: parent_sg,
-                k: [
-                    folded.get(0),
-                    folded.get(1),
-                    folded.get(2),
-                ],
+                k: [folded.get(0), folded.get(1), folded.get(2)],
             });
         }
     }
@@ -1784,10 +1937,11 @@ pub fn subduce_irrep_with_embedding(
     let mut active: Vec<ExactSeitz> = Vec::new();
     for operation in embedding.representatives() {
         // `unmap_operation` inverts internally: hand it the forward transform.
-        let child = embedding
-            .transform()
-            .unmap_operation(operation)?
-            .reduce(&child_cell)?;
+        // The image keeps its translation exactly; reducing here would discard
+        // child lattice vectors and with them the Bloch phase the shipped row
+        // stores for the representative (see `character_of`, which pairs modulo
+        // the lattice and corrects the phase).
+        let child = embedding.transform().unmap_operation(operation)?;
         if !child_reciprocal.preserves(child.rotation(), &folded)? {
             continue;
         }
@@ -1808,57 +1962,22 @@ pub fn subduce_irrep_with_embedding(
         });
     }
 
-    // The subgroup side has one frame ambiguity to resolve: the shipped rows
-    // live in the subgroup's Hall setting, while the embedding maps the
-    // record's setting, and they can differ by the frozen origin shift (a
-    // non-lattice vector for some operations, so the two frames are genuinely
-    // different).  Both readings are tried and the complete checks below -
-    // Gram, dimension sum and per-operation reconstruction - decide; if neither
-    // reading passes, the first error is reported rather than a guess.
-    let mut first_error = None;
-    for shift in [Vec3R::zero(), embedding.child_shift().checked_neg()?] {
-        let pulled_back = if shift.is_zero() {
-            active.clone()
-        } else {
-            match shift_operations(&active, &shift) {
-                Ok(shifted) => shifted
-                    .into_iter()
-                    .map(|operation| operation.reduce(&child_cell))
-                    .collect::<Result<Vec<_>, _>>()?,
-                Err(error) => {
-                    if first_error.is_none() {
-                        first_error = Some(error);
-                    }
-                    continue;
-                }
-            }
-        };
-        let attempt = decompose_active_block(
-            subgroup,
-            embedding,
-            probe,
-            block.as_slice(),
-            &folded,
-            &parent_characters,
-            &pulled_back,
-            &child_cell,
-        );
-        match attempt {
-            Ok(result) => return Ok(result),
-            Err(error) => {
-                if first_error.is_none() {
-                    first_error = Some(error);
-                }
-                if embedding.child_shift().is_zero() {
-                    break;
-                }
-            }
-        }
-    }
-    Err(first_error.unwrap_or(SubductionError::MissingIrrepData {
-        sg: embedding.subgroup_sg(),
-        k: [folded.get(0), folded.get(1), folded.get(2)],
-    }))
+    // The embedding's operation list was built from the subgroup's shipped Hall
+    // operations by applying `child_shift`; the shipped rows live in the frame
+    // *before* that shift, so undo it exactly and deterministically.  There is
+    // no second origin to choose between: `child_shift` is frozen per embedding
+    // and validated when the embedding is built.
+    let pulled_back = shift_operations(&active, &embedding.child_shift().checked_neg()?)?;
+    decompose_active_block(
+        subgroup,
+        embedding,
+        probe,
+        block.as_slice(),
+        &folded,
+        &parent_characters,
+        &pulled_back,
+        &child_cell,
+    )
 }
 
 /// Decompose the active block with one concrete subgroup-frame reading.
@@ -1891,12 +2010,14 @@ fn decompose_active_block(
     // whole point of expanding constituents first.
     for (index, first) in targets.iter().enumerate() {
         let first_values = &first.values;
-        let norm = (first_values.iter().map(|value| value.norm_sqr()).sum::<f64>() * scale).sqrt();
+        let norm = (first_values
+            .iter()
+            .map(|value| value.norm_sqr())
+            .sum::<f64>()
+            * scale)
+            .sqrt();
         if (norm - 1.0).abs() > SUBDUCTION_TOLERANCE {
-            return Err(SubductionError::TargetNotIrreducible {
-                ml: first.ml,
-                norm,
-            });
+            return Err(SubductionError::TargetNotIrreducible { ml: first.ml, norm });
         }
         for second in targets.iter().skip(index + 1) {
             let second_values = &second.values;
@@ -1959,11 +2080,7 @@ fn decompose_active_block(
             found: dimension_sum,
         });
     }
-    for (index, (found, expected)) in reconstructed
-        .iter()
-        .zip(parent_characters)
-        .enumerate()
-    {
+    for (index, (found, expected)) in reconstructed.iter().zip(parent_characters).enumerate() {
         if (found - expected).norm() > SUBDUCTION_TOLERANCE {
             return Err(SubductionError::CharacterMismatch {
                 index,
@@ -2151,31 +2268,17 @@ fn evaluate(
     pulled_back
         .iter()
         .enumerate()
-        .map(|(index, operation)| {
-            character_of(row, ml, operation, child_cell, wave_vector, index)
-        })
+        .map(|(index, operation)| character_of(row, ml, operation, child_cell, wave_vector, index))
         .collect()
 }
 
-/// Check that a stored block trace really is the assembly its metadata claims.
-fn check_assembly(
-    row_ml: &'static str,
-    block_trace: &CharacterRow,
-    assembled: &[Complex64],
-    pulled_back: &[ExactSeitz],
-    child_cell: &Lattice,
-    wave_vector: &Vec3R,
-) -> Result<(), SubductionError> {
-    let stored = evaluate(block_trace, row_ml, pulled_back, child_cell, wave_vector)?;
-    for (found, expected) in stored.iter().zip(assembled) {
-        if (found - expected).norm() > SUBDUCTION_TOLERANCE {
-            return Err(SubductionError::InconsistentCompoundRow { ml: row_ml });
-        }
-    }
-    Ok(())
-}
-
 /// Expand the subgroup's Gamma rows into complex irreducible constituents.
+///
+/// There is deliberately no comparison against the stored block trace: that
+/// trace is *assembled from these same constituents* by
+/// `compound_selected_arm_view`, so gating on it was circular and proved
+/// nothing.  Independent physical-character fixtures for compound rows live in
+/// `tests/compound_subduction_regressions.rs`.
 ///
 /// Ordinary rows are already single complex irreps.  A `DistinctComponentSum`
 /// row contributes both stored CIR constituents; a `ConjugateRealification` row
@@ -2222,7 +2325,7 @@ fn complex_targets(
                     CompoundSelectedArmCharacter::DistinctComponentSum {
                         first,
                         second,
-                        block_trace,
+                        block_trace: _,
                     } => {
                         let first_values = evaluate(
                             &first.row,
@@ -2234,19 +2337,6 @@ fn complex_targets(
                         let second_values = evaluate(
                             &second.row,
                             second.label,
-                            pulled_back,
-                            child_cell,
-                            wave_vector,
-                        )?;
-                        let assembled: Vec<Complex64> = first_values
-                            .iter()
-                            .zip(&second_values)
-                            .map(|(left, right)| left + right)
-                            .collect();
-                        check_assembly(
-                            record.ml,
-                            &block_trace,
-                            &assembled,
                             pulled_back,
                             child_cell,
                             wave_vector,
@@ -2276,29 +2366,14 @@ fn complex_targets(
                             });
                         }
                     }
-                    CompoundSelectedArmCharacter::ConjugateRealification { seed, block_trace } => {
-                        let seed_values = evaluate(
-                            &seed.row,
-                            seed.label,
-                            pulled_back,
-                            child_cell,
-                            wave_vector,
-                        )?;
+                    CompoundSelectedArmCharacter::ConjugateRealification {
+                        seed,
+                        block_trace: _,
+                    } => {
+                        let seed_values =
+                            evaluate(&seed.row, seed.label, pulled_back, child_cell, wave_vector)?;
                         let conjugate: Vec<Complex64> =
                             seed_values.iter().map(|value| value.conj()).collect();
-                        let assembled: Vec<Complex64> = seed_values
-                            .iter()
-                            .zip(&conjugate)
-                            .map(|(left, right)| left + right)
-                            .collect();
-                        check_assembly(
-                            record.ml,
-                            &block_trace,
-                            &assembled,
-                            pulled_back,
-                            child_cell,
-                            wave_vector,
-                        )?;
                         let dimension = u8::try_from(seed.dimension).map_err(|_| {
                             SubductionError::UnsupportedCharacterSpace {
                                 sg: subgroup_sg,
@@ -2334,7 +2409,7 @@ fn complex_targets(
                 return Err(SubductionError::UnsupportedCharacterSpace {
                     sg: subgroup_sg,
                     ml: record.ml.to_string(),
-                })
+                });
             }
         }
     }
@@ -2358,10 +2433,7 @@ fn is_gamma(record: &IrrepRecord) -> bool {
 pub fn bloch_phase(wave_vector: &Vec3R, delta: &Vec3R) -> Result<Complex64, SubductionError> {
     let mut angle = 0.0f64;
     for axis in 0..3 {
-        angle += wave_vector
-            .get(axis)
-            .checked_mul(delta.get(axis))?
-            .to_f64();
+        angle += wave_vector.get(axis).checked_mul(delta.get(axis))?.to_f64();
     }
     Ok(Complex64::from_polar(1.0, std::f64::consts::TAU * angle))
 }
@@ -2400,7 +2472,7 @@ fn character_of(
         let corrected = value * bloch_phase(wave_vector, &delta)?;
         match found {
             Some(existing) if (existing - corrected).norm() > SUBDUCTION_TOLERANCE => {
-                return Err(SubductionError::InconsistentCharacterRow { ml, index })
+                return Err(SubductionError::InconsistentCharacterRow { ml, index });
             }
             _ => found = Some(corrected),
         }
@@ -2475,7 +2547,10 @@ mod tests {
         assert_eq!(rat(1, 16).checked_mul(rat(16, 1)).unwrap(), Rat::ONE);
         assert!(rat(1, 16).to_integer().is_err());
         assert_eq!(rat(-7, 1).to_i32().unwrap(), -7);
-        assert_eq!(rat(3, 2).to_i32(), Err(SubductionError::NotAnInteger { value: rat(3, 2) }));
+        assert_eq!(
+            rat(3, 2).to_i32(),
+            Err(SubductionError::NotAnInteger { value: rat(3, 2) })
+        );
         assert_eq!(
             Rat::from_integer(i128::from(i32::MAX) + 1).to_i32(),
             Err(SubductionError::IntegerOutOfRange {
@@ -2648,7 +2723,10 @@ mod tests {
                 Vec3R::new([rat(1, 16), Rat::ZERO, Rat::ZERO]),
             ))
             .unwrap();
-        assert_eq!(mapped.translation().as_array(), &[rat(1, 16), Rat::ZERO, Rat::ZERO]);
+        assert_eq!(
+            mapped.translation().as_array(),
+            &[rat(1, 16), Rat::ZERO, Rat::ZERO]
+        );
         // A mirror combines it with the origin instead of cancelling it.
         let mapped = transform
             .map_operation(&ExactSeitz::new(
@@ -2762,9 +2840,11 @@ mod tests {
         assert!(lattice.contains(&vec3([1, 0, 0])).unwrap());
         assert!(lattice.contains(&vec3([0, 1, 0])).unwrap());
         assert!(lattice.contains(&vec3([0, 0, 1])).unwrap());
-        assert!(!lattice
-            .contains(&Vec3R::new([rat(1, 3), Rat::ZERO, Rat::ZERO]))
-            .unwrap());
+        assert!(
+            !lattice
+                .contains(&Vec3R::new([rat(1, 3), Rat::ZERO, Rat::ZERO]))
+                .unwrap()
+        );
         let half = Vec3R::new([rat(1, 2), rat(1, 2), Rat::ZERO]);
         assert!(lattice.contains(&half).unwrap());
         assert_eq!(
@@ -2822,15 +2902,22 @@ mod tests {
         let operation = ExactSeitz::new(rotation, Vec3R::zero());
         let shifted = ExactSeitz::new(rotation, Vec3R::from_ints([1, 0, 0]));
         // Equal modulo L_G ...
-        assert!(parent
-            .same_mod(operation.translation(), shifted.translation())
-            .unwrap());
+        assert!(
+            parent
+                .same_mod(operation.translation(), shifted.translation())
+                .unwrap()
+        );
         // ... but different modulo L_H, so they must not be merged.
-        assert!(!subgroup
-            .same_mod(operation.translation(), shifted.translation())
-            .unwrap());
+        assert!(
+            !subgroup
+                .same_mod(operation.translation(), shifted.translation())
+                .unwrap()
+        );
         assert_eq!(parent.deduplicate(&[operation, shifted]).unwrap().len(), 1);
-        assert_eq!(subgroup.deduplicate(&[operation, shifted]).unwrap().len(), 2);
+        assert_eq!(
+            subgroup.deduplicate(&[operation, shifted]).unwrap().len(),
+            2
+        );
     }
 
     #[test]
@@ -2843,9 +2930,11 @@ mod tests {
         let inverse = operation.inverse().unwrap();
         let identity = operation.compose(&inverse).unwrap();
         assert_eq!(identity.rotation(), [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
-        assert!(lattice
-            .same_mod(identity.translation(), &Vec3R::zero())
-            .unwrap());
+        assert!(
+            lattice
+                .same_mod(identity.translation(), &Vec3R::zero())
+                .unwrap()
+        );
         assert_eq!(operation.apply(&Vec3R::zero()).unwrap(), vec3([1, 0, 0]));
         let point = Vec3R::new([rat(1, 3), rat(2, 5), rat(-1, 7)]);
         let mapped = operation.apply(&point).unwrap();
@@ -2853,7 +2942,11 @@ mod tests {
         // Applying the operation twice equals composing it with itself.
         assert_eq!(
             operation.apply(&mapped).unwrap(),
-            operation.compose(&operation).unwrap().apply(&point).unwrap()
+            operation
+                .compose(&operation)
+                .unwrap()
+                .apply(&point)
+                .unwrap()
         );
     }
 
@@ -2884,7 +2977,7 @@ mod tests {
 
     #[test]
     fn folding_sends_a_zone_boundary_point_to_the_subgroup_block() {
-        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         // 16 R1 -> #22 F222 is a 2x2x2 supercell, so the parent's X point folds
         // to a non-Gamma block of the subgroup and the parent's zone corners
         // fold onto subgroup points equivalent modulo the F reciprocal lattice.
@@ -2932,7 +3025,7 @@ mod tests {
 
     #[test]
     fn gamma_subduction_golden_case() {
-        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
             .expect("golden record");
         let result = subduce_irrep(&subgroup, "GM3+").expect("golden decomposition");
@@ -3059,7 +3152,7 @@ mod tests {
 
     #[test]
     fn subduction_is_character_driven_not_hard_coded() {
-        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
             .expect("golden record");
         let mut probes = 0;
@@ -3096,12 +3189,15 @@ mod tests {
             }
             probes += 1;
         }
-        assert!(probes >= 9, "checked {probes} scalar Gamma probes of SG 221");
+        assert!(
+            probes >= 9,
+            "checked {probes} scalar Gamma probes of SG 221"
+        );
     }
 
     #[test]
     fn compound_rows_are_expanded_into_complex_constituents() {
-        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         use crate::irrep::types::CompoundSelectedArmCharacter;
         let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
             .expect("golden record");
@@ -3127,7 +3223,10 @@ mod tests {
         assert_eq!(terms[0].2, 1);
         for (index, expected_irnumber) in [(0usize, 4077u32), (1, 4078)] {
             let term = terms[index + 1];
-            assert_eq!(term.1, "GM3+GM4+", "the compound row label is kept as provenance");
+            assert_eq!(
+                term.1, "GM3+GM4+",
+                "the compound row label is kept as provenance"
+            );
             assert_eq!(term.2, 1);
             assert_eq!(
                 term.3,
@@ -3166,39 +3265,136 @@ mod tests {
 
     #[test]
     fn a_realification_reports_seed_and_conjugate_separately() {
-        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
-        // #83's `GM3-GM4-` is a realification row: its two complex constituents
-        // are the CIR seed and its conjugate, and the subduction must be able to
-        // give them different multiplicities.
-        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
-            .expect("golden record");
-        let result = subduce_irrep(&subgroup, "GM3-").expect("decomposition of GM3-");
-        for target in result.targets() {
-            let _ = target;
+        // Adapter-level witness for the expansion of a genuine
+        // `ConjugateRealification` row on an explicit four-element translation
+        // quotient: SG 23 `W1W1` at k = (1/2,1/2,1/2), probed on the pure
+        // translations 0, L, 2L, 3L with L = (1/2,1/2,1/2).  The row is a
+        // realification, so the expansion must yield the CIR seed *and* its
+        // conjugate as separate complex constituents.
+        //
+        // Boundary, stated honestly: this exercises component expansion (and
+        // the unequal multiplicities it makes representable), NOT a full
+        // supported subgroup decomposition.  There is no full-star grouping of
+        // k and -k here, and the nine frozen child space groups contain zero
+        // realification rows (and zero Gamma realification rows), so the
+        // end-to-end path cannot reach this case yet.
+        use crate::irrep::query;
+
+        let record = query::irreps_of(23)
+            .iter()
+            .find(|record| record.ml == "W1W1" && !record.spinor)
+            .expect("SG 23 W1W1");
+        assert_eq!((record.kx, record.ky, record.kz, record.kd), (1, 1, 1, 2));
+        let CompoundSelectedArmCharacter::ConjugateRealification { seed, .. } =
+            record.compound_selected_arm_view().expect("compound view")
+        else {
+            panic!("SG 23 W1W1 must be a conjugate realification");
+        };
+        assert_eq!(seed.dimension, 1);
+
+        let half = Rat::new(1, 2).expect("1/2");
+        let mut translations = Vec::new();
+        for step in 0..4i128 {
+            let scale = Rat::from_integer(step);
+            let component = half.checked_mul(scale).expect("n/2");
+            translations.push(Vec3R::new([component; 3]));
         }
-        // Whatever the multiplicities are, seed and conjugate are separate
-        // entries whenever they appear, and they are never merged into the
-        // compound label.
-        assert!(result
-            .targets()
+        let pulled_back: Vec<ExactSeitz> = translations
             .iter()
-            .all(|target| target.row_ml != "GM3-GM4-"
-                || matches!(
-                    target.component,
-                    SubductionComponent::RealificationSeed { .. }
-                        | SubductionComponent::RealificationConjugate { .. }
-                )));
-        let sum: u32 = result
-            .targets()
-            .iter()
-            .map(|target| u32::from(target.dimension) * target.multiplicity)
-            .sum();
-        assert_eq!(sum, u32::from(result.parent_dimension()));
+            .map(|translation| ExactSeitz::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], *translation))
+            .collect();
+        let block = [record];
+        let wave_vector = Vec3R::new([half; 3]);
+        let targets = complex_targets(
+            23,
+            &block,
+            &pulled_back,
+            &Lattice::new(exact_primitive_basis(23).unwrap()).unwrap(),
+            &wave_vector,
+        )
+        .expect("expansion of the realification row");
+        assert_eq!(targets.len(), 2, "seed and conjugate are separate targets");
+
+        let mut seed_values = None;
+        let mut conjugate_values = None;
+        for target in &targets {
+            assert_eq!(target.row_ml, "W1W1");
+            assert_eq!(target.irnumber, seed.irnumber);
+            assert_eq!(usize::from(target.dimension), seed.dimension);
+            match target.component {
+                SubductionComponent::RealificationSeed { irnumber } => {
+                    assert_eq!(irnumber, seed.irnumber);
+                    seed_values = Some(target.values.clone());
+                }
+                SubductionComponent::RealificationConjugate { irnumber } => {
+                    assert_eq!(irnumber, seed.irnumber);
+                    conjugate_values = Some(target.values.clone());
+                }
+                other => panic!("unexpected component {other:?}"),
+            }
+        }
+        let seed_values = seed_values.expect("seed component");
+        let conjugate_values = conjugate_values.expect("conjugate component");
+
+        // Expected characters: chi(t = nL) = exp(2 pi i k . nL) with
+        // k . L = 3/4 gives 1, -i, -1, +i; the conjugate flips the sign of i.
+        let expected_seed = [
+            Complex64::new(1.0, 0.0),
+            Complex64::new(0.0, -1.0),
+            Complex64::new(-1.0, 0.0),
+            Complex64::new(0.0, 1.0),
+        ];
+        let expected_conjugate: Vec<Complex64> =
+            expected_seed.iter().map(|value| value.conj()).collect();
+        for (found, expected) in seed_values.iter().zip(&expected_seed) {
+            assert!(
+                (found - expected).norm() < SUBDUCTION_TOLERANCE,
+                "{found} != {expected}"
+            );
+        }
+        for (found, expected) in conjugate_values.iter().zip(&expected_conjugate) {
+            assert!(
+                (found - expected).norm() < SUBDUCTION_TOLERANCE,
+                "{found} != {expected}"
+            );
+        }
+
+        // Inner products over this cyclic translation quotient Z4.  A seed
+        // probe has (1,0), its conjugate (0,1): the two components are
+        // orthogonal and each is normalised.
+        let overlap = |probe: &[Complex64], values: &[Complex64]| -> Complex64 {
+            probe
+                .iter()
+                .zip(values)
+                .map(|(left, right)| left * right.conj())
+                .sum::<Complex64>()
+                * (1.0 / probe.len() as f64)
+        };
+        let seed_probe = overlap(&seed_values, &seed_values);
+        let seed_against_conjugate = overlap(&seed_values, &conjugate_values);
+        assert!(
+            (seed_probe - 1.0).norm() < SUBDUCTION_TOLERANCE,
+            "{seed_probe}"
+        );
+        assert!(
+            seed_against_conjugate.norm() < SUBDUCTION_TOLERANCE,
+            "{seed_against_conjugate}"
+        );
+        let conjugate_probe = overlap(&conjugate_values, &conjugate_values);
+        let conjugate_against_seed = overlap(&conjugate_values, &seed_values);
+        assert!(
+            (conjugate_probe - 1.0).norm() < SUBDUCTION_TOLERANCE,
+            "{conjugate_probe}"
+        );
+        assert!(
+            conjugate_against_seed.norm() < SUBDUCTION_TOLERANCE,
+            "{conjugate_against_seed}"
+        );
     }
 
     #[test]
     fn subduction_depends_on_the_embedding_context() {
-        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         // The same parent irrep on a different condensing direction and
         // subgroup: the decomposition must follow the embedding, not the label.
         let first = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
@@ -3237,7 +3433,7 @@ mod tests {
 
     #[test]
     fn subduction_rejects_unsupported_probes_and_contexts() {
-        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
             .expect("golden record");
         assert!(matches!(
@@ -3278,7 +3474,7 @@ mod tests {
 
     #[test]
     fn subgroup_embeddings_build_for_the_fixture_cases() {
-        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         let cases = [
             (221u8, "GM4+", "P1"),
             (221, "GM4+", "P2"),
@@ -3292,9 +3488,8 @@ mod tests {
             (139, "M1-", "P1"),
         ];
         for (sg, ml, label) in cases {
-            let subgroup =
-                isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(label))
-                    .unwrap_or_else(|error| panic!("SG {sg} {ml} {label}: {error}"));
+            let subgroup = isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(label))
+                .unwrap_or_else(|error| panic!("SG {sg} {ml} {label}: {error}"));
             let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup)
                 .unwrap_or_else(|error| panic!("SG {sg} {ml} {label}: {error}"));
             println!(
@@ -3313,7 +3508,7 @@ mod tests {
 
     #[test]
     fn forged_isotropy_records_are_rejected() {
-        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
             .expect("golden record");
         assert!(SubgroupEmbedding::from_isotropy_subgroup(&subgroup).is_ok());
@@ -3353,7 +3548,14 @@ mod tests {
         assert_eq!(permutations.len(), 48);
         let mut unique: Vec<Mat3I> = Vec::new();
         for matrix in &permutations {
-            assert!(Mat3R::from_ints(*matrix).determinant().unwrap().numerator().abs() == 1);
+            assert!(
+                Mat3R::from_ints(*matrix)
+                    .determinant()
+                    .unwrap()
+                    .numerator()
+                    .abs()
+                    == 1
+            );
             assert!(!unique.contains(matrix), "duplicate signed permutation");
             unique.push(*matrix);
         }

@@ -348,7 +348,7 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
 - 任务 2 `6a81a91`：`scripts/verify_isotropy_operations.py` + 10 用例 / 70 操作 fixture
   （`tests/data/isotropy/operations.{json,txt}`）+ 离线测试。
 - 约定修正 `f5d67cd`：官方打印与 `ipoint_op` 的旋转是**行作用** `x' = x M`，引擎是列作用
-  `x' = x R`，解码必须转置；判别证据是 SG 167 `GM3+` P1 → #15（唯一转置不闭合的记录）。
+  `x' = R x`，解码必须转置；判别证据是 SG 167 `GM3+` P1 → #15（唯一转置不闭合的记录）。
 - 任务 3 `a9425ae`：`src/irrep/subduction.rs` 精确有理仿射/格层（T/o、L_G/L_H、
   `(L^T)^-1` 坐标映射、严格 `SG_DATA_HALL` 来源，230 SG 的 4425 个操作都在 1/12 网格上）。
 - 任务 4 `bae3edb`：`SubgroupEmbedding`；冻结元数据键是 **(parent, subgroup, U, δ)**——
@@ -357,10 +357,15 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
   （isotropy 记录与 Hall 表用了不同 ITA origin choice）。
 - 任务 5 `50f18c3`：第一个完整 Γ 分解 `subduce_irrep(&h, probe_ml)`；
   黄金用例 221 `GM4+` P1 → #83，`GM3+` ↓ = `GM1+ ×1 + GM2+ ×1`（2 = 1+1）。
-- 任务 6（本次）：compound 行按 `CompoundMetadata` 语义展开成复不可约成分
+- 任务 6：compound 行按 `CompoundMetadata` 语义展开成复不可约成分
   （`DistinctComponentSum` → 两个 CIR 成分；`ConjugateRealification` → seed 与其共轭，
   各自独立重数），Gram/维数和/逐操作重建/来源去重都按复不可约语义检查。
   例：221 `GM4+`（3 维）↓ #83 = `GM1+ ×1` + compound 行 `GM3+GM4+` 的两个成分各 ×1。
+  **复核修正**：原先的 `check_assembly` 用 `compound_selected_arm_view()` 的
+  `block_trace` 去比对由同一对 constituent 组装的字符之和，是循环论证，已删除
+  （连同只为它存在的 `InconsistentCompoundRow`）。独立证据改为
+  `tests/compound_subduction_regressions.rs` 的物理模型：SG 83 `GM3±GM4±` 的
+  `(Rxx+Ryy)` / `det(R)·(Rxx+Ryy)` 迹与 SG 23 `W1W1` 的平移本征值 −i/+i。
 
 **Γ 全表清点（任务 6 验收要求）**：`frobenius_reciprocity_matches_the_stored_identity_subduction`
 给出 `Γ 记录 1895 | 冻结子群命中 210 | 已钉住 10 | 多候选歧义 171 | 搜索空间外 29 | 交叉检查错误 0`。
@@ -382,9 +387,30 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
   修正」，且多代表元修正后必须一致（符号错会不一致）。已写成永久测试
   `shipped_rows_carry_the_bloch_phase_of_their_representatives`。
 - 子群侧帧歧义（shipped 行在子群 Hall setting，嵌入映射记录 setting，可能差冻结
-  原点平移，如 #126 的 (1/4,1/4,1/4)）只用两种读法 + 完整检查裁定，不猜。
-- 抽样覆盖（冻结 (母群,子群) 对 × 全部非 spinor 探针）：折叠成功 160、多臂 164、
-  缺数据 0、其它错误 0；Γ 侧 1895/210/10/171/29 的清点保持不变。
+  原点平移，如 #126 的 (1/4,1/4,1/4)）现在**确定性地**撤销冻结 `child_shift`
+  （`shift_operations(active, -δ)`），不再"在零与 `-δ` 两种读法里取第一个通过
+  完整检查的"；拉回时也不先对子群格约化，保留的平移由 `character_of` 的
+  「旋转＋平移模 `L_H`＋Bloch 相位修正」配对解释。
+- 代表元格缺陷修复（复核 P1）：`representatives()` 必须由**映射后的原始操作**对
+  `L_H` 去重，而不是先把操作对 `L_G` 约化再去重。SG 139 `M1-` P1 → #126 的
+  反演 `(-I | 5/2,5/2,5/2)` 对 `L_G`（I 心）为零平移、对 `L_H` 为
+  `(1/2,1/2,1/2)`。旧实现仍返回 16 个代表元，但其中 8 个平移类错误，
+  随后分导报 `OperationNotInCharacterRow`。
+  `operations()` 仍保存对 `L_G` 约化的母群成员视图。
+- 抽样覆盖（任务 7 测试里实际检查的四个 (母群,子群) 对：16 `R1` P1、
+  221 `GM4+` P1、221 `GM4+` P2、139 `M1-` P1）的全部标量探针（含 Γ）：
+  折叠成功 92、多臂 57、
+  缺数据 0、其它错误 0；其中 SG 139 该对贡献 folded 20（全部 Γ/M 单臂探针）
+  与 17 个真多臂。旧记录的"160/164"不出自任何当前被 pinned 的检查（应是更早的
+  一次性扫描），不要引用；Γ 侧 1895/210/10/171/29 的清点保持不变，另有独立的
+  stored-frequency gate `subduction_identity_regressions`（59 条记录 / 538 次比较）
+  仍全绿。
+- SG 139 的非 Γ 期望值已钉住：`M1-` → `GM1+`、`M1+` → `GM1-`、`M2+` → `GM2-`、
+  `M2-` → `GM2+`，而 Γ 的 `GM1+` → `GM1+`；反演代表元按 `L_H` 为
+  `(1/2,1/2,1/2)`（`tests/subduction_regressions.rs`）。
+- 回拉平移的相位回归：16 `R2` P1 → #22，探针 `X1` → `T3`；过早对子群格
+  归约会错误返回 `T2`，且内部重建仍然通过。官方输出已核对该嵌入的
+  `B = 2I`、`origin = (1/2,1/2,0)`，永久测试位于 `subduction_identity_regressions`。
 
 ### 顺带清理
 

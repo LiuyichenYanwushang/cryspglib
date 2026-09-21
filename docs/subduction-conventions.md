@@ -150,9 +150,16 @@ k 换算示意（同一 `B`）：若 `k_G = (1/2,1/2,0)`（母群 M 点），则
 2. 该集合在模 `L_H` 下闭包、含逆元；映射后的**去重代表元数**必须等于由记录算出的
    期望数——中心化胞的 conventional 操作数 ≠ 点群商阶数，所以期望数要按"子群自身
    规范操作集取模 `T_H` 后的大小"来算，并由任务 2/4 的 fixture 逐个钉住。已核对的
-   见证：例 A 8（#83，2/m 商 8）、例 B 4（#12，2/m 商 4）、例 C 16（#123）与 8（#47）、
+   见证：例 A 8（#83，4/m 商 8）、例 B 4（#12，2/m 商 4）、例 C 16（#123）与 8（#47）、
    #139 `M1-` P1 16（#126）。`Size > 1`（超胞嵌入）的期望数由任务 4 用 fixture 与
    子群号识别共同确定，不得在实现里用点群阶直接顶替；
+   **代表元必须由映射后的原始操作直接对 `L_H` 去重得到，不能先把它们对 `L_G` 约化**：
+   `L_H ⊆ L_G` 只保证模 `L_H` 相同 ⇒ 模 `L_G` 相同，反向不成立。SG 139 `M1-`
+   P1 → #126 是钉死的见证：反演 `(-I | 5/2,5/2,5/2)` 对 `L_G`（I 心）约化为零平移，
+   但对 `L_H` 的代表元是 `(1/2,1/2,1/2)`。旧实现仍返回 16 个代表元，
+   其中 8 个平移类错误，随后分导报 `OperationNotInCharacterRow`。
+   `SubgroupEmbedding::operations()` 保留对 `L_G` 约化的母群成员视图；
+   `representatives()` 保留对 `L_H` 的代表元，母群特征标与子群拉回均使用它；
 3. 子群号识别结果等于 `record.sg`；
 4. 若该 ordinal 在任务 2 的 fixture 集内，则与官方 `SHOW ELEMENTS` 逐操作相等；
 5. `IsotropySubgroup` 的 `parent_sg/ordinal/record` 上下文自洽（字段是 public，
@@ -162,11 +169,14 @@ k 换算示意（同一 `B`）：若 `k_G = (1/2,1/2,0)`（母群 M 点），则
 在母群帧中命名得出来**：旋转用母群轴命名（例 A 的 `C4x±`、`SGx`、`S4x±`，
 例 B 的 `C2a`、`SGda` 这类立方 ⟨110⟩ 对角名），平移在母群 conventional 坐标，
 而且**不约化**（例 A/B 全为 `(0,0,0)`；#139 `M1-` 打印的 Origin 是 `(1,1,1)`、
-代表元含 `(C2x|0,2,2)`、`(I|5/2,5/2,5/2)`——整数 2 与 5/2 只有模 `L_G` 才等于
-0 与 `1/2`）。因此第 4 条的比较对象是"子群自身 setting 的操作经 `(T,o)` 搬入母群
-帧后的操作多重集"（先按 `L_G` 约化再比），**不是**把打印符号再套一次
+代表元含 `(C2x|0,2,2)`、`(I|5/2,5/2,5/2)`。在该例的 `L_H = Z³` 下，
+这两条平移分别归约为零与 `(1/2,1/2,1/2)`；在 I 心母群格 `L_G` 下两者都归约为零）。
+因此第 4 条的比较对象是"子群自身 setting 的操作经 `(T,o)` 搬入母群
+帧后的操作多重集"，**按 `L_H` 约化后比较**（子群元素身份由 `L_H` 决定；SG 139 的
+反演因此必须显示 `(1/2,1/2,1/2)` 而不是 `0`），**不是**把打印符号再套一次
 `R_G = T R_H T^-1`（§2 陷阱）。任务 2 的 fixture 必须同时钉住打印串与它对应的
 `(R_G, t_G)`（符号→矩阵表随 fixture 冻结），并把这条写成断言而不是注释。
+fixture 比较器 `tests/irrep_subduction.rs::keys` 即按 `subgroup_lattice()` 约化。
 
 ## 5. 表示语义：Γ / selected-arm / full-star，以及维数来源
 
@@ -193,6 +203,17 @@ full-star 行：任务 7 的 selected-arm 结果必须用**独立名称**，任�
   `CompoundMetadata::cir_irnumbers`/`cir_labels` 这样的**冻结 CIR 来源身份**。
 - 目标候选行必须是完整、互异的复不可约集合；先用 Gram 矩阵验证正交性（任务 6），
   再套内积。
+- **不得用 `block_trace` 反过来"验证"它自己的成分之和**：`compound_selected_arm_view()`
+  的 `block_trace` 就是由同一对 constituent 组装的，比较它是循环论证。
+  已删除该 gate 与只为它存在的 `InconsistentCompoundRow`。独立证据在
+  `tests/compound_subduction_regressions.rs`：SG 83 的轴向/极向 2D 迹与 SG 23
+  `W1W1` 的平移本征值用物理模型（`Rxx+Ryy`、`det(R)·(Rxx+Ryy)`、Bloch 相位）钉住，
+  不经过 CIR 行求和。
+- **拉回到子群帧必须保留平移**：`representatives()` 的母群帧代表元经 `unmap_operation`
+  映回子群 setting 时不先对子群格约化，随后**确定性地**撤销冻结的 `child_shift`
+  （`t' = t + δ - Rδ` 的逆），不再"在两个 origin 里取第一个通过检查的"。
+  `character_of` 已经按"旋转＋平移模子群格＋Bloch 相位修正"配对，因此保留的
+  平移既决定相位、也不引入歧义。
 
 ## 7. 来源身份、严格 Hall 来源与精度
 
@@ -235,12 +256,25 @@ Mat3R / Vec3R                   // 3×3 / 3 向量；inverse3 -> Result<_, Singu
 | `wigner::{ExactSeitzOp, exact_seitz_table, ExactSeitzReduction}` | canonical Hall 表 | 分母 12 网格、`lattice_shift: [i32;3]` | 不能承载 1/16 origin；按 L_H 泛化的部分在 `subduction.rs` 内实现 |
 | `query::k_vectors_agree(a: KVector, b: KVector) -> bool` | — | i8 窄整数 | `d = 0` 返回 false；折叠 k 的等价判定要按子群倒格做（任务 7） |
 
-## 9. 首版不支持边界（必须报错，不得部分返回）
+## 9. 当前不支持边界（必须报错，不得部分返回）
 
-- 非 Γ（`k ≠ 0`）请求；多臂/full-star；compound 的复化内积；spinor/双群；磁子群
-  与磁共表示（任务 10–11）；参数化 k（不在 `query::irreps_of(sg_H)` 离散表中的
-  折叠 k）；无法唯一确定嵌入的 ordinal（任务 4 冻结路径之外的）。
-- 对应错误：`Unsupported`、`MissingIrrepData`、`AmbiguousEmbedding`、
+- 多臂/full-star（任务 8，`UnsupportedMultiArmStar`）；`ConjugateRealification` 的
+  full-star k/-k 分组（见下）；spinor/双群（任务 11）；磁子群与磁共表示（任务 10）；
+  参数化 k（不在 `query::irreps_of(sg_H)` 离散表中的折叠 k）；无法唯一确定嵌入的
+  ordinal（任务 4 冻结路径之外的）。
+- 非 Γ（`k ≠ 0`）与 compound 的成分展开（任务 7）已落地；已实测覆盖：四个采样
+  (母群, 子群) 对（16 `R1` P1、221 `GM4+` P1、221 `GM4+` P2、139 `M1-` P1）的
+  全部标量探针（含 Γ）共
+  folded 92 / 多臂 57 / 缺数据 0，其中 SG 139 该对贡献 folded 20（全部 Γ/M 单臂）
+  与 17 个真多臂；Γ 侧清点为 1895 条记录、10 条被 fixture 钉住、171 条多候选歧义、
+  29 条 setting 在搜索空间外。历史 CLAUDE 里的 160/164 不出自任何当前被 pinned
+  的检查，不要引用；独立的 stored-frequency gate（59 条记录 / 538 次比较）也全绿。
+- SG 23 `W1W1` 的 realification 只在**显式的四元平移商** 0, L, 2L, 3L
+  （`L = (1/2,1/2,1/2)`，`k = (1/2,1/2,1/2)`）上验证 seed 与共轭成分的展开
+  （seed 特征标 `[1,-i,-1,+i]`、共轭 `[1,+i,-1,-i]`，内积 (1,0)/(0,1)）；
+  **这不实现 k 与 -k 的 full-star 分组**，九个冻结子群空间群里也没有任何
+  realification 行（更没有 Γ realification 行）。
+- 对应错误：`UnsupportedMultiArmStar`、`MissingIrrepData`、`AmbiguousEmbedding`、
   `StrictHallUnavailable`、`SingularTransform`、`NonIntegralMultiplicity`、
   `CharacterMismatch`、`DimensionSumMismatch`（任务 3/5 落地时确定到具体变体）。
 - 任何"返回空分解冒充成功"、"取候选第一项"、"放宽误差/加豁免"、"用 legacy

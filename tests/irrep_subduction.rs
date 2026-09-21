@@ -13,9 +13,11 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use cryspglib::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
-use cryspglib::irrep::subduction::{ExactSeitz, Rat, SubgroupEmbedding, SubductionError, Vec3R};
+use cryspglib::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
 use cryspglib::irrep::subduce_irrep;
+use cryspglib::irrep::subduction::{
+    ExactSeitz, Rat, SubductionError, SubgroupEmbedding, Vec3R, strict_sg_hall_ops,
+};
 
 /// One fixture case.
 struct Case {
@@ -60,7 +62,10 @@ fn rotation(token: &str) -> [[Rat; 3]; 3] {
         .map(|row| row.split(',').map(rational).collect())
         .collect();
     assert_eq!(rows.len(), 3, "three rows in {token:?}");
-    assert!(rows.iter().all(|row| row.len() == 3), "three columns in {token:?}");
+    assert!(
+        rows.iter().all(|row| row.len() == 3),
+        "three columns in {token:?}"
+    );
     [
         [rows[0][0], rows[0][1], rows[0][2]],
         [rows[1][0], rows[1][1], rows[1][2]],
@@ -104,9 +109,21 @@ fn parse_fixture() -> Vec<Case> {
                 let matrix = rotation(parts.next().expect("rotation"));
                 let translation = vector(parts.next().expect("translation"));
                 let integers = [
-                    [matrix[0][0].to_i32().unwrap(), matrix[0][1].to_i32().unwrap(), matrix[0][2].to_i32().unwrap()],
-                    [matrix[1][0].to_i32().unwrap(), matrix[1][1].to_i32().unwrap(), matrix[1][2].to_i32().unwrap()],
-                    [matrix[2][0].to_i32().unwrap(), matrix[2][1].to_i32().unwrap(), matrix[2][2].to_i32().unwrap()],
+                    [
+                        matrix[0][0].to_i32().unwrap(),
+                        matrix[0][1].to_i32().unwrap(),
+                        matrix[0][2].to_i32().unwrap(),
+                    ],
+                    [
+                        matrix[1][0].to_i32().unwrap(),
+                        matrix[1][1].to_i32().unwrap(),
+                        matrix[1][2].to_i32().unwrap(),
+                    ],
+                    [
+                        matrix[2][0].to_i32().unwrap(),
+                        matrix[2][1].to_i32().unwrap(),
+                        matrix[2][2].to_i32().unwrap(),
+                    ],
                 ];
                 case.elements
                     .push((label, ExactSeitz::new(integers, translation)));
@@ -119,14 +136,20 @@ fn parse_fixture() -> Vec<Case> {
 }
 
 /// Canonical `(rotation, translation)` keys of an operation set modulo the
-/// embedding's parent lattice: the comparison used throughout this file.
+/// embedding's **subgroup** lattice `L_H`: two subgroup operations are the same
+/// element exactly when they differ by a vector of `L_H`.
+///
+/// Reducing modulo the parent lattice `L_G` instead hid the SG 139 defect: the
+/// inversion `(-I | 5/2,5/2,5/2)` of the #126 embedding lies in `L_G` up to
+/// translation zero for the I-centred parent, so a parent-lattice key reported
+/// `0` where the subgroup's own coset representative is `(1/2,1/2,1/2)`.
 fn keys(embedding: &SubgroupEmbedding, operations: &[ExactSeitz]) -> BTreeSet<(String, String)> {
     operations
         .iter()
         .map(|operation| {
             let reduced = operation
-                .reduce(embedding.parent_lattice())
-                .expect("reduce modulo the parent lattice");
+                .reduce(embedding.subgroup_lattice())
+                .expect("reduce modulo the subgroup lattice");
             let rotation = reduced
                 .rotation()
                 .iter()
@@ -145,7 +168,10 @@ fn keys(embedding: &SubgroupEmbedding, operations: &[ExactSeitz]) -> BTreeSet<(S
         .collect()
 }
 
-fn fixture_keys(embedding: &SubgroupEmbedding, elements: &[(String, ExactSeitz)]) -> BTreeSet<(String, String)> {
+fn fixture_keys(
+    embedding: &SubgroupEmbedding,
+    elements: &[(String, ExactSeitz)],
+) -> BTreeSet<(String, String)> {
     keys(
         embedding,
         &elements
@@ -201,7 +227,9 @@ fn matches_fixture(embedding: &SubgroupEmbedding, case: &Case) -> Result<(), Str
             .contains(&vector)
             .map_err(|error| error.to_string())?
         {
-            return Err(format!("fixture basis row {vector} is not in the subgroup lattice"));
+            return Err(format!(
+                "fixture basis row {vector} is not in the subgroup lattice"
+            ));
         }
     }
     if embedding.transform().origin() != &case.origin {
@@ -238,18 +266,30 @@ fn every_fixture_case_is_reproduced_exactly() {
             case.direction
         );
         matches_fixture(&embedding, case).unwrap_or_else(|error| {
-            panic!(
-                "SG {} {} {}: {error}",
-                case.sg, case.ml, case.direction
-            )
+            panic!("SG {} {} {}: {error}", case.sg, case.ml, case.direction)
         });
         elements += case.elements.len();
-        // Every mapped operation must be a parent operation: the fixture
-        // comparison above only sees representatives, this sees all of them.
+        // Every mapped operation must be an actual operation of the strict
+        // parent Hall group modulo `L_G`.  The previous check only asserted
+        // that `Lattice::reduce` returned `Ok`, which is vacuous for exact
+        // rationals; this compares against the parent's own operation set.
+        // (`operations()` holds the full Hall set, e.g. 8 for the C-centred
+        // #12, while the fixture lists its 4 coset representatives.)
+        let parent_operations: Vec<ExactSeitz> = strict_sg_hall_ops(case.sg)
+            .expect("strict parent Hall operations")
+            .operations
+            .iter()
+            .map(|operation| {
+                operation
+                    .reduce(embedding.parent_lattice())
+                    .expect("reduce modulo the parent lattice")
+            })
+            .collect();
         for operation in embedding.operations() {
             assert!(
-                embedding.parent_lattice().reduce(operation.translation()).is_ok(),
-                "SG {} {} {}: operation is not in the parent frame",
+                parent_operations.contains(operation),
+                "SG {} {} {}: mapped operation {operation:?} is not in the strict \
+                 parent operation set modulo L_G",
                 case.sg,
                 case.ml,
                 case.direction
@@ -416,9 +456,8 @@ fn embeddings_refuse_records_that_do_not_validate() {
 fn gamma_subduction_of_the_golden_case_is_complete() {
     // The end-to-end deliverable of task 5: 221 GM4+ condenses along P1 into
     // #83 P4/m, and the parent's GM3+ subduces to GM1+ + GM2+.
-    let subgroup =
-        isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
-            .expect("condensing record");
+    let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+        .expect("condensing record");
     assert_eq!(subgroup.ordinal, 12400);
     assert_eq!(subgroup.record.sg, 83);
     let decomposition = subduce_irrep(&subgroup, "GM3+").expect("decomposition");
@@ -479,9 +518,15 @@ fn point_group_order(sg: u8) -> usize {
     {
         let rotation = operation.rotation();
         let flat = [
-            rotation[0][0], rotation[0][1], rotation[0][2],
-            rotation[1][0], rotation[1][1], rotation[1][2],
-            rotation[2][0], rotation[2][1], rotation[2][2],
+            rotation[0][0],
+            rotation[0][1],
+            rotation[0][2],
+            rotation[1][0],
+            rotation[1][1],
+            rotation[1][2],
+            rotation[2][0],
+            rotation[2][1],
+            rotation[2][2],
         ];
         if !rotations.contains(&flat) {
             rotations.push(flat);
@@ -512,8 +557,8 @@ fn point_group_order(sg: u8) -> usize {
 fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
     use cryspglib::irrep::isotropy::isotropy_subgroups;
     use cryspglib::irrep::query;
-    use cryspglib::irrep::subduction::SubgroupEmbedding;
     use cryspglib::irrep::subduce_irrep_with_embedding;
+    use cryspglib::irrep::subduction::SubgroupEmbedding;
 
     const FROZEN_SUBGROUPS: [u8; 9] = [8, 12, 15, 22, 47, 83, 123, 126, 148];
     let mut gamma_records = 0usize;
@@ -582,12 +627,12 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
                         .iter()
                         .find(|(ml, _)| *ml == entry.parent_ml)
                     {
-                        Some((_, frequency)) if *frequency != entry.frequency => errors.push(
-                            format!(
+                        Some((_, frequency)) if *frequency != entry.frequency => {
+                            errors.push(format!(
                                 "ordinal {}: {} has frequency {} and {} across domains",
                                 subgroup.ordinal, entry.parent_ml, frequency, entry.frequency
-                            ),
-                        ),
+                            ))
+                        }
                         Some(_) => {}
                         None => stored_frequencies.push((entry.parent_ml, entry.frequency)),
                     }
@@ -600,23 +645,22 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
                     if !is_gamma(candidate) {
                         continue;
                     }
-                    let result = match subduce_irrep_with_embedding(&subgroup, &embedding, candidate)
-                    {
-                        Ok(result) => result,
-                        Err(error) => {
-                            errors.push(format!(
-                                "ordinal {} probe {}: {error}",
-                                subgroup.ordinal, candidate.ml
-                            ));
-                            continue;
-                        }
-                    };
+                    let result =
+                        match subduce_irrep_with_embedding(&subgroup, &embedding, candidate) {
+                            Ok(result) => result,
+                            Err(error) => {
+                                errors.push(format!(
+                                    "ordinal {} probe {}: {error}",
+                                    subgroup.ordinal, candidate.ml
+                                ));
+                                continue;
+                            }
+                        };
                     let multiplicity = result.multiplicity(trivial);
                     if multiplicity > 0 {
                         engine_frequencies.push((candidate.ml, multiplicity));
                     }
-                    frobenius_sum +=
-                        i64::from(result.parent_dimension()) * i64::from(multiplicity);
+                    frobenius_sum += i64::from(result.parent_dimension()) * i64::from(multiplicity);
                 }
 
                 for (ml, frequency) in &stored_frequencies {
@@ -646,10 +690,7 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
                 // The record's own condensing irrep must contain the trivial
                 // representation: that is what makes the subgroup its isotropy
                 // subgroup, and the stored table agrees.
-                if !engine_frequencies
-                    .iter()
-                    .any(|(ml, _)| *ml == probe.ml)
-                {
+                if !engine_frequencies.iter().any(|(ml, _)| *ml == probe.ml) {
                     errors.push(format!(
                         "ordinal {}: condensing irrep {} does not subduce the trivial rep",
                         subgroup.ordinal, probe.ml
@@ -678,7 +719,10 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
     // 1895 is the historical "Gamma records" figure; it counts records, not
     // verified identities, which is why the plan asks for the scope to be
     // recounted rather than reused.
-    assert_eq!(gamma_records, 1895, "Gamma isotropy records in the shipped table");
+    assert_eq!(
+        gamma_records, 1895,
+        "Gamma isotropy records in the shipped table"
+    );
     assert_eq!(frozen_subgroup_records, 210);
     assert_eq!(pinned, 10, "records pinned by the task-2 oracle fixture");
     assert_eq!(
@@ -705,7 +749,7 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
 #[test]
 fn shipped_rows_carry_the_bloch_phase_of_their_representatives() {
     use cryspglib::irrep::query;
-    use cryspglib::irrep::subduction::{bloch_phase, Rat, Vec3R};
+    use cryspglib::irrep::subduction::{Rat, Vec3R, bloch_phase};
 
     let record = query::irreps_of(139)
         .iter()
@@ -750,23 +794,36 @@ fn shipped_rows_carry_the_bloch_phase_of_their_representatives() {
 #[test]
 fn non_gamma_probes_decompose_their_folded_block() {
     use cryspglib::irrep::query;
-    use cryspglib::irrep::subduction::{fold_wave_vector, SubgroupEmbedding};
     use cryspglib::irrep::subduce_irrep_with_embedding;
+    use cryspglib::irrep::subduction::{SubgroupEmbedding, fold_wave_vector};
 
     // (parent, condensing irrep, direction, probe, expected folded k, expected targets)
     /// (parent, condensing irrep, direction, probe, folded k, expected targets)
-    type FoldCase = (u8, &'static str, &'static str, &'static str, [(i128, i128); 3], &'static [(&'static str, u32)]);
+    type FoldCase = (
+        u8,
+        &'static str,
+        &'static str,
+        &'static str,
+        [(i128, i128); 3],
+        &'static [(&'static str, u32)],
+    );
     let cases: [FoldCase; 5] = [
         (16, "R1", "P1", "X1", [(1, 1), (0, 1), (0, 1)], &[("T1", 1)]),
         (16, "R1", "P1", "X2", [(1, 1), (0, 1), (0, 1)], &[("T2", 1)]),
         (16, "R1", "P1", "Y1", [(0, 1), (1, 1), (0, 1)], &[("Y1", 1)]),
         (16, "R1", "P1", "Z1", [(0, 1), (0, 1), (1, 1)], &[("Z1", 1)]),
-        (221, "GM4+", "P1", "R1+", [(1, 2), (-1, 2), (1, 2)], &[("A1+", 1)]),
+        (
+            221,
+            "GM4+",
+            "P1",
+            "R1+",
+            [(1, 2), (-1, 2), (1, 2)],
+            &[("A1+", 1)],
+        ),
     ];
     for (sg, ml, direction, probe_ml, folded, targets) in cases {
-        let subgroup =
-            isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(direction))
-                .expect("condensing record");
+        let subgroup = isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(direction))
+            .expect("condensing record");
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
         let probe = query::irreps_of(sg)
             .iter()
@@ -786,7 +843,11 @@ fn non_gamma_probes_decompose_their_folded_block() {
             .map(|(numerator, denominator)| Rat::new(*numerator, *denominator).expect("rational"))
             .collect();
         let computed = fold_wave_vector(embedding.transform(), &k_g).expect("fold");
-        assert_eq!(computed.as_array(), expected.as_slice(), "SG {sg} {probe_ml}");
+        assert_eq!(
+            computed.as_array(),
+            expected.as_slice(),
+            "SG {sg} {probe_ml}"
+        );
 
         let result = subduce_irrep_with_embedding(&subgroup, &embedding, probe)
             .unwrap_or_else(|error| panic!("SG {sg} {probe_ml}: {error}"));
@@ -830,7 +891,7 @@ fn non_gamma_probes_decompose_their_folded_block() {
 fn non_gamma_coverage_is_counted_not_assumed() {
     use cryspglib::irrep::query;
     use cryspglib::irrep::subduction::SubgroupEmbedding;
-    use cryspglib::irrep::{subduce_irrep_with_embedding, SubductionError};
+    use cryspglib::irrep::{SubductionError, subduce_irrep_with_embedding};
 
     let mut folded = 0usize;
     let mut multi_arm = 0usize;
@@ -840,10 +901,10 @@ fn non_gamma_coverage_is_counted_not_assumed() {
         (16u8, "R1", "P1"),
         (221, "GM4+", "P1"),
         (221, "GM4+", "P2"),
+        (139, "M1-", "P1"),
     ] {
-        let subgroup =
-            isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(direction))
-                .expect("record");
+        let subgroup = isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(direction))
+            .expect("record");
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
         for probe in query::irreps_of(sg) {
             if probe.spinor {
@@ -864,8 +925,11 @@ fn non_gamma_coverage_is_counted_not_assumed() {
     );
     assert!(other.is_empty(), "{}", other.join("\n"));
     assert!(folded > 0 && multi_arm > 0, "both outcomes must occur");
-    // Measured over the three sampled pairs; missing data does not occur here
-    // because those folded blocks all exist (the gap path is exercised by the
-    // wider scan in `non_gamma_coverage_scan_reports_the_gap`).
-    assert_eq!((folded, multi_arm, missing), (72, 40, 0));
+    // Measured over the four sampled pairs.  The SG 139 `M1-` P1 -> #126 pair
+    // contributes 20 folded Gamma/M single-arm probes (M1-/M1+/M2+/M2- and the
+    // Gamma rows) and 17 genuine multi-arm stars; it is folded at all only
+    // because the representatives keep their `L_H` translations.  Missing data
+    // does not occur over these four pairs: their folded blocks all exist, and
+    // the `MissingIrrepData` gap path is covered by the unit tests instead.
+    assert_eq!((folded, multi_arm, missing), (92, 57, 0));
 }
