@@ -700,10 +700,27 @@ w 频率**，审计的 `--require-w-complete` 门禁继续生效。
 
 结论：轨道计数在 child = #18 与 child = P1 上正确，但在 #16/#18 的部分记录上系统性地
 少一个因子 2 —— 即「每个轨道的小群表示重数 m」（Mackey 双陪集公式里
-`mult(trivial_{H ∩ sG_k s⁻¹}, W^s)`）不能一律取 1。另外同一方向在 conv/prim 两种读法下
-去重出的臂数不同（6 vs 12），说明**臂的去重也必须在 prim 帧 + 母群倒格下做**，conv 读法
-（6 臂 / 6 落 Γ / 3 轨道）必须丢弃。下一步：把 m 求出来（要么继续解 little 表特征标，
-要么从 Mackey 公式的结构直接算），再用 1,006 条记录 / 5,756 行全表核对。
+`mult(trivial_{H ∩ sG_k s⁻¹}, W^s)`）不能一律取 1。
+
+**第十一轮（2026-09-22）：用维数守恒抓住臂集合本身的错误。**
+
+给 `w_arm_count` 加上「按母群倒格 + ± 去重」后（`line_key`），臂数仍是 **12**
+（说明那 12 条线确实互不等价 mod 母群倒格），但这条与**维数守恒**矛盾：
+`full-star dim = 星大小 × 小群维数`，SG 196 的 `DT1` dim = 6 ⇒ 星大小 ∈ {1,2,3,6}
+⇒ 不可能是 12。根因是**帧混用**：母群点群旋转来自 `symmetry_operations_of`（母群
+**conventional** 基），而直线方向是 prim 帧的 (1/2,1,1/2)，两者直接相乘是错的。
+修法只有两条，二选一：
+
+* 全部在 **primitive 帧**做：旋转先相似变换 `R_prim = P^{-T} R_conv P^T`，臂按
+  `Lattice::new(P).reciprocal()` 约化；
+* 或全部在 **conventional 帧**做：旋转直接用，臂按母群 conventional 倒格（= Z³ 加
+  centering 消光）约化，折叠前再把臂转成 prim。
+
+抽样（prim 帧，未修帧混用）目前是：10030 DT1 stored 1 / orbits 1 ✓、10033 DT1
+stored 2 / orbits 1 ✗、10034 DT1 stored 1 / orbits 2 ✗、13824 SM1 stored 12 /
+orbits 12 ✓ —— 因此**先修帧，再谈 m**。下一步：修帧后重新计数，并用
+`dim / 星大小` 是否为整数作为每次计数的自检门禁（这条不变量不需要 little 表就能查，
+`DT1` dim 6 已足以否掉 12 臂）。
 
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有

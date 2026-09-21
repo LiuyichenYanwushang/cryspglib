@@ -91,6 +91,28 @@ fn contragredient(rotation: Mat3I, value: &Vec3R) -> Result<Vec3R, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Canonical representative of the line through `value` modulo `lattice`, up to sign.
+fn line_key(value: &Vec3R, lattice: &Lattice) -> Result<Vec3R, String> {
+    let reduced = lattice
+        .reduce(value)
+        .map_err(|error| error.to_string())?
+        .representative;
+    // Fix the sign by the first non-zero component.
+    let flip = (0..3)
+        .find(|axis| reduced.get(*axis).numerator() != 0)
+        .is_some_and(|axis| reduced.get(axis).numerator() < 0);
+    if !flip {
+        return Ok(reduced);
+    }
+    let mut negated = [Rat::ZERO; 3];
+    for (axis, slot) in negated.iter_mut().enumerate() {
+        let entry = reduced.get(axis);
+        *slot = Rat::new(-entry.numerator(), entry.denominator())
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(Vec3R::new(negated))
+}
+
 /// Whether two images are the same line, i.e. equal up to sign.
 fn same_line(left: &Vec3R, right: &Vec3R) -> Result<bool, String> {
     let mut negated = [Rat::ZERO; 3];
@@ -140,6 +162,12 @@ fn main() -> Result<(), String> {
         }
     }
     let to_primitive = Mat3R::new(primitive_rows);
+    // Parent primitive cell and its reciprocal lattice: the arms of a parent star
+    // are lines modulo *this* lattice, not merely modulo sign.
+    let parent_reciprocal = Lattice::new(to_primitive)
+        .map_err(|error| error.to_string())?
+        .reciprocal()
+        .map_err(|error| error.to_string())?;
     let v_primitive = to_primitive
         .checked_mul_vector(&v_conv)
         .map_err(|error| error.to_string())?;
@@ -171,9 +199,10 @@ fn main() -> Result<(), String> {
         let mut arms: Vec<Vec3R> = Vec::new();
         for rotation in &rotations {
             let image = contragredient(*rotation, direction)?;
+            let key = line_key(&image, &parent_reciprocal)?;
             let mut known = false;
             for arm in &arms {
-                if same_line(arm, &image)? {
+                if same_line(&line_key(arm, &parent_reciprocal)?, &key)? {
                     known = true;
                     break;
                 }
@@ -207,8 +236,11 @@ fn main() -> Result<(), String> {
             while let Some(current) = stack.pop() {
                 for rotation in &subgroup_rotations {
                     let image = contragredient(*rotation, &gamma[current])?;
+                    let key = line_key(&image, &parent_reciprocal)?;
                     for (index, candidate) in gamma.iter().enumerate() {
-                        if !seen[index] && same_line(candidate, &image)? {
+                        if !seen[index]
+                            && same_line(&line_key(candidate, &parent_reciprocal)?, &key)?
+                        {
                             seen[index] = true;
                             stack.push(index);
                         }
