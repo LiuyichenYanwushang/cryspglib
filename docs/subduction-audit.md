@@ -63,8 +63,27 @@ Mackey/特征标求和的 Python 原型（`target/task9/explore/proto_freq.py`�
 已定位到根因方向：原型的群元规范化把平移**按 Z³ 取模**，而母群格子是**带心的**
 （SG 196 的 cF 在 conventional 坐标下不是 Z³）；子群超胞平移（如 `(2,0,0)`）因此
 被错误折叠成单位元，陪集/成员判定全部失真。引擎侧有正确的 `Lattice` /
-`parent_primitive_basis` 层，Rust 实现必须按**母群格子**而不是 Z³ 规范化，
-`(E,T) ∈ G_L` 的判据是 `T ∈ L_parent`。
+`parent_primitive_basis` 层，Rust 实现必须按**母群格子**而不是 Z³ 规范化。
+
+第二轮原型把成员判据改成**只看旋转**（`G_L = {(R,t) : Rv = v}` 本来就只约束 R ✓，
+这才是对的），并把平移留给相位，于是 `6D1` 仍然全中，但 `4D1` 变成 6/6/12
+（pinned 4/4/4），而且 `SHOW EL` 对该子群只打印**一个**操作（`|H| = 1`）——
+原因是它给的是子群操作**模母群格子**，而 P1 超胞子群的真实平移陪集（4 个）不在其中。
+于是公式要按有限群投影写完整：
+
+```text
+mult(trivial_H, V'|_H)
+  = 1/(|P_H| · n) · Σ_{R ∈ P_H} Σ_{T ∈ L_H/L_parent} χ_{V'}((R,t_R)·(E,T))
+  = 1/(|P_H| · n) · Σ_R Σ_T χ_{V'}(R, t_R + T)
+χ_{V'}(g) = Σ_{s ∈ G_L\G, R_g 固定该臂} χ_{W'}(s⁻¹ g s)
+```
+
+其中 `n = |L_H/L_parent|` 是子群胞相对母群格子的平移陪集数（P1 情形就是记录里的
+`Size` ✓），`P_H` 是子群点群（`SHOW EL` 打印的操作的旋转部分 ✓），
+`t_R` 取程序打印的代表平移 ✓。对每个 `T` 求和正是「折叠到子群 Γ」的判据来源：
+`χ_{V'}(E,T) = Σ_arms exp(-2πi k·s⁻¹T)`，只有 `k·T ∈ Z` 的臂不互相抵消。
+`6D1` 的锚点自洽：`n = 6`、`|P_H| = 1`、`Σ_T χ = 72` ⇒ `72/6 = 12 = dim V'` ✓。
+`L_H/L_parent` 的陪集代表可从官方 `SHOW BASIS` / pinned isotropy basis 取。
 
 `--require-complete` 只表述第一条轨道（`VERDICT complete scope=global`），不会把
 第二条轨道算作已完成。
