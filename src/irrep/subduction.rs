@@ -1340,12 +1340,21 @@ impl SubgroupEmbedding {
             });
         }
         let to_conventional = subgroup_primitive.inverse()?;
-        let transform_for =
-            |setting: Mat3I, denominator: i32| -> Result<SeitzTransform, SubductionError> {
+        // A candidate's convention fixes three things at once: the affine map
+        // *and* the subgroup translation lattice, which is the image of the
+        // child's lattice under that map.  `U` need not be unimodular (a few
+        // monoclinic records reach the official cell only through a fractional
+        // change of basis), and in exactly those cases the stored basis times
+        // the parent primitive basis spans the *wrong* lattice, so it cannot be
+        // used to reduce coset representatives.
+        let transform_for = |setting: Mat3I,
+                             denominator: i32|
+         -> Result<(SeitzTransform, Lattice), SubductionError> {
             let setting_matrix = rational_setting(setting, denominator)?;
-            let basis = to_conventional
-                .checked_mul(&setting_matrix.inverse()?.checked_mul(&basis_conventional)?)?;
-            Ok(SeitzTransform::new(basis.transpose(), origin))
+            let inverse = setting_matrix.inverse()?;
+            let basis = to_conventional.checked_mul(&inverse.checked_mul(&basis_conventional)?)?;
+            let lattice = Lattice::new(inverse.checked_mul(&basis_conventional)?)?;
+            Ok((SeitzTransform::new(basis.transpose(), origin), lattice))
         };
 
         let (setting, setting_denominator, transform, operations, representatives, candidate_count) =
@@ -1354,7 +1363,7 @@ impl SubgroupEmbedding {
             // validated like any other candidate and a failure is reported
             // instead of silently falling back to a different setting.
             Some((setting, denominator, _)) => {
-                let transform = transform_for(setting, denominator)?;
+                let (transform, subgroup_lattice) = transform_for(setting, denominator)?;
                 match validate_candidate(
                     &subgroup_operations,
                     &parent_operations,
@@ -1380,7 +1389,7 @@ impl SubgroupEmbedding {
                 let mut accepted: Vec<(Mat3I, SeitzTransform, Vec<ExactSeitz>, Vec<ExactSeitz>)> =
                     Vec::new();
                 for setting in &candidates {
-                    let transform = transform_for(*setting, 1)?;
+                    let (transform, _) = transform_for(*setting, 1)?;
                     if let Some((operations, representatives)) = validate_candidate(
                         &subgroup_operations,
                         &parent_operations,
