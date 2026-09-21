@@ -87,6 +87,15 @@ representation, hence the point characters, of a little irrep) or decoding the
 pinned `little_irr_full_matrices` block of `data_little.txt` (rounds 7-8 recorded
 what is known about the pointer chains; the value encoding is still open).
 
+Probed 2026-09-22: every scalar field of the pinned little table is identical for
+`DT1..DT4` (`little_irr_type`, `little_irr_cc`, `little_irr_lif`,
+`little_irr_invar3`, `little_irr_full_dim`), but `little_irr_kov` is **not** the
+identity: SG 202's DT slot reads `[1, 2, 4, 3]`, i.e. ISOTROPY's `DT3`/`DT4` are
+Kovalev's irreps 4 and 3 respectively (SG 225 reads `[1, 3, 4, 2, 5]`).  So a
+third route exists: look the two characters up in Kovalev's tables (the suite's
+own ISO-KOV mapping page maps Kovalev onto CDML), which would settle the swap
+without touching the undecoded matrix block.
+
 ## Step 3 — close the loop
 
 * extend `examples/audit_irrep_subduction.rs` so the w rows are computed and
