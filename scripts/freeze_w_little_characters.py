@@ -39,7 +39,9 @@ or under-determined, 2 = the pinned archive or the extracted binary is missing.
 """
 
 import argparse
+import cmath
 import json
+import math
 import os
 import re
 import subprocess
@@ -133,6 +135,93 @@ def pinned_sources():
     return sources, dimensions, little_count, little_dims
 
 
+K_ROW_RE = re.compile(r"^(\S+)\s+(\(.*?\))\s")
+
+
+def parse_k_list(text):
+    """`DISPLAY KPOINT` -> [(label, representative k vector), ...]."""
+    rows = []
+    for line in text.splitlines():
+        match = K_ROW_RE.match(line.strip().rstrip("*").strip())
+        if match:
+            rows.append((match.group(1), match.group(2)))
+    return rows
+
+
+def points_on_line(k_rows, direction):
+    """Special points `alpha * direction` on the same line (alpha rational)."""
+    points = []
+    for label, vector in k_rows:
+        if re.search(r"[abg]", vector):
+            continue  # a domain (line/plane), not a point
+        point = parse_direction(vector)
+        alpha = None
+        on_line = True
+        for axis in range(3):
+            if direction[axis] == 0:
+                if point[axis] != 0:
+                    on_line = False
+                    break
+            else:
+                candidate = point[axis] / direction[axis]
+                if alpha is None:
+                    alpha = candidate
+                elif candidate != alpha:
+                    on_line = False
+                    break
+        if on_line and alpha not in (None, 0):
+            points.append((label, alpha))
+    return points
+
+
+def phase_exponent(alpha, direction, translation):
+    """`alpha * (v . t)`; the Bloch phase of the line irrep at that point."""
+    return alpha * sum(a * b for a, b in zip(direction, translation))
+
+
+def solve_complex(matrix, rhs, tolerance=1e-9):
+    """Gaussian elimination over the complex numbers (small systems)."""
+    rows = [
+        [complex(value) for value in row] + [complex(rhs[index])]
+        for index, row in enumerate(matrix)
+    ]
+    width = len(rows[0]) - 1
+    pivot_row = 0
+    pivots = []
+    for column in range(width):
+        chosen = None
+        best = tolerance
+        for candidate in range(pivot_row, len(rows)):
+            if abs(rows[candidate][column]) > best:
+                chosen = candidate
+                best = abs(rows[candidate][column])
+        if chosen is None:
+            continue
+        rows[pivot_row], rows[chosen] = rows[chosen], rows[pivot_row]
+        pivot = rows[pivot_row][column]
+        rows[pivot_row] = [value / pivot for value in rows[pivot_row]]
+        for other in range(len(rows)):
+            if other != pivot_row and abs(rows[other][column]) > tolerance:
+                factor = rows[other][column]
+                rows[other] = [
+                    value - factor * pivot_value
+                    for value, pivot_value in zip(rows[other], rows[pivot_row])
+                ]
+        pivots.append(column)
+        pivot_row += 1
+        if pivot_row == len(rows):
+            break
+    solution = [0j] * width
+    for row, column in enumerate(pivots):
+        solution[column] = rows[row][-1]
+    consistent = all(
+        all(abs(row[column]) <= 1e-7 for column in range(width))
+        and abs(row[-1]) <= 1e-7
+        for row in rows[pivot_row:]
+    )
+    return solution, len(pivots), consistent
+
+
 def run_iso(sg, commands, timeout=300):
     """Run the official program for one parent space group."""
     binary = os.path.join(ISO_DIR, "iso")
@@ -173,24 +262,43 @@ def section(text, marker):
     return body.split("*", 1)[0]
 
 
+ELEMENT_TERM_RE = re.compile(r"([+-]?)(\d+(?:/\d+)?)?([xyz]?)")
+
+
 def parse_elements(text):
-    """`(x,y,z), (x,-y,-z)` -> [(rotation, translation), ...] (exact rationals)."""
+    """`(x,y,z), (x,-y+3/4,-z+3/4)` -> [(rotation, translation), ...].
+
+    The program prints a space-group element in the International Tables form,
+    i.e. as the image of a general point, so a screw or glide shows up as a
+    constant inside a component (`-y+3/4`).  The `(R|t)` layout is accepted too.
+    """
     body = section(text, "Elements")
     elements = []
     for chunk in ELEMENT_RE.findall(body):
         parts = [part.strip() for part in chunk.split(",")]
-        while len(parts) < 6:
-            parts.append("0")
+        translation_parts = None
+        if len(parts) >= 6 and all(re.fullmatch(r"[-\d/]+", part) for part in parts[3:6]):
+            translation_parts = [Fraction(part) for part in parts[3:6]]
         rotation = []
+        translation = []
         for part in parts[:3]:
             row = [Fraction(0), Fraction(0), Fraction(0)]
-            for sign, coefficient, letter in re.findall(r"([+-]?)(\d*)([xyz])", part):
-                index = "xyz".index(letter)
-                value = Fraction(int(coefficient) if coefficient else 1)
-                row[index] += -value if sign == "-" else value
+            constant = Fraction(0)
+            for sign, number, letter in ELEMENT_TERM_RE.findall(part.replace(" ", "")):
+                if not number and not letter:
+                    continue
+                value = Fraction(number) if number else Fraction(1)
+                if sign == "-":
+                    value = -value
+                if letter:
+                    row["xyz".index(letter)] += value
+                else:
+                    constant += value
             rotation.append(tuple(row))
-        translation = tuple(Fraction(part) for part in parts[3:6])
-        elements.append((tuple(rotation), translation, chunk))
+            translation.append(constant)
+        if translation_parts is not None:
+            translation = translation_parts
+        elements.append((tuple(rotation), tuple(translation), chunk))
     return elements
 
 
@@ -302,6 +410,160 @@ def solve(matrix, rhs):
         for row in rows[pivot_row:]
     )
     return solution, len(pivots), consistent
+
+
+def extra_point_equations(sg, k_label, direction, little, phase_sign=1):
+    """Equations from the other special points of the same k line.
+
+    At a point `k' = alpha * v` the line irrep's character on `(R, t)` is
+    `exp(phase_sign * 2i pi alpha v.t) * D(R)`, so a point irrep's compatibility
+    row gives `sum_i m_i D_i(R) = chi(R, t) * exp(-phase_sign * 2i pi alpha v.t)`.
+    """
+    k_rows = parse_k_list(
+        run_iso(sg, ["SHOW KPOINT", "SHOW STAR", "DISPLAY KPOINT"])
+    )
+    equations = []
+    points = []
+    for label, alpha in points_on_line(k_rows, direction):
+        irreps = parse_irrep_rows(
+            run_iso(
+                sg,
+                [
+                    f"VALUE KPOINT {label}",
+                    "SHOW IRREP",
+                    "SHOW DIMENSION",
+                    "SHOW KPOINT",
+                    "DISPLAY IRREP",
+                ],
+            )
+        )
+        used = 0
+        for irrep_label, _, _ in irreps:
+            commands = [f"VALUE IRREP {irrep_label}", "SHOW COMPATIBILITY"]
+            commands += [f"VALUE COMPATIBILITY {k_label}", "DISPLAY IRREP"]
+            commands += ["SHOW CHARACTER"]
+            for element in little:
+                commands += [
+                    f"VALUE ELEMENT {element[2].upper().replace(',', ' ')}",
+                    "DISPLAY IRREP",
+                ]
+            text = run_iso(sg, commands)
+            compat = parse_compat(text)
+            if not compat:
+                continue
+            characters = parse_characters(text)
+            if len(characters) != len(little):
+                continue
+            multiplicity = {}
+            for entry in compat:
+                multiplicity[entry] = multiplicity.get(entry, 0) + 1
+            equations.append(
+                {
+                    "point": label,
+                    "alpha": str(alpha),
+                    "irrep": irrep_label,
+                    "multiplicity": multiplicity,
+                    "characters": [complex(value) for _, value in characters],
+                    "phases": [
+                        cmath.exp(
+                            -phase_sign
+                            * 2j
+                            * math.pi
+                            * float(phase_exponent(alpha, direction, element[1]))
+                        )
+                        for element in little
+                    ],
+                }
+            )
+            used += 1
+        if used:
+            points.append((label, str(alpha), used))
+    return equations, points
+
+
+def resolve_from_extra_points(
+    unknown_labels, equations, extra, wanted, expected_identity=None, tolerance=1e-6
+):
+    """Solve the combined system for the requested sources (complex arithmetic)."""
+    matrix = []
+    rhs = []
+    for equation in equations:
+        row = [
+            Fraction(equation["multiplicity"].get(label, 0))
+            for label in unknown_labels
+        ]
+        if all(value == 0 for value in row):
+            continue
+        matrix.append([complex(value) for value in row])
+        rhs.append([complex(value) for value in equation["characters"]])
+    for equation in extra:
+        row = [
+            Fraction(equation["multiplicity"].get(label, 0))
+            for label in unknown_labels
+        ]
+        if all(value == 0 for value in row):
+            continue
+        matrix.append([complex(value) for value in row])
+        rhs.append(
+            [
+                character / phase
+                for character, phase in zip(equation["characters"], equation["phases"])
+            ]
+        )
+    if not matrix:
+        return {}, ["no equations"]
+    # A^T, so the dual system `A^T y = v` fixes the requested linear functional
+    # even when the individual components are not determined.
+    transposed = [
+        [matrix[row][column] for row in range(len(matrix))]
+        for column in range(len(unknown_labels))
+    ]
+    results = {}
+    for label in wanted:
+        # A compound source covers several components.
+        components = COMPONENT_RE.findall(label)
+        vector = [
+            Fraction(len([c for c in components if c == unknown]))
+            for unknown in unknown_labels
+        ]
+        solution, _, consistent = solve_complex(transposed, vector)
+        if not consistent:
+            continue
+        check = [
+            sum(
+                transposed[row][column] * solution[column]
+                for column in range(len(solution))
+            )
+            for row in range(len(vector))
+        ]
+        if any(abs(a - complex(b)) > tolerance for a, b in zip(check, vector)):
+            continue
+        values = []
+        ok = True
+        for op_index in range(len(rhs[0])):
+            total = sum(
+                complex(dual) * values_op
+                for dual, values_op in zip(solution, [row[op_index] for row in rhs])
+            )
+            rounded = round(total.real)
+            if abs(total - rounded) > 1e-6:
+                ok = False
+                break
+            values.append(rounded)
+        if ok and expected_identity is not None:
+            # The identity character is the dimension of the source.  The extra
+            # points of a line have a star larger than one, so the program's
+            # `SHOW CHARACTER` prints the *full* irrep's character there and not
+            # the little character the compatibility row refers to; a solution
+            # that fails this gate is such a contaminated read, not a result.
+            expected = expected_identity.get(label)
+            if expected is not None and values and values[0] != expected:
+                continue
+        if ok:
+            results[label] = values
+    if not results:
+        return {}, ["the extra points do not determine any requested source"]
+    return results, []
 
 
 def derive_line(sg, k_label, labels, verbose=False):
@@ -458,6 +720,42 @@ def derive_line(sg, k_label, labels, verbose=False):
             continue
         duals[label] = dual
 
+    extra_solved = {}
+    extra_used = []
+    missing = [label for label in labels if label not in duals]
+    reported = set(problems)
+    if missing:
+        full_dim = {label: dim for label, _, dim in lines}
+        star = len(elements) // max(len(little), 1)
+        expected_identity = {}
+        for label in missing:
+            if label in full_dim and star and full_dim[label] % star == 0:
+                expected_identity[label] = full_dim[label] // star
+        extra, extra_used = extra_point_equations(sg, k_label, direction, little)
+        if extra:
+            extra_solved, extra_problems = resolve_from_extra_points(
+                unknown_labels, equations, extra, missing, expected_identity
+            )
+            for label in missing:
+                if label in extra_solved:
+                    continue
+                message = (
+                    f"SG {sg} k {k_label}: character of {label} is not determined "
+                    "by the compatibility data"
+                )
+                if message not in reported:
+                    problems.append(message)
+                    reported.add(message)
+        else:
+            for label in missing:
+                message = (
+                    f"SG {sg} k {k_label}: character of {label} is not determined "
+                    "by the compatibility data"
+                )
+                if message not in reported:
+                    problems.append(message)
+                    reported.add(message)
+
     operations = []
     for index, element in enumerate(little):
         values = [values[index] for values in rhs]
@@ -467,6 +765,8 @@ def derive_line(sg, k_label, labels, verbose=False):
         characters = {}
         for label in duals:
             characters[label] = sum(a * b for a, b in zip(duals[label], values))
+        for label, solved in extra_solved.items():
+            characters[label] = Fraction(solved[index])
         operations.append(
             {
                 "element": element[2],
@@ -487,7 +787,7 @@ def derive_line(sg, k_label, labels, verbose=False):
 
     tables = {}
     for label in labels:
-        if label not in duals:
+        if label not in duals and label not in extra_solved:
             continue
         components = COMPONENT_RE.findall(label)
         tables[label] = {
@@ -498,6 +798,12 @@ def derive_line(sg, k_label, labels, verbose=False):
             "direction": [str(value) for value in direction],
             "components": components,
             "equations": equations,
+            "extra_points": [
+                {"point": point, "alpha": alpha, "irreps": used}
+                for point, alpha, used in extra_used
+            ]
+            if label in extra_solved
+            else [],
             "operations": [
                 {
                     "element": operation["element"],

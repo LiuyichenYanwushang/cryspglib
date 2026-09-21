@@ -318,3 +318,26 @@ SG 202 with the X point (`X3+ -> DT3`, `X2- -> DT3`, `X2+ -> DT4`,
 `X1+ -> DT1`, `X4+/X1- -> DT2`); the Bloch phase `exp(-2i pi alpha v.t)` has to
 be applied at that point.  That extension, and the engine-side Mackey/character
 sum that turns the frozen tables into the 5,756 frequencies, are the next steps.
+
+## Extra special points on a line are star-contaminated (round 19)
+
+The eight sources that the Gamma system leaves ambiguous are `DT3`/`DT4` of
+SG 202/203/209/210.  The natural fix -- add the equations of the line's other
+special point (`X`, `alpha = 1/2`, whose compatibility rows do separate them) --
+is implemented in `freeze_w_little_characters.py` (Bloch phase `exp(-2i pi
+alpha v.t)`, complex elimination, dual determinacy test) but is **rejected by a
+gate**, for a reason worth recording:
+
+* at a k point with star size > 1 the program's `SHOW CHARACTER` prints the
+  **full irrep** character (SG 202 `X3+` has dimension 3 there), while the
+  compatibility row is a statement about **little** irreps; the two agree only
+  when the star has size 1, i.e. only at Gamma;
+* feeding the X rows in anyway produces impossible values (`D(E) = 3` for a
+  one-dimensional little irrep).  The script therefore requires the identity
+  character to equal `full_dim / star size` and reports those eight sources as
+  undetermined instead of emitting wrong tables (65/73 solved, 8 reported).
+
+The remaining routes to those eight are (i) `data_images.txt`, whose image
+records carry the point-group representation (and hence the point characters) of
+a little irrep, and (ii) the still-undecoded `little_irr_full_matrices` block of
+the pinned little table.

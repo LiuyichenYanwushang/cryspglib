@@ -901,6 +901,17 @@ element/character 列、精确消元与对偶判定）。实测 **73 源中 65 �
 下一轮把线上其它特殊点方程并入（点的特征标乘 Bloch 相位 `exp(-2πi α v·t)`），
 再做引擎侧 Mackey/特征标求和，让 `--require-w-complete` 能全表退出 0。
 
+**第十九轮（2026-09-22）：线上补点被「星污染」挡住，脚本加硬门禁拒绝假数据。**
+
+把 DT 线上的 X 点（α = 1/2）方程（兼容表 + 特征标 + Bloch 相位
+`exp(-2πi α v·t)`，复数消元 + 对偶判定）实现进 `freeze_w_little_characters.py`
+后发现根因：**星大小 > 1 的 k 点上 `SHOW CHARACTER` 打印的是完整 irrep 的特征标**
+（SG 202 `X3+` 维数 3），而兼容行是 **little irrep** 层面的关系 —— 两者只在星大小
+为 1（即 Γ）时相等。直接把 X 方程代入会解出 `D(E) = 3` 之类的非法值。脚本因此加
+门禁「恒等特征标 = `full_dim / 星大小`」，把这类解判为失败：结果仍是
+**65/73 唯一确定、8 个如实报未定、0 假数据**（重复报告也已去重）。剩余两条可行
+路线：`data_images.txt` 的 image（点群表示）数据库，或 pinned little 矩阵段的解码。
+
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
 `irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，
