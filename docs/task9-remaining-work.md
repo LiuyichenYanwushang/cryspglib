@@ -196,3 +196,18 @@ carries four distinct rotations for that record, so the child's point group as
 the embedding accepts it is larger than the recorded cell suggests, and the fold
 test may belong in the child's own frame (`fold_wave_vector(embedding.transform(),
 k)`) rather than in the parent conventional one.
+
+## Ruled out: the compatible X-point irrep as a stand-in (round 48)
+
+Using the ordinary table's pinned rows for the X-point irreps as a shortcut for
+the line sources does not work, even though `SHOW COMPATIBILITY` pairs them
+(`X3+ -> DT3`, `X2+ -> DT4`, ...).  Measured: ordinal 10422 (`DT4` partners
+`X2+ = 1`, `X3- = 1` -- equal) but `DT1 = 1` against partners `X1+ = 1`,
+`X4- = 2`, and `DT3 = 2` against partners `X3+`, `X2-` that are *absent* from
+the ordinary table, i.e. zero.  Ordinal 11171 has no ordinary X row at all for
+`X5` (the irrep compatible with the `DT3`/`DT4` pair).  Sums do not help either:
+they agree for 10422 (6 = 6) but differ by a factor two for 10485 (24 vs 12) and
+11171 (6 vs 3).  So the w frequencies genuinely need the line representation:
+the remaining work is the line-star variant of `build_block` (arm enumeration,
+fold onto the child Gamma, character block solved against the child's stored
+rows) rather than any pairing with discrete probes.
