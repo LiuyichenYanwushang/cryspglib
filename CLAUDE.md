@@ -477,6 +477,42 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
   Python 离线 `42 + 2` 测试、几何 oracle `48 行 / 26 描述串`、操作 oracle
   `14 用例 / 90 代表`、两套 CIR fixture 重生成一致性检查全部通过。
 
+### 分导任务 9 第一轮全表冻结（2026-09-21 晚，覆盖已满但一致性未过）
+
+本轮把冻结表从 75 条扩到**全部 15,239 条记录**，两条被冻结的约定都来自官方程序、
+并由引擎自己的校验决定去留（`examples/probe_subduction_settings.rs` →
+`SubgroupEmbedding::probe_embedding`，绝不靠重新实现校验来宣称通过）：
+
+- `U = W·P_parent·(P_sub·B_oracle)^-1`，以精确有理数 `分子/分母` 存储。少量单斜记录
+  只有通过**分数**换基才能到达官方子群胞（`Mat3I` 装不下），因此
+  `FrozenEmbeddingSetting` 增加分母字段，`probe_embedding` 同步加参数。
+- `child_shift = -(B^T)^-1 (o_OR1 - o_OR2)`：官方程序两种 ITA origin choice 下**同一
+  记录**的打印 origin 之差（母群帧）映射进子群帧。抽样 24 条 origin-choice-2 母群
+  记录上，只有该读法让全部 24 条通过引擎校验（其余三种转置/符号读法分别只覆盖
+  12/11/7 条）；用它替换"先搜到就收"后，Γ 恒等项不匹配从 1,159 降到 434、
+  absent_positive 从 998 降到 422、embedding 失败从 267 降到 95。**先验推导优先于
+  搜索**是这一轮最重要的方法论结论。
+- 195 条官方空表不是缺数据，而是**旧 ML 拼写**：`VALUE IRREP W1W1` 打印空表，
+  紧凑 `little_irr_full_label` 拼写 `W1WA1` 才有表。映射逐记录证明（要求打印表与
+  存储行在行数/方向标签/子群号/size 上完全一致），112 个母群 irrep、195 条全部
+  解析成功，其中 72 条同时 origin 精确。
+
+生产审计（全表）：embedding 15,144 成功 / 95 被拒；标量 probe 348,932 完整、
+14,713 缺子群 k 数据、760 engine error；存储恒等正项 93,350 通过 / 434 不匹配 /
+245 不可用；Γ Frobenius **1,895/1,895**；absent_positive 422；5,756 条其它波矢仍缺
+k 参数。`VERDICT inconsistent hard_failures=1698` —— 覆盖已接近满，**一致性尚未通过**。
+
+Γ Frobenius 覆盖从 14 条扩到 243 条后暴露出**测试自身的 compound 记账错误**：
+compound 行是两个复不可约成分之和，`行维数 × 行重数` 是两个和的乘积、会把交叉项
+重复计数（ordinal 2978 因此报 6 ≠ 4）。按文档既有的 `k_G` 折算（除以成分数）后
+16 个假失败全部消失；这不是放宽门禁，而是修掉一个一直存在的重复计数。
+
+**剩余瓶颈（下一轮入口）**：95 条 `FrozenEmbeddingRejected` 集中在单斜 SG 3–15
+（其 isotropy 表记录在 `SET I <sg> AXIS c` 一类的 cell/axis choice 下，而程序的
+默认是 unique axis b），因此**必须先逐母群解析 recorded setting**，再做同样的推导。
+`scripts/task9/census_settings.py` 是这条扫描的草稿（尚未接入主流线）；
+`scripts/task9/README.md` 记录完整管线、复现命令与当前数字。
+
 ### 分导任务 9：全表审计与逐记录 setting（2026-09-21，覆盖尚未闭合）
 
 - DSH 实现采集器、生产 API 审计和元数据生成器，另一个 DSH 只读对抗复核；
