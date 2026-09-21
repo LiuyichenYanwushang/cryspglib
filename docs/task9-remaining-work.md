@@ -211,3 +211,13 @@ they agree for 10422 (6 = 6) but differ by a factor two for 10485 (24 vs 12) and
 the remaining work is the line-star variant of `build_block` (arm enumeration,
 fold onto the child Gamma, character block solved against the child's stored
 rows) rather than any pairing with discrete probes.
+
+Round 49 also tested the strict-invariance weight (a per-arm weight of the little
+dimension when the transported little representation is trivial on the arm's
+stabiliser, otherwise zero — a 0/dimension count, which *can* produce the pinned
+`1, 2, 1` pattern).  Measured: SG 202 ordinal 10422 `DT3` still gives 0 instead
+of 2 (no arm's transported characters are all `+1`), so that reading is out too;
+the `P1` family stays 300/300 under it.  Note for the record: the earlier claim
+that a 0/1 count "cannot give 1, 2, 1" was wrong — counts over four arms can —
+so the invariant-subspace reading was worth the test and is now excluded by
+measurement, not by argument.
