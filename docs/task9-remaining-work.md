@@ -123,6 +123,18 @@ cosets.  Note the loop matches every record whose label is `X3+`, so look at the
 header line of the record at the X point (dim 1) rather than at the tail of a
 later record (which can be 3-dimensional and shows zero traces).
 
+Measured for SG 202 with `dump_little_trace` (symmorphic, so no Bloch phase at
+the X point): `X3+` and `X2+` differ on exactly one operation of the DT little
+group — the mirror `sigma_x = (-x, y, z)`, `X3+` giving `+1` and `X2+` giving
+`-1` — and agree on `E` (`+1`) and `C2y = (-x, y, -z)` (`-1`).  Two traps worth
+recording: the DT little group is `{E, C2y, sigma_x, sigma_z = (x, y, -z)}`
+(`sigma_y = (x, -y, z)` does *not* fix the y direction and must not be used), and
+the dump lists every record carrying the label, so read the X-point record's
+header (`little dim 1 over 96 operations`) and its `(R, t = 0 mod L)` rows only.
+Wiring these traces into `freeze_w_little_characters.py` as a second route (with
+the `exp(-2 pi i k_X . t)` phase for the nonsymmorphic SG 203/210) closes the
+eight sources.
+
 ## Step 3 — close the loop
 
 * extend `examples/audit_irrep_subduction.rs` so the w rows are computed and
