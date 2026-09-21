@@ -83,6 +83,15 @@ Frobenius gate, which passes 1,895/1,895.  That points at the supercell/folded-k
 path: cosets whose parent-frame representative carries a lattice translation are
 where the Bloch phase `chi(t + L) = chi(t) exp(2 pi i k . L)` has to be applied.
 
+**178 of the 198 failing ordinals fail on their own condensing irrep**: the stored
+table says the condensing irrep contains the trivial representation of its
+isotropy subgroup once, the engine says zero.  That needs no oracle to be a bug --
+a subgroup is the isotropy subgroup of a direction precisely because the
+condensing irrep contains its trivial representation -- so the full-star adapter
+(`subduce_full_star_with_embedding`), not the frozen table, is where the next
+round has to look.  A permanent gate should assert this condition directly
+instead of only comparing against the stored frequencies.
+
 Still open, reported explicitly and not counted as covered: 14,713 probes whose
 folded child k is not in the shipped discrete table, 5,756 other-wave-vector
 entries without resolved k parameters.
