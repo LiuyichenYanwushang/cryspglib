@@ -105,6 +105,12 @@ pub mod preamble;
 pub mod query;
 pub mod wigner;
 
+// Exact rational affine/lattice layer for the full subduction engine
+// (docs/full-irrep-subduction-plan.md, tasks 3-12).  It is hidden because no
+// supported entry point uses it yet; task 12 decides its public surface.
+#[doc(hidden)]
+pub mod subduction;
+
 pub mod cubic;
 pub mod hexagonal;
 pub mod monoclinic;
