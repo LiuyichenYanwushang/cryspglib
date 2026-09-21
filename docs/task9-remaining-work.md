@@ -476,3 +476,16 @@ constructor are the two pieces to land first.  Everything downstream —
 `prepare_targets`, `solve_prepared_character_block`, the trivial-row aggregation —
 stays untouched, and `tests/w_line_frequency.rs` plus the audit's
 `computed`/`uncomputed` counters are the regression to watch.
+
+### Error plumbing for the arm-source enum (round 103)
+
+Checked, because it was the one uncertainty left in the enum step: `StarError`
+(`src/irrep/subduction_star.rs`) already has `Subduction(#[from] SubductionError)`
+plus a variant for "an operation that is not a parent group element modulo
+`L_G`".  So the line source can present `q_block_dimension` /
+`q_block_character` with `build_block`'s exact signatures by mapping the exact
+layer's `SubductionError` straight into `StarError` (and returning the zero
+character, as `line_character` already does, for operations that move the arm
+rather than raising).  `FullStarError::from(StarError)` exists, so the calling
+side keeps using `FullStarError`.  No new error variant is needed for the enum
+step.
