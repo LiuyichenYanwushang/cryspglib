@@ -417,3 +417,13 @@ frequency is 1-3 (the fold/weight rejects every arm) and some are *larger*
 the per-arm weight therefore cannot repair them - the pattern is structural, which
 is the measured argument for routing the line representation through
 `build_block`'s own fold and character solve instead of the hand-written sum.
+
+### Also immaterial (round 82): the recorded vs accepted subgroup lattice
+
+Swapping the fold/stabiliser lattice from the recorded `W . P_parent` to the
+accepted embedding's `subgroup_lattice().reciprocal()` leaves both measurements
+unchanged: the `P1` regression still passes 2/0/1 and SG 196 still reports
+`computed=76 uncomputed=30`.  So the remaining 1,840 rows are not a frame or
+lattice artefact; the mixed `computed_mismatch:<value>` pattern (some 0 against
+pinned 1-3, some overshoot) stands, and the line-star `build_block` route remains
+the only documented fix.
