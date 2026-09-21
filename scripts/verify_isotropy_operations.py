@@ -82,6 +82,9 @@ if HERE not in sys.path:
 import verify_isotropy_oracle as geometry_gate  # noqa: E402
 
 BANNER = "Current setting is International (new ed.) with conventional basis vectors."
+# Denominator of the shipped operation tables; the Rust layer pins the same
+# value as `irrep::subduction::SOURCE_TRANSLATION_GRID`.
+SOURCE_TRANSLATION_GRID = 12
 SETTING_COMMANDS = ["PAGE 1000", "SC 250", "SET I ALL OR 1"]
 LABEL_SECTIONS = ("point_op_label", "point_op_label_stokes", "ipoint_op")
 
@@ -156,10 +159,35 @@ def multiply3(left, right):
     )
 
 
+# The legend stores **row-action** matrices: a printed op `M` acts as
+# `x' = x M` (the Stokes notation beside it confirms this, see
+# `LEGEND_ANCHORS`).  The engine and `crate::SymmetryOps` use the column
+# convention `x' = R x`, so decoding transposes the legend matrix.  Without
+# that transpose the 167 GM3+ P1 row (#15 C2/c) is visibly wrong: its printed
+# rotations do not preserve the subgroup lattice, while their transposes do.
+LEGEND_ANCHORS = [
+    # (label, axis to test, expected image of that axis under the row action)
+    ("C2a", (1, 1, 0), (1, 1, 0)),      # 2[110]: the axis is fixed
+    ("C2b", (1, -1, 0), (1, -1, 0)),    # 2[-110]
+    ("C4z+", (1, 0, 0), (0, 1, 0)),     # 4[001]: right-handed +90 degrees
+    ("C4z-", (1, 0, 0), (0, -1, 0)),    # 4[00-1]
+    ("SGda", (1, 1, 0), (-1, -1, 0)),   # -2[110]: the normal is reversed
+    ("I", (1, 2, 3), (-1, -2, -3)),
+    ("C21''", (1, 0, 0), (1, 0, 0)),    # hexagonal 2[100]
+    ("SGv1", (1, 0, 0), (-1, 0, 0)),    # hexagonal -2[100]
+]
+
+
+def row_action(rotation, axis):
+    """``axis . M`` for a row-major 3x3 matrix."""
+    return tuple(sum(axis[row] * rotation[3 * row + column] for row in range(3)) for column in range(3))
+
+
 def load_point_op_legend(path):
     """The program's own operation-label legend, straight from the archive.
 
-    Returns ``{label: {"rotation": (9 ints), "stokes": str, "index": 1-based}}``.
+    Returns ``{label: {"rotation": (9 ints), "stokes": str, "index": 1-based}}``
+    with the matrices exactly as stored (row action, see `LEGEND_ANCHORS`).
     A label that appears twice must carry the same rotation (the cubic and
     hexagonal blocks both start with `E`); a conflicting duplicate is an error,
     because matching it by name alone would then be ambiguous.
@@ -194,6 +222,20 @@ def load_point_op_legend(path):
         raise RuntimeError(f"{path}: label 'E' is not the identity")
     if determinant3(legend["I"]["rotation"]) != -1:
         raise RuntimeError(f"{path}: label 'I' is not an inversion")
+    # Pin the action convention against the Stokes notation shipped next to the
+    # labels, so "the legend is row action" is a checked claim rather than an
+    # assumption baked into the decoder.
+    for label, axis, expected in LEGEND_ANCHORS:
+        entry = legend.get(label)
+        if entry is None:
+            raise RuntimeError(f"{path}: anchor label {label!r} is missing")
+        image = row_action(entry["rotation"], axis)
+        if image != expected:
+            raise RuntimeError(
+                f"{path}: label {label!r} ({entry['stokes']}) maps {axis} to "
+                f"{image} under the row action, expected {expected}: the legend "
+                "is not in the assumed convention"
+            )
     return legend
 
 
@@ -243,6 +285,11 @@ def parse_elements(text, legend):
         entry = legend.get(label)
         if entry is None:
             raise RuntimeError(f"unknown operation label: {label!r}")
+        # Row action (printed) -> column action (engine), see LEGEND_ANCHORS.
+        rotation = [
+            [entry["rotation"][3 * column + row] for column in range(3)]
+            for row in range(3)
+        ]
         translation = tuple(parse_rational(part) for part in translations.split(","))
         if len(translation) != 3:
             raise RuntimeError(f"element {token!r} does not have three components")
@@ -253,12 +300,77 @@ def parse_elements(text, legend):
         elements.append(
             {
                 "label": label,
-                "rotation": list(entry["rotation"]),
+                "rotation": [value for row in rotation for value in row],
                 "translation": [str(value) for value in translation],
                 "raw": f"({token})",
             }
         )
     return elements
+
+
+def inverse3(matrix):
+    """Exact inverse of a row-major 3x3 matrix of Fractions."""
+    determ = determinant3([value for row in matrix for value in row])
+    if determ == 0:
+        raise RuntimeError("singular matrix in the operation fixture")
+    cofactors = [[None] * 3 for _ in range(3)]
+    for row in range(3):
+        for column in range(3):
+            rows = [index for index in range(3) if index != row]
+            columns = [index for index in range(3) if index != column]
+            minor = (
+                matrix[rows[0]][columns[0]] * matrix[rows[1]][columns[1]]
+                - matrix[rows[0]][columns[1]] * matrix[rows[1]][columns[0]]
+            )
+            sign = 1 if (row + column) % 2 == 0 else -1
+            cofactors[column][row] = sign * minor / determ
+    return cofactors
+
+
+def matmul3(left, right):
+    return [
+        [sum(left[i][t] * right[t][j] for t in range(3)) for j in range(3)]
+        for i in range(3)
+    ]
+
+
+def matvec3(matrix, vector):
+    return [sum(matrix[i][t] * vector[t] for t in range(3)) for i in range(3)]
+
+
+def child_lattice(basis, centring):
+    """Rows of the subgroup's primitive lattice, in parent conventional axes.
+
+    ``centring`` holds the centring vectors in the subgroup's own conventional
+    basis, so the primitive vectors are ``centring . basis`` (row ``j`` of the
+    centring matrix holds the coefficients of the conventional rows).
+    """
+    return [
+        [sum(centring[row][inner] * basis[inner][column] for inner in range(3)) for column in range(3)]
+        for row in range(3)
+    ]
+
+
+def preserves_lattice(lattice, rotation):
+    """Whether ``rotation`` maps the lattice (rows = basis vectors) to itself.
+
+    A point is ``rows^T . coordinates``, so its coordinates are
+    ``(rows^T)^-1 . point`` -- the *transposed* inverse.  Using ``rows^-1``
+    instead agrees only for symmetric bases.
+    """
+    coordinate_matrix = [
+        [inverse3(lattice)[row][column] for row in range(3)] for column in range(3)
+    ]
+    for row in lattice:
+        image = [
+            sum(rotation[i][t] * row[t] for t in range(3)) for i in range(3)
+        ]
+        coordinates = [
+            sum(coordinate_matrix[i][t] * image[t] for t in range(3)) for i in range(3)
+        ]
+        if any(value.denominator != 1 for value in coordinates):
+            return False
+    return True
 
 
 def parse_row(text):
@@ -418,6 +530,7 @@ def check_case(case, row, legend, orders, machine_row):
             f"{where}: origin {oracle_origin} != stored {converted_origin} exactly"
         )
 
+    centring = geometry_gate.CENTERING_LETTER[case["subgroup"]]
     elements = parse_elements(row.pop("elements_text"), legend)
     if len(elements) != case["elements"]:
         raise RuntimeError(
@@ -429,6 +542,66 @@ def check_case(case, row, legend, orders, machine_row):
             f"{where}: {case['elements']} representatives for point group order "
             f"{expected_order} of SG {case['subgroup']}"
         )
+    lattice = child_lattice(
+        [[Fraction(value) for value in vector] for vector in row["basis"]],
+        [[Fraction(value) for value in vector]
+         for vector in geometry_gate.PRIMITIVE_BASIS[centring]],
+    )
+    for element in elements:
+        rotation = [
+            [Fraction(element["rotation"][3 * i + j]) for j in range(3)] for i in range(3)
+        ]
+        if not preserves_lattice(lattice, rotation):
+            raise RuntimeError(
+                f"{where}: {element['raw']} does not preserve the subgroup "
+                "lattice -- the rotation is not in the printed basis' frame"
+            )
+    # The printed row must invert to a genuine operation of the subgroup in the
+    # subgroup's own conventional basis: an integer rotation that preserves the
+    # subgroup cell, and a translation on the shipped source grid.  This is the
+    # strongest check of the whole convention chain (T = B^T, column action,
+    # t_G = T t_H + o - R_G o) and it is what makes the row-action decode of the
+    # 167 GM3+ P1 row verifiable rather than assumed.
+    transform = [
+        [Fraction(row["basis"][j][i]) for j in range(3)] for i in range(3)
+    ]
+    transform_inverse = inverse3(transform)
+    origin_vector = [Fraction(value) for value in row["origin"]]
+    child_cell = [
+        [Fraction(value) for value in vector]
+        for vector in geometry_gate.PRIMITIVE_BASIS[centring]
+    ]
+    for element in elements:
+        rotation = [
+            [Fraction(element["rotation"][3 * i + j]) for j in range(3)] for i in range(3)
+        ]
+        translation = [Fraction(value) for value in element["translation"]]
+        child_rotation = matmul3(matmul3(transform_inverse, rotation), transform)
+        if any(value.denominator != 1 for vector in child_rotation for value in vector):
+            raise RuntimeError(
+                f"{where}: {element['raw']} does not invert to an integer rotation "
+                "in the subgroup basis"
+            )
+        if not preserves_lattice(child_cell, child_rotation):
+            raise RuntimeError(
+                f"{where}: {element['raw']} does not preserve the subgroup cell "
+                "lattice in the subgroup basis"
+            )
+        rotated_origin = matvec3(rotation, origin_vector)
+        child_translation = matvec3(
+            transform_inverse,
+            [
+                translation[i] + rotated_origin[i] - origin_vector[i]
+                for i in range(3)
+            ],
+        )
+        for value in child_translation:
+            if SOURCE_TRANSLATION_GRID % value.denominator != 0:
+                raise RuntimeError(
+                    f"{where}: {element['raw']} inverts to translation "
+                    f"{[str(v) for v in child_translation]}, which is off the "
+                    f"1/{SOURCE_TRANSLATION_GRID} source grid"
+                )
     rotations = [tuple(element["rotation"]) for element in elements]
     if len(set(rotations)) != len(rotations):
         raise RuntimeError(f"{where}: the same rotation appears twice")
@@ -491,6 +664,12 @@ def build_fixture():
         "setting_commands": SETTING_COMMANDS,
         "element_columns": ["SHOW BASIS", "SHOW ORIGIN", "SHOW SIZE", "SHOW ELEMENTS"],
         "element_display": "DISPLAY ISOTROPY (with VALUE DIRECTION <label>)",
+        "rotation_convention": (
+            "column action x' = R x, i.e. the engine's convention.  The program "
+            "and data_space.txt store row-action matrices (x' = x M); decoding "
+            "transposes them, which the lattice-preservation check verifies on "
+            "every element (and which is what exposes 167 GM3+ P1 otherwise)"
+        ),
         "label_legend": {
             "file": "data_space.txt",
             "sections": list(LABEL_SECTIONS),
@@ -502,6 +681,11 @@ def build_fixture():
             "file": "data_space.txt",
             "sections": ["ispace_point_group", "ipoint_group_order"],
         },
+        "convention_cross_check": (
+            "every operation is mapped back into the subgroup basis and must "
+            "give an integer rotation that preserves the subgroup cell and a "
+            "translation on the 1/12 source grid"
+        ),
         "geometry_cross_check": (
             "each basis/origin is compared against the stored isotropy tables "
             "through scripts/verify_isotropy_oracle.py (lattice equality, "

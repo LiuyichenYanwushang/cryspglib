@@ -14,6 +14,7 @@
       "SHOW ELEMENTS"
     ],
     "element_display": "DISPLAY ISOTROPY (with VALUE DIRECTION <label>)",
+    "rotation_convention": "column action x' = R x, i.e. the engine's convention.  The program and data_space.txt store row-action matrices (x' = x M); decoding transposes them, which the lattice-preservation check verifies on every element (and which is what exposes 167 GM3+ P1 otherwise)",
     "label_legend": {
       "file": "data_space.txt",
       "sections": [
@@ -32,6 +33,7 @@
         "ipoint_group_order"
       ]
     },
+    "convention_cross_check": "every operation is mapped back into the subgroup basis and must give an integer rotation that preserves the subgroup cell and a translation on the 1/12 source grid",
     "geometry_cross_check": "each basis/origin is compared against the stored isotropy tables through scripts/verify_isotropy_oracle.py (lattice equality, Z_sub*size/Z_parent volume, exact origin)",
     "archive_sha256": "568667bfc8027095537d642297b319c872d00016b868143c666f90d5931d9f7b",
     "note": "elements are coset representatives of the subgroup's translation subgroup in the parent frame; their number is the subgroup point group order, not the conventional-cell operation count (`conventional_cell_operations` = order * Z_subgroup)"
@@ -113,9 +115,9 @@
             0,
             0,
             0,
-            1,
-            0,
             -1,
+            0,
+            1,
             0
           ],
           "translation": [
@@ -133,9 +135,9 @@
             0,
             0,
             0,
-            -1,
-            0,
             1,
+            0,
+            -1,
             0
           ],
           "translation": [
@@ -193,9 +195,9 @@
             0,
             0,
             0,
-            -1,
-            0,
             1,
+            0,
+            -1,
             0
           ],
           "translation": [
@@ -213,9 +215,9 @@
             0,
             0,
             0,
-            1,
-            0,
             -1,
+            0,
+            1,
             0
           ],
           "translation": [
@@ -399,13 +401,13 @@
           "label": "C31-",
           "rotation": [
             0,
-            0,
-            1,
             1,
             0,
             0,
             0,
             1,
+            1,
+            0,
             0
           ],
           "translation": [
@@ -419,13 +421,13 @@
           "label": "C31+",
           "rotation": [
             0,
-            1,
-            0,
-            0,
             0,
             1,
             1,
             0,
+            0,
+            0,
+            1,
             0
           ],
           "translation": [
@@ -459,13 +461,13 @@
           "label": "S61+",
           "rotation": [
             0,
-            0,
-            -1,
             -1,
             0,
             0,
             0,
             -1,
+            -1,
+            0,
             0
           ],
           "translation": [
@@ -479,13 +481,13 @@
           "label": "S61-",
           "rotation": [
             0,
-            -1,
-            0,
-            0,
             0,
             -1,
             -1,
             0,
+            0,
+            0,
+            -1,
             0
           ],
           "translation": [
@@ -634,9 +636,9 @@
           "label": "C4z+",
           "rotation": [
             0,
-            1,
-            0,
             -1,
+            0,
+            1,
             0,
             0,
             0,
@@ -654,9 +656,9 @@
           "label": "C4z-",
           "rotation": [
             0,
-            -1,
-            0,
             1,
+            0,
+            -1,
             0,
             0,
             0,
@@ -794,9 +796,9 @@
           "label": "S4z-",
           "rotation": [
             0,
-            -1,
-            0,
             1,
+            0,
+            -1,
             0,
             0,
             0,
@@ -814,9 +816,9 @@
           "label": "S4z+",
           "rotation": [
             0,
-            1,
-            0,
             -1,
+            0,
+            1,
             0,
             0,
             0,
@@ -1369,9 +1371,9 @@
           "label": "C21''",
           "rotation": [
             1,
-            0,
-            0,
             -1,
+            0,
+            0,
             -1,
             0,
             0,
@@ -1409,9 +1411,9 @@
           "label": "SGv1",
           "rotation": [
             -1,
-            0,
-            0,
             1,
+            0,
+            0,
             1,
             0,
             0,
@@ -1564,9 +1566,9 @@
           "label": "C4z+",
           "rotation": [
             0,
-            1,
-            0,
             -1,
+            0,
+            1,
             0,
             0,
             0,
@@ -1584,9 +1586,9 @@
           "label": "C4z-",
           "rotation": [
             0,
-            -1,
-            0,
             1,
+            0,
+            -1,
             0,
             0,
             0,
@@ -1724,9 +1726,9 @@
           "label": "S4z-",
           "rotation": [
             0,
-            -1,
-            0,
             1,
+            0,
+            -1,
             0,
             0,
             0,
@@ -1744,9 +1746,9 @@
           "label": "S4z+",
           "rotation": [
             0,
-            1,
-            0,
             -1,
+            0,
+            1,
             0,
             0,
             0,
