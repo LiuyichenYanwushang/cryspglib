@@ -160,5 +160,18 @@ class OtherWaveVectorTests(unittest.TestCase):
         self.assertEqual(self.check(data), [])
 
 
+    def test_frozen_coverage_counts_the_unresolved_sources(self):
+        data = baseline()
+        frozen, blocked, sources = gate.frozen_coverage(data)
+        self.assertEqual((frozen, blocked), (3, 0))
+        self.assertEqual(sources, [])
+        # Point the pinned sources at SG 202 `DT3`: every row becomes blocked.
+        data["source_sg"] = [202, 202]
+        data["labels"] = ["DT3", "DT3"]
+        frozen, blocked, sources = gate.frozen_coverage(data)
+        self.assertEqual((frozen, blocked), (0, 3))
+        self.assertEqual(sources, [(202, "DT3")])
+
+
 if __name__ == "__main__":
     unittest.main()

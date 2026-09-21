@@ -330,6 +330,31 @@ def check(data, expected=PINNED):
     return failures
 
 
+# Sources whose little-group character table the Gamma compatibility data cannot
+# separate: SG 202/203/209/210 `DT3`/`DT4`.  Their character tables are absent
+# from `src/irrep/w_little_characters_data.rs`, and the same list is pinned there
+# as `W_LITTLE_CHARACTERS_UNRESOLVED` (regression `tests/w_little_characters.rs`).
+UNRESOLVED_SOURCES = frozenset(
+    {(sg, label) for sg in (202, 203, 209, 210) for label in ("DT3", "DT4")}
+)
+
+
+def frozen_coverage(data):
+    """Rows whose source has a frozen character table, and rows that do not."""
+    sources = list(zip(data["source_sg"], data["labels"]))
+    packed = data["irrep"]
+    frozen = blocked = 0
+    blocked_sources = set()
+    for index in packed:
+        source = sources[index - 1]
+        if (source[0], source[1].strip()) in UNRESOLVED_SOURCES:
+            blocked += 1
+            blocked_sources.add((source[0], source[1].strip()))
+        else:
+            frozen += 1
+    return frozen, blocked, sorted(blocked_sources)
+
+
 def main():
     try:
         data = parse_pinned()
@@ -354,6 +379,11 @@ def main():
         )
     )
     rows = len(data["irrep"])
+    frozen, blocked, blocked_sources = frozen_coverage(data)
+    print(
+        "frozen_characters: rows_with_frozen_table={} rows_blocked={} "
+        "unresolved_sources={}".format(frozen, blocked, blocked_sources)
+    )
     print(
         "other_wave_vector: sources={} records={} rows={} "
         "k_vectors=parameterized_lines character_data=absent checks_failed={}".format(
