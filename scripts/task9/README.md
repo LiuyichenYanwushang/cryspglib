@@ -341,3 +341,9 @@ The remaining routes to those eight are (i) `data_images.txt`, whose image
 records carry the point-group representation (and hence the point characters) of
 a little irrep, and (ii) the still-undecoded `little_irr_full_matrices` block of
 the pinned little table.
+
+The pinned tables are blind to the same distinction: SG 202's `DT3` and `DT4`
+have **identical** `little_subduce` blocks (row for row, including the
+`[(3,1),(6,1)]` prefix and the `[(1,6)]` terminator), so neither the Gamma
+compatibility data nor the pinned little-subduction blocks separate them.  Only
+the little-matrix block or the image records can.
