@@ -219,6 +219,11 @@ SG 196 `LD1LE1` = 2 × 4 = 8）。**唯一仍缺的是这 73 个 little irrep �
    方程行空间里就有唯一值，因此 compound 源（如 `DT3DT4`）即使单个分量不可分也
    照样可定。解出后逐条回代，任何残差都算失败。
 
+**可复现性**：`python3 scripts/freeze_w_little_characters.py --rust
+target/task9/regen.rs` 从 live oracle 重新生成后与入库的
+`src/irrep/w_little_characters_data.rs` **逐字节相同**（md5
+`764948e3d2d932d50695cb30a7157773`，2026-09-22 复核；脚本仍以 exit 1 报告那 8 个未定源，属预期）。
+
 `scripts/freeze_w_little_characters.py`（离线回归
 `scripts/test_freeze_w_little_characters.py` 13 项）实现这条链：
 `--json target/task9/w_little_characters.json` 输出每个源的方向、little 群操作
