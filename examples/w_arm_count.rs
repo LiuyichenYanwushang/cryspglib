@@ -94,9 +94,9 @@ fn contragredient(rotation: Mat3I, value: &Vec3R) -> Result<Vec3R, String> {
 /// Whether two images are the same line, i.e. equal up to sign.
 fn same_line(left: &Vec3R, right: &Vec3R) -> Result<bool, String> {
     let mut negated = [Rat::ZERO; 3];
-    for axis in 0..3 {
+    for (axis, slot) in negated.iter_mut().enumerate() {
         let entry = right.get(axis);
-        negated[axis] = Rat::new(-entry.numerator(), entry.denominator())
+        *slot = Rat::new(-entry.numerator(), entry.denominator())
             .map_err(|error| error.to_string())?;
     }
     let negative = Vec3R::new(negated);
@@ -191,7 +191,7 @@ fn main() -> Result<(), String> {
                 .contains(&folded)
                 .map_err(|error| error.to_string())?
             {
-                gamma.push(arm.clone());
+                gamma.push(*arm);
             }
         }
         // H-orbits among the arms that fold onto the child Gamma point.
