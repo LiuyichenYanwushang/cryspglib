@@ -54,6 +54,24 @@ existing, validated code path; `little_group_operations`, `identity_position`,
 to keep: `chi_q(E) = q_block_dimension` (already asserted in `build_block`) and
 the SG 196 `6D1` anchor above.
 
+If instead the character sum is written directly (rather than through
+`build_block`), these public accessors supply every input — checked 2026-09-22 in
+`src/irrep/subduction.rs`:
+
+| input | accessor |
+|---|---|
+| parent operations | `strict_sg_hall_ops(sg)?.operations()` |
+| child operations modulo `L_H` (point-group order many) | `embedding.representatives()` |
+| child operations in the parent frame | `embedding.operations()` |
+| parent / subgroup translation lattices | `embedding.parent_lattice()` / `embedding.subgroup_lattice()` |
+
+The little group is `{(R,t) : R v = v}` (rotation-only test); the only extra
+averaging is over `L_H/L_parent`; the phase is `exp(-2 i pi alpha (v . t))` with a
+generic rational `alpha`.  Beware: the naive sum *without* that averaging
+overshoots supercell children (measured `6D1` = 12 ✓ but `4D1` = 12 where the
+pinned value is 4), which is why the folding path of `build_block` is the safer
+first target.
+
 ## Step 2 — the eight unresolved sources (348 rows)
 
 SG 202/203/209/210 `DT3`/`DT4`. The Γ compatibility data fixes only their sum;
