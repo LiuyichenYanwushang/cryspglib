@@ -6,15 +6,19 @@ carries as `IsotropyRecord::direction_label`.
 
 Provenance of every entry below:
 
-* `dim <= 3` entries were read from the bundled program with
+* `dim = 1` and `dim = 3` component patterns were read from the bundled program with
   `SHOW SUBGROUP` + `SHOW DIRECTION VECTOR` + `DISPLAY ISOTROPY` (command in
   `scripts/verify_isotropy_oracle.py`), so they are the program's own strings.
-  They were re-checked over every `dim = 3` irrep of a 175-irrep sample spanning
+  They were re-checked over the `dim = 3` records of a 175-irrep sample spanning
   all crystal systems (`target/scratch/verify_dim3_map.py`): 781 label checks,
   0 mismatches for `P1/P2/P3/C1/S1`, and `C2` matched the cubic form
   `(a,a,b)` for cubic parents while trigonal/hexagonal parents printed the
   complex form `(a;b;a)` (22 mismatches before the split was made explicit).
-  The program uses `;` where the components are complex.
+  The program uses `;` where the components are complex.  The Rust selector
+  and oracle compare these patterns ignoring whitespace and treating `;` as
+  `,`; the stored strings do not preserve the program's separators everywhere.
+* `dim = 2` entries are **cryspglib's internal** component notation; the
+  official components vary per irrep (e.g. SG 194 GM6+ P2 is `(a,0.577a)`).
 * `dim >= 4` entries are **cryspglib's own** compact notation
   (`LABEL(free)/DIMD`), not a string the archive stores: the program prints full
   component lists (e.g. `(a,0,b,0,-b,0)`) that are per-irrep, so a table keyed
@@ -30,7 +34,7 @@ OFFICIAL = {
     (3, 1, "P2"): "(a,a,0)",
     (3, 1, "P3"): "(a,a,a)",
     (3, 2, "C1"): "(a,b,0)",
-    (3, 2, "C2"): "(a,a,b)",  # cubic parents; see CUBIC_C2_ALTERNATIVE
+    (3, 2, "C2"): "(a,a,b)",  # cubic parents; see NON_CUBIC_C2
     (3, 3, "S1"): "(a,b,c)",
 }
 

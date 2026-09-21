@@ -13,12 +13,11 @@ use cryspglib::irrep::generated_data::{
 };
 use cryspglib::irrep::isotropy::{
     IsotropyDirection, IsotropyError, basis_in_parent_conventional, centering_multiplicity,
-    format_identity_subduction, format_isotropy_subgroups,
-    format_magnetic_isotropy_subgroups, identity_subduction, isotropy_subgroup_for_direction,
-    isotropy_subgroups, isotropy_subgroups_at_k, k_vectors_agree,
-    magnetic_isotropy_subgroup_for_direction, magnetic_isotropy_subgroups,
-    origin_shift_in_parent_conventional, other_wave_vector_subduction, parent_primitive_basis,
-    subgroup_size,
+    format_identity_subduction, format_isotropy_subgroups, format_magnetic_isotropy_subgroups,
+    identity_subduction, isotropy_subgroup_for_direction, isotropy_subgroups,
+    isotropy_subgroups_at_k, k_vectors_agree, magnetic_isotropy_subgroup_for_direction,
+    magnetic_isotropy_subgroups, origin_shift_in_parent_conventional, other_wave_vector_subduction,
+    parent_primitive_basis, subgroup_size,
 };
 use cryspglib::irrep::query;
 use cryspglib::irrep::types::KVector;
@@ -100,7 +99,10 @@ fn every_magnetic_isotropy_record_has_valid_geometry() {
         // marks or whitespace: the reader used to fold the next labels into
         // one token (`'" "P_S1        " "P-1         " "P-11'`), which left
         // 15546 of these records with the wrong BNS symbol.
-        for (field, value) in [("bns_label", record.bns_label), ("iso_label", record.iso_label)] {
+        for (field, value) in [
+            ("bns_label", record.bns_label),
+            ("iso_label", record.iso_label),
+        ] {
             assert!(
                 !value.contains('"') && !value.chars().any(char::is_whitespace),
                 "record {index}: {field} {value:?} is not a single symbol"
@@ -294,6 +296,10 @@ fn errors_report_their_variant_and_are_displayable() {
         Err(IsotropyError::InvalidIsotropyRecord { .. })
     ));
     assert!(matches!(
+        other_wave_vector_subduction(usize::MAX),
+        Err(IsotropyError::InvalidIsotropyRecord { .. })
+    ));
+    assert!(matches!(
         origin_shift_in_parent_conventional(221, [0, 0, 0, 0]),
         Err(IsotropyError::InvalidOrigin { origin }) if origin == [0, 0, 0, 0]
     ));
@@ -412,26 +418,96 @@ fn other_wave_vector_subduction_matches_the_program() {
         actual,
         vec![("DT5", 225, 3), ("SM3", 225, 3), ("SM4", 225, 3)]
     );
-    // The wave-vector label is the alphabetic prefix (`DT5` -> `DT`), and SG
-    // 225's k-point list really contains those lines.
-    for entry in &other {
-        let prefix: String = entry
-            .parent_ml
-            .chars()
-            .take_while(|character| character.is_ascii_alphabetic())
-            .collect();
-        assert!(
-            ["DT", "SM", "LD", "L", "X", "W", "Q", "V", "C", "A", "GP", "GM"]
-                .contains(&prefix.as_str()),
-            "unexpected wave-vector prefix {prefix:?} in {}",
-            entry.parent_ml
-        );
-        assert_eq!(entry.parent_sg, 225);
-    }
-
     let table = format_identity_subduction(subgroup.ordinal).expect("table");
     assert!(table.contains("| S60 |"), "{table}");
-    assert!(table.contains("DT5"), "{table}");
+    assert!(
+        table.ends_with(
+            "| Other-wave-vector parent irrep | i(G) |\n\
+             |--------------------------------|------|\n\
+             | DT5 (SG 225) | 3 |\n\
+             | SM3 (SG 225) | 3 |\n\
+             | SM4 (SG 225) | 3 |"
+        ),
+        "{table}"
+    );
+}
+
+/// SHOW DIRECTION VECTOR pins the labels; data_isotropy.txt pins the raw
+/// primitive bases.  A subgroup number alone cannot distinguish the two Cm
+/// embeddings, and normalizing separators must not permute components.
+#[test]
+fn descriptor_aliases_preserve_the_direction_and_embedding() {
+    let cases = [
+        (
+            225,
+            "GM4-",
+            "(a,b,0)",
+            "C1",
+            8,
+            [[1, -1, 0], [0, -1, 1], [-1, 0, 0]],
+        ),
+        (
+            225,
+            "GM4-",
+            "(a,a,b)",
+            "C2",
+            8,
+            [[0, 0, 1], [0, 1, 0], [-1, 0, 0]],
+        ),
+        (
+            177,
+            "L1",
+            "(a;b;0)",
+            "C1",
+            5,
+            [[0, -2, 0], [1, -1, 1], [-1, 1, 1]],
+        ),
+        (
+            177,
+            "L1",
+            "(a;b;a)",
+            "C2",
+            21,
+            [[0, -2, 0], [2, 2, 0], [0, 0, 2]],
+        ),
+    ];
+    for (parent, ml, descriptor, label, sg, basis) in cases {
+        let aliases = [
+            descriptor.to_string(),
+            descriptor.replace(';', ","),
+            descriptor.replace(',', ";"),
+            format!(
+                " \t{}\n",
+                descriptor.replace(',', " ,\t").replace(';', " ;\t")
+            ),
+        ];
+        for alias in aliases {
+            let subgroup =
+                isotropy_subgroup_for_direction(parent, ml, IsotropyDirection::Descriptor(&alias))
+                    .unwrap_or_else(|error| panic!("SG {parent} {ml} {alias:?}: {error}"));
+            assert_eq!(subgroup.record.direction_label, label, "{alias:?}");
+            assert_eq!(subgroup.record.sg, sg, "{alias:?}");
+            assert_eq!(subgroup.record.basis, basis, "{alias:?}");
+        }
+    }
+    for (parent, ml, descriptor) in [
+        (221, "GM4+", "(0,a,0)"),
+        (225, "GM4-", "(a,0,b)"),
+        (225, "GM4-", "(a,b,a)"),
+        (177, "L1", "(a,a,b)"),
+    ] {
+        assert!(
+            matches!(
+                isotropy_subgroup_for_direction(
+                    parent,
+                    ml,
+                    IsotropyDirection::Descriptor(descriptor)
+                ),
+                Err(IsotropyError::DirectionNotFound { .. })
+            ),
+            "SG {parent} {ml}: {descriptor} must not select a different component pattern"
+        );
+    }
 }
 
 #[test]
@@ -470,7 +546,10 @@ fn other_wave_vector_subduction_tables_tile() {
         for (offset, entry) in entries.iter().enumerate() {
             let packed = ISOTROPY_W_SUBDUCE_RANGES[ordinal] as usize + offset;
             let label_index = ISOTROPY_W_SUBDUCE_IRREP[packed] as usize - 1;
-            assert_eq!(entry.parent_ml, IRREP_W_LABELS[label_index], "packed {packed}");
+            assert_eq!(
+                entry.parent_ml, IRREP_W_LABELS[label_index],
+                "packed {packed}"
+            );
             assert_eq!(
                 entry.parent_sg, IRREP_W_SPACE_GROUP[label_index],
                 "packed {packed}"
@@ -546,7 +625,10 @@ fn p222_r1_reaches_f222() {
         }
     }
     let stored = basis_in_parent_conventional(16, subgroup.record.basis).unwrap();
-    assert_eq!(stored, expected, "printed cell must rebuild the stored basis");
+    assert_eq!(
+        stored, expected,
+        "printed cell must rebuild the stored basis"
+    );
     // Volume relation printed by the program: |det Basis| = Z(sub)*Size/Z(parent).
     assert_eq!(
         centering_multiplicity(22).unwrap() * subgroup_size(subgroup.record.basis).unwrap()
@@ -641,7 +723,10 @@ fn centering_multiplicities_cover_every_space_group() {
 /// implementation instead of trusting two copies to stay equal.
 #[test]
 fn oracle_script_centering_table_matches_the_rust_implementation() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/scripts/verify_isotropy_oracle.py");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/scripts/verify_isotropy_oracle.py"
+    );
     let script = std::fs::read_to_string(path).expect("the oracle script ships with the repo");
     let block = script
         .split("CENTERING_LETTER = {")
@@ -673,7 +758,10 @@ fn oracle_script_centering_table_matches_the_rust_implementation() {
         );
         checked += 1;
     }
-    assert_eq!(checked, 230, "the oracle table must cover every space group");
+    assert_eq!(
+        checked, 230,
+        "the oracle table must cover every space group"
+    );
 }
 
 #[test]

@@ -463,9 +463,13 @@ pub fn magnetic_isotropy_subgroup_for_direction(
             sg,
             ml,
         )?,
-        IsotropyDirection::Label(label) => {
-            select_unique(records, label, |record| record.direction.to_string(), sg, ml)?
-        }
+        IsotropyDirection::Label(label) => select_unique(
+            records,
+            label,
+            |record| record.direction.to_string(),
+            sg,
+            ml,
+        )?,
     };
     Ok(wrap_magnetic(irrep, local, records[local]))
 }
@@ -515,9 +519,9 @@ pub struct IdentitySubduction {
 /// and the entries' labels (`DT5`, `SM3`, `SM4`) are single-valued irreps at
 /// those points.
 ///
-/// The pinned table carries Miller–Love labels and their space groups only, so
-/// the wave vector itself is not modelled here; parse the label prefix or use
-/// [`crate::irrep::query::irreps_of`] if the k-vector is needed.
+/// The pinned table carries Miller–Love labels and their space groups only.
+/// A label prefix identifies a k-vector family, but does not determine its
+/// parameters.  This API therefore does not provide the actual wave vector.
 #[derive(Debug, Clone, Copy)]
 pub struct OtherWaveVectorSubduction {
     /// Space group of the parent irrep (always the same as the isotropy
@@ -597,8 +601,8 @@ pub fn identity_subduction(ordinal: usize) -> Result<Vec<IdentitySubduction>, Is
     Ok(result)
 }
 
-/// Double-valued (spinor) parent irreps that subduce the trivial irrep of an
-/// isotropy record.
+/// Parent irreps at other wave vectors that subduce the trivial irrep of an
+/// isotropy record; see [`OtherWaveVectorSubduction`].
 pub fn other_wave_vector_subduction(
     ordinal: usize,
 ) -> Result<Vec<OtherWaveVectorSubduction>, IsotropyError> {
@@ -681,9 +685,8 @@ pub fn format_identity_subduction(ordinal: usize) -> Result<String, IsotropyErro
 /// Compare order-parameter component strings, ignoring whitespace and treating
 /// the program's complex separator `;` as `,`.
 ///
-/// The bundled binary prints e.g. `(a;b;a)` for a complex direction and
-/// `(a,a,b)` for the same-shaped real one; users reasonably type either form,
-/// so matching must not depend on the separator.
+/// `(a;b;a)` and `(a,b,a)` are accepted as aliases.  The component order is
+/// preserved: `(a,a,b)` remains a different direction.
 fn normalize_descriptor(text: &str) -> String {
     text.chars()
         .filter(|character| !character.is_whitespace())
@@ -1143,11 +1146,7 @@ mod tests {
         // (nonzero) but far outside `u32`.  An `i64` determinant overflows here
         // and reports a *singular* basis in release, or panics in debug, so the
         // exact determinant must survive to the error value.
-        let huge = [
-            [1 << 21, 0, 0],
-            [0, 1 << 21, 0],
-            [0, 0, 1 << 22],
-        ];
+        let huge = [[1 << 21, 0, 0], [0, 1 << 21, 0], [0, 0, 1 << 22]];
         assert_eq!(
             subgroup_size(huge),
             Err(IsotropyError::SubgroupSizeOverflow {
@@ -1262,18 +1261,18 @@ mod tests {
                 subgroup.record.sg
             );
             // The same record is reachable through its own label.
-            let by_label =
-                isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(subgroup.record.direction_label))
-                    .expect("label selects the same record");
+            let by_label = isotropy_subgroup_for_direction(
+                sg,
+                ml,
+                IsotropyDirection::Label(subgroup.record.direction_label),
+            )
+            .expect("label selects the same record");
             assert_eq!(by_label.ordinal, subgroup.ordinal);
         }
         // The complex separator is accepted interchangeably.
-        let complex = isotropy_subgroup_for_direction(
-            177,
-            "L1",
-            IsotropyDirection::Descriptor("(a,b,a)"),
-        )
-        .expect("(a,b,a) matches the program's (a;b;a)");
+        let complex =
+            isotropy_subgroup_for_direction(177, "L1", IsotropyDirection::Descriptor("(a,b,a)"))
+                .expect("(a,b,a) matches the program's (a;b;a)");
         assert_eq!(complex.record.direction, "(a;b;a)");
     }
 
@@ -1403,7 +1402,9 @@ mod tests {
             "{table}"
         );
         assert!(
-            table.contains("| 1 | #47 Pmmm | C1 | (a,b) | 2 | 1 | (1,0,0),(0,1,0),(0,0,1) | (0,0,0) | 6 | 1 |"),
+            table.contains(
+                "| 1 | #47 Pmmm | C1 | (a,b) | 2 | 1 | (1,0,0),(0,1,0),(0,0,1) | (0,0,0) | 6 | 1 |"
+            ),
             "{table}"
         );
     }
@@ -1415,9 +1416,8 @@ mod tests {
     /// `dim <= 3`, and the compact `LABEL(free)/DIMD` form above.
     #[test]
     fn direction_descriptors_follow_the_documented_notation() {
-        let two_dim =
-            isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Label("P1"))
-                .expect("GM3+ has P1");
+        let two_dim = isotropy_subgroup_for_direction(221, "GM3+", IsotropyDirection::Label("P1"))
+            .expect("GM3+ has P1");
         assert_eq!(two_dim.record.direction, "(a,0)");
         assert_eq!(two_dim.record.direction_dim, 2);
         assert_eq!(two_dim.record.direction_free, 1);

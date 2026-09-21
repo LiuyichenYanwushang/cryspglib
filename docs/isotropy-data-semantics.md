@@ -6,7 +6,8 @@
 （`iso`，Version 9.6.1, Jan 2022，x86-64 静态链接）做 oracle 得到，可复现：
 
 ```bash
-python3 scripts/verify_isotropy_oracle.py     # 42 行，6 种 centering（B 面心在标准 ITA setting 中不出现）
+python3 scripts/verify_isotropy_oracle.py     # 48 行，6 种 centering（B 面心在标准 ITA setting 中不出现）
+python3 -m unittest discover -s scripts -p test_verify_isotropy_oracle.py
 ```
 
 ## 1. 表结构与索引
@@ -101,7 +102,7 @@ printf 'PAGE 1000\nSC 250\nSET I ALL OR 1\nVALUE PARENT 139\nVALUE IRREP M1-\nSH
 
 契约：`origin_shift_in_parent_conventional` 给出**记录 setting 下**的值，等于官方在
 `SET I ALL OR 1` 下的打印；官方出厂默认会打印另一个代表元（相差一个 ITA setting
-变换）。`scripts/verify_isotropy_oracle.py` 现已显式运行 `SET I ALL OR 1`：42 行
+变换）。`scripts/verify_isotropy_oracle.py` 现已显式运行 `SET I ALL OR 1`：48 行
 抽样全部逐位相同、**无豁免**（此前依赖 mod L 谓词 + 1 行 allowlist）。
 
 ## 4. 分导（subduction）：`isotropy_subduce_*`
@@ -171,19 +172,29 @@ trivial 列的回归 oracle。
 `scripts/verify_isotropy_oracle.py` 会：
 
 1. 用 pinned 数据复现每条记录（`Size = |det W|`、方向标签、子群号）；
-2. 对 21 组 (SG, irrep)（覆盖 6 种 centering：A/C/F/I/P/R；B 面心不出现在标准
+2. 对 22 组 (SG, irrep)（覆盖 6 种 centering：A/C/F/I/P/R；B 面心不出现在标准
    ITA setting）运行官方 `iso`（显式 `SET I ALL OR 1`，见 §3），逐行比对：
    - 子群号、方向标签一致；
+   - 两次官方查询的方向标签集合必须一致，缺失、多余或重复标签均失败；
+   - dim=3 描述串按 Rust `Descriptor` 的规则忽略空白、将 `;` 视为 `,` 后比较，
+     保留分量顺序；SG177 `L1` 覆盖非立方 `C2 (a;b;a)`；
    - `Size == |det W|`；
    - `|det Basis_官方| == Z(子群)·Size/Z(母群)`；
    - `W·P_母群 == P_子群·B_官方` 作为**格**相等（`P_子群·B_官方` 给出打印胞的
      primitive 格；体积/行列式检查看不出基取向错误，这一条能看出来）；
    - `w_机器 · P − w_官方` 逐位相同（不再需要 mod L 或豁免）。
 
-当前结果：`oracle rows checked: 42`，全部通过，且 origin 比较 **42/42 逐位相同**、
+当前结果：`oracle rows checked: 48`、`descriptor strings checked: 26`，全部通过，
+且 origin 比较 **48/48 逐位相同**、
 无任何 allowlist 豁免（脚本显式运行 `SET I ALL OR 1`，见 §3）。规范表述是
 "6 种 centering"（A/C/F/I/P/R）；脚本里定义的 B 面心在标准 ITA setting 中不出现，
 因此没有对应用例。
+
+`scripts/test_verify_isotropy_oracle.py` 的 9 个离线测试用固定的官方输出行驱动真实
+解析器与门禁，仅替换数据读取和进程边界，不需要解压 `iso`。测试覆盖精确 origin、
+错误描述串、向量标签缺失/多余/重复、分隔符与空白、等体积异格、进程失败，以及
+`C2` 的母群上下文。Rust `tests/isotropy_geometry.rs` 另钉住 #8 Cm 的两种不同
+方向嵌入、SG177 的复分隔符别名与其它波矢分导的完整输出段。
 
 ## 6. 已知未决项（对抗性审查发现，未修复）
 
@@ -194,8 +205,8 @@ trivial 列的回归 oracle。
    `origin_shift_in_parent_conventional` 仍是记录 setting 的值，与官方默认输出
    相差一个 setting 变换。
 2. **compound CIR irrep 无 oracle 覆盖**：官方对 SG199 `P1P1/P2P2/P3P3` 之类
-   compound 标签打印空表（112 对 / 195 条记录），当前 21 组用例中没有 compound。
-3. **抽样规模与分页**：gate 仅 42 行（0.28%）；程序分页上限 `PAGE ≤ 1000`，同一
+   compound 标签打印空表（112 对 / 195 条记录），当前 22 组用例中没有 compound。
+3. **抽样规模与分页**：gate 仅 48 行（0.31%）；程序分页上限 `PAGE ≤ 1000`，同一
    进程连续查询会被分页提示吞掉输入，全表验收必须按 (SG, irrep) 逐进程调用。
 4. **完整分导分解不在数据中**（§4）：`isotropy_subduce_*` 只给"包含子群恒等表示"
    的母群 irrep 与频率 i(G)；`little_subduce_*` 虽然结构已解开，但没有 subgroup

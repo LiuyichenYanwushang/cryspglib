@@ -37,11 +37,16 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo test --release --package cryspglib --doc
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo clippy -p cryspglib --all-targets --release -- -D warnings
+
+cd /home/liuyichen/TB_rs/cryspglib
+python3 -m unittest discover -s scripts -p test_verify_isotropy_oracle.py
+python3 scripts/verify_isotropy_oracle.py
 ```
 
-当前基线（2026-09-21，第二轮审查修复后，`-p cryspglib` 限定到本 crate）：
-lib `310 passed / 4 ignored`，integration `82 passed`，doctest `27 passed`，
-严格 all-target clippy 零警告。
+当前基线（2026-09-21，永久回归测试补充后，`-p cryspglib` 限定到本 crate）：
+lib `311 passed / 4 ignored`，integration `84 passed`，doctest `27 passed`，
+严格 all-target clippy 通过（Cargo 仍报告既有 workspace manifest 警告）；
+isotropy oracle 离线测试 `9 passed`，真实 oracle `48` 行、`26` 个描述串通过。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
 后端同时启用），与本 crate 无关，但会让整条命令以 exit 101 结束、0 个测试执行。
@@ -144,24 +149,39 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 
 `python3 scripts/verify_isotropy_oracle.py`（先用
 `unzip -o isotropy_subgroup/iso.zip -d isotropy_subgroup/` 解出 `iso` 二进制与
-数据文件；脚本自行设置 `ISODATA`）用随包 `iso` 9.6.1 对 21 组
+数据文件；脚本自行设置 `ISODATA`）用随包 `iso` 9.6.1 对 22 组
 (SG, irrep)、覆盖 6 种 centering（A/C/F/I/P/R；B 面心不出现在标准 ITA
 setting）的记录逐行比对子群号、方向标签、Size、`|det Basis|` 关系与 origin。
 脚本现在显式运行 **`SET I ALL OR 1`**（见上一节 origin 约定），并且：
 origin 比较是**强制逐位相同**（差一个母群格矢量会直接 FAIL，用户复核发现旧版把这种
 情况只当诊断计数、exit 仍为 0）；新增**方向描述串比对**（拉 `SHOW DIRECTION VECTOR`
 的官方列，逐行与生成表的 `direction` 比较，规范化 `;`↔`,` 与空白）。当前
-`oracle rows checked: 42`，descriptor 与 origin 全部通过、无豁免。这仍只是 42 行
-抽样（0.28%）；全表 18.6% 的默认 setting 差异已解释（见上一节），残余约 450 条
+`oracle rows checked: 48`、`descriptor strings checked: 26`，全部通过、无豁免。
+SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或重复时失败。
+这仍只是 48 行抽样（0.31%）；全表 18.6% 的默认 setting 差异已解释（见上一节），残余约 450 条
 单斜/三方 cell/axis choice 未关闭。
 
 生成器的字节可复现性记录（可复查）：在干净树上
 `python3 scripts/generate_irrep_data.py` 重新生成
 `src/irrep/generated_data.rs`，其 md5 必须等于
-`863c76358cf713724967d5667d1d0dfe`（2026-09-21 修正方向描述串之后的当前值；前两个
-值是 `4bbd6db9858117d346d8c93b81bcfbf9`（`mag_bns_label` 词法修复后）与
-`f994cf4874440118ef2f872b4f1e021b`（原始））。本次重新生成只改 `direction:` 行
-（1080 条：dim=3 的 `P2`/`P3`/`C2` 修正），其余数组逐字节不变。
+`fbe341a9cfb1bd815632e812daae950d`（2026-09-21 清理 `w_subduce` 遗留 spinor 注释后的
+当前值）。此次仅同步修正生成器与生成文件的 5 处文档注释，已比较确认所有非注释行
+与 `acb8f7b` 完全相同，未重跑完整生成器。`acb8f7b` 的值是
+`863c76358cf713724967d5667d1d0dfe`，当次重新生成只改 1080 条 `direction:` 行；
+更早的值为 `4bbd6db9858117d346d8c93b81bcfbf9`（BNS 修复后）与
+`f994cf4874440118ef2f872b4f1e021b`（原始）。
+
+### 2026-09-21 复核与永久回归测试
+
+- 复现并修复新 descriptor 门禁的漏检：方向向量输出为空、缺失或多余标签时此前
+  可返回 exit 0；重复标签会被字典静默覆盖。现在全部拒绝。
+- 新增 `scripts/test_verify_isotropy_oracle.py` 的 9 个离线测试；先确认缺失/重复标签
+  与分隔符比较测试在旧实现失败，再修复到全部通过。origin 加母群格矢也必须失败。
+- Rust 新增方向别名与嵌入测试：SG225 `GM4-` 的 `C1/C2` 都是 #8 Cm，但基矩阵不同；
+  SG177 `L1 C2` 必须是 #21；空白、`;`/`,` 别名保留分量次序，旧错误分量串必须拒绝。
+  其它波矢分导测试改为钉完整 formatter 输出段，并补越界负例。
+- 清理 `other_wave_vector_subduction` 函数、生成器与生成文件中遗留的 spinor 注释；
+  明确 `DT`/`SM` 前缀只能给波矢族，不能恢复参数化波矢的数值。
 
 ### 对抗性审查（2026-09-20）发现与修复
 
@@ -285,6 +305,10 @@ origin 比较是**强制逐位相同**（差一个母群格矢量会直接 FAIL�
    isotropy 子群关联 → 完整分导必须自行计算。
 
 ### 完整分导（母群 irrep → 子群全部 irrep + 重数）的实施配方
+
+逐步执行以 [完整实现任务卡](docs/full-irrep-subduction-plan.md) 为准：该计划补充了
+严格 data-Hall 来源、typed character 空间、精确分母、嵌入规范与磁母群输入约定。
+下面的折叠 k 简式不能替代已验证仿射变换 `x_G = T x_H + o` 所给出的 `k_H = T^T k_G`。
 
 数据里**没有**这张表（见上条第 7 点与 §4），必须自算。用户复核后确认第一版配方
 不充分，修正如下（每一步都要有 oracle 或全表门禁）：

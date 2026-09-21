@@ -24,9 +24,11 @@ parent's primitive basis ``P`` (rows = primitive vectors in conventional
 coordinates):
 
 * ``Size`` equals ``|det W|``,
-* ``|det Basis_oracle|`` equals ``Z(subgroup) * |det W|``,
-* ``w_machine . P - w_oracle`` is a lattice vector of the parent,
-* subgroup number and direction label are identical.
+* ``|det Basis_oracle|`` equals ``Z(subgroup) * |det W| / Z(parent)``,
+* ``w_machine . P`` equals ``w_oracle`` exactly,
+* subgroup number and direction label are identical,
+* dimension-3 descriptors agree under the Rust API's whitespace/separator
+  normalization; missing or duplicate vector labels fail the gate.
 
 The **origin** needs one more qualifier.  The program prints its ``Origin``
 column in whatever ITA setting is currently selected (``SET I``), and its
@@ -159,6 +161,7 @@ CASES = [
     (123, "GM4+"),
     (139, "GM4+"),
     (167, "GM3+"),
+    (177, "L1"),  # Complex separators and the non-cubic C2 component order.
     (194, "GM6+"),
     (221, "GM3+"),
     (221, "GM4+"),
@@ -321,7 +324,10 @@ def run_oracle_direction_vectors(sg, ml):
         line = line.strip().rstrip("*").strip()
         m = re.match(r"^(\d+)\s+(\S+)\s+(\S+)\s+(\(.*\))$", line)
         if m:
-            vectors[m.group(3)] = m.group(4).replace(" ", "")
+            label = m.group(3)
+            if label in vectors:
+                raise RuntimeError(f"SG {sg} {ml}: duplicate direction vector label {label}")
+            vectors[label] = "".join(m.group(4).split())
     return vectors
 
 
@@ -421,6 +427,13 @@ def main():
         if len(by_label) != len(rows):
             failures.append(f"SG {sg} {ml}: oracle labels are not unique")
             continue
+        if vectors.keys() != by_label.keys():
+            failures.append(
+                f"SG {sg} {ml}: direction vector labels differ from geometry "
+                f"(missing {sorted(by_label.keys() - vectors.keys())}, "
+                f"unexpected {sorted(vectors.keys() - by_label.keys())})"
+            )
+            continue
         primitive_basis = PRIMITIVE_BASIS[CENTERING_LETTER[sg]]
         for machine_row in expected:
             label = machine_row["label"]
@@ -430,14 +443,17 @@ def main():
                 failures.append(f"{where}: oracle printed no row for this label")
                 continue
             checked_rows += 1
-            if label in vectors and machine_row["dim"] == 3:
+            if machine_row["dim"] == 3:
                 # Only `dim = 3` descriptors are claimed to be the program's own
                 # strings.  `dim = 2` is cryspglib's internal notation: the
                 # program's spelling varies per irrep (SG 5 `L1` prints
                 # `(a;a)`, SG 91 `A1` prints `(a,0)`, SG 194 `GM6+` prints
                 # `(a,0.577a)`), and `dim >= 4` prints full component lists.
                 checked_descriptors += 1
-                if machine_row["direction"] != vectors[label]:
+                # Match the public Descriptor selector: separators and
+                # whitespace are aliases, but component order is significant.
+                descriptor = "".join(machine_row["direction"].split()).replace(";", ",")
+                if descriptor != vectors[label].replace(";", ","):
                     failures.append(
                         f"{where}: descriptor {machine_row['direction']!r} != "
                         f"oracle {vectors[label]!r}"

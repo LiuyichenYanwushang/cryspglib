@@ -1906,7 +1906,7 @@ def parse_all():
                     f"references irrep {iso_subduce_irrep[entry]} of SG {entry_sg}"
                 )
 
-    # Double-valued (spinor) subduction entries: `count` is per record, the
+    # Other-wave-vector subduction entries: `count` is per record, the
     # irrep/frequency pairs are packed in record order.  The ISO program prints
     # them on the same SHOW FREQ line as the scalar entries.
     iso_w_subduce_count = parse_ints(iso_lines, iso_sec, "isotropy_w_subduce_count")
@@ -5581,7 +5581,7 @@ def generate_rust_data(data):
         subduce_direction.append(direction_index[label])
     direction_label_table = direction_labels
 
-    # Double-valued (spinor) subduction: cumulative offsets over the per-record
+    # Other-wave-vector subduction: cumulative offsets over the per-record
     # counts, then the packed irrep/frequency pairs.
     w_count = data["iso_w_subduce_count"]
     w_irrep = data["iso_w_subduce_irrep"]
@@ -5594,7 +5594,7 @@ def generate_rust_data(data):
         if not 1 <= value <= len(w_labels):
             raise ValueError(
                 f"isotropy_w_subduce_irrep: index {value} outside the "
-                f"{len(w_labels)}-entry double-valued irrep table"
+                f"{len(w_labels)}-entry other-wave-vector irrep table"
             )
     w_ranges = [0]
     for count in w_count:
@@ -5656,7 +5656,7 @@ def generate_rust_data(data):
     lines.append("];")
     lines.append("")
     lines.append(
-        "/// Double-valued (spinor) subduction: start offsets per isotropy record,\\n"
+        "/// Other-wave-vector subduction: start offsets per isotropy record,\n"
         "/// plus a sentinel (length = ISOTROPY_SUBGROUPS.len() + 1)."
     )
     lines.append(
@@ -5666,13 +5666,13 @@ def generate_rust_data(data):
         lines.append(f"    {value},")
     lines.append("];")
     lines.append("")
-    lines.append("/// Miller-Love label of each double-valued parent irrep.")
+    lines.append("/// Miller-Love label of each parent irrep at another wave vector.")
     lines.append(f"pub static IRREP_W_LABELS: [&str; {len(w_labels)}] = [")
     for label in w_labels:
         lines.append(f'    "{escape_rust_str(label)}",')
     lines.append("];")
     lines.append("")
-    lines.append("/// Space group of each double-valued parent irrep.")
+    lines.append("/// Space group of each parent irrep at another wave vector.")
     lines.append(
         f"pub static IRREP_W_SPACE_GROUP: [u8; {len(w_space_group)}] = ["
     )
@@ -5680,7 +5680,7 @@ def generate_rust_data(data):
         lines.append(f"    {value},")
     lines.append("];")
     lines.append("")
-    lines.append("/// Index into `IRREP_W_LABELS` per double-valued subduction entry.")
+    lines.append("/// Index into `IRREP_W_LABELS` per other-wave-vector subduction entry.")
     lines.append(
         f"pub static ISOTROPY_W_SUBDUCE_IRREP: [u16; {len(w_irrep)}] = ["
     )
@@ -5688,7 +5688,7 @@ def generate_rust_data(data):
         lines.append(f"    {value},")
     lines.append("];")
     lines.append("")
-    lines.append("/// Subduction frequency per double-valued subduction entry.")
+    lines.append("/// Subduction frequency per other-wave-vector subduction entry.")
     lines.append(
         f"pub static ISOTROPY_W_SUBDUCE_FREQUENCY: [u8; {len(w_freq)}] = ["
     )
