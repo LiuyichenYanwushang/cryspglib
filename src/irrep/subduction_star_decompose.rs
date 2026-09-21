@@ -823,7 +823,13 @@ pub fn trivial_content_with_embedding(
             continue;
         }
         content.gamma_stars += 1;
-        let block = build_block(embedding, &star, folded_star, &child_cell, &child_reciprocal)?;
+        let block = build_block(
+            embedding,
+            &ArmCharacterSource::Cir(&star),
+            folded_star,
+            &child_cell,
+            &child_reciprocal,
+        )?;
         content.by_label += block.multiplicity(trivial.ml);
         for target in block.targets() {
             if target.dimension == trivial.dim && target.irnumber == trivial_cir {
@@ -1116,7 +1122,13 @@ fn decompose_folded_stars(
     let mut blocks = Vec::with_capacity(folded.len());
     let mut covered = 0u32;
     for folded_star in folded {
-        let block = build_block(embedding, star, folded_star, &child_cell, &child_reciprocal)?;
+        let block = build_block(
+            embedding,
+            &ArmCharacterSource::Cir(star),
+            folded_star,
+            &child_cell,
+            &child_reciprocal,
+        )?;
         covered = covered.checked_add(block.block_dimension()).ok_or(
             SubductionError::RationalOverflow {
                 operation: "full-star dimension",
@@ -1201,9 +1213,43 @@ struct Representative {
 /// Decompose one folded child star: pick its representative arm, build the
 /// `H_q` q-block character and solve it against the prepared complex child
 /// components.
+/// The arm-character source a parent q-block is read from.
+///
+/// A discrete probe's star and a parametric-k line's arms answer the same two
+/// questions, so `build_block` is generic over them without changing what it
+/// does downstream.
+#[allow(dead_code)]
+enum ArmCharacterSource<'a> {
+    /// A discrete probe's star.
+    Cir(&'a ScalarStar),
+    /// A parametric-k line's arms.
+    Line(&'a LineArmSource<'a>),
+}
+
+#[allow(dead_code)]
+impl ArmCharacterSource<'_> {
+    fn q_block_dimension(&self, arm_indices: &[usize]) -> Result<u32, StarError> {
+        match self {
+            Self::Cir(star) => star.q_block_dimension(arm_indices),
+            Self::Line(source) => source.q_block_dimension(arm_indices),
+        }
+    }
+
+    fn q_block_character(
+        &self,
+        arm_indices: &[usize],
+        operation: &ExactSeitz,
+    ) -> Result<Complex64, StarError> {
+        match self {
+            Self::Cir(star) => star.q_block_character(arm_indices, operation),
+            Self::Line(source) => source.q_block_character(arm_indices, operation),
+        }
+    }
+}
+
 fn build_block(
     embedding: &SubgroupEmbedding,
-    star: &ScalarStar,
+    source: &ArmCharacterSource,
     folded_star: &FoldedStar,
     child_cell: &Lattice,
     child_reciprocal: &Lattice,
@@ -1224,10 +1270,10 @@ fn build_block(
     if point.arm_indices().is_empty() {
         return Err(FullStarError::EmptyQBlock { q: q_key });
     }
-    let q_block_dimension = star.q_block_dimension(point.arm_indices())?;
+    let q_block_dimension = source.q_block_dimension(point.arm_indices())?;
     let mut parent_characters = Vec::with_capacity(parent_operations.len());
     for operation in &parent_operations {
-        parent_characters.push(star.q_block_character(point.arm_indices(), operation)?);
+        parent_characters.push(source.q_block_character(point.arm_indices(), operation)?);
     }
 
     // `chi_q(E)` has to be exactly the q-block geometry, read at the actual
