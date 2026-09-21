@@ -315,3 +315,24 @@ that is the whole remaining scope, and it is exactly the family where the
 four excluded per-arm weight rules were tested and failed.  Re-running the
 acceptance ladder against the line-star `build_block` path therefore only has to
 move this single number from 1,840 to 0.
+
+## Where the remaining 1,840 rows are (round 69)
+
+Scoped audit runs (`--parent N`) with the current `computed` rule:
+
+| parent | w rows | computed | uncomputed |
+|---|---|---|---|
+| 196 | 106 | 76 | 30 |
+| 202 | 316 | 155 | 161 |
+| 209 | 372 | 282 | 90 |
+| 225 | 1647 | 1169 | 478 |
+| 227 | 984 | 656 | 328 |
+| 221, 229, 230 | 0 | 0 | 0 |
+
+The failures are spread over every parent that has w rows, roughly a third of them
+per parent, which matches the diagnosis that they are the rows with a *non-trivial
+arm stabiliser* rather than a whole parent or a whole child type.  Only five SGs
+are listed here (1,087 of the 1,840); the rest sit in the remaining parents with w
+rows (203, 210, 216, 219, 226, 228).  A fresh implementation can therefore use
+SG 196 (30 failures) as the smallest reproducer and SG 202 ordinal 10422 as the
+documented witness.
