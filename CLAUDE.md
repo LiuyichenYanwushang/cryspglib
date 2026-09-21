@@ -337,8 +337,9 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
    `Σ_G i(G)·dim(G)/k_G = |P_parent|/|P_sub|`（1895 条 Γ 记录精确成立，compound 标签
    按 ML 分量数 `k_G` 折算，否则 3543 行会被重复计数）；再以用户指定的
    **221 `GM4+` 凝聚、查询 `GM3+`** 作为首个端到端验收例。
-7. **多臂与磁共表示放到最后**：当前数据集对 single-arm（`H ⊆ G_k`）之外的情形没有
-   可直接验证的条目，磁表也没有分导列。
+7. **多臂分阶段、磁共表示随后**：任务 8a 已用归档 CIR 完整矩阵核对普通标量
+   full-star 求值与折叠几何；任务 8b 的子群 irrep 重数尚待接入。磁表没有分导列，
+   不能把普通群字符检查当作磁共表示的验收。
 
 ### 完整分导的任务 1-6 落地状态（2026-09-21）
 
@@ -374,6 +375,21 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
 `Σ_D dim(D)·mult(trivial_H, D|H) = [G_k : H_k]`，其余 200 条显式报
 `AmbiguousEmbedding` 或 `NoValidEmbedding`，不猜。任务 9 负责从 oracle 生成全表
 逐记录 setting 元数据（含一般 unimodular/shear 候选）。
+
+### 分导任务 8a：完整星适配器（2026-09-21）
+
+- `src/irrep/subduction_star.rs`（`irrep::subduction::star`）：普通标量的完整星诱导
+  字符求值、完整 transporter 校验、子群倒格同点合并与子群 star 分组。DSH 实现，
+  Codex 独立验证并集成；compound/spinor 仍显式拒绝。
+- 全 4105 条普通标量记录已核对星完整性和 `χ(E) = selected_dim × arms = record.dim`。
+  这不是全表分解验收，也不是全表非恒等操作的字符核对。
+- 独立源矩阵 gate：`scripts/generate_subduction_star_fixtures.py` 从 checksum-pinned
+  CIR 完整矩阵取迹（不调用诱导算法）；10 个记录、308 个操作及各自四种格平移，
+  `tests/subduction_star_source.rs` 共 1232 次字符比较。另保留原有 59/538 恒等项 gate。
+- **任务 8 未全部完成**：还需将分组结果接入每个 q 的小群分解、搬运目标表示至
+  对应臂、全 star 维数和与逐操作重建，再做 compound/k/-k。现有
+  `subduce_irrep_with_embedding` 对多臂仍返回 `UnsupportedMultiArmStar`。
+  准确范围及复现方式见 `docs/subduction-conventions.md` §10。
 
 ### 分导任务 7 状态（2026-09-21）
 

@@ -33,6 +33,9 @@ use crate::irrep::types::{
 use crate::mathfunc::Mat3I;
 use num_complex::Complex64;
 
+#[path = "subduction_star.rs"]
+pub mod star;
+
 /// Denominator of the operation tables shipped in `data_space.txt`/Hall data.
 pub const SOURCE_TRANSLATION_GRID: i128 = 12;
 

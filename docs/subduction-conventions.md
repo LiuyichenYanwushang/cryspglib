@@ -184,7 +184,7 @@ fixture 比较器 `tests/irrep_subduction.rs::keys` 即按 `subgroup_lattice()` 
 |---|---|---|
 | Γ | `k = 0`；小群 = 全点群 | `IrrepRecord::dim`（物理维数）、`CharacterRow::dimension()`（该行空间的维数） |
 | selected-arm | 只取星的一条臂，在臂的小群上解释 | `RepresentationSpaceKind::SelectedArmBlockTrace`；行仍按**完整 PIR 操作宇宙**索引，调用者必须自己限制到臂小群集合 |
-| full-star | 整个星（诱导表示） | 诱导表示维数 = `little_dim × star_size`；任务 8 才实现 |
+| full-star | 整个星（诱导表示） | 诱导表示维数 = `little_dim × star_size`；任务 8a 已实现普通标量的求值和折叠几何，分解入口尚待接入 |
 
 **首版（任务 5）只做 Γ、标量、普通（非 compound、非 spinor）请求**；其余输入返回
 `Unsupported`/`MissingIrrepData`，不返回部分项。`SelectedArmBlockTrace` 的行不是
@@ -258,7 +258,8 @@ Mat3R / Vec3R                   // 3×3 / 3 向量；inverse3 -> Result<_, Singu
 
 ## 9. 当前不支持边界（必须报错，不得部分返回）
 
-- 多臂/full-star（任务 8，`UnsupportedMultiArmStar`）；`ConjugateRealification` 的
+- 现有 `subduce_irrep_with_embedding` 的多臂分解仍返回 `UnsupportedMultiArmStar`；
+  任务 8a 的独立适配器见 §10，尚不返回子群 irrep 重数。`ConjugateRealification` 的
   full-star k/-k 分组（见下）；spinor/双群（任务 11）；磁子群与磁共表示（任务 10）；
   参数化 k（不在 `query::irreps_of(sg_H)` 离散表中的折叠 k）；无法唯一确定嵌入的
   ordinal（任务 4 冻结路径之外的）。
@@ -279,3 +280,36 @@ Mat3R / Vec3R                   // 3×3 / 3 向量；inverse3 -> Result<_, Singu
   `CharacterMismatch`、`DimensionSumMismatch`（任务 3/5 落地时确定到具体变体）。
 - 任何"返回空分解冒充成功"、"取候选第一项"、"放宽误差/加豁免"、"用 legacy
   `characters()`/`matrices()` 与 Hall 操作配对"的做法都在本契约下不合格。
+
+## 10. 任务 8a：普通标量完整星求值与折叠几何
+
+暂存 API 位于 `irrep::subduction::star`。`OrdinaryStar::new(probe)` 只接受生成表
+内的普通标量记录；compound 与 spinor 显式拒绝。它以严格 data-Hall 操作的完整
+Seitz 元素 `g_i` 为 transporter，按母群倒格枚举 `k_i = R_i^-T k`。对任意母群
+操作 `h`，完整特征标为
+
+```text
+χ_full(h) = Σ_{i: h k_i ≡ k_i (mod L_G*)} χ_seed(g_i^-1 h g_i).
+```
+
+共轭操作的平移保留到 selected-arm 行求值结束；不固定的臂贡献零。任意输入操作
+须通过母群成员检查。显式 transporter 构造也必须覆盖完整星，不能靠缺失臂得到
+较小但看似成功的表示。恒等特征标同时核对 `selected_dim × arm_count` 与源记录
+维数。全 4105 条普通标量记录通过的是**构造、星完整性和恒等维数**检查，不能写成
+全部操作的 full-star 分解已经验证。
+
+`folded_stars(embedding)` 将每个臂按 `T^T` 折叠，按子群倒格合并同点并保留所有
+母群臂索引，再按子群旋转分成 stars。每个 star 的不同 q 点须携带相同臂数；
+`FoldedStar::block_dimension()` 是**整个该子群 star 所承载的母群子空间维数**，
+不是子群某个小表示的维数。此阶段没有算子群 irrep 重数。
+
+独立字符证据来自 `scripts/generate_subduction_star_fixtures.py`：校验 pinned
+`CIR_data.zip` SHA256 后，直接对原始完整矩阵及各臂对角块取迹，生成
+`tests/data/subduction_star_cir.rs`。10 个固定 CIR 记录（SG 92/139/198/221/225）
+覆盖 308 个原始操作，含螺旋和中心化胞；Rust 测试先核对实际操作与星臂所在帧，
+再核对原始及格平移后的字符，共 1232 次比较。平移后的独立期望为各个原始对角块
+分别乘 `exp(+2πi k_i·L)` 后相加，绝不为整个 full-star trace 乘一个统一相位。
+
+后续任务 8b：将每个 q 的表示块在 `H_q` 上分解，支持目标记录代表臂的搬运，
+返回子群 star 大小并检查 `Σ multiplicity × little_dim × star_size`；再处理 compound
+成分各自的星与 realification 的 k/-k。现有单臂分解入口不因 8a 自动扩大支持范围。
