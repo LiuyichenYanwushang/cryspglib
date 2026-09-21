@@ -375,3 +375,20 @@ whose point group acts *freely* on the arms, which is the opposite of the `P1`
 extreme the engine already gets right and consistent with the +-orbit/identification
 hypothesis: with no mirror to identify an arm with its negative, the per-arm
 average and the per-orbit weight can still disagree.
+
+## Second hypothesis: the parameter is per child, not a global 1/4 (round 79)
+
+`LINE_PARAMETER = 1/4` reproduces the whole `P1` family and 3,916 rows overall,
+but every remaining failure is a *chiral* child, where the point group acts
+freely on the arms and a too-small parameter folds too many of them (the pinned
+values there are only 1, 2, 3).  A global change of the constant is refuted:
+`1/2` and `1` already leave 111 of the 300 `P1` rows wrong.  The principled
+candidate is that the program uses the **smallest parameter whose fold lands on
+the child's Gamma point**, i.e. `1 / g` with `g` the largest component gcd among
+the folded arms `W . arm` (for the `P1` family that is `1/4`, matching the
+measurement, while a chiral child with a different supercell gets `1/2`, `1/3`,
+...).  Implementing it needs one structural change: the parameter is currently
+computed before the arms exist in `line_trivial_content_with_embedding`, so the
+`1 / g` block has to move *after* the arm construction.  A first attempt to
+patch it in place failed to compile (`arms` not yet in scope) and was reverted,
+leaving the tree green.
