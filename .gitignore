@@ -63,3 +63,4 @@ isotropy_subgroup/*.html
 
 # Claude Code
 .claude/isotropy_subgroup/iso.log
+isotropy_subgroup/
