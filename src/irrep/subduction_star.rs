@@ -55,6 +55,11 @@ pub enum StarError {
     /// An error from the exact rational/affine layer.
     #[error(transparent)]
     Subduction(#[from] SubductionError),
+    /// A frozen parametric-k source has no character for one of its own
+    /// little-group rotations, so the line arm source cannot answer.
+    #[allow(dead_code)]
+    #[error("frozen line source {label} of space group {sg} has no character for its own rotation")]
+    MissingFrozenRotation { sg: u8, label: &'static str },
     /// The transport list does not contain the identity operation itself.
     ///
     /// The list is a *transversal*, and the identity is the canonical
