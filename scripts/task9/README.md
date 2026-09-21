@@ -46,6 +46,27 @@ python3 ../../../scripts/task9/build_table.py \
     --empty empty_fixed.jsonl --out ../../../src/irrep/subduction_settings_data.rs
 ```
 
+## Second pass: every record embedded (2026-09-21, second session)
+
+Two changes closed the embedding table:
+
+* the engine now takes the subgroup lattice from the candidate's own map
+  (`U^-1 W P_parent`) instead of `W . P_parent`; the two differ exactly when `U`
+  is not unimodular, which is why the fractional monoclinic conventions were
+  rejected -- see commit "take the subgroup lattice from the embedding";
+* the child shift is derived by **two** frame routes and each is probed
+  separately (`scripts/task9/derive_shift_both.py`):
+  `-(B^T)^-1 (o_OR1 - o_OR2)` for the ITA origin-choice difference (2,133
+  records) and `(B^T)^-1 (o_printed - o_stored)` for the recorded-frame
+  difference (172 more), the second being what the last monoclinic and
+  compact-label records needed.
+
+Result: **15,239 / 15,239 records embed** (0 rejected), stored identity
+positives 93,720 passed / 391 mismatch, Gamma Frobenius 1,895/1,895,
+absent_positive 380, hard_failures 771.  Still open: 14,713 probes whose folded
+child k is not in the shipped discrete table, 5,756 other-wave-vector entries
+without k parameters, and the 771 consistency rows.
+
 ## State after the first pass (2026-09-21)
 
 The frozen table now addresses **all 15,239** pinned isotropy records.  The
