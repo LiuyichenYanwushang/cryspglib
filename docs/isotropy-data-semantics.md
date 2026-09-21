@@ -222,39 +222,42 @@ SG 196 `LD1LE1` = 2 × 4 = 8）。**唯一仍缺的是这 73 个 little irrep �
 **可复现性**：`python3 scripts/freeze_w_little_characters.py --rust
 target/task9/regen.rs` 从 live oracle 重新生成后与入库的
 `src/irrep/w_little_characters_data.rs` **逐字节相同**（md5
-`764948e3d2d932d50695cb30a7157773`，2026-09-22 复核；脚本仍以 exit 1 报告那 8 个未定源，属预期）。
+`32cc5ac46d6994a384b22f65a318d3f3`，2026-09-22 第四十一轮复核；脚本 exit 0，
+73/73 源全部有解）。
 
 `scripts/freeze_w_little_characters.py`（离线回归
 `scripts/test_freeze_w_little_characters.py` 13 项）实现这条链：
 `--json target/task9/w_little_characters.json` 输出每个源的方向、little 群操作
 （旋转 + 平移 + 特征标）以及所用的方程。
 
-实测（2026-09-22）：**73 个源里 65 个被唯一确定**（0 残差）。剩下 8 个是
-SG 202/203/209/210 的 `DT3`/`DT4`：这四个母群的 Γ 兼容表把两者以相同重数混在
-一起（`Σ` 可定、单个不可分），所以 Γ 一个特殊点不够。**已确认补点可行**：同一
-DT 线上的 X 点（α = 1/2）给出的兼容表把它们分开（SG 202：`X3+ → DT3`、
-`X2- → DT3`、`X2+ → DT4`、`X1+ → DT1`、`X4+/X1- → DT2`）。**线上其它特殊点的方程：已实现但被星污染挡住（2026-09-22 第十九轮）**。
-`freeze_w_little_characters.py` 现在会找同一条线上的其它特殊点（`DISPLAY KPOINT`
-里无自由参数、且坐标 ∝ v 的行，如 DT 线上的 X，α = 1/2），取这些点的 irrep 对线的
-兼容表与特征标，按 `Σ_i m_i D_i(R) = χ(R,t)·exp(-2πi α v·t)` 组方程（实现里带
-Bloch 相位与符号开关），再用复数消元 + 对偶判定解出剩余源。**结果被一条硬门禁
-拒绝**：这些点上 `SHOW CHARACTER` 打印的是**完整 irrep**（含星，SG 202 的 `X3+`
-维数 3）在 `(R,t)` 上的特征标，而兼容行是**little irrep** 层面的关系，两者只有在
-星大小为 1 时相等 —— 也就是只有 Γ 能用。实测把 X 方程直接代入会解出
-`D(E) = 3` 之类的非法值；脚本现在用「恒等特征标 = 源维数（`full_dim/星大小`）」
-把它们判为失败，所以**8 个未定源仍如实报未定，没有假数据**。
-可用的补点数据只有两条：(i) `data_images.txt` 的 image（点群表示）数据库 ——
-little irrep 的 image 给出它的点部分特征标；(ii) pinned `data_little.txt` 的
-little 矩阵段（编码仍未解）。**pinned `little_subduce` 也帮不上**：SG 202 的
-`DT3`/`DT4` 两个块逐行完全相同（`[[(3,1),(6,1)],[(3,1),(6,1)],[(3,2)],
-[(1,1),(2,2),(3,1),(4,2)],…,[(1,6)]]`），也就是说 pinned 归档里所有已解出的
-通道（Γ 兼容表、little_subduce 块）都把这两个 little irrep 当成同一个，能区分
-它们的只有 little 矩阵段或 image 数据库。
+实测（2026-09-22 第四十一轮）：**73 个源全部解出**（0 残差、0 未定）。其中 65 个由
+Γ 兼容行唯一确定；剩下 8 个（SG 202/203/209/210 的 `DT3`/`DT4`）用**小群配对路线**
+闭合：这四个母群的 Γ 兼容表把 `DT3`/`DT4` 以相同重数混在一起（`Σ = DT3+DT4` 可定、
+差不可分），而 pinned 数据的源次序把它们按小群 `C2v`/`C4` 的标准表排列：
 
-（第二十七轮补测：`SHOW KERNEL` + `DISPLAY IRREP` 这条直读 little irrep 的路线对
-参数化 k 也**不打印**任何内容——和 `SHOW CHARACTER`、Frequency 列一样，程序对
-参数化 k 域不输出字符级数据。因此官方二进制侧已经没有可用的区分通道，
-只剩 `data_images.txt` 的 image 记录与 pinned little 矩阵段两条路。）
+| 母群 | `DT` 线小群 | `DT1`,`DT2`（Γ 自定，用于校验次序） | `DT3`,`DT4`（配对补全） |
+|---|---|---|---|
+| 202, 203 | `C2v` | `(1,1,1,1)`, `(1,1,-1,-1)` | `(1,-1,1,-1)`, `(1,-1,-1,1)` |
+| 209, 210 | `C4` | 同上 | `(1,-1,i,-i)`, `(1,-1,-i,i)` |
+
+（按 `SHOW ELEMENTS` 打印的四个小群操作次序，恒等在前；两个 `C4` 母群的未定对是
+共轭对，所以生成表里特征标存为 `[实部, 虚部]` 整数对。）路线有三条独立证据：
+(i) 对偶系统确实定出配对和 `(2,-2,0,0)`；(ii) 每个母群里 Γ 自定的两个源正是
+`A1`、`A2`，次序约定因此被自身校验；(iii) 线上 X 点（α = 1/2）的兼容表 + 特征标
+对 SG 203/209/210 **独立**给出同样的四个值（SG 202 的 X 行对 `DT4` 不自洽，
+正是需要次序路线的原因）。另外 `tests/w_little_characters.rs`
+的 `archived_cir_characters_confirm_the_sg202_dt_pairing` 用归档 CIR 矩阵在
+X 点的 8 条兼容关系（`X3+/X2- → DT3`、`X2+/X3- → DT4`、`X1+/X4- → DT1`、
+`X4+/X1- → DT2`）扣除 Bloch 相位 `exp(-2πi k_X·t)` 后逐操作复现冻结表。
+
+因此旧的「8 个源解不出」结论作废；`freeze_w_little_characters.py` 里的补点方程
+（下段）仍然保留，它在 SG 203/209/210 上给出与配对路线一致的读数。
+
+（历史记录：第二十七轮补测 `SHOW KERNEL` + `DISPLAY IRREP` 这条直读 little irrep 的路线对
+参数化 k **不打印**任何内容——和 `SHOW CHARACTER`、Frequency 列一样，程序对
+参数化 k 域不输出字符级数据。**第四十一轮结论**：官方二进制之外还有两条独立通道
+（Γ 方程定出的配对和 + pinned 源次序，以及归档 CIR 在 X 点的字符），8 个源已经闭合；
+`data_images.txt` 与 pinned little 矩阵段不再必需。）
 
 **"双值/spinor"是错误命名（已纠正）**：`DT`、`SM` 是 SG 225 k 列表里的波矢标签
 （Δ、Σ 线），这些条目是**同一母群 SG 在别的波矢上的单值 irrep**；用户复核取出

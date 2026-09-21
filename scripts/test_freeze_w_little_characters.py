@@ -14,6 +14,8 @@ import sys
 import unittest
 from fractions import Fraction
 
+from fractions import Fraction
+
 import freeze_w_little_characters as gate
 
 
@@ -147,11 +149,9 @@ class LineSolveTests(unittest.TestCase):
         self.assertEqual(dt1["k_vector"], "(0,2a,0)")
         self.assertEqual(dt1["direction"], ["0", "2", "0"])
         self.assertEqual(len(dt1["operations"]), 2)
-        self.assertEqual(dt1["operations"][0]["character"], "1")
-        self.assertEqual(dt1["operations"][1]["character"], "1")
-        self.assertEqual(
-            tables["DT2"]["operations"][1]["character"], "-1"
-        )
+        self.assertEqual(dt1["operations"][0]["character"], ["1", "0"])
+        self.assertEqual(dt1["operations"][1]["character"], ["1", "0"])
+        self.assertEqual(tables["DT2"]["operations"][1]["character"], ["-1", "0"])
 
     def test_missing_line_irrep_is_reported(self):
         _, failures = self.derive(labels=("DT1", "DT3"))
@@ -169,7 +169,7 @@ class LineSolveTests(unittest.TestCase):
         # DT1 alone is still determined: the `GM4: DT1 DT2 DT2` row is used
         # through the dual system, which fixes DT1 without fixing DT2.
         self.assertEqual(failures, [])
-        self.assertEqual(tables["DT1"]["operations"][1]["character"], "1")
+        self.assertEqual(tables["DT1"]["operations"][1]["character"], ["1", "0"])
 
     def test_compound_label_sums_its_components(self):
         original = gate.run_iso
@@ -181,6 +181,104 @@ class LineSolveTests(unittest.TestCase):
         self.assertEqual(failures, [])
         self.assertEqual(tables["DT1"]["components"], ["DT1"])
         self.assertEqual(tables["DT2"]["components"], ["DT2"])
+
+
+class CogroupPairTests(unittest.TestCase):
+    """The pair of line irreps no Gamma row separates.
+
+    `cogroup_pair_route` completes SG 202/203/209/210 `DT3`/`DT4`: the Gamma
+    rows fix their sum, and the pinned source ordering supplies the split.  The
+    synthetic system below has exactly that shape: `DT1` and `DT2` are fixed,
+    `DT3 + DT4` is fixed, `DT3 - DT4` is not.
+    """
+
+    C2V = [
+        ((1, 0, 0), (0, 1, 0), (0, 0, 1)),
+        ((-1, 0, 0), (0, 1, 0), (0, 0, -1)),
+        ((-1, 0, 0), (0, 1, 0), (0, 0, 1)),
+        ((1, 0, 0), (0, 1, 0), (0, 0, -1)),
+    ]
+    C4 = [
+        ((1, 0, 0), (0, 1, 0), (0, 0, 1)),
+        ((-1, 0, 0), (0, 1, 0), (0, 0, -1)),
+        ((0, 0, -1), (0, 1, 0), (1, 0, 0)),
+        ((0, 0, 1), (0, 1, 0), (-1, 0, 0)),
+    ]
+
+    def system(self):
+        from fractions import Fraction
+
+        unknown = ["DT1", "DT2", "DT3", "DT4"]
+        # One Gamma row per determined functional plus the pair sum.
+        matrix = [
+            [Fraction(1), Fraction(0), Fraction(0), Fraction(0)],
+            [Fraction(0), Fraction(1), Fraction(0), Fraction(0)],
+            [Fraction(0), Fraction(0), Fraction(1), Fraction(1)],
+        ]
+        rhs = [
+            [Fraction(value) for value in (1, 1, 1, 1)],
+            [Fraction(value) for value in (1, 1, -1, -1)],
+            [Fraction(value) for value in (2, -2, 0, 0)],
+        ]
+        duals = {
+            "DT1": [Fraction(1), Fraction(0), Fraction(0)],
+            "DT2": [Fraction(0), Fraction(1), Fraction(0)],
+        }
+        return unknown, matrix, rhs, duals
+
+    def test_c2v_pair_is_the_remaining_sign_characters(self):
+        unknown, matrix, rhs, duals = self.system()
+        little = [(rotation, (0, 0, 0), "") for rotation in self.C2V]
+        values, problems = gate.cogroup_pair_route(
+            little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
+        )
+        self.assertEqual(problems, [])
+        self.assertEqual(
+            values["DT3"],
+            [(Fraction(1), Fraction(0)), (Fraction(-1), Fraction(0)),
+             (Fraction(1), Fraction(0)), (Fraction(-1), Fraction(0))],
+        )
+        self.assertEqual(
+            values["DT4"],
+            [(Fraction(1), Fraction(0)), (Fraction(-1), Fraction(0)),
+             (Fraction(-1), Fraction(0)), (Fraction(1), Fraction(0))],
+        )
+
+    def test_c4_pair_is_the_conjugate_pair(self):
+        unknown, matrix, rhs, duals = self.system()
+        little = [(rotation, (0, 0, 0), "") for rotation in self.C4]
+        values, problems = gate.cogroup_pair_route(
+            little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
+        )
+        self.assertEqual(problems, [])
+        self.assertEqual(
+            values["DT3"][2:],
+            [(Fraction(0), Fraction(1)), (Fraction(0), Fraction(-1))],
+        )
+        self.assertEqual(
+            values["DT4"][2:],
+            [(Fraction(0), Fraction(-1)), (Fraction(0), Fraction(1))],
+        )
+
+    def test_a_determined_source_with_the_wrong_pattern_is_refused(self):
+        unknown, matrix, rhs, duals = self.system()
+        duals["DT2"] = [Fraction(0), Fraction(1), Fraction(1)]
+        little = [(rotation, (0, 0, 0), "") for rotation in self.C2V]
+        values, problems = gate.cogroup_pair_route(
+            little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
+        )
+        self.assertEqual(values, {})
+        self.assertIn("cogroup pattern", problems[0])
+
+    def test_an_undetermined_sum_is_refused(self):
+        unknown, matrix, rhs, duals = self.system()
+        matrix[2] = [Fraction(0), Fraction(0), Fraction(1), Fraction(0)]
+        little = [(rotation, (0, 0, 0), "") for rotation in self.C2V]
+        values, problems = gate.cogroup_pair_route(
+            little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
+        )
+        self.assertEqual(values, {})
+        self.assertIn("not determined", problems[0])
 
 
 if __name__ == "__main__":

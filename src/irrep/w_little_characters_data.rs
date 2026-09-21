@@ -10,8 +10,16 @@
 //! official `iso` 9.6.1: the Gamma irreps' compatibility rows for the line
 //! (`SHOW COMPATIBILITY`) fix the little irreps' characters through
 //! `sum_i n_Gamma mult(Gamma -> i) D_i(R) = chi_Gamma(R)` at k = Gamma, where
-//! no Bloch phase enters.  The eight sources whose Gamma rows cannot separate
-//! them are deliberately absent; see `docs/isotropy-data-semantics.md`.
+//! no Bloch phase enters.  65 of the 73 sources are fixed that way.
+//! The remaining eight (SG 202/203/209/210 `DT3`/`DT4`) appear in every Gamma
+//! row only through `DT3 + DT4`, which the same rows do determine; the split
+//! uses the pinned source ordering of the little cogroup `C2v` (`DT1`, `DT2`
+//! come out as `A1`, `A2`, and the ordering check for `B1`, `B2` is verified
+//! against those two sources per space group).  `cogroup_pair_route` in
+//! `scripts/freeze_w_little_characters.py` documents the gate, and
+//! `tests/w_little_characters.rs` cross-checks the resulting tables against
+//! the archived CIR characters of the compatible points.  See
+//! `docs/isotropy-data-semantics.md` section 4.
 
 /// One little-group operation of a parametric-k irrep.
 #[derive(Debug, Clone, Copy)]
@@ -22,8 +30,11 @@ pub struct LittleOperation {
     pub rotation: [[i8; 3]; 3],
     /// Translation part in the parent's conventional cell, as fractions.
     pub translation: [&'static str; 3],
-    /// Character of the little irrep on this operation.
-    pub character: i32,
+    /// Character of the little irrep on this operation, as exact
+    /// (real, imaginary) integer parts; the cubic `DT3`/`DT4` pair of
+    /// SG 209/210 is the conjugate pair with +-i on the order-four
+    /// generator, every other source is real.
+    pub character: [i32; 2],
 }
 
 /// Character table of one little irrep at a parametric k domain.
@@ -43,7 +54,7 @@ pub struct LittleCharacterTable {
     pub operations: &'static [LittleOperation],
 }
 
-/// The 65 little irreps solved from the Gamma compatibility data.
+/// The 73 little irreps behind the parametric-k subduction rows.
 pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
     LittleCharacterTable {
         space_group: 196,
@@ -52,8 +63,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -63,8 +74,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -74,7 +85,7 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -84,10 +95,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -97,10 +108,36 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+        ],
+    },
+    LittleCharacterTable {
+        space_group: 202,
+        label: "DT3",
+        k_label: "DT",
+        direction: ["0", "2", "0"],
+        dimension: 1,
+        operations: &[
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+        ],
+    },
+    LittleCharacterTable {
+        space_group: 202,
+        label: "DT4",
+        k_label: "DT",
+        direction: ["0", "2", "0"],
+        dimension: 1,
+        operations: &[
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -110,8 +147,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -121,8 +158,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -132,10 +169,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x+3/4,y,-z+3/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["3/4", "0", "3/4"], character: 1 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: 1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+3/4,y,-z+3/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["3/4", "0", "3/4"], character: [1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -145,10 +182,36 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x+3/4,y,-z+3/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["3/4", "0", "3/4"], character: 1 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: -1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+3/4,y,-z+3/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["3/4", "0", "3/4"], character: [1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [-1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+        ],
+    },
+    LittleCharacterTable {
+        space_group: 203,
+        label: "DT3",
+        k_label: "DT",
+        direction: ["0", "2", "0"],
+        dimension: 1,
+        operations: &[
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+3/4,y,-z+3/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["3/4", "0", "3/4"], character: [-1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+        ],
+    },
+    LittleCharacterTable {
+        space_group: 203,
+        label: "DT4",
+        k_label: "DT",
+        direction: ["0", "2", "0"],
+        dimension: 1,
+        operations: &[
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+3/4,y,-z+3/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["3/4", "0", "3/4"], character: [-1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [-1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -158,8 +221,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -169,8 +232,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -180,10 +243,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -193,10 +256,36 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
+        ],
+    },
+    LittleCharacterTable {
+        space_group: 209,
+        label: "DT3",
+        k_label: "DT",
+        direction: ["0", "2", "0"],
+        dimension: 1,
+        operations: &[
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [0, 1] },
+            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [0, -1] },
+        ],
+    },
+    LittleCharacterTable {
+        space_group: 209,
+        label: "DT4",
+        k_label: "DT",
+        direction: ["0", "2", "0"],
+        dimension: 1,
+        operations: &[
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [0, -1] },
+            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [0, 1] },
         ],
     },
     LittleCharacterTable {
@@ -206,8 +295,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -217,8 +306,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -228,10 +317,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z+1/4,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: 1 },
-            LittleOperation { element: "z+1/4,y+1/4,-x+1/4", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z+1/4,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: [1, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x+1/4", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -241,10 +330,36 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z+1/4,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: -1 },
-            LittleOperation { element: "z+1/4,y+1/4,-x+1/4", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z+1/4,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: [-1, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x+1/4", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: [-1, 0] },
+        ],
+    },
+    LittleCharacterTable {
+        space_group: 210,
+        label: "DT3",
+        k_label: "DT",
+        direction: ["0", "2", "0"],
+        dimension: 1,
+        operations: &[
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-z+1/4,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: [0, 1] },
+            LittleOperation { element: "z+1/4,y+1/4,-x+1/4", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: [0, -1] },
+        ],
+    },
+    LittleCharacterTable {
+        space_group: 210,
+        label: "DT4",
+        k_label: "DT",
+        direction: ["0", "2", "0"],
+        dimension: 1,
+        operations: &[
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-z+1/4,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: [0, -1] },
+            LittleOperation { element: "z+1/4,y+1/4,-x+1/4", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/4"], character: [0, 1] },
         ],
     },
     LittleCharacterTable {
@@ -254,8 +369,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/4,x+1/4,-z+1/4", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/4"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/4,x+1/4,-z+1/4", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/4"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -265,8 +380,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/4,x+1/4,-z+1/4", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/4"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/4,x+1/4,-z+1/4", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/4"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -276,10 +391,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -289,10 +404,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -302,10 +417,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 2,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 2 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -2 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 0 },
-            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: 0 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [2, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-2, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [0, 0] },
+            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [0, 0] },
         ],
     },
     LittleCharacterTable {
@@ -315,8 +430,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -326,8 +441,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -337,10 +452,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
-            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -350,10 +465,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
-            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -363,10 +478,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 2,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 2 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -2 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 0 },
-            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 0 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [2, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-2, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [0, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [0, 0] },
         ],
     },
     LittleCharacterTable {
@@ -376,8 +491,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -387,8 +502,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -398,14 +513,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -415,14 +530,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -432,14 +547,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -449,14 +564,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -466,14 +581,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 2,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 2 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -2 },
-            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 0 },
-            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: 0 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 0 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 0 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 0 },
-            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: 0 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [2, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-2, 0] },
+            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [0, 0] },
+            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [0, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [0, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [0, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [0, 0] },
+            LittleOperation { element: "-z,y,-x", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [0, 0] },
         ],
     },
     LittleCharacterTable {
@@ -483,10 +598,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -496,10 +611,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -509,10 +624,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -522,10 +637,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -535,14 +650,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z+1/2,y+1/2,x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
-            LittleOperation { element: "z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
-            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -552,14 +667,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z+1/2,y+1/2,x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
-            LittleOperation { element: "z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
-            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -569,14 +684,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z+1/2,y+1/2,x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
-            LittleOperation { element: "z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
-            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -586,14 +701,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z+1/2,y+1/2,x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
-            LittleOperation { element: "z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
-            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -603,14 +718,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 2,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 2 },
-            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -2 },
-            LittleOperation { element: "-z+1/2,y+1/2,x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 0 },
-            LittleOperation { element: "z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 0 },
-            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 0 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 0 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 0 },
-            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 0 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [2, 0] },
+            LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-2, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [0, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [0, 0] },
+            LittleOperation { element: "-x,y,z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [0, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [0, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [0, 0] },
+            LittleOperation { element: "-z+1/2,y+1/2,-x+1/2", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [0, 0] },
         ],
     },
     LittleCharacterTable {
@@ -620,10 +735,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/2,x+1/2,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/2", "1/2", "1/2"], character: 1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -633,10 +748,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/2,x+1/2,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/2", "1/2", "1/2"], character: -1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -646,10 +761,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/2,x+1/2,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/2", "1/2", "1/2"], character: -1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -659,10 +774,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/2,x+1/2,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/2", "1/2", "1/2"], character: 1 },
-            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
+            LittleOperation { element: "x,y,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -672,14 +787,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: 1 },
-            LittleOperation { element: "-z,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "1/4", "1/4"], character: 1 },
-            LittleOperation { element: "z+1/4,y+1/4,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: 1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z+1/4,y,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "0", "1/4"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: [1, 0] },
+            LittleOperation { element: "-z,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "1/4", "1/4"], character: [1, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z+1/4,y,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "0", "1/4"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -689,14 +804,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: 1 },
-            LittleOperation { element: "-z,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "1/4", "1/4"], character: -1 },
-            LittleOperation { element: "z+1/4,y+1/4,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: 1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "-z+1/4,y,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "0", "1/4"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: [1, 0] },
+            LittleOperation { element: "-z,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "1/4", "1/4"], character: [-1, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-z+1/4,y,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "0", "1/4"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -706,14 +821,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: 1 },
-            LittleOperation { element: "-z,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "1/4", "1/4"], character: -1 },
-            LittleOperation { element: "z+1/4,y+1/4,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: -1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-z+1/4,y,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "0", "1/4"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: [1, 0] },
+            LittleOperation { element: "-z,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "1/4", "1/4"], character: [-1, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [-1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-z+1/4,y,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "0", "1/4"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -723,14 +838,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: 1 },
-            LittleOperation { element: "-z,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "1/4", "1/4"], character: 1 },
-            LittleOperation { element: "z+1/4,y+1/4,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: -1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: -1 },
-            LittleOperation { element: "-z+1/4,y,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "0", "1/4"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: [1, 0] },
+            LittleOperation { element: "-z,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "1/4", "1/4"], character: [1, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [-1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [-1, 0] },
+            LittleOperation { element: "-z+1/4,y,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "0", "1/4"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -740,14 +855,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 2,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 2 },
-            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: -2 },
-            LittleOperation { element: "-z,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "1/4", "1/4"], character: 0 },
-            LittleOperation { element: "z+1/4,y+1/4,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "0"], character: 0 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: 0 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 0 },
-            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: 0 },
-            LittleOperation { element: "-z+1/4,y,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "0", "1/4"], character: 0 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [2, 0] },
+            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: [-2, 0] },
+            LittleOperation { element: "-z,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "1/4", "1/4"], character: [0, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "0"], character: [0, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [0, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [0, 0] },
+            LittleOperation { element: "z,y,x", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [0, 0] },
+            LittleOperation { element: "-z+1/4,y,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "0", "1/4"], character: [0, 0] },
         ],
     },
     LittleCharacterTable {
@@ -757,10 +872,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/4,x+1/4,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/4,x+1/4,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -770,10 +885,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/4,x+1/4,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/4,x+1/4,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -783,10 +898,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/4,x+1/4,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/4,x+1/4,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -796,10 +911,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/4,x+1/4,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/4,x+1/4,-z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "y,x,z", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -809,14 +924,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: 1 },
-            LittleOperation { element: "-z+1/2,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/4", "1/4"], character: 1 },
-            LittleOperation { element: "z+1/4,y+1/4,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/2"], character: 1 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: 1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
-            LittleOperation { element: "-z+1/4,y+1/2,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/2", "1/4"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: [1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/4", "1/4"], character: [1, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/2"], character: [1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
+            LittleOperation { element: "-z+1/4,y+1/2,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/2", "1/4"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -826,14 +941,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: 1 },
-            LittleOperation { element: "-z+1/2,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/4", "1/4"], character: -1 },
-            LittleOperation { element: "z+1/4,y+1/4,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/2"], character: -1 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: 1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
-            LittleOperation { element: "-z+1/4,y+1/2,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/2", "1/4"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: [1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/4", "1/4"], character: [-1, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "-z+1/4,y+1/2,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/2", "1/4"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -843,14 +958,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: 1 },
-            LittleOperation { element: "-z+1/2,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/4", "1/4"], character: -1 },
-            LittleOperation { element: "z+1/4,y+1/4,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/2"], character: -1 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: -1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 1 },
-            LittleOperation { element: "-z+1/4,y+1/2,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/2", "1/4"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: [1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/4", "1/4"], character: [-1, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [-1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
+            LittleOperation { element: "-z+1/4,y+1/2,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/2", "1/4"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -860,14 +975,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: 1 },
-            LittleOperation { element: "-z+1/2,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/4", "1/4"], character: 1 },
-            LittleOperation { element: "z+1/4,y+1/4,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/2"], character: 1 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: -1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: -1 },
-            LittleOperation { element: "-z+1/4,y+1/2,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/2", "1/4"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: [1, 0] },
+            LittleOperation { element: "-z+1/2,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/4", "1/4"], character: [1, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/2"], character: [1, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [-1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "-z+1/4,y+1/2,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/2", "1/4"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -877,14 +992,14 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["0", "2", "0"],
         dimension: 2,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 2 },
-            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: -2 },
-            LittleOperation { element: "-z+1/2,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/4", "1/4"], character: 0 },
-            LittleOperation { element: "z+1/4,y+1/4,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/2"], character: 0 },
-            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: 0 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 0 },
-            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: 0 },
-            LittleOperation { element: "-z+1/4,y+1/2,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/2", "1/4"], character: 0 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [2, 0] },
+            LittleOperation { element: "-x+1/4,y,-z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "0", "1/4"], character: [-2, 0] },
+            LittleOperation { element: "-z+1/2,y+1/4,x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/4", "1/4"], character: [0, 0] },
+            LittleOperation { element: "z+1/4,y+1/4,-x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/4", "1/2"], character: [0, 0] },
+            LittleOperation { element: "-x,y+1/4,z+1/4", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "1/4", "1/4"], character: [0, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [0, 0] },
+            LittleOperation { element: "z+1/2,y+1/2,x+1/2", rotation: [[0, 0, 1], [0, 1, 0], [1, 0, 0]], translation: ["1/2", "1/2", "1/2"], character: [0, 0] },
+            LittleOperation { element: "-z+1/4,y+1/2,-x+1/4", rotation: [[0, 0, -1], [0, 1, 0], [-1, 0, 0]], translation: ["1/4", "1/2", "1/4"], character: [0, 0] },
         ],
     },
     LittleCharacterTable {
@@ -894,10 +1009,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/4,x+1/4,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/2"], character: 1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/4,x+1/4,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/2"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -907,10 +1022,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/4,x+1/4,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/2"], character: -1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: 1 },
-            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/4,x+1/4,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -920,10 +1035,10 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/4,x+1/4,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/2"], character: -1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: 1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/4,x+1/4,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/2"], character: [-1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: [1, 0] },
         ],
     },
     LittleCharacterTable {
@@ -933,22 +1048,15 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         direction: ["2", "2", "0"],
         dimension: 1,
         operations: &[
-            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: 1 },
-            LittleOperation { element: "y+1/4,x+1/4,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/2"], character: 1 },
-            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: -1 },
-            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: -1 },
+            LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
+            LittleOperation { element: "y+1/4,x+1/4,-z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, -1]], translation: ["1/4", "1/4", "1/2"], character: [1, 0] },
+            LittleOperation { element: "x+1/4,y+1/4,-z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["1/4", "1/4", "0"], character: [-1, 0] },
+            LittleOperation { element: "y+1/2,x+1/2,z+1/2", rotation: [[0, 1, 0], [1, 0, 0], [0, 0, 1]], translation: ["1/2", "1/2", "1/2"], character: [-1, 0] },
         ],
     },
 ];
 
-/// Sources the Gamma compatibility data cannot separate.
+/// Sources the frozen data does not cover (empty when every source is
+/// covered by the Gamma rows or by the little-cogroup ordering route).
 pub static W_LITTLE_CHARACTERS_UNRESOLVED: &[(u8, &str)] = &[
-    (202, "DT3"),
-    (203, "DT3"),
-    (209, "DT3"),
-    (210, "DT3"),
-    (202, "DT4"),
-    (203, "DT4"),
-    (209, "DT4"),
-    (210, "DT4"),
 ];

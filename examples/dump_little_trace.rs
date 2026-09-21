@@ -33,7 +33,11 @@ fn main() {
         match record.ordinary_scalar_selected_arm_block_trace() {
             Ok(row) => {
                 println!(
-                    "SG {sg} {label}: little dim {} over {} operations",
+                    "SG {sg} {label}: k=({},{},{})/{} little dim {} over {} operations",
+                    record.k_vector().numerators[0],
+                    record.k_vector().numerators[1],
+                    record.k_vector().numerators[2],
+                    record.k_vector().denominator,
                     row.dimension(),
                     row.len()
                 );

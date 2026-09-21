@@ -160,15 +160,23 @@ class OtherWaveVectorTests(unittest.TestCase):
         self.assertEqual(self.check(data), [])
 
 
-    def test_frozen_coverage_counts_the_unresolved_sources(self):
+    def test_every_row_has_a_frozen_character_table(self):
+        """No source is left open, so no row is blocked."""
+        self.assertEqual(gate.UNRESOLVED_SOURCES, frozenset())
         data = baseline()
         frozen, blocked, sources = gate.frozen_coverage(data)
         self.assertEqual((frozen, blocked), (3, 0))
         self.assertEqual(sources, [])
-        # Point the pinned sources at SG 202 `DT3`: every row becomes blocked.
-        data["source_sg"] = [202, 202]
-        data["labels"] = ["DT3", "DT3"]
-        frozen, blocked, sources = gate.frozen_coverage(data)
+        # The counter still distinguishes a source that has no table: the
+        # pinned set is the only thing that decides, so an artificial entry
+        # moves every row into the blocked bucket.
+        gate.UNRESOLVED_SOURCES = frozenset({(202, "DT3")})
+        try:
+            data["source_sg"] = [202, 202]
+            data["labels"] = ["DT3", "DT3"]
+            frozen, blocked, sources = gate.frozen_coverage(data)
+        finally:
+            gate.UNRESOLVED_SOURCES = frozenset()
         self.assertEqual((frozen, blocked), (0, 3))
         self.assertEqual(sources, [(202, "DT3")])
 

@@ -1017,6 +1017,36 @@ base_points=['0'] directions=['(1,0,1)/1', '(1,1,2)/1']`；若某个源变成固
 摘要打印 `w_scope: rows=5756 ... uncomputed=5756`）；`--require-complete` 只门禁
 普通恒等分导表，其判词为 `VERDICT complete scope=global`。
 
+### 分导任务 9 第四十一轮（2026-09-22）：w 源 little 特征标 73/73 冻结完成
+
+`src/irrep/w_little_characters_data.rs` 现在覆盖**全部 73 个参数化 k 源**
+（`W_LITTLE_CHARACTERS_UNRESOLVED` 为空），因此 5,756 条 w 行的频率数据齐备，
+只剩引擎侧求值。两条来源：
+
+- **65 个源**：Γ 兼容行联合求解（精确有理对偶系统，已有）；
+- **8 个源**（SG 202/203/209/210 的 `DT3`/`DT4`，348 行）：Γ 只能定 `DT3+DT4`
+  （对偶系统给出 `(2,-2,0,0)`），拆分用**小群配对路线**（`cogroup_pair_route`）：
+  pinned 源次序即小群标准表。SG 202/203 的小群是 `C2v`，`DT3=(1,-1,1,-1)`、
+  `DT4=(1,-1,-1,1)`；SG 209/210 的小群是 `C4`，未定对是共轭对
+  `DT3=(1,-1,i,-i)`、`DT4=(1,-1,-i,i)`。路线有三重证据：对偶和、每母群 Γ 自定的
+  `A1`/`A2` 次序校验、以及（SG 203/209/210）线上 X 点（α=1/2）兼容表 + Bloch
+  相位给出的**独立同值**读数。`tests/w_little_characters.rs` 另加
+  `archived_cir_characters_confirm_the_sg202_dt_pairing`：用归档 CIR 字符在 X 点
+  扣除 `exp(-2πi k_X·t)` 后逐操作复现 SG 202 的四张表（8 条兼容关系 × 4 旋转）。
+- 因为 `C4` 对是共轭对，`LittleOperation::character` 由 `i32` 改为精确
+  `[实部, 虚部]` 整数对（其余表虚部为 0）；生成器 `--rust` 仍逐字节可复现
+  （新 md5 `32cc5ac46d6994a384b22f65a318d3f3`，exit 0、73/73 无失败）。
+
+覆盖门禁随之更新：`scripts/check_other_wave_vector_rows.py` 的
+`UNRESOLVED_SOURCES` 置空，实测打印
+`frozen_characters: rows_with_frozen_table=5756 rows_blocked=0 unresolved_sources=[]`；
+Python 离线套件 9+16+14+17+4 全绿，Rust `w_little_characters` 6 项、
+lib `389 passed / 4 ignored`、doctest 27、严格 all-target clippy 零警告。
+
+**可证伪预测（下一轮引擎求值时必须复现）**：SG 202 有 6 条 pinned 记录的
+`DT3`/`DT4` 频率不同、SG 209 有 4 条（SG 203/210 全同），配对次序若错，这 10 条
+记录会立刻暴露。
+
 ### 分导任务 9 第一轮全表冻结（2026-09-21 晚，覆盖已满但一致性未过）
 
 本轮把冻结表从 75 条扩到**全部 15,239 条记录**，两条被冻结的约定都来自官方程序、

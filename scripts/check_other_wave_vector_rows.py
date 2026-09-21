@@ -330,13 +330,13 @@ def check(data, expected=PINNED):
     return failures
 
 
-# Sources whose little-group character table the Gamma compatibility data cannot
-# separate: SG 202/203/209/210 `DT3`/`DT4`.  Their character tables are absent
-# from `src/irrep/w_little_characters_data.rs`, and the same list is pinned there
-# as `W_LITTLE_CHARACTERS_UNRESOLVED` (regression `tests/w_little_characters.rs`).
-UNRESOLVED_SOURCES = frozenset(
-    {(sg, label) for sg in (202, 203, 209, 210) for label in ("DT3", "DT4")}
-)
+# Sources without a frozen little-group character table.  The list is empty:
+# every one of the 73 sources is covered by `src/irrep/w_little_characters_data.rs`
+# (65 from the Gamma compatibility rows, the eight SG 202/203/209/210
+# `DT3`/`DT4` from the little-cogroup pair route), and the same list is pinned
+# there as `W_LITTLE_CHARACTERS_UNRESOLVED` (regression
+# `tests/w_little_characters.rs`).
+UNRESOLVED_SOURCES = frozenset()
 
 
 def frozen_coverage(data):
@@ -401,12 +401,14 @@ def main():
         "k = Gamma + t*v (one free parameter for all 73 sources, from the pinned "
         "little table; the direction components are in the parent's primitive "
         "reciprocal basis, while the program's DISPLAY KPOINT prints the "
-        "conventional frame), so there is no single numeric k to fold; the "
-        "character tables needed to turn the line into a frequency are not "
-        "decoded yet, so the audit reports the rows separately "
-        "(--require-w-complete).  Their values do have a live oracle: "
-        "scripts/verify_w_subduction_oracle.py compares all 5,756 rows against "
-        "the official program's SHOW FREQUENCY list per (parent, irrep)."
+        "conventional frame), so there is no single numeric k to fold and the "
+        "frequency needs the induced representation of the line: the frozen "
+        "little-group character tables of all 73 sources are in "
+        "src/irrep/w_little_characters_data.rs, and turning them into the "
+        "5,756 frequencies is the engine work the audit still reports "
+        "separately (--require-w-complete).  Their values do have a live "
+        "oracle: scripts/verify_w_subduction_oracle.py compares all 5,756 rows "
+        "against the official program's SHOW FREQUENCY list per parent irrep."
     )
     return 0
 

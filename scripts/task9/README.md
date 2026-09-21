@@ -347,3 +347,40 @@ have **identical** `little_subduce` blocks (row for row, including the
 `[(3,1),(6,1)]` prefix and the `[(1,6)]` terminator), so neither the Gamma
 compatibility data nor the pinned little-subduction blocks separate them.  Only
 the little-matrix block or the image records can.
+
+## The eight sources are closed by the little-cogroup order (round 41)
+
+The `DT3`/`DT4` pair of SG 202/203/209/210 is now frozen, so
+`W_LITTLE_CHARACTERS` holds 73/73 tables and `W_LITTLE_CHARACTERS_UNRESOLVED` is
+empty.  The Gamma rows see the pair only through `DT3 + DT4`; that sum *is* a
+determined functional of the Gamma system (the dual solve `A^T y = e3 + e4` is
+consistent and gives `(2, -2, 0, 0)` over the little-group operations), and the
+split follows the pinned source order, which the two sources the Gamma rows *do*
+determine confirm per space group (`DT1 = (1,1,1,1)`, `DT2 = (1,1,-1,-1)`, i.e.
+`A1` and `A2` of the cogroup):
+
+| parents | little cogroup | `DT3` | `DT4` |
+|---|---|---|---|
+| SG 202, 203 | `C2v = {E, C2, m1, m2}` | `(1,-1,1,-1)` | `(1,-1,-1,1)` |
+| SG 209, 210 | `C4 = {E, C2, R, R^3}` | `(1,-1,i,-i)` | `(1,-1,-i,i)` |
+
+Two independent checks back this up:
+
+* the implemented extra-point equations (`X`, `alpha = 1/2`, with the Bloch
+  phase) resolve `DT3` and `DT4` separately for SG 203/209/210 and produce
+  exactly these values -- so the star contamination of round 19 was a *partial*
+  obstruction, not a total one (SG 202's `DT4` row is still rejected, which is
+  why the ordering route carries that parent);
+* `tests/w_little_characters.rs::archived_cir_characters_confirm_the_sg202_dt_pairing`
+  rebuilds all four SG 202 tables from the archived CIR characters of the eight
+  compatible X-point irreps, dividing out `exp(-2i pi k_X . t)`, and matches
+  every operation.
+
+Because the `C4` pair is a conjugate pair, `LittleOperation::character` is now an
+exact `[real, imaginary]` integer pair (every other table has a zero imaginary
+part).  `--rust` regenerates the file byte-identically (md5
+`32cc5ac46d6994a384b22f65a318d3f3`), and the generator exits 0.
+
+Falsifiable predictions for the engine step: SG 202 has six pinned records whose
+`DT3`/`DT4` frequencies differ and SG 209 has four; the computed frequencies must
+reproduce them under this ordering (SG 203/210 have none).

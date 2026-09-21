@@ -566,6 +566,170 @@ def resolve_from_extra_points(
     return results, []
 
 
+def is_identity(rotation):
+    return all(
+        rotation[row][column] == (1 if row == column else 0)
+        for row in range(3)
+        for column in range(3)
+    )
+
+
+def multiply(left, right):
+    return [
+        [
+            sum(left[row][inner] * right[inner][column] for inner in range(3))
+            for column in range(3)
+        ]
+        for row in range(3)
+    ]
+
+
+def cogroup_pair_route(little, labels, unknown_labels, matrix, rhs, duals):
+    """The last two line irreps, which no Gamma row separates.
+
+    SG 202/203/209/210 `DT3`/`DT4` are one-dimensional irreps of the little
+    cogroup of the `DT` line -- `C2v = {E, C2, m1, m2}` for the two F-centered
+    cubic groups with a mirror class, `C4 = {E, C2, R, R^3}` for the two without
+    -- so every Gamma compatibility row, which sees the pair only through the
+    combinations that `SHOW COMPATIBILITY` lists, fixes `DT3 + DT4` and leaves
+    the difference free.  Two pinned facts close the gap:
+
+    * the summed character `DT3 + DT4` *is* a determined functional of the
+      Gamma system (the dual system `A^T y = e3 + e4` is consistent), which
+      fixes the `C2` entry, and
+    * the pinned data orders the four sources of such a domain the way the
+      standard character table does: the two sources the Gamma data *does*
+      determine come out as the first two rows `(+,+,+)` and `(+,-,-)` over
+      `(C2, o2, o3)`, and they are the first two sources of the domain.
+
+    The continuation of that ordering is `DT3 = (s, m, -m)` and
+    `DT4 = (s, -m, m)` with `2 s` the summed `C2` character and `m = 1` for
+    `C2v` (the two remaining sign characters) and `m = i` for `C4` (the
+    conjugate pair, whose characters on the order-four generator are `+-i`).
+    The identity character is the (one-dimensional) dimension of the source.
+
+    These eight tables are the only frozen data that uses the source ordering
+    instead of a Gamma row.  The ordering is checked per space group against the
+    determined sources of the same domain, and the result is cross-checked
+    against the archived CIR characters of the compatible points in
+    `tests/w_little_characters.rs`.
+    """
+    problems = []
+    if len(little) != 4:
+        return {}, [f"the little cogroup has {len(little)} operations, not 4"]
+    rotations = [
+        [[int(value) for value in row] for row in element[0]] for element in little
+    ]
+    identity = [[1 if row == column else 0 for column in range(3)] for row in range(3)]
+    if rotations[0] != identity:
+        return {}, ["the little-group operations do not start with the identity"]
+    involutions = [rotation for rotation in rotations if multiply(rotation, rotation) == identity]
+    if len(involutions) == 4:
+        kind = "C2v"
+        if multiply(rotations[2], rotations[3]) != rotations[1]:
+            return {}, ["the little cogroup is not C2v"]
+    elif len(involutions) == 2:
+        # C4 with the order-four generator at index 2 (its inverse at index 3).
+        kind = "C4"
+        if multiply(rotations[2], rotations[2]) != rotations[1] or multiply(
+            rotations[2], rotations[3]
+        ) != identity:
+            return {}, ["the little cogroup is not C4"]
+    else:
+        return {}, ["the little cogroup is neither C2v nor C4"]
+
+    solved = [label for label in labels if label in duals]
+    missing = [label for label in labels if label not in duals]
+    pair_labels = labels[-2:]
+    # Only the last two sources of the domain may be open, and the pair's
+    # summed character is what the Gamma rows determine.  A partially solved
+    # pair (one sibling fixed by an extra point) is completed here.
+    if len(labels) < 4 or not [label for label in labels[-2:] if label not in duals] or any(
+        label not in duals for label in labels[:-2]
+    ):
+        return {}, [
+            "the open sources are not the last two of the domain: "
+            f"solved {solved}, missing {missing}"
+        ]
+    expected = [(1, 1, 1), (1, -1, -1)]
+    for position, label in enumerate(labels[:2]):
+        if label not in duals:
+            continue
+        # `rhs` holds the Gamma characters per operation; a source's own
+        # character is its dual functional applied to them.
+        own = [
+            sum(duals[label][row] * rhs[row][op] for row in range(len(rhs)))
+            for op in range(len(little))
+        ]
+        pattern = tuple(int(value) for value in own[1:])
+        if pattern != expected[position]:
+            return {}, [
+                f"the determined source {label} is {pattern}, not the expected "
+                f"cogroup pattern {expected[position]}: the source ordering "
+                "convention does not hold for this domain"
+            ]
+
+    vector = [Fraction(0)] * len(unknown_labels)
+    for label in pair_labels:
+        vector[unknown_labels.index(label)] += 1
+    transposed = [
+        [matrix[row][column] for row in range(len(matrix))]
+        for column in range(len(unknown_labels))
+    ]
+    dual, _, consistent = solve(transposed, vector)
+    if not consistent:
+        return {}, ["the summed character of the pair is not determined"]
+    check = [
+        sum(transposed[i][j] * dual[j] for j in range(len(dual)))
+        for i in range(len(vector))
+    ]
+    if check != [Fraction(value) for value in vector]:
+        return {}, ["the summed character of the pair is not determined"]
+    total = [
+        sum(dual[row] * rhs[row][op] for row in range(len(rhs)))
+        for op in range(len(little))
+    ]
+    if total[0] != 2 or total[2] != 0 or total[3] != 0 or total[1] not in (2, -2):
+        return {}, [f"the summed character of the pair is {total}, not (2,+-2,0,0)"]
+    if kind == "C2v":
+        pair = [(Fraction(1), Fraction(0)), (Fraction(-1), Fraction(0))]
+    else:
+        # The conjugate pair of C4: the order-four generator carries +-i.
+        pair = [(Fraction(0), Fraction(1)), (Fraction(0), Fraction(-1))]
+    sign = total[1] / 2
+    values = {}
+    for offset, label in enumerate(labels[-2:]):
+        first, second = pair if offset == 0 else (pair[1], pair[0])
+        if label in duals:
+            # A sibling the extra-point route already fixed: the ordering
+            # prediction must agree with it, otherwise the convention is wrong
+            # for this domain and nothing is returned.
+            own = [
+                sum(duals[label][row] * rhs[row][op] for row in range(len(rhs)))
+                for op in range(len(little))
+            ]
+            predicted = [
+                Fraction(1),
+                sign,
+                first[0],
+                second[0],
+            ]
+            if [Fraction(value) for value in own] != predicted or any(
+                part[1] != 0 for part in (first, second)
+            ):
+                return {}, [
+                    f"the ordered pair disagrees with the determined source {label}"
+                ]
+            continue
+        values[label] = [
+            (Fraction(1), Fraction(0)),
+            (sign, Fraction(0)),
+            first,
+            second,
+        ]
+    return values, problems
+
+
 def derive_line(sg, k_label, labels, verbose=False):
     """Solve the little-group character tables of every irrep on one k domain.
 
@@ -722,6 +886,7 @@ def derive_line(sg, k_label, labels, verbose=False):
 
     extra_solved = {}
     extra_used = []
+    routes = {}
     missing = [label for label in labels if label not in duals]
     reported = set(problems)
     if missing:
@@ -733,28 +898,42 @@ def derive_line(sg, k_label, labels, verbose=False):
                 expected_identity[label] = full_dim[label] // star
         extra, extra_used = extra_point_equations(sg, k_label, direction, little)
         if extra:
-            extra_solved, extra_problems = resolve_from_extra_points(
+            extra_solved, _ = resolve_from_extra_points(
                 unknown_labels, equations, extra, missing, expected_identity
             )
-            for label in missing:
-                if label in extra_solved:
-                    continue
-                message = (
-                    f"SG {sg} k {k_label}: character of {label} is not determined "
-                    "by the compatibility data"
-                )
-                if message not in reported:
-                    problems.append(message)
+        remaining = [label for label in missing if label not in extra_solved]
+        if remaining:
+            # A pair of one-dimensional line irreps that only ever appears in
+            # the Gamma rows through its sum is closed by the little cogroup's
+            # standard source ordering; see `cogroup_pair_route`.
+            pair_solved, pair_problems = cogroup_pair_route(
+                little, labels, unknown_labels, matrix, rhs, duals
+            )
+            pair_solved = {
+                label: values
+                for label, values in pair_solved.items()
+                if label in remaining
+            }
+            extra_solved.update(pair_solved)
+            if pair_solved:
+                routes.update({label: "cogroup_pair" for label in pair_solved})
+                remaining = [label for label in missing if label not in extra_solved]
+            for message in pair_problems:
+                if remaining and message not in reported:
+                    problems.append(
+                        f"SG {sg} k {k_label}: character of {remaining[0]} is not "
+                        f"determined by the compatibility data ({message})"
+                    )
                     reported.add(message)
-        else:
-            for label in missing:
-                message = (
-                    f"SG {sg} k {k_label}: character of {label} is not determined "
-                    "by the compatibility data"
-                )
-                if message not in reported:
-                    problems.append(message)
-                    reported.add(message)
+        for label in remaining:
+            message = (
+                f"SG {sg} k {k_label}: character of {label} is not determined "
+                "by the compatibility data"
+            )
+            if message not in reported:
+                problems.append(message)
+                reported.add(message)
+        routes.update({label: "extra_point" for label in extra_solved if label in missing})
 
     operations = []
     for index, element in enumerate(little):
@@ -764,16 +943,23 @@ def derive_line(sg, k_label, labels, verbose=False):
             return {}, [f"SG {sg} k {k_label}: incompatible characters at {element[2]}"]
         characters = {}
         for label in duals:
-            characters[label] = sum(a * b for a, b in zip(duals[label], values))
+            characters[label] = (
+                sum(a * b for a, b in zip(duals[label], values)),
+                Fraction(0),
+            )
         for label, solved in extra_solved.items():
-            characters[label] = Fraction(solved[index])
+            value = solved[index]
+            # The Gamma route yields rational characters, the little-cogroup
+            # route yields exact (real, imaginary) pairs.
+            characters[label] = value if isinstance(value, tuple) else (Fraction(value), Fraction(0))
         operations.append(
             {
                 "element": element[2],
                 "rotation": [[str(value) for value in row] for row in element[0]],
                 "translation": [str(value) for value in element[1]],
                 "characters": {
-                    label: str(value) for label, value in characters.items()
+                    label: [str(real), str(imaginary)]
+                    for label, (real, imaginary) in characters.items()
                 },
             }
         )
@@ -804,12 +990,13 @@ def derive_line(sg, k_label, labels, verbose=False):
             "k_vector": k_vector,
             "direction": [str(value) for value in direction],
             "components": components,
+            "route": routes.get(label, "gamma"),
             "equations": equations,
             "extra_points": [
                 {"point": point, "alpha": alpha, "irreps": used}
                 for point, alpha, used in extra_used
             ]
-            if label in extra_solved
+            if routes.get(label) == "extra_point"
             else [],
             "operations": [
                 {
@@ -821,7 +1008,35 @@ def derive_line(sg, k_label, labels, verbose=False):
                 for operation in operations
             ],
         }
+    # Drop the "not determined" messages of sources a later route solved.
+    unresolved = [
+        label
+        for label in labels
+        if label not in duals and label not in extra_solved
+    ]
+    stale = [
+        f"SG {sg} k {k_label}: character of {label} is not determined by the "
+        "compatibility data"
+        for label in labels
+        if label not in unresolved
+    ]
+    problems = [
+        message
+        for message in problems
+        if not any(
+            message == note or message.startswith(note + " (") for note in stale
+        )
+    ]
     return tables, problems
+
+
+def character_parts(value):
+    """Exact (real, imaginary) parts of a stored character, as integers."""
+    real, imaginary = Fraction(value[0]), Fraction(value[1])
+    for part in (real, imaginary):
+        if part.denominator != 1:
+            raise ValueError(f"character {value} is not a Gaussian integer")
+    return str(real.numerator), str(imaginary.numerator)
 
 
 def emit_rust(tables, missing, path):
@@ -839,8 +1054,16 @@ def emit_rust(tables, missing, path):
         "//! official `iso` 9.6.1: the Gamma irreps' compatibility rows for the line",
         "//! (`SHOW COMPATIBILITY`) fix the little irreps' characters through",
         "//! `sum_i n_Gamma mult(Gamma -> i) D_i(R) = chi_Gamma(R)` at k = Gamma, where",
-        "//! no Bloch phase enters.  The eight sources whose Gamma rows cannot separate",
-        "//! them are deliberately absent; see `docs/isotropy-data-semantics.md`.",
+        "//! no Bloch phase enters.  65 of the 73 sources are fixed that way.",
+        "//! The remaining eight (SG 202/203/209/210 `DT3`/`DT4`) appear in every Gamma",
+        "//! row only through `DT3 + DT4`, which the same rows do determine; the split",
+        "//! uses the pinned source ordering of the little cogroup `C2v` (`DT1`, `DT2`",
+        "//! come out as `A1`, `A2`, and the ordering check for `B1`, `B2` is verified",
+        "//! against those two sources per space group).  `cogroup_pair_route` in",
+        "//! `scripts/freeze_w_little_characters.py` documents the gate, and",
+        "//! `tests/w_little_characters.rs` cross-checks the resulting tables against",
+        "//! the archived CIR characters of the compatible points.  See",
+        "//! `docs/isotropy-data-semantics.md` section 4.",
         "",
         "/// One little-group operation of a parametric-k irrep.",
         "#[derive(Debug, Clone, Copy)]",
@@ -851,8 +1074,11 @@ def emit_rust(tables, missing, path):
         "    pub rotation: [[i8; 3]; 3],",
         "    /// Translation part in the parent's conventional cell, as fractions.",
         "    pub translation: [&'static str; 3],",
-        "    /// Character of the little irrep on this operation.",
-        "    pub character: i32,",
+        "    /// Character of the little irrep on this operation, as exact",
+        "    /// (real, imaginary) integer parts; the cubic `DT3`/`DT4` pair of",
+        "    /// SG 209/210 is the conjugate pair with +-i on the order-four",
+        "    /// generator, every other source is real.",
+        "    pub character: [i32; 2],",
         "}",
         "",
         "/// Character table of one little irrep at a parametric k domain.",
@@ -872,7 +1098,7 @@ def emit_rust(tables, missing, path):
         "    pub operations: &'static [LittleOperation],",
         "}",
         "",
-        "/// The 65 little irreps solved from the Gamma compatibility data.",
+        "/// The 73 little irreps behind the parametric-k subduction rows.",
         "pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[",
     ]
     for table in tables:
@@ -901,15 +1127,16 @@ def emit_rust(tables, missing, path):
                 + rotation
                 + "], translation: ["
                 + translation
-                + "], character: "
-                + str(int(Fraction(op["character"])))
-                + " },"
+                + "], character: ["
+                + ", ".join(character_parts(op["character"]))
+                + "] },"
             )
         lines.append("        ],")
         lines.append("    },")
     lines.append("];")
     lines.append("")
-    lines.append("/// Sources the Gamma compatibility data cannot separate.")
+    lines.append("/// Sources the frozen data does not cover (empty when every source is")
+    lines.append("/// covered by the Gamma rows or by the little-cogroup ordering route).")
     lines.append("pub static W_LITTLE_CHARACTERS_UNRESOLVED: &[(u8, &str)] = &[")
     for label, sg in sorted(missing):
         lines.append(f"    ({sg}, \"{label}\"),")

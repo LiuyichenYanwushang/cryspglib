@@ -24,7 +24,7 @@ TABLE_RE = re.compile(
 OP_RE = re.compile(
     r'LittleOperation \{ element: "(?P<element>[^"]*)", '
     r"rotation: \[(?P<rotation>.*?)\], translation: \[(?P<translation>.*?)\], "
-    r"character: (?P<character>-?\d+) \}",
+    r"character: \[(?P<real>-?\d+), (?P<imaginary>-?\d+)\] \}",
     re.S,
 )
 UNRESOLVED_RE = re.compile(r'\((\d+), "([A-Z0-9]+)"\)')
@@ -44,7 +44,7 @@ def parse_tables():
                 {
                     "element": op.group("element"),
                     "rotation": op.group("rotation"),
-                    "character": int(op.group("character")),
+                    "character": (int(op.group("real")), int(op.group("imaginary"))),
                 }
                 for op in OP_RE.finditer(body)
             ],
@@ -62,16 +62,10 @@ class FrozenCharacterTableTests(unittest.TestCase):
         self.tables, self.unresolved = parse_tables()
 
     def test_size_and_unresolved_set(self):
-        self.assertEqual(len(self.tables), 65)
-        self.assertEqual(
-            sorted(self.unresolved),
-            [(202, "DT3"), (202, "DT4"), (203, "DT3"), (203, "DT4"),
-             (209, "DT3"), (209, "DT4"), (210, "DT3"), (210, "DT4")],
-        )
+        self.assertEqual(len(self.tables), 73)
+        self.assertEqual(self.unresolved, [])
         keys = {(t["space_group"], t["label"]) for t in self.tables}
-        self.assertEqual(len(keys), 65, "duplicate table")
-        for key in self.unresolved:
-            self.assertNotIn(key, keys)
+        self.assertEqual(len(keys), 73, "duplicate table")
 
     def test_every_table_starts_at_the_identity(self):
         for table in self.tables:
@@ -79,20 +73,60 @@ class FrozenCharacterTableTests(unittest.TestCase):
             self.assertTrue(operations, table)
             first = operations[0]
             self.assertEqual(first["element"], "x,y,z")
-            self.assertEqual(first["character"], table["dimension"], table)
+            self.assertEqual(first["character"], (table["dimension"], 0), table)
             for op in operations:
-                self.assertLessEqual(abs(op["character"]), table["dimension"], table)
+                real, imaginary = op["character"]
+                self.assertLessEqual(
+                    real * real + imaginary * imaginary,
+                    table["dimension"] ** 2,
+                    table,
+                )
 
     def test_sg196_anchors(self):
         by_key = {(t["space_group"], t["label"]): t for t in self.tables}
         dt1 = by_key[(196, "DT1")]
         self.assertEqual(dt1["k_label"], "DT")
-        self.assertEqual([op["character"] for op in dt1["operations"]], [1, 1])
+        self.assertEqual(
+            [op["character"] for op in dt1["operations"]], [(1, 0), (1, 0)]
+        )
         dt2 = by_key[(196, "DT2")]
-        self.assertEqual([op["character"] for op in dt2["operations"]], [1, -1])
+        self.assertEqual(
+            [op["character"] for op in dt2["operations"]], [(1, 0), (-1, 0)]
+        )
         sm1 = by_key[(196, "SM1")]
-        self.assertEqual([op["character"] for op in sm1["operations"]], [1])
+        self.assertEqual([op["character"] for op in sm1["operations"]], [(1, 0)])
         self.assertNotEqual(dt1["operations"], dt2["operations"])
+
+    def test_cubic_dt_pairs(self):
+        """The pair the Gamma rows leave open, from the little cogroup route."""
+        determined = {
+            "DT1": [(1, 0), (1, 0), (1, 0), (1, 0)],
+            "DT2": [(1, 0), (1, 0), (-1, 0), (-1, 0)],
+        }
+        real_pair = {
+            "DT3": [(1, 0), (-1, 0), (1, 0), (-1, 0)],
+            "DT4": [(1, 0), (-1, 0), (-1, 0), (1, 0)],
+        }
+        complex_pair = {
+            "DT3": [(1, 0), (-1, 0), (0, 1), (0, -1)],
+            "DT4": [(1, 0), (-1, 0), (0, -1), (0, 1)],
+        }
+        by_key = {(t["space_group"], t["label"]): t for t in self.tables}
+        for space_group, pair in (
+            (202, real_pair),
+            (203, real_pair),
+            (209, complex_pair),
+            (210, complex_pair),
+        ):
+            expected = dict(determined, **pair)
+            for label, characters in expected.items():
+                table = by_key[(space_group, label)]
+                self.assertEqual(table["k_label"], "DT", (space_group, label))
+                self.assertEqual(
+                    [op["character"] for op in table["operations"]],
+                    characters,
+                    (space_group, label),
+                )
 
 
 if __name__ == "__main__":

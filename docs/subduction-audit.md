@@ -44,14 +44,17 @@ oracle 5,756 条 w 行对 pinned 5,756 条 w 行、0 不匹配**，其中 144 �
 | 范围 | 证据 | 状态 |
 |---|---|---|
 | 普通恒等分导（15,239 记录 / 94,271 正项 / 366,260 probe / Γ Frobenius 1,895） | **cryspglib 引擎计算** + 几何与零项检查 | 范围内闭合，0 未支持 |
-| 其它波矢 w 行（1,006 记录 / 5,756 行） | 官方 `iso` live oracle 逐行（键 = 子群号 + Dir） | 逐行一致；**引擎未计算**，`--require-w-complete` 退出 2 |
+| 其它波矢 w 行（1,006 记录 / 5,756 行） | 官方 `iso` live oracle 逐行（键 = 子群号 + Dir）+ 冻结 little 特征标 73/73 | 逐行一致、数据齐备；**引擎仍未计算频率**，`--require-w-complete` 退出 2 |
 
-这 5,756 行里 **348 行（194 条记录，6.0%）**引用 SG 202/203/209/210 的 `DT3`/`DT4`
-—— 这 8 个源的特征标目前解不出来（Γ 兼容表只能定它们的和，线上其它特殊点的
-`SHOW CHARACTER` 又被星污染，pinned 通道也区分不了它们：两个块逐行相同）。
-其余 **5,408 行（93.99%）**的源已有冻结特征标
-（`src/irrep/w_little_characters_data.rs`，65/73，锚点回归 `tests/w_little_characters.rs`），
-下一步是引擎侧的 Mackey/特征标求和。
+这 5,756 行的源现在**全部有冻结特征标**：
+`src/irrep/w_little_characters_data.rs` 覆盖 73/73（`W_LITTLE_CHARACTERS_UNRESOLVED`
+为空），`scripts/check_other_wave_vector_rows.py` 打印
+`rows_with_frozen_table=5756 rows_blocked=0`。其中 65 个源由 Γ 兼容行唯一确定，
+SG 202/203/209/210 的 `DT3`/`DT4`（348 行）由小群配对路线闭合（Γ 方程定出配对和、
+pinned 源次序给出拆分，并用归档 CIR 在 X 点的字符逐操作交叉核对；详见
+`docs/isotropy-data-semantics.md` §4 与 `docs/task9-remaining-work.md`）。
+锚点回归：`tests/w_little_characters.rs`（6 项）。下一步只剩引擎侧的
+Mackey/特征标求和，把 5,756 行的频率算出来与 pinned 表逐行比较。
 
 Mackey/特征标求和的 Python 原型（`target/task9/explore/proto_freq.py`，未入库）已把公式
 跑通一半：对 `(母群 SG, irrep, Dir)` 用程序打印的**子群操作**（`VALUE IRREP` +
