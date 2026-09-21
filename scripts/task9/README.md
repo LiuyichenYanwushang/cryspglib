@@ -61,9 +61,26 @@ production audit (`examples/audit_irrep_subduction`) reports:
 | other-wave-vector entries | 5,756 still without resolved k parameters |
 
 `VERDICT inconsistent ... hard_failures=1698`, so this is progress, not
-acceptance.  The largest known gap is the per-parent recorded setting: the
-isotropy tables of the monoclinic parents (SG 3–15) and a few others are
-recorded in a different ITA cell/axis choice than the program's default, so
-their records need the parent setting resolved first
-(`scripts/task9/census_settings.py` sketches the sweep; it is not yet wired into
-the pipeline above).
+acceptance.
+
+## Measured negative result: the monoclinic parents are *not* a setting problem
+
+The 95 rejected embeddings concentrate in the monoclinic parents SG 3–15, whose
+stored basis/origin do not match the default query frame (`SET I ALL OR 1`) for
+about a third of their records.  Sweeping the parent setting
+(`scripts/task9/sweep_mono.py`: `OR1`/`OR2` × `AXIS b|c` × `CELL 1|2|3`, 18
+variants) and asking the engine about each variant's derived `U` gives:
+
+| | |
+|---|---|
+| best variant | `OR1` for all 13 parents (ties broken by order) |
+| records accepted | 172 / 262 |
+| accepted set | **identical for every variant** (`variant_sets.py`, SG 14: all 18 variants accept the same 14 ordinals) |
+
+So re-querying in the recorded ITA setting does not move the engine's answer:
+the 90 rejected monoclinic records need a *child shift*, not a different parent
+frame, and the `OR1`/`OR2` origin difference does not produce one for them
+(the two settings print different cells, so `-(B^T)^-1 (o_OR1 - o_OR2)` is not
+the frame difference).  Next entry point: derive the monoclinic child shift from
+`SHOW ELEMENTS` (the generator's `origin_choice_shift` route) instead of from the
+printed origins, and cross-check it against the stored identity frequencies.
