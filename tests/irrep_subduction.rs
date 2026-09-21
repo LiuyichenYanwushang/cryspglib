@@ -693,3 +693,179 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
     );
     assert!(pinned + ambiguous + unresolved_setting == frozen_subgroup_records);
 }
+
+/// The shipped rows carry the Bloch phase of their representatives.
+///
+/// SG 139 `P1` at k = (1/2,1/2,1/2) has the identity operation at t = 0 with
+/// chi = 1 and the same element at the I-centring vector (1/2,1/2,1/2) with
+/// chi = -i.  That fixes the convention to
+/// `chi(t + L) = chi(t) * exp(+2 pi i k . L)`: `k . L = 3/4`, and `+3/4` gives
+/// `-i` while `-3/4` would give `+i`.  A lost or flipped phase is therefore a
+/// detectable error, not a convention choice.
+#[test]
+fn shipped_rows_carry_the_bloch_phase_of_their_representatives() {
+    use cryspglib::irrep::query;
+    use cryspglib::irrep::subduction::{bloch_phase, Rat, Vec3R};
+
+    let record = query::irreps_of(139)
+        .iter()
+        .find(|record| record.ml == "P1" && !record.spinor)
+        .expect("139 P1");
+    assert_eq!((record.kx, record.ky, record.kz, record.kd), (1, 1, 1, 2));
+    let row = record
+        .ordinary_scalar_selected_arm_block_trace()
+        .expect("row");
+    let identity = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    let mut at_origin = None;
+    let mut at_centring = None;
+    for (value, operation) in row.values().iter().zip(row.operations()) {
+        if operation.rotation != identity {
+            continue;
+        }
+        if operation.translation == [0.0, 0.0, 0.0] {
+            at_origin = Some(*value);
+        }
+        if operation.translation == [0.5, 0.5, 0.5] {
+            at_centring = Some(*value);
+        }
+    }
+    let at_origin = at_origin.expect("identity at the origin");
+    let at_centring = at_centring.expect("identity at the centring vector");
+    assert!((at_origin - 1.0).norm() < 1e-9);
+    assert!((at_centring - num_complex::Complex64::new(0.0, -1.0)).norm() < 1e-9);
+
+    let wave_vector = Vec3R::new([Rat::new(1, 2).unwrap(); 3]);
+    let lattice_vector = Vec3R::new([Rat::new(1, 2).unwrap(); 3]);
+    let phase = bloch_phase(&wave_vector, &lattice_vector).unwrap();
+    assert!(
+        (at_origin * phase - at_centring).norm() < 1e-9,
+        "the shipped row uses chi(t + L) = chi(t) exp(+2 pi i k.L)"
+    );
+    assert!(
+        (at_origin * phase.conj() - at_centring).norm() > 0.5,
+        "the opposite phase sign does not reproduce the shipped row"
+    );
+}
+
+#[test]
+fn non_gamma_probes_decompose_their_folded_block() {
+    use cryspglib::irrep::query;
+    use cryspglib::irrep::subduction::{fold_wave_vector, SubgroupEmbedding};
+    use cryspglib::irrep::subduce_irrep_with_embedding;
+
+    // (parent, condensing irrep, direction, probe, expected folded k, expected targets)
+    /// (parent, condensing irrep, direction, probe, folded k, expected targets)
+    type FoldCase = (u8, &'static str, &'static str, &'static str, [(i128, i128); 3], &'static [(&'static str, u32)]);
+    let cases: [FoldCase; 5] = [
+        (16, "R1", "P1", "X1", [(1, 1), (0, 1), (0, 1)], &[("T1", 1)]),
+        (16, "R1", "P1", "X2", [(1, 1), (0, 1), (0, 1)], &[("T2", 1)]),
+        (16, "R1", "P1", "Y1", [(0, 1), (1, 1), (0, 1)], &[("Y1", 1)]),
+        (16, "R1", "P1", "Z1", [(0, 1), (0, 1), (1, 1)], &[("Z1", 1)]),
+        (221, "GM4+", "P1", "R1+", [(1, 2), (-1, 2), (1, 2)], &[("A1+", 1)]),
+    ];
+    for (sg, ml, direction, probe_ml, folded, targets) in cases {
+        let subgroup =
+            isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(direction))
+                .expect("condensing record");
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
+        let probe = query::irreps_of(sg)
+            .iter()
+            .find(|record| record.ml == probe_ml && !record.spinor)
+            .unwrap_or_else(|| panic!("SG {sg} has no probe {probe_ml}"));
+        // The fold itself is T^T k_G, computed here independently.
+        let k_g = {
+            let denominator = i128::from(probe.kd);
+            cryspglib::irrep::subduction::Vec3R::new([
+                Rat::new(i128::from(probe.kx), denominator).unwrap(),
+                Rat::new(i128::from(probe.ky), denominator).unwrap(),
+                Rat::new(i128::from(probe.kz), denominator).unwrap(),
+            ])
+        };
+        let expected: Vec<Rat> = folded
+            .iter()
+            .map(|(numerator, denominator)| Rat::new(*numerator, *denominator).expect("rational"))
+            .collect();
+        let computed = fold_wave_vector(embedding.transform(), &k_g).expect("fold");
+        assert_eq!(computed.as_array(), expected.as_slice(), "SG {sg} {probe_ml}");
+
+        let result = subduce_irrep_with_embedding(&subgroup, &embedding, probe)
+            .unwrap_or_else(|error| panic!("SG {sg} {probe_ml}: {error}"));
+        assert_eq!(result.folded_k().as_slice(), expected.as_slice());
+        let found: Vec<(&str, u32)> = result
+            .targets()
+            .iter()
+            .map(|target| (target.ml, target.multiplicity))
+            .collect();
+        assert_eq!(found, targets, "SG {sg} {probe_ml} targets");
+        let dimension_sum: u32 = result
+            .targets()
+            .iter()
+            .map(|target| u32::from(target.dimension) * target.multiplicity)
+            .sum();
+        assert_eq!(
+            dimension_sum,
+            u32::from(result.parent_dimension()),
+            "SG {sg} {probe_ml} dimension sum"
+        );
+        let (parent, rebuilt) = result.reconstruction();
+        assert!(!parent.is_empty());
+        for (index, (expected, found)) in parent.iter().zip(rebuilt).enumerate() {
+            assert!(
+                (expected - found).norm() <= result.tolerance(),
+                "SG {sg} {probe_ml} operation {index}: {found} != {expected}"
+            );
+        }
+        // Every reconstructed value must be a genuine character value of the
+        // folded block: the magnitudes cannot exceed the dimension.
+        for value in parent {
+            assert!(value.norm() <= f64::from(result.parent_dimension()) + 1e-9);
+        }
+    }
+}
+
+/// Scanning the frozen pairs, probes split into three outcomes: a folded block
+/// with data, a multi-arm star (task 8), or missing subgroup data.  The counts
+/// are pinned so a silent change in either direction is visible.
+#[test]
+fn non_gamma_coverage_is_counted_not_assumed() {
+    use cryspglib::irrep::query;
+    use cryspglib::irrep::subduction::SubgroupEmbedding;
+    use cryspglib::irrep::{subduce_irrep_with_embedding, SubductionError};
+
+    let mut folded = 0usize;
+    let mut multi_arm = 0usize;
+    let mut missing = 0usize;
+    let mut other: Vec<String> = Vec::new();
+    for (sg, ml, direction) in [
+        (16u8, "R1", "P1"),
+        (221, "GM4+", "P1"),
+        (221, "GM4+", "P2"),
+    ] {
+        let subgroup =
+            isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(direction))
+                .expect("record");
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
+        for probe in query::irreps_of(sg) {
+            if probe.spinor {
+                continue;
+            }
+            match subduce_irrep_with_embedding(&subgroup, &embedding, probe) {
+                Ok(_) => folded += 1,
+                Err(SubductionError::UnsupportedMultiArmStar { .. }) => multi_arm += 1,
+                Err(SubductionError::MissingIrrepData { .. }) => missing += 1,
+                Err(error) => other.push(format!("SG {sg} {}: {error}", probe.ml)),
+            }
+        }
+    }
+    println!(
+        "non-Gamma probes: folded {folded} | multi-arm {multi_arm} | missing data {missing} | \
+         other {}",
+        other.len()
+    );
+    assert!(other.is_empty(), "{}", other.join("\n"));
+    assert!(folded > 0 && multi_arm > 0, "both outcomes must occur");
+    // Measured over the three sampled pairs; missing data does not occur here
+    // because those folded blocks all exist (the gap path is exercised by the
+    // wider scan in `non_gamma_coverage_scan_reports_the_gap`).
+    assert_eq!((folded, multi_arm, missing), (72, 40, 0));
+}

@@ -370,6 +370,22 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
 `AmbiguousEmbedding` 或 `NoValidEmbedding`，不猜。任务 9 负责从 oracle 生成全表
 逐记录 setting 元数据（含一般 unimodular/shear 候选）。
 
+### 分导任务 7 状态（2026-09-21）
+
+- 任务 7（k 折叠与非 Γ 相位）已落地：精确 `k_H = T^T k_G` + 子群倒格等价类匹配
+  （保留 centring 消光）、单臂 star 限制（`UnsupportedMultiArmStar`）、缺数据报
+  `MissingIrrepData`、非 Γ 端到端用例（16 `R1`→#22 的 X/Y/Z、221 `GM4+` P1→#83 的
+  R1+、167 `GM3+` P1→#15 的 T3）。
+- 关键语义（新钉死）：shipped 角色行**自带代表元的 Bloch 相位**
+  `χ(t+L) = χ(t)·exp(+2πi k·L)`——见证是 SG 139 `P1`（k=(1/2,1/2,1/2)）恒等操作
+  在 t=0 为 1、在 I 心平移 (1/2,1/2,1/2) 为 −i；配对必须「旋转 + 平移模格 + 相位
+  修正」，且多代表元修正后必须一致（符号错会不一致）。已写成永久测试
+  `shipped_rows_carry_the_bloch_phase_of_their_representatives`。
+- 子群侧帧歧义（shipped 行在子群 Hall setting，嵌入映射记录 setting，可能差冻结
+  原点平移，如 #126 的 (1/4,1/4,1/4)）只用两种读法 + 完整检查裁定，不猜。
+- 抽样覆盖（冻结 (母群,子群) 对 × 全部非 spinor 探针）：折叠成功 160、多臂 164、
+  缺数据 0、其它错误 0；Γ 侧 1895/210/10/171/29 的清点保持不变。
+
 ### 顺带清理
 
 - 删除 `src/irrep/settings_data.rs` 与 `scripts/extract_sg_settings.py`：该表

@@ -161,6 +161,17 @@ pub enum SubductionError {
     /// A complex target row is not irreducible over the coset set.
     #[error("target {ml} has norm {norm} instead of 1; it is not a complex irrep")]
     TargetNotIrreducible { ml: &'static str, norm: f64 },
+    /// The folded wave vector is not among the subgroup's stored k-points.
+    ///
+    /// The reduction is done by exact rational arithmetic and matched modulo the
+    /// subgroup's reciprocal lattice (centring extinctions included); a nearest
+    /// match or an arbitrary rounding is never used.
+    #[error("subgroup {sg} has no irrep data at the folded k = ({}, {}, {})", k[0], k[1], k[2])]
+    MissingIrrepData { sg: u8, k: [Rat; 3] },
+    /// The parent star has more than one arm, so the subduced representation
+    /// splits across several subgroup stars (task 8).
+    #[error("parent star of k = ({}, {}, {}) has several arms", k[0], k[1], k[2])]
+    UnsupportedMultiArmStar { sg: u8, k: [Rat; 3] },
     /// A frozen setting did not reproduce the subgroup inside the parent.
     #[error("recorded setting {setting:?} for subgroup {subgroup_sg} failed validation")]
     FrozenEmbeddingRejected { subgroup_sg: u8, setting: Mat3I },
@@ -289,6 +300,14 @@ impl Rat {
     pub fn to_i32(self) -> Result<i32, SubductionError> {
         let value = self.to_integer()?;
         i32::try_from(value).map_err(|_| SubductionError::IntegerOutOfRange { value })
+    }
+
+    /// Lossy `f64` value, for trigonometric phase evaluation only.
+    ///
+    /// Every comparison in this module is exact; this exists solely to turn an
+    /// exact phase angle into a unit complex number.
+    pub fn to_f64(self) -> f64 {
+        self.num as f64 / self.den as f64
     }
 
     /// Checked addition.
@@ -884,6 +903,27 @@ impl Lattice {
         &self.rows
     }
 
+    /// The reciprocal lattice of this direct lattice.
+    ///
+    /// Row vectors are `(L^-1)^T`, so a vector `h` is a reciprocal lattice
+    /// vector exactly when `h . t` is an integer for every direct lattice
+    /// vector `t`.  For a centred cell this keeps the centring extinctions
+    /// (`h1 + h2` even for C-centring, and so on), which is why wave vector
+    /// equality must use this lattice rather than per-coordinate reduction.
+    pub fn reciprocal(&self) -> Result<Self, SubductionError> {
+        Self::new(self.rows.inverse()?.transpose())
+    }
+
+    /// Whether `rotation` fixes `wave_vector` modulo this lattice.
+    pub fn preserves(
+        &self,
+        rotation: Mat3I,
+        wave_vector: &Vec3R,
+    ) -> Result<bool, SubductionError> {
+        let image = Mat3R::from_ints(rotation).checked_mul_vector(wave_vector)?;
+        self.contains(&image.checked_sub(wave_vector)?)
+    }
+
     /// Exact determinant (signed volume).
     pub fn determinant(&self) -> Result<Rat, SubductionError> {
         self.rows.determinant()
@@ -1108,6 +1148,7 @@ pub struct SubgroupEmbedding {
     subgroup_sg: u8,
     ordinal: usize,
     setting: Mat3I,
+    child_shift: Vec3R,
     transform: SeitzTransform,
     parent_lattice: Lattice,
     subgroup_lattice: Lattice,
@@ -1277,6 +1318,7 @@ impl SubgroupEmbedding {
             subgroup_sg,
             ordinal: subgroup.ordinal,
             setting,
+            child_shift: shift,
             transform,
             parent_lattice,
             subgroup_lattice,
@@ -1304,6 +1346,16 @@ impl SubgroupEmbedding {
     /// The setting transform `U` that produced the accepted candidate.
     pub const fn setting(&self) -> Mat3I {
         self.setting
+    }
+
+    /// The subgroup-frame origin shift applied to the shipped operations.
+    ///
+    /// Non-zero when the isotropy record uses a different ITA origin choice than
+    /// the subgroup's Hall setting (#126 is the recorded example).  Mapping an
+    /// operation *back* into the subgroup frame therefore has to undo it before
+    /// the shipped rows can be looked up.
+    pub const fn child_shift(&self) -> &Vec3R {
+        &self.child_shift
     }
 
     /// `x_G = T x_H + o`.
@@ -1530,6 +1582,7 @@ pub struct IrrepSubduction {
     subgroup_sg: u8,
     ordinal: usize,
     setting: Mat3I,
+    folded_k: [Rat; 3],
     targets: Vec<SubductionTarget>,
     parent_characters: Vec<Complex64>,
     reconstructed: Vec<Complex64>,
@@ -1570,6 +1623,14 @@ impl IrrepSubduction {
     /// The setting transform of the embedding this result belongs to.
     pub const fn setting(&self) -> Mat3I {
         self.setting
+    }
+
+    /// The probe's wave vector folded into the subgroup frame, `T^T k_G`.
+    ///
+    /// Exact: the subgroup k-block this result decomposes is the one equivalent
+    /// to this vector modulo the subgroup's reciprocal lattice.
+    pub const fn folded_k(&self) -> [Rat; 3] {
+        self.folded_k
     }
 
     /// Non-zero terms, in the subgroup's irrep order.
@@ -1657,6 +1718,14 @@ pub fn subduce_irrep(
 ///
 /// Scanning many probes of the same subgroup should not rebuild the embedding
 /// (and re-run its candidate validation) for every probe.
+///
+/// Wave vectors are folded exactly: `k_H = T^T k_G` with checked rational
+/// arithmetic, then matched against the subgroup's stored k-points **modulo the
+/// subgroup's reciprocal lattice**, which keeps the centring extinctions.  Only
+/// single-arm parent stars are supported (the little group must be the whole
+/// point group); everything else is an explicit error, and a folded k with no
+/// stored data is reported as missing rather than truncated or rounded onto the
+/// nearest point.
 pub fn subduce_irrep_with_embedding(
     subgroup: &IsotropySubgroup,
     embedding: &SubgroupEmbedding,
@@ -1664,43 +1733,165 @@ pub fn subduce_irrep_with_embedding(
 ) -> Result<IrrepSubduction, SubductionError> {
     let parent_sg = subgroup.parent_sg;
     let parent_lattice = *embedding.parent_lattice();
-    let child_cell = Lattice::new(exact_primitive_basis(embedding.subgroup_sg())?)?;
 
-    // Parent characters and the mapped-back operations, in one pass: every
-    // representative is looked up in the parent row (or in the constituents of a
-    // compound parent row) and pulled back into the subgroup frame, where the
-    // target rows live.
-    let mut parent_characters = Vec::with_capacity(embedding.representatives().len());
-    let mut pulled_back = Vec::with_capacity(embedding.representatives().len());
-    for (index, operation) in embedding.representatives().iter().enumerate() {
+    // Fold the probe's wave vector into the subgroup frame.
+    let wave_vector = inline_k_vector(probe)?;
+    let folded = fold_wave_vector(embedding.transform(), &wave_vector)?;
+    let parent_reciprocal = parent_lattice.reciprocal()?;
+    // Single arm: every parent operation fixes k_G.  A larger star folds onto
+    // several subgroup stars and needs the full-star adapter (task 8).
+    for operation in &strict_sg_hall_ops(parent_sg)?.operations {
+        if !parent_reciprocal.preserves(operation.rotation(), &wave_vector)? {
+            return Err(SubductionError::UnsupportedMultiArmStar {
+                sg: parent_sg,
+                k: [
+                    folded.get(0),
+                    folded.get(1),
+                    folded.get(2),
+                ],
+            });
+        }
+    }
+
+    // The subgroup block at the folded k, matched modulo its reciprocal lattice.
+    let child_cell = Lattice::new(exact_primitive_basis(embedding.subgroup_sg())?)?;
+    let child_reciprocal = child_cell.reciprocal()?;
+    let mut block: Vec<&'static IrrepRecord> = Vec::new();
+    for record in query::irreps_of(embedding.subgroup_sg()) {
+        if record.spinor {
+            continue;
+        }
+        let stored = inline_k_vector(record)?;
+        if child_reciprocal.contains(&folded.checked_sub(&stored)?)? {
+            block.push(record);
+        }
+    }
+    if block.is_empty() {
+        return Err(SubductionError::MissingIrrepData {
+            sg: embedding.subgroup_sg(),
+            k: [folded.get(0), folded.get(1), folded.get(2)],
+        });
+    }
+
+    // Active coset representatives: those in the subgroup's little group of the
+    // folded k.  Characters of a selected-arm row are only meaningful there, so
+    // they are looked up on this set (the row itself is indexed by the complete
+    // operation universe).
+    // Parent-side characters and the active representative list do not depend on
+    // the subgroup-frame convention: rotations are unaffected by an origin shift
+    // and the little-group test only uses them.
+    let mut parent_characters = Vec::new();
+    let mut active: Vec<ExactSeitz> = Vec::new();
+    for operation in embedding.representatives() {
+        // `unmap_operation` inverts internally: hand it the forward transform.
+        let child = embedding
+            .transform()
+            .unmap_operation(operation)?
+            .reduce(&child_cell)?;
+        if !child_reciprocal.preserves(child.rotation(), &folded)? {
+            continue;
+        }
+        let index = active.len();
         parent_characters.push(parent_character_of(
             probe,
             &parent_lattice,
             operation,
+            &wave_vector,
             index,
         )?);
-        // `unmap_operation` inverts internally: hand it the forward transform.
-        let child = embedding.transform().unmap_operation(operation)?;
-        pulled_back.push(child.reduce(&child_cell)?);
+        active.push(child);
     }
-    let parent_dimension = complex_dimension(&parent_characters, embedding.representatives())?;
+    if parent_characters.is_empty() {
+        return Err(SubductionError::MissingIrrepData {
+            sg: embedding.subgroup_sg(),
+            k: [folded.get(0), folded.get(1), folded.get(2)],
+        });
+    }
 
-    let targets = complex_targets(embedding.subgroup_sg(), &pulled_back, &child_cell)?;
-    let count = embedding.representatives().len();
+    // The subgroup side has one frame ambiguity to resolve: the shipped rows
+    // live in the subgroup's Hall setting, while the embedding maps the
+    // record's setting, and they can differ by the frozen origin shift (a
+    // non-lattice vector for some operations, so the two frames are genuinely
+    // different).  Both readings are tried and the complete checks below -
+    // Gram, dimension sum and per-operation reconstruction - decide; if neither
+    // reading passes, the first error is reported rather than a guess.
+    let mut first_error = None;
+    for shift in [Vec3R::zero(), embedding.child_shift().checked_neg()?] {
+        let pulled_back = if shift.is_zero() {
+            active.clone()
+        } else {
+            match shift_operations(&active, &shift) {
+                Ok(shifted) => shifted
+                    .into_iter()
+                    .map(|operation| operation.reduce(&child_cell))
+                    .collect::<Result<Vec<_>, _>>()?,
+                Err(error) => {
+                    if first_error.is_none() {
+                        first_error = Some(error);
+                    }
+                    continue;
+                }
+            }
+        };
+        let attempt = decompose_active_block(
+            subgroup,
+            embedding,
+            probe,
+            block.as_slice(),
+            &folded,
+            &parent_characters,
+            &pulled_back,
+            &child_cell,
+        );
+        match attempt {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+                if embedding.child_shift().is_zero() {
+                    break;
+                }
+            }
+        }
+    }
+    Err(first_error.unwrap_or(SubductionError::MissingIrrepData {
+        sg: embedding.subgroup_sg(),
+        k: [folded.get(0), folded.get(1), folded.get(2)],
+    }))
+}
+
+/// Decompose the active block with one concrete subgroup-frame reading.
+#[allow(clippy::too_many_arguments)]
+fn decompose_active_block(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    probe: &'static IrrepRecord,
+    block: &[&'static IrrepRecord],
+    folded: &Vec3R,
+    parent_characters: &[Complex64],
+    pulled_back: &[ExactSeitz],
+    child_cell: &Lattice,
+) -> Result<IrrepSubduction, SubductionError> {
+    let parent_sg = subgroup.parent_sg;
+    let parent_dimension = complex_dimension(parent_characters, embedding.representatives())?;
+    let targets = complex_targets(
+        embedding.subgroup_sg(),
+        block,
+        pulled_back,
+        child_cell,
+        folded,
+    )?;
+    let count = parent_characters.len();
     let scale = 1.0 / count as f64;
 
-    // Complex-irreducibility of every target over the coset set, and pairwise
-    // orthogonality: the Gram matrix must be the identity.  A compound row fed
-    // in as one target fails here (it has norm 2), which is the whole point of
-    // expanding constituents first.
+    // Complex-irreducibility of every target over the active set, and pairwise
+    // orthogonality: the Gram matrix must be the identity on the k-block.  A
+    // compound row fed in as one target fails here (it has norm 2), which is the
+    // whole point of expanding constituents first.
     for (index, first) in targets.iter().enumerate() {
         let first_values = &first.values;
-        let norm = (first_values
-            .iter()
-            .map(|value| value.norm_sqr())
-            .sum::<f64>()
-            * scale)
-            .sqrt();
+        let norm = (first_values.iter().map(|value| value.norm_sqr()).sum::<f64>() * scale).sqrt();
         if (norm - 1.0).abs() > SUBDUCTION_TOLERANCE {
             return Err(SubductionError::TargetNotIrreducible {
                 ml: first.ml,
@@ -1770,7 +1961,7 @@ pub fn subduce_irrep_with_embedding(
     }
     for (index, (found, expected)) in reconstructed
         .iter()
-        .zip(&parent_characters)
+        .zip(parent_characters)
         .enumerate()
     {
         if (found - expected).norm() > SUBDUCTION_TOLERANCE {
@@ -1789,11 +1980,50 @@ pub fn subduce_irrep_with_embedding(
         subgroup_sg: embedding.subgroup_sg(),
         ordinal: embedding.ordinal(),
         setting: embedding.setting(),
+        folded_k: [folded.get(0), folded.get(1), folded.get(2)],
         targets: reported,
-        parent_characters,
+        parent_characters: parent_characters.to_vec(),
         reconstructed,
         tolerance: SUBDUCTION_TOLERANCE,
     })
+}
+
+/// An irrep record's wave vector as exact rationals.
+fn inline_k_vector(record: &IrrepRecord) -> Result<Vec3R, SubductionError> {
+    if record.kd <= 0 {
+        return Err(SubductionError::InvalidGrid {
+            denominator: i128::from(record.kd),
+        });
+    }
+    exact_k_vector(KVector {
+        numerators: [record.kx, record.ky, record.kz],
+        denominator: record.kd,
+    })
+}
+
+/// A wave vector as exact rationals; the narrow `i8` fields are widened, never
+/// truncated.
+fn exact_k_vector(k: KVector) -> Result<Vec3R, SubductionError> {
+    let denominator = i128::from(k.denominator);
+    if denominator <= 0 {
+        return Err(SubductionError::InvalidGrid { denominator });
+    }
+    Ok(Vec3R::new([
+        Rat::new(i128::from(k.numerators[0]), denominator)?,
+        Rat::new(i128::from(k.numerators[1]), denominator)?,
+        Rat::new(i128::from(k.numerators[2]), denominator)?,
+    ]))
+}
+
+/// `k_H = T^T k_G`, exactly.
+pub fn fold_wave_vector(
+    transform: &SeitzTransform,
+    wave_vector: &Vec3R,
+) -> Result<Vec3R, SubductionError> {
+    transform
+        .matrix()
+        .transpose()
+        .checked_mul_vector(wave_vector)
 }
 
 /// The complex dimension of the parent representation: its character on the
@@ -1857,18 +2087,42 @@ fn parent_character_of(
     record: &'static IrrepRecord,
     lattice: &Lattice,
     operation: &ExactSeitz,
+    wave_vector: &Vec3R,
     index: usize,
 ) -> Result<Complex64, SubductionError> {
     match probe_row(record)? {
-        ProbeRow::Ordinary(row) => character_of(&row, record.ml, operation, lattice, index),
+        ProbeRow::Ordinary(row) => {
+            character_of(&row, record.ml, operation, lattice, wave_vector, index)
+        }
         ProbeRow::Compound(view) => match view.as_ref() {
             CompoundSelectedArmCharacter::DistinctComponentSum { first, second, .. } => {
-                let left = character_of(&first.row, first.label, operation, lattice, index)?;
-                let right = character_of(&second.row, second.label, operation, lattice, index)?;
+                let left = character_of(
+                    &first.row,
+                    first.label,
+                    operation,
+                    lattice,
+                    wave_vector,
+                    index,
+                )?;
+                let right = character_of(
+                    &second.row,
+                    second.label,
+                    operation,
+                    lattice,
+                    wave_vector,
+                    index,
+                )?;
                 Ok(left + right)
             }
             CompoundSelectedArmCharacter::ConjugateRealification { seed, .. } => {
-                let value = character_of(&seed.row, seed.label, operation, lattice, index)?;
+                let value = character_of(
+                    &seed.row,
+                    seed.label,
+                    operation,
+                    lattice,
+                    wave_vector,
+                    index,
+                )?;
                 Ok(Complex64::new(2.0 * value.re, 0.0))
             }
         },
@@ -1892,11 +2146,14 @@ fn evaluate(
     ml: &'static str,
     pulled_back: &[ExactSeitz],
     child_cell: &Lattice,
+    wave_vector: &Vec3R,
 ) -> Result<Vec<Complex64>, SubductionError> {
     pulled_back
         .iter()
         .enumerate()
-        .map(|(index, operation)| character_of(row, ml, operation, child_cell, index))
+        .map(|(index, operation)| {
+            character_of(row, ml, operation, child_cell, wave_vector, index)
+        })
         .collect()
 }
 
@@ -1907,8 +2164,9 @@ fn check_assembly(
     assembled: &[Complex64],
     pulled_back: &[ExactSeitz],
     child_cell: &Lattice,
+    wave_vector: &Vec3R,
 ) -> Result<(), SubductionError> {
-    let stored = evaluate(block_trace, row_ml, pulled_back, child_cell)?;
+    let stored = evaluate(block_trace, row_ml, pulled_back, child_cell, wave_vector)?;
     for (found, expected) in stored.iter().zip(assembled) {
         if (found - expected).norm() > SUBDUCTION_TOLERANCE {
             return Err(SubductionError::InconsistentCompoundRow { ml: row_ml });
@@ -1927,14 +2185,14 @@ fn check_assembly(
 /// orthogonality relation (its norm is 2), which is why it is expanded here.
 fn complex_targets(
     subgroup_sg: u8,
+    block: &[&'static IrrepRecord],
     pulled_back: &[ExactSeitz],
     child_cell: &Lattice,
+    wave_vector: &Vec3R,
 ) -> Result<Vec<ComplexTarget>, SubductionError> {
     let mut out = Vec::new();
-    for record in query::irreps_of(subgroup_sg) {
-        if record.spinor || !is_gamma(record) {
-            continue;
-        }
+    for record in block {
+        let record = *record;
         match record.ordinary_scalar_selected_arm_block_trace() {
             Ok(row) => {
                 let dimension = u8::try_from(row.dimension()).map_err(|_| {
@@ -1950,7 +2208,7 @@ fn complex_targets(
                     irnumber: 0,
                     dimension,
                     component: SubductionComponent::Ordinary,
-                    values: evaluate(&row, record.ml, pulled_back, child_cell)?,
+                    values: evaluate(&row, record.ml, pulled_back, child_cell, wave_vector)?,
                 });
             }
             Err(crate::irrep::types::CharacterViewError::NotApplicable) => {
@@ -1966,10 +2224,20 @@ fn complex_targets(
                         second,
                         block_trace,
                     } => {
-                        let first_values =
-                            evaluate(&first.row, first.label, pulled_back, child_cell)?;
-                        let second_values =
-                            evaluate(&second.row, second.label, pulled_back, child_cell)?;
+                        let first_values = evaluate(
+                            &first.row,
+                            first.label,
+                            pulled_back,
+                            child_cell,
+                            wave_vector,
+                        )?;
+                        let second_values = evaluate(
+                            &second.row,
+                            second.label,
+                            pulled_back,
+                            child_cell,
+                            wave_vector,
+                        )?;
                         let assembled: Vec<Complex64> = first_values
                             .iter()
                             .zip(&second_values)
@@ -1981,6 +2249,7 @@ fn complex_targets(
                             &assembled,
                             pulled_back,
                             child_cell,
+                            wave_vector,
                         )?;
                         for (index, (constituent, values)) in
                             [(first, first_values), (second, second_values)]
@@ -2008,8 +2277,13 @@ fn complex_targets(
                         }
                     }
                     CompoundSelectedArmCharacter::ConjugateRealification { seed, block_trace } => {
-                        let seed_values =
-                            evaluate(&seed.row, seed.label, pulled_back, child_cell)?;
+                        let seed_values = evaluate(
+                            &seed.row,
+                            seed.label,
+                            pulled_back,
+                            child_cell,
+                            wave_vector,
+                        )?;
                         let conjugate: Vec<Complex64> =
                             seed_values.iter().map(|value| value.conj()).collect();
                         let assembled: Vec<Complex64> = seed_values
@@ -2023,6 +2297,7 @@ fn complex_targets(
                             &assembled,
                             pulled_back,
                             child_cell,
+                            wave_vector,
                         )?;
                         let dimension = u8::try_from(seed.dimension).map_err(|_| {
                             SubductionError::UnsupportedCharacterSpace {
@@ -2071,16 +2346,43 @@ fn is_gamma(record: &IrrepRecord) -> bool {
     record.kx == 0 && record.ky == 0 && record.kz == 0
 }
 
-/// The character of `operation` in a typed row, matched by rotation and by
-/// translation modulo `lattice`.
+/// Bloch phase `exp(+2 pi i k . delta)`.
 ///
-/// Matching is deliberately not by array order: the rows and the embedding come
-/// from different tables and only agree modulo the lattice.
+/// Sign convention, pinned by the shipped data (see
+/// `shipped_rows_carry_the_bloch_phase_of_their_representatives`): a stored row
+/// entry for the representative `t` and the same element represented by
+/// `t + L` (with `L` a lattice vector) satisfy
+/// `chi(t + L) = chi(t) * exp(+2 pi i k . L)`.  The phase is evaluated with
+/// `f64` trigonometry from exact rational angles; the pairing itself stays
+/// exact.
+pub fn bloch_phase(wave_vector: &Vec3R, delta: &Vec3R) -> Result<Complex64, SubductionError> {
+    let mut angle = 0.0f64;
+    for axis in 0..3 {
+        angle += wave_vector
+            .get(axis)
+            .checked_mul(delta.get(axis))?
+            .to_f64();
+    }
+    Ok(Complex64::from_polar(1.0, std::f64::consts::TAU * angle))
+}
+
+/// The character of `operation` in a typed row.
+///
+/// The row is indexed by its own Seitz representatives, which may differ from
+/// the embedding's by a lattice vector; such entries describe the same element
+/// and are related by the Bloch phase, so the lookup matches rotation plus
+/// translation *modulo the lattice* and then corrects the phase.  Matching is
+/// deliberately not by array order.
+///
+/// If several representatives are congruent they must all give the same
+/// corrected value: that is also what validates the phase sign, since a wrong
+/// sign makes them disagree instead of agreeing.
 fn character_of(
     row: &CharacterRow,
     ml: &'static str,
     operation: &ExactSeitz,
     lattice: &Lattice,
+    wave_vector: &Vec3R,
     index: usize,
 ) -> Result<Complex64, SubductionError> {
     let mut found: Option<Complex64> = None;
@@ -2089,14 +2391,18 @@ fn character_of(
             continue;
         }
         let candidate_translation = *exact_operation(candidate)?.translation();
-        if !lattice.same_mod(operation.translation(), &candidate_translation)? {
+        let delta = operation
+            .translation()
+            .checked_sub(&candidate_translation)?;
+        if !lattice.contains(&delta)? {
             continue;
         }
+        let corrected = value * bloch_phase(wave_vector, &delta)?;
         match found {
-            Some(existing) if (existing - value).norm() > SUBDUCTION_TOLERANCE => {
+            Some(existing) if (existing - corrected).norm() > SUBDUCTION_TOLERANCE => {
                 return Err(SubductionError::InconsistentCharacterRow { ml, index })
             }
-            _ => found = Some(*value),
+            _ => found = Some(corrected),
         }
     }
     found.ok_or(SubductionError::OperationNotInCharacterRow {
@@ -2549,6 +2855,51 @@ mod tests {
             operation.apply(&mapped).unwrap(),
             operation.compose(&operation).unwrap().apply(&point).unwrap()
         );
+    }
+
+    #[test]
+    fn wave_vector_folding_is_exact_and_does_not_truncate() {
+        // A scale far outside what the narrow `i8` k fields can hold: the fold
+        // must stay exact rather than saturate or round.
+        let transform = SeitzTransform::new(Mat3R::diagonal([1024, 1, 1]), Vec3R::zero());
+        let wave_vector = Vec3R::new([rat(1, 3), rat(-1, 6), rat(7, 12)]);
+        let folded = fold_wave_vector(&transform, &wave_vector).unwrap();
+        assert_eq!(folded.get(0), rat(1024, 3));
+        assert_eq!(folded.get(1), rat(-1, 6));
+        assert_eq!(folded.get(2), rat(7, 12));
+        // And the reciprocal lattice keeps the centring extinctions: for
+        // C-centring, (1/2,1/2,0) is a direct lattice vector but (1,0,0) is not
+        // a reciprocal one.
+        let direct = Lattice::new(Mat3R::new([
+            [rat(1, 2), rat(1, 2), Rat::ZERO],
+            [rat(-1, 2), rat(1, 2), Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, Rat::ONE],
+        ]))
+        .unwrap();
+        let reciprocal = direct.reciprocal().unwrap();
+        assert!(reciprocal.contains(&Vec3R::from_ints([1, 1, 0])).unwrap());
+        assert!(!reciprocal.contains(&Vec3R::from_ints([1, 0, 0])).unwrap());
+        assert!(reciprocal.contains(&Vec3R::from_ints([2, 0, 0])).unwrap());
+    }
+
+    #[test]
+    fn folding_sends_a_zone_boundary_point_to_the_subgroup_block() {
+        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        // 16 R1 -> #22 F222 is a 2x2x2 supercell, so the parent's X point folds
+        // to a non-Gamma block of the subgroup and the parent's zone corners
+        // fold onto subgroup points equivalent modulo the F reciprocal lattice.
+        let subgroup = isotropy_subgroup_for_direction(16, "R1", IsotropyDirection::Label("P1"))
+            .expect("R1 record");
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
+        let probe = query::irreps_of(16)
+            .iter()
+            .find(|record| record.ml == "X1")
+            .expect("X1");
+        let result = subduce_irrep_with_embedding(&subgroup, &embedding, probe).expect("fold");
+        assert_eq!(result.folded_k(), [rat(1, 1), Rat::ZERO, Rat::ZERO]);
+        assert_eq!(result.parent_dimension(), 1);
+        assert_eq!(result.multiplicity("T1"), 1);
+        assert_eq!(result.targets().len(), 1);
     }
 
     #[test]
