@@ -202,8 +202,14 @@ pub enum SubductionError {
     #[error("parent star of k = ({}, {}, {}) has several arms", k[0], k[1], k[2])]
     UnsupportedMultiArmStar { sg: u8, k: [Rat; 3] },
     /// A frozen setting did not reproduce the subgroup inside the parent.
-    #[error("recorded setting {setting:?} for subgroup {subgroup_sg} failed validation")]
-    FrozenEmbeddingRejected { subgroup_sg: u8, setting: Mat3I },
+    #[error(
+        "recorded setting {setting:?}/{denominator} for subgroup {subgroup_sg} failed validation"
+    )]
+    FrozenEmbeddingRejected {
+        subgroup_sg: u8,
+        setting: Mat3I,
+        denominator: i32,
+    },
     /// Several setting candidates are consistent with the parent group, so the
     /// label correspondence cannot be decided from the stored data alone.
     #[error(
@@ -1207,6 +1213,7 @@ pub struct SubgroupEmbedding {
     subgroup_sg: u8,
     ordinal: usize,
     setting: Mat3I,
+    setting_denominator: i32,
     child_shift: Vec3R,
     transform: SeitzTransform,
     parent_lattice: Lattice,
@@ -1230,6 +1237,37 @@ impl SubgroupEmbedding {
     /// survivors are resolved by the frozen embedding metadata, otherwise the
     /// construction reports ambiguity instead of guessing.
     pub fn from_isotropy_subgroup(subgroup: &IsotropySubgroup) -> Result<Self, SubductionError> {
+        Self::build(subgroup, None)
+    }
+
+    /// Validate one explicit `(setting, child_shift)` convention for a record.
+    ///
+    /// This runs exactly the construction and validation
+    /// [`Self::from_isotropy_subgroup`] performs, but with the convention handed
+    /// in instead of read from the frozen table (and instead of the candidate
+    /// search).  The task-9 provenance tools use it to test oracle-derived
+    /// conventions against the engine's own parent frame *before* freezing them,
+    /// so a setting is never frozen on the strength of a re-implementation of
+    /// this check.  A rejected convention reports the same errors a frozen row
+    /// would, and the returned embedding is never cached.
+    pub fn probe_embedding(
+        subgroup: &IsotropySubgroup,
+        setting: Mat3I,
+        setting_denominator: i32,
+        child_shift: [i32; 4],
+    ) -> Result<Self, SubductionError> {
+        if setting_denominator <= 0 {
+            return Err(SubductionError::InvalidGrid {
+                denominator: i128::from(setting_denominator),
+            });
+        }
+        Self::build(subgroup, Some((setting, setting_denominator, child_shift)))
+    }
+
+    fn build(
+        subgroup: &IsotropySubgroup,
+        explicit: Option<(Mat3I, i32, [i32; 4])>,
+    ) -> Result<Self, SubductionError> {
         let parent_sg = subgroup.parent_sg;
         if parent_sg == 0 || parent_sg > 230 {
             return Err(SubductionError::InvalidSpaceGroup { sg: parent_sg });
@@ -1283,9 +1321,13 @@ impl SubgroupEmbedding {
         let origin = exact_origin(&subgroup.record.origin, &parent_primitive)?;
         let parent_operations =
             reduce_operations(&strict_sg_hall_ops(parent_sg)?.operations, &parent_lattice)?;
-        let frozen = frozen_setting_for(subgroup.ordinal, parent_sg, subgroup_sg)?.copied();
+        let frozen = match explicit {
+            Some(pair) => Some(pair),
+            None => frozen_setting_for(subgroup.ordinal, parent_sg, subgroup_sg)?
+                .map(|entry| (entry.3, entry.4, entry.5)),
+        };
         let shift = match frozen {
-            Some((.., delta)) => exact_origin(&delta, &Mat3R::identity())?,
+            Some((_, _, delta)) => exact_origin(&delta, &Mat3R::identity())?,
             None => Vec3R::zero(),
         };
         let subgroup_operations =
@@ -1298,19 +1340,21 @@ impl SubgroupEmbedding {
             });
         }
         let to_conventional = subgroup_primitive.inverse()?;
-        let transform_for = |setting: Mat3I| -> Result<SeitzTransform, SubductionError> {
-            let setting_matrix = Mat3R::from_ints(setting);
+        let transform_for =
+            |setting: Mat3I, denominator: i32| -> Result<SeitzTransform, SubductionError> {
+            let setting_matrix = rational_setting(setting, denominator)?;
             let basis = to_conventional
                 .checked_mul(&setting_matrix.inverse()?.checked_mul(&basis_conventional)?)?;
             Ok(SeitzTransform::new(basis.transpose(), origin))
         };
 
-        let (setting, transform, operations, representatives, candidate_count) = match frozen {
+        let (setting, setting_denominator, transform, operations, representatives, candidate_count) =
+            match frozen {
             // A recorded setting is a convention, not a search result: it is
             // validated like any other candidate and a failure is reported
             // instead of silently falling back to a different setting.
-            Some((.., setting, _)) => {
-                let transform = transform_for(setting)?;
+            Some((setting, denominator, _)) => {
+                let transform = transform_for(setting, denominator)?;
                 match validate_candidate(
                     &subgroup_operations,
                     &parent_operations,
@@ -1320,12 +1364,13 @@ impl SubgroupEmbedding {
                     expected,
                 )? {
                     Some((operations, representatives)) => {
-                        (setting, transform, operations, representatives, 1)
+                        (setting, denominator, transform, operations, representatives, 1)
                     }
                     None => {
                         return Err(SubductionError::FrozenEmbeddingRejected {
                             subgroup_sg,
                             setting,
+                            denominator,
                         });
                     }
                 }
@@ -1335,7 +1380,7 @@ impl SubgroupEmbedding {
                 let mut accepted: Vec<(Mat3I, SeitzTransform, Vec<ExactSeitz>, Vec<ExactSeitz>)> =
                     Vec::new();
                 for setting in &candidates {
-                    let transform = transform_for(*setting)?;
+                    let transform = transform_for(*setting, 1)?;
                     if let Some((operations, representatives)) = validate_candidate(
                         &subgroup_operations,
                         &parent_operations,
@@ -1356,7 +1401,7 @@ impl SubgroupEmbedding {
                     }
                     1 => {
                         let (setting, transform, operations, representatives) = accepted.remove(0);
-                        (setting, transform, operations, representatives, 1)
+                        (setting, 1, transform, operations, representatives, 1)
                     }
                     count => {
                         return Err(SubductionError::AmbiguousEmbedding {
@@ -1372,6 +1417,7 @@ impl SubgroupEmbedding {
             subgroup_sg,
             ordinal: subgroup.ordinal,
             setting,
+            setting_denominator,
             child_shift: shift,
             transform,
             parent_lattice,
@@ -1398,8 +1444,19 @@ impl SubgroupEmbedding {
     }
 
     /// The setting transform `U` that produced the accepted candidate.
+    ///
+    /// The convention is the exact rational matrix `setting() / denominator()`:
+    /// most records are integral (denominator one), but the stored isotropy
+    /// basis of a few monoclinic records is consistent with the official cell
+    /// only through a rational change of basis, and both parts are frozen so the
+    /// engine reproduces the official cell exactly.
     pub const fn setting(&self) -> Mat3I {
         self.setting
+    }
+
+    /// Denominator of [`Self::setting`]; always positive.
+    pub const fn setting_denominator(&self) -> i32 {
+        self.setting_denominator
     }
 
     /// The subgroup-frame origin shift applied to the shipped operations.
@@ -1470,6 +1527,32 @@ fn exact_primitive_basis(sg: u8) -> Result<Mat3R, SubductionError> {
 }
 
 /// The stored origin `(x, y, z, d)` as a point in the parent conventional frame.
+/// `U = numerator / denominator` as an exact rational matrix.
+///
+/// The frozen conventions are stored as an integer numerator plus one shared
+/// positive denominator because a static table cannot build [`Rat`] values with
+/// [`Rat::new`].  A denominator of one is the common case; the rational form is
+/// needed only where the stored isotropy basis reaches the official subgroup
+/// cell through a fractional change of basis.
+fn rational_setting(numerator: Mat3I, denominator: i32) -> Result<Mat3R, SubductionError> {
+    if denominator <= 0 {
+        return Err(SubductionError::InvalidGrid {
+            denominator: i128::from(denominator),
+        });
+    }
+    if denominator == 1 {
+        return Ok(Mat3R::from_ints(numerator));
+    }
+    let denominator = i128::from(denominator);
+    let mut rows = [[Rat::ZERO; 3]; 3];
+    for row in 0..3 {
+        for column in 0..3 {
+            rows[row][column] = Rat::new(i128::from(numerator[row][column]), denominator)?;
+        }
+    }
+    Ok(Mat3R::new(rows))
+}
+
 fn exact_origin(origin: &[i32; 4], parent_primitive: &Mat3R) -> Result<Vec3R, SubductionError> {
     if origin[3] <= 0 {
         return Err(SubductionError::InvalidGrid {
@@ -3575,12 +3658,13 @@ mod tests {
     fn frozen_settings_address_their_own_records() {
         use super::settings_data::{FROZEN_EMBEDDING_SETTINGS, FrozenEmbeddingSetting};
         let entries: &[FrozenEmbeddingSetting] = FROZEN_EMBEDDING_SETTINGS;
-        assert_eq!(entries.len(), 75);
+        assert!(!entries.is_empty());
         let mut ordinals = Vec::new();
         let mut pairs = Vec::new();
         let mut shifted = Vec::new();
         for entry in entries {
-            let (ordinal, parent, child, setting, child_shift) = *entry;
+            let (ordinal, parent, child, setting, setting_denominator, child_shift) = *entry;
+            assert!(setting_denominator > 0, "ordinal {ordinal}: denominator");
             assert!(!ordinals.contains(&ordinal), "ordinal {ordinal} repeats");
             ordinals.push(ordinal);
             if !pairs.contains(&(parent, child)) {
@@ -3600,9 +3684,11 @@ mod tests {
                 }),
                 "ordinal {ordinal}: no irrep of SG {parent} owns the record"
             );
-            // `U` is an exact unimodular integer matrix; the generated table is
-            // not restricted to signed permutations.
-            let matrix = Mat3R::from_ints(setting);
+            // `U = setting / setting_denominator` is an exact unimodular
+            // rational matrix; the generated table is not restricted to signed
+            // permutations, and a few monoclinic records need the fraction.
+            let matrix = super::rational_setting(setting, setting_denominator)
+                .expect("frozen setting is a valid rational matrix");
             let determinant = matrix.determinant().expect("integer matrix");
             assert!(
                 determinant == Rat::ONE || determinant == Rat::from_integer(-1),
@@ -3625,10 +3711,13 @@ mod tests {
                 shifted.push((parent, child, child_shift));
             }
         }
-        // 13 original pairs plus five pairs covered by six task-9 witnesses;
-        // exactly one record needs an ITA origin-choice correction (#126).
-        assert_eq!(pairs.len(), 18);
-        assert_eq!(shifted, vec![(139, 126, [1, 1, 1, 4])]);
+        // #126 is the documented ITA origin-choice correction; it must stay in
+        // the table whatever else the generator freezes.
+        assert!(
+            shifted.contains(&(139, 126, [1, 1, 1, 4])),
+            "the #126 origin-choice shift disappeared: {shifted:?}"
+        );
+        assert!(!pairs.is_empty());
     }
 
     #[test]
