@@ -60,11 +60,12 @@ use crate::mathfunc::Mat3I;
 use super::super::{
     ComplexTarget, ExactSeitz, Lattice, Mat3R, Rat, SUBDUCTION_TOLERANCE, SubductionComponent,
     SubductionError, SubductionTarget, SubgroupEmbedding, Vec3R, bloch_phase, character_of,
-    exact_primitive_basis, inline_k_vector, shift_operations, solve_prepared_character_block,
+    exact_primitive_basis, fold_wave_vector, inline_k_vector, shift_operations,
+    solve_prepared_character_block,
     strict_sg_hall_ops, validate_subduction_context,
 };
 use super::scalar_star::{ComponentStar, ScalarStar};
-use super::{FoldedStar, OrdinaryStar, StarError, arm_wave_vector};
+use super::{FoldedPoint, FoldedStar, OrdinaryStar, StarError, arm_wave_vector};
 
 /// The identity rotation, as stored in every Hall operation table.
 const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
@@ -601,6 +602,56 @@ pub struct TrivialContent {
     /// subgroup's Gamma point.  They cannot contribute; see the theorem in
     /// [`trivial_content_with_embedding`].
     pub skipped_stars: usize,
+}
+
+/// Fold the star arms of a parametric-k line into the child's Brillouin zone
+/// and group them into folded child stars.
+///
+/// A discrete probe gets these from `ScalarStar::folded_stars`; the line source
+/// has to build them from the line's arms, which is the piece
+/// `docs/task9-remaining-work.md` records as the last structural gap before
+/// `build_block` can consume the line representation.  `parameter` is
+/// [`LINE_PARAMETER`], `dimension` the little dimension of the source, and the
+/// block of a group is `dimension * arms in the group`.
+#[allow(dead_code)]
+fn line_folded_stars(
+    arms: &[(Vec3R, Mat3I)],
+    parameter: &Rat,
+    embedding: &SubgroupEmbedding,
+    child_reciprocal: &Lattice,
+    dimension: u32,
+) -> Result<Vec<FoldedStar>, FullStarError> {
+    let mut groups: Vec<(Vec3R, Vec<usize>)> = Vec::new();
+    for (index, (arm, _)) in arms.iter().enumerate() {
+        let mut scaled = [Rat::ZERO; 3];
+        for (axis, value) in scaled.iter_mut().enumerate() {
+            *value = parameter.checked_mul(arm.get(axis))?;
+        }
+        let q = fold_wave_vector(embedding.transform(), &Vec3R::new(scaled))?;
+        let reduced = child_reciprocal.reduce(&q)?.representative;
+        match groups.iter_mut().find(|(existing, _)| *existing == reduced) {
+            Some((_, indices)) => indices.push(index),
+            None => groups.push((reduced, vec![index])),
+        }
+    }
+    let mut stars = Vec::with_capacity(groups.len());
+    for (q, indices) in groups {
+        let arm_count = indices.len();
+        let block = dimension
+            .checked_mul(u32::try_from(arm_count).map_err(|_| SubductionError::RationalOverflow {
+                operation: "line folded star arms",
+            })?)
+            .ok_or(SubductionError::RationalOverflow {
+                operation: "line folded star block",
+            })?;
+        stars.push(FoldedStar::from_parts(
+            vec![FoldedPoint::from_parts(q, indices)],
+            usize::try_from(dimension).unwrap_or(0),
+            arm_count,
+            block,
+        ));
+    }
+    Ok(stars)
 }
 
 /// The frozen little character of one operation of the line's little group.
