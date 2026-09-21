@@ -19,9 +19,14 @@
 //! change of basis `U = u / ud`, and `(sx, sy, sz, sd)` the child origin shift
 //! `(sx/sd, sy/sd, sz/sd)` -- exactly the two conventions a frozen row carries.
 //!
-//! Output is one line per candidate: `id OK <representatives>` when the engine
-//! accepts the convention, otherwise `id ERR <error>`.  Exit status is 0 when
-//! every candidate was evaluated and 1 on malformed input.
+//! Output is one line per candidate: `id OK <representatives> trivial=<n>` when
+//! the engine accepts the convention, otherwise `id ERR <error>`.  `trivial` is
+//! the multiplicity of the child's trivial representation in the **record's own
+//! condensing irrep**, which is the property that makes the subgroup the
+//! isotropy subgroup of that direction: a convention that validates but reports
+//! zero has placed the subgroup on a different (conjugate) branch, and that is
+//! invisible to the embedding check alone.  Exit status is 0 when every
+//! candidate was evaluated and 1 on malformed input.
 //!
 //! ```text
 //! cargo run --release -p cryspglib --example probe_subduction_settings < candidates.tsv
@@ -32,7 +37,81 @@ use std::io::{self, BufRead, Write};
 
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup};
 use cryspglib::irrep::query;
+use cryspglib::irrep::subduction::star::decompose::subduce_full_star_with_embedding;
+use cryspglib::irrep::types::IrrepRecord;
 use cryspglib::irrep::{LabelConvention, subduction::SubgroupEmbedding};
+
+/// The child's trivial irrep at Gamma: one-dimensional with an all-ones row.
+fn trivial_child_label(sg: u8) -> Option<&'static str> {
+    let mut found = None;
+    for record in query::irreps_of(sg) {
+        if record.spinor || record.dim != 1 {
+            continue;
+        }
+        let k = record.k_vector();
+        if k.numerators != [0, 0, 0] {
+            continue;
+        }
+        let Ok(row) = record.ordinary_scalar_selected_arm_block_trace() else {
+            continue;
+        };
+        if row.dimension() == 1 && row.values().iter().all(|value| (value - 1.0).norm() < 1e-9) {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(record.ml);
+        }
+    }
+    found
+}
+
+/// Trivial content of one parent irrep under one convention.
+fn trivial_content(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    probe: &'static IrrepRecord,
+    trivial: &str,
+) -> u32 {
+    match subduce_full_star_with_embedding(subgroup, embedding, probe) {
+        Ok(result) => result
+            .blocks()
+            .iter()
+            .map(|block| block.multiplicity(trivial))
+            .sum(),
+        Err(_) => 0,
+    }
+}
+
+/// Trivial content of the record's own condensing irrep under one convention.
+fn condensing_trivial(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+) -> Option<u32> {
+    let probe: &'static IrrepRecord = query::irreps_of(subgroup.parent_sg)
+        .iter()
+        .find(|record| record.ml == subgroup.irrep_ml)?;
+    let trivial = trivial_child_label(embedding.subgroup_sg())?;
+    Some(trivial_content(subgroup, embedding, probe, trivial))
+}
+
+/// `label=mult` for every parent irrep whose subduction contains the trivial
+/// representation, which is exactly the table the audit compares against.
+fn trivial_profile(subgroup: &IsotropySubgroup, embedding: &SubgroupEmbedding) -> String {
+    let Some(trivial) = trivial_child_label(embedding.subgroup_sg()) else {
+        return String::from("?");
+    };
+    let mut parts = Vec::new();
+    for record in query::irreps_of(subgroup.parent_sg) {
+        if record.spinor {
+            continue;
+        }
+        let value = trivial_content(subgroup, embedding, record, trivial);
+        if value > 0 {
+            parts.push(format!("{}={}", record.ml, value));
+        }
+    }
+    parts.join(",")
+}
 
 struct Candidate {
     id: String,
@@ -115,6 +194,7 @@ fn load_subgroups() -> Result<HashMap<usize, IsotropySubgroup>, String> {
 }
 
 fn main() -> Result<(), String> {
+    let profile = std::env::args().any(|argument| argument == "--profile");
     let table = load_subgroups()?;
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -139,8 +219,29 @@ fn main() -> Result<(), String> {
             candidate.shift,
         ) {
             Ok(embedding) => {
-                writeln!(out, "{} OK {}", candidate.id, embedding.representatives().len())
+                let trivial = condensing_trivial(subgroup, &embedding)
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "?".to_string());
+                if profile {
+                    writeln!(
+                        out,
+                        "{} OK {} trivial={} profile={}",
+                        candidate.id,
+                        embedding.representatives().len(),
+                        trivial,
+                        trivial_profile(subgroup, &embedding)
+                    )
                     .map_err(|error| error.to_string())?;
+                } else {
+                    writeln!(
+                        out,
+                        "{} OK {} trivial={}",
+                        candidate.id,
+                        embedding.representatives().len(),
+                        trivial
+                    )
+                    .map_err(|error| error.to_string())?;
+                }
             }
             Err(error) => {
                 writeln!(out, "{} ERR {error}", candidate.id)
