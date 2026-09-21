@@ -134,6 +134,18 @@ fn equal(left: &Vec3R, right: &Vec3R) -> bool {
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
+    let verbose = {
+        let all: Vec<String> = std::env::args().skip(1).collect();
+        if all.first().is_some_and(|first| first == "--arms") {
+            return Err("usage: w_arm_count <ordinal> <label> <vx> <vy> <vz> [<den>] [--arms]".into());
+        }
+        all.iter().any(|arg| arg == "--arms")
+    };
+    let args_vec: Vec<String> = std::env::args()
+        .skip(1)
+        .filter(|arg| arg != "--arms")
+        .collect();
+    let mut args = args_vec.into_iter();
     let ordinal: usize = args
         .next()
         .ok_or("usage: w_arm_count <ordinal> <label> <vx> <vy> <vz> [<den>]")?
@@ -194,15 +206,22 @@ fn main() -> Result<(), String> {
         .map(|operation| operation.rotation())
         .collect();
 
-    for (name, direction) in [("conv", &v_conv), ("prim", &v_primitive)] {
+    // The reduction lattice depends on the frame: in conventional fractional
+    // coordinates the crystal lattice is the primitive basis, while in the
+    // primitive fractional coordinates it is the integer lattice.
+    let integer_reciprocal = Lattice::integer();
+    for (name, direction, reduce_lattice) in [
+        ("conv", &v_conv, &parent_reciprocal),
+        ("prim", &v_primitive, &integer_reciprocal),
+    ] {
         // Parent arms of the line: distinct images R^-T v, sign-insensitive.
         let mut arms: Vec<Vec3R> = Vec::new();
         for rotation in &rotations {
             let image = contragredient(*rotation, direction)?;
-            let key = line_key(&image, &parent_reciprocal)?;
+            let key = line_key(&image, reduce_lattice)?;
             let mut known = false;
             for arm in &arms {
-                if same_line(&line_key(arm, &parent_reciprocal)?, &key)? {
+                if same_line(&line_key(arm, reduce_lattice)?, &key)? {
                     known = true;
                     break;
                 }
@@ -236,10 +255,10 @@ fn main() -> Result<(), String> {
             while let Some(current) = stack.pop() {
                 for rotation in &subgroup_rotations {
                     let image = contragredient(*rotation, &gamma[current])?;
-                    let key = line_key(&image, &parent_reciprocal)?;
+                    let key = line_key(&image, reduce_lattice)?;
                     for (index, candidate) in gamma.iter().enumerate() {
                         if !seen[index]
-                            && same_line(&line_key(candidate, &parent_reciprocal)?, &key)?
+                            && same_line(&line_key(candidate, reduce_lattice)?, &key)?
                         {
                             seen[index] = true;
                             stack.push(index);
@@ -254,6 +273,21 @@ fn main() -> Result<(), String> {
             gamma.len(),
             orbits
         );
+        if verbose {
+            for (index, arm) in arms.iter().enumerate() {
+                let folded = transform_t
+                    .checked_mul_vector(arm)
+                    .map_err(|error| error.to_string())?;
+                let is_gamma = reciprocal
+                    .contains(&folded)
+                    .map_err(|error| error.to_string())?;
+                println!(
+                    "      arm {index}: {} -> folded {} gamma {is_gamma}",
+                    format_q(arm),
+                    format_q(&folded)
+                );
+            }
+        }
     }
     let stored = isotropy::other_wave_vector_subduction(ordinal).map_err(|e| e.to_string())?;
     println!("  stored rows for this record:");
