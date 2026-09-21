@@ -19,12 +19,12 @@ CARGO_TARGET_DIR=$PWD/cryspglib/target cargo run --release -p cryspglib \
   embedding、94,271 条存储正项全部复现、366,260 个标量 probe 全部有精确结果
   （完整分解或恒等内容）、几何与 Frobenius 检查无未计算项。
 - `--require-w-complete` 另外要求 5,756 条 `other_wave_vector_subduction` 也被计算。
-  pinned **irrep 表**回答不了这些问题：这些行引用的 73 个“别的波矢”irrep 在
-  `data_irreps.txt` 里只有 `irrep_w_label` / `irrep_w_space_group` /
-  `irrep_w_dimension` / `irrep_w_type` 四张表，既没有 k 矢量也没有特征标行
-  （`isotropy_w_subduce_*` 只有 label 序号与频率）。它们的**小群表**在归档的
-  `data_little.txt` 里（73/73 个源都在，维数与 `irrep_w_dimension` 相符），但该文件
-  尚未解码，因此该开关目前是全表退出 2，并打印
+  目前 pinned 数据回答不了：这 73 个“别的波矢”irrep 在 `data_irreps.txt` 里只有
+  `irrep_w_label/_space_group/_dimension/_type` 四张表（无 k、无特征标），而归档的
+  `data_little.txt` 解出它们**全部落在参数化直线上**：`k = Γ + t·v`，73/73 各只有
+  一个自由参数（`/1` 约定下 `v = (1,0,1)` 与 `(1,1,2)`；如 cF 的 `DT`、`SM` 线、
+  cI 的 `DT = (1,-1,1)`、`SM = (0,0,1)`）。也就是说**不存在单一数值 k 可以去折叠**，
+  特征标表也尚未解码，因此该开关目前是全表退出 2，并打印
   `w_scope: rows=5756 computed=0 uncomputed=5756 reason=...`。
 
 每条子群记录遍历该母群的全部标量源表示，调用实际的
@@ -124,9 +124,10 @@ T = B^T
 所以普通恒等分导表（15,239 条记录 / 94,271 条正项 / 366,260 个 probe）在本轮
 已经**范围内闭合**：范围内未支持项为 0。范围之外的剩余问题是
 `other_wave_vector_subduction` 的 5,756 行——它们的 73 个源 irrep 在 pinned
-**irrep 表**里没有 k 矢量与特征标行；`data_little.txt` 里的小群表含有它们（下一步
-的解码目标），但本轮尚未接入。这条缺口由 `--require-w-complete` 门禁与 `w_scope`
-行显式报告，不会被静默算作已完成。
+**irrep 表**里没有 k 矢量与特征标行，而且（本轮用 `data_little.txt` 解出）它们
+**全部是参数化直线波矢** `k = Γ + t·v`，各一个自由参数，因此没有单一数值 k 可以
+折叠；特征标表仍未解码。这条缺口由 `--require-w-complete` 门禁与 `w_scope` 行显式
+报告，不会被静默算作已完成。
 
 后续扩充必须重新运行审计并更新实际覆盖。磁群、spinor 和离散子群 irrep 数据
 未提供的 k 不会因这些工具而自动获得支持。

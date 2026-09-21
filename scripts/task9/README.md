@@ -194,10 +194,17 @@ its own `w_scope` line and gates them with `--require-w-complete`, which exits 2
 while they are uncomputed.  Their **little-group** tables are not missing, though:
 `data_little.txt` carries all 73 sources (`little_irr_full_label` /
 `little_irr_space_group` / `little_irr_full_dim`, dimensions equal to
-`irrep_w_dimension`, e.g. SG 225 `DT1-DT4` = 6, `DT5` = `SM1-SM4` = 12), so the
-residual is a decode that has not been done yet -- validate the decoder against
-the 4,777 main-table irreps first, then compare the 5,756 stored frequencies with
-the same `trivial_content_with_embedding`.
+`irrep_w_dimension`, e.g. SG 225 `DT1-DT4` = 6, `DT5` = `SM1-SM4` = 12), and the
+little table's wave-vector decode shows every one of them to be a **parameterized
+line**: `little_k` is 14 Bravais lattices x 27 k slots x 16 ints = a base point
+plus up to three free directions per slot (the aP block reproduces
+`data_space.txt`'s k points exactly: `Z=(0,0,1)/2 ... T=(0,1,1)/2`, and the
+general position carries three directions).  All 73 sources are `k = Gamma + t*v`
+with exactly one free parameter (cF: `DT=(1,0,1)`, `SM=(1,1,2)`; cI:
+`DT=(1,-1,1)`, `SM=(0,0,1)`), so there is no numeric k to fold.  The remaining
+work is the little-group character tables along those lines, then comparing the
+5,756 stored frequencies line by line.  `scripts/check_other_wave_vector_rows.py`
+asserts all of this from the pinned archive (15 offline tests).
 
 ## State after the first pass (2026-09-21)
 

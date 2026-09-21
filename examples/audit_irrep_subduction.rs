@@ -51,12 +51,13 @@
 //!   (`IRREP_W_LABELS`/`IRREP_W_SPACE_GROUP`, 73 entries, reached independently
 //!   of the accessor that produced the row) and its space group must be the
 //!   record's parent; a failure of either half is a hard failure.  Their
-//!   frequencies cannot be computed from the pinned *irrep* table: it stores
-//!   those irreps as label, space group, dimension and type only, with no k
-//!   vector and no character row.  (Their little-group tables do live in the
-//!   archived `data_little.txt`; decoding those is the separate follow-up this
-//!   audit's `w_scope` line exists to keep visible.)  They are reported in their
-//!   own `w_scope` line and their own completeness counter (`w_incomplete`), which
+//!   frequencies cannot be computed from the pinned data as it stands: the
+//!   irrep table stores them as label, space group, dimension and type only, and
+//!   the archived little table shows all 73 to be **parameterized line** wave
+//!   vectors `k = Gamma + t*v` (`scripts/check_other_wave_vector_rows.py`
+//!   decodes and asserts that), so there is no single numeric k to fold.  They
+//!   are reported in their own `w_scope` line and their own completeness counter
+//!   (`w_incomplete`), which
 //!   `--require-complete` deliberately does not gate on and
 //!   `--require-w-complete` does.  Identity closure never substitutes for their
 //!   missing parameters.
@@ -209,12 +210,12 @@ usage: audit_irrep_subduction [--parent N] [--ordinal N] [--output PATH]
                       and no geometry/Frobenius check is left unevaluated
   --require-w-complete
                       additionally require the 5756 other-wave-vector rows to be
-                      computed.  The pinned irrep table cannot answer them: the
-                      73 irreps they name have no k vectors and no character
-                      rows there (their little-group tables live in
-                      `data_little.txt` and are not decoded yet; see the
-                      `w_scope` summary line), so this flag is the explicit gate
-                      for that separate question
+                      computed.  The pinned data cannot answer them yet: the 73
+                      irreps they name carry no k vector and no character row in
+                      the irrep table, and their little-table wave vectors are
+                      parameterized lines k = Gamma + t*v (see the `w_scope`
+                      summary line), so this flag is the explicit gate for that
+                      separate question
   --progress N        print a progress line to stderr every N records (0 off)
 
 The TSV goes to stdout (or --output); the terse summary goes to stderr.";
@@ -1328,9 +1329,10 @@ origin={},{},{},{}",
         // These rows name parent irreps **at other wave vectors** (the `DT`/`SM`
         // star labels of the cubic groups).  The pinned *irrep* table stores those
         // 73 irreps as label, space group, dimension and type only -- no k vector
-        // and no character row -- so their subduction frequency cannot be
-        // computed from that table.  Their little-group data is archived
-        // separately in `data_little.txt` and is not decoded yet.  The
+        // and no character row -- and the pinned little table shows every one of
+        // them to sit on a line `k = Gamma + t*v` rather than a point
+        // (`scripts/check_other_wave_vector_rows.py` decodes and asserts it), so
+        // there is no numeric k to fold.  The
         // audit therefore resolves each row against the frozen source list
         // itself (independent of the accessor that produced the entry) and says
         // so per row; `w_scope` in the summary reports the outcome separately

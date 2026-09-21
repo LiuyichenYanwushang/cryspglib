@@ -64,12 +64,21 @@ class Expectations:
 PINNED = Expectations(sources=73, records=1006, rows=5756, condensates=15239)
 
 
+LATTICES = 14
+K_SLOTS = 27
+K_GROUPS = 4
+
+
 def parse_pinned():
-    """Read both pinned data files out of the SHA256-verified archive."""
+    """Read the pinned data files out of the SHA256-verified archive."""
     irrep_lines = generator.read_file("data_irreps.txt")
     isotropy_lines = generator.read_file("data_isotropy.txt")
+    little_lines = generator.read_file("data_little.txt")
+    space_lines = generator.read_file("data_space.txt")
     irrep_sec = generator.get_sections(irrep_lines)
     isotropy_sec = generator.get_sections(isotropy_lines)
+    little_sec = generator.get_sections(little_lines)
+    space_sec = generator.get_sections(space_lines)
     return {
         "irrep_sections": sorted(
             name for name in irrep_sec if name.startswith("irrep_w_")
@@ -95,7 +104,102 @@ def parse_pinned():
             isotropy_lines, isotropy_sec, "isotropy_w_subduce_frequency"
         ),
         "parent": generator.parse_ints(isotropy_lines, isotropy_sec, "isotropy_parent"),
+        # Little-group tables: the wave vector of every little irrep, and with
+        # them the reason the `w` rows cannot be given a numeric k.
+        "little_k": generator.parse_ints(little_lines, little_sec, "little_k"),
+        "little_k_count": generator.parse_ints(little_lines, little_sec, "little_k_count"),
+        "little_k_label": generator.parse_labels(little_lines, little_sec, "little_k_label"),
+        "little_label": generator.parse_labels(
+            little_lines, little_sec, "little_irr_full_label"
+        ),
+        "little_sg": generator.parse_ints(
+            little_lines, little_sec, "little_irr_space_group"
+        ),
+        "little_k_index": generator.parse_ints(little_lines, little_sec, "little_irr_k"),
+        "little_dim": generator.parse_ints(
+            little_lines, little_sec, "little_irr_full_dim"
+        ),
+        "sg_lattice": generator.parse_ints(space_lines, space_sec, "ispace_lattice"),
     }
+
+
+def wave_vector(little_k, lattice, slot):
+    """The four `(x, y, z, d)` groups of one (lattice, k slot).
+
+    The pinned little table stores each wave vector as
+
+    * the base point `k0` (the first group) and
+    * up to three free-parameter directions (the remaining groups),
+
+    so a point has no direction, a line has one, and the general position has
+    three.  Groups are `(x, y, z, d)` = `(x/d, y/d, z/d)`.
+    """
+    start = (lattice * K_SLOTS + slot) * K_GROUPS * 4
+    entries = little_k[start:start + K_GROUPS * 4]
+    return [tuple(entries[index * 4:index * 4 + 4]) for index in range(K_GROUPS)]
+
+
+def format_rational(group):
+    x, y, z, d = group
+    if (x, y, z) == (0, 0, 0):
+        return "0"
+    return f"({x},{y},{z})/{d}"
+
+
+def little_wave_vectors(data, expected_sources):
+    """Resolve every other-wave-vector source to its little-group wave vector.
+
+    Returns `(resolved, failures)`, where each resolution is
+    `(sg, label, dimension, lattice, slot label, k0, free directions)`.
+    """
+    failures = []
+    little_k = data["little_k"]
+    if len(little_k) != LATTICES * K_SLOTS * K_GROUPS * 4:
+        return [], [
+            f"little_k has {len(little_k)} entries, expected "
+            f"{LATTICES * K_SLOTS * K_GROUPS * 4} (14 lattices x 27 k slots x 4 "
+            "rational groups)"
+        ]
+    if len(data["little_k_count"]) != LATTICES:
+        return [], [
+            f"little_k_count has {len(data['little_k_count'])} entries, "
+            f"expected {LATTICES} (one per Bravais lattice)"
+        ]
+    index = {}
+    for position, (label, sg) in enumerate(
+        zip(data["little_label"], data["little_sg"])
+    ):
+        index.setdefault((sg, label), []).append(position)
+    resolved = []
+    for label, sg in expected_sources:
+        found = index.get((sg, label), [])
+        if len(found) != 1:
+            failures.append(
+                f"other-wave-vector source {label} of space group {sg} has "
+                f"{len(found)} little-table records, expected exactly one"
+            )
+            continue
+        position = found[0]
+        slot = data["little_k_index"][position] - 1
+        lattice = data["sg_lattice"][sg - 1] - 1
+        if not 0 <= lattice < LATTICES:
+            failures.append(f"space group {sg} has lattice index {lattice + 1}")
+            continue
+        if not 0 <= slot < data["little_k_count"][lattice]:
+            failures.append(
+                f"other-wave-vector source {label} of space group {sg} names "
+                f"k slot {slot + 1}, outside its lattice's "
+                f"{data['little_k_count'][lattice]} slots"
+            )
+            continue
+        groups = wave_vector(little_k, lattice, slot)
+        free = [group for group in groups[1:] if group[:3] != (0, 0, 0)]
+        slot_label = data["little_k_label"][lattice * K_SLOTS + slot]
+        resolved.append(
+            (sg, label, data["little_dim"][position], lattice, slot_label,
+             format_rational(groups[0]), [format_rational(group) for group in free])
+        )
+    return resolved, failures
 
 
 def record_offsets(count):
@@ -205,6 +309,24 @@ def check(data, expected=PINNED):
         over_dimension == 0,
         f"{over_dimension} frequencies exceed their irrep's dimension",
     )
+    if failures:
+        return failures
+
+    # Why the rows cannot be computed from the pinned data: every source is a
+    # *parameterized* wave vector, so it has no single numeric k to fold.
+    sources = sorted({(label, sg) for sg, label in zip(source_sg, data["labels"])})
+    resolved, wave_failures = little_wave_vectors(data, sources)
+    failures.extend(wave_failures)
+    if not failures:
+        unparameterized = [
+            f"{label} (SG {sg})" for sg, label, _, _, _, _, free in resolved
+            if not free
+        ]
+        require(
+            not unparameterized,
+            "other-wave-vector sources with a fixed k (a decode or pinning "
+            f"change; they would become computable): {unparameterized}",
+        )
     return failures
 
 
@@ -217,10 +339,24 @@ def main():
     failures = check(data)
     for message in failures:
         print(f"FAIL {message}", file=sys.stderr)
+    sources = sorted({(label, sg) for sg, label in zip(data["source_sg"], data["labels"])})
+    resolved, _ = little_wave_vectors(data, sources)
+    free_counts = sorted({len(free) for *_, free in resolved})
+    directions = sorted({direction for *_, free in resolved for direction in free})
+    print(
+        "w_wave_vectors: sources={} resolved={} free_parameters={} "
+        "base_points={} directions={}".format(
+            len(sources),
+            len(resolved),
+            free_counts,
+            sorted({base for *_, base, _ in resolved}),
+            directions,
+        )
+    )
     rows = len(data["irrep"])
     print(
         "other_wave_vector: sources={} records={} rows={} "
-        "k_vector_data=absent character_data=absent checks_failed={}".format(
+        "k_vectors=parameterized_lines character_data=absent checks_failed={}".format(
             len(data["labels"]),
             sum(1 for value in data["count"] if value > 0),
             rows,
@@ -231,9 +367,11 @@ def main():
         return 1
     print(
         "note: the pinned irrep table stores these irreps as label/space group/"
-        "dimension/type only, so their subduction frequencies are not computable "
-        "from it; their little-group tables in data_little.txt are not decoded "
-        "yet, and the audit reports the rows separately (--require-w-complete)."
+        "dimension/type only.  Their little-group wave vectors are lines "
+        "k = Gamma + t*v (one free parameter for all 73 sources, from the pinned "
+        "little table), so there is no single numeric k to fold; the character "
+        "tables needed to turn the line into a frequency are not decoded yet.  "
+        "The audit reports the rows separately (--require-w-complete)."
     )
     return 0
 

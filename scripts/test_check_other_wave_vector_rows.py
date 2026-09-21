@@ -18,7 +18,36 @@ EXPECTED = gate.Expectations(sources=2, records=2, rows=3, condensates=3)
 
 
 def baseline():
+    """A synthetic archive: two sources, three condensates, two rows.
+
+    The little table carries one line (free direction) and one point (no free
+    direction) so a source pinned to a fixed k trips the parameterization gate.
+    """
+    little_k = []
+    little_labels = []
+    for lattice in range(gate.LATTICES):
+        for slot in range(gate.K_SLOTS):
+            if lattice == 0 and slot == 1:
+                groups = [(0, 0, 0, 1), (1, 0, 1, 1), (0, 0, 0, 1), (0, 0, 0, 1)]
+            elif lattice == 0 and slot == 2:
+                groups = [(0, 0, 0, 1), (1, 1, 2, 1), (0, 0, 0, 1), (0, 0, 0, 1)]
+            elif lattice == 0 and slot == 3:
+                groups = [(1, 0, 0, 2), (0, 0, 0, 1), (0, 0, 0, 1), (0, 0, 0, 1)]
+            else:
+                groups = [(0, 0, 0, 1)] * gate.K_GROUPS
+            little_k.extend(entry for group in groups for entry in group)
+            little_labels.append(
+                {1: "DT", 2: "SM", 3: "X"}.get(slot if lattice == 0 else -1, "P")
+            )
     return {
+        "little_k": little_k,
+        "little_k_count": [4] + [0] * (gate.LATTICES - 1),
+        "little_k_label": little_labels,
+        "little_label": ["DT1", "SM1"],
+        "little_sg": [196, 196],
+        "little_k_index": [2, 3],
+        "little_dim": [6, 12],
+        "sg_lattice": [1] * 230,
         "irrep_sections": sorted(gate.W_SECTIONS),
         "labels": ["DT1", "SM1"],
         "source_sg": [196, 196],
@@ -38,6 +67,32 @@ class OtherWaveVectorTests(unittest.TestCase):
 
     def test_the_baseline_passes_every_gate(self):
         self.assertEqual(self.check(baseline()), [])
+
+    def test_a_source_on_a_fixed_wave_vector_fails(self):
+        # The second source sits on the point (1,0,0)/2, so its rows have a
+        # numeric k: the gate must refuse to keep reporting them as unresolved.
+        data = baseline()
+        data["little_k_index"] = [4, 3]
+        failures = self.check(data)
+        self.assertTrue(any("with a fixed k" in message for message in failures))
+
+    def test_a_source_missing_from_the_little_table_fails(self):
+        data = baseline()
+        data["little_label"] = ["DT1", "SM9"]
+        failures = self.check(data)
+        self.assertTrue(any("little-table records" in message for message in failures))
+
+    def test_a_source_naming_an_out_of_range_k_slot_fails(self):
+        data = baseline()
+        data["little_k_index"] = [2, 9]
+        failures = self.check(data)
+        self.assertTrue(any("outside its lattice" in message for message in failures))
+
+    def test_a_little_k_array_of_the_wrong_length_fails(self):
+        data = baseline()
+        data["little_k"] = data["little_k"][:-16]
+        failures = self.check(data)
+        self.assertTrue(any("little_k has" in message for message in failures))
 
     def test_a_frequency_above_its_dimension_fails(self):
         data = baseline()

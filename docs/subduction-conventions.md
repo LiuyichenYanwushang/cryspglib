@@ -467,5 +467,8 @@ centering 消光，判定用 `Lattice::contains`）。落在其它 `q` 的折叠
 `--require-complete` 给出；`other_wave_vector_subduction` 的 5,756 行因 pinned
 irrep 表没有其 73 个源 irrep 的 k 矢量与特征标行，单独由 `--require-w-complete`
 与 `w_scope` 行报告，未计入该范围。它们的**小群表**在归档 `data_little.txt` 中完整
-存在（73/73 源、维数相符），因此这条残余是尚未解码，而不是数据缺失；解码后即可用
-同一 `trivial_content_with_embedding` 逐条对照 5,756 个存储频率。
+存在（73/73 源、维数相符），而且**解码后可见它们全部是参数化直线**：
+`little_k` 每个 (Bravais 格, k 槽) 存 4 组 `(x,y,z,d)` = 基点 + 至多三个自由方向，
+73/73 个源的基点都是 Γ、自由参数恰为一个（cF 的 `(1,0,1)`/`(1,1,2)`，cI 的
+`(1,-1,1)`/`(0,0,1)` 等）。因此不存在单一数值 k 可以去折叠，剩下的工作是解码这些
+直线上的小群特征标，再按线（而不是点）对照 5,756 个存储频率。
