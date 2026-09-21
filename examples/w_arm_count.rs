@@ -25,6 +25,7 @@ use cryspglib::irrep::isotropy::{self, IsotropySubgroup, parent_primitive_basis}
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R};
 use cryspglib::irrep::LabelConvention;
+use cryspglib::mathfunc::Mat3I;
 
 fn find_subgroup(ordinal: usize) -> Result<IsotropySubgroup, String> {
     for sg in 1u8..=230 {
@@ -80,6 +81,35 @@ fn format_q(value: &Vec3R) -> String {
         .join(",")
 }
 
+/// Contragredient action of a rotation on a wave vector: `v' = R^-T v`.
+fn contragredient(rotation: Mat3I, value: &Vec3R) -> Result<Vec3R, String> {
+    Mat3R::from_ints(rotation)
+        .inverse()
+        .map_err(|error| error.to_string())?
+        .transpose()
+        .checked_mul_vector(value)
+        .map_err(|error| error.to_string())
+}
+
+/// Whether two images are the same line, i.e. equal up to sign.
+fn same_line(left: &Vec3R, right: &Vec3R) -> Result<bool, String> {
+    let mut negated = [Rat::ZERO; 3];
+    for axis in 0..3 {
+        let entry = right.get(axis);
+        negated[axis] = Rat::new(-entry.numerator(), entry.denominator())
+            .map_err(|error| error.to_string())?;
+    }
+    let negative = Vec3R::new(negated);
+    Ok(equal(left, right) || equal(left, &negative))
+}
+
+fn equal(left: &Vec3R, right: &Vec3R) -> bool {
+    (0..3).all(|axis| {
+        left.get(axis).numerator() * right.get(axis).denominator()
+            == right.get(axis).numerator() * left.get(axis).denominator()
+    })
+}
+
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
     let ordinal: usize = args
@@ -129,34 +159,69 @@ fn main() -> Result<(), String> {
         format_q(&v_conv),
         format_q(&v_primitive)
     );
+    // Subgroup point group, as rotations in the parent frame.
+    let subgroup_rotations: BTreeSet<Mat3I> = embedding
+        .representatives()
+        .iter()
+        .map(|operation| operation.rotation())
+        .collect();
+
     for (name, direction) in [("conv", &v_conv), ("prim", &v_primitive)] {
-        let mut arms = 0usize;
-        let mut gamma = 0usize;
-        let mut first = None;
+        // Parent arms of the line: distinct images R^-T v, sign-insensitive.
+        let mut arms: Vec<Vec3R> = Vec::new();
         for rotation in &rotations {
-            // Contragredient action on wave vectors: v' = R^-T v.
-            let action = Mat3R::from_ints(*rotation)
-                .inverse()
-                .map_err(|error| error.to_string())?
-                .transpose();
-            let arm = action
-                .checked_mul_vector(direction)
-                .map_err(|error| error.to_string())?;
+            let image = contragredient(*rotation, direction)?;
+            let mut known = false;
+            for arm in &arms {
+                if same_line(arm, &image)? {
+                    known = true;
+                    break;
+                }
+            }
+            if !known {
+                arms.push(image);
+            }
+        }
+        let mut gamma = Vec::new();
+        for arm in &arms {
             let folded = transform_t
-                .checked_mul_vector(&arm)
+                .checked_mul_vector(arm)
                 .map_err(|error| error.to_string())?;
-            arms += 1;
             if reciprocal
                 .contains(&folded)
                 .map_err(|error| error.to_string())?
             {
-                gamma += 1;
-                if first.is_none() {
-                    first = Some(format_q(&arm));
+                gamma.push(arm.clone());
+            }
+        }
+        // H-orbits among the arms that fold onto the child Gamma point.
+        let mut seen = vec![false; gamma.len()];
+        let mut orbits = 0usize;
+        for start in 0..gamma.len() {
+            if seen[start] {
+                continue;
+            }
+            orbits += 1;
+            let mut stack = vec![start];
+            seen[start] = true;
+            while let Some(current) = stack.pop() {
+                for rotation in &subgroup_rotations {
+                    let image = contragredient(*rotation, &gamma[current])?;
+                    for (index, candidate) in gamma.iter().enumerate() {
+                        if !seen[index] && same_line(candidate, &image)? {
+                            seen[index] = true;
+                            stack.push(index);
+                        }
+                    }
                 }
             }
         }
-        println!("  frame {name}: point-group arms {arms} | folding to child Gamma {gamma} (first arm {})", first.unwrap_or_else(|| "-".to_string()));
+        println!(
+            "  frame {name}: arms {} | folding to child Gamma {} | H-orbits of those {}",
+            arms.len(),
+            gamma.len(),
+            orbits
+        );
     }
     let stored = isotropy::other_wave_vector_subduction(ordinal).map_err(|e| e.to_string())?;
     println!("  stored rows for this record:");
