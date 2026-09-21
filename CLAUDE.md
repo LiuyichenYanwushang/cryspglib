@@ -973,6 +973,24 @@ VERDICT complete scope=global
 注意 `--output` 的相对路径按 **crate 目录**解析（`cryspglib/`），从 workspace 根运行时
 要么给绝对路径，要么先把 `target/task9` 建在 crate 下。
 
+**第三十/三十一轮（2026-09-22）：审计的 `w_scope` 行带上冻结/受阻拆分。**
+
+审计对每条 w 行解析源之后，再查该源的 little 群特征标是否在
+`w_little_characters_data` 里（新计数器 `w_character_frozen` / `w_character_blocked`），
+并打印进 `w_scope`。全表复跑（`--require-complete`，exit 0）实测：
+
+```
+other_wave_vector: records=1006 rows=5756 source_resolved=5756 source_mismatch=0 computed=0
+w_scope: rows=5756 computed=0 uncomputed=5756 character_tables_frozen=5408
+         character_tables_blocked=348 reason=... gate=--require-w-complete
+hard_failures=0 accounting_violations=0 census_mismatch=0
+VERDICT complete scope=global
+```
+
+与 Python 门禁 `frozen_characters: rows_with_frozen_table=5408 rows_blocked=348` 完全一致
+（局部抽查：`--parent 196` → 106/0、`--parent 202` → 216/100）。19 个测试二进制全过、
+严格 clippy 零警告。
+
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
 `irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，
