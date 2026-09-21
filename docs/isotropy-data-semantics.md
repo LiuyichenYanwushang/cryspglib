@@ -246,6 +246,11 @@ little 矩阵段（编码仍未解）。**pinned `little_subduce` 也帮不上**
 通道（Γ 兼容表、little_subduce 块）都把这两个 little irrep 当成同一个，能区分
 它们的只有 little 矩阵段或 image 数据库。
 
+（第二十七轮补测：`SHOW KERNEL` + `DISPLAY IRREP` 这条直读 little irrep 的路线对
+参数化 k 也**不打印**任何内容——和 `SHOW CHARACTER`、Frequency 列一样，程序对
+参数化 k 域不输出字符级数据。因此官方二进制侧已经没有可用的区分通道，
+只剩 `data_images.txt` 的 image 记录与 pinned little 矩阵段两条路。）
+
 **"双值/spinor"是错误命名（已纠正）**：`DT`、`SM` 是 SG 225 k 列表里的波矢标签
 （Δ、Σ 线），这些条目是**同一母群 SG 在别的波矢上的单值 irrep**；用户复核取出
 它们的纯二重旋转矩阵，全部满足 `D(C₂)² = +I`，与 spinor 语义不符。旧名
