@@ -145,7 +145,7 @@ CENTERING_LETTER = {
 CENTERING_Z = {"P": 1, "A": 2, "B": 2, "C": 2, "I": 2, "F": 4, "R": 3}
 
 # (space group, Miller-Love irrep) pairs spanning every centering and
-# 1-, 2- and 3-dimensional irreps.
+# 1-, 2-, 3- and 6-dimensional irreps.
 CASES = [
     (2, "GM1-"),
     (5, "GM2"),
@@ -163,6 +163,7 @@ CASES = [
     (167, "GM3+"),
     (177, "L1"),  # Complex separators and the non-cubic C2 component order.
     (194, "GM6+"),
+    (213, "X2"),  # C23 -> R3: distinguish primitive and hexagonal cells.
     (221, "GM3+"),
     (221, "GM4+"),
     (225, "GM3+"),

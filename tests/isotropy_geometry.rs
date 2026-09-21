@@ -242,6 +242,86 @@ fn pinned_ordinals_address_the_expected_records() {
 }
 
 #[test]
+fn sg213_x2_at_x_has_the_oracle_isotropy_subgroups() {
+    // iso 9.6.1, SET I ALL OR 1, VALUE PARENT 213, VALUE IRREP X2,
+    // SHOW SUBGROUP / SIZE / DIRECTION, DISPLAY ISOTROPY.
+    let subgroups = isotropy_subgroups_at_k(213, KVector::new([0, 1, 0], 2), "X2")
+        .expect("SG 213 X2 at X=(0,1/2,0)");
+    let actual: Vec<_> = subgroups
+        .iter()
+        .map(|subgroup| {
+            let record = subgroup.record;
+            (
+                record.direction_label,
+                record.sg,
+                subgroup_size(record.basis).unwrap(),
+            )
+        })
+        .collect();
+    // Source-table order differs from the program's display order.
+    assert_eq!(
+        actual,
+        vec![
+            ("P13", 5, 2),
+            ("P1", 4, 2),
+            ("C1", 1, 2),
+            ("P15", 76, 4),
+            ("P14", 20, 4),
+            ("C24", 5, 4),
+            ("C5", 4, 4),
+            ("C6", 4, 4),
+            ("4D1", 1, 4),
+            ("P17", 155, 8),
+            ("P16", 155, 8),
+            ("C23", 146, 8),
+            ("S19", 5, 8),
+            ("6D1", 1, 8),
+        ]
+    );
+}
+
+#[test]
+fn sg213_x2_c23_r3_preserves_basis_origin_and_identity_frequency() {
+    // SHOW DIRECTION VECTOR: C23 (a,b;a,b;a,b). Six-dimensional
+    // descriptors are not yet official API inputs, so select by ISO label.
+    let subgroup = isotropy_subgroup_for_direction(213, "X2", IsotropyDirection::Label("C23"))
+        .expect("X2 C23 -> R3");
+    assert_eq!(subgroup.ordinal, 11600);
+    assert_eq!(subgroup.record.sg, 146);
+    assert_eq!(subgroup.record.symbol, "R3");
+    assert_eq!(subgroup.record.direction_dim, 6);
+    let primitive = subgroup.record.basis;
+    assert_eq!(primitive, [[0, 0, -2], [0, -2, 0], [-2, 0, 0]]);
+    assert_eq!(subgroup.record.origin, [0, 0, 0, 1]);
+    assert_eq!(subgroup_size(primitive).unwrap(), 8);
+    assert_eq!(
+        basis_in_parent_conventional(213, primitive).unwrap(),
+        primitive.map(|row| row.map(f64::from))
+    );
+    assert_eq!(
+        origin_shift_in_parent_conventional(213, subgroup.record.origin).unwrap(),
+        [0.0; 3]
+    );
+
+    // The program prints R3's HEXAGONAL conventional cell, not this
+    // primitive cell: a_h=p1-p2, b_h=p2-p3, c_h=p1+p2+p3 for this record.
+    let hexagonal = [
+        std::array::from_fn(|i| primitive[0][i] - primitive[1][i]),
+        std::array::from_fn(|i| primitive[1][i] - primitive[2][i]),
+        std::array::from_fn(|i| primitive[0][i] + primitive[1][i] + primitive[2][i]),
+    ];
+    assert_eq!(hexagonal, [[0, 2, -2], [2, -2, 0], [-2, -2, -2]]);
+    assert_eq!(det3(hexagonal), 24);
+    let entries = subgroup.identity_subduction().unwrap();
+    let x2: Vec<_> = entries
+        .iter()
+        .filter(|entry| entry.parent_ml == "X2")
+        .collect();
+    assert_eq!(x2.len(), 1);
+    assert_eq!(x2[0].frequency, 2); // Official SHOW FREQUENCY: 2 X2.
+}
+
+#[test]
 fn formatters_render_geometry_and_subduction() {
     let table = format_isotropy_subgroups(221, "GM3+").expect("ordinary table");
     assert!(table.contains("#123 P4/mmm"));
