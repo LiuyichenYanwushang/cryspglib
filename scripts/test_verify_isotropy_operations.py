@@ -440,14 +440,85 @@ class LatticeConventionTests(unittest.TestCase):
                 ops.check_case(C167, row, LEGEND, {15: 4}, MACHINE_167)
 
 
+class TextFixtureTests(unittest.TestCase):
+    """The Rust integration test reads this compact form instead of JSON."""
+
+    FIXTURE = {
+        "cases": [
+            {
+                "sg": 221,
+                "ml": "GM4+",
+                "direction": "P1",
+                "subgroup": 83,
+                "size": 1,
+                "centring": "P",
+                "point_group_order": 8,
+                "basis": [["0", "0", "1"], ["0", "-1", "0"], ["1", "0", "0"]],
+                "origin": ["0", "0", "0"],
+                "elements": [
+                    {
+                        "label": "E",
+                        "rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+                        "translation": ["0", "0", "0"],
+                    },
+                    {
+                        "label": "I",
+                        "rotation": [-1, 0, 0, 0, -1, 0, 0, 0, -1],
+                        "translation": ["1/2", "-1/4", "2"],
+                    },
+                ],
+            }
+        ]
+    }
+
+    def test_line_format_round_trips_through_a_simple_parser(self):
+        text = ops.render_text_fixture(self.FIXTURE)
+        lines = [line for line in text.splitlines() if not line.startswith("#")]
+        self.assertEqual(lines[0], "case 221 GM4+ P1 83 1 P 8")
+        self.assertEqual(lines[1], "basis 0,0,1;0,-1,0;1,0,0")
+        self.assertEqual(lines[2], "origin 0,0,0")
+        self.assertEqual(lines[3], "element E 1,0,0;0,1,0;0,0,1 0,0,0")
+        self.assertEqual(lines[4], "element I -1,0,0;0,-1,0;0,0,-1 1/2,-1/4,2")
+        # One header per case and one line per element, no other directives.
+        directives = {line.split()[0] for line in lines}
+        self.assertEqual(directives, {"case", "basis", "origin", "element"})
+        self.assertEqual(len([line for line in lines if line.startswith("case ")]), 1)
+
+
 class MainTests(unittest.TestCase):
+    # Everything `render_text_fixture` needs, so the write path is exercised
+    # without touching the repository fixture.
+    CASE = {
+        "sg": 221,
+        "ml": "GM4+",
+        "direction": "P1",
+        "subgroup": 83,
+        "size": 1,
+        "centring": "P",
+        "point_group_order": 8,
+        "basis": [["0", "0", "1"], ["0", "-1", "0"], ["1", "0", "0"]],
+        "origin": ["0", "0", "0"],
+        "elements": [
+            {
+                "label": "E",
+                "rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1],
+                "translation": ["0", "0", "0"],
+            }
+        ],
+    }
+
     def run_main(self, stored, fresh, write=False):
         handle = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
         json.dump(stored, handle)
         handle.close()
         self.addCleanup(os.unlink, handle.name)
+        text = tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False)
+        text.write(ops.render_text_fixture(stored))
+        text.close()
+        self.addCleanup(os.unlink, text.name)
         argv = ["--write"] if write else []
         with mock.patch.object(ops, "FIXTURE", handle.name), \
+                mock.patch.object(ops, "TEXT_FIXTURE", text.name), \
                 mock.patch.object(ops, "build_fixture", return_value=(fresh, 1)), \
                 contextlib.redirect_stdout(io.StringIO()), \
                 contextlib.redirect_stderr(io.StringIO()):
@@ -456,19 +527,19 @@ class MainTests(unittest.TestCase):
             return status, json.load(reader)
 
     def test_replay_of_an_identical_fixture_succeeds(self):
-        fresh = {"provenance": {}, "cases": [dict(CASE)]}
+        fresh = {"provenance": {}, "cases": [dict(self.CASE)]}
         status, stored = self.run_main(fresh, fresh)
         self.assertEqual(status, 0)
         self.assertEqual(stored, fresh)
 
     def test_a_changed_oracle_result_fails_the_replay(self):
-        stored = {"provenance": {}, "cases": [dict(CASE)]}
-        changed = {"provenance": {}, "cases": [dict(CASE, subgroup=12)]}
+        stored = {"provenance": {}, "cases": [dict(self.CASE)]}
+        changed = {"provenance": {}, "cases": [dict(self.CASE, subgroup=12)]}
         status, _ = self.run_main(stored, changed)
         self.assertEqual(status, 1)
 
     def test_write_mode_stores_the_fresh_fixture(self):
-        changed = {"provenance": {}, "cases": [dict(CASE, subgroup=12)]}
+        changed = {"provenance": {}, "cases": [dict(self.CASE, subgroup=12)]}
         status, stored = self.run_main({"provenance": {}, "cases": []}, changed, write=True)
         self.assertEqual(status, 0)
         self.assertEqual(stored, changed)

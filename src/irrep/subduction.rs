@@ -23,7 +23,10 @@
 
 use crate::SymError;
 use crate::api::SymmetryOps;
-use crate::irrep::types::generated_data::SG_DATA_HALL;
+use crate::irrep::isotropy::{IsotropySubgroup, parent_primitive_basis};
+use crate::irrep::types::IsotropyRecord;
+use crate::irrep::query;
+use crate::irrep::types::generated_data::{ISOTROPY_SUBGROUPS, SG_DATA_HALL};
 use crate::mathfunc::Mat3I;
 
 /// Denominator of the operation tables shipped in `data_space.txt`/Hall data.
@@ -83,6 +86,36 @@ pub enum SubductionError {
     /// A matrix that had to be invertible was singular.
     #[error("singular matrix")]
     SingularMatrix,
+    /// The isotropy ordinal is outside the generated table.
+    #[error("isotropy record {ordinal} is outside the table of {len} records")]
+    IsotropyOrdinalOutOfRange { ordinal: usize, len: usize },
+    /// The record handed in is not the one stored at that ordinal, or the
+    /// ordinal is not listed for the claimed (parent, irrep) context.
+    ///
+    /// `IsotropySubgroup` has public fields, so a caller can build one by hand;
+    /// the embedding never trusts those fields without rechecking them against
+    /// the generated table.
+    #[error("isotropy record {ordinal} does not match the generated table")]
+    StaleIsotropyRecord { ordinal: usize },
+    /// The parent space group has no scalar irrep with the requested label.
+    #[error("space group {sg} has no irrep with label {ml}")]
+    UnknownParentIrrep { sg: u8, ml: &'static str },
+    /// The subgroup number stored in the record is not a space group number.
+    #[error("subgroup number {sg} is outside 1-230")]
+    InvalidSubgroupNumber { sg: usize },
+    /// No setting candidate reproduced the subgroup inside the parent.
+    #[error("no setting of subgroup {subgroup_sg} embeds into the parent ({candidates} tried)")]
+    NoValidEmbedding { subgroup_sg: u8, candidates: usize },
+    /// A frozen setting did not reproduce the subgroup inside the parent.
+    #[error("recorded setting {setting:?} for subgroup {subgroup_sg} failed validation")]
+    FrozenEmbeddingRejected { subgroup_sg: u8, setting: Mat3I },
+    /// Several setting candidates are consistent with the parent group, so the
+    /// label correspondence cannot be decided from the stored data alone.
+    #[error(
+        "subgroup {subgroup_sg} has {candidates} consistent settings; the canonical one \
+         needs a recorded setting transform"
+    )]
+    AmbiguousEmbedding { subgroup_sg: u8, candidates: usize },
     /// `T R T^-1` was not an integer matrix, so the affine map is not a
     /// symmetry embedding of the requested operation set.
     ///
@@ -928,6 +961,431 @@ fn load_hall_operations(sg: u8, hall: usize) -> Result<SgHallOperations, Subduct
     })
 }
 
+// ── Subgroup embedding ───────────────────────────────────────────────────────
+
+/// Setting transforms `U` recorded for the subgroups covered by the offline
+/// fixtures, used only to break ties between candidates that are all consistent
+/// with the parent group.
+///
+/// `U` relates the stored basis `W` (parent primitive frame) to the subgroup's
+/// own conventional cell `B`: `W . P_parent = U . (P_sub . B)`.  It is a signed
+/// permutation here, and it is a *setting convention*, not something `W` alone
+/// determines: any other `U` describes the same lattice in a different cell,
+/// and if that cell also embeds into the parent the tie has to be broken by
+/// recorded data rather than by picking the first candidate.
+///
+/// [TODO(task 9)] the full-table regression extends this table to every
+/// subgroup that needs a tie-break; tasks 1-8 only cover the fixtures.
+const FROZEN_EMBEDDINGS: &[(u8, Mat3I, [i32; 4])] = &[
+    // (subgroup, U, child-frame origin shift delta = (x, y, z, d))
+    (8, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
+    (12, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
+    (15, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
+    (22, IDENTITY_SETTING, NO_SHIFT),
+    (47, IDENTITY_SETTING, NO_SHIFT),
+    (83, IDENTITY_SETTING, NO_SHIFT),
+    (123, IDENTITY_SETTING, NO_SHIFT),
+    // #126 P4/nnc: the isotropy record uses the other ITA origin choice, so the
+    // subgroup operations need the (1/4,1/4,1/4) shift before the affine map.
+    (126, IDENTITY_SETTING, [1, 1, 1, 4]),
+    (148, IDENTITY_SETTING, NO_SHIFT),
+];
+
+const IDENTITY_SETTING: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+const NO_SHIFT: [i32; 4] = [0, 0, 0, 1];
+
+/// The 48 signed permutation matrices, the search space for `U`.
+pub fn signed_permutations() -> Vec<Mat3I> {
+    let mut out = Vec::with_capacity(48);
+    for permutation in [
+        [0usize, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ] {
+        for signs in [[1i32, 1, 1], [1, 1, -1], [1, -1, 1], [1, -1, -1], [-1, 1, 1], [-1, 1, -1], [-1, -1, 1], [-1, -1, -1]] {
+            let mut matrix = [[0i32; 3]; 3];
+            for row in 0..3 {
+                matrix[row][permutation[row]] = signs[row];
+            }
+            out.push(matrix);
+        }
+    }
+    out
+}
+
+/// An isotropy subgroup embedded in its parent's conventional frame.
+#[derive(Debug, Clone)]
+pub struct SubgroupEmbedding {
+    parent_sg: u8,
+    subgroup_sg: u8,
+    ordinal: usize,
+    setting: Mat3I,
+    transform: SeitzTransform,
+    parent_lattice: Lattice,
+    subgroup_lattice: Lattice,
+    operations: Vec<ExactSeitz>,
+    representatives: Vec<ExactSeitz>,
+    candidates: usize,
+}
+
+impl SubgroupEmbedding {
+    /// Build and validate the embedding of one isotropy subgroup.
+    ///
+    /// The record's public fields are rechecked against the generated table,
+    /// the stored basis `W` is converted through the parent's primitive basis,
+    /// and every signed-permutation setting candidate is tested by mapping the
+    /// subgroup's own Hall operations into the parent: the mapped operations
+    /// must all be parent operations (modulo the parent lattice), their coset
+    /// representatives (modulo the subgroup lattice) must close under
+    /// multiplication and inversion, and their count must equal the subgroup's
+    /// point group order.  A single surviving candidate is used; several
+    /// survivors are resolved by [`CANONICAL_SETTING_U`], otherwise the
+    /// construction reports ambiguity instead of guessing.
+    pub fn from_isotropy_subgroup(subgroup: &IsotropySubgroup) -> Result<Self, SubductionError> {
+        let parent_sg = subgroup.parent_sg;
+        if parent_sg == 0 || parent_sg > 230 {
+            return Err(SubductionError::InvalidSpaceGroup { sg: parent_sg });
+        }
+        let stored = ISOTROPY_SUBGROUPS
+            .get(subgroup.ordinal)
+            .ok_or(SubductionError::IsotropyOrdinalOutOfRange {
+                ordinal: subgroup.ordinal,
+                len: ISOTROPY_SUBGROUPS.len(),
+            })?;
+        if !same_record(stored, &subgroup.record) {
+            return Err(SubductionError::StaleIsotropyRecord {
+                ordinal: subgroup.ordinal,
+            });
+        }
+        let irrep = query::irreps_of(parent_sg)
+            .iter()
+            .find(|record| record.ml == subgroup.irrep_ml)
+            .ok_or(SubductionError::UnknownParentIrrep {
+                sg: parent_sg,
+                ml: subgroup.irrep_ml,
+            })?;
+        if !irrep
+            .subgroups()
+            .iter()
+            .any(|record| same_record(record, &subgroup.record))
+        {
+            return Err(SubductionError::StaleIsotropyRecord {
+                ordinal: subgroup.ordinal,
+            });
+        }
+        let subgroup_sg = u8::try_from(subgroup.record.sg)
+            .map_err(|_| SubductionError::InvalidSubgroupNumber { sg: subgroup.record.sg })?;
+        if subgroup_sg == 0 {
+            return Err(SubductionError::InvalidSubgroupNumber { sg: subgroup.record.sg });
+        }
+
+        let parent_primitive = exact_primitive_basis(parent_sg)?;
+        let subgroup_primitive = exact_primitive_basis(subgroup_sg)?;
+        let parent_lattice = Lattice::new(parent_primitive)?;
+        let stored_basis = Mat3R::from_ints(subgroup.record.basis);
+        let basis_conventional = stored_basis.checked_mul(&parent_primitive)?;
+        let subgroup_lattice = Lattice::new(basis_conventional)?;
+        let origin = exact_origin(&subgroup.record.origin, &parent_primitive)?;
+        let parent_operations = reduce_operations(
+            &strict_sg_hall_ops(parent_sg)?.operations,
+            &parent_lattice,
+        )?;
+        let frozen = FROZEN_EMBEDDINGS
+            .iter()
+            .find(|(sg, ..)| *sg == subgroup_sg)
+            .copied();
+        let shift = match frozen {
+            Some((_, _, delta)) => exact_origin(&delta, &Mat3R::identity())?,
+            None => Vec3R::zero(),
+        };
+        let subgroup_operations =
+            shift_operations(&strict_sg_hall_ops(subgroup_sg)?.operations, &shift)?;
+        let expected = distinct_rotations(&subgroup_operations);
+        if expected == 0 {
+            return Err(SubductionError::NoValidEmbedding {
+                subgroup_sg,
+                candidates: 0,
+            });
+        }
+        let to_conventional = subgroup_primitive.inverse()?;
+        let transform_for = |setting: Mat3I| -> Result<SeitzTransform, SubductionError> {
+            let setting_matrix = Mat3R::from_ints(setting);
+            let basis = to_conventional.checked_mul(
+                &setting_matrix
+                    .inverse()?
+                    .checked_mul(&basis_conventional)?,
+            )?;
+            Ok(SeitzTransform::new(basis.transpose(), origin))
+        };
+
+        let (setting, transform, operations, representatives, candidate_count) = match frozen {
+            // A recorded setting is a convention, not a search result: it is
+            // validated like any other candidate and a failure is reported
+            // instead of silently falling back to a different setting.
+            Some((_, setting, _)) => {
+                let transform = transform_for(setting)?;
+                match validate_candidate(
+                    &subgroup_operations,
+                    &parent_operations,
+                    &transform,
+                    &parent_lattice,
+                    &subgroup_lattice,
+                    expected,
+                )? {
+                    Some((operations, representatives)) => {
+                        (setting, transform, operations, representatives, 1)
+                    }
+                    None => {
+                        return Err(SubductionError::FrozenEmbeddingRejected {
+                            subgroup_sg,
+                            setting,
+                        })
+                    }
+                }
+            }
+            None => {
+                let candidates = signed_permutations();
+                let mut accepted: Vec<(
+                    Mat3I,
+                    SeitzTransform,
+                    Vec<ExactSeitz>,
+                    Vec<ExactSeitz>,
+                )> = Vec::new();
+                for setting in &candidates {
+                    let transform = transform_for(*setting)?;
+                    if let Some((operations, representatives)) = validate_candidate(
+                        &subgroup_operations,
+                        &parent_operations,
+                        &transform,
+                        &parent_lattice,
+                        &subgroup_lattice,
+                        expected,
+                    )? {
+                        accepted.push((*setting, transform, operations, representatives));
+                    }
+                }
+                match accepted.len() {
+                    0 => {
+                        return Err(SubductionError::NoValidEmbedding {
+                            subgroup_sg,
+                            candidates: candidates.len(),
+                        })
+                    }
+                    1 => {
+                        let (setting, transform, operations, representatives) = accepted.remove(0);
+                        (setting, transform, operations, representatives, 1)
+                    }
+                    count => {
+                        return Err(SubductionError::AmbiguousEmbedding {
+                            subgroup_sg,
+                            candidates: count,
+                        })
+                    }
+                }
+            }
+        };
+        Ok(Self {
+            parent_sg,
+            subgroup_sg,
+            ordinal: subgroup.ordinal,
+            setting,
+            transform,
+            parent_lattice,
+            subgroup_lattice,
+            operations,
+            representatives,
+            candidates: candidate_count,
+        })
+    }
+
+    /// Parent space group number.
+    pub const fn parent_sg(&self) -> u8 {
+        self.parent_sg
+    }
+
+    /// Subgroup space group number.
+    pub const fn subgroup_sg(&self) -> u8 {
+        self.subgroup_sg
+    }
+
+    /// Isotropy record ordinal this embedding was built from.
+    pub const fn ordinal(&self) -> usize {
+        self.ordinal
+    }
+
+    /// The setting transform `U` that produced the accepted candidate.
+    pub const fn setting(&self) -> Mat3I {
+        self.setting
+    }
+
+    /// `x_G = T x_H + o`.
+    pub const fn transform(&self) -> &SeitzTransform {
+        &self.transform
+    }
+
+    /// Parent translation lattice `L_G`.
+    pub const fn parent_lattice(&self) -> &Lattice {
+        &self.parent_lattice
+    }
+
+    /// Subgroup translation lattice `L_H` (parent conventional frame).
+    pub const fn subgroup_lattice(&self) -> &Lattice {
+        &self.subgroup_lattice
+    }
+
+    /// Subgroup operations mapped into the parent frame (reduced mod `L_G`).
+    pub fn operations(&self) -> &[ExactSeitz] {
+        &self.operations
+    }
+
+    /// Coset representatives of the subgroup's translation subgroup, reduced
+    /// modulo `L_H`; their number is the subgroup's point group order.
+    pub fn representatives(&self) -> &[ExactSeitz] {
+        &self.representatives
+    }
+
+    /// How many setting candidates were consistent with the parent group.
+    pub const fn candidate_count(&self) -> usize {
+        self.candidates
+    }
+}
+
+/// Compare the fields the embedding relies on, so a hand-built record cannot
+/// pass as the stored one.
+fn same_record(left: &IsotropyRecord, right: &IsotropyRecord) -> bool {
+    left.sg == right.sg
+        && left.basis == right.basis
+        && left.origin == right.origin
+        && left.direction_label == right.direction_label
+        && left.direction == right.direction
+        && left.domains == right.domains
+        && left.arms == right.arms
+}
+
+/// The stored primitive basis as exact rationals.
+fn exact_primitive_basis(sg: u8) -> Result<Mat3R, SubductionError> {
+    let basis = parent_primitive_basis(sg).map_err(|_| SubductionError::InvalidSpaceGroup { sg })?;
+    let mut rows = [[Rat::ZERO; 3]; 3];
+    for (row, values) in basis.iter().enumerate() {
+        for (column, value) in values.iter().enumerate() {
+            rows[row][column] = Rat::from_grid(*value, SOURCE_TRANSLATION_GRID)?;
+        }
+    }
+    Ok(Mat3R::new(rows))
+}
+
+/// The stored origin `(x, y, z, d)` as a point in the parent conventional frame.
+fn exact_origin(origin: &[i32; 4], parent_primitive: &Mat3R) -> Result<Vec3R, SubductionError> {
+    if origin[3] <= 0 {
+        return Err(SubductionError::InvalidGrid {
+            denominator: i128::from(origin[3]),
+        });
+    }
+    let denominator = i128::from(origin[3]);
+    let primitive = Vec3R::new([
+        Rat::new(i128::from(origin[0]), denominator)?,
+        Rat::new(i128::from(origin[1]), denominator)?,
+        Rat::new(i128::from(origin[2]), denominator)?,
+    ]);
+    parent_primitive
+        .transpose()
+        .checked_mul_vector(&primitive)
+}
+
+/// Re-express subgroup operations after an origin shift `delta` in the
+/// subgroup's own frame: `t' = t + delta - R delta`.
+///
+/// The isotropy tables and the shipped Hall setting of a subgroup can use
+/// different ITA origin choices; the shift is frozen per subgroup in
+/// [`FROZEN_EMBEDDINGS`] and validated like everything else.
+fn shift_operations(
+    operations: &[ExactSeitz],
+    shift: &Vec3R,
+) -> Result<Vec<ExactSeitz>, SubductionError> {
+    let mut out = Vec::with_capacity(operations.len());
+    for operation in operations {
+        let rotated = Mat3R::from_ints(operation.rotation()).checked_mul_vector(shift)?;
+        let translation = operation
+            .translation()
+            .checked_add(shift)?
+            .checked_sub(&rotated)?;
+        out.push(ExactSeitz::new(operation.rotation(), translation));
+    }
+    Ok(out)
+}
+
+/// Canonical representatives of a mapped operation set.
+fn reduce_operations(
+    operations: &[ExactSeitz],
+    lattice: &Lattice,
+) -> Result<Vec<ExactSeitz>, SubductionError> {
+    let mut out = Vec::with_capacity(operations.len());
+    for operation in operations {
+        out.push(operation.reduce(lattice)?);
+    }
+    Ok(out)
+}
+
+/// Number of distinct rotations in an operation set: the point group order for
+/// a conventional cell, centring translations included.
+fn distinct_rotations(operations: &[ExactSeitz]) -> usize {
+    let mut rotations: Vec<Mat3I> = Vec::new();
+    for operation in operations {
+        if !rotations.contains(&operation.rotation()) {
+            rotations.push(operation.rotation());
+        }
+    }
+    rotations.len()
+}
+
+/// A validated candidate: mapped operations and their coset representatives.
+type CandidateOperations = (Vec<ExactSeitz>, Vec<ExactSeitz>);
+
+/// Map the subgroup's own operations into the parent frame and check that they
+/// form the subgroup there.  `None` means "this setting does not work".
+fn validate_candidate(
+    subgroup_operations: &[ExactSeitz],
+    parent_operations: &[ExactSeitz],
+    transform: &SeitzTransform,
+    parent_lattice: &Lattice,
+    subgroup_lattice: &Lattice,
+    expected: usize,
+) -> Result<Option<CandidateOperations>, SubductionError> {
+    let mut operations = Vec::with_capacity(subgroup_operations.len());
+    for operation in subgroup_operations {
+        let mapped = match transform.map_operation(operation) {
+            Ok(mapped) => mapped,
+            Err(SubductionError::NonIntegralRotationImage { .. }) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let reduced = mapped.reduce(parent_lattice)?;
+        if !parent_operations.contains(&reduced) {
+            return Ok(None);
+        }
+        operations.push(reduced);
+    }
+    let representatives = subgroup_lattice.deduplicate(&operations)?;
+    if representatives.len() != expected {
+        return Ok(None);
+    }
+    for left in &representatives {
+        let inverse = left.inverse()?.reduce(subgroup_lattice)?;
+        if !representatives.contains(&inverse) {
+            return Ok(None);
+        }
+        for right in &representatives {
+            let product = left.compose(right)?.reduce(subgroup_lattice)?;
+            if !representatives.contains(&product) {
+                return Ok(None);
+            }
+        }
+    }
+    Ok(Some((operations, representatives)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1333,6 +1791,89 @@ mod tests {
             operation.apply(&mapped).unwrap(),
             operation.compose(&operation).unwrap().apply(&point).unwrap()
         );
+    }
+
+    #[test]
+    fn subgroup_embeddings_build_for_the_fixture_cases() {
+        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        let cases = [
+            (221u8, "GM4+", "P1"),
+            (221, "GM4+", "P2"),
+            (221, "GM4+", "P3"),
+            (221, "GM3+", "P1"),
+            (221, "GM3+", "C1"),
+            (225, "GM4-", "C1"),
+            (225, "GM4-", "C2"),
+            (16, "R1", "P1"),
+            (167, "GM3+", "P1"),
+            (139, "M1-", "P1"),
+        ];
+        for (sg, ml, label) in cases {
+            let subgroup =
+                isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(label))
+                    .unwrap_or_else(|error| panic!("SG {sg} {ml} {label}: {error}"));
+            let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup)
+                .unwrap_or_else(|error| panic!("SG {sg} {ml} {label}: {error}"));
+            println!(
+                "SG {sg} {ml} {label} -> #{} candidates {} setting {:?} ops {} reps {}",
+                embedding.subgroup_sg(),
+                embedding.candidate_count(),
+                embedding.setting(),
+                embedding.operations().len(),
+                embedding.representatives().len(),
+            );
+            assert_eq!(embedding.parent_sg(), sg);
+            assert_eq!(embedding.subgroup_sg(), subgroup.record.sg as u8);
+            assert!(!embedding.representatives().is_empty());
+        }
+    }
+
+    #[test]
+    fn forged_isotropy_records_are_rejected() {
+        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+            .expect("golden record");
+        assert!(SubgroupEmbedding::from_isotropy_subgroup(&subgroup).is_ok());
+
+        let mut moved = subgroup;
+        moved.ordinal = 12401;
+        assert!(matches!(
+            SubgroupEmbedding::from_isotropy_subgroup(&moved),
+            Err(SubductionError::StaleIsotropyRecord { ordinal: 12401 })
+        ));
+
+        let mut tampered = subgroup;
+        tampered.record.basis = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        assert!(matches!(
+            SubgroupEmbedding::from_isotropy_subgroup(&tampered),
+            Err(SubductionError::StaleIsotropyRecord { ordinal: 12400 })
+        ));
+
+        let mut wrong_irrep = subgroup;
+        wrong_irrep.irrep_ml = "GM3+";
+        assert!(matches!(
+            SubgroupEmbedding::from_isotropy_subgroup(&wrong_irrep),
+            Err(SubductionError::StaleIsotropyRecord { ordinal: 12400 })
+        ));
+
+        let mut out_of_range = subgroup;
+        out_of_range.ordinal = ISOTROPY_SUBGROUPS.len();
+        assert!(matches!(
+            SubgroupEmbedding::from_isotropy_subgroup(&out_of_range),
+            Err(SubductionError::IsotropyOrdinalOutOfRange { .. })
+        ));
+    }
+
+    #[test]
+    fn signed_permutations_are_the_48_unimodular_axis_permutations() {
+        let permutations = signed_permutations();
+        assert_eq!(permutations.len(), 48);
+        let mut unique: Vec<Mat3I> = Vec::new();
+        for matrix in &permutations {
+            assert!(Mat3R::from_ints(*matrix).determinant().unwrap().numerator().abs() == 1);
+            assert!(!unique.contains(matrix), "duplicate signed permutation");
+            unique.push(*matrix);
+        }
     }
 
     #[test]
