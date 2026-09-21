@@ -440,3 +440,39 @@ green at `7e93008`).  The mixed `computed_mismatch` pattern of the remaining
 1,840 rows therefore needs an explanation that keeps +-arms distinct - which is
 one more argument that the fix is the structural `build_block` route rather than
 another counting rule.
+
+## Implementation sketch for the line-probe `FoldedStar` (round 96)
+
+The missing data shape, written down so it does not have to be re-derived:
+
+```text
+input:  embedding, table (frozen), arms = [(arm_direction, rotation)]  (already built)
+        parameter = LINE_PARAMETER = 1/4
+        child_reciprocal = embedding.subgroup_lattice().reciprocal()
+
+for each arm a:
+    k_a  = parameter * a                       (parent conventional reciprocal)
+    q_a  = fold_wave_vector(embedding.transform(), &k_a)     // child frame, exact
+    q_a  = child_reciprocal.reduce(&q_a).representative      // into the child's cell
+group arms by equal q_a  ->  one LineFoldedStar per group
+    points:          the group (q_a, arm_indices)          // one point per group entry
+    star_size:       number of *distinct* arms in the group
+    arm_count:       total arms in the group (equals star_size before the child acts)
+    block_dimension: sum over the group's arms of the little dimension
+```
+
+Then `build_block(embedding, &line_arm_source, &folded_star, &child_cell, &child_reciprocal)`
+consumes exactly what it consumes today for `ScalarStar`:
+`q_block_dimension(point.arm_indices())` = the group's block dimension and
+`q_block_character(point.arm_indices(), operation)` = the sum over those arms of
+the frozen character of the arm's little group on the conjugated operation
+(`line_character` already implements the per-arm half, including the `1/4` Bloch
+phase and the zero for operations that move the arm).  The `FoldedStar` type is
+today only built inside `ScalarStar::folded_stars`; the smallest change is to give
+it a crate-private constructor (or to make the line source produce the same struct
+through a sibling `folded_stars`), which is why the arm-source enum and this
+constructor are the two pieces to land first.  Everything downstream —
+`select_representative`, `little_group_operations`, `identity_position`,
+`prepare_targets`, `solve_prepared_character_block`, the trivial-row aggregation —
+stays untouched, and `tests/w_line_frequency.rs` plus the audit's
+`computed`/`uncomputed` counters are the regression to watch.
