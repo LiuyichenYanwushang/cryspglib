@@ -184,7 +184,7 @@ fixture 比较器 `tests/irrep_subduction.rs::keys` 即按 `subgroup_lattice()` 
 |---|---|---|
 | Γ | `k = 0`；小群 = 全点群 | `IrrepRecord::dim`（物理维数）、`CharacterRow::dimension()`（该行空间的维数） |
 | selected-arm | 只取星的一条臂，在臂的小群上解释 | `RepresentationSpaceKind::SelectedArmBlockTrace`；行仍按**完整 PIR 操作宇宙**索引，调用者必须自己限制到臂小群集合 |
-| full-star | 整个星（诱导表示） | 诱导表示维数 = `little_dim × star_size`；任务 8a 已实现普通标量的求值和折叠几何，分解入口尚待接入 |
+| full-star | 整个星（诱导表示） | 诱导表示维数 = `little_dim × star_size`；普通标量的求值、折叠和独立分解入口见 §10–11 |
 
 **首版（任务 5）只做 Γ、标量、普通（非 compound、非 spinor）请求**；其余输入返回
 `Unsupported`/`MissingIrrepData`，不返回部分项。`SelectedArmBlockTrace` 的行不是
@@ -259,7 +259,7 @@ Mat3R / Vec3R                   // 3×3 / 3 向量；inverse3 -> Result<_, Singu
 ## 9. 当前不支持边界（必须报错，不得部分返回）
 
 - 现有 `subduce_irrep_with_embedding` 的多臂分解仍返回 `UnsupportedMultiArmStar`；
-  任务 8a 的独立适配器见 §10，尚不返回子群 irrep 重数。`ConjugateRealification` 的
+  普通标量完整星使用 §11 的独立入口。compound 母群完整星、`ConjugateRealification` 的
   full-star k/-k 分组（见下）；spinor/双群（任务 11）；磁子群与磁共表示（任务 10）；
   参数化 k（不在 `query::irreps_of(sg_H)` 离散表中的折叠 k）；无法唯一确定嵌入的
   ordinal（任务 4 冻结路径之外的）。
@@ -310,6 +310,46 @@ Seitz 元素 `g_i` 为 transporter，按母群倒格枚举 `k_i = R_i^-T k`。�
 再核对原始及格平移后的字符，共 1232 次比较。平移后的独立期望为各个原始对角块
 分别乘 `exp(+2πi k_i·L)` 后相加，绝不为整个 full-star trace 乘一个统一相位。
 
-后续任务 8b：将每个 q 的表示块在 `H_q` 上分解，支持目标记录代表臂的搬运，
-返回子群 star 大小并检查 `Σ multiplicity × little_dim × star_size`；再处理 compound
-成分各自的星与 realification 的 k/-k。现有单臂分解入口不因 8a 自动扩大支持范围。
+## 11. 任务 8b：普通标量完整星分解
+
+暂存入口为
+`irrep::subduction::star::decompose::subduce_full_star_with_embedding(&subgroup, &embedding, probe)`。
+它重新验证缓存嵌入与输入记录的上下文，接受普通标量母群记录，返回
+`FullStarSubduction`。原单臂入口的支持范围不变。
+
+每个输出 `FullStarBlock` 对应一个子群 k-star，保留精确的折叠代表点 `q()`、
+所匹配数据行的 `stored_k()`、`star_size()` 和非零目标项。每项目标的 `dimension`
+是**复小表示维数**；`irnumber` 是实际 CIR 来源号，compound 子群行
+`DistinctComponentSum` 的两个成分分别报告。`little_dimension()` 是该 q 的总表示
+空间维数，`block_dimension()` 是整个子群星承载的维数，两者相差 `star_size()`。
+
+算法在整个折叠子群星里寻找有数据的代表臂，再在 `H_q` 上仅对折叠到该 q 的母群
+臂计算字符。`H_q` 可以置换这些母群臂；被置换的臂在迹中贡献零，不能把完整迹
+除以臂数。子群操作取模 `L_H` 的陪集代表，拉回 Hall 帧时完整保留平移及冻结
+原点修正。共享字符求解器检查 Gram、整数重数、q 块维数和逐操作重建；随后检查
+
+```text
+Σ_targets multiplicity × child_little_dim × child_star_size = parent_full_dimension.
+```
+
+最后从**子群自身**的 Hall 操作和源行重新诱导各目标的完整星字符，在全部子群
+陪集代表上与母群完整星限制比较。`reconstruction()` 同时返回这两组字符；这一步
+不复用母群 q 块作为所谓的目标重建。
+
+独立回归 `tests/subduction_star_decomposition.rs` 固定了 13 个完整分解，期望来自
+归档 CIR 各臂对角块的单独内积计算；又直接用原始矩阵迹核对 92 个嵌入操作上的
+完整重建。它覆盖 221 → #83/#12、139 → #126、225 → #8 的不同方向，包含重数 2、
+二维小表示、Size=2、非零子群原点修正及 compound 子群成分。例如：
+
+- 221 `GM4+` P1，探针 `X1+`：#83 的 `X1+`（star size 2）与 `Z1+`（size 1），各一次。
+- 221 `GM4+` P2，探针 `X5+`：#12 的 `A1+`、`A2+` 各一次，`V1+` 两次；`2×1×2 + 1 + 1 = 6`。
+- 139 `M1-` P1，探针 `N1+`：#126 的二维 `R1` 一次，star size 2，完整维数 4。
+
+`tests/subduction_identity_regressions.rs` 还独立核对存储的恒等项频率：59 个冻结
+嵌入下，2060 次普通探针对照（458 正项、1602 零项），其中 1522 次为非 Γ 探针。
+缺数据的 15 个组合也作为完整清单钉住：ordinal 13345/13346/13351 的 `W1`–`W5`。
+它们未计入成功分解；新增缺失会使回归失败。
+
+缺少任一子群星的数据返回 `MissingChildStarData`，不返回部分分解。compound 母群、
+spinor、磁共表示及子群 `ConjugateRealification` 的 k/-k 星处理仍不在此阶段支持
+范围。逐记录嵌入覆盖由任务 9 处理，不能把本阶段样例通过写成全表验收。

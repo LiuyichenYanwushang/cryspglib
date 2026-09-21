@@ -18,13 +18,16 @@
 //!   with the **seed** wave vector through [`super::character_of`], so the
 //!   Bloch phase of every stored representative survives.
 //!
-//! What this module does *not* do (follow-up work): the decomposition of the
-//! subduced full star into child irreps and multiplicities.  [`folded_stars`]
-//! only groups the parent arms into child `k`-stars and checks their geometry;
-//! it never aggregates characters by dividing a selected-arm trace by a star
-//! size.
+//! [`decompose`] restricts the ordinary full star to an embedded subgroup and
+//! returns child irreps and multiplicities. [`folded_stars`] provides the
+//! underlying geometry: it groups parent arms into child `k`-stars and checks
+//! their dimensions. Neither path divides a full-star trace by a star size to
+//! obtain a selected-arm character.
 //!
 //! [`folded_stars`]: OrdinaryStar::folded_stars
+
+#[path = "subduction_star_decompose.rs"]
+pub mod decompose;
 
 use num_complex::Complex64;
 
@@ -33,9 +36,9 @@ use crate::irrep::types::{CharacterRow, IrrepRecord};
 use crate::mathfunc::Mat3I;
 
 use super::{
-    character_of, exact_primitive_basis, fold_wave_vector, inline_k_vector, reduce_operations,
-    strict_sg_hall_ops, ExactSeitz, Lattice, Mat3R, Rat, SubductionError, SubgroupEmbedding, Vec3R,
-    SUBDUCTION_TOLERANCE,
+    ExactSeitz, Lattice, Mat3R, Rat, SUBDUCTION_TOLERANCE, SubductionError, SubgroupEmbedding,
+    Vec3R, character_of, exact_primitive_basis, fold_wave_vector, inline_k_vector,
+    reduce_operations, strict_sg_hall_ops,
 };
 
 // ── Errors ───────────────────────────────────────────────────────────────────
@@ -758,7 +761,7 @@ impl FoldedStar {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+    use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
 
     fn pair(num: i128, den: i128) -> Rat {
         Rat::new(num, den).expect("non-zero denominator")

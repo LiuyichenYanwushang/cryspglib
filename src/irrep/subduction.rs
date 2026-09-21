@@ -1983,6 +1983,16 @@ pub fn subduce_irrep_with_embedding(
     )
 }
 
+/// Multiplicities and reconstruction witnesses of one solved character block.
+struct SolvedCharacterBlock {
+    /// `chi(E)` of the block: the dimension of the subduced space.
+    dimension: u8,
+    /// Non-zero target terms, in the child table's order.
+    targets: Vec<SubductionTarget>,
+    /// The targets re-summed on the same operations the block was evaluated on.
+    reconstructed: Vec<Complex64>,
+}
+
 /// Decompose the active block with one concrete subgroup-frame reading.
 #[allow(clippy::too_many_arguments)]
 fn decompose_active_block(
@@ -1995,15 +2005,45 @@ fn decompose_active_block(
     pulled_back: &[ExactSeitz],
     child_cell: &Lattice,
 ) -> Result<IrrepSubduction, SubductionError> {
-    let parent_sg = subgroup.parent_sg;
-    let parent_dimension = complex_dimension(parent_characters, embedding.representatives())?;
-    let targets = complex_targets(
+    let solved = solve_character_block(
         embedding.subgroup_sg(),
         block,
+        parent_characters,
         pulled_back,
         child_cell,
         folded,
     )?;
+    Ok(IrrepSubduction {
+        parent_sg: subgroup.parent_sg,
+        parent_ml: probe.ml,
+        parent_bc: probe.bc,
+        parent_dimension: solved.dimension,
+        subgroup_sg: embedding.subgroup_sg(),
+        ordinal: embedding.ordinal(),
+        setting: embedding.setting(),
+        folded_k: [folded.get(0), folded.get(1), folded.get(2)],
+        targets: solved.targets,
+        parent_characters: parent_characters.to_vec(),
+        reconstructed: solved.reconstructed,
+        tolerance: SUBDUCTION_TOLERANCE,
+    })
+}
+
+/// Decompose an aligned character block into the block's complex irreps.
+///
+/// `parent_characters[i]` corresponds to `pulled_back[i]` in the child frame.
+/// Both the identity dimension and the child characters use this aligned list,
+/// never the embedding's unfiltered representative list.
+fn solve_character_block(
+    subgroup_sg: u8,
+    block: &[&'static IrrepRecord],
+    parent_characters: &[Complex64],
+    pulled_back: &[ExactSeitz],
+    child_cell: &Lattice,
+    folded: &Vec3R,
+) -> Result<SolvedCharacterBlock, SubductionError> {
+    let parent_dimension = complex_dimension(parent_characters, pulled_back)?;
+    let targets = complex_targets(subgroup_sg, block, pulled_back, child_cell, folded)?;
     let count = parent_characters.len();
     let scale = 1.0 / count as f64;
 
@@ -2068,7 +2108,7 @@ fn decompose_active_block(
             *slot += value * f64::from(multiplicity);
         }
         reported.push(SubductionTarget {
-            sg: embedding.subgroup_sg(),
+            sg: subgroup_sg,
             ml: target.ml,
             bc: target.bc,
             row_ml: target.row_ml,
@@ -2092,19 +2132,10 @@ fn decompose_active_block(
             });
         }
     }
-    Ok(IrrepSubduction {
-        parent_sg,
-        parent_ml: probe.ml,
-        parent_bc: probe.bc,
-        parent_dimension,
-        subgroup_sg: embedding.subgroup_sg(),
-        ordinal: embedding.ordinal(),
-        setting: embedding.setting(),
-        folded_k: [folded.get(0), folded.get(1), folded.get(2)],
+    Ok(SolvedCharacterBlock {
+        dimension: parent_dimension,
         targets: reported,
-        parent_characters: parent_characters.to_vec(),
         reconstructed,
-        tolerance: SUBDUCTION_TOLERANCE,
     })
 }
 
