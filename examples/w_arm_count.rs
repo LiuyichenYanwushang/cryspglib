@@ -133,14 +133,7 @@ fn equal(left: &Vec3R, right: &Vec3R) -> bool {
 }
 
 fn main() -> Result<(), String> {
-    let mut args = std::env::args().skip(1);
-    let verbose = {
-        let all: Vec<String> = std::env::args().skip(1).collect();
-        if all.first().is_some_and(|first| first == "--arms") {
-            return Err("usage: w_arm_count <ordinal> <label> <vx> <vy> <vz> [<den>] [--arms]".into());
-        }
-        all.iter().any(|arg| arg == "--arms")
-    };
+    let verbose = std::env::args().any(|arg| arg == "--arms");
     let args_vec: Vec<String> = std::env::args()
         .skip(1)
         .filter(|arg| arg != "--arms")
