@@ -15,6 +15,7 @@ use std::path::PathBuf;
 
 use cryspglib::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
 use cryspglib::irrep::subduction::{ExactSeitz, Rat, SubgroupEmbedding, SubductionError, Vec3R};
+use cryspglib::irrep::subduce_irrep;
 
 /// One fixture case.
 struct Case {
@@ -409,4 +410,42 @@ fn embeddings_refuse_records_that_do_not_validate() {
         SubgroupEmbedding::from_isotropy_subgroup(&wrong_parent),
         Err(SubductionError::InvalidSpaceGroup { .. })
     ));
+}
+
+#[test]
+fn gamma_subduction_of_the_golden_case_is_complete() {
+    // The end-to-end deliverable of task 5: 221 GM4+ condenses along P1 into
+    // #83 P4/m, and the parent's GM3+ subduces to GM1+ + GM2+.
+    let subgroup =
+        isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+            .expect("condensing record");
+    assert_eq!(subgroup.ordinal, 12400);
+    assert_eq!(subgroup.record.sg, 83);
+    let decomposition = subduce_irrep(&subgroup, "GM3+").expect("decomposition");
+    assert_eq!(decomposition.parent_sg(), 221);
+    assert_eq!(decomposition.parent_ml(), "GM3+");
+    assert_eq!(decomposition.parent_dimension(), 2);
+    assert_eq!(decomposition.subgroup_sg(), 83);
+    assert_eq!(decomposition.ordinal(), 12400);
+    let terms: Vec<(&str, u8, u32)> = decomposition
+        .targets()
+        .iter()
+        .map(|target| (target.ml, target.dimension, target.multiplicity))
+        .collect();
+    assert_eq!(terms, [("GM1+", 1, 1), ("GM2+", 1, 1)]);
+    assert_eq!(decomposition.multiplicity("GM1+"), 1);
+    assert_eq!(decomposition.multiplicity("GM2+"), 1);
+    for absent in ["GM1-", "GM2-", "GM3+GM4+", "GM3-GM4-"] {
+        assert_eq!(decomposition.multiplicity(absent), 0, "{absent}");
+    }
+    // 2 = 1 + 1 on the nose, and every operation's character is rebuilt.
+    let (parent, rebuilt) = decomposition.reconstruction();
+    assert_eq!(parent.len(), 8);
+    for (expected, found) in parent.iter().zip(rebuilt) {
+        assert!((expected - found).norm() <= decomposition.tolerance());
+    }
+    // A different probe is decided by its characters, not by this fixture.
+    let trivial = subduce_irrep(&subgroup, "GM1+").expect("trivial decomposition");
+    assert_eq!(trivial.multiplicity("GM1+"), 1);
+    assert_eq!(trivial.multiplicity("GM2+"), 0);
 }

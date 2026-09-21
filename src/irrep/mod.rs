@@ -105,11 +105,20 @@ pub mod preamble;
 pub mod query;
 pub mod wigner;
 
-// Exact rational affine/lattice layer for the full subduction engine
-// (docs/full-irrep-subduction-plan.md, tasks 3-12).  It is hidden because no
-// supported entry point uses it yet; task 12 decides its public surface.
+// Exact rational affine/lattice layer and the first complete Gamma
+// decomposition of the full-subduction engine
+// (docs/full-irrep-subduction-plan.md, tasks 3-12).  Hidden because no
+// supported surface is frozen yet; task 12 decides it.
 #[doc(hidden)]
 pub mod subduction;
+
+// Staged entry point: `subduce_irrep(&subgroup, probe_ml)` decomposes a parent
+// irrep on the subgroup an isotropy record selects.  Gamma scalar irreps only,
+// for now; the compound, k-folding and magnetic stages are tasks 6-11.
+#[doc(hidden)]
+pub use subduction::{
+    subduce_irrep, IrrepSubduction, SubductionError, SubductionTarget, SubgroupEmbedding,
+};
 
 pub mod cubic;
 pub mod hexagonal;
