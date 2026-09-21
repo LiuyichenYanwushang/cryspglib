@@ -392,3 +392,20 @@ computed before the arms exist in `line_trivial_content_with_embedding`, so the
 `1 / g` block has to move *after* the arm construction.  A first attempt to
 patch it in place failed to compile (`arms` not yet in scope) and was reverted,
 leaving the tree green.
+
+### Refuted by measurement (round 80): the "first hit" per-child parameter
+
+Implemented as described above (`1 / g`, `g` = largest folded-arm component gcd,
+falling back to 1/4) and measured:
+
+* `tests/w_line_frequency.rs` drops from 2 passed to **1 passed / 1 failed** —
+  the `P1` regression breaks, so the rule is wrong even where the constant 1/4
+  was right; and
+* SG 196 falls from 76 `computed` to **34** `computed` (72 uncomputed).
+
+So the program's parameter is *not* the smallest one whose fold lands on the
+child's Gamma point.  Reverted immediately (tree green, `LINE_PARAMETER = 1/4`
+restored).  This is the fifth weight/parameter reading excluded by measurement;
+the remaining scope is still 1,840 rows, and the line-star `build_block` path
+(which needs no parameter choice beyond the phase convention) is still the only
+documented route.
