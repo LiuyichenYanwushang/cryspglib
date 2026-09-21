@@ -489,3 +489,20 @@ character, as `line_character` already does, for operations that move the arm
 rather than raising).  `FullStarError::from(StarError)` exists, so the calling
 side keeps using `FullStarError`.  No new error variant is needed for the enum
 step.
+
+The enum's two methods must match `build_block`'s call sites exactly:
+
+```rust
+fn q_block_dimension(&self, arm_indices: &[usize]) -> Result<u32, StarError>;
+fn q_block_character(
+    &self,
+    arm_indices: &[usize],
+    operation: &ExactSeitz,
+) -> Result<Complex64, StarError>;
+```
+
+`ScalarStar`'s versions live at `src/irrep/subduction_scalar_star.rs:675` and
+`:699`; the line implementation answers `dimension * arm_indices.len()` for the
+first and, for the second, sums `line_character` over those arms (each arm
+already carrying the rotation that transports the base little group onto it, and
+`line_character` returning zero when the conjugated operation moves the arm).
