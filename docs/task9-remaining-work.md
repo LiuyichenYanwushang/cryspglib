@@ -427,3 +427,16 @@ unchanged: the `P1` regression still passes 2/0/1 and SG 196 still reports
 lattice artefact; the mixed `computed_mismatch:<value>` pattern (some 0 against
 pinned 1-3, some overshoot) stands, and the line-star `build_block` route remains
 the only documented fix.
+
+### Refuted (round 85): identifying an arm with its negative
+
+Implemented the +-pair reading (keep one representative per pair, chosen by the
+sign of the first non-zero component, and let the stabiliser accept both signs).
+It compiles, but the `P1` regression drops from 2 passed to **1 passed /
+1 failed**: the `P1` family pins arm counts that are *not* +-symmetric (e.g. 4 of
+6 arms fold for the size-16 child), so an arm and its negative must be counted
+separately there.  The rule is therefore wrong as stated and was reverted (tree
+green at `7e93008`).  The mixed `computed_mismatch` pattern of the remaining
+1,840 rows therefore needs an explanation that keeps +-arms distinct - which is
+one more argument that the fix is the structural `build_block` route rather than
+another counting rule.
