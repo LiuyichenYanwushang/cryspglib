@@ -251,6 +251,29 @@ trivial 列的回归 oracle。
    （Size = 1 时都等于母群格子）。`VALUE DIRECTION <label>` + `DISPLAY ISOTROPY`
    默认打的是 domain 1 那一行，fixture 钉的就是它。
 
+### 6.1 compound 行的复化语义（任务 6）
+
+`isotropy_subduce_*` 只给恒等表示频率；完整的复分解必须把 compound 行按
+`CompoundMetadata::semantics` 展开：
+
+- `DistinctComponentSum`：行 = 两个相异 CIR 成分之和，两个成分各自是复不可约表示
+  （例如 #83 的 `GM3+GM4+` → CIR `GM3+` #4077 与 `GM4+` #4078，各 1 维）。
+- `ConjugateRealification`：行 = `2 Re χ_CIR` = seed 与其共轭之和；两者必须**分开**报重数
+  （被分导表示是复表示，两个重数不必相等），身份用同一个 CIR 来源号 + 共轭标记，
+  不合成新标签。
+
+每个 compound 行展开后都要与存储的 block trace 逐操作对齐（不等即报
+`InconsistentCompoundRow`）；目标 Gram 必须是单位矩阵（norm=2 的 compound 行直接当目标会
+在 `TargetNotIrreducible` 处失败），维数和按 `χ(E)`（复维数）而不是 `IrrepRecord::dim`
+（compound 的物理维数）计算。
+
+**Γ 全表清点**：Γ 凝聚记录 **1895** 条（历史数字的准确含义就是记录条数），其中子群号在冻结
+表内的 210 条里，**10 条**被任务 2 的 oracle fixture 钉住并通过了与存储 `i(G)` 及
+Frobenius `Σ_D dim(D)·mult(trivial_H, D|H) = [G_k : H_k]` 的交叉检查；其余 **171** 条多候选
+歧义、**29** 条的 setting 不在 signed-permutation 搜索空间内，均显式报错。冻结元数据必须按
+`(parent, subgroup)` 建键：只按子群号会让另一个母群得到“验证通过但标签配错”的嵌入，这次正是
+stored 频率交叉检查发现的。
+
 当前结果：`operation fixtures checked: 10 cases / 70 coset representatives`，全部
 逐条精确（标签→旋转、点群阶、闭包/逆元、`E` 的零平移、母群帧格子保持、子群帧逆像
 与 1/12 源网格）。每个用例的 basis/origin

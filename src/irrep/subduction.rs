@@ -24,7 +24,10 @@
 use crate::SymError;
 use crate::api::SymmetryOps;
 use crate::irrep::isotropy::{IsotropySubgroup, parent_primitive_basis};
-use crate::irrep::types::{CharacterRow, IrrepRecord, IsotropyRecord, KVector, SeitzOperation};
+use crate::irrep::types::{
+    CharacterRow, CompoundSelectedArmCharacter, IrrepRecord, IsotropyRecord, KVector,
+    SeitzOperation,
+};
 use crate::irrep::query;
 use crate::irrep::types::generated_data::{ISOTROPY_SUBGROUPS, SG_DATA_HALL};
 use crate::mathfunc::Mat3I;
@@ -148,6 +151,16 @@ pub enum SubductionError {
         found: Complex64,
         expected: Complex64,
     },
+    /// Two rows produced the same canonical source identity.
+    #[error("target source {ml} (irnumber {irnumber}) appears twice")]
+    DuplicateTargetSource { ml: &'static str, irnumber: u32 },
+    /// A compound row's constituents are not a complete complex-irreducible set
+    /// (their characters do not add up to the stored block trace).
+    #[error("compound row {ml} does not equal the sum of its constituents")]
+    InconsistentCompoundRow { ml: &'static str },
+    /// A complex target row is not irreducible over the coset set.
+    #[error("target {ml} has norm {norm} instead of 1; it is not a complex irrep")]
+    TargetNotIrreducible { ml: &'static str, norm: f64 },
     /// A frozen setting did not reproduce the subgroup inside the parent.
     #[error("recorded setting {setting:?} for subgroup {subgroup_sg} failed validation")]
     FrozenEmbeddingRejected { subgroup_sg: u8, setting: Mat3I },
@@ -1042,19 +1055,25 @@ fn load_hall_operations(sg: u8, hall: usize) -> Result<SgHallOperations, Subduct
 ///
 /// [TODO(task 9)] the full-table regression extends this table to every
 /// subgroup that needs a tie-break; tasks 1-8 only cover the fixtures.
-const FROZEN_EMBEDDINGS: &[(u8, Mat3I, [i32; 4])] = &[
-    // (subgroup, U, child-frame origin shift delta = (x, y, z, d))
-    (8, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
-    (12, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
-    (15, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
-    (22, IDENTITY_SETTING, NO_SHIFT),
-    (47, IDENTITY_SETTING, NO_SHIFT),
-    (83, IDENTITY_SETTING, NO_SHIFT),
-    (123, IDENTITY_SETTING, NO_SHIFT),
+const FROZEN_EMBEDDINGS: &[(u8, u8, Mat3I, [i32; 4])] = &[
+    // (parent, subgroup, U, child-frame origin shift delta = (x, y, z, d))
+    //
+    // Keyed by the **pair**: the same subgroup number reached from a different
+    // parent is a different embedding, and a setting that works for one parent
+    // can silently "validate" for another while pairing the irreps wrongly.
+    // Each entry below is derived from the task-2 oracle fixture of that exact
+    // (parent, subgroup, direction) record.
+    (221, 83, IDENTITY_SETTING, NO_SHIFT),
+    (221, 12, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
+    (221, 148, IDENTITY_SETTING, NO_SHIFT),
+    (221, 123, IDENTITY_SETTING, NO_SHIFT),
+    (221, 47, IDENTITY_SETTING, NO_SHIFT),
+    (225, 8, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
+    (16, 22, IDENTITY_SETTING, NO_SHIFT),
+    (167, 15, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
     // #126 P4/nnc: the isotropy record uses the other ITA origin choice, so the
     // subgroup operations need the (1/4,1/4,1/4) shift before the affine map.
-    (126, IDENTITY_SETTING, [1, 1, 1, 4]),
-    (148, IDENTITY_SETTING, NO_SHIFT),
+    (139, 126, IDENTITY_SETTING, [1, 1, 1, 4]),
 ];
 
 const IDENTITY_SETTING: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
@@ -1161,10 +1180,10 @@ impl SubgroupEmbedding {
         )?;
         let frozen = FROZEN_EMBEDDINGS
             .iter()
-            .find(|(sg, ..)| *sg == subgroup_sg)
+            .find(|(parent, sg, ..)| *parent == parent_sg && *sg == subgroup_sg)
             .copied();
         let shift = match frozen {
-            Some((_, _, delta)) => exact_origin(&delta, &Mat3R::identity())?,
+            Some((.., delta)) => exact_origin(&delta, &Mat3R::identity())?,
             None => Vec3R::zero(),
         };
         let subgroup_operations =
@@ -1191,7 +1210,7 @@ impl SubgroupEmbedding {
             // A recorded setting is a convention, not a search result: it is
             // validated like any other candidate and a failure is reported
             // instead of silently falling back to a different setting.
-            Some((_, setting, _)) => {
+            Some((.., setting, _)) => {
                 let transform = transform_for(setting)?;
                 match validate_candidate(
                     &subgroup_operations,
@@ -1460,17 +1479,39 @@ fn validate_candidate(
 /// this only absorbs the floating-point summation error of the inner products.
 const SUBDUCTION_TOLERANCE: f64 = 1e-7;
 
+/// Which complex constituent of the subgroup's character data a target is.
+///
+/// A compound record is a *sum* of complex irreps, so it cannot be used as a
+/// single target.  The component identifies the constituent by its stable CIR
+/// source (`irnumber`), never by a name synthesized from the row label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubductionComponent {
+    /// The record is an ordinary (single complex) irrep.
+    Ordinary,
+    /// Constituent of a `DistinctComponentSum` row.
+    Constituent { index: u8, irnumber: u32 },
+    /// The CIR seed of a `ConjugateRealification` row.
+    RealificationSeed { irnumber: u32 },
+    /// The conjugate of that seed: same source identity, conjugated characters.
+    RealificationConjugate { irnumber: u32 },
+}
+
 /// One target irrep of a subduced representation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SubductionTarget {
     /// Subgroup space group number.
     pub sg: u8,
-    /// Miller-Love label of the target irrep (its stable source identity).
+    /// Stable source label: the CIR label for a constituent, otherwise the
+    /// Miller-Love label of the row.
     pub ml: &'static str,
     /// Bradley-Cracknell label, for display only.
     pub bc: &'static str,
-    /// Physical dimension of the target irrep.
+    /// The physical row this constituent came from.
+    pub row_ml: &'static str,
+    /// Physical dimension of the row.
     pub dimension: u8,
+    /// Which complex constituent of that row this target is.
+    pub component: SubductionComponent,
     /// Multiplicity in the subduced representation.
     pub multiplicity: u32,
 }
@@ -1608,67 +1649,66 @@ pub fn subduce_irrep(
             };
         }
     };
-    let probe_row = probe.ordinary_scalar_selected_arm_block_trace().map_err(|_| {
-        SubductionError::UnsupportedCharacterSpace {
-            sg: parent_sg,
-            ml: probe.ml.to_string(),
-        }
-    })?;
-
     let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup)?;
+    subduce_irrep_with_embedding(subgroup, &embedding, probe)
+}
+
+/// [`subduce_irrep`] with an embedding that was already built and validated.
+///
+/// Scanning many probes of the same subgroup should not rebuild the embedding
+/// (and re-run its candidate validation) for every probe.
+pub fn subduce_irrep_with_embedding(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    probe: &'static IrrepRecord,
+) -> Result<IrrepSubduction, SubductionError> {
+    let parent_sg = subgroup.parent_sg;
     let parent_lattice = *embedding.parent_lattice();
     let child_cell = Lattice::new(exact_primitive_basis(embedding.subgroup_sg())?)?;
 
     // Parent characters and the mapped-back operations, in one pass: every
-    // representative is looked up in the parent row and pulled back into the
-    // subgroup frame, where the target rows live.
+    // representative is looked up in the parent row (or in the constituents of a
+    // compound parent row) and pulled back into the subgroup frame, where the
+    // target rows live.
     let mut parent_characters = Vec::with_capacity(embedding.representatives().len());
     let mut pulled_back = Vec::with_capacity(embedding.representatives().len());
     for (index, operation) in embedding.representatives().iter().enumerate() {
-        parent_characters.push(character_of(
-            &probe_row,
-            probe.ml,
-            operation,
+        parent_characters.push(parent_character_of(
+            probe,
             &parent_lattice,
+            operation,
             index,
         )?);
         // `unmap_operation` inverts internally: hand it the forward transform.
         let child = embedding.transform().unmap_operation(operation)?;
         pulled_back.push(child.reduce(&child_cell)?);
     }
+    let parent_dimension = complex_dimension(&parent_characters, embedding.representatives())?;
 
-    // Target rows: the subgroup's own Gamma irreps, scalar and non-spinor.
-    let mut targets = Vec::new();
-    let mut rows: Vec<(&'static IrrepRecord, CharacterRow, Vec<Complex64>)> = Vec::new();
-    for record in query::irreps_of(embedding.subgroup_sg()) {
-        if record.spinor || !is_gamma(record) {
-            continue;
-        }
-        let Ok(row) = record.ordinary_scalar_selected_arm_block_trace() else {
-            continue;
-        };
-        let values = pulled_back
-            .iter()
-            .enumerate()
-            .map(|(index, operation)| {
-                character_of(&row, record.ml, operation, &child_cell, index)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        rows.push((record, row, values));
-    }
-    if rows.is_empty() {
-        return Err(SubductionError::UnsupportedCharacterSpace {
-            sg: embedding.subgroup_sg(),
-            ml: probe_ml.to_string(),
-        });
-    }
-
-    // Orthogonality of the target rows is the necessary condition for reading
-    // multiplicities off an inner product.
+    let targets = complex_targets(embedding.subgroup_sg(), &pulled_back, &child_cell)?;
     let count = embedding.representatives().len();
     let scale = 1.0 / count as f64;
-    for (first_index, (first_record, _, first_values)) in rows.iter().enumerate() {
-        for (second_record, _, second_values) in rows.iter().skip(first_index + 1) {
+
+    // Complex-irreducibility of every target over the coset set, and pairwise
+    // orthogonality: the Gram matrix must be the identity.  A compound row fed
+    // in as one target fails here (it has norm 2), which is the whole point of
+    // expanding constituents first.
+    for (index, first) in targets.iter().enumerate() {
+        let first_values = &first.values;
+        let norm = (first_values
+            .iter()
+            .map(|value| value.norm_sqr())
+            .sum::<f64>()
+            * scale)
+            .sqrt();
+        if (norm - 1.0).abs() > SUBDUCTION_TOLERANCE {
+            return Err(SubductionError::TargetNotIrreducible {
+                ml: first.ml,
+                norm,
+            });
+        }
+        for second in targets.iter().skip(index + 1) {
+            let second_values = &second.values;
             let inner: Complex64 = first_values
                 .iter()
                 .zip(second_values)
@@ -1677,8 +1717,8 @@ pub fn subduce_irrep(
                 * scale;
             if inner.norm() > SUBDUCTION_TOLERANCE {
                 return Err(SubductionError::TargetRowsNotOrthogonal {
-                    first: first_record.ml,
-                    second: second_record.ml,
+                    first: first.ml,
+                    second: second.ml,
                     value: inner,
                 });
             }
@@ -1687,33 +1727,44 @@ pub fn subduce_irrep(
 
     let mut dimension_sum = 0i64;
     let mut reconstructed = vec![Complex64::new(0.0, 0.0); count];
-    for (record, _, values) in rows.iter() {
+    let mut reported: Vec<SubductionTarget> = Vec::new();
+    let mut seen: Vec<(SubductionComponent, &'static str, u32)> = Vec::new();
+    for target in targets.iter() {
         let inner: Complex64 = parent_characters
             .iter()
-            .zip(values)
-            .map(|(parent, target)| parent * target.conj())
+            .zip(&target.values)
+            .map(|(parent, value)| parent * value.conj())
             .sum::<Complex64>()
             * scale;
-        let multiplicity = integral_multiplicity(record.ml, inner)?;
+        let multiplicity = integral_multiplicity(target.ml, inner)?;
         if multiplicity == 0 {
             continue;
         }
-        dimension_sum += i64::from(multiplicity) * i64::from(record.dim);
-        for (slot, value) in reconstructed.iter_mut().zip(values) {
+        let key = (target.component, target.ml, target.irnumber);
+        if seen.contains(&key) {
+            return Err(SubductionError::DuplicateTargetSource {
+                ml: target.ml,
+                irnumber: target.irnumber,
+            });
+        }
+        seen.push(key);
+        dimension_sum += i64::from(multiplicity) * i64::from(target.dimension);
+        for (slot, value) in reconstructed.iter_mut().zip(&target.values) {
             *slot += value * f64::from(multiplicity);
         }
-        targets.push(SubductionTarget {
+        reported.push(SubductionTarget {
             sg: embedding.subgroup_sg(),
-            ml: record.ml,
-            bc: record.bc,
-            dimension: record.dim,
+            ml: target.ml,
+            bc: target.bc,
+            row_ml: target.row_ml,
+            dimension: target.dimension,
+            component: target.component,
             multiplicity,
         });
     }
-    let expected_dimension = i64::from(probe.dim);
-    if dimension_sum != expected_dimension {
+    if dimension_sum != i64::from(parent_dimension) {
         return Err(SubductionError::DimensionSumMismatch {
-            expected: probe.dim.into(),
+            expected: u32::from(parent_dimension),
             found: dimension_sum,
         });
     }
@@ -1734,15 +1785,285 @@ pub fn subduce_irrep(
         parent_sg,
         parent_ml: probe.ml,
         parent_bc: probe.bc,
-        parent_dimension: probe.dim,
+        parent_dimension,
         subgroup_sg: embedding.subgroup_sg(),
         ordinal: embedding.ordinal(),
         setting: embedding.setting(),
-        targets,
+        targets: reported,
         parent_characters,
         reconstructed,
         tolerance: SUBDUCTION_TOLERANCE,
     })
+}
+
+/// The complex dimension of the parent representation: its character on the
+/// identity operation.  This is *not* `IrrepRecord::dim` for a compound probe,
+/// where the physical row is a realification of a complex irrep.
+fn complex_dimension(
+    characters: &[Complex64],
+    representatives: &[ExactSeitz],
+) -> Result<u8, SubductionError> {
+    let identity_rotation = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let index = representatives
+        .iter()
+        .position(|operation| operation.rotation() == identity_rotation)
+        .ok_or(SubductionError::TargetNotIrreducible {
+            ml: "identity operation",
+            norm: 0.0,
+        })?;
+    let value = characters[index].re;
+    let rounded = value.round();
+    if (value - rounded).abs() > SUBDUCTION_TOLERANCE
+        || !(0.0..=f64::from(u8::MAX)).contains(&rounded)
+    {
+        return Err(SubductionError::NonIntegralMultiplicity {
+            ml: "identity character",
+            value: Complex64::new(value, 0.0),
+        });
+    }
+    // Exact by the checks above.
+    Ok(rounded as u8)
+}
+
+/// The character row of an irrep, whichever typed space it lives in.
+enum ProbeRow {
+    Ordinary(CharacterRow),
+    Compound(Box<CompoundSelectedArmCharacter>),
+}
+
+fn probe_row(record: &'static IrrepRecord) -> Result<ProbeRow, SubductionError> {
+    match record.ordinary_scalar_selected_arm_block_trace() {
+        Ok(row) => Ok(ProbeRow::Ordinary(row)),
+        Err(crate::irrep::types::CharacterViewError::NotApplicable) => record
+            .compound_selected_arm_view()
+            .map(|view| ProbeRow::Compound(Box::new(view)))
+            .map_err(|_| SubductionError::UnsupportedCharacterSpace {
+                sg: record.sg,
+                ml: record.ml.to_string(),
+            }),
+        Err(_) => Err(SubductionError::UnsupportedCharacterSpace {
+            sg: record.sg,
+            ml: record.ml.to_string(),
+        }),
+    }
+}
+
+/// The probe's character on one parent-frame operation.
+///
+/// Compound probes contribute the **sum** of their complex constituents
+/// (`first + second`, or `seed + conjugate(seed)` for a realification), which is
+/// exactly the character of the physical representation.
+fn parent_character_of(
+    record: &'static IrrepRecord,
+    lattice: &Lattice,
+    operation: &ExactSeitz,
+    index: usize,
+) -> Result<Complex64, SubductionError> {
+    match probe_row(record)? {
+        ProbeRow::Ordinary(row) => character_of(&row, record.ml, operation, lattice, index),
+        ProbeRow::Compound(view) => match view.as_ref() {
+            CompoundSelectedArmCharacter::DistinctComponentSum { first, second, .. } => {
+                let left = character_of(&first.row, first.label, operation, lattice, index)?;
+                let right = character_of(&second.row, second.label, operation, lattice, index)?;
+                Ok(left + right)
+            }
+            CompoundSelectedArmCharacter::ConjugateRealification { seed, .. } => {
+                let value = character_of(&seed.row, seed.label, operation, lattice, index)?;
+                Ok(Complex64::new(2.0 * value.re, 0.0))
+            }
+        },
+    }
+}
+
+/// A complex irreducible constituent of the subgroup's character data.
+struct ComplexTarget {
+    ml: &'static str,
+    bc: &'static str,
+    row_ml: &'static str,
+    irnumber: u32,
+    dimension: u8,
+    component: SubductionComponent,
+    values: Vec<Complex64>,
+}
+
+/// Evaluate one row over the pulled-back operations.
+fn evaluate(
+    row: &CharacterRow,
+    ml: &'static str,
+    pulled_back: &[ExactSeitz],
+    child_cell: &Lattice,
+) -> Result<Vec<Complex64>, SubductionError> {
+    pulled_back
+        .iter()
+        .enumerate()
+        .map(|(index, operation)| character_of(row, ml, operation, child_cell, index))
+        .collect()
+}
+
+/// Check that a stored block trace really is the assembly its metadata claims.
+fn check_assembly(
+    row_ml: &'static str,
+    block_trace: &CharacterRow,
+    assembled: &[Complex64],
+    pulled_back: &[ExactSeitz],
+    child_cell: &Lattice,
+) -> Result<(), SubductionError> {
+    let stored = evaluate(block_trace, row_ml, pulled_back, child_cell)?;
+    for (found, expected) in stored.iter().zip(assembled) {
+        if (found - expected).norm() > SUBDUCTION_TOLERANCE {
+            return Err(SubductionError::InconsistentCompoundRow { ml: row_ml });
+        }
+    }
+    Ok(())
+}
+
+/// Expand the subgroup's Gamma rows into complex irreducible constituents.
+///
+/// Ordinary rows are already single complex irreps.  A `DistinctComponentSum`
+/// row contributes both stored CIR constituents; a `ConjugateRealification` row
+/// contributes its CIR seed **and** the conjugate of that seed, because the
+/// subduced representation is complex and the two multiplicities need not be
+/// equal.  Feeding a compound row in as one target would violate the complex
+/// orthogonality relation (its norm is 2), which is why it is expanded here.
+fn complex_targets(
+    subgroup_sg: u8,
+    pulled_back: &[ExactSeitz],
+    child_cell: &Lattice,
+) -> Result<Vec<ComplexTarget>, SubductionError> {
+    let mut out = Vec::new();
+    for record in query::irreps_of(subgroup_sg) {
+        if record.spinor || !is_gamma(record) {
+            continue;
+        }
+        match record.ordinary_scalar_selected_arm_block_trace() {
+            Ok(row) => {
+                let dimension = u8::try_from(row.dimension()).map_err(|_| {
+                    SubductionError::UnsupportedCharacterSpace {
+                        sg: subgroup_sg,
+                        ml: record.ml.to_string(),
+                    }
+                })?;
+                out.push(ComplexTarget {
+                    ml: record.ml,
+                    bc: record.bc,
+                    row_ml: record.ml,
+                    irnumber: 0,
+                    dimension,
+                    component: SubductionComponent::Ordinary,
+                    values: evaluate(&row, record.ml, pulled_back, child_cell)?,
+                });
+            }
+            Err(crate::irrep::types::CharacterViewError::NotApplicable) => {
+                let view = record.compound_selected_arm_view().map_err(|_| {
+                    SubductionError::UnsupportedCharacterSpace {
+                        sg: subgroup_sg,
+                        ml: record.ml.to_string(),
+                    }
+                })?;
+                match view {
+                    CompoundSelectedArmCharacter::DistinctComponentSum {
+                        first,
+                        second,
+                        block_trace,
+                    } => {
+                        let first_values =
+                            evaluate(&first.row, first.label, pulled_back, child_cell)?;
+                        let second_values =
+                            evaluate(&second.row, second.label, pulled_back, child_cell)?;
+                        let assembled: Vec<Complex64> = first_values
+                            .iter()
+                            .zip(&second_values)
+                            .map(|(left, right)| left + right)
+                            .collect();
+                        check_assembly(
+                            record.ml,
+                            &block_trace,
+                            &assembled,
+                            pulled_back,
+                            child_cell,
+                        )?;
+                        for (index, (constituent, values)) in
+                            [(first, first_values), (second, second_values)]
+                                .into_iter()
+                                .enumerate()
+                        {
+                            let dimension = u8::try_from(constituent.dimension).map_err(|_| {
+                                SubductionError::UnsupportedCharacterSpace {
+                                    sg: subgroup_sg,
+                                    ml: constituent.label.to_string(),
+                                }
+                            })?;
+                            out.push(ComplexTarget {
+                                ml: constituent.label,
+                                bc: record.bc,
+                                row_ml: record.ml,
+                                irnumber: constituent.irnumber,
+                                dimension,
+                                component: SubductionComponent::Constituent {
+                                    index: index as u8,
+                                    irnumber: constituent.irnumber,
+                                },
+                                values,
+                            });
+                        }
+                    }
+                    CompoundSelectedArmCharacter::ConjugateRealification { seed, block_trace } => {
+                        let seed_values =
+                            evaluate(&seed.row, seed.label, pulled_back, child_cell)?;
+                        let conjugate: Vec<Complex64> =
+                            seed_values.iter().map(|value| value.conj()).collect();
+                        let assembled: Vec<Complex64> = seed_values
+                            .iter()
+                            .zip(&conjugate)
+                            .map(|(left, right)| left + right)
+                            .collect();
+                        check_assembly(
+                            record.ml,
+                            &block_trace,
+                            &assembled,
+                            pulled_back,
+                            child_cell,
+                        )?;
+                        let dimension = u8::try_from(seed.dimension).map_err(|_| {
+                            SubductionError::UnsupportedCharacterSpace {
+                                sg: subgroup_sg,
+                                ml: seed.label.to_string(),
+                            }
+                        })?;
+                        out.push(ComplexTarget {
+                            ml: seed.label,
+                            bc: record.bc,
+                            row_ml: record.ml,
+                            irnumber: seed.irnumber,
+                            dimension,
+                            component: SubductionComponent::RealificationSeed {
+                                irnumber: seed.irnumber,
+                            },
+                            values: seed_values,
+                        });
+                        out.push(ComplexTarget {
+                            ml: seed.label,
+                            bc: record.bc,
+                            row_ml: record.ml,
+                            irnumber: seed.irnumber,
+                            dimension,
+                            component: SubductionComponent::RealificationConjugate {
+                                irnumber: seed.irnumber,
+                            },
+                            values: conjugate,
+                        });
+                    }
+                }
+            }
+            Err(_) => {
+                return Err(SubductionError::UnsupportedCharacterSpace {
+                    sg: subgroup_sg,
+                    ml: record.ml.to_string(),
+                })
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Whether an irrep record sits at Gamma.
@@ -2332,14 +2653,39 @@ mod tests {
                 .expect("reduce");
             pairs.push((parent_row.values()[parent_index], child));
         }
-        let mut out = Vec::new();
+        // Every target row expanded into its complex constituents, exactly as
+        // the metadata describes them.
+        let mut rows: Vec<(&'static str, CharacterRow, bool)> = Vec::new();
         for record in query::irreps_of(embedding.subgroup_sg()) {
             if record.spinor || !is_gamma(record) {
                 continue;
             }
-            let Ok(row) = record.ordinary_scalar_selected_arm_block_trace() else {
+            if let Ok(row) = record.ordinary_scalar_selected_arm_block_trace() {
+                rows.push((record.ml, row, false));
                 continue;
-            };
+            }
+            if let Ok(view) = record.compound_selected_arm_view() {
+                match view {
+                    crate::irrep::types::CompoundSelectedArmCharacter::DistinctComponentSum {
+                        first,
+                        second,
+                        ..
+                    } => {
+                        rows.push((first.label, first.row, false));
+                        rows.push((second.label, second.row, false));
+                    }
+                    crate::irrep::types::CompoundSelectedArmCharacter::ConjugateRealification {
+                        seed,
+                        ..
+                    } => {
+                        rows.push((seed.label, seed.row.clone(), false));
+                        rows.push((seed.label, seed.row, true));
+                    }
+                }
+            }
+        }
+        let mut out = Vec::new();
+        for (label, row, conjugate) in rows {
             let mut sum = Complex64::new(0.0, 0.0);
             for (parent_value, child) in &pairs {
                 let index = row
@@ -2347,12 +2693,14 @@ mod tests {
                     .iter()
                     .position(|candidate| candidate.rotation == flatten_rotation(child.rotation()))
                     .expect("child character");
-                sum += parent_value * row.values()[index].conj();
+                let value = row.values()[index];
+                let value = if conjugate { value.conj() } else { value };
+                sum += parent_value * value.conj();
             }
             let value = sum / pairs.len() as f64;
             let rounded = value.re.round();
             if value.im.abs() < 1e-7 && (value.re - rounded).abs() < 1e-7 && rounded > 0.5 {
-                out.push((record.ml, rounded as u32));
+                out.push((label, rounded as u32));
             }
         }
         out
@@ -2371,23 +2719,8 @@ mod tests {
             if record.ordinary_scalar_selected_arm_block_trace().is_err() {
                 continue;
             }
-            let result = match subduce_irrep(&subgroup, record.ml) {
-                Ok(result) => result,
-                Err(error) => {
-                    // Rows the subgroup realises only as compound (E-type)
-                    // irreps are task 6: refusing beats a partial answer.
-                    assert!(
-                        matches!(
-                            error,
-                            SubductionError::DimensionSumMismatch { .. }
-                                | SubductionError::TargetRowsNotOrthogonal { .. }
-                        ),
-                        "{}: unexpected error {error}",
-                        record.ml
-                    );
-                    continue;
-                }
-            };
+            let result = subduce_irrep(&subgroup, record.ml)
+                .unwrap_or_else(|error| panic!("{}: {error}", record.ml));
             let expected = independent_multiplicities(&subgroup, record.ml);
             let found: Vec<(&str, u32)> = result
                 .targets()
@@ -2412,10 +2745,104 @@ mod tests {
             }
             probes += 1;
         }
-        assert!(
-            probes >= 5,
-            "checked {probes} scalar Gamma probes of SG 221 (compound rows are task 6)"
-        );
+        assert!(probes >= 9, "checked {probes} scalar Gamma probes of SG 221");
+    }
+
+    #[test]
+    fn compound_rows_are_expanded_into_complex_constituents() {
+        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        use crate::irrep::types::CompoundSelectedArmCharacter;
+        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+            .expect("golden record");
+        // 221 GM4+ is a 3-dimensional ordinary irrep; #83 realises its A_u part
+        // as an ordinary row and its E_u part only as a compound row, so this
+        // case fails unless the compound row is expanded by its metadata.
+        let result = subduce_irrep(&subgroup, "GM4+").expect("decomposition of GM4+");
+        let terms: Vec<(&str, &str, u32, SubductionComponent)> = result
+            .targets()
+            .iter()
+            .map(|target| {
+                (
+                    target.ml,
+                    target.row_ml,
+                    target.multiplicity,
+                    target.component,
+                )
+            })
+            .collect();
+        assert_eq!(terms.len(), 3);
+        assert_eq!(terms[0].0, "GM1+");
+        assert_eq!(terms[0].3, SubductionComponent::Ordinary);
+        assert_eq!(terms[0].2, 1);
+        for (index, expected_irnumber) in [(0usize, 4077u32), (1, 4078)] {
+            let term = terms[index + 1];
+            assert_eq!(term.1, "GM3+GM4+", "the compound row label is kept as provenance");
+            assert_eq!(term.2, 1);
+            assert_eq!(
+                term.3,
+                SubductionComponent::Constituent {
+                    index: index as u8,
+                    irnumber: expected_irnumber,
+                }
+            );
+        }
+        // The two constituents are distinct complex irreps with distinct source
+        // numbers, which is what the metadata says the row is.
+        let view = crate::irrep::query::irreps_of(83)
+            .iter()
+            .find(|record| record.ml == "GM3+GM4+")
+            .expect("compound row")
+            .compound_selected_arm_view()
+            .expect("compound view");
+        let CompoundSelectedArmCharacter::DistinctComponentSum { first, second, .. } = view else {
+            panic!("GM3+GM4+ must be a distinct component sum");
+        };
+        assert_eq!(first.irnumber, 4077);
+        assert_eq!(second.irnumber, 4078);
+        assert_ne!(first.label, second.label);
+        // 3 = 1 + 1 + 1 and every operation is rebuilt.
+        let dimension_sum: u32 = result
+            .targets()
+            .iter()
+            .map(|target| u32::from(target.dimension) * target.multiplicity)
+            .sum();
+        assert_eq!(dimension_sum, 3);
+        let (parent, rebuilt) = result.reconstruction();
+        for (expected, found) in parent.iter().zip(rebuilt) {
+            assert!((expected - found).norm() <= result.tolerance());
+        }
+    }
+
+    #[test]
+    fn a_realification_reports_seed_and_conjugate_separately() {
+        use crate::irrep::isotropy::{isotropy_subgroup_for_direction, IsotropyDirection};
+        // #83's `GM3-GM4-` is a realification row: its two complex constituents
+        // are the CIR seed and its conjugate, and the subduction must be able to
+        // give them different multiplicities.
+        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", IsotropyDirection::Label("P1"))
+            .expect("golden record");
+        let result = subduce_irrep(&subgroup, "GM3-").expect("decomposition of GM3-");
+        for target in result.targets() {
+            let _ = target;
+        }
+        // Whatever the multiplicities are, seed and conjugate are separate
+        // entries whenever they appear, and they are never merged into the
+        // compound label.
+        assert!(result
+            .targets()
+            .iter()
+            .all(|target| target.row_ml != "GM3-GM4-"
+                || matches!(
+                    target.component,
+                    SubductionComponent::RealificationSeed { .. }
+                        | SubductionComponent::RealificationConjugate { .. }
+                )));
+        let sum: u32 = result
+            .targets()
+            .iter()
+            .map(|target| u32::from(target.dimension) * target.multiplicity)
+            .sum();
+        assert_eq!(sum, u32::from(result.parent_dimension()));
     }
 
     #[test]

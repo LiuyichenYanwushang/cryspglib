@@ -449,3 +449,247 @@ fn gamma_subduction_of_the_golden_case_is_complete() {
     assert_eq!(trivial.multiplicity("GM1+"), 1);
     assert_eq!(trivial.multiplicity("GM2+"), 0);
 }
+
+/// The trivial irrep of `sg` at Gamma: its character is 1 on every operation.
+fn trivial_gamma_label(sg: u8) -> &'static str {
+    for record in cryspglib::irrep::query::irreps_of(sg) {
+        if record.spinor || record.kx != 0 || record.ky != 0 || record.kz != 0 {
+            continue;
+        }
+        if let Ok(row) = record.ordinary_scalar_selected_arm_block_trace() {
+            let all_one = row.values().iter().all(|value| (value - 1.0).norm() < 1e-9);
+            if all_one {
+                return record.ml;
+            }
+        }
+    }
+    panic!("space group {sg} has no trivial Gamma irrep");
+}
+
+fn is_gamma(record: &cryspglib::irrep::types::IrrepRecord) -> bool {
+    !record.spinor && record.kx == 0 && record.ky == 0 && record.kz == 0
+}
+
+/// Distinct rotations of a space group: the order of its point group.
+fn point_group_order(sg: u8) -> usize {
+    let mut rotations: Vec<[i32; 9]> = Vec::new();
+    for operation in &cryspglib::irrep::subduction::strict_sg_hall_ops(sg)
+        .expect("Hall operations")
+        .operations
+    {
+        let rotation = operation.rotation();
+        let flat = [
+            rotation[0][0], rotation[0][1], rotation[0][2],
+            rotation[1][0], rotation[1][1], rotation[1][2],
+            rotation[2][0], rotation[2][1], rotation[2][2],
+        ];
+        if !rotations.contains(&flat) {
+            rotations.push(flat);
+        }
+    }
+    rotations.len()
+}
+
+/// Frobenius reciprocity against the shipped identity-subduction table.
+///
+/// For every Gamma isotropy record whose embedding the frozen table pins, the
+/// engine's multiplicity of the subgroup's trivial irrep must equal the stored
+/// frequency `i(G)`, and
+/// `sum_D dim(D) * mult(trivial_H, D|H) == [G_k : H_k]` must hold over the
+/// **complete** complex Gamma irrep set of the parent.
+///
+/// Scope, counted rather than assumed.  The shipped isotropy table has 1895
+/// Gamma condensing records -- the historical `1895 条 Γ 记录` -- and this is
+/// where that number comes from: it is the count of Gamma records, not a count
+/// of verified identities.  Of those, 210 have a subgroup covered by a frozen
+/// embedding entry, and 10 are actually pinned: the frozen metadata is keyed by
+/// `(parent, subgroup)` because the same subgroup reached from another parent is
+/// a different embedding, and a setting that works for one parent can otherwise
+/// "validate" while pairing the irreps wrongly (the stored frequencies catch
+/// exactly that).  The other 200 records report `AmbiguousEmbedding` instead of
+/// guessing; deriving their per-record settings offline is task 9.
+#[test]
+fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
+    use cryspglib::irrep::isotropy::isotropy_subgroups;
+    use cryspglib::irrep::query;
+    use cryspglib::irrep::subduction::SubgroupEmbedding;
+    use cryspglib::irrep::subduce_irrep_with_embedding;
+
+    const FROZEN_SUBGROUPS: [u8; 9] = [8, 12, 15, 22, 47, 83, 123, 126, 148];
+    let mut gamma_records = 0usize;
+    let mut frozen_subgroup_records = 0usize;
+    let mut pinned = 0usize;
+    let mut ambiguous = 0usize;
+    let mut unresolved_setting = 0usize;
+    let mut errors: Vec<String> = Vec::new();
+
+    for sg in 1..=230u8 {
+        for probe in query::irreps_of(sg) {
+            if !is_gamma(probe) {
+                continue;
+            }
+            let Ok(subgroups) = isotropy_subgroups(sg, probe.ml) else {
+                continue;
+            };
+            for subgroup in subgroups {
+                gamma_records += 1;
+                let Ok(subgroup_sg) = u8::try_from(subgroup.record.sg) else {
+                    continue;
+                };
+                if !FROZEN_SUBGROUPS.contains(&subgroup_sg) {
+                    continue;
+                }
+                frozen_subgroup_records += 1;
+                let embedding = match SubgroupEmbedding::from_isotropy_subgroup(&subgroup) {
+                    Ok(embedding) => embedding,
+                    Err(cryspglib::irrep::SubductionError::AmbiguousEmbedding { .. }) => {
+                        ambiguous += 1;
+                        continue;
+                    }
+                    // No signed-permutation setting works for this record, so
+                    // its real setting (and possibly a child origin shift like
+                    // #126's) is not in the frozen table yet.  Task 9 derives
+                    // it from the oracle; until then this is an explicit gap,
+                    // never a guessed embedding.
+                    Err(cryspglib::irrep::SubductionError::NoValidEmbedding { .. }) => {
+                        unresolved_setting += 1;
+                        continue;
+                    }
+                    Err(error) => {
+                        errors.push(format!(
+                            "ordinal {} (SG {sg} {} -> #{subgroup_sg}): {error}",
+                            subgroup.ordinal, probe.ml
+                        ));
+                        continue;
+                    }
+                };
+
+                // Stored frequencies, one per parent irrep at Gamma; entries
+                // for other domains must agree with each other.
+                let stored = match subgroup.identity_subduction() {
+                    Ok(stored) => stored,
+                    Err(error) => {
+                        errors.push(format!("ordinal {}: {error}", subgroup.ordinal));
+                        continue;
+                    }
+                };
+                let mut stored_frequencies: Vec<(&'static str, u16)> = Vec::new();
+                for entry in stored
+                    .iter()
+                    .filter(|entry| entry.parent_k.numerators == [0, 0, 0])
+                {
+                    match stored_frequencies
+                        .iter()
+                        .find(|(ml, _)| *ml == entry.parent_ml)
+                    {
+                        Some((_, frequency)) if *frequency != entry.frequency => errors.push(
+                            format!(
+                                "ordinal {}: {} has frequency {} and {} across domains",
+                                subgroup.ordinal, entry.parent_ml, frequency, entry.frequency
+                            ),
+                        ),
+                        Some(_) => {}
+                        None => stored_frequencies.push((entry.parent_ml, entry.frequency)),
+                    }
+                }
+
+                let trivial = trivial_gamma_label(subgroup_sg);
+                let mut engine_frequencies: Vec<(&'static str, u32)> = Vec::new();
+                let mut frobenius_sum = 0i64;
+                for candidate in query::irreps_of(sg) {
+                    if !is_gamma(candidate) {
+                        continue;
+                    }
+                    let result = match subduce_irrep_with_embedding(&subgroup, &embedding, candidate)
+                    {
+                        Ok(result) => result,
+                        Err(error) => {
+                            errors.push(format!(
+                                "ordinal {} probe {}: {error}",
+                                subgroup.ordinal, candidate.ml
+                            ));
+                            continue;
+                        }
+                    };
+                    let multiplicity = result.multiplicity(trivial);
+                    if multiplicity > 0 {
+                        engine_frequencies.push((candidate.ml, multiplicity));
+                    }
+                    frobenius_sum +=
+                        i64::from(result.parent_dimension()) * i64::from(multiplicity);
+                }
+
+                for (ml, frequency) in &stored_frequencies {
+                    match engine_frequencies.iter().find(|(label, _)| label == ml) {
+                        Some((_, found)) if *found == u32::from(*frequency) => {}
+                        Some((_, found)) => errors.push(format!(
+                            "ordinal {} {ml}: engine {found} != stored {frequency}",
+                            subgroup.ordinal
+                        )),
+                        None => errors.push(format!(
+                            "ordinal {} {ml}: stored frequency {frequency} but the engine \
+                             reports none",
+                            subgroup.ordinal
+                        )),
+                    }
+                }
+                for (ml, found) in &engine_frequencies {
+                    if !stored_frequencies.iter().any(|(label, _)| label == ml) {
+                        errors.push(format!(
+                            "ordinal {} {ml}: engine reports {found} but the stored table \
+                             has no entry",
+                            subgroup.ordinal
+                        ));
+                    }
+                }
+
+                // The record's own condensing irrep must contain the trivial
+                // representation: that is what makes the subgroup its isotropy
+                // subgroup, and the stored table agrees.
+                if !engine_frequencies
+                    .iter()
+                    .any(|(ml, _)| *ml == probe.ml)
+                {
+                    errors.push(format!(
+                        "ordinal {}: condensing irrep {} does not subduce the trivial rep",
+                        subgroup.ordinal, probe.ml
+                    ));
+                }
+
+                let index = point_group_order(sg) / embedding.representatives().len();
+                if frobenius_sum != index as i64 {
+                    errors.push(format!(
+                        "ordinal {}: Frobenius sum {frobenius_sum} != index {index}",
+                        subgroup.ordinal
+                    ));
+                }
+                pinned += 1;
+            }
+        }
+    }
+
+    println!(
+        "Gamma records {gamma_records} | frozen-subgroup records {frozen_subgroup_records} | \
+         pinned {pinned} | ambiguous {ambiguous} | settings outside the search {unresolved_setting} \
+         | errors {}",
+        errors.len()
+    );
+    assert!(errors.is_empty(), "{}", errors.join("\n"));
+    // 1895 is the historical "Gamma records" figure; it counts records, not
+    // verified identities, which is why the plan asks for the scope to be
+    // recounted rather than reused.
+    assert_eq!(gamma_records, 1895, "Gamma isotropy records in the shipped table");
+    assert_eq!(frozen_subgroup_records, 210);
+    assert_eq!(pinned, 10, "records pinned by the task-2 oracle fixture");
+    assert_eq!(
+        ambiguous + unresolved_setting,
+        200,
+        "records whose setting needs task 9's metadata"
+    );
+    assert_eq!(ambiguous, 171, "records with several consistent settings");
+    assert_eq!(
+        unresolved_setting, 29,
+        "records whose setting is not a signed permutation (or needs a shift)"
+    );
+    assert!(pinned + ambiguous + unresolved_setting == frozen_subgroup_records);
+}

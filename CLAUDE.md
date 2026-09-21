@@ -340,6 +340,36 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
 7. **多臂与磁共表示放到最后**：当前数据集对 single-arm（`H ⊆ G_k`）之外的情形没有
    可直接验证的条目，磁表也没有分导列。
 
+### 完整分导的任务 1-6 落地状态（2026-09-21）
+
+按 `docs/full-irrep-subduction-plan.md` 逐任务推进，每个任务一次提交、显式文件列表：
+
+- 任务 1 `56bc4ba`：`docs/subduction-conventions.md`（坐标/表示/来源/精度契约，含手算例）。
+- 任务 2 `6a81a91`：`scripts/verify_isotropy_operations.py` + 10 用例 / 70 操作 fixture
+  （`tests/data/isotropy/operations.{json,txt}`）+ 离线测试。
+- 约定修正 `f5d67cd`：官方打印与 `ipoint_op` 的旋转是**行作用** `x' = x M`，引擎是列作用
+  `x' = x R`，解码必须转置；判别证据是 SG 167 `GM3+` P1 → #15（唯一转置不闭合的记录）。
+- 任务 3 `a9425ae`：`src/irrep/subduction.rs` 精确有理仿射/格层（T/o、L_G/L_H、
+  `(L^T)^-1` 坐标映射、严格 `SG_DATA_HALL` 来源，230 SG 的 4425 个操作都在 1/12 网格上）。
+- 任务 4 `bae3edb`：`SubgroupEmbedding`；冻结元数据键是 **(parent, subgroup, U, δ)**——
+  只按子群号建键会让另一个母群“验证通过但把 irrep 标签配错”，这次由 stored
+  identity-subduction 频率交叉检查抓出来。`δ` 的例子是 #126 需要 (1/4,1/4,1/4)
+  （isotropy 记录与 Hall 表用了不同 ITA origin choice）。
+- 任务 5 `50f18c3`：第一个完整 Γ 分解 `subduce_irrep(&h, probe_ml)`；
+  黄金用例 221 `GM4+` P1 → #83，`GM3+` ↓ = `GM1+ ×1 + GM2+ ×1`（2 = 1+1）。
+- 任务 6（本次）：compound 行按 `CompoundMetadata` 语义展开成复不可约成分
+  （`DistinctComponentSum` → 两个 CIR 成分；`ConjugateRealification` → seed 与其共轭，
+  各自独立重数），Gram/维数和/逐操作重建/来源去重都按复不可约语义检查。
+  例：221 `GM4+`（3 维）↓ #83 = `GM1+ ×1` + compound 行 `GM3+GM4+` 的两个成分各 ×1。
+
+**Γ 全表清点（任务 6 验收要求）**：`frobenius_reciprocity_matches_the_stored_identity_subduction`
+给出 `Γ 记录 1895 | 冻结子群命中 210 | 已钉住 10 | 多候选歧义 171 | 搜索空间外 29 | 交叉检查错误 0`。
+历史数字 1895 的准确含义是**Γ 凝聚记录条数**，不是“恒等式已验证的条数”；
+本轮只对 10 条被 oracle fixture 钉住的记录验证了 stored `i(G)` 与 Frobenius
+`Σ_D dim(D)·mult(trivial_H, D|H) = [G_k : H_k]`，其余 200 条显式报
+`AmbiguousEmbedding` 或 `NoValidEmbedding`，不猜。任务 9 负责从 oracle 生成全表
+逐记录 setting 元数据（含一般 unimodular/shear 候选）。
+
 ### 顺带清理
 
 - 删除 `src/irrep/settings_data.rs` 与 `scripts/extract_sg_settings.py`：该表
