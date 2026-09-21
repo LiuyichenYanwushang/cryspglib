@@ -636,6 +636,33 @@ probe 由恒等-only 精确回答）；单元测试另钉住 230 个 SG 的恒�
 对照来源：`src/irrep/generated_data.rs` 的 `CHARACTERS` + `_char_start`/`_char_count`
 （SG 2：`GM1+ = [1,1]`、`GM1- = [1,-1]`、`Z1± = [1,±1]`，与官方表一致，可作独立 oracle）。
 
+**第八轮（2026-09-22）：排除了「次序错位」假设，把问题收敛到值编码本身。**
+
+本轮把上一轮的三条未决项各自查了一遍，结论如下（都可复算）：
+
+1. **块内 irrep 次序与标签表次序一致，不是错位**。逐个核对 (SG, k) 块：SG 2 k1 的
+   12 槽数组 `little_irr_label` = `'1+'`,`'1-'` ↔ `little_irr_full_label` =
+   `'GM1+'`,`'GM1-'`；SG 1 k3 = `'1'` ↔ `'X1'` ✓。`little_irr_order` /
+   `little_irr_old`（10300）不是置换（前者是恒等，后者只是把不在旧表的条目置 0，
+   如 SG 1 的 `GP1`），`little_irr_old_map`（4777）只是「旧表 → 新表」的映射。
+   因此上一轮「后移一个 irrep 命中率更高」只是巧合，**不能再用位置平移去找对齐**。
+2. **`little_irr_full_matrices` 不是字符表**。SG 2 的两个 Γ irrep 解码为
+   `GM1+ = [1,2]`、`GM1- = [1,1]`，而 k2（Z）的两个是 `Z1+ = [2,1]`、
+   `Z1- = [1,2]` —— **两个不同的 irrep（`Z1+`、`Z1-`）解出同一个多重集 {1,2}**，
+   但它们与 shipped `CHARACTERS` 的 {+1,+1} / {+1,-1} 不同 ⇒ 数组里的 1/2
+   不是 ±1 字符，而是**编码**（矩阵表索引或根码），必须配合 `little_table` /
+   `little_irr_table` / `little_irr_real*` 才能还原。
+   SG 1 的旁证：k 点 X1、R1 解出 `[2]`，而 shipped 字符是 `[+1]`；同一个
+   aP 块里 Z/U/V/Y/T 解出 `[1]` —— 差异的确切含义仍未定。
+3. **`little_table_pointer` 不是偏移表**（6210 项，取值只有 0/1，是「有无表」标志），
+   `little_table`（22400）的布局需要单独解码；`little_irr_table_pointer` 是稀疏表
+   （10300 中仅 1512 非零，块大小 16..432），两者都不是现成可用的字符来源。
+
+因此下一轮的入口是明确的：先解 `little_table` 与 `little_irr_table` 的布局，
+用它把 `little_irr_full_matrices` 的编码值还原成根/矩阵元，再用 shipped
+`CHARACTERS`（4,777 条主表 irrep）做逐项 oracle；**在此之前不得用该数组宣称任何
+w 频率**，审计的 `--require-w-complete` 门禁继续生效。
+
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
 `irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，
