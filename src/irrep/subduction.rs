@@ -3740,17 +3740,18 @@ mod tests {
             frozen_setting_for(ordinal, parent, other_child),
             Err(SubductionError::StaleIsotropyRecord { ordinal })
         );
-        // Uncovered records keep the candidate search and are not an error.
-        let uncovered = (0..ISOTROPY_SUBGROUPS.len())
-            .find(|candidate| {
-                FROZEN_EMBEDDING_SETTINGS
-                    .iter()
-                    .all(|entry| entry.0 != *candidate)
-            })
-            .expect("an uncovered ordinal");
+        // The committed table covers every pinned record, so the candidate
+        // search is a safety net rather than the normal path.  An ordinal no
+        // pinned record owns is not an error either.
+        let out_of_range = ISOTROPY_SUBGROUPS.len();
         assert_eq!(
-            frozen_setting_for(uncovered, 221, 83).expect("lookup"),
+            frozen_setting_for(out_of_range, 221, 83).expect("lookup"),
             None
+        );
+        assert_eq!(
+            FROZEN_EMBEDDING_SETTINGS.len(),
+            ISOTROPY_SUBGROUPS.len(),
+            "the frozen table must address every pinned isotropy record"
         );
     }
 

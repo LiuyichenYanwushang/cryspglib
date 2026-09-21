@@ -667,7 +667,17 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
                     if multiplicity > 0 {
                         engine_frequencies.push((candidate.ml, multiplicity));
                     }
-                    frobenius_sum += i64::from(result.parent_dimension()) * i64::from(multiplicity);
+                    // A compound row is the sum of two complex constituents, so
+                    // `dimension * multiplicity` of the *row* multiplies two
+                    // sums and over-counts the cross terms.  The reciprocity sum
+                    // runs over complex irreps, so a compound row contributes
+                    // its row value divided by the constituent count -- the
+                    // documented `k_G` folding (without it, 3543 Gamma rows
+                    // would be counted twice).
+                    let constituents = if candidate.compound_metadata().is_some() { 2 } else { 1 };
+                    frobenius_sum +=
+                        i64::from(result.parent_dimension()) * i64::from(multiplicity)
+                            / constituents;
                 }
 
                 for (ml, frequency) in &stored_frequencies {
@@ -731,15 +741,18 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
         "Gamma isotropy records in the shipped table"
     );
     assert_eq!(frozen_subgroup_records, 243);
-    assert_eq!(pinned, 14, "records pinned by the expanded oracle fixture");
+    assert_eq!(pinned, 243, "records pinned by the frozen setting table");
     assert_eq!(
         ambiguous + unresolved_setting,
-        229,
-        "records whose setting needs task 9's metadata"
+        0,
+        "records whose setting still needs task 9's metadata"
     );
-    assert_eq!(ambiguous, 199, "records with several consistent settings");
+    // Task 9 freezes a convention for every pinned record, so the historical
+    // "ambiguous / outside the search" gaps are closed; the categories still
+    // have to add up, and a regression that reopens a gap shows up here.
+    assert_eq!(ambiguous, 0, "records with several consistent settings");
     assert_eq!(
-        unresolved_setting, 30,
+        unresolved_setting, 0,
         "records whose setting is not a signed permutation (or needs a shift)"
     );
     assert!(pinned + ambiguous + unresolved_setting == frozen_subgroup_records);
