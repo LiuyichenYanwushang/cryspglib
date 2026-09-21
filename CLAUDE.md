@@ -663,6 +663,27 @@ probe 由恒等-only 精确回答）；单元测试另钉住 230 个 SG 的恒�
 `CHARACTERS`（4,777 条主表 irrep）做逐项 oracle；**在此之前不得用该数组宣称任何
 w 频率**，审计的 `--require-w-complete` 门禁继续生效。
 
+**第九轮（2026-09-22）：绕开特征标，先钉死「几何臂」这条路线。**
+
+新增只读诊断 `examples/w_arm_count.rs`（`w_arm_count <ordinal> <label> <vx> <vy>
+<vz> [<den>]`）：取该记录的冻结 embedding，把直线方向 v 在母群点群下生成 12 个臂、
+逐个折叠 `q = T^T v'` 并用**子群自身**的倒格判定是否落在 Γ，同时打印该记录的存储
+频率。三条结论：
+
+1. **帧已确定**：`little_k` 的方向在母群 **conventional** 倒格基里，必须先转成
+   母群 **primitive** 分数坐标再折叠。ordinal 13824（SG 225 → #1）conventional
+   读法 12/12 臂全落在 Γ，primitive 读法才是非退化的；所有用 conventional 直接
+   折叠的计数都必须丢弃。
+2. **锚点：child = #1（P1）时频率 = 源的 full-star 维数**。ordinal 13824 的存储行是
+   `6 x DT1..DT4`、`12 x DT5, SM1..SM4`，与 little 表的 dim 6/12 逐项一致；这正是
+   「P1 上恒等表示重数 = 维数」的必然结果，可作为公式的基准点。
+3. **频率不是裸臂数**。SG 196（point group 23，|T| = 12）的 ⟨110⟩ 线在 primitive
+   帧下 4 个臂落在子群 Γ，而存储频率是 **1**（ordinal 10030 → #18，DT1/DT2/SM1
+   都是 1）；ordinal 10033 → #16 的 DT1 存储 2、SM1 存储 1。所以折叠后的臂还必须
+   按**子群自身的点群**（模子群倒格）并类：4 个臂若同属一个子群轨道就贡献 1
+   （10030 ✓），分成两个轨道就贡献 2（10033 ✓）。下一步就是把这个轨道计数和小群
+   表示重数 m 一起实现，并用 5,756 行全表核对；在此之前仍不宣称任何频率。
+
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
 `irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，
