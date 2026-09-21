@@ -604,6 +604,81 @@ pub struct TrivialContent {
     pub skipped_stars: usize,
 }
 
+/// The star arms of a parametric-k line as a `build_block` character source.
+///
+/// Mirrors the two methods `build_block` calls on `ScalarStar`: the dimension of
+/// a q-block is the little dimension times its arms, and its character sums the
+/// transported little character over those arms (`line_character`'s logic,
+/// inlined here because `FullStarError` does not convert into `StarError`).
+#[allow(dead_code)]
+struct LineArmSource<'a> {
+    table: &'static LittleCharacterTable,
+    direction: Vec3R,
+    wave_vector: Vec3R,
+    arms: &'a [(Vec3R, Mat3I)],
+}
+
+#[allow(dead_code)]
+impl LineArmSource<'_> {
+    /// Dimension of the parent q-block carried by `arm_indices`.
+    fn q_block_dimension(&self, arm_indices: &[usize]) -> Result<u32, StarError> {
+        let arms = u32::try_from(arm_indices.len()).map_err(|_| {
+            StarError::Subduction(SubductionError::RationalOverflow {
+                operation: "line q-block arms",
+            })
+        })?;
+        u32::from(self.table.dimension)
+            .checked_mul(arms)
+            .ok_or(StarError::Subduction(SubductionError::RationalOverflow {
+                operation: "line q-block dimension",
+            }))
+    }
+
+    /// Character of the parent q-block on one parent operation.
+    fn q_block_character(
+        &self,
+        arm_indices: &[usize],
+        operation: &ExactSeitz,
+    ) -> Result<Complex64, StarError> {
+        let mut value = Complex64::new(0.0, 0.0);
+        for index in arm_indices {
+            // The index guards an internal caller and cannot fail in practice.
+            let Some((_, rotation)) = self.arms.get(*index) else {
+                return Err(StarError::OperationNotInParentGroup {
+                    sg: self.table.space_group,
+                });
+            };
+            let transport = ExactSeitz::new(*rotation, Vec3R::new([Rat::ZERO; 3]));
+            let conjugate = transport
+                .inverse()?
+                .compose(operation)?
+                .compose(&transport)?;
+            let image =
+                Mat3R::from_ints(conjugate.rotation()).checked_mul_vector(&self.direction)?;
+            if image != self.direction {
+                // The operation moves this arm; it contributes no diagonal term.
+                continue;
+            }
+            let character = self
+                .table
+                .operations
+                .iter()
+                .find(|frozen| {
+                    let frozen_rotation: Mat3I = frozen.rotation.map(|row| row.map(i32::from));
+                    frozen_rotation == conjugate.rotation()
+                })
+                .map(|frozen| frozen.character)
+                .ok_or(StarError::MissingFrozenRotation {
+                    sg: self.table.space_group,
+                    label: self.table.label,
+                })?;
+            value += bloch_phase(&self.wave_vector, conjugate.translation())?
+                * Complex64::new(f64::from(character[0]), f64::from(character[1]));
+        }
+        Ok(value)
+    }
+}
+
 /// Fold the star arms of a parametric-k line into the child's Brillouin zone
 /// and group them into folded child stars.
 ///
