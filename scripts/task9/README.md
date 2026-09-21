@@ -83,6 +83,26 @@ Frobenius gate, which passes 1,895/1,895.  That points at the supercell/folded-k
 path: cosets whose parent-frame representative carries a lattice translation are
 where the Bloch phase `chi(t + L) = chi(t) exp(2 pi i k . L)` has to be applied.
 
+### Round 3: what the diagnostics established
+
+* The engine's **folding convention matches the stored table**.  Ordinal 58
+  (SG 5 `V1` -> #1) folds to two child k-points, `GM1` and `X1`, which differ by a
+  vector of the subgroup's own reciprocal lattice; the stored table also records
+  the trivial content as one (`GM1`), not the folded sum, so the "unfolded child
+  k-point" description is the shared convention and the audit's reading is right.
+* For ordinal 12471 the engine is **self-consistent**: its subduced character
+  reproduces its own decomposition (`reconstruction` max error 2.4e-16), the
+  totals agree with the stored table through the Frobenius index (both sides sum
+  to 12), and the disagreement is purely *which* irreps of the star carry the
+  trivial content -- engine `{X1-, X2-, M1+}` vs stored `{X3+, X4+, M4+}`.
+  The stored rows for that record carry `domain` numbers 1 and 4, so part of the
+  disagreement is a domain (conjugate-subgroup) mixture in the comparison, but
+  the domain-1 subset still disagrees.
+* `scan_character_norm` reports 3,030 `<chi,chi> != sum mult^2` rows; its doc
+  records why that is a *granularity* artifact of the unfolded child-k
+  convention rather than a wrong character, and is therefore not a bug gate as
+  written.
+
 **178 of the 198 failing ordinals fail on their own condensing irrep**: the stored
 table says the condensing irrep contains the trivial representation of its
 isotropy subgroup once, the engine says zero.  That needs no oracle to be a bug --
