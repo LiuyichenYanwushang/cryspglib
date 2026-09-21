@@ -135,6 +135,23 @@ Wiring these traces into `freeze_w_little_characters.py` as a second route (with
 the `exp(-2 pi i k_X . t)` phase for the nonsymmorphic SG 203/210) closes the
 eight sources.
 
+First end-to-end attempt (round 40): taking the `t = 0` rows of both traces and
+reading the four rotations that fix `v = (0,1,0)` gives
+
+| op | from `X3+` | from `X2+` | Gamma equations want |
+|---|---|---|---|
+| `E` | +1 | +1 | +1 ✓ |
+| `C2y = (-x,y,-z)` | -1 | -1 | -1 ✓ |
+| `sigma_x = (-x,y,z)` | +1 | -1 | ±1 ✓ |
+| `sigma_z = (x,y,-z)` | -1 | +1 | the **opposite** for the parity-odd Gamma irreps |
+
+so 18 of the 24 checked equation values match and the six mismatches all sit on
+`sigma_z` for `GM1-`, `GM2-GM3-`, `GM4-`.  That is a *selection* problem, not a
+formula problem: the dump prints every record carrying the label, so the `sigma_z`
+values were read from the wrong record (the per-record `k` vector has to be
+filtered to the X point first, as the note above says).  Fix that filter, then the
+same table should satisfy all 24 values and the eight sources are closed.
+
 ## Step 3 — close the loop
 
 * extend `examples/audit_irrep_subduction.rs` so the w rows are computed and
