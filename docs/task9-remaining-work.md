@@ -506,3 +506,14 @@ fn q_block_character(
 first and, for the second, sums `line_character` over those arms (each arm
 already carrying the rotation that transports the base little group onto it, and
 `line_character` returning zero when the conjugated operation moves the arm).
+
+**Correction to the paragraph above (round 105).** The error plumbing is only
+*one-way*: `FullStarError` wraps `StarError`, never the reverse, so the line
+source cannot call `line_character` / `line_rotation_character` (both return
+`FullStarError`) from methods that must return `StarError`.  The line methods
+therefore have to inline that logic — test the stabiliser with
+`Mat3R::from_ints(rotation).checked_mul_vector(&direction)` exactly as
+`line_character` does, look the frozen character up by rotation, and use
+`StarError::Subduction(SubductionError::RationalOverflow { operation: .. })` for
+the dimension overflow — or the two helpers must be duplicated with `StarError`.
+Everything else in the sketch stands; plan for ~15 extra lines here.
