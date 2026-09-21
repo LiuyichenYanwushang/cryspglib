@@ -1,4 +1,17 @@
-# Task 9 remaining work (handoff, 2026-09-22, updated round 41)
+# Task 9 remaining work (handoff; last updated round 61)
+
+> **START HERE (one paragraph).** The only thing left is one engine function:
+> give `build_block` (`src/irrep/subduction_star_decompose.rs:1078`) a second
+> arm-character source so the frozen parametric-k irreps go through the engine's
+> own fold/character-block solve.  Everything else is done and gated: the
+> ordinary table is 94,271/94,271 engine-computed (`VERDICT complete
+> scope=global`), all 73 line sources are frozen and cross-checked, all 5,756 w
+> rows are live-oracle-verified, and the engine already reproduces the 300
+> `P1`-child rows (`line_trivial_content_with_embedding`, audit prints
+> `computed=300`).  Four hand-written per-arm weight rules were tested and
+> excluded by measurement — do not retry them; the sections below hold the exact
+> insert points, the acceptance ladder, the excluded rules and the measured
+> witnesses.
 
 Task 9's ordinary identity-subduction table is closed by the engine, and the
 pinned data behind the 5,756 `other_wave_vector_subduction` rows is now complete:
