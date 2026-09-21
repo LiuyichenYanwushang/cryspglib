@@ -365,3 +365,13 @@ work now has an exact, greppable row list:
 
     cargo run --release -p cryspglib --example audit_irrep_subduction -- --parent 196 --output /abs/a196.txt
     awk -F'\t' '$1=="w_entry" && $15=="computed_mismatch"' /abs/a196.txt
+
+Grepping SG 196's 30 `computed_mismatch` rows (the worklist recipe above) shows
+they all belong to records whose child is **chiral**: SGs 18 (`P2_12_12_1`),
+19 (`P2_12_12`), 4 (`P2_1`) and 198 (`P2_13`) — no mirrors and no inversion.
+Every failing row carries a small stored frequency (1, 2, 3, ...), and several
+records contribute two rows.  So the remaining defect is concentrated on children
+whose point group acts *freely* on the arms, which is the opposite of the `P1`
+extreme the engine already gets right and consistent with the +-orbit/identification
+hypothesis: with no mirror to identify an arm with its negative, the per-arm
+average and the per-orbit weight can still disagree.
