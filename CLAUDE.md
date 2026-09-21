@@ -612,6 +612,30 @@ Frobenius 1,895/1,895，指向超胞/折叠 k 路径上「代表元带非零格�
 probe 由恒等-only 精确回答）；单元测试另钉住 230 个 SG 的恒等 Γ 行与 SG 221 全探针
 一致性。
 
+**第七轮（2026-09-22）：小群特征标解码的进展与未决问题（尚未提交可用的解码器）。**
+
+为了真正算出那 5,756 个频率，本轮开始解 `data_little.txt` 的特征标/矩阵段。已确认的
+结构（可直接复算）：
+
+- `little_ops` = 每 (SG, k 槽) 12 个操作 × 4 整数（操作码 + 3 个平移），
+  298080 = 6210 × 48；每槽实际操作数在 `little_ops_count`（6210）。
+- 矩阵数据是**两级指针**：`little_irr_full_matrices_irr_pointer`（10300，每个 little
+  irrep 一项，1-based，指向下一张表）→ `little_irr_full_matrices_pointer`（124000，
+  每个 (irrep, 操作) 一项，1-based，指向数据）→ `little_irr_full_matrices`
+  （2,220,000 个整数）。SG 2 的实例：irrep idx9 `GM1+` → 操作偏移 [11,12] →
+  数据值 [1,2]；idx10 `GM1-` → [13,14] → [1,1]；idx11 `Z1+` → [15,16] → [2,1]。
+- **未决**：(a) 值的编码不是简单的 ±1（同一批数据里还出现 3..8，直方图 2:8501、
+  1:6472、3:3247、4:1172、5..8 各 152），需找出「值 → 根/矩阵元」的映射；
+  (b) 指针与 irrep 的下标对齐存在系统性 off-by-one：按 `ip[i]..ip[i+1]` 取，
+  与 shipped `CHARACTERS` 的**多重集**比较只有 SG1 6/8、SG2 5/16 命中；整体后移
+  一个 irrep 则 SG1 5/8、SG2 8/16，说明块内 irrep 次序与标签表次序不完全一致；
+  (c) 操作次序（`little_ops` 的 12 槽顺序 vs shipped 行的 PIR 次序）未对齐，
+  所以现在只能比多重集，不能比逐项。**在这些对齐问题解决前不要用这套解码去
+  宣称任何 w 频率**；审计的 `--require-w-complete` 门禁继续生效。
+
+对照来源：`src/irrep/generated_data.rs` 的 `CHARACTERS` + `_char_start`/`_char_count`
+（SG 2：`GM1+ = [1,1]`、`GM1- = [1,-1]`、`Z1± = [1,±1]`，与官方表一致，可作独立 oracle）。
+
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
 `irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，
