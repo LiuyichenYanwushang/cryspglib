@@ -336,3 +336,23 @@ are listed here (1,087 of the 1,840); the rest sit in the remaining parents with
 rows (203, 210, 216, 219, 226, 228).  A fresh implementation can therefore use
 SG 196 (30 failures) as the smallest reproducer and SG 202 ordinal 10422 as the
 documented witness.
+
+## First hypothesis to test next: orbits with the +- identification (round 73)
+
+The recorded witness (SG 202 ordinal 10422, pinned `DT1 1, DT3 2, DT4 1,
+SM1 2`) folds four arms `(0,0,+-2)`, `(+-2,0,0)`, i.e. **two +-pairs**, with
+per-arm transported characters `(1,-1,1,-1)`, `(1,-1,1,-1)`, `(1,0,-1,0)`,
+`(1,0,-1,0)`.  The pinned `1, 2, 1` is a per-pair pattern (one pair contributing
+for `DT1`, two for `DT3`, one for `DT4`) and cannot come from the per-arm
+average the code does today, nor from any of the four excluded rules — all of
+which ignore the fact that an arm and its negative are the *same* star orbit
+once the child's mirrors act.
+
+So the next attempt should group the folding arms into the child's orbits with
+`a ~ -a` (the round-12 formulation: `frequency = sum over H-orbits of arms
+folding to Gamma of m_orbit`), and take the weight **per orbit**
+(`m_orbit = mult(trivial_{K_orbit}, W')` with `K_orbit` the child operations
+that map the orbit to itself, the transported character picking up the sign of
+the identification), instead of per arm as in the current
+`line_trivial_content_with_embedding`.  Cheapest check: SG 196 (30 failing
+rows, smallest reproducer) and SG 202 10422 before rerunning the full audit.
