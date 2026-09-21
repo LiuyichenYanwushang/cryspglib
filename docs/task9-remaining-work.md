@@ -96,6 +96,26 @@ third route exists: look the two characters up in Kovalev's tables (the suite's
 own ISO-KOV mapping page maps Kovalev onto CDML), which would settle the swap
 without touching the undecoded matrix block.
 
+**Best lead (round 37).** The engine already exposes the *little* representation of
+a table irrep: `IrrepRecord::ordinary_scalar_selected_arm_block_trace()` (used by
+`trivial_child_record`), whose values are exactly the selected arm's block trace,
+i.e. the little rep on the little group's operations.  Combine that with the
+official compatibility labels already used for the Γ system:
+
+* SG 202's X point gives `X3+ -> DT3`, `X2+ -> DT4` (multiplicity 1 each);
+* the little rep of `X3+` is one-dimensional there (`full_dim / star = 3 / 3`), so
+  its block trace **is** the character of the line irrep `DT3` on the DT little
+  group, evaluated at `k = X`;
+* dividing out the Bloch phase `exp(-2 pi i k_X . t)` (the X point is at
+  `alpha = 1/2` on the DT line) gives the Γ-point characters, i.e. exactly the two
+  tables the frozen file is missing.
+
+So the eight unresolved sources can be closed without `data_images.txt` and
+without decoding `little_irr_full_matrices`: dump the selected-arm block traces of
+the X irreps (`X3+`, `X2-` for `DT3`; `X2+`, `X1-` for `DT4`), read the phase, and
+extend `freeze_w_little_characters.py` with that second route.  The remaining work
+is a small read-only Rust dump of the block traces plus the op order they follow.
+
 ## Step 3 — close the loop
 
 * extend `examples/audit_irrep_subduction.rs` so the w rows are computed and
