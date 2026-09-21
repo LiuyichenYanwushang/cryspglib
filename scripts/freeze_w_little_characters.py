@@ -786,6 +786,12 @@ def derive_line(sg, k_label, labels, verbose=False):
         )
 
     tables = {}
+    expected_dimension = {}
+    full_dims = {label: dim for label, _, dim in lines}
+    star_size = len(elements) // max(len(little), 1)
+    for label in labels:
+        if label in full_dims and star_size and full_dims[label] % star_size == 0:
+            expected_dimension[label] = full_dims[label] // star_size
     for label in labels:
         if label not in duals and label not in extra_solved:
             continue
@@ -793,6 +799,7 @@ def derive_line(sg, k_label, labels, verbose=False):
         tables[label] = {
             "space_group": sg,
             "label": label,
+            "dimension": expected_dimension.get(label),
             "k_label": k_label,
             "k_vector": k_vector,
             "direction": [str(value) for value in direction],
@@ -817,9 +824,106 @@ def derive_line(sg, k_label, labels, verbose=False):
     return tables, problems
 
 
+def emit_rust(tables, missing, path):
+    """Write the frozen character tables as a generated Rust data module."""
+    lines = [
+        "//! Little-group character tables of the parametric-k irreps behind the",
+        "//! `other_wave_vector_subduction` rows.",
+        "//!",
+        "//! `DO NOT EDIT`: regenerate with",
+        "//! `python3 scripts/freeze_w_little_characters.py --json <full.json> --rust src/irrep/w_little_characters_data.rs`.",
+        "//!",
+        "//! Every table is solved from the pinned ISOTROPY archive",
+        "//! `isotropy_subgroup/iso.zip`",
+        "//! (SHA-256 `568667bfc8027095537d642297b319c872d00016b868143c666f90d5931d9f7b`),",
+        "//! official `iso` 9.6.1: the Gamma irreps' compatibility rows for the line",
+        "//! (`SHOW COMPATIBILITY`) fix the little irreps' characters through",
+        "//! `sum_i n_Gamma mult(Gamma -> i) D_i(R) = chi_Gamma(R)` at k = Gamma, where",
+        "//! no Bloch phase enters.  The eight sources whose Gamma rows cannot separate",
+        "//! them are deliberately absent; see `docs/isotropy-data-semantics.md`.",
+        "",
+        "/// One little-group operation of a parametric-k irrep.",
+        "#[derive(Debug, Clone, Copy)]",
+        "pub struct LittleOperation {",
+        "    /// International-Tables spelling, e.g. `-x,y,-z`.",
+        "    pub element: &'static str,",
+        "    /// Rotation part, row major, in the parent's conventional basis.",
+        "    pub rotation: [[i8; 3]; 3],",
+        "    /// Translation part in the parent's conventional cell, as fractions.",
+        "    pub translation: [&'static str; 3],",
+        "    /// Character of the little irrep on this operation.",
+        "    pub character: i32,",
+        "}",
+        "",
+        "/// Character table of one little irrep at a parametric k domain.",
+        "#[derive(Debug, Clone, Copy)]",
+        "pub struct LittleCharacterTable {",
+        "    /// Parent space-group number.",
+        "    pub space_group: u8,",
+        "    /// Compact little-irrep label, e.g. `DT1`.",
+        "    pub label: &'static str,",
+        "    /// Program label of the k domain, e.g. `DT`.",
+        "    pub k_label: &'static str,",
+        "    /// Domain direction in the parent's conventional reciprocal basis.",
+        "    pub direction: [&'static str; 3],",
+        "    /// Dimension of the little irrep (the identity character).",
+        "    pub dimension: u8,",
+        "    /// Little-group operations and their characters.",
+        "    pub operations: &'static [LittleOperation],",
+        "}",
+        "",
+        "/// The 65 little irreps solved from the Gamma compatibility data.",
+        "pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[",
+    ]
+    for table in tables:
+        ops = table["operations"]
+        lines.append("    LittleCharacterTable {")
+        lines.append(f"        space_group: {table['space_group']},")
+        lines.append(f"        label: \"{table['label']}\",")
+        lines.append(f"        k_label: \"{table['k_label']}\",")
+        lines.append(
+            "        direction: ["
+            + ", ".join(f"\"{value}\"" for value in table["direction"])
+            + "],"
+        )
+        lines.append(f"        dimension: {table['dimension']},")
+        lines.append("        operations: &[")
+        for op in ops:
+            rotation = ", ".join(
+                "[" + ", ".join(str(int(value)) for value in row) + "]"
+                for row in op["rotation"]
+            )
+            translation = ", ".join(f"\"{value}\"" for value in op["translation"])
+            lines.append(
+                "            LittleOperation { element: \""
+                + op["element"]
+                + "\", rotation: ["
+                + rotation
+                + "], translation: ["
+                + translation
+                + "], character: "
+                + str(int(Fraction(op["character"])))
+                + " },"
+            )
+        lines.append("        ],")
+        lines.append("    },")
+    lines.append("];")
+    lines.append("")
+    lines.append("/// Sources the Gamma compatibility data cannot separate.")
+    lines.append("pub static W_LITTLE_CHARACTERS_UNRESOLVED: &[(u8, &str)] = &[")
+    for label, sg in sorted(missing):
+        lines.append(f"    ({sg}, \"{label}\"),")
+    lines.append("];")
+    lines.append("")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines))
+    return len(tables)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", dest="json_path", default=None)
+    parser.add_argument("--rust", dest="rust_path", default=None)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
@@ -851,6 +955,14 @@ def main():
             if label in line_tables:
                 tables.append(line_tables[label])
     print(f"sources solved: {len(tables)} | failures: {len(failures)}")
+    if args.rust_path:
+        missing = []
+        solved_keys = {(table["space_group"], table["label"]) for table in tables}
+        for source in sources:
+            if (source.sg, source.label) not in solved_keys:
+                missing.append((source.label, source.sg))
+        written = emit_rust(tables, missing, args.rust_path)
+        print(f"wrote {written} tables to {args.rust_path}")
     for message in failures[:20]:
         print(f"FAIL {message}")
     if args.json_path:

@@ -912,6 +912,23 @@ element/character 列、精确消元与对偶判定）。实测 **73 源中 65 �
 **65/73 唯一确定、8 个如实报未定、0 假数据**（重复报告也已去重）。剩余两条可行
 路线：`data_images.txt` 的 image（点群表示）数据库，或 pinned little 矩阵段的解码。
 
+**第二十轮（2026-09-22）：冻结 65 个源的特征标进 crate，并量化缺口。**
+
+`freeze_w_little_characters.py` 新增 `--rust`，生成
+`src/irrep/w_little_characters_data.rs`（65 个表：父群、标签、k 域、方向、little 维数、
+每个操作的 ITA 串 + 旋转 + 平移 + 特征标；另附 8 个未定源的清单），
+`src/irrep/mod.rs` 以 `#[doc(hidden)] pub mod` 接入；新增集成回归
+`tests/w_little_characters.rs`（4 项）：65/8 的规模与互斥、每表首操作必须是恒等且
+`χ(E) = dim`、`|χ| ≤ dim`、SG 196 `DT1 = [1,1]`、`DT2 = [1,-1]`、`SM1 = [1]` 与
+`DT1 ≠ DT2`、以及各立方母群的标签集合（含 202/203/209/210 只剩
+`DT1/DT2/SM1/SM2`）。
+
+缺口量化：5,756 条 w 行中 **348 条（194 条记录，6.0%）**引用那 8 个未定源，其余
+**5,408 条（93.99%）**的源已有冻结特征标，等引擎侧 Mackey/特征标求和接入。
+
+验收：release lib `389 passed / 4 ignored`、全部 integration（含新 4 项）、
+doctest `27 passed`、严格 all-target clippy 零警告。
+
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
 `irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，

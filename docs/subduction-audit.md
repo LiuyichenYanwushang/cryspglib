@@ -46,6 +46,13 @@ oracle 5,756 条 w 行对 pinned 5,756 条 w 行、0 不匹配**，其中 144 �
 | 普通恒等分导（15,239 记录 / 94,271 正项 / 366,260 probe / Γ Frobenius 1,895） | **cryspglib 引擎计算** + 几何与零项检查 | 范围内闭合，0 未支持 |
 | 其它波矢 w 行（1,006 记录 / 5,756 行） | 官方 `iso` live oracle 逐行（键 = 子群号 + Dir） | 逐行一致；**引擎未计算**，`--require-w-complete` 退出 2 |
 
+这 5,756 行里 **348 行（194 条记录，6.0%）**引用 SG 202/203/209/210 的 `DT3`/`DT4`
+—— 这 8 个源的特征标目前解不出来（Γ 兼容表只能定它们的和，线上其它特殊点的
+`SHOW CHARACTER` 又被星污染，pinned 通道也区分不了它们：两个块逐行相同）。
+其余 **5,408 行（93.99%）**的源已有冻结特征标
+（`src/irrep/w_little_characters_data.rs`，65/73，锚点回归 `tests/w_little_characters.rs`），
+下一步是引擎侧的 Mackey/特征标求和。
+
 `--require-complete` 只表述第一条轨道（`VERDICT complete scope=global`），不会把
 第二条轨道算作已完成。
 
