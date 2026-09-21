@@ -1317,7 +1317,6 @@ impl SubgroupEmbedding {
         let parent_lattice = Lattice::new(parent_primitive)?;
         let stored_basis = Mat3R::from_ints(subgroup.record.basis);
         let basis_conventional = stored_basis.checked_mul(&parent_primitive)?;
-        let subgroup_lattice = Lattice::new(basis_conventional)?;
         let origin = exact_origin(&subgroup.record.origin, &parent_primitive)?;
         let parent_operations =
             reduce_operations(&strict_sg_hall_ops(parent_sg)?.operations, &parent_lattice)?;
@@ -1357,8 +1356,19 @@ impl SubgroupEmbedding {
             Ok((SeitzTransform::new(basis.transpose(), origin), lattice))
         };
 
-        let (setting, setting_denominator, transform, operations, representatives, candidate_count) =
-            match frozen {
+        // The lattice that goes with the *accepted* candidate, not the stored
+        // basis: with a fractional `U` the two differ, and every downstream
+        // consumer (coset representatives, folded child k matching, little-group
+        // operations) has to use the lattice the affine map actually produces.
+        let (
+            setting,
+            setting_denominator,
+            transform,
+            subgroup_lattice,
+            operations,
+            representatives,
+            candidate_count,
+        ) = match frozen {
             // A recorded setting is a convention, not a search result: it is
             // validated like any other candidate and a failure is reported
             // instead of silently falling back to a different setting.
@@ -1372,9 +1382,15 @@ impl SubgroupEmbedding {
                     &subgroup_lattice,
                     expected,
                 )? {
-                    Some((operations, representatives)) => {
-                        (setting, denominator, transform, operations, representatives, 1)
-                    }
+                    Some((operations, representatives)) => (
+                        setting,
+                        denominator,
+                        transform,
+                        subgroup_lattice,
+                        operations,
+                        representatives,
+                        1,
+                    ),
                     None => {
                         return Err(SubductionError::FrozenEmbeddingRejected {
                             subgroup_sg,
@@ -1386,19 +1402,24 @@ impl SubgroupEmbedding {
             }
             None => {
                 let candidates = signed_permutations();
-                let mut accepted: Vec<(Mat3I, SeitzTransform, Vec<ExactSeitz>, Vec<ExactSeitz>)> =
-                    Vec::new();
+                let mut accepted: Vec<(
+                    Mat3I,
+                    SeitzTransform,
+                    Lattice,
+                    Vec<ExactSeitz>,
+                    Vec<ExactSeitz>,
+                )> = Vec::new();
                 for setting in &candidates {
-                    let (transform, _) = transform_for(*setting, 1)?;
+                    let (transform, lattice) = transform_for(*setting, 1)?;
                     if let Some((operations, representatives)) = validate_candidate(
                         &subgroup_operations,
                         &parent_operations,
                         &transform,
                         &parent_lattice,
-                        &subgroup_lattice,
+                        &lattice,
                         expected,
                     )? {
-                        accepted.push((*setting, transform, operations, representatives));
+                        accepted.push((*setting, transform, lattice, operations, representatives));
                     }
                 }
                 match accepted.len() {
@@ -1409,8 +1430,9 @@ impl SubgroupEmbedding {
                         });
                     }
                     1 => {
-                        let (setting, transform, operations, representatives) = accepted.remove(0);
-                        (setting, 1, transform, operations, representatives, 1)
+                        let (setting, transform, lattice, operations, representatives) =
+                            accepted.remove(0);
+                        (setting, 1, transform, lattice, operations, representatives, 1)
                     }
                     count => {
                         return Err(SubductionError::AmbiguousEmbedding {
