@@ -1349,7 +1349,7 @@ origin={},{},{},{}",
             let mut seen: BTreeMap<&'static str, u16> = BTreeMap::new();
             for entry in &wave_entries {
                 self.counts.w_entries += 1;
-                let mut w_status = "uncomputed_line_star_open";
+                let mut w_status = "uncomputed_line_star_open".to_string();
                 let parent_sg_match = usize::from(entry.parent_sg) == usize::from(sg);
                 let frozen = generated_data::IRREP_W_LABELS
                     .iter()
@@ -1385,9 +1385,9 @@ origin={},{},{},{}",
                             {
                                 if value == u32::from(entry.frequency) {
                                     self.counts.w_computed += 1;
-                                    w_status = "computed";
+                                    w_status = "computed".to_string();
                                 } else {
-                                    w_status = "computed_mismatch";
+                                    w_status = format!("computed_mismatch:{value}");
                                 }
                             }
                         }

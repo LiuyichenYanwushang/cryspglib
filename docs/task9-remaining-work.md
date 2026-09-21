@@ -409,3 +409,11 @@ restored).  This is the fifth weight/parameter reading excluded by measurement;
 the remaining scope is still 1,840 rows, and the line-star `build_block` path
 (which needs no parameter choice beyond the phase convention) is still the only
 documented route.
+
+The mismatch status now carries the engine's value (`computed_mismatch:<value>`).
+For SG 196's 30 failing rows the values are mixed: some are **0** where the pinned
+frequency is 1-3 (the fold/weight rejects every arm) and some are *larger*
+(e.g. 2 or 3 where the pinned value is 1).  A scalar tweak of the parameter or of
+the per-arm weight therefore cannot repair them - the pattern is structural, which
+is the measured argument for routing the line representation through
+`build_block`'s own fold and character solve instead of the hand-written sum.
