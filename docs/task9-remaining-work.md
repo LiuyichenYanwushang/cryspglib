@@ -116,6 +116,13 @@ the X irreps (`X3+`, `X2-` for `DT3`; `X2+`, `X1-` for `DT4`), read the phase, a
 extend `freeze_w_little_characters.py` with that second route.  The remaining work
 is a small read-only Rust dump of the block traces plus the op order they follow.
 
+Confirmed 2026-09-22 with `examples/dump_little_trace.rs` (added, read-only):
+`SG 202 X3+: little dim 1 over 96 operations`, i.e. the block trace really is the
+one-dimensional little rep on the X little group, including its lattice-translation
+cosets.  Note the loop matches every record whose label is `X3+`, so look at the
+header line of the record at the X point (dim 1) rather than at the tail of a
+later record (which can be 3-dimensional and shows zero traces).
+
 ## Step 3 — close the loop
 
 * extend `examples/audit_irrep_subduction.rs` so the w rows are computed and
