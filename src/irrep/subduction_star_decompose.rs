@@ -50,6 +50,7 @@ use num_complex::Complex64;
 
 use crate::irrep::isotropy::IsotropySubgroup;
 use crate::irrep::query;
+use crate::irrep::w_little_characters_data::LittleCharacterTable;
 use crate::irrep::types::{
     CharacterRow, CompoundCharacterSemantics, CompoundSelectedArmCharacter, IrrepRecord,
     IrrepSourceIdentity,
@@ -57,8 +58,8 @@ use crate::irrep::types::{
 use crate::mathfunc::Mat3I;
 
 use super::super::{
-    ComplexTarget, ExactSeitz, Lattice, Rat, SUBDUCTION_TOLERANCE, SubductionComponent,
-    SubductionError, SubductionTarget, SubgroupEmbedding, Vec3R, character_of,
+    ComplexTarget, ExactSeitz, Lattice, Mat3R, Rat, SUBDUCTION_TOLERANCE, SubductionComponent,
+    SubductionError, SubductionTarget, SubgroupEmbedding, Vec3R, bloch_phase, character_of,
     exact_primitive_basis, inline_k_vector, shift_operations, solve_prepared_character_block,
     strict_sg_hall_ops, validate_subduction_context,
 };
@@ -102,6 +103,52 @@ pub enum FullStarError {
         q: [Rat; 3],
         /// Number of folded points in the star.
         points: usize,
+    },
+    /// A parametric-k source table does not belong to the embedding it was
+    /// asked to answer for.
+    #[error(
+        "ordinal {ordinal}: the frozen line source {label} of space group {source_sg} does not \
+         belong to parent space group {parent}"
+    )]
+    LineSourceMismatch {
+        /// Isotropy record ordinal of the embedding.
+        ordinal: usize,
+        /// Parent space group of the embedding.
+        parent: u8,
+        /// Space group the frozen table belongs to.
+        source_sg: u8,
+        /// Frozen source label.
+        label: &'static str,
+    },
+    /// A frozen line source carries a direction or a rotation the little group
+    /// of the parent's operation list does not reproduce.
+    #[error("frozen line source {label} of space group {sg} is inconsistent with the parent's little group")]
+    MissingLineRotation {
+        /// Parent space group number.
+        sg: u8,
+        /// Frozen source label.
+        label: &'static str,
+    },
+    /// The frozen direction of a line source is not a parsable rational vector.
+    #[error("frozen line source {label} of space group {sg} has an unreadable direction")]
+    InvalidLineDirection {
+        /// Parent space group number.
+        sg: u8,
+        /// Frozen source label.
+        label: &'static str,
+    },
+    /// The line-character average did not come out as a non-negative integer,
+    /// so the conventions behind it are wrong and nothing is returned.
+    #[error(
+        "line source {label} of space group {sg} gave the non-integral frequency {value:?}"
+    )]
+    NonIntegralLineFrequency {
+        /// Parent space group number.
+        sg: u8,
+        /// Frozen source label.
+        label: &'static str,
+        /// The average that failed the integrality gate.
+        value: num_complex::Complex64,
     },
     /// No child operation transports a component's effective arm to the block
     /// representative inside the child star.
@@ -556,6 +603,26 @@ pub struct TrivialContent {
     pub skipped_stars: usize,
 }
 
+/// The frozen little character of one operation of the line's little group.
+///
+/// Zero when the operation's direct action does not fix the direction (the arm
+/// it belongs to is transported elsewhere and contributes no diagonal term),
+/// otherwise the frozen Gamma-point value times the Bloch phase of
+/// `LINE_PARAMETER`.
+fn line_character(
+    table: &LittleCharacterTable,
+    operation: &ExactSeitz,
+    wave_vector: &Vec3R,
+    direction: &Vec3R,
+) -> Result<Complex64, FullStarError> {
+    let image = Mat3R::from_ints(operation.rotation()).checked_mul_vector(direction)?;
+    if image != *direction {
+        return Ok(Complex64::new(0.0, 0.0));
+    }
+    let character = line_rotation_character(table, operation.rotation())?;
+    Ok(bloch_phase(wave_vector, operation.translation())? * Complex64::new(f64::from(character), 0.0))
+}
+
 /// Multiplicity of the subgroup's **trivial** representation in the subduction
 /// of one scalar parent probe.
 ///
@@ -645,6 +712,217 @@ pub fn trivial_content_with_embedding(
         });
     }
     Ok(content)
+}
+
+// ── Parametric-k sources (`other_wave_vector_subduction`) ────────────────────
+
+/// Free-parameter value the official program uses for a parametric-k domain.
+///
+/// A line irrep's character on a little-group element is the Gamma-point value
+/// times a Bloch phase, `chi(R, T) = D(R) * exp(2 pi i t (v . T))`, so the
+/// frequencies the pinned `isotropy_w_subduce_*` rows carry belong to one
+/// particular `t`.  Measured on the 46 `P1`-child w records (300 pinned rows):
+/// `t = 1/4` and `t = 3/4` reproduce every row, `t = 1/2` and `t = 1` leave
+/// 111 rows wrong, and `t = 1/8, 3/8, 1/6, 1/12` leave all 300 wrong.  A
+/// different parameter is a different representation of the *parent* group, so
+/// this is the program's convention rather than an engine choice; it is pinned
+/// here and the whole pinned table validates it in the audit.
+const LINE_PARAMETER: (i128, i128) = (1, 4);
+
+/// The frozen table's direction as an exact rational vector.
+fn line_direction(table: &LittleCharacterTable) -> Result<Vec3R, FullStarError> {
+    let mut values = [Rat::ZERO; 3];
+    for (axis, text) in table.direction.iter().enumerate() {
+        let text = text.trim();
+        let (numerator, denominator) = match text.split_once('/') {
+            Some((numerator, denominator)) => (numerator, denominator),
+            None => (text, "1"),
+        };
+        let numerator = numerator
+            .parse::<i128>()
+            .map_err(|_| FullStarError::InvalidLineDirection {
+                sg: table.space_group,
+                label: table.label,
+            })?;
+        let denominator = denominator
+            .parse::<i128>()
+            .map_err(|_| FullStarError::InvalidLineDirection {
+                sg: table.space_group,
+                label: table.label,
+            })?;
+        values[axis] = Rat::new(numerator, denominator)
+            .map_err(|_| FullStarError::InvalidLineDirection {
+                sg: table.space_group,
+                label: table.label,
+            })?;
+    }
+    Ok(Vec3R::new(values))
+}
+
+/// The frozen table's Gamma-point character of one rotation.
+fn line_rotation_character(
+    table: &LittleCharacterTable,
+    rotation: Mat3I,
+) -> Result<i32, FullStarError> {
+    table
+        .operations
+        .iter()
+        .find(|operation| {
+            let frozen = operation.rotation;
+            (0..3).all(|row| (0..3).all(|column| frozen[row][column] as i32 == rotation[row][column]))
+        })
+        .map(|operation| operation.character[0])
+        .ok_or(FullStarError::MissingLineRotation {
+            sg: table.space_group,
+            label: table.label,
+        })
+}
+
+/// Multiplicity of the subgroup's **trivial** representation in the subduction
+/// of one parametric-k parent source.
+///
+/// The 73 sources behind the `other_wave_vector_subduction` rows are little
+/// irreps of lines `k = t*v` through Gamma, so they have no discrete wave
+/// vector to fold and no character rows in the pinned irrep table.  The frozen
+/// tables in `w_little_characters_data` supply their little-group characters,
+/// and the frequency is the trivial content of the representation induced from
+/// the line's little group `G_L = {(R,T) : R v = v}`:
+///
+/// ```text
+/// frequency = (1/|H/L_G|) * sum_{h in H/L_G} chi_{Ind W'}(h)
+/// chi_{Ind W'}(h) = sum_{s in (G/L_G)/(G_L/L_G), s^-1 h s in G_L}  chi_{W'}(s^-1 h s)
+/// chi_{W'}(R, T)  = D(R) * exp(2 pi i t (v . T)),   t = LINE_PARAMETER
+/// ```
+///
+/// Averaging over the *parent* lattice cosets of `H` rather than over the
+/// subgroup's own translations is what folds the line into the subgroup's
+/// Brillouin zone: for a `P1` child the average reduces to the count of star
+/// arms whose folded direction is integral, which is the measured behaviour of
+/// the pinned rows (see [`LINE_PARAMETER`]).  `H` is the subgroup's operation
+/// set in the parent frame (`embedding.operations()`, reduced modulo `L_G`),
+/// `G/L_G` is [`strict_sg_hall_ops`]'s operation list reduced modulo `L_G`, and
+/// `D(R)` comes from the frozen table.  The result is exact up to one rounding
+/// of the final average, which fails closed unless it is integral.
+///
+/// The compound spellings (`DT3DT4`) are covered by their own table, whose
+/// characters are the sum over components, so the caller passes the source
+/// label exactly as the pinned table spells it.
+pub fn line_trivial_content_with_embedding(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+) -> Result<u32, FullStarError> {
+    if usize::from(table.space_group) != usize::from(subgroup.parent_sg) {
+        return Err(FullStarError::LineSourceMismatch {
+            ordinal: subgroup.ordinal,
+            parent: subgroup.parent_sg,
+            source_sg: table.space_group,
+            label: table.label,
+        });
+    }
+    if embedding.ordinal() != subgroup.ordinal {
+        return Err(FullStarError::LineSourceMismatch {
+            ordinal: subgroup.ordinal,
+            parent: subgroup.parent_sg,
+            source_sg: table.space_group,
+            label: table.label,
+        });
+    }
+    let parent_lattice = embedding.parent_lattice();
+    let parent_ops =
+        parent_lattice.deduplicate(&strict_sg_hall_ops(subgroup.parent_sg)?.operations)?;
+    let direction = line_direction(table)?;
+    let parameter = Rat::new(LINE_PARAMETER.0, LINE_PARAMETER.1)?;
+    let mut scaled = [Rat::ZERO; 3];
+    for (axis, value) in scaled.iter_mut().enumerate() {
+        *value = parameter.checked_mul(direction.get(axis))?;
+    }
+    let wave_vector = Vec3R::new(scaled);
+
+    // Star arms: the distinct contragredient images of the direction under the
+    // parent point group, each with a rotation that produces it (used to
+    // transport the little representation onto that arm).
+    let mut arms: Vec<(Vec3R, Mat3I)> = Vec::new();
+    for operation in &parent_ops {
+        let rotation = operation.rotation();
+        let action = Mat3R::from_ints(rotation).inverse()?.transpose();
+        let image = action.checked_mul_vector(&direction)?;
+        if arms.iter().any(|(arm, _)| *arm == image) {
+            continue;
+        }
+        arms.push((image, rotation));
+    }
+    if arms.is_empty() {
+        return Err(FullStarError::MissingLineRotation {
+            sg: table.space_group,
+            label: table.label,
+        });
+    }
+
+    // The child's reciprocal lattice in the parent conventional frame: the arm
+    // of `k = v/4` contributes exactly when it lands on the child's Gamma
+    // point.  The `/4` is [`LINE_PARAMETER`]; it is what makes this count of
+    // folded arms reproduce the pinned rows instead of the full star size.
+    let child_reciprocal = embedding.subgroup_lattice().reciprocal()?;
+    let identity_translation = Vec3R::new([Rat::ZERO; 3]);
+    let mut total = Complex64::new(0.0, 0.0);
+    for (arm, rotation) in &arms {
+        let mut scaled = [Rat::ZERO; 3];
+        for (axis, value) in scaled.iter_mut().enumerate() {
+            *value = parameter.checked_mul(arm.get(axis))?;
+        }
+        if !child_reciprocal.contains(&Vec3R::new(scaled))? {
+            continue;
+        }
+        let transport = ExactSeitz::new(*rotation, identity_translation);
+        // The projection onto the child's trivial representation runs over the
+        // child's *point group* (operations modulo the child's own lattice):
+        // the supercell translations were already spent by the fold test above,
+        // and averaging over them again would only add their Bloch phases.
+        // One representative per rotation: the projection must run over the
+        // child's *point group*, and the embedding's representative list can
+        // carry several lifts of the same rotation (the recorded subgroup cell
+        // and the accepted embedding need not share a basis).
+        let mut stabiliser: Vec<ExactSeitz> = Vec::new();
+        for operation in embedding.representatives() {
+            if !child_reciprocal.preserves(operation.rotation(), arm)? {
+                continue;
+            }
+            if stabiliser
+                .iter()
+                .any(|kept| kept.rotation() == operation.rotation())
+            {
+                continue;
+            }
+            stabiliser.push(*operation);
+        }
+        if stabiliser.is_empty() {
+            continue;
+        }
+        let mut weight = Complex64::new(0.0, 0.0);
+        for operation in &stabiliser {
+            let conjugate = transport
+                .inverse()?
+                .compose(operation)?
+                .compose(&transport)?
+                .reduce(parent_lattice)?;
+            weight += line_character(table, &conjugate, &wave_vector, &direction)?;
+        }
+        total += weight / stabiliser.len() as f64;
+    }
+
+    let average = total;
+    if average.im.abs() > SUBDUCTION_TOLERANCE
+        || (average.re - average.re.round()).abs() > SUBDUCTION_TOLERANCE
+        || average.re < -SUBDUCTION_TOLERANCE
+    {
+        return Err(FullStarError::NonIntegralLineFrequency {
+            sg: table.space_group,
+            label: table.label,
+            value: average,
+        });
+    }
+    Ok(average.re.round() as u32)
 }
 
 /// The child table's trivial row: one-dimensional, at Gamma, and `+1` on every

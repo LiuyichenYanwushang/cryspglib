@@ -2898,3 +2898,22 @@ Python 仍应保留在源码仓库中，因为它承担科学数据的可再生�
 迁入正式 `test_*.py`。优先做目录分层（generation / audit / legacy_debug）和共享解析
 库去重；不要为了减少 Python 行数而立即用 Rust 重写稳定的离线生成链，也不要继续
 扩展与角色计算无关的通用 provenance 框架。
+
+### 分导任务 9 第四十二轮（2026-09-22）：w 行的引擎计算，`P1` 子群族先落地
+
+新增 `src/irrep/subduction_star_decompose.rs::line_trivial_content_with_embedding`：
+把冻结的直线源变成频率——星臂（方向的 contragredient 像，按值去重）逐个做
+`a/4 ∈ L_H^*` 的折叠判定（`LINE_PARAMETER = 1/4`，即官方程序对参数化 k 域的自由参数
+约定；在 46 条 `P1` 子群记录的 300 个 pinned 行上，`1/4`、`3/4` 全中，`1/2`、`1`
+错 111 行，其余十二分之一全错），通过的臂再对子群点群（每个旋转取一个代表）做
+`W'` 的恒等投影，累加即频率；结果非整数即 fail closed
+（`NonIntegralLineFrequency`），源与母群不匹配另有 `LineSourceMismatch`。
+
+实测：`tests/w_line_frequency.rs::p1_child_records_match_every_pinned_row` 对
+SG 196/202/203/209/210/216/219/225/226/227/228 的 46 条 `P1` 子群记录**逐行算出
+300/300 与 pinned 相同**——即这批 w 行已由引擎计算（其余仍是 live oracle 5,756/5,756
+验证）。**未闭合**：`asymmetric_dt3_dt4_records_are_pinned` 被 `#[ignore]`，非 `P1`
+子群的折叠/权重约定还没复现（SG 202 ordinal 10422 `DT3`：模型折出 4 个臂、恒等投影
+抵消为 0，pinned 是 2）。审计的 w 轨道因此在 `--require-w-complete` 下仍报未闭合，
+覆盖声明保持两条轨道；下一步优先试子群自身帧（`fold_wave_vector(embedding.transform(),
+k)`）与投影代表元的取法。

@@ -135,3 +135,40 @@ pair; `little_irr_full_matrices` is still undecoded (rounds 7-8).
   five offline Python suites plus the three live oracles
   (`verify_isotropy_oracle.py`, `verify_w_subduction_oracle.py`,
   `check_other_wave_vector_rows.py`).
+
+## Step 1a — the engine computes the `P1`-child family (round 42)
+
+`line_trivial_content_with_embedding(subgroup, embedding, table)` in
+`src/irrep/subduction_star_decompose.rs` turns one frozen line source into a
+frequency:
+
+```text
+for each star arm a (distinct contragredient images of the frozen direction):
+    skip unless a/4 lies in the child's reciprocal lattice   (the fold at t = 1/4)
+    weight = (1/|K|) sum_{h in K} chi_{W'}(transport^-1 h transport),  K the child's
+             operations (one per rotation) that fix the arm
+    frequency += weight
+```
+
+`LINE_PARAMETER = 1/4` is the program's convention for the free parameter of a
+parametric-k domain: on the 46 `P1`-child records (300 pinned rows) `1/4` and
+`3/4` reproduce every row, `1/2` and `1` leave 111 wrong and the other twelfths
+leave all 300 wrong.
+
+Measured: `tests/w_line_frequency.rs::p1_child_records_match_every_pinned_row`
+computes **300 / 300** pinned `P1` rows exactly, and
+`a_source_of_another_parent_is_rejected` pins the fail-closed check.  The
+`P1`-child family is therefore engine-computed, on top of the oracle
+verification of all 5,756 rows.
+
+**Still open (the rest of the w track).** `asymmetric_dt3_dt4_records_are_pinned`
+is `#[ignore]`d: for a child that is *not* `P1` the fold/weight convention is not
+reproduced yet (SG 202 ordinal 10422 `DT3`: the model folds four arms and the
+trivial projection cancels to 0, while the pinned value is 2).  The pinned rows
+themselves are unaffected — they are oracle-verified — so the audit keeps
+reporting the w rows as a separate track until this is closed.  The next
+candidate to test is the frame of the projection: `embedding.representatives()`
+carries four distinct rotations for that record, so the child's point group as
+the embedding accepts it is larger than the recorded cell suggests, and the fold
+test may belong in the child's own frame (`fold_wave_vector(embedding.transform(),
+k)`) rather than in the parent conventional one.
