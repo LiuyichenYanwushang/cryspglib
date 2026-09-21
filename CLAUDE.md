@@ -881,6 +881,26 @@ SG 196 的 `GM1`（指针 0 = 哨兵，块读出来是垃圾，**不能**用它�
    73 个 little rep 的特征标（或在 pinned little 表里解出矩阵编码），把 w 频率接入
    引擎，让 `--require-w-complete` 也能全表退出 0。
 
+**第十八轮（2026-09-22）：73 个 little rep 的特征标用官方数据解出（65/73 唯一确定）。**
+
+不解 `little_irr_full_matrices`，改用兼容关系：对母群取 Γ 各 irrep 的
+`SHOW COMPATIBILITY`（限定到该线，如 SG 196 `GM4: DT1 DT2 DT2`）与这些 Γ irrep
+在每个 little 群操作上的 `SHOW CHARACTER`（写法 `LABEL ELEMENT INTERNATIONAL` +
+`VALUE ELEMENT X Y Z`）。k = Γ 上线的 little irrep 无 Bloch 相位，于是每个操作 R
+给出精确有理方程 `Σ_i n_Γ·mult(Γ→i)·D_i(R) = χ_Γ(R)`（`n_Γ` = compound 行 ML
+分量数）。线的各源**联合求解**，每个源是否可定用**对偶系统**判定（源特征标是分量
+线性泛函，落在行空间即有唯一值 —— compound `DT3DT4` 因此可用）。
+
+新增 `scripts/freeze_w_little_characters.py` + `scripts/test_freeze_w_little_characters.py`
+（13 项离线回归；解析 `SHOW ELEMENTS` 的 ITA 串、k 矢量参数化、兼容表、共享行的
+element/character 列、精确消元与对偶判定）。实测 **73 源中 65 个唯一确定、0 残差**，
+`--json` 落在 `target/task9/w_little_characters.json`（每源含方向、little 群操作
+的旋转/平移/特征标与所用方程）。剩 8 个是 SG 202/203/209/210 的 `DT3`/`DT4`：
+它们的 Γ 兼容表把两者以相同重数混合，只能定和；**已验证**补同线 X 点（α = 1/2）
+可分开（SG 202：`X3+→DT3`、`X2-→DT3`、`X2+→DT4`、`X1+→DT1`、`X4+/X1-→DT2`），
+下一轮把线上其它特殊点方程并入（点的特征标乘 Bloch 相位 `exp(-2πi α v·t)`），
+再做引擎侧 Mackey/特征标求和，让 `--require-w-complete` 能全表退出 0。
+
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
 `irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，

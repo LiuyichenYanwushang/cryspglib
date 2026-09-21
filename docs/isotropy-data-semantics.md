@@ -197,6 +197,40 @@ F 心倒格基矩阵）。little 表的其余结构也已对齐：`little_k_dim`
 SG 196 `LD1LE1` = 2 × 4 = 8）。**唯一仍缺的是这 73 个 little irrep 的特征标**，
 `data_irreps.txt` 不存它们，`little_irr_full_matrices`（2.22M 整数）的编码尚未解出。
 
+**特征标现在可以从官方数据解出来（2026-09-22 第十八轮）**。方法完全用官方输出，
+不需要解码 `little_irr_full_matrices`：
+
+1. 对母群列出 Γ 的全部 irrep（`VALUE KPOINT GM` + `DISPLAY IRREP`），每个 Γ irrep
+   给出它对**该线**的兼容关系（`SHOW COMPATIBILITY` + `VALUE COMPATIBILITY DT`），
+   例如 SG 196：`GM1: DT1`、`GM2GM3: DT1`、`GM4: DT1 DT2 DT2`；
+2. 同一个 Γ irrep 在每个 little 群操作上的特征标用
+   `LABEL ELEMENT INTERNATIONAL` + `VALUE ELEMENT X Y Z`（分量空格分隔）+
+   `SHOW CHARACTER` 取得；
+3. 在 k = Γ 上线的 little irrep 没有 Bloch 相位，于是对每个操作 R 得到精确有理方程
+
+   ```text
+   Σ_i  n_Γ · mult(Γ → i) · D_i(R)  =  χ_Γ(R)
+   ```
+
+   （`n_Γ` = compound 行的 ML 分量数，如 `GM2GM3` 记 2 次；`mult` 用兼容表里标签的
+   重复次数）；
+4. 用精确有理 Gaussian 消元求解。线的多个源**联合求解**（兼容行会混合它们），
+   每个源是否可定由**对偶系统**判定：源的特征标是分量的线性和，只要该线性泛函落在
+   方程行空间里就有唯一值，因此 compound 源（如 `DT3DT4`）即使单个分量不可分也
+   照样可定。解出后逐条回代，任何残差都算失败。
+
+`scripts/freeze_w_little_characters.py`（离线回归
+`scripts/test_freeze_w_little_characters.py` 13 项）实现这条链：
+`--json target/task9/w_little_characters.json` 输出每个源的方向、little 群操作
+（旋转 + 平移 + 特征标）以及所用的方程。
+
+实测（2026-09-22）：**73 个源里 65 个被唯一确定**（0 残差）。剩下 8 个是
+SG 202/203/209/210 的 `DT3`/`DT4`：这四个母群的 Γ 兼容表把两者以相同重数混在
+一起（`Σ` 可定、单个不可分），所以 Γ 一个特殊点不够。**已确认补点可行**：同一
+DT 线上的 X 点（α = 1/2）给出的兼容表把它们分开（SG 202：`X3+ → DT3`、
+`X2- → DT3`、`X2+ → DT4`、`X1+ → DT1`、`X4+/X1- → DT2`）。下一轮把线上的其它
+特殊点方程一并纳入（点的特征标要乘上 Bloch 相位 `exp(-2πi α v·t)`）。
+
 **"双值/spinor"是错误命名（已纠正）**：`DT`、`SM` 是 SG 225 k 列表里的波矢标签
 （Δ、Σ 线），这些条目是**同一母群 SG 在别的波矢上的单值 irrep**；用户复核取出
 它们的纯二重旋转矩阵，全部满足 `D(C₂)² = +I`，与 spinor 语义不符。旧名

@@ -285,3 +285,36 @@ that file each subgroup carries a direction matrix whose **row count is the
 subduction frequency** (label prefix included: `4D1` has 4 rows, `6D1` 6), which
 matches the pinned `#1` frequencies 4 and 6 for SG 196 `DT1`.  The program's
 Frequency column itself stays empty for parametric k.
+
+## Little-group characters of the 73 other-wave-vector irreps (2026-09-22, round 18)
+
+The engine still cannot compute the 5,756 w rows because their 73 source irreps
+live at parametric k and the pinned irrep table carries no character for them.
+`little_irr_full_matrices` (2.22M integers) is still undecoded, but the official
+program answers the question indirectly, and the new
+`scripts/freeze_w_little_characters.py` automates it:
+
+```bash
+python3 ../../../scripts/freeze_w_little_characters.py \
+    --json ../../../target/task9/w_little_characters.json --verbose
+python3 -m unittest discover -s ../../../scripts -p test_freeze_w_little_characters.py
+```
+
+For each parent it reads the Gamma irreps' compatibility lists for the line
+(`GM4: DT1 DT2 DT2`), the Gamma characters (`LABEL ELEMENT INTERNATIONAL` plus
+`VALUE ELEMENT X Y Z` and `SHOW CHARACTER`), and solves the exact rational system
+
+    sum_i  n_Gamma * mult(Gamma -> i) * D_i(R) = chi_Gamma(R)     for every R
+
+jointly for all sources of the line; a source is accepted when its own character
+(a linear functional of the components) is determined, which is checked through
+the dual system -- that is what makes compound rows like `DT3DT4` usable.
+
+Measured: **65 of the 73 sources determined exactly (0 residual)**.  The eight
+open ones are `DT3`/`DT4` of SG 202/203/209/210: their Gamma compatibility tables
+mix the two with equal multiplicities, so Gamma alone fixes only the sum.
+Adding the other special point of the same line fixes it -- verified for
+SG 202 with the X point (`X3+ -> DT3`, `X2- -> DT3`, `X2+ -> DT4`,
+`X1+ -> DT1`, `X4+/X1- -> DT2`); the Bloch phase `exp(-2i pi alpha v.t)` has to
+be applied at that point.  That extension, and the engine-side Mackey/character
+sum that turns the frozen tables into the 5,756 frequencies, are the next steps.
