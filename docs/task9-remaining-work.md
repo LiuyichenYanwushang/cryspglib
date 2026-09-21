@@ -221,3 +221,27 @@ the `P1` family stays 300/300 under it.  Note for the record: the earlier claim
 that a 0/1 count "cannot give 1, 2, 1" was wrong — counts over four arms can —
 so the invariant-subspace reading was worth the test and is now excluded by
 measurement, not by argument.
+
+## Next step (round 50 handoff): the line-star variant of `build_block`
+
+Do not add another hand-written per-arm weight; four have been excluded by
+measurement (see above).  Reuse the engine's own pairing instead:
+
+1. give `build_block` a second arm-character source (an enum over
+   `&ScalarStar` and a new line source) so the existing
+   `little_group_operations` / `identity_position` / `prepare_targets` /
+   `solve_prepared_character_block` path stays untouched;
+2. the line source enumerates the star arms of the frozen `direction` (the
+   contragredient images, deduplicated as vectors), folds them at
+   `LINE_PARAMETER = 1/4` into the child's reciprocal lattice
+   (`embedding.subgroup_lattice().reciprocal()` or the recorded
+   `W . P_parent`, which agree on the `P1` family), and answers
+   `q_block_dimension` / `q_block_character` from `w_little_characters_data`
+   with the Bloch phase of that parameter;
+3. acceptance, in this order: the 46 `P1`-child records must stay 300/300
+   (`tests/w_line_frequency.rs::p1_child_records_match_every_pinned_row`), then
+   SG 196 `10030 -> 1`, `10032 -> 2`, `10033 -> 2`, SG 202 `10422 ->
+   DT1 1, DT3 2, DT4 1, SM1 2`, the ten asymmetric SG 202/209 records, and
+   finally the whole 5,756 rows through the audit with `--require-w-complete`.
+   A failure at any step is reported with the ordinal and both numbers rather
+   than tuned away.
