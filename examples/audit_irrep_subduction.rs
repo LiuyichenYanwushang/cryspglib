@@ -439,6 +439,13 @@ struct Counts {
     /// Rows that fail either half of that resolution: a real inconsistency in
     /// the pinned pairing, not a missing-parameter question.
     w_source_mismatch: usize,
+    /// Resolved rows whose source has a frozen little-group character table
+    /// (`w_little_characters_data`), i.e. rows the engine can compute once the
+    /// arm character source is wired up.
+    w_character_frozen: usize,
+    /// Resolved rows whose source character table is still unresolved, so the
+    /// row stays reported instead of computed.
+    w_character_blocked: usize,
     w_conflict: usize,
     w_computed: usize,
     spinor_records: usize,
@@ -1351,6 +1358,17 @@ origin={},{},{},{}",
                     });
                 if frozen && parent_sg_match {
                     self.counts.w_source_resolved += 1;
+                    let table = cryspglib::irrep::w_little_characters_data::W_LITTLE_CHARACTERS
+                        .iter()
+                        .any(|table| {
+                            usize::from(table.space_group) == usize::from(entry.parent_sg)
+                                && table.label == entry.parent_ml
+                        });
+                    if table {
+                        self.counts.w_character_frozen += 1;
+                    } else {
+                        self.counts.w_character_blocked += 1;
+                    }
                 } else {
                     self.counts.w_source_mismatch += 1;
                     self.mismatch(format!(
@@ -1745,10 +1763,12 @@ origin={},{},{},{}",
             counts.w_conflict
         );
         eprintln!(
-            "w_scope: rows={} computed={} uncomputed={} reason=k_vectors_and_character_rows_absent_from_the_irrep_table gate=--require-w-complete",
+            "w_scope: rows={} computed={} uncomputed={} character_tables_frozen={} character_tables_blocked={} reason=k_vectors_and_character_rows_absent_from_the_irrep_table gate=--require-w-complete",
             counts.w_entries,
             counts.w_computed,
-            counts.w_incomplete()
+            counts.w_incomplete(),
+            counts.w_character_frozen,
+            counts.w_character_blocked
         );
         eprintln!(
             "completeness: missing_probes={} uncomputed_probes={} uncomputed_entries={} unresolved_entries={} duplicate_same={} geometry_filter_errors={} frobenius_unevaluated={} basis_errors={} w_uncomputed={}",
