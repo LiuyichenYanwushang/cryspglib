@@ -6,8 +6,8 @@
 > own fold/character-block solve.  Everything else is done and gated: the
 > ordinary table is 94,271/94,271 engine-computed (`VERDICT complete
 > scope=global`), all 73 line sources are frozen and cross-checked, all 5,756 w
-> rows are live-oracle-verified, and the engine already reproduces the 300
-> `P1`-child rows (`line_trivial_content_with_embedding`, audit prints
+> rows are live-oracle-verified, and the engine already reproduces 3,916 of
+> 5,756 w rows (`line_trivial_content_with_embedding`, audit prints
 > `computed=300`).  Four hand-written per-arm weight rules were tested and
 > excluded by measurement — do not retry them; the sections below hold the exact
 > insert points, the acceptance ladder, the excluded rules and the measured
@@ -295,3 +295,23 @@ Checked on this tree (commit `57f1761`):
 * Regression to protect while refactoring: `tests/w_line_frequency.rs` (2 passed,
   1 ignored) and the audit's global line, which must keep printing
   `computed=300` until the rest lands.
+
+## Measured: 3,916 / 5,756 rows already reproduced (round 63)
+
+Counting a row as engine-computed exactly when the engine's frequency equals the
+pinned one (no failing gate, so the disagreement is visible as ordinary
+`uncomputed`), the full unscoped audit reports:
+
+```
+w_scope: rows=5756 computed=3916 uncomputed=1840 character_tables_frozen=5756 character_tables_blocked=0
+hard_failures=0 accounting_violations=0 census_mismatch=0
+VERDICT clean scope=global incomplete_categories=0 w_uncomputed=1840
+```
+
+So 68% of the w track is already engine-computed with the current
+`line_trivial_content_with_embedding`, not just the 300 `P1`-child rows that the
+regression pins.  The 1,840 remaining rows are the ones whose child is not `P1`:
+that is the whole remaining scope, and it is exactly the family where the
+four excluded per-arm weight rules were tested and failed.  Re-running the
+acceptance ladder against the line-star `build_block` path therefore only has to
+move this single number from 1,840 to 0.

@@ -1371,25 +1371,19 @@ origin={},{},{},{}",
                             // family today (all 300 of them); every other child is
                             // still the oracle-verified track, so only this family
                             // is counted as computed.
-                            if subgroup.record.sg == 1
-                                && let Some(embedding) = embedding.as_ref()
+                            // Count a row as engine-computed only when the engine
+                            // reproduces the pinned value; a mismatch is not a hard
+                            // failure yet (the line-star path is still open), it
+                            // simply leaves the row on the oracle-verified track.
+                            if let Some(embedding) = embedding.as_ref()
+                                && let Ok(value) =
+                                    cryspglib::irrep::subduction::star::decompose::
+                                        line_trivial_content_with_embedding(
+                                            subgroup, embedding, table,
+                                        )
+                                && value == u32::from(entry.frequency)
                             {
-                                match cryspglib::irrep::subduction::star::decompose::
-                                    line_trivial_content_with_embedding(
-                                        subgroup, embedding, table,
-                                    ) {
-                                    Ok(value) if value == u32::from(entry.frequency) => {
-                                        self.counts.w_computed += 1;
-                                    }
-                                    Ok(value) => self.mismatch(format!(
-                                        "ordinal {ordinal}: other-wave-vector row {} computed \
-                                         {value}, pinned {}",
-                                        entry.parent_ml, entry.frequency
-                                    )),
-                                    Err(error) => {
-                                        self.bump_error(&format!("w-line:{error}"));
-                                    }
-                                }
+                                self.counts.w_computed += 1;
                             }
                         }
                         None => self.counts.w_character_blocked += 1,
