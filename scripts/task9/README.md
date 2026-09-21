@@ -185,13 +185,19 @@ no Gamma point at all.
 | verdict | `clean ... incomplete_categories=20629` | `--require-complete` exit 0, `VERDICT complete scope=global` |
 
 The remaining `incomplete_categories` were the 5,756 `isotropy_w_subduce_*` rows.
-Those name 73 parent irreps **at other wave vectors**, and the pinned archive
+Those name 73 parent irreps **at other wave vectors**; the pinned *irrep* table
 stores them as label, space group, dimension and type only -- no k vector and no
-character row -- so no engine can compute their frequencies from it.
+character row -- so it cannot answer them.
 `scripts/check_other_wave_vector_rows.py` makes that executable (11 offline
-tests) and checks everything the archive does pin; the audit reports the rows in
+tests) and checks everything that table does pin; the audit reports the rows in
 its own `w_scope` line and gates them with `--require-w-complete`, which exits 2
-while they are uncomputed.
+while they are uncomputed.  Their **little-group** tables are not missing, though:
+`data_little.txt` carries all 73 sources (`little_irr_full_label` /
+`little_irr_space_group` / `little_irr_full_dim`, dimensions equal to
+`irrep_w_dimension`, e.g. SG 225 `DT1-DT4` = 6, `DT5` = `SM1-SM4` = 12), so the
+residual is a decode that has not been done yet -- validate the decoder against
+the 4,777 main-table irreps first, then compare the 5,756 stored frequencies with
+the same `trivial_content_with_embedding`.
 
 ## State after the first pass (2026-09-21)
 

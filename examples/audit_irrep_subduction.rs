@@ -51,10 +51,12 @@
 //!   (`IRREP_W_LABELS`/`IRREP_W_SPACE_GROUP`, 73 entries, reached independently
 //!   of the accessor that produced the row) and its space group must be the
 //!   record's parent; a failure of either half is a hard failure.  Their
-//!   frequencies cannot be computed from the pinned archive at all -- it stores
+//!   frequencies cannot be computed from the pinned *irrep* table: it stores
 //!   those irreps as label, space group, dimension and type only, with no k
-//!   vector and no character row -- so they are reported in their own
-//!   `w_scope` line and their own completeness counter (`w_incomplete`), which
+//!   vector and no character row.  (Their little-group tables do live in the
+//!   archived `data_little.txt`; decoding those is the separate follow-up this
+//!   audit's `w_scope` line exists to keep visible.)  They are reported in their
+//!   own `w_scope` line and their own completeness counter (`w_incomplete`), which
 //!   `--require-complete` deliberately does not gate on and
 //!   `--require-w-complete` does.  Identity closure never substitutes for their
 //!   missing parameters.
@@ -207,10 +209,12 @@ usage: audit_irrep_subduction [--parent N] [--ordinal N] [--output PATH]
                       and no geometry/Frobenius check is left unevaluated
   --require-w-complete
                       additionally require the 5756 other-wave-vector rows to be
-                      computed.  That is impossible with the pinned archive:
-                      the 73 irreps those rows name have no k vectors and no
-                      character rows in it (see the `w_scope` summary line), so
-                      this flag is the explicit gate for that separate question
+                      computed.  The pinned irrep table cannot answer them: the
+                      73 irreps they name have no k vectors and no character
+                      rows there (their little-group tables live in
+                      `data_little.txt` and are not decoded yet; see the
+                      `w_scope` summary line), so this flag is the explicit gate
+                      for that separate question
   --progress N        print a progress line to stderr every N records (0 off)
 
 The TSV goes to stdout (or --output); the terse summary goes to stderr.";
@@ -1322,10 +1326,11 @@ origin={},{},{},{}",
         // ── Other-wave-vector rows: frozen source resolution only ────────────
         //
         // These rows name parent irreps **at other wave vectors** (the `DT`/`SM`
-        // star labels of the cubic groups).  The pinned archive stores those 73
-        // irreps as label, space group, dimension and type only -- it carries no
-        // k vector and no character row for them -- so their subduction
-        // frequency cannot be computed from the pinned data by any engine.  The
+        // star labels of the cubic groups).  The pinned *irrep* table stores those
+        // 73 irreps as label, space group, dimension and type only -- no k vector
+        // and no character row -- so their subduction frequency cannot be
+        // computed from that table.  Their little-group data is archived
+        // separately in `data_little.txt` and is not decoded yet.  The
         // audit therefore resolves each row against the frozen source list
         // itself (independent of the accessor that produced the entry) and says
         // so per row; `w_scope` in the summary reports the outcome separately
@@ -1373,7 +1378,7 @@ origin={},{},{},{}",
                     }
                 }
                 self.emit(format!(
-                    "w_entry\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{}\t{}\t{}\t{sg}\t\tother_wave_vector\t{}\t\tuncomputed_w_parameters_missing\tstored_parent_sg={} parent_sg_match={parent_sg_match} frozen_source={frozen} k_parameters=absent_from_pinned_archive",
+                    "w_entry\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{}\t{}\t{}\t{sg}\t\tother_wave_vector\t{}\t\tuncomputed_w_parameters_missing\tstored_parent_sg={} parent_sg_match={parent_sg_match} frozen_source={frozen} k_parameters=absent_from_the_irrep_table",
                     subgroup.record.arms,
                     size.map_or_else(|| "unset".to_string(), |value| value.to_string()),
                     entry.parent_ml,
@@ -1738,7 +1743,7 @@ origin={},{},{},{}",
             counts.w_conflict
         );
         eprintln!(
-            "w_scope: rows={} computed={} uncomputed={} reason=k_vectors_and_character_rows_absent_from_pinned_archive gate=--require-w-complete",
+            "w_scope: rows={} computed={} uncomputed={} reason=k_vectors_and_character_rows_absent_from_the_irrep_table gate=--require-w-complete",
             counts.w_entries,
             counts.w_computed,
             counts.w_incomplete()

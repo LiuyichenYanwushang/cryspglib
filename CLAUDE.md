@@ -50,7 +50,7 @@ lib `389 passed / 4 ignored`，integration `139 passed`，doctest `27 passed`，
 严格 all-target clippy 通过（Cargo 仍报告既有 workspace manifest 警告）；
 isotropy oracle 离线测试 `9 passed`、真实 oracle `62` 行 / `26` 个描述串 / `62` 个
 origin 通过；其它波矢行门禁离线测试 `11 passed`、pinned 数据 `checks_failed=0`
-（73 源 / 1,006 记录 / 5,756 行，k 矢量与特征标行均不在归档中）；
+（73 源 / 1,006 记录 / 5,756 行；irrep 表无 k 矢量与特征标行，小群表未解码）；
 全表审计 `--require-complete` 退出 0、判词 `VERDICT complete scope=global`。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
@@ -614,11 +614,17 @@ probe 由恒等-only 精确回答）；单元测试另钉住 230 个 SG 的恒�
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
 `irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，
-任何引擎都无法据此计算。新增 `scripts/check_other_wave_vector_rows.py`（+ 11 个
+所以从该表无法计算——**但归档的 `data_little.txt` 里 73/73 个源都在**
+（`little_irr_full_label` + `little_irr_space_group` + `little_irr_full_dim` 与
+`irrep_w_dimension` 逐项相符，例：SG 225 的 `DT1/2/3/4` dim 6、`DT5` dim 12、
+`SM1–4` dim 12），因此这条残余是**尚未解码**（`little_k`/`little_ops`/
+`little_irr_table` 等段），不是数据缺失；下一步应先用主表 4,777 条 irrep 验证解码器，
+再用同一 `trivial_content_with_embedding` 对照 5,756 个存储频率。新增
+`scripts/check_other_wave_vector_rows.py`（+ 11 个
 离线测试）把这件事变成可执行检查：w 段必须**恰好**是那四张表（多出 k/矩阵段即失败）、
 数组长度与 1006/5756 相符、稀疏 pointer 的非零值集合等于带 w 记录的 1-based 起始
 偏移集合、源 SG 等于记录的母群 SG、频率 ∈ [1, dim]。审计也把每行的解析结果
-（`parent_sg_match` / `frozen_source` / `k_parameters=absent_from_pinned_archive`）
+（`parent_sg_match` / `frozen_source` / `k_parameters=absent_from_the_irrep_table`）
 写进 TSV，并新增 `--require-w-complete` 作为这条独立问题的门禁（全表运行时退出 2，
 摘要打印 `w_scope: rows=5756 ... uncomputed=5756`）；`--require-complete` 只门禁
 普通恒等分导表，其判词为 `VERDICT complete scope=global`。

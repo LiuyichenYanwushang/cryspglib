@@ -464,6 +464,8 @@ centering 消光，判定用 `Lattice::contains`）。落在其它 `q` 的折叠
 全表审计（`examples/audit_irrep_subduction.rs`）据此把探针结果分为
 `full_success` 与 `identity_only` 两类，二者都与存储表逐条比较：14,713 条
 恒等-only 中 160 条是存储正项，全部复现，0 不匹配、0 假阳性。范围闭合的判词由
-`--require-complete` 给出；`other_wave_vector_subduction` 的 5,756 行因 pinned 归档
-没有其 73 个源 irrep 的 k 矢量与特征标行，单独由 `--require-w-complete` 与
-`w_scope` 行报告，未计入该范围。
+`--require-complete` 给出；`other_wave_vector_subduction` 的 5,756 行因 pinned
+irrep 表没有其 73 个源 irrep 的 k 矢量与特征标行，单独由 `--require-w-complete`
+与 `w_scope` 行报告，未计入该范围。它们的**小群表**在归档 `data_little.txt` 中完整
+存在（73/73 源、维数相符），因此这条残余是尚未解码，而不是数据缺失；解码后即可用
+同一 `trivial_content_with_embedding` 逐条对照 5,756 个存储频率。

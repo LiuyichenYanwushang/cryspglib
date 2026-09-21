@@ -10,10 +10,12 @@ Task 9's audit reports those rows separately instead of computing them, and this
 script makes that decision executable:
 
 * the 73 irreps they name are stored in `data_irreps.txt` as `irrep_w_label`,
-  `irrep_w_space_group`, `irrep_w_dimension` and `irrep_w_type` only -- there is
-  **no** other-wave-vector k-vector table and **no** character/matrix table to
-  compute a subduction from, so no engine can produce their frequencies from the
-  pinned archive;
+  `irrep_w_space_group`, `irrep_w_dimension` and `irrep_w_type` only -- that file
+  has **no** other-wave-vector k-vector table and **no** character/matrix table,
+  so no engine can produce their frequencies from it.  (Their little-group
+  tables are archived separately in `data_little.txt`, where all 73 sources are
+  present with matching dimensions; decoding those is a separate follow-up, and
+  the first paragraph of the gate below keeps the question visible.);
 * everything the pinned archive *does* pin is checked here: array lengths, the
   per-record counts against the packed table, the sparse pointer index against
   the record start offsets, in-range irrep indices, the record's parent space
@@ -228,10 +230,10 @@ def main():
     if failures:
         return 1
     print(
-        "note: the pinned archive stores these irreps as label/space group/"
-        "dimension/type only, so their subduction frequencies are not "
-        "computable from it; the audit reports them separately "
-        "(--require-w-complete)."
+        "note: the pinned irrep table stores these irreps as label/space group/"
+        "dimension/type only, so their subduction frequencies are not computable "
+        "from it; their little-group tables in data_little.txt are not decoded "
+        "yet, and the audit reports the rows separately (--require-w-complete)."
     )
     return 0
 
