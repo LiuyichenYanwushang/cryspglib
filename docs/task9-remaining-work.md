@@ -260,3 +260,25 @@ VERDICT clean scope=global incomplete_categories=0 w_uncomputed=5456
 Exit 0 without `--require-w-complete`; that gate still exits 2 while the 5,456
 rows are not engine-computed.  The 300 are the `P1`-child family, verified row
 for row against the pinned values by the audit itself.
+
+## Exact insert points for the line-star step (round 59)
+
+Checked on this tree (commit `57f1761`):
+
+* `build_block` — `src/irrep/subduction_star_decompose.rs:1078`; it touches the
+  parent character source in exactly three places: `star.q_block_dimension(
+  point.arm_indices())` and `star.q_block_character(point.arm_indices(),
+  operation)` inside it, plus the two call sites at lines **700**
+  (`trivial_content_with_embedding`) and **993**
+  (`subduce_full_star_with_embedding`).
+* The two methods to provide for a line source are
+  `ScalarStar::q_block_character` (`src/irrep/subduction_scalar_star.rs:675`)
+  and `ScalarStar::q_block_dimension` (`:699`).
+* `line_trivial_content_with_embedding` (same file, added this session) already
+  contains the arm enumeration, the `LINE_PARAMETER = 1/4` fold and the frozen
+  character lookup that the line source needs; its per-arm weighting is the part
+  to replace with `build_block`'s own solve, and it currently bounds its scope to
+  `P1` children in the audit.
+* Regression to protect while refactoring: `tests/w_line_frequency.rs` (2 passed,
+  1 ignored) and the audit's global line, which must keep printing
+  `computed=300` until the rest lands.
