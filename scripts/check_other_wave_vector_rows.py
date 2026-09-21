@@ -369,9 +369,14 @@ def main():
         "note: the pinned irrep table stores these irreps as label/space group/"
         "dimension/type only.  Their little-group wave vectors are lines "
         "k = Gamma + t*v (one free parameter for all 73 sources, from the pinned "
-        "little table), so there is no single numeric k to fold; the character "
-        "tables needed to turn the line into a frequency are not decoded yet.  "
-        "The audit reports the rows separately (--require-w-complete)."
+        "little table; the direction components are in the parent's primitive "
+        "reciprocal basis, while the program's DISPLAY KPOINT prints the "
+        "conventional frame), so there is no single numeric k to fold; the "
+        "character tables needed to turn the line into a frequency are not "
+        "decoded yet, so the audit reports the rows separately "
+        "(--require-w-complete).  Their values do have a live oracle: "
+        "scripts/verify_w_subduction_oracle.py compares all 5,756 rows against "
+        "the official program's SHOW FREQUENCY list per (parent, irrep)."
     )
     return 0
 

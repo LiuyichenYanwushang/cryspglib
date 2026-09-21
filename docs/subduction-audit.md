@@ -18,14 +18,36 @@ CARGO_TARGET_DIR=$PWD/cryspglib/target cargo run --release -p cryspglib \
 - `--require-complete` 要求所选范围内**普通恒等分导表**闭合：15,239 条记录全部冻结
   embedding、94,271 条存储正项全部复现、366,260 个标量 probe 全部有精确结果
   （完整分解或恒等内容）、几何与 Frobenius 检查无未计算项。
-- `--require-w-complete` 另外要求 5,756 条 `other_wave_vector_subduction` 也被计算。
-  目前 pinned 数据回答不了：这 73 个“别的波矢”irrep 在 `data_irreps.txt` 里只有
-  `irrep_w_label/_space_group/_dimension/_type` 四张表（无 k、无特征标），而归档的
-  `data_little.txt` 解出它们**全部落在参数化直线上**：`k = Γ + t·v`，73/73 各只有
-  一个自由参数（`/1` 约定下 `v = (1,0,1)` 与 `(1,1,2)`；如 cF 的 `DT`、`SM` 线、
-  cI 的 `DT = (1,-1,1)`、`SM = (0,0,1)`）。也就是说**不存在单一数值 k 可以去折叠**，
-  特征标表也尚未解码，因此该开关目前是全表退出 2，并打印
+- `--require-w-complete` 另外要求 5,756 条 `other_wave_vector_subduction` 也被
+  **引擎**计算。目前 pinned 数据回答不了：这 73 个“别的波矢”irrep 在
+  `data_irreps.txt` 里只有 `irrep_w_label/_space_group/_dimension/_type` 四张表
+  （无 k、无特征标）。第十七轮已把这 73 个源的 k 域全部解出（参数化点/线/面/一般
+  位置；方向记录在母群 primitive 倒格基里，官方 `DISPLAY KPOINT` 用 conventional
+  帧打印），所以 **k 参数已经不是缺口**；缺的是 little 群特征标
+  （`little_irr_full_matrices` 的 2.22M 整数编码尚未解出）。该开关因此仍是引擎侧
+  门禁，全表运行退出 2，并打印
   `w_scope: rows=5756 computed=0 uncomputed=5756 reason=...`。
+
+### 其它波矢行的独立官方对照
+
+引擎侧尚未计算这 5,756 行，但它们的**数值**已有可复算的官方对照：
+`scripts/verify_w_subduction_oracle.py` 对每个 `(母群 SG, irrep)` 运行随包 `iso` 的
+`DISPLAY ISOTROPY` + `SHOW FREQUENCY`，把频率表按 `(子群号, Dir 标签)` 与 pinned 的
+`isotropy_subduce_*` ∪ `isotropy_w_subduce_*` 双向比较（语义与命令见
+`docs/isotropy-data-semantics.md` §4）。实测：**28 个 (SG, irrep) 组、1,150 条记录、
+oracle 5,756 条 w 行对 pinned 5,756 条 w 行、0 不匹配**，其中 144 条记录是
+“oracle 侧没有 w 条目”的负向核对。离线回归
+`scripts/test_verify_w_subduction_oracle.py` 14 项（含折行续行解析）。
+
+因此仓库对 pinned 表的覆盖分两条轨道，发布时必须按轨道声明：
+
+| 范围 | 证据 | 状态 |
+|---|---|---|
+| 普通恒等分导（15,239 记录 / 94,271 正项 / 366,260 probe / Γ Frobenius 1,895） | **cryspglib 引擎计算** + 几何与零项检查 | 范围内闭合，0 未支持 |
+| 其它波矢 w 行（1,006 记录 / 5,756 行） | 官方 `iso` live oracle 逐行（键 = 子群号 + Dir） | 逐行一致；**引擎未计算**，`--require-w-complete` 退出 2 |
+
+`--require-complete` 只表述第一条轨道（`VERDICT complete scope=global`），不会把
+第二条轨道算作已完成。
 
 每条子群记录遍历该母群的全部标量源表示，调用实际的
 `subduce_full_star_with_embedding`。恒等项为零的几何证明作为交叉检查保留，但
@@ -103,7 +125,7 @@ T = B^T
 | 未存储项 | 271,989 全部为 0（引擎零项 114,770、几何零项 157,219）；0 假阳性 |
 | Γ Frobenius | 1,895 / 1,895 通过（strict 1,673、DistinctComponentSum 222） |
 | 生产自检 | 维数、整数重数、逐操作重建、CIR 来源不匹配全部为 0 |
-| 其它波矢记录 | 1,006 条记录 / 5,756 行全部解析到冻结源、父群一致、频率非零；但 k 参数与特征标行不在 pinned 归档中，**0 行可计算**（`--require-w-complete` 退出 2） |
+| 其它波矢记录 | 1,006 条记录 / 5,756 行全部解析到冻结源、父群一致、频率非零；k 域已解出但**引擎 0 行可计算**（`--require-w-complete` 退出 2）；数值由官方 `iso` live oracle 逐行对照，5,756/5,756 一致 |
 | 不一致及计数错误 | 0（`hard_failures=0`、`accounting_violations=0`） |
 
 关键的 14,713 条恒等-only probe 中，**160 条是存储正项**（例如 SG 196 W1→#24 的
@@ -121,13 +143,13 @@ T = B^T
 的 origin 不符总数是 1,057。这些候选数不代表引擎覆盖；未验证完整操作及坐标
 约定的候选不会自动冻结。
 
-所以普通恒等分导表（15,239 条记录 / 94,271 条正项 / 366,260 个 probe）在本轮
-已经**范围内闭合**：范围内未支持项为 0。范围之外的剩余问题是
-`other_wave_vector_subduction` 的 5,756 行——它们的 73 个源 irrep 在 pinned
-**irrep 表**里没有 k 矢量与特征标行，而且（本轮用 `data_little.txt` 解出）它们
-**全部是参数化直线波矢** `k = Γ + t·v`，各一个自由参数，因此没有单一数值 k 可以
-折叠；特征标表仍未解码。这条缺口由 `--require-w-complete` 门禁与 `w_scope` 行显式
-报告，不会被静默算作已完成。
+所以普通恒等分导表（15,239 条记录 / 94,271 条正项 / 366,260 个 probe）**引擎侧
+范围内闭合**：范围内未支持项为 0。范围之外的另一条轨道是
+`other_wave_vector_subduction` 的 5,756 行：它们的 k 域已经解出（参数化 k 域，
+`data_little.txt` 的 `little_k` + 官方 `DISPLAY KPOINT` 双向确认），数值也与官方
+`iso` 的 live oracle 逐行一致，但**引擎还不能算**——73 个源 irrep 的 little 群
+特征标不在 pinned irrep 表里，`little_irr_full_matrices` 的编码未解出。
+`--require-w-complete` 与 `w_scope` 行持续显式报告这一条，不会被静默算作已完成。
 
 后续扩充必须重新运行审计并更新实际覆盖。磁群、spinor 和离散子群 irrep 数据
 未提供的 k 不会因这些工具而自动获得支持。

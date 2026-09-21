@@ -159,6 +159,44 @@ API :  [("GM1+", 1, "P1", 1), ("GM3+", 1, "P1", 3), ("GM4+", 1, "P1", 1)]
 `IsotropySubgroup::other_wave_vector_subduction()` 提供。回归样例：SG 225 `W5`
 方向 `S60` → 9 条同 k 条目 + `3 DT5, 3 SM3, 3 SM4`。
 
+**这 5756 条现在有 live oracle 逐行对照（2026-09-22，第十七轮）**：对
+`(母群 SG, irrep)` 运行随包 `iso`，
+
+```
+SET I ALL OR 1 / SC 1000
+VALUE PARENT <sg> / VALUE IRREP <compact little 拼写>
+SHOW SUBGROUP / SHOW SIZE / SHOW DIRECTION / SHOW FREQUENCY
+DISPLAY ISOTROPY
+```
+
+打印的每行 `<子群号> <符号> <Size> <Dir> <频率表>` 中，`<频率表>` 是“所有
+（任意 k 的）包含该子群恒等表示的 irrep + 重数”，即**同一记录的
+`isotropy_subduce_*` 与 `isotropy_w_subduce_*` 两表的并集**。把频率表按
+`irrep_w_label` 过滤后与 pinned 的 w 行双向逐条比较（键 = `(子群号, Dir 标签)`，
+`Dir` 就是 pinned 记录的 `isotropy_orderparam_label`，无需换帧）：
+
+```bash
+python3 scripts/verify_w_subduction_oracle.py            # 28 组 / 1006 记录
+python3 scripts/verify_w_subduction_oracle.py --limit 5  # 抽样
+```
+
+脚本同时检查反方向：oracle 里出现 w 标签而 pinned 表没有对应记录、或 pinned
+有 w 行而 oracle 没有该行，都算失败。离线回归见
+`scripts/test_verify_w_subduction_oracle.py`（14 项，含被程序折行续行的解析）。
+注意 oracle 每行最后一个字段会按屏幕宽度折行，脚本用 `SC 1000` 并额外拼接缩进
+续行；续行本身可能长得像一行（`1 DT2, 1 SM1`），所以判定靠**缩进**而不是模式。
+
+**k 参数已经确定，不再是“缺失”**：73 个 w 源全部是 `data_little.txt` 里的参数化
+k 域（点/线/面/一般位置）。`little_k` 的 4 组 `(x,y,z,d)` = 基点 + 至多 3 个自由
+方向，**表达在母群 primitive 倒格基里**；官方 `DISPLAY KPOINT` 打印的是
+**conventional** 帧（SG 196：pinned `DT=(1,0,1)`，官方 `DT (0,2a,0)`；两者相差
+F 心倒格基矩阵）。little 表的其余结构也已对齐：`little_k_dim` = 自由参数个数、
+`little_ops_count` = little 群阶、`little_irr_dim` = 该 (SG,k) 槽 12 个缓冲位置里
+各 little irrep 的维数、`little_irr_full_dim` = 物理 irrep 维数
+= 星大小 × little 维数（compound 条目把 k 等价的 little irrep 合并，例如
+SG 196 `LD1LE1` = 2 × 4 = 8）。**唯一仍缺的是这 73 个 little irrep 的特征标**，
+`data_irreps.txt` 不存它们，`little_irr_full_matrices`（2.22M 整数）的编码尚未解出。
+
 **"双值/spinor"是错误命名（已纠正）**：`DT`、`SM` 是 SG 225 k 列表里的波矢标签
 （Δ、Σ 线），这些条目是**同一母群 SG 在别的波矢上的单值 irrep**；用户复核取出
 它们的纯二重旋转矩阵，全部满足 `D(C₂)² = +I`，与 spinor 语义不符。旧名
@@ -176,15 +214,40 @@ API :  [("GM1+", 1, "P1", 1), ("GM3+", 1, "P1", 3), ("GM4+", 1, "P1", 1)]
 
 - 索引空间是 `little_irr_full_label` / `little_irr_old_map` 的 **10294 个紧凑
   little irrep**（不是本文档的 4777 个母群 irrep；两者交集为空 0/5517）；
-- `little_subduce_irr_pointer[i]`（1-based，0 = 无数据，5517/10294 非零）给出该
-  irrep 块的起始行，块大小是**每个空间群的常数**（SG221→14、SG225→12、SG230→8、
-  SG1→1 …），与 k 和 irrep 无关；
-- 每个块的最后一行恒为 `[(frequency, dim), pg_irrep=1)]`（5517/5517，dim =
-  `little_irr_full_dim`），即分解到平凡点群 C1 的退化情形；
-- 载荷只有 `(frequency, pg_irrep)` 对，`pg_irrep ∈ [1,12]`，**没有任何
-  SG/basis/origin/direction 键**，因此无法与具体 isotropy 子群关联；
+  `little_irr_old_map[i]` 给出母群 irrep i 的紧凑序号（112 条只是旧 ML 拼写差异，
+  例如 SG 23 `W1W1` ↔ 紧凑 `W1WA1`），官方二进制只接受紧凑拼写。
+- `little_subduce_irr_pointer[i]`（1-based，5517/10294 非零）给出该 irrep 块的起始
+  行，块大小是**每个空间群的常数**（SG221→14、SG225→12、SG230→8、SG196→8 …）。
+  **只有含自由参数的 k 域（线/面/一般位置）才有块**：所有 k 点的 irrep 指针都是 0，
+  所以该表存的是“一般 k 的 little irrep 如何与更高对称 k 的 irrep 相容”，即
+  `SHOW COMPATIBILITY` 的反表。
+- 每块的行 = 该 little irrep 分解到某一上下文点群 irrep 的
+  `(pg_irrep, frequency)` 列表；**最后一行恒为 `[(1, little_irr_full_dim)]`**
+  （早期文档写的 `[(dim,1)]` 是把两个字段顺序读反了，已纠正）。
+- 载荷只有 `(frequency, pg_irrep)` 对，**没有任何 SG/basis/origin/direction 键**，
+  且同一子群在不同 irrep 下方向标签不同名，所以它**无法**给出“某条记录的子群频率”；
+  实测 SG 196 `DT1` 的 8 行 pg=1 频率是 `1,1,1,1,2,2,4,6`，而官方对同一条线算出的
+  子群频率集合是 `{1,2,3,4,6}`（`3` 不在行值里）——行值不是 w 频率。
 - 官方二进制没有任何命令打印该载荷（`SHOW COMPATIBILITY/STAR/MODES/KDEGREE` 都不
   打印），所以它也拿不到独立的 oracle 校验。
+
+**取而代之的两条官方证据（2026-09-22 第十七轮，都可复算）**：
+
+1. 记录侧（本仓库的 gate）：`DISPLAY ISOTROPY` + `SHOW FREQUENCY` 的频率表就是
+   pinned 的 `isotropy_subduce_*` ∪ `isotropy_w_subduce_*`，见 §4。
+2. 源侧：对参数化 k 域（如 SG 196 `VALUE KPOINT DT` + `VALUE KVALUE 1,3/8`）
+   请求 `DISPLAY ISOTROPY` 时，程序**现场计算**该 little irrep 的 isotropy 子群，
+   写入当前目录的 `i<紧凑序号><参数>.iso`（例如 `i0897500.iso`）。文件里每条
+   子群给出 `SG / 序号 / 9 个基矢整数 / 4 个 origin 整数 / 方向标签`，
+   后面跟一个**方向矩阵**，其行数 = 该子群的恒等分导重数（标签前缀也是这个数，
+   如 `4D1` 4 行、`6D1` 6 行；SG 196 `DT1` 的 P1 子群为 4 与 6，与 pinned 记录
+   `#1` 的 `DT1 → 4 / 6` 一致）。注意该表的 Frequency 列对参数化 k 域**留空**，
+   程序不打印它。
+3. 顺带解开的官方交互细节：`VALUE ELEMENT` 的可用写法是
+   `LABEL ELEMENT INTERNATIONAL` + ITA 字符串（`X Y Z`、`-X -Y -Z`，
+   分量用空格分隔），配合 `SHOW CHARACTER` 会打印
+   `Element (x,y,z) Char 1.000`；默认的 BRADLEY-CRACKNELL 写法
+   （`(E|0,0,0)`）目前没有试出可被 `VALUE ELEMENT` 接受的形式。
 
 完整分解只能自行计算：用随包 PIR/CIR 矩阵限制到子群操作上（帧由
 `isotropy_basis` + `isotropy_origin` 给出），并用 §4 的 94271 条恒等分导作为

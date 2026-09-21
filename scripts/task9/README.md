@@ -244,3 +244,44 @@ frame, and the `OR1`/`OR2` origin difference does not produce one for them
 the frame difference).  Next entry point: derive the monoclinic child shift from
 `SHOW ELEMENTS` (the generator's `origin_choice_shift` route) instead of from the
 printed origins, and cross-check it against the stored identity frequencies.
+
+## Other-wave-vector rows: live oracle (2026-09-22, round 17)
+
+The 5,756 `isotropy_w_subduce_*` rows are the one part of the pinned table the
+engine does not compute: their 73 source irreps live at parametric k domains and
+`data_irreps.txt` carries neither their k vector nor a character row.  Two facts
+found this round (both reproducible from the shipped `iso`):
+
+* the k domains *are* pinned after all -- `data_little.txt`'s `little_k` gives
+  base point plus free directions in the parent's **primitive** reciprocal basis
+  (73/73 sources resolve), and `DISPLAY KPOINT` prints the same domains in the
+  conventional frame (`DT (0,2a,0)` for SG 196 corresponds to the pinned
+  `(1,0,1)`);
+* the values have an official oracle: `DISPLAY ISOTROPY` + `SHOW FREQUENCY` for
+  a `(parent, irrep)` prints, per order-parameter direction, every irrep whose
+  subduction contains the subgroup identity, with its multiplicity -- the union
+  of the pinned `isotropy_subduce_*` and `isotropy_w_subduce_*` tables.
+
+```bash
+# compare all 1,006 w-carrying records (28 (SG, irrep) groups) two ways
+python3 ../../../scripts/verify_w_subduction_oracle.py \
+    --json ../../../target/task9/w_subduction_oracle.json --verbose
+# offline regressions for the parser and the comparison
+python3 -m unittest discover -s ../../../scripts -p test_verify_w_subduction_oracle.py
+```
+
+Measured: 28 groups, 1,150 records, 5,756 oracle w rows against 5,756 pinned w
+rows, 0 mismatches (144 of those records pin the negative direction: the oracle
+lists no w entry and the pinned table has none).  The engine gate
+`audit_irrep_subduction --require-w-complete` still exits 2, because the engine
+itself cannot compute the rows until the 73 little-group characters are
+available; the release scope therefore has to state the two tracks separately
+(see `docs/subduction-audit.md`).
+
+Side finding while probing the oracle: asking a parametric-k irrep for
+`DISPLAY ISOTROPY` makes the program compute that isotropy table on the fly and
+cache it as `i<compact little index><params>.iso` in the current directory.  In
+that file each subgroup carries a direction matrix whose **row count is the
+subduction frequency** (label prefix included: `4D1` has 4 rows, `6D1` 6), which
+matches the pinned `#1` frequencies 4 and 6 for SG 196 `DT1`.  The program's
+Frequency column itself stays empty for parametric k.

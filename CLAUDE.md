@@ -840,9 +840,46 @@ SG 196 的 `GM1`（指针 0 = 哨兵，块读出来是垃圾，**不能**用它�
    是 0 哨兵，按 `ptr-1` 取会读到错位数据（上面第一版读出的 GM1 行即为反例），
    任何按 irrep 取块的代码都必须显式跳过 0。
 
-下一轮：用「在哪个维数表下配平」把 7 个上下文按点群类型定出来（T / D2 / C3 / C2 / C1
-等），再用几何侧的 `H ∩ 臂稳定子` 点群类型选行并求和，最后跑 1,006 条记录 /
-5,756 行全表（含未列出者为 0 的负向核对）。
+**第十七轮（2026-09-22）：w 行的语义、k 域、官方 oracle 全部落地；只剩 little 群特征标。**
+
+本轮不再猜行语义，改用官方程序本身把这条轨道钉死（细节见
+`docs/isotropy-data-semantics.md` §4 与 `docs/subduction-audit.md`）：
+
+1. **语义确认**：对 `(母群 SG, irrep)` 运行 `iso` 的 `DISPLAY ISOTROPY` +
+   `SHOW FREQUENCY`，每个方向一行，频率表列出**所有（任意 k 的）**包含该子群恒等
+   表示的 irrep 及重数 —— 它正是 pinned `isotropy_subduce_*` ∪
+   `isotropy_w_subduce_*` 的并集（SG 196 W1 的 C5/C7/C11 行逐条对上）。命令细节：
+   `SC 1000`（默认宽度会把长频率表折行，续行可能长得像一行数据，判定必须靠缩进）、
+   `SET I ALL OR 1`。
+2. **k 域帧修正（推翻第九轮结论）**：`little_k` 的方向在母群 **primitive 倒格基**
+   里，官方 `DISPLAY KPOINT` 打印 **conventional** 帧；SG 196 pinned `DT=(1,0,1)`
+   ↔ 官方 `DT (0,2a,0)`（F 心倒格基矩阵），`SM=(1,1,2)` ↔ `(2a,2a,0)`。73/73 源
+   都是参数化 k 域（线/面/一般位置），**k 参数不缺**。
+3. **little 表结构对齐**：`little_k_dim` = 自由参数个数、`little_ops_count` = little
+   群阶、`little_irr_dim`（6210×12 缓冲）= 各 little irrep 维数、`little_irr_full_dim`
+   = 物理 irrep 维数 = 星大小 × little 维数（compound 条目合并 k 等价 little irrep，
+   如 SG 196 `LD1LE1` = 2×4 = 8；`little_irr_old_map[i]` 给出母群 irrep 的紧凑序号，
+   112 条只是旧 ML 拼写）。`little_subduce_*` 只在**有自由参数的 k 域**上有块（所有
+   k 点的 irrep 指针都是 0），最后一行恒为 `[(1, full_dim)]`（并非早期写的
+   `[(dim,1)]`）。**载荷给不出 w 频率**：SG 196 `DT1` 的 8 行 pg=1 值是
+   `1,1,1,1,2,2,4,6`，而官方对同一线算出的子群频率集合是 `{1,2,3,4,6}`（`3` 不在
+   行值里），且行没有 SG/basis/origin/direction 键 —— 第十五、十六轮的
+   「行值 = w 频率」模型作废。
+4. **新门禁**：`scripts/verify_w_subduction_oracle.py`（离线回归
+   `scripts/test_verify_w_subduction_oracle.py` 14 项）按 `(子群号, Dir 标签)`
+   **双向**比较官方频率表与 pinned 两张表。实测 **28 组 / 1,150 条记录 /
+   oracle 5,756 条 w 行 = pinned 5,756 条 w 行 / 0 不匹配**，其中 144 条是
+   「oracle 无 w 条目」的负向核对。
+5. **旁证**：对参数化 k 域请求 `DISPLAY ISOTROPY` 会让程序现场算该 little irrep 的
+   isotropy 表并缓存为 `i<紧凑序号><参数>.iso`；文件里每个子群的方向矩阵**行数 =
+   恒等分导重数**（`4D1` 4 行、`6D1` 6 行，与 pinned `#1` 的 4/6 一致），而
+   Frequency 列本身对参数化 k 留空。另解出可用的元素写法：
+   `LABEL ELEMENT INTERNATIONAL` + `X Y Z` / `-X -Y -Z`（配 `SHOW CHARACTER`）。
+6. **状态**：引擎仍不能算这 5,756 行（缺 little 群特征标；`little_irr_full_matrices`
+   2.22M 整数编码未解），`--require-w-complete` 继续退出 2；发布必须按
+   `docs/subduction-audit.md` 的两条轨道声明覆盖。下一轮：从官方 oracle 提取
+   73 个 little rep 的特征标（或在 pinned little 表里解出矩阵编码），把 w 频率接入
+   引擎，让 `--require-w-complete` 也能全表退出 0。
 
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
