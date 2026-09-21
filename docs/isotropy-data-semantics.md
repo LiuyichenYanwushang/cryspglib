@@ -194,9 +194,53 @@ trivial 列的回归 oracle。
 解析器与门禁，仅替换数据读取和进程边界，不需要解压 `iso`。测试覆盖精确 origin、
 错误描述串、向量标签缺失/多余/重复、分隔符与空白、等体积异格、进程失败，以及
 `C2` 的母群上下文。Rust `tests/isotropy_geometry.rs` 另钉住 #8 Cm 的两种不同
-方向嵌入、SG177 的复分隔符别名与其它波矢分导的完整输出段。
+方向嵌入、SG177 的复分隔符别名与其它波矢分导的完整输出段。子群**操作**（而不只是
+几何）的证据由任务 2 的 `scripts/verify_isotropy_operations.py` 固定，见 §6。
 
-## 6. 已知未决项（对抗性审查发现，未修复）
+## 6. 操作与嵌入的官方证据（`SHOW ELEMENTS` / `SHOW XYZ`）
+
+`scripts/verify_isotropy_operations.py` 把 10 个 (SG, irrep, 方向) 用例的子群
+**操作**逐条钉住，结果存 `tests/data/isotropy/operations.json`（70 个陪集代表）。
+本次钉死的语义（都可在同一进程内复现）：
+
+1. **打印格式**：`SHOW ELEMENTS` 要先 `VALUE DIRECTION <label>`，而整张表只有
+   `DISPLAY ISOTROPY` 才真正打印；`Subgroup`/`Dir` 两列要先 `SHOW SUBGROUP` /
+   `SHOW DIRECTION` 才出现，否则行里根本没有子群号与方向标签。分页上限
+   `PAGE ≤ 1000`。
+2. **标签图例来自 archive 自身**：`data_space.txt` 的 `point_op_label`（72 项；立方
+   块 1–48、六方块 49–72）、`point_op_label_stokes`（同一批操作的轴记法）与
+   `ipoint_op`（72 个行主序整数旋转矩阵）按同一下标对齐，例如
+   `C2a = 2[110]`、`SGda = -2[110]`、`SGv1 = -2[100]`、`S4z- = -4[001]`、
+   `S4z+ = -4[00-1]`（`Sn`/`-n` 是"旋转后反演"；`S4z+` 对应绕 `[00-1]` 的正向旋转
+   再反演，别按 `S4z+ ↔ [001]` 想当然——这一对就是从图例里读出来的）。
+   标签不在图例中、或同一标签在不同晶系块里对应不同旋转（实际只有 `E`/`I`
+   重复且一致）都会直接报错，不做模糊匹配。
+3. **打印的操作是母群帧中的陪集代表，符号也用母群帧的轴名**（立方母群给出
+   `C2a`/`SGda` 这类 ⟨110⟩ 对角名）。数量等于**子群点群阶**
+   （`ispace_point_group` + `ipoint_group_order`），**不是**子群 conventional 胞里的
+   操作数：#12 `C2/m` 打印 4 个（不是 8）、#148 `R-3` 6 个（不是 18）、
+   #22 `F222` 4 个（不是 16）、#8 `Cm` 2 个（不是 4）。平移**未约化**：
+   `(C2x|0,2,2)`、`(I|5/2,5/2,5/2)`、`(SGv1|-2/3,-1/3,1/6)` 按原样打印。
+   验证映射时要用子群**自身 setting** 的操作，而不是把打印符号再共轭一次。
+4. **`SHOW XYZ` 给的是坐标变换本身**：内容是 `x_H = B^-1 (x_G − o)`，已用
+   SG 139 `M1-` P1（`B = I`、`o = (1,1,1)` → `(-1+x,-1+y,-1+z)`）与 SG 225
+   `GM4-` C1（非对称 `B`、`o = 0` → `(x+y,-z,-2x)`）两例逐项复算。它是 `B`/`o` 的
+   **函数级**独立 oracle，`SHOW BASIS`/`SHOW ORIGIN` 两列只是它的分解形式。
+5. **同一 `(W, origin)` 不代表同一嵌入**：221 `GM3+` 的 `P1`→#123 与 `C1`→#47
+   都是 `W = I`、`o = 0`，但操作分别是 16 与 8 个（`P4/mmm` vs `Pmmm`）。
+6. **逐进程隔离**：程序把 `iso.log` 写在当前目录，gate 每次查询都在独立临时目录中
+   运行、`ISODATA` 指向 archive，所以既不会互相覆盖，也不会弄脏仓库。
+
+当前结果：`operation fixtures checked: 10 cases / 70 coset representatives`，全部
+逐条精确（标签→旋转、点群阶、闭包/逆元、`E` 的零平移）。每个用例的 basis/origin
+还经 §5 的换算与 `data_isotropy.txt` 交叉校验（格相等 + `Z_sub·Size/Z_parent` 体积 +
+origin 逐位相同）；SG 139 `M1-` 是本轮新增覆盖（原 22 组用例没有它）。
+`scripts/test_verify_isotropy_operations.py` 的 25 个离线测试用固定打印行驱动真实
+解析器与门禁，仅替换进程与 archive 读取边界，覆盖未知标签、重复/畸形/截断元素、
+包裹行、丢过滤器（同一表打出两行）、分页、语法错误、缺列、点群阶不符、旋转不闭合、
+非零 `E` 平移、origin/格不符、replay 与 `--write` 两条出口。
+
+## 7. 已知未决项（对抗性审查发现，未修复）
 
 1. **其它 ITA setting 的残余**（§3）：origin choice 已钉死，但约 995 条 / 41 个
    母群来自单斜与三方晶系的 **cell/axis choice**。SG 227/228 的 545 条可用
@@ -225,7 +269,7 @@ trivial 列的回归 oracle。
    4 行且与存储数据一致。`IrrepRecord::ml` 因此在 oracle gate 之外还要看
    `little_irr_full_label` 的紧凑拼写。
 
-## 7. Rust API 位置
+## 8. Rust API 位置
 
 | 功能 | API |
 |---|---|
