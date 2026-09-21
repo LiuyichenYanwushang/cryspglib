@@ -245,3 +245,18 @@ measurement (see above).  Reuse the engine's own pairing instead:
    finally the whole 5,756 rows through the audit with `--require-w-complete`.
    A failure at any step is reported with the ordinal and both numbers rather
    than tuned away.
+
+## Global audit numbers (round 58, full unscoped run)
+
+```
+identity_rows=94271 unique_pairs=94271 (pinned 94271)
+other_wave_vector: records=1006 rows=5756 source_resolved=5756 source_mismatch=0 computed=300 conflicts=0
+w_scope: rows=5756 computed=300 uncomputed=5456 character_tables_frozen=5756 character_tables_blocked=0
+         reason=line_sources_need_the_line_star_build_block_path gate=--require-w-complete
+hard_failures=0 accounting_violations=0 census_mismatch=0
+VERDICT clean scope=global incomplete_categories=0 w_uncomputed=5456
+```
+
+Exit 0 without `--require-w-complete`; that gate still exits 2 while the 5,456
+rows are not engine-computed.  The 300 are the `P1`-child family, verified row
+for row against the pinned values by the audit itself.
