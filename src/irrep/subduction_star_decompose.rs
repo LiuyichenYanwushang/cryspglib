@@ -863,7 +863,16 @@ pub fn line_trivial_content_with_embedding(
     // of `k = v/4` contributes exactly when it lands on the child's Gamma
     // point.  The `/4` is [`LINE_PARAMETER`]; it is what makes this count of
     // folded arms reproduce the pinned rows instead of the full star size.
-    let child_reciprocal = embedding.subgroup_lattice().reciprocal()?;
+    // The subgroup lattice the isotropy record stores is the one the pinned rows
+    // were computed with; the accepted embedding can differ from it by a
+    // fractional change of basis, so the fold and the stabiliser test use the
+    // recorded lattice, taken from the parent primitive frame to the parent
+    // conventional frame: `L_H = W . P_parent`.
+    let child_lattice = Lattice::new(
+        Mat3R::from_ints(subgroup.record.basis)
+            .checked_mul(&exact_primitive_basis(subgroup.parent_sg)?)?,
+    )?;
+    let child_reciprocal = child_lattice.reciprocal()?;
     let identity_translation = Vec3R::new([Rat::ZERO; 3]);
     let mut total = Complex64::new(0.0, 0.0);
     for (arm, rotation) in &arms {

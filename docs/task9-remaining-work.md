@@ -163,8 +163,18 @@ verification of all 5,756 rows.
 
 **Still open (the rest of the w track).** `asymmetric_dt3_dt4_records_are_pinned`
 is `#[ignore]`d: for a child that is *not* `P1` the fold/weight convention is not
-reproduced yet (SG 202 ordinal 10422 `DT3`: the model folds four arms and the
-trivial projection cancels to 0, while the pinned value is 2).  The pinned rows
+reproduced yet.  Measured on SG 202 ordinal 10422 (`DT3`, child #31 `Pmn2_1`,
+size 16, pinned `DT1 = 1, DT3 = 2, DT4 = 1, SM1 = 2`): the model folds four arms
+(`(0,0,+-2)`, `(+-2,0,0)`), each arm's stabiliser has two operations, and the
+transported characters come out `(+1,-1)`, `(+1,-1)`, `(+1,+1)`, `(-1,-1)`; the
+per-arm weights are therefore `0, 0, 1, -1` and the total is 0 instead of 2.
+A negative per-arm weight already proves the weight is not the trivial-content
+projection I assumed — the sum must be computed differently (the natural
+candidates: average over the child's *full* point group with the arm
+permutation included, or over the stabiliser of the arm in the parent's little
+group `G_L` rather than in the child).  Using the lattice the isotropy record
+stores (`W . P_parent`) instead of the accepted embedding's lattice did not
+change this record, and the `P1` family stays 300/300 with it.  The pinned rows
 themselves are unaffected — they are oracle-verified — so the audit keeps
 reporting the w rows as a separate track until this is closed.  The next
 candidate to test is the frame of the projection: `embedding.representatives()`
