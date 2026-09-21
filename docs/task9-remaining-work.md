@@ -517,3 +517,15 @@ therefore have to inline that logic — test the stabiliser with
 `StarError::Subduction(SubductionError::RationalOverflow { operation: .. })` for
 the dimension overflow — or the two helpers must be duplicated with `StarError`.
 Everything else in the sketch stands; plan for ~15 extra lines here.
+
+**One open design choice before writing the line arm source (round 106).** Its
+methods return `StarError`, and the "the frozen table has no character for this
+rotation" case has no honest variant there (only the exact-layer error and the
+parent-operation ones).  Two clean options: add a variant such as
+`MissingFrozenRotation { sg: u8, label: &'static str }` to `StarError`
+(`src/irrep/subduction_star.rs`) — check for exhaustive matches on that enum
+before doing so — or keep the line source's own error type and give the enum a
+`map_err` at the `build_block` boundary instead of matching `ScalarStar`'s
+signature.  Do not paper over it with `SubductionError::RationalOverflow`, which
+would describe the wrong failure.  Everything else (fields, the stabiliser test,
+the phase, the dimension overflow) is settled.
