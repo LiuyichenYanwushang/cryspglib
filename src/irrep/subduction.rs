@@ -1124,50 +1124,50 @@ fn load_hall_operations(sg: u8, hall: usize) -> Result<SgHallOperations, Subduct
 
 // ── Subgroup embedding ───────────────────────────────────────────────────────
 
-/// Setting transforms `U` recorded for the subgroups covered by the offline
-/// fixtures, used only to break ties between candidates that are all consistent
-/// with the parent group.
+/// The generated per-ordinal setting metadata (task 9).
 ///
-/// `U` relates the stored basis `W` (parent primitive frame) to the subgroup's
-/// own conventional cell `B`: `W . P_parent = U . (P_sub . B)`.  It is a signed
-/// permutation here, and it is a *setting convention*, not something `W` alone
-/// determines: any other `U` describes the same lattice in a different cell,
-/// and if that cell also embeds into the parent the tie has to be broken by
-/// recorded data rather than by picking the first candidate.
-///
-/// [TODO(task 9)] the full-table regression extends this table to every
-/// subgroup that needs a tie-break; tasks 1-8 only cover the fixtures.
-const FROZEN_EMBEDDINGS: &[(u8, u8, Mat3I, [i32; 4])] = &[
-    // (parent, subgroup, U, child-frame origin shift delta = (x, y, z, d))
-    //
-    // Keyed by the **pair**: the same subgroup number reached from a different
-    // parent is a different embedding, and a setting that works for one parent
-    // can silently "validate" for another while pairing the irreps wrongly.
-    // Each entry below is derived from the task-2 oracle fixture of that exact
-    // (parent, subgroup, direction) record.
-    (221, 83, IDENTITY_SETTING, NO_SHIFT),
-    (221, 12, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
-    (221, 148, IDENTITY_SETTING, NO_SHIFT),
-    (221, 123, IDENTITY_SETTING, NO_SHIFT),
-    (221, 47, IDENTITY_SETTING, NO_SHIFT),
-    (225, 8, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
-    (16, 22, IDENTITY_SETTING, NO_SHIFT),
-    (167, 15, [[0, 0, 1], [1, 0, 0], [0, 1, 0]], NO_SHIFT),
-    // #126 P4/nnc: the isotropy record uses the other ITA origin choice, so the
-    // subgroup operations need the (1/4,1/4,1/4) shift before the affine map.
-    (139, 126, IDENTITY_SETTING, [1, 1, 1, 4]),
-    // The four scalar self-restrictions (parent == subgroup) of task 8c.  Each
-    // is the official `SET I ALL OR 1` conventional basis `I` with origin zero
-    // and Size 1; pinning them keeps the identity candidate from being resolved
-    // by a different, also-consistent setting.
-    (19, 19, IDENTITY_SETTING, NO_SHIFT),
-    (23, 23, IDENTITY_SETTING, NO_SHIFT),
-    (45, 45, IDENTITY_SETTING, NO_SHIFT),
-    (83, 83, IDENTITY_SETTING, NO_SHIFT),
-];
+/// One entry per covered isotropy record ordinal, derived from the official
+/// ISOTROPY program by `scripts/generate_subduction_settings.py`; the module
+/// header records the pinned archive hashes and the derivation.  The table is
+/// keyed by ordinal, so the lookup can fail closed on a parent/subgroup
+/// mismatch instead of validating a setting that was recorded for another
+/// embedding.
+#[path = "subduction_settings_data.rs"]
+mod settings_data;
 
+use settings_data::FROZEN_EMBEDDING_SETTINGS;
+
+/// The identity setting transform.
+///
+/// The generated table carries its own constant, so this test-only spelling
+/// exists for the star-module tests that compare an embedding against the
+/// identity setting.
+#[cfg(test)]
 const IDENTITY_SETTING: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-const NO_SHIFT: [i32; 4] = [0, 0, 0, 1];
+
+/// The recorded setting of the isotropy record `ordinal`, if the fixtures cover
+/// it.
+///
+/// A covered ordinal whose pinned record is a different `(parent, subgroup)`
+/// pair is a hard error, never a reason to fall back to the candidate search:
+/// the same ordinal under another parent is a different embedding, and a
+/// setting that validates there can still pair the irreps wrongly.
+fn frozen_setting_for(
+    ordinal: usize,
+    parent_sg: u8,
+    subgroup_sg: u8,
+) -> Result<Option<&'static settings_data::FrozenEmbeddingSetting>, SubductionError> {
+    let Some(entry) = FROZEN_EMBEDDING_SETTINGS
+        .iter()
+        .find(|entry| entry.0 == ordinal)
+    else {
+        return Ok(None);
+    };
+    if entry.1 != parent_sg || entry.2 != subgroup_sg {
+        return Err(SubductionError::StaleIsotropyRecord { ordinal });
+    }
+    Ok(Some(entry))
+}
 
 /// The 48 signed permutation matrices, the search space for `U`.
 pub fn signed_permutations() -> Vec<Mat3I> {
@@ -1283,10 +1283,7 @@ impl SubgroupEmbedding {
         let origin = exact_origin(&subgroup.record.origin, &parent_primitive)?;
         let parent_operations =
             reduce_operations(&strict_sg_hall_ops(parent_sg)?.operations, &parent_lattice)?;
-        let frozen = FROZEN_EMBEDDINGS
-            .iter()
-            .find(|(parent, sg, ..)| *parent == parent_sg && *sg == subgroup_sg)
-            .copied();
+        let frozen = frozen_setting_for(subgroup.ordinal, parent_sg, subgroup_sg)?.copied();
         let shift = match frozen {
             Some((.., delta)) => exact_origin(&delta, &Mat3R::identity())?,
             None => Vec3R::zero(),
@@ -1492,8 +1489,9 @@ fn exact_origin(origin: &[i32; 4], parent_primitive: &Mat3R) -> Result<Vec3R, Su
 /// subgroup's own frame: `t' = t + delta - R delta`.
 ///
 /// The isotropy tables and the shipped Hall setting of a subgroup can use
-/// different ITA origin choices; the shift is frozen per subgroup in
-/// [`FROZEN_EMBEDDINGS`] and validated like everything else.
+/// different ITA origin choices; the shift is frozen per isotropy ordinal in
+/// `settings_data::FROZEN_EMBEDDING_SETTINGS` and validated like everything
+/// else.
 fn shift_operations(
     operations: &[ExactSeitz],
     shift: &Vec3R,
@@ -3563,6 +3561,100 @@ mod tests {
             assert_eq!(embedding.subgroup_sg(), subgroup.record.sg as u8);
             assert!(!embedding.representatives().is_empty());
         }
+    }
+
+    #[test]
+    fn frozen_settings_address_their_own_records() {
+        use super::settings_data::{FROZEN_EMBEDDING_SETTINGS, FrozenEmbeddingSetting};
+        let entries: &[FrozenEmbeddingSetting] = FROZEN_EMBEDDING_SETTINGS;
+        assert_eq!(entries.len(), 75);
+        let mut ordinals = Vec::new();
+        let mut pairs = Vec::new();
+        let mut shifted = Vec::new();
+        for entry in entries {
+            let (ordinal, parent, child, setting, child_shift) = *entry;
+            assert!(!ordinals.contains(&ordinal), "ordinal {ordinal} repeats");
+            ordinals.push(ordinal);
+            if !pairs.contains(&(parent, child)) {
+                pairs.push((parent, child));
+            }
+            // The ordinal addresses the generated isotropy record, and an irrep
+            // of the claimed parent really owns that record.
+            let stored = &ISOTROPY_SUBGROUPS[ordinal];
+            assert_eq!(stored.sg, usize::from(child), "ordinal {ordinal}");
+            assert!(
+                query::irreps_of(parent).iter().any(|irrep| {
+                    !irrep.spinor
+                        && irrep
+                            .subgroups()
+                            .iter()
+                            .any(|record| std::ptr::eq(record, stored))
+                }),
+                "ordinal {ordinal}: no irrep of SG {parent} owns the record"
+            );
+            // `U` is an exact unimodular integer matrix; the generated table is
+            // not restricted to signed permutations.
+            let matrix = Mat3R::from_ints(setting);
+            let determinant = matrix.determinant().expect("integer matrix");
+            assert!(
+                determinant == Rat::ONE || determinant == Rat::from_integer(-1),
+                "ordinal {ordinal}: det U = {determinant:?}"
+            );
+            let [x, y, z, denominator] = child_shift;
+            assert!(denominator > 0, "ordinal {ordinal}");
+            let divisor = gcd_positive(
+                gcd_positive(
+                    i128::from(x).unsigned_abs(),
+                    i128::from(y).unsigned_abs(),
+                ),
+                gcd_positive(
+                    i128::from(z).unsigned_abs(),
+                    i128::from(denominator).unsigned_abs(),
+                ),
+            );
+            assert_eq!(divisor, 1, "ordinal {ordinal}: unreduced child shift");
+            if child_shift != [0, 0, 0, 1] {
+                shifted.push((parent, child, child_shift));
+            }
+        }
+        // 13 original pairs plus five pairs covered by six task-9 witnesses;
+        // exactly one record needs an ITA origin-choice correction (#126).
+        assert_eq!(pairs.len(), 18);
+        assert_eq!(shifted, vec![(139, 126, [1, 1, 1, 4])]);
+    }
+
+    #[test]
+    fn frozen_setting_lookup_fails_closed_on_a_mismatch() {
+        let covered = FROZEN_EMBEDDING_SETTINGS[0];
+        let (ordinal, parent, child) = (covered.0, covered.1, covered.2);
+        assert_eq!(
+            frozen_setting_for(ordinal, parent, child).expect("lookup"),
+            Some(&covered)
+        );
+        // A covered ordinal under another parent or subgroup is an error, not a
+        // reason to search: the recorded setting belongs to this embedding only.
+        let other_parent = if parent == 1 { 2 } else { parent - 1 };
+        let other_child = if child == 1 { 2 } else { child - 1 };
+        assert_eq!(
+            frozen_setting_for(ordinal, other_parent, child),
+            Err(SubductionError::StaleIsotropyRecord { ordinal })
+        );
+        assert_eq!(
+            frozen_setting_for(ordinal, parent, other_child),
+            Err(SubductionError::StaleIsotropyRecord { ordinal })
+        );
+        // Uncovered records keep the candidate search and are not an error.
+        let uncovered = (0..ISOTROPY_SUBGROUPS.len())
+            .find(|candidate| {
+                FROZEN_EMBEDDING_SETTINGS
+                    .iter()
+                    .all(|entry| entry.0 != *candidate)
+            })
+            .expect("an uncovered ordinal");
+        assert_eq!(
+            frozen_setting_for(uncovered, 221, 83).expect("lookup"),
+            None
+        );
     }
 
     #[test]

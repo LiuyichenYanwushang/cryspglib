@@ -373,10 +373,11 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
 任务 8c 扩充 fixture 后给出
 `Γ 记录 1895 | 冻结子群命中 243 | 已钉住 14 | 多候选歧义 199 | 搜索空间外 30 | 交叉检查错误 0`。
 历史数字 1895 的准确含义是**Γ 凝聚记录条数**，不是“恒等式已验证的条数”；
-目前只对 14 条被 oracle fixture 钉住的记录验证了 stored `i(G)` 与 Frobenius
+任务 8c 当时只对 14 条被 oracle fixture 钉住的记录验证了 stored `i(G)` 与 Frobenius
 `Σ_D dim(D)·mult(trivial_H, D|H) = [G_k : H_k]`，其余 229 条显式报
 `AmbiguousEmbedding` 或 `NoValidEmbedding`，不猜。任务 9 负责从 oracle 生成全表
-逐记录 setting 元数据（含一般 unimodular/shear 候选）。
+逐记录 setting 元数据（含一般 unimodular/shear 候选）。该测试保留旧子群范围作为
+回归；当前真正全表的分母及已完成条数以任务 9 审计为准（见下文）。
 
 ### 分导任务 8a：完整星适配器（2026-09-21）
 
@@ -451,6 +452,31 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
   `27 passed`；严格 all-target clippy 通过（workspace 既有 manifest 警告仍在）。
   Python 离线 `42 + 2` 测试、几何 oracle `48 行 / 26 描述串`、操作 oracle
   `14 用例 / 90 代表`、两套 CIR fixture 重生成一致性检查全部通过。
+
+### 分导任务 9：全表审计与逐记录 setting（2026-09-21，覆盖尚未闭合）
+
+- DSH 实现采集器、生产 API 审计和元数据生成器，另一个 DSH 只读对抗复核；
+  Codex 独立跑全表、复现问题、修正门禁、核对坐标与标签、最终集成。
+- `examples/audit_irrep_subduction.rs` 遍历全部 15,239 记录和 366,260 个标量 probe，
+  正项 94,271、未列项 271,989，逐行 TSV 无重复或漏行。每个可嵌入 probe 都调用
+  完整星 API；几何零项不能跳过计算。ordinal 13345 的 W1–W5 缺数据必须使
+  `--require-complete` 返回 2；黄金 ordinal 12400 必须实际分解全部 40 个源表示。
+- 当前：75 embedding 成功、12,884 歧义、2,280 无有效 setting；2,453 完整分解、
+  19 缺数据、363,788 因 embedding 未计算。494 正项、1,959 零项、19/1,895 条
+  Γ Frobenius 已验证，错误 0；其余 93,777 正项未计算，5,756 个 w 条目缺 k 参数。
+- `generate_subduction_settings.py` 从官方基矢精确反算 U，并核验完整子群操作集与
+  child origin 来源；按 ordinal 冻结到 `subduction_settings_data.rs`。原 69 条结果
+  保持，新增 427、984、1942、2102、15125、15131 六条（含三条 shear）。
+  #43 交换轴保持群操作集却交换 GM3/GM4；源字符 ±1 和端到端结果共同固定标签。
+  新六条的 120 个 probe 中 116 完整；缺失集合为 15125/15131 的 P1P2、P3。
+- `audit_subduction_settings.py` 完成 4,777 官方查询：13,861 候选、238 基矢不符、
+  945 其余 origin 不符、195 官方空表。候选含 95 条非 signed-permutation U；
+  **候选并非已支持 embedding**。完整来源、分母、重跑命令见 `docs/subduction-audit.md`。
+- 复核修正已入永久测试：采集 ordinal 从错误的 1-based 改为与 Rust 一致的
+  0-based；程序及全部运行数据从 pinned ZIP 私有提取，禁止使用未校验的本地解压；
+  `SG_DATA_HALL` 必须吻合冻结 ISO--IR 来源；Γ 异常不能只计数而不影响退出码。
+- 任务 9 尚未达到普通表覆盖闭合；下一步是扩大有来源的逐记录元数据，并处理
+  各类 setting、官方空表和离散子群 k 数据缺口，不能直接转入“全表已通过”的声明。
 
 ### 分导任务 7 状态（2026-09-21）
 

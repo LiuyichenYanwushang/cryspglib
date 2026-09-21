@@ -133,6 +133,11 @@ most parents while the program defaults to origin choice 2, so run it with
 `SET I ALL OR 1` before comparing that column. See
 `docs/isotropy-data-semantics.md` and `scripts/verify_isotropy_oracle.py`.
 
+Full scalar irrep subduction remains experimental and has partial setting and
+child-irrep coverage. The [full-table audit](docs/subduction-audit.md) reports
+every computed, missing and unsupported request. Use its `--require-complete`
+gate when complete coverage of a selected scope is required.
+
 Typed code should prefer `SpaceGroupType::from_hall_number`,
 `MagneticSpaceGroupType::from_uni_number`, and the corresponding
 `SymmetryOps` constructors. Integer entry points remain as validating

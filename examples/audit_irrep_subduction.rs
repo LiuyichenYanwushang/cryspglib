@@ -1,0 +1,2477 @@
+//! Task 9: exhaustive ordinary isotropy / identity-subduction audit.
+//!
+//! This example is a reproducible census of the pinned ordinary isotropy table.
+//! It reuses the production embedding (`SubgroupEmbedding::from_isotropy_subgroup`)
+//! and the production scalar full-star decomposition
+//! (`subduce_full_star_with_embedding`) and never re-implements a solver.
+//!
+//! ```text
+//! cargo run --release -p cryspglib --example audit_irrep_subduction -- --output target/task9/full.tsv
+//! cargo run --release -p cryspglib --example audit_irrep_subduction -- --parent 221
+//! cargo run --release -p cryspglib --example audit_irrep_subduction -- --ordinal 13345
+//! ```
+//!
+//! Contract of the report:
+//!
+//! * Every non-spinor (`ordinary scalar`) record of an in-scope parent space
+//!   group is a probe of every condensate record.  Whenever the isotropy record
+//!   embeds, the probe is decomposed by the production full-star engine -- even
+//!   when the exact folded-star geometry already proves that the trivial child
+//!   irrep cannot appear.  Geometry is an independent check on the computed
+//!   result, never a reason to skip the decomposition.
+//! * One TSV row is emitted per scalar probe, including probes whose embedding
+//!   is unavailable.  Such rows are `uncomputed` and can never count as passes.
+//! * The probe partition is `full_success + missing + error + uncomputed`, with
+//!   `uncomputed = uncomputed_embedding + uncomputed_no_trivial`; it is checked
+//!   against `probes_total` both per record and globally.
+//! * The positive stored entries (the pinned 94271 identity rows) form a
+//!   separate partition: `passed + mismatch + embedding_unavailable +
+//!   no_trivial + missing + error == unique stored rows`, while duplicates and
+//!   unresolvable labels are reported separately.  Rows are never summed: a
+//!   repeated pair with the same frequency is deduplicated (`duplicate_same`)
+//!   and a repeated pair with different frequencies is a conflict
+//!   (`duplicate_conflict`), never an addition.
+//! * `full_success` requires the engine's own dimension, integrality and
+//!   reconstruction guarantees plus this example's independent check that every
+//!   reported target has a unique frozen CIR source; a result that fails any of
+//!   them is an `error` (exit 1), never a pass.
+//! * Missing child data is `missing` (incomplete) and genuine engine
+//!   inconsistency is `error` (exit 1); neither is ignored or downgraded.
+//! * `other_wave_vector_subduction` rows (5756 over 1006 records) are a
+//!   separate single-valued table whose labels do not resolve to any
+//!   `IrrepRecord`, so their wave vectors are unknown: they stay `uncomputed`
+//!   and are part of incompleteness.  Identity closure never substitutes for
+//!   their missing parameters.
+//! * spinors are a separate unsupported space: spinor records are counted and
+//!   any spinor reference in these tables is reported, never computed.
+//! * the Frobenius check runs only on condensates at `Gamma` whose stored rows
+//!   are all at `Gamma` and whose complex component dimensions come from the
+//!   row's own source metadata.  `ConjugateRealification` rows and the pinned
+//!   `DistinctComponentSum` rows (whose two component dimensions are equal)
+//!   contribute `frequency * sum(component_dims) / component_count`; a row with
+//!   unequal component dimensions is explicitly unevaluated.  The independent
+//!   target is `|G| / |H|` from the parent point-group order and the embedding's
+//!   coset representatives.
+//!
+//! Production checks (the API's own dimension, integrality, tiling and
+//! reconstruction checks plus the source-availability cross-check of every
+//! reported CIR target) are reported separately from the independent evidence
+//! (stored-frequency comparison, folded-star geometry zeros and Frobenius
+//! reciprocity).  The identity comparison checks multiplicities only; it does
+//! not validate non-trivial label correctness, and this example does not claim
+//! otherwise.
+//!
+//! Exit codes: `0` clean, `1` a genuine mismatch/inconsistency, `2`
+//! `--require-complete` with incomplete ordinary-table coverage (a missing or
+//! uncomputed full result, or missing `w` parameters), `3` CLI/IO failure.
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::env;
+use std::fs::File;
+use std::io::{self, BufWriter, Write};
+use std::process::ExitCode;
+use std::time::Instant;
+
+use cryspglib::irrep::isotropy::{self, IsotropySubgroup, parent_primitive_basis, subgroup_size};
+use cryspglib::irrep::query;
+use cryspglib::irrep::subduction::star::decompose::{
+    FullStarError, FullStarSubduction, subduce_full_star_with_embedding,
+};
+use cryspglib::irrep::subduction::star::scalar_star::ScalarStar;
+use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubductionError, SubgroupEmbedding};
+use cryspglib::irrep::types::{
+    CompoundCharacterSemantics, IrrepRecord, IrrepSourceIdentity, KVector,
+};
+
+const EXPECTED_CONDENSATES: usize = 15_239;
+const EXPECTED_IDENTITY_ROWS: usize = 94_271;
+const EXPECTED_OTHER_WAVE_ROWS: usize = 5_756;
+const EXPECTED_OTHER_WAVE_RECORDS: usize = 1_006;
+const EXPECTED_SPINOR_RECORDS: usize = 3_611;
+const EXPECTED_DISTINCT_PROBES: usize = 4_777;
+
+const HEADER: &str = "kind\tordinal\tparent_sg\tsubgroup_sg\tdirection\tdomain\tarms\tsize\t\
+probe_ml\tprobe_sg\tprobe_k\tprobe_src\tstored\tcomputed\tstatus\tdetail";
+
+const RECONSTRUCTION_TOLERANCE: f64 = 1e-7;
+const MISMATCH_PRINT_LIMIT: usize = 40;
+
+// ── Options ──────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone)]
+struct Options {
+    parent: Option<u8>,
+    ordinal: Option<usize>,
+    output: Option<String>,
+    require_complete: bool,
+    progress: usize,
+    help: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            parent: None,
+            ordinal: None,
+            output: None,
+            require_complete: false,
+            progress: 500,
+            help: false,
+        }
+    }
+}
+
+impl Options {
+    fn parse(args: impl Iterator<Item = String>) -> Result<Self, String> {
+        let mut options = Options::default();
+        let mut args = args;
+        while let Some(arg) = args.next() {
+            match arg.as_str() {
+                "--parent" => {
+                    let value = args.next().ok_or("--parent needs a space group number")?;
+                    let parent: u8 = value
+                        .parse()
+                        .map_err(|_| format!("invalid --parent value {value}"))?;
+                    if parent == 0 || parent > 230 {
+                        return Err(format!("--parent {parent} is outside 1-230"));
+                    }
+                    options.parent = Some(parent);
+                }
+                "--ordinal" => {
+                    let value = args.next().ok_or("--ordinal needs a record index")?;
+                    let ordinal: usize = value
+                        .parse()
+                        .map_err(|_| format!("invalid --ordinal value {value}"))?;
+                    if ordinal >= EXPECTED_CONDENSATES {
+                        return Err(format!("--ordinal {ordinal} is outside 0..15239"));
+                    }
+                    options.ordinal = Some(ordinal);
+                }
+                "--output" => {
+                    options.output = Some(args.next().ok_or("--output needs a path")?.to_string());
+                }
+                "--require-complete" => options.require_complete = true,
+                "--progress" => {
+                    let value = args.next().ok_or("--progress needs a record count")?;
+                    options.progress = value
+                        .parse()
+                        .map_err(|_| format!("invalid --progress value {value}"))?;
+                }
+                "--help" | "-h" => options.help = true,
+                other => return Err(format!("unknown argument {other}")),
+            }
+        }
+        Ok(options)
+    }
+
+    fn scoped(&self) -> bool {
+        self.parent.is_some() || self.ordinal.is_some()
+    }
+}
+
+const USAGE: &str = "\
+usage: audit_irrep_subduction [--parent N] [--ordinal N] [--output PATH]
+                              [--require-complete] [--progress N]
+
+  --parent N          audit only the condensate records of space group N (1-230)
+  --ordinal N         audit only the isotropy record with this global ordinal
+  --output PATH       write the machine-readable TSV to PATH (default stdout)
+  --require-complete  exit 2 unless the ordinary table is complete in scope:
+                      every scalar probe has a full result (no embedding
+                      failure, no missing/uncomputed probe or stored row) and
+                      no `w` parameter row is left uncomputed
+  --progress N        print a progress line to stderr every N records (0 off)
+
+The TSV goes to stdout (or --output); the terse summary goes to stderr.";
+
+// ── Accounting partitions ────────────────────────────────────────────────────
+
+/// Catalog of one decomposition attempt.  The two tables are disjoint: a probe
+/// that could not be attempted is `uncomputed`, never a success.
+#[derive(Debug, Default, Clone)]
+struct ProbeCounts {
+    total: usize,
+    full_success: usize,
+    missing: usize,
+    error: usize,
+    uncomputed_embedding: usize,
+    uncomputed_no_trivial: usize,
+}
+
+impl ProbeCounts {
+    /// Probes handed to the production engine.
+    fn attempted(&self) -> usize {
+        self.full_success + self.missing + self.error
+    }
+
+    /// Probes with a valid embedding that the engine could not fully answer.
+    fn incomplete(&self) -> usize {
+        self.missing
+    }
+
+    /// Probes no engine call was possible for.
+    fn uncomputed(&self) -> usize {
+        self.uncomputed_embedding + self.uncomputed_no_trivial
+    }
+
+    fn partition_sum(&self) -> usize {
+        self.attempted() + self.uncomputed()
+    }
+
+    fn partition_error(&self) -> Option<String> {
+        if self.partition_sum() != self.total {
+            return Some(format!(
+                "probe partition {}+{}+{}+{}+{} = {} != probes_total {}",
+                self.full_success,
+                self.missing,
+                self.error,
+                self.uncomputed_embedding,
+                self.uncomputed_no_trivial,
+                self.partition_sum(),
+                self.total
+            ));
+        }
+        None
+    }
+
+    fn add(&mut self, other: &ProbeCounts) {
+        self.total += other.total;
+        self.full_success += other.full_success;
+        self.missing += other.missing;
+        self.error += other.error;
+        self.uncomputed_embedding += other.uncomputed_embedding;
+        self.uncomputed_no_trivial += other.uncomputed_no_trivial;
+    }
+}
+
+/// Catalog of the positive stored identity entries (the pinned 94271 rows).
+#[derive(Debug, Default, Clone)]
+struct EntryCounts {
+    entries: usize,
+    unique: usize,
+    unresolved: usize,
+    duplicate_same: usize,
+    duplicate_conflict: usize,
+    passed: usize,
+    mismatch: usize,
+    embedding_unavailable: usize,
+    no_trivial: usize,
+    missing: usize,
+    error: usize,
+}
+
+impl EntryCounts {
+    fn compared(&self) -> usize {
+        self.passed + self.mismatch
+    }
+
+    fn unique_partition_sum(&self) -> usize {
+        self.passed
+            + self.mismatch
+            + self.embedding_unavailable
+            + self.no_trivial
+            + self.missing
+            + self.error
+    }
+
+    fn partition_error(&self) -> Option<String> {
+        if self.unique_partition_sum() != self.unique {
+            return Some(format!(
+                "positive-entry partition {}+{}+{}+{}+{}+{} = {} != unique stored rows {}",
+                self.passed,
+                self.mismatch,
+                self.embedding_unavailable,
+                self.no_trivial,
+                self.missing,
+                self.error,
+                self.unique_partition_sum(),
+                self.unique
+            ));
+        }
+        let total_sum =
+            self.unique + self.unresolved + self.duplicate_same + self.duplicate_conflict;
+        if total_sum != self.entries {
+            return Some(format!(
+                "stored entry partition {}+{}+{}+{} = {} != stored entries {}",
+                self.unique,
+                self.unresolved,
+                self.duplicate_same,
+                self.duplicate_conflict,
+                total_sum,
+                self.entries
+            ));
+        }
+        None
+    }
+
+    fn incomplete(&self) -> usize {
+        self.embedding_unavailable
+            + self.no_trivial
+            + self.missing
+            + self.unresolved
+            + self.duplicate_same
+    }
+
+    fn hard(&self) -> usize {
+        self.mismatch + self.error + self.duplicate_conflict
+    }
+
+    fn add(&mut self, other: &EntryCounts) {
+        self.entries += other.entries;
+        self.unique += other.unique;
+        self.unresolved += other.unresolved;
+        self.duplicate_same += other.duplicate_same;
+        self.duplicate_conflict += other.duplicate_conflict;
+        self.passed += other.passed;
+        self.mismatch += other.mismatch;
+        self.embedding_unavailable += other.embedding_unavailable;
+        self.no_trivial += other.no_trivial;
+        self.missing += other.missing;
+        self.error += other.error;
+    }
+}
+
+/// Per-record tally; absorbed into [`Counts`] after the record is complete so
+/// every emission path updates one object and the partitions tile exactly.
+#[derive(Debug, Default, Clone)]
+struct RecordTally {
+    records: usize,
+    records_embedding_ok: usize,
+    records_embedding_failed: usize,
+    records_no_trivial: usize,
+    probes: ProbeCounts,
+    entries: EntryCounts,
+    absent_zero_engine: usize,
+    absent_zero_geometry: usize,
+    absent_positive: usize,
+    absent_attempted: usize,
+    geometry_reject_absent: usize,
+    geometry_eligible_absent: usize,
+    geometry_filter_errors: usize,
+    geometry_contradictions: usize,
+    basis_errors: usize,
+}
+
+/// Global accounting.  `probes` and `entries` are two independent partitions:
+/// every scalar probe and every positive stored entry lands in exactly one
+/// category of its own partition.
+#[derive(Debug, Default, Clone)]
+struct Counts {
+    records: usize,
+    records_embedding_ok: usize,
+    records_embedding_failed: usize,
+    records_no_trivial: usize,
+    probes: ProbeCounts,
+    entries: EntryCounts,
+    absent_zero_engine: usize,
+    absent_zero_geometry: usize,
+    absent_positive: usize,
+    absent_attempted: usize,
+    geometry_reject_absent: usize,
+    geometry_eligible_absent: usize,
+    geometry_filter_errors: usize,
+    geometry_contradictions: usize,
+    basis_errors: usize,
+    probe_rows_emitted: usize,
+    stored_k_mismatch: usize,
+    stored_domain_out_of_range: usize,
+    target_source_unmatched: usize,
+    production_dim_mismatch: usize,
+    production_integrality_mismatch: usize,
+    production_recon_mismatch: usize,
+    label_source_disagreement: usize,
+    frobenius_records: usize,
+    frobenius_pass: usize,
+    frobenius_mismatch: usize,
+    frobenius_unevaluated: usize,
+    frobenius_strict: usize,
+    frobenius_realification: usize,
+    frobenius_compound: usize,
+    gamma_record_non_gamma_probe: usize,
+    w_records: usize,
+    w_entries: usize,
+    w_resolved: usize,
+    w_unresolved: usize,
+    w_conflict: usize,
+    w_computed: usize,
+    spinor_records: usize,
+    spinor_probe_rows: usize,
+    accounting_violations: usize,
+    census_mismatch: usize,
+}
+
+/// Run classification; the exit code is derived from it, never from identity
+/// closure alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Verdict {
+    Clean,
+    Incomplete,
+    Inconsistent,
+}
+
+impl Counts {
+    fn absorb(&mut self, tally: &RecordTally) {
+        self.records += tally.records;
+        self.records_embedding_ok += tally.records_embedding_ok;
+        self.records_embedding_failed += tally.records_embedding_failed;
+        self.records_no_trivial += tally.records_no_trivial;
+        self.probes.add(&tally.probes);
+        self.entries.add(&tally.entries);
+        self.absent_zero_engine += tally.absent_zero_engine;
+        self.absent_zero_geometry += tally.absent_zero_geometry;
+        self.absent_positive += tally.absent_positive;
+        self.absent_attempted += tally.absent_attempted;
+        self.geometry_reject_absent += tally.geometry_reject_absent;
+        self.geometry_eligible_absent += tally.geometry_eligible_absent;
+        self.geometry_filter_errors += tally.geometry_filter_errors;
+        self.geometry_contradictions += tally.geometry_contradictions;
+        self.basis_errors += tally.basis_errors;
+    }
+
+    /// The row and candidate partitions must tile exactly.  Any mismatch means
+    /// a row was dropped, double counted or summed twice.
+    fn accounting_error(&self) -> Option<String> {
+        if self.probe_rows_emitted != self.probes.total {
+            return Some(format!(
+                "emitted probe rows {} != probes_total {}",
+                self.probe_rows_emitted, self.probes.total
+            ));
+        }
+        self.probes
+            .partition_error()
+            .or_else(|| self.entries.partition_error())
+    }
+
+    fn absent_zero(&self) -> usize {
+        self.absent_zero_engine + self.absent_zero_geometry
+    }
+
+    fn positive_comparisons(&self) -> usize {
+        self.entries.compared()
+    }
+
+    /// Categories that make the ordinary table incomplete in scope: a missing
+    /// or uncomputed full result, an unverified absent-zero probe, and the
+    /// unresolved single-valued `w` parameters.
+    fn incomplete(&self) -> usize {
+        self.probes.incomplete()
+            + self.probes.uncomputed()
+            + self.entries.incomplete()
+            + self.geometry_filter_errors
+            + self.basis_errors
+            + self.frobenius_unevaluated
+            + self.w_entries.saturating_sub(self.w_computed)
+    }
+
+    /// Categories that are genuine inconsistencies and fail the default run.
+    fn hard_failures(&self) -> usize {
+        self.probes.error
+            + self.entries.hard()
+            + self.absent_positive
+            + self.geometry_contradictions
+            + self.basis_errors
+            + self.stored_k_mismatch
+            + self.stored_domain_out_of_range
+            + self.gamma_record_non_gamma_probe
+            + self.target_source_unmatched
+            + self.production_dim_mismatch
+            + self.production_integrality_mismatch
+            + self.production_recon_mismatch
+            + self.label_source_disagreement
+            + self.frobenius_mismatch
+            + self.w_conflict
+            + self.accounting_violations
+            + self.census_mismatch
+    }
+
+    fn verdict(&self, require_complete: bool) -> Verdict {
+        if self.hard_failures() > 0 {
+            Verdict::Inconsistent
+        } else if require_complete && self.incomplete() > 0 {
+            Verdict::Incomplete
+        } else {
+            Verdict::Clean
+        }
+    }
+
+    fn exit_code(&self, require_complete: bool) -> u8 {
+        match self.verdict(require_complete) {
+            Verdict::Clean => 0,
+            Verdict::Inconsistent => 1,
+            Verdict::Incomplete => 2,
+        }
+    }
+}
+
+// ── Small data types ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy)]
+struct StoredRow {
+    frequency: u16,
+    domain: u16,
+    ml: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Geometry {
+    /// The folded star has a point in the child reciprocal lattice modulo the
+    /// child lattice: the trivial child irrep may appear.
+    Eligible,
+    /// The folded star has no such point: the trivial child irrep cannot
+    /// appear by exact lattice arithmetic.
+    Reject,
+    /// The independent geometry check could not run.
+    Unknown,
+    /// The probe has a stored positive entry, so the zero-candidate geometry
+    /// filter does not apply; the engine result is compared to the stored
+    /// frequency instead.
+    NotChecked,
+}
+
+impl Geometry {
+    fn label(self) -> &'static str {
+        match self {
+            Geometry::Eligible => "eligible",
+            Geometry::Reject => "reject",
+            Geometry::Unknown => "unknown",
+            Geometry::NotChecked => "not_checked",
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+struct ChildSources {
+    ordinary: HashMap<u32, u8>,
+    constituent: HashMap<u32, u8>,
+}
+
+impl ChildSources {
+    fn build(sg: u8) -> Self {
+        let mut sources = ChildSources::default();
+        for record in query::irreps_of(sg) {
+            match record.source_identity() {
+                IrrepSourceIdentity::OrdinaryScalar { cir_irnumber } => {
+                    // The target dimension is the selected-arm (little-group)
+                    // complex dimension, not the full-star row dimension.
+                    if let Ok(row) = record.ordinary_scalar_selected_arm_block_trace()
+                        && let Ok(dimension) = u8::try_from(row.dimension())
+                    {
+                        sources.ordinary.insert(cir_irnumber, dimension);
+                    }
+                }
+                IrrepSourceIdentity::Compound { .. } => {
+                    if let Some(metadata) = record.compound_metadata() {
+                        for (index, irnumber) in metadata.cir_irnumbers.iter().enumerate() {
+                            sources
+                                .constituent
+                                .insert(*irnumber, metadata.cir_dimensions[index]);
+                        }
+                    }
+                }
+                IrrepSourceIdentity::Spin { .. } => {}
+            }
+        }
+        sources
+    }
+
+    fn has(&self, irnumber: u32, dimension: u8) -> bool {
+        self.ordinary.get(&irnumber) == Some(&dimension)
+            || self.constituent.get(&irnumber) == Some(&dimension)
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+struct CallOutcome {
+    total: u32,
+    by_label: u32,
+    targets: usize,
+    targets_without_source: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CallErrorKind {
+    MissingChildData,
+    MissingIrrepData,
+    Hard,
+}
+
+impl CallErrorKind {
+    fn is_missing(self) -> bool {
+        matches!(
+            self,
+            CallErrorKind::MissingChildData | CallErrorKind::MissingIrrepData
+        )
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            CallErrorKind::MissingChildData => "missing_child_data",
+            CallErrorKind::MissingIrrepData => "missing_irrep_data",
+            CallErrorKind::Hard => "hard_error",
+        }
+    }
+}
+
+// ── Auditor ──────────────────────────────────────────────────────────────────
+
+struct Auditor {
+    options: Options,
+    counts: Counts,
+    error_detail: BTreeMap<String, usize>,
+    mismatches: Vec<String>,
+    anomalies: Vec<String>,
+    distinct_probes: HashSet<(u8, u16)>,
+    trivial_cache: HashMap<u8, Option<&'static IrrepRecord>>,
+    sources_cache: HashMap<u8, ChildSources>,
+    reciprocal_cache: HashMap<u8, Option<Lattice>>,
+    order_cache: HashMap<u8, usize>,
+    writer: Box<dyn Write>,
+    records_done: usize,
+    started: Instant,
+    io_error: Option<String>,
+}
+
+impl Auditor {
+    fn new(options: Options, writer: Box<dyn Write>) -> Self {
+        Self {
+            options,
+            counts: Counts::default(),
+            error_detail: BTreeMap::new(),
+            mismatches: Vec::new(),
+            anomalies: Vec::new(),
+            distinct_probes: HashSet::new(),
+            trivial_cache: HashMap::new(),
+            sources_cache: HashMap::new(),
+            reciprocal_cache: HashMap::new(),
+            order_cache: HashMap::new(),
+            writer,
+            records_done: 0,
+            started: Instant::now(),
+            io_error: None,
+        }
+    }
+
+    fn bump_error(&mut self, key: &str) {
+        *self.error_detail.entry(key.to_string()).or_insert(0) += 1;
+    }
+
+    fn anomaly(&mut self, message: String) {
+        if self.anomalies.len() < MISMATCH_PRINT_LIMIT {
+            self.anomalies.push(message.clone());
+        }
+        eprintln!("ANOMALY {message}");
+    }
+
+    fn mismatch(&mut self, message: String) {
+        if self.mismatches.len() < MISMATCH_PRINT_LIMIT {
+            self.mismatches.push(message.clone());
+        }
+        eprintln!("MISMATCH {message}");
+    }
+
+    fn emit(&mut self, line: String) {
+        if self.io_error.is_some() {
+            return;
+        }
+        if let Err(error) = writeln!(self.writer, "{line}") {
+            self.io_error = Some(error.to_string());
+        }
+    }
+
+    /// One row per scalar probe, counted so `accounting_error` can prove that
+    /// no probe was silently dropped from the report.
+    #[allow(clippy::too_many_arguments)]
+    fn emit_probe(
+        &mut self,
+        context: &RecordContext<'_>,
+        kind: &str,
+        probe: &IrrepRecord,
+        stored: Option<StoredRow>,
+        computed: Option<&CallOutcome>,
+        status: &str,
+        detail: &str,
+    ) {
+        self.counts.probe_rows_emitted += 1;
+        self.emit(identity_line(
+            context, kind, probe, stored, computed, status, detail,
+        ));
+    }
+
+    fn trivial_child(&mut self, sg: u8) -> Option<&'static IrrepRecord> {
+        if let Some(cached) = self.trivial_cache.get(&sg) {
+            return *cached;
+        }
+        let found = find_trivial_child(sg);
+        self.trivial_cache.insert(sg, found);
+        found
+    }
+
+    fn child_reciprocal(&mut self, sg: u8) -> Option<Lattice> {
+        if let Some(cached) = self.reciprocal_cache.get(&sg) {
+            return *cached;
+        }
+        let lattice = build_child_reciprocal(sg).ok();
+        self.reciprocal_cache.insert(sg, lattice);
+        lattice
+    }
+
+    fn parent_point_group_order(&mut self, sg: u8) -> Option<usize> {
+        if let Some(cached) = self.order_cache.get(&sg) {
+            return Some(*cached);
+        }
+        let operations = query::symmetry_operations_of(sg).ok()?;
+        let rotations: HashSet<[[i32; 3]; 3]> = operations
+            .iter()
+            .map(|operation| operation.rotation)
+            .collect();
+        let order = rotations.len();
+        self.order_cache.insert(sg, order);
+        Some(order)
+    }
+
+    fn audit_sg(&mut self, sg: u8) -> Result<(), String> {
+        if let Some(parent) = self.options.parent
+            && parent != sg
+        {
+            return Ok(());
+        }
+        let records = query::irreps_of(sg);
+        if records.is_empty() {
+            return Err(format!("space group {sg} has no irrep records"));
+        }
+        self.counts.spinor_records += records.iter().filter(|record| record.spinor).count();
+
+        // Wrap the stored isotropy records once per irrep, then keep only the
+        // records selected by --ordinal; out-of-scope space groups never build
+        // stars or touch the embedding engine.
+        let mut wrapped: Vec<(usize, Vec<IsotropySubgroup>)> = Vec::new();
+        for (record_index, record) in records.iter().enumerate() {
+            if record.spinor || record.subgroups().is_empty() {
+                continue;
+            }
+            let subgroups = isotropy::isotropy_subgroups(sg, record.ml)
+                .map_err(|error| format!("space group {sg} irrep {}: {error}", record.ml))?;
+            if subgroups.len() != record.subgroups().len() {
+                self.anomaly(format!(
+                    "space group {sg} irrep {}: {} wrapped isotropy records for {} stored",
+                    record.ml,
+                    subgroups.len(),
+                    record.subgroups().len()
+                ));
+                continue;
+            }
+            wrapped.push((record_index, subgroups));
+        }
+        if let Some(ordinal) = self.options.ordinal {
+            wrapped.retain(|(_, subgroups)| {
+                subgroups.iter().any(|subgroup| subgroup.ordinal == ordinal)
+            });
+        }
+        if wrapped.is_empty() {
+            return Ok(());
+        }
+        let probes: Vec<&'static IrrepRecord> =
+            records.iter().filter(|record| !record.spinor).collect();
+        let mut probe_by_ml: HashMap<&'static str, usize> = HashMap::new();
+        for (index, probe) in probes.iter().enumerate() {
+            if probe_by_ml.insert(probe.ml, index).is_some() {
+                self.anomaly(format!(
+                    "space group {sg} has more than one record labelled {}; labels are ambiguous",
+                    probe.ml
+                ));
+            }
+        }
+        let stars: Vec<Result<ScalarStar, String>> = probes
+            .iter()
+            .map(|probe| ScalarStar::new(probe).map_err(|error| error.to_string()))
+            .collect();
+
+        for (record_index, subgroups) in &wrapped {
+            for subgroup in subgroups {
+                if let Some(ordinal) = self.options.ordinal
+                    && subgroup.ordinal != ordinal
+                {
+                    continue;
+                }
+                self.audit_record(sg, *record_index, subgroup, &probes, &probe_by_ml, &stars)?;
+                self.records_done += 1;
+                if self.options.progress > 0
+                    && self.records_done.is_multiple_of(self.options.progress)
+                {
+                    eprintln!(
+                        "progress records={} stored={} calls={} elapsed={:.1}s",
+                        self.records_done,
+                        self.counts.entries.entries,
+                        self.counts.probes.attempted(),
+                        self.started.elapsed().as_secs_f64()
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn audit_record(
+        &mut self,
+        sg: u8,
+        record_index: usize,
+        subgroup: &IsotropySubgroup,
+        probes: &[&'static IrrepRecord],
+        probe_by_ml: &HashMap<&'static str, usize>,
+        stars: &[Result<ScalarStar, String>],
+    ) -> Result<(), String> {
+        let ordinal = subgroup.ordinal;
+        let child_sg = u8::try_from(subgroup.record.sg).map_err(|_| {
+            format!(
+                "ordinal {ordinal}: subgroup number {} does not fit u8",
+                subgroup.record.sg
+            )
+        })?;
+        let record = &query::irreps_of(sg)[record_index];
+        let stored = isotropy::identity_subduction(ordinal)
+            .map_err(|error| format!("ordinal {ordinal}: identity subduction failed: {error}"))?;
+        let wave_entries = isotropy::other_wave_vector_subduction(ordinal).map_err(|error| {
+            format!("ordinal {ordinal}: other-wave-vector subduction failed: {error}")
+        })?;
+
+        let mut tally = RecordTally {
+            records: 1,
+            ..RecordTally::default()
+        };
+        tally.probes.total = probes.len();
+        // The stored basis determinant is already computed in i128 by the
+        // engine; keep the full error (including its i128 payload) instead of
+        // silently narrowing or dropping it.
+        let size = match subgroup_size(subgroup.record.basis) {
+            Ok(size) => Some(size),
+            Err(error) => {
+                tally.basis_errors += 1;
+                self.anomaly(format!("ordinal {ordinal}: subgroup size: {error}"));
+                None
+            }
+        };
+        let ctx = RecordContext {
+            ordinal,
+            sg,
+            child_sg,
+            subgroup,
+            size,
+        };
+
+        // ── Repeat / domain audit before any row is treated as a term ────────
+        let mut stored_map: BTreeMap<usize, StoredRow> = BTreeMap::new();
+        for entry in &stored {
+            tally.entries.entries += 1;
+            if entry.parent_sg != sg {
+                tally.entries.unresolved += 1;
+                self.anomaly(format!(
+                    "ordinal {ordinal}: stored row parent space group {} != {sg}",
+                    entry.parent_sg
+                ));
+                continue;
+            }
+            let Some(&probe_index) = probe_by_ml.get(entry.parent_ml) else {
+                tally.entries.unresolved += 1;
+                let spinor = query::irreps_of(sg)
+                    .iter()
+                    .any(|candidate| candidate.ml == entry.parent_ml && candidate.spinor);
+                if spinor {
+                    self.counts.spinor_probe_rows += 1;
+                    self.bump_error("stored_probe_spinor_unsupported");
+                } else {
+                    self.bump_error("stored_probe_label_unresolved");
+                    self.anomaly(format!(
+                        "ordinal {ordinal}: stored probe {} is not a record of space group {sg}",
+                        entry.parent_ml
+                    ));
+                }
+                continue;
+            };
+            let probe = probes[probe_index];
+            if usize::from(entry.domain) > subgroup.record.domains {
+                self.counts.stored_domain_out_of_range += 1;
+                self.mismatch(format!(
+                    "ordinal {ordinal}: stored probe {} has domain {} but the record declares {} domains",
+                    probe.ml, entry.domain, subgroup.record.domains
+                ));
+            }
+            if !same_k(probe.k_vector(), entry.parent_k) {
+                self.counts.stored_k_mismatch += 1;
+                self.mismatch(format!(
+                    "ordinal {ordinal}: probe {} stored k {} but the record has k {}",
+                    probe.ml,
+                    format_k(entry.parent_k),
+                    format_k(probe.k_vector())
+                ));
+            }
+            let row = StoredRow {
+                frequency: entry.frequency,
+                domain: entry.domain,
+                ml: entry.parent_ml,
+            };
+            if let Err(message) =
+                insert_stored_row(&mut stored_map, probe_index, row, &mut tally.entries)
+            {
+                self.mismatch(format!("ordinal {ordinal}: {message}"));
+            }
+        }
+        tally.entries.unique = stored_map.len();
+        for probe_index in stored_map.keys() {
+            self.distinct_probes.insert((sg, *probe_index as u16));
+        }
+        for entry in &stored {
+            if entry.parent_k.numerators != [0, 0, 0] {
+                self.counts.gamma_record_non_gamma_probe += usize::from(is_gamma(record));
+            }
+        }
+
+        // ── Embedding ────────────────────────────────────────────────────────
+        let embedding = match SubgroupEmbedding::from_isotropy_subgroup(subgroup) {
+            Ok(embedding) => {
+                tally.records_embedding_ok = 1;
+                Some(embedding)
+            }
+            Err(error) => {
+                tally.records_embedding_failed = 1;
+                self.bump_error(&format!("embedding:{}", embedding_label(&error)));
+                None
+            }
+        };
+        let trivial = if embedding.is_some() {
+            match self.trivial_child(child_sg) {
+                Some(record) => Some(record),
+                None => {
+                    tally.records_no_trivial = 1;
+                    self.bump_error("child_trivial_record_missing");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let trivial_cir = trivial.and_then(|record| match record.source_identity() {
+            IrrepSourceIdentity::OrdinaryScalar { cir_irnumber } => Some(cir_irnumber),
+            _ => None,
+        });
+        let subgroup_order = embedding
+            .as_ref()
+            .map(|embedding| embedding.representatives().len());
+
+        // ── Every scalar probe: geometry evidence plus the production call ───
+        let mut computed: Vec<Option<u32>> = vec![None; probes.len()];
+        for (probe_index, probe) in probes.iter().enumerate() {
+            let stored_row = stored_map.get(&probe_index).copied();
+            let kind = if stored_row.is_some() {
+                "identity"
+            } else {
+                "absent"
+            };
+            let (Some(embedding), Some(trivial), Some(trivial_cir)) =
+                (embedding.as_ref(), trivial, trivial_cir)
+            else {
+                // No engine call is possible.  This probe is `uncomputed` and
+                // still gets a row: identity closure elsewhere is no evidence
+                // for it.
+                let (status, detail) = if embedding.is_none() {
+                    tally.probes.uncomputed_embedding += 1;
+                    if stored_row.is_some() {
+                        tally.entries.embedding_unavailable += 1;
+                    }
+                    (
+                        "uncomputed_embedding_unavailable",
+                        "uncomputed: no valid embedding for this isotropy record".to_string(),
+                    )
+                } else {
+                    tally.probes.uncomputed_no_trivial += 1;
+                    if stored_row.is_some() {
+                        tally.entries.no_trivial += 1;
+                    }
+                    (
+                        "uncomputed_no_trivial_child",
+                        "uncomputed: the child table has no unique trivial Gamma record"
+                            .to_string(),
+                    )
+                };
+                self.emit_probe(&ctx, kind, probe, stored_row, None, status, &detail);
+                continue;
+            };
+
+            // Exact folded-star geometry for absent candidates: independent
+            // evidence, but never a gate on the engine call.
+            let geometry = if stored_row.is_none() {
+                tally.absent_attempted += 1;
+                match (&stars[probe_index], self.child_reciprocal(child_sg)) {
+                    (Ok(star), Some(reciprocal)) => {
+                        match probe_is_gamma_eligible(star, embedding, &reciprocal) {
+                            Ok(true) => {
+                                tally.geometry_eligible_absent += 1;
+                                Geometry::Eligible
+                            }
+                            Ok(false) => {
+                                tally.geometry_reject_absent += 1;
+                                Geometry::Reject
+                            }
+                            Err(error) => {
+                                tally.geometry_filter_errors += 1;
+                                self.bump_error("geometry_filter_error");
+                                self.anomaly(format!(
+                                    "ordinal {ordinal}, probe {}: geometry filter failed: {error}",
+                                    probe.ml
+                                ));
+                                Geometry::Unknown
+                            }
+                        }
+                    }
+                    _ => {
+                        tally.geometry_filter_errors += 1;
+                        Geometry::Unknown
+                    }
+                }
+            } else {
+                Geometry::NotChecked
+            };
+
+            match subduce_full_star_with_embedding(subgroup, embedding, probe) {
+                Ok(result) => match self.inspect_result(&result, trivial, trivial_cir, child_sg) {
+                    Ok(outcome) => {
+                        tally.probes.full_success += 1;
+                        computed[probe_index] = Some(outcome.total);
+                        let detail = production_detail(&outcome, geometry);
+                        if let Some(row) = stored_row {
+                            let status = if outcome.total == u32::from(row.frequency) {
+                                tally.entries.passed += 1;
+                                "passed"
+                            } else {
+                                tally.entries.mismatch += 1;
+                                self.mismatch(format!(
+                                    "ordinal {ordinal} parent {sg} subgroup {child_sg} direction {} \
+                                     probe {}: stored frequency {} but the decomposition gives {}",
+                                    subgroup.record.direction_label,
+                                    probe.ml,
+                                    row.frequency,
+                                    outcome.total
+                                ));
+                                "mismatch"
+                            };
+                            self.emit_probe(
+                                &ctx,
+                                kind,
+                                probe,
+                                Some(row),
+                                Some(&outcome),
+                                status,
+                                &detail,
+                            );
+                        } else if outcome.total == 0 {
+                            if geometry == Geometry::Reject {
+                                tally.absent_zero_geometry += 1;
+                            } else {
+                                tally.absent_zero_engine += 1;
+                            }
+                            self.emit_probe(
+                                &ctx,
+                                kind,
+                                probe,
+                                None,
+                                Some(&outcome),
+                                "absent_zero",
+                                &detail,
+                            );
+                        } else {
+                            tally.absent_positive += 1;
+                            self.mismatch(format!(
+                                "ordinal {ordinal} parent {sg} subgroup {child_sg} direction {} \
+                                 probe {}: not listed but the decomposition gives {}",
+                                subgroup.record.direction_label, probe.ml, outcome.total
+                            ));
+                            self.emit_probe(
+                                &ctx,
+                                kind,
+                                probe,
+                                None,
+                                Some(&outcome),
+                                "absent_positive",
+                                &detail,
+                            );
+                        }
+                        if geometry == Geometry::Reject && outcome.total > 0 {
+                            tally.geometry_contradictions += 1;
+                            self.mismatch(format!(
+                                "ordinal {ordinal} probe {}: geometry proves zero but the full \
+                                 decomposition gives {} trivial terms",
+                                probe.ml, outcome.total
+                            ));
+                        }
+                    }
+                    Err(detail) => {
+                        tally.probes.error += 1;
+                        if stored_row.is_some() {
+                            tally.entries.error += 1;
+                        }
+                        self.mismatch(format!(
+                            "ordinal {ordinal} probe {}: engine result failed its own checks: {detail}",
+                            probe.ml
+                        ));
+                        self.emit_probe(
+                            &ctx,
+                            kind,
+                            probe,
+                            stored_row,
+                            None,
+                            "engine_self_check_failed",
+                            &format!("geometry={} {detail}", geometry.label()),
+                        );
+                    }
+                },
+                Err(error) => {
+                    let call_kind = classify_call_error(&error);
+                    self.bump_error(&format!("engine:{}", call_kind.label()));
+                    let detail = format!("geometry={} {error}", geometry.label());
+                    let status = if call_kind.is_missing() {
+                        tally.probes.missing += 1;
+                        if stored_row.is_some() {
+                            tally.entries.missing += 1;
+                        }
+                        "uncomputed_missing_data"
+                    } else {
+                        tally.probes.error += 1;
+                        if stored_row.is_some() {
+                            tally.entries.error += 1;
+                        }
+                        self.mismatch(format!(
+                            "ordinal {ordinal} probe {}: engine error: {error}",
+                            probe.ml
+                        ));
+                        "engine_error"
+                    };
+                    self.emit_probe(&ctx, kind, probe, stored_row, None, status, &detail);
+                }
+            }
+        }
+
+        // ── Record line, partitions, Frobenius, w rows ───────────────────────
+        self.counts.absorb(&tally);
+        self.check_record_partition(ordinal, &tally);
+        let embedding_status = if tally.records_embedding_ok == 1 {
+            "embedding_ok"
+        } else {
+            "embedding_failed"
+        };
+        let direction = subgroup.record.direction_label;
+        let origin = subgroup.record.origin;
+        self.emit(format!(
+            "record\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{}\t{}\t\t\t\t\t{}\t{}\t{}\t\
+probes={} full_success={} missing={} error={} uncomputed={} (embedding={} no_trivial={}) \
+stored={} passed={} mismatch={} absent_zero={} geometry_reject_absent={} domains={} arms={} \
+origin={},{},{},{}",
+            subgroup.record.arms,
+            size.map_or_else(|| "unset".to_string(), |value| value.to_string()),
+            tally.probes.full_success,
+            tally.entries.passed,
+            embedding_status,
+            tally.probes.total,
+            tally.probes.full_success,
+            tally.probes.missing,
+            tally.probes.error,
+            tally.probes.uncomputed(),
+            tally.probes.uncomputed_embedding,
+            tally.probes.uncomputed_no_trivial,
+            tally.entries.unique,
+            tally.entries.passed,
+            tally.entries.mismatch,
+            tally.absent_zero_engine + tally.absent_zero_geometry,
+            tally.geometry_reject_absent,
+            subgroup.record.domains,
+            subgroup.record.arms,
+            origin[0],
+            origin[1],
+            origin[2],
+            origin[3],
+        ));
+
+        // ── Frobenius reciprocity for complete Gamma character rows ──────────
+        if is_gamma(record) {
+            self.frobenius(
+                ordinal,
+                sg,
+                child_sg,
+                subgroup,
+                probes,
+                &stored_map,
+                &computed,
+                size,
+                subgroup_order,
+            );
+        }
+
+        // ── Other-wave-vector rows: source availability only ─────────────────
+        if !wave_entries.is_empty() {
+            self.counts.w_records += 1;
+            let mut seen: BTreeMap<&'static str, u16> = BTreeMap::new();
+            for entry in &wave_entries {
+                self.counts.w_entries += 1;
+                let resolvable = query::irreps_of(sg)
+                    .iter()
+                    .any(|candidate| candidate.ml == entry.parent_ml);
+                if resolvable {
+                    self.counts.w_resolved += 1;
+                } else {
+                    self.counts.w_unresolved += 1;
+                }
+                match seen.get(entry.parent_ml) {
+                    Some(frequency) if *frequency != entry.frequency => {
+                        self.counts.w_conflict += 1;
+                        self.mismatch(format!(
+                            "ordinal {ordinal}: other-wave-vector label {} appears with both {} and {}",
+                            entry.parent_ml, frequency, entry.frequency
+                        ));
+                    }
+                    Some(_) => {}
+                    None => {
+                        seen.insert(entry.parent_ml, entry.frequency);
+                    }
+                }
+                self.emit(format!(
+                    "w_entry\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{}\t{}\t{}\t{sg}\t\tother_wave_vector\t{}\t\tuncomputed_w_parameters_missing\tstored_parent_sg={} label_resolvable={resolvable}",
+                    subgroup.record.arms,
+                    size.map_or_else(|| "unset".to_string(), |value| value.to_string()),
+                    entry.parent_ml,
+                    entry.frequency,
+                    entry.parent_sg,
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Cross-check one production result.  Success means the engine's dimension,
+    /// integrality/tiling and reconstruction guarantees hold and every reported
+    /// target resolves to its frozen CIR source.
+    fn inspect_result(
+        &mut self,
+        result: &FullStarSubduction,
+        trivial: &'static IrrepRecord,
+        trivial_cir: u32,
+        child_sg: u8,
+    ) -> Result<CallOutcome, String> {
+        let mut outcome = CallOutcome::default();
+        {
+            let sources = self
+                .sources_cache
+                .entry(child_sg)
+                .or_insert_with(|| ChildSources::build(child_sg));
+            for block in result.blocks() {
+                let term_dimension: u32 = block
+                    .targets()
+                    .iter()
+                    .map(|target| u32::from(target.dimension) * target.multiplicity)
+                    .sum();
+                if term_dimension != block.little_dimension() {
+                    self.counts.production_integrality_mismatch += 1;
+                    return Err(format!(
+                        "block terms carry {term_dimension} but its little dimension is {}",
+                        block.little_dimension()
+                    ));
+                }
+                let carried = u64::from(block.little_dimension()) * block.star_size() as u64;
+                if carried != u64::from(block.block_dimension()) {
+                    self.counts.production_integrality_mismatch += 1;
+                    return Err(format!(
+                        "little dimension {} x star size {} = {carried} != block dimension {}",
+                        block.little_dimension(),
+                        block.star_size(),
+                        block.block_dimension()
+                    ));
+                }
+                outcome.by_label += block.multiplicity(trivial.ml);
+                for target in block.targets() {
+                    outcome.targets += 1;
+                    if !sources.has(target.irnumber, target.dimension) {
+                        outcome.targets_without_source += 1;
+                    }
+                    if target.dimension == trivial.dim && target.irnumber == trivial_cir {
+                        outcome.total += target.multiplicity;
+                    }
+                }
+            }
+        }
+        if result.covered_dimension() != result.parent_dimension() {
+            self.counts.production_dim_mismatch += 1;
+            return Err(format!(
+                "blocks carry {} of the parent full-star dimension {}",
+                result.covered_dimension(),
+                result.parent_dimension()
+            ));
+        }
+        let (parent, reconstructed) = result.reconstruction();
+        if parent.len() != reconstructed.len()
+            || parent
+                .iter()
+                .zip(reconstructed.iter())
+                .any(|(left, right)| (left - right).norm() > RECONSTRUCTION_TOLERANCE)
+        {
+            self.counts.production_recon_mismatch += 1;
+            return Err("the reported child irreps do not reconstruct the parent star".to_string());
+        }
+        if outcome.targets_without_source > 0 {
+            self.counts.target_source_unmatched += 1;
+            return Err(format!(
+                "{} reported targets have no frozen CIR source",
+                outcome.targets_without_source
+            ));
+        }
+        if outcome.by_label != outcome.total {
+            self.counts.label_source_disagreement += 1;
+            return Err(format!(
+                "trivial multiplicity by label {} disagrees with its CIR source {}",
+                outcome.by_label, outcome.total
+            ));
+        }
+        Ok(outcome)
+    }
+
+    fn check_record_partition(&mut self, ordinal: usize, tally: &RecordTally) {
+        if let Some(error) = tally.probes.partition_error() {
+            self.counts.accounting_violations += 1;
+            self.anomaly(format!("ordinal {ordinal}: {error}"));
+        }
+        if let Some(error) = tally.entries.partition_error() {
+            self.counts.accounting_violations += 1;
+            self.anomaly(format!("ordinal {ordinal}: {error}"));
+        }
+        let geometry_partition = tally.geometry_reject_absent
+            + tally.geometry_eligible_absent
+            + tally.geometry_filter_errors;
+        if geometry_partition != tally.absent_attempted {
+            self.counts.accounting_violations += 1;
+            self.anomaly(format!(
+                "ordinal {ordinal}: geometry partition {geometry_partition} != attempted absent probes {}",
+                tally.absent_attempted
+            ));
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn frobenius(
+        &mut self,
+        ordinal: usize,
+        sg: u8,
+        child_sg: u8,
+        subgroup: &IsotropySubgroup,
+        probes: &[&'static IrrepRecord],
+        stored_map: &BTreeMap<usize, StoredRow>,
+        computed: &[Option<u32>],
+        size: Option<u32>,
+        subgroup_order: Option<usize>,
+    ) {
+        let gamma: Vec<usize> = probes
+            .iter()
+            .enumerate()
+            .filter(|(_, probe)| is_gamma(probe))
+            .map(|(index, _)| index)
+            .collect();
+        let direction = subgroup.record.direction_label;
+        let arms = subgroup.record.arms;
+        let size_text = size.map_or_else(|| "unset".to_string(), |value| value.to_string());
+        self.counts.frobenius_records += 1;
+
+        // The complex Frobenius convention only applies to Gamma condensates
+        // with an unchanged translation lattice.
+        if size != Some(1) {
+            self.counts.frobenius_unevaluated += 1;
+            self.emit(format!(
+                "frobenius\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{arms}\t{size_text}\t\t\t\t\t\t\tunevaluated_non_unit_size\tsize={size_text}"
+            ));
+            return;
+        }
+        if gamma.is_empty() {
+            self.counts.frobenius_unevaluated += 1;
+            self.emit(format!(
+                "frobenius\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{arms}\t{size_text}\t\t\t\t\t\t\tunevaluated_no_gamma_rows\t"
+            ));
+            return;
+        }
+
+        let mut category = "strict_complex";
+        let mut numerator2: i128 = 0;
+        let mut stored2: i128 = 0;
+        for index in &gamma {
+            let probe = probes[*index];
+            let Some(value) = computed[*index] else {
+                self.counts.frobenius_unevaluated += 1;
+                self.emit(format!(
+                    "frobenius\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{arms}\t{size_text}\t\t\t\t\t\t\tunevaluated_probe_uncomputed\tprobe={}",
+                    probe.ml
+                ));
+                return;
+            };
+            let Ok((component_sum, component_count)) = complex_component_dimensions(probe) else {
+                self.counts.frobenius_unevaluated += 1;
+                self.emit(format!(
+                    "frobenius\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{arms}\t{size_text}\t\t\t\t\t\t\tunevaluated_component_dimensions\tprobe={}",
+                    probe.ml
+                ));
+                return;
+            };
+            // A Gamma probe's star is a single arm, so the row dimension is the
+            // complex component sum of its source metadata.
+            if component_sum != probe.dim {
+                self.counts.frobenius_unevaluated += 1;
+                self.emit(format!(
+                    "frobenius\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{arms}\t{size_text}\t\t\t\t\t\t\tunevaluated_gamma_dimension\tprobe={} row_dim={} component_sum={component_sum}",
+                    probe.ml, probe.dim
+                ));
+                return;
+            }
+            if let IrrepSourceIdentity::Compound { .. } = probe.source_identity() {
+                let distinct = matches!(
+                    probe.compound_character_semantics(),
+                    Some(CompoundCharacterSemantics::DistinctComponentSum)
+                );
+                category = if distinct {
+                    "distinct_compound"
+                } else if category == "strict_complex" {
+                    "realification"
+                } else {
+                    category
+                };
+            }
+            numerator2 +=
+                2 * i128::from(value) * i128::from(component_sum) / i128::from(component_count);
+            let stored_value = stored_map
+                .get(index)
+                .map_or(0, |row| i128::from(row.frequency));
+            stored2 += 2 * stored_value * i128::from(component_sum) / i128::from(component_count);
+        }
+        let Some(parent_order) = self.parent_point_group_order(sg) else {
+            self.counts.frobenius_unevaluated += 1;
+            self.emit(format!(
+                "frobenius\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{arms}\t{size_text}\t\t\t\t\t\t\tunevaluated_parent_order\t"
+            ));
+            return;
+        };
+        let subgroup_order = subgroup_order.unwrap_or_default();
+        if subgroup_order == 0 || parent_order % subgroup_order != 0 {
+            self.counts.frobenius_unevaluated += 1;
+            self.emit(format!(
+                "frobenius\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{arms}\t{size_text}\t\t\t\t\t\t\tunevaluated_index\tparent_order={parent_order} subgroup_order={subgroup_order}"
+            ));
+            return;
+        }
+        let index = parent_order / subgroup_order;
+        let target2 = 2 * index as i128;
+        let status = if numerator2 == target2 {
+            self.counts.frobenius_pass += 1;
+            "passed"
+        } else {
+            self.counts.frobenius_mismatch += 1;
+            self.mismatch(format!(
+                "ordinal {ordinal} parent {sg} subgroup {child_sg} direction {direction}: Frobenius \
+                 sum {numerator2}/2 != index {index}"
+            ));
+            "mismatch"
+        };
+        match category {
+            "strict_complex" => self.counts.frobenius_strict += 1,
+            "realification" => self.counts.frobenius_realification += 1,
+            _ => self.counts.frobenius_compound += 1,
+        }
+        self.emit(format!(
+            "frobenius\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{arms}\t{size_text}\t\t\t\t\t{index}\t{}\t{status}\tcategory={category} computed2={numerator2} stored2={stored2} parent_order={parent_order} subgroup_order={subgroup_order} gamma_probes={}",
+            numerator2 / 2,
+            gamma.len(),
+        ));
+    }
+
+    fn finish(mut self) -> Result<(u8, Counts), String> {
+        if let Some(error) = self.io_error.take() {
+            return Err(format!("writing the report failed: {error}"));
+        }
+        self.writer
+            .flush()
+            .map_err(|error| format!("flushing the report failed: {error}"))?;
+        let distinct_probes = self.distinct_probes.len();
+        if !self.options.scoped() {
+            self.census_check(distinct_probes);
+        }
+        if let Some(error) = self.counts.accounting_error() {
+            self.counts.accounting_violations += 1;
+            eprintln!("ACCOUNTING {error}");
+        }
+        let counts = self.counts.clone();
+        let elapsed = self.started.elapsed().as_secs_f64();
+        let scope = match (self.options.parent, self.options.ordinal) {
+            (None, None) => "global".to_string(),
+            (Some(parent), None) => format!("parent={parent}"),
+            (None, Some(ordinal)) => format!("ordinal={ordinal}"),
+            (Some(parent), Some(ordinal)) => format!("parent={parent} ordinal={ordinal}"),
+        };
+        eprintln!("=== task9 ordinary isotropy audit ===");
+        eprintln!("scope={scope}");
+        eprintln!(
+            "condensate_records={} (pinned {EXPECTED_CONDENSATES}) embedding_ok={} embedding_failed={} no_trivial={}",
+            counts.records,
+            counts.records_embedding_ok,
+            counts.records_embedding_failed,
+            counts.records_no_trivial
+        );
+        eprintln!(
+            "identity_rows={} unique_pairs={} (pinned {EXPECTED_IDENTITY_ROWS})",
+            counts.entries.entries, counts.entries.unique
+        );
+        eprintln!(
+            "other_wave_vector_records={} rows={} (pinned {EXPECTED_OTHER_WAVE_RECORDS}/{EXPECTED_OTHER_WAVE_ROWS})",
+            counts.w_records, counts.w_entries
+        );
+        eprintln!(
+            "spinor_records={} spinor_rows_in_identity={}",
+            counts.spinor_records, counts.spinor_probe_rows
+        );
+        eprintln!("probes_total={}", counts.probes.total);
+        eprintln!(
+            "probe_partition: full_success={} missing={} error={} uncomputed_embedding={} uncomputed_no_trivial={} uncomputed={} partition_sum={} rows_emitted={}",
+            counts.probes.full_success,
+            counts.probes.missing,
+            counts.probes.error,
+            counts.probes.uncomputed_embedding,
+            counts.probes.uncomputed_no_trivial,
+            counts.probes.uncomputed(),
+            counts.probes.partition_sum(),
+            counts.probe_rows_emitted
+        );
+        eprintln!(
+            "engine_calls={} (full_success+missing+error)",
+            counts.probes.attempted()
+        );
+        eprintln!(
+            "positive_entries: entries={} unique={} passed={} mismatch={} embedding_unavailable={} no_trivial={} missing={} error={} unresolved={} duplicates_same={} duplicates_conflict={}",
+            counts.entries.entries,
+            counts.entries.unique,
+            counts.entries.passed,
+            counts.entries.mismatch,
+            counts.entries.embedding_unavailable,
+            counts.entries.no_trivial,
+            counts.entries.missing,
+            counts.entries.error,
+            counts.entries.unresolved,
+            counts.entries.duplicate_same,
+            counts.entries.duplicate_conflict
+        );
+        eprintln!(
+            "absent_zero={} (engine={} geometry={}) absent_positive={} geometry_reject_absent={} geometry_eligible_absent={} geometry_contradictions={} geometry_filter_errors={}",
+            counts.absent_zero(),
+            counts.absent_zero_engine,
+            counts.absent_zero_geometry,
+            counts.absent_positive,
+            counts.geometry_reject_absent,
+            counts.geometry_eligible_absent,
+            counts.geometry_contradictions,
+            counts.geometry_filter_errors
+        );
+        eprintln!(
+            "frobenius: records={} passed={} mismatch={} unevaluated={} strict={} realification={} distinct_compound={}",
+            counts.frobenius_records,
+            counts.frobenius_pass,
+            counts.frobenius_mismatch,
+            counts.frobenius_unevaluated,
+            counts.frobenius_strict,
+            counts.frobenius_realification,
+            counts.frobenius_compound
+        );
+        eprintln!(
+            "production_checks: dimension_mismatch={} integrality_mismatch={} reconstruction_mismatch={} target_source_unmatched={} label_source_disagreement={}",
+            counts.production_dim_mismatch,
+            counts.production_integrality_mismatch,
+            counts.production_recon_mismatch,
+            counts.target_source_unmatched,
+            counts.label_source_disagreement
+        );
+        eprintln!(
+            "other_wave_vector: records={} rows={} resolved={} unresolved={} computed={} conflicts={}",
+            counts.w_records,
+            counts.w_entries,
+            counts.w_resolved,
+            counts.w_unresolved,
+            counts.w_computed,
+            counts.w_conflict
+        );
+        eprintln!(
+            "completeness: missing_probes={} uncomputed_probes={} uncomputed_entries={} unresolved_entries={} duplicate_same={} geometry_filter_errors={} frobenius_unevaluated={} basis_errors={} w_uncomputed={}",
+            counts.probes.missing,
+            counts.probes.uncomputed(),
+            counts.entries.incomplete(),
+            counts.entries.unresolved,
+            counts.entries.duplicate_same,
+            counts.geometry_filter_errors,
+            counts.frobenius_unevaluated,
+            counts.basis_errors,
+            counts.w_entries.saturating_sub(counts.w_computed)
+        );
+        eprintln!(
+            "coverage: embedded_records={}/{} positive_stored_compared={}/{} probe_full_success={}/{} absent_zero={} geometry_reject_absent={} frobenius_evaluated={}/{} w_computed={}/{}",
+            counts.records_embedding_ok,
+            counts.records,
+            counts.positive_comparisons(),
+            counts.entries.unique,
+            counts.probes.full_success,
+            counts.probes.total,
+            counts.absent_zero(),
+            counts.geometry_reject_absent,
+            counts.frobenius_pass,
+            counts.frobenius_records,
+            counts.w_computed,
+            counts.w_entries
+        );
+        eprintln!(
+            "distinct_referenced_probes={distinct_probes} stored_k_mismatch={} stored_domain_out_of_range={} gamma_record_non_gamma_probe={} hard_failures={} accounting_violations={} census_mismatch={}",
+            counts.stored_k_mismatch,
+            counts.stored_domain_out_of_range,
+            counts.gamma_record_non_gamma_probe,
+            counts.hard_failures(),
+            counts.accounting_violations,
+            counts.census_mismatch
+        );
+        let mut detail: Vec<String> = self
+            .error_detail
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect();
+        detail.sort();
+        if !detail.is_empty() {
+            eprintln!("error_detail: {}", detail.join(" "));
+        }
+        for message in &self.anomalies {
+            eprintln!("ANOMALY {message}");
+        }
+        for message in &self.mismatches {
+            eprintln!("MISMATCH {message}");
+        }
+        eprintln!("elapsed={elapsed:.1}s");
+        let verdict = counts.verdict(self.options.require_complete);
+        let incomplete = counts.incomplete();
+        let hard = counts.hard_failures();
+        match verdict {
+            Verdict::Inconsistent => {
+                eprintln!("VERDICT inconsistent scope={scope} hard_failures={hard}");
+            }
+            Verdict::Incomplete => {
+                eprintln!("VERDICT incomplete scope={scope} incomplete_categories={incomplete}");
+            }
+            Verdict::Clean if self.options.require_complete => {
+                eprintln!("VERDICT complete scope={scope}");
+            }
+            Verdict::Clean => {
+                eprintln!("VERDICT clean scope={scope} incomplete_categories={incomplete}");
+            }
+        }
+        Ok((counts.exit_code(self.options.require_complete), counts))
+    }
+
+    fn census_check(&mut self, distinct_probes: usize) {
+        let counts = &mut self.counts;
+        let mut mismatch = false;
+        let report = |name: &str, found: usize, pinned: usize, mismatch: &mut bool| {
+            if found != pinned {
+                eprintln!("CENSUS {name} {found} != pinned {pinned}");
+                *mismatch = true;
+            }
+        };
+        report(
+            "condensate records",
+            counts.records,
+            EXPECTED_CONDENSATES,
+            &mut mismatch,
+        );
+        report(
+            "identity rows",
+            counts.entries.entries,
+            EXPECTED_IDENTITY_ROWS,
+            &mut mismatch,
+        );
+        report(
+            "unique identity rows",
+            counts.entries.unique,
+            EXPECTED_IDENTITY_ROWS,
+            &mut mismatch,
+        );
+        report(
+            "other-wave rows",
+            counts.w_entries,
+            EXPECTED_OTHER_WAVE_ROWS,
+            &mut mismatch,
+        );
+        report(
+            "other-wave records",
+            counts.w_records,
+            EXPECTED_OTHER_WAVE_RECORDS,
+            &mut mismatch,
+        );
+        report(
+            "spinor records",
+            counts.spinor_records,
+            EXPECTED_SPINOR_RECORDS,
+            &mut mismatch,
+        );
+        report(
+            "distinct referenced probes",
+            distinct_probes,
+            EXPECTED_DISTINCT_PROBES,
+            &mut mismatch,
+        );
+        if mismatch {
+            counts.census_mismatch = 1;
+        }
+    }
+}
+
+// ── Pure helpers ─────────────────────────────────────────────────────────────
+
+fn insert_stored_row(
+    map: &mut BTreeMap<usize, StoredRow>,
+    index: usize,
+    row: StoredRow,
+    entries: &mut EntryCounts,
+) -> Result<(), String> {
+    match map.get(&index) {
+        None => {
+            map.insert(index, row);
+            Ok(())
+        }
+        Some(existing) if existing.frequency == row.frequency => {
+            entries.duplicate_same += 1;
+            Ok(())
+        }
+        Some(existing) => {
+            entries.duplicate_conflict += 1;
+            Err(format!(
+                "probe {} has conflicting stored frequencies {} and {} (domains {} and {}); \
+                 repeated rows must not be summed",
+                row.ml, existing.frequency, row.frequency, existing.domain, row.domain
+            ))
+        }
+    }
+}
+
+fn find_trivial_child(sg: u8) -> Option<&'static IrrepRecord> {
+    let mut found: Option<&'static IrrepRecord> = None;
+    for record in query::irreps_of(sg) {
+        if record.spinor || !is_gamma(record) || record.dim != 1 {
+            continue;
+        }
+        let Ok(row) = record.ordinary_scalar_selected_arm_block_trace() else {
+            continue;
+        };
+        if row.dimension() == 1 && row.values().iter().all(|value| (value - 1.0).norm() < 1e-9) {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(record);
+        }
+    }
+    found
+}
+
+fn is_gamma(record: &IrrepRecord) -> bool {
+    record.kx == 0 && record.ky == 0 && record.kz == 0
+}
+
+fn build_child_reciprocal(sg: u8) -> Result<Lattice, String> {
+    let basis = parent_primitive_basis(sg).map_err(|error| error.to_string())?;
+    let mut rows = [[Rat::ZERO; 3]; 3];
+    for (row, values) in basis.iter().enumerate() {
+        for (column, value) in values.iter().enumerate() {
+            rows[row][column] = Rat::from_grid(*value, 12).map_err(|error| error.to_string())?;
+        }
+    }
+    let cell = Lattice::new(Mat3R::new(rows)).map_err(|error| error.to_string())?;
+    cell.reciprocal().map_err(|error| error.to_string())
+}
+
+fn probe_is_gamma_eligible(
+    star: &ScalarStar,
+    embedding: &SubgroupEmbedding,
+    child_reciprocal: &Lattice,
+) -> Result<bool, String> {
+    let folded = star
+        .folded_stars(embedding)
+        .map_err(|error| error.to_string())?;
+    for child_star in &folded {
+        for point in child_star.points() {
+            if child_reciprocal
+                .contains(point.q())
+                .map_err(|error| error.to_string())?
+            {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn classify_call_error(error: &FullStarError) -> CallErrorKind {
+    match error {
+        FullStarError::MissingChildStarData { .. } => CallErrorKind::MissingChildData,
+        FullStarError::Subduction(SubductionError::MissingIrrepData { .. }) => {
+            CallErrorKind::MissingIrrepData
+        }
+        _ => CallErrorKind::Hard,
+    }
+}
+
+fn embedding_label(error: &SubductionError) -> &'static str {
+    match error {
+        SubductionError::NoValidEmbedding { .. } => "no_valid_embedding",
+        SubductionError::AmbiguousEmbedding { .. } => "ambiguous_embedding",
+        SubductionError::StrictHallUnavailable { .. } => "strict_hall_unavailable",
+        SubductionError::HallLoadFailed { .. } => "hall_load_failed",
+        SubductionError::StaleIsotropyRecord { .. } => "stale_isotropy_record",
+        SubductionError::IsotropyOrdinalOutOfRange { .. } => "ordinal_out_of_range",
+        SubductionError::InvalidSubgroupNumber { .. } => "invalid_subgroup_number",
+        SubductionError::FrozenEmbeddingRejected { .. } => "frozen_embedding_rejected",
+        _ => "other",
+    }
+}
+
+/// True complex component dimensions and their count for one parent probe.
+///
+/// Ordinary rows have one component; compound rows carry exactly two CIR
+/// constituents in their frozen metadata.
+fn complex_component_dimensions(probe: &IrrepRecord) -> Result<(u8, u8), String> {
+    match probe.source_identity() {
+        IrrepSourceIdentity::OrdinaryScalar { .. } => Ok((probe.dim, 1)),
+        IrrepSourceIdentity::Compound { .. } => {
+            let metadata = probe
+                .compound_metadata()
+                .ok_or_else(|| format!("compound record {} has no metadata", probe.ml))?;
+            let [first, second] = metadata.cir_dimensions;
+            if first != second {
+                return Err(format!(
+                    "compound record {} has unequal component dimensions {first} and {second}",
+                    probe.ml
+                ));
+            }
+            Ok((first + second, 2))
+        }
+        IrrepSourceIdentity::Spin { .. } => Err(format!("spinor record {}", probe.ml)),
+    }
+}
+
+fn normalize_k(k: KVector) -> Option<([i32; 3], i32)> {
+    if k.denominator == 0 {
+        return None;
+    }
+    let mut denominator = i32::from(k.denominator);
+    let mut numerators = [
+        i32::from(k.numerators[0]),
+        i32::from(k.numerators[1]),
+        i32::from(k.numerators[2]),
+    ];
+    if denominator < 0 {
+        denominator = -denominator;
+        numerators = [-numerators[0], -numerators[1], -numerators[2]];
+    }
+    let mut divisor = denominator;
+    for value in numerators {
+        divisor = gcd_i32(divisor, value.abs());
+    }
+    if divisor == 0 {
+        divisor = 1;
+    }
+    Some((
+        [
+            numerators[0] / divisor,
+            numerators[1] / divisor,
+            numerators[2] / divisor,
+        ],
+        denominator / divisor,
+    ))
+}
+
+fn same_k(left: KVector, right: KVector) -> bool {
+    match (normalize_k(left), normalize_k(right)) {
+        (Some(left), Some(right)) => left == right,
+        _ => false,
+    }
+}
+
+fn gcd_i32(mut left: i32, mut right: i32) -> i32 {
+    while right != 0 {
+        let remainder = left % right;
+        left = right;
+        right = remainder;
+    }
+    left.abs()
+}
+
+fn format_k(k: KVector) -> String {
+    match normalize_k(k) {
+        Some((numerators, denominator)) => format!(
+            "{}/{},{}/{},{}/{}",
+            numerators[0], denominator, numerators[1], denominator, numerators[2], denominator
+        ),
+        None => "invalid/0".to_string(),
+    }
+}
+
+fn probe_source_label(probe: &IrrepRecord) -> &'static str {
+    match probe.source_identity() {
+        IrrepSourceIdentity::OrdinaryScalar { .. } => "ordinary",
+        IrrepSourceIdentity::Compound { .. } => "compound",
+        IrrepSourceIdentity::Spin { .. } => "spin",
+    }
+}
+
+fn production_detail(outcome: &CallOutcome, geometry: Geometry) -> String {
+    format!(
+        "geometry={} blocks_targets={} targets_without_source={} trivial_by_label={}",
+        geometry.label(),
+        outcome.targets,
+        outcome.targets_without_source,
+        outcome.by_label
+    )
+}
+
+/// Common coordinates of one isotropy record's probe rows.
+struct RecordContext<'a> {
+    ordinal: usize,
+    sg: u8,
+    child_sg: u8,
+    subgroup: &'a IsotropySubgroup,
+    size: Option<u32>,
+}
+
+fn identity_line(
+    context: &RecordContext<'_>,
+    kind: &str,
+    probe: &IrrepRecord,
+    stored: Option<StoredRow>,
+    computed: Option<&CallOutcome>,
+    status: &str,
+    detail: &str,
+) -> String {
+    let RecordContext {
+        ordinal,
+        sg,
+        child_sg,
+        subgroup,
+        size,
+    } = *context;
+    format!(
+        "{kind}\t{ordinal}\t{sg}\t{child_sg}\t{}\t{}\t{}\t{}\t{}\t{sg}\t{}\t{}\t{}\t{}\t{status}\t{detail}",
+        subgroup.record.direction_label,
+        stored.map_or(0, |row| row.domain),
+        subgroup.record.arms,
+        size.map_or_else(|| "unset".to_string(), |value| value.to_string()),
+        probe.ml,
+        format_k(probe.k_vector()),
+        probe_source_label(probe),
+        stored.map_or_else(String::new, |row| row.frequency.to_string()),
+        computed.map_or_else(String::new, |outcome| outcome.total.to_string()),
+    )
+}
+
+// ── Entry point ──────────────────────────────────────────────────────────────
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(code) => code,
+        Err(message) => {
+            eprintln!("audit_irrep_subduction: {message}");
+            ExitCode::from(3)
+        }
+    }
+}
+
+fn run() -> Result<ExitCode, String> {
+    let options = Options::parse(env::args().skip(1))?;
+    if options.help {
+        println!("{USAGE}");
+        return Ok(ExitCode::SUCCESS);
+    }
+    let writer: Box<dyn Write> = match &options.output {
+        Some(path) => Box::new(BufWriter::new(
+            File::create(path).map_err(|error| format!("cannot create {path}: {error}"))?,
+        )),
+        None => Box::new(BufWriter::new(io::stdout())),
+    };
+    let (exit_code, _counts) = run_audit(options, writer)?;
+    Ok(ExitCode::from(exit_code))
+}
+
+fn run_audit(options: Options, writer: Box<dyn Write>) -> Result<(u8, Counts), String> {
+    let mut auditor = Auditor::new(options, writer);
+    auditor.emit(HEADER.to_string());
+    for sg in 1..=230u8 {
+        auditor.audit_sg(sg)?;
+    }
+    auditor.finish()
+}
+
+// ── Permanent tests ──────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn non_gamma_stored_probe_for_gamma_condensate_fails_the_verdict() {
+        let counts = Counts {
+            gamma_record_non_gamma_probe: 1,
+            ..Counts::default()
+        };
+        assert_eq!(counts.exit_code(false), 1);
+        assert_eq!(counts.exit_code(true), 1);
+    }
+
+    #[derive(Clone, Default)]
+    struct SharedSink(Arc<Mutex<Vec<u8>>>);
+
+    impl SharedSink {
+        fn text(&self) -> String {
+            String::from_utf8(self.0.lock().unwrap().clone()).expect("report is UTF-8")
+        }
+    }
+
+    impl Write for SharedSink {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn audit_ordinal(ordinal: usize, require_complete: bool) -> (u8, Counts, String) {
+        let sink = SharedSink::default();
+        let options = Options {
+            ordinal: Some(ordinal),
+            require_complete,
+            progress: 0,
+            ..Options::default()
+        };
+        let (exit_code, counts) =
+            run_audit(options, Box::new(sink.clone())).expect("scoped audit runs");
+        (exit_code, counts, sink.text())
+    }
+
+    #[derive(Debug)]
+    struct EmittedProbeRow {
+        probe: String,
+        computed: String,
+        status: String,
+        detail: String,
+    }
+
+    /// One row per scalar probe, whatever the outcome; `record`, `frobenius` and
+    /// `w_entry` rows are not probe rows.
+    fn emitted_probe_rows(tsv: &str) -> Vec<EmittedProbeRow> {
+        tsv.lines()
+            .filter_map(|line| {
+                let fields: Vec<&str> = line.split('\t').collect();
+                if fields.len() != 16 || !matches!(fields[0], "identity" | "absent") {
+                    return None;
+                }
+                Some(EmittedProbeRow {
+                    probe: fields[8].to_string(),
+                    computed: fields[13].to_string(),
+                    status: fields[14].to_string(),
+                    detail: fields[15].to_string(),
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn pinned_census_and_identity_rows_are_unique_per_probe() {
+        let mut condensates = 0usize;
+        let mut identity_rows = 0usize;
+        let mut wave_rows = 0usize;
+        let mut wave_records = 0usize;
+        let mut spinor_records = 0usize;
+        let mut spinor_rows = 0usize;
+        let mut distinct_probes: HashSet<(u8, u16)> = HashSet::new();
+        let mut wave_labels: HashSet<(u8, &'static str)> = HashSet::new();
+        for sg in 1..=230u8 {
+            let records = query::irreps_of(sg);
+            spinor_records += records.iter().filter(|record| record.spinor).count();
+            for (index, record) in records.iter().enumerate() {
+                if record.spinor {
+                    continue;
+                }
+                for subgroup in isotropy::isotropy_subgroups(sg, record.ml).unwrap() {
+                    condensates += 1;
+                    let stored = subgroup.identity_subduction().unwrap();
+                    identity_rows += stored.len();
+                    let mut seen: HashSet<usize> = HashSet::new();
+                    for entry in &stored {
+                        let probe = records
+                            .iter()
+                            .position(|candidate| candidate.ml == entry.parent_ml)
+                            .expect("stored probe resolves");
+                        if records[probe].spinor {
+                            spinor_rows += 1;
+                        }
+                        assert!(
+                            seen.insert(probe),
+                            "ordinal {} repeats probe {}",
+                            subgroup.ordinal,
+                            entry.parent_ml
+                        );
+                    }
+                    let wave = subgroup.other_wave_vector_subduction().unwrap();
+                    if !wave.is_empty() {
+                        wave_records += 1;
+                    }
+                    for entry in &wave {
+                        wave_rows += 1;
+                        wave_labels.insert((sg, entry.parent_ml));
+                    }
+                }
+                distinct_probes.insert((sg, index as u16));
+            }
+        }
+        assert_eq!(condensates, EXPECTED_CONDENSATES);
+        assert_eq!(identity_rows, EXPECTED_IDENTITY_ROWS);
+        assert_eq!(wave_rows, EXPECTED_OTHER_WAVE_ROWS);
+        assert_eq!(wave_records, EXPECTED_OTHER_WAVE_RECORDS);
+        assert_eq!(spinor_records, EXPECTED_SPINOR_RECORDS);
+        assert_eq!(spinor_rows, 0);
+        assert_eq!(distinct_probes.len(), EXPECTED_DISTINCT_PROBES);
+        // The other-wave labels are a separate grammar: none of them resolves
+        // to a record of its own space group.
+        for (sg, label) in wave_labels {
+            assert!(
+                !query::irreps_of(sg).iter().any(|record| record.ml == label),
+                "other-wave label {label} unexpectedly resolves in space group {sg}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_space_group_has_a_unique_trivial_child_record() {
+        for sg in 1..=230u8 {
+            let trivial = find_trivial_child(sg)
+                .unwrap_or_else(|| panic!("space group {sg} has no trivial child record"));
+            assert!(is_gamma(trivial), "trivial child of {sg} is not at Gamma");
+            assert_eq!(trivial.dim, 1);
+            assert!(!trivial.spinor);
+        }
+    }
+
+    #[test]
+    fn ordinal_13345_decomposes_every_probe_and_flags_the_five_missing_w_stars() {
+        let (exit_code, counts, tsv) = audit_ordinal(13345, true);
+        assert_eq!(counts.probes.total, 31);
+        assert_eq!(
+            counts.probes.attempted(),
+            31,
+            "every probe of a valid embedding must be decomposed, geometry-zero or not"
+        );
+        assert_eq!(counts.probes.uncomputed(), 0);
+        assert_eq!(counts.probes.error, 0, "no engine inconsistency expected");
+        assert_eq!(
+            counts.probes.full_success + counts.probes.missing,
+            31,
+            "the probe partition must tile"
+        );
+        assert_eq!(
+            exit_code, 2,
+            "missing child data must fail --require-complete"
+        );
+        assert_eq!(counts.verdict(true), Verdict::Incomplete);
+        assert!(counts.probes.missing > 0);
+
+        let rows = emitted_probe_rows(&tsv);
+        assert_eq!(rows.len(), counts.probes.total, "one row per scalar probe");
+        let missing: BTreeSet<&str> = rows
+            .iter()
+            .filter(|row| row.status == "uncomputed_missing_data")
+            .map(|row| row.probe.as_str())
+            .collect();
+        let expected: BTreeSet<&str> = ["W1", "W2", "W3", "W4", "W5"].into_iter().collect();
+        assert_eq!(missing, expected, "the missing W stars must be reported");
+        assert_eq!(counts.probes.missing, expected.len());
+        assert_eq!(counts.entries.passed, 8);
+        assert_eq!(counts.entries.mismatch, 0);
+        assert_eq!(counts.entries.unique, 8);
+        assert!(
+            rows.iter()
+                .any(|row| row.detail.contains("geometry=reject")),
+            "the independent geometry evidence must be emitted"
+        );
+    }
+
+    #[test]
+    fn ordinal_12400_decomposes_all_forty_sources_not_only_the_eligible_ones() {
+        let (exit_code, counts, tsv) = audit_ordinal(12400, true);
+        assert_eq!(counts.probes.total, 40);
+        assert_eq!(
+            counts.probes.attempted(),
+            40,
+            "the geometry filter must not skip decomposition"
+        );
+        assert_eq!(counts.probes.full_success, 40);
+        assert_eq!(counts.probes.missing, 0);
+        assert_eq!(counts.probes.error, 0);
+        assert_eq!(counts.probes.uncomputed(), 0);
+        assert_eq!(counts.geometry_reject_absent, 30);
+        assert_eq!(counts.geometry_eligible_absent, 7);
+        assert_eq!(counts.absent_zero(), 37);
+        assert_eq!(counts.geometry_contradictions, 0);
+        assert_eq!(counts.entries.passed, 3);
+        assert_eq!(exit_code, 0);
+        assert_eq!(counts.verdict(true), Verdict::Clean);
+
+        let rows = emitted_probe_rows(&tsv);
+        assert_eq!(rows.len(), 40);
+        for row in &rows {
+            assert!(
+                !row.computed.is_empty(),
+                "probe {} has no full result: {}",
+                row.probe,
+                row.status
+            );
+        }
+        let rejected: Vec<&EmittedProbeRow> = rows
+            .iter()
+            .filter(|row| row.detail.contains("geometry=reject"))
+            .collect();
+        assert_eq!(rejected.len(), 30);
+        for row in rejected {
+            assert_eq!(row.status, "absent_zero");
+            assert_eq!(row.computed, "0");
+        }
+    }
+
+    #[test]
+    fn probes_of_an_unembeddable_record_are_reported_uncomputed_never_skipped() {
+        let (exit_code, counts, tsv) = audit_ordinal(0, true);
+        assert_eq!(counts.records_embedding_failed, 1);
+        assert_eq!(counts.probes.total, 8);
+        assert_eq!(counts.probes.uncomputed_embedding, 8);
+        assert_eq!(counts.probes.attempted(), 0);
+        assert_eq!(exit_code, 2);
+        let rows = emitted_probe_rows(&tsv);
+        assert_eq!(
+            rows.len(),
+            8,
+            "every probe must have a row even without an embedding"
+        );
+        for row in &rows {
+            assert_eq!(row.status, "uncomputed_embedding_unavailable");
+            assert!(row.computed.is_empty());
+        }
+        assert_eq!(counts.entries.unique, 1);
+        assert_eq!(counts.entries.embedding_unavailable, 1);
+    }
+
+    #[test]
+    fn injected_accounting_inconsistencies_are_rejected() {
+        // Probe partition: one dropped probe.
+        let mut counts = Counts::default();
+        counts.probes.total = 5;
+        counts.probes.full_success = 3;
+        counts.probes.missing = 1;
+        counts.probes.error = 1;
+        assert!(counts.probes.partition_error().is_none());
+        counts.probes.full_success = 2;
+        let error = counts
+            .probes
+            .partition_error()
+            .expect("a dropped probe must be detected");
+        assert!(error.contains("probe partition"));
+        assert!(counts.accounting_error().is_some());
+        // A probe whose categories tile but whose row was never emitted is
+        // still a dropped probe.
+        let mut counts = Counts::default();
+        counts.probes.total = 1;
+        counts.probes.full_success = 1;
+        let error = counts
+            .accounting_error()
+            .expect("a missing probe row must be detected");
+        assert!(error.contains("emitted probe rows"));
+        counts.probe_rows_emitted = 1;
+        assert!(counts.accounting_error().is_none());
+        // A genuine engine error is exit 1 even with --require-complete.
+        let mut counts = Counts::default();
+        counts.probes.total = 1;
+        counts.probes.error = 1;
+        assert_eq!(counts.verdict(false), Verdict::Inconsistent);
+        assert_eq!(counts.exit_code(true), 1);
+        // Missing data alone is incomplete, and only under --require-complete.
+        let mut counts = Counts::default();
+        counts.probes.total = 2;
+        counts.probes.full_success = 1;
+        counts.probes.missing = 1;
+        assert_eq!(counts.verdict(false), Verdict::Clean);
+        assert_eq!(counts.verdict(true), Verdict::Incomplete);
+        assert_eq!(counts.exit_code(true), 2);
+        // Uncomputed probes are incompleteness, never silent coverage.
+        let mut counts = Counts::default();
+        counts.probes.total = 3;
+        counts.probes.full_success = 1;
+        counts.probes.uncomputed_embedding = 2;
+        assert_eq!(counts.verdict(true), Verdict::Incomplete);
+        // Missing `w` parameters are incomplete even after every probe
+        // succeeded: identity closure is not full coverage.
+        let mut counts = Counts::default();
+        counts.probes.total = 1;
+        counts.probes.full_success = 1;
+        counts.w_entries = 4;
+        assert_eq!(counts.verdict(true), Verdict::Incomplete);
+        // Positive-entry partition: a dropped stored row is caught.
+        let mut entries = EntryCounts::default();
+        entries.entries = 2;
+        entries.unique = 2;
+        entries.passed = 1;
+        entries.embedding_unavailable = 1;
+        assert!(entries.partition_error().is_none());
+        entries.embedding_unavailable = 0;
+        assert!(entries.partition_error().is_some());
+        // A double-counted entry total is caught.
+        let mut entries = EntryCounts::default();
+        entries.entries = 3;
+        entries.unique = 2;
+        entries.passed = 2;
+        entries.duplicate_same = 2;
+        assert!(entries.partition_error().is_some());
+        // Geometry contradictions are hard failures, not incompleteness.
+        let mut counts = Counts::default();
+        counts.probes.total = 1;
+        counts.probes.full_success = 1;
+        counts.geometry_contradictions = 1;
+        assert_eq!(counts.verdict(false), Verdict::Inconsistent);
+        assert_eq!(counts.exit_code(true), 1);
+    }
+
+    #[test]
+    fn repeated_stored_rows_are_deduplicated_not_summed() {
+        let mut map = BTreeMap::new();
+        let mut entries = EntryCounts::default();
+        let row = StoredRow {
+            frequency: 2,
+            domain: 1,
+            ml: "GM1",
+        };
+        insert_stored_row(&mut map, 7, row, &mut entries).unwrap();
+        insert_stored_row(&mut map, 7, row, &mut entries).unwrap();
+        assert_eq!(entries.duplicate_same, 1);
+        assert_eq!(map.len(), 1);
+        assert_eq!(map.values().filter(|entry| entry.frequency == 2).count(), 1);
+        let conflicting = StoredRow {
+            frequency: 4,
+            ..row
+        };
+        assert!(insert_stored_row(&mut map, 7, conflicting, &mut entries).is_err());
+        assert_eq!(entries.duplicate_conflict, 1);
+        assert_eq!(
+            map[&7].frequency, 2,
+            "the first copy wins, nothing is summed"
+        );
+    }
+
+    #[test]
+    fn frobenius_weight_uses_true_complex_component_dimensions() {
+        // Ordinary, realification and distinct-component rows from the pinned
+        // tables; each must report its complex component dimension sum.
+        let mut saw_realification = false;
+        let mut saw_distinct = false;
+        for sg in 1..=230u8 {
+            for record in query::irreps_of(sg) {
+                if record.spinor {
+                    continue;
+                }
+                let (sum, count) = complex_component_dimensions(record).unwrap();
+                match record.source_identity() {
+                    IrrepSourceIdentity::OrdinaryScalar { .. } => {
+                        assert_eq!((sum, count), (record.dim, 1));
+                    }
+                    IrrepSourceIdentity::Compound { .. } => {
+                        assert_eq!(count, 2);
+                        if is_gamma(record) {
+                            // A Gamma star is one arm, so the row dimension is
+                            // the complex component sum.
+                            assert_eq!(u16::from(sum), u16::from(record.dim));
+                        } else {
+                            // Other stars carry arm_count copies of the sum.
+                            assert_eq!(u16::from(record.dim) % u16::from(sum), 0);
+                        }
+                        match record.compound_character_semantics() {
+                            Some(CompoundCharacterSemantics::DistinctComponentSum) => {
+                                saw_distinct = true;
+                            }
+                            Some(CompoundCharacterSemantics::ConjugateRealification) => {
+                                saw_realification = true;
+                            }
+                            None => panic!("compound row {} has no semantics", record.ml),
+                        }
+                    }
+                    IrrepSourceIdentity::Spin { .. } => {
+                        panic!("spinor row in the scalar sweep")
+                    }
+                }
+            }
+        }
+        assert!(saw_realification && saw_distinct);
+    }
+
+    #[test]
+    fn geometry_zero_is_an_independent_check_never_a_skip() {
+        // SG 16 R2 P1 -> #22: every probe is decomposed, and a geometry-rejected
+        // probe must come back with exactly zero trivial terms.
+        let subgroup = isotropy::isotropy_subgroup_for_direction(
+            16,
+            "R2",
+            isotropy::IsotropyDirection::Label("P1"),
+        )
+        .unwrap();
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
+        let reciprocal = build_child_reciprocal(embedding.subgroup_sg()).unwrap();
+        let trivial = find_trivial_child(embedding.subgroup_sg()).unwrap();
+        let trivial_cir = match trivial.source_identity() {
+            IrrepSourceIdentity::OrdinaryScalar { cir_irnumber } => cir_irnumber,
+            _ => panic!("trivial child is not ordinary"),
+        };
+        let (mut probes, mut eligible, mut positive, mut rejected) =
+            (0usize, 0usize, 0usize, 0usize);
+        for probe in query::irreps_of(16).iter().filter(|record| !record.spinor) {
+            probes += 1;
+            let star = ScalarStar::new(probe).unwrap();
+            let filter = probe_is_gamma_eligible(&star, &embedding, &reciprocal).unwrap();
+            eligible += usize::from(filter);
+            let result = match subduce_full_star_with_embedding(&subgroup, &embedding, probe) {
+                Ok(result) => result,
+                Err(error) => panic!("probe {} must be decomposed: {error}", probe.ml),
+            };
+            let computed: u32 = result
+                .blocks()
+                .iter()
+                .flat_map(|block| block.targets())
+                .filter(|target| target.irnumber == trivial_cir && target.dimension == trivial.dim)
+                .map(|target| target.multiplicity)
+                .sum();
+            positive += usize::from(computed > 0);
+            if !filter {
+                rejected += 1;
+                assert_eq!(
+                    computed, 0,
+                    "probe {} is geometry-rejected but has trivial terms",
+                    probe.ml
+                );
+            }
+            assert!(
+                computed == 0 || filter,
+                "probe {} is positive but the geometry filter rejects it",
+                probe.ml
+            );
+        }
+        assert_eq!(probes, 32);
+        assert_eq!(eligible, 8);
+        assert_eq!(positive, 2);
+        assert_eq!(rejected, 24);
+    }
+}
