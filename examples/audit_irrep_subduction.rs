@@ -1349,6 +1349,7 @@ origin={},{},{},{}",
             let mut seen: BTreeMap<&'static str, u16> = BTreeMap::new();
             for entry in &wave_entries {
                 self.counts.w_entries += 1;
+                let mut w_status = "uncomputed_line_star_open";
                 let parent_sg_match = usize::from(entry.parent_sg) == usize::from(sg);
                 let frozen = generated_data::IRREP_W_LABELS
                     .iter()
@@ -1381,9 +1382,13 @@ origin={},{},{},{}",
                                         line_trivial_content_with_embedding(
                                             subgroup, embedding, table,
                                         )
-                                && value == u32::from(entry.frequency)
                             {
-                                self.counts.w_computed += 1;
+                                if value == u32::from(entry.frequency) {
+                                    self.counts.w_computed += 1;
+                                    w_status = "computed";
+                                } else {
+                                    w_status = "computed_mismatch";
+                                }
                             }
                         }
                         None => self.counts.w_character_blocked += 1,
@@ -1417,7 +1422,7 @@ origin={},{},{},{}",
                     }
                 }
                 self.emit(format!(
-                    "w_entry\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{}\t{}\t{}\t{sg}\t\tother_wave_vector\t{}\t\tuncomputed_w_parameters_missing\tstored_parent_sg={} parent_sg_match={parent_sg_match} frozen_source={frozen} k_parameters=absent_from_the_irrep_table",
+                    "w_entry\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{}\t{}\t{}\t{sg}\t\tother_wave_vector\t{}\t\t{w_status}\tstored_parent_sg={} parent_sg_match={parent_sg_match} frozen_source={frozen}",
                     subgroup.record.arms,
                     size.map_or_else(|| "unset".to_string(), |value| value.to_string()),
                     entry.parent_ml,

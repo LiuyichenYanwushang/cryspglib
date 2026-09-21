@@ -356,3 +356,12 @@ that map the orbit to itself, the transported character picking up the sign of
 the identification), instead of per arm as in the current
 `line_trivial_content_with_embedding`.  Cheapest check: SG 196 (30 failing
 rows, smallest reproducer) and SG 202 10422 before rerunning the full audit.
+
+The audit's TSV now carries a per-row status for the w entries: `computed`,
+`computed_mismatch` (the engine's value differs from the pinned one) or
+`uncomputed_line_star_open` (no frozen table or no embedding).  For SG 196 the
+scoped run reports 76 `computed` and 30 `computed_mismatch`, so the remaining
+work now has an exact, greppable row list:
+
+    cargo run --release -p cryspglib --example audit_irrep_subduction -- --parent 196 --output /abs/a196.txt
+    awk -F'\t' '$1=="w_entry" && $15=="computed_mismatch"' /abs/a196.txt
