@@ -1401,14 +1401,18 @@ impl SubgroupEmbedding {
                 }
             }
             None => {
-                let candidates = signed_permutations();
-                let mut accepted: Vec<(
+                /// A surviving search candidate: setting, affine map, the
+                /// subgroup lattice that map implies, its operations and their
+                /// coset representatives.
+                type AcceptedCandidate = (
                     Mat3I,
                     SeitzTransform,
                     Lattice,
                     Vec<ExactSeitz>,
                     Vec<ExactSeitz>,
-                )> = Vec::new();
+                );
+                let candidates = signed_permutations();
+                let mut accepted: Vec<AcceptedCandidate> = Vec::new();
                 for setting in &candidates {
                     let (transform, lattice) = transform_for(*setting, 1)?;
                     if let Some((operations, representatives)) = validate_candidate(
