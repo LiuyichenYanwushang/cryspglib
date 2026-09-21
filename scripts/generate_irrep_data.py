@@ -52,7 +52,7 @@ def _verify_pinned_archives():
 
 # Import the direction mapping module from this directory
 sys.path.insert(0, os.path.dirname(__file__))
-from direction_map import build_direction_map
+from direction_map import direction_str
 
 # The frozen ISO--IR data--Hall sidecar is the sole scalar Hall-setting
 # authority.  Keep this import usable both when this file is run directly and
@@ -1970,9 +1970,27 @@ def parse_all():
         print(f"  direction label[1]={iso_dir_labels[1] if len(iso_dir_labels)>1 else 'N/A'}")
     print(f"  {len(iso_dir_dim)} dir dims, {len(iso_dir_free)} dir free params")
 
-    # Build direction lookup using the comprehensive mapping
-    dir_map = build_direction_map(iso_direction, iso_dir_dim, iso_dir_free, iso_dir_labels)
-    print(f"  Built direction map with {len(dir_map)} entries")
+    # Direction descriptions.  Computed **per record**, because a code can be
+    # shared by cubic and non-cubic parents whose `C2` spelling differs.
+    iso_parents = parse_ints(iso_lines, iso_sec, "isotropy_parent")
+    require_per_record(iso_parents, 1, len(iso_direction), "isotropy_parent")
+    iso_direction_text = [
+        direction_str(iso_dir_dim[i], iso_dir_free[i], iso_dir_labels[i], iso_parents[i])
+        for i in range(len(iso_direction))
+    ]
+    synthetic = sorted(
+        {
+            text
+            for text in iso_direction_text
+            if text.startswith("(P:") or text.startswith("(dim")
+        }
+    )
+    if synthetic:
+        raise ValueError(
+            "direction codes without an official or internal description: "
+            f"{synthetic[:10]}"
+        )
+    print(f"  Direction descriptions: {len(set(iso_direction_text))} distinct")
 
     print("Parsing data_magnetic.txt (magnetic isotropy subgroups)...")
     mag_lines = read_file("data_magnetic.txt")
@@ -2161,7 +2179,7 @@ def parse_all():
         "iso_w_subduce_freq": iso_w_subduce_freq,
         "irrep_w_labels": parse_labels(irr_lines, irr_sec, "irrep_w_label"),
         "irrep_w_space_group": parse_ints(irr_lines, irr_sec, "irrep_w_space_group"),
-        "dir_map": dir_map,
+        "iso_direction_text": iso_direction_text,
         "kvec_map": kvec_map,
         "pir_kvector_map": pir_kvector_map,
         "scalar_source_frames": scalar_source_frames,
@@ -4242,7 +4260,7 @@ def generate_rust_data(data):
     pir_dim_map = data.get("pir_dim_map", {})
 
     # direction labels
-    dir_map = data["dir_map"]
+    iso_direction_text = data["iso_direction_text"]
     # k-vector map: (SG#, ML_label) -> (kx, ky, kz, denom)
     kvec_map = data["kvec_map"]
     # character map: (SG#, ML_label) -> [char1, char2, ...]
@@ -5438,7 +5456,7 @@ def generate_rust_data(data):
         dom_val = iso_dom[i] if i < len(iso_dom) else 1
         arms_val = iso_arms[i] if i < len(iso_arms) else 1
 
-        dir_str = dir_map.get(dir_val, f"dir{dir_val}")
+        dir_str = iso_direction_text[i]
         symbol, sch = get_sg_symbol(sg_val)
 
         basis_mat = iso_basis[i * 9:(i + 1) * 9]

@@ -126,10 +126,17 @@ printf 'PAGE 1000\nSC 250\nSET I ALL OR 1\nVALUE PARENT 139\nVALUE IRREP M1-\nSH
 API :  [("GM1+", 1, "P1", 1), ("GM3+", 1, "P1", 3), ("GM4+", 1, "P1", 1)]
 ```
 
-**双值（spinor）分导条目**同样属于这一行输出：`isotropy_w_subduce_*` 共 5756 条，
-覆盖 1006/15239 条记录，此前被整族丢弃；现在由
-`double_valued_subduction(ordinal)` / `IsotropySubgroup::double_valued_subduction()`
-提供。回归样例：SG 225 `W5` 方向 `S60` → 9 条标量 + `3 DT5, 3 SM3, 3 SM4`。
+**其它波矢（other-wave-vector）条目**同样属于这一行输出：`isotropy_w_subduce_*`
+共 5756 条，覆盖 1006/15239 条记录，此前被整族丢弃；现在由
+`other_wave_vector_subduction(ordinal)` /
+`IsotropySubgroup::other_wave_vector_subduction()` 提供。回归样例：SG 225 `W5`
+方向 `S60` → 9 条同 k 条目 + `3 DT5, 3 SM3, 3 SM4`。
+
+**"双值/spinor"是错误命名（已纠正）**：`DT`、`SM` 是 SG 225 k 列表里的波矢标签
+（Δ、Σ 线），这些条目是**同一母群 SG 在别的波矢上的单值 irrep**；用户复核取出
+它们的纯二重旋转矩阵，全部满足 `D(C₂)² = +I`，与 spinor 语义不符。旧名
+`double_valued_subduction` / `DoubleValuedSubduction` 已重命名为
+`other_wave_vector_subduction` / `OtherWaveVectorSubduction`。
 
 **边界**：本数据集只给“哪些母群 irrep 包含子群的恒等表示、重数多少”（Landau /
 铁性分类所需），**不给**某个母群 irrep 分解成子群全部 irrep 的完整分导表示
@@ -215,5 +222,5 @@ trivial 列的回归 oracle。
 | 某 irrep 的全部子群 | `irrep::isotropy::isotropy_subgroups`（可用 `_at_k` 校验 k） |
 | 磁子群 | `irrep::isotropy::magnetic_isotropy_subgroups(_for_direction)` |
 | 几何换算 | `subgroup_size`、`parent_primitive_basis`、`basis_in_parent_conventional`、`origin_shift_in_parent_conventional` |
-| 分导（恒等表示） | `identity_subduction`、`double_valued_subduction`、`format_identity_subduction` |
+| 分导（恒等表示） | `identity_subduction`、`other_wave_vector_subduction`、`format_identity_subduction` |
 | 表格输出 | `format_isotropy_subgroups`、`format_magnetic_isotropy_subgroups` |

@@ -205,16 +205,25 @@ impl std::error::Error for IsotropyError {}
 pub enum IsotropyDirection<'a> {
     /// Component description, e.g. `"(a,0,0)"`.
     ///
-    /// Provenance: this notation is **cryspglib's**, built from
-    /// `(direction_dim, direction_free, direction_label)` by
-    /// `scripts/direction_map.py`; the ISOTROPY archive stores only the
-    /// direction *code*, the label (`"P1"`, `"C2"`, …) and those two counts.
-    /// Directions of dimension ≤ 3 use explicit components
-    /// (`"(a,0)"`, `"(a,b,0)"`, …); higher-dimensional directions use the
-    /// compact form `"<label>(<free>)/<dim>D"`, e.g. `"P1(1)/4D"`.  For
-    /// magnetic records no component notation exists at all (the field holds
-    /// the ISOTROPY label), so a `Descriptor` lookup there returns
-    /// [`IsotropyError::DirectionNotFound`].
+    /// Provenance: `scripts/direction_map.py`.  For the cases the bundled
+    /// program fixes by `(direction_dim, direction_free, direction_label)` the
+    /// string is **the program's own** (`SHOW DIRECTION VECTOR`): all of
+    /// `dim ≤ 3` except `dim = 2` and the `C2` family split, verified over every
+    /// `dim = 3` irrep of a 175-irrep sample (781 label checks, 0 mismatches
+    /// for `P1/P2/P3/C1/S1`).  Everything else — `dim = 2` (where the program's
+    /// string depends on whether the irrep is complex) and `dim ≥ 4` (where it
+    /// prints per-irrep component lists) — is **cryspglib's internal** notation,
+    /// `"(a,0)"`-style for `dim = 2` and the compact
+    /// `"<label>(<free>)/<dim>D"` form above.
+    ///
+    /// Matching ignores whitespace and treats the program's complex separator
+    /// `';'` as `','`, so both `"(a;b;a)"` and `"(a,b,a)"` select the same
+    /// record.  Prefer [`IsotropyDirection::Label`] when the exact program
+    /// spelling matters or when a table-driven string is not available.
+    ///
+    /// Magnetic records carry no component notation at all (their direction
+    /// field holds the ISOTROPY label), so a `Descriptor` lookup on a magnetic
+    /// table returns [`IsotropyError::DirectionNotFound`].
     Descriptor(&'a str),
     /// ISOTROPY direction label, e.g. `"P1"` or `"4D1"`.  This is the `Dir`
     /// column of the program's `DISPLAY ISOTROPY` table and the only selector
@@ -447,11 +456,15 @@ pub fn magnetic_isotropy_subgroup_for_direction(
             }
             index
         }
-        IsotropyDirection::Descriptor(descriptor) => {
-            select_unique(records, descriptor, |record| record.direction, sg, ml)?
-        }
+        IsotropyDirection::Descriptor(descriptor) => select_unique(
+            records,
+            &normalize_descriptor(descriptor),
+            |record| normalize_descriptor(record.direction),
+            sg,
+            ml,
+        )?,
         IsotropyDirection::Label(label) => {
-            select_unique(records, label, |record| record.direction, sg, ml)?
+            select_unique(records, label, |record| record.direction.to_string(), sg, ml)?
         }
     };
     Ok(wrap_magnetic(irrep, local, records[local]))
@@ -491,17 +504,27 @@ pub struct IdentitySubduction {
     pub direction_label: &'static str,
 }
 
-/// A double-valued (spinor) parent irrep whose restriction contains the trivial
-/// irrep of the isotropy subgroup.
+/// An irrep of the **same parent space group at another wave vector** whose
+/// restriction also contains the trivial irrep of the isotropy subgroup.
 ///
-/// The ISO program prints these on the same `SHOW FREQ [DIR]` line as the
-/// scalar entries; the double-valued tables carry Miller–Love labels only and
-/// no wave vector, so they are reported separately.
+/// These are *not* spinor/double-valued irreps: the program prints them on the
+/// same `SHOW FREQ [DIR]` line because they fold into the subgroup together
+/// with the selected wave vector, and the alphabetic prefix of the label is the
+/// wave-vector label (`DT5` belongs to the `DT` line, `SM3` to `SM`).  Verified
+/// against the bundled binary: SG 225's k-point list contains `DT` and `SM`,
+/// and the entries' labels (`DT5`, `SM3`, `SM4`) are single-valued irreps at
+/// those points.
+///
+/// The pinned table carries Miller–Love labels and their space groups only, so
+/// the wave vector itself is not modelled here; parse the label prefix or use
+/// [`crate::irrep::query::irreps_of`] if the k-vector is needed.
 #[derive(Debug, Clone, Copy)]
-pub struct DoubleValuedSubduction {
-    /// Space group of the double-valued parent irrep.
+pub struct OtherWaveVectorSubduction {
+    /// Space group of the parent irrep (always the same as the isotropy
+    /// record's parent).
     pub parent_sg: u8,
-    /// Miller–Love label of the double-valued parent irrep.
+    /// Miller–Love label of the parent irrep, e.g. `"DT5"` (prefix `DT` is the
+    /// wave-vector label).
     pub parent_ml: &'static str,
     /// Subduction frequency `i(G)`.
     pub frequency: u16,
@@ -513,10 +536,12 @@ impl IsotropySubgroup {
         identity_subduction(self.ordinal)
     }
 
-    /// Double-valued (spinor) parent irreps that subduce the trivial irrep of
-    /// this subgroup.
-    pub fn double_valued_subduction(&self) -> Result<Vec<DoubleValuedSubduction>, IsotropyError> {
-        double_valued_subduction(self.ordinal)
+    /// Parent irreps at *other* wave vectors whose restriction also contains the
+    /// trivial irrep of this subgroup.
+    pub fn other_wave_vector_subduction(
+        &self,
+    ) -> Result<Vec<OtherWaveVectorSubduction>, IsotropyError> {
+        other_wave_vector_subduction(self.ordinal)
     }
 }
 
@@ -574,9 +599,9 @@ pub fn identity_subduction(ordinal: usize) -> Result<Vec<IdentitySubduction>, Is
 
 /// Double-valued (spinor) parent irreps that subduce the trivial irrep of an
 /// isotropy record.
-pub fn double_valued_subduction(
+pub fn other_wave_vector_subduction(
     ordinal: usize,
-) -> Result<Vec<DoubleValuedSubduction>, IsotropyError> {
+) -> Result<Vec<OtherWaveVectorSubduction>, IsotropyError> {
     let ranges = &crate::irrep::generated_data::ISOTROPY_W_SUBDUCE_RANGES;
     let records = ranges.len().saturating_sub(1);
     if ordinal >= records {
@@ -599,7 +624,7 @@ pub fn double_valued_subduction(
                 index: irrep_index,
             });
         };
-        result.push(DoubleValuedSubduction {
+        result.push(OtherWaveVectorSubduction {
             parent_sg: *sg,
             parent_ml: label,
             frequency: crate::irrep::generated_data::ISOTROPY_W_SUBDUCE_FREQUENCY[entry] as u16,
@@ -636,12 +661,12 @@ pub fn format_identity_subduction(ordinal: usize) -> Result<String, IsotropyErro
             entry.domain,
         ));
     }
-    let double_valued = double_valued_subduction(ordinal)?;
-    if !double_valued.is_empty() {
+    let other_wave_vector = other_wave_vector_subduction(ordinal)?;
+    if !other_wave_vector.is_empty() {
         lines.push(String::new());
-        lines.push("| Double-valued parent irrep | i(G) |".to_string());
-        lines.push("|----------------------------|------|".to_string());
-        for entry in double_valued {
+        lines.push("| Other-wave-vector parent irrep | i(G) |".to_string());
+        lines.push("|--------------------------------|------|".to_string());
+        for entry in other_wave_vector {
             lines.push(format!(
                 "| {} (SG {}) | {} |",
                 entry.parent_ml, entry.parent_sg, entry.frequency
@@ -652,6 +677,19 @@ pub fn format_identity_subduction(ordinal: usize) -> Result<String, IsotropyErro
 }
 
 // ── Selection internals ───────────────────────────────────────────────────────
+
+/// Compare order-parameter component strings, ignoring whitespace and treating
+/// the program's complex separator `;` as `,`.
+///
+/// The bundled binary prints e.g. `(a;b;a)` for a complex direction and
+/// `(a,a,b)` for the same-shaped real one; users reasonably type either form,
+/// so matching must not depend on the separator.
+fn normalize_descriptor(text: &str) -> String {
+    text.chars()
+        .filter(|character| !character.is_whitespace())
+        .map(|character| if character == ';' { ',' } else { character })
+        .collect()
+}
 
 fn select_local_index(
     irrep: &'static IrrepRecord,
@@ -673,17 +711,27 @@ fn select_local_index(
             }
             Ok(index)
         }
-        IsotropyDirection::Descriptor(descriptor) => {
-            select_unique(records, descriptor, descriptor_of, irrep.sg, ml)
-        }
-        IsotropyDirection::Label(label) => select_unique(records, label, label_of, irrep.sg, ml),
+        IsotropyDirection::Descriptor(descriptor) => select_unique(
+            records,
+            &normalize_descriptor(descriptor),
+            |record| normalize_descriptor(descriptor_of(record)),
+            irrep.sg,
+            ml,
+        ),
+        IsotropyDirection::Label(label) => select_unique(
+            records,
+            label,
+            |record| label_of(record).to_string(),
+            irrep.sg,
+            ml,
+        ),
     }
 }
 
 fn select_unique<T: Copy>(
     records: &[T],
     query: &str,
-    key_of: impl Fn(&T) -> &'static str,
+    key_of: impl Fn(&T) -> String,
     sg: u8,
     ml: &str,
 ) -> Result<usize, IsotropyError> {
@@ -1191,6 +1239,44 @@ mod tests {
         assert_eq!(second.record.sg, 47);
     }
 
+    /// The descriptor strings are what users type, so each one must select the
+    /// record the program selects.  These are the oracle's own strings for
+    /// SG 221 `GM4+`/`GM4-` and SG 225 `GM4-` (`SHOW DIRECTION VECTOR`).
+    #[test]
+    fn descriptor_strings_select_the_program_subgroups() {
+        let cases: [(u8, &str, &str, usize); 6] = [
+            (221, "GM4+", "(a,0,0)", 83),  // P4/m
+            (221, "GM4+", "(a,a,0)", 12),  // C2/m
+            (221, "GM4+", "(a,a,a)", 148), // R-3
+            (221, "GM4+", "(a,b,c)", 2),   // P-1
+            (225, "GM4-", "(a,a,0)", 44),  // Imm2
+            (225, "GM4-", "(a,a,b)", 8),   // Cm
+        ];
+        for (sg, ml, descriptor, expected_sg) in cases {
+            let subgroup =
+                isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Descriptor(descriptor))
+                    .unwrap_or_else(|error| panic!("SG {sg} {ml} {descriptor}: {error}"));
+            assert_eq!(
+                subgroup.record.sg, expected_sg,
+                "SG {sg} {ml} {descriptor} selected #{} instead of #{expected_sg}",
+                subgroup.record.sg
+            );
+            // The same record is reachable through its own label.
+            let by_label =
+                isotropy_subgroup_for_direction(sg, ml, IsotropyDirection::Label(subgroup.record.direction_label))
+                    .expect("label selects the same record");
+            assert_eq!(by_label.ordinal, subgroup.ordinal);
+        }
+        // The complex separator is accepted interchangeably.
+        let complex = isotropy_subgroup_for_direction(
+            177,
+            "L1",
+            IsotropyDirection::Descriptor("(a,b,a)"),
+        )
+        .expect("(a,b,a) matches the program's (a;b;a)");
+        assert_eq!(complex.record.direction, "(a;b;a)");
+    }
+
     #[test]
     fn unknown_direction_and_irrep_fail_closed() {
         let missing =
@@ -1225,15 +1311,34 @@ mod tests {
         // the shared selector directly so the branch is still executed and its
         // payload checked instead of rotting untested.
         assert_eq!(
-            select_unique(&["P1", "P2"], "P2", |value: &&'static str| *value, 221, "GM3+").unwrap(),
+            select_unique(
+                &["P1", "P2"],
+                "P2",
+                |value: &&'static str| (*value).to_string(),
+                221,
+                "GM3+"
+            )
+            .unwrap(),
             1
         );
         assert!(matches!(
-            select_unique(&["P1", "P1"], "P1", |value: &&'static str| *value, 221, "GM3+"),
+            select_unique(
+                &["P1", "P1"],
+                "P1",
+                |value: &&'static str| (*value).to_string(),
+                221,
+                "GM3+"
+            ),
             Err(IsotropyError::DirectionAmbiguous { matches, .. }) if matches == 2
         ));
         assert!(matches!(
-            select_unique(&["P1"], "P2", |value: &&'static str| *value, 221, "GM3+"),
+            select_unique(
+                &["P1"],
+                "P2",
+                |value: &&'static str| (*value).to_string(),
+                221,
+                "GM3+"
+            ),
             Err(IsotropyError::DirectionNotFound { .. })
         ));
     }

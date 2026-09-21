@@ -61,7 +61,7 @@ from generate_irrep_data import (  # noqa: E402
     get_sections,
     parse_ints,
     parse_labels,
-    build_direction_map,
+    direction_str,
 )
 
 # Parent primitive basis per centering, in parent conventional coordinates.
@@ -197,7 +197,9 @@ def machine_records():
     label = parse_labels(iso_lines, iso_sec, "isotropy_orderparam_label")
     basis = parse_ints(iso_lines, iso_sec, "isotropy_basis")
     origin = parse_ints(iso_lines, iso_sec, "isotropy_origin")
-    dir_map = build_direction_map(direction, dim, free, label)
+    dir_text = [
+        direction_str(dim[k], free[k], label[k], par[k]) for k in range(len(par))
+    ]
 
     records = {}
     for k in range(len(par)):
@@ -208,9 +210,10 @@ def machine_records():
         records.setdefault((par[k], ml), []).append(
             {
                 "subgroup": sub[k],
-                "direction": dir_map.get(direction[k], f"dir{direction[k]}"),
+                "direction": dir_text[k],
                 "label": label[k],
                 "size": abs(det3(matrix)),
+                "dim": dim[k],
                 "basis": [[Fraction(value) for value in row] for row in matrix],
                 "origin": [
                     Fraction(o[0], o[3]),
@@ -283,6 +286,45 @@ def run_oracle(sg, ml):
     return rows
 
 
+def run_oracle_direction_vectors(sg, ml):
+    """The program's own order-parameter component strings, keyed by direction.
+
+    `SHOW DIRECTION VECTOR` is what validates the descriptor strings the Rust
+    API accepts from users: the row labels (`P1`, `C1`, …) only pin the *rows*,
+    not the component strings that `IsotropyDirection::Descriptor` matches.
+    """
+    binary = os.path.join(ISO_DIR, "iso")
+    commands = [
+        "PAGE 1000",
+        "SC 250",
+        "SET I ALL OR 1",
+        f"VALUE PARENT {sg}",
+        f"VALUE IRREP {ml}",
+        "SHOW SUBGROUP",
+        "SHOW DIRECTION VECTOR",
+        "DISPLAY ISOTROPY",
+        "QUIT",
+    ]
+    result = subprocess.run(
+        [binary],
+        input="\n".join(commands) + "\n",
+        capture_output=True,
+        text=True,
+        cwd=ISO_DIR,
+        env=dict(os.environ, ISODATA=ISO_DIR + os.sep),
+        timeout=300,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"iso exited with {result.returncode}: {result.stderr}")
+    vectors = {}
+    for line in result.stdout.splitlines():
+        line = line.strip().rstrip("*").strip()
+        m = re.match(r"^(\d+)\s+(\S+)\s+(\S+)\s+(\(.*\))$", line)
+        if m:
+            vectors[m.group(3)] = m.group(4).replace(" ", "")
+    return vectors
+
+
 def same_lattice(left, right):
     """Whether two generating sets span the same lattice (rows, exact rationals).
 
@@ -353,6 +395,7 @@ def primitive_of_conventional_cell(cell, centring):
 def main():
     records = machine_records()
     checked_rows = 0
+    checked_descriptors = 0
     exact_origins = 0
     lattice_origins = 0
     failures = []
@@ -369,6 +412,9 @@ def main():
                 f"machine has {len(expected)}"
             )
             continue
+        # The component strings the user actually types must be the program's:
+        # comparing only `P1`/`C1` labels would miss a wrong `(a,a,0)` mapping.
+        vectors = run_oracle_direction_vectors(sg, ml)
         # Rows are matched by ISOTROPY direction label: neither the oracle nor
         # the data file guarantees the same row order.
         by_label = {row["label"]: row for row in rows}
@@ -384,6 +430,18 @@ def main():
                 failures.append(f"{where}: oracle printed no row for this label")
                 continue
             checked_rows += 1
+            if label in vectors and machine_row["dim"] == 3:
+                # Only `dim = 3` descriptors are claimed to be the program's own
+                # strings.  `dim = 2` is cryspglib's internal notation: the
+                # program's spelling varies per irrep (SG 5 `L1` prints
+                # `(a;a)`, SG 91 `A1` prints `(a,0)`, SG 194 `GM6+` prints
+                # `(a,0.577a)`), and `dim >= 4` prints full component lists.
+                checked_descriptors += 1
+                if machine_row["direction"] != vectors[label]:
+                    failures.append(
+                        f"{where}: descriptor {machine_row['direction']!r} != "
+                        f"oracle {vectors[label]!r}"
+                    )
             if oracle_row["subgroup"] != machine_row["subgroup"]:
                 failures.append(
                     f"{where}: subgroup {oracle_row['subgroup']} != "
@@ -425,21 +483,25 @@ def main():
                     f"different lattices"
                 )
             # The stored origin is in the parent primitive frame; with the
-            # oracle pinned to the recorded setting the two must agree exactly,
-            # up to the lattice translation that separates two representatives
-            # of the same coset.
+            # oracle pinned to the recorded setting the two must agree
+            # **exactly**.  A difference of a parent lattice vector is not an
+            # acceptable answer here: it would let a wrong conversion (or a
+            # mutation of the oracle output) pass, so it fails the gate and is
+            # only reported as a diagnostic counter.
             converted = to_conventional(machine_row["origin"], primitive_basis)
             delta = [converted[i] - oracle_row["origin"][i] for i in range(3)]
             if all(value == 0 for value in delta):
                 exact_origins += 1
-            elif in_lattice(delta, primitive_basis):
-                lattice_origins += 1
             else:
+                if in_lattice(delta, primitive_basis):
+                    lattice_origins += 1
                 failures.append(
-                    f"{where}: origin {oracle_row['origin']} != {converted} mod L"
+                    f"{where}: origin {oracle_row['origin']} != {converted} exactly "
+                    f"(delta {delta})"
                 )
 
     print(f"oracle rows checked: {checked_rows}")
+    print(f"descriptor strings checked: {checked_descriptors}")
     if failures:
         print(f"FAILURES: {len(failures)}")
         for failure in failures[:25]:
@@ -447,11 +509,15 @@ def main():
         return 1
     print(
         f"all oracle rows agree with the vendored isotropy data "
-        f"(subgroup/size/basis/label on {checked_rows} rows, origin on "
-        f"{exact_origins + lattice_origins}: {exact_origins} exact, "
-        f"{lattice_origins} differing by a parent lattice vector; "
+        f"(subgroup/size/basis/label on {checked_rows} rows, descriptors on "
+        f"{checked_descriptors}, origin on {exact_origins}: all exact; "
         f"no exemptions)"
     )
+    if lattice_origins:
+        print(
+            f"  note: {lattice_origins} row(s) differ by a parent lattice vector "
+            "and failed above"
+        )
     return 0
 
 

@@ -124,8 +124,9 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
   Dir 列（94271/94271 落在对应 irrep 区间内，30/30 抽样逐字符一致）；API 暴露为
   `IdentitySubduction::direction_label`。双值（spinor）分导 `isotropy_w_subduce_*`
   （5756 条 / 1006 条记录）此前被整族丢弃，现由
-  `double_valued_subduction()` 暴露（回归：SG 225 `W5` 方向 `S60` → 9 标量 +
-  `3 DT5, 3 SM3, 3 SM4`）。
+  `other_wave_vector_subduction()` 暴露（回归：SG 225 `W5` 方向 `S60` → 9 条同 k 条目 +
+  `3 DT5, 3 SM3, 3 SM4`；这些是同一母群 SG 在**别的波矢**（`DT`/`SM` 线）上的单值
+  irrep，**不是 spinor**——用户复核并用 SG 225 的 k 列表 + `D(C₂)² = +I` 证实）。
 - 分导表只给“母群 irrep 包含子群恒等表示”的频率，**不给**完整分导分解
   （例如 Γ3+ ↓ P4/m 的全部 irrep）。官方 `iso` 也没有该功能：`SHOW FREQUENCY`
   配 `DISPLAY IRREP` 给的是 **Wyckoff 位置**的诱导点群 irrep（手册 §SHOW
@@ -146,19 +147,21 @@ all-target clippy `-D warnings` 零警告；Rustb `0.7.2` 开启
 数据文件；脚本自行设置 `ISODATA`）用随包 `iso` 9.6.1 对 21 组
 (SG, irrep)、覆盖 6 种 centering（A/C/F/I/P/R；B 面心不出现在标准 ITA
 setting）的记录逐行比对子群号、方向标签、Size、`|det Basis|` 关系与 origin。
-脚本现在显式运行 **`SET I ALL OR 1`**（见上一节 origin 约定），因此 origin 比较
-是**逐位相同**而不是"差为母群格矢量"，且**没有 allowlist**：当前
-`oracle rows checked: 42`，`origin on 42: 42 exact, 0 differing by a parent
-lattice vector; no exemptions`。这仍只是 42 行抽样（0.28%）；全表 18.6% 的默认
-setting 差异已解释（见上一节），残余约 450 条单斜/三方 cell/axis choice 未关闭。
+脚本现在显式运行 **`SET I ALL OR 1`**（见上一节 origin 约定），并且：
+origin 比较是**强制逐位相同**（差一个母群格矢量会直接 FAIL，用户复核发现旧版把这种
+情况只当诊断计数、exit 仍为 0）；新增**方向描述串比对**（拉 `SHOW DIRECTION VECTOR`
+的官方列，逐行与生成表的 `direction` 比较，规范化 `;`↔`,` 与空白）。当前
+`oracle rows checked: 42`，descriptor 与 origin 全部通过、无豁免。这仍只是 42 行
+抽样（0.28%）；全表 18.6% 的默认 setting 差异已解释（见上一节），残余约 450 条
+单斜/三方 cell/axis choice 未关闭。
 
 生成器的字节可复现性记录（可复查）：在干净树上
 `python3 scripts/generate_irrep_data.py` 重新生成
 `src/irrep/generated_data.rs`，其 md5 必须等于
-`4bbd6db9858117d346d8c93b81bcfbf9`（2026-09-21 修复 `mag_bns_label` 词法解析后的
-当前值；修复前是 `f994cf4874440118ef2f872b4f1e021b`）。重新生成时除
-`MAGNETIC_ISOTROPY_SUBGROUPS` 的 `bns_label` 行（15546/16721 条）外，其它数组必须
-逐字节不变；独立 reviewer 已在副本中复跑确认该流水线字节可复现。
+`863c76358cf713724967d5667d1d0dfe`（2026-09-21 修正方向描述串之后的当前值；前两个
+值是 `4bbd6db9858117d346d8c93b81bcfbf9`（`mag_bns_label` 词法修复后）与
+`f994cf4874440118ef2f872b4f1e021b`（原始））。本次重新生成只改 `direction:` 行
+（1080 条：dim=3 的 `P2`/`P3`/`C2` 修正），其余数组逐字节不变。
 
 ### 对抗性审查（2026-09-20）发现与修复
 
@@ -188,7 +191,8 @@ setting 差异已解释（见上一节），残余约 450 条单斜/三方 cell/
    `format_*` 不再用 `unwrap_or(零)` 吞掉换算错误。
 4. **P1/P2：分导表不完整**：`isotropy_subduce_subgroup` 即 Dir 列锚点（已暴露为
    `IdentitySubduction::direction_label`）；双值 `isotropy_w_subduce_*`
-   （5756 条 / 1006 条记录）此前整族缺失，现由 `double_valued_subduction()` 提供
+   （5756 条 / 1006 条记录）此前整族缺失，现由 `other_wave_vector_subduction()` 提供
+   （语义见下：它们是**别的波矢**上的单值 irrep，不是 spinor）。
    （回归 SG 225 `W5` `S60`：9 标量 + `3 DT5, 3 SM3, 3 SM4`）。
 5. **生成器门禁加固**：子群基行列式集合 {1,2,3,4,6,8,16,32}、origin 最简分数、
    分导条目的 parent SG 一致性（94271 条全部满足）、ISO→IRREPS 索引翻译改为
@@ -220,11 +224,14 @@ setting 差异已解释（见上一节），残余约 450 条单斜/三方 cell/
    `SubgroupSizeOverflow` 此前无 variant 断言，现全部 `matches!` 断言（含 payload）；
    `DirectionAmbiguous` 在 pinned 数据下**不可达**（0 重复标签/描述串），文档已注明，
    并新增直接驱动共享选择器 `select_unique` 的单元测试，使该分支被真实执行。
-6. **`IsotropyDirection::Descriptor` 的来源**：描述串（`"(a,0)"`）不是归档数据，
-   而是 `scripts/direction_map.py` 由 `(dim, free, label)` **生成**的 cryspglib
-   记法：8280 条为 `dim ≤ 3` 的显式分量、6959 条（46%）是 `dim ≥ 4` 的紧凑形式
-   `LABEL(free)/DIMD`。文档已如实说明；磁记录只有 ISO 标签，`Descriptor` 查询在
-   磁表上必然返回 `DirectionNotFound`，并有回归固定该行为。
+6. **`IsotropyDirection::Descriptor` 的来源**（第三轮已修正，见下）：`dim = 3` 的
+   `P1/P2/P3/C1/C2/S1` 现在直接取官方 `SHOW DIRECTION VECTOR` 的字符串；
+   `P2/P3` 原先映射成 `(0,a,0)`/`(a,a,0)` 是错的（用户复核：221 `GM4+` 的
+   `(a,a,0)` 应为 #12 C2/m、`(a,a,a)` 应为 #148 R-3），`C2` 还要按晶系分成
+   立方 `(a,a,b)` 与三方/六方 `(a;b;a)`。`dim = 2` 与 `dim ≥ 4` 仍是 cryspglib
+   内部记法（官方字符串按 irrep 变化，无法用 `(dim, free, label)` 表复现）。
+   匹配时规范化 `;`↔`,` 与空白；磁记录只有 ISO 标签，`Descriptor` 在其上恒返回
+   `DirectionNotFound`，均有回归固定。
 7. **交付命令**：workspace 根不带 `-p` 的 `cargo test --release` 会因 sibling
    member `Rustb` 自身编译失败而 exit 101、0 测试执行；基线命令一律用
    `-p cryspglib`（见文件开头）。
@@ -279,22 +286,35 @@ setting 差异已解释（见上一节），残余约 450 条单斜/三方 cell/
 
 ### 完整分导（母群 irrep → 子群全部 irrep + 重数）的实施配方
 
-数据里**没有**这张表（见上条第 7 点与 §4），可行且可验证的路线是自算：
+数据里**没有**这张表（见上条第 7 点与 §4），必须自算。用户复核后确认第一版配方
+不充分，修正如下（每一步都要有 oracle 或全表门禁）：
 
-1. 母群 irrep 在 k 点的小群特征标：crate 已有 PIR/CIR（`_pir_rot_start` 提供
-   H_ops→PIR 顺序映射）。
-2. 子群 H 在母群帧中的操作：由 (W, origin) + 母群操作枚举出 H 的操作（同时满足
-   保格与 origin 条件）；可用官方 `SHOW ELEMENTS`（需先 `VALUE DIRECTION <lab>`）
-   作 oracle。[待实现]
-3. H 在自己 ISO setting 下的操作：`SymmetryOps::from_sg(sg_H)`；两者的
-   setting 变换用 `irrep::wigner::find_setting_transform`（纯 rotations/translations，
-   与磁群无关）求解，解必须通过完整操作集验证。
-4. 重数：`n_α = (1/|H_k|) Σ_{h∈H_k} χ_Δ(h) conj(χ_α(h))`，χ_α 取
-   `query::irreps_of(sg_H)` 在折叠 k（`k_H = P_H⁻¹ W P_G k_G`）处的 irrep。
-5. **现成回归 oracle**：`isotropy_subduce_*` 的 94271 条恒等分导必须与算出的
-   "子群恒等表示重数"逐条一致（这是最强的 gate）；另加 Frobenius 恒等式
-   `Σ_G i(G)·dim(G)/k_G = |P_parent|/|P_sub|`（1895 条 Γ 记录精确成立，
-   compound 标签要按 ML 分量数 `k_G` 折算，否则 3543 行会被重复计数）。
+1. **母群操作必须取 ISO/data-Hall 帧**：`SymmetryOps::from_sg(sg)` 返回的是**第一个
+   Hall setting**，不保证与 ISOTROPY 数据帧一致；要经
+   `crate::irrep::generated_data::SG_DATA_HALL[sg]` 走 `canonical_hall_ops` 一类路径，
+   并像 irrep/corep 现网代码那样做 Hall↔ISO 的字符重排。
+2. **子群 H 在母群帧中的嵌入不能只靠 (W, origin)**：221 `GM3+` 的 `P1`→#123 与
+   `C1`→#47 都是 `W = I`、`origin = 0`，但操作数分别为 16 与 8；`isotropy_basis` /
+   `isotropy_origin` 只给格与原点，**不给点群部分**。必须把目标子群自己的 ISO 操作
+   （按 `sg_H` 的 data-Hall）经 (W, origin) 变换进母群帧，再用**完整操作集包含 +
+   SG 识别**验证嵌入（官方 `SHOW ELEMENTS`，需先 `VALUE DIRECTION <lab>`，可作 oracle）。
+3. **setting 变换要自己扩展**：`irrep::wigner::find_setting_transform` 只在有限范围的
+   unimodular 换基里搜索、且恒等基成功即提前返回，既不能承担 `det W ≠ 1` 的超胞嵌入，
+   也不做标签规范化；要么扩展成"一般有理基 + 任意原点，候选必须通过完整 Seitz 集
+   验证"，要么直接在母群帧内构造嵌入（第 2 步）。
+4. **折叠 k 与字符**：`k_H = P_H⁻¹ W P_G k_G`（`P_* = parent_primitive_basis(*)`，全部
+   有理数运算），在 `query::irreps_of(sg_H)` 里用 `k_vectors_agree` 找折叠 k；
+   重数 `n_α = (1/|H_k|) Σ_{h∈H_k} χ_Δ(h) conj(χ_α(h))`。注意 `W = I` 且 Size = 1 时
+   `k_H = k_G` 只说明 k 相同，不代表方向/子群相同。
+5. **方向输入不要依赖 descriptor**：`dim = 2` 与 `dim ≥ 4` 的描述串是 cryspglib 内部
+   记法（见下一节），引擎应接受 ISO 标签/记录序号，或在引擎内部自己算不变量子空间。
+6. **现成回归 oracle**：`isotropy_subduce_*` 的 94271 条恒等分导必须与算出的"子群
+   恒等表示重数"逐条一致（最强 gate）；另加 Frobenius 恒等式
+   `Σ_G i(G)·dim(G)/k_G = |P_parent|/|P_sub|`（1895 条 Γ 记录精确成立，compound 标签
+   按 ML 分量数 `k_G` 折算，否则 3543 行会被重复计数）；再以用户指定的
+   **221 `GM4+` 凝聚、查询 `GM3+`** 作为首个端到端验收例。
+7. **多臂与磁共表示放到最后**：当前数据集对 single-arm（`H ⊆ G_k`）之外的情形没有
+   可直接验证的条目，磁表也没有分导列。
 
 ### 顺带清理
 

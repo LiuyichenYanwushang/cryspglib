@@ -13,11 +13,12 @@ use cryspglib::irrep::generated_data::{
 };
 use cryspglib::irrep::isotropy::{
     IsotropyDirection, IsotropyError, basis_in_parent_conventional, centering_multiplicity,
-    double_valued_subduction, format_identity_subduction, format_isotropy_subgroups,
+    format_identity_subduction, format_isotropy_subgroups,
     format_magnetic_isotropy_subgroups, identity_subduction, isotropy_subgroup_for_direction,
     isotropy_subgroups, isotropy_subgroups_at_k, k_vectors_agree,
     magnetic_isotropy_subgroup_for_direction, magnetic_isotropy_subgroups,
-    origin_shift_in_parent_conventional, parent_primitive_basis, subgroup_size,
+    origin_shift_in_parent_conventional, other_wave_vector_subduction, parent_primitive_basis,
+    subgroup_size,
 };
 use cryspglib::irrep::query;
 use cryspglib::irrep::types::KVector;
@@ -373,11 +374,12 @@ fn isotropy_ranges_partition_the_table_per_irrep() {
 }
 
 /// SG 225 `W5` along `S60`: the ISOTROPY program's `SHOW FREQ DIR` prints nine
-/// scalar entries (ending `3 W5 S60(1)`) plus three double-valued ones
-/// (`3 DT5`, `3 SM3`, `3 SM4`).  The double-valued table was missing from the
-/// API before this gate existed.
+/// entries at the selected wave vector (ending `3 W5 S60(1)`) plus three at
+/// *other* wave vectors (`3 DT5`, `3 SM3`, `3 SM4`).  Those three are
+/// single-valued irreps on the `DT` and `SM` lines of SG 225 — not spinors —
+/// which is what these entries are named after.
 #[test]
-fn double_valued_subduction_matches_the_program() {
+fn other_wave_vector_subduction_matches_the_program() {
     let subgroup = isotropy_subgroup_for_direction(225, "W5", IsotropyDirection::Label("S60"))
         .expect("W5 has an S60 direction");
     let scalar = subgroup.identity_subduction().expect("scalar subduction");
@@ -399,10 +401,10 @@ fn double_valued_subduction_matches_the_program() {
             ("W5", 3, "S60"),
         ]
     );
-    let double = subgroup
-        .double_valued_subduction()
-        .expect("double-valued subduction");
-    let actual: Vec<(&str, u8, u16)> = double
+    let other = subgroup
+        .other_wave_vector_subduction()
+        .expect("other-wave-vector subduction");
+    let actual: Vec<(&str, u8, u16)> = other
         .iter()
         .map(|entry| (entry.parent_ml, entry.parent_sg, entry.frequency))
         .collect();
@@ -410,6 +412,22 @@ fn double_valued_subduction_matches_the_program() {
         actual,
         vec![("DT5", 225, 3), ("SM3", 225, 3), ("SM4", 225, 3)]
     );
+    // The wave-vector label is the alphabetic prefix (`DT5` -> `DT`), and SG
+    // 225's k-point list really contains those lines.
+    for entry in &other {
+        let prefix: String = entry
+            .parent_ml
+            .chars()
+            .take_while(|character| character.is_ascii_alphabetic())
+            .collect();
+        assert!(
+            ["DT", "SM", "LD", "L", "X", "W", "Q", "V", "C", "A", "GP", "GM"]
+                .contains(&prefix.as_str()),
+            "unexpected wave-vector prefix {prefix:?} in {}",
+            entry.parent_ml
+        );
+        assert_eq!(entry.parent_sg, 225);
+    }
 
     let table = format_identity_subduction(subgroup.ordinal).expect("table");
     assert!(table.contains("| S60 |"), "{table}");
@@ -417,7 +435,7 @@ fn double_valued_subduction_matches_the_program() {
 }
 
 #[test]
-fn double_valued_subduction_tables_tile() {
+fn other_wave_vector_subduction_tables_tile() {
     assert_eq!(
         ISOTROPY_W_SUBDUCE_RANGES.len(),
         ISOTROPY_SUBGROUPS.len() + 1
@@ -442,7 +460,7 @@ fn double_valued_subduction_tables_tile() {
         assert!(ISOTROPY_W_SUBDUCE_FREQUENCY[index] >= 1);
     }
     for ordinal in 0..ISOTROPY_SUBGROUPS.len() {
-        let entries = double_valued_subduction(ordinal).expect("resolves");
+        let entries = other_wave_vector_subduction(ordinal).expect("resolves");
         let expected =
             (ISOTROPY_W_SUBDUCE_RANGES[ordinal + 1] - ISOTROPY_W_SUBDUCE_RANGES[ordinal]) as usize;
         assert_eq!(entries.len(), expected, "ordinal {ordinal}");

@@ -1,120 +1,92 @@
+"""Mapping from isotropy direction codes to order-parameter component strings.
+
+The string is only a *label* for the direction: the authoritative selector is
+the ISOTROPY direction label (`P1`, `C2`, `S1`, …), which this repository always
+carries as `IsotropyRecord::direction_label`.
+
+Provenance of every entry below:
+
+* `dim <= 3` entries were read from the bundled program with
+  `SHOW SUBGROUP` + `SHOW DIRECTION VECTOR` + `DISPLAY ISOTROPY` (command in
+  `scripts/verify_isotropy_oracle.py`), so they are the program's own strings.
+  They were re-checked over every `dim = 3` irrep of a 175-irrep sample spanning
+  all crystal systems (`target/scratch/verify_dim3_map.py`): 781 label checks,
+  0 mismatches for `P1/P2/P3/C1/S1`, and `C2` matched the cubic form
+  `(a,a,b)` for cubic parents while trigonal/hexagonal parents printed the
+  complex form `(a;b;a)` (22 mismatches before the split was made explicit).
+  The program uses `;` where the components are complex.
+* `dim >= 4` entries are **cryspglib's own** compact notation
+  (`LABEL(free)/DIMD`), not a string the archive stores: the program prints full
+  component lists (e.g. `(a,0,b,0,-b,0)`) that are per-irrep, so a table keyed
+  by `(dim, free, label)` cannot reproduce them.  Users who need the program's
+  exact spelling should select by `Label`.
 """
-Mapping from isotropy direction codes to human-readable direction strings.
 
-The ISOTROPY direction codes are sequential indices that encode specific
-directions in the order-parameter space. The mapping is determined by:
+# (dim, free, label) -> component string, for the cases where the program's
+# string is a function of the triple alone.  Verified as described above.
+OFFICIAL = {
+    (1, 1, "P1"): "(a)",
+    (3, 1, "P1"): "(a,0,0)",
+    (3, 1, "P2"): "(a,a,0)",
+    (3, 1, "P3"): "(a,a,a)",
+    (3, 2, "C1"): "(a,b,0)",
+    (3, 2, "C2"): "(a,a,b)",  # cubic parents; see CUBIC_C2_ALTERNATIVE
+    (3, 3, "S1"): "(a,b,c)",
+}
 
-- Order parameter dimension (D): the dimensionality of the irrep space
-- Free parameter count (f): dimensionality of the isotropy subspace
-- Label (P1, C2, S1, 4D1, etc.): the direction type within D-dimensional space
-
-Data source: isotropy_subgroup/iso_data/data_isotropy.txt
-Reference: Stokes & Hatch (1988), Isotropy Subgroups of the 230
-           Crystallographic Space Groups
-
-For dim <= 3 we provide explicit component descriptions.
-For dim >= 4 we use a compact format: <label>(<free>)/<dim>D
-"""
+# Trigonal/hexagonal parents print the complex form instead.
+NON_CUBIC_C2 = "(a;b;a)"
 
 
-def build_direction_map(dir_vals, dim_vals, free_vals, label_vals):
-    """Build a dict mapping each direction code to a descriptive string.
+def _crystal_system_is_cubic(sg_number):
+    return sg_number >= 195
 
-    The input arrays are parallel (position N corresponds across all arrays).
-    dir_vals contains the numeric direction codes that appear in the data.
 
-    Args:
-        dir_vals: list of direction code numbers (from isotropy_direction)
-        dim_vals: list of order parameter dimensions
-        free_vals: list of free parameter counts
-        label_vals: list of direction labels ("P1", "C2", etc.)
+def direction_str(dim, free, label, parent_sg=None):
+    """Component string for one isotropy record (see the module docstring)."""
+    official = OFFICIAL.get((dim, free, label))
+    if official is not None:
+        if (dim, free, label) == (3, 2, "C2") and parent_sg is not None:
+            if not _crystal_system_is_cubic(parent_sg):
+                return NON_CUBIC_C2
+        return official
 
-    Returns:
-        dict[int -> str]: direction code -> description string
+    if dim <= 3:
+        # dim = 2 is deliberately the internal notation: the program's strings
+        # depend on whether the parent irrep is complex (SG 5 `L1` prints
+        # `(a;a)` while SG 91 `A1` prints `(a,0)`), so no triple-keyed table is
+        # correct.  These strings stay stable for `Descriptor` matching.
+        if dim == 1:
+            return "(a)"
+        if dim == 2:
+            if free == 1:
+                return {"P1": "(a,0)", "P2": "(0,a)", "P3": "(a,a)", "P4": "(a,-a)"}.get(
+                    label, f"(P:{label})"
+                )
+            return "(a,b)"
+        return f"(dim{dim})"
+
+    # dim >= 4: cryspglib's compact notation, never claimed to be the program's.
+    return f"{label}({free})/{dim}D"
+
+
+def build_direction_map(dir_vals, dim_vals, free_vals, label_vals, parent_sgs=None):
+    """Map each direction code to a description string.
+
+    Convenience wrapper over [`direction_str`] for callers that group by code.
+    Prefer `direction_str` per record: a code can be shared by cubic and
+    non-cubic parents for the family-dependent `C2` spelling.
     """
-    # Build a unique mapping: for each direction code value, record (dim, free, label)
-    # Use the first occurrence of each code to determine the mapping
     code_map = {}
     for i in range(len(dir_vals)):
         code = dir_vals[i]
-        if code not in code_map:
-            dim = dim_vals[i] if i < len(dim_vals) else 0
-            free = free_vals[i] if i < len(free_vals) else 0
-            label = label_vals[i].strip() if i < len(label_vals) else "?"
-            code_map[code] = (dim, free, label)
-
-    result = {}
-    for code in sorted(code_map.keys()):
-        dim, free, label = code_map[code]
-        result[code] = _direction_str(dim, free, label)
-
-    return result
-
-
-def _direction_str(dim, free, label):
-    """Convert (dim, free, label) to a direction description string."""
-    # For dimensions 1-3, provide explicit component notation
-    if dim <= 3:
-        return _explicit_direction(dim, free, label)
-    else:
-        return _compact_direction(dim, free, label)
-
-
-def _explicit_direction(dim, free, label):
-    """Explicit component notation for dim <= 3."""
-    if dim == 1:
-        if label == "P1":
-            return "(a)"
-        return "(a)"  # only one possible 1D direction
-
-    if dim == 2:
-        if free == 1:
-            if label == "P1":
-                return "(a,0)"
-            elif label == "P2":
-                return "(0,a)"
-            elif label == "P3":
-                return "(a,a)"
-            elif label == "P4":
-                return "(a,-a)"
-            else:
-                return f"(Pn:{label})"  # unexpected P label
-        elif free == 2:
-            if label == "C1":
-                return "(a,b)"
-            else:
-                return f"(a,b)"  # generic 2D
-        else:
-            return "(?,?)"
-
-    if dim == 3:
-        if free == 1:
-            if label == "P1":
-                return "(a,0,0)"
-            elif label == "P2":
-                return "(0,a,0)"
-            elif label == "P3":
-                return "(a,a,0)"
-            else:
-                return f"(Pn:{label})"
-        elif free == 2:
-            if label == "C1":
-                return "(a,b,0)"
-            elif label == "C2":
-                return "(a,0,b)"
-            else:
-                return f"(Cn:{label})"
-        elif free == 3:
-            if label == "S1":
-                return "(a,b,c)"
-            else:
-                return "(a,b,c)"
-        else:
-            return f"(dim{dim})"
-
-    return f"(dim{dim})"
-
-
-def _compact_direction(dim, free, label):
-    """Compact notation for higher-dimensional directions: <label>(<free>)/<dim>D."""
-    return f"{label}({free})/{dim}D"
+        if code in code_map:
+            continue
+        parent_sg = parent_sgs[i] if parent_sgs is not None and i < len(parent_sgs) else None
+        code_map[code] = direction_str(
+            dim_vals[i] if i < len(dim_vals) else 0,
+            free_vals[i] if i < len(free_vals) else 0,
+            label_vals[i].strip() if i < len(label_vals) else "?",
+            parent_sg,
+        )
+    return code_map
