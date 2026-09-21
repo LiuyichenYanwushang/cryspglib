@@ -168,6 +168,20 @@ size 16, pinned `DT1 = 1, DT3 = 2, DT4 = 1, SM1 = 2`): the model folds four arms
 (`(0,0,+-2)`, `(+-2,0,0)`), each arm's stabiliser has two operations, and the
 transported characters come out `(+1,-1)`, `(+1,-1)`, `(+1,+1)`, `(-1,-1)`; the
 per-arm weights are therefore `0, 0, 1, -1` and the total is 0 instead of 2.
+The same record pins a ratio that rules out two further readings: `DT1`, `DT3`
+and `DT4` are the *same* three little irreps on the *same* arms (little dimension
+1, character rows `(1,1,1,1)`, `(1,-1,1,-1)`, `(1,-1,-1,1)` over
+`(E, C2y, sx, sz)`), yet their pinned frequencies are `1`, `2`, `1`.  A per-arm
+weight of "the whole little rep is trivial on the stabiliser" (the
+invariant-subspace reading) is 0/1 and can only produce sums that are counts of
+arms, and the plain character average over the four-element stabiliser gives
+`4`, `0`, `0`; neither can produce `1, 2, 1` from one arm set.  So the weight is
+neither the projection nor the strict-invariance indicator — it is some other
+object (a candidate worth testing next: the *multiplicity* with which the arm's
+little rep occurs in the child's *full* star decomposition at the folded point,
+i.e. the pairing the engine already computes in `build_block` for discrete
+probes, which never enters a hand-written per-arm formula).
+
 A negative per-arm weight already proves the weight is not the trivial-content
 projection I assumed — the sum must be computed differently (the natural
 candidates: average over the child's *full* point group with the arm
