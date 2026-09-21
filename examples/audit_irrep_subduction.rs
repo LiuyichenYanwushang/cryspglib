@@ -1360,14 +1360,39 @@ origin={},{},{},{}",
                     self.counts.w_source_resolved += 1;
                     let table = cryspglib::irrep::w_little_characters_data::W_LITTLE_CHARACTERS
                         .iter()
-                        .any(|table| {
+                        .find(|table| {
                             usize::from(table.space_group) == usize::from(entry.parent_sg)
                                 && table.label == entry.parent_ml
                         });
-                    if table {
-                        self.counts.w_character_frozen += 1;
-                    } else {
-                        self.counts.w_character_blocked += 1;
+                    match table {
+                        Some(table) => {
+                            self.counts.w_character_frozen += 1;
+                            // The engine reproduces the pinned rows of the P1-child
+                            // family today (all 300 of them); every other child is
+                            // still the oracle-verified track, so only this family
+                            // is counted as computed.
+                            if subgroup.record.sg == 1
+                                && let Some(embedding) = embedding.as_ref()
+                            {
+                                match cryspglib::irrep::subduction::star::decompose::
+                                    line_trivial_content_with_embedding(
+                                        subgroup, embedding, table,
+                                    ) {
+                                    Ok(value) if value == u32::from(entry.frequency) => {
+                                        self.counts.w_computed += 1;
+                                    }
+                                    Ok(value) => self.mismatch(format!(
+                                        "ordinal {ordinal}: other-wave-vector row {} computed \
+                                         {value}, pinned {}",
+                                        entry.parent_ml, entry.frequency
+                                    )),
+                                    Err(error) => {
+                                        self.bump_error(&format!("w-line:{error}"));
+                                    }
+                                }
+                            }
+                        }
+                        None => self.counts.w_character_blocked += 1,
                     }
                 } else {
                     self.counts.w_source_mismatch += 1;
