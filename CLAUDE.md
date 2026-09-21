@@ -750,6 +750,30 @@ m = mult(trivial_{H ∩ sG_k s⁻¹}, W)
 (ii) 若这些直线小群表示都是某个 1 维表示的单式诱导（monomial），m 可由陪集结构
 直接数出来 —— 这条更省事，值得先试。
 
+**第十三轮（2026-09-22）：`little_subduce_*` 的载荷被解出一半，且给出了新的 m 路线。**
+
+对 SG 196 的直线 irrep 直接读 `little_subduce_*`（`little_subduce_irr_pointer[i]` →
+`little_subduce_pointer` → `little_subduce_frequency` / `little_subduce_pg_irrep`）：
+
+| irrep | full_dim | (pg_irrep, frequency) | Σ freq·dim(pg) |
+|---|---|---|---|
+| DT1 | 6 | (1,1) (2,1) (3,1) | 1+2+3 = **6** ✓ |
+| DT2 | 6 | (3,2) | 2·3 = **6** ✓ |
+| SM1 | 12 | (1,1) (2,1) (3,3) | 1+2+9 = **12** ✓ |
+
+即载荷是**母群 full-star 表示按母群点群 irrep 的分解**（点群 23 的 pg 序号 1/2/3 =
+A(1 维)/E(2 维)/T(3 维)），并且满足
+`Σ frequency × dim(pg_irrep) == little_irr_full_dim` 这条**可检查的不变量** ✓。
+这条路线比解码 2.22M 个整数矩阵编码更省：有了 V（full-star 表示）按点群 irrep 的
+分解，再用点群特征标（标准、可自造）与嵌入里 H 的点群，就能算
+`mult(trivial_H, V|_H)`，其中 W 的贡献可由诱导关系从分解倒推。
+
+**但指针链还没完全解开**：用 `little_subduce_irr_pointer[i] → little_subduce_pointer`
+这一层，11 个立方母群 343 条里只有 122 条能解出不变量、221 条解出**空块**（count=0），
+说明 `little_subduce_pointer` / `little_subduce_count` 的索引口径还没对准（它们长度
+都是 47000，而 little irrep 是 10300，中间那层显然不是「每 irrep 一项」）。下一轮先把
+这一层对齐（用「每块最后一行恒为 [(dim,1)]」这条已知性质做门禁），再谈倒推 m。
+
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
 `irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，
