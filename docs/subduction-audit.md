@@ -53,6 +53,19 @@ oracle 5,756 条 w 行对 pinned 5,756 条 w 行、0 不匹配**，其中 144 �
 （`src/irrep/w_little_characters_data.rs`，65/73，锚点回归 `tests/w_little_characters.rs`），
 下一步是引擎侧的 Mackey/特征标求和。
 
+Mackey/特征标求和的 Python 原型（`target/task9/explore/proto_freq.py`，未入库）已把公式
+跑通一半：对 `(母群 SG, irrep, Dir)` 用程序打印的**子群操作**（`VALUE IRREP` +
+`VALUE DIRECTION <lab>` + `SHOW EL`，在母群帧里）与 little 群 `{R : Rv = v}` 的陪集，
+按 `(1/|H|) Σ_{h∈H} Σ_{s∈G_L\G, s⁻¹hs∈G_L} χ_{W'}(s⁻¹hs)` 求值。SG 196 的
+`6D1`（P1 子群）三源全部命中（`DT1=6, DT2=6, SM1=12`，正是 `dim V'` 锚点），
+但 `4D1`/`C5`/`C11` 偏高（如 `4D1` 得 12 而非 4）。
+
+已定位到根因方向：原型的群元规范化把平移**按 Z³ 取模**，而母群格子是**带心的**
+（SG 196 的 cF 在 conventional 坐标下不是 Z³）；子群超胞平移（如 `(2,0,0)`）因此
+被错误折叠成单位元，陪集/成员判定全部失真。引擎侧有正确的 `Lattice` /
+`parent_primitive_basis` 层，Rust 实现必须按**母群格子**而不是 Z³ 规范化，
+`(E,T) ∈ G_L` 的判据是 `T ∈ L_parent`。
+
 `--require-complete` 只表述第一条轨道（`VERDICT complete scope=global`），不会把
 第二条轨道算作已完成。
 
