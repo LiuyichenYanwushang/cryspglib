@@ -39,6 +39,21 @@ frequency    = Σ_{H-orbits of arms folding to child Γ} mult(trivial_{H ∩ sG_
 * Sanity anchors: SG 196 `6D1` (P1 child) → `DT1 = 6`, `DT2 = 6`, `SM1 = 12`;
   `w_scope` must move from `computed=0` to `computed=5408`.
 
+Exact integration point (checked 2026-09-22): `build_block` in
+`src/irrep/subduction_star_decompose.rs` builds the q-block characters with
+
+```rust
+parent_characters.push(star.q_block_character(point.arm_indices(), operation)?);
+```
+
+so the only coupling to the CIR data is `ScalarStar::q_block_character`. A
+variant that answers from `w_little_characters_data` (rotation lookup in the
+table plus the Bloch phase) plugged in there gives the w frequency through the
+existing, validated code path; `little_group_operations`, `identity_position`,
+`select_representative` and the child-cell handling stay untouched. Sanity gates
+to keep: `chi_q(E) = q_block_dimension` (already asserted in `build_block`) and
+the SG 196 `6D1` anchor above.
+
 ## Step 2 — the eight unresolved sources (348 rows)
 
 SG 202/203/209/210 `DT3`/`DT4`. The Γ compatibility data fixes only their sum;
