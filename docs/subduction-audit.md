@@ -85,6 +85,19 @@ mult(trivial_H, V'|_H)
 `6D1` 的锚点自洽：`n = 6`、`|P_H| = 1`、`Σ_T χ = 72` ⇒ `72/6 = 12 = dim V'` ✓。
 `L_H/L_parent` 的陪集代表可从官方 `SHOW BASIS` / pinned isotropy basis 取。
 
+**与引擎现有实现的等价关系（第二十三轮）**：对 `T` 的平均并不需要显式枚举子群胞平移
+——它对每个臂给出 `Σ_{T ∈ L_H/L_parent} exp(-2πi k·(s⁻¹T))`，正好是「该臂折叠到子群
+Γ」的判据（只有 `k·T ∈ Z ∀T` 时不为零）。所以
+
+```text
+frequency = Σ_{折叠到子群 Γ 的母群臂的 H-轨道} m,
+m = mult(trivial_{H ∩ sG_Ls⁻¹}, W'^s)
+```
+
+与 `trivial_content_with_embedding`（第六轮）已经实现的那条精确路径**同一件事**：
+引擎只需要把「臂的字符来源」从 CIR 矩阵换成冻结的 little 表（外加 Bloch 相位），
+折叠加 Γ 判定、子群 k 数据缺失的处理都可以原样复用。这是 Rust 侧最小改动的入口。
+
 `--require-complete` 只表述第一条轨道（`VERDICT complete scope=global`），不会把
 第二条轨道算作已完成。
 
