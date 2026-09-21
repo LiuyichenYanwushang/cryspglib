@@ -116,6 +116,42 @@ Still open, reported explicitly and not counted as covered: 14,713 probes whose
 folded child k is not in the shipped discrete table, 5,756 other-wave-vector
 entries without resolved k parameters.
 
+## Fourth pass: the engine's placement was not the official one (2026-09-21)
+
+Three fixes closed 1,698 of the 1,758 consistency rows:
+
+1. **The subgroup lattice has to follow the accepted map.**  `SubgroupEmbedding`
+   kept `W . P_parent` in its lattice field while validating against the lattice
+   the candidate's own affine map produces; with a fractional `U` those differ.
+2. **Every record has to sit at the origin the official program prints.**
+   `delta = (B^T)^-1 (o_printed - o_stored)` was only derived for records the
+   engine *rejected*, but two placements can both be valid subgroups, so the
+   engine's validation cannot tell the official one from the other.
+   `--recorded` applies it to all 1,057 records whose stored origin differs from
+   the printed one (523 engine-accepted), and it is oracle-free.
+3. **The child's Hall origin choice has to be derived even where `delta = 0`
+   validates.**  Re-deriving both frame routes for the 107 records the audit
+   still flagged gave 103 accepted shifts (97 origin-choice, 6 recorded-frame).
+
+| audit item | before the pass | after |
+|---|---|---|
+| embeddings | 15,239 / 15,239 | 15,239 / 15,239 |
+| identity positives passed | 93,720 | **94,081** |
+| identity mismatch | 391 | **30** |
+| absent computed positive | 380 | **30** |
+| hard failures | 771 | **60** |
+| Gamma Frobenius | 1,895 / 1,895 | 1,895 / 1,895 |
+
+Minimal witnesses, both fixed: ordinal 27 (SG 3 `A2` -> #3) where `delta = 0`
+placed the subgroup a half-cell away and moved the trivial content onto `GM2`;
+ordinal 1197 (SG 48 `R1+` -> #70) where the child's Hall row lives in the other
+ITA origin choice and the engine reported `GM1-`.
+
+The 60 remaining rows are 16 records of SG 5/12/15/67/68 (plus 13090/13106) whose
+stored origin differs from the printed one by a parent **cell choice**;
+`SET I <sg> CELL n` changes the direction set of those parents, so the records no
+longer line up one-to-one and the parent setting needs another route.
+
 ## State after the first pass (2026-09-21)
 
 The frozen table now addresses **all 15,239** pinned isotropy records.  The
