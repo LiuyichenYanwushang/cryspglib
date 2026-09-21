@@ -98,6 +98,14 @@ m = mult(trivial_{H ∩ sG_Ls⁻¹}, W'^s)
 引擎只需要把「臂的字符来源」从 CIR 矩阵换成冻结的 little 表（外加 Bloch 相位），
 折叠加 Γ 判定、子群 k 数据缺失的处理都可以原样复用。这是 Rust 侧最小改动的入口。
 
+**（第二十四轮）不要另写折叠判定**：原型用官方 `SHOW BASIS` 打印的子群基矢
+（SG 196 ord 10039 的 `4D1`：`(0,0,2),(-2,0,0),(0,-1,0)`，|det| = 4 ✓）自算
+「臂 k 是否落在子群倒格」时，DT/SM 两个方向都得到 **12**（全部母群点群操作），
+而 pinned 是 **4**；差别来自臂集合（应为 little 群陪集）与子群倒格的帧/中心化约定。
+结论：Rust 实现**必须复用引擎里已经验证过的折叠与 Γ 判定**
+（`trivial_content_with_embedding` 用的那一套，含 primitive/conventional 帧与
+centering 消光），只替换臂字符来源；另行手写折叠判定会重复已经踩过的帧错误。
+
 `--require-complete` 只表述第一条轨道（`VERDICT complete scope=global`），不会把
 第二条轨道算作已完成。
 
