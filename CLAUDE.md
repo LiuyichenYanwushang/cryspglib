@@ -768,11 +768,27 @@ A(1 维)/E(2 维)/T(3 维)），并且满足
 分解，再用点群特征标（标准、可自造）与嵌入里 H 的点群，就能算
 `mult(trivial_H, V|_H)`，其中 W 的贡献可由诱导关系从分解倒推。
 
-**但指针链还没完全解开**：用 `little_subduce_irr_pointer[i] → little_subduce_pointer`
-这一层，11 个立方母群 343 条里只有 122 条能解出不变量、221 条解出**空块**（count=0），
-说明 `little_subduce_pointer` / `little_subduce_count` 的索引口径还没对准（它们长度
-都是 47000，而 little irrep 是 10300，中间那层显然不是「每 irrep 一项」）。下一轮先把
-这一层对齐（用「每块最后一行恒为 [(dim,1)]」这条已知性质做门禁），再谈倒推 m。
+**第十四轮（2026-09-22）：中间层对齐，块结构门禁通过。**
+
+按上一轮的入口逐行走了 `little_subduce`：`little_subduce_irr_pointer[i]` 给出 irrep i
+在**行表**（`little_subduce_pointer` / `little_subduce_count`，各 47000 项，索引口径
+是「每**行**一项」而不是每 irrep 一项）中的起始行，一个 irrep 占
+**blocksize(SG) 行**（SG 196 = 8 行；DT1/DT2/SM1 的连续指针差都是 8 ✓），每行再
+指向 105000 项的 (`little_subduce_pg_irrep`, `little_subduce_frequency`) 载荷。
+
+**修正第三轮以来的一处读法**：块的最后一行不是「`[(dim,1)]`」，而是
+**`[(1, full_dim)]`** —— 即 pg 序号 1（各子群上下文里的恒等/一维表示）配重数
+= `little_irr_full_dim`。证据：SG 196 `DT1` 的最后一行 `[(1,6)]`、`DT2` `[(1,6)]`、
+`SM1` `[(1,12)]` ✓。
+
+**门禁**：对每个能解析出块的 little irrep，检查「最后一行 == [(1, full_dim)]」——
+**3929 条通过、5 条不匹配**（那 5 条是 SG 1 前几个 irrep，指针是 0 哨兵、
+行表读成空 ✓），0 条缺失 ✓。即中间层的索引口径已经对齐，可以放心地按
+「irrep → blocksize 行 → 每行 (pg_irrep, frequency) 分解」来读。
+
+每行的点群上下文不同（首行/末行用母群点群维数时 Σ freq·dim 才等于 full_dim：
+DT1 首行 A+E+T = 6 ✓、DT2 首行 2T = 6 ✓），所以倒推 m 时**必须先确定行与子群
+上下文的对应**，这仍是下一步。
 
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
