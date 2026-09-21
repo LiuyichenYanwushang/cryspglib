@@ -249,7 +249,7 @@ fn full_star_terms_and_reconstruction_match_independent_cir_witnesses() {
             .iter()
             .find(|source| source.sg == case.sg && source.ml == case.probe)
             .unwrap();
-        assert_eq!(result.parent_irnumber(), source.irnumber);
+        assert_eq!(result.parent_irnumber(), Some(source.irnumber));
         assert_eq!(result.parent_dimension() as usize, source.dimension);
         assert_eq!(result.subgroup_sg(), case.child);
         assert_eq!(result.ordinal(), case.ordinal);

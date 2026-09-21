@@ -1156,6 +1156,14 @@ const FROZEN_EMBEDDINGS: &[(u8, u8, Mat3I, [i32; 4])] = &[
     // #126 P4/nnc: the isotropy record uses the other ITA origin choice, so the
     // subgroup operations need the (1/4,1/4,1/4) shift before the affine map.
     (139, 126, IDENTITY_SETTING, [1, 1, 1, 4]),
+    // The four scalar self-restrictions (parent == subgroup) of task 8c.  Each
+    // is the official `SET I ALL OR 1` conventional basis `I` with origin zero
+    // and Size 1; pinning them keeps the identity candidate from being resolved
+    // by a different, also-consistent setting.
+    (19, 19, IDENTITY_SETTING, NO_SHIFT),
+    (23, 23, IDENTITY_SETTING, NO_SHIFT),
+    (45, 45, IDENTITY_SETTING, NO_SHIFT),
+    (83, 83, IDENTITY_SETTING, NO_SHIFT),
 ];
 
 const IDENTITY_SETTING: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
@@ -2042,8 +2050,25 @@ fn solve_character_block(
     child_cell: &Lattice,
     folded: &Vec3R,
 ) -> Result<SolvedCharacterBlock, SubductionError> {
-    let parent_dimension = complex_dimension(parent_characters, pulled_back)?;
     let targets = complex_targets(subgroup_sg, block, pulled_back, child_cell, folded)?;
+    solve_prepared_character_block(subgroup_sg, targets, parent_characters, pulled_back)
+}
+
+/// The shared decomposition core: Gram identity, integral multiplicities,
+/// dimension sum and per-operation reconstruction of one prepared target list.
+///
+/// `targets` are already evaluated as complex-irreducible rows on the same
+/// aligned `pulled_back` operation list.  [`solve_character_block`] prepares
+/// them from one child `k` block; the full-star adapter prepares its own list,
+/// because its child target rows can live on another arm of the child star and
+/// then need exact transport before they are comparable.
+fn solve_prepared_character_block(
+    subgroup_sg: u8,
+    targets: Vec<ComplexTarget>,
+    parent_characters: &[Complex64],
+    pulled_back: &[ExactSeitz],
+) -> Result<SolvedCharacterBlock, SubductionError> {
+    let parent_dimension = complex_dimension(parent_characters, pulled_back)?;
     let count = parent_characters.len();
     let scale = 1.0 / count as f64;
 

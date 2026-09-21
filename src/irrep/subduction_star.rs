@@ -28,6 +28,8 @@
 
 #[path = "subduction_star_decompose.rs"]
 pub mod decompose;
+#[path = "subduction_scalar_star.rs"]
+pub mod scalar_star;
 
 use num_complex::Complex64;
 
@@ -116,6 +118,45 @@ pub enum StarError {
     /// One orbit carries different arm counts at different `q` points.
     #[error("child star has non-uniform arm blocks: {arms} and {other_arms} parent arms")]
     NonUniformArmBlock { arms: usize, other_arms: usize },
+    /// The scalar components of one parent record do not share one selected-arm
+    /// dimension, so the folded geometry's uniform block dimension is undefined.
+    ///
+    /// The frozen scalar table has equal constituent dimensions for every
+    /// compound record (pinned by the full-table census); a record that breaks
+    /// that invariant fails closed instead of being folded with a mixed block.
+    #[error(
+        "scalar components carry different selected dimensions {first} and {other}; the folded \
+         geometry requires one dimension"
+    )]
+    NonUniformComponentDimension { first: usize, other: usize },
+    /// The assembled scalar full-star dimension disagrees with the record.
+    #[error(
+        "scalar full-star dimension of {ml} is {found} (identity character {identity}) but the \
+         record dimension is {record}"
+    )]
+    ScalarDimensionMismatch {
+        ml: &'static str,
+        record: u32,
+        found: u32,
+        identity: Complex64,
+    },
+    /// A component transversal handed to the scalar adapter is not a parent
+    /// group element modulo the parent lattice.
+    #[error(
+        "component {component} transporter {index} is not an operation of space group {sg} \
+         modulo the parent lattice"
+    )]
+    ComponentTransporterNotInParentGroup {
+        sg: u8,
+        component: usize,
+        index: usize,
+    },
+    /// The scalar adapter was handed the wrong number of component transversals.
+    #[error("scalar adapter needs {expected} component transversals but got {found}")]
+    ComponentTransporterCount { expected: usize, found: usize },
+    /// A folded arm index does not address a parent scalar arm.
+    #[error("folded arm index {index} is out of range for {arms} parent scalar arms")]
+    UnknownArmIndex { index: usize, arms: usize },
     /// The folded stars do not account for every parent arm.
     #[error("folded stars cover {folded} of {arms} parent arms")]
     FoldLostArms { folded: usize, arms: usize },
@@ -501,159 +542,204 @@ impl OrdinaryStar {
         &self,
         embedding: &SubgroupEmbedding,
     ) -> Result<Vec<FoldedStar>, StarError> {
-        if embedding.parent_sg() != self.parent_sg {
-            return Err(StarError::EmbeddingParentMismatch {
-                star_parent_sg: self.parent_sg,
-                embedding_parent_sg: embedding.parent_sg(),
-            });
-        }
-        let child_cell = Lattice::new(exact_primitive_basis(embedding.subgroup_sg())?)?;
-        let child_reciprocal = child_cell.reciprocal()?;
-
-        // Fold every arm and merge equal q, preserving all arm indices.
-        let mut points: Vec<FoldedPoint> = Vec::new();
-        for (arm_index, arm) in self.arms.iter().enumerate() {
-            let q = fold_wave_vector(embedding.transform(), &arm.wave_vector)?;
-            let mut found: Option<usize> = None;
-            for (slot, point) in points.iter().enumerate() {
-                if child_reciprocal.same_mod(&point.q, &q)? {
-                    found = Some(slot);
-                    break;
-                }
-            }
-            match found {
-                Some(slot) => points[slot].arm_indices.push(arm_index),
-                None => points.push(FoldedPoint {
-                    q,
-                    arm_indices: vec![arm_index],
-                }),
-            }
-        }
-
-        // Child rotations pulled back through T: rotations are unaffected by
-        // the frozen child shift, which is a translation.
-        let mut rotations: Vec<Mat3I> = Vec::new();
-        for operation in embedding.representatives() {
-            let child = embedding.transform().unmap_operation(operation)?;
-            if !rotations.contains(&child.rotation()) {
-                rotations.push(child.rotation());
-            }
-        }
-
-        // Orbit partition with closure checked at every image.
-        let mut assignment: Vec<Option<usize>> = vec![None; points.len()];
-        let mut orbits: Vec<Vec<usize>> = Vec::new();
-        for start in 0..points.len() {
-            if assignment[start].is_some() {
-                continue;
-            }
-            let star_index = orbits.len();
-            let mut orbit = vec![start];
-            assignment[start] = Some(star_index);
-            let mut cursor = 0;
-            while cursor < orbit.len() {
-                let current = orbit[cursor];
-                cursor += 1;
-                let q = points[current].q;
-                for rotation in &rotations {
-                    let image = Mat3R::from_ints(*rotation)
-                        .inverse()?
-                        .transpose()
-                        .checked_mul_vector(&q)?;
-                    let mut target: Option<usize> = None;
-                    for (slot, point) in points.iter().enumerate() {
-                        if child_reciprocal.same_mod(&point.q, &image)? {
-                            target = Some(slot);
-                            break;
-                        }
-                    }
-                    let target = target.ok_or_else(|| StarError::ChildStarNotClosed {
-                        q: [q.get(0), q.get(1), q.get(2)],
-                    })?;
-                    match assignment[target] {
-                        Some(existing) if existing != star_index => {
-                            return Err(StarError::ChildStarNotClosed {
-                                q: [q.get(0), q.get(1), q.get(2)],
-                            });
-                        }
-                        Some(_) => {}
-                        None => {
-                            assignment[target] = Some(star_index);
-                            orbit.push(target);
-                        }
-                    }
-                }
-            }
-            orbits.push(orbit);
-        }
-
-        if assignment.iter().any(Option::is_none) {
-            return Err(StarError::ChildStarNotClosed {
-                q: [Rat::ZERO, Rat::ZERO, Rat::ZERO],
-            });
-        }
-
-        // Canonically order the points inside every orbit, check the uniform
-        // arm block and derive the block dimension.
-        let mut stars: Vec<(Vec<usize>, usize, u32)> = Vec::new();
-        let mut folded_arms = 0usize;
-        for orbit in orbits {
-            let mut order: Vec<_> = orbit
-                .into_iter()
-                .map(|slot| (canonical_key(&points[slot].q), slot))
-                .collect();
-            order.sort_by_key(|entry| entry.0);
-            let ordered: Vec<usize> = order.into_iter().map(|(_, slot)| slot).collect();
-            let arms_per_point = points[ordered[0]].arm_indices.len();
-            for slot in &ordered {
-                if points[*slot].arm_indices.len() != arms_per_point {
-                    return Err(StarError::NonUniformArmBlock {
-                        arms: arms_per_point,
-                        other_arms: points[*slot].arm_indices.len(),
-                    });
-                }
-            }
-            let arm_count = arms_per_point * ordered.len();
-            folded_arms += arm_count;
-            let block_dimension = u32::try_from(arm_count * self.selected_row.dimension())
-                .map_err(|_| SubductionError::RationalOverflow {
-                    operation: "folded star dimension",
-                })?;
-            stars.push((ordered, arm_count, block_dimension));
-        }
-        if folded_arms != self.arms.len() {
-            return Err(StarError::FoldLostArms {
-                folded: folded_arms,
-                arms: self.arms.len(),
-            });
-        }
-
-        // Canonical star order uses the same exact encoding as point order.
-        let mut keyed: Vec<_> = stars
-            .into_iter()
-            .map(|(ordered, arm_count, block_dimension)| {
-                (
-                    canonical_key(&points[ordered[0]].q),
-                    ordered,
-                    arm_count,
-                    block_dimension,
-                )
+        let dimension = self.selected_row.dimension();
+        let arms: Vec<FoldArm> = self
+            .arms
+            .iter()
+            .map(|arm| FoldArm {
+                wave_vector: *arm.wave_vector(),
+                dimension,
             })
             .collect();
-        keyed.sort_by_key(|entry| entry.0);
-        Ok(keyed
+        fold_arms(embedding, self.parent_sg, &arms)
+    }
+}
+
+/// One parent arm as the folded geometry sees it: its exact wave vector and the
+/// selected-arm dimension of the component it belongs to.
+///
+/// The folded geometry is shared by [`OrdinaryStar`] (one component, one
+/// dimension) and the scalar adapter (several components whose frozen selected
+/// dimensions are all equal); a mixed-dimension arm list fails closed with
+/// [`StarError::NonUniformComponentDimension`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct FoldArm {
+    wave_vector: Vec3R,
+    dimension: usize,
+}
+
+/// Fold one arm list into the child frame and partition it into child stars.
+///
+/// This is the geometry both star adapters share; see
+/// [`OrdinaryStar::folded_stars`] for the exactness and grouping contract.
+pub(super) fn fold_arms(
+    embedding: &SubgroupEmbedding,
+    parent_sg: u8,
+    arms: &[FoldArm],
+) -> Result<Vec<FoldedStar>, StarError> {
+    if embedding.parent_sg() != parent_sg {
+        return Err(StarError::EmbeddingParentMismatch {
+            star_parent_sg: parent_sg,
+            embedding_parent_sg: embedding.parent_sg(),
+        });
+    }
+    let selected_dimension = arms
+        .first()
+        .map(|arm| arm.dimension)
+        .ok_or(StarError::FoldLostArms { folded: 0, arms: 0 })?;
+    if let Some(other) = arms.iter().find(|arm| arm.dimension != selected_dimension) {
+        return Err(StarError::NonUniformComponentDimension {
+            first: selected_dimension,
+            other: other.dimension,
+        });
+    }
+    let child_cell = Lattice::new(exact_primitive_basis(embedding.subgroup_sg())?)?;
+    let child_reciprocal = child_cell.reciprocal()?;
+
+    // Fold every arm and merge equal q, preserving all arm indices.
+    let mut points: Vec<FoldedPoint> = Vec::new();
+    for (arm_index, arm) in arms.iter().enumerate() {
+        let q = fold_wave_vector(embedding.transform(), &arm.wave_vector)?;
+        let mut found: Option<usize> = None;
+        for (slot, point) in points.iter().enumerate() {
+            if child_reciprocal.same_mod(&point.q, &q)? {
+                found = Some(slot);
+                break;
+            }
+        }
+        match found {
+            Some(slot) => points[slot].arm_indices.push(arm_index),
+            None => points.push(FoldedPoint {
+                q,
+                arm_indices: vec![arm_index],
+            }),
+        }
+    }
+
+    // Child rotations pulled back through T: rotations are unaffected by
+    // the frozen child shift, which is a translation.
+    let mut rotations: Vec<Mat3I> = Vec::new();
+    for operation in embedding.representatives() {
+        let child = embedding.transform().unmap_operation(operation)?;
+        if !rotations.contains(&child.rotation()) {
+            rotations.push(child.rotation());
+        }
+    }
+
+    // Orbit partition with closure checked at every image.
+    let mut assignment: Vec<Option<usize>> = vec![None; points.len()];
+    let mut orbits: Vec<Vec<usize>> = Vec::new();
+    for start in 0..points.len() {
+        if assignment[start].is_some() {
+            continue;
+        }
+        let star_index = orbits.len();
+        let mut orbit = vec![start];
+        assignment[start] = Some(star_index);
+        let mut cursor = 0;
+        while cursor < orbit.len() {
+            let current = orbit[cursor];
+            cursor += 1;
+            let q = points[current].q;
+            for rotation in &rotations {
+                let image = Mat3R::from_ints(*rotation)
+                    .inverse()?
+                    .transpose()
+                    .checked_mul_vector(&q)?;
+                let mut target: Option<usize> = None;
+                for (slot, point) in points.iter().enumerate() {
+                    if child_reciprocal.same_mod(&point.q, &image)? {
+                        target = Some(slot);
+                        break;
+                    }
+                }
+                let target = target.ok_or_else(|| StarError::ChildStarNotClosed {
+                    q: [q.get(0), q.get(1), q.get(2)],
+                })?;
+                match assignment[target] {
+                    Some(existing) if existing != star_index => {
+                        return Err(StarError::ChildStarNotClosed {
+                            q: [q.get(0), q.get(1), q.get(2)],
+                        });
+                    }
+                    Some(_) => {}
+                    None => {
+                        assignment[target] = Some(star_index);
+                        orbit.push(target);
+                    }
+                }
+            }
+        }
+        orbits.push(orbit);
+    }
+
+    if assignment.iter().any(Option::is_none) {
+        return Err(StarError::ChildStarNotClosed {
+            q: [Rat::ZERO, Rat::ZERO, Rat::ZERO],
+        });
+    }
+
+    // Canonically order the points inside every orbit, check the uniform
+    // arm block and derive the block dimension.
+    let mut stars: Vec<(Vec<usize>, usize, u32)> = Vec::new();
+    let mut folded_arms = 0usize;
+    for orbit in orbits {
+        let mut order: Vec<_> = orbit
             .into_iter()
-            .map(|(_, ordered, arm_count, block_dimension)| FoldedStar {
-                points: ordered
-                    .into_iter()
-                    .map(|slot| points[slot].clone())
-                    .collect(),
-                seed_dimension: self.selected_row.dimension(),
+            .map(|slot| (canonical_key(&points[slot].q), slot))
+            .collect();
+        order.sort_by_key(|entry| entry.0);
+        let ordered: Vec<usize> = order.into_iter().map(|(_, slot)| slot).collect();
+        let arms_per_point = points[ordered[0]].arm_indices.len();
+        for slot in &ordered {
+            if points[*slot].arm_indices.len() != arms_per_point {
+                return Err(StarError::NonUniformArmBlock {
+                    arms: arms_per_point,
+                    other_arms: points[*slot].arm_indices.len(),
+                });
+            }
+        }
+        let arm_count = arms_per_point * ordered.len();
+        folded_arms += arm_count;
+        let block_dimension = u32::try_from(arm_count * selected_dimension).map_err(|_| {
+            SubductionError::RationalOverflow {
+                operation: "folded star dimension",
+            }
+        })?;
+        stars.push((ordered, arm_count, block_dimension));
+    }
+    if folded_arms != arms.len() {
+        return Err(StarError::FoldLostArms {
+            folded: folded_arms,
+            arms: arms.len(),
+        });
+    }
+
+    // Canonical star order uses the same exact encoding as point order.
+    let mut keyed: Vec<_> = stars
+        .into_iter()
+        .map(|(ordered, arm_count, block_dimension)| {
+            (
+                canonical_key(&points[ordered[0]].q),
+                ordered,
                 arm_count,
                 block_dimension,
-            })
-            .collect())
-    }
+            )
+        })
+        .collect();
+    keyed.sort_by_key(|entry| entry.0);
+    Ok(keyed
+        .into_iter()
+        .map(|(_, ordered, arm_count, block_dimension)| FoldedStar {
+            points: ordered
+                .into_iter()
+                .map(|slot| points[slot].clone())
+                .collect(),
+            seed_dimension: selected_dimension,
+            arm_count,
+            block_dimension,
+        })
+        .collect())
 }
 
 /// The induced trace: fixed arms contribute their conjugated seed character,
@@ -668,19 +754,70 @@ fn induced_character(
     seed_k: &Vec3R,
     operation: &ExactSeitz,
 ) -> Result<Complex64, StarError> {
+    induced_component_character(
+        arms,
+        row,
+        ml,
+        parent_lattice,
+        parent_reciprocal,
+        seed_k,
+        false,
+        operation,
+    )
+}
+
+/// The induced trace of one complex component.
+///
+/// The arm fixity test uses the arms' own (effective) wave vectors, while the
+/// row is always evaluated at `row_k`, the wave vector the stored row belongs
+/// to.  `conjugate` then conjugates the whole sum, which is the character of
+/// the complex-conjugate component: its Bloch phase is the `-row_k` phase, not
+/// the `+row_k` phase, and conjugating the evaluated value (phase included)
+/// produces exactly that.
+#[allow(clippy::too_many_arguments)]
+fn induced_component_character(
+    arms: &[StarArm],
+    row: &CharacterRow,
+    ml: &'static str,
+    lattice: &Lattice,
+    reciprocal: &Lattice,
+    row_k: &Vec3R,
+    conjugate: bool,
+    operation: &ExactSeitz,
+) -> Result<Complex64, StarError> {
     let mut total = Complex64::new(0.0, 0.0);
     for (index, arm) in arms.iter().enumerate() {
-        if !parent_reciprocal.preserves(operation.rotation(), &arm.wave_vector)? {
-            continue;
-        }
-        let conjugated = arm
-            .transporter
-            .inverse()?
-            .compose(operation)?
-            .compose(&arm.transporter)?;
-        total += character_of(row, ml, &conjugated, parent_lattice, seed_k, index)?;
+        total += arm_character(
+            arm, row, ml, lattice, reciprocal, row_k, conjugate, index, operation,
+        )?;
     }
     Ok(total)
+}
+
+/// One arm's contribution to an induced trace: zero unless `operation` fixes
+/// the arm modulo the reciprocal lattice.
+#[allow(clippy::too_many_arguments)]
+fn arm_character(
+    arm: &StarArm,
+    row: &CharacterRow,
+    ml: &'static str,
+    lattice: &Lattice,
+    reciprocal: &Lattice,
+    row_k: &Vec3R,
+    conjugate: bool,
+    index: usize,
+    operation: &ExactSeitz,
+) -> Result<Complex64, StarError> {
+    if !reciprocal.preserves(operation.rotation(), &arm.wave_vector)? {
+        return Ok(Complex64::new(0.0, 0.0));
+    }
+    let conjugated = arm
+        .transporter
+        .inverse()?
+        .compose(operation)?
+        .compose(&arm.transporter)?;
+    let value = character_of(row, ml, &conjugated, lattice, row_k, index)?;
+    Ok(if conjugate { value.conj() } else { value })
 }
 
 // ── Folded child stars ───────────────────────────────────────────────────────
@@ -698,12 +835,13 @@ impl FoldedPoint {
         &self.q
     }
 
-    /// Parent arm indices folded onto this `q`, ascending.
+    /// Indices into the source adapter's arm list, ascending. For a scalar
+    /// compound, coincident arms retain separate component indices.
     pub fn arm_indices(&self) -> &[usize] {
         &self.arm_indices
     }
 
-    /// Number of parent arms folded onto this `q`.
+    /// Number of parent component arms folded onto this `q`.
     pub fn arm_count(&self) -> usize {
         self.arm_indices.len()
     }
@@ -730,12 +868,13 @@ impl FoldedStar {
         self.points.len()
     }
 
-    /// Total number of parent arms in the orbit.
+    /// Total number of parent component arms in the orbit, including coincident
+    /// arms of different components.
     pub fn arm_count(&self) -> usize {
         self.arm_count
     }
 
-    /// Dimension of the parent selected arm this block is built from.
+    /// Common selected-arm dimension of one complex parent component.
     pub const fn seed_dimension(&self) -> usize {
         self.seed_dimension
     }
@@ -762,6 +901,7 @@ impl FoldedStar {
 mod tests {
     use super::*;
     use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
+    use crate::irrep::subduction::IDENTITY_SETTING;
 
     fn pair(num: i128, den: i128) -> Rat {
         Rat::new(num, den).expect("non-zero denominator")
@@ -1274,5 +1414,97 @@ mod tests {
         let star = OrdinaryStar::new(record).expect("gamma star");
         assert_eq!(star.probe_ml(), "GM3+");
         assert!(std::ptr::eq(star.probe(), record));
+    }
+
+    /// The four scalar self-restriction embeddings of task 8c are frozen with
+    /// the identity setting and no shift, and their mapped subgroup operations
+    /// reproduce the official `SET I ALL OR 1` `SHOW ELEMENTS` rows exactly.
+    #[test]
+    fn frozen_scalar_self_embeddings_pin_the_official_operations() {
+        /// `(rotation, translation)` with the translation as reduced
+        /// `(numerator, denominator)` pairs, exactly as the fixture stores it.
+        type Expected = (Mat3I, [(i128, i128); 3]);
+        let zero = [(0, 1), (0, 1), (0, 1)];
+        let half_z = [(0, 1), (0, 1), (1, 2)];
+        let half_xy = [(1, 2), (1, 2), (0, 1)];
+        let half_yz = [(0, 1), (1, 2), (1, 2)];
+        let half_xz = [(1, 2), (0, 1), (1, 2)];
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let c2x = [[1, 0, 0], [0, -1, 0], [0, 0, -1]];
+        let c2y = [[-1, 0, 0], [0, 1, 0], [0, 0, -1]];
+        let c2z = [[-1, 0, 0], [0, -1, 0], [0, 0, 1]];
+        let sgx = [[-1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let sgy = [[1, 0, 0], [0, -1, 0], [0, 0, 1]];
+        let c4z_plus = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
+        let c4z_minus = [[0, 1, 0], [-1, 0, 0], [0, 0, 1]];
+        let inversion = [[-1, 0, 0], [0, -1, 0], [0, 0, -1]];
+        let sgz = [[1, 0, 0], [0, 1, 0], [0, 0, -1]];
+        let s4z_minus = [[0, 1, 0], [-1, 0, 0], [0, 0, -1]];
+        let s4z_plus = [[0, -1, 0], [1, 0, 0], [0, 0, -1]];
+        let cases: [(u8, &str, u8, &[Expected]); 4] = [
+            (
+                19,
+                "GM1",
+                19,
+                &[
+                    (identity, zero),
+                    (c2x, half_xy),
+                    (c2y, half_yz),
+                    (c2z, half_xz),
+                ],
+            ),
+            (
+                23,
+                "GM1",
+                23,
+                &[(identity, zero), (c2x, zero), (c2y, zero), (c2z, zero)],
+            ),
+            (
+                45,
+                "GM1",
+                45,
+                &[(identity, zero), (c2z, zero), (sgx, half_z), (sgy, half_z)],
+            ),
+            (
+                83,
+                "GM1+",
+                83,
+                &[
+                    (identity, zero),
+                    (c2z, zero),
+                    (c4z_plus, zero),
+                    (c4z_minus, zero),
+                    (inversion, zero),
+                    (sgz, zero),
+                    (s4z_minus, zero),
+                    (s4z_plus, zero),
+                ],
+            ),
+        ];
+        for (parent, condensing, subgroup_sg, expected) in cases {
+            let built = embedding(parent, condensing, "P1");
+            assert_eq!(built.subgroup_sg(), subgroup_sg);
+            assert_eq!(built.setting(), IDENTITY_SETTING);
+            assert_eq!(built.child_shift(), &Vec3R::zero());
+            assert_eq!(built.candidate_count(), 1);
+            assert_eq!(built.representatives().len(), expected.len());
+            let mut found: Vec<(Mat3I, [(i128, i128); 3])> = built
+                .representatives()
+                .iter()
+                .map(|operation| {
+                    (
+                        operation.rotation(),
+                        operation
+                            .translation()
+                            .as_array()
+                            .map(|value| (value.numerator(), value.denominator())),
+                    )
+                })
+                .collect();
+            let mut expected: Vec<(Mat3I, [(i128, i128); 3])> = expected.to_vec();
+            found.sort_by_key(|entry| (entry.0, entry.1));
+            expected.sort_by_key(|entry| (entry.0, entry.1));
+            assert_eq!(found, expected, "SG {parent} {condensing}");
+        }
     }
 }

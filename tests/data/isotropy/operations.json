@@ -1788,6 +1788,546 @@
       "centring": "P",
       "point_group_order": 16,
       "conventional_cell_operations": 16
+    },
+    {
+      "subgroup": 19,
+      "symbol": "P2_12_12_1",
+      "size": 1,
+      "direction": "P1",
+      "basis": [
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "1",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "1"
+        ]
+      ],
+      "origin": [
+        "0",
+        "0",
+        "0"
+      ],
+      "elements": [
+        {
+          "label": "E",
+          "rotation": [
+            1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(E|0,0,0)"
+        },
+        {
+          "label": "C2x",
+          "rotation": [
+            1,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            -1
+          ],
+          "translation": [
+            "1/2",
+            "1/2",
+            "0"
+          ],
+          "raw": "(C2x|1/2,1/2,0)"
+        },
+        {
+          "label": "C2y",
+          "rotation": [
+            -1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            -1
+          ],
+          "translation": [
+            "0",
+            "1/2",
+            "1/2"
+          ],
+          "raw": "(C2y|0,1/2,1/2)"
+        },
+        {
+          "label": "C2z",
+          "rotation": [
+            -1,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "1/2",
+            "0",
+            "1/2"
+          ],
+          "raw": "(C2z|1/2,0,1/2)"
+        }
+      ],
+      "sg": 19,
+      "ml": "GM1",
+      "centring": "P",
+      "point_group_order": 4,
+      "conventional_cell_operations": 4
+    },
+    {
+      "subgroup": 23,
+      "symbol": "I222",
+      "size": 1,
+      "direction": "P1",
+      "basis": [
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "1",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "1"
+        ]
+      ],
+      "origin": [
+        "0",
+        "0",
+        "0"
+      ],
+      "elements": [
+        {
+          "label": "E",
+          "rotation": [
+            1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(E|0,0,0)"
+        },
+        {
+          "label": "C2x",
+          "rotation": [
+            1,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            -1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(C2x|0,0,0)"
+        },
+        {
+          "label": "C2y",
+          "rotation": [
+            -1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            -1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(C2y|0,0,0)"
+        },
+        {
+          "label": "C2z",
+          "rotation": [
+            -1,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(C2z|0,0,0)"
+        }
+      ],
+      "sg": 23,
+      "ml": "GM1",
+      "centring": "I",
+      "point_group_order": 4,
+      "conventional_cell_operations": 8
+    },
+    {
+      "subgroup": 45,
+      "symbol": "Iba2",
+      "size": 1,
+      "direction": "P1",
+      "basis": [
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "1",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "1"
+        ]
+      ],
+      "origin": [
+        "0",
+        "0",
+        "0"
+      ],
+      "elements": [
+        {
+          "label": "E",
+          "rotation": [
+            1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(E|0,0,0)"
+        },
+        {
+          "label": "C2z",
+          "rotation": [
+            -1,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(C2z|0,0,0)"
+        },
+        {
+          "label": "SGx",
+          "rotation": [
+            -1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "1/2"
+          ],
+          "raw": "(SGx|0,0,1/2)"
+        },
+        {
+          "label": "SGy",
+          "rotation": [
+            1,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "1/2"
+          ],
+          "raw": "(SGy|0,0,1/2)"
+        }
+      ],
+      "sg": 45,
+      "ml": "GM1",
+      "centring": "I",
+      "point_group_order": 4,
+      "conventional_cell_operations": 8
+    },
+    {
+      "subgroup": 83,
+      "symbol": "P4/m",
+      "size": 1,
+      "direction": "P1",
+      "basis": [
+        [
+          "1",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "1",
+          "0"
+        ],
+        [
+          "0",
+          "0",
+          "1"
+        ]
+      ],
+      "origin": [
+        "0",
+        "0",
+        "0"
+      ],
+      "elements": [
+        {
+          "label": "E",
+          "rotation": [
+            1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(E|0,0,0)"
+        },
+        {
+          "label": "C2z",
+          "rotation": [
+            -1,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(C2z|0,0,0)"
+        },
+        {
+          "label": "C4z+",
+          "rotation": [
+            0,
+            -1,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(C4z+|0,0,0)"
+        },
+        {
+          "label": "C4z-",
+          "rotation": [
+            0,
+            1,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            0,
+            1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(C4z-|0,0,0)"
+        },
+        {
+          "label": "I",
+          "rotation": [
+            -1,
+            0,
+            0,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            -1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(I|0,0,0)"
+        },
+        {
+          "label": "SGz",
+          "rotation": [
+            1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            -1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(SGz|0,0,0)"
+        },
+        {
+          "label": "S4z-",
+          "rotation": [
+            0,
+            1,
+            0,
+            -1,
+            0,
+            0,
+            0,
+            0,
+            -1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(S4z-|0,0,0)"
+        },
+        {
+          "label": "S4z+",
+          "rotation": [
+            0,
+            -1,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            -1
+          ],
+          "translation": [
+            "0",
+            "0",
+            "0"
+          ],
+          "raw": "(S4z+|0,0,0)"
+        }
+      ],
+      "sg": 83,
+      "ml": "GM1+",
+      "centring": "P",
+      "point_group_order": 8,
+      "conventional_cell_operations": 8
     }
   ]
 }

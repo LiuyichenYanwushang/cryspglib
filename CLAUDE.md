@@ -338,7 +338,8 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
    按 ML 分量数 `k_G` 折算，否则 3543 行会被重复计数）；再以用户指定的
    **221 `GM4+` 凝聚、查询 `GM3+`** 作为首个端到端验收例。
 7. **多臂分阶段、磁共表示随后**：任务 8a 已用归档 CIR 完整矩阵核对普通标量
-   full-star 求值与折叠几何；任务 8b 已接入普通标量母群的子群 irrep 重数。磁表没有分导列，
+   full-star 求值与折叠几何；任务 8b 接入普通标量母群重数，8c 扩展 compound 与
+   realification 的 k/-k。磁表没有分导列，
    不能把普通群字符检查当作磁共表示的验收。
 
 ### 完整分导的任务 1-6 落地状态（2026-09-21）
@@ -369,10 +370,11 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
   `(Rxx+Ryy)` / `det(R)·(Rxx+Ryy)` 迹与 SG 23 `W1W1` 的平移本征值 −i/+i。
 
 **Γ 全表清点（任务 6 验收要求）**：`frobenius_reciprocity_matches_the_stored_identity_subduction`
-给出 `Γ 记录 1895 | 冻结子群命中 210 | 已钉住 10 | 多候选歧义 171 | 搜索空间外 29 | 交叉检查错误 0`。
+任务 8c 扩充 fixture 后给出
+`Γ 记录 1895 | 冻结子群命中 243 | 已钉住 14 | 多候选歧义 199 | 搜索空间外 30 | 交叉检查错误 0`。
 历史数字 1895 的准确含义是**Γ 凝聚记录条数**，不是“恒等式已验证的条数”；
-本轮只对 10 条被 oracle fixture 钉住的记录验证了 stored `i(G)` 与 Frobenius
-`Σ_D dim(D)·mult(trivial_H, D|H) = [G_k : H_k]`，其余 200 条显式报
+目前只对 14 条被 oracle fixture 钉住的记录验证了 stored `i(G)` 与 Frobenius
+`Σ_D dim(D)·mult(trivial_H, D|H) = [G_k : H_k]`，其余 229 条显式报
 `AmbiguousEmbedding` 或 `NoValidEmbedding`，不猜。任务 9 负责从 oracle 生成全表
 逐记录 setting 元数据（含一般 unimodular/shear 候选）。
 
@@ -386,8 +388,8 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
 - 独立源矩阵 gate：`scripts/generate_subduction_star_fixtures.py` 从 checksum-pinned
   CIR 完整矩阵取迹（不调用诱导算法）；10 个记录、308 个操作及各自四种格平移，
   `tests/subduction_star_source.rs` 共 1232 次字符比较。另保留原有 59/538 恒等项 gate。
-- **任务 8 未全部完成**：普通母群的小群分解和完整星重建见下文任务 8b；还需处理
-  compound 母群及 realification 的 k/-k。现有
+- 普通母群的小群分解和完整星重建见任务 8b，compound 母群及 realification 的
+  k/-k 见任务 8c。现有
   `subduce_irrep_with_embedding` 对多臂仍返回 `UnsupportedMultiArmStar`。
   准确范围及复现方式见 `docs/subduction-conventions.md` §10。
 
@@ -395,8 +397,8 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
 
 - `irrep::subduction::star::decompose::subduce_full_star_with_embedding` 返回每个子群
   star 的精确 q、源行 k、star size、小表示维数、重数和真实 CIR 来源号。
-  支持普通母群，以及普通/`DistinctComponentSum` 子群目标；compound 母群、spinor、
-  磁共表示和目标 `ConjugateRealification` 仍显式拒绝。
+  8b 支持普通母群及普通/`DistinctComponentSum` 子群目标；8c 扩展 compound 与
+  `ConjugateRealification`。spinor、磁共表示仍显式拒绝。
 - 对每个子群星搜索有数据的代表臂，只把折叠到该 q 的母群臂在 `H_q` 上求迹，
   复用字符内积求解器；随后用子群自身的行和 Hall 操作诱导所有目标，逐操作重建
   母群完整星限制。检查 `Σ multiplicity × little_dim × star_size`，缺数据不部分返回。
@@ -412,6 +414,43 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
   不计入成功分解。原有 59/538 Γ 对照保留。
 - 这仍不是任务 9 的逐记录 setting 覆盖或全表 94271 条恒等项验收。
   详细契约见 `docs/subduction-conventions.md` §11。
+
+### 分导任务 8c：compound 完整星及 k/-k（2026-09-21）
+
+- DSH 负责实现，Codex 负责来源审计、独立矩阵 fixture、集成验收与提交。
+  `star::scalar_star::ScalarStar` 按冻结来源展开复成分，保留 CIR 身份和共轭标记；
+  `OrdinaryStar` 继续只接受普通记录。共轭作用于完整求值（含 Bloch 相位），折叠时
+  重合臂保留各自成分身份。完整星分导入口复用同一 Gram/重数/重建求解器。
+- 子群 realification 成分用完整 Seitz 操作搬到共同 q。仅对同一来源配对、单位
+  范数且逐操作相同的 seed/共轭合并；母群始终保留两份。#19 `R1R1` 自限制是
+  二维 CIR 559 重数 2；#45 `W1W1`/`W2W2` 是小维数 1、星大小 2、重数 2；
+  #23 `W1W1` 是 k/-k 两个星，各重数 1。167 `GM3+` P1 → #15，`T1T2` → `M1 ×2`。
+- Codex 复核收紧等价门禁：内积接近 1 不足以合并，必须逐操作相同；Gram 对角元
+  的误差阈值与共享求解器一致。永久反例 `near_unit_overlap_does_not_replace_pointwise_character_equality`
+  固定了内积误差约 2.5e-9、逐项误差约 1e-4 时仍须拒绝的情形。
+- 返回 `parent_source_identity()`；`parent_irnumber()` 对普通记录为 `Some(id)`，
+  compound 为 `None`。`stored_k()` 指复成分有效 k，允许是源行的 -k。
+- `generate_subduction_compound_fixtures.py` 从 checksum-pinned CIR 原始完整矩阵
+  取迹；17 来源、12 compound 的永久测试包含 928 次逐复成分、464 次物理和、
+  6 个分解钉值和 28 次完整重建。#23 中心化平移的 -i/+i 分别钉住，防止总和
+  抵消掩盖相位反号。
+- 九个固定上下文逐探针清点：216 个普通、24 个 compound 完整分解成功，无缺失；
+  157 个 spinor 未支持且未计为成功。四个自身嵌入的 78 个标量探针还逐项核对
+  自限制保持来源身份及正确重数。
+- 全 672 条来源/臂表达式审计：519 distinct，112 异星 realification，41 同星
+  realification。41 条同星来源另以原始完整字符及有限平移相位类作 1484 次共轭
+  等价检查；这不等于全部 672 条非恒等字符的生产实现都已核对。
+- 四个官方自限制嵌入 (19,19)、(23,23)、(45,45)、(83,83) 使用已核实的 I/零原点；
+  操作 oracle 为 14 用例 / 90 代表。无通用 identity setting 绕过；#23 `W1W1` → #22
+  官方不打印操作行，未擅自冻结该嵌入。
+- 新增 stored-frequency gate 在 69 个冻结嵌入中比较 78 次 compound 恒等项，均为
+  零项，64 次非 Γ，无缺失。普通 59/2060、Γ 59/538 的既有 gate 保留。
+  下一步是任务 9 的逐记录 setting 与全表验收；磁、spinor、离散表缺失的 k 仍未实现。
+  详细契约及覆盖边界见 `docs/subduction-conventions.md` §12。
+- 本轮验收：release lib `380 passed / 4 ignored`、integration `117 passed`、doctest
+  `27 passed`；严格 all-target clippy 通过（workspace 既有 manifest 警告仍在）。
+  Python 离线 `42 + 2` 测试、几何 oracle `48 行 / 26 描述串`、操作 oracle
+  `14 用例 / 90 代表`、两套 CIR fixture 重生成一致性检查全部通过。
 
 ### 分导任务 7 状态（2026-09-21）
 
@@ -440,7 +479,7 @@ SG177 `L1` 覆盖非立方 `C2` 与复分隔符；向量标签缺失、多余或
   折叠成功 92、多臂 57、
   缺数据 0、其它错误 0；其中 SG 139 该对贡献 folded 20（全部 Γ/M 单臂探针）
   与 17 个真多臂。旧记录的"160/164"不出自任何当前被 pinned 的检查（应是更早的
-  一次性扫描），不要引用；Γ 侧 1895/210/10/171/29 的清点保持不变，另有独立的
+  一次性扫描），不要引用；Γ 侧当前清点见上文任务 8c 扩充后的结果，另有独立的
   stored-frequency gate `subduction_identity_regressions`（59 条记录 / 538 次比较）
   仍全绿。
 - SG 139 的非 Γ 期望值已钉住：`M1-` → `GM1+`、`M1+` → `GM1-`、`M2+` → `GM2-`、

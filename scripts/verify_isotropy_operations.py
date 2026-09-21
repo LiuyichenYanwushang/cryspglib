@@ -109,6 +109,12 @@ CASES = [
     {"sg": 16, "ml": "R1", "direction": "P1", "subgroup": 22, "size": 2, "elements": 4},
     {"sg": 167, "ml": "GM3+", "direction": "P1", "subgroup": 15, "size": 1, "elements": 4},
     {"sg": 139, "ml": "M1-", "direction": "P1", "subgroup": 126, "size": 2, "elements": 16},
+    # Self-restrictions pin the source labels for compound full-star tests:
+    # quaternionic one/two-arm seeds, disjoint k/-k stars, and distinct CIRs.
+    {"sg": 19, "ml": "GM1", "direction": "P1", "subgroup": 19, "size": 1, "elements": 4},
+    {"sg": 23, "ml": "GM1", "direction": "P1", "subgroup": 23, "size": 1, "elements": 4},
+    {"sg": 45, "ml": "GM1", "direction": "P1", "subgroup": 45, "size": 1, "elements": 4},
+    {"sg": 83, "ml": "GM1+", "direction": "P1", "subgroup": 83, "size": 1, "elements": 8},
 ]
 
 ROW_RE = re.compile(

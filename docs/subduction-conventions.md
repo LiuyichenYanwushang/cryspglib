@@ -259,22 +259,22 @@ Mat3R / Vec3R                   // 3×3 / 3 向量；inverse3 -> Result<_, Singu
 ## 9. 当前不支持边界（必须报错，不得部分返回）
 
 - 现有 `subduce_irrep_with_embedding` 的多臂分解仍返回 `UnsupportedMultiArmStar`；
-  普通标量完整星使用 §11 的独立入口。compound 母群完整星、`ConjugateRealification` 的
-  full-star k/-k 分组（见下）；spinor/双群（任务 11）；磁子群与磁共表示（任务 10）；
+  标量完整星使用 §11–12 的独立入口，包含 compound 和 realification 的 k/-k。
+  尚不支持 spinor/双群（任务 11）；磁子群与磁共表示（任务 10）；
   参数化 k（不在 `query::irreps_of(sg_H)` 离散表中的折叠 k）；无法唯一确定嵌入的
   ordinal（任务 4 冻结路径之外的）。
 - 非 Γ（`k ≠ 0`）与 compound 的成分展开（任务 7）已落地；已实测覆盖：四个采样
   (母群, 子群) 对（16 `R1` P1、221 `GM4+` P1、221 `GM4+` P2、139 `M1-` P1）的
   全部标量探针（含 Γ）共
   folded 92 / 多臂 57 / 缺数据 0，其中 SG 139 该对贡献 folded 20（全部 Γ/M 单臂）
-  与 17 个真多臂；Γ 侧清点为 1895 条记录、10 条被 fixture 钉住、171 条多候选歧义、
-  29 条 setting 在搜索空间外。历史 CLAUDE 里的 160/164 不出自任何当前被 pinned
+  与 17 个真多臂；扩充 fixture 后，Γ 侧清点为 1895 条记录，243 条命中已冻结的
+  子群号，其中 14 条钉住、199 条多候选歧义、30 条 setting 在搜索空间外。
+  历史 CLAUDE 里的 160/164 不出自任何当前被 pinned
   的检查，不要引用；独立的 stored-frequency gate（59 条记录 / 538 次比较）也全绿。
-- SG 23 `W1W1` 的 realification 只在**显式的四元平移商** 0, L, 2L, 3L
+- 任务 6 的 SG 23 `W1W1` realification 测试使用**显式的四元平移商** 0, L, 2L, 3L
   （`L = (1/2,1/2,1/2)`，`k = (1/2,1/2,1/2)`）上验证 seed 与共轭成分的展开
   （seed 特征标 `[1,-i,-1,+i]`、共轭 `[1,+i,-1,-i]`，内积 (1,0)/(0,1)）；
-  **这不实现 k 与 -k 的 full-star 分组**，九个冻结子群空间群里也没有任何
-  realification 行（更没有 Γ realification 行）。
+  该测试本身不验证 k/-k 的 full-star 分组；任务 8c 的独立验收见 §12。
 - 对应错误：`UnsupportedMultiArmStar`、`MissingIrrepData`、`AmbiguousEmbedding`、
   `StrictHallUnavailable`、`SingularTransform`、`NonIntegralMultiplicity`、
   `CharacterMismatch`、`DimensionSumMismatch`（任务 3/5 落地时确定到具体变体）。
@@ -314,8 +314,8 @@ Seitz 元素 `g_i` 为 transporter，按母群倒格枚举 `k_i = R_i^-T k`。�
 
 暂存入口为
 `irrep::subduction::star::decompose::subduce_full_star_with_embedding(&subgroup, &embedding, probe)`。
-它重新验证缓存嵌入与输入记录的上下文，接受普通标量母群记录，返回
-`FullStarSubduction`。原单臂入口的支持范围不变。
+它重新验证缓存嵌入与输入记录的上下文，返回 `FullStarSubduction`。任务 8b 接受
+普通标量母群；任务 8c 扩展到 compound（§12）。原单臂入口的支持范围不变。
 
 每个输出 `FullStarBlock` 对应一个子群 k-star，保留精确的折叠代表点 `q()`、
 所匹配数据行的 `stored_k()`、`star_size()` 和非零目标项。每项目标的 `dimension`
@@ -350,6 +350,57 @@ Seitz 元素 `g_i` 为 transporter，按母群倒格枚举 `k_i = R_i^-T k`。�
 缺数据的 15 个组合也作为完整清单钉住：ordinal 13345/13346/13351 的 `W1`–`W5`。
 它们未计入成功分解；新增缺失会使回归失败。
 
-缺少任一子群星的数据返回 `MissingChildStarData`，不返回部分分解。compound 母群、
-spinor、磁共表示及子群 `ConjugateRealification` 的 k/-k 星处理仍不在此阶段支持
-范围。逐记录嵌入覆盖由任务 9 处理，不能把本阶段样例通过写成全表验收。
+缺少任一子群星的数据返回 `MissingChildStarData`，不返回部分分解。spinor、磁共表示
+仍不支持。逐记录嵌入覆盖由任务 9 处理，不能把本阶段样例通过写成全表验收。
+
+## 12. 任务 8c：compound 与 realification 完整星
+
+`irrep::subduction::star::scalar_star::ScalarStar` 接受生成表内的标量记录；原
+`OrdinaryStar` 保持普通记录限定。`DistinctComponentSum` 保留两个 CIR 来源；
+`ConjugateRealification` 保留 seed 在 k 的完整星及其共轭在 -k 的完整星。
+共轭作用于**整个字符求值，包括 Bloch 相位**。两个成分即使等价，母群也必须保留
+两份；重合的星臂在折叠时携带成分身份，不因 q 相同而丢失维数。
+`ScalarStar`、`FoldedStar`、`FullStarBlock` 的 `arm_count()` 都按成分计数；
+子群不同 q 点的数量是 `star_size()`，两者不能混用。
+
+子群目标目录枚举复不可约成分，允许 -k 没有独立数据行的情况。若两成分在同一
+子群星上，先用完整 Seitz 操作把行搬到共同 q，再比较 `H_q` 上的字符。只对同一
+realification 的 seed/共轭配对作等价检查；单位范数且逐操作相同才合并为一个目标，
+正交则分别保留，其余情形报错。不同 CIR 来源不因标签或 k-star 相同而合并。
+永久反例还固定了数值边界：逐项约 `1e-4` 的相位误差可能只造成约 `2.5e-9` 的
+内积误差，因此“内积距 1 小于 `1e-7`”不能代替逐操作比较；Gram 对角元也使用
+共享求解器相同的阈值，不对它开平方后再比较。
+
+返回值的 `parent_source_identity()` 保存完整来源身份；`parent_irnumber()` 对普通
+记录返回 `Some(id)`，对 compound 返回 `None`。目标同时保留真实 CIR 号和
+`SubductionComponent`，区分 seed 与共轭。`FullStarBlock::stored_k()` 现在是所选
+复成分的**有效波矢**，可为源行 k 的负值；它与精确折叠代表点 `q()` 同子群倒格类。
+
+源数据审计 `scripts/generate_subduction_compound_fixtures.py` 校验 CIR archive 的
+SHA256，并按冻结元数据中的来源号核对全部 672 条 compound 的臂表达式：519 条
+distinct、112 条 k/-k 异星 realification、41 条同星 realification。两个 distinct
+来源的完整臂表达式相同，所有 compound 成分的小表示维数相等。这是来源及几何审计，
+不是全表非恒等字符验收。41 条同星来源的原始完整矩阵字符另在每个操作及有限平移
+相位类上与其共轭比较，共 1484 次；SG 23 的异星负例保证此检查包含中心化平移。
+
+`tests/subduction_compound_stars.rs` 从原始 CIR 矩阵独立核对 17 个来源、12 个物理
+compound，含每个来源臂的格平移相位。分别检查各复成分很关键：SG 23 在 I 心平移
+处 seed 为 -i、共轭为 +i，二者总和为零，单看总和无法发现相位符号交换。
+完整分解钉值包括：
+
+- #19 `R1R1` 自限制：CIR 559，复维数 2，重数 2。
+- #23 `W1W1` 自限制：CIR 716 的 seed 与共轭分属两个星，各重数 1。
+- #45 `W1W1` / `W2W2` 自限制：分别为 CIR 1805 / 1806，小维数 1、星大小 2、重数 2。
+- #83 `GM3+GM4+` 自限制：CIR 4077、4078 各重数 1。
+- 167 `GM3+` P1 → #15，探针 `T1T2`：二维 `M1`（CIR 363）重数 2。
+
+上述源矩阵验收共有 928 次复成分字符、464 次物理和、28 次分解重建比较。
+四个自身嵌入还遍历全部标量探针，验证自限制保留每个复来源：55 个普通、23 个
+compound 成功，79 个 spinor 不支持且未计入成功。加上既有五个上下文的
+161 个普通和 1 个 compound，共 240 次完整分解；这些上下文均无缺失子群星。
+另在 69 条冻结嵌入记录中找到 78 次 compound 恒等项对照，全部是零项，其中 64 次
+为非 Γ 探针，无缺失；它不提供正恒等项覆盖，也不代替全表 94271 条验收。
+
+新增四个自身嵌入来自实际 `SHOW ELEMENTS`，全部 basis=I、origin=0、Size=1；操作
+oracle 扩为 14 用例 / 90 代表。没有用“母群等于子群”绕过 setting 校验。全表逐记录
+setting、离散表缺失的子群 k、磁群与 spinor 仍按各自后续任务处理。

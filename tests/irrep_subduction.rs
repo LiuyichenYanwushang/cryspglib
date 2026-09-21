@@ -131,7 +131,11 @@ fn parse_fixture() -> Vec<Case> {
             other => panic!("unknown fixture directive {other:?}"),
         }
     }
-    assert_eq!(cases.len(), 10, "the fixture holds ten cases");
+    assert_eq!(
+        cases.len(),
+        14,
+        "the fixture includes four compound self-restrictions"
+    );
     cases
 }
 
@@ -296,7 +300,7 @@ fn every_fixture_case_is_reproduced_exactly() {
             );
         }
     }
-    assert_eq!(elements, 70, "coset representatives in the fixture");
+    assert_eq!(elements, 90, "coset representatives in the fixture");
 }
 
 #[test]
@@ -546,13 +550,13 @@ fn point_group_order(sg: u8) -> usize {
 /// Scope, counted rather than assumed.  The shipped isotropy table has 1895
 /// Gamma condensing records -- the historical `1895 条 Γ 记录` -- and this is
 /// where that number comes from: it is the count of Gamma records, not a count
-/// of verified identities.  Of those, 210 have a subgroup covered by a frozen
-/// embedding entry, and 10 are actually pinned: the frozen metadata is keyed by
+/// of verified identities. Of those, 243 have a subgroup covered by a frozen
+/// embedding entry, and 14 are actually pinned: the frozen metadata is keyed by
 /// `(parent, subgroup)` because the same subgroup reached from another parent is
 /// a different embedding, and a setting that works for one parent can otherwise
 /// "validate" while pairing the irreps wrongly (the stored frequencies catch
-/// exactly that).  The other 200 records report `AmbiguousEmbedding` instead of
-/// guessing; deriving their per-record settings offline is task 9.
+/// exactly that). The other 229 records report `AmbiguousEmbedding` (199) or
+/// `NoValidEmbedding` (30); deriving their per-record settings is task 9.
 #[test]
 fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
     use cryspglib::irrep::isotropy::isotropy_subgroups;
@@ -560,7 +564,7 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
     use cryspglib::irrep::subduce_irrep_with_embedding;
     use cryspglib::irrep::subduction::SubgroupEmbedding;
 
-    const FROZEN_SUBGROUPS: [u8; 9] = [8, 12, 15, 22, 47, 83, 123, 126, 148];
+    const FROZEN_SUBGROUPS: [u8; 12] = [8, 12, 15, 19, 22, 23, 45, 47, 83, 123, 126, 148];
     let mut gamma_records = 0usize;
     let mut frozen_subgroup_records = 0usize;
     let mut pinned = 0usize;
@@ -723,16 +727,16 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
         gamma_records, 1895,
         "Gamma isotropy records in the shipped table"
     );
-    assert_eq!(frozen_subgroup_records, 210);
-    assert_eq!(pinned, 10, "records pinned by the task-2 oracle fixture");
+    assert_eq!(frozen_subgroup_records, 243);
+    assert_eq!(pinned, 14, "records pinned by the expanded oracle fixture");
     assert_eq!(
         ambiguous + unresolved_setting,
-        200,
+        229,
         "records whose setting needs task 9's metadata"
     );
-    assert_eq!(ambiguous, 171, "records with several consistent settings");
+    assert_eq!(ambiguous, 199, "records with several consistent settings");
     assert_eq!(
-        unresolved_setting, 29,
+        unresolved_setting, 30,
         "records whose setting is not a signed permutation (or needs a shift)"
     );
     assert!(pinned + ambiguous + unresolved_setting == frozen_subgroup_records);
