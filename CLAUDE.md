@@ -954,6 +954,25 @@ doctest `27 passed`、严格 all-target clippy 零警告。
 仍缺：引擎侧把 w 行算出来（5,408 行有冻结表；348 行卡在 SG 202/203/209/210 的
 `DT3`/`DT4`），之后 `--require-w-complete` 才能全表退出 0。
 
+**第二十六轮（2026-09-22）：全表审计复跑，判词不变。**
+
+`cargo run --release -p cryspglib --example audit_irrep_subduction --
+--require-complete --output <abs path>`（446.7 s，exit 0）复现：
+
+```
+identity_rows=94271 passed=94271 mismatch=0 unresolved=0
+probes_total=366260 probe_partition: full_success=351547 identity_only=14713 missing=0 error=0
+absent_zero=271989 absent_positive=0 frobenius: records=1895 passed=1895 mismatch=0
+production_checks: dimension/integrality/reconstruction/target_source 全部 0
+other_wave_vector: records=1006 rows=5756 source_resolved=5756 computed=0
+w_scope: rows=5756 computed=0 uncomputed=5756 reason=k_vectors_and_character_rows_absent_from_the_irrep_table
+hard_failures=0 accounting_violations=0 census_mismatch=0
+VERDICT complete scope=global
+```
+
+注意 `--output` 的相对路径按 **crate 目录**解析（`cryspglib/`），从 workspace 根运行时
+要么给绝对路径，要么先把 `target/task9` 建在 crate 下。
+
 **范围之外的剩余问题**：`isotropy_w_subduce_*` 的 5,756 行（1,006 条记录）引用 73 个
 “别的波矢”irrep；pinned `data_irreps.txt` 对它们只有
 `irrep_w_label/_space_group/_dimension/_type` 四张表，**既无 k 矢量也无特征标行**，
