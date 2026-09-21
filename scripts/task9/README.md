@@ -63,9 +63,29 @@ Two changes closed the embedding table:
 
 Result: **15,239 / 15,239 records embed** (0 rejected), stored identity
 positives 93,720 passed / 391 mismatch, Gamma Frobenius 1,895/1,895,
-absent_positive 380, hard_failures 771.  Still open: 14,713 probes whose folded
-child k is not in the shipped discrete table, 5,756 other-wave-vector entries
-without k parameters, and the 771 consistency rows.
+absent_positive 380, hard_failures 771.
+
+### The remaining 771 rows are *not* a setting problem
+
+`examples/trace_embedding.rs` prints one record's subgroup lattice, transform and
+every mapped coset representative.  For ordinal 12471 (SG 221 `X3+` `P2` -> #125,
+where the engine reports 0 for the stored frequency 1), all 16 mapped
+representatives are **exactly** the official `SHOW ELEMENTS` operations carried
+into the parent frame modulo the parent lattice, and all 16 rotations are
+distinct.  The embedding is therefore right and the disagreement is in the
+trivial-multiplicity evaluation of the subduced block -- `parent_character_of` /
+`solve_character_block` in `src/irrep/subduction.rs` -- not in
+`subduction_settings_data.rs`.
+
+Every failing ordinal has size > 1 (105 of size 2, 55 of size 4, 20 of size 8,
+16 of size 32, 2 of size 6); the size-1 Gamma records are all covered by the
+Frobenius gate, which passes 1,895/1,895.  That points at the supercell/folded-k
+path: cosets whose parent-frame representative carries a lattice translation are
+where the Bloch phase `chi(t + L) = chi(t) exp(2 pi i k . L)` has to be applied.
+
+Still open, reported explicitly and not counted as covered: 14,713 probes whose
+folded child k is not in the shipped discrete table, 5,756 other-wave-vector
+entries without resolved k parameters.
 
 ## State after the first pass (2026-09-21)
 
