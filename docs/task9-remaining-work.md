@@ -611,11 +611,14 @@ The full-table audit with both completeness gates now reports:
 
 ```
 identity_rows=94271 unique_pairs=94271 (pinned 94271)
-other_wave_vector: records=1006 rows=5756 source_resolved=5756 source_mismatch=0 computed=5756 conflicts=0
-w_scope: rows=5756 computed=5756 uncomputed=0 character_tables_frozen=5756 character_tables_blocked=0 reason=none
+other_wave_vector: records=1006 rows=5756 source_resolved=5756 source_mismatch=0 computed=5756 engine_errors=0 conflicts=0
+w_scope: rows=5756 computed=5756 uncomputed=0 mismatched=0 engine_errors=0 character_tables_frozen=5756 character_tables_blocked=0 reason=none
 hard_failures=0 accounting_violations=0 census_mismatch=0
 VERDICT complete scope=global          (exit 0 with --require-w-complete)
 ```
+
+(The `engine_errors=` field and `mismatched=` in `w_scope` were added by the later
+review fixes; the round-113 run printed the shorter line.)
 
 i.e. every ordinary identity-subduction row *and* every other-wave-vector row is
 computed by the engine and equals the pinned, live-oracle-verified value, with no
@@ -653,3 +656,72 @@ together, and `--parent 209` went from `computed=360 uncomputed=12` to
    tables were changed together.  The archived-CIR independent check covers
    SG 202, while SG 209's own X compatibility rows pair `DT3` with `DT4`, so no
    independent channel pins that pair.
+
+## Review fixes (review of `5108f42`, round 118)
+
+1. **A w-engine `Err` is now a hard failure.**  The audit's error branch only
+   bumped `error_detail`; an injected `RationalOverflow` at ordinal 10030 /
+   `DT1` therefore left `hard_failures=0` and exited 0 (clean), 0
+   (`--require-complete`) or 2 (`--require-w-complete`).  `Counts` gained
+   `w_engine_error`, it is summed into `hard_failures()`, both
+   `other_wave_vector:` and `w_scope:` print `engine_errors=`, and the per-row
+   status stays `blocks_err:<error>`.  Reproduction (temporary injection at the
+   top of `line_trivial_content_via_blocks`: one
+   `SubductionError::RationalOverflow` when `table.label == "DT1"`; reverted
+   before commit):
+
+   | flags | exit | verdict |
+   |---|---:|---|
+   | none | 1 | `VERDICT inconsistent ... hard_failures=1` |
+   | `--require-complete` | 1 | same |
+   | `--require-w-complete` | 1 | same |
+   | both | 1 | same |
+
+   each with `w_scope: rows=3 computed=2 uncomputed=1 mismatched=0
+   engine_errors=1` and `error_detail: w-line:rational overflow during review
+   fault injection=1`.  Permanent negative examples in the example test module:
+   `a_w_engine_error_fails_under_every_flag_combination` (plus the frequency
+   mismatch variant).
+
+2. **The ten audit regressions removed by `c93754e` are restored.**  The example
+   test module is back to the full set (13 tests), adapted to the current API:
+   frozen census and identity-row uniqueness, a unique trivial child per space
+   group, the two per-record acceptance witnesses (ordinals 12400 and 13345),
+   per-probe row completeness and the uncomputed-embedding path, accounting
+   corruption / dropped rows, duplicate and conflicting stored frequencies,
+   Frobenius component dimensions, and geometry-zero-must-not-skip-decomposition.
+   Adaptations: ordinal 13345's five `W` probes are `identity_only` now
+   (`missing=0`, exit 0 under `--require-complete`); ordinal 0 (the old
+   unembeddable witness) now embeds and decomposes all 8 probes, so the
+   uncomputed-embedding path is driven with the tally shape `audit_record`
+   builds; `exit_code` takes both gates.  Command:
+   `cargo test --release -p cryspglib --example audit_irrep_subduction`
+   (13 passed).
+
+3. **Coverage wording**: the 351,547 full + 14,713 identity-only split moved
+   from the w row to the ordinary 366,260-probe row of
+   `docs/subduction-audit.md`, and the stale "the engine cannot compute the w
+   rows yet" paragraph at the end of that document now states the completed
+   state (`engine_errors` joins `mismatched` in `hard_failures()`).
+
+## Next milestone (agreed): full decomposition of the 14,713 identity-only probes
+
+The original requirement is a *full* decomposition of the parent irrep restricted
+to the subgroup, so the 14,713 identity-only answers are a coverage gap for that
+requirement: they are exact for the trivial multiplicity only.  Agreed first
+step, before writing any decoder, is to **summarize the missing data by
+(subgroup, folded k, setting)**:
+
+1. group the `identity_only` probes by child space group and by the folded child
+   star `q` values (the TSV detail reports `skipped_stars`; the
+   `trace_subduction` diagnostic prints every folded `q` and whether it is child
+   Gamma);
+2. join that list with the shipped discrete child k tables to separate "no
+   shipped data for this q" from "data present but unmatched";
+3. report the counts per child SG / q / setting, and only then decide between
+   obtaining the missing frozen data and proving the affected stars cannot
+   contribute to the full decomposition either.
+
+SG 209's `DT3`/`DT4` swap stays documented as a label convention calibrated by
+the pinned frequencies; validating it against an independent source is a
+separate work item.

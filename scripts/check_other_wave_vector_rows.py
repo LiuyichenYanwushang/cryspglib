@@ -404,11 +404,13 @@ def main():
         "conventional frame), so there is no single numeric k to fold and the "
         "frequency needs the induced representation of the line: the frozen "
         "little-group character tables of all 73 sources are in "
-        "src/irrep/w_little_characters_data.rs, and turning them into the "
-        "5,756 frequencies is the engine work the audit still reports "
-        "separately (--require-w-complete).  Their values do have a live "
-        "oracle: scripts/verify_w_subduction_oracle.py compares all 5,756 rows "
-        "against the official program's SHOW FREQUENCY list per parent irrep."
+        "src/irrep/w_little_characters_data.rs; the engine now turns them into "
+        "the 5,756 frequencies (`line_trivial_content_via_blocks`), and the "
+        "audit reports that track separately under `--require-w-complete` "
+        "(both gates exit 0 with `engine_errors=0`).  Their values also have a "
+        "live oracle: scripts/verify_w_subduction_oracle.py compares all 5,756 "
+        "rows against the official program's SHOW FREQUENCY list per parent "
+        "irrep."
     )
     return 0
 

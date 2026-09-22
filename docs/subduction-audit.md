@@ -22,10 +22,13 @@ CARGO_TARGET_DIR=$PWD/cryspglib/target cargo run --release -p cryspglib \
   **引擎**计算。**现已闭合**：审计只走块路线
   （`line_trivial_content_via_blocks`：把直线源的臂按 `LINE_PARAMETER = 1/4` 折叠、
   归组后交给既有的 `build_block` 折叠/解块流程），逐行与 pinned 频率比较，
-  实测 `w_scope: rows=5756 computed=5756 uncomputed=0 mismatched=0`，
+  实测 `w_scope: rows=5756 computed=5756 uncomputed=0 mismatched=0 engine_errors=0`，
   两个门禁同时开启仍退出 0、判词 `VERDICT complete scope=global`。
   注意审计**不按期望答案选择算法**：不一致一律计入 `w_frequency_mismatch`，
-  该计数已并入 `hard_failures()`，因此在任何开关组合下都退出 1。
+  块路线返回 `Err` 一律计入 `w_engine_error`；两个计数都已并入
+  `hard_failures()`，因此在任何开关组合下都退出 1（永久负例见 example 的
+  `a_frequency_mismatch_fails_under_every_flag_combination` 与
+  `a_w_engine_error_fails_under_every_flag_combination`）。
   （历史：第十七轮已把 73 个源的 k 域解出，缺口曾是 little 群特征标；
   后续由 `w_little_characters_data` 的 73/73 冻结表补齐。）
 
@@ -44,8 +47,8 @@ oracle 5,756 条 w 行对 pinned 5,756 条 w 行、0 不匹配**，其中 144 �
 
 | 范围 | 证据 | 状态 |
 |---|---|---|
-| 普通恒等分导（15,239 记录 / 94,271 正项 / 366,260 probe / Γ Frobenius 1,895） | **cryspglib 引擎计算** + 几何与零项检查 | 范围内闭合，0 未支持 |
-| 其它波矢 w 行（1,006 记录 / 5,756 行） | **cryspglib 引擎计算**（`line_trivial_content_via_blocks` + 冻结 little 特征标 73/73，单一算法、不按答案选择）+ 官方 `iso` live oracle 逐行复核 | **5,756/5,756 计算且与 pinned 相同**，`mismatched=0`；`--require-w-complete` 退出 0，判词 `VERDICT complete scope=global`。数值结果分两类：351,547 个完整分解 + 14,713 个仅恒等重数（例：ordinal 13345 `W1` 的完整分解仍 `MissingChildStarData`） |
+| 普通恒等分导（15,239 记录 / 94,271 正项 / 366,260 probe / Γ Frobenius 1,895） | **cryspglib 引擎计算** + 几何与零项检查 | 范围内闭合，0 未支持。366,260 个 probe 结果分两类：**351,547 个完整分解 + 14,713 个仅恒等重数**（例：ordinal 13345 `W1` 的完整分解仍 `MissingChildStarData`，其恒等重数由 `trivial_content_with_embedding` 精确回答） |
+| 其它波矢 w 行（1,006 记录 / 5,756 行） | **cryspglib 引擎计算**（`line_trivial_content_via_blocks` + 冻结 little 特征标 73/73，单一算法、不按答案选择）+ 官方 `iso` live oracle 逐行复核 | **5,756/5,756 计算且与 pinned 相同**，`mismatched=0`、`engine_errors=0`；`--require-w-complete` 退出 0，判词 `VERDICT complete scope=global`。w API 目前只返回**恒等重数**（不含完整分解） |
 
 这 5,756 行的源现在**全部有冻结特征标**：
 `src/irrep/w_little_characters_data.rs` 覆盖 73/73（`W_LITTLE_CHARACTERS_UNRESOLVED`
@@ -54,8 +57,10 @@ oracle 5,756 条 w 行对 pinned 5,756 条 w 行、0 不匹配**，其中 144 �
 SG 202/203/209/210 的 `DT3`/`DT4`（348 行）由小群配对路线闭合（Γ 方程定出配对和、
 pinned 源次序给出拆分，并用归档 CIR 在 X 点的字符逐操作交叉核对；详见
 `docs/isotropy-data-semantics.md` §4 与 `docs/task9-remaining-work.md`）。
-锚点回归：`tests/w_little_characters.rs`（6 项）。下一步只剩引擎侧的
-Mackey/特征标求和，把 5,756 行的频率算出来与 pinned 表逐行比较。
+锚点回归：`tests/w_little_characters.rs`（6 项）。此后的轮次已在引擎侧完成
+Mackey/特征标求和（`line_trivial_content_via_blocks` 走既有 `build_block` 折叠/解块
+流程），把 5,756 行的频率全部算出并与 pinned 表逐行比较；下文的 Python 原型记录
+保留为历史推导。
 
 Mackey/特征标求和的 Python 原型（`target/task9/explore/proto_freq.py`，未入库）已把公式
 跑通一半：对 `(母群 SG, irrep, Dir)` 用程序打印的**子群操作**（`VALUE IRREP` +
@@ -189,7 +194,7 @@ T = B^T
 | 未存储项 | 271,989 全部为 0（引擎零项 114,770、几何零项 157,219）；0 假阳性 |
 | Γ Frobenius | 1,895 / 1,895 通过（strict 1,673、DistinctComponentSum 222） |
 | 生产自检 | 维数、整数重数、逐操作重建、CIR 来源不匹配全部为 0 |
-| 其它波矢记录 | 1,006 条记录 / 5,756 行全部解析到冻结源、父群一致、频率非零；**引擎 5,756/5,756 全部计算**（`--require-w-complete` 退出 0，`mismatched=0`）；数值同时由官方 `iso` live oracle 逐行对照，5,756/5,756 一致 |
+| 其它波矢记录 | 1,006 条记录 / 5,756 行全部解析到冻结源、父群一致、频率非零；**引擎 5,756/5,756 全部计算**（`--require-w-complete` 退出 0，`mismatched=0`、`engine_errors=0`）；数值同时由官方 `iso` live oracle 逐行对照，5,756/5,756 一致 |
 | 不一致及计数错误 | 0（`hard_failures=0`、`accounting_violations=0`） |
 
 关键的 14,713 条恒等-only probe 中，**160 条是存储正项**（例如 SG 196 W1→#24 的
@@ -207,13 +212,13 @@ T = B^T
 的 origin 不符总数是 1,057。这些候选数不代表引擎覆盖；未验证完整操作及坐标
 约定的候选不会自动冻结。
 
-所以普通恒等分导表（15,239 条记录 / 94,271 条正项 / 366,260 个 probe）**引擎侧
-范围内闭合**：范围内未支持项为 0。范围之外的另一条轨道是
-`other_wave_vector_subduction` 的 5,756 行：它们的 k 域已经解出（参数化 k 域，
-`data_little.txt` 的 `little_k` + 官方 `DISPLAY KPOINT` 双向确认），数值也与官方
-`iso` 的 live oracle 逐行一致，但**引擎还不能算**——73 个源 irrep 的 little 群
-特征标不在 pinned irrep 表里，`little_irr_full_matrices` 的编码未解出。
-`--require-w-complete` 与 `w_scope` 行持续显式报告这一条，不会被静默算作已完成。
+所以两条轨道现在都在引擎侧范围内闭合：普通恒等分导表（15,239 条记录 / 94,271 条
+正项 / 366,260 个 probe）无未支持项；`other_wave_vector_subduction` 的 5,756 行也
+全部由引擎算出——k 域经 `data_little.txt` 的 `little_k` 与官方 `DISPLAY KPOINT`
+双向确认，73 个源 irrep 的 little 群特征标由 `w_little_characters_data` 的 73/73
+冻结表提供（不再依赖未解码的 `little_irr_full_matrices`）。
+`--require-w-complete` 与 `w_scope` 行显式报告这条轨道，`mismatched` 与
+`engine_errors` 都计入 `hard_failures()`。
 
 后续扩充必须重新运行审计并更新实际覆盖。磁群、spinor 和离散子群 irrep 数据
 未提供的 k 不会因这些工具而自动获得支持。

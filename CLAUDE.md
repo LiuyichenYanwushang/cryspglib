@@ -50,14 +50,16 @@ python3 scripts/check_other_wave_vector_rows.py
 `--tests` 不运行 example 内的审计回归；上面的 `--example audit_irrep_subduction`
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码验证。
 
-当前基线（2026-09-22，任务 9 第六轮后，`-p cryspglib` 限定到本 crate）：
-lib `389 passed / 4 ignored`，integration `139 passed`，doctest `27 passed`，
-严格 all-target clippy 通过（Cargo 仍报告既有 workspace manifest 警告）；
-isotropy oracle 离线测试 `9 passed`、真实 oracle `62` 行 / `26` 个描述串 / `62` 个
-origin 通过；其它波矢行门禁离线测试 `15 passed`、pinned 数据 `checks_failed=0`
-（73 源 / 1,006 记录 / 5,756 行；73/73 源已解为参数化直线 `k = Γ + t·v`，
-特征标表未解码）；
-全表审计 `--require-complete` 退出 0、判词 `VERDICT complete scope=global`。
+当前基线（2026-09-22，任务 9 复核修复后，`-p cryspglib` 限定到本 crate）：
+lib `389 passed / 4 ignored`，integration `152 passed`，doctest `27 passed`，
+example 审计回归 `13 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
+workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
+`62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
+pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源已解为参数化
+直线 `k = Γ + t·v`，冻结 little 特征标表 73/73，引擎已算出全部 5,756 行）；
+全表审计两个门禁同时开启退出 0、判词 `VERDICT complete scope=global`
+（`identity_rows=94271`、probe `351547` 完整分解 + `14713` 恒等-only、w `5756/5756`、
+`engine_errors=0`、`hard_failures=0`，约 477 s）。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
 后端同时启用），与本 crate 无关，但会让整条命令以 exit 101 结束、0 个测试执行。
@@ -2965,3 +2967,44 @@ scope=global`：普通恒等分导 94,271/94,271、其它波矢 w 行 **5,756/5,
    分解仍 `MissingChildStarData`）。
 4. **SG 209 的 `DT3`/`DT4` 交换是「由 pinned 频率校准的标签约定」**，生成器与两张
    测试表同步交换不构成独立验证；归档 CIR 的独立检查覆盖的是 SG 202。
+
+### 分导任务 9 复核修复（第 116 轮：`dfbb947` 复核）
+
+1. **频率不一致接入硬失败**：`w_frequency_mismatch` 之前只打印、只计入
+   `mismatched=`，没有进 `hard_failures()`；把 ordinal 10030 `DT1` 的 pinned 值
+   1→2 后，默认运行与 `--require-complete` 仍退出 0。现在该计数并入硬失败，
+   注入复现在四种开关组合下都是 exit 1 + `VERDICT inconsistent`，并有永久负例
+   `a_frequency_mismatch_fails_under_every_flag_combination`。
+2. **直线入口复用既有上下文校验**：`validate_subduction_context` 拆出不含 probe
+   检查的 `pub(crate) validate_record_and_embedding`，`line_trivial_content_via_blocks`
+   直接调用它；改 basis/origin/子群号/凝聚 irrep 都返回 `StaleIsotropyRecord`
+   （与普通分导入口一致），embedding 不匹配返回 `EmbeddingContextMismatch`。
+   上一轮按症状打的补丁与 `SingularLineBasis` 已删除；直线侧只保留
+   「冻结源表必须属于该母群」这一条特有检查（`LineSourceMismatch`）。
+
+### 分导任务 9 复核修复（第 118 轮：`5108f42` 复核）
+
+1. **w 引擎 `Err` 计入硬失败**：错误分支原先只 `bump_error()`，注入一次
+   `RationalOverflow`（ordinal 10030 `DT1`）后默认运行 exit 0/clean、
+   `--require-complete` exit 0/complete、只有 w 门禁给出 2。现在 `Counts` 新增
+   `w_engine_error` 并并入 `hard_failures()`，`other_wave_vector:` 与 `w_scope:`
+   两行都打印 `engine_errors=`；同一次注入在四种开关组合下全部 exit 1 +
+   `hard_failures=1` + `VERDICT inconsistent`
+   （`w_scope: rows=3 computed=2 uncomputed=1 engine_errors=1`）。永久负例
+   `a_w_engine_error_fails_under_every_flag_combination`。
+2. **恢复被 `c93754e` 删掉的十个审计回归**：example 测试模块回到 13 项（2→13），
+   覆盖冻结清点与恒等行唯一性、每个 SG 的唯一恒等子记录、两个逐记录验收见证
+   （ordinal 12400/13345）、逐 probe 行完整性与 embedding 不可用路径、计数守恒与
+   丢行、重复/冲突频率、Frobenius 复成分维数、几何零项不得跳过计算。适配点：
+   13345 的五个 `W` probe 现在是 `identity_only`（`missing=0`，
+   `--require-complete` 退出 0）；ordinal 0（旧的不可嵌入见证）现在嵌入成功并完整
+   分解 8/8，因此 embedding 不可用路径改由合成 tally 驱动，并另钉住 ordinal 0 的
+   修复后状态；`exit_code` 调用改为双门禁签名。
+3. **覆盖声明归位**：351,547 + 14,713 的拆分从 w 行搬到
+   `docs/subduction-audit.md` 的 366,260-probe 普通行；该文档末尾「引擎还不能算
+   w 行」的过期段落改为完成态（`engine_errors` 与 `mismatched` 一并计入硬失败）。
+
+下一里程碑（已与复核者约定）：14,713 条「仅恒等重数」要升级为完整分解，第一步先按
+（子群、折叠 k、setting）汇总缺失数据，再决定是补数据还是证明这些星对完整分解也
+无贡献。SG 209 的 `DT3`/`DT4` 仍标注为「由 pinned 频率校准的标签约定」，独立来源
+验证另行推进。
