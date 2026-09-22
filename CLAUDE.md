@@ -53,7 +53,7 @@ python3 scripts/check_other_wave_vector_rows.py
 
 当前基线（2026-09-22，任务 9 复核修复后，`-p cryspglib` 限定到本 crate）：
 lib `389 passed / 4 ignored`，integration `152 passed`，doctest `27 passed`，
-example 审计回归 `13 passed`、缺口清点回归 `1 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
+example 审计回归 `17 passed`、缺口清点回归 `1 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
 pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源已解为参数化

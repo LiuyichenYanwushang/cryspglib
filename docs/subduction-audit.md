@@ -17,17 +17,27 @@ CARGO_TARGET_DIR=$PWD/cryspglib/target cargo run --release -p cryspglib \
 ```
 
 `--parent 221` 或 `--ordinal 12400` 限定诊断范围。退出码 2 表示所选门禁覆盖不完整，
-退出码 1 表示发现不一致，退出码 0 只表示未发现不一致。两个门禁分开：
+退出码 1 表示发现不一致（计算错误、频率冲突、计数守恒破坏优先于一切门禁），
+退出码 0 只表示在**本次报告的范围内**未发现不一致。三个门禁互相独立：
 
 - `--require-complete` 要求所选范围内**普通恒等分导表**闭合：15,239 条记录全部冻结
   embedding、94,271 条存储正项全部复现、366,260 个标量 probe 全部有精确结果
-  （完整分解或恒等内容）、几何与 Frobenius 检查无未计算项。
+  （完整分解**或**恒等内容）、几何与 Frobenius 检查无未计算项。
+- `--require-full-decomposition` 要求所选范围内每个普通 probe 都是**完整分解**；
+  恒等-only 结果在这个门禁下**计为不完整**（它在 `--require-complete` 下算通过，
+  因为回答恒等重数是另一个问题）。当前全局基线在新门禁下 **exit 2**，摘要行
+  `full_decomposition: ... identity_only=14713 incomplete=14713 global=covered`
+  明确报告 14,713 个缺口；旧的 `--require-complete`（以及 w 门禁）仍 exit 0。
+  这条门禁的存在就是为了防止再次把"恒等项通过"当成"完整分解完成"。
+  范围语义：`--parent`/`--ordinal` 限定运行时只报告该范围的完整分解状态，
+  判词带 `global_coverage=not_established`；局部全过不会被表述成全局覆盖完成。
 - `--require-w-complete` 另外要求 5,756 条 `other_wave_vector_subduction` 也被
   **引擎**计算。**现已闭合**：审计只走块路线
   （`line_trivial_content_via_blocks`：把直线源的臂按 `LINE_PARAMETER = 1/4` 折叠、
   归组后交给既有的 `build_block` 折叠/解块流程），逐行与 pinned 频率比较，
   实测 `w_scope: rows=5756 computed=5756 uncomputed=0 mismatched=0 engine_errors=0`，
-  两个门禁同时开启仍退出 0、判词 `VERDICT complete scope=global`。
+  两个旧门禁同时开启仍退出 0、判词 `VERDICT complete scope=global`。
+  w 门禁只覆盖**恒等重数**；这些源的完整分解是独立范围（R6）。
   注意审计**不按期望答案选择算法**：不一致一律计入 `w_frequency_mismatch`，
   块路线返回 `Err` 一律计入 `w_engine_error`；两个计数都已并入
   `hard_failures()`，因此在任何开关组合下都退出 1（永久负例见 example 的
@@ -200,6 +210,19 @@ T = B^T
 | 生产自检 | 维数、整数重数、逐操作重建、CIR 来源不匹配全部为 0 |
 | 其它波矢记录 | 1,006 条记录 / 5,756 行全部解析到冻结源、父群一致、频率非零；**引擎 5,756/5,756 全部计算**（`--require-w-complete` 退出 0，`mismatched=0`、`engine_errors=0`）；数值同时由官方 `iso` live oracle 逐行对照，5,756/5,756 一致 |
 | 不一致及计数错误 | 0（`hard_failures=0`、`accounting_violations=0`） |
+
+同一张表在三个门禁下的当前结果（R0 起必须分别报告）：
+
+| 门禁 | 退出码 | 判词/摘要 |
+|---|---:|---|
+| `--require-complete --require-w-complete` | 0 | `VERDICT complete scope=global gates=--require-complete,--require-w-complete full_decomposition=not_gated` |
+| `--require-full-decomposition` | **2** | `full_decomposition: scope=global ... identity_only=14713 incomplete=14713 global=covered`，`VERDICT incomplete ... gates=--require-full-decomposition` |
+| 三个门禁同时 | **2** | 同上；完整分解缺口优先于其它门禁的通过 |
+
+即：恒等分导表与 w 行的**恒等重数**已经闭合（旧两个门禁 exit 0），但**普通离散
+标量的完整分解**仍是 351,547/366,260 = 95.98%，缺口 14,713 条，R1 起的里程碑按
+`docs/subduction-next-milestones.md` 逐批补齐；在缺口清零前，新门禁一直退出 2，
+不得用恒等项通过代替完整分解验收。
 
 关键的 14,713 条恒等-only probe 中，**160 条是存储正项**（例如 SG 196 W1→#24 的
 `W1`，存储频率 1）：本轮之前它们因另一条折叠星缺子群 k 数据而无法计算，现在由

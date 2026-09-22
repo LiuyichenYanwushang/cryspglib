@@ -128,6 +128,9 @@ struct Options {
     output: Option<String>,
     require_complete: bool,
     require_w_complete: bool,
+    /// Require a *full decomposition* for every ordinary probe in scope, not
+    /// just an exact identity content.
+    require_full_decomposition: bool,
     progress: usize,
     help: bool,
 }
@@ -140,6 +143,7 @@ impl Default for Options {
             output: None,
             require_complete: false,
             require_w_complete: false,
+            require_full_decomposition: false,
             progress: 500,
             help: false,
         }
@@ -177,6 +181,7 @@ impl Options {
                 }
                 "--require-complete" => options.require_complete = true,
                 "--require-w-complete" => options.require_w_complete = true,
+                "--require-full-decomposition" => options.require_full_decomposition = true,
                 "--progress" => {
                     let value = args.next().ok_or("--progress needs a record count")?;
                     options.progress = value
@@ -197,8 +202,8 @@ impl Options {
 
 const USAGE: &str = "\
 usage: audit_irrep_subduction [--parent N] [--ordinal N] [--output PATH]
-                              [--require-complete] [--require-w-complete]
-                              [--progress N]
+                              [--require-complete] [--require-full-decomposition]
+                              [--require-w-complete] [--progress N]
 
   --parent N          audit only the condensate records of space group N (1-230)
   --ordinal N         audit only the isotropy record with this global ordinal
@@ -208,17 +213,23 @@ usage: audit_irrep_subduction [--parent N] [--ordinal N] [--output PATH]
                       positive row is reproduced, every other probe has an exact
                       result (full decomposition or exact identity content),
                       and no geometry/Frobenius check is left unevaluated
+  --require-full-decomposition
+                      exit 2 unless every ordinary probe in scope has a *full*
+                      decomposition.  An exact identity-only content is not
+                      enough: that category stays incomplete here even though
+                      --require-complete accepts it.  A scoped run reports a
+                      scoped result only and never claims global coverage
   --require-w-complete
                       additionally require the 5756 other-wave-vector rows to be
-                      computed.  The pinned data cannot answer them yet: the 73
-                      irreps they name carry no k vector and no character row in
-                      the irrep table, and their little-table wave vectors are
-                      parameterized lines k = Gamma + t*v (see the `w_scope`
-                      summary line), so this flag is the explicit gate for that
-                      separate question
+                      computed.  This flag is the explicit gate for that separate
+                      question; see the `w_scope` summary line for its state
   --progress N        print a progress line to stderr every N records (0 off)
 
-The TSV goes to stdout (or --output); the terse summary goes to stderr.";
+The TSV goes to stdout (or --output); the terse summary goes to stderr.
+
+Exit codes: 1 = a demonstrated inconsistency (computation error, frequency
+conflict, accounting violation); 2 = a requested coverage gate is not met;
+0 = every requested gate passed within the reported scope.";
 
 // ── Accounting partitions ────────────────────────────────────────────────────
 
@@ -468,6 +479,56 @@ enum Verdict {
     Inconsistent,
 }
 
+/// The three independent completeness gates.  Each answers a different
+/// question and they are never merged into one boolean:
+///
+/// * `complete` -- the ordinary identity-subduction table is closed in scope
+///   (a full decomposition *or* an exact identity content answers every probe);
+/// * `full_decomposition` -- every ordinary probe in scope has a full
+///   decomposition, so an identity-only result is a gap here;
+/// * `w_complete` -- the parameterized other-wave-vector rows are computed.
+///
+/// A hard failure (computation error, frequency conflict, accounting
+/// violation) outranks every gate: the run is inconsistent, exit 1.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Gates {
+    complete: bool,
+    full_decomposition: bool,
+    w_complete: bool,
+}
+
+impl Gates {
+    fn from_options(options: &Options) -> Self {
+        Self {
+            complete: options.require_complete,
+            full_decomposition: options.require_full_decomposition,
+            w_complete: options.require_w_complete,
+        }
+    }
+
+    fn any(self) -> bool {
+        self.complete || self.full_decomposition || self.w_complete
+    }
+
+    fn label(self) -> String {
+        let mut names = Vec::new();
+        if self.complete {
+            names.push("--require-complete");
+        }
+        if self.full_decomposition {
+            names.push("--require-full-decomposition");
+        }
+        if self.w_complete {
+            names.push("--require-w-complete");
+        }
+        if names.is_empty() {
+            "none".to_string()
+        } else {
+            names.join(",")
+        }
+    }
+}
+
 impl Counts {
     fn absorb(&mut self, tally: &RecordTally) {
         self.records += tally.records;
@@ -534,6 +595,15 @@ impl Counts {
         self.w_entries.saturating_sub(self.w_computed)
     }
 
+    /// Categories that leave the *full decomposition* of the ordinary table
+    /// incomplete in scope.  Everything [`Counts::incomplete`] already counts,
+    /// plus the identity-only results: those answer the trivial multiplicity
+    /// exactly but are not a full decomposition, so the stronger gate must not
+    /// accept them.
+    fn full_decomposition_incomplete(&self) -> usize {
+        self.incomplete() + self.probes.identity_only
+    }
+
     /// Categories that are genuine inconsistencies and fail the default run.
     fn hard_failures(&self) -> usize {
         self.probes.error
@@ -558,11 +628,12 @@ impl Counts {
             + self.census_mismatch
     }
 
-    fn verdict(&self, require_complete: bool, require_w_complete: bool) -> Verdict {
+    fn verdict(&self, gates: Gates) -> Verdict {
         if self.hard_failures() > 0 {
             Verdict::Inconsistent
-        } else if (require_complete && self.incomplete() > 0)
-            || (require_w_complete && self.w_incomplete() > 0)
+        } else if (gates.complete && self.incomplete() > 0)
+            || (gates.full_decomposition && self.full_decomposition_incomplete() > 0)
+            || (gates.w_complete && self.w_incomplete() > 0)
         {
             Verdict::Incomplete
         } else {
@@ -570,8 +641,8 @@ impl Counts {
         }
     }
 
-    fn exit_code(&self, require_complete: bool, require_w_complete: bool) -> u8 {
-        match self.verdict(require_complete, require_w_complete) {
+    fn exit_code(&self, gates: Gates) -> u8 {
+        match self.verdict(gates) {
             Verdict::Clean => 0,
             Verdict::Inconsistent => 1,
             Verdict::Incomplete => 2,
@@ -1877,10 +1948,25 @@ origin={},{},{},{}",
             eprintln!("MISMATCH {message}");
         }
         eprintln!("elapsed={elapsed:.1}s");
-        let verdict = counts.verdict(
-            self.options.require_complete,
-            self.options.require_w_complete,
+        // The full-decomposition state is reported on its own line, for the
+        // scope this run actually covers.  A scoped run can be locally complete
+        // and still say nothing about the global denominator, so that
+        // distinction is printed rather than implied.
+        let scoped = self.options.scoped();
+        eprintln!(
+            "full_decomposition: scope={scope} probes={} full_success={} identity_only={} \
+             missing={} error={} uncomputed={} incomplete={} global={} gate=--require-full-decomposition",
+            counts.probes.total,
+            counts.probes.full_success,
+            counts.probes.identity_only,
+            counts.probes.missing,
+            counts.probes.error,
+            counts.probes.uncomputed(),
+            counts.full_decomposition_incomplete(),
+            if scoped { "not_established" } else { "covered" }
         );
+        let gates = Gates::from_options(&self.options);
+        let verdict = counts.verdict(gates);
         let incomplete = counts.incomplete();
         let hard = counts.hard_failures();
         match verdict {
@@ -1889,26 +1975,42 @@ origin={},{},{},{}",
             }
             Verdict::Incomplete => {
                 eprintln!(
-                    "VERDICT incomplete scope={scope} incomplete_categories={incomplete} \
-                     w_uncomputed={}",
+                    "VERDICT incomplete scope={scope} gates={} incomplete_categories={incomplete} \
+                     full_decomposition_incomplete={} w_uncomputed={}",
+                    gates.label(),
+                    counts.full_decomposition_incomplete(),
                     counts.w_incomplete()
                 );
             }
-            Verdict::Clean if self.options.require_complete || self.options.require_w_complete => {
-                eprintln!("VERDICT complete scope={scope}");
+            Verdict::Clean if gates.any() => {
+                if scoped {
+                    eprintln!(
+                        "VERDICT complete scope={scope} gates={} global_coverage=not_established \
+                         (a scoped run cannot certify the global table)",
+                        gates.label()
+                    );
+                } else {
+                    eprintln!(
+                        "VERDICT complete scope={scope} gates={} full_decomposition={}",
+                        gates.label(),
+                        if gates.full_decomposition {
+                            "complete"
+                        } else {
+                            "not_gated"
+                        }
+                    );
+                }
             }
             Verdict::Clean => {
                 eprintln!(
-                    "VERDICT clean scope={scope} incomplete_categories={incomplete} \
-                     w_uncomputed={}",
+                    "VERDICT clean scope={scope} gates=none incomplete_categories={incomplete} \
+                     full_decomposition_incomplete={} w_uncomputed={}",
+                    counts.full_decomposition_incomplete(),
                     counts.w_incomplete()
                 );
             }
         }
-        Ok((
-            counts.exit_code(self.options.require_complete, self.options.require_w_complete),
-            counts,
-        ))
+        Ok((counts.exit_code(gates), counts))
     }
 
     fn census_check(&mut self, distinct_probes: usize) {
@@ -2279,17 +2381,61 @@ mod tests {
         }
     }
 
-    fn audit_ordinal(ordinal: usize, require_complete: bool) -> (u8, Counts, String) {
+    fn audit_ordinal_gates(ordinal: usize, gates: Gates) -> (u8, Counts, String) {
         let sink = SharedSink::default();
         let options = Options {
             ordinal: Some(ordinal),
-            require_complete,
+            require_complete: gates.complete,
+            require_full_decomposition: gates.full_decomposition,
+            require_w_complete: gates.w_complete,
             progress: 0,
             ..Options::default()
         };
         let (exit_code, counts) =
             run_audit(options, Box::new(sink.clone())).expect("scoped audit runs");
         (exit_code, counts, sink.text())
+    }
+
+    fn audit_ordinal(ordinal: usize, require_complete: bool) -> (u8, Counts, String) {
+        audit_ordinal_gates(
+            ordinal,
+            Gates {
+                complete: require_complete,
+                ..Gates::default()
+            },
+        )
+    }
+
+    /// Every combination of the three independent gates.
+    fn all_gate_combinations() -> Vec<Gates> {
+        let mut combinations = Vec::new();
+        for complete in [false, true] {
+            for full_decomposition in [false, true] {
+                for w_complete in [false, true] {
+                    combinations.push(Gates {
+                        complete,
+                        full_decomposition,
+                        w_complete,
+                    });
+                }
+            }
+        }
+        combinations
+    }
+
+    fn gates_with_full_decomposition() -> Gates {
+        Gates {
+            full_decomposition: true,
+            ..Gates::default()
+        }
+    }
+
+    fn all_gates() -> Gates {
+        Gates {
+            complete: true,
+            full_decomposition: true,
+            w_complete: true,
+        }
     }
 
     fn sg16_r2_p1() -> IsotropySubgroup {
@@ -2337,8 +2483,31 @@ mod tests {
             gamma_record_non_gamma_probe: 1,
             ..Counts::default()
         };
-        assert_eq!(counts.exit_code(false, false), 1);
-        assert_eq!(counts.exit_code(true, true), 1);
+        assert_eq!(counts.exit_code(Gates::default()), 1);
+        assert_eq!(
+            counts.exit_code(Gates {
+                complete: true,
+                full_decomposition: true,
+                w_complete: true,
+            }),
+            1
+        );
+    }
+
+    /// The three gates are separate switches: the new flag must parse, default
+    /// off, and stay visible in the usage text.
+    #[test]
+    fn the_full_decomposition_flag_parses_and_defaults_off() {
+        assert!(!Options::default().require_full_decomposition);
+        let options = Options::parse(["--require-full-decomposition".to_string()].into_iter())
+            .expect("the flag parses");
+        assert!(options.require_full_decomposition);
+        assert!(!options.require_complete && !options.require_w_complete);
+        assert!(USAGE.contains("--require-full-decomposition"));
+        assert_eq!(
+            Gates::from_options(&options).label(),
+            "--require-full-decomposition"
+        );
     }
 
     /// A computed frequency that disagrees with the pinned one is a *known*
@@ -2351,12 +2520,8 @@ mod tests {
             ..Counts::default()
         };
         assert!(counts.hard_failures() >= 1, "a mismatch is a hard failure");
-        for (complete, w_complete) in [(false, false), (true, false), (false, true), (true, true)] {
-            assert_eq!(
-                counts.exit_code(complete, w_complete),
-                1,
-                "--require-complete={complete} --require-w-complete={w_complete}"
-            );
+        for gates in all_gate_combinations() {
+            assert_eq!(counts.exit_code(gates), 1, "gates={}", gates.label());
         }
     }
 
@@ -2375,12 +2540,65 @@ mod tests {
         // The failed row is also still "uncomputed", so the w gate sees it; the
         // hard failure must dominate the incompleteness verdict.
         assert_eq!(counts.w_incomplete(), 1);
-        for (complete, w_complete) in [(false, false), (true, false), (false, true), (true, true)] {
-            assert_eq!(
-                counts.exit_code(complete, w_complete),
-                1,
-                "--require-complete={complete} --require-w-complete={w_complete}"
-            );
+        for gates in all_gate_combinations() {
+            assert_eq!(counts.exit_code(gates), 1, "gates={}", gates.label());
+        }
+    }
+
+    /// An identity-only result closes the *identity* gate and is a gap for the
+    /// *full-decomposition* gate.  The two questions must stay separate: this is
+    /// the distinction the old two gates could not express.
+    #[test]
+    fn a_full_decomposition_gap_fails_only_the_full_gate() {
+        let counts = Counts {
+            probes: ProbeCounts {
+                total: 3,
+                full_success: 2,
+                identity_only: 1,
+                ..ProbeCounts::default()
+            },
+            ..Counts::default()
+        };
+        assert_eq!(counts.hard_failures(), 0);
+        assert_eq!(counts.incomplete(), 0, "identity-only closes the identity gate");
+        assert_eq!(counts.full_decomposition_incomplete(), 1);
+        assert_eq!(
+            counts.verdict(Gates {
+                complete: true,
+                ..Gates::default()
+            }),
+            Verdict::Clean
+        );
+        assert_eq!(counts.exit_code(Gates::default()), 0);
+        // The new gate reports the gap as incompleteness, never as an error...
+        assert_eq!(
+            counts.verdict(gates_with_full_decomposition()),
+            Verdict::Incomplete
+        );
+        assert_eq!(counts.exit_code(gates_with_full_decomposition()), 2);
+        // ...and it is the only switch that reacts to it.
+        for gates in all_gate_combinations() {
+            let expected = if gates.full_decomposition { 2 } else { 0 };
+            assert_eq!(counts.exit_code(gates), expected, "gates={}", gates.label());
+        }
+    }
+
+    /// A demonstrated error outranks every coverage gate, including the new one.
+    #[test]
+    fn a_hard_failure_outranks_the_full_decomposition_gate() {
+        let counts = Counts {
+            probes: ProbeCounts {
+                total: 2,
+                identity_only: 1,
+                error: 1,
+                ..ProbeCounts::default()
+            },
+            ..Counts::default()
+        };
+        assert!(counts.hard_failures() >= 1);
+        assert_eq!(counts.full_decomposition_incomplete(), 1);
+        for gates in all_gate_combinations() {
+            assert_eq!(counts.exit_code(gates), 1, "gates={}", gates.label());
         }
     }
 
@@ -2389,7 +2607,10 @@ mod tests {
         let counts = Counts::default();
         assert_eq!(counts.hard_failures(), 0);
         assert_eq!(counts.w_engine_error, 0);
-        assert_eq!(counts.exit_code(false, false), 0);
+        assert_eq!(counts.full_decomposition_incomplete(), 0);
+        for gates in all_gate_combinations() {
+            assert_eq!(counts.exit_code(gates), 0, "gates={}", gates.label());
+        }
     }
 
     // ── Pinned census and the per-record acceptance witnesses ────────────────
@@ -2501,7 +2722,19 @@ mod tests {
             exit_code, 0,
             "every probe has an exact answer, so --require-complete cannot fail"
         );
-        assert_eq!(counts.verdict(true, true), Verdict::Clean);
+        assert_eq!(
+            counts.verdict(Gates {
+                complete: true,
+                w_complete: true,
+                ..Gates::default()
+            }),
+            Verdict::Clean,
+            "the identity gate accepts the exact identity-only answers"
+        );
+        // The full-decomposition gate does not: the same five probes are a gap
+        // there, and that is a coverage shortfall (2), not an inconsistency (1).
+        assert_eq!(counts.verdict(all_gates()), Verdict::Incomplete);
+        assert_eq!(counts.exit_code(all_gates()), 2);
 
         let rows = emitted_probe_rows(&tsv);
         assert_eq!(rows.len(), counts.probes.total, "one row per scalar probe");
@@ -2536,6 +2769,36 @@ mod tests {
         );
     }
 
+    /// The pinned baseline in miniature: ordinal 13345 carries five
+    /// identity-only probes, so the full-decomposition gate fails there while
+    /// the identity gate keeps passing; an ordinal with no gap passes both.
+    /// This is the guard against reporting "identity content is closed" as
+    /// "full decomposition is closed".
+    #[test]
+    fn the_full_decomposition_gate_separates_identity_only_rows_from_full_ones() {
+        let (identity_exit, counts, _) = audit_ordinal(13345, true);
+        assert_eq!(identity_exit, 0, "the identity gate still accepts ordinal 13345");
+        assert_eq!(counts.probes.identity_only, 5);
+        assert_eq!(counts.full_decomposition_incomplete(), 5);
+
+        let (full_exit, gapped, _) = audit_ordinal_gates(13345, gates_with_full_decomposition());
+        assert_eq!(
+            full_exit, 2,
+            "five identity-only probes are a full-decomposition gap, not a success"
+        );
+        assert_eq!(gapped.probes.identity_only, 5);
+        assert_eq!(gapped.probes.full_success, 26);
+        assert_eq!(gapped.hard_failures(), 0, "a coverage gap is not an error");
+
+        // SG 16 R2 P1 -> #22 decomposes all 32 probes, so the same gate passes
+        // there -- for that record's scope only.
+        let (covered_exit, covered, _) = audit_ordinal_gates(314, gates_with_full_decomposition());
+        assert_eq!(covered_exit, 0);
+        assert_eq!(covered.probes.full_success, 32);
+        assert_eq!(covered.probes.identity_only, 0);
+        assert_eq!(covered.full_decomposition_incomplete(), 0);
+    }
+
     #[test]
     fn ordinal_12400_decomposes_all_forty_sources_not_only_the_eligible_ones() {
         let (exit_code, counts, tsv) = audit_ordinal(12400, true);
@@ -2556,7 +2819,7 @@ mod tests {
         assert_eq!(counts.geometry_contradictions, 0);
         assert_eq!(counts.entries.passed, 3);
         assert_eq!(exit_code, 0);
-        assert_eq!(counts.verdict(true, false), Verdict::Clean);
+        assert_eq!(counts.verdict(Gates { complete: true, ..Gates::default() }), Verdict::Clean);
 
         let rows = emitted_probe_rows(&tsv);
         assert_eq!(rows.len(), 40);
@@ -2635,11 +2898,11 @@ mod tests {
             "one emitted row per probe"
         );
         assert_eq!(
-            auditor.counts.exit_code(true, false),
+            auditor.counts.exit_code(Gates { complete: true, ..Gates::default() }),
             2,
             "--require-complete must report the uncomputed probes"
         );
-        assert_eq!(auditor.counts.verdict(false, false), Verdict::Clean);
+        assert_eq!(auditor.counts.verdict(Gates::default()), Verdict::Clean);
         let rows = emitted_probe_rows(&sink.text());
         assert_eq!(
             rows.len(),
@@ -2694,41 +2957,41 @@ mod tests {
         let mut counts = Counts::default();
         counts.probes.total = 1;
         counts.probes.error = 1;
-        assert_eq!(counts.verdict(false, false), Verdict::Inconsistent);
-        assert_eq!(counts.exit_code(true, false), 1);
+        assert_eq!(counts.verdict(Gates::default()), Verdict::Inconsistent);
+        assert_eq!(counts.exit_code(Gates { complete: true, ..Gates::default() }), 1);
         // Missing data alone is incomplete, and only under --require-complete.
         let mut counts = Counts::default();
         counts.probes.total = 2;
         counts.probes.full_success = 1;
         counts.probes.missing = 1;
-        assert_eq!(counts.verdict(false, false), Verdict::Clean);
-        assert_eq!(counts.verdict(true, false), Verdict::Incomplete);
-        assert_eq!(counts.exit_code(true, false), 2);
+        assert_eq!(counts.verdict(Gates::default()), Verdict::Clean);
+        assert_eq!(counts.verdict(Gates { complete: true, ..Gates::default() }), Verdict::Incomplete);
+        assert_eq!(counts.exit_code(Gates { complete: true, ..Gates::default() }), 2);
         // Uncomputed probes are incompleteness, never silent coverage.
         let mut counts = Counts::default();
         counts.probes.total = 3;
         counts.probes.full_success = 1;
         counts.probes.uncomputed_embedding = 2;
-        assert_eq!(counts.verdict(true, false), Verdict::Incomplete);
+        assert_eq!(counts.verdict(Gates { complete: true, ..Gates::default() }), Verdict::Incomplete);
         // The other-wave rows are a scope of their own: uncomputed w rows are
         // incomplete under the w gate, not under the ordinary one.
         let mut counts = Counts::default();
         counts.probes.total = 1;
         counts.probes.full_success = 1;
         counts.w_entries = 4;
-        assert_eq!(counts.verdict(false, false), Verdict::Clean);
-        assert_eq!(counts.verdict(true, false), Verdict::Clean);
-        assert_eq!(counts.verdict(false, true), Verdict::Incomplete);
-        assert_eq!(counts.exit_code(false, true), 2);
+        assert_eq!(counts.verdict(Gates::default()), Verdict::Clean);
+        assert_eq!(counts.verdict(Gates { complete: true, ..Gates::default() }), Verdict::Clean);
+        assert_eq!(counts.verdict(Gates { w_complete: true, ..Gates::default() }), Verdict::Incomplete);
+        assert_eq!(counts.exit_code(Gates { w_complete: true, ..Gates::default() }), 2);
         counts.w_computed = 4;
-        assert_eq!(counts.verdict(false, true), Verdict::Clean);
+        assert_eq!(counts.verdict(Gates { w_complete: true, ..Gates::default() }), Verdict::Clean);
         // A w computation error is a hard failure, whatever the gates say.
         let mut counts = Counts::default();
         counts.w_entries = 4;
         counts.w_computed = 4;
         counts.w_engine_error = 1;
-        assert_eq!(counts.verdict(false, false), Verdict::Inconsistent);
-        assert_eq!(counts.exit_code(false, true), 1);
+        assert_eq!(counts.verdict(Gates::default()), Verdict::Inconsistent);
+        assert_eq!(counts.exit_code(Gates { w_complete: true, ..Gates::default() }), 1);
         // Positive-entry partition: a dropped stored row is caught.
         let mut entries = EntryCounts::default();
         entries.entries = 2;
@@ -2750,8 +3013,8 @@ mod tests {
         counts.probes.total = 1;
         counts.probes.full_success = 1;
         counts.geometry_contradictions = 1;
-        assert_eq!(counts.verdict(false, false), Verdict::Inconsistent);
-        assert_eq!(counts.exit_code(true, false), 1);
+        assert_eq!(counts.verdict(Gates::default()), Verdict::Inconsistent);
+        assert_eq!(counts.exit_code(Gates { complete: true, ..Gates::default() }), 1);
     }
 
     #[test]
@@ -2846,7 +3109,7 @@ mod tests {
         assert_eq!(counts.geometry_contradictions, 0);
         assert_eq!(counts.entries.passed, 2);
         assert_eq!(exit_code, 0);
-        assert_eq!(counts.verdict(true, true), Verdict::Clean);
+        assert_eq!(counts.verdict(all_gates()), Verdict::Clean);
 
         // The independent geometry filter must agree with the computed content
         // on all 32 probes: a rejected probe has exactly zero trivial terms and
