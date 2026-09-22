@@ -35,46 +35,18 @@
 //! return fewer solutions and are left to the higher-dimensional batch: this
 //! module never guesses a catalogue.
 //!
-//! Status (2026-09-22): the solver and its cross-check are in place and green,
-//! but the production wiring is **not** done.  Feeding these characters into
-//! `build_block` disagrees with the parent's q-block character on 30 probes
-//! (ordinal 14090 and neighbours, all with a two-fold little co-group whose
-//! cocycle is trivial in the child's own representatives while the parent's
-//! corresponding representative differs by a lattice translation with a
-//! non-trivial Bloch phase).  The pairing convention between the parent's
-//! q-block and a constructed child row is the open question; until it is
-//! settled the entry point keeps its batch-1 behaviour and reports
-//! `MissingChildStarData` for these stars instead of a wrong multiplicity.
+//! The caller must build the constants with the **same** exact point the
+//! character is evaluated at.  A reconstructed little-group operation is not a
+//! lattice translate of its representative (its translation can carry quarters),
+//! so taking the constants at the raw folded point and evaluating at the reduced
+//! one changes the phase: that mix produced `1 +- i` multiplicities on 30 probes
+//! (ordinal 14090, SG 226 W5 -> #98) before it was fixed.
 
 use crate::mathfunc::Mat3I;
 
 use super::super::{ExactSeitz, Lattice, Rat, SubductionError, Vec3R, exact_primitive_basis};
 use super::super::strict_sg_hall_ops;
-
-/// Errors of the exact little co-group layer.
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
-pub(super) enum CatalogueError {
-    /// An error from the exact rational/affine layer.
-    #[error(transparent)]
-    Subduction(#[from] SubductionError),
-    /// The child rotations fixing an exact point do not close under products,
-    /// or the product of two of them leaves the child lattice.
-    #[error(
-        "the child operations fixing q = ({}, {}, {}) do not form a closed little co-group",
-        q[0],
-        q[1],
-        q[2]
-    )]
-    NotClosed { q: [Rat; 3] },
-    /// A character was asked for a rotation the catalogue was not solved on.
-    #[error(
-        "the little co-group catalogue at q = ({}, {}, {}) has no character for this rotation",
-        q[0],
-        q[1],
-        q[2]
-    )]
-    RotationNotCovered { q: [Rat; 3] },
-}
+use super::StarError;
 
 /// The identity rotation, as stored in every Hall operation table.
 const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
@@ -125,10 +97,10 @@ impl LittleCoGroup {
     }
 
     /// Position of the product rotation `R_i R_j`, or a fail-closed error.
-    fn product_position(&self, i: usize, j: usize) -> Result<usize, CatalogueError> {
+    fn product_position(&self, i: usize, j: usize) -> Result<usize, StarError> {
         let product = self.representatives[i].compose(&self.representatives[j])?;
         self.position(product.rotation())
-            .ok_or_else(|| CatalogueError::NotClosed {
+            .ok_or_else(|| StarError::LittleCoGroupNotClosed {
                 q: [self.q.get(0), self.q.get(1), self.q.get(2)],
             })
     }
@@ -139,7 +111,7 @@ pub(super) fn little_co_group(
     child_sg: u8,
     q: &Vec3R,
     child_reciprocal: &Lattice,
-) -> Result<LittleCoGroup, CatalogueError> {
+) -> Result<LittleCoGroup, StarError> {
     let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
     let hall = strict_sg_hall_ops(child_sg)?;
     let mut representatives: Vec<ExactSeitz> = Vec::new();
@@ -165,7 +137,7 @@ pub(super) fn little_co_group(
         .position(|operation| {
             operation.rotation() == IDENTITY_ROTATION && operation.translation().is_zero()
         })
-        .ok_or_else(|| CatalogueError::NotClosed {
+        .ok_or_else(|| StarError::LittleCoGroupNotClosed {
             q: [q.get(0), q.get(1), q.get(2)],
         })?;
     representatives.swap(0, identity);
@@ -177,7 +149,7 @@ pub(super) fn little_co_group(
             let position = representatives
                 .iter()
                 .position(|kept| kept.rotation() == product.rotation())
-                .ok_or_else(|| CatalogueError::NotClosed {
+                .ok_or_else(|| StarError::LittleCoGroupNotClosed {
                     q: [q.get(0), q.get(1), q.get(2)],
                 })?;
             // `s_i s_j` and the representative of the same rotation are the same
@@ -186,7 +158,7 @@ pub(super) fn little_co_group(
                 .translation()
                 .checked_sub(representatives[position].translation())?;
             if !child_cell.contains(&defect)? {
-                return Err(CatalogueError::NotClosed {
+                return Err(StarError::LittleCoGroupNotClosed {
                     q: [q.get(0), q.get(1), q.get(2)],
                 });
             }
@@ -216,7 +188,7 @@ pub(super) fn little_co_group(
 /// partial one.
 pub(super) fn one_dimensional_characters(
     co_group: &LittleCoGroup,
-) -> Result<Vec<Vec<Rat>>, CatalogueError> {
+) -> Result<Vec<Vec<Rat>>, StarError> {
     let order = co_group.order();
     if order > MAX_ORDER {
         return Ok(Vec::new());
@@ -233,11 +205,11 @@ pub(super) fn one_dimensional_characters(
     // character of 1/6), so the grid is scaled by the group order.
     modulus = modulus
         .checked_mul(i128::try_from(order).map_err(|_| {
-            CatalogueError::Subduction(SubductionError::RationalOverflow {
+            StarError::Subduction(SubductionError::RationalOverflow {
                 operation: "little co-group order",
             })
         })?)
-        .ok_or(CatalogueError::Subduction(SubductionError::RationalOverflow {
+        .ok_or(StarError::Subduction(SubductionError::RationalOverflow {
             operation: "cocycle modulus",
         }))?;
     if generators.is_empty() || modulus <= 0 {
@@ -255,10 +227,10 @@ pub(super) fn one_dimensional_characters(
     let mut solutions = Vec::new();
     let mut odometer = vec![0i128; generators.len()];
     loop {
-        if let Some(psi) = co_group.complete(&generators, &odometer, modulus, identity)? {
-            if !solutions.contains(&psi) {
-                solutions.push(psi);
-            }
+        if let Some(psi) = co_group.complete(&generators, &odometer, modulus, identity)?
+            && !solutions.contains(&psi)
+        {
+            solutions.push(psi);
         }
         // Advance the odometer.
         let mut position = 0usize;
@@ -278,7 +250,7 @@ pub(super) fn one_dimensional_characters(
 
 impl LittleCoGroup {
     /// A generating set of positions, greedily closed under products.
-    fn generators(&self) -> Result<Vec<usize>, CatalogueError> {
+    fn generators(&self) -> Result<Vec<usize>, StarError> {
         let order = self.order();
         let mut generators: Vec<usize> = Vec::new();
         let mut span = vec![0usize]; // the identity is position zero
@@ -293,7 +265,7 @@ impl LittleCoGroup {
             }
         }
         if span.len() != order {
-            return Err(CatalogueError::NotClosed {
+            return Err(StarError::LittleCoGroupNotClosed {
                 q: [self.q.get(0), self.q.get(1), self.q.get(2)],
             });
         }
@@ -301,7 +273,7 @@ impl LittleCoGroup {
     }
 
     /// The subgroup generated by `generators` together with `span`, as positions.
-    fn close_span(&self, span: &[usize], generators: &[usize]) -> Result<Vec<usize>, CatalogueError> {
+    fn close_span(&self, span: &[usize], generators: &[usize]) -> Result<Vec<usize>, StarError> {
         let mut closed = span.to_vec();
         let mut changed = true;
         while changed {
@@ -328,7 +300,7 @@ impl LittleCoGroup {
         assignment: &[i128],
         modulus: i128,
         identity: usize,
-    ) -> Result<Option<Vec<Rat>>, CatalogueError> {
+    ) -> Result<Option<Vec<Rat>>, StarError> {
         let order = self.order();
         let mut psi: Vec<Option<Rat>> = vec![None; order];
         psi[identity] = Some(Rat::ZERO);
@@ -400,7 +372,7 @@ impl LittleCoGroup {
 pub(super) fn constants(
     co_group: &LittleCoGroup,
     psi: &[Rat],
-) -> Result<Vec<(Mat3I, Rat)>, CatalogueError> {
+) -> Result<Vec<(Mat3I, Rat)>, StarError> {
     let mut out = Vec::with_capacity(co_group.order());
     for (position, operation) in co_group.representatives.iter().enumerate() {
         let mut constant = psi[position];
@@ -422,13 +394,13 @@ pub(super) fn character_value(
     constants: &[(Mat3I, Rat)],
     q: &Vec3R,
     operation: &ExactSeitz,
-) -> Result<num_complex::Complex64, CatalogueError> {
+) -> Result<num_complex::Complex64, StarError> {
     let rotation = operation.rotation();
     let constant = constants
         .iter()
         .find(|(known, _)| *known == rotation)
         .map(|(_, value)| *value)
-        .ok_or(CatalogueError::RotationNotCovered {
+        .ok_or(StarError::ConstructedRotationNotCovered {
             q: [q.get(0), q.get(1), q.get(2)],
         })?;
     let mut turns = constant;

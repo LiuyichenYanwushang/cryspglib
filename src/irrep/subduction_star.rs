@@ -26,14 +26,10 @@
 //!
 //! [`folded_stars`]: OrdinaryStar::folded_stars
 
-/// Exact little co-groups and their one-dimensional projective characters.
-///
-/// R4 batch 2a's offline solver: it computes the target catalogue of a
-/// non-trivial little co-group from the exact cocycle, and its cross-check
-/// against the pinned rows is part of the test suite.  It is **not** wired into
-/// the production path yet -- see `docs/subduction-r4-batches.md` for the open
-/// pairing/gauge question that has to be settled first.
-#[cfg(test)]
+/// Exact little co-groups and their one-dimensional projective characters
+/// (R4 batch 2a).  The catalogue is only used when the solver finds exactly
+/// `|P_q|` characters, i.e. when every irreducible projective representation of
+/// the co-group is one-dimensional; see the module documentation.
 #[path = "subduction_catalogue.rs"]
 pub mod catalogue;
 #[path = "subduction_star_decompose.rs"]
@@ -108,6 +104,15 @@ pub enum StarError {
         q[2]
     )]
     ConstructedRotationNotCovered { q: [Rat; 3] },
+    /// The child rotations fixing an exact point do not close under products,
+    /// or the product of two of them leaves the child lattice.
+    #[error(
+        "the child operations fixing q = ({}, {}, {}) do not form a closed little co-group",
+        q[0],
+        q[1],
+        q[2]
+    )]
+    LittleCoGroupNotClosed { q: [Rat; 3] },
     /// The transversals do not cover the whole parent star.
     #[error(
         "{represented} transporters of {ml} do not cover all {operations} operations of \
@@ -785,13 +790,27 @@ pub(super) fn fold_arms(
 /// The character is a function of the little-group operation itself, so it can
 /// be transported to another arm of the same star by conjugating the operation,
 /// exactly like a stored row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ConstructedLittleRep {
     /// Trivial little co-group: every little-group operation is a translation,
     /// so the representation at the exact point `q` is the one-dimensional
     /// Bloch phase `D(T_L) = exp(+2 pi i q.L)` in the child's own frame (the
     /// sign convention [`bloch_phase`] already fixes for stored rows).
     BlochPhase { q: Vec3R },
+    /// One one-dimensional allowed irrep of a **non-trivial** little co-group:
+    /// `D(R, T) = exp(2 pi i (constant(R) + q.T))`.
+    ///
+    /// `q` is the same exact point the constants were built with, which is what
+    /// makes the two halves of the phase agree: a reconstructed little-group
+    /// operation is **not** a lattice translate of its representative (its
+    /// translation can carry quarters), so mixing a raw and a reduced `q`
+    /// between the constants and the evaluation silently changes the character.
+    Projective {
+        /// The exact folded point the catalogue belongs to.
+        q: Vec3R,
+        /// `(rotation, constant)` per little co-group rotation.
+        constants: Vec<(Mat3I, Rat)>,
+    },
 }
 
 impl ConstructedLittleRep {
@@ -809,6 +828,9 @@ impl ConstructedLittleRep {
                     });
                 }
                 Ok(bloch_phase(q, operation.translation())?)
+            }
+            Self::Projective { q, constants } => {
+                Ok(catalogue::character_value(constants, q, operation)?)
             }
         }
     }

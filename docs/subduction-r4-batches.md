@@ -138,49 +138,61 @@ R2 只对子群 #1 构造目标（`child_sg != 1` 直接返回空，保持 `Miss
    的对应，而 R3 已明确把这条对应留作未验证项。目标 catalogue 本身则**完全由 q 处的
    精确 cocycle 决定**，不需要任何归档字符数据。
 
-### 批次 2a 实现进展与未决门禁（2026-09-22 第二轮）
+### 批次 2a：一维投影特征标 catalogue（已交付，2026-09-22 第三轮）
 
-**已落地（离线）：** `src/irrep/subduction_catalogue.rs` —— 精确小余群 + 因子系统 +
-一维投影特征标求解器，注册为 `#[cfg(test)]` 模块，**未接入生产路径**。两项测试：
+**状态：已交付。** 全表审计（`--require-complete --require-full-decomposition`，560 s）：
 
-* `a_two_fold_co_group_has_two_characters`：手算 C2（φ=0 → ψ∈{0,1/2}；φ=1/2 →
-  ψ=±1/4，即 χ(g)=±i；φ=1/3 → ψ=1/6，钉住"规范可以比 cocycle 更细"）；
-* `the_catalogue_reproduces_pinned_little_group_characters`：在**离散 pinned k 点**上
-  对照引擎已验证的小群字符行 —— **1,176 条记录 / 6,318 个操作全部命中**
-  （另 1,812 条属于更高维批次，直接跳过），2.8 s。
+| 项目 | 批次 1 后 | 批次 2a 后 |
+|---|---:|---:|
+| `full_success` | 357,033 | **366,039** |
+| `identity_only` | 9,227 | **221** |
+| `error` / `hard_failures` | 0 / 0 | **0 / 0** |
+| 恒等正项 | 94,271/0 不匹配 | 94,271/0 不匹配 |
+| Γ Frobenius | 1,895/1,895 | 1,895/1,895 |
+| w 行 | 5,756 / 0 错误 | 5,756 / 0 错误 |
+| `production_checks` | 全 0 | 全 0 |
 
-**接入被回退（重要，下一轮的入口）：** 把求解器接进 `constructed_child_components_at`
-后跑全表审计得到 `full_success=366,009 identity_only=221`，但出现 **30 条新 error**：
+覆盖率 366,039/366,260 = **99.94%**；`--require-complete` 仍 exit 0，
+`--require-full-decomposition` exit 2（`incomplete=221`）。清点后剩余
+**221 个 probe / 83 条记录 / 29 个子群 / 326 个缺失星**，重新分类后**全部**是
+`parameterized_source`：**58 组**（星阶 4 的 52 组 + 星阶 6 的 6 组），与侦察的 2b
+预测完全一致。
 
-```
-multiplicity of constructed(q=(1, 3/2, 1), index=0) is 1.0000000000000002-1i
-（ordinal 14090，SG 226 W5 → #98，另有相邻 29 条）
-```
+**实现**（`src/irrep/subduction_catalogue.rs` + `subduction_star.rs` 的
+`ConstructedLittleRep::Projective` + `constructed_child_components_at` 的新分支）：
 
-诊断（`examples/trace_subduction 14090` + 临时探针）：该 block 的 child 小余群阶 2；
-child 侧非恒等元（R=diag(-1,1,-1)）的 Hall 代表元 t=(1/2,0,3/4)（pulled-back 为
-(-1/2,0,-1/4)）满足 `t + R t = 0` ⇒ cocycle 平凡 ⇒ child 小群 irrep 在 g 上取 ±1；
-但**母群**侧对应代表元是 2_z，其 q-block 字符在该操作上是 ±2i（母群自己的代表元相差一个
-格平移，而该平移的 Bloch 相位非平凡）。两侧的**代表元规范**不同，朴素配对就得到
-1±i。引擎的存储行路径靠 `character_of` 的"按格匹配 + Bloch 相位修正"避免了这个坑；
-构造行必须复现同一套规范化。
+* catalogue 的因子系统、常量与取值共用**同一个约化后的点**；
+* 只有解数恰为 `|P_q|` 时才使用；否则保持 `MissingChildStarData`（fail closed）；
+* 一维 character 的身份是 `Constructed { q, index }`，`index` 按解序编号。
 
-**结论**：求解器本身有独立证据（1,176 条 pinned 行），但构造行与母群 q-block 的
-**配对规范**还没对齐；在解决之前生产入口保持批次 1 行为（这些星报
-`MissingChildStarData`，绝不给错值；已回退并复核 ordinal 14090/3991 的 `VERDICT clean`）。
-下一轮实现顺序：先固定规范化（用母群代表元的格平移相位把构造行归一到同一规范，
-或把母群的 k/操作交给 catalogue 侧统一求值），再跑全表审计确认 `full_success=366,009`
-级别的闭合且新 error = 0，最后补回归与文档。
+**本轮修掉的 bug（教训）**：第一版接线把常量建在**原始**折叠点上、却用**约化**点求值，
+30 个 probe 因此得到复数重数（`1±i`，ordinal 14090，SG 226 W5 → #98）。原因：重建出的
+小群操作**不是**其代表元的格平移（平移可以带 1/4），两半相位必须共用同一个 `q`；
+混用会让相位差一个非整数。修复后 14090 变成 25/25 完整、`VERDICT clean`。
+值得记下的是引擎当时是 fail-closed（报错而不是给错值），所以错误可见、没有污染结果。
 
-### 批次 2a/2b 划分
+**证据**：
 
-- **批次 2a：626 组**（|P_q|=2 的 452、|P_q|=3 的 4、|P_q|=4 且 4 类的 170）。
-  catalogue 全是**一维**投影不可约表示：字符是单位根，指数满足
-  `psi_i + psi_j ≡ phi_ij + psi_k (mod 1)`，解集是一条 `Hom(P_q,U(1))` 陪集，
-  **全程有理数、无容差**。实现为引擎里的小型精确求解，按 |P_q| ≤ 4 封顶，
-  超出即保持 `MissingChildStarData`（fail closed）。
-- **批次 2b：58 组**（|P_q|=4 且 1 类的 52、|P_q|=6 的 6）需要二维投影表示，
-  单独一批并单独建证据集。
+* `the_catalogue_reproduces_pinned_little_group_characters`：在**离散** pinned k 点上
+  对照引擎已验证的小群字符行，**1,176 条记录 / 6,318 个操作全部命中**
+  （另 1,812 条属更高维批次，跳过），2.8 s；
+* `a_two_fold_co_group_has_two_characters`：手算 C2（φ=0 → ψ∈{0,1/2}；φ=1/2 → ψ=±1/4；
+  φ=1/3 → ψ=1/6，钉住"规范可以比 cocycle 更细"）；
+* `tests/subduction_constructed_stars.rs`：13346 的五个 `W` probe 全部由 catalogue 回答
+  且恒等频率与 pinned 表一致；3988（二维小群）仍 `MissingChildStarData`；
+* 审计微型基线由 13345/13346（均已闭合）移到 3988；恒等回归的 2,075 个 probe 现在
+  **全部**走完整入口（缺数据集合为空）；settings 一组的 120 个 probe 全部完整。
+
+### 批次 2b：二维投影表示（剩 221 个 probe）
+
+`target/r4_groups.tsv` 的 58 组全部需要**二维**投影不可约表示：
+
+* |P_q| = 4 且只有一个 ω-正则类：52 组（例：child #43 `0,1,1/2`，SG 109 `GM3` `P1`）；
+* |P_q| = 6（非交换 D3）：6 组（例：child #160 `0,0,3/4`）。
+
+批次 2a 的一维求解器**故意**不覆盖它们（解数 ≠ |P_q| ⇒ 空 catalogue ⇒ fail closed），
+所以生产入口对这些星继续报 `MissingChildStarData`，恒等-only 路径照常给出精确的恒等
+频率。证据计划同 2a：先在离散 pinned k 点上对照引擎字符行，再接生产求解。
 
 ### 批次 2a 的证据计划（实现前先离线）
 

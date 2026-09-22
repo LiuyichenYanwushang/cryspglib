@@ -67,6 +67,7 @@ use super::super::{
 use super::scalar_star::{ComponentStar, ConstructedStar, ScalarStar};
 use super::{
     ConstructedLittleRep, FoldedPoint, FoldedStar, OrdinaryStar, StarError, arm_wave_vector,
+    catalogue,
 };
 
 /// The identity rotation, as stored in every Hall operation table.
@@ -1446,7 +1447,7 @@ fn constructed_child_components_at(
     child_reciprocal: &Lattice,
 ) -> Result<Vec<ChildComponent>, FullStarError> {
     if !has_trivial_little_co_group(child_sg, q, child_reciprocal)? {
-        return Ok(Vec::new());
+        return constructed_projective_components(child_sg, q, child_reciprocal);
     }
     let exact = child_reciprocal.reduce(q)?.representative;
     let q_key = [exact.get(0), exact.get(1), exact.get(2)];
@@ -1464,6 +1465,55 @@ fn constructed_child_components_at(
     }])
 }
 
+/// The one-dimensional projective catalogue of a non-trivial little co-group.
+///
+/// The **same** reduced point is used for the cocycle, for the constants and for
+/// the evaluation: a reconstructed little-group operation is not a lattice
+/// translate of its representative, so the two halves of
+/// `D(R, T) = exp(2 pi i (psi_R - q.t_R + q.T))` have to share one `q`.
+/// The catalogue is only returned when the solver finds exactly `|P_q|`
+/// characters, i.e. when every irreducible projective representation of the
+/// co-group is one-dimensional; otherwise the caller keeps
+/// `MissingChildStarData`.
+fn constructed_projective_components(
+    child_sg: u8,
+    q: &Vec3R,
+    child_reciprocal: &Lattice,
+) -> Result<Vec<ChildComponent>, FullStarError> {
+    let exact = child_reciprocal.reduce(q)?.representative;
+    let co_group = catalogue::little_co_group(child_sg, &exact, child_reciprocal)?;
+    let characters = catalogue::one_dimensional_characters(&co_group)?;
+    if characters.len() != co_group.order() {
+        return Ok(Vec::new());
+    }
+    let q_key = [exact.get(0), exact.get(1), exact.get(2)];
+    let mut components = Vec::with_capacity(characters.len());
+    for (index, psi) in characters.iter().enumerate() {
+        let constants = catalogue::constants(&co_group, psi)?;
+        components.push(ChildComponent {
+            record: None,
+            component: SubductionComponent::Constructed {
+                q: q_key,
+                index: u16::try_from(index).map_err(|_| SubductionError::RationalOverflow {
+                    operation: "constructed catalogue index",
+                })?,
+            },
+            label: None,
+            bc: None,
+            irnumber: None,
+            dimension: 1,
+            base_k: exact,
+            effective_k: exact,
+            conjugate: false,
+            characters: ComponentCharacters::Constructed(ConstructedLittleRep::Projective {
+                q: exact,
+                constants,
+            }),
+        });
+    }
+    Ok(components)
+}
+
 /// Whether the little co-group of `q` is trivial in `child_sg`: no non-identity
 /// child rotation of the child's own data-Hall operations fixes `q` modulo the
 /// child reciprocal lattice (centring extinctions included).
@@ -1479,6 +1529,25 @@ fn has_trivial_little_co_group(
         }
     }
     Ok(true)
+}
+
+/// Whether a folded child star with no pinned child row is answerable by a
+/// **constructed** target at its canonical first point.
+///
+/// This is the single production predicate behind the constructed fallback:
+/// R4 batch 1 answers a trivial little co-group with the one-dimensional Bloch
+/// phase, R4 batch 2a answers a non-trivial one whose projective irreps are all
+/// one-dimensional (complete exactly when the solver finds `|P_q|` characters).
+/// Everything else needs the higher-dimensional batch and is not answerable yet.
+///
+/// The offline census uses it so its per-star reachability model cannot drift
+/// from what the entry point actually does.
+pub fn constructed_targets_available(
+    child_sg: u8,
+    q: &Vec3R,
+    child_reciprocal: &Lattice,
+) -> Result<bool, FullStarError> {
+    Ok(!constructed_child_components_at(child_sg, q, child_reciprocal)?.is_empty())
 }
 
 /// Expand one non-spinor child record into its complex components.
@@ -1928,7 +1997,7 @@ fn build_evaluator(
         )?))),
         (SubductionComponent::Constructed { .. }, ComponentCharacters::Constructed(rep)) => {
             Ok(ChildStarEvaluator::Constructed(Box::new(
-                ConstructedStar::new(child_sg, component.base_k, *rep)?,
+                ConstructedStar::new(child_sg, component.base_k, rep.clone())?,
             )))
         }
         _ => Err(FullStarError::TargetSourceMismatch {
@@ -2060,17 +2129,23 @@ mod tests {
         }
 
         // SG 196 W1 -> #24 folds onto child stars the #24 table has no k for.
+        // R4 batch 2a constructs them from the exact cocycle, so the full entry
+        // now agrees with the identity-only entry on the trivial content.
         let subgroup = subgroup_of(196, "W1", "P2");
         let built = embedding(196, "W1", "P2");
-        assert!(matches!(
-            subduce_full_star_with_embedding(&subgroup, &built, probe(196, "W1")),
-            Err(FullStarError::MissingChildStarData { sg: 24, .. })
-        ));
+        let full = subduce_full_star_with_embedding(&subgroup, &built, probe(196, "W1"))
+            .expect("the one-dimensional catalogue answers these stars");
         let content = trivial_content_with_embedding(&subgroup, &built, probe(196, "W1")).unwrap();
         assert_eq!(
             (content.total, content.by_label, content.gamma_stars, content.skipped_stars),
             (1, 1, 1, 2)
         );
+        let full_total: u32 = full
+            .blocks()
+            .iter()
+            .map(|block| block.multiplicity(trivial_child_record(24).unwrap().ml))
+            .sum();
+        assert_eq!(full_total, content.total);
     }
 
     fn rat(num: i128, den: i128) -> Rat {
@@ -3148,21 +3223,17 @@ mod tests {
             Err(FullStarError::EmptyQBlock { .. })
         ));
 
-        // A folded point that matches no stored child record is a typed error,
-        // not a zero block.  The shift is not a child reciprocal lattice
-        // vector, unlike an integer one.
-        let mut foreign = folded[0].clone();
-        foreign.points[0].q = foreign.points[0]
-            .q
-            .checked_add(&Vec3R::new([rat(1, 3), Rat::ZERO, Rat::ZERO]))
-            .expect("shift");
+        // A folded point that matches no stored child record and that the
+        // constructed fallback cannot answer either is a typed error, not a
+        // zero block.  Ordinal 3988 (SG 109 `GM3` `P1` -> #43) folds onto a
+        // four-element little co-group with a single omega-regular class, whose
+        // irreps are two-dimensional: out of the one-dimensional batch's scope,
+        // so the entry point still reports missing data there.
+        let two_dimensional = subgroup_of(109, "GM3", "P1");
+        let built_43 = embedding(109, "GM3", "P1");
         assert!(matches!(
-            decompose_folded_stars(&built, &star, &[foreign, folded[1].clone()]),
-            Err(FullStarError::MissingChildStarData {
-                sg: 83,
-                points: 2,
-                ..
-            })
+            subduce_full_star_with_embedding(&two_dimensional, &built_43, probe(109, "P1")),
+            Err(FullStarError::MissingChildStarData { sg: 43, .. })
         ));
     }
 
@@ -3635,13 +3706,26 @@ mod tests {
             general_45[0].component,
             SubductionComponent::Constructed { .. }
         ));
-        // A point with a non-trivial little co-group still has no constructed
-        // source: child #45's Gamma point is fixed by all eight rotations.
+        // A non-trivial little co-group is constructed too when all of its
+        // projective irreps are one-dimensional: child #45's Gamma point has a
+        // four-element abelian co-group with a coboundary cocycle, so the
+        // catalogue is complete there.
         let gamma = constructed_child_components_at(45, &Vec3R::new([rat(0, 1); 3]), &reciprocal_45)
             .expect("gamma lookup");
+        assert_eq!(gamma.len(), 4, "four one-dimensional characters");
+        assert!(gamma.iter().all(|component| component.dimension == 1
+            && matches!(component.component, SubductionComponent::Constructed { .. })));
+        // Beyond the batch's order cap nothing is constructed: a cubic child's
+        // Gamma point is fixed by all 48 rotations.
+        let reciprocal_221 = Lattice::new(exact_primitive_basis(221).expect("child #221 basis"))
+            .expect("lattice")
+            .reciprocal()
+            .expect("reciprocal");
         assert!(
-            gamma.is_empty(),
-            "a non-trivial little co-group must not be constructed"
+            constructed_child_components_at(221, &Vec3R::new([rat(0, 1); 3]), &reciprocal_221)
+                .expect("gamma lookup")
+                .is_empty(),
+            "a co-group beyond the one-dimensional batch must not be constructed"
         );
     }
 

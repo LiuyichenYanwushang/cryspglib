@@ -6,8 +6,9 @@
 （R2 之前）14,713 个恒等-only probe 的逐星缺口清点见
 [subduction-gap-census.md](subduction-gap-census.md)：21,136 个缺失星，
 按子群/k-star/setting 归并为 989 组；R2 补齐子群 #1 后余 12,878 条，R4 批次 1
-补齐平凡小余群的构造目标后余 **9,227** 条（12,932 个缺失星、684 个
-`parameterized_source` 组）。清点不改变下述生产覆盖数字。
+补齐平凡小余群的构造目标（批次 1）与一维投影 catalogue（批次 2a）后余 **221** 条
+（326 个缺失星、58 个 `parameterized_source` 组，均需二维投影表示）。
+清点不改变下述生产覆盖数字。
 
 ## 生产 API 审计
 
@@ -218,11 +219,11 @@ T = B^T
 | 门禁 | 退出码 | 判词/摘要 |
 |---|---:|---|
 | `--require-complete --require-w-complete` | 0 | `VERDICT complete scope=global gates=--require-complete,--require-w-complete full_decomposition=not_gated` |
-| `--require-full-decomposition` | **2** | `full_decomposition: scope=global ... full_success=357033 identity_only=9227 incomplete=9227 global=covered`，`VERDICT incomplete ... gates=--require-full-decomposition` |
+| `--require-full-decomposition` | **2** | `full_decomposition: scope=global ... full_success=366039 identity_only=221 incomplete=221 global=covered`，`VERDICT incomplete ... gates=--require-full-decomposition` |
 | 三个门禁同时 | **2** | 同上；完整分解缺口优先于其它门禁的通过 |
 
 即：恒等分导表与 w 行的**恒等重数**已经闭合（旧两个门禁 exit 0），但**普通离散
-标量的完整分解**在 R4 批次 1 后是 357,033/366,260 = 97.48%，仍余 9,227 条缺口，
+标量的完整分解**在 R4 批次 2a 后是 366,039/366,260 = 99.94%，仍余 221 条缺口，
 其余里程碑按 `docs/subduction-next-milestones.md` 逐批补齐；在缺口清零前，新门禁
 一直退出 2，不得用恒等项通过代替完整分解验收。
 
@@ -250,9 +251,13 @@ T = B^T
   [subduction-gap-census.md](subduction-gap-census.md) 末节，排优先级按 probe。
 - **R4 批次 1（2026-09-22）**：构造判据由「子群 #1」改为「该星的小余群平凡」，
   并补上非平凡子群点群的**子群自星诱导**（`ConstructedStar`）。全表
-  `full_success=357,033 identity_only=9,227`（+3,651 / −3,651）、`hard_failures=0`；
-  重跑清点后剩 9,227 个 probe / 12,932 个缺失星 / 684 个 `parameterized_source` 组。
-  范围、文件所有权与负例见 [subduction-r4-batches.md](subduction-r4-batches.md)。
+  `full_success=357,033 identity_only=9,227`（+3,651 / −3,651）、`hard_failures=0`。
+- **R4 批次 2a（2026-09-22）**：小余群非平凡但**一维投影特征标 catalogue 完整**
+  （精确 cocycle 求解，解数 = `|P_q|`）的星由 `ConstructedLittleRep::Projective`
+  现场回答。全表 `full_success=366,039 identity_only=221`（+9,006 / −9,006）、
+  `error=0`、`hard_failures=0`；剩余 221 个 probe / 58 组需要二维投影表示（批次 2b）。
+  范围、文件所有权、负例与一个已修 bug（原始/约化 q 混用导致复数重数）见
+  [subduction-r4-batches.md](subduction-r4-batches.md)。
 - 复核修复（`d140c10` 复核）：Γ 便捷入口的普通目标曾填占位 CIR 号 `Some(0)`，与
   full-star 入口对同一目标不一致；现在读 `record.source_identity()` 的真实编号，永久
   测试 `gamma_and_full_star_entries_agree_on_every_target_identity` 逐项比较两个入口
@@ -261,13 +266,14 @@ T = B^T
   假零；ordinal 1045 的两个构造成分身份 `(3/4,3/4,0)` 与 `(1/4,1/4,0)`、各重数 2
   已钉住。
 
-关键的恒等-only probe（R2 前 14,713 条、R2 后 12,878 条、R4 批 1 后 9,227 条）中，**160 条是存储正项**（例如 SG 196 W1→#24 的
+关键的恒等-only probe（R2 前 14,713 条、R2 后 12,878 条、R4 批 1 后 9,227 条、
+批 2a 后 221 条）中，**160 条是存储正项**（例如 SG 196 W1→#24 的
 `W1`，存储频率 1）：本轮之前它们因另一条折叠星缺子群 k 数据而无法计算，现在由
 恒等-only 路径逐条复现，0 不匹配、0 假阳性。永久测试
 `identity_only_content_answers_probes_without_full_child_data` 与
 `identity_only_content_agrees_with_the_full_decomposition_and_covers_the_pinned_set`
-固定了：缺数据 probe 全部被精确回答（pinned 15 个，R4 批 1 关掉 5 个后余 10 个），
-另 2,065 个 probe 上恒等-only 结果与完整验证过的完整星分解完全一致。
+固定了：缺数据 probe 全部被精确回答（pinned 15 个，R4 批 1 关掉 5 个、批 2a 关掉
+其余 10 个），另 2,075 个 probe 上恒等-only 结果与完整验证过的完整星分解完全一致。
 
 官方采集器完成 4,777 个查询，输出 **0-based ordinal 0..15238** 的全部记录。
 13,861 条候选通过 origin 精确相等与整数 unimodular 换基初检（其中 95 条 U

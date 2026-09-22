@@ -123,14 +123,10 @@ fn every_new_record_probe_is_computed_or_matches_the_exact_missing_set() {
             positive += usize::from(expected != 0);
         }
     }
-    assert_eq!((complete, positive), (116, 18));
-    assert_eq!(
-        missing,
-        [
-            (15125, "P1P2"),
-            (15125, "P3"),
-            (15131, "P1P2"),
-            (15131, "P3")
-        ]
-    );
+    // R4 batch 2a closed the last four probes of this set (ordinals
+    // 15125/15131, probes P1P2 and P3): their folded stars have a two-fold
+    // little co-group whose cocycle is a coboundary, so the exact
+    // one-dimensional catalogue answers them and the missing set is empty.
+    assert_eq!((complete, positive), (120, 18));
+    assert!(missing.is_empty(), "no probe needs child data here: {missing:?}");
 }

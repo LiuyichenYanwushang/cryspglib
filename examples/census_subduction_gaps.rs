@@ -4,9 +4,10 @@
 //! A stored scalar k match means data is reachable, not that decomposition is
 //! proven complete. No characters, multiplicities, or missing labels are invented.
 //!
-//! A star with no pinned row is reported as `constructed_trivial_co_group` when
-//! its little co-group is trivial (the engine answers it with the constructed
-//! Bloch phase), and as `missing_discrete_scalar_data` otherwise.
+//! A star with no pinned row is reported as `constructed_target` when the engine
+//! can construct the child irrep there (the Bloch phase of a trivial little
+//! co-group, or a complete one-dimensional projective catalogue), and as
+//! `missing_discrete_scalar_data` otherwise.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, Write};
@@ -16,12 +17,10 @@ use cryspglib::irrep::isotropy::{self, IsotropySubgroup};
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::star::FoldedStar;
 use cryspglib::irrep::subduction::star::decompose::{
-    FullStarError, subduce_full_star_with_embedding,
+    FullStarError, constructed_targets_available, subduce_full_star_with_embedding,
 };
 use cryspglib::irrep::subduction::star::scalar_star::ScalarStar;
-use cryspglib::irrep::subduction::{
-    Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R, strict_sg_hall_ops,
-};
+use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R};
 use cryspglib::irrep::types::{CompoundCharacterSemantics, IrrepRecord};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -127,26 +126,18 @@ fn matching_labels(
     Ok(labels)
 }
 
-/// Mirror the constructed fallback of `decompose::select_representative`: a star
-/// with no pinned row anywhere is answered exactly when the little co-group at
-/// its points is trivial, so such a star is *not* a gap.
-fn star_little_co_group_is_trivial(
-    child: u8,
-    star: &FoldedStar,
-    reciprocal: &Lattice,
-) -> Result<bool> {
-    for operation in &strict_sg_hall_ops(child)?.operations {
-        let rotation = operation.rotation();
-        if rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]] {
-            continue;
-        }
-        for point in star.points() {
-            if reciprocal.preserves(rotation, point.q())? {
-                return Ok(false);
-            }
-        }
-    }
-    Ok(true)
+/// Whether the production entry point can answer a star with no pinned row.
+///
+/// This asks the engine's own [`constructed_targets_available`] at the star's
+/// canonical first point -- the point `decompose::select_representative`
+/// constructs at -- instead of re-deriving the criterion here, so the census
+/// cannot drift from the engine when a batch adds a new constructed source.
+fn star_is_constructed(child: u8, star: &FoldedStar, reciprocal: &Lattice) -> Result<bool> {
+    let point = star
+        .points()
+        .first()
+        .ok_or("a folded star must have at least one point")?;
+    Ok(constructed_targets_available(child, point.q(), reciprocal)?)
 }
 
 fn format_q(q: &Vec3R) -> String {
@@ -233,11 +224,12 @@ fn main() -> Result<()> {
                 }
                 let status = if !labels.is_empty() {
                     "stored_k_reachable"
-                } else if star_little_co_group_is_trivial(child, folded, &reciprocal)? {
-                    // No pinned row, but the child irrep at this star is the
-                    // constructed Bloch phase: the engine answers it (R4 batch 1).
+                } else if star_is_constructed(child, folded, &reciprocal)? {
+                    // No pinned row, but the engine constructs the child irrep at
+                    // this star: the Bloch phase of a trivial co-group (R4 batch 1)
+                    // or a complete one-dimensional projective catalogue (batch 2a).
                     constructed += 1;
-                    "constructed_trivial_co_group"
+                    "constructed_target"
                 } else {
                     first_missing.get_or_insert((*folded.points()[0].q(), folded.star_size()));
                     missing += 1;
@@ -304,7 +296,7 @@ mod tests {
                 .is_empty()
             {
                 reachable += 1;
-            } else if star_little_co_group_is_trivial(child, block, &reciprocal).unwrap() {
+            } else if star_is_constructed(child, block, &reciprocal).unwrap() {
                 constructed += 1;
             } else {
                 missing += 1;
@@ -338,20 +330,38 @@ mod tests {
         assert_eq!(status_counts(13345, "W1"), (0, 3, 0));
     }
 
-    /// The batch boundary: ordinal 13346 `W1` folds onto five stars without
-    /// pinned rows, but four of them sit on the parametric `B` line and have a
-    /// two-fold little co-group.  Only the trivial-co-group `U` star is
-    /// constructed, and the probe still reports missing child data whose first
-    /// star is replayed exactly.
+    /// Ordinal 13346 `W1` folds onto five stars without pinned rows, four of
+    /// them on the parametric `B` line with a two-fold little co-group whose
+    /// cocycle is a coboundary.  R4 batch 2a answers all five with the
+    /// one-dimensional projective catalogue, so the probe is complete.
     #[test]
-    fn a_parametric_star_keeps_its_missing_status() {
+    fn a_parametric_star_is_answered_by_the_one_dimensional_catalogue() {
         let contexts = subgroups().unwrap();
         let subgroup = &contexts[&13346];
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).unwrap();
         let probe = query::irreps_of(225).iter().find(|r| r.ml == "W1").unwrap();
+        assert!(
+            subduce_full_star_with_embedding(subgroup, &embedding, probe).is_ok(),
+            "the one-dimensional catalogue answers every folded star here"
+        );
+        assert_eq!(status_counts(13346, "W1"), (0, 5, 0));
+    }
+
+    /// The batch boundary after 2a: ordinal 3988 folds onto child #43 stars
+    /// whose four-element little co-group has a **single** omega-regular class,
+    /// so its irreps are two-dimensional.  That is the higher-dimensional batch,
+    /// the star stays `missing_discrete_scalar_data`, and the probe is answered
+    /// only by the identity-only entry point.
+    #[test]
+    fn a_two_dimensional_co_group_keeps_its_missing_status() {
+        let contexts = subgroups().unwrap();
+        let subgroup = &contexts[&3988];
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).unwrap();
+        let probe = query::irreps_of(109).iter().find(|r| r.ml == "P1").unwrap();
         let (q, points) = replay_missing(subgroup, &embedding, probe).unwrap();
-        assert_eq!(format_q(&q), "-1,0,-1/4");
+        assert_eq!(format_q(&q), "0,1,1/2");
         assert_eq!(points, 1);
-        assert_eq!(status_counts(13346, "W1"), (0, 1, 4));
+        // Both folded stars of this probe need the higher-dimensional batch.
+        assert_eq!(status_counts(3988, "P1"), (0, 0, 2));
     }
 }

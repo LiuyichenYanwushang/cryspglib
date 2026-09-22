@@ -171,27 +171,20 @@ fn full_stars_preserve_stored_frequencies_including_non_gamma_probes() {
         }
     }
     // Ordinals 13345/13346/13351 were the 15 pinned missing probes of the
-    // round-6 census.  R4 batch 1 answers every folded star whose little
-    // co-group is trivial with the constructed Bloch phase, which closes the
-    // five ordinal-13345 probes completely; the remaining ten keep four
-    // parametric-k stars each (`parameterized_source` in the R3 census) and
-    // stay pinned as missing.
+    // round-6 census.  R4 batch 1 closed the five ordinal-13345 probes (trivial
+    // little co-group, constructed Bloch phase) and R4 batch 2a closed the other
+    // ten (two-fold co-group, exact one-dimensional projective catalogue), so
+    // every probe of these 59 frozen contexts now decomposes completely and the
+    // pinned missing set is empty.  The comparison counter grew by exactly
+    // those ten probes, non-Gamma by ten as well.
     assert_eq!(
         (records, comparisons, positive, non_gamma),
-        (59, 2065, 458, 1527)
+        (59, 2075, 458, 1537)
     );
-    // These W stars fold to wave vectors absent from the discrete #8 table.
-    // Pin the complete missing set: newly unsupported probes must fail this
-    // gate rather than silently shrinking the tested coverage.
-    let expected_missing: Vec<_> = [13346, 13351]
-        .into_iter()
-        .flat_map(|ordinal| {
-            ["W1", "W2", "W3", "W4", "W5"]
-                .into_iter()
-                .map(move |ml| (ordinal, ml))
-        })
-        .collect();
-    assert_eq!(missing, expected_missing);
+    assert!(
+        missing.is_empty(),
+        "no probe of the frozen contexts needs child data any more: {missing:?}"
+    );
 }
 
 #[test]
@@ -327,12 +320,12 @@ fn identity_only_content_answers_probes_without_full_child_data() {
             .unwrap()
     };
 
-    // W1 folds onto three child stars; two of them have no stored child k.
+    // W1 folds onto three child stars; two of them have no stored child k and
+    // are constructed from the exact cocycle (R4 batch 2a), so the full entry
+    // answers the whole probe and agrees with the identity-only entry.
     let w1 = probe("W1");
-    assert!(matches!(
-        subduce_full_star_with_embedding(&subgroup, &embedding, w1),
-        Err(FullStarError::MissingChildStarData { sg: 24, .. })
-    ));
+    let full = subduce_full_star_with_embedding(&subgroup, &embedding, w1)
+        .expect("the constructed catalogue answers the missing stars");
     let content = trivial_content_with_embedding(&subgroup, &embedding, w1).unwrap();
     assert_eq!(
         (content.total, content.by_label, content.gamma_stars, content.skipped_stars),
@@ -340,17 +333,28 @@ fn identity_only_content_answers_probes_without_full_child_data() {
     );
     assert_eq!(content.total, stored_frequency(&subgroup, "W1"));
     assert_eq!(stored_frequency(&subgroup, "W1"), 1);
+    let full_total: u32 = full
+        .blocks()
+        .iter()
+        .map(|block| block.multiplicity(trivial_record_of(24).ml))
+        .sum();
+    assert_eq!(full_total, content.total);
 
     // The same geometry with a probe the pinned table does not list: the Gamma
-    // block really is decomposed, and it carries no trivial term.
+    // block really is decomposed, it carries no trivial term, and the whole
+    // probe is now answered by the constructed catalogue.
     let w2 = probe("W2");
-    assert!(matches!(
-        subduce_full_star_with_embedding(&subgroup, &embedding, w2),
-        Err(FullStarError::MissingChildStarData { sg: 24, .. })
-    ));
+    let full = subduce_full_star_with_embedding(&subgroup, &embedding, w2)
+        .expect("the constructed catalogue answers the missing stars");
     let content = trivial_content_with_embedding(&subgroup, &embedding, w2).unwrap();
     assert_eq!((content.total, content.gamma_stars, content.skipped_stars), (0, 1, 2));
     assert_eq!(stored_frequency(&subgroup, "W2"), 0);
+    let full_total: u32 = full
+        .blocks()
+        .iter()
+        .map(|block| block.multiplicity(trivial_record_of(24).ml))
+        .sum();
+    assert_eq!(full_total, content.total, "w2 has no trivial term either way");
 
     // L1 folds onto no Gamma star at all, and its blocks do have child data, so
     // the two entry points must agree on the zero.
@@ -450,13 +454,12 @@ fn identity_only_content_agrees_with_the_full_decomposition_and_covers_the_pinne
             }
         }
     }
-    // Pinned from the round-6 census: 2075 probes in total.  R4 batch 1 closed
-    // the five ordinal-13345 probes (every one of their folded stars has a
-    // trivial little co-group), so 10 probes remain without child data for their
-    // full star (ordinals 13346/13351, the parametric-k stars) and are answered
-    // exactly by the identity-only entry point; the other 2065 agree with the
-    // fully validated full-star decomposition, and 458 of all of them carry a
-    // positive trivial content.
-    assert_eq!((covered_missing, agreements, positives), (10, 2065, 458));
+    // Pinned from the round-6 census: 2075 probes in total, every one of them
+    // answered by the full entry point after R4 batch 2a: batch 1 closed the
+    // five trivial-co-group ordinal-13345 probes and batch 2a the ten
+    // parametric-k ones, so the identity-only fallback is no longer needed in
+    // these contexts and all 2075 agree with the fully validated full-star
+    // decomposition.  458 of them carry a positive trivial content.
+    assert_eq!((covered_missing, agreements, positives), (0, 2075, 458));
     assert_eq!(covered_missing + agreements, 2075);
 }

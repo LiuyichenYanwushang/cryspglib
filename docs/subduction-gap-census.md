@@ -218,3 +218,26 @@ children=123  star_order_inconsistent=0  matrix_available_groups=684  matrix_ele
 本次核对的 SHA-256：
 `target/r4_gaps.tsv` = `ea88218385c1fae122c0750f5ef19fe58ae354c313412ab19c8938e1de958f68`，
 `target/r4_groups.tsv` = `51fb15216fe23b50239d6c66d340df07e9e1214bb27e1c60dce18814ee2b07b5`。
+
+## R4 批 2a 后（2026-09-22）：一维小群 catalogue 再清零，余 221
+
+R4 批次 2a 用**精确 cocycle 求小余群的一维投影特征标**（判据：解数恰为 `|P_q|`），
+把 R3 判为 `parameterized_source`、小余群一维可解的那批一次关掉。全表
+`--require-complete --require-full-decomposition`（560 s、`hard_failures=0`、`error=0`）
+实测 `full_success=366,039 identity_only=221`；在该审计上重跑清点工具：
+
+```
+records=83 probes=221 stars=331 missing_stars=326 constructed_stars=2 reachable_stars=3 replay_errors=0 dimension_errors=0
+```
+
+即 gap probe 9,227 → **221**（−9,006）、记录 1,569 → 83、子群 123 → 29。
+新清点的 `status` 除 `missing_discrete_scalar_data`（326）外还有
+`constructed_target`（2）与 `stored_k_reachable`（3）。
+
+在 `target/r4_gaps.tsv` 上重跑 R3 分类器：**58 组全部是 `parameterized_source`**
+（29 个子群，星阶 4 的 52 组 + 星阶 6 的 6 组，矩阵块 58/58 完整、8,448 个矩阵元），
+即批次 2b 就是这 58 组、221 个 probe。
+
+本次核对的 SHA-256：
+`target/r4_gaps.tsv` = `9634f3a31865f7b7b64c07a28d80fcf6144dcc87a734685e4e3b0958919e8cb7`，
+`target/r4_groups.tsv` = `acec85f044e2a85756e9317d0cbd4846862208dec9a4781d99bdd20fa749c3af`。

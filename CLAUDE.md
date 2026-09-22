@@ -51,19 +51,19 @@ python3 scripts/check_other_wave_vector_rows.py
 `--tests` 不运行 example 内的回归；上面的 audit 与 census 两个 example
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
-当前基线（2026-09-22，R4 批 1 后，`-p cryspglib` 限定到本 crate）：
-lib `393 passed / 4 ignored`，integration `160 passed`，doctest `27 passed`，
-example 审计回归 `17 passed`、缺口清点回归 `2 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
+当前基线（2026-09-22，R4 批 2a 后，`-p cryspglib` 限定到本 crate）：
+lib `394 passed / 4 ignored`，integration `162 passed`，doctest `27 passed`，
+example 审计回归 `17 passed`、缺口清点回归 `3 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
 pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源已解为参数化
 直线 `k = Γ + t·v`，冻结 little 特征标表 73/73，引擎已算出全部 5,756 行）；
 全表审计（`--require-complete --require-w-complete`）退出 0、判词
-`VERDICT ... scope=global`（`identity_rows=94271`、probe `357033` 完整分解 +
-`9227` 恒等-only、w `5756/5756`、`engine_errors=0`、`hard_failures=0`，约 518 s；
-R4 批 1 前是 `353382 + 12878`，R2 前是 `351547 + 14713`）；
-`--require-full-decomposition` 仍 exit 2（`incomplete=9227`，R5 目标），
-剩余缺口的分母见 `docs/subduction-gap-census.md` 的“R4 批 1 后”小节。
+`VERDICT ... scope=global`（`identity_rows=94271`、probe `366039` 完整分解 +
+`221` 恒等-only、w `5756/5756`、`engine_errors=0`、`hard_failures=0`，约 560 s；
+R4 批 2a 前是 `357033 + 9227`，批 1 前 `353382 + 12878`，R2 前 `351547 + 14713`）；
+`--require-full-decomposition` 仍 exit 2（`incomplete=221`，R5 目标），
+剩余缺口的分母见 `docs/subduction-gap-census.md` 的“R4 批 2a 后”小节。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
 后端同时启用），与本 crate 无关，但会让整条命令以 exit 101 结束、0 个测试执行。
@@ -3241,3 +3241,47 @@ all-target clippy 通过（保留既有 workspace manifest 警告）。
 未做（批次 2 入口）：684 个参数化来源候选的参数代入、小群字符/矩阵求值、适用域与
 目标完整性验证；参数化来源可复用时冻结最小数据，运行时保持纯 Rust。`little_k`
 （w 源数组）与 PIR `k_arms` 是不同数组，坐标约定须分别验证。
+
+### 分导 R4 批次 2a（2026-09-22）：一维投影特征标 catalogue
+
+**已交付**：R3 判为 `parameterized_source` 且小余群**非平凡但一维可解**的那批不再需要
+归档字符，由引擎用精确 cocycle 现场求 catalogue 回答。文件：新增
+`src/irrep/subduction_catalogue.rs`（小余群 + 因子系统 + 一维投影特征标求解器），
+`subduction_star.rs` 增加 `ConstructedLittleRep::Projective { q, constants }` 与
+`StarError::LittleCoGroupNotClosed`，`subduction_star_decompose.rs` 增加
+`constructed_projective_components` 与公开谓词 `constructed_targets_available`
+（离线 census 用它，避免模型与引擎漂移）。
+
+判据与约定（都可复算）：
+
+* `omega_ij = exp(2 pi i q.L_ij)`，`L` 取**未约化**乘积缺陷；解
+  `psi_i + psi_j - psi_k == phi_ij (mod 1)`，**只有解数恰为 `|P_q|`**（`Hom(P_q,U(1))`
+  陪集大小，即所有不可约投影表示都是一维）才使用 catalogue；非上边界、非交换、
+  `|P_q| > 4` 一律返回空、保持 `MissingChildStarData`（fail closed，绝不猜）；
+* 恒等旋转的代表元必须是**零平移**的恒等操作，否则会把 centring 平移的 Bloch 相位吃掉；
+* **因子系统、常量与取值必须共用同一个约化后的 q** —— 这是本轮修掉的 bug：第一版把
+  常量建在原始折叠点、却用约化点求值，30 个 probe 得到复数重数 `1±i`（ordinal 14090，
+  SG 226 W5 → #98）。原因是重建出的小群操作**不是**其代表元的格平移（平移可带 1/4），
+  两半相位混用会差一个非整数；引擎当时 fail-closed（报错而非给错值），修好后 14090
+  变成 25/25 完整、`VERDICT clean`。
+
+实测（全表审计 560 s）：`full_success 357,033 → **366,039**`（99.94%）、
+`identity_only 9,227 → **221**`、`error=0`、`hard_failures=0`、恒等正项 94,271/0 不匹配、
+Γ Frobenius 1,895/1,895、w `5756/5756`、`production_checks` 全 0；
+`--require-complete` exit 0、`--require-full-decomposition` exit 2（`incomplete=221`）。
+重跑清点：`records=83 probes=221 stars=331 missing_stars=326 constructed_stars=2
+reachable_stars=3`（新状态 `constructed_target`）；在新缺口上重跑 R3 分类器只剩
+**58 个 `parameterized_source`**（29 个子群，星阶 4 的 52 组 + 星阶 6 的 6 组），
+与侦察预测的 2b 集合一致。
+
+证据与回归：`the_catalogue_reproduces_pinned_little_group_characters` 在**离散** pinned
+k 点上对照引擎字符行，**1,176 条记录 / 6,318 个操作全部命中**（另 1,812 条属更高维批次
+跳过，2.8 s）；`a_two_fold_co_group_has_two_characters` 手算 C2，含 ψ=1/6 的"规范可以比
+cocycle 更细"情形；`tests/subduction_constructed_stars.rs` 的 13346 全部回答 / 3988 仍
+缺数据；审计微型基线由 13345/13346 移到 3988；恒等回归 2,075 个 probe 全部走完整入口
+（缺数据集合为空）；settings 一组 120 个 probe 全部完整。验证：lib 394、integration 162、
+doctest 27、audit example 17、census example 3，严格 all-target clippy 通过。
+
+未做（批次 2b）：58 组需要**二维**投影不可约表示（52 组 `|P_q|=4` 单 ω-正则类、
+6 组 `|P_q|=6` 的 D3），需 twisted group algebra 的二维不可约表示或等价的诱导构造，
+单独建证据集；`little_k`（w 源数组）与 PIR `k_arms` 的坐标约定仍分别验证。

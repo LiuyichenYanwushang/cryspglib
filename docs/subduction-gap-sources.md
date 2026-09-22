@@ -195,12 +195,14 @@ R3 的输出（全部已核对）：
 操作代表元的格平移相位与既有的 `child_shift` 回退。**口径：候选数只是来源候选数，
 不代表参数求值与目标表示完整性已验证**。
 
-**R4 批次 1 之后（2026-09-22）**：R3 判为 `analytic_general_position` 的 215 组
-（小余群阶 1，本就不需要归档字符）已由引擎现场构造一维 Bloch 相位并补齐子群自星
-诱导，全表 `full_success 353,382 → 357,033`、`identity_only 12,878 → 9,227`。在新
-缺口上重跑本分类器：**684 组全部是 `parameterized_source`**（0 解析、0 无源、
-0 未分类，矩阵块 684/684 完整、81,576 个矩阵元），即本文件描述的候选集合原样成为
-批次 2 的输入。批次状态见 [subduction-r4-batches.md](subduction-r4-batches.md)，
-新的分母见 [subduction-gap-census.md](subduction-gap-census.md) 的“R4 批 1 后”小节。
+**R4 批次 1 与 2a 之后（2026-09-22）**：R3 判为 `analytic_general_position` 的 215 组
+（小余群阶 1）由批次 1 现场构造 Bloch 相位关掉；R3 判为 `parameterized_source`、
+小余群非平凡但**一维投影特征标可解**的那批由批次 2a 用精确 cocycle 关掉（不读归档
+字符）。两者合计 `full_success 353,382 → 366,039`、`identity_only 12,878 → 221`、
+0 错误。在新缺口上重跑本分类器：**58 组全部是 `parameterized_source`**（29 个子群、
+星阶 4 的 52 组 + 星阶 6 的 6 组，矩阵块 58/58 完整、8,448 个矩阵元），它们需要
+**二维**投影不可约表示，是批次 2b 的输入。批次状态见
+[subduction-r4-batches.md](subduction-r4-batches.md)，新分母见
+[subduction-gap-census.md](subduction-gap-census.md) 的“R4 批 2a 后”小节。
 
 运行成本随矩阵解码和机器负载变化；本轮实际验证结果另记于 `CLAUDE.md`。

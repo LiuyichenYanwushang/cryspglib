@@ -15,9 +15,11 @@
 //!   completely, including folded stars that are nowhere in the discrete #8
 //!   table;
 //! * ordinal 13346 (`C1` direction): probes whose stars include points on the
-//!   parametric `B` line keep `MissingChildStarData`, because those stars have a
-//!   two-fold little co-group and their `B1BA1`/`B2BA2` sources are the R3
-//!   `parameterized_source` batch.
+//!   parametric `B` line are answered by R4 batch 2a, the exact one-dimensional
+//!   projective catalogue of their two-fold little co-group;
+//! * ordinal 3988 (SG 109 -> #43): a four-element little co-group with a single
+//!   omega-regular class, whose irreps are two-dimensional, keeps
+//!   `MissingChildStarData` -- the boundary of the higher-dimensional batch.
 //!
 //! Every reported block is validated by the production entry point itself
 //! (dimension conservation, integral multiplicities, per-operation
@@ -190,39 +192,62 @@ fn a_constructed_target_is_induced_over_the_whole_child_star() {
     );
 }
 
-/// The batch boundary: ordinal 13346 (SG 225 -> #8, `C1` direction) shares the
-/// same child, but `W1` also folds onto the parametric `B` line whose little
-/// co-group has order two.  Those stars stay `MissingChildStarData` — batch 1
-/// must not answer a non-trivial little co-group with a Bloch phase.
+/// The parametric `B` line of the same child: its two-fold little co-group has
+/// a cocycle that is a coboundary, so R4 batch 2a answers every folded star with
+/// the exact one-dimensional projective catalogue while the pinned identity
+/// frequency still comes out of the same run.
 #[test]
-fn a_non_trivial_little_co_group_keeps_the_missing_data_boundary() {
+fn a_parametric_co_group_is_answered_by_the_one_dimensional_catalogue() {
     let (subgroup, embedding) = ordinal_context(225, 13346);
     assert_eq!(embedding.subgroup_sg(), 8);
+    let trivial = query::irreps_of(8)
+        .iter()
+        .find(|record| {
+            !record.spinor && record.k_vector().numerators == [0, 0, 0] && record.dim == 1
+        })
+        .expect("#8 has a trivial Gamma row");
     for ml in ["W1", "W2", "W3", "W4", "W5"] {
         let probe = probe(225, ml);
-        match subduce_full_star_with_embedding(&subgroup, &embedding, probe) {
-            Err(FullStarError::MissingChildStarData { sg, points, .. }) => {
-                assert_eq!(sg, 8, "probe {ml}");
-                assert!(points > 0, "probe {ml}");
-            }
-            Ok(result) => panic!(
-                "probe {ml} must stay missing until the parametric-k batch: {} blocks",
-                result.blocks().len()
-            ),
-            Err(error) => panic!("probe {ml}: unexpected error {error}"),
-        }
-        // The identity-only entry point still answers exactly, from the pinned
-        // table, so the batch boundary is a coverage boundary and not a hole.
+        let result = subduce_full_star_with_embedding(&subgroup, &embedding, probe)
+            .unwrap_or_else(|error| panic!("probe {ml}: {error}"));
         let content = trivial_content_with_embedding(&subgroup, &embedding, probe)
             .unwrap_or_else(|error| panic!("probe {ml}: {error}"));
         assert_eq!(content.total, content.by_label);
         assert_eq!(content.total, stored_frequency(&subgroup, ml));
+        let full_total: u32 = result
+            .blocks()
+            .iter()
+            .map(|block| block.multiplicity(trivial.ml))
+            .sum();
+        assert_eq!(full_total, content.total, "probe {ml}");
     }
-    // The same child does have a constructed star here: the `U` line point is
-    // trivial-co-group, so a probe that only folds onto it is complete.
-    let minor = subduce_full_star_with_embedding(&subgroup, &embedding, probe(225, "W1"))
-        .expect_err("W1 also folds onto the B line");
-    assert!(matches!(minor, FullStarError::MissingChildStarData { .. }));
+}
+
+/// The batch boundary after 2a: ordinal 3988 (SG 109 -> #43) folds onto a
+/// four-element little co-group with a single omega-regular class, so its irreps
+/// are two-dimensional and the probe keeps `MissingChildStarData` -- the
+/// higher-dimensional batch, not a silent wrong answer.
+#[test]
+fn a_two_dimensional_co_group_keeps_the_missing_data_boundary() {
+    let (subgroup, embedding) = ordinal_context(109, 3988);
+    assert_eq!(embedding.subgroup_sg(), 43);
+    let probe = probe(109, "P1");
+    match subduce_full_star_with_embedding(&subgroup, &embedding, probe) {
+        Err(FullStarError::MissingChildStarData { sg, points, .. }) => {
+            assert_eq!(sg, 43);
+            assert!(points > 0);
+        }
+        Ok(result) => panic!(
+            "a two-dimensional little co-group must stay missing: {} blocks",
+            result.blocks().len()
+        ),
+        Err(error) => panic!("unexpected error {error}"),
+    }
+    // The identity-only entry point still answers exactly from the pinned table.
+    let content = trivial_content_with_embedding(&subgroup, &embedding, probe)
+        .expect("identity-only content");
+    assert_eq!(content.total, content.by_label);
+    assert_eq!(content.total, stored_frequency(&subgroup, "P1"));
 }
 
 /// A constructed star is not a per-point fallback: a star that reaches a pinned
