@@ -578,3 +578,24 @@ generator-level label swap for that one source pair (regenerate, then re-run the
 
 The four remaining rows (children 213 and 212) return 0 from *both* routes while
 the pinned value is 1, so they are a separate, still-open question.
+
+### How to apply the SG 209 swap (recipe)
+
+The labels come from `scripts/freeze_w_little_characters.py::cogroup_pair_route`:
+for the `C4` parents it assigns `DT3 = (1,-1,+i,-i)` and `DT4 = (1,-1,-i,+i)`.
+The engine evidence says SG 209 needs the opposite assignment, so:
+
+1. give the route the space group (it already receives `little`, `labels`,
+   `unknown_labels`, `matrix`, `rhs`, `duals`) and flip the two emitted lists for
+   `sg == 209` only — SG 210's `DT3`/`DT4` frequencies are equal in every pinned
+   record, so its convention is unobservable and should be left alone;
+2. regenerate with `python3 scripts/freeze_w_little_characters.py --json target/task9/w_little_characters.json --rust src/irrep/w_little_characters_data.rs`
+   (about four minutes; it must still exit 0 with 73/73) and confirm the same
+   command reproduces the file byte-identically;
+3. update the two guards that pin the pair: `tests/w_little_characters.rs`
+   (`the_cubic_dt_pair_is_the_standard_cogroup_pairing`) and
+   `scripts/test_frozen_w_little_characters.py` (`test_cubic_dt_pairs`) swap
+   `DT3`/`DT4` for SG 209 only;
+4. re-run the audit (`--parent 209` first): the eight swapped rows must move from
+   `computed_mismatch:0|blocks:N` to `computed`, leaving only the four children
+   213/212 zeros.
