@@ -36,7 +36,8 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo test --release --package cryspglib --doc
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
-  cargo test --release --package cryspglib --example audit_irrep_subduction
+  cargo test --release --package cryspglib --example audit_irrep_subduction \
+  --example census_subduction_gaps
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo clippy -p cryspglib --all-targets --release -- -D warnings
 
@@ -47,12 +48,12 @@ python3 scripts/verify_isotropy_oracle.py
 python3 scripts/check_other_wave_vector_rows.py
 ```
 
-`--tests` 不运行 example 内的审计回归；上面的 `--example audit_irrep_subduction`
-必须单独执行，不能只以 library/integration 测试通过代替门禁退出码验证。
+`--tests` 不运行 example 内的回归；上面的 audit 与 census 两个 example
+必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
 当前基线（2026-09-22，任务 9 复核修复后，`-p cryspglib` 限定到本 crate）：
 lib `389 passed / 4 ignored`，integration `152 passed`，doctest `27 passed`，
-example 审计回归 `13 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
+example 审计回归 `13 passed`、缺口清点回归 `1 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
 pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源已解为参数化
@@ -3004,7 +3005,9 @@ scope=global`：普通恒等分导 94,271/94,271、其它波矢 w 行 **5,756/5,
    `docs/subduction-audit.md` 的 366,260-probe 普通行；该文档末尾「引擎还不能算
    w 行」的过期段落改为完成态（`engine_errors` 与 `mismatched` 一并计入硬失败）。
 
-下一里程碑（已与复核者约定）：14,713 条「仅恒等重数」要升级为完整分解，第一步先按
-（子群、折叠 k、setting）汇总缺失数据，再决定是补数据还是证明这些星对完整分解也
-无贡献。SG 209 的 `DT3`/`DT4` 仍标注为「由 pinned 频率校准的标签约定」，独立来源
-验证另行推进。
+下一里程碑：14,713 条「仅恒等重数」要升级为完整分解。首步逐星清点已完成，见
+`docs/subduction-gap-census.md`：2,761 记录、128 个子群号，共 21,136 个缺失星，
+归并为 796 个子群/k-star 组合、989 个子群/k-star/setting 组合。全部缺失块非 Γ
+且维数为正，不能因恒等重数为零而跳过完整分解。建议先处理子群 #1 的 1,835 个
+probe（40 个 k-star）；生产分导算法本轮未变。SG 209 的 `DT3`/`DT4` 仍标注为
+「由 pinned 频率校准的标签约定」，独立来源验证另行推进。

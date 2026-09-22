@@ -718,9 +718,16 @@ step, before writing any decoder, is to **summarize the missing data by
    Gamma);
 2. join that list with the shipped discrete child k tables to separate "no
    shipped data for this q" from "data present but unmatched";
-3. report the counts per child SG / q / setting, and only then decide between
-   obtaining the missing frozen data and proving the affected stars cannot
-   contribute to the full decomposition either.
+3. report the counts per child SG / q / setting, then choose how to supply
+   the missing target characters. Zero trivial multiplicity does not imply
+   a zero-dimensional block in the full decomposition.
+
+**Census completed (2026-09-22):** replaying all 14,713 probes on `f7941e5`
+gives 21,136 missing stars across 2,761 records and 128 child SGs, grouped into
+796 child/k-star pairs or 989 child/k-star/setting groups. Every missing block
+has positive dimension and lies away from Gamma. See
+[subduction-gap-census.md](subduction-gap-census.md) for reproducible commands,
+counts, limitations, and the proposed first batch (child #1, 1,835 probes).
 
 SG 209's `DT3`/`DT4` swap stays documented as a label convention calibrated by
 the pinned frequencies; validating it against an independent source is a
