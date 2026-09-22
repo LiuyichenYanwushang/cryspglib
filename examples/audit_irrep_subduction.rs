@@ -3155,7 +3155,9 @@ mod tests {
                 .blocks()
                 .iter()
                 .flat_map(|block| block.targets())
-                .filter(|target| target.irnumber == trivial_cir && target.dimension == trivial.dim)
+                .filter(|target| {
+                    target.irnumber == Some(trivial_cir) && target.dimension == trivial.dim
+                })
                 .map(|target| target.multiplicity)
                 .sum();
             positive += usize::from(computed > 0);

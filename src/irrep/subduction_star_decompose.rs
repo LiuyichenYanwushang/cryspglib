@@ -436,17 +436,21 @@ impl FullStarBlock {
             .map_or(0, |target| target.multiplicity)
     }
 
-    /// Multiplicity of the constructed target at one exact folded point, or `0`
-    /// when that point carries no constructed target.
-    pub fn constructed_multiplicity(&self, q: &[Rat; 3]) -> u32 {
+    /// Multiplicity of the constructed target with this **exact identity**, or
+    /// `0` when the block reports no such target.
+    ///
+    /// A constructed target's identity is the pair
+    /// [`SubductionComponent::Constructed`] carries: its point **reduced modulo
+    /// the child reciprocal lattice** and its index in the constructed list at
+    /// that point, exactly as reported in [`FullStarTarget::component`].  The
+    /// point is not the raw folded representative: `(-1/4, -1/4, -1)` and
+    /// `(3/4, 3/4, 0)` are the same target, and only the canonical form is the
+    /// identity, so looking one up by a raw folded coordinate would silently
+    /// answer zero.
+    pub fn constructed_multiplicity(&self, identity: SubductionComponent) -> u32 {
         self.targets
             .iter()
-            .find(|target| {
-                matches!(
-                    target.component,
-                    SubductionComponent::Constructed { q: found, .. } if found == *q
-                )
-            })
+            .find(|target| target.component == identity)
             .map_or(0, |target| target.multiplicity)
     }
 }
@@ -3606,5 +3610,54 @@ mod tests {
         // The entry point already compared the reconstruction with the parent
         // character; the dimension conservation is asserted again here.
         assert_eq!(result.covered_dimension(), result.parent_dimension());
+
+        // A constructed target's identity is its point **reduced modulo the
+        // child reciprocal lattice**, not the raw folded representative: the
+        // lookup only accepts the canonical identity, so an equivalent
+        // coordinate can never answer a false zero.
+        let reciprocal = Lattice::new(exact_primitive_basis(1).expect("child #1 basis"))
+            .expect("lattice")
+            .reciprocal()
+            .expect("reciprocal");
+        let mut pinned = Vec::new();
+        for block in result.blocks() {
+            for target in block.targets() {
+                let SubductionComponent::Constructed { q, index } = target.component else {
+                    continue;
+                };
+                let identity = Vec3R::new(q);
+                let reduced = reciprocal
+                    .reduce(block.q())
+                    .expect("reduce the folded point")
+                    .representative;
+                assert_eq!(
+                    reduced, identity,
+                    "the identity must be the canonical point of the block"
+                );
+                assert_eq!(
+                    block.constructed_multiplicity(target.component),
+                    target.multiplicity
+                );
+                // Any other identity answers zero, never a stale hit.
+                assert_eq!(
+                    block.constructed_multiplicity(SubductionComponent::Constructed {
+                        q: [rat(1, 2), rat(1, 2), rat(1, 2)],
+                        index,
+                    }),
+                    0
+                );
+                pinned.push(([q[0], q[1], q[2]], target.multiplicity));
+            }
+        }
+        // Two folded stars, each one constructed target of multiplicity 2; the
+        // raw representatives reduce to these canonical identities.
+        assert_eq!(
+            pinned,
+            [
+                ([rat(3, 4), rat(3, 4), rat(0, 1)], 2),
+                ([rat(1, 4), rat(1, 4), rat(0, 1)], 2)
+            ],
+            "ordinal 1045 constructed targets"
+        );
     }
 }

@@ -52,7 +52,7 @@ python3 scripts/check_other_wave_vector_rows.py
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
 当前基线（2026-09-22，任务 9 复核修复后，`-p cryspglib` 限定到本 crate）：
-lib `392 passed / 4 ignored`，integration `153 passed`，doctest `27 passed`，
+lib `392 passed / 4 ignored`，integration `154 passed`，doctest `27 passed`，
 example 审计回归 `17 passed`、缺口清点回归 `1 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
@@ -3046,3 +3046,37 @@ R0 建立独立完整分解门禁后，R1/R2 解除"目标成分必须绑定静�
    完整重建检查；表示计算与 CDML/BC 命名分离，构造成分在取得有来源的映射前不冒充
    标准标签。R3 的重点明确为"小群/因子系统分类与来源验证"，R4 实现可复用的目标
    生成；spgrep 只作离线对照（符号/坐标/代表元/相位需先统一），不在运行时依赖。
+
+### 分导 R1/R2 复核修复（第 121 轮：`d140c10` 复核）
+
+复核指出三处问题，均已修复：
+
+1. **审计 example 测试曾无法编译**：`examples/audit_irrep_subduction.rs` 的
+   `geometry_zero_is_an_independent_check_never_a_skip` 里还有一处
+   `target.irnumber == trivial_cir`（`Option<u32>` vs `u32`，E0308）。R1 的类型改动
+   当时只批量修了 `target.ml/row_ml/irnumber` 形态的断言，漏掉这个局部变量比较；
+   现在写成 `Some(trivial_cir)`，`--example audit_irrep_subduction` 的 17 项可复现，
+   并把它重新纳入本轮基线（此前"example 17 passed"沿用的是 R1 之前的运行结果，
+   报告口径已更正）。
+2. **Γ 便捷入口返回占位 CIR 号**：`complex_targets` 的普通目标写死
+   `irnumber: Some(0)`，于是黄金用例 221 `GM4+` P1 的 `GM1+`/`GM2+` 在 Γ 入口是
+   `Some(0)`、在 full-star 入口是 `Some(4075)`/`Some(4076)`。现在读
+   `record.source_identity()` 的真实 `cir_irnumber`（非普通标量行直接报
+   `UnsupportedCharacterSpace`），并新增永久测试
+   `gamma_and_full_star_entries_agree_on_every_target_identity`：SG 221 全部标量
+   probe 上两个入口的 `(component, ml, irnumber, dimension, multiplicity)` 逐项相同，
+   且普通目标的编号必须 > 0。
+3. **构造重数查询会返回假零**：`FullStarBlock::constructed_multiplicity` 原来按原始
+   折叠坐标比较，`(-1/4,-1/4,-1)` 查不到、等价的 `(3/4,3/4,0)` 才命中。现在只接受
+   **完整目标身份** `SubductionComponent::Constructed { q, index }`（q 是构造时就按
+   子群倒格规范化过的身份），原始坐标不再是一个可用的查询键；`a_child_p1_gap_is_answered_by_constructed_targets`
+   增补回归：ordinal 1045 的两个构造成分身份为 `(3/4,3/4,0)` 与 `(1/4,1/4,0)`、各重数
+   2，块身份等于其 `q()` 的规范化形式，其它身份返回 0。
+4. 复核同时纠正报告口径：剩余缺口的 **probe / 缺失星 / 全部折叠星**是三个计数
+   （例：#5 = 1,659 probe / 2,547 缺失星 / 2,620 全部折叠星），R3 排优先级按 probe；
+   `docs/subduction-gap-census.md` 已补 127 个子群的逐项表。
+
+复跑（本轮实测）：全表 `--require-complete` 仍为 `full_success=353382
+identity_only=12878`、`hard_failures=0`、exit 0（Γ 入口修号不影响审计路径）；
+lib 392、integration 154、doctest 27、audit example 17、census example 1、
+严格 all-target clippy 干净。

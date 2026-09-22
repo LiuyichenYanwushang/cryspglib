@@ -27,8 +27,8 @@ use crate::irrep::isotropy::{IsotropySubgroup, parent_primitive_basis};
 use crate::irrep::query;
 use crate::irrep::types::generated_data::{ISOTROPY_SUBGROUPS, SG_DATA_HALL};
 use crate::irrep::types::{
-    CharacterRow, CompoundSelectedArmCharacter, IrrepRecord, IsotropyRecord, KVector,
-    SeitzOperation,
+    CharacterRow, CompoundSelectedArmCharacter, IrrepRecord, IrrepSourceIdentity, IsotropyRecord,
+    KVector, SeitzOperation,
 };
 use crate::mathfunc::Mat3I;
 use num_complex::Complex64;
@@ -2541,11 +2541,22 @@ fn complex_targets(
                         ml: record.ml.to_string(),
                     }
                 })?;
+                // The ordinary block trace exists exactly for the rows whose
+                // source identity is a single frozen CIR number; reporting a
+                // placeholder here made the Gamma entry disagree with the
+                // full-star entry on the very same target.
+                let IrrepSourceIdentity::OrdinaryScalar { cir_irnumber } = record.source_identity()
+                else {
+                    return Err(SubductionError::UnsupportedCharacterSpace {
+                        sg: subgroup_sg,
+                        ml: record.ml.to_string(),
+                    });
+                };
                 out.push(ComplexTarget {
                     ml: Some(record.ml),
                     bc: Some(record.bc),
                     row_ml: Some(record.ml),
-                    irnumber: Some(0),
+                    irnumber: Some(cir_irnumber),
                     dimension,
                     component: SubductionComponent::Ordinary,
                     values: evaluate(&row, record.ml, pulled_back, child_cell, wave_vector)?,

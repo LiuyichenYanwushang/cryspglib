@@ -16,8 +16,10 @@ use std::path::PathBuf;
 use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
 use cryspglib::irrep::subduce_irrep;
+use cryspglib::irrep::subduction::star::decompose::subduce_full_star_with_embedding;
 use cryspglib::irrep::subduction::{
-    ExactSeitz, Rat, SubductionError, SubgroupEmbedding, Vec3R, strict_sg_hall_ops,
+    ExactSeitz, Rat, SubductionComponent, SubductionError, SubgroupEmbedding, Vec3R,
+    strict_sg_hall_ops,
 };
 
 /// One fixture case.
@@ -963,4 +965,73 @@ fn non_gamma_coverage_is_counted_not_assumed() {
     // does not occur over these four pairs: their folded blocks all exist, and
     // the `MissingIrrepData` gap path is covered by the unit tests instead.
     assert_eq!((folded, multi_arm, missing), (92, 57, 0));
+}
+
+/// `(component, ML label, CIR number, dimension, multiplicity)` of one target.
+type TargetTerm = (SubductionComponent, Option<&'static str>, Option<u32>, u8, u32);
+
+/// The Gamma entry and the full-star entry must report the **same** source
+/// identity for the same target.  The Gamma path used to fill in a placeholder
+/// CIR number for ordinary rows, so `GM1+`/`GM2+` came back as `Some(0)` there
+/// while the full-star path reported their real frozen numbers.
+#[test]
+fn gamma_and_full_star_entries_agree_on_every_target_identity() {
+    let subgroup = isotropy_subgroup_for_direction(
+        221,
+        "GM4+",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("P1"),
+    )
+    .expect("condensing record");
+    let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
+    for probe in cryspglib::irrep::query::irreps_of(221)
+        .iter()
+        .filter(|record| !record.spinor)
+    {
+        let Ok(gamma) = subduce_irrep(&subgroup, probe.ml) else {
+            continue;
+        };
+        let full = subduce_full_star_with_embedding(&subgroup, &embedding, probe)
+            .unwrap_or_else(|error| panic!("{}: {error}", probe.ml));
+        let mut gamma_terms: Vec<TargetTerm> =
+            gamma
+                .targets()
+                .iter()
+                .map(|target| {
+                    (
+                        target.component,
+                        target.ml,
+                        target.irnumber,
+                        target.dimension,
+                        target.multiplicity,
+                    )
+                })
+                .collect();
+        let mut full_terms: Vec<TargetTerm> =
+            full.blocks()
+                .iter()
+                .flat_map(|block| block.targets())
+                .map(|target| {
+                    (
+                        target.component,
+                        target.ml,
+                        target.irnumber,
+                        target.dimension,
+                        target.multiplicity,
+                    )
+                })
+                .collect();
+        gamma_terms.sort_by_key(|term| format!("{term:?}"));
+        full_terms.sort_by_key(|term| format!("{term:?}"));
+        assert_eq!(gamma_terms, full_terms, "probe {}", probe.ml);
+        // An ordinary target always has a real frozen source number.
+        for target in gamma.targets() {
+            assert!(
+                target.irnumber.is_some_and(|irnumber| irnumber > 0),
+                "probe {} target {:?} has no CIR number",
+                probe.ml,
+                target.ml
+            );
+        }
+    }
 }

@@ -246,6 +246,15 @@ T = B^T
   `tests/subduction_star_decomposition.rs::child_p1_records_decompose_every_scalar_probe_without_pinned_data`）。
 - 余下 12,878 条（2,380 条记录 / 127 个子群 / 17,144 个缺失星，最大 #5、#8、#6、
   #2、#12）仍返回 `MissingChildStarData`：它们的来源分类是 R3，可复用生成是 R4。
+  逐子群的 **probe / 缺失星 / 全部折叠星**三个计数见
+  [subduction-gap-census.md](subduction-gap-census.md) 末节，排优先级按 probe。
+- 复核修复（`d140c10` 复核）：Γ 便捷入口的普通目标曾填占位 CIR 号 `Some(0)`，与
+  full-star 入口对同一目标不一致；现在读 `record.source_identity()` 的真实编号，永久
+  测试 `gamma_and_full_star_entries_agree_on_every_target_identity` 逐项比较两个入口
+  的身份。`FullStarBlock::constructed_multiplicity` 改为只接受完整目标身份
+  （`Constructed { q, index }`，q 按子群倒格规范化），不再按原始折叠坐标查询而返回
+  假零；ordinal 1045 的两个构造成分身份 `(3/4,3/4,0)` 与 `(1/4,1/4,0)`、各重数 2
+  已钉住。
 
 关键的恒等-only probe（R2 前 14,713 条、R2 后 12,878 条）中，**160 条是存储正项**（例如 SG 196 W1→#24 的
 `W1`，存储频率 1）：本轮之前它们因另一条折叠星缺子群 k 数据而无法计算，现在由
