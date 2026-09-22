@@ -1074,13 +1074,42 @@ pub fn line_trivial_content_with_embedding(
 /// use, and extracts the child's trivial row exactly as
 /// [`trivial_content_with_embedding`] does.
 pub fn line_trivial_content_via_blocks(
+    subgroup: &IsotropySubgroup,
     embedding: &SubgroupEmbedding,
     table: &'static LittleCharacterTable,
-    arms: &[(Vec3R, Mat3I)],
-    parameter: &Rat,
-    wave_vector: &Vec3R,
-    direction: &Vec3R,
 ) -> Result<u32, FullStarError> {
+    // ponytail: the arm/parameter block repeats `line_trivial_content_with_embedding`;
+    // dedupe once the block route replaces the hand-written sum.
+    let parent_lattice = embedding.parent_lattice();
+    let parent_ops =
+        parent_lattice.deduplicate(&strict_sg_hall_ops(subgroup.parent_sg)?.operations)?;
+    let direction = line_direction(table)?;
+    let mut arms: Vec<(Vec3R, Mat3I)> = Vec::new();
+    for operation in &parent_ops {
+        let rotation = operation.rotation();
+        let action = Mat3R::from_ints(rotation).inverse()?.transpose();
+        let image = action.checked_mul_vector(&direction)?;
+        if arms.iter().any(|(arm, _)| *arm == image) {
+            continue;
+        }
+        arms.push((image, rotation));
+    }
+    if arms.is_empty() {
+        return Err(FullStarError::MissingLineRotation {
+            sg: table.space_group,
+            label: table.label,
+        });
+    }
+    let parameter = Rat::new(LINE_PARAMETER.0, LINE_PARAMETER.1)?;
+    let mut scaled = [Rat::ZERO; 3];
+    for (axis, value) in scaled.iter_mut().enumerate() {
+        *value = parameter.checked_mul(direction.get(axis))?;
+    }
+    let wave_vector = Vec3R::new(scaled);
+    let arms: &[(Vec3R, Mat3I)] = &arms;
+    let parameter = &parameter;
+    let wave_vector = &wave_vector;
+    let direction = &direction;
     let child_sg = embedding.subgroup_sg();
     let trivial = trivial_child_record(child_sg)
         .ok_or(FullStarError::MissingChildTrivialIrrep { sg: child_sg })?;
