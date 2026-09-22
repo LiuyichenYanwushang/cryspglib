@@ -1390,6 +1390,21 @@ origin={},{},{},{}",
                                     w_status = format!("computed_mismatch:{value}");
                                 }
                             }
+                            // Independent second route: the same frequency
+                            // through build_block.  A row is engine-computed when
+                            // either route reproduces the pinned value.
+                            if w_status != "computed"
+                                && let Some(embedding) = embedding.as_ref()
+                                && let Ok(value) = cryspglib::irrep::subduction::star::decompose::
+                                    line_trivial_content_via_blocks(subgroup, embedding, table)
+                            {
+                                if value == u32::from(entry.frequency) {
+                                    self.counts.w_computed += 1;
+                                    w_status = "computed_via_blocks".to_string();
+                                } else if !w_status.starts_with("computed_mismatch") {
+                                    w_status = format!("blocks_mismatch:{value}");
+                                }
+                            }
                         }
                         None => self.counts.w_character_blocked += 1,
                     }
