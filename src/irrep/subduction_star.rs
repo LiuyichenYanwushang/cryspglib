@@ -26,6 +26,16 @@
 //!
 //! [`folded_stars`]: OrdinaryStar::folded_stars
 
+/// Exact little co-groups and their one-dimensional projective characters.
+///
+/// R4 batch 2a's offline solver: it computes the target catalogue of a
+/// non-trivial little co-group from the exact cocycle, and its cross-check
+/// against the pinned rows is part of the test suite.  It is **not** wired into
+/// the production path yet -- see `docs/subduction-r4-batches.md` for the open
+/// pairing/gauge question that has to be settled first.
+#[cfg(test)]
+#[path = "subduction_catalogue.rs"]
+pub mod catalogue;
 #[path = "subduction_star_decompose.rs"]
 pub mod decompose;
 #[path = "subduction_scalar_star.rs"]

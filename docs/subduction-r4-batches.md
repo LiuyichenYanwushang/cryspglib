@@ -138,7 +138,41 @@ R2 只对子群 #1 构造目标（`child_sg != 1` 直接返回空，保持 `Miss
    的对应，而 R3 已明确把这条对应留作未验证项。目标 catalogue 本身则**完全由 q 处的
    精确 cocycle 决定**，不需要任何归档字符数据。
 
-### 批次 2a/2b 划分（下一步实现）
+### 批次 2a 实现进展与未决门禁（2026-09-22 第二轮）
+
+**已落地（离线）：** `src/irrep/subduction_catalogue.rs` —— 精确小余群 + 因子系统 +
+一维投影特征标求解器，注册为 `#[cfg(test)]` 模块，**未接入生产路径**。两项测试：
+
+* `a_two_fold_co_group_has_two_characters`：手算 C2（φ=0 → ψ∈{0,1/2}；φ=1/2 →
+  ψ=±1/4，即 χ(g)=±i；φ=1/3 → ψ=1/6，钉住"规范可以比 cocycle 更细"）；
+* `the_catalogue_reproduces_pinned_little_group_characters`：在**离散 pinned k 点**上
+  对照引擎已验证的小群字符行 —— **1,176 条记录 / 6,318 个操作全部命中**
+  （另 1,812 条属于更高维批次，直接跳过），2.8 s。
+
+**接入被回退（重要，下一轮的入口）：** 把求解器接进 `constructed_child_components_at`
+后跑全表审计得到 `full_success=366,009 identity_only=221`，但出现 **30 条新 error**：
+
+```
+multiplicity of constructed(q=(1, 3/2, 1), index=0) is 1.0000000000000002-1i
+（ordinal 14090，SG 226 W5 → #98，另有相邻 29 条）
+```
+
+诊断（`examples/trace_subduction 14090` + 临时探针）：该 block 的 child 小余群阶 2；
+child 侧非恒等元（R=diag(-1,1,-1)）的 Hall 代表元 t=(1/2,0,3/4)（pulled-back 为
+(-1/2,0,-1/4)）满足 `t + R t = 0` ⇒ cocycle 平凡 ⇒ child 小群 irrep 在 g 上取 ±1；
+但**母群**侧对应代表元是 2_z，其 q-block 字符在该操作上是 ±2i（母群自己的代表元相差一个
+格平移，而该平移的 Bloch 相位非平凡）。两侧的**代表元规范**不同，朴素配对就得到
+1±i。引擎的存储行路径靠 `character_of` 的"按格匹配 + Bloch 相位修正"避免了这个坑；
+构造行必须复现同一套规范化。
+
+**结论**：求解器本身有独立证据（1,176 条 pinned 行），但构造行与母群 q-block 的
+**配对规范**还没对齐；在解决之前生产入口保持批次 1 行为（这些星报
+`MissingChildStarData`，绝不给错值；已回退并复核 ordinal 14090/3991 的 `VERDICT clean`）。
+下一轮实现顺序：先固定规范化（用母群代表元的格平移相位把构造行归一到同一规范，
+或把母群的 k/操作交给 catalogue 侧统一求值），再跑全表审计确认 `full_success=366,009`
+级别的闭合且新 error = 0，最后补回归与文档。
+
+### 批次 2a/2b 划分
 
 - **批次 2a：626 组**（|P_q|=2 的 452、|P_q|=3 的 4、|P_q|=4 且 4 类的 170）。
   catalogue 全是**一维**投影不可约表示：字符是单位根，指数满足
