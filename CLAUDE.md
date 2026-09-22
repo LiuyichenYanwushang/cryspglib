@@ -3102,12 +3102,13 @@ R3 是离线清点卡，不改生产求解算法。工具 `scripts/classify_subd
 读 `examples/census_subduction_gaps.rs` 生成的缺口 manifest 与 `scripts/iso_irrep_exact.py`
 载入的归档 PIR/CIR 帧，对 899 个（子群, k-star, setting）组逐组给出：命中的参数化 PIR
 记录与代入参数、被剔除的"更一般域"记录、精确小群操作与有限小余群阶、因子系统
-`ω_ij = exp(+2πi q·L_ij)`、命中记录的 irstyle/token 完整性、以及最小见证。
+`ω_ij = exp(+2πi q·L_ij)`、命中记录的 irtype 与矩阵块可用性、以及最小见证。
 
 结果（复核修复后重算）：**215 解析路线**（小余群阶 1，目标是一维 Bloch 相位，与 R2 的
 child #1 同一条路）、**684 来源候选**（归档 PIR 参数域精确穿过该 q；候选数不等于参数
-求值已验证）、**0 确需新增来源**、0 未分类；**322 组因子系统非平凡**、444 组含螺旋/
-滑移操作；811 组按"自由方向最少"筛选候选（一般位置记录也穿过同一 q，不筛就会拿错）；
+求值已验证）、**0 无源分类**、0 未分类；**322 组有非零因子系统相位项**、444 组含
+分数平移代表元（并未逐项识别螺旋/滑移）；811 组按"自由方向最少"筛选候选，尚未
+验证候选一般点小群与实际小群相等，也未验证目标复成分完整性；
 **899/899 组矩阵块完整**（90,624 个矩阵元，用生成器已有的 PIR 解码器判定）。
 
 本轮钉死的语义（都曾产生错答）：PIR 是物理不可约表示（10,294 条 = 4,777 离散 +
@@ -3117,16 +3118,17 @@ child #1 同一条路）、**684 来源候选**（归档 PIR 参数域精确穿�
 格归属必须用原胞格（螺旋轴乘积与代表元差 centring 矢量）。
 
 逐操作见证（验收项）：带心 SG 5（C2，U 线 `(0,t,1/2)`，归档 `U1UA1`/`U2UA2` 在 t=1/2 命中、
-一般位置记录被剔除）、螺旋/滑移 SG 24（I2₁2₁2₁，P 点小群 4 操作、3 个非幺正、ω ∈ {1/4,3/4}）
+一般位置记录被剔除）、螺旋/滑移 SG 24（I2₁2₁2₁，P 点小群 4 操作、3 个螺旋、
+非零相位圈数 φ∈{1/4,3/4}，对应 ω=±i）
 在 Python 单测；非对称换基 ordinal 26（SG 3 `A1` → #3，`U=[[1,2,1],[-1,2,-1],[-1,0,1]]/2）
 在 `tests/subduction_gap_sources.rs`，用引擎 `unmap_operation` 逐操作对照归档 child #3
 操作并核对钉子星 `(0,1/3,1/2)` 的小群与相位。
 
 命令：`python3 scripts/classify_subduction_gap_sources.py <manifest> > groups.tsv`；
-`python3 -m unittest discover -s scripts -p test_classify_subduction_gap_sources.py`（15 项，
-默认套件 ~41 s）；`R3_FULL_MANIFEST=1` 跑 899 组门禁（~90 s）。
-报告：`docs/subduction-gap-sources.md`。R4 的入口是把 676 组命中记录的归档 token
-物化成参数化字符/矩阵（本卡只确认可用性，不实现）。
+`python3 -m unittest discover -s scripts -p test_classify_subduction_gap_sources.py`（21 项，
+默认跳过全表项）；`R3_FULL_MANIFEST=1` 跑含 899 组门禁的完整套件。
+报告：`docs/subduction-gap-sources.md`。R4 复用 PIR/CIR 解码器，为 684 个候选补参数与
+相位求值，并验证适用域和目标完整性；本卡只交付候选清点。
 
 ### 分导 R3 复核修复（第 4 轮：`52e4c65` 复核）
 
@@ -3158,14 +3160,28 @@ child #1 同一条路）、**684 来源候选**（归档 PIR 参数域精确穿�
 1. **星内小群阶门禁原来没生效**（P2）：全表门禁用位置下标取列，`row[-3]` 是
    `matrix_elements`、`row[14]` 只是单值，注入 `star_orders=1,2` 也能通过。改为
    `csv.DictReader` 按列名断言 `row["star_orders"] == row["little_co_group_order"]`
-   （且不含逗号），并新增"注入 1,2 必须失败"的负例；门禁与负例共用同一校验函数。
+   并保留跨 setting 的阶一致性检查。新增列重排后注入 `1,2`、错误单值、空值和
+   跨 setting 冲突的负例；门禁与负例共用同一校验函数。显式启用全表门禁而缺少
+   manifest 时失败，不再跳过。
 2. **报告口径纠正**（P2）：删掉"PIR 只索引参数化域/没有离散记录"的错误说明（改为
    PIR = 物理不可约表示，含 4,777 离散 + 5,517 参数化）；676 → **684 来源候选**；
-   "非幺正操作"改为"螺旋/滑移（nonsymmetric-translation）操作"；811 组的措辞由
-   "最大小群过滤"改为"按自由方向最少的候选筛选"（不是小群最大性验证）。
+   CIR = 复不可约表示，含 5,296 离散 + 5,906 参数化；444 组只说明所选代表元含
+   非整数平移分量，不能称为非幺正操作或已识别的螺旋/滑移。811 组按自由方向最少
+   筛选候选，不是小群最大性验证；相位圈数 φ 与复因子 ω 分开说明。
 3. **帧契约确认（复核给出证据链，勿再重复施加 U）**：冻结 `U⁻¹` 已进入嵌入矩阵 `T`
    （`src/irrep/subduction.rs:1352`），折叠在那里算 `q = Tᵀk`
    （`src/irrep/subduction_star.rs:607`），`canonical_q` 之后只做倒格约化；230 个
    空间群的运行时 Hall 选择与冻结来源一致、归档帧到 data-Hall 的变换为 `P=I, p=0`
    （`scripts/iso_irrep_data_hall.py:7`）。因此上一轮"U 未处理"的顾虑作废；R4 要处理的
    是操作代表元的格平移相位与 `child_shift` 回退。
+
+本轮最终验证（在已有修订 `4428601` 上补齐）：分类器完整套件 **21 passed**，
+含 899 组门禁（215 解析 / 684 来源候选；矩阵块完整、星阶一致），约 123 s。
+对全表测试本身再次注入 `star_orders=1,2` 后断言失败，未注入时通过；跨 setting
+冲突回归先复现漏检，再修复为通过。显式开启全表门禁但缺失 manifest 时会失败。
+Rust lib 392 / 4 ignored、integration 156、doctest 27、audit example 17、census
+example 1；严格 all-target clippy 通过（保留既有 workspace manifest 警告）。
+Python oracle/w-source 离线 9 + 16；live 几何 oracle 62 行 / 26 描述串 / 62 精确 origin，
+w 源门禁 checks_failed=0。独立核对 230 个 SG 的运行时 Hall 与冻结来源一致且 P=I,p=0。
+未重跑普通分导的全表数值审计；`src/` 无改动，分类器执行逻辑也未改动。
+R3 按来源候选清点收口；完整目标求值与完整分解覆盖仍待 R4/R5。

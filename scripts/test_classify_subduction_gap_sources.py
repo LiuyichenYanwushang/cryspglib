@@ -7,7 +7,7 @@ The archive-derived expectations below are hand-checked:
   (identity and the twofold rotation) whose two little irreps are archived as
   the compound records ``U1UA1`` / ``U2UA2``; the general-position record
   ``GP1GQ1`` also passes through the same point and must be excluded.
-* SG 24 (I2_12_12_1): the little group at ``(1, 1, 1/2)`` has four operations
+* SG 24 (I2_12_12_1): the little group at ``(1/2, 1/2, 1/2)`` has four operations
   (three of them screws), so its factor system is projective with a non-trivial
   ``omega``; the product of two screws realises a centring translation, which is
   why lattice membership must use the primitive lattice and not ``Z^3``.
@@ -364,21 +364,23 @@ class SourceClassificationTests(unittest.TestCase):
 def star_order_problems(rows):
     """Rows whose `star_orders` disagrees with `little_co_group_order`.
 
-    One star is one physical q class, so its arms must report a single little
-    co-group order; the column is a comma-joined list only when the arms
-    disagree.  The gate and the injected negative test both go through this
-    function, so the protection cannot be bypassed by renaming or reordering
-    columns.
+    Arms in one star have conjugate little groups and equal co-group orders.
+    The gate and the injected negative tests share this check, using column
+    names rather than positions.
     """
     problems = []
+    by_star = {}
     for row in rows:
-        if row["star_orders"] != row["little_co_group_order"]:
+        key = (row["child_sg"], row["canonical_q"])
+        expected = by_star.setdefault(key, row["little_co_group_order"])
+        if (row["star_orders"] != row["little_co_group_order"]
+                or row["little_co_group_order"] != expected):
             problems.append(
                 (
                     row["child_sg"],
                     row["canonical_q"],
                     row["star_orders"],
-                    row["little_co_group_order"],
+                    expected,
                 )
             )
     return problems
@@ -429,9 +431,7 @@ class EndToEndTests(unittest.TestCase):
                 text=True,
                 check=True,
             )
-        lines = result.stdout.splitlines()
-        self.assertEqual(lines[0].split("\t")[0], "child_sg")
-        rows = [line.split("\t") for line in lines[1:] if line]
+        rows = list(csv.DictReader(io.StringIO(result.stdout), delimiter="\t"))
         self.assertEqual(len(rows), 3)
         known = {
             "analytic_general_position",
@@ -441,9 +441,10 @@ class EndToEndTests(unittest.TestCase):
         }
         for row in rows:
             self.assertEqual(len(row), 25, row)
-            self.assertIn(row[-1], known, row)
-            self.assertTrue(row[7], "every group must record its matched sources")
-        by_child = {row[0]: row[-1] for row in rows}
+            self.assertIn(row["classification"], known, row)
+            self.assertTrue(row["matched_irnumbers"], "every group must record its matched sources")
+        self.assertEqual(star_order_problems(rows), [])
+        by_child = {row["child_sg"]: row["classification"] for row in rows}
         self.assertEqual(by_child["5"], "parameterized_source")
         self.assertEqual(by_child["155"], "parameterized_source")
         self.assertEqual(by_child["3"], "analytic_general_position")
@@ -457,8 +458,7 @@ class EndToEndTests(unittest.TestCase):
         if os.environ.get("R3_FULL_MANIFEST") != "1":
             self.skipTest("set R3_FULL_MANIFEST=1 to run the full 899-group gate")
         manifest = SCRIPT_DIR.parent / "target" / "r12_gaps.tsv"
-        if not manifest.exists():
-            self.skipTest("the R3 gap manifest is not present in this checkout")
+        self.assertTrue(manifest.is_file(), "generate target/r12_gaps.tsv before enabling R3_FULL_MANIFEST")
         result = subprocess.run(
             [sys.executable, str(SCRIPT_DIR / "classify_subduction_gap_sources.py"), str(manifest)],
             stdout=subprocess.PIPE,
@@ -479,7 +479,7 @@ class EndToEndTests(unittest.TestCase):
             counts,
             {"analytic_general_position": 215, "parameterized_source": 684},
         )
-        # One star is one q class: its arms must agree on the little co-group.
+        # Each star's arms and repeated settings must agree on the co-group order.
         self.assertEqual(star_order_problems(rows), [])
 
     def test_the_star_order_gate_rejects_an_injected_disagreement(self):
@@ -501,10 +501,33 @@ class EndToEndTests(unittest.TestCase):
             },
         ]
         self.assertEqual(star_order_problems(rows), [])
-        rows[0]["star_orders"] = "1,2"
-        problems = star_order_problems(rows)
-        self.assertEqual(len(problems), 1)
-        self.assertEqual(problems[0], ("155", "-1/2,1/4,3/2;1/4,-1/2,3/2", "1,2", "2"))
+        # Reorder the TSV columns to ensure the regression exercises named reads.
+        columns = ["canonical_q", "star_orders", "child_sg", "little_co_group_order"]
+        for injected in ("1,2", "1", ""):
+            with self.subTest(star_orders=injected):
+                rows[0]["star_orders"] = injected
+                output = io.StringIO()
+                writer = csv.DictWriter(output, fieldnames=columns, delimiter="\t")
+                writer.writeheader()
+                writer.writerows(rows)
+                parsed = list(csv.DictReader(io.StringIO(output.getvalue()), delimiter="\t"))
+                problems = star_order_problems(parsed)
+                self.assertEqual(problems, [("155", rows[0]["canonical_q"], injected, "2")])
+                with self.assertRaises(AssertionError):
+                    self.assertEqual(problems, [])
+
+    def test_the_star_order_gate_preserves_the_cross_setting_check(self):
+        row = {
+            "child_sg": "155",
+            "canonical_q": "1/4,1/4,3/2",
+            "star_orders": "2",
+            "little_co_group_order": "2",
+            "setting_numerator": "[[1,0,0],[0,1,0],[0,0,1]]",
+        }
+        other = dict(row, setting_numerator="[[-1,0,0],[0,-1,0],[0,0,1]]")
+        self.assertEqual(star_order_problems([row, other]), [])
+        other.update(star_orders="1", little_co_group_order="1")
+        self.assertEqual(star_order_problems([row, other]), [("155", row["canonical_q"], "1", "2")])
 
 
 if __name__ == "__main__":

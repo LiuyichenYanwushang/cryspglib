@@ -7,20 +7,21 @@ pinned discrete child table cannot answer).  For every distinct
 ``(child space group, canonical star, setting)`` group this tool reports, with
 exact rational arithmetic and without touching the production solver:
 
-* the matching archived **PIR** records (little-group irreps of parametric k
-  domains) and the parameter values that place the domain on the star;
-* the records that are *less* constrained than the best match, i.e. the
-  general-position records that also pass through the same point and must not be
-  mistaken for the target there;
+* the matching archived **PIR** (physically irreducible representation) records
+  and the parameter values that place their k domains on the star;
+* candidates filtered by the fewest free parameter directions; this is not a
+  proof that a source supplies every irrep of the actual little group;
 * the exact little co-group at the star point, computed from the space group
-  operations in the same primitive frame as the archive;
+  operations in the archive's conventional coordinates, modulo the primitive
+  reciprocal lattice;
 * the projective factor system ``s_i s_j = T_{L_ij} s_k`` ->
   ``omega_ij = exp(+2 pi i q.L_ij)``, with the nontrivial values listed, so
   nonsymmorphic (screw/glide) little groups are visible instead of silently
   reusing the symmorphic character table;
-* a classification of the group as an analytic general-position target (pure
-  translation little group, the child-#1 route), a parameterized archived source
-  that only needs its parameter substituted, or a real gap with no source.
+* a classification as an analytic general-position target (pure translation
+  little group, the child-#1 route), a candidate archived source, or a point
+  with no suitable candidate from this search. Parameter evaluation and target
+  completeness are not established by the classification.
 
 Usage::
 
@@ -394,7 +395,7 @@ def little_group(
 ) -> tuple[list[tuple[Rotation, Vector]], int]:
     """The little group of ``q`` and its co-group order.
 
-    The returned operations are the archive's own operations (primitive frame)
+    The returned operations are the archive's own operations (conventional frame)
     whose rotation fixes ``q``; the co-group order counts the distinct rotations
     among them.
     """
@@ -415,8 +416,9 @@ def factor_system(
     One representative per rotation is kept (the first occurrence).  For every
     ordered pair, ``s_i s_j = T_L s_k`` is solved in the group and the phase
     ``omega_ij`` is reported as a rational number of turns, ``q.L``; the second
-    return value counts the operations whose translation is not a lattice
-    vector (screw/glide in the primitive frame).
+    return value counts the selected representatives with a noninteger
+    conventional translation component. The legacy ``nonsymmorphic_ops`` name
+    does not establish that each such representative is a screw or glide.
     """
     representatives: list[tuple[Rotation, Vector]] = []
     seen: set[Rotation] = set()
@@ -467,12 +469,10 @@ def classify(
     archived character data is needed at all (the child-#1 route).  That holds
     whether or not some archived domain passes through the point.
 
-    With a larger little group the archived parametric records are the natural
-    source.  A general-position record that passes through the point is *not* a
-    source there -- its little group is smaller than the actual one -- so a
-    point where only general-position records match is reported as a special
-    value with no archived domain, never silently answered from the general
-    record.
+    With a larger little group, prefer candidates with the fewest free
+    directions. If only general-position records match, report a special value
+    instead. This heuristic does not compare the generic and specialised little
+    groups or certify the irreducible constituents of the candidate matrices.
     """
     if not matches:
         return "no_source_needs_algorithm", 0
@@ -493,7 +493,7 @@ def analyse_group(
 ) -> dict:
     """Every reported quantity of one ``(child, star, setting)`` group."""
     operations, co_group_order = little_group(universe, points[0])
-    # One star is one physical q class, so every arm must give the same little
+    # Arms in one star have conjugate little groups, so each has the same little
     # co-group order; a disagreement means the reciprocal action or the frame is
     # wrong somewhere.
     star_orders = sorted({little_group(universe, point)[1] for point in points})
