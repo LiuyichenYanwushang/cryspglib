@@ -3,9 +3,10 @@
 任务 9 的工具分别检查几何来源和生产 API 的计算覆盖。**收集到官方基矢、恒等项
 吻合、完整分解成功是三个不同的结论**；任何一个都不能替代另外两个。
 
-14,713 个恒等-only probe 的逐星缺口清点见
+（R2 之前）14,713 个恒等-only probe 的逐星缺口清点见
 [subduction-gap-census.md](subduction-gap-census.md)：21,136 个缺失星，
-按子群/k-star/setting 归并为 989 组。清点不改变下述生产覆盖数字。
+按子群/k-star/setting 归并为 989 组；R2 补齐子群 #1 后余 **12,878** 条
+（同一清点工具在新审计上的输出，见该文档末节）。清点不改变下述生产覆盖数字。
 
 ## 生产 API 审计
 
@@ -216,15 +217,37 @@ T = B^T
 | 门禁 | 退出码 | 判词/摘要 |
 |---|---:|---|
 | `--require-complete --require-w-complete` | 0 | `VERDICT complete scope=global gates=--require-complete,--require-w-complete full_decomposition=not_gated` |
-| `--require-full-decomposition` | **2** | `full_decomposition: scope=global ... identity_only=14713 incomplete=14713 global=covered`，`VERDICT incomplete ... gates=--require-full-decomposition` |
+| `--require-full-decomposition` | **2** | `full_decomposition: scope=global ... full_success=353382 identity_only=12878 incomplete=12878 global=covered`，`VERDICT incomplete ... gates=--require-full-decomposition` |
 | 三个门禁同时 | **2** | 同上；完整分解缺口优先于其它门禁的通过 |
 
 即：恒等分导表与 w 行的**恒等重数**已经闭合（旧两个门禁 exit 0），但**普通离散
-标量的完整分解**仍是 351,547/366,260 = 95.98%，缺口 14,713 条，R1 起的里程碑按
-`docs/subduction-next-milestones.md` 逐批补齐；在缺口清零前，新门禁一直退出 2，
-不得用恒等项通过代替完整分解验收。
+标量的完整分解**在 R2 后是 353,382/366,260 = 96.48%，仍余 12,878 条缺口，其余
+里程碑按 `docs/subduction-next-milestones.md` 逐批补齐；在缺口清零前，新门禁一直
+退出 2，不得用恒等项通过代替完整分解验收。
 
-关键的 14,713 条恒等-only probe 中，**160 条是存储正项**（例如 SG 196 W1→#24 的
+### R1/R2：表外目标由「子群操作 + 精确 q」现场构造
+
+完整分解的目标不再必须绑定一条静态 `IrrepRecord`：
+
+- 目标来源分两类，`FullStarTarget` / `SubductionTarget` 的 `ml` / `bc` / `row_ml` /
+  `irnumber` 都是 `Option`：**存储成分**带冻结 CIR 身份；**构造成分**
+  （`SubductionComponent::Constructed { q, index }`）只带精确 q 与构造表内序号，
+  `None` 就是"没有来源标签"——不借 Γ 标签，也不填假 CIR 号。CDML/BC 命名与表示
+  计算分开，构造成分在拿到有来源的标签映射前始终显示为未命名。
+- 子群 #1 的任意 q：小群就是平移群，一维表示是 Bloch 相位
+  `D_q(T_L) = exp(+2 pi i q.L)`，符号与存储行的 `bloch_phase` 一致；点先按子群倒格
+  约化，因此 q 与 q+G 是同一个身份。存储行优先：只有该点确实没有 pinned 行时才构造。
+- 复用同一条解块与重建流程：单位性、正交性、整数重数、维数和与逐操作重建仍由既有
+  `solve_prepared_character_block` / `reconstruct` 检查；构造行没有跳过任何门禁。
+- 实测（`--require-complete` 全表，`hard_failures=0`、exit 0）：
+  `full_success=353,382 identity_only=12,878`，恒等正项 94,271/94,271、Γ Frobenius
+  1,895/1,895、w 行 5,756/5,756 全部不变。child-#1 的 **1,125 条记录 / 20,099 个
+  probe** 全部完整分解，构造目标恰为清点里的 **3,992** 个缺失星（永久回归
+  `tests/subduction_star_decomposition.rs::child_p1_records_decompose_every_scalar_probe_without_pinned_data`）。
+- 余下 12,878 条（2,380 条记录 / 127 个子群 / 17,144 个缺失星，最大 #5、#8、#6、
+  #2、#12）仍返回 `MissingChildStarData`：它们的来源分类是 R3，可复用生成是 R4。
+
+关键的恒等-only probe（R2 前 14,713 条、R2 后 12,878 条）中，**160 条是存储正项**（例如 SG 196 W1→#24 的
 `W1`，存储频率 1）：本轮之前它们因另一条折叠星缺子群 k 数据而无法计算，现在由
 恒等-only 路径逐条复现，0 不匹配、0 假阳性。永久测试
 `identity_only_content_answers_probes_without_full_child_data` 与

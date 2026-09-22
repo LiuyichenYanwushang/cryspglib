@@ -52,15 +52,15 @@ python3 scripts/check_other_wave_vector_rows.py
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
 当前基线（2026-09-22，任务 9 复核修复后，`-p cryspglib` 限定到本 crate）：
-lib `389 passed / 4 ignored`，integration `152 passed`，doctest `27 passed`，
+lib `392 passed / 4 ignored`，integration `153 passed`，doctest `27 passed`，
 example 审计回归 `17 passed`、缺口清点回归 `1 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
 pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源已解为参数化
 直线 `k = Γ + t·v`，冻结 little 特征标表 73/73，引擎已算出全部 5,756 行）；
 全表审计两个门禁同时开启退出 0、判词 `VERDICT complete scope=global`
-（`identity_rows=94271`、probe `351547` 完整分解 + `14713` 恒等-only、w `5756/5756`、
-`engine_errors=0`、`hard_failures=0`，约 477 s）。
+（`identity_rows=94271`、probe `353382` 完整分解 + `12878` 恒等-only、w `5756/5756`、
+`engine_errors=0`、`hard_failures=0`，约 489 s；R2 前是 `351547 + 14713`）。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
 后端同时启用），与本 crate 无关，但会让整条命令以 exit 101 结束、0 个测试执行。
@@ -3011,3 +3011,38 @@ scope=global`：普通恒等分导 94,271/94,271、其它波矢 w 行 **5,756/5,
 且维数为正，不能因恒等重数为零而跳过完整分解。建议先处理子群 #1 的 1,835 个
 probe（40 个 k-star）；生产分导算法本轮未变。SG 209 的 `DT3`/`DT4` 仍标注为
 「由 pinned 频率校准的标签约定」，独立来源验证另行推进。
+
+### 分导 R1/R2（2026-09-22）：目标表示可由「子群操作 + 精确 q」现场构造
+
+R0 建立独立完整分解门禁后，R1/R2 解除"目标成分必须绑定静态 `IrrepRecord`"的限制：
+
+1. **R1 目标来源分两类**（`src/irrep/subduction.rs`、`src/irrep/subduction_star_decompose.rs`）：
+   `FullStarTarget` / `SubductionTarget` 的 `ml` / `bc` / `row_ml` / `irnumber` 改为
+   `Option`；存储成分保留冻结 CIR 身份，构造成分用
+   `SubductionComponent::Constructed { q, index }` 作为稳定身份，`None` 表示"没有
+   来源标签"，不借 Γ 标签、不填假 CIR 号。`ChildComponent` 的字符来源改为
+   `ComponentCharacters::{Stored(CharacterRow), Constructed(ConstructedLittleRep)}`，
+   `ChildStarEvaluator` 同步增加构造分支（三个 variant 都装箱以避免
+   `large_enum_variant`）。`complex_targets` 之外的一切解块、Gram、整数重数、维数和
+   与逐操作重建流程不变，既有 fixture 的身份/标签/重数/重建全部保持。
+2. **R2 先闭合子群 #1**：`constructed_child_components_at` 为 child #1 提供
+   `ConstructedLittleRep::BlochPhase { q }`，即 `D_q(T_L) = exp(+2 pi i q.L)`
+   （与存储行共用的 `bloch_phase` 同号）；q 先按子群倒格约化，故 q 与 q+G 同一身份。
+   查找顺序是"存储行优先、无行才构造"，其它子群一律返回空、继续报
+   `MissingChildStarData`。审计侧 `inspect_result` 接受无 CIR 号的构造成分，但仍要求
+   它是 `Constructed` 且通过同一套重建检查。
+3. **实测**：`--require-complete` 全表 `full_success=353382 identity_only=12878`
+   （原 `351547 + 14713`，−1,835 正好是 #1 的缺口），恒等正项 94,271、Γ Frobenius
+   1,895、w 行 5,756 全部不变、`hard_failures=0`、exit 0；同一审计上重跑缺口清点得
+   `records=2380 probes=12878 missing_stars=17144 replay_errors=0`，子群 128 → 127。
+   永久回归：`child_p1_records_decompose_every_scalar_probe_without_pinned_data`
+   （1,125 条 child-#1 记录 / 20,099 个 probe / 3,992 个构造目标全部重建通过）、
+   `constructed_bloch_phase_pins_the_positive_sign_convention`（非零平移与
+   q→−q 共轭）、`constructed_targets_have_their_own_identity_and_no_borrowed_labels`
+   与 `a_child_p1_gap_is_answered_by_constructed_targets`（ordinal 1045，
+   SG 45 `S1S2`/C1，probe `W1W1`）。
+4. **审查口径修正（用户）**：R2 修的是"目标数据不可达"，不能据此声称"肯定不是
+   嵌入或折叠问题"——恒等重数吻合排除不了全部 setting 与标签错误，所以补齐后仍保留
+   完整重建检查；表示计算与 CDML/BC 命名分离，构造成分在取得有来源的映射前不冒充
+   标准标签。R3 的重点明确为"小群/因子系统分类与来源验证"，R4 实现可复用的目标
+   生成；spgrep 只作离线对照（符号/坐标/代表元/相位需先统一），不在运行时依赖。

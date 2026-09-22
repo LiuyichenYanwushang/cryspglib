@@ -127,3 +127,18 @@ with open('target/task9/gaps_by_setting.tsv', 'w') as f:
 print('missing k/setting groups:', len(groups))
 PY
 ```
+
+## R2 后（2026-09-22）：子群 #1 清零，余 12,878
+
+`--require-complete` 全表审计（`hard_failures=0`、exit 0）实测
+`full_success=353,382 identity_only=12,878`；在该审计上重跑同一清点工具：
+
+```
+records=2380 probes=12878 stars=18387 missing_stars=17144 reachable_stars=1243 replay_errors=0 dimension_errors=0
+```
+
+即 gap probe 14,713 → **12,878**（−1,835，正好是子群 #1 的全部缺口）、记录
+2,761 → 2,380、缺失星 21,136 → 17,144、子群号 128 → 127（#1 消失）。子群 #1 的
+3,992 个缺失星由现场构造的一维 Bloch 相位回答，构造来源、身份/标签契约与永久回归
+见 `docs/subduction-audit.md` 的 R1/R2 小节。清点仍然只是"当前引擎的缺失星清单"，
+不是覆盖声明；余下按影响排序的前几个子群是 #5、#8、#6、#2、#12。
