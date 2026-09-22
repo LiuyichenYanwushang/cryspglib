@@ -241,3 +241,16 @@ records=83 probes=221 stars=331 missing_stars=326 constructed_stars=2 reachable_
 本次核对的 SHA-256：
 `target/r4_gaps.tsv` = `9634f3a31865f7b7b64c07a28d80fcf6144dcc87a734685e4e3b0958919e8cb7`，
 `target/r4_groups.tsv` = `acec85f044e2a85756e9317d0cbd4846862208dec9a4781d99bdd20fa749c3af`。
+
+## R4 批 2b 后（2026-09-22）：缺口清零
+
+批次 2b 覆盖了最后 58 组（52 组非退化 C2×C2 一个二维投影不可约表示、6 组 D3 的
+规范化普通表示），全表 `--require-complete --require-full-decomposition` 实测
+`full_success=366,260 identity_only=0 error=0 hard_failures=0`、判词
+`VERDICT complete scope=global`、**exit 0**（约 9 分钟）。
+
+缺口集合因此为空：`examples/census_subduction_gaps.rs` 在该审计上返回空 manifest 与
+`records=0 probes=0 stars=0 missing_stars=0`（工具已改为接受空输入），
+`scripts/classify_subduction_gap_sources.py` 也再没有 `missing_discrete_scalar_data` 行
+可分类。后续若再出现缺口，按同一流程重跑即可；闭合本身由完整门禁（而不是清点工具）
+证明。

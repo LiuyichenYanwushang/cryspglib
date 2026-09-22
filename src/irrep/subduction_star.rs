@@ -790,7 +790,7 @@ pub(super) fn fold_arms(
 /// The character is a function of the little-group operation itself, so it can
 /// be transported to another arm of the same star by conjugating the operation,
 /// exactly like a stored row.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) enum ConstructedLittleRep {
     /// Trivial little co-group: every little-group operation is a translation,
     /// so the representation at the exact point `q` is the one-dimensional
@@ -810,6 +810,20 @@ pub(super) enum ConstructedLittleRep {
         q: Vec3R,
         /// `(rotation, constant)` per little co-group rotation.
         constants: Vec<(Mat3I, Rat)>,
+    },
+    /// One irreducible representation of a **small higher-dimensional** little
+    /// co-group, again as a per-rotation constant:
+    /// `D(R, T) = constant(R) * exp(2 pi i q.T)`.
+    ///
+    /// The constants are complex because a two-dimensional irrep has traces
+    /// that are not roots of unity: the non-degenerate `C2 x C2` family has
+    /// character `(2, 0, 0, 0)` and the `D3` family's standard irrep has
+    /// `(2, -1, 0)`.  The catalogue that produced them is gated by its own
+    /// structural checks (see [`catalogue::projective_targets`]).
+    ProjectiveTable {
+        /// The exact folded point the catalogue belongs to.
+        q: Vec3R,
+        constants: Vec<(Mat3I, Complex64)>,
     },
 }
 
@@ -831,6 +845,9 @@ impl ConstructedLittleRep {
             }
             Self::Projective { q, constants } => {
                 Ok(catalogue::character_value(constants, q, operation)?)
+            }
+            Self::ProjectiveTable { q, constants } => {
+                Ok(catalogue::table_character_value(constants, q, operation)?)
             }
         }
     }

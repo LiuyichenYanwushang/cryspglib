@@ -195,14 +195,13 @@ R3 的输出（全部已核对）：
 操作代表元的格平移相位与既有的 `child_shift` 回退。**口径：候选数只是来源候选数，
 不代表参数求值与目标表示完整性已验证**。
 
-**R4 批次 1 与 2a 之后（2026-09-22）**：R3 判为 `analytic_general_position` 的 215 组
-（小余群阶 1）由批次 1 现场构造 Bloch 相位关掉；R3 判为 `parameterized_source`、
-小余群非平凡但**一维投影特征标可解**的那批由批次 2a 用精确 cocycle 关掉（不读归档
-字符）。两者合计 `full_success 353,382 → 366,039`、`identity_only 12,878 → 221`、
-0 错误。在新缺口上重跑本分类器：**58 组全部是 `parameterized_source`**（29 个子群、
-星阶 4 的 52 组 + 星阶 6 的 6 组，矩阵块 58/58 完整、8,448 个矩阵元），它们需要
-**二维**投影不可约表示，是批次 2b 的输入。批次状态见
-[subduction-r4-batches.md](subduction-r4-batches.md)，新分母见
-[subduction-gap-census.md](subduction-gap-census.md) 的“R4 批 2a 后”小节。
+**R4 三个批次之后（2026-09-22）：缺口清零。** R3 判为 `analytic_general_position`
+的 215 组由批次 1 现场构造 Bloch 相位关掉，小余群非平凡但**一维投影特征标可解**
+的由批次 2a 用精确 cocycle 关掉，最后 58 组（52 组非退化 C2×C2 的唯一二维不可约
+表示、6 组 D3 的规范化普通表示）由批次 2b 的 `projective_targets` 关掉 —— 三批都
+不读归档字符。累计 `full_success 353,382 → 366,260`（100%）、
+`identity_only 12,878 → 0`、0 错误、两个门禁 exit 0。
+本分类器在新审计上已无 `missing_discrete_scalar_data` 行可分类；若将来重现缺口，
+按同一流程（审计 → 清点 → 分类）重跑即可。
 
 运行成本随矩阵解码和机器负载变化；本轮实际验证结果另记于 `CLAUDE.md`。

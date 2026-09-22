@@ -2791,35 +2791,20 @@ mod tests {
     /// This is the guard against reporting "identity content is closed" as
     /// "full decomposition is closed".
     #[test]
-    fn the_full_decomposition_gate_separates_identity_only_rows_from_full_ones() {
-        // Ordinal 3988 folds onto child #43 stars whose little co-group has a
-        // single omega-regular class, so its irreps are two-dimensional: the
-        // higher-dimensional batch, still a gap after R4 batch 2a.
-        let (identity_exit, counts, _) = audit_ordinal(3988, true);
-        assert_eq!(identity_exit, 0, "the identity gate still accepts ordinal 3988");
-        assert_eq!(counts.probes.identity_only, 1);
-        assert_eq!(counts.full_decomposition_incomplete(), 1);
-
-        let (full_exit, gapped, _) = audit_ordinal_gates(3988, gates_with_full_decomposition());
-        assert_eq!(
-            full_exit, 2,
-            "one identity-only probe is a full-decomposition gap, not a success"
-        );
-        assert_eq!(gapped.probes.identity_only, 1);
-        assert_eq!(gapped.probes.full_success, 11);
-        assert_eq!(gapped.hard_failures(), 0, "a coverage gap is not an error");
-
-        // The contexts R4 batch 1 (ordinal 13345, trivial co-groups) and batch 2a
-        // (ordinal 13346, two-fold co-groups) closed have no gap left.
-        let (batch_exit, batch, _) = audit_ordinal_gates(13345, gates_with_full_decomposition());
-        assert_eq!(batch_exit, 0, "ordinal 13345 has no gap left");
-        assert_eq!(batch.probes.full_success, 31);
-        assert_eq!(batch.probes.identity_only, 0);
-        let (projective_exit, projective, _) =
-            audit_ordinal_gates(13346, gates_with_full_decomposition());
-        assert_eq!(projective_exit, 0, "ordinal 13346 has no gap left after batch 2a");
-        assert_eq!(projective.probes.full_success, 31);
-        assert_eq!(projective.probes.identity_only, 0);
+    fn the_full_decomposition_gate_accepts_the_closed_batches() {
+        // The witnesses of the three R4 batches: 13345 (trivial co-groups,
+        // batch 1), 13346 (two-fold co-groups, batch 2a) and 3988 (four-element
+        // co-group with one omega-regular class, batch 2b).  All three are
+        // complete now, so the full-decomposition gate passes at their scope.
+        // The gate's own separation logic is pinned by the synthetic tallies in
+        // the unit tests below (`identity_only: 1` fixtures).
+        for (ordinal, probes) in [(13345, 31), (13346, 31), (3988, 12)] {
+            let (exit_code, counts, _) =
+                audit_ordinal_gates(ordinal, gates_with_full_decomposition());
+            assert_eq!(exit_code, 0, "ordinal {ordinal} has no gap left");
+            assert_eq!(counts.probes.full_success, probes, "ordinal {ordinal}");
+            assert_eq!(counts.probes.identity_only, 0, "ordinal {ordinal}");
+        }
 
         // SG 16 R2 P1 -> #22 decomposes all 32 probes, so the same gate passes
         // there -- for that record's scope only.

@@ -18,8 +18,7 @@
 //!   parametric `B` line are answered by R4 batch 2a, the exact one-dimensional
 //!   projective catalogue of their two-fold little co-group;
 //! * ordinal 3988 (SG 109 -> #43): a four-element little co-group with a single
-//!   omega-regular class, whose irreps are two-dimensional, keeps
-//!   `MissingChildStarData` -- the boundary of the higher-dimensional batch.
+//!   omega-regular class, answered by R4 batch 2b's gated projective table.
 //!
 //! Every reported block is validated by the production entry point itself
 //! (dimension conservation, integral multiplicities, per-operation
@@ -30,7 +29,7 @@
 use cryspglib::irrep::isotropy::{IsotropySubgroup, isotropy_subgroups};
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::star::decompose::{
-    FullStarError, subduce_full_star_with_embedding, trivial_content_with_embedding,
+    subduce_full_star_with_embedding, trivial_content_with_embedding,
 };
 use cryspglib::irrep::subduction::{SubgroupEmbedding, SubductionComponent};
 use cryspglib::irrep::types::{IrrepRecord, IrrepSourceIdentity};
@@ -223,31 +222,33 @@ fn a_parametric_co_group_is_answered_by_the_one_dimensional_catalogue() {
     }
 }
 
-/// The batch boundary after 2a: ordinal 3988 (SG 109 -> #43) folds onto a
-/// four-element little co-group with a single omega-regular class, so its irreps
-/// are two-dimensional and the probe keeps `MissingChildStarData` -- the
-/// higher-dimensional batch, not a silent wrong answer.
+/// R4 batch 2b: ordinal 3988 (SG 109 -> #43) folds onto a four-element little
+/// co-group with a single omega-regular class, whose projective table has one
+/// two-dimensional irrep with character `(2, 0, 0, 0)`.  The probe is complete
+/// and its identity content still matches the pinned frequency.
 #[test]
-fn a_two_dimensional_co_group_keeps_the_missing_data_boundary() {
+fn a_two_dimensional_co_group_is_answered_by_the_projective_table() {
     let (subgroup, embedding) = ordinal_context(109, 3988);
     assert_eq!(embedding.subgroup_sg(), 43);
     let probe = probe(109, "P1");
-    match subduce_full_star_with_embedding(&subgroup, &embedding, probe) {
-        Err(FullStarError::MissingChildStarData { sg, points, .. }) => {
-            assert_eq!(sg, 43);
-            assert!(points > 0);
-        }
-        Ok(result) => panic!(
-            "a two-dimensional little co-group must stay missing: {} blocks",
-            result.blocks().len()
-        ),
-        Err(error) => panic!("unexpected error {error}"),
-    }
-    // The identity-only entry point still answers exactly from the pinned table.
+    let result = subduce_full_star_with_embedding(&subgroup, &embedding, probe)
+        .expect("the projective table answers this context");
+    let trivial = query::irreps_of(43)
+        .iter()
+        .find(|record| {
+            !record.spinor && record.k_vector().numerators == [0, 0, 0] && record.dim == 1
+        })
+        .expect("#43 has a trivial Gamma row");
     let content = trivial_content_with_embedding(&subgroup, &embedding, probe)
         .expect("identity-only content");
     assert_eq!(content.total, content.by_label);
     assert_eq!(content.total, stored_frequency(&subgroup, "P1"));
+    let full_total: u32 = result
+        .blocks()
+        .iter()
+        .map(|block| block.multiplicity(trivial.ml))
+        .sum();
+    assert_eq!(full_total, content.total);
 }
 
 /// A constructed star is not a per-point fallback: a star that reaches a pinned

@@ -183,16 +183,55 @@ R2 只对子群 #1 构造目标（`child_sg != 1` 直接返回空，保持 `Miss
 * 审计微型基线由 13345/13346（均已闭合）移到 3988；恒等回归的 2,075 个 probe 现在
   **全部**走完整入口（缺数据集合为空）；settings 一组的 120 个 probe 全部完整。
 
-### 批次 2b：二维投影表示（剩 221 个 probe）
+### 批次 2b：二维投影表示（已交付，2026-09-22 第四轮）
 
-`target/r4_groups.tsv` 的 58 组全部需要**二维**投影不可约表示：
+**状态：已交付；普通离散标量覆盖闭合。** 全表审计（`--require-complete
+--require-full-decomposition`，约 9 分钟）：
 
-* |P_q| = 4 且只有一个 ω-正则类：52 组（例：child #43 `0,1,1/2`，SG 109 `GM3` `P1`）；
-* |P_q| = 6（非交换 D3）：6 组（例：child #160 `0,0,3/4`）。
+| 项目 | 批次 2a 后 | 批次 2b 后 |
+|---|---:|---:|
+| `full_success` | 366,039 | **366,260 / 366,260（100%）** |
+| `identity_only` | 221 | **0** |
+| `error` / `hard_failures` | 0 / 0 | **0 / 0** |
 
-批次 2a 的一维求解器**故意**不覆盖它们（解数 ≠ |P_q| ⇒ 空 catalogue ⇒ fail closed），
-所以生产入口对这些星继续报 `MissingChildStarData`，恒等-only 路径照常给出精确的恒等
-频率。证据计划同 2a：先在离散 pinned k 点上对照引擎字符行，再接生产求解。
+判词 `VERDICT complete scope=global gates=--require-complete,--require-full-decomposition
+full_decomposition=complete`、**exit 0**；恒等正项 94,271/0 不匹配、Γ Frobenius
+1,895/1,895、w 行 5,756/0 错误、`production_checks` 全 0 —— 即
+[subduction-next-milestones.md](subduction-next-milestones.md) §R5 的验收清单全部满足
+（由 R4 的三个批次达成）。
+
+**结构（离线先钉死，脚本可复算）**：58 组的 326 个缺失星只有两个族：
+
+| 族 | 组数 | 结构证据 | 投影不可约表示 |
+|---|---:|---|---|
+| 非退化 C2×C2 | 52 | 元素阶 (1,2,2,2)、交换、交换子配对 `beta_ij=phi_ij-phi_ji` 的根只有单位元 | **一个二维**，字符 `(2,0,0,0)` |
+| D3 且 cocycle 是上边界 | 6 | 元素阶 (1,3,3,2,2,2)、非交换、配对恒为 0、ψ 解恰 2 个（`|Hom(D3,U(1))|`） | 规范化的普通表示 `{1,1,2}` |
+
+第一条不是经验规则而是可证：`g^2=e` ⇒ `u_g^2 = omega(g,g)·1` 且 `omega(g,g)=±1`；
+`u_g` 不能是标量（标量会迫使 `omega(g,h)=omega(g,h)` 的对称性，使 g 成为正则元，
+与"只有一个 ω-正则类"矛盾），所以 2×2 的两个特征值是 ±1、迹为 0。第二条用
+`M(D3)=0`（每个 cocycle 都是上边界）：解出规范 ψ 后，三个目标 = ψ 规范 × 普通
+不可约表示；取哪个 ψ 解不影响**集合**（两个解相差 sign 特征标，而 sign ⊗ 普通不可约
+只是置换它们）。
+
+**失败关闭**：`projective_targets` 只覆盖上面两族，且每族都有自己的结构门禁与
+正交性门禁（每个字符 `(1/|P_q|)Σ|χ|² = 1`、`Σ dim² = |P_q|`）；其它结构（例如立方
+Γ 点、阶 48）返回空表，生产入口继续报 `MissingChildStarData`（单测钉住）。
+
+**证据**：
+
+* `the_projective_tables_cover_only_the_two_gated_families`：child #43 `(0,1,1/2)` 得
+  唯一二维目标（恒等字符 2）、child #160 `(0,0,3/4)` 得 `{1,1,2}` 且 `Σdim²=6`、
+  child #221 Γ 为空；
+* 扩展后的 `the_catalogue_reproduces_pinned_little_group_characters`：**1,328 条 pinned
+  记录 / 7,578 个操作全部命中**，其中 **94 条走二维投影表**（另 1,660 条属范围外）；
+* 端到端：ordinal 3988（C2×C2 族）12/12、12041（D3 族）19/19，均 `VERDICT clean`；
+* 全表审计 366,260/366,260、`identity_only=0`、`error=0`、两个门禁 exit 0。
+
+**边界说明**：缺口清零后 `examples/census_subduction_gaps.rs` 的输入为空；该工具现在
+对空审计返回空 manifest 与零计数（不再报错），R5 的收口由完整门禁证明。也因此
+"仍然缺数据"的端到端负例在真实数据里已不存在，fail-closed 只由单元级门禁
+（范围外 co-group 返回空表）保证 —— 这是覆盖闭合后的正常状态，不应误读为门禁被删除。
 
 ### 批次 2a 的证据计划（实现前先离线）
 

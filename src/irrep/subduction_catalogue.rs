@@ -47,7 +47,7 @@
 use crate::mathfunc::Mat3I;
 
 use super::super::{ExactSeitz, Lattice, Rat, SubductionError, Vec3R, exact_primitive_basis};
-use super::super::strict_sg_hall_ops;
+use super::super::{bloch_phase, strict_sg_hall_ops};
 use super::StarError;
 
 /// The identity rotation, as stored in every Hall operation table.
@@ -63,12 +63,14 @@ const MAX_GRID: i128 = 200_000;
 
 /// Largest little co-group the one-dimensional batch solves.
 ///
-/// The R4 batch-2a groups have `|P_q| <= 4` (order 2: 452, order 3: 4, order 4
-/// with four omega-regular classes: 170).  A bigger co-group is out of scope --
-/// its irreps may need higher dimensions, and the search below would grow with
-/// its order -- so it returns an empty catalogue and keeps the missing-data
-/// behaviour.
-const MAX_ORDER: usize = 4;
+/// Largest little co-group the exact solver searches.
+///
+/// R4 batch 2a needs the one-dimensional solution set for `|P_q| <= 4`; batch 2b
+/// also needs it for the six-element `D_3` family, where it supplies the gauge
+/// (its two solutions are `Hom(D_3, U(1))`) rather than a catalogue.  Anything
+/// bigger is out of scope: the search below would grow with the order, so it
+/// returns an empty catalogue and keeps the missing-data behaviour.
+const MAX_ORDER: usize = 6;
 
 /// Upper bound on `combinations x |P_q|^2`, the solver's work per co-group.
 const MAX_WORK: i128 = 4_000_000;
@@ -364,6 +366,199 @@ impl LittleCoGroup {
     }
 }
 
+/// One constructed target of a **higher-dimensional** little co-group.
+pub(super) struct ProjectiveTarget {
+    /// Complex dimension of the little-group irrep.
+    pub dimension: u8,
+    /// `(rotation, chi_rep(R) * exp(-2 pi i q.t_R))` per little co-group
+    /// rotation, so that `chi(R, T) = constant(R) * exp(+2 pi i q.T)` evaluates
+    /// the little-group character on any reconstructed operation exactly as the
+    /// one-dimensional catalogue does.
+    pub constants: Vec<(Mat3I, num_complex::Complex64)>,
+}
+
+/// The projective character table of a small little co-group.
+///
+/// Two families are covered, each behind its own structural gate, and anything
+/// else returns an empty table (the caller keeps `MissingChildStarData`):
+///
+/// * `|P_q| = 4`, abelian, every non-identity element of order two, and a
+///   **non-degenerate** commutator pairing `beta_ij = phi_ij - phi_ji`.  Then
+///   the twisted group algebra is `M_2(C)`, so there is exactly one irreducible
+///   representation: dimension two and character `(2, 0, 0, 0)`.  The reason is
+///   tight: `u_g^2 = omega(g,g) * 1` with `omega(g,g) = +-1` because `g^2 = e`,
+///   and `u_g` cannot be scalar (a scalar would force `omega(g,h) = omega(h,g)`
+///   for every `h`, making `g` regular and contradicting the one-class count),
+///   so its two eigenvalues are `+-1` and its trace vanishes.
+/// * `|P_q| = 6`, non-abelian (hence `D_3`), with a **coboundary** cocycle: the
+///   gauge `psi` exists and has exactly two solutions (the size of
+///   `Hom(D_3, U(1))`), and the projective irreps are the gauged ordinary ones,
+///   with dimensions `{2, 1, 1}`.  The *set* of targets does not depend on which
+///   solution is used, because the two solutions differ by the sign character
+///   and tensoring with it permutes the ordinary irreps.
+pub(super) fn projective_targets(
+    child_sg: u8,
+    q: &Vec3R,
+    child_reciprocal: &Lattice,
+) -> Result<Vec<ProjectiveTarget>, StarError> {
+    let co_group = little_co_group(child_sg, q, child_reciprocal)?;
+    let order = co_group.order();
+    let q = co_group.q;
+    let identity = 0usize; // `little_co_group` puts the identity first.
+    if order == 4 {
+        return abelian_four_targets(&co_group, identity, &q);
+    }
+    if order == 6 {
+        return dihedral_six_targets(&co_group, identity, &q);
+    }
+    Ok(Vec::new())
+}
+
+/// `(rotation, chi_rep(R) * exp(-2 pi i q.t_R))` for one co-group character row.
+fn constants_of(
+    co_group: &LittleCoGroup,
+    q: &Vec3R,
+    traces: &[num_complex::Complex64],
+) -> Result<Vec<(Mat3I, num_complex::Complex64)>, StarError> {
+    let mut out = Vec::with_capacity(co_group.order());
+    for (position, operation) in co_group.representatives.iter().enumerate() {
+        let phase = bloch_phase(q, operation.translation())?.conj();
+        out.push((operation.rotation(), traces[position] * phase));
+    }
+    Ok(out)
+}
+
+/// The one-class, four-element abelian family (see [`projective_targets`]).
+fn abelian_four_targets(
+    co_group: &LittleCoGroup,
+    identity: usize,
+    q: &Vec3R,
+) -> Result<Vec<ProjectiveTarget>, StarError> {
+    let order = co_group.order();
+    // Abelian, and every non-identity element of order two (so the group is
+    // C2 x C2, not C4).
+    for i in 0..order {
+        for j in 0..order {
+            let product = co_group.product_position(i, j)?;
+            let other = co_group.product_position(j, i)?;
+            if product != other {
+                return Ok(Vec::new());
+            }
+        }
+    }
+    for i in 0..order {
+        if i == identity {
+            continue;
+        }
+        if co_group.product_position(i, i)? != identity {
+            return Ok(Vec::new());
+        }
+    }
+    // Non-degenerate commutator pairing: only the identity is orthogonal to
+    // everything, which is what makes the twisted algebra M_2(C).
+    for i in 0..order {
+        let orthogonal = (0..order).all(|j| {
+            let beta = co_group.turns[i][j].checked_sub(co_group.turns[j][i]);
+            matches!(beta, Ok(value) if fractional(value).is_ok_and(|v| v.is_zero()))
+        });
+        if orthogonal != (i == identity) {
+            return Ok(Vec::new());
+        }
+    }
+    let mut traces = vec![num_complex::Complex64::new(0.0, 0.0); order];
+    traces[identity] = num_complex::Complex64::new(2.0, 0.0);
+    // Gate: the single two-dimensional irrep exhausts the group.
+    if 4 != order {
+        return Ok(Vec::new());
+    }
+    Ok(vec![ProjectiveTarget {
+        dimension: 2,
+        constants: constants_of(co_group, q, &traces)?,
+    }])
+}
+
+/// The six-element dihedral family (see [`projective_targets`]).
+fn dihedral_six_targets(
+    co_group: &LittleCoGroup,
+    identity: usize,
+    q: &Vec3R,
+) -> Result<Vec<ProjectiveTarget>, StarError> {
+    let order = co_group.order();
+    // Element orders identify the two three-fold and three two-fold elements.
+    let mut orders = Vec::with_capacity(order);
+    for i in 0..order {
+        let mut power = i;
+        let mut value = 1usize;
+        while power != identity {
+            power = co_group.product_position(power, i)?;
+            value += 1;
+            if value > order {
+                return Ok(Vec::new());
+            }
+        }
+        orders.push(value);
+    }
+    if orders[identity] != 1
+        || orders.iter().filter(|value| **value == 3).count() != 2
+        || orders.iter().filter(|value| **value == 2).count() != 3
+    {
+        return Ok(Vec::new());
+    }
+    // Coboundary: the one-dimensional characters must exist, and there must be
+    // exactly |Hom(D3, U(1))| = 2 of them.
+    let gauge = one_dimensional_characters(co_group)?;
+    if gauge.len() != 2 {
+        return Ok(Vec::new());
+    }
+    let psi = &gauge[0];
+    let sign: Vec<f64> = orders
+        .iter()
+        .map(|value| if *value == 2 { -1.0 } else { 1.0 })
+        .collect();
+    let standard: Vec<f64> = orders
+        .iter()
+        .map(|value| match value {
+            1 => 2.0,
+            3 => -1.0,
+            _ => 0.0,
+        })
+        .collect();
+    let mut targets = Vec::with_capacity(3);
+    for (dimension, values) in [(1u8, vec![1.0; order]), (1, sign), (2, standard)] {
+        let traces: Vec<num_complex::Complex64> = psi
+            .iter()
+            .zip(&values)
+            .map(|(psi, value)| {
+                num_complex::Complex64::from_polar(1.0, std::f64::consts::TAU * psi.to_f64())
+                    * value
+            })
+            .collect();
+        // Gate: every projective character has norm one, and the dimensions
+        // exhaust the group.
+        let norm: f64 = traces.iter().map(|value| value.norm_sqr()).sum::<f64>()
+            / f64::from(u32::try_from(order).map_err(|_| {
+                StarError::Subduction(SubductionError::RationalOverflow {
+                    operation: "little co-group order",
+                })
+            })?);
+        if (norm - 1.0).abs() > 1e-9 {
+            return Ok(Vec::new());
+        }
+        targets.push(ProjectiveTarget {
+            dimension,
+            constants: constants_of(co_group, q, &traces)?,
+        });
+    }
+    let total: u32 = targets
+        .iter()
+        .map(|target| u32::from(target.dimension) * u32::from(target.dimension))
+        .sum();
+    if total != u32::try_from(order).unwrap_or(0) {
+        return Ok(Vec::new());
+    }
+    Ok(targets)
+}
+
 /// The per-rotation constants `psi_R - q . t_R` of one catalogue character.
 ///
 /// With them the character of **any** little-group operation `(R, T)` is
@@ -416,6 +611,25 @@ pub(super) fn character_value(
         1.0,
         std::f64::consts::TAU * turns.to_f64(),
     ))
+}
+
+/// The character of one little-group operation under one table entry:
+/// `constant(R) * exp(2 pi i q.T)`, with `constant(R)` carrying the reduced
+/// point's representative phase.
+pub(super) fn table_character_value(
+    constants: &[(Mat3I, num_complex::Complex64)],
+    q: &Vec3R,
+    operation: &ExactSeitz,
+) -> Result<num_complex::Complex64, StarError> {
+    let rotation = operation.rotation();
+    let constant = constants
+        .iter()
+        .find(|(known, _)| *known == rotation)
+        .map(|(_, value)| *value)
+        .ok_or(StarError::ConstructedRotationNotCovered {
+            q: [q.get(0), q.get(1), q.get(2)],
+        })?;
+    Ok(constant * bloch_phase(q, operation.translation())?)
 }
 
 /// The fractional part in `[0, 1)` of an exact rational.
@@ -483,6 +697,71 @@ mod tests {
         assert!(characters.contains(&vec![Rat::ZERO, Rat::new(2, 3).unwrap()]));
     }
 
+    /// The two batch-2b families, described by their structure rather than by a
+    /// pinned row: a non-degenerate four-element co-group has exactly one
+    /// two-dimensional irrep with character `(2, 0, 0, 0)`, and `D_3` with a
+    /// coboundary cocycle has the gauged ordinary irreps `{1, 1, 2}`.
+    #[test]
+    fn the_projective_tables_cover_only_the_two_gated_families() {
+        let cell = Lattice::new(exact_primitive_basis(43).unwrap()).unwrap();
+        let reciprocal = cell.reciprocal().unwrap();
+        // Ordinal 3988 folds onto child #43 with a four-element C2 x C2
+        // co-group whose commutator pairing is non-degenerate.
+        let four = projective_targets(
+            43,
+            &Vec3R::new([
+                Rat::new(0, 1).unwrap(),
+                Rat::new(1, 1).unwrap(),
+                Rat::new(1, 2).unwrap(),
+            ]),
+            &reciprocal,
+        )
+        .unwrap();
+        assert_eq!(four.len(), 1, "one two-dimensional irrep");
+        assert_eq!(four[0].dimension, 2);
+        let identity = ExactSeitz::identity();
+        let table = |target: &ProjectiveTarget| {
+            target
+                .constants
+                .iter()
+                .find(|(rotation, _)| *rotation == identity.rotation())
+                .map(|(_, value)| *value)
+                .unwrap()
+        };
+        assert!((table(&four[0]) - num_complex::Complex64::new(2.0, 0.0)).norm() < 1e-9);
+
+        // A six-element non-abelian co-group: child #160 at (0, 0, 3/4).
+        let cell = Lattice::new(exact_primitive_basis(160).unwrap()).unwrap();
+        let reciprocal = cell.reciprocal().unwrap();
+        let six = projective_targets(
+            160,
+            &Vec3R::new([
+                Rat::new(0, 1).unwrap(),
+                Rat::new(0, 1).unwrap(),
+                Rat::new(3, 4).unwrap(),
+            ]),
+            &reciprocal,
+        )
+        .unwrap();
+        let mut dimensions: Vec<u8> = six.iter().map(|target| target.dimension).collect();
+        dimensions.sort_unstable();
+        assert_eq!(dimensions, vec![1, 1, 2], "gauged ordinary D3 irreps");
+        let total: u32 = six
+            .iter()
+            .map(|target| u32::from(target.dimension) * u32::from(target.dimension))
+            .sum();
+        assert_eq!(total, 6, "the irreps exhaust the co-group");
+
+        // Out of scope: a cubic Gamma point (order 48) has no table.
+        let cell = Lattice::new(exact_primitive_basis(221).unwrap()).unwrap();
+        let reciprocal = cell.reciprocal().unwrap();
+        assert!(
+            projective_targets(221, &Vec3R::new([Rat::new(0, 1).unwrap(); 3]), &reciprocal)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
     /// The decisive evidence for the catalogue: at every pinned child `k` whose
     /// little co-group is non-trivial and whose irreps are all one-dimensional,
     /// the engine's own validated little-group character row must be **one of**
@@ -491,6 +770,7 @@ mod tests {
     fn the_catalogue_reproduces_pinned_little_group_characters() {
         let mut records_used = 0usize;
         let mut operations_compared = 0usize;
+        let mut projective = 0usize;
         let mut deferred = 0usize;
         for sg in 1u8..=230 {
             let cell = Lattice::new(exact_primitive_basis(sg).unwrap()).unwrap();
@@ -513,25 +793,48 @@ mod tests {
                     continue;
                 }
                 let characters = one_dimensional_characters(&co_group).unwrap();
-                if characters.len() != co_group.order() {
-                    deferred += 1;
-                    continue;
-                }
                 let operations: Vec<ExactSeitz> = hall
                     .operations
                     .iter()
                     .copied()
                     .filter(|operation| reciprocal.preserves(operation.rotation(), &k).unwrap())
                     .collect();
-                let matched = characters.iter().any(|psi| {
-                    let constants = constants(&co_group, psi).unwrap();
-                    operations.iter().enumerate().all(|(index, operation)| {
-                        let pinned =
-                            character_of(&row, record.ml, operation, &cell, &k, index).unwrap();
-                        let expected = character_value(&constants, &co_group.q, operation).unwrap();
-                        (pinned - expected).norm() <= SUBDUCTION_TOLERANCE
+                let one_dimensional = characters.len() == co_group.order();
+                let matched = if one_dimensional {
+                    characters.iter().any(|psi| {
+                        let constants = constants(&co_group, psi).unwrap();
+                        operations.iter().enumerate().all(|(index, operation)| {
+                            let pinned =
+                                character_of(&row, record.ml, operation, &cell, &k, index).unwrap();
+                            let expected =
+                                character_value(&constants, &co_group.q, operation).unwrap();
+                            (pinned - expected).norm() <= SUBDUCTION_TOLERANCE
+                        })
                     })
-                });
+                } else {
+                    // R4 batch 2b: a higher-dimensional little irrep, compared
+                    // the same way against the gated projective table.
+                    let targets = projective_targets(sg, &k, &reciprocal).unwrap();
+                    if targets.is_empty() {
+                        deferred += 1;
+                        continue;
+                    }
+                    let used = targets.iter().any(|target| {
+                        operations.iter().enumerate().all(|(index, operation)| {
+                            let pinned =
+                                character_of(&row, record.ml, operation, &cell, &k, index).unwrap();
+                            let expected = table_character_value(
+                                &target.constants,
+                                &co_group.q,
+                                operation,
+                            )
+                            .unwrap();
+                            (pinned - expected).norm() <= SUBDUCTION_TOLERANCE
+                        })
+                    });
+                    projective += 1;
+                    used
+                };
                 assert!(
                     matched,
                     "SG {sg} {} at k = {:?}: the pinned little-group character is not in the \
@@ -552,7 +855,11 @@ mod tests {
         );
         println!(
             "catalogue cross-check: {records_used} pinned rows, {operations_compared} operations, \
-             {deferred} deferred to the higher-dimensional batch"
+             {projective} of them through the higher-dimensional table, {deferred} deferred"
+        );
+        assert!(
+            projective > 0,
+            "the higher-dimensional table must also be exercised by pinned rows"
         );
     }
 }

@@ -6,9 +6,9 @@
 （R2 之前）14,713 个恒等-only probe 的逐星缺口清点见
 [subduction-gap-census.md](subduction-gap-census.md)：21,136 个缺失星，
 按子群/k-star/setting 归并为 989 组；R2 补齐子群 #1 后余 12,878 条，R4 批次 1
-补齐平凡小余群的构造目标（批次 1）与一维投影 catalogue（批次 2a）后余 **221** 条
-（326 个缺失星、58 个 `parameterized_source` 组，均需二维投影表示）。
-清点不改变下述生产覆盖数字。
+补齐平凡小余群的构造目标（批次 1）、一维投影 catalogue（批次 2a）与二维投影表
+（批次 2b）后**余 0 条**：全表 366,260 个 probe 全部完整分解（详见下文两个门禁的
+当前结果）。
 
 ## 生产 API 审计
 
@@ -219,7 +219,7 @@ T = B^T
 | 门禁 | 退出码 | 判词/摘要 |
 |---|---:|---|
 | `--require-complete --require-w-complete` | 0 | `VERDICT complete scope=global gates=--require-complete,--require-w-complete full_decomposition=not_gated` |
-| `--require-full-decomposition` | **2** | `full_decomposition: scope=global ... full_success=366039 identity_only=221 incomplete=221 global=covered`，`VERDICT incomplete ... gates=--require-full-decomposition` |
+| `--require-full-decomposition` | **0** | `full_decomposition: scope=global probes=366260 full_success=366260 identity_only=0 missing=0 error=0 uncomputed=0 incomplete=0 global=covered`，`VERDICT complete ... full_decomposition=complete` |
 | 三个门禁同时 | **2** | 同上；完整分解缺口优先于其它门禁的通过 |
 
 即：恒等分导表与 w 行的**恒等重数**已经闭合（旧两个门禁 exit 0），但**普通离散
@@ -252,6 +252,10 @@ T = B^T
 - **R4 批次 1（2026-09-22）**：构造判据由「子群 #1」改为「该星的小余群平凡」，
   并补上非平凡子群点群的**子群自星诱导**（`ConstructedStar`）。全表
   `full_success=357,033 identity_only=9,227`（+3,651 / −3,651）、`hard_failures=0`。
+- **R4 批次 2b（2026-09-22）**：最后 58 组（52 组非退化 C2×C2 唯一二维不可约表示、
+  6 组 D3 的规范化普通表示）由 `catalogue::projective_targets` 回答，带结构门禁与
+  正交性门禁。全表 `full_success=366,260 identity_only=0 error=0`、两个门禁 exit 0、
+  `VERDICT complete`；缺口集合为空，清点工具接受空输入并报零计数。
 - **R4 批次 2a（2026-09-22）**：小余群非平凡但**一维投影特征标 catalogue 完整**
   （精确 cocycle 求解，解数 = `|P_q|`）的星由 `ConstructedLittleRep::Projective`
   现场回答。全表 `full_success=366,039 identity_only=221`（+9,006 / −9,006）、

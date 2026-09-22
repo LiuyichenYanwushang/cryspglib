@@ -1483,35 +1483,69 @@ fn constructed_projective_components(
     let exact = child_reciprocal.reduce(q)?.representative;
     let co_group = catalogue::little_co_group(child_sg, &exact, child_reciprocal)?;
     let characters = catalogue::one_dimensional_characters(&co_group)?;
-    if characters.len() != co_group.order() {
+    let q_key = [exact.get(0), exact.get(1), exact.get(2)];
+    let mut components = Vec::new();
+    if characters.len() == co_group.order() {
+        for (index, psi) in characters.iter().enumerate() {
+            let constants = catalogue::constants(&co_group, psi)?;
+            components.push(constructed_component(
+                q_key,
+                exact,
+                index,
+                1,
+                ConstructedLittleRep::Projective { q: exact, constants },
+            )?);
+        }
+        return Ok(components);
+    }
+    // R4 batch 2b: the small higher-dimensional families (one two-dimensional
+    // irrep for a non-degenerate four-element abelian co-group, the gauged
+    // ordinary `D3` irreps otherwise).  The catalogue is gated by its own
+    // structural and orthogonality checks and is empty for anything else.
+    let targets = catalogue::projective_targets(child_sg, &exact, child_reciprocal)?;
+    if targets.is_empty() {
         return Ok(Vec::new());
     }
-    let q_key = [exact.get(0), exact.get(1), exact.get(2)];
-    let mut components = Vec::with_capacity(characters.len());
-    for (index, psi) in characters.iter().enumerate() {
-        let constants = catalogue::constants(&co_group, psi)?;
-        components.push(ChildComponent {
-            record: None,
-            component: SubductionComponent::Constructed {
-                q: q_key,
-                index: u16::try_from(index).map_err(|_| SubductionError::RationalOverflow {
-                    operation: "constructed catalogue index",
-                })?,
-            },
-            label: None,
-            bc: None,
-            irnumber: None,
-            dimension: 1,
-            base_k: exact,
-            effective_k: exact,
-            conjugate: false,
-            characters: ComponentCharacters::Constructed(ConstructedLittleRep::Projective {
+    for (index, target) in targets.into_iter().enumerate() {
+        components.push(constructed_component(
+            q_key,
+            exact,
+            index,
+            target.dimension,
+            ConstructedLittleRep::ProjectiveTable {
                 q: exact,
-                constants,
-            }),
-        });
+                constants: target.constants,
+            },
+        )?);
     }
     Ok(components)
+}
+
+/// One constructed child component with its canonical identity.
+fn constructed_component(
+    q_key: [Rat; 3],
+    exact: Vec3R,
+    index: usize,
+    dimension: u8,
+    characters: ConstructedLittleRep,
+) -> Result<ChildComponent, FullStarError> {
+    Ok(ChildComponent {
+        record: None,
+        component: SubductionComponent::Constructed {
+            q: q_key,
+            index: u16::try_from(index).map_err(|_| SubductionError::RationalOverflow {
+                operation: "constructed catalogue index",
+            })?,
+        },
+        label: None,
+        bc: None,
+        irnumber: None,
+        dimension,
+        base_k: exact,
+        effective_k: exact,
+        conjugate: false,
+        characters: ComponentCharacters::Constructed(characters),
+    })
 }
 
 /// Whether the little co-group of `q` is trivial in `child_sg`: no non-identity
@@ -3223,18 +3257,16 @@ mod tests {
             Err(FullStarError::EmptyQBlock { .. })
         ));
 
-        // A folded point that matches no stored child record and that the
-        // constructed fallback cannot answer either is a typed error, not a
-        // zero block.  Ordinal 3988 (SG 109 `GM3` `P1` -> #43) folds onto a
-        // four-element little co-group with a single omega-regular class, whose
-        // irreps are two-dimensional: out of the one-dimensional batch's scope,
-        // so the entry point still reports missing data there.
+        // A folded point that matches no stored child record is answered by the
+        // constructed fallback whenever the little co-group is in scope: ordinal
+        // 3988 (SG 109 `GM3` `P1` -> #43) folds onto a four-element co-group
+        // whose projective table R4 batch 2b supplies, so the whole probe
+        // decomposes.  The out-of-scope case (a cubic Gamma point, order 48) is
+        // pinned by `constructed_targets_have_their_own_identity_and_no_borrowed_labels`.
         let two_dimensional = subgroup_of(109, "GM3", "P1");
         let built_43 = embedding(109, "GM3", "P1");
-        assert!(matches!(
-            subduce_full_star_with_embedding(&two_dimensional, &built_43, probe(109, "P1")),
-            Err(FullStarError::MissingChildStarData { sg: 43, .. })
-        ));
+        assert!(subduce_full_star_with_embedding(&two_dimensional, &built_43, probe(109, "P1"))
+            .is_ok());
     }
 
     /// The nine fixed contexts scanned probe by probe: the five embedding

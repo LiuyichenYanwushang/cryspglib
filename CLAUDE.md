@@ -51,19 +51,21 @@ python3 scripts/check_other_wave_vector_rows.py
 `--tests` 不运行 example 内的回归；上面的 audit 与 census 两个 example
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
-当前基线（2026-09-22，R4 批 2a 后，`-p cryspglib` 限定到本 crate）：
-lib `395 passed / 4 ignored`，integration `161 passed`，doctest `27 passed`，
+当前基线（2026-09-22，R4 批 2b 后，`-p cryspglib` 限定到本 crate）：
+lib `396 passed / 4 ignored`，integration `162 passed`，doctest `27 passed`，
 example 审计回归 `17 passed`、缺口清点回归 `3 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
 pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源已解为参数化
 直线 `k = Γ + t·v`，冻结 little 特征标表 73/73，引擎已算出全部 5,756 行）；
-全表审计（`--require-complete --require-w-complete`）退出 0、判词
-`VERDICT ... scope=global`（`identity_rows=94271`、probe `366039` 完整分解 +
-`221` 恒等-only、w `5756/5756`、`engine_errors=0`、`hard_failures=0`，约 560 s；
-R4 批 2a 前是 `357033 + 9227`，批 1 前 `353382 + 12878`，R2 前 `351547 + 14713`）；
-`--require-full-decomposition` 仍 exit 2（`incomplete=221`，R5 目标），
-剩余缺口的分母见 `docs/subduction-gap-census.md` 的“R4 批 2a 后”小节。
+全表审计（`--require-complete --require-full-decomposition`）**两个门禁同时退出 0**、
+判词 `VERDICT complete scope=global full_decomposition=complete`（`identity_rows=94271`、
+probe **366260/366260 完整分解、恒等-only 0**、w `5756/5756`、`engine_errors=0`、
+`hard_failures=0`，约 511 s；R4 批 2a 后 `366039 + 221`，批 1 后 `357033 + 9227`，
+R2 后 `353382 + 12878`，R2 前 `351547 + 14713`）。普通离散标量覆盖在固定语料上已
+闭合（R5 验收清单：恒等正项 94,271/0 不匹配、Γ Frobenius 1,895/1,895、w 行
+5,756/0 错误，全部满足）；缺口清点为空，见
+`docs/subduction-gap-census.md` 的“R4 批 2b 后”小节。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
 后端同时启用），与本 crate 无关，但会让整条命令以 exit 101 结束、0 个测试执行。
@@ -3285,3 +3287,41 @@ doctest 27、audit example 17、census example 3，严格 all-target clippy 通�
 未做（批次 2b）：58 组需要**二维**投影不可约表示（52 组 `|P_q|=4` 单 ω-正则类、
 6 组 `|P_q|=6` 的 D3），需 twisted group algebra 的二维不可约表示或等价的诱导构造，
 单独建证据集；`little_k`（w 源数组）与 PIR `k_arms` 的坐标约定仍分别验证。
+
+### 分导 R4 批次 2b（2026-09-22）：二维投影表，普通离散标量覆盖闭合
+
+**已交付**：最后 58 组（52 组非退化 C2×C2 + 6 组 D3，共 221 个 probe / 326 个缺失星）
+由 `catalogue::projective_targets` 现场给出投影字符表；全表
+`full_success=366260/366260`、`identity_only=0`、`error=0`、两个门禁 exit 0、
+`VERDICT complete`（约 511 s）——即 R5 的验收清单（恒等正项 94,271/0 不匹配、
+Γ Frobenius 1,895/1,895、w 行 5,756/0 错误）全部满足。
+
+结构先离线钉死（脚本可复算）：
+
+* **52 组：非退化 C2×C2** —— 元素阶 (1,2,2,2)、交换、交换子配对
+  `beta_ij = phi_ij - phi_ji` 的根只有单位元 ⇒ twisted algebra ≅ M₂(ℂ) ⇒
+  **唯一二维不可约表示，字符 (2,0,0,0)**。证明：`g²=e ⇒ u_g² = omega(g,g)·1` 且
+  `omega(g,g)=±1`；`u_g` 不能是标量（标量 ⇒ `omega(g,h)=omega(h,g)` ∀h ⇒ g 正则，
+  与"只有一个 ω-正则类"矛盾）⇒ 2×2 特征值 ±1 ⇒ 迹 0。
+* **6 组：D3 且 cocycle 为上边界** —— 元素阶 (1,3,3,2,2,2)、非交换、配对恒 0、
+  ψ 解恰 2 个（`|Hom(D3,U(1))|`）⇒ 目标 = ψ 规范 × 普通不可约表示 `{1,1,2}`；
+  用哪个 ψ 解不影响**集合**（两解相差 sign 特征标，sign ⊗ 普通不可约只是置换）。
+
+实现与门禁：新增 `ProjectiveTarget`、`projective_targets`（`MAX_ORDER` 由 4 提到 6，
+给 D3 提供 ψ 规范；`MAX_GRID`/`MAX_WORK` 仍在，超限返回空）、
+`ConstructedLittleRep::ProjectiveTable { q, constants: Vec<(Mat3I, Complex64)> }` 与
+`table_character_value`（`chi = constant(R)·exp(2πi q·T)`，与一维表共用"同一个约化点"
+的规范纪律）。两族各有结构门禁（交换性/元素阶/配对根/ψ 解数）与正交性门禁
+（每个字符 `(1/|P_q|)Σ|χ|² = 1`、`Σ dim² = |P_q|`）；范围外（如立方 Γ 点，阶 48）
+返回空表、入口保持 `MissingChildStarData`。
+
+证据：`the_projective_tables_cover_only_the_two_gated_families`（#43 得唯一二维目标、
+#160 得 {1,1,2}、#221 Γ 为空）；扩展后的 pinned 对照
+**1,328 条记录 / 7,578 个操作全部命中，其中 94 条走二维投影表**（1,660 条范围外跳过）；
+端到端 ordinal 3988 = 12/12、12041 = 19/19 均 `VERDICT clean`；审计 example 的
+批次见证改为 13345/13346/3988 全部 exit 0。
+
+边界：缺口清零后 `census_subduction_gaps` 的输入为空，工具改为接受空输入并报零计数
+（R5 的收口由完整门禁证明）；真实数据里已不存在"仍缺数据"的端到端负例，fail-closed
+由单元级门禁（范围外 co-group 返回空表）保证。验证：lib 396、integration 162、
+doctest 27、audit example 17、census example 3，严格 all-target clippy 通过。

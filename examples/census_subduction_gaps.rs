@@ -55,9 +55,9 @@ fn read_requests(input: impl BufRead) -> Result<Requests> {
         }
         rows.insert(row);
     }
-    if requests.is_empty() {
-        return Err("no identity-only probes in audit".into());
-    }
+    // A fully closed audit has no identity-only probe left; the manifest is then
+    // empty and the summary reports zeros, which is the state the R5 gate
+    // proves.  It is not an error of this replay tool.
     Ok(requests)
 }
 
@@ -347,21 +347,20 @@ mod tests {
         assert_eq!(status_counts(13346, "W1"), (0, 5, 0));
     }
 
-    /// The batch boundary after 2a: ordinal 3988 folds onto child #43 stars
-    /// whose four-element little co-group has a **single** omega-regular class,
-    /// so its irreps are two-dimensional.  That is the higher-dimensional batch,
-    /// the star stays `missing_discrete_scalar_data`, and the probe is answered
-    /// only by the identity-only entry point.
+    /// Ordinal 3988 folds onto child #43 stars whose four-element little
+    /// co-group has a **single** omega-regular class, so its irreps are
+    /// two-dimensional.  R4 batch 2b answers them with the gated projective
+    /// table, so this context has no gap left either.
     #[test]
-    fn a_two_dimensional_co_group_keeps_its_missing_status() {
+    fn a_two_dimensional_co_group_is_answered_by_the_projective_catalogue() {
         let contexts = subgroups().unwrap();
         let subgroup = &contexts[&3988];
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).unwrap();
         let probe = query::irreps_of(109).iter().find(|r| r.ml == "P1").unwrap();
-        let (q, points) = replay_missing(subgroup, &embedding, probe).unwrap();
-        assert_eq!(format_q(&q), "0,1,1/2");
-        assert_eq!(points, 1);
-        // Both folded stars of this probe need the higher-dimensional batch.
-        assert_eq!(status_counts(3988, "P1"), (0, 0, 2));
+        assert!(
+            subduce_full_star_with_embedding(subgroup, &embedding, probe).is_ok(),
+            "the projective table answers every folded star here"
+        );
+        assert_eq!(status_counts(3988, "P1"), (0, 2, 0));
     }
 }
