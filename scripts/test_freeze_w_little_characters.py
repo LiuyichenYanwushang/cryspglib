@@ -230,7 +230,7 @@ class CogroupPairTests(unittest.TestCase):
         unknown, matrix, rhs, duals = self.system()
         little = [(rotation, (0, 0, 0), "") for rotation in self.C2V]
         values, problems = gate.cogroup_pair_route(
-            little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
+            202, little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
         )
         self.assertEqual(problems, [])
         self.assertEqual(
@@ -248,7 +248,7 @@ class CogroupPairTests(unittest.TestCase):
         unknown, matrix, rhs, duals = self.system()
         little = [(rotation, (0, 0, 0), "") for rotation in self.C4]
         values, problems = gate.cogroup_pair_route(
-            little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
+            202, little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
         )
         self.assertEqual(problems, [])
         self.assertEqual(
@@ -265,7 +265,7 @@ class CogroupPairTests(unittest.TestCase):
         duals["DT2"] = [Fraction(0), Fraction(1), Fraction(1)]
         little = [(rotation, (0, 0, 0), "") for rotation in self.C2V]
         values, problems = gate.cogroup_pair_route(
-            little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
+            202, little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
         )
         self.assertEqual(values, {})
         self.assertIn("cogroup pattern", problems[0])
@@ -275,7 +275,7 @@ class CogroupPairTests(unittest.TestCase):
         matrix[2] = [Fraction(0), Fraction(0), Fraction(1), Fraction(0)]
         little = [(rotation, (0, 0, 0), "") for rotation in self.C2V]
         values, problems = gate.cogroup_pair_route(
-            little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
+            202, little, ["DT1", "DT2", "DT3", "DT4"], unknown, matrix, rhs, duals
         )
         self.assertEqual(values, {})
         self.assertIn("not determined", problems[0])
