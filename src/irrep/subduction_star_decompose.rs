@@ -304,6 +304,20 @@ pub enum FullStarError {
         /// Child space group number.
         sg: u8,
     },
+    /// A constructed little-group representation was asked for the character of
+    /// an operation outside the class it was built from (for the P1 Bloch phase,
+    /// anything with a non-identity rotation).
+    #[error(
+        "constructed little-group representation at q = ({}, {}, {}) cannot be evaluated on a \
+         rotation it was not built from",
+        q[0],
+        q[1],
+        q[2]
+    )]
+    ConstructedOperationNotCovered {
+        /// Exact folded point the representation was built at.
+        q: [Rat; 3],
+    },
     /// Rebuilding the subduced character from the reported child irreps differs
     /// from the parent full-star character.
     #[error(
@@ -328,12 +342,15 @@ pub struct FullStarTarget {
     /// Child space group number.
     pub sg: u8,
     /// Target label: the ordinary row's ML label, or the CIR constituent label.
-    /// A realification seed and its conjugate share the one CIR label.
-    pub ml: &'static str,
-    /// Bradley-Cracknell label, for display only.
-    pub bc: &'static str,
-    /// Physical child row this term came from.
-    pub row_ml: &'static str,
+    /// A realification seed and its conjugate share the one CIR label.  `None`
+    /// for a constructed target: no pinned row names it, so no label is
+    /// borrowed or invented.
+    pub ml: Option<&'static str>,
+    /// Bradley-Cracknell label, for display only; `None` when the target has no
+    /// sourced name.
+    pub bc: Option<&'static str>,
+    /// Physical child row this term came from; `None` for a constructed target.
+    pub row_ml: Option<&'static str>,
     /// Which complex constituent of that row this term is.  The variant
     /// distinguishes a realification seed from its conjugate even though both
     /// carry the same label and source number.
@@ -344,8 +361,9 @@ pub struct FullStarTarget {
     pub multiplicity: u32,
     /// Frozen CIR source number of this term (`record.source_identity()` for an
     /// ordinary row, the constituent's own `irnumber` for a compound row, the
-    /// shared seed `irnumber` for both realification components).
-    pub irnumber: u32,
+    /// shared seed `irnumber` for both realification components); `None` for a
+    /// constructed target, whose identity is its component and exact point.
+    pub irnumber: Option<u32>,
 }
 
 /// The decomposition of one folded child star.
@@ -409,11 +427,26 @@ impl FullStarBlock {
         &self.targets
     }
 
-    /// Multiplicity of one target label, or `0` when it does not appear.
+    /// Multiplicity of one sourced target label, or `0` when it does not appear.
+    /// A constructed target has no label and is never matched here.
     pub fn multiplicity(&self, ml: &str) -> u32 {
         self.targets
             .iter()
-            .find(|target| target.ml == ml)
+            .find(|target| target.ml == Some(ml))
+            .map_or(0, |target| target.multiplicity)
+    }
+
+    /// Multiplicity of the constructed target at one exact folded point, or `0`
+    /// when that point carries no constructed target.
+    pub fn constructed_multiplicity(&self, q: &[Rat; 3]) -> u32 {
+        self.targets
+            .iter()
+            .find(|target| {
+                matches!(
+                    target.component,
+                    SubductionComponent::Constructed { q: found, .. } if found == *q
+                )
+            })
             .map_or(0, |target| target.multiplicity)
     }
 }
@@ -534,11 +567,15 @@ impl FullStarSubduction {
 #[derive(Debug, Clone)]
 enum ChildStarEvaluator {
     /// An ordinary child row: the record's own full star.
-    Ordinary(OrdinaryStar),
+    Ordinary(Box<OrdinaryStar>),
     /// One complex component of a compound child row (a
     /// `DistinctComponentSum` constituent, or a realification seed/conjugate
     /// with its effective `k` and conjugation flag).
-    Component(ComponentStar),
+    Component(Box<ComponentStar>),
+    /// A little-group representation constructed at an exact folded point.  For
+    /// child #1 the child full star of that point is the point itself, so the
+    /// evaluator is the little-group character.
+    Constructed(Box<ConstructedLittleRep>),
 }
 
 impl ChildStarEvaluator {
@@ -546,6 +583,7 @@ impl ChildStarEvaluator {
         match self {
             Self::Ordinary(star) => Ok(star.character(operation)?),
             Self::Component(star) => Ok(star.character(operation)?),
+            Self::Constructed(rep) => rep.character(operation),
         }
     }
 }
@@ -814,7 +852,7 @@ pub fn trivial_content_with_embedding(
         )?;
         content.by_label += block.multiplicity(trivial.ml);
         for target in block.targets() {
-            if target.dimension == trivial.dim && target.irnumber == trivial_cir {
+            if target.dimension == trivial.dim && target.irnumber == Some(trivial_cir) {
                 content.total += target.multiplicity;
             }
         }
@@ -991,7 +1029,7 @@ pub fn line_trivial_content_via_blocks(
             &child_reciprocal,
         )?;
         for target in block.targets() {
-            if target.dimension == trivial.dim && target.irnumber == trivial_cir {
+            if target.dimension == trivial.dim && target.irnumber == Some(trivial_cir) {
                 total += target.multiplicity;
             }
         }
@@ -1106,27 +1144,79 @@ fn parent_irnumber(record: &'static IrrepRecord) -> Option<u32> {
 
 // ── One folded child star ────────────────────────────────────────────────────
 
-/// One complex component of a child record, evaluated at its own stored row.
+/// One complex component of a child target.
+///
+/// A stored component is expanded from a pinned child record; a constructed one
+/// is computed from the subgroup operations at an exact folded point and has no
+/// record, no label and no CIR number at all.
 #[derive(Debug, Clone)]
 struct ChildComponent {
-    record: &'static IrrepRecord,
+    /// Pinned child row this component was expanded from.
+    record: Option<&'static IrrepRecord>,
     component: SubductionComponent,
-    label: &'static str,
-    bc: &'static str,
-    irnumber: u32,
+    label: Option<&'static str>,
+    bc: Option<&'static str>,
+    irnumber: Option<u32>,
     dimension: u8,
     base_k: Vec3R,
     /// `base_k`, or its exact negation for a realification conjugate.
     effective_k: Vec3R,
     conjugate: bool,
-    row: CharacterRow,
+    characters: ComponentCharacters,
+}
+
+/// Where one child component's little-group characters come from.
+#[derive(Debug, Clone)]
+enum ComponentCharacters {
+    /// A pinned row, indexed by its own Seitz representatives.
+    Stored(CharacterRow),
+    /// A representation constructed from the subgroup operations and an exact
+    /// folded point.
+    Constructed(ConstructedLittleRep),
+}
+
+/// A little-group representation computed on the fly from the subgroup and an
+/// exact folded wave vector, with no pinned table row behind it.
+///
+/// The character is a function of the little-group operation itself, so it can
+/// be transported to another arm of the same child star by conjugating the
+/// operation, exactly like a stored row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConstructedLittleRep {
+    /// Child space group #1: every little-group operation is a translation, so
+    /// the representation at the exact point `q` is the one-dimensional Bloch
+    /// phase `D(T_L) = exp(+2 pi i q.L)` in the child's own frame (the sign
+    /// convention [`bloch_phase`] already fixes for stored rows).
+    BlochPhase { q: Vec3R },
+}
+
+impl ConstructedLittleRep {
+    /// Character of one little-group operation.
+    fn character(&self, operation: &ExactSeitz) -> Result<Complex64, FullStarError> {
+        match self {
+            Self::BlochPhase { q } => {
+                if operation.rotation() != IDENTITY_ROTATION {
+                    return Err(FullStarError::ConstructedOperationNotCovered {
+                        q: [q.get(0), q.get(1), q.get(2)],
+                    });
+                }
+                Ok(bloch_phase(q, operation.translation())?)
+            }
+        }
+    }
 }
 
 impl ChildComponent {
     /// Stable identity used to keep one occurrence of one component per orbit.
-    fn key(&self) -> (u16, SubductionComponent) {
-        (self.record.id().index(), self.component)
+    fn key(&self) -> (Option<u16>, SubductionComponent) {
+        (self.record.map(|record| record.id().index()), self.component)
     }
+
+    /// The physical row behind this component, when it has one.
+    fn row_ml(&self) -> Option<&'static str> {
+        self.record.map(|record| record.ml)
+    }
+
 }
 
 /// The representative point of one folded child star and every complex child
@@ -1342,6 +1432,21 @@ fn child_components_at(
     q: &Vec3R,
     child_reciprocal: &Lattice,
 ) -> Result<Vec<ChildComponent>, FullStarError> {
+    let stored = stored_child_components_at(child_sg, q, child_reciprocal)?;
+    if !stored.is_empty() {
+        return Ok(stored);
+    }
+    // No pinned row lives at this point.  A constructed source may still answer
+    // it; where none does, the caller keeps reporting the missing child data.
+    constructed_child_components_at(child_sg, q, child_reciprocal)
+}
+
+/// Pinned child rows whose effective arm folds onto `q`.
+fn stored_child_components_at(
+    child_sg: u8,
+    q: &Vec3R,
+    child_reciprocal: &Lattice,
+) -> Result<Vec<ChildComponent>, FullStarError> {
     let mut out = Vec::new();
     for record in query::irreps_of(child_sg) {
         for component in child_components(record)? {
@@ -1351,6 +1456,42 @@ fn child_components_at(
         }
     }
     Ok(out)
+}
+
+/// Targets constructed from the subgroup operations and the exact folded point,
+/// for the child space groups where that is enough.
+///
+/// Only child #1 is covered here: its little group at any point is the
+/// translation group, so the one-dimensional Bloch phase `D(T_L) =
+/// exp(+2 pi i q.L)` *is* the little-group irrep and no character table is
+/// needed.  Every other child space group returns an empty list, so its missing
+/// rows keep the existing `MissingChildStarData` behaviour.
+///
+/// The identity carries the point reduced modulo the child reciprocal lattice:
+/// two folded points differing by a reciprocal lattice vector are the same
+/// representation, and using both would present the same row twice.
+fn constructed_child_components_at(
+    child_sg: u8,
+    q: &Vec3R,
+    child_reciprocal: &Lattice,
+) -> Result<Vec<ChildComponent>, FullStarError> {
+    if child_sg != 1 {
+        return Ok(Vec::new());
+    }
+    let exact = child_reciprocal.reduce(q)?.representative;
+    let q_key = [exact.get(0), exact.get(1), exact.get(2)];
+    Ok(vec![ChildComponent {
+        record: None,
+        component: SubductionComponent::Constructed { q: q_key, index: 0 },
+        label: None,
+        bc: None,
+        irnumber: None,
+        dimension: 1,
+        base_k: exact,
+        effective_k: exact,
+        conjugate: false,
+        characters: ComponentCharacters::Constructed(ConstructedLittleRep::BlochPhase { q: exact }),
+    }])
 }
 
 /// Expand one non-spinor child record into its complex components.
@@ -1371,16 +1512,16 @@ fn child_components(record: &'static IrrepRecord) -> Result<Vec<ChildComponent>,
             let dimension = component_dimension(row.dimension(), record.sg, record.ml)?;
             let irnumber = ordinary_irnumber(record)?;
             Ok(vec![ChildComponent {
-                record,
+                record: Some(record),
                 component: SubductionComponent::Ordinary,
-                label: record.ml,
-                bc: record.bc,
-                irnumber,
+                label: Some(record.ml),
+                bc: Some(record.bc),
+                irnumber: Some(irnumber),
                 dimension,
                 base_k,
                 effective_k: base_k,
                 conjugate: false,
-                row,
+                characters: ComponentCharacters::Stored(row),
             }])
         }
         Some(_) => {
@@ -1438,16 +1579,16 @@ fn constituent_component(
         base_k
     };
     Ok(ChildComponent {
-        record,
+        record: Some(record),
         component,
-        label: constituent.label,
-        bc: record.bc,
-        irnumber: constituent.irnumber,
+        label: Some(constituent.label),
+        bc: Some(record.bc),
+        irnumber: Some(constituent.irnumber),
         dimension,
         base_k,
         effective_k,
         conjugate,
-        row: constituent.row,
+        characters: ComponentCharacters::Stored(constituent.row),
     })
 }
 
@@ -1544,14 +1685,13 @@ fn prepare_targets(
         if merged[index] {
             continue;
         }
-        if !matches!(
-            component.component,
-            SubductionComponent::RealificationSeed { .. }
-        ) {
+        let (SubductionComponent::RealificationSeed { .. }, Some(record)) =
+            (component.component, component.record)
+        else {
             continue;
-        }
+        };
         let partner = representative.components.iter().position(|other| {
-            other.record.id() == component.record.id()
+            other.record.is_some_and(|other| other.id() == record.id())
                 && matches!(
                     other.component,
                     SubductionComponent::RealificationConjugate { .. }
@@ -1560,7 +1700,7 @@ fn prepare_targets(
         let Some(partner) = partner else {
             continue;
         };
-        match realification_relation(child_sg, component.label, &values[index], &values[partner])? {
+        match realification_relation(child_sg, record.ml, &values[index], &values[partner])? {
             RealificationRelation::Equivalent => merged[partner] = true,
             RealificationRelation::Orthogonal => {}
         }
@@ -1574,7 +1714,7 @@ fn prepare_targets(
         targets.push(ComplexTarget {
             ml: component.label,
             bc: component.bc,
-            row_ml: component.record.ml,
+            row_ml: component.row_ml(),
             irnumber: component.irnumber,
             dimension: component.dimension,
             component: component.component,
@@ -1652,14 +1792,17 @@ fn transported_values(
                 .compose(transporter)?,
             None => *operation,
         };
-        let value = character_of(
-            &component.row,
-            component.label,
-            &conjugated,
-            child_cell,
-            &component.base_k,
-            index,
-        )?;
+        let value = match &component.characters {
+            ComponentCharacters::Stored(row) => character_of(
+                row,
+                component.label.unwrap_or("stored component"),
+                &conjugated,
+                child_cell,
+                &component.base_k,
+                index,
+            )?,
+            ComponentCharacters::Constructed(rep) => rep.character(&conjugated)?,
+        };
         values.push(if component.conjugate {
             value.conj()
         } else {
@@ -1723,12 +1866,14 @@ fn component_for_target<'a>(
     let found = components.iter().find(|component| {
         component.component == target.component
             && component.label == target.ml
-            && component.record.ml == target.row_ml
+            && component.row_ml() == target.row_ml
             && component.dimension == target.dimension
     });
     found.ok_or(FullStarError::TargetSourceMismatch {
         sg: child_sg,
-        ml: target.ml,
+        ml: target
+            .ml
+            .unwrap_or("<constructed target with no matching component>"),
     })
 }
 
@@ -1754,24 +1899,36 @@ fn build_evaluator(
     child_sg: u8,
     component: &ChildComponent,
 ) -> Result<ChildStarEvaluator, FullStarError> {
-    match component.component {
-        SubductionComponent::Ordinary => Ok(ChildStarEvaluator::Ordinary(OrdinaryStar::new(
-            component.record,
-        )?)),
-        SubductionComponent::Constituent { .. }
-        | SubductionComponent::RealificationSeed { .. }
-        | SubductionComponent::RealificationConjugate { .. } => {
-            Ok(ChildStarEvaluator::Component(ComponentStar::new(
-                child_sg,
-                component.label,
-                component.component,
-                component.irnumber,
-                component.base_k,
-                component.row.clone(),
-                component.conjugate,
-                None,
-            )?))
+    match (&component.component, &component.characters) {
+        (SubductionComponent::Ordinary, ComponentCharacters::Stored(_)) => {
+            let record = component.record.ok_or(FullStarError::TargetSourceMismatch {
+                sg: child_sg,
+                ml: "stored ordinary component without a row",
+            })?;
+            Ok(ChildStarEvaluator::Ordinary(Box::new(OrdinaryStar::new(record)?)))
         }
+        (
+            SubductionComponent::Constituent { .. }
+            | SubductionComponent::RealificationSeed { .. }
+            | SubductionComponent::RealificationConjugate { .. },
+            ComponentCharacters::Stored(row),
+        ) => Ok(ChildStarEvaluator::Component(Box::new(ComponentStar::new(
+            child_sg,
+            component.label.unwrap_or("stored component"),
+            component.component,
+            component.irnumber.unwrap_or(0),
+            component.base_k,
+            row.clone(),
+            component.conjugate,
+            None,
+        )?))),
+        (SubductionComponent::Constructed { .. }, ComponentCharacters::Constructed(rep)) => {
+            Ok(ChildStarEvaluator::Constructed(Box::new(*rep)))
+        }
+        _ => Err(FullStarError::TargetSourceMismatch {
+            sg: child_sg,
+            ml: "component and character source disagree",
+        }),
     }
 }
 
@@ -1947,11 +2104,11 @@ mod tests {
             .iter()
             .map(|target| {
                 (
-                    target.ml,
+                    target.ml.expect("stored target ML label"),
                     target.dimension,
                     target.multiplicity,
                     target.component,
-                    target.irnumber,
+                    target.irnumber.expect("stored target CIR number"),
                 )
             })
             .collect()
@@ -1980,30 +2137,30 @@ mod tests {
             SubductionComponent::Ordinary => {
                 let record = query::irreps_of(child_sg)
                     .iter()
-                    .find(|record| record.ml == target.ml && record.compound_metadata().is_none())
+                    .find(|record| record.ml == target.ml.expect("stored target ML label") && record.compound_metadata().is_none())
                     .unwrap_or_else(|| {
-                        panic!("SG {child_sg} has no ordinary {ml}", ml = target.ml)
+                        panic!("SG {child_sg} has no ordinary {ml}", ml = target.ml.expect("stored target ML label"))
                     });
                 assert!(matches!(
                     record.source_identity(),
                     IrrepSourceIdentity::OrdinaryScalar { cir_irnumber }
-                        if cir_irnumber == target.irnumber
+                        if cir_irnumber == target.irnumber.expect("stored target CIR number")
                 ));
                 let row = record
                     .ordinary_scalar_selected_arm_block_trace()
                     .expect("ordinary row");
                 assert_eq!(u32::from(target.dimension), row.dimension() as u32);
-                assert_eq!(target.ml, target.row_ml);
+                assert_eq!(target.ml.expect("stored target ML label"), target.row_ml.expect("stored target row"));
             }
             SubductionComponent::Constituent { index, irnumber } => {
-                assert_eq!(target.irnumber, irnumber);
+                assert_eq!(target.irnumber.expect("stored target CIR number"), irnumber);
                 let record = query::irreps_of(child_sg)
                     .iter()
-                    .find(|record| record.ml == target.row_ml)
-                    .unwrap_or_else(|| panic!("SG {child_sg} has no {ml}", ml = target.row_ml));
+                    .find(|record| record.ml == target.row_ml.expect("stored target row"))
+                    .unwrap_or_else(|| panic!("SG {child_sg} has no {ml}", ml = target.row_ml.expect("stored target row")));
                 let metadata = record.compound_metadata().expect("compound metadata");
                 assert_eq!(metadata.cir_irnumbers[usize::from(index)], irnumber);
-                assert_eq!(metadata.cir_labels[usize::from(index)], target.ml);
+                assert_eq!(metadata.cir_labels[usize::from(index)], target.ml.expect("stored target ML label"));
                 assert_eq!(
                     u32::from(metadata.cir_dimensions[usize::from(index)]),
                     u32::from(target.dimension)
@@ -2011,37 +2168,40 @@ mod tests {
                 let view = record.compound_selected_arm_view().expect("compound view");
                 let CompoundSelectedArmCharacter::DistinctComponentSum { first, second, .. } = view
                 else {
-                    panic!("{ml} is not a distinct component sum", ml = target.row_ml);
+                    panic!("{ml} is not a distinct component sum", ml = target.row_ml.expect("stored target row"));
                 };
                 let stored = if index == 0 { first } else { second };
                 assert_eq!(stored.irnumber, irnumber);
-                assert_eq!(stored.label, target.ml);
+                assert_eq!(stored.label, target.ml.expect("stored target ML label"));
                 assert_eq!(stored.dimension as u32, u32::from(target.dimension));
+            }
+            SubductionComponent::Constructed { .. } => {
+                panic!("a constructed target cannot appear in a pinned stored fixture")
             }
             SubductionComponent::RealificationSeed { irnumber }
             | SubductionComponent::RealificationConjugate { irnumber } => {
                 // Both components share the single stored CIR seed of the row.
                 let record = query::irreps_of(child_sg)
                     .iter()
-                    .find(|record| record.ml == target.row_ml)
-                    .unwrap_or_else(|| panic!("SG {child_sg} has no {ml}", ml = target.row_ml));
+                    .find(|record| record.ml == target.row_ml.expect("stored target row"))
+                    .unwrap_or_else(|| panic!("SG {child_sg} has no {ml}", ml = target.row_ml.expect("stored target row")));
                 let metadata = record.compound_metadata().expect("compound metadata");
                 assert_eq!(
                     metadata.semantics,
                     CompoundCharacterSemantics::ConjugateRealification
                 );
                 assert_eq!(metadata.cir_irnumbers[0], irnumber);
-                assert_eq!(metadata.cir_labels[0], target.ml);
+                assert_eq!(metadata.cir_labels[0], target.ml.expect("stored target ML label"));
                 assert_eq!(
                     u32::from(metadata.cir_dimensions[0]),
                     u32::from(target.dimension)
                 );
                 let view = record.compound_selected_arm_view().expect("compound view");
                 let CompoundSelectedArmCharacter::ConjugateRealification { seed, .. } = view else {
-                    panic!("{ml} is not a realification", ml = target.row_ml);
+                    panic!("{ml} is not a realification", ml = target.row_ml.expect("stored target row"));
                 };
                 assert_eq!(seed.irnumber, irnumber);
-                assert_eq!(seed.label, target.ml);
+                assert_eq!(seed.label, target.ml.expect("stored target ML label"));
                 assert_eq!(seed.dimension as u32, u32::from(target.dimension));
             }
         }
@@ -2175,8 +2335,8 @@ mod tests {
                 ("GM4+", 1, 1, constituent(1, 4078), 4078),
             ]
         );
-        assert_eq!(gm4.blocks()[0].targets()[1].row_ml, "GM3+GM4+");
-        assert_eq!(gm4.blocks()[0].targets()[2].row_ml, "GM3+GM4+");
+        assert_eq!(gm4.blocks()[0].targets()[1].row_ml, Some("GM3+GM4+"));
+        assert_eq!(gm4.blocks()[0].targets()[2].row_ml, Some("GM3+GM4+"));
         assert_invariants(&gm4, 221, 83);
     }
 
@@ -2268,7 +2428,7 @@ mod tests {
                 ("Z4+", 1, 1, constituent(1, 4118), 4118),
             ]
         );
-        assert_eq!(result.blocks()[1].targets()[0].row_ml, "Z3+Z4+");
+        assert_eq!(result.blocks()[1].targets()[0].row_ml, Some("Z3+Z4+"));
         assert_invariants(&result, 221, 83);
     }
 
@@ -2288,8 +2448,8 @@ mod tests {
             .flat_map(|block| {
                 block.targets().iter().map(|target| {
                     (
-                        target.ml,
-                        target.irnumber,
+                        target.ml.expect("stored target ML label"),
+                        target.irnumber.expect("stored target CIR number"),
                         target.dimension,
                         block.star_size(),
                         target.multiplicity,
@@ -2688,7 +2848,7 @@ mod tests {
                         .iter()
                         .map(|target| {
                             (
-                                target.ml,
+                                target.ml.expect("stored target ML label"),
                                 target.dimension,
                                 target.multiplicity,
                                 target.component,
@@ -2700,7 +2860,7 @@ mod tests {
                         .iter()
                         .map(|target| {
                             (
-                                target.ml,
+                                target.ml.expect("stored target ML label"),
                                 target.dimension,
                                 target.multiplicity,
                                 target.component,
@@ -2860,7 +3020,7 @@ mod tests {
             )]
         );
         for block in w1.blocks() {
-            assert_eq!(block.targets()[0].row_ml, "W1W1");
+            assert_eq!(block.targets()[0].row_ml, Some("W1W1"));
             assert_eq!(block.star_size(), 1);
             assert_eq!(block.arm_count(), 1);
             assert_eq!(block.block_dimension(), 1);
@@ -2883,7 +3043,7 @@ mod tests {
                 559
             )]
         );
-        assert_eq!(r1.blocks()[0].targets()[0].row_ml, "R1R1");
+        assert_eq!(r1.blocks()[0].targets()[0].row_ml, Some("R1R1"));
         assert_eq!(r1.blocks()[0].little_dimension(), 4);
         assert_invariants(&r1, 19, 19);
 
@@ -2906,7 +3066,7 @@ mod tests {
                     irnumber
                 )]
             );
-            assert_eq!(w.blocks()[0].targets()[0].row_ml, probe_ml);
+            assert_eq!(w.blocks()[0].targets()[0].row_ml, Some(probe_ml));
             assert_eq!(w.blocks()[0].little_dimension(), 2);
             assert_invariants(&w, 45, 45);
         }
@@ -3264,11 +3424,11 @@ mod tests {
         .expect("prepared targets");
         let pair: Vec<&ComplexTarget> = targets
             .iter()
-            .filter(|target| target.row_ml == "GM3+GM4+")
+            .filter(|target| target.row_ml.expect("stored target row") == "GM3+GM4+")
             .collect();
         assert_eq!(pair.len(), 2, "the two distinct constituents stay separate");
-        assert_eq!(pair[0].irnumber, 4077);
-        assert_eq!(pair[1].irnumber, 4078);
+        assert_eq!(pair[0].irnumber.expect("stored target CIR number"), 4077);
+        assert_eq!(pair[1].irnumber.expect("stored target CIR number"), 4078);
         assert_eq!(
             pair.iter()
                 .map(|target| target.component)
@@ -3302,5 +3462,149 @@ mod tests {
                 })
             ));
         }
+    }
+
+    // ── Constructed targets (R1/R2) ─────────────────────────────────────────
+
+    /// The constructed P1 target is the Bloch phase with the sign convention the
+    /// stored rows already use: `D(T_L) = exp(+2 pi i q.L)`.  Hand-computed
+    /// values, including a non-zero translation and rational wave-vector
+    /// components, pin the sign and the arithmetic without any table.
+    #[test]
+    fn constructed_bloch_phase_pins_the_positive_sign_convention() {
+        let q = Vec3R::new([rat(1, 4), rat(-1, 2), rat(2, 3)]);
+        let rep = ConstructedLittleRep::BlochPhase { q };
+        let cases = [
+            ([0, 0, 0], 0.0),
+            ([1, 0, 0], 1.0 / 4.0),
+            ([0, 1, 0], -1.0 / 2.0),
+            ([0, 0, 1], 2.0 / 3.0),
+            ([1, -2, 3], 1.0 / 4.0 + 1.0 + 2.0),
+        ];
+        for (translation, expected_turns) in cases {
+            let operation = ExactSeitz::new(
+                IDENTITY_ROTATION,
+                Vec3R::new(translation.map(|value| rat(i128::from(value), 1))),
+            );
+            let found = rep.character(&operation).expect("translation character");
+            let expected =
+                Complex64::from_polar(1.0, std::f64::consts::TAU * expected_turns);
+            assert!(
+                (found - expected).norm() < SUBDUCTION_TOLERANCE,
+                "translation {translation:?}: {found} != {expected}"
+            );
+        }
+        // The conjugate point gives the conjugate phase, never the same one.
+        let conjugated = ConstructedLittleRep::BlochPhase {
+            q: q.checked_neg().expect("negation"),
+        };
+        let operation = ExactSeitz::new(
+            IDENTITY_ROTATION,
+            Vec3R::new([rat(1, 1), rat(0, 1), rat(0, 1)]),
+        );
+        assert_eq!(
+            conjugated.character(&operation).expect("phase"),
+            rep.character(&operation).expect("phase").conj()
+        );
+        // A rotation outside the class the rep was built from is an error, never
+        // a silently wrong phase.
+        let rotation = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
+        let operation = ExactSeitz::new(rotation, Vec3R::new([rat(0, 1); 3]));
+        assert!(matches!(
+            rep.character(&operation),
+            Err(FullStarError::ConstructedOperationNotCovered { .. })
+        ));
+    }
+
+    /// The constructed source is only a fallback: it exists for child #1, it
+    /// carries no borrowed row, label or CIR number, and points that differ by a
+    /// child reciprocal lattice vector are one identity, not two.
+    #[test]
+    fn constructed_targets_have_their_own_identity_and_no_borrowed_labels() {
+        let reciprocal = Lattice::new(exact_primitive_basis(1).expect("child #1 basis"))
+            .expect("lattice")
+            .reciprocal()
+            .expect("reciprocal");
+        let q = Vec3R::new([rat(-1, 4), rat(-1, 4), rat(-1, 1)]);
+        let components = constructed_child_components_at(1, &q, &reciprocal).expect("components");
+        assert_eq!(components.len(), 1);
+        let component = &components[0];
+        assert!(component.record.is_none());
+        assert!(component.label.is_none());
+        assert!(component.bc.is_none());
+        assert!(component.irnumber.is_none());
+        assert_eq!(component.dimension, 1);
+        assert!(matches!(
+            component.component,
+            SubductionComponent::Constructed { .. }
+        ));
+        // No pinned row is reachable there, so the stored source stays empty.
+        assert!(
+            stored_child_components_at(1, &q, &reciprocal)
+                .expect("stored lookup")
+                .is_empty()
+        );
+        // q and q + G are the same representation: one canonical identity.
+        let shifted = q
+            .checked_add(&Vec3R::new([rat(1, 1), rat(0, 1), rat(0, 1)]))
+            .expect("shift");
+        let other = constructed_child_components_at(1, &shifted, &reciprocal).expect("components");
+        assert_eq!(other.len(), 1);
+        assert_eq!(other[0].component, component.component);
+        let operation = ExactSeitz::new(
+            IDENTITY_ROTATION,
+            Vec3R::new([rat(1, 1), rat(2, 1), rat(-3, 1)]),
+        );
+        let (ComponentCharacters::Constructed(first), ComponentCharacters::Constructed(second)) =
+            (&component.characters, &other[0].characters)
+        else {
+            panic!("constructed components carry constructed characters");
+        };
+        let left = first.character(&operation).expect("phase");
+        let right = second.character(&operation).expect("phase");
+        assert!((left - right).norm() < SUBDUCTION_TOLERANCE);
+        // Every other child space group keeps the stored-only behaviour.
+        let reciprocal_45 = Lattice::new(exact_primitive_basis(45).expect("child #45 basis"))
+            .expect("lattice")
+            .reciprocal()
+            .expect("reciprocal");
+        assert!(
+            constructed_child_components_at(45, &q, &reciprocal_45)
+                .expect("no construction")
+                .is_empty()
+        );
+    }
+
+    /// Ordinal 1045 (SG 45 `S1S2` / C1, probe `W1W1` -> child #1) used to stop
+    /// at `MissingChildStarData`; the constructed source now answers every folded
+    /// star, and the entry point's own dimension and reconstruction checks pass.
+    #[test]
+    fn a_child_p1_gap_is_answered_by_constructed_targets() {
+        let subgroup = subgroup_of(45, "S1S2", "C1");
+        let built = embedding(45, "S1S2", "C1");
+        assert_eq!(built.subgroup_sg(), 1);
+        let probe = probe(45, "W1W1");
+        let result = subduce_full_star_with_embedding(&subgroup, &built, probe)
+            .expect("child #1 folded stars are constructed");
+        assert!(!result.blocks().is_empty());
+        let mut constructed = 0usize;
+        for block in result.blocks() {
+            for target in block.targets() {
+                assert!(
+                    target.ml.is_none() && target.row_ml.is_none() && target.irnumber.is_none(),
+                    "a constructed target must not borrow a stored identity"
+                );
+                assert!(matches!(
+                    target.component,
+                    SubductionComponent::Constructed { .. }
+                ));
+                assert_eq!(target.dimension, 1);
+                constructed += 1;
+            }
+        }
+        assert!(constructed > 0);
+        // The entry point already compared the reconstruction with the parent
+        // character; the dimension conservation is asserted again here.
+        assert_eq!(result.covered_dimension(), result.parent_dimension());
     }
 }

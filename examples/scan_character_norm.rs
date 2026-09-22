@@ -77,7 +77,7 @@ fn main() -> Result<(), String> {
                     .map(|target| {
                         let row = query::irreps_of(target.sg)
                             .iter()
-                            .find(|record| record.ml == target.row_ml);
+                            .find(|record| record.ml == target.row_ml.expect("stored target row"));
                         if row.map(|record| record.compound_metadata().is_some())
                             .unwrap_or(true)
                         {

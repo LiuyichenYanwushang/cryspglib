@@ -166,12 +166,12 @@ pub enum SubductionError {
     InconsistentCharacterRow { ml: &'static str, index: usize },
     /// The computed multiplicity is not a non-negative integer.
     #[error("multiplicity of {ml} is {value} (not a non-negative integer)")]
-    NonIntegralMultiplicity { ml: &'static str, value: Complex64 },
+    NonIntegralMultiplicity { ml: String, value: Complex64 },
     /// The target rows are not a usable (orthogonal) set.
     #[error("target rows {first} and {second} are not orthogonal ({value})")]
     TargetRowsNotOrthogonal {
-        first: &'static str,
-        second: &'static str,
+        first: String,
+        second: String,
         value: Complex64,
     },
     /// The multiplicities do not reproduce the subduced dimension.
@@ -185,11 +185,11 @@ pub enum SubductionError {
         expected: Complex64,
     },
     /// Two rows produced the same canonical source identity.
-    #[error("target source {ml} (irnumber {irnumber}) appears twice")]
-    DuplicateTargetSource { ml: &'static str, irnumber: u32 },
+    #[error("target {target} repeats identity {identity}, which is already in the block")]
+    DuplicateTargetSource { target: String, identity: String },
     /// A complex target row is not irreducible over the coset set.
-    #[error("target {ml} has norm {norm} instead of 1; it is not a complex irrep")]
-    TargetNotIrreducible { ml: &'static str, norm: f64 },
+    #[error("target {target} has norm {norm} instead of 1; it is not a complex irrep")]
+    TargetNotIrreducible { target: String, norm: f64 },
     /// The folded wave vector is not among the subgroup's stored k-points.
     ///
     /// The reduction is done by exact rational arithmetic and matched modulo the
@@ -1731,6 +1731,10 @@ pub enum SubductionComponent {
     RealificationSeed { irnumber: u32 },
     /// The conjugate of that seed: same source identity, conjugated characters.
     RealificationConjugate { irnumber: u32 },
+    /// A little-group irrep constructed on the fly at an exact folded point,
+    /// with no pinned table row and no CIR number.  The exact point and the
+    /// position in the constructed little-group list are the whole identity.
+    Constructed { q: [Rat; 3], index: u16 },
 }
 
 /// One target irrep of a subduced representation.
@@ -1738,19 +1742,39 @@ pub enum SubductionComponent {
 pub struct SubductionTarget {
     /// Subgroup space group number.
     pub sg: u8,
-    /// Stable source label: the CIR label for a constituent, otherwise the
-    /// Miller-Love label of the row.
-    pub ml: &'static str,
-    /// Bradley-Cracknell label, for display only.
-    pub bc: &'static str,
-    /// The physical row this constituent came from.
-    pub row_ml: &'static str,
+    /// Sourced Miller-Love label of this target.  `None` for a constructed
+    /// target: no pinned row names it, so no label is borrowed or invented.
+    pub ml: Option<&'static str>,
+    /// Sourced Bradley-Cracknell label, for display only; `None` when the target
+    /// has no sourced name.
+    pub bc: Option<&'static str>,
+    /// The physical row this constituent came from; `None` for a constructed
+    /// target, which comes from no row at all.
+    pub row_ml: Option<&'static str>,
+    /// Frozen CIR number of the stored source; `None` for a constructed target.
+    pub irnumber: Option<u32>,
     /// Complex dimension of this irreducible constituent.
     pub dimension: u8,
-    /// Which complex constituent of that row this target is.
+    /// Which complex constituent of that row this target is.  A constructed
+    /// target carries its own exact point and index here.
     pub component: SubductionComponent,
     /// Multiplicity in the subduced representation.
     pub multiplicity: u32,
+}
+
+impl SubductionTarget {
+    /// A diagnostic name for this target: the sourced label when there is one,
+    /// and an explicit "constructed" marker (with the exact point) otherwise.
+    pub fn display_name(&self) -> String {
+        match (self.ml, &self.component) {
+            (Some(ml), _) => ml.to_string(),
+            (
+                None,
+                SubductionComponent::Constructed { q, index },
+            ) => format!("constructed(q=({}, {}, {}), index={index})", q[0], q[1], q[2]),
+            (None, _) => "constructed(unidentified)".to_string(),
+        }
+    }
 }
 
 /// The decomposition of one parent irrep on one isotropy subgroup.
@@ -1827,7 +1851,7 @@ impl IrrepSubduction {
     pub fn multiplicity(&self, ml: &str) -> u32 {
         self.targets
             .iter()
-            .find(|target| target.ml == ml)
+            .find(|target| target.ml == Some(ml))
             .map_or(0, |target| target.multiplicity)
     }
 
@@ -2215,7 +2239,10 @@ fn solve_prepared_character_block(
             * scale)
             .sqrt();
         if (norm - 1.0).abs() > SUBDUCTION_TOLERANCE {
-            return Err(SubductionError::TargetNotIrreducible { ml: first.ml, norm });
+            return Err(SubductionError::TargetNotIrreducible {
+                target: first.display_name(),
+                norm,
+            });
         }
         for second in targets.iter().skip(index + 1) {
             let second_values = &second.values;
@@ -2227,8 +2254,8 @@ fn solve_prepared_character_block(
                 * scale;
             if inner.norm() > SUBDUCTION_TOLERANCE {
                 return Err(SubductionError::TargetRowsNotOrthogonal {
-                    first: first.ml,
-                    second: second.ml,
+                    first: first.display_name(),
+                    second: second.display_name(),
                     value: inner,
                 });
             }
@@ -2238,7 +2265,7 @@ fn solve_prepared_character_block(
     let mut dimension_sum = 0i64;
     let mut reconstructed = vec![Complex64::new(0.0, 0.0); count];
     let mut reported: Vec<SubductionTarget> = Vec::new();
-    let mut seen: Vec<(SubductionComponent, &'static str, u32)> = Vec::new();
+    let mut seen: Vec<(SubductionComponent, Option<&'static str>, Option<u32>)> = Vec::new();
     for target in targets.iter() {
         let inner: Complex64 = parent_characters
             .iter()
@@ -2246,15 +2273,15 @@ fn solve_prepared_character_block(
             .map(|(parent, value)| parent * value.conj())
             .sum::<Complex64>()
             * scale;
-        let multiplicity = integral_multiplicity(target.ml, inner)?;
+        let multiplicity = integral_multiplicity(&target.display_name(), inner)?;
         if multiplicity == 0 {
             continue;
         }
         let key = (target.component, target.ml, target.irnumber);
         if seen.contains(&key) {
             return Err(SubductionError::DuplicateTargetSource {
-                ml: target.ml,
-                irnumber: target.irnumber,
+                target: target.display_name(),
+                identity: format!("{:?}", target.component),
             });
         }
         seen.push(key);
@@ -2267,6 +2294,7 @@ fn solve_prepared_character_block(
             ml: target.ml,
             bc: target.bc,
             row_ml: target.row_ml,
+            irnumber: target.irnumber,
             dimension: target.dimension,
             component: target.component,
             multiplicity,
@@ -2343,8 +2371,8 @@ fn complex_dimension(
     let index = representatives
         .iter()
         .position(|operation| operation.rotation() == identity_rotation)
-        .ok_or(SubductionError::TargetNotIrreducible {
-            ml: "identity operation",
+        .ok_or_else(|| SubductionError::TargetNotIrreducible {
+            target: "identity operation".to_string(),
             norm: 0.0,
         })?;
     let value = characters[index].re;
@@ -2353,7 +2381,7 @@ fn complex_dimension(
         || !(0.0..=f64::from(u8::MAX)).contains(&rounded)
     {
         return Err(SubductionError::NonIntegralMultiplicity {
-            ml: "identity character",
+            ml: "identity character".to_string(),
             value: Complex64::new(value, 0.0),
         });
     }
@@ -2437,13 +2465,33 @@ fn parent_character_of(
 
 /// A complex irreducible constituent of the subgroup's character data.
 struct ComplexTarget {
-    ml: &'static str,
-    bc: &'static str,
-    row_ml: &'static str,
-    irnumber: u32,
+    /// Sourced ML label, or `None` for a target constructed from the subgroup
+    /// operations and an exact wave vector.
+    ml: Option<&'static str>,
+    /// Sourced BC label, or `None` when there is no sourced name.
+    bc: Option<&'static str>,
+    /// Physical row behind the constituent, or `None` for a constructed target.
+    row_ml: Option<&'static str>,
+    /// Frozen CIR number, or `None` for a constructed target.
+    irnumber: Option<u32>,
     dimension: u8,
     component: SubductionComponent,
     values: Vec<Complex64>,
+}
+
+impl ComplexTarget {
+    /// Diagnostic name: the sourced label when one exists, otherwise an explicit
+    /// constructed marker carrying the exact point.  A constructed target never
+    /// borrows a label.
+    fn display_name(&self) -> String {
+        match (self.ml, &self.component) {
+            (Some(ml), _) => ml.to_string(),
+            (None, SubductionComponent::Constructed { q, index }) => {
+                format!("constructed(q=({}, {}, {}), index={index})", q[0], q[1], q[2])
+            }
+            (None, _) => "constructed(unidentified)".to_string(),
+        }
+    }
 }
 
 /// Evaluate one row over the pulled-back operations.
@@ -2494,10 +2542,10 @@ fn complex_targets(
                     }
                 })?;
                 out.push(ComplexTarget {
-                    ml: record.ml,
-                    bc: record.bc,
-                    row_ml: record.ml,
-                    irnumber: 0,
+                    ml: Some(record.ml),
+                    bc: Some(record.bc),
+                    row_ml: Some(record.ml),
+                    irnumber: Some(0),
                     dimension,
                     component: SubductionComponent::Ordinary,
                     values: evaluate(&row, record.ml, pulled_back, child_cell, wave_vector)?,
@@ -2542,10 +2590,10 @@ fn complex_targets(
                                 }
                             })?;
                             out.push(ComplexTarget {
-                                ml: constituent.label,
-                                bc: record.bc,
-                                row_ml: record.ml,
-                                irnumber: constituent.irnumber,
+                                ml: Some(constituent.label),
+                                bc: Some(record.bc),
+                                row_ml: Some(record.ml),
+                                irnumber: Some(constituent.irnumber),
                                 dimension,
                                 component: SubductionComponent::Constituent {
                                     index: index as u8,
@@ -2570,10 +2618,10 @@ fn complex_targets(
                             }
                         })?;
                         out.push(ComplexTarget {
-                            ml: seed.label,
-                            bc: record.bc,
-                            row_ml: record.ml,
-                            irnumber: seed.irnumber,
+                            ml: Some(seed.label),
+                            bc: Some(record.bc),
+                            row_ml: Some(record.ml),
+                            irnumber: Some(seed.irnumber),
                             dimension,
                             component: SubductionComponent::RealificationSeed {
                                 irnumber: seed.irnumber,
@@ -2581,10 +2629,10 @@ fn complex_targets(
                             values: seed_values,
                         });
                         out.push(ComplexTarget {
-                            ml: seed.label,
-                            bc: record.bc,
-                            row_ml: record.ml,
-                            irnumber: seed.irnumber,
+                            ml: Some(seed.label),
+                            bc: Some(record.bc),
+                            row_ml: Some(record.ml),
+                            irnumber: Some(seed.irnumber),
                             dimension,
                             component: SubductionComponent::RealificationConjugate {
                                 irnumber: seed.irnumber,
@@ -2699,13 +2747,19 @@ fn exact_operation(operation: &SeitzOperation) -> Result<ExactSeitz, SubductionE
 }
 
 /// A multiplicity that must be a non-negative integer.
-fn integral_multiplicity(ml: &'static str, value: Complex64) -> Result<u32, SubductionError> {
+fn integral_multiplicity(ml: &str, value: Complex64) -> Result<u32, SubductionError> {
     if value.im.abs() > SUBDUCTION_TOLERANCE || value.re < -SUBDUCTION_TOLERANCE {
-        return Err(SubductionError::NonIntegralMultiplicity { ml, value });
+        return Err(SubductionError::NonIntegralMultiplicity {
+            ml: ml.to_string(),
+            value,
+        });
     }
     let rounded = value.re.round();
     if (value.re - rounded).abs() > SUBDUCTION_TOLERANCE || rounded > f64::from(u32::MAX) {
-        return Err(SubductionError::NonIntegralMultiplicity { ml, value });
+        return Err(SubductionError::NonIntegralMultiplicity {
+            ml: ml.to_string(),
+            value,
+        });
     }
     // Exact by the checks above: the value is integral and inside u32.
     Ok(rounded as u32)
@@ -3228,7 +3282,13 @@ mod tests {
         let terms: Vec<(&str, u8, u32)> = result
             .targets()
             .iter()
-            .map(|target| (target.ml, target.dimension, target.multiplicity))
+            .map(|target| {
+                (
+                    target.ml.expect("stored fixture target"),
+                    target.dimension,
+                    target.multiplicity,
+                )
+            })
             .collect();
         assert_eq!(terms, [("GM1+", 1, 1), ("GM2+", 1, 1)]);
         assert_eq!(result.multiplicity("GM1+"), 1);
@@ -3361,7 +3421,12 @@ mod tests {
             let found: Vec<(&str, u32)> = result
                 .targets()
                 .iter()
-                .map(|target| (target.ml, target.multiplicity))
+                .map(|target| {
+                    (
+                        target.ml.expect("stored fixture target"),
+                        target.multiplicity,
+                    )
+                })
                 .collect();
             assert_eq!(found, expected, "{} multiplicities", record.ml);
             let dimension_sum: u32 = result
@@ -3403,8 +3468,8 @@ mod tests {
             .iter()
             .map(|target| {
                 (
-                    target.ml,
-                    target.row_ml,
+                    target.ml.expect("stored fixture target"),
+                    target.row_ml.expect("stored fixture target"),
                     target.multiplicity,
                     target.component,
                 )
@@ -3511,8 +3576,8 @@ mod tests {
         let mut seed_values = None;
         let mut conjugate_values = None;
         for target in &targets {
-            assert_eq!(target.row_ml, "W1W1");
-            assert_eq!(target.irnumber, seed.irnumber);
+            assert_eq!(target.row_ml, Some("W1W1"));
+            assert_eq!(target.irnumber, Some(seed.irnumber));
             assert_eq!(usize::from(target.dimension), seed.dimension);
             match target.component {
                 SubductionComponent::RealificationSeed { irnumber } => {

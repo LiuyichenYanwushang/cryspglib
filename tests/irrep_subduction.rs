@@ -475,7 +475,13 @@ fn gamma_subduction_of_the_golden_case_is_complete() {
     let terms: Vec<(&str, u8, u32)> = decomposition
         .targets()
         .iter()
-        .map(|target| (target.ml, target.dimension, target.multiplicity))
+        .map(|target| {
+            (
+                target.ml.expect("stored fixture target"),
+                target.dimension,
+                target.multiplicity,
+            )
+        })
         .collect();
     assert_eq!(terms, [("GM1+", 1, 1), ("GM2+", 1, 1)]);
     assert_eq!(decomposition.multiplicity("GM1+"), 1);
@@ -875,7 +881,12 @@ fn non_gamma_probes_decompose_their_folded_block() {
         let found: Vec<(&str, u32)> = result
             .targets()
             .iter()
-            .map(|target| (target.ml, target.multiplicity))
+            .map(|target| {
+                (
+                    target.ml.expect("stored fixture target"),
+                    target.multiplicity,
+                )
+            })
             .collect();
         assert_eq!(found, targets, "SG {sg} {probe_ml} targets");
         let dimension_sum: u32 = result

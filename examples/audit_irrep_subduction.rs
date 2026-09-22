@@ -101,7 +101,9 @@ use cryspglib::irrep::subduction::star::decompose::{
     trivial_content_with_embedding,
 };
 use cryspglib::irrep::subduction::star::scalar_star::ScalarStar;
-use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubductionError, SubgroupEmbedding};
+use cryspglib::irrep::subduction::{
+    Lattice, Mat3R, Rat, SubductionComponent, SubductionError, SubgroupEmbedding,
+};
 use cryspglib::irrep::types::{
     CompoundCharacterSemantics, IrrepRecord, IrrepSourceIdentity, KVector,
 };
@@ -1571,10 +1573,25 @@ origin={},{},{},{}",
                 outcome.by_label += block.multiplicity(trivial.ml);
                 for target in block.targets() {
                     outcome.targets += 1;
-                    if !sources.has(target.irnumber, target.dimension) {
-                        outcome.targets_without_source += 1;
+                    // A constructed target has no frozen CIR source: its
+                    // identity is the exact point and the constructed little
+                    // group, checked below, not a stored row.
+                    match target.irnumber {
+                        Some(irnumber) => {
+                            if !sources.has(irnumber, target.dimension) {
+                                outcome.targets_without_source += 1;
+                            }
+                        }
+                        None => {
+                            if !matches!(
+                                target.component,
+                                SubductionComponent::Constructed { .. }
+                            ) {
+                                outcome.targets_without_source += 1;
+                            }
+                        }
                     }
-                    if target.dimension == trivial.dim && target.irnumber == trivial_cir {
+                    if target.dimension == trivial.dim && target.irnumber == Some(trivial_cir) {
                         outcome.total += target.multiplicity;
                     }
                 }

@@ -174,7 +174,7 @@ fn main() -> Result<(), String> {
         );
         for target in block.targets() {
             println!(
-                "      target {} (row {}) dim {} multiplicity {} irnumber {:?}",
+                "      target {:?} (row {:?}) dim {} multiplicity {} irnumber {:?}",
                 target.ml,
                 target.row_ml,
                 target.dimension,

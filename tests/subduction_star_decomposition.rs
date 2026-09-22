@@ -6,9 +6,11 @@
 
 use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{
-    IsotropyDirection, isotropy_subgroup_for_direction, parent_primitive_basis,
+    IsotropyDirection, isotropy_subgroup_for_direction, isotropy_subgroups,
+    parent_primitive_basis,
 };
 use cryspglib::irrep::query;
+use cryspglib::irrep::subduction::SubductionComponent;
 use cryspglib::irrep::subduction::star::decompose::subduce_full_star_with_embedding;
 use cryspglib::irrep::subduction::{ExactSeitz, Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R};
 use num_complex::Complex64;
@@ -261,8 +263,8 @@ fn full_star_terms_and_reconstruction_match_independent_cir_witnesses() {
             .flat_map(|block| {
                 block.targets().iter().map(|target| {
                     (
-                        target.ml,
-                        target.irnumber,
+                        target.ml.expect("stored fixture target"),
+                        target.irnumber.expect("stored fixture target"),
                         target.dimension,
                         block.star_size(),
                         target.multiplicity,
@@ -319,4 +321,80 @@ fn full_star_terms_and_reconstruction_match_independent_cir_witnesses() {
     assert_eq!(DECOMPOSITIONS.len(), 13);
     // P4/m: 3×8, C2/m: 3×4, P4/nnc: 3×16, Cm: 4×2.
     assert_eq!(checked_operations, 92);
+}
+
+/// Every isotropy record whose subgroup is #1 now decomposes **every** scalar
+/// probe, because each folded point without a pinned row is answered by the
+/// constructed Bloch phase.  Before R2 these records stopped at
+/// `MissingChildStarData` (the census counted 1,835 such probes across 381
+/// records); the witness is ordinal 1045 (SG 45 `S1S2` / C1, probe `W1W1`,
+/// first missing q = (-1/4,-1/4,-1)).
+#[test]
+fn child_p1_records_decompose_every_scalar_probe_without_pinned_data() {
+    let mut records = 0usize;
+    let mut probes = 0usize;
+    let mut constructed_targets = 0usize;
+    for sg in 1..=230u8 {
+        for record in query::irreps_of(sg) {
+            if record.spinor {
+                continue;
+            }
+            for subgroup in isotropy_subgroups(sg, record.ml, LabelConvention::Cdml).unwrap() {
+                if subgroup.record.sg != 1 {
+                    continue;
+                }
+                records += 1;
+                let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup)
+                    .unwrap_or_else(|error| panic!("ordinal {}: {error}", subgroup.ordinal));
+                for probe in query::irreps_of(sg).iter().filter(|record| !record.spinor) {
+                    let result = subduce_full_star_with_embedding(&subgroup, &embedding, probe)
+                        .unwrap_or_else(|error| {
+                            panic!("ordinal {} probe {}: {error}", subgroup.ordinal, probe.ml)
+                        });
+                    assert_eq!(
+                        result.covered_dimension(),
+                        result.parent_dimension(),
+                        "ordinal {} probe {}",
+                        subgroup.ordinal,
+                        probe.ml
+                    );
+                    let (parent, rebuilt) = result.reconstruction();
+                    assert_eq!(parent.len(), rebuilt.len());
+                    for (index, (found, expected)) in rebuilt.iter().zip(parent).enumerate() {
+                        assert!(
+                            (found - expected).norm() < result.tolerance(),
+                            "ordinal {} probe {} representative {index}: {found} != {expected}",
+                            subgroup.ordinal,
+                            probe.ml
+                        );
+                    }
+                    for block in result.blocks() {
+                        for target in block.targets() {
+                            if matches!(
+                                target.component,
+                                SubductionComponent::Constructed { .. }
+                            ) {
+                                assert!(
+                                    target.ml.is_none()
+                                        && target.row_ml.is_none()
+                                        && target.irnumber.is_none(),
+                                    "a constructed target must not borrow a stored identity"
+                                );
+                                constructed_targets += 1;
+                            }
+                        }
+                    }
+                    probes += 1;
+                }
+            }
+        }
+    }
+    // Pinned: every child-#1 isotropy record of the pinned tables, every scalar
+    // probe of its parent, and exactly the 3,992 folded stars the gap census
+    // listed as having no shipped discrete scalar k data.
+    assert_eq!(
+        (records, probes, constructed_targets),
+        (1_125, 20_099, 3_992),
+        "child-#1 coverage changed"
+    );
 }

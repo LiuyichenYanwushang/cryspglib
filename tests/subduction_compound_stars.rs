@@ -278,7 +278,7 @@ fn compound_restrictions_have_independently_pinned_complex_terms() {
             .flat_map(|block| {
                 block.targets().iter().map(|t| {
                     (
-                        t.irnumber,
+                        t.irnumber.expect("stored fixture target"),
                         matches!(
                             t.component,
                             SubductionComponent::RealificationConjugate { .. }
@@ -363,7 +363,7 @@ fn self_restriction_preserves_every_complex_source_in_the_four_frozen_groups() {
                 .flat_map(|block| {
                     block.targets().iter().map(|target| {
                         (
-                            target.irnumber,
+                            target.irnumber.expect("stored fixture target"),
                             matches!(
                                 target.component,
                                 SubductionComponent::RealificationConjugate { .. }

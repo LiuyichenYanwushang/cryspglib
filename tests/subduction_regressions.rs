@@ -405,7 +405,12 @@ fn sg139_non_gamma_probes_decompose_to_expected_child_irreps() {
         let targets: Vec<(&str, u32)> = result
             .targets()
             .iter()
-            .map(|target| (target.ml, target.multiplicity))
+            .map(|target| {
+                (
+                    target.ml.expect("stored fixture target"),
+                    target.multiplicity,
+                )
+            })
             .collect();
         assert_eq!(targets, [(expected, 1)], "{ml} targets");
         assert_eq!(u32::from(result.parent_dimension()), 1);
@@ -462,7 +467,12 @@ fn a_valid_embedding_is_still_reusable_across_probes() {
         folded
             .targets()
             .iter()
-            .map(|target| (target.ml, target.multiplicity))
+            .map(|target| {
+                (
+                    target.ml.expect("stored fixture target"),
+                    target.multiplicity,
+                )
+            })
             .collect::<Vec<_>>(),
         [("A1+", 1)]
     );
