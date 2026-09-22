@@ -50,34 +50,64 @@
    每组只有一个最大签名（一般位置记录的小群更小，会一并穿过同一个 q，必须按
    最大小群筛选，否则会把一般位置的表示当成目标——正是任务卡警告的陷阱）。
 
-## 尚未钉死、下一轮必须先解决
+## 分类结果（2026-09-22，899 组全部有分类）
 
-1. **维数语义**：PIR 记录的 `dimension` 是物理（full-star）维数还是小群维数？
-   抽样中最大签名的小群只有 2–4 个操作，却出现 `dimension` 4–6 的记录，
-   Σdim² 远大于小群阶，说明不能直接用 `dimension` 当小群维数。需要：
-   `k_arms` 的星大小（star size）与 `little_irr_full_dim` 的关系逐条核对，
-   并用一个手算见证（例如 #5 的某条 2 操作小群）钉死。
-2. **完整性与特殊参数点**：对每个 q，(a) 实际小群是否严格大于命中记录的
-   *generic* 小群（特殊参数点，小群增大）；(b) 最大小群记录的
-   Σ(小群维数)² 是否等于小群（有限模型）阶。两者都通过才可标
-   `parameterized_source_complete`，否则标 `special_parameter`。
-3. **帧核对**：PIR k 臂的坐标基与缺口 `canonical_q`（子群 primitive 倒格基）必须
-   逐条对齐；抽样是精确命中，但要以"同一 q 的两条独立来源"（归档 k 臂 vs 引擎
-   折叠 q）显式记录，不能只靠数值巧合。
-4. **因子系统**：按任务卡公式 `s_i s_j = T_{L_ij} s_k ⇒ D(s_i)D(s_j) =
-   exp(+2πi q·L_ij) D(s_k)`，用子群自身操作建有限小余群乘法表并输出 ω_ij；
-   `ω ≠ 1` 的组单独标 nonsymmorphic/projective（螺旋/滑移），不能与 symmorphic
-   组共用结论。
+工具：`scripts/classify_subduction_gap_sources.py`（离线，只读归档，不改生产求解路径），
+输入是 `examples/census_subduction_gaps.rs` 的全表缺口 manifest：
 
-## 计划中的分类输出（每组的必需字段）
+```bash
+CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
+  --example audit_irrep_subduction -- --require-complete --output target/audit.tsv
+CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
+  --example census_subduction_gaps -- target/audit.tsv > target/r12_gaps.tsv
+python3 scripts/classify_subduction_gap_sources.py target/r12_gaps.tsv > target/r3_groups.tsv
+python3 -m unittest discover -s scripts -p test_classify_subduction_gap_sources.py     # 13 项
+R3_FULL_MANIFEST=1 python3 -m unittest discover -s scripts -p test_classify_subduction_gap_sources.py  # 899 组门禁
+```
 
-`child_sg`、`canonical_q`、star size / arm count / block dimension / parent dimension、
-实际小群操作与代表元、有限小余群结构（阶、abelian 与否）、因子系统（ω 值集合、
-是否平凡、nonsymmorphic 标志）、命中的 PIR irnumber 与维数、完整性判定
-（Σdim² 与小群阶）、特殊参数点标志、可代入参数 t（精确有理）、字符/矩阵可用性、
-分类标签（`analytic_constructible` / `parameterized_source_available` /
-`needs_new_source_or_algorithm`）、最小见证（ordinal + probe + q）。
+| 分类 | 组数 | 含义与后续路线 |
+|---|---:|---|
+| `analytic_general_position` | **222** | 小余群阶为 1（只有平移）：目标就是一维 Bloch 相位，与 R2 的子群 #1 同一条解析路线，不需要任何字符表 |
+| `parameterized_source` | **676** | 归档 PIR 的参数化小群记录精确穿过该 q（含参数值 t）：数据存在，R4 只需把该参数下的记录materialize/解码，不需要新算法 |
+| `special_value_no_source` | **1** | 小余群阶 > 1，但没有任何归档参数域穿过该 q：真缺口，必须走构造路线 |
 
-验收附加项（任务卡）：至少一个带心、一个非对称换基、一个螺旋/滑移样例完成
-逐操作对照。为此分类工具必须复用引擎同帧的 `strict_sg_hall_ops`/`Lattice`，
-并保留可回查的见证命令。
+其余统计：小余群阶分布 1/2/3/4/6 = 222/445/4/222/6；**322 组因子系统非平凡**、
+442 组含非幺正（螺旋/滑移）操作；787 组存在"一般位置记录也穿过同一 q"的情形，已被
+最大小群过滤剔除（不筛就会把一般位置的表示当成目标）。
+
+唯一无源组：child **#155**（R32），见证 ordinal 11067、probe `W1`、
+星 `(-1/4,-1/4,3/2; -1/4,1/2,3/2; 1/2,-1/4,3/2)`，实际小余群阶 2，只匹配到一般位置
+记录 `GP1GQ1`（dim 12）——不得用它冒充目标。
+
+### 关键语义（本轮钉死，勿再重新踩）
+
+1. **PIR 只索引参数化 k 域**：10,294 条记录里离散点是"三个零方向"的退化参数域
+   （如 `GM1` 常数 Γ、零方向）。域的维数由**方向向量**决定，不能数非空参数槽。
+2. **`record.operations` 是整个空间群**（约化 centring 后的代表元，conventional 基），
+   不是小群；小群必须自己按 q 从这些操作里筛。
+3. **参数周期不等于 1**：k 域参数按**原胞倒格**周期化。C 心群的 `(0,1,0)` 方向要
+   `t = 2` 才回到同一类——按 `[0,1]` 采样会把 `(0,3/2,0)` 这类点误判成无源。
+   修正这一条后 `special_value_no_source` 由 42 降到 1。
+4. **格归属必须用原胞格**：螺旋轴乘积与所选代表元之间会差一个 centring 矢量
+   （SG 24 的 `(1/2,-1/2,1/2)`），用 `Z³` 判定会误报"乘积离开小群"。
+5. **因子系统**按任务卡公式用同一条乘法表算：SG 24 的 P 点 `(1/2,1/2,1/2)` 小余群阶 4、
+   3 个非幺正操作、ω ∈ {1/4, 3/4}（I 心 + 三个 2₁ 螺旋），可作螺旋/滑移见证；
+   SG 5 的 U 线 `(0,t,1/2)` 阶 2、ω 全 1（C 心、对称操作），可作带心见证。
+
+### 逐操作对照（验收项）
+
+- **带心**：SG 5（C2，C 心）U 线：小群 2 个操作（E、C2），归档记录 `U1UA1`/`U2UA2`
+  在 t=1/2 精确命中，一般位置 `GP1GQ1` 被剔除（见单测）。
+- **螺旋/滑移**：SG 24（I2₁2₁2₁，I 心 + 三条 2₁）：P 点小群 4 个操作、3 个非幺正、
+  ω = 1/4 与 3/4（见单测 `test_screw_little_group_is_projective`）。
+- **非对称换基**：尚未完成。需要从引擎冻结的 setting（`(parent, subgroup, U, δ)`，
+  U 非 signed permutation 的记录）里取一条，把归档 conventional 帧的小群操作经该 U
+  变换后与引擎子群帧的操作逐项对照；该项是 R3 收口前必须补的最后一个见证。
+
+## 剩余工作
+
+1. 非对称换基的逐操作见证（上节第三项）。
+2. 对 676 个 `parameterized_source` 组，确认归档 PIR 的 `irtranslations`/矩阵 token 在
+   代入参数后**可 materialize**（当前 `iso_irrep_exact` 只校验不物化），并给出每组的
+   字符/矩阵可用性结论；这是 R4 数据路线的入口，尚未在本卡完成。
+3. 单测默认套件约 40 s（归档加载 39 s）；全 899 组门禁由 `R3_FULL_MANIFEST=1` 显式开启。
