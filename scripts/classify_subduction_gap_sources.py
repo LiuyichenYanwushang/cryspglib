@@ -453,11 +453,21 @@ def analyse_group(
     best = min((len(free) for _, free, _ in matches), default=-1)
     kept = [entry for entry in matches if len(entry[1]) == best]
     nontrivial, nonsymmorphic = factor_system(operations, points[0], centering)
+    token_slots = sum(len(record.irtranslations) for record, _, _ in kept)
+    token_missing = sum(
+        1
+        for record, _, _ in kept
+        for translation in record.irtranslations
+        if translation is None
+    )
     return {
         "matched_irnumbers": sorted({record.irnumber for record, _, _ in kept}),
         "matched_labels": sorted({record.irrep_label for record, _, _ in kept}),
         "matched_dimensions": sorted({record.dimension for record, _, _ in kept}),
         "matched_parameters": sorted({tuple(str(value) for value in parameters) for _, _, parameters in kept}),
+        "matched_irtypes": sorted({record.irtype for record, _, _ in kept}),
+        "token_slots": token_slots,
+        "token_missing": token_missing,
         "excluded_generic": excluded,
         "min_free_directions": best,
         "little_group_ops": len(operations),
@@ -473,7 +483,8 @@ HEADER = (
     "child_sg\tcanonical_q\tsetting_numerator\tsetting_denominator\tchild_shift\twitness_ordinal"
     "\twitness_probe\tmatched_irnumbers\tmatched_labels\tmatched_dimensions\tmatched_parameters"
     "\texcluded_generic\tmin_free_directions\tlittle_group_ops\tlittle_co_group_order"
-    "\tfactor_system_nontrivial\tfactor_system_values\tnonsymmorphic_ops\tclassification"
+    "\tfactor_system_nontrivial\tfactor_system_values\tnonsymmorphic_ops"
+    "\tmatched_irtypes\ttoken_slots\ttoken_missing\tclassification"
 )
 
 
@@ -536,6 +547,9 @@ def main() -> int:
                     str(report["factor_system_nontrivial"]),
                     ",".join(report["factor_system_values"]),
                     str(report["nonsymmorphic_ops"]),
+                    ",".join(str(value) for value in report["matched_irtypes"]),
+                    str(report["token_slots"]),
+                    str(report["token_missing"]),
                     report["classification"],
                 ]
             )
@@ -544,6 +558,8 @@ def main() -> int:
         summary["factor_system_nontrivial"] += 1 if report["factor_system_nontrivial"] else 0
         summary["nonsymmorphic_children"] += 1 if report["nonsymmorphic_ops"] else 0
         summary["excluded_generic_groups"] += 1 if report["excluded_generic"] else 0
+        summary["tokens_complete_groups"] += 1 if report["token_missing"] == 0 else 0
+        summary["token_missing_slots"] += report["token_missing"]
         per_child[child_sg][report["classification"]] += 1
 
     total = len(keys)

@@ -35,7 +35,9 @@ from classify_subduction_gap_sources import (  # noqa: E402
     in_primitive_reciprocal,
     little_group,
     match_arm,
+    matmul,
     parse_star,
+    rotation_inverse,
 )
 from iso_irrep_exact import load_exact_iso_irrep_sources  # noqa: E402
 
@@ -120,6 +122,127 @@ class LittleGroupTests(unittest.TestCase):
         operations, order = little_group(DATABASE.source_universe(3), parse_star("1/3,0,0")[0])
         self.assertEqual(order, 1)
         self.assertEqual(len(operations), 1)
+
+
+
+def read_frozen_setting(ordinal: int) -> dict:
+    """One entry of the generated frozen-setting table, parsed from its source."""
+    import re
+
+    text = (SCRIPT_DIR.parent / "src" / "irrep" / "subduction_settings_data.rs").read_text(
+        encoding="utf-8"
+    )
+    text = text[text.index("FROZEN_EMBEDDING_SETTINGS") :]
+    pattern = re.compile(
+        r"\n\s*\(\s*" + str(ordinal) + r"\s*,\s*(\d+)\s*,\s*(\d+)\s*,"
+        r"\s*\[\[([^\]]*)\],\s*\[([^\]]*)\],\s*\[([^\]]*)\]\]\s*,"
+        r"\s*(-?\d+)"
+    )
+    match = pattern.search(text)
+    if match is None:
+        raise AssertionError(f"ordinal {ordinal} is not in the frozen settings table")
+    rows = tuple(
+        tuple(int(value) for value in group.split(",")) for group in match.groups()[2:5]
+    )
+    return {
+        "parent": int(match.group(1)),
+        "child": int(match.group(2)),
+        "numerator": rows,
+        "denominator": int(match.group(6)),
+    }
+
+
+class SettingFrameTests(unittest.TestCase):
+    """Per-operation check of a non-symmetric (shear) change of basis.
+
+    Ordinal 26 (SG 3 -> child #3) is the first frozen setting whose ``U`` is not
+    a signed permutation: ``U = [[1, 2, 1], [-1, 2, -1], [-1, 0, 1]] / 2``.  A
+    change of basis must conjugate the archive little group into integral
+    rotations and leave every factor-system phase unchanged, because
+    ``omega = exp(2 pi i q.L)`` is a duality pairing and ``q`` and ``L``
+    transform contragrediently.
+    """
+
+    U = (
+        (Fraction(1, 2), Fraction(1), Fraction(1, 2)),
+        (Fraction(-1, 2), Fraction(1), Fraction(-1, 2)),
+        (Fraction(-1, 2), Fraction(0), Fraction(1, 2)),
+    )
+
+    @staticmethod
+    def _as_fractions(rotation):
+        return tuple(tuple(Fraction(value) for value in row) for row in rotation)
+
+    def test_the_frozen_setting_of_the_witness_is_the_engine_setting(self):
+        # The frozen table stores this record's setting as the fraction below;
+        # `cargo run --release -p cryspglib --example trace_embedding -- 26`
+        # prints the engine's `setting` as the same matrix, so the witness frame
+        # is the engine's own.  The per-operation conjugation of the *archive*
+        # child frame into the engine's child frame is still open: conjugating
+        # by this U does not give integral rotations, so it is not the direct
+        # setting transform between the two child frames.
+        entry = read_frozen_setting(26)
+        self.assertEqual(entry["numerator"], ((1, 2, 1), (-1, 2, -1), (-1, 0, 1)))
+        self.assertEqual(entry["denominator"], 2)
+        self.assertNotEqual(
+            entry["numerator"], ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+        )
+
+    def test_shear_setting_preserves_every_factor_system_phase(self):
+        star = parse_star("0,1/3,1/2")
+        q_archive = star[0]
+        operations, _order = little_group(DATABASE.source_universe(3), q_archive)
+        _nontrivial, _nonsymmorphic = factor_system(operations, q_archive, "P")
+        inverse_transpose = tuple(
+            tuple(rotation_inverse(self.U)[row][column] for row in range(3))
+            for column in range(3)
+        )
+        q_engine = tuple(
+            sum(inverse_transpose[i][j] * q_archive[j] for j in range(3))
+            for i in range(3)
+        )
+        representatives = sorted({rotation for rotation, _ in operations})
+        for first in representatives:
+            for second in representatives:
+                product = matmul(first, second)
+                lattice = tuple(
+                    Fraction(0) for _ in range(3)
+                )
+                # The archive cocycle lattice for this pair: solve for the
+                # translation that makes the product consistent.
+                for rotation, translation in operations:
+                    if rotation != first:
+                        continue
+                    first_translation = translation
+                for rotation, translation in operations:
+                    if rotation != second:
+                        continue
+                    second_translation = translation
+                product_translation = tuple(
+                    sum(
+                        Fraction(first[axis][k]) * second_translation[k]
+                        for k in range(3)
+                    )
+                    + first_translation[axis]
+                    for axis in range(3)
+                )
+                for rotation, translation in operations:
+                    if rotation == product:
+                        lattice = tuple(
+                            product_translation[i] - translation[i] for i in range(3)
+                        )
+                turns_archive = sum(q_archive[i] * lattice[i] for i in range(3))
+                lattice_engine = tuple(
+                    sum(self.U[i][j] * lattice[j] for j in range(3)) for i in range(3)
+                )
+                turns_engine = sum(
+                    q_engine[i] * lattice_engine[i] for i in range(3)
+                )
+                self.assertEqual(
+                    turns_archive - turns_engine,
+                    Fraction(0),
+                    f"phase changed under the shear setting for {first} x {second}",
+                )
 
 
 class SourceClassificationTests(unittest.TestCase):
@@ -217,7 +340,7 @@ class EndToEndTests(unittest.TestCase):
             "no_source_needs_algorithm",
         }
         for row in rows:
-            self.assertEqual(len(row), 19, row)
+            self.assertEqual(len(row), 22, row)
             self.assertIn(row[-1], known, row)
             self.assertTrue(row[7], "every group must record its matched sources")
         by_child = {row[0]: row[-1] for row in rows}

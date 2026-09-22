@@ -61,7 +61,7 @@ CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
 CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
   --example census_subduction_gaps -- target/audit.tsv > target/r12_gaps.tsv
 python3 scripts/classify_subduction_gap_sources.py target/r12_gaps.tsv > target/r3_groups.tsv
-python3 -m unittest discover -s scripts -p test_classify_subduction_gap_sources.py     # 13 项
+python3 -m unittest discover -s scripts -p test_classify_subduction_gap_sources.py     # 15 项
 R3_FULL_MANIFEST=1 python3 -m unittest discover -s scripts -p test_classify_subduction_gap_sources.py  # 899 组门禁
 ```
 
@@ -94,20 +94,39 @@ R3_FULL_MANIFEST=1 python3 -m unittest discover -s scripts -p test_classify_subd
    3 个非幺正操作、ω ∈ {1/4, 3/4}（I 心 + 三个 2₁ 螺旋），可作螺旋/滑移见证；
    SG 5 的 U 线 `(0,t,1/2)` 阶 2、ω 全 1（C 心、对称操作），可作带心见证。
 
+### 字符/矩阵可用性（逐组）
+
+每个组的命中记录都带**完整的逐操作 token 槽**：`token_slots` 全部非空、
+`token_missing = 0`（899/899 组）。归档 PIR 记录本身有 10,294 条，其中 5,517 条
+token 槽全满，其余有空洞；但**缺口组的命中记录全部全满**，所以 676 个
+`parameterized_source` 组的字据确实在 pinned 归档里。
+
+限制：`scripts/iso_irrep_exact.py` 按设计**只校验、不物化**矩阵/字符 token，
+仓库目前没有 PIR 物化器。所以"可用"的准确含义是：*数据在归档里，代入参数后的
+物化（解码）是 R4 的数据工程任务，不是新的数学*。工具输出的
+`matched_irtypes`（PIR 记录类型 1/2/3）与 `token_slots`/`token_missing` 列给出逐组依据。
+
 ### 逐操作对照（验收项）
 
 - **带心**：SG 5（C2，C 心）U 线：小群 2 个操作（E、C2），归档记录 `U1UA1`/`U2UA2`
   在 t=1/2 精确命中，一般位置 `GP1GQ1` 被剔除（见单测）。
 - **螺旋/滑移**：SG 24（I2₁2₁2₁，I 心 + 三条 2₁）：P 点小群 4 个操作、3 个非幺正、
   ω = 1/4 与 3/4（见单测 `test_screw_little_group_is_projective`）。
-- **非对称换基**：尚未完成。需要从引擎冻结的 setting（`(parent, subgroup, U, δ)`，
-  U 非 signed permutation 的记录）里取一条，把归档 conventional 帧的小群操作经该 U
-  变换后与引擎子群帧的操作逐项对照；该项是 R3 收口前必须补的最后一个见证。
+- **非对称换基**：**部分完成**。冻结表里有 392 条 shear（非 signed permutation）
+  setting，但都不落在 899 个缺口组里（缺口组的 346 条冻结 setting 全是 signed
+  permutation）。已钉住见证 ordinal 26（SG 3 → #3，`U = [[1,2,1],[-1,2,-1],[-1,0,1]]/2`）：
+  冻结表的值与引擎 `trace_embedding 26` 打印的 `setting` 一致（建议用
+  `cargo run --release -p cryspglib --example trace_embedding -- 26` 复现）。
+  **尚未完成**的是把归档子群帧的小群操作经该 setting 变换到引擎子群帧的逐操作对照：
+  实测用 U 直接共轭会得到分母为 4 的非整旋转，说明 U 不是两个子群帧之间的直接
+  setting 变换（引擎的 `transform` 是整矩阵 `[[1,0,1],[0,1,0],[-1,0,1]]`，det 2，
+  与 U 不是同一个对象）。这一条按"不猜约定"的原则留作 R3 收口前的最后一项，
+  下一步应直接用引擎的 `SubgroupEmbedding::transform()` 与归档操作做逐操作映射，
+  而不是继续试矩阵方向。
 
 ## 剩余工作
 
-1. 非对称换基的逐操作见证（上节第三项）。
-2. 对 676 个 `parameterized_source` 组，确认归档 PIR 的 `irtranslations`/矩阵 token 在
-   代入参数后**可 materialize**（当前 `iso_irrep_exact` 只校验不物化），并给出每组的
-   字符/矩阵可用性结论；这是 R4 数据路线的入口，尚未在本卡完成。
-3. 单测默认套件约 40 s（归档加载 39 s）；全 899 组门禁由 `R3_FULL_MANIFEST=1` 显式开启。
+1. 非对称换基的逐操作对照（上节第三项，约定未钉死前不猜）。
+2. PIR 物化器：把 676 个 `parameterized_source` 组在代入参数后的字符/矩阵真正解码出来
+   （归档 token 已确认完整），并在有离散表可对照的 q 上交叉验证；这是 R4 的数据路线入口。
+3. 单测默认套件约 41 s（归档加载 39 s）；全 899 组门禁由 `R3_FULL_MANIFEST=1` 显式开启。
