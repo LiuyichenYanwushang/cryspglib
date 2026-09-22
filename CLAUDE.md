@@ -51,16 +51,19 @@ python3 scripts/check_other_wave_vector_rows.py
 `--tests` 不运行 example 内的回归；上面的 audit 与 census 两个 example
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
-当前基线（2026-09-22，任务 9 复核修复后，`-p cryspglib` 限定到本 crate）：
-lib `392 passed / 4 ignored`，integration `156 passed`，doctest `27 passed`，
-example 审计回归 `17 passed`、缺口清点回归 `1 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
+当前基线（2026-09-22，R4 批 1 后，`-p cryspglib` 限定到本 crate）：
+lib `393 passed / 4 ignored`，integration `160 passed`，doctest `27 passed`，
+example 审计回归 `17 passed`、缺口清点回归 `2 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
 pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源已解为参数化
 直线 `k = Γ + t·v`，冻结 little 特征标表 73/73，引擎已算出全部 5,756 行）；
-全表审计两个门禁同时开启退出 0、判词 `VERDICT complete scope=global`
-（`identity_rows=94271`、probe `353382` 完整分解 + `12878` 恒等-only、w `5756/5756`、
-`engine_errors=0`、`hard_failures=0`，约 489 s；R2 前是 `351547 + 14713`）。
+全表审计（`--require-complete --require-w-complete`）退出 0、判词
+`VERDICT ... scope=global`（`identity_rows=94271`、probe `357033` 完整分解 +
+`9227` 恒等-only、w `5756/5756`、`engine_errors=0`、`hard_failures=0`，约 518 s；
+R4 批 1 前是 `353382 + 12878`，R2 前是 `351547 + 14713`）；
+`--require-full-decomposition` 仍 exit 2（`incomplete=9227`，R5 目标），
+剩余缺口的分母见 `docs/subduction-gap-census.md` 的“R4 批 1 后”小节。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
 后端同时启用），与本 crate 无关，但会让整条命令以 exit 101 结束、0 个测试执行。
@@ -3185,3 +3188,56 @@ Python oracle/w-source 离线 9 + 16；live 几何 oracle 62 行 / 26 描述串 
 w 源门禁 checks_failed=0。独立核对 230 个 SG 的运行时 Hall 与冻结来源一致且 P=I,p=0。
 未重跑普通分导的全表数值审计；`src/` 无改动，分类器执行逻辑也未改动。
 R3 按来源候选清点收口；完整目标求值与完整分解覆盖仍待 R4/R5。
+
+### 分导 R4 批次 1（2026-09-22）：平凡小余群的构造目标
+
+R4 按“小批次卡”推进，规则见 `docs/subduction-next-milestones.md` §R4，批次状态与
+文件所有权见 `docs/subduction-r4-batches.md`。**批次 1 已交付**：把构造目标的判据从
+「子群 #1」换成几何事实「该星的小余群平凡（子群自身 data-Hall 操作里固定在 q 模
+子群原胞倒格的旋转只有恒等）」，于是 R3 判为 `analytic_general_position` 的 **215 组
+（41 个子群）** 不再需要任何归档字符数据。
+
+三处实现（`src/` 改动仅限这条路线）：
+
+1. `ConstructedLittleRep` 移入 `subduction_star.rs`，与新的 `LittleCharacter`
+   （存储行 / 构造表示的统一字符来源）和 `ConstructedStar` 同处；`arm_character`、
+   `induced_component_character`、`induced_character` 改走该来源，存储行路径逐位不变
+   （lib 392 项全绿）。失败模式 `StarError::ConstructedRotationNotCovered` 保留：
+   非恒等旋转仍拒绝作答，不返回相位。
+2. `constructed_child_components_at` 的判据换成 `has_trivial_little_co_group`，
+   非平凡小余群仍返回空、保持 `MissingChildStarData`（即批次 2 的边界）。
+3. `ChildStarEvaluator::Constructed` 现在持有 `ConstructedStar`：子群点群非平凡时
+   目标必须按**子群自己的星**诱导，不能像 #1 那样把小群特征标当全星特征标。
+
+**两条星级规则是实测踩出来的，勿退回点级实现**：(a) 星里只要任何一条臂命中 pinned
+行，就只用 pinned 行——否则同一物理 irrep 会以两个身份出现，求解器报
+“rows ... are not orthogonal”（ordinal 1007 的 `V1`/`L1`）；(b) 一个星只构造一次，
+落在该星规范化第一个点上——逐点构造会得到两个字符相同的行（ordinal 1007 的
+`(0,1/2,1/2)` 与 `(0,3/2,1/2)`）。`select_representative` 现在先做一次
+`star_has_stored_components` 判定，再按整星收集成分。
+
+实测（全表审计 518 s）：`full_success 353,382 → **357,033**`、
+`identity_only 12,878 → **9,227**`（−3,651，正好是 R3 解析组的 probe 数）、
+`hard_failures=0`、存储恒等正项 94,271/0 不匹配、Γ Frobenius 1,895/1,895、
+w 行 5,756 computed / 0 错误、`production_checks` 五项全 0、`accounting_violations=0`；
+`--require-complete` 仍 exit 0，`--require-full-decomposition` exit 2
+（`incomplete=9227`，R5 目标）。重跑清点：`records=1569 probes=9227 stars=13857
+missing_stars=12932 constructed_stars=152 reachable_stars=773`（新状态
+`constructed_trivial_co_group`）；在 `target/r4_gaps.tsv` 上重跑 R3 分类器只剩
+**684 个 `parameterized_source`**（0 解析 / 0 无源 / 0 未分类，矩阵块 684/684 完整、
+81,576 元）——R3 的预测与批次 1 的实际闭合面完全一致。
+
+回归与更新：新增 `tests/subduction_constructed_stars.rs`（4 项：13345 全 31 个 probe
+完整且恒等重数对上 pinned 频率、两臂星诱导的 `block_dimension = star_size ×
+little_dimension`、13346 的 10 个参数化星仍 `MissingChildStarData`、“有 pinned 行的
+星绝不再构造”）；lib 新增 `a_constructed_star_induces_over_the_child_star`（子群 #2
+手算 χ(E)=2、χ(T_(1,0,0))=0、χ(T_(0,1,0))=−1、χ(−I)=0）；`census_subduction_gaps`
+的可达性模型补上新状态并加两项测试；`audit_irrep_subduction` 的微型基线由 13345
+（已清零）移到 13346；`subduction_identity_regressions` 的 15 个缺数据 probe
+→ 10 个、比较数 2,060 → 2,065、非 Γ 1,522 → 1,527。验证：lib 392+1、
+integration 156+4、doctest 27、audit example 17、census example 2，严格
+all-target clippy 通过（保留既有 workspace manifest 警告）。
+
+未做（批次 2 入口）：684 个参数化来源候选的参数代入、小群字符/矩阵求值、适用域与
+目标完整性验证；参数化来源可复用时冻结最小数据，运行时保持纯 Rust。`little_k`
+（w 源数组）与 PIR `k_arms` 是不同数组，坐标约定须分别验证。

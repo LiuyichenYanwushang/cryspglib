@@ -172,3 +172,49 @@ probe 列；"全部折叠星"含该 probe 集合里已经能由存储 k 到达�
 后为 **899** 组；原来的 796 / 989 包含已经解决的子群 #1，不能作为 R3 的剩余分母。
 本次核对的 `target/r12_gaps.tsv` SHA-256 为
 `788a63d2da80a1f6661bde419ac78562769ffd0057a08e7f6fd8eb76f7370ae2`。
+
+## R4 批 1 后（2026-09-22）：平凡小余群的构造目标清零，余 9,227
+
+R4 批次 1（[subduction-r4-batches.md](subduction-r4-batches.md)）把构造目标的判据
+从「子群 #1」换成「该星的小余群平凡」，并补上非平凡子群点群的子群自星诱导。全表
+`--require-complete --require-full-decomposition` 审计（518 s、`hard_failures=0`）
+实测 `full_success=357,033 identity_only=9,227`；在该审计上重跑清点工具：
+
+```
+records=1569 probes=9227 stars=13857 missing_stars=12932 constructed_stars=152 reachable_stars=773 replay_errors=0 dimension_errors=0
+```
+
+清点工具本轮多了一个状态：`constructed_trivial_co_group`（152 个星）——没有 pinned
+行但小余群平凡的星现在由构造目标回答，不再计入缺失；`missing_discrete_scalar_data`
+保持原义。即 gap probe 12,878 → **9,227**（−3,651，正好是 R3 判为
+`analytic_general_position` 的那批）、记录 2,380 → 1,569、缺失星 17,144 → 12,932
+（−4,212，等于 R3 manifest 里解析组的行数）、子群号 127 → 123。
+
+在 `target/r4_gaps.tsv` 上重跑 R3 分类器（`target/r4_groups.tsv`）：
+
+```
+groups=684  parameterized_source=684  analytic_general_position=0  special_value_no_source=0
+children=123  star_order_inconsistent=0  matrix_available_groups=684  matrix_elements_total=81576
+```
+
+即批次 2 的分母就是这 **684 组**，全部是参数化来源候选；批次 1 没有留下任何解析
+残余，也没有把任何组推到"无源"。按影响排序的剩余缺口（probe 列为优先依据）：
+
+| 子群号 | probe | 缺失星 |
+|---|---:|---:|
+| 12 | 807 | 855 |
+| 5 | 749 | 1498 |
+| 6 | 608 | 1216 |
+| 8 | 517 | 1086 |
+| 15 | 497 | 517 |
+| 38 | 304 | 464 |
+| 9 | 295 | 608 |
+| 10 | 272 | 272 |
+| 40 | 270 | 413 |
+| 11 | 265 | 273 |
+| … 其余 113 个子群 | 4643 | 5730 |
+| **合计** | **9227** | **12932** |
+
+本次核对的 SHA-256：
+`target/r4_gaps.tsv` = `ea88218385c1fae122c0750f5ef19fe58ae354c313412ab19c8938e1de958f68`，
+`target/r4_groups.tsv` = `51fb15216fe23b50239d6c66d340df07e9e1214bb27e1c60dce18814ee2b07b5`。

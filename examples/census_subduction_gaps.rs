@@ -3,6 +3,10 @@
 //! Usage: census_subduction_gaps <audit.tsv> > gaps.tsv
 //! A stored scalar k match means data is reachable, not that decomposition is
 //! proven complete. No characters, multiplicities, or missing labels are invented.
+//!
+//! A star with no pinned row is reported as `constructed_trivial_co_group` when
+//! its little co-group is trivial (the engine answers it with the constructed
+//! Bloch phase), and as `missing_discrete_scalar_data` otherwise.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, Write};
@@ -15,7 +19,9 @@ use cryspglib::irrep::subduction::star::decompose::{
     FullStarError, subduce_full_star_with_embedding,
 };
 use cryspglib::irrep::subduction::star::scalar_star::ScalarStar;
-use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R};
+use cryspglib::irrep::subduction::{
+    Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R, strict_sg_hall_ops,
+};
 use cryspglib::irrep::types::{CompoundCharacterSemantics, IrrepRecord};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -121,6 +127,28 @@ fn matching_labels(
     Ok(labels)
 }
 
+/// Mirror the constructed fallback of `decompose::select_representative`: a star
+/// with no pinned row anywhere is answered exactly when the little co-group at
+/// its points is trivial, so such a star is *not* a gap.
+fn star_little_co_group_is_trivial(
+    child: u8,
+    star: &FoldedStar,
+    reciprocal: &Lattice,
+) -> Result<bool> {
+    for operation in &strict_sg_hall_ops(child)?.operations {
+        let rotation = operation.rotation();
+        if rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]] {
+            continue;
+        }
+        for point in star.points() {
+            if reciprocal.preserves(rotation, point.q())? {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
 fn format_q(q: &Vec3R) -> String {
     (0..3)
         .map(|i| q.get(i).to_string())
@@ -155,7 +183,7 @@ fn main() -> Result<()> {
     let requests = read_requests(std::io::BufReader::new(std::fs::File::open(&args[0])?))?;
     let contexts = subgroups()?;
     let mut cache = BTreeMap::new();
-    let (mut probes, mut stars, mut missing) = (0usize, 0usize, 0usize);
+    let (mut probes, mut stars, mut missing, mut constructed) = (0usize, 0usize, 0usize, 0usize);
     let mut out = std::io::BufWriter::new(std::io::stdout().lock());
     writeln!(
         out,
@@ -203,12 +231,17 @@ fn main() -> Result<()> {
                         format!("unexpected empty block or missing Gamma: {ordinal} {ml}").into(),
                     );
                 }
-                let status = if labels.is_empty() {
+                let status = if !labels.is_empty() {
+                    "stored_k_reachable"
+                } else if star_little_co_group_is_trivial(child, folded, &reciprocal)? {
+                    // No pinned row, but the child irrep at this star is the
+                    // constructed Bloch phase: the engine answers it (R4 batch 1).
+                    constructed += 1;
+                    "constructed_trivial_co_group"
+                } else {
                     first_missing.get_or_insert((*folded.points()[0].q(), folded.star_size()));
                     missing += 1;
                     "missing_discrete_scalar_data"
-                } else {
-                    "stored_k_reachable"
                 };
                 writeln!(
                     out,
@@ -238,9 +271,10 @@ fn main() -> Result<()> {
     }
     out.flush()?;
     eprintln!(
-        "records={} probes={probes} stars={stars} missing_stars={missing} reachable_stars={} replay_errors=0 dimension_errors=0",
+        "records={} probes={probes} stars={stars} missing_stars={missing} \
+         constructed_stars={constructed} reachable_stars={} replay_errors=0 dimension_errors=0",
         requests.len(),
-        stars - missing
+        stars - missing - constructed
     );
     Ok(())
 }
@@ -249,28 +283,75 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
 
+    /// Count the per-star statuses exactly as the manifest does.
+    fn status_counts(ordinal: usize, ml: &str) -> (usize, usize, usize) {
+        let contexts = subgroups().unwrap();
+        let subgroup = &contexts[&ordinal];
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).unwrap();
+        let child = embedding.subgroup_sg();
+        let probe = query::irreps_of(subgroup.parent_sg)
+            .iter()
+            .find(|r| r.ml == ml)
+            .unwrap();
+        let star = ScalarStar::new(probe).unwrap();
+        let folded = star.folded_stars(&embedding).unwrap();
+        let reciprocal = child_reciprocal(child).unwrap();
+        let stored = scalar_k_points(child).unwrap();
+        let (mut reachable, mut constructed, mut missing) = (0, 0, 0);
+        for block in &folded {
+            if !matching_labels(block, &reciprocal, &stored)
+                .unwrap()
+                .is_empty()
+            {
+                reachable += 1;
+            } else if star_little_co_group_is_trivial(child, block, &reciprocal).unwrap() {
+                constructed += 1;
+            } else {
+                missing += 1;
+            }
+        }
+        let total = star.dimension();
+        assert_eq!(
+            folded
+                .iter()
+                .map(FoldedStar::block_dimension)
+                .sum::<u32>(),
+            total
+        );
+        (reachable, constructed, missing)
+    }
+
+    /// R4 batch 1: the three folded stars of ordinal 13345 `W1` have no pinned
+    /// row anywhere, but every one of them has a trivial little co-group, so the
+    /// census reports them as constructed instead of missing and the engine
+    /// answers the probe completely.
     #[test]
-    fn w1_has_three_missing_stars_not_only_the_first_reported_error() {
+    fn a_trivial_co_group_star_is_constructed_not_missing() {
         let contexts = subgroups().unwrap();
         let subgroup = &contexts[&13345];
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).unwrap();
         let probe = query::irreps_of(225).iter().find(|r| r.ml == "W1").unwrap();
+        assert!(
+            subduce_full_star_with_embedding(subgroup, &embedding, probe).is_ok(),
+            "batch 1 answers every folded star of this context"
+        );
+        assert_eq!(status_counts(13345, "W1"), (0, 3, 0));
+    }
+
+    /// The batch boundary: ordinal 13346 `W1` folds onto five stars without
+    /// pinned rows, but four of them sit on the parametric `B` line and have a
+    /// two-fold little co-group.  Only the trivial-co-group `U` star is
+    /// constructed, and the probe still reports missing child data whose first
+    /// star is replayed exactly.
+    #[test]
+    fn a_parametric_star_keeps_its_missing_status() {
+        let contexts = subgroups().unwrap();
+        let subgroup = &contexts[&13346];
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).unwrap();
+        let probe = query::irreps_of(225).iter().find(|r| r.ml == "W1").unwrap();
         let (q, points) = replay_missing(subgroup, &embedding, probe).unwrap();
-        assert_eq!(format_q(&q), "-3/4,1/4,-3/4");
-        assert_eq!(points, 2);
-        let star = ScalarStar::new(probe).unwrap();
-        let folded = star.folded_stars(&embedding).unwrap();
-        assert_eq!(folded.len(), 3);
-        let reciprocal = child_reciprocal(8).unwrap();
-        let stored = scalar_k_points(8).unwrap();
-        for block in &folded {
-            assert!(
-                matching_labels(block, &reciprocal, &stored)
-                    .unwrap()
-                    .is_empty()
-            );
-            assert_eq!(block.block_dimension(), 2);
-        }
-        assert_eq!(star.dimension(), 6);
+        assert_eq!(format_q(&q), "-1,0,-1/4");
+        assert_eq!(points, 1);
+        assert_eq!(status_counts(13346, "W1"), (0, 1, 4));
     }
 }

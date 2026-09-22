@@ -64,8 +64,10 @@ use super::super::{
     solve_prepared_character_block, validate_record_and_embedding,
     strict_sg_hall_ops, validate_subduction_context,
 };
-use super::scalar_star::{ComponentStar, ScalarStar};
-use super::{FoldedPoint, FoldedStar, OrdinaryStar, StarError, arm_wave_vector};
+use super::scalar_star::{ComponentStar, ConstructedStar, ScalarStar};
+use super::{
+    ConstructedLittleRep, FoldedPoint, FoldedStar, OrdinaryStar, StarError, arm_wave_vector,
+};
 
 /// The identity rotation, as stored in every Hall operation table.
 const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
@@ -303,20 +305,6 @@ pub enum FullStarError {
     MissingChildTrivialIrrep {
         /// Child space group number.
         sg: u8,
-    },
-    /// A constructed little-group representation was asked for the character of
-    /// an operation outside the class it was built from (for the P1 Bloch phase,
-    /// anything with a non-identity rotation).
-    #[error(
-        "constructed little-group representation at q = ({}, {}, {}) cannot be evaluated on a \
-         rotation it was not built from",
-        q[0],
-        q[1],
-        q[2]
-    )]
-    ConstructedOperationNotCovered {
-        /// Exact folded point the representation was built at.
-        q: [Rat; 3],
     },
     /// Rebuilding the subduced character from the reported child irreps differs
     /// from the parent full-star character.
@@ -579,10 +567,11 @@ enum ChildStarEvaluator {
     /// `DistinctComponentSum` constituent, or a realification seed/conjugate
     /// with its effective `k` and conjugation flag).
     Component(Box<ComponentStar>),
-    /// A little-group representation constructed at an exact folded point.  For
-    /// child #1 the child full star of that point is the point itself, so the
-    /// evaluator is the little-group character.
-    Constructed(Box<ConstructedLittleRep>),
+    /// A little-group representation constructed at an exact folded point,
+    /// induced over the child's own star.  For a child with a trivial point
+    /// group the star is the point itself, so the evaluator is the
+    /// little-group character.
+    Constructed(Box<ConstructedStar>),
 }
 
 impl ChildStarEvaluator {
@@ -590,7 +579,7 @@ impl ChildStarEvaluator {
         match self {
             Self::Ordinary(star) => Ok(star.character(operation)?),
             Self::Component(star) => Ok(star.character(operation)?),
-            Self::Constructed(rep) => rep.character(operation),
+            Self::Constructed(star) => Ok(star.character(operation)?),
         }
     }
 }
@@ -1173,6 +1162,10 @@ struct ChildComponent {
 }
 
 /// Where one child component's little-group characters come from.
+///
+/// [`ConstructedLittleRep`] lives with the arm bookkeeping in
+/// [`super`](crate::irrep::subduction::star), next to the induced-star character
+/// source it shares with stored rows.
 #[derive(Debug, Clone)]
 enum ComponentCharacters {
     /// A pinned row, indexed by its own Seitz representatives.
@@ -1180,37 +1173,6 @@ enum ComponentCharacters {
     /// A representation constructed from the subgroup operations and an exact
     /// folded point.
     Constructed(ConstructedLittleRep),
-}
-
-/// A little-group representation computed on the fly from the subgroup and an
-/// exact folded wave vector, with no pinned table row behind it.
-///
-/// The character is a function of the little-group operation itself, so it can
-/// be transported to another arm of the same child star by conjugating the
-/// operation, exactly like a stored row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConstructedLittleRep {
-    /// Child space group #1: every little-group operation is a translation, so
-    /// the representation at the exact point `q` is the one-dimensional Bloch
-    /// phase `D(T_L) = exp(+2 pi i q.L)` in the child's own frame (the sign
-    /// convention [`bloch_phase`] already fixes for stored rows).
-    BlochPhase { q: Vec3R },
-}
-
-impl ConstructedLittleRep {
-    /// Character of one little-group operation.
-    fn character(&self, operation: &ExactSeitz) -> Result<Complex64, FullStarError> {
-        match self {
-            Self::BlochPhase { q } => {
-                if operation.rotation() != IDENTITY_ROTATION {
-                    return Err(FullStarError::ConstructedOperationNotCovered {
-                        q: [q.get(0), q.get(1), q.get(2)],
-                    });
-                }
-                Ok(bloch_phase(q, operation.translation())?)
-            }
-        }
-    }
 }
 
 impl ChildComponent {
@@ -1426,26 +1388,24 @@ fn little_group_operations(
     Ok((parent_operations, pulled_back))
 }
 
-/// Reachability: which child records have a complex component whose **effective**
-/// arm folds onto `q`.
+/// Does **any** point of this folded star reach a pinned child row?
 ///
-/// The child table stores one representative arm per irrep, so an ordinary or
-/// `DistinctComponentSum` row is reachable at its stored `k`, and a
-/// `ConjugateRealification` row is reachable at its stored `k` **and** at `-k`,
-/// even when no `IrrepRecord` stores the negated arm.  Spinor rows are a
-/// different representation space and are not targets of a scalar parent.
-fn child_components_at(
+/// A star is the reachability unit for the constructed fallback: one physical
+/// child irrep lives on the whole star, so a star that already has a stored
+/// component must never *also* get a constructed one for another of its arms --
+/// that would present one irrep twice, with two identities the solver cannot
+/// match.  Only a star with no stored component anywhere is constructed.
+fn star_has_stored_components(
     child_sg: u8,
-    q: &Vec3R,
+    star: &FoldedStar,
     child_reciprocal: &Lattice,
-) -> Result<Vec<ChildComponent>, FullStarError> {
-    let stored = stored_child_components_at(child_sg, q, child_reciprocal)?;
-    if !stored.is_empty() {
-        return Ok(stored);
+) -> Result<bool, FullStarError> {
+    for point in star.points() {
+        if !stored_child_components_at(child_sg, point.q(), child_reciprocal)?.is_empty() {
+            return Ok(true);
+        }
     }
-    // No pinned row lives at this point.  A constructed source may still answer
-    // it; where none does, the caller keeps reporting the missing child data.
-    constructed_child_components_at(child_sg, q, child_reciprocal)
+    Ok(false)
 }
 
 /// Pinned child rows whose effective arm folds onto `q`.
@@ -1468,11 +1428,14 @@ fn stored_child_components_at(
 /// Targets constructed from the subgroup operations and the exact folded point,
 /// for the child space groups where that is enough.
 ///
-/// Only child #1 is covered here: its little group at any point is the
-/// translation group, so the one-dimensional Bloch phase `D(T_L) =
-/// exp(+2 pi i q.L)` *is* the little-group irrep and no character table is
-/// needed.  Every other child space group returns an empty list, so its missing
-/// rows keep the existing `MissingChildStarData` behaviour.
+/// The criterion is the geometry, not the child number: when every child
+/// rotation that fixes `q` modulo the child reciprocal lattice is the identity,
+/// the little co-group at `q` is trivial, the little group is the translation
+/// group, and the one-dimensional Bloch phase `D(T_L) = exp(+2 pi i q.L)` *is*
+/// the little-group irrep.  No character table and no archived source is needed,
+/// so every such child is answered.  A point with a non-trivial little co-group
+/// returns an empty list and keeps the existing `MissingChildStarData`
+/// behaviour for the batch that supplies those sources.
 ///
 /// The identity carries the point reduced modulo the child reciprocal lattice:
 /// two folded points differing by a reciprocal lattice vector are the same
@@ -1482,7 +1445,7 @@ fn constructed_child_components_at(
     q: &Vec3R,
     child_reciprocal: &Lattice,
 ) -> Result<Vec<ChildComponent>, FullStarError> {
-    if child_sg != 1 {
+    if !has_trivial_little_co_group(child_sg, q, child_reciprocal)? {
         return Ok(Vec::new());
     }
     let exact = child_reciprocal.reduce(q)?.representative;
@@ -1499,6 +1462,23 @@ fn constructed_child_components_at(
         conjugate: false,
         characters: ComponentCharacters::Constructed(ConstructedLittleRep::BlochPhase { q: exact }),
     }])
+}
+
+/// Whether the little co-group of `q` is trivial in `child_sg`: no non-identity
+/// child rotation of the child's own data-Hall operations fixes `q` modulo the
+/// child reciprocal lattice (centring extinctions included).
+fn has_trivial_little_co_group(
+    child_sg: u8,
+    q: &Vec3R,
+    child_reciprocal: &Lattice,
+) -> Result<bool, FullStarError> {
+    for operation in &strict_sg_hall_ops(child_sg)?.operations {
+        let rotation = operation.rotation();
+        if rotation != IDENTITY_ROTATION && child_reciprocal.preserves(rotation, q)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Expand one non-spinor child record into its complex components.
@@ -1622,24 +1602,41 @@ fn component_dimension(dimension: usize, sg: u8, ml: &'static str) -> Result<u8,
 /// sit on another arm of the same child star and then has to be transported to
 /// the representative before it is comparable.  Both `q` and the component arms
 /// stay unreduced and are compared modulo the child reciprocal lattice.
+///
+/// The constructed fallback is chosen **per star**, not per point: a star that
+/// reaches any pinned row is answered from pinned rows alone (a constructed
+/// component would be the same physical irrep under a second identity), and only
+/// a star with no pinned row anywhere is constructed -- once, at the star's
+/// canonical first point, because a trivial little co-group carries exactly one
+/// little-group irrep on the whole star.
 fn select_representative(
     child_sg: u8,
     folded_star: &FoldedStar,
     child_reciprocal: &Lattice,
 ) -> Result<Representative, FullStarError> {
+    let constructed = !star_has_stored_components(child_sg, folded_star, child_reciprocal)?;
     let mut representative: Option<(usize, Vec3R)> = None;
     let mut components: Vec<ChildComponent> = Vec::new();
-    for (index, point) in folded_star.points().iter().enumerate() {
-        let at_point = child_components_at(child_sg, point.q(), child_reciprocal)?;
-        if let Some(first) = at_point.first().filter(|_| representative.is_none()) {
-            representative = Some((index, first.effective_k));
+    if constructed {
+        if let Some(point) = folded_star.points().first() {
+            components = constructed_child_components_at(child_sg, point.q(), child_reciprocal)?;
+            if let Some(first) = components.first() {
+                representative = Some((0, first.effective_k));
+            }
         }
-        for component in at_point {
-            if !components
-                .iter()
-                .any(|existing| existing.key() == component.key())
-            {
-                components.push(component);
+    } else {
+        for (index, point) in folded_star.points().iter().enumerate() {
+            let at_point = stored_child_components_at(child_sg, point.q(), child_reciprocal)?;
+            if let Some(first) = at_point.first().filter(|_| representative.is_none()) {
+                representative = Some((index, first.effective_k));
+            }
+            for component in at_point {
+                if !components
+                    .iter()
+                    .any(|existing| existing.key() == component.key())
+                {
+                    components.push(component);
+                }
             }
         }
     }
@@ -1930,7 +1927,9 @@ fn build_evaluator(
             None,
         )?))),
         (SubductionComponent::Constructed { .. }, ComponentCharacters::Constructed(rep)) => {
-            Ok(ChildStarEvaluator::Constructed(Box::new(*rep)))
+            Ok(ChildStarEvaluator::Constructed(Box::new(
+                ConstructedStar::new(child_sg, component.base_k, *rep)?,
+            )))
         }
         _ => Err(FullStarError::TargetSourceMismatch {
             sg: child_sg,
@@ -2581,16 +2580,19 @@ mod tests {
         let child_reciprocal = child_cell.reciprocal().expect("reciprocal");
         // The first point of the two-point star has no stored row; selecting
         // only points()[0] would falsely report missing data for this case.
+        // The star as a whole does reach a pinned row, so the constructed
+        // fallback must stay out of it.
         let folded = ScalarStar::new(probe(167, "F1+"))
             .unwrap()
             .folded_stars(&built)
             .unwrap();
         let two_point = folded.iter().find(|star| star.star_size() == 2).unwrap();
         assert!(
-            child_components_at(15, two_point.points()[0].q(), &child_reciprocal)
+            stored_child_components_at(15, two_point.points()[0].q(), &child_reciprocal)
                 .unwrap()
                 .is_empty()
         );
+        assert!(star_has_stored_components(15, two_point, &child_reciprocal).unwrap());
         assert_eq!(
             select_representative(15, two_point, &child_reciprocal)
                 .unwrap()
@@ -3524,8 +3526,51 @@ mod tests {
         let operation = ExactSeitz::new(rotation, Vec3R::new([rat(0, 1); 3]));
         assert!(matches!(
             rep.character(&operation),
-            Err(FullStarError::ConstructedOperationNotCovered { .. })
+            Err(StarError::ConstructedRotationNotCovered { .. })
         ));
+    }
+
+    /// A constructed target is induced over the **child's own star**, not
+    /// answered by its little-group character.
+    ///
+    /// Child #2 (P-1) at a general `q = (1/4, 1/3, 0)` has a two-arm star
+    /// `{q, -q}` and a trivial little co-group, so the induced character is
+    /// hand-computable: the identity is the star size, a lattice translation is
+    /// `2 cos(2 pi q.L)`, and the inversion moves both arms and therefore
+    /// contributes zero.
+    #[test]
+    fn a_constructed_star_induces_over_the_child_star() {
+        let q = Vec3R::new([rat(1, 4), rat(1, 3), rat(0, 1)]);
+        let star = ConstructedStar::new(
+            2,
+            q,
+            ConstructedLittleRep::BlochPhase { q },
+        )
+        .expect("child #2 constructed star");
+        assert_eq!(star.arm_count(), 2, "P-1 sends q to -q, two arms");
+        assert_eq!(star.dimension(), 1);
+        let translation = |values: [i32; 3]| {
+            ExactSeitz::new(
+                IDENTITY_ROTATION,
+                Vec3R::new(values.map(|value| rat(i128::from(value), 1))),
+            )
+        };
+        let identity = star.character(&translation([0, 0, 0])).expect("identity");
+        assert!((identity - Complex64::new(2.0, 0.0)).norm() < SUBDUCTION_TOLERANCE);
+        // exp(2 pi i (1/4)) + exp(-2 pi i (1/4)) = 0 exactly.
+        let quarter = star.character(&translation([1, 0, 0])).expect("phase");
+        assert!(quarter.norm() < SUBDUCTION_TOLERANCE, "{quarter}");
+        // exp(2 pi i (1/3)) + exp(-2 pi i (1/3)) = -1 exactly.
+        let third = star.character(&translation([0, 1, 0])).expect("phase");
+        assert!((third - Complex64::new(-1.0, 0.0)).norm() < SUBDUCTION_TOLERANCE);
+        // The inversion exchanges the two arms, so neither is fixed.
+        let inversion = star
+            .character(&ExactSeitz::new(
+                [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
+                Vec3R::new([rat(0, 1); 3]),
+            ))
+            .expect("moved arms contribute zero");
+        assert!(inversion.norm() < SUBDUCTION_TOLERANCE, "{inversion}");
     }
 
     /// The constructed source is only a fallback: it exists for child #1, it
@@ -3575,15 +3620,28 @@ mod tests {
         let left = first.character(&operation).expect("phase");
         let right = second.character(&operation).expect("phase");
         assert!((left - right).norm() < SUBDUCTION_TOLERANCE);
-        // Every other child space group keeps the stored-only behaviour.
+        // The construction criterion is the little co-group, not the child
+        // number.  Child #45 (P-4m2) at a general point has a trivial one, so
+        // the same exact Bloch phase answers it.
         let reciprocal_45 = Lattice::new(exact_primitive_basis(45).expect("child #45 basis"))
             .expect("lattice")
             .reciprocal()
             .expect("reciprocal");
+        let general_45 = constructed_child_components_at(45, &q, &reciprocal_45)
+            .expect("general point construction");
+        assert_eq!(general_45.len(), 1);
+        assert_eq!(general_45[0].dimension, 1);
+        assert!(matches!(
+            general_45[0].component,
+            SubductionComponent::Constructed { .. }
+        ));
+        // A point with a non-trivial little co-group still has no constructed
+        // source: child #45's Gamma point is fixed by all eight rotations.
+        let gamma = constructed_child_components_at(45, &Vec3R::new([rat(0, 1); 3]), &reciprocal_45)
+            .expect("gamma lookup");
         assert!(
-            constructed_child_components_at(45, &q, &reciprocal_45)
-                .expect("no construction")
-                .is_empty()
+            gamma.is_empty(),
+            "a non-trivial little co-group must not be constructed"
         );
     }
 

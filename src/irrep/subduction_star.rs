@@ -39,9 +39,12 @@ use crate::mathfunc::Mat3I;
 
 use super::{
     ExactSeitz, Lattice, Mat3R, Rat, SUBDUCTION_TOLERANCE, SubductionError, SubgroupEmbedding,
-    Vec3R, character_of, exact_primitive_basis, fold_wave_vector, inline_k_vector,
+    Vec3R, bloch_phase, character_of, exact_primitive_basis, fold_wave_vector, inline_k_vector,
     reduce_operations, strict_sg_hall_ops,
 };
+
+/// The identity rotation, as stored in every Hall operation table.
+const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
 // ── Errors ───────────────────────────────────────────────────────────────────
 
@@ -80,6 +83,21 @@ pub enum StarError {
     /// group element modulo `L_G`.
     #[error("operation is not in space group {sg} modulo the parent lattice")]
     OperationNotInParentGroup { sg: u8 },
+    /// A constructed little-group representation was asked for the character of
+    /// a rotation it was not built from.
+    ///
+    /// Only a trivial little co-group is constructed, and a contribution is only
+    /// ever requested for an operation that fixes the arm it is conjugated into;
+    /// a non-identity rotation therefore means the caller used the wrong little
+    /// group, and that fails closed instead of answering a phase.
+    #[error(
+        "constructed little-group representation at q = ({}, {}, {}) cannot be evaluated on a \
+         rotation it was not built from",
+        q[0],
+        q[1],
+        q[2]
+    )]
+    ConstructedRotationNotCovered { q: [Rat; 3] },
     /// The transversals do not cover the whole parent star.
     #[error(
         "{represented} transporters of {ml} do not cover all {operations} operations of \
@@ -521,11 +539,13 @@ impl OrdinaryStar {
         }
         induced_character(
             &self.arms,
-            &self.selected_row,
-            self.probe.ml,
+            &LittleCharacter::Stored {
+                row: &self.selected_row,
+                ml: self.probe.ml,
+                row_k: &self.seed_k,
+            },
             &self.parent_lattice,
             &self.parent_reciprocal,
-            &self.seed_k,
             operation,
         )
     }
@@ -747,25 +767,90 @@ pub(super) fn fold_arms(
         .collect())
 }
 
+// ── Little-group character sources ───────────────────────────────────────────
+
+/// A little-group representation computed from the subgroup operations and an
+/// exact folded point, with no pinned table row behind it.
+///
+/// The character is a function of the little-group operation itself, so it can
+/// be transported to another arm of the same star by conjugating the operation,
+/// exactly like a stored row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ConstructedLittleRep {
+    /// Trivial little co-group: every little-group operation is a translation,
+    /// so the representation at the exact point `q` is the one-dimensional
+    /// Bloch phase `D(T_L) = exp(+2 pi i q.L)` in the child's own frame (the
+    /// sign convention [`bloch_phase`] already fixes for stored rows).
+    BlochPhase { q: Vec3R },
+}
+
+impl ConstructedLittleRep {
+    /// Character of one little-group operation.
+    ///
+    /// A contribution is only ever asked for an operation that fixes the arm it
+    /// is conjugated into, so a non-identity rotation means the caller used the
+    /// wrong little group: that fails closed instead of answering a phase.
+    pub(super) fn character(&self, operation: &ExactSeitz) -> Result<Complex64, StarError> {
+        match self {
+            Self::BlochPhase { q } => {
+                if operation.rotation() != IDENTITY_ROTATION {
+                    return Err(StarError::ConstructedRotationNotCovered {
+                        q: [q.get(0), q.get(1), q.get(2)],
+                    });
+                }
+                Ok(bloch_phase(q, operation.translation())?)
+            }
+        }
+    }
+}
+
+/// The little-group character of one arm's conjugated operation.
+///
+/// A stored row is looked up by its own Seitz representatives with the **stored**
+/// wave vector, so every pinned Bloch phase survives; a constructed rep answers
+/// from the little-group operation itself. Both keep the arm's own fixity test
+/// and transporter conjugation in [`arm_character`].
+pub(super) enum LittleCharacter<'a> {
+    /// A pinned row, evaluated at the wave vector the row belongs to.
+    Stored {
+        row: &'a CharacterRow,
+        ml: &'static str,
+        row_k: &'a Vec3R,
+    },
+    /// A representation built at an exact folded point.
+    Constructed(&'a ConstructedLittleRep),
+}
+
+impl LittleCharacter<'_> {
+    fn at(
+        &self,
+        operation: &ExactSeitz,
+        lattice: &Lattice,
+        index: usize,
+    ) -> Result<Complex64, StarError> {
+        match self {
+            Self::Stored { row, ml, row_k } => {
+                Ok(character_of(row, ml, operation, lattice, row_k, index)?)
+            }
+            Self::Constructed(rep) => rep.character(operation),
+        }
+    }
+}
+
 /// The induced trace: fixed arms contribute their conjugated seed character,
 /// moved arms contribute zero.
-#[allow(clippy::too_many_arguments)]
 fn induced_character(
     arms: &[StarArm],
-    row: &CharacterRow,
-    ml: &'static str,
+    character: &LittleCharacter<'_>,
     parent_lattice: &Lattice,
     parent_reciprocal: &Lattice,
-    seed_k: &Vec3R,
     operation: &ExactSeitz,
 ) -> Result<Complex64, StarError> {
     induced_component_character(
         arms,
-        row,
-        ml,
+        character,
         parent_lattice,
         parent_reciprocal,
-        seed_k,
         false,
         operation,
     )
@@ -782,33 +867,26 @@ fn induced_character(
 #[allow(clippy::too_many_arguments)]
 fn induced_component_character(
     arms: &[StarArm],
-    row: &CharacterRow,
-    ml: &'static str,
+    character: &LittleCharacter<'_>,
     lattice: &Lattice,
     reciprocal: &Lattice,
-    row_k: &Vec3R,
     conjugate: bool,
     operation: &ExactSeitz,
 ) -> Result<Complex64, StarError> {
     let mut total = Complex64::new(0.0, 0.0);
     for (index, arm) in arms.iter().enumerate() {
-        total += arm_character(
-            arm, row, ml, lattice, reciprocal, row_k, conjugate, index, operation,
-        )?;
+        total += arm_character(arm, character, lattice, reciprocal, conjugate, index, operation)?;
     }
     Ok(total)
 }
 
 /// One arm's contribution to an induced trace: zero unless `operation` fixes
 /// the arm modulo the reciprocal lattice.
-#[allow(clippy::too_many_arguments)]
 fn arm_character(
     arm: &StarArm,
-    row: &CharacterRow,
-    ml: &'static str,
+    character: &LittleCharacter<'_>,
     lattice: &Lattice,
     reciprocal: &Lattice,
-    row_k: &Vec3R,
     conjugate: bool,
     index: usize,
     operation: &ExactSeitz,
@@ -821,7 +899,7 @@ fn arm_character(
         .inverse()?
         .compose(operation)?
         .compose(&arm.transporter)?;
-    let value = character_of(row, ml, &conjugated, lattice, row_k, index)?;
+    let value = character.at(&conjugated, lattice, index)?;
     Ok(if conjugate { value.conj() } else { value })
 }
 

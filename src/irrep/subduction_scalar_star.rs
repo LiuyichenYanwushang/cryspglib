@@ -42,8 +42,8 @@ use super::super::{
     strict_sg_hall_ops,
 };
 use super::{
-    FoldArm, FoldedStar, StarArm, StarError, arm_character, arm_wave_vector, collect_arms,
-    fold_arms, induced_component_character,
+    ConstructedLittleRep, FoldArm, FoldedStar, LittleCharacter, StarArm, StarError,
+    arm_character, arm_wave_vector, collect_arms, fold_arms, induced_component_character,
 };
 
 // ── One complex component ────────────────────────────────────────────────────
@@ -216,11 +216,9 @@ impl ComponentStar {
     pub(super) fn trace(&self, operation: &ExactSeitz) -> Result<Complex64, StarError> {
         induced_component_character(
             &self.arms,
-            &self.row,
-            self.label,
+            &self.character_source(),
             &self.lattice,
             &self.reciprocal,
-            &self.base_k,
             self.conjugate,
             operation,
         )
@@ -238,13 +236,95 @@ impl ComponentStar {
         })?;
         arm_character(
             star_arm,
-            &self.row,
-            self.label,
+            &self.character_source(),
             &self.lattice,
             &self.reciprocal,
-            &self.base_k,
             self.conjugate,
             arm,
+            operation,
+        )
+    }
+
+    /// The stored row as the shared little-group character source.
+    pub(super) fn character_source(&self) -> LittleCharacter<'_> {
+        LittleCharacter::Stored {
+            row: &self.row,
+            ml: self.label,
+            row_k: &self.base_k,
+        }
+    }
+}
+
+// ── One constructed component ────────────────────────────────────────────────
+
+/// A constructed little-group representation induced over its own full star.
+///
+/// This is the multi-arm counterpart of [`ComponentStar`] for a target with no
+/// pinned row: the little-group representation is a
+/// [`ConstructedLittleRep`] built at an exact folded point, and the star is the
+/// orbit of that point under the **child** group's own data-Hall operations,
+/// collected and checked exactly like a stored component's star.
+///
+/// The induced trace is not the little-group character: for a child whose point
+/// group is non-trivial the star has more than one arm, an operation that moves
+/// an arm contributes zero, and a fixed arm contributes the constructed
+/// character of the conjugated operation — the same rule every stored row
+/// follows.
+#[derive(Debug, Clone)]
+pub struct ConstructedStar {
+    sg: u8,
+    rep: ConstructedLittleRep,
+    arms: Vec<StarArm>,
+    lattice: Lattice,
+    reciprocal: Lattice,
+    operations: Vec<ExactSeitz>,
+}
+
+impl ConstructedStar {
+    /// Build the induced star of one constructed representation at `q`.
+    ///
+    /// `q` is the child-frame point the representation is defined at (already
+    /// reduced modulo the child reciprocal lattice); the arms are its orbit
+    /// under the child's complete data-Hall operation list, one arm per class.
+    pub(super) fn new(sg: u8, q: Vec3R, rep: ConstructedLittleRep) -> Result<Self, StarError> {
+        let lattice = Lattice::new(exact_primitive_basis(sg)?)?;
+        let reciprocal = lattice.reciprocal()?;
+        let hall = strict_sg_hall_ops(sg)?;
+        let arms = collect_arms(sg, &q, &reciprocal, &hall.operations, false)?;
+        let operations = reduce_operations(&hall.operations, &lattice)?;
+        Ok(Self {
+            sg,
+            rep,
+            arms,
+            lattice,
+            reciprocal,
+            operations,
+        })
+    }
+
+    /// Number of arms of this constructed star.
+    pub fn arm_count(&self) -> usize {
+        self.arms.len()
+    }
+
+    /// Selected-arm dimension of the constructive little-group irrep: always one,
+    /// because only a trivial little co-group is constructed.
+    pub const fn dimension(&self) -> usize {
+        1
+    }
+
+    /// The induced full-star character, after checking membership.
+    pub(super) fn character(&self, operation: &ExactSeitz) -> Result<Complex64, StarError> {
+        let reduced = operation.reduce(&self.lattice)?;
+        if !self.operations.contains(&reduced) {
+            return Err(StarError::OperationNotInParentGroup { sg: self.sg });
+        }
+        induced_component_character(
+            &self.arms,
+            &LittleCharacter::Constructed(&self.rep),
+            &self.lattice,
+            &self.reciprocal,
+            false,
             operation,
         )
     }

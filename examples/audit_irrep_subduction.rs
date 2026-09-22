@@ -2712,7 +2712,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinal_13345_answers_every_probe_and_reports_the_five_w_stars_identity_only() {
+    fn ordinal_13345_answers_every_probe_with_constructed_targets() {
         let (exit_code, counts, tsv) = audit_ordinal(13345, true);
         assert_eq!(counts.probes.total, 31);
         assert_eq!(
@@ -2727,12 +2727,14 @@ mod tests {
             "the probe partition must tile"
         );
         assert_eq!(
-            counts.probes.full_success, 26,
-            "the probes with child star data keep their full decomposition"
+            counts.probes.full_success, 31,
+            "R4 batch 1 answers every folded star of this context: the ones with \
+             pinned child rows from the table and the trivial-little-co-group ones \
+             from the constructed Bloch phase"
         );
         assert_eq!(
-            counts.probes.identity_only, 5,
-            "the five W probes have no folded child star data"
+            counts.probes.identity_only, 0,
+            "the five W probes used to be identity-only and are now complete"
         );
         assert_eq!(counts.probes.missing, 0);
         assert_eq!(
@@ -2748,32 +2750,26 @@ mod tests {
             Verdict::Clean,
             "the identity gate accepts the exact identity-only answers"
         );
-        // The full-decomposition gate does not: the same five probes are a gap
-        // there, and that is a coverage shortfall (2), not an inconsistency (1).
-        assert_eq!(counts.verdict(all_gates()), Verdict::Incomplete);
-        assert_eq!(counts.exit_code(all_gates()), 2);
+        // This context has no gap left, so even the full-decomposition gate and
+        // the w gate pass at this scope.
+        assert_eq!(counts.verdict(all_gates()), Verdict::Clean);
+        assert_eq!(counts.exit_code(all_gates()), 0);
 
         let rows = emitted_probe_rows(&tsv);
         assert_eq!(rows.len(), counts.probes.total, "one row per scalar probe");
-        // The identity-only route keeps the ordinary `absent_zero` status (its
-        // content is exactly zero) and says so in the detail column.
-        let identity_only: BTreeSet<&str> = rows
-            .iter()
-            .filter(|row| row.detail.contains("identity_only"))
-            .map(|row| row.probe.as_str())
-            .collect();
-        let expected: BTreeSet<&str> = ["W1", "W2", "W3", "W4", "W5"].into_iter().collect();
-        assert_eq!(identity_only, expected, "the five W stars must be reported");
-        for row in rows
-            .iter()
-            .filter(|row| row.detail.contains("identity_only"))
-        {
-            assert_eq!(row.computed, "0", "probe {} has no Gamma folded star", row.probe);
-            assert!(
-                row.detail.contains("full_decomposition="),
-                "probe {} must report the impossible full decomposition: {}",
-                row.probe,
-                row.detail
+        assert!(
+            rows.iter().all(|row| !row.detail.contains("identity_only")),
+            "no probe of this context is identity-only any more"
+        );
+        // The five W probes carry no Gamma folded star, so their absent zeroes
+        // come from the engine and not from the geometry filter.
+        for row in rows.iter().filter(|row| {
+            row.probe.starts_with('W')
+        }) {
+            assert_eq!(
+                row.computed, "0",
+                "probe {} has no Gamma folded star, so the trivial content is zero",
+                row.probe
             );
         }
         assert_eq!(counts.entries.passed, 8);
@@ -2786,19 +2782,22 @@ mod tests {
         );
     }
 
-    /// The pinned baseline in miniature: ordinal 13345 carries five
-    /// identity-only probes, so the full-decomposition gate fails there while
-    /// the identity gate keeps passing; an ordinal with no gap passes both.
+    /// The pinned baseline in miniature: ordinal 13346 carries five
+    /// identity-only probes (the parametric `B`-line stars of the R3
+    /// `parameterized_source` batch), so the full-decomposition gate fails there
+    /// while the identity gate keeps passing.  Ordinal 13345 is the batch-1
+    /// contrast: identical child and embedding, and no gap left.
+    ///
     /// This is the guard against reporting "identity content is closed" as
     /// "full decomposition is closed".
     #[test]
     fn the_full_decomposition_gate_separates_identity_only_rows_from_full_ones() {
-        let (identity_exit, counts, _) = audit_ordinal(13345, true);
-        assert_eq!(identity_exit, 0, "the identity gate still accepts ordinal 13345");
+        let (identity_exit, counts, _) = audit_ordinal(13346, true);
+        assert_eq!(identity_exit, 0, "the identity gate still accepts ordinal 13346");
         assert_eq!(counts.probes.identity_only, 5);
         assert_eq!(counts.full_decomposition_incomplete(), 5);
 
-        let (full_exit, gapped, _) = audit_ordinal_gates(13345, gates_with_full_decomposition());
+        let (full_exit, gapped, _) = audit_ordinal_gates(13346, gates_with_full_decomposition());
         assert_eq!(
             full_exit, 2,
             "five identity-only probes are a full-decomposition gap, not a success"
@@ -2806,6 +2805,13 @@ mod tests {
         assert_eq!(gapped.probes.identity_only, 5);
         assert_eq!(gapped.probes.full_success, 26);
         assert_eq!(gapped.hard_failures(), 0, "a coverage gap is not an error");
+
+        // The same child with a purely trivial-co-group context is closed by
+        // R4 batch 1, so the full-decomposition gate passes there.
+        let (batch_exit, batch, _) = audit_ordinal_gates(13345, gates_with_full_decomposition());
+        assert_eq!(batch_exit, 0, "ordinal 13345 has no gap left");
+        assert_eq!(batch.probes.full_success, 31);
+        assert_eq!(batch.probes.identity_only, 0);
 
         // SG 16 R2 P1 -> #22 decomposes all 32 probes, so the same gate passes
         // there -- for that record's scope only.
