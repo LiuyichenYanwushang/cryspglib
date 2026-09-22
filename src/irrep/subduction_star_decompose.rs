@@ -1066,6 +1066,73 @@ pub fn line_trivial_content_with_embedding(
     Ok(average.re.round() as u32)
 }
 
+/// The same frequency computed through `build_block` instead of the hand-written
+/// per-arm sum.
+///
+/// Folds the line's arms into the child's zone with [`line_folded_stars`], reads
+/// the child Gamma block through the same `build_block` stage the discrete probes
+/// use, and extracts the child's trivial row exactly as
+/// [`trivial_content_with_embedding`] does.
+pub fn line_trivial_content_via_blocks(
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+    arms: &[(Vec3R, Mat3I)],
+    parameter: &Rat,
+    wave_vector: &Vec3R,
+    direction: &Vec3R,
+) -> Result<u32, FullStarError> {
+    let child_sg = embedding.subgroup_sg();
+    let trivial = trivial_child_record(child_sg)
+        .ok_or(FullStarError::MissingChildTrivialIrrep { sg: child_sg })?;
+    let trivial_cir = match trivial.source_identity() {
+        IrrepSourceIdentity::OrdinaryScalar { cir_irnumber } => cir_irnumber,
+        IrrepSourceIdentity::Compound { .. } | IrrepSourceIdentity::Spin { .. } => {
+            return Err(FullStarError::MissingChildTrivialIrrep { sg: child_sg });
+        }
+    };
+    let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
+    let child_reciprocal = child_cell.reciprocal()?;
+    let source = LineArmSource {
+        table,
+        direction: *direction,
+        wave_vector: *wave_vector,
+        arms,
+    };
+    let stars = line_folded_stars(
+        arms,
+        parameter,
+        embedding,
+        &child_reciprocal,
+        u32::from(table.dimension),
+    )?;
+    let mut total = 0u32;
+    for star in &stars {
+        let mut is_gamma = false;
+        for point in star.points() {
+            if child_reciprocal.contains(point.q())? {
+                is_gamma = true;
+                break;
+            }
+        }
+        if !is_gamma {
+            continue;
+        }
+        let block = build_block(
+            embedding,
+            &ArmCharacterSource::Line(&source),
+            star,
+            &child_cell,
+            &child_reciprocal,
+        )?;
+        for target in block.targets() {
+            if target.dimension == trivial.dim && target.irnumber == trivial_cir {
+                total += target.multiplicity;
+            }
+        }
+    }
+    Ok(total)
+}
+
 /// The child table's trivial row: one-dimensional, at Gamma, and `+1` on every
 /// operation of its own stored setting.
 ///
