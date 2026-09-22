@@ -1808,7 +1808,7 @@ origin={},{},{},{}",
             counts.w_conflict
         );
         eprintln!(
-            "w_scope: rows={} computed={} uncomputed={} character_tables_frozen={} character_tables_blocked={} reason=line_sources_need_the_line_star_build_block_path gate=--require-w-complete",
+            "w_scope: rows={} computed={} uncomputed={} character_tables_frozen={} character_tables_blocked={} reason=none gate=--require-w-complete",
             counts.w_entries,
             counts.w_computed,
             counts.w_incomplete(),

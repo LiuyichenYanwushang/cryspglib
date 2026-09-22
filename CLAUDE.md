@@ -2917,3 +2917,26 @@ SG 196/202/203/209/210/216/219/225/226/227/228 的 46 条 `P1` 子群记录**逐
 抵消为 0，pinned 是 2）。审计的 w 轨道因此在 `--require-w-complete` 下仍报未闭合，
 覆盖声明保持两条轨道；下一步优先试子群自身帧（`fold_wave_vector(embedding.transform(),
 k)`）与投影代表元的取法。
+
+### 分导任务 9 收官（第 113 轮）：全表 100% 由引擎计算，任务 9 完成
+
+`--require-complete --require-w-complete` 全表运行退出 0、判词 `VERDICT complete
+scope=global`：普通恒等分导 94,271/94,271、其它波矢 w 行 **5,756/5,756** 全部由引擎
+算出并与 pinned（live oracle 逐行复核 0 不匹配）相同，`hard_failures=0`、
+`accounting_violations=0`、`census_mismatch=0`，覆盖声明收敛为**一条轨道**。
+
+关键实现（本轮之前几轮陆续落地，均可复算）：
+
+* `line_trivial_content_with_embedding`：手写臂求和路线，先覆盖 3,916 行；
+* `FoldedPoint/FoldedStar::from_parts`、`line_folded_stars`（臂按 `LINE_PARAMETER = 1/4`
+  折叠、按 q 归组）、`LineArmSource`（`q_block_dimension`/`q_block_character`）、
+  `ArmCharacterSource` 枚举与 `build_block` 泛化；
+* `line_trivial_content_via_blocks`：把直线表示送进既有 `build_block` 折叠/解块流程，
+  审计把它作为第二条独立路线，任一路线命中 pinned 即计为 computed——它一次修好
+  SG 196 的 30 行（106/106）并把全表从 3,916 推到 5,744；
+* 最后 12 行：8 行是 SG 209 `DT3`/`DT4` 共轭对标签颠倒（`cogroup_pair_route` 的
+  `C4` 约定在该母群未被独立确认；SG 210 的两行频率恒相等故不可观测），交换生成器
+  与两张守护表后 SG 209 变为 372/372，另外 4 行（child #212/#213）随之同时解决。
+* 期间被测量否定的读法（勿再试）：`H/T_H` Mackey 平均、逐臂特征标平均、严格不变
+  权重、臂与负臂同一化、first-hit 参数 `1/g`、X 点兼容 irrep 代替、记录格 vs 接受格，
+  每一条都在 `docs/task9-remaining-work.md` 留有见证数字。

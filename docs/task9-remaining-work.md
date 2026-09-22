@@ -1,4 +1,4 @@
-# Task 9 remaining work (handoff; last updated round 61)
+# Task 9 handoff (COMPLETE since round 113; history below)
 
 > **START HERE (one paragraph).** The only thing left is one engine function:
 > give `build_block` (`src/irrep/subduction_star_decompose.rs:1078`) a second
@@ -599,3 +599,23 @@ The engine evidence says SG 209 needs the opposite assignment, so:
 4. re-run the audit (`--parent 209` first): the eight swapped rows must move from
    `computed_mismatch:0|blocks:N` to `computed`, leaving only the four children
    213/212 zeros.
+
+## COMPLETE (round 113)
+
+The full-table audit with both completeness gates now reports:
+
+```
+identity_rows=94271 unique_pairs=94271 (pinned 94271)
+other_wave_vector: records=1006 rows=5756 source_resolved=5756 source_mismatch=0 computed=5756 conflicts=0
+w_scope: rows=5756 computed=5756 uncomputed=0 character_tables_frozen=5756 character_tables_blocked=0 reason=none
+hard_failures=0 accounting_violations=0 census_mismatch=0
+VERDICT complete scope=global          (exit 0 with --require-w-complete)
+```
+
+i.e. every ordinary identity-subduction row *and* every other-wave-vector row is
+computed by the engine and equals the pinned, live-oracle-verified value, with no
+unsupported item left in scope.  The last step was the SG 209 `DT3`/`DT4`
+conjugate-pair swap: the block route pinned the opposite assignment, the
+generator, the regenerated frozen tables and both pair guards were updated
+together, and `--parent 209` went from `computed=360 uncomputed=12` to
+`computed=372 uncomputed=0`.

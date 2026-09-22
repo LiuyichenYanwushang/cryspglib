@@ -44,7 +44,7 @@ oracle 5,756 条 w 行对 pinned 5,756 条 w 行、0 不匹配**，其中 144 �
 | 范围 | 证据 | 状态 |
 |---|---|---|
 | 普通恒等分导（15,239 记录 / 94,271 正项 / 366,260 probe / Γ Frobenius 1,895） | **cryspglib 引擎计算** + 几何与零项检查 | 范围内闭合，0 未支持 |
-| 其它波矢 w 行（1,006 记录 / 5,756 行） | 官方 `iso` live oracle 逐行（键 = 子群号 + Dir）+ 冻结 little 特征标 73/73 | 逐行一致、数据齐备；**引擎已算出并逐行比对 3,916/5,756 行**（其余 1,840 行是 child 非 `P1` 的记录，`--require-w-complete` 仍退出 2） |
+| 其它波矢 w 行（1,006 记录 / 5,756 行） | **cryspglib 引擎计算**（`line_trivial_content_via_blocks` + 冻结 little 特征标 73/73）+ 官方 `iso` live oracle 逐行复核 | **5,756/5,756 全部计算并与 pinned 值相同**；`--require-w-complete` 退出 0，判词 `VERDICT complete scope=global` |
 
 这 5,756 行的源现在**全部有冻结特征标**：
 `src/irrep/w_little_characters_data.rs` 覆盖 73/73（`W_LITTLE_CHARACTERS_UNRESOLVED`
