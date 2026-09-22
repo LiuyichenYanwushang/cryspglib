@@ -552,3 +552,29 @@ plus 11166/11167/11197/11198 (children 213 and 212).  Both routes answer 0 there
 so the fold finds no child-Gamma block for those records (or the block carries no
 trivial multiplicity); the next step is to instrument the folded star set for
 ordinal 11171 and compare its `q` values against the child's reciprocal lattice.
+
+## The last 12 rows are 8 label swaps plus 4 zeros (round 111)
+
+The audit now records both routes per row (`computed_mismatch:0|blocks:N`), and for
+the SG 209 failures the block route returns exactly the **swapped** DT3/DT4 values:
+
+| ordinal | child | source | pinned | block route |
+|---|---|---|---|---|
+| 11171, 11202 | 96 | DT3 | 2 | 1 |
+| 11171, 11202 | 96 | DT4 | 1 | 2 |
+| 11173, 11204 | 92 | DT3 | 1 | 2 |
+| 11173, 11204 | 92 | DT4 | 2 | 1 |
+| 11166, 11197 | 213 | (DT3/DT4) | 1 | 0 |
+| 11167, 11198 | 212 | (DT3/DT4) | 1 | 0 |
+
+So eight of the twelve rows are the engine computing the *right numbers on the
+wrong labels*: the frozen `DT3`/`DT4` ordering for SG 209 is inverted relative to
+the program.  That is exactly the case the round-41 freeze could not confirm
+independently (SG 209's `X`-compat rows pair `DT3` and `DT4` together, so the
+little-cogroup convention decided it), and the validated block route now supplies
+the independent evidence that the convention is inverted there.  The fix is a
+generator-level label swap for that one source pair (regenerate, then re-run the
+`:4` guard tests, `tests/w_little_characters.rs` and the audit).
+
+The four remaining rows (children 213 and 212) return 0 from *both* routes while
+the pinned value is 1, so they are a separate, still-open question.
