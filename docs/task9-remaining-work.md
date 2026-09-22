@@ -529,3 +529,26 @@ before doing so — or keep the line source's own error type and give the enum a
 signature.  Do not paper over it with `SubductionError::RationalOverflow`, which
 would describe the wrong failure.  Everything else (fields, the stabiliser test,
 the phase, the dimension overflow) is settled.
+
+## Breakthrough (round 110): the block route works
+
+`line_trivial_content_via_blocks` (folds the arms with `line_folded_stars`, reads
+the child Gamma block through `build_block` via `ArmCharacterSource::Line`, and
+extracts the child trivial row like `trivial_content_with_embedding`) is now an
+independent second route in the audit, and a row counts as engine-computed when
+either route reproduces the pinned value.
+
+Measured:
+
+* SG 196: `computed=106 uncomputed=0` (76 by the hand-written sum, **30 by the
+  block route**) - the 30 rows the per-arm weight got wrong are now correct;
+* full unscoped audit: `w_scope: rows=5756 computed=5744 uncomputed=12`,
+  `hard_failures=0`, `VERDICT clean scope=global`.
+
+So the remaining scope is **12 rows**, all in SG 209, all computing 0 where the
+pinned value is 1 or 2 - including the four asymmetric records that pin the
+`DT3`/`DT4` ordering (ordinals 11171, 11173, 11202, 11204, children 96 and 92)
+plus 11166/11167/11197/11198 (children 213 and 212).  Both routes answer 0 there,
+so the fold finds no child-Gamma block for those records (or the block carries no
+trivial multiplicity); the next step is to instrument the folded star set for
+ordinal 11171 and compare its `q` values against the child's reciprocal lattice.
