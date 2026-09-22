@@ -437,7 +437,7 @@ impl FullStarBlock {
     }
 
     /// Multiplicity of the constructed target with this **exact identity**, or
-    /// `0` when the block reports no such target.
+    /// `0` when the block reports no such target or the identity is not constructed.
     ///
     /// A constructed target's identity is the pair
     /// [`SubductionComponent::Constructed`] carries: its point **reduced modulo
@@ -448,6 +448,9 @@ impl FullStarBlock {
     /// identity, so looking one up by a raw folded coordinate would silently
     /// answer zero.
     pub fn constructed_multiplicity(&self, identity: SubductionComponent) -> u32 {
+        if !matches!(identity, SubductionComponent::Constructed { .. }) {
+            return 0;
+        }
         self.targets
             .iter()
             .find(|target| target.component == identity)
@@ -2319,6 +2322,11 @@ mod tests {
         assert_eq!(gm3.blocks().len(), 1);
         assert_eq!(shape(&gm3.blocks()[0]).2, 1);
         assert_eq!(gm3.blocks()[0].q(), &Vec3R::zero());
+        assert_eq!(
+            gm3.blocks()[0].constructed_multiplicity(SubductionComponent::Ordinary),
+            0,
+            "a stored component must never match a constructed-target query"
+        );
         assert_eq!(
             terms(&gm3.blocks()[0]),
             [

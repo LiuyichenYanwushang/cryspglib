@@ -3063,7 +3063,7 @@ R0 建立独立完整分解门禁后，R1/R2 解除"目标成分必须绑定静�
    `Some(0)`、在 full-star 入口是 `Some(4075)`/`Some(4076)`。现在读
    `record.source_identity()` 的真实 `cir_irnumber`（非普通标量行直接报
    `UnsupportedCharacterSpace`），并新增永久测试
-   `gamma_and_full_star_entries_agree_on_every_target_identity`：SG 221 全部标量
+   `gamma_and_full_star_entries_agree_on_every_target_identity`：SG 221 全部 Γ 标量
    probe 上两个入口的 `(component, ml, irnumber, dimension, multiplicity)` 逐项相同，
    且普通目标的编号必须 > 0。
 3. **构造重数查询会返回假零**：`FullStarBlock::constructed_multiplicity` 原来按原始
@@ -3080,3 +3080,18 @@ R0 建立独立完整分解门禁后，R1/R2 解除"目标成分必须绑定静�
 identity_only=12878`、`hard_failures=0`、exit 0（Γ 入口修号不影响审计路径）；
 lib 392、integration 154、doctest 27、audit example 17、census example 1、
 严格 all-target clippy 干净。
+
+### 分导 R1/R2 边界复核（`6d1330f` 后）
+
+- 原三处反例已关闭。Γ 身份回归进一步限定为 SG 221 的十个 Γ 标量 probe，
+  钉住数量并要求每个调用成功；删除 `Err => continue`，防止零条检查也通过。
+- 构造重数查询拒绝非 `Constructed` 身份（返回 0）。此前传入 `Ordinary` 会
+  命中第一个存储目标；黄金用例的永久负例先复现错误返回 1，再由分支检查修复。
+- R3 的实际剩余分母是 756 个子群/k-star、899 个子群/k-star/setting 组合，
+  来自 `target/r12_gaps.tsv` 的 17,144 个缺失星；原 989 组含已经解决的子群 #1。
+  本轮仅收紧查询与回归，不改变分导计算或展开 R3。
+
+本轮实测：lib 392 / 4 ignored、integration 154、doctest 27、audit example 17、
+census example 1、严格 all-target clippy 通过；Python 离线 9 + 16、几何 oracle
+62 行 / 26 描述串 / 62 origin、w 源门禁通过。未重跑全表分导扫描；353,382 / 12,878
+覆盖数字沿用 `6d1330f` 的审计，剩余 manifest 的计数与分组本轮已重新核对。

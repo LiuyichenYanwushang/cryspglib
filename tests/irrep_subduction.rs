@@ -984,13 +984,18 @@ fn gamma_and_full_star_entries_agree_on_every_target_identity() {
     )
     .expect("condensing record");
     let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
-    for probe in cryspglib::irrep::query::irreps_of(221)
+    let probes: Vec<_> = cryspglib::irrep::query::irreps_of(221)
         .iter()
-        .filter(|record| !record.spinor)
-    {
-        let Ok(gamma) = subduce_irrep(&subgroup, probe.ml) else {
-            continue;
-        };
+        .filter(|record| !record.spinor && record.k_vector().numerators == [0, 0, 0])
+        .collect();
+    assert_eq!(
+        probes.len(),
+        10,
+        "all ten scalar Gamma probes must be checked"
+    );
+    for probe in probes {
+        let gamma = subduce_irrep(&subgroup, probe.ml)
+            .unwrap_or_else(|error| panic!("Gamma probe {} must succeed: {error}", probe.ml));
         let full = subduce_full_star_with_embedding(&subgroup, &embedding, probe)
             .unwrap_or_else(|error| panic!("{}: {error}", probe.ml));
         let mut gamma_terms: Vec<TargetTerm> =

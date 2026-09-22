@@ -166,3 +166,9 @@ probe 列；"全部折叠星"含该 probe 集合里已经能由存储 k 到达�
 全部 127 个子群的 manifest 在 `target/r12_gaps.tsv`（列 `ordinal`/`probe_cdml`/
 `child_sg`/`canonical_q`/`status`/`setting_*`），R3 的分类按行逐组进行，不要用
 "全部折叠星"当 probe 数。
+
+按同一 manifest 的 `missing_discrete_scalar_data` 行重新去重：剩余 **756** 个
+子群/k-star 组合，细分 `(setting_numerator, setting_denominator, child_shift)`
+后为 **899** 组；原来的 796 / 989 包含已经解决的子群 #1，不能作为 R3 的剩余分母。
+本次核对的 `target/r12_gaps.tsv` SHA-256 为
+`788a63d2da80a1f6661bde419ac78562769ffd0057a08e7f6fd8eb76f7370ae2`。
