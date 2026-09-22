@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from fractions import Fraction
 from pathlib import Path
+import csv
+import io
 import os
 import subprocess
 import sys
@@ -359,6 +361,29 @@ class SourceClassificationTests(unittest.TestCase):
                     self.assertTrue(free or parameters == ())
 
 
+def star_order_problems(rows):
+    """Rows whose `star_orders` disagrees with `little_co_group_order`.
+
+    One star is one physical q class, so its arms must report a single little
+    co-group order; the column is a comma-joined list only when the arms
+    disagree.  The gate and the injected negative test both go through this
+    function, so the protection cannot be bypassed by renaming or reordering
+    columns.
+    """
+    problems = []
+    for row in rows:
+        if row["star_orders"] != row["little_co_group_order"]:
+            problems.append(
+                (
+                    row["child_sg"],
+                    row["canonical_q"],
+                    row["star_orders"],
+                    row["little_co_group_order"],
+                )
+            )
+    return problems
+
+
 class EndToEndTests(unittest.TestCase):
     MANIFEST_HEADER = (
         "ordinal\tparent_sg\tcondensing_cdml\tdirection\tprobe_cdml\tchild_sg\tstar_index"
@@ -441,30 +466,45 @@ class EndToEndTests(unittest.TestCase):
             text=True,
             check=True,
         )
-        rows = [line.split("\t") for line in result.stdout.splitlines()[1:] if line]
+        rows = list(csv.DictReader(io.StringIO(result.stdout), delimiter="\t"))
         self.assertEqual(len(rows), 899)
         for row in rows:
-            self.assertTrue(row[7], "every group must record its matched sources")
-        labels = {row[-1] for row in rows}
-        self.assertEqual(labels, {"analytic_general_position", "parameterized_source"})
-        self.assertEqual(sum(1 for row in rows if row[-1] == "parameterized_source"), 684)
-        self.assertEqual(sum(1 for row in rows if row[-1] == "analytic_general_position"), 215)
-        # Every matched record's archived matrix block is complete.
+            self.assertTrue(row["matched_irnumbers"], "every group records its sources")
+            self.assertEqual(row["matrix_available"], "true", row)
+            self.assertGreater(int(row["matrix_elements"]), 0, row)
+        counts = {}
         for row in rows:
-            # Columns: ..., matrix_available, matrix_elements, star_orders,
-            # classification.
-            self.assertEqual(row[-4], "true", row)  # matrix_available
-            self.assertEqual(row[-3].count(","), 0, row)  # star_orders: one order
-        # Every star is one q class: its arms must agree on the little co-group,
-        # and the same order must hold across the settings of one star.
-        by_star = {}
-        for row in rows:
-            by_star.setdefault((row[0], row[1]), set()).add(row[14])
-        self.assertTrue(all(len(orders) == 1 for orders in by_star.values()))
-        for row in rows:
-            self.assertEqual(
-                len(set(row[14].split(","))), 1, f"arms disagree: {row[14]}"
-            )
+            counts[row["classification"]] = counts.get(row["classification"], 0) + 1
+        self.assertEqual(
+            counts,
+            {"analytic_general_position": 215, "parameterized_source": 684},
+        )
+        # One star is one q class: its arms must agree on the little co-group.
+        self.assertEqual(star_order_problems(rows), [])
+
+    def test_the_star_order_gate_rejects_an_injected_disagreement(self):
+        # Permanent negative example: injecting `1,2` into one row's star_orders
+        # must be caught.  The earlier gate read positional columns, so the same
+        # injection passed unnoticed.
+        rows = [
+            {
+                "child_sg": "155",
+                "canonical_q": "-1/2,1/4,3/2;1/4,-1/2,3/2",
+                "star_orders": "2",
+                "little_co_group_order": "2",
+            },
+            {
+                "child_sg": "5",
+                "canonical_q": "0,1/2,1/2",
+                "star_orders": "2",
+                "little_co_group_order": "2",
+            },
+        ]
+        self.assertEqual(star_order_problems(rows), [])
+        rows[0]["star_orders"] = "1,2"
+        problems = star_order_problems(rows)
+        self.assertEqual(len(problems), 1)
+        self.assertEqual(problems[0], ("155", "-1/2,1/4,3/2;1/4,-1/2,3/2", "1,2", "2"))
 
 
 if __name__ == "__main__":
