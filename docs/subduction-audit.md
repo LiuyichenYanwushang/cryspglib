@@ -19,18 +19,19 @@ CARGO_TARGET_DIR=$PWD/cryspglib/target cargo run --release -p cryspglib \
   embedding、94,271 条存储正项全部复现、366,260 个标量 probe 全部有精确结果
   （完整分解或恒等内容）、几何与 Frobenius 检查无未计算项。
 - `--require-w-complete` 另外要求 5,756 条 `other_wave_vector_subduction` 也被
-  **引擎**计算。目前 pinned 数据回答不了：这 73 个“别的波矢”irrep 在
-  `data_irreps.txt` 里只有 `irrep_w_label/_space_group/_dimension/_type` 四张表
-  （无 k、无特征标）。第十七轮已把这 73 个源的 k 域全部解出（参数化点/线/面/一般
-  位置；方向记录在母群 primitive 倒格基里，官方 `DISPLAY KPOINT` 用 conventional
-  帧打印），所以 **k 参数已经不是缺口**；缺的是 little 群特征标
-  （`little_irr_full_matrices` 的 2.22M 整数编码尚未解出）。该开关因此仍是引擎侧
-  门禁，全表运行退出 2，并打印
-  `w_scope: rows=5756 computed=0 uncomputed=5756 reason=...`。
+  **引擎**计算。**现已闭合**：审计只走块路线
+  （`line_trivial_content_via_blocks`：把直线源的臂按 `LINE_PARAMETER = 1/4` 折叠、
+  归组后交给既有的 `build_block` 折叠/解块流程），逐行与 pinned 频率比较，
+  实测 `w_scope: rows=5756 computed=5756 uncomputed=0 mismatched=0`，
+  两个门禁同时开启仍退出 0、判词 `VERDICT complete scope=global`。
+  注意审计**不按期望答案选择算法**：不一致一律计入 `w_frequency_mismatch`，
+  该计数已并入 `hard_failures()`，因此在任何开关组合下都退出 1。
+  （历史：第十七轮已把 73 个源的 k 域解出，缺口曾是 little 群特征标；
+  后续由 `w_little_characters_data` 的 73/73 冻结表补齐。）
 
 ### 其它波矢行的独立官方对照
 
-引擎侧尚未计算这 5,756 行，但它们的**数值**已有可复算的官方对照：
+这 5,756 行现在由引擎计算，且它们的**数值**另有可复算的官方对照：
 `scripts/verify_w_subduction_oracle.py` 对每个 `(母群 SG, irrep)` 运行随包 `iso` 的
 `DISPLAY ISOTROPY` + `SHOW FREQUENCY`，把频率表按 `(子群号, Dir 标签)` 与 pinned 的
 `isotropy_subduce_*` ∪ `isotropy_w_subduce_*` 双向比较（语义与命令见
@@ -44,7 +45,7 @@ oracle 5,756 条 w 行对 pinned 5,756 条 w 行、0 不匹配**，其中 144 �
 | 范围 | 证据 | 状态 |
 |---|---|---|
 | 普通恒等分导（15,239 记录 / 94,271 正项 / 366,260 probe / Γ Frobenius 1,895） | **cryspglib 引擎计算** + 几何与零项检查 | 范围内闭合，0 未支持 |
-| 其它波矢 w 行（1,006 记录 / 5,756 行） | **cryspglib 引擎计算**（`line_trivial_content_via_blocks` + 冻结 little 特征标 73/73）+ 官方 `iso` live oracle 逐行复核 | **5,756/5,756 全部计算并与 pinned 值相同**；`--require-w-complete` 退出 0，判词 `VERDICT complete scope=global` |
+| 其它波矢 w 行（1,006 记录 / 5,756 行） | **cryspglib 引擎计算**（`line_trivial_content_via_blocks` + 冻结 little 特征标 73/73，单一算法、不按答案选择）+ 官方 `iso` live oracle 逐行复核 | **5,756/5,756 计算且与 pinned 相同**，`mismatched=0`；`--require-w-complete` 退出 0，判词 `VERDICT complete scope=global`。数值结果分两类：351,547 个完整分解 + 14,713 个仅恒等重数（例：ordinal 13345 `W1` 的完整分解仍 `MissingChildStarData`） |
 
 这 5,756 行的源现在**全部有冻结特征标**：
 `src/irrep/w_little_characters_data.rs` 覆盖 73/73（`W_LITTLE_CHARACTERS_UNRESOLVED`

@@ -1922,6 +1922,30 @@ fn validate_subduction_context(
     embedding: &SubgroupEmbedding,
     probe: &'static IrrepRecord,
 ) -> Result<(), SubductionError> {
+    validate_record_and_embedding(subgroup, embedding)?;
+    if !query::irreps_of(subgroup.parent_sg)
+        .iter()
+        .any(|record| std::ptr::eq(record, probe))
+    {
+        return Err(SubductionError::ForeignProbe {
+            sg: subgroup.parent_sg,
+            ml: probe.ml,
+        });
+    }
+    Ok(())
+}
+
+/// The probe-free half of [`validate_subduction_context`].
+///
+/// Checks that `subgroup` still carries the *stored* record (a mutated basis,
+/// origin, subgroup number or irrep context is a `StaleIsotropyRecord`) and that
+/// `embedding` was built from that same record.  Entry points whose parent
+/// representation is not a table irrep -- the parametric-k line sources -- need
+/// exactly this half, and must not grow a second, weaker copy of it.
+pub(crate) fn validate_record_and_embedding(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+) -> Result<(), SubductionError> {
     let parent_sg = subgroup.parent_sg;
     if parent_sg == 0 || parent_sg > 230 {
         return Err(SubductionError::InvalidSpaceGroup { sg: parent_sg });
@@ -1961,16 +1985,6 @@ fn validate_subduction_context(
             .any(|record| std::ptr::eq(record, stored))
     {
         return Err(SubductionError::StaleIsotropyRecord { ordinal });
-    }
-
-    if !query::irreps_of(parent_sg)
-        .iter()
-        .any(|record| std::ptr::eq(record, probe))
-    {
-        return Err(SubductionError::ForeignProbe {
-            sg: parent_sg,
-            ml: probe.ml,
-        });
     }
 
     if embedding.parent_sg() != parent_sg

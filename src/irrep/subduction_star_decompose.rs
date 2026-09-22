@@ -61,7 +61,7 @@ use super::super::{
     ComplexTarget, ExactSeitz, Lattice, Mat3R, Rat, SUBDUCTION_TOLERANCE, SubductionComponent,
     SubductionError, SubductionTarget, SubgroupEmbedding, Vec3R, bloch_phase, character_of,
     exact_primitive_basis, fold_wave_vector, inline_k_vector, shift_operations,
-    solve_prepared_character_block,
+    solve_prepared_character_block, validate_record_and_embedding,
     strict_sg_hall_ops, validate_subduction_context,
 };
 use super::scalar_star::{ComponentStar, ScalarStar};
@@ -120,13 +120,6 @@ pub enum FullStarError {
         source_sg: u8,
         /// Frozen source label.
         label: &'static str,
-    },
-    /// The isotropy record's subgroup basis is singular, so it describes no
-    /// lattice and no frequency may be derived from it.
-    #[error("ordinal {ordinal}: the isotropy record's subgroup basis is singular")]
-    SingularLineBasis {
-        /// Isotropy record ordinal.
-        ordinal: usize,
     },
     /// A frozen line source carries a direction or a rotation the little group
     /// of the parent's operation list does not reproduce.
@@ -910,12 +903,12 @@ pub fn line_trivial_content_via_blocks(
     embedding: &SubgroupEmbedding,
     table: &'static LittleCharacterTable,
 ) -> Result<u32, FullStarError> {
-    // A source table, an embedding and a record only mean something together:
-    // answering for a mismatched combination would silently return a number
-    // computed from another parent's (or another record's) geometry.
-    if usize::from(table.space_group) != usize::from(subgroup.parent_sg)
-        || embedding.ordinal() != subgroup.ordinal
-    {
+    // Reuse the production context validation: the record must still be the
+    // stored one (a mutated basis, origin, subgroup number or irrep context is a
+    // `StaleIsotropyRecord`) and the embedding must have been built from it.
+    validate_record_and_embedding(subgroup, embedding)?;
+    // The line-specific half: the frozen table has to belong to this parent.
+    if usize::from(table.space_group) != usize::from(subgroup.parent_sg) {
         return Err(FullStarError::LineSourceMismatch {
             ordinal: subgroup.ordinal,
             parent: subgroup.parent_sg,
@@ -923,24 +916,7 @@ pub fn line_trivial_content_via_blocks(
             label: table.label,
         });
     }
-    let basis = subgroup.record.basis;
-    let determinant = i128::from(basis[0][0])
-        * (i128::from(basis[1][1]) * i128::from(basis[2][2])
-            - i128::from(basis[1][2]) * i128::from(basis[2][1]))
-        - i128::from(basis[0][1])
-            * (i128::from(basis[1][0]) * i128::from(basis[2][2])
-                - i128::from(basis[1][2]) * i128::from(basis[2][0]))
-        + i128::from(basis[0][2])
-            * (i128::from(basis[1][0]) * i128::from(basis[2][1])
-                - i128::from(basis[1][1]) * i128::from(basis[2][0]));
-    if determinant == 0 {
-        return Err(FullStarError::SingularLineBasis {
-            ordinal: subgroup.ordinal,
-        });
-    }
 
-    // ponytail: the arm/parameter block repeats `line_trivial_content_with_embedding`;
-    // dedupe once the block route replaces the hand-written sum.
     let parent_lattice = embedding.parent_lattice();
     let parent_ops =
         parent_lattice.deduplicate(&strict_sg_hall_ops(subgroup.parent_sg)?.operations)?;
