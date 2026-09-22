@@ -36,6 +36,8 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo test --release --package cryspglib --doc
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
+  cargo test --release --package cryspglib --example audit_irrep_subduction
+CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo clippy -p cryspglib --all-targets --release -- -D warnings
 
 cd /home/liuyichen/TB_rs/cryspglib
@@ -44,6 +46,9 @@ python3 -m unittest discover -s scripts -p test_check_other_wave_vector_rows.py
 python3 scripts/verify_isotropy_oracle.py
 python3 scripts/check_other_wave_vector_rows.py
 ```
+
+`--tests` 不运行 example 内的审计回归；上面的 `--example audit_irrep_subduction`
+必须单独执行，不能只以 library/integration 测试通过代替门禁退出码验证。
 
 当前基线（2026-09-22，任务 9 第六轮后，`-p cryspglib` 限定到本 crate）：
 lib `389 passed / 4 ignored`，integration `139 passed`，doctest `27 passed`，
