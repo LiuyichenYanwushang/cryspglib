@@ -446,6 +446,7 @@ struct Counts {
     /// Resolved rows whose source character table is still unresolved, so the
     /// row stays reported instead of computed.
     w_character_blocked: usize,
+    w_frequency_mismatch: usize,
     w_conflict: usize,
     w_computed: usize,
     spinor_records: usize,
@@ -1368,46 +1369,31 @@ origin={},{},{},{}",
                     match table {
                         Some(table) => {
                             self.counts.w_character_frozen += 1;
-                            // The engine reproduces the pinned rows of the P1-child
-                            // family today (all 300 of them); every other child is
-                            // still the oracle-verified track, so only this family
-                            // is counted as computed.
-                            // Count a row as engine-computed only when the engine
-                            // reproduces the pinned value; a mismatch is not a hard
-                            // failure yet (the line-star path is still open), it
-                            // simply leaves the row on the oracle-verified track.
-                            if let Some(embedding) = embedding.as_ref()
-                                && let Ok(value) =
-                                    cryspglib::irrep::subduction::star::decompose::
-                                        line_trivial_content_with_embedding(
-                                            subgroup, embedding, table,
-                                        )
-                            {
-                                if value == u32::from(entry.frequency) {
-                                    self.counts.w_computed += 1;
-                                    w_status = "computed".to_string();
-                                } else {
-                                    w_status = format!("computed_mismatch:{value}");
-                                }
-                            }
-                            // Independent second route: the same frequency
-                            // through build_block.  A row is engine-computed when
-                            // either route reproduces the pinned value.
-                            if w_status != "computed"
-                                && let Some(embedding) = embedding.as_ref()
-                            {
+                            // The block route is *the* computation; the pinned
+                            // value is only compared against it.  Selecting an
+                            // algorithm by its agreement with the expected answer
+                            // would hide exactly the errors this audit exists to
+                            // find.
+                            if let Some(embedding) = embedding.as_ref() {
                                 match cryspglib::irrep::subduction::star::decompose::
                                     line_trivial_content_via_blocks(subgroup, embedding, table)
                                 {
                                     Ok(value) if value == u32::from(entry.frequency) => {
                                         self.counts.w_computed += 1;
-                                        w_status = "computed_via_blocks".to_string();
+                                        w_status = "computed".to_string();
                                     }
                                     Ok(value) => {
-                                        w_status = format!("{w_status}|blocks:{value}");
+                                        self.counts.w_frequency_mismatch += 1;
+                                        w_status = format!("computed_mismatch:{value}");
+                                        self.mismatch(format!(
+                                            "ordinal {ordinal}: other-wave-vector row {} computed \
+                                             {value}, pinned {}",
+                                            entry.parent_ml, entry.frequency
+                                        ));
                                     }
                                     Err(error) => {
-                                        w_status = format!("{w_status}|blocks_err:{error}");
+                                        w_status = format!("blocks_err:{error}");
+                                        self.bump_error(&format!("w-line:{error}"));
                                     }
                                 }
                             }
@@ -1808,10 +1794,11 @@ origin={},{},{},{}",
             counts.w_conflict
         );
         eprintln!(
-            "w_scope: rows={} computed={} uncomputed={} character_tables_frozen={} character_tables_blocked={} reason=none gate=--require-w-complete",
+            "w_scope: rows={} computed={} uncomputed={} mismatched={} character_tables_frozen={} character_tables_blocked={} reason=none gate=--require-w-complete",
             counts.w_entries,
             counts.w_computed,
             counts.w_incomplete(),
+            counts.w_frequency_mismatch,
             counts.w_character_frozen,
             counts.w_character_blocked
         );

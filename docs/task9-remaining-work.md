@@ -1,6 +1,11 @@
-# Task 9 handoff (COMPLETE since round 113; history below)
+# Task 9 handoff (COMPLETE; review fixes applied)
 
-> **START HERE (one paragraph).** The only thing left is one engine function:
+> **STATUS: complete.**  Both completeness gates exit 0 at the single block route
+> (`--require-complete --require-w-complete`, `VERDICT complete scope=global`):
+> identity rows 94,271/94,271 and w rows 5,756/5,756 engine-computed and equal to
+> the pinned, live-oracle-verified values.  The paragraphs below are the historical
+> handoff; the "START HERE" text that used to sit here described work that is now
+> done.
 > give `build_block` (`src/irrep/subduction_star_decompose.rs:1078`) a second
 > arm-character source so the frozen parametric-k irreps go through the engine's
 > own fold/character-block solve.  Everything else is done and gated: the
@@ -619,3 +624,32 @@ conjugate-pair swap: the block route pinned the opposite assignment, the
 generator, the regenerated frozen tables and both pair guards were updated
 together, and `--parent 209` went from `computed=360 uncomputed=12` to
 `computed=372 uncomputed=0`.
+
+## Review fixes (post-113)
+
+1. **The audit no longer selects an algorithm by the expected answer.**  It calls
+   `line_trivial_content_via_blocks` only, treats a disagreement as a real
+   mismatch (`self.mismatch`, `w_frequency_mismatch`, `mismatched=` in `w_scope`)
+   and reports errors as errors.  The retired hand-written sum disagreed with the
+   pinned rows on 1,599 values and returned 241 errors; keeping it as a
+   first-attempt route meant a fault injected into a pinned frequency could still
+   pass both gates.  `line_trivial_content_with_embedding` now delegates to the
+   block route, so no caller can pick the friendlier answer.
+   `tests/w_line_frequency.rs` pins all 106 SG 196 w rows against the block route
+   directly, plus a test that the public entry point and the block route agree.
+2. **The block route validates its inputs.**  It now rejects a source table of
+   another parent, an embedding belonging to another isotropy record (checked via
+   `embedding.ordinal()`), and a record whose subgroup basis is singular
+   (`FullStarError::SingularLineBasis`).  Negative tests cover all three, plus the
+   delegation equivalence.
+3. **Coverage statement, stated exactly.**  The w-row *values* are complete
+   (5,756/5,756), but the engine's answer is a mix of two result kinds: 351,547
+   probe/row results are full decompositions, while 14,713 are identity-content
+   only (a folded child star has no stored discrete data).  Example: ordinal 13345
+   `W1` still returns `MissingChildStarData` for the full decomposition; its
+   identity content is exact and matches the pinned value.
+4. **SG 209's `DT3`/`DT4` swap is a label convention calibrated by the pinned
+   frequencies**, not an independent verification: the generator and the two test
+   tables were changed together.  The archived-CIR independent check covers
+   SG 202, while SG 209's own X compatibility rows pair `DT3` with `DT4`, so no
+   independent channel pins that pair.

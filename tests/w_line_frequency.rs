@@ -13,8 +13,10 @@
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup};
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::SubgroupEmbedding;
-use cryspglib::irrep::subduction::star::decompose::line_trivial_content_with_embedding;
-use cryspglib::irrep::w_little_characters_data::W_LITTLE_CHARACTERS;
+use cryspglib::irrep::subduction::star::decompose::{
+    line_trivial_content_via_blocks, line_trivial_content_with_embedding,
+};
+use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::irrep::LabelConvention;
 
 /// Every isotropy record of one parent space group, as the audit enumerates it.
@@ -83,12 +85,7 @@ fn p1_child_records_match_every_pinned_row() {
     );
 }
 
-/// Not yet reproduced: the fold/weight convention for children that are *not*
-/// `P1` is still open (the `P1` family above is exact, and every one of these
-/// rows is oracle-verified by `scripts/verify_w_subduction_oracle.py`).  The
-/// test is kept so the gap is executable rather than described.
 #[test]
-#[ignore = "non-P1 fold/weight convention still open; rows are oracle-verified"]
 fn asymmetric_dt3_dt4_records_are_pinned() {
     // These ten records are the ones whose `DT3` and `DT4` frequencies differ,
     // so they are the falsifiable prediction of the frozen pair ordering.
@@ -134,4 +131,91 @@ fn a_source_of_another_parent_is_rejected() {
         .expect("another parent's table");
     let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
     assert!(line_trivial_content_with_embedding(&subgroup, &embedding, foreign).is_err());
+}
+
+fn find(sg: u8, ordinal: usize) -> IsotropySubgroup {
+    subgroups_of(sg)
+        .into_iter()
+        .find(|subgroup| subgroup.ordinal == ordinal)
+        .unwrap_or_else(|| panic!("ordinal {ordinal} of SG {sg} is missing"))
+}
+
+fn table_for(subgroup: &IsotropySubgroup, label: &str) -> &'static LittleCharacterTable {
+    W_LITTLE_CHARACTERS
+        .iter()
+        .find(|table| {
+            usize::from(table.space_group) == usize::from(subgroup.parent_sg)
+                && table.label == label
+        })
+        .unwrap_or_else(|| panic!("no frozen table for SG {} {label}", subgroup.parent_sg))
+}
+
+#[test]
+fn an_embedding_of_another_record_is_rejected() {
+    // The same source table and the same parent, but the embedding of a
+    // different isotropy record: the answer would be computed from another
+    // record's geometry, so it must be refused rather than returned.
+    let subgroup = find(196, 10032);
+    let embedding = SubgroupEmbedding::from_isotropy_subgroup(&find(196, 10030)).unwrap();
+    let table = table_for(&subgroup, "DT1");
+    assert!(line_trivial_content_via_blocks(&subgroup, &embedding, table).is_err());
+}
+
+#[test]
+fn a_singular_record_basis_is_rejected() {
+    let mut broken = find(196, 10030);
+    broken.record.basis = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+    let embedding = SubgroupEmbedding::from_isotropy_subgroup(&find(196, 10030)).unwrap();
+    let table = table_for(&broken, "DT1");
+    assert!(line_trivial_content_via_blocks(&broken, &embedding, table).is_err());
+}
+
+#[test]
+fn the_block_route_is_the_public_route() {
+    // The retired hand-written sum disagreed with the pinned rows; the public
+    // entry point delegates, so both must answer identically everywhere.
+    for ordinal in [10030usize, 10032, 10033] {
+        let subgroup = find(196, ordinal);
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
+        for entry in subgroup.other_wave_vector_subduction().unwrap() {
+            let table = table_for(&subgroup, entry.parent_ml);
+            assert_eq!(
+                line_trivial_content_with_embedding(&subgroup, &embedding, table),
+                line_trivial_content_via_blocks(&subgroup, &embedding, table),
+                "ordinal {ordinal} {}",
+                entry.parent_ml
+            );
+        }
+    }
+}
+
+#[test]
+fn the_block_route_matches_every_pinned_row_of_sg196() {
+    // The retired hand-written sum returned a wrong value for 30 of SG 196's w
+    // rows, so the audit used to reach the pinned value through a second route
+    // and never noticed.  The block route has to get all of them right on its
+    // own; this is the assertion that makes an expected-answer-selected audit
+    // unnecessary.
+    let mut checked = 0usize;
+    for subgroup in subgroups_of(196) {
+        let Ok(rows) = subgroup.other_wave_vector_subduction() else {
+            continue;
+        };
+        if rows.is_empty() {
+            continue;
+        }
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
+        for entry in rows {
+            let table = table_for(&subgroup, entry.parent_ml);
+            assert_eq!(
+                line_trivial_content_via_blocks(&subgroup, &embedding, table),
+                Ok(u32::from(entry.frequency)),
+                "ordinal {} {}",
+                subgroup.ordinal,
+                entry.parent_ml
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 106, "SG 196 has 106 w rows");
 }

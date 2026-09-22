@@ -2940,3 +2940,23 @@ scope=global`：普通恒等分导 94,271/94,271、其它波矢 w 行 **5,756/5,
 * 期间被测量否定的读法（勿再试）：`H/T_H` Mackey 平均、逐臂特征标平均、严格不变
   权重、臂与负臂同一化、first-hit 参数 `1/g`、X 点兼容 irrep 代替、记录格 vs 接受格，
   每一条都在 `docs/task9-remaining-work.md` 留有见证数字。
+
+### 分导任务 9 复核修复（P1×2，第 114 轮）
+
+复核发现两处 P1，已修复：
+
+1. **审计按期望答案选算法会漏报**：w 行原先是「先手写路线、不匹配再试块路线」，
+   把 ordinal 10030 DT1 的 pinned 值 1 改成 2 后两个门禁仍退出 0。现在审计**只走
+   块路线**，不一致即 `self.mismatch`（新增 `w_frequency_mismatch` 与摘要中的
+   `mismatched=`），出错即报错；公开的 `line_trivial_content_with_embedding` 改为
+   委托块路线，旧手写求和已删除（它曾有 1,599 个错值与 241 个错误返回）。
+   `tests/w_line_frequency.rs` 新增三项：块路线逐行钉住 SG 196 全部 106 行、
+   公开入口与块路线等价、以及两条负例。
+2. **块路线缺输入上下文校验**：现在拒绝「别的母群的源表」（`LineSourceMismatch`）、
+   「别的记录序号的 embedding」（同 variant，按 `embedding.ordinal()` 判定）与
+   「奇异子群基」（新 variant `SingularLineBasis`），各有负例测试。
+3. **覆盖声明**：w 行数值 5,756/5,756 完整，但结果分两类——351,547 个完整分解 +
+   14,713 个仅恒等重数（折叠子群星缺随包离散数据；例：ordinal 13345 `W1` 的完整
+   分解仍 `MissingChildStarData`）。
+4. **SG 209 的 `DT3`/`DT4` 交换是「由 pinned 频率校准的标签约定」**，生成器与两张
+   测试表同步交换不构成独立验证；归档 CIR 的独立检查覆盖的是 SG 202。
