@@ -52,7 +52,7 @@ python3 scripts/check_other_wave_vector_rows.py
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
 当前基线（2026-09-22，R4 批 2a 后，`-p cryspglib` 限定到本 crate）：
-lib `394 passed / 4 ignored`，integration `162 passed`，doctest `27 passed`，
+lib `395 passed / 4 ignored`，integration `161 passed`，doctest `27 passed`，
 example 审计回归 `17 passed`、缺口清点回归 `3 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
@@ -3279,7 +3279,7 @@ k 点上对照引擎字符行，**1,176 条记录 / 6,318 个操作全部命中*
 跳过，2.8 s）；`a_two_fold_co_group_has_two_characters` 手算 C2，含 ψ=1/6 的"规范可以比
 cocycle 更细"情形；`tests/subduction_constructed_stars.rs` 的 13346 全部回答 / 3988 仍
 缺数据；审计微型基线由 13345/13346 移到 3988；恒等回归 2,075 个 probe 全部走完整入口
-（缺数据集合为空）；settings 一组 120 个 probe 全部完整。验证：lib 394、integration 162、
+（缺数据集合为空）；settings 一组 120 个 probe 全部完整。验证：lib 395、integration 161、
 doctest 27、audit example 17、census example 3，严格 all-target clippy 通过。
 
 未做（批次 2b）：58 组需要**二维**投影不可约表示（52 组 `|P_q|=4` 单 ω-正则类、

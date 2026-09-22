@@ -28,9 +28,11 @@
 //!   `psi_i + psi_j - psi_k == omega_ij (mod 1)`.
 //!
 //! The caller only uses a catalogue when the solver returns exactly `|P_q|`
-//! solutions, which is the size of a coset of `Hom(P_q, U(1))` and therefore
-//! exactly the case where **every** irreducible projective representation of
-//! `P_q` is one-dimensional.  A co-group whose cocycle is not a coboundary
+//! solutions.  The solution set is either empty or a coset of
+//! `Hom(P_q, U(1))`, whose size is `|P_q / [P_q, P_q]|`; requiring that size to
+//! be `|P_q|` therefore means `P_q` is abelian *and* the cocycle is a
+//! coboundary, which is exactly the case where **every** irreducible projective
+//! representation of `P_q` is one-dimensional.  A co-group whose cocycle is not a coboundary
 //! (needing a two-dimensional projective irrep) and a non-abelian co-group
 //! return fewer solutions and are left to the higher-dimensional batch: this
 //! module never guesses a catalogue.
