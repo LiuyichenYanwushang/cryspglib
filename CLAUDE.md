@@ -52,7 +52,7 @@ python3 scripts/check_other_wave_vector_rows.py
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
 当前基线（2026-09-22，任务 9 复核修复后，`-p cryspglib` 限定到本 crate）：
-lib `392 passed / 4 ignored`，integration `154 passed`，doctest `27 passed`，
+lib `392 passed / 4 ignored`，integration `155 passed`，doctest `27 passed`，
 example 审计回归 `17 passed`、缺口清点回归 `1 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
@@ -3095,3 +3095,35 @@ lib 392、integration 154、doctest 27、audit example 17、census example 1、
 census example 1、严格 all-target clippy 通过；Python 离线 9 + 16、几何 oracle
 62 行 / 26 描述串 / 62 origin、w 源门禁通过。未重跑全表分导扫描；353,382 / 12,878
 覆盖数字沿用 `6d1330f` 的审计，剩余 manifest 的计数与分组本轮已重新核对。
+
+### 分导 R3（2026-09-22）：剩余缺口的来源分类
+
+R3 是离线清点卡，不改生产求解算法。工具 `scripts/classify_subduction_gap_sources.py`
+读 `examples/census_subduction_gaps.rs` 生成的缺口 manifest 与 `scripts/iso_irrep_exact.py`
+载入的归档 PIR/CIR 帧，对 899 个（子群, k-star, setting）组逐组给出：命中的参数化 PIR
+记录与代入参数、被剔除的"更一般域"记录、精确小群操作与有限小余群阶、因子系统
+`ω_ij = exp(+2πi q·L_ij)`、命中记录的 irstyle/token 完整性、以及最小见证。
+
+结果：**222 解析路线**（小余群阶 1，目标是一维 Bloch 相位，与 R2 的 child #1 同一条路）、
+**676 参数化 source**（归档 PIR 参数域精确穿过该 q）、**1 确需新增来源**（child #155，
+ordinal 11067 `W1`，星 `(-1/4,-1/4,3/2; …)`，只匹配到一般位置记录 `GP1GQ1`）、0 未分类。
+小余群阶分布 1/2/3/4/6 = 222/445/4/222/6；**322 组因子系统非平凡**、442 组含非幺正
+（螺旋/滑移）操作；787 组需要"最大小群过滤"（一般位置记录也穿过同一 q，不筛就会拿错）。
+899/899 组命中记录的逐操作 token 槽完整（`token_missing=0`）。
+
+本轮钉死的语义（都曾产生错答）：PIR 只索引参数化域、域维数看方向向量而非参数槽；
+`record.operations` 是整个空间群不是小群；k 域参数按**原胞倒格**周期化（C 心群
+`(0,1,0)` 方向要 `t=2` 才回同类，修正后 `special_value_no_source` 42 → 1）；
+格归属必须用原胞格（螺旋轴乘积与代表元差 centring 矢量）。
+
+逐操作见证（验收项）：带心 SG 5（C2，U 线 `(0,t,1/2)`，归档 `U1UA1`/`U2UA2` 在 t=1/2 命中、
+一般位置记录被剔除）、螺旋/滑移 SG 24（I2₁2₁2₁，P 点小群 4 操作、3 个非幺正、ω ∈ {1/4,3/4}）
+在 Python 单测；非对称换基 ordinal 26（SG 3 `A1` → #3，`U=[[1,2,1],[-1,2,-1],[-1,0,1]]/2）
+在 `tests/subduction_gap_sources.rs`，用引擎 `unmap_operation` 逐操作对照归档 child #3
+操作并核对钉子星 `(0,1/3,1/2)` 的小群与相位。
+
+命令：`python3 scripts/classify_subduction_gap_sources.py <manifest> > groups.tsv`；
+`python3 -m unittest discover -s scripts -p test_classify_subduction_gap_sources.py`（15 项，
+默认套件 ~41 s）；`R3_FULL_MANIFEST=1` 跑 899 组门禁（~90 s）。
+报告：`docs/subduction-gap-sources.md`。R4 的入口是把 676 组命中记录的归档 token
+物化成参数化字符/矩阵（本卡只确认可用性，不实现）。

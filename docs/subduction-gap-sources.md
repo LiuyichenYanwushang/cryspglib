@@ -112,21 +112,34 @@ token 槽全满，其余有空洞；但**缺口组的命中记录全部全满**�
   在 t=1/2 精确命中，一般位置 `GP1GQ1` 被剔除（见单测）。
 - **螺旋/滑移**：SG 24（I2₁2₁2₁，I 心 + 三条 2₁）：P 点小群 4 个操作、3 个非幺正、
   ω = 1/4 与 3/4（见单测 `test_screw_little_group_is_projective`）。
-- **非对称换基**：**部分完成**。冻结表里有 392 条 shear（非 signed permutation）
-  setting，但都不落在 899 个缺口组里（缺口组的 346 条冻结 setting 全是 signed
-  permutation）。已钉住见证 ordinal 26（SG 3 → #3，`U = [[1,2,1],[-1,2,-1],[-1,0,1]]/2`）：
-  冻结表的值与引擎 `trace_embedding 26` 打印的 `setting` 一致（建议用
-  `cargo run --release -p cryspglib --example trace_embedding -- 26` 复现）。
-  **尚未完成**的是把归档子群帧的小群操作经该 setting 变换到引擎子群帧的逐操作对照：
-  实测用 U 直接共轭会得到分母为 4 的非整旋转，说明 U 不是两个子群帧之间的直接
-  setting 变换（引擎的 `transform` 是整矩阵 `[[1,0,1],[0,1,0],[-1,0,1]]`，det 2，
-  与 U 不是同一个对象）。这一条按"不猜约定"的原则留作 R3 收口前的最后一项，
-  下一步应直接用引擎的 `SubgroupEmbedding::transform()` 与归档操作做逐操作映射，
-  而不是继续试矩阵方向。
+- **非对称换基**：**完成**（`tests/subduction_gap_sources.rs`）。冻结表里有 392 条
+  shear（非 signed permutation）setting，都不落在 899 个缺口组里（缺口组的 346 条
+  冻结 setting 全是 signed permutation），因此见证取冻结表中的第一条 shear：
+  ordinal 26（SG 3 `A1` → #3，`U = [[1,2,1],[-1,2,-1],[-1,0,1]]/2`）。单测用引擎自己的
+  路径逐个操作对照：`SubgroupEmbedding::transform().unmap_operation` 把该记录的每个
+  母群代表元映到子群帧、模子群格约化后，**逐项等于归档里 child #3 的两个操作**
+  （E 与绕 b 的 C2），且两个方向的包含都成立（不是子集）；在钉子星
+  `(0,1/3,1/2)` 上小群 2 个操作、因子系统 4 个有序对的相位全为 0（SG 3 对称）。
+  与离线分类器在该星上的结果（阶 2、ω 全 1）一致。
+  复现：`cargo test --release -p cryspglib --test subduction_gap_sources`；
+  引擎 side 的 setting 可用 `cargo run --release -p cryspglib --example trace_embedding -- 26` 打印。
 
-## 剩余工作
+## 结论与交付
 
-1. 非对称换基的逐操作对照（上节第三项，约定未钉死前不猜）。
-2. PIR 物化器：把 676 个 `parameterized_source` 组在代入参数后的字符/矩阵真正解码出来
-   （归档 token 已确认完整），并在有离散表可对照的 q 上交叉验证；这是 R4 的数据路线入口。
-3. 单测默认套件约 41 s（归档加载 39 s）；全 899 组门禁由 `R3_FULL_MANIFEST=1` 显式开启。
+R3 的输出（全部已核对）：
+
+* 工具：`scripts/classify_subduction_gap_sources.py`（离线、只读归档、不改生产求解路径）。
+* 报告：本文件；逐组清单 `target/r3_groups.tsv`（22 列，899 行；由 manifest 生成，
+  manifest 由 `examples/census_subduction_gaps.rs` 从全表审计生成）。
+* 测试：`scripts/test_classify_subduction_gap_sources.py` 15 项（含 `R3_FULL_MANIFEST=1`
+  的 899 组门禁，证明无静默漏项）；`tests/subduction_gap_sources.rs` 的非对称换基逐操作见证。
+* 三类结果：222 解析（小余群阶 1，Bloch 相位路线）/ 676 参数化 source（归档 PIR 精确
+  命中，含代入参数）/ 1 确需新增来源（child #155，ordinal 11067 `W1`）；0 未分类。
+  nonsymmorphic/projective 单列：322 组 ω 非平凡、442 组含非幺正操作。
+
+**R3 边界之外（下一张卡 R4 的入口，本卡不实现）**：PIR 物化器——把 676 个
+`parameterized_source` 组在代入参数后的字符/矩阵从归档 token 真正解码出来，并在有离散
+表可对照的 q 上交叉验证。归档 token 完整性已在本卡逐组确认（899/899 组无缺口）。
+
+运行成本：分类器一次全表约 45 s（其中归档加载 ~39 s）；单测默认套件约 41 s，
+899 组门禁约 90 s。
