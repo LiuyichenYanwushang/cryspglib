@@ -61,23 +61,22 @@ CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
 CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
   --example census_subduction_gaps -- target/audit.tsv > target/r12_gaps.tsv
 python3 scripts/classify_subduction_gap_sources.py target/r12_gaps.tsv > target/r3_groups.tsv
-python3 -m unittest discover -s scripts -p test_classify_subduction_gap_sources.py     # 15 项
+python3 -m unittest discover -s scripts -p test_classify_subduction_gap_sources.py     # 19 项
 R3_FULL_MANIFEST=1 python3 -m unittest discover -s scripts -p test_classify_subduction_gap_sources.py  # 899 组门禁
 ```
 
 | 分类 | 组数 | 含义与后续路线 |
 |---|---:|---|
-| `analytic_general_position` | **222** | 小余群阶为 1（只有平移）：目标就是一维 Bloch 相位，与 R2 的子群 #1 同一条解析路线，不需要任何字符表 |
-| `parameterized_source` | **676** | 归档 PIR 的参数化小群记录精确穿过该 q（含参数值 t）：数据存在，R4 只需把该参数下的记录materialize/解码，不需要新算法 |
-| `special_value_no_source` | **1** | 小余群阶 > 1，但没有任何归档参数域穿过该 q：真缺口，必须走构造路线 |
+| `analytic_general_position` | **215** | 小余群阶为 1（只有平移）：目标就是一维 Bloch 相位，与 R2 的子群 #1 同一条解析路线，不需要任何字符表 |
+| `parameterized_source` | **684** | 归档 PIR 的参数化小群记录精确穿过该 q（含参数值 t）：数据存在，R4 只需把该参数下的记录物化/解码，不需要新算法 |
+| `special_value_no_source` | **0** | 无 |
 
-其余统计：小余群阶分布 1/2/3/4/6 = 222/445/4/222/6；**322 组因子系统非平凡**、
-442 组含非幺正（螺旋/滑移）操作；787 组存在"一般位置记录也穿过同一 q"的情形，已被
-最大小群过滤剔除（不筛就会把一般位置的表示当成目标）。
+其余统计：**322 组因子系统非平凡**、444 组含非幺正（螺旋/滑移）操作；811 组存在
+"一般位置记录也穿过同一 q"的情形，已被最大小群过滤剔除（不筛就会把一般位置的表示
+当成目标）；899/899 组的星内各臂给出同一个**小余群阶**（`star_order_inconsistent=0`）。
 
-唯一无源组：child **#155**（R32），见证 ordinal 11067、probe `W1`、
-星 `(-1/4,-1/4,3/2; -1/4,1/2,3/2; 1/2,-1/4,3/2)`，实际小余群阶 2，只匹配到一般位置
-记录 `GP1GQ1`（dim 12）——不得用它冒充目标。
+覆盖率数字是复核修复后的重算值：修复前（含两处计算错误）是 222/676/1，71 组的命中
+来源因此改变。修复详情见下节。
 
 ### 关键语义（本轮钉死，勿再重新踩）
 
@@ -96,15 +95,47 @@ R3_FULL_MANIFEST=1 python3 -m unittest discover -s scripts -p test_classify_subd
 
 ### 字符/矩阵可用性（逐组）
 
-每个组的命中记录都带**完整的逐操作 token 槽**：`token_slots` 全部非空、
-`token_missing = 0`（899/899 组）。归档 PIR 记录本身有 10,294 条，其中 5,517 条
-token 槽全满，其余有空洞；但**缺口组的命中记录全部全满**，所以 676 个
-`parameterized_source` 组的字据确实在 pinned 归档里。
+矩阵可用性用仓库**已有的 PIR 解码器**（`scripts/generate_irrep_data.py` 的
+`_parse_pir_characters`）逐组核对：**899/899 组的命中记录矩阵块完整**，合计
+90,624 个矩阵元；判定条件是解码器给出该 `(SG, label)` 且展平块长度等于
+`dim² × 操作数`。输出列 `matrix_available` / `matrix_elements`。
 
-限制：`scripts/iso_irrep_exact.py` 按设计**只校验、不物化**矩阵/字符 token，
-仓库目前没有 PIR 物化器。所以"可用"的准确含义是：*数据在归档里，代入参数后的
-物化（解码）是 R4 的数据工程任务，不是新的数学*。工具输出的
-`matched_irtypes`（PIR 记录类型 1/2/3）与 `token_slots`/`token_missing` 列给出逐组依据。
+**更正**：此前用 `irtranslations` 是否为 `None` 当作"矩阵空洞"是错的——它是参数化
+相位字段，离散记录按格式本来就没有（例如 #5 Γ 的 `GM1`/`GM2` 四个槽全 `None`，
+矩阵却完整）。现在这两列改名为 `irtranslation_slots` / `irtranslation_none`，
+只描述该参数化相位字段本身。
+
+限制：`scripts/iso_irrep_exact.py` 按设计只校验不物化；分类器改为直接调用仓库已有的
+PIR 解码器判定完整性。因此"可用"的准确含义是：*数据在归档里且解码器能读出完整
+矩阵块*；把某个参数值下的字符/矩阵求值接成分导目标，是 R4 的工作。
+
+### 复核修复（第 4 轮，2026-09-22）
+
+复核复现了两处计算错误与两处验证问题，均已修复并加永久回归：
+
+1. **参数代入漏掉方向向量的非对角分量**（P1）：`arm_point` 原来只算
+   `direction[axis]·t`，方向 `(1,1,0)`、`t=1/4` 会返回 `(1/4,0,0)`。现在按
+   `k = constant + Σ_j t_j·p_j` 全分量求和。这直接推翻了"#155 唯一无源"的结论：
+   归档 `Y1YA1`(7219)/`Y2YA2`(7220) 的耦合直线 `k=(t,t,3/2)` 在 `t=3/4` 给出
+   `(3/4,3/4,3/2)`，与见证 `(-1/4,-1/4,3/2)` 相差 R 心倒格矢量 `(1,1,0)`。
+   回归：`test_coupled_direction_contributes_to_every_component`、
+   `test_the_reviewed_witness_is_a_parameterized_source`。
+2. **旋转求逆少一次转置**（P1）：`rotation_inverse` 返回的是余子式矩阵除行列式，
+   即 `R⁻ᵀ`；调用方再当作逆矩阵用，三方旋转上的倒空间作用因此错误。现在返回真正的
+   `R⁻¹`（余子式矩阵转置后除行列式），`preserves_q` 的 `(R⁻¹)ᵀ q` 随之正确。
+   7 个实际阶为 2 的组曾被标成阶 1 的解析目标（涉及 #155、#166、#167）。
+   回归：`test_rotation_inverse_is_the_matrix_inverse`（对 6 个含三方旋转的空间群
+   逐元素验证 `R·R⁻¹ = I`）。
+3. **矩阵可用性判定错位**（P2）：见上节更正。
+4. **Rust 因子系统测试把格矢消掉了**（P2）：`factor_system_turns` 先把乘积操作按格
+   约化、再对平移差取余，真正携带 Bloch 相位的格矢因此丢失。现在乘积**不约化**，
+   直接从 `s_i s_j` 与代表元之差取格矢并断言它属于子群格。
+   回归：`a_screw_relation_produces_a_non_trivial_phase`（`S²=T(0,0,1)`、
+   `q=(0,0,1/2)` 必须给出半圈相位，修复前返回全零）与既有的 SG 3 见证。
+
+修复后 899 组重算：215 解析 / 684 参数化来源 / 0 无源；811 组需要最大小群过滤
+（原 787）；444 组含非幺正操作（原 442）；星内各臂小余群阶全部一致
+（`star_order_inconsistent=0`）。
 
 ### 逐操作对照（验收项）
 
@@ -131,11 +162,12 @@ R3 的输出（全部已核对）：
 * 工具：`scripts/classify_subduction_gap_sources.py`（离线、只读归档、不改生产求解路径）。
 * 报告：本文件；逐组清单 `target/r3_groups.tsv`（22 列，899 行；由 manifest 生成，
   manifest 由 `examples/census_subduction_gaps.rs` 从全表审计生成）。
-* 测试：`scripts/test_classify_subduction_gap_sources.py` 15 项（含 `R3_FULL_MANIFEST=1`
-  的 899 组门禁，证明无静默漏项）；`tests/subduction_gap_sources.rs` 的非对称换基逐操作见证。
-* 三类结果：222 解析（小余群阶 1，Bloch 相位路线）/ 676 参数化 source（归档 PIR 精确
-  命中，含代入参数）/ 1 确需新增来源（child #155，ordinal 11067 `W1`）；0 未分类。
-  nonsymmorphic/projective 单列：322 组 ω 非平凡、442 组含非幺正操作。
+* 测试：`scripts/test_classify_subduction_gap_sources.py` 19 项（含 `R3_FULL_MANIFEST=1`
+  的 899 组门禁：分类分布、矩阵完整、星内阶一致，证明无静默漏项）；
+  `tests/subduction_gap_sources.rs` 的非对称换基逐操作见证与螺旋相位负例。
+* 三类结果：215 解析（小余群阶 1，Bloch 相位路线）/ 684 参数化来源（归档 PIR 精确
+  命中，含代入参数与完整矩阵块）/ **0 确需新增来源**；0 未分类。
+  nonsymmorphic/projective 单列：322 组 ω 非平凡、444 组含非幺正操作。
 
 **R3 边界之外（下一张卡 R4 的入口，本卡不实现）**：PIR 物化器——把 676 个
 `parameterized_source` 组在代入参数后的字符/矩阵从归档 token 真正解码出来，并在有离散

@@ -52,7 +52,7 @@ python3 scripts/check_other_wave_vector_rows.py
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
 当前基线（2026-09-22，任务 9 复核修复后，`-p cryspglib` 限定到本 crate）：
-lib `392 passed / 4 ignored`，integration `155 passed`，doctest `27 passed`，
+lib `392 passed / 4 ignored`，integration `156 passed`，doctest `27 passed`，
 example 审计回归 `17 passed`、缺口清点回归 `1 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
@@ -3104,12 +3104,11 @@ R3 是离线清点卡，不改生产求解算法。工具 `scripts/classify_subd
 记录与代入参数、被剔除的"更一般域"记录、精确小群操作与有限小余群阶、因子系统
 `ω_ij = exp(+2πi q·L_ij)`、命中记录的 irstyle/token 完整性、以及最小见证。
 
-结果：**222 解析路线**（小余群阶 1，目标是一维 Bloch 相位，与 R2 的 child #1 同一条路）、
-**676 参数化 source**（归档 PIR 参数域精确穿过该 q）、**1 确需新增来源**（child #155，
-ordinal 11067 `W1`，星 `(-1/4,-1/4,3/2; …)`，只匹配到一般位置记录 `GP1GQ1`）、0 未分类。
-小余群阶分布 1/2/3/4/6 = 222/445/4/222/6；**322 组因子系统非平凡**、442 组含非幺正
-（螺旋/滑移）操作；787 组需要"最大小群过滤"（一般位置记录也穿过同一 q，不筛就会拿错）。
-899/899 组命中记录的逐操作 token 槽完整（`token_missing=0`）。
+结果（复核修复后重算）：**215 解析路线**（小余群阶 1，目标是一维 Bloch 相位，与 R2 的
+child #1 同一条路）、**684 参数化来源**（归档 PIR 参数域精确穿过该 q）、**0 确需新增
+来源**、0 未分类；**322 组因子系统非平凡**、444 组含非幺正（螺旋/滑移）操作；811 组
+需要"最大小群过滤"（一般位置记录也穿过同一 q，不筛就会拿错）；
+**899/899 组矩阵块完整**（90,624 个矩阵元，用生成器已有的 PIR 解码器判定）。
 
 本轮钉死的语义（都曾产生错答）：PIR 只索引参数化域、域维数看方向向量而非参数槽；
 `record.operations` 是整个空间群不是小群；k 域参数按**原胞倒格**周期化（C 心群
@@ -3127,3 +3126,28 @@ ordinal 11067 `W1`，星 `(-1/4,-1/4,3/2; …)`，只匹配到一般位置记录
 默认套件 ~41 s）；`R3_FULL_MANIFEST=1` 跑 899 组门禁（~90 s）。
 报告：`docs/subduction-gap-sources.md`。R4 的入口是把 676 组命中记录的归档 token
 物化成参数化字符/矩阵（本卡只确认可用性，不实现）。
+
+### 分导 R3 复核修复（第 4 轮：`52e4c65` 复核）
+
+复核独立复现了 899 组分类，并否证了"#155 唯一无源"的结论。四处问题全部修复：
+
+1. **参数代入漏掉非对角分量（P1）**：`arm_point` 只算 `direction[axis]·t`，方向
+   `(1,1,0)`、`t=1/4` 返回 `(1/4,0,0)`。改为 `k = constant + Σ_j t_j p_j` 全分量求和。
+   #155 的归档 `Y1YA1`/`Y2YA2` 耦合直线 `k=(t,t,3/2)` 在 `t=3/4` 命中见证星
+   （差 R 心倒格矢量 `(1,1,0)`），该组因此是参数化来源。
+2. **旋转求逆少一次转置（P1）**：`rotation_inverse` 返回 `C/det = R⁻ᵀ`，调用方当逆矩阵
+   用导致倒空间作用错误，7 组（#155/#166/#167）实际阶 2 被标成阶 1。改为返回真正的
+   `R⁻¹`（余子式矩阵转置后除行列式）。
+3. **矩阵可用性判定错位（P2）**：`irtranslations` 是参数化相位字段，离散记录按格式没有
+   （#5 Γ `GM1`/`GM2` 四槽全 `None` 但矩阵完整），不能当"矩阵空洞"。改为调用仓库已有的
+   PIR 解码器（`generate_irrep_data._parse_pir_characters`）判定：899/899 组矩阵块完整。
+   列名改为 `irtranslation_slots`/`irtranslation_none` + `matrix_available`/`matrix_elements`。
+4. **Rust 因子系统把格矢消掉（P2）**：`factor_system_turns` 先约化乘积再取平移差余数，
+   携带 Bloch 相位的格矢丢失（`S²=T(0,0,1)`、`q=(0,0,1/2)` 返回全零）。改为乘积不约化、
+   直接取 `s_i s_j` 与代表元之差的格矢并断言属于子群格。
+
+永久回归（新增）：耦合方向代入、`R·R⁻¹=I`（含三方旋转）、同星各臂小群阶一致
+（`star_order_inconsistent=0`，输出列 `star_orders`）、非零螺旋相位负例、#155 参数化
+来源钉值、矩阵可用性走解码器。修复后重算：215/684/0，71 组命中来源改变；
+`scripts/test_classify_subduction_gap_sources.py` 19 项（含 899 组门禁），
+`tests/subduction_gap_sources.rs` 2 项。

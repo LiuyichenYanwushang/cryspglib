@@ -65,18 +65,20 @@ fn factor_system_turns(
     let mut turns = Vec::new();
     for first in &representatives {
         for second in &representatives {
-            let product = first.compose(second)?.reduce(lattice)?;
+            // The product is taken *unreduced*: reducing it first would subtract
+            // the very lattice vector whose Bloch phase is the factor we are
+            // measuring, and a screw relation S^2 = T(0,0,1) at q = (0,0,1/2)
+            // would come out as a trivial phase.
+            let product = first.compose(second)?;
             let target = representatives
                 .iter()
                 .find(|candidate| candidate.rotation() == product.rotation())
                 .expect("little group is closed under multiplication");
-            let difference = lattice
-                .reduce(
-                    &product
-                        .translation()
-                        .checked_sub(target.translation())?,
-                )?
-                .representative;
+            let difference = product.translation().checked_sub(target.translation())?;
+            assert!(
+                lattice.contains(&difference)?,
+                "the operation product must differ from its representative by a lattice vector"
+            );
             let value = q
                 .get(0)
                 .checked_mul(difference.get(0))?
@@ -163,5 +165,34 @@ fn a_non_symmetric_setting_maps_every_child_operation_into_the_engine_frame() {
     assert!(
         turns.iter().all(|value| *value == Rat::ZERO),
         "SG 3 is symmorphic: every phase must be zero, found {turns:?}"
+    );
+}
+
+/// The factor system must see the lattice vector of a product relation, not its
+/// remainder: a screw-like little group with ``S^2 = T(0,0,1)`` at
+/// ``q = (0, 0, 1/2)`` has the half-turn phase ``exp(2 pi i * 1/2) = -1``.
+#[test]
+fn a_screw_relation_produces_a_non_trivial_phase() {
+    let lattice = Lattice::integer();
+    let zero = Vec3R::new([Rat::from_integer(0); 3]);
+    let half = Rat::new(1, 2).unwrap();
+    let identity = ExactSeitz::new([[1, 0, 0], [0, 1, 0], [0, 0, 1]], zero);
+    let screw = ExactSeitz::new(
+        [[-1, 0, 0], [0, -1, 0], [0, 0, 1]],
+        Vec3R::new([Rat::ZERO, Rat::ZERO, half]),
+    );
+    let q = Vec3R::new([Rat::ZERO, Rat::ZERO, half]);
+    let little = vec![identity, screw];
+    let turns = factor_system_turns(&little, &q, &lattice).expect("factor system");
+    assert_eq!(turns.len(), 4);
+    assert_eq!(
+        turns.iter().filter(|value| **value == half).count(),
+        1,
+        "the screw pair must carry the half-turn phase, found {turns:?}"
+    );
+    assert_eq!(
+        turns.iter().filter(|value| value.is_zero()).count(),
+        3,
+        "the other three ordered pairs are trivial, found {turns:?}"
     );
 }

@@ -99,6 +99,50 @@ def in_primitive_reciprocal(vector: Vector, centering: str) -> bool:
     return True
 
 
+_PIR_MATRICES = None
+
+
+def pir_matrix_availability():
+    """The repo's PIR matrix decoder, loaded once.
+
+    ``scripts/generate_irrep_data.py`` already materialises the archived PIR
+    character and matrix payloads; the classifier uses it instead of guessing
+    matrix completeness from the parametric-phase slots (``irtranslations``),
+    which are simply absent for discrete records and say nothing about matrices.
+    Returns ``(matrices, operations, dimensions)`` keyed by ``(spacegroup,
+    label)``.
+    """
+    global _PIR_MATRICES
+    if _PIR_MATRICES is None:
+        import generate_irrep_data as generator
+
+        parsed = generator._parse_pir_characters()
+        _PIR_MATRICES = (parsed[1], parsed[2], parsed[3])
+    return _PIR_MATRICES
+
+
+def matrix_completeness(spacegroup: int, records) -> tuple:
+    """Whether every record's archived matrix block is complete, and its size.
+
+    A record is complete when the decoder has its ``(spacegroup, label)`` key
+    and the flattened block holds ``dimension^2 * operations`` elements.
+    """
+    matrices, operations, dimensions = pir_matrix_availability()
+    available = True
+    elements = 0
+    for record in records:
+        key = (spacegroup, record.irrep_label)
+        block = matrices.get(key)
+        operation_count = len(operations.get(key, ()))
+        dimension = dimensions.get(key, record.dimension)
+        expected = int(dimension) ** 2 * operation_count
+        if block is None or expected == 0 or len(block) != expected:
+            available = False
+            continue
+        elements += len(block)
+    return available, elements
+
+
 def parse_star(text: str) -> list[Vector]:
     """One star as the manifest writes it: points separated by ``;``."""
     points = []
@@ -161,15 +205,21 @@ def solve_exact(columns: list[Vector], rhs: Vector) -> tuple[Fraction, ...] | No
     return tuple(solution)
 
 
-def arm_point(arm: ExactKArm, free: list[int], parameters: tuple[Fraction, ...]) -> Vector:
-    """The arm's k at the solved parameter values."""
+def arm_point(arm: ExactKArm, free: List[int], parameters: Tuple[Fraction, ...]) -> Vector:
+    """The arm's k at the solved parameter values.
+
+    Every free direction contributes to every Cartesian component:
+    ``k = constant + sum_j t_j * p_j``.  Reading only ``p_j[axis]`` for the axis
+    that carries the free slot drops the off-diagonal components of a coupled
+    direction such as ``(1, 1, 0)`` and silently reports the wrong k.
+    """
     out = []
     for axis in range(3):
         value = arm.constant[axis]
-        if axis in free:
-            direction = arm.parameters[axis]
+        for position, slot in enumerate(free):
+            direction = arm.parameters[slot]
             assert direction is not None
-            value += direction[axis] * parameters[free.index(axis)]
+            value += direction[axis] * parameters[position]
         out.append(value)
     return (out[0], out[1], out[2])
 
@@ -294,7 +344,14 @@ def matmul(left: Rotation, right: Rotation):
 
 
 def rotation_inverse(rotation: Rotation) -> Rotation:
-    """Inverse of an integer GL(3,Z) rotation, by adjugate over the determinant."""
+    """The matrix inverse ``R^-1`` of an integer GL(3,Z) rotation.
+
+    The cofactor matrix ``C`` satisfies ``C = det(R) * (R^-1)^T``, so the
+    inverse is the *transpose* of ``C / det(R)``.  Returning ``C / det(R)``
+    directly yields ``R^-T``; every caller that then indexes it as a matrix
+    silently gets the wrong action, which is how seven groups were misread as
+    having a trivial little co-group.
+    """
     a, b, c = rotation
     cofactors = (
         (b[1] * c[2] - b[2] * c[1], b[2] * c[0] - b[0] * c[2], b[0] * c[1] - b[1] * c[0]),
@@ -305,7 +362,8 @@ def rotation_inverse(rotation: Rotation) -> Rotation:
         a[0] * cofactors[0][0] + a[1] * cofactors[0][1] + a[2] * cofactors[0][2]
     )
     return tuple(
-        tuple(Fraction(cofactors[i][j], determinant) for j in range(3)) for i in range(3)
+        tuple(Fraction(cofactors[j][i], determinant) for j in range(3))
+        for i in range(3)
     )
 
 
@@ -435,6 +493,10 @@ def analyse_group(
 ) -> dict:
     """Every reported quantity of one ``(child, star, setting)`` group."""
     operations, co_group_order = little_group(universe, points[0])
+    # One star is one physical q class, so every arm must give the same little
+    # co-group order; a disagreement means the reciprocal action or the frame is
+    # wrong somewhere.
+    star_orders = sorted({little_group(universe, point)[1] for point in points})
     centering = universe.centering.value
     matches: list[tuple[ExactSourceRecord, list[int], tuple[Fraction, ...]]] = []
     for record in records:
@@ -453,12 +515,18 @@ def analyse_group(
     best = min((len(free) for _, free, _ in matches), default=-1)
     kept = [entry for entry in matches if len(entry[1]) == best]
     nontrivial, nonsymmorphic = factor_system(operations, points[0], centering)
-    token_slots = sum(len(record.irtranslations) for record, _, _ in kept)
-    token_missing = sum(
+    # The parametric-phase slots are a k-domain field: a discrete record has
+    # none of them by format.  Matrix availability is a separate question and is
+    # answered from the decoder above.
+    irtranslation_slots = sum(len(record.irtranslations) for record, _, _ in kept)
+    irtranslation_none = sum(
         1
         for record, _, _ in kept
         for translation in record.irtranslations
         if translation is None
+    )
+    matrix_available, matrix_elements = matrix_completeness(
+        universe.spacegroup, [record for record, _, _ in kept]
     )
     return {
         "matched_irnumbers": sorted({record.irnumber for record, _, _ in kept}),
@@ -466,12 +534,16 @@ def analyse_group(
         "matched_dimensions": sorted({record.dimension for record, _, _ in kept}),
         "matched_parameters": sorted({tuple(str(value) for value in parameters) for _, _, parameters in kept}),
         "matched_irtypes": sorted({record.irtype for record, _, _ in kept}),
-        "token_slots": token_slots,
-        "token_missing": token_missing,
+        "irtranslation_slots": irtranslation_slots,
+        "irtranslation_none": irtranslation_none,
+        "matrix_available": matrix_available,
+        "matrix_elements": matrix_elements,
         "excluded_generic": excluded,
         "min_free_directions": best,
         "little_group_ops": len(operations),
         "little_co_group_order": co_group_order,
+        "star_orders": ",".join(str(order) for order in star_orders),
+        "co_group_order_consistent": len(star_orders) == 1,
         "factor_system_nontrivial": len(nontrivial),
         "factor_system_values": sorted({str(value) for _, _, value in nontrivial}),
         "nonsymmorphic_ops": nonsymmorphic,
@@ -484,7 +556,8 @@ HEADER = (
     "\twitness_probe\tmatched_irnumbers\tmatched_labels\tmatched_dimensions\tmatched_parameters"
     "\texcluded_generic\tmin_free_directions\tlittle_group_ops\tlittle_co_group_order"
     "\tfactor_system_nontrivial\tfactor_system_values\tnonsymmorphic_ops"
-    "\tmatched_irtypes\ttoken_slots\ttoken_missing\tclassification"
+    "\tmatched_irtypes\tirtranslation_slots\tirtranslation_none"
+    "\tmatrix_available\tmatrix_elements\tstar_orders\tclassification"
 )
 
 
@@ -548,8 +621,11 @@ def main() -> int:
                     ",".join(report["factor_system_values"]),
                     str(report["nonsymmorphic_ops"]),
                     ",".join(str(value) for value in report["matched_irtypes"]),
-                    str(report["token_slots"]),
-                    str(report["token_missing"]),
+                    str(report["irtranslation_slots"]),
+                    str(report["irtranslation_none"]),
+                    "true" if report["matrix_available"] else "false",
+                    str(report["matrix_elements"]),
+                    report["star_orders"],
                     report["classification"],
                 ]
             )
@@ -558,8 +634,10 @@ def main() -> int:
         summary["factor_system_nontrivial"] += 1 if report["factor_system_nontrivial"] else 0
         summary["nonsymmorphic_children"] += 1 if report["nonsymmorphic_ops"] else 0
         summary["excluded_generic_groups"] += 1 if report["excluded_generic"] else 0
-        summary["tokens_complete_groups"] += 1 if report["token_missing"] == 0 else 0
-        summary["token_missing_slots"] += report["token_missing"]
+        summary["matrix_available_groups"] += 1 if report["matrix_available"] else 0
+        summary["matrix_missing_groups"] += 1 if not report["matrix_available"] else 0
+        summary["matrix_elements_total"] += report["matrix_elements"]
+        summary["star_order_inconsistent"] += 0 if report["co_group_order_consistent"] else 1
         per_child[child_sg][report["classification"]] += 1
 
     total = len(keys)

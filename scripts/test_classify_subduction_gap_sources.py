@@ -245,6 +245,73 @@ class SettingFrameTests(unittest.TestCase):
                 )
 
 
+class RegressionTests(unittest.TestCase):
+    """The four defects the review reproduced, pinned as permanent tests."""
+
+    def test_coupled_direction_contributes_to_every_component(self):
+        # A direction (1, 1, 0) with t = 1/4 must give (1/4, 1/4, 0).  Reading
+        # only the diagonal component returned (1/4, 0, 0) and mis-matched the
+        # whole arm.
+        from classify_subduction_gap_sources import arm_point
+
+        record = next(
+            record
+            for record in records_of(155)
+            if record.irrep_label in {"Y1YA1", "Y2YA2"}
+        )
+        arm = next(
+            arm
+            for arm in record.k_arms
+            if [j for j in range(3) if arm.parameters[j] is not None]
+        )
+        free = [j for j in range(3) if arm.parameters[j] is not None]
+        parameters, solved_free = match_arm(arm, parse_star("3/4,3/4,3/2")[0], "R")
+        self.assertIsNotNone(parameters, "the coupled index-2 arm must match q")
+        self.assertEqual(parameters, (Fraction(3, 4),))
+        point = arm_point(arm, solved_free, parameters)
+        self.assertEqual(point[0], Fraction(3, 4))
+        self.assertEqual(point[1], Fraction(3, 4))
+        self.assertEqual(point[2], Fraction(3, 2))
+
+    def test_rotation_inverse_is_the_matrix_inverse(self):
+        # Trigonal and other non-diagonal rotations exposed a missing transpose:
+        # the helper returned R^-T, so the reciprocal action came out wrong.
+        seen = 0
+        for spacegroup in (3, 5, 24, 155, 166, 167):
+            for operation in DATABASE.source_universe(spacegroup).operations:
+                inverse = rotation_inverse(operation.rotation)
+                for i in range(3):
+                    for j in range(3):
+                        total = sum(
+                            Fraction(operation.rotation[i][k]) * inverse[k][j]
+                            for k in range(3)
+                        )
+                        self.assertEqual(total, Fraction(1 if i == j else 0))
+                seen += 1
+        self.assertGreater(seen, 4)
+
+    def test_every_arm_of_a_star_gives_the_same_co_group_order(self):
+        # A wrong reciprocal action made points of one star disagree; the star is
+        # one physical q class, so the order must be constant over it.
+        checked = 0
+        for child, star in [(155, "-1/2,1/4,3/2;1/4,-1/2,3/2;1/4,1/4,3/2"),
+                            (5, "0,1/2,1/2"), (24, "1/2,1/2,1/2")]:
+            universe = DATABASE.source_universe(child)
+            orders = {
+                little_group(universe, point)[1] for point in parse_star(star)
+            }
+            self.assertEqual(len(orders), 1, f"child #{child} star {star}: {orders}")
+            checked += 1
+        self.assertEqual(checked, 3)
+
+    def test_matrix_availability_uses_the_decoder_not_the_phase_slots(self):
+        # Discrete records carry no parametric-phase slot by format (#5 GM1 has
+        # four `None`s), yet their matrices exist.
+        report = analyse(5, "0,0,0")
+        self.assertTrue(report["matrix_available"])
+        self.assertGreater(report["matrix_elements"], 0)
+
+
 class SourceClassificationTests(unittest.TestCase):
     def test_c2_u_line_uses_the_archived_line_records(self):
         report = analyse(5, "0,1/2,1/2")
@@ -262,15 +329,18 @@ class SourceClassificationTests(unittest.TestCase):
         self.assertEqual(report["little_co_group_order"], 1)
         self.assertTrue(report["matched_irnumbers"], "a source may still be recorded")
 
-    def test_the_single_sourceless_group_is_flagged_not_guessed(self):
-        # Child #155 (R32) at the pinned star below: the little co-group has
-        # order two, but no archived parametric domain passes through it, so the
-        # general-position record must not be used as the target.
+    def test_the_reviewed_witness_is_a_parameterized_source(self):
+        # Child #155 (R32) at the pinned star: the little co-group has order two
+        # and the archived coupled line k = (t, t, 3/2) passes through it at
+        # t = 3/4, i.e. at (3/4, 3/4, 3/2) = (-1/4, -1/4, 3/2) + (1, 1, 0), an
+        # R-centred reciprocal vector.  The earlier "no source" verdict came
+        # from dropping that off-diagonal coupling and from a wrong reciprocal
+        # action, and its negative test pinned the wrong answer.
         report = analyse(155, "-1/4,-1/4,3/2;-1/4,1/2,3/2;1/2,-1/4,3/2")
         self.assertEqual(report["little_co_group_order"], 2)
-        self.assertEqual(report["min_free_directions"], 3)
-        self.assertEqual(report["classification"], "special_value_no_source")
-        self.assertEqual(report["matched_labels"], ["GP1GQ1"])
+        self.assertEqual(report["classification"], "parameterized_source")
+        self.assertEqual(report["matched_labels"], ["Y1YA1", "Y2YA2"])
+        self.assertEqual(report["matched_parameters"], [("3/4",)])
 
     def test_every_archive_arm_match_is_exact(self):
         # The matcher never rounds: a solved arm reproduces the queried point
@@ -319,6 +389,11 @@ class EndToEndTests(unittest.TestCase):
                 )
         return path
 
+    def _q(self, child: int, text: str):
+        from classify_subduction_gap_sources import parse_star
+
+        return parse_star(text)[0]
+
     def test_classifier_classifies_every_row_of_a_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
             manifest = self._manifest(directory)
@@ -340,12 +415,12 @@ class EndToEndTests(unittest.TestCase):
             "no_source_needs_algorithm",
         }
         for row in rows:
-            self.assertEqual(len(row), 22, row)
+            self.assertEqual(len(row), 25, row)
             self.assertIn(row[-1], known, row)
             self.assertTrue(row[7], "every group must record its matched sources")
         by_child = {row[0]: row[-1] for row in rows}
         self.assertEqual(by_child["5"], "parameterized_source")
-        self.assertEqual(by_child["155"], "special_value_no_source")
+        self.assertEqual(by_child["155"], "parameterized_source")
         self.assertEqual(by_child["3"], "analytic_general_position")
         self.assertIn(f"groups=3", result.stderr)
 
@@ -371,11 +446,25 @@ class EndToEndTests(unittest.TestCase):
         for row in rows:
             self.assertTrue(row[7], "every group must record its matched sources")
         labels = {row[-1] for row in rows}
-        self.assertEqual(
-            labels,
-            {"analytic_general_position", "parameterized_source", "special_value_no_source"},
-        )
-        self.assertEqual(sum(1 for row in rows if row[-1] == "special_value_no_source"), 1)
+        self.assertEqual(labels, {"analytic_general_position", "parameterized_source"})
+        self.assertEqual(sum(1 for row in rows if row[-1] == "parameterized_source"), 684)
+        self.assertEqual(sum(1 for row in rows if row[-1] == "analytic_general_position"), 215)
+        # Every matched record's archived matrix block is complete.
+        for row in rows:
+            # Columns: ..., matrix_available, matrix_elements, star_orders,
+            # classification.
+            self.assertEqual(row[-4], "true", row)  # matrix_available
+            self.assertEqual(row[-3].count(","), 0, row)  # star_orders: one order
+        # Every star is one q class: its arms must agree on the little co-group,
+        # and the same order must hold across the settings of one star.
+        by_star = {}
+        for row in rows:
+            by_star.setdefault((row[0], row[1]), set()).add(row[14])
+        self.assertTrue(all(len(orders) == 1 for orders in by_star.values()))
+        for row in rows:
+            self.assertEqual(
+                len(set(row[14].split(","))), 1, f"arms disagree: {row[14]}"
+            )
 
 
 if __name__ == "__main__":
