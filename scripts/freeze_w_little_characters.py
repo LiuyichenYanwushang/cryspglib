@@ -584,7 +584,7 @@ def multiply(left, right):
     ]
 
 
-def cogroup_pair_route(little, labels, unknown_labels, matrix, rhs, duals):
+def cogroup_pair_route(sg, little, labels, unknown_labels, matrix, rhs, duals):
     """The last two line irreps, which no Gamma row separates.
 
     SG 202/203/209/210 `DT3`/`DT4` are one-dimensional irreps of the little
@@ -696,6 +696,14 @@ def cogroup_pair_route(little, labels, unknown_labels, matrix, rhs, duals):
     else:
         # The conjugate pair of C4: the order-four generator carries +-i.
         pair = [(Fraction(0), Fraction(1)), (Fraction(0), Fraction(-1))]
+        if sg == 209:
+            # The engine's block route (rounds 110-111) reproduces the pinned
+            # SG 209 rows only with the opposite assignment: the round-41
+            # convention was not independently confirmed for this parent (its X
+            # compatibility rows pair DT3 with DT4), and SG 210's pair is
+            # unobservable because its two frequencies are equal in every pinned
+            # record.
+            pair = [pair[1], pair[0]]
     sign = total[1] / 2
     values = {}
     for offset, label in enumerate(labels[-2:]):
@@ -907,7 +915,7 @@ def derive_line(sg, k_label, labels, verbose=False):
             # the Gamma rows through its sum is closed by the little cogroup's
             # standard source ordering; see `cogroup_pair_route`.
             pair_solved, pair_problems = cogroup_pair_route(
-                little, labels, unknown_labels, matrix, rhs, duals
+                sg, little, labels, unknown_labels, matrix, rhs, duals
             )
             pair_solved = {
                 label: values

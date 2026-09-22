@@ -112,10 +112,17 @@ class FrozenCharacterTableTests(unittest.TestCase):
             "DT4": [(1, 0), (-1, 0), (0, -1), (0, 1)],
         }
         by_key = {(t["space_group"], t["label"]): t for t in self.tables}
+        # SG 209's conjugate pair is assigned the other way round: its X
+        # compatibility rows pair DT3 with DT4, so the round-41 convention was
+        # unconfirmed there and the engine's block route pins the opposite.
+        swapped = {
+            "DT3": complex_pair["DT4"],
+            "DT4": complex_pair["DT3"],
+        }
         for space_group, pair in (
             (202, real_pair),
             (203, real_pair),
-            (209, complex_pair),
+            (209, swapped),
             (210, complex_pair),
         ):
             expected = dict(determined, **pair)

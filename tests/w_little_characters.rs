@@ -242,6 +242,14 @@ fn the_cubic_dt_pair_is_the_standard_cogroup_pairing() {
                 vec![[1, 0], [-1, 0], [0, -1], [0, 1]],
             )
         };
+        // SG 209 is the one parent whose conjugate pair the round-41 ordering
+        // convention got backwards; the engine's block route pins it (its X
+        // compatibility rows pair DT3 with DT4, so nothing else could).
+        let expected = if space_group == 209 {
+            (expected.1, expected.0)
+        } else {
+            expected
+        };
         assert_eq!(characters(dt3), expected.0, "SG {space_group} DT3");
         assert_eq!(characters(dt4), expected.1, "SG {space_group} DT4");
         // The pair is exactly what the Gamma rows determine: the sum carries

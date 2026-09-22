@@ -271,8 +271,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         operations: &[
             LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
             LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
-            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [0, 1] },
-            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [0, -1] },
+            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [0, -1] },
+            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [0, 1] },
         ],
     },
     LittleCharacterTable {
@@ -284,8 +284,8 @@ pub static W_LITTLE_CHARACTERS: &[LittleCharacterTable] = &[
         operations: &[
             LittleOperation { element: "x,y,z", rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: ["0", "0", "0"], character: [1, 0] },
             LittleOperation { element: "-x,y,-z", rotation: [[-1, 0, 0], [0, 1, 0], [0, 0, -1]], translation: ["0", "0", "0"], character: [-1, 0] },
-            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [0, -1] },
-            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [0, 1] },
+            LittleOperation { element: "-z,y,x", rotation: [[0, 0, -1], [0, 1, 0], [1, 0, 0]], translation: ["0", "0", "0"], character: [0, 1] },
+            LittleOperation { element: "z,y,-x", rotation: [[0, 0, 1], [0, 1, 0], [-1, 0, 0]], translation: ["0", "0", "0"], character: [0, -1] },
         ],
     },
     LittleCharacterTable {
