@@ -586,14 +586,30 @@ pub fn subduce_line_at_parameter(
   `direction`、pinned `little_k`（SG 196 `X1 = (0,1,0)`、`L1 = (1,1,1)/2`）与冻结
   little 群操作都是 conventional 帧；`exact_primitive_basis` 只提供**格子**，不改变
   坐标系；`fold_wave_vector` 直接作用在 `t·direction` 上，没有任何二次换算。
-* **规范波矢（R6.1 的 gauge 修复）**：冻结的 `D` 是纯 Γ 点字符，`(D, k)` 只在 `k` 取
-  规范代表元时才是那张表描述的母群 irrep，所以 `k` 先被约化进母群倒格基本胞
-  （`canonical_wave_vector`），每条臂的波矢取"规范中心 `k` 在该臂自身旋转下的像"。
-  不加这一步时，相差一个母群倒格矢的等价参数会解出**不同的子群 irrep**（ordinal
-  11328 SG 210 `DT3` 在 `t = 1/4` 给 `Z1`、`t = 5/4` 给 `Z2`，恒等重数相同、
-  两侧重构都通过，任何门禁都看不见；受影响 40 行，见
-  `a_reciprocal_vector_shift_of_the_parameter_changes_nothing`）。约化对 5,756 条
-  pinned `t = 1/4` 波矢零位移，所以 R5 已验收的约定原样保留。
+* **波矢不约化 + monodromy 契约（R6.2 最终读法；R6.1 的 `canonical_wave_vector`
+  已撤销）**：冻结的 `D` 是 **`k = Γ` 处解出**的纯 Γ 点字符，参数通过 Bloch 因子
+  进入：`χ_α^t(R, T) = D_α(R) · exp(2πi t (v·T))`。所以引擎必须用**原始**
+  `k(t) = t·v`，把 `k` 约化进母群基本胞而保留 `D` 等于去算**另一条带**。
+  一个参数步 `t → t + n` 乘上 reciprocal-shift twist
+  `Φ_{nv}(R) = exp(2πi n (v·T_R))`，它在线小群上是**真正的一维特征标**，把标签送到
+
+  ```text
+  (k + K, M_K(α)) ~ (k, α)，  decompose(α, t + n) == decompose(M_{n v}(α), t)（逐块逐目标）
+  ```
+
+  `M_K` 由**字符指纹**算出（绝不按标签名硬编码），实现在
+  [`crate::irrep::line_monodromy`]（`monodromy` / `complex_conjugation` / `orbit`）。
+  它在 SG 209/210/227/228 的 DT/SM 共轭对上不是恒等；受影响的行就是 R6.1 记下的
+  **40 行**（`tests/line_monodromy.rs` 的
+  `a_parameter_step_is_not_the_identity_on_a_nontrivial_monodromy` 把它们作为
+  "同标签读法是错的"的见证逐条列出）。R6.1 把 `Z1@1/4 → Z2@5/4` 读成 gauge 滑移，
+  实际它是**正确的位移**：`M_v(DT3) = DT4`，而 pinned `DT4@1/4` 的分解正是 `Z2`。
+* **已验证域（用户裁定 2026-09-23）**：`t ≡ 1/4 (mod 1)`（等价地
+  `(t − 1/4)·v ∈ G*_parent`）。只有这些参数既可由冻结表推导又有 oracle：此时
+  pinned 频率在 monodromy 轨道上不变（816 条非平凡像全表钉住），位移后的分解等于
+  像的 anchor 分解。`t = 3/4` 一类（共轭 coset 再走半步）既不等于 pinned，也不由
+  该表的标签描述，引擎仍会给出一致的字符（hard failure 0）但**没有 oracle**，
+  报告只给实测值，不作结论。
 * 输出 `LineSubduction`：`parent_dimension = little_dim × arms`、每个折叠子群星一个
   `FullStarBlock`（`q`、`stored_k`、`star_size`、`arm_count`、`little_dimension`、
   `block_dimension`、目标表）、`reconstruction()`、`setting()/setting_denominator()`、
@@ -626,7 +642,10 @@ R5 的 Γ-only 入口保留为 [`line_trivial_content_via_blocks`]，但审计�
 | 已知点 | `t = 1/4` 下**全部 5,756 条 pinned w 行**的完整分解，恒等重数 == pinned 频率 | 审计 `w_computed=5756/5756`、`mismatched=0`、`engine_errors=0`、`hard_failures=0`（R6.1 升级当轮 604.8 s、规范波矢修复后复跑 557.0 s，三门口禁 exit 0）；另有 SG 196 的 106 行作为单元测试常驻 |
 | 一般位置 | child #1（`10038` `W1` `4D1`）`t = 1/7`：6 个构造块、每块 1 维、恒等重数 0 | 与**独立于多重度求解器的几何计数**一致（0 条臂折到子群 Γ；臂集合/帧/Γ 判定与引擎共用，所以这是第二读数而非外部 oracle） |
 | 特殊值两侧 | 同一记录 `t = 1/4`（2 块：`Z1`×2 + `GM1`×4、恒等重数 4 == pinned）对 `t = 1/6`、`t = 1/3`（各 6 块、恒等重数 0） | 两侧都完整、都等于几何计数（这一对的 `0 == 0` 只是弱断言，非零锚点是 `t = 1/4` 的 pinned 值）；证明"参数变了结论就变" |
-| 约定（个案） | `t = 1/4, 3/4, 5/4` 在该源上给出**逐目标相同**的分解 | 只钉这一例；一般位移规则属 R6.2 |
+| 约定（全表） | `t = 5/4` 的完整分解 == `M_v(α)` 在 `t = 1/4` 的完整分解 | **5,756/5,756**，`undetermined_image=0`，同标签读法在 40 行上不同（审计 `w_parameter_shift` 硬门禁 + `tests/line_monodromy.rs`） |
+| 约定（字符层） | `χ(5/4, α) == χ(1/4, M_v(α))` 逐代表元 | **5,756/5,756**（`line_family_coverage --gate`，容差 1e-9） |
+| monodromy 代数 | `M_0 = id`、`M_-K = M_K^-1`、`M_{2K} = M_K²`、`C·M_K = M_-K·C` | 73 parents 逐条断言（`the_monodromy_contract_identities_hold`，`undetermined_labels=0`） |
+| pinned 不变性 | pinned 频率在 monodromy 轨道上不变 | **816** 条非平凡像逐条相等（`the_pinned_frequencies_are_constant_on_monodromy_orbits`） |
 | 失败语义 | 别家的 `table` → `LineSourceMismatch`；越界一般点 → `MissingChildStarData` | 两条负例都断言具体变体 |
 
 **证据级别（防止把内部自洽写成外部正确）**：
@@ -679,45 +698,37 @@ R5 的 Γ-only 入口保留为 [`line_trivial_content_via_blocks`]，但审计�
   （5,756/5,756 行，精确有理枚举；103,608 个网格外 (行, 参数) 组合里折到 Γ 的臂数
   全为 0）。网格外（非退化点）`content(t) = 0` 是**证明级**结论。
 * `t = 1/4` == pinned（**外部**官方输出）；`t = 5/4`（以及任何
-  `(t - 1/4)·v ∈ G*_parent`）与 `t = 1/4` **逐块逐目标**相同——审计新增
-  `w_parameter_shift` 硬门禁（5,756 行完整分解比较）。
-* **共轭参数（`k(t) ≡ -k(1/4)`）的记账分三个阶段**（勿把旧数字当独立错误计数）：
-  * **R6.1 的初始假设**：`t` 与 `t + 1` 是同一个 parent irrep（据此做了
-    `canonical_wave_vector`，并让审计门禁比较 `t = 5/4` 与 `1/4`）。reciprocal-shift
-    ledger 显示该假设对含分数平移的线小群过强（冻结方向 `v` 是母群倒格矢，而
-    `exp(2πi v·T)` 在这些群上非平凡），**该假设已被撤销**，monodromy 语义待写入契约。
-  * **`efe8abb` 的 bare-oracle 计数**：223 处 `χ(3/4) ≠ χ(1/4)*`（单位模相位因子）、
-    187 行恒等重数不同。二者都**混入了 reciprocal-gauge / 分支差异**，
-    **不能作为独立错误计数**：translation-aware ledger 显示这 4 个见证
-    （11329、12306、12307、12311）在 `3/4` 上仍满足共轭律、范数为整数，
-    即它们是合法对象（不同分支/monodromy），不是坏字符。
-  * **当前唯一硬失败**：58 处在 `3/4` 上投影给出**非整数重数**。ledger 的
-    translation-aware 诊断（完整子群枚举、精确平移、共轭律 + 投影范数 + Bloch 协变）
-    显示：anchor `t = 1/4` 上全部 11 个见证都通过三条律；`3/4` 上 4 个"可算"见证
-    通过，而 7 个"非整数"见证**违反共轭律**（8/72/144 处违反，偏差到 4.0）——
-    即送进投影的对象在这些参数上不是子群 `H` 的表示 ⇒ **transport/assembly 缺陷**
-    （不是 seed 的共轭选择，也不是 multiplier 选择）。修复验收：任意参数上共轭律违反
-    = 0、投影重数非负整数、anchor 5,756/5,756 与复表伙伴 oracle 不变。
-* 旧的按冻结表实/复分两支的措辞如下，其中的"187/58 缺口"须按上面的三阶段重读：
-  表**实**（`D* = D`，除 SG 202/203/209/210 的 `DT3`/`DT4` 外）时 `χ_{-k} = χ_k*`，
-  子群恒等表示自共轭 ⇒ `content(t)` 必须等于**同一源**的 pinned；实测
-  **187 行重数不同、58 行报非整数重数**（245 个 (行, 参数) 实例）——这是**真实缺口**
-  （记账处：`line_family_coverage.rs` 的 `CONJUGATE_GAP_CONTENT/ERRORS`）。
-  表**复**（`DT3`/`DT4`，188 行）时共轭把源换成伙伴，oracle 是**同一记录里伙伴源的
-  pinned**；实测 **0 不一致、0 错误**（4 行记录未列伙伴源），引擎在这 188 行上正确。
-  **更正**：R6.2 首版写的"199/58 共轭缺口"用了错的 oracle（对复表拿自己的 pinned 比），
-  正确数字是实表 187/58 + 复表 0/0。因此"把 seed 表示整体共轭"不是修法：对实表是恒等
-  操作（缺口全在实表上），对复表会把已经正确的行改成另一个 irrep；且非整数重数说明
-  送进内积的对象已不是一致的表示。字符层门禁（example 内，公开 `reconstruction()`，
-  容差 1e-9）给出更强的数字：实表 **5,510 行可比较、223 行 `χ(3/4) ≠ χ(1/4)*`**
-  （含 **36 行重数相同但字符已错**），定位在 **transport 层**（`k → -k` 分支的
-  Bloch 相位/陪集代表元记账），不是 multiplicity 求解器。修复验收：
-  **字符层 223 → 0、fail-closed 58 → 0，anchor 1/4、5/4 与复表 oracle 全绿**。
+  `(t - 1/4)·v ∈ G*_parent`）的**完整分解逐块逐目标**等于 `M_v^{n}(α)` 在 `t = 1/4`
+  的分解——审计的 `w_parameter_shift` 硬门禁（5,756 行；`skipped_undetermined_image=0`，
+  同标签读法在 40 行上不同，作为"门禁非空转"的见证计数）。字符层同表核对
+  （`line_family_coverage --gate`：`χ(5/4) == χ(M_v(α), 1/4)`，5,756/5,756）。
+* **共轭/位移参数（`k(t) ≡ -k(1/4)`）的记账：三阶段，已闭合**（勿把中间阶段的数字
+  当独立错误计数）：
+  * **阶段 1（R6.1）**：假设"`t` 与 `t + 1` 是同一个 parent irrep"，据此把 `k` 约化
+    （`canonical_wave_vector`）并让审计比较同标签的两侧。该假设对含分数平移的线小群
+    **过强**：`v` 是母群倒格矢，而 `Φ_v = exp(2πi v·T)` 在这些群上非平凡。
+  * **阶段 2（`efe8abb`/`315e49`）**：在**仍约化**的读法下记账：`t = 3/4` 上 58 行
+    fail-closed（非整数重数）、50 行违反空间群共轭律，字符层 223 行不共轭（实表
+    5,510 可比）。当时把 58 定位成 "transport/assembly 缺陷"。
+  * **阶段 3（本轮，判决）**：撤销约化后，`t = 1/4, 3/4, 5/4` 三个参数的
+    **hard failure 全为 0**（各 5,756 行），ledger 的独立复算里共轭律违反为 0
+    （`line_transport_ledger --batch`），字符层位移比较 5,756/5,756 相等。即阶段 2 的
+    58/50/223 **是规范波矢的产物，不是 frozen 表或求解器的缺陷**：把冻结表配到它
+    不描述的波矢上，得到的自然不是表示。
+  * **操作层面**：`line_family_coverage --gate` 的 `CONJUGATE_GAP_CONTENT/ERRORS` 由
+    `187/58` 改为 `0/0`，字符层由"`χ(3/4)` 对 `conj(χ(1/4))`"（缺 twist，223 差异）
+    改为"`χ(5/4)` 对 `χ(M_v(α), 1/4)`"（0 差异）。复表（`DT3`/`DT4`，188 行）继续用
+    伙伴源 pinned 作 oracle，0 不一致、0 错误。
+* **仍然成立的边界**：`t = 3/4` 一类**不在已验证域**。那里的字符仍是一致的
+  （共轭律 0 违反、范数整数），但它既不是 pinned 的位移像、也不由任何冻结标签描述，
+  所以**没有 oracle**：报告只给实测值。`t = 0`、`t = 1/2` 同理（稳定子严格大于冻结
+  小群时引擎算的是形式表示）。
 * `t = 0`、`t = 1/2` 一类（`t·v` 的稳定子严格大于冻结小群）返回**形式值**：不是
   该点的线 irrep 分导，也不作为物理结论。
 * 一般参数下**非 Γ 目标**没有外部对照（官方 pinned 只有恒等频率），只有引擎自检。
 
-**仍未承诺**：`t` 的一般等价类（哪些位移保持同一个母群表示）只是个案观测（已知：
-`Δ·direction ∈ G*_parent` 时相同，且有 40 行回归）；`t = 1/2` 与 `t = 1` **不是**
-官方参数（pinned 频率各有不匹配）；由参数化源导出的"整族结论"、例外集与覆盖说明
-都留给 R6.2。
+**已验证域之外仍未承诺**：`t ∉ 1/4 + Z` 的参数（`1/2`、`3/4`、`1/6` …）没有 oracle，
+引擎的答案是一致但**未经验证**的形式值；`t ∉ (1/4)Z` 的非退化点上 `content = 0` 有
+证明级的几何论证（见 coverage 报告命题 1/2），但"某个具体非零/非 pinned 值"不作
+结论。参数化源的"整族结论"、例外集与覆盖说明见
+[subduction-r6-coverage.md](subduction-r6-coverage.md)。

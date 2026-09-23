@@ -460,14 +460,25 @@ struct Counts {
     /// row stays reported instead of computed.
     w_character_blocked: usize,
     w_frequency_mismatch: usize,
-    /// Rows whose **complete** decomposition at the equivalent parameter
-    /// `t = 5/4` differs from the official `t = 1/4` one.  Every frozen
-    /// direction is a parent reciprocal vector, so the two parameters describe
-    /// the same parent irrep and the decompositions must agree target by target;
-    /// before R6.1's canonical wave vector they did not (40 rows, SG 210/227/228,
-    /// invisible to the identity-frequency comparison alone).
+    /// Transport failures: a row whose **complete** decomposition at `t = 5/4`
+    /// differs from the decomposition its monodromy image `M_v(label)` has at
+    /// `t = 1/4`.
+    ///
+    /// Every frozen direction is a parent reciprocal lattice vector, so the two
+    /// parameters describe the same band at the same point of the parent's zone
+    /// and the step is the relabelling `(k + K, M_K(alpha)) ~ (k, alpha)`, not a
+    /// gauge (`docs/subduction-conventions.md` §16).  R6.1 compared the *same*
+    /// label at both parameters -- the over-strong `M == 1` reading -- and
+    /// canonicalized the wave vector to silence the 40 rows (SG 210/227/228) that
+    /// disagreed.
     w_parameter_shift_mismatch: usize,
     w_parameter_shift_checked: usize,
+    /// Rows whose monodromy image the frozen fingerprints do not determine, so
+    /// the transport comparison is skipped instead of guessed.
+    w_parameter_shift_skipped: usize,
+    /// Rows where the revoked same-label reading answers differently from the
+    /// transported one: the measured non-vacuity of the gate.
+    w_parameter_shift_witnesses: usize,
     /// Block-route calls that returned `Err`: an arithmetic/context failure in
     /// the computation itself, not a missing pinned input.  A demonstrated
     /// error must fail the run under every flag combination.
@@ -1479,52 +1490,146 @@ origin={},{},{},{}",
                                             Ok(value) if value == u32::from(entry.frequency) => {
                                                 self.counts.w_computed += 1;
                                                 w_status = "computed".to_string();
-                                                // R6.1 gauge regression, at audit
-                                                // scale: `t = 5/4` is the same
-                                                // parent irrep as `t = 1/4` (every
-                                                // frozen direction is a parent
-                                                // reciprocal vector), so the whole
-                                                // decomposition must agree target
-                                                // by target.  Comparing only the
-                                                // identity frequency is what let
-                                                // the 40-row gauge slip through.
-                                                let shifted =
-                                                    cryspglib::irrep::subduction::Rat::new(5, 4)
-                                                        .map_err(|error| error.to_string())?;
-                                                self.counts.w_parameter_shift_checked += 1;
-                                                match cryspglib::irrep::subduction::star::decompose::
-                                                    subduce_line_at_parameter(
-                                                        subgroup, embedding, table, shifted,
-                                                    )
-                                                {
-                                                    Ok(shifted_result) => {
-                                                        if line_decomposition_key(&result)
-                                                            != line_decomposition_key(
-                                                                &shifted_result,
-                                                            )
-                                                        {
+                                                // R6.2 monodromy transport, at audit
+                                                // scale: `t = 5/4` is one parent
+                                                // reciprocal lattice vector along the
+                                                // frozen direction, so the band the row
+                                                // names is the one whose frozen table is
+                                                // the *monodromy image* `M_v(label)`.
+                                                // The decomposition at `t = 5/4` must
+                                                // therefore equal the decomposition of the
+                                                // image at `t = 1/4`.  Comparing the same
+                                                // label at both parameters (the revoked
+                                                // R6.1 reading) is what produced the 40
+                                                // SG 210/227/228 rows and the canonical wave
+                                                // vector that silenced them.
+                                                let shift =
+                                                    match cryspglib::irrep::line_monodromy::
+                                                        line_direction(table)
+                                                    {
+                                                        Some(direction) => direction,
+                                                        None => {
                                                             self.counts
-                                                                .w_parameter_shift_mismatch += 1;
+                                                                .w_parameter_shift_skipped += 1;
                                                             self.mismatch(format!(
                                                                 "ordinal {ordinal}: \
-                                                                 other-wave-vector row {} \
-                                                                 decomposes differently at \
-                                                                 t = 5/4",
+                                                                 other-wave-vector row {} has an \
+                                                                 unparsable frozen direction",
                                                                 entry.parent_ml
                                                             ));
+                                                            return Ok(());
                                                         }
+                                                    };
+                                                let map =
+                                                    cryspglib::irrep::line_monodromy::monodromy(
+                                                        entry.parent_sg,
+                                                        &shift,
+                                                    );
+                                                match map.unique_image(entry.parent_ml) {
+                                                    None => {
+                                                        // The frozen fingerprints do not
+                                                        // determine the image: skipped and
+                                                        // reported, never guessed.
+                                                        self.counts.w_parameter_shift_skipped += 1;
                                                     }
-                                                    Err(error) => {
-                                                        self.counts.w_parameter_shift_mismatch += 1;
-                                                        self.bump_error(&format!(
-                                                            "w-line-shift:{error}"
-                                                        ));
-                                                        self.mismatch(format!(
-                                                            "ordinal {ordinal}: \
-                                                             other-wave-vector row {} engine \
-                                                             error at t = 5/4: {error}",
-                                                            entry.parent_ml
-                                                        ));
+                                                    Some(image) => {
+                                                        let image_table =
+                                                            cryspglib::irrep::line_monodromy::
+                                                                line_table(
+                                                                    entry.parent_sg,
+                                                                    image,
+                                                                );
+                                                        let shifted =
+                                                            cryspglib::irrep::subduction::Rat::new(
+                                                                5, 4,
+                                                            )
+                                                            .map_err(|error| error.to_string())?;
+                                                        self.counts.w_parameter_shift_checked += 1;
+                                                        // The errors are narrowed to `String`
+                                                        // right here: `FullStarError` is large
+                                                        // and must not travel through a closure.
+                                                        let transported =
+                                                            cryspglib::irrep::subduction::star::decompose::
+                                                                subduce_line_at_parameter(
+                                                                    subgroup,
+                                                                    embedding,
+                                                                    table,
+                                                                    shifted,
+                                                                )
+                                                                .map_err(|error| error.to_string());
+                                                        let reference = image_table.map(|image_table| {
+                                                            cryspglib::irrep::subduction::star::decompose::
+                                                                subduce_line_at_parameter(
+                                                                    subgroup,
+                                                                    embedding,
+                                                                    image_table,
+                                                                    parameter,
+                                                                )
+                                                                .map_err(|error| error.to_string())
+                                                        });
+                                                        match (transported, reference) {
+                                                            (Ok(shifted_result), Some(Ok(reference))) => {
+                                                                if line_decomposition_key(
+                                                                    &shifted_result,
+                                                                ) != line_decomposition_key(&reference)
+                                                                {
+                                                                    self.counts
+                                                                        .w_parameter_shift_mismatch += 1;
+                                                                    self.mismatch(format!(
+                                                                        "ordinal {ordinal}: \
+                                                                         other-wave-vector row {} \
+                                                                         at t = 5/4 does not \
+                                                                         transport to its monodromy \
+                                                                         image {image} at t = 1/4",
+                                                                        entry.parent_ml
+                                                                    ));
+                                                                }
+                                                                // The revoked reading, measured
+                                                                // rather than assumed: where it
+                                                                // differs, the gate above is not
+                                                                // vacuous.
+                                                                if line_decomposition_key(&result)
+                                                                    != line_decomposition_key(
+                                                                        &shifted_result,
+                                                                    )
+                                                                {
+                                                                    self.counts
+                                                                        .w_parameter_shift_witnesses += 1;
+                                                                }
+                                                            }
+                                                            (Ok(_), None) => {
+                                                                self.counts
+                                                                    .w_parameter_shift_skipped += 1;
+                                                            }
+                                                            (Ok(_), Some(Err(error))) => {
+                                                                self.counts
+                                                                    .w_parameter_shift_mismatch += 1;
+                                                                self.bump_error(&format!(
+                                                                    "w-line-image:{error}"
+                                                                ));
+                                                                self.mismatch(format!(
+                                                                    "ordinal {ordinal}: \
+                                                                     monodromy image {image} of \
+                                                                     {} has no decomposition at \
+                                                                     t = 1/4: {error}",
+                                                                    entry.parent_ml
+                                                                ));
+                                                            }
+                                                            (Err(error), _) => {
+                                                                self.counts
+                                                                    .w_parameter_shift_mismatch += 1;
+                                                                self.bump_error(&format!(
+                                                                    "w-line-shift:{error}"
+                                                                ));
+                                                                self.mismatch(format!(
+                                                                    "ordinal {ordinal}: \
+                                                                     other-wave-vector row {} \
+                                                                     engine error at t = 5/4: \
+                                                                     {error}",
+                                                                    entry.parent_ml
+                                                                ));
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1989,8 +2094,11 @@ origin={},{},{},{}",
             counts.w_character_blocked
         );
         eprintln!(
-            "w_parameter_shift: checked={} mismatched={} (t = 5/4 against t = 1/4, complete decomposition per block and target)",
-            counts.w_parameter_shift_checked, counts.w_parameter_shift_mismatch
+            "w_parameter_shift: checked={} mismatched={} skipped_undetermined_image={} same_label_witnesses={} (t = 5/4 against the monodromy image at t = 1/4, complete decomposition per block and target)",
+            counts.w_parameter_shift_checked,
+            counts.w_parameter_shift_mismatch,
+            counts.w_parameter_shift_skipped,
+            counts.w_parameter_shift_witnesses
         );
         eprintln!(
             "completeness: missing_probes={} uncomputed_probes={} uncomputed_entries={} unresolved_entries={} duplicate_same={} geometry_filter_errors={} frobenius_unevaluated={} basis_errors={} w_uncomputed={}",
@@ -2742,10 +2850,12 @@ mod tests {
         }
     }
 
-    /// A parameter-shift mismatch is a hard failure under every gate
-    /// combination.  This is the counter that makes the R6.1 gauge class (the
-    /// same parent irrep decomposing differently at an equivalent parameter)
-    /// impossible to ship again: the identity frequency alone does not see it.
+    /// A transport mismatch is a hard failure under every gate combination.
+    /// This is the counter that makes the R6.2 monodromy class (a parameter step
+    /// that does not land on the image label, or a wave vector canonicalized back
+    /// onto the original parameter) impossible to ship again: the identity
+    /// frequency alone does not see it, and neither does a gate that only asks
+    /// whether *some* decomposition came out.
     #[test]
     fn a_line_parameter_shift_mismatch_fails_under_every_flag_combination() {
         let counts = Counts {
@@ -2757,13 +2867,27 @@ mod tests {
         };
         assert!(
             counts.hard_failures() >= 1,
-            "an equivalent parameter with a different decomposition is a hard failure"
+            "a parameter step that does not transport is a hard failure"
         );
         // Every row is computed, so no completeness gate sees it: only the hard
         // failure can stop this run.
         assert_eq!(counts.w_incomplete(), 0);
         for gates in all_gate_combinations() {
             assert_eq!(counts.exit_code(gates), 1, "gates={}", gates.label());
+        }
+        // An undetermined image is *skipped*, not failed: the frozen fingerprints
+        // (not a policy choice) decide it, and the counter makes the boundary
+        // visible in the same line as the check.
+        let skipped = Counts {
+            w_parameter_shift_skipped: 3,
+            w_entries: 1,
+            w_computed: 1,
+            ..Counts::default()
+        };
+        assert_eq!(skipped.hard_failures(), 0);
+        assert_eq!(skipped.w_incomplete(), 0);
+        for gates in all_gate_combinations() {
+            assert_eq!(skipped.exit_code(gates), 0, "gates={}", gates.label());
         }
     }
 

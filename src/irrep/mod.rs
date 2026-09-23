@@ -130,6 +130,13 @@ pub use subduction::{
 #[doc(hidden)]
 pub mod w_little_characters_data;
 
+// Monodromy of those frozen line sources under a parent reciprocal shift: the
+// label map `M_K` computed from character fingerprints (never from label
+// names), the contract `(k + K, M_K(alpha)) ~ (k, alpha)` it encodes, and the
+// conjugation map it commutes with.  See `docs/subduction-conventions.md` §16.
+#[doc(hidden)]
+pub mod line_monodromy;
+
 pub mod cubic;
 pub mod hexagonal;
 pub mod monoclinic;

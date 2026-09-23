@@ -120,11 +120,12 @@ R6.2 的覆盖说明必须逐条区分**已计算 / 有独立对照 / 仅内部�
 * 引擎入口接受 `(表, 有理 t)`：`k = t · direction`，**同一向量**直接进
   `fold_wave_vector(T, k)`（`T` = 嵌入的精确仿射变换），臂集合、字符求值与折叠共用
   这一个向量，没有任何二次换算；
-* 唯一一次"约化"是**规范波矢**：`k` 被约化进母群倒格基本胞
-  （`canonical_wave_vector`，用 `Lattice::new(exact_primitive_basis(parent)).reciprocal()`）。
-  冻结的 `D` 是纯 Γ 点字符，`(D, k)` 只在 `k` 取规范代表元时才是那张表描述的那个
-  母群 irrep；同一条约化对 5,756 条 pinned `t = 1/4` 波矢**零位移**，所以 R5 已验收的
-  约定原样保留（见 §16 的 R6.1 修复条目）。
+* **没有任何约化**（R6.2 最终读法；R6.1 曾在 `canonical_wave_vector` 里把 `k` 约化进
+  母群倒格基本胞，**该修复已被撤销**，见 §16）：冻结的 `D` 是在 `k = Γ` 处解出的纯 Γ
+  点字符，参数通过 Bloch 因子 `exp(2πi t (v·T))` 进入，所以 `k(t) = t·direction`
+  **原样**参与字符求值与折叠。把 `k` 约化而保留 `D` 等于换一条带来算；一个参数步是
+  标签的 monodromy 位移（`(k + K, M_K(α)) ~ (k, α)`，`cryspglib::irrep::line_monodromy`），
+  不是 gauge。
 * 交叉证据：`10038 DT1` 在 `t = 1/4` 折出 6 个臂（2 + 4），little 群冻结为
   `{E, C2y}`（正是 conventional 帧下 `(0,2,0)` 的稳定子，12/2 = 6），且
   `parent_dimension = little_dim × arms = 6 = pinned DT1 dim`，三者同时吻合。

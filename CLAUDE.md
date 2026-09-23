@@ -720,10 +720,12 @@ w 频率**，审计的 `--require-w-complete` 门禁继续生效。
 > `subduce_line_at_parameter`）**全程在母群 conventional 倒格坐标下**：
 > `direction`、pinned `little_k`（SG 196 `X1 = (0,1,0)`、`L1 = (1,1,1)/2`）与冻结
 > little 群操作都是 conventional，`fold_wave_vector` 直接作用在 `t·direction` 上，
-> 没有任何 primitive 换算；唯一一次约化是 `canonical_wave_vector` 把 `k` 约化进
-> `Lattice::new(exact_primitive_basis(parent)).reciprocal()`，对 5,756 条 pinned
-> `t = 1/4` 波矢零位移。细节见 `docs/subduction-conventions.md` §16 与
-> `docs/subduction-r6-plan.md` §4。
+> 没有任何 primitive 换算。**再更正（2026-09-23 晚，R6.2 monodromy 步）**：R6.1 曾把
+> `k` 约化进 `Lattice::new(exact_primitive_basis(parent)).reciprocal()`（对 pinned
+> `t = 1/4` 零位移），这一步**已被撤销**——冻结表是 `k = Γ` 处的 `D`，参数进 Bloch
+> 因子，约化等于换一条带；参数步的正确语义是 monodromy 像
+> `decompose(α, t + n) == decompose(M_{nv}(α), t)`。细节见
+> `docs/subduction-conventions.md` §16 与 `docs/subduction-r6-plan.md` §4。
 2. **锚点：child = #1（P1）时频率 = 源的 full-star 维数**。ordinal 13824 的存储行是
    `6 x DT1..DT4`、`12 x DT5, SM1..SM4`，与 little 表的 dim 6/12 逐项一致；这正是
    「P1 上恒等表示重数 = 维数」的必然结果，可作为公式的基准点。
@@ -3536,7 +3538,7 @@ reviewer 同时确认：历史表逐字节重生成属于**已披露、未解决
 第二轮 adversarial review 的两份报告（C：数学/结构；D：契约/声明/测试强度）逐条复核
 后处理，结论与证据：
 
-* **P1-1（真 bug，已修）gauge 不一致**：`t` 与 `t + Δ`（`Δ·direction` 是母群倒格矢）
+* **P1-1（当时的"真 bug"，其修法已被 R6.2 撤销，见本篇末尾的 monodromy 小节）gauge 不一致**：`t` 与 `t + Δ`（`Δ·direction` 是母群倒格矢）
   是**同一个母群 irrep**，但引擎把 `k` 的原始值直接喂给冻结的 Γ 点字符 `D`，等价参数
   会解出不同的子群 irrep：ordinal 11328（SG 210 `DT3`）在 `t = 1/4` 给 `Z1`、`t = 5/4`
   给 `Z2`，恒等重数都是 1（== pinned）、两侧重构都通过，**任何门禁都看不见**。
@@ -3660,3 +3662,65 @@ reviewer 同时确认：历史表逐字节重生成属于**已披露、未解决
   `line_arms` 的精确去重约定、`wave_vector()` 已规范化、`FullStarBlock::q()` 未规范化
   都写进 doc；`1,599/241` 标注为历史记录（实现已删，不可复算）；
   `NonIntegralLineFrequency` 死变体删除。
+
+### 2026-09-23 R6.2 monodromy 步：参数位移 = 标签的 monodromy 像（撤销 R6.1 的规范波矢）
+
+用户裁定顺序：先把 58 条 hard failure 全量过一遍精确共轭律 → 写 monodromy 契约与
+API 测试（不动引擎）→ 用 monodromy 映射重写 `w_parameter_shift` → 修 transport。
+本轮按此顺序做完，结论**推翻了阶段 2 的定性**：
+
+* **决定性事实（可复算）**：冻结 little 表是在 `k = Γ` 处解出的 `D`（无 Bloch
+  因子），参数通过 `χ_α^t(R,T) = D_α(R)·exp(2πi t (v·T))` 进入；74/74 源里
+  73 个方向 `(0,2,0)`/`(2,2,0)` 都是母群倒格矢。所以 `t → t + n` 乘上
+  reciprocal-shift twist `Φ_{nv}(R) = exp(2πi n v·T_R)`，它在线小群上是**真一维
+  特征标**，把标签送到 `M_{nv}(α)`：
+  `(k + K, M_K(α)) ~ (k, α)`、`decompose(α, t+n) == decompose(M_{nv}(α), t)`。
+  引擎必须用**原始** `k(t) = t·v`；R6.1 的 `canonical_wave_vector`（把 `k` 约化进
+  母群基本胞、保留标签）等于**换一条带来算**，已删除（含 `parent_reciprocal`
+  死函数）。
+* **新 API** `src/irrep/line_monodromy.rs`（`#[doc(hidden)] pub mod`）：
+  `monodromy(parent, &shift)`、`complex_conjugation(parent)`、`LineMonodromy::
+  {image, unique_image, orbit, undetermined, images}`、`LabelImage::{Unique,
+  Ambiguous, Missing}`、`line_parents/line_sources/line_table/line_direction/
+  operation_translation/parse_fraction`。指纹按**精确操作**（旋转 + 分数平移的
+  `(num,den)` 对）为键，不再只用旋转；匹配容差 1e-9。73/73 源像唯一，
+  `undetermined_labels=0`。
+* **测试** `tests/line_monodromy.rs`（5 条，全部常驻）：
+  `the_monodromy_contract_identities_hold`（`M_0=id`、`M_-K=M_K^-1`、
+  `M_{2K}=M_K²`、`C·M_K=M_-K·C`；73/136/136/136 次断言）、
+  `the_pinned_frequencies_are_constant_on_monodromy_orbits`（**816** 条非平凡像，
+  pinned 频率逐条相等 —— 这是"位移不是恒等"与 pinned 表相容的物理依据）、
+  `every_frozen_label_has_a_reportable_image`、**transport**：
+  `the_engine_transports_a_parameter_step_by_the_monodromy_map`
+  （**5,756/5,756** 行完整分解相等、`non-trivial_images=816`、
+  `undetermined=0`）、以及撤销读法的见证
+  `a_parameter_step_is_not_the_identity_on_a_nontrivial_monodromy`
+  （**40 行**同标签读法给出不同分解，正是 R6.1 记为"40 行 gauge 滑移"的那批）。
+  修复前该 transport 测试在**第 1 行**就失败（ordinal 11328 `DT3`：规范波矢给
+  `Z1`，正确的 `DT4@1/4` 给 `Z2`）——这就是"红门禁"记录。
+* **审计 `w_parameter_shift` 重写**：比较 `decompose(α, 5/4)` 与
+  `decompose(M_v(α), 1/4)`，未定像计数为 `skipped_undetermined_image`，同标签
+  读法作 `same_label_witnesses` 见证计数（非空转证据）。实测
+  `checked=5756 mismatched=0 skipped_undetermined_image=0 same_label_witnesses=40`；
+  配常驻单测（mismatch → 每个门禁组合都 exit 1；skipped → exit 0）。
+* **58/50/223 的最终定性**：撤销约化后，`line_transport_ledger --batch` 在
+  `t = 1/4, 3/4, 5/4` 三个参数上 **hard failure 全为 0**（各 5,756 行），ledger
+  自己的共轭律复算违反 **0**（此前 3/4 上 58/50），`line_family_coverage --gate`
+  字符层 `χ(5/4) == χ(1/4, M_v(α))` **5,756/5,756**、共轭 content oracle 实表/复表
+  **0 不一致 0 错误**（常量由 `187/58`、`223/5510` 改为 `0/0`、`0/5756`）。
+  ⇒ 阶段 2 的"transport/assembly 缺陷"**是规范波矢的产物**：把冻结表配到它不描述的
+  波矢上，得到的自然不是表示。
+* **已验证域（用户裁定，写进 §16 与覆盖报告）**：`t ≡ 1/4 (mod 1)`（`t = 1/4 + n`）。
+  域外（`3/4`、`1/2`、`0` …）引擎仍给出一致字符但**无 oracle**，报告只给实测值。
+* **文档三阶段**：`docs/subduction-conventions.md` §16 的"规范波矢（R6.1 的 gauge
+  修复）"条目改为"波矢不约化 + monodromy 契约"，验收表新增 4 行（全表 transport、
+  字符层、monodromy 代数、pinned 不变性），"共轭参数记账"三阶段改写并把 58 定性撤销；
+  `docs/subduction-r6-plan.md` §4、`docs/subduction-r6-coverage.md` 命题 3/4、§2 表、
+  §3 分档（D 档改为已闭合）、§4 缺口、§5 同步。旧数字一律标注为历史阶段，
+  **不再作为独立错误计数引用**。
+* **本轮门禁**：三门口禁审计 exit 0、`VERDICT complete`、553.8 s
+  （`identity 94271/94271`、probe 366260/366260、w `5756/5756`、`hard_failures=0`、
+  `w_parameter_shift checked=5756 mismatched=0`）；`line_family_coverage --gate` exit 0；
+  `line_monodromy` 5/5、`w_line_frequency` 8/8（其 `a_conjugate_parameter_carries_the_
+  reciprocal_gauge_factor` 按新读法**有意重写**：`χ(3/4) = conj(χ(1/4))·Φ_v` 逐代表元，
+  并钉住两档实测的负因子数 4/8 与 0/8，对应"位移非恒等"与"该行位移等于自身"两种情形）。

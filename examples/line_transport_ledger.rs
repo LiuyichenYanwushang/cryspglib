@@ -1,9 +1,15 @@
 //! Translation-aware transport ledger for the parametric-k line irreps.
 //!
-//! This is the diagnostic behind the open parameter question of R6.2: the frozen
+//! This is the diagnostic behind the parameter question of R6.2.  The frozen
 //! little-character table lives on the *little group of the direction*, whose
 //! operations are stored modulo the parent lattice, and the engine evaluates the
-//! Bloch factor at the **reduced** representative `k_c(t)` of the wave vector.
+//! Bloch factor at the **raw** wave vector `k(t) = t . direction` -- the wave
+//! vector the parameter names.  R6.1 first reduced `k` into the parent's
+//! fundamental cell; that is revoked (`docs/subduction-conventions.md` §16),
+//! because the frozen matrices are solved at `k = Gamma` and the parameter is
+//! part of the representation: a step `t -> t + n` is the monodromy image of the
+//! label, not a gauge of it.
+//!
 //! The ledger therefore keeps, for every product/inverse/conjugation, the
 //! **lattice translation** that a reduced representation would drop:
 //!
@@ -37,6 +43,16 @@
 //! `k`-dependent factor system, so `D(R1) D(R2) == D(R1 R2)` is not a law;
 //! deriving the cocycle from the multiplication ledger is the next refinement
 //! and is left out rather than guessed.
+//!
+//! The **verified parameter domain** is `t ≡ 1/4 (mod 1)` in the lattice sense:
+//! there `k(t)` differs from the anchor by an integer multiple of the frozen
+//! direction, the frozen table is the table of the monodromy image
+//! (`cryspglib::irrep::line_monodromy`), and the transport is checked on all
+//! 5,756 rows by `tests/line_monodromy.rs` and by the audit's
+//! `w_parameter_shift` gate.  A parameter off that domain (`t = 3/4`, say) names
+//! a *different* point of the zone, where the frozen table need not be a
+//! representation of the little group at all: the ledger reports what the laws
+//! say there instead of claiming the value.
 //!
 //! Usage:
 //!
@@ -193,7 +209,10 @@ fn subgroup_elements(embedding: &SubgroupEmbedding) -> Vec<ExactSeitz> {
 /// Diagnostics for one (row, parameter) point.
 struct Report {
     parameter: String,
-    canonical_k: (Rat, Rat, Rat),
+    wave_vector: (Rat, Rat, Rat),
+    /// The contract's premise: the frozen direction is a parent reciprocal
+    /// lattice vector, so `t` and `t + 1` describe the same point of the zone.
+    direction_is_reciprocal: bool,
     engine: String,
     dimension: f64,
     expected_dimension: usize,
@@ -201,6 +220,10 @@ struct Report {
     class_pairs: usize,
     worst_class: f64,
     norm: f64,
+    /// The full-group mean `(1/|H|) sum_h chi(h)`: for a genuine character it is
+    /// the trivial content, i.e. a non-negative integer.
+    mean: C,
+    mean_ok: bool,
     nonzero_shift_pairs: usize,
     shift_examples: Vec<String>,
     covariance_violations: usize,
@@ -250,6 +273,8 @@ fn analyse(
                     })
                     .expect("frozen table");
                 let direction = direction_of(table);
+                // The parent's reciprocal lattice, used only to state that a
+                // parameter step is a lattice step (the contract's premise).
                 let parent_reciprocal = lattice_of(subgroup.parent_sg).reciprocal().expect("reciprocal");
                 let parent_ops = lattice_of(subgroup.parent_sg)
                     .deduplicate(&strict_sg_hall_ops(subgroup.parent_sg).expect("Hall ops").operations)
@@ -269,15 +294,21 @@ fn analyse(
                         });
                     }
                 }
-                // The wave vector the engine uses.
+                // The wave vector the engine uses: the **raw** `t . direction`,
+                // not a canonicalized representative.  The frozen character
+                // table is solved at `k = Gamma`, so the Bloch factor has to be
+                // read at the wave vector the parameter names; reducing it would
+                // pair the table with a band it does not describe (R6.1 did that
+                // and the R6.2 monodromy contract revoked it, see
+                // `docs/subduction-conventions.md` section 16).
                 let mut raw = [Rat::ZERO; 3];
                 for (axis, value) in raw.iter_mut().enumerate() {
                     *value = parameter.checked_mul(direction.get(axis)).expect("scaled");
                 }
-                let centre = parent_reciprocal
-                    .reduce(&Vec3R::new(raw))
-                    .expect("reduce")
-                    .representative;
+                let centre = Vec3R::new(raw);
+                let direction_is_reciprocal = parent_reciprocal
+                    .contains(&direction)
+                    .expect("reciprocal lattice test");
                 let engine = subduce_line_at_parameter(&subgroup, &embedding, table, parameter);
                 let engine_note = match &engine {
                     Ok(result) => format!(
@@ -344,6 +375,18 @@ fn analyse(
                         }
                     }
                 }
+                // 2a. the full-group mean: a genuine character's trivial content.
+                let mut sum = C::new(0.0, 0.0);
+                for value in &values {
+                    sum = sum.add(*value);
+                }
+                let mean = C::new(
+                    sum.re / elements.len() as f64,
+                    sum.im / elements.len() as f64,
+                );
+                let mean_ok = mean.im.abs() <= 1e-9
+                    && mean.re >= -1e-9
+                    && (mean.re - mean.re.round()).abs() <= 1e-9;
                 // 2. projective norm over the complete group.
                 let mut norm = 0.0f64;
                 for value in &values {
@@ -438,7 +481,8 @@ fn analyse(
                 let name = format!("{parameter}");
                 return Some(Report {
                     parameter: name,
-                    canonical_k: (
+                    direction_is_reciprocal,
+                    wave_vector: (
                         centre.get(0),
                         centre.get(1),
                         centre.get(2),
@@ -450,6 +494,8 @@ fn analyse(
                     class_pairs,
                     worst_class,
                     norm,
+                    mean,
+                    mean_ok,
                     nonzero_shift_pairs,
                     shift_examples,
                     covariance_violations,
@@ -462,21 +508,30 @@ fn analyse(
     None
 }
 
-/// The recorded witnesses: rows the engine computes at `t = 3/4` (labelled
-/// `ok`) and rows where its projection returns a non-integral multiplicity
-/// (`err`).
+/// The recorded witnesses: the rows the parameter question was measured on, all
+/// of which now satisfy the three laws at **both** printed parameters.
+///
+/// History: seven of them used to be labelled `err` because at `t = 3/4` the
+/// engine's projection returned a non-integral multiplicity.  That was measured
+/// with the canonicalized wave vector R6.1 shipped; the R6.2 monodromy contract
+/// revoked it (`docs/subduction-conventions.md` §16), and with the raw
+/// `k(t) = t . direction` every witness computes a character at both parameters
+/// (batch: `hard_failures=0` on all 5,756 rows at `1/4`, `3/4` and `5/4`).  The
+/// label is therefore no longer a prediction of failure but a *record* the
+/// `--witnesses --gate` run asserts, so a regression to the old reading shows up
+/// as a violation instead of a silent relabel.
 const WITNESSES: [(usize, &str, &str); 11] = [
     (11329, "DT1", "ok"),
     (12306, "SM1", "ok"),
     (12307, "SM1", "ok"),
     (12311, "SM1", "ok"),
-    (14429, "SM1", "err"),
-    (14430, "SM4", "err"),
-    (14503, "SM1", "err"),
-    (14460, "SM2", "err"),
-    (11360, "SM2", "err"),
-    (14723, "SM1", "err"),
-    (14453, "SM1", "err"),
+    (14429, "SM1", "ok"),
+    (14430, "SM4", "ok"),
+    (14503, "SM1", "ok"),
+    (14460, "SM2", "ok"),
+    (11360, "SM2", "ok"),
+    (14723, "SM1", "ok"),
+    (14453, "SM1", "ok"),
 ];
 
 fn run_row(ordinal: usize, label: &str, parameters: &[Rat], gate: bool) -> bool {
@@ -488,8 +543,12 @@ fn run_row(ordinal: usize, label: &str, parameters: &[Rat], gate: bool) -> bool 
             return false;
         };
         println!(
-            "  t={} k_c=({},{},{}) {}",
-            report.parameter, report.canonical_k.0, report.canonical_k.1, report.canonical_k.2,
+            "  t={} k=({},{},{}) direction_in_parent_reciprocal_lattice={} {}",
+            report.parameter,
+            report.wave_vector.0,
+            report.wave_vector.1,
+            report.wave_vector.2,
+            report.direction_is_reciprocal,
             report.engine
         );
         println!(
@@ -498,9 +557,13 @@ fn run_row(ordinal: usize, label: &str, parameters: &[Rat], gate: bool) -> bool 
             report.class_pairs, report.worst_class
         );
         println!(
-            "    norm <chi,chi> = {:.6} (integer: {})   conjugations with a nonzero lattice shift: {}",
+            "    norm <chi,chi> = {:.6} (integer: {})   mean = ({:+.4},{:+.4}) (trivial content: {})   \
+             conjugations with a nonzero lattice shift: {}",
             report.norm,
             report.norm_ok(),
+            report.mean.re,
+            report.mean.im,
+            report.mean_ok,
             report.nonzero_shift_pairs
         );
         println!(
@@ -529,21 +592,134 @@ fn run_row(ordinal: usize, label: &str, parameters: &[Rat], gate: bool) -> bool 
     anchor_ok
 }
 
+/// Every pinned line row, as `(ordinal, label)`, once per record.
+fn pinned_rows() -> Vec<(usize, &'static str)> {
+    let mut out = Vec::new();
+    for sg in 1..=230u8 {
+        for record in query::irreps_of(sg) {
+            if record.spinor || record.subgroups().is_empty() {
+                continue;
+            }
+            let Ok(subgroups) = isotropy::isotropy_subgroups(sg, record.ml, LabelConvention::Cdml)
+            else {
+                continue;
+            };
+            for subgroup in subgroups {
+                let Ok(rows) = subgroup.other_wave_vector_subduction() else {
+                    continue;
+                };
+                for row in rows {
+                    out.push((subgroup.ordinal, row.parent_ml));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The closure the review asks for: run **every** hard failure through the exact
+/// conjugacy law and report `checked` / `failed`.
+fn batch(parameter: Rat) -> bool {
+    let rows = pinned_rows();
+    let mut engine_errors = 0usize;
+    let mut checked = 0usize;
+    let mut failed = 0usize;
+    let mut violations: Vec<(usize, &'static str, usize, usize)> = Vec::new();
+    let mut passing_hard_failures: Vec<(usize, &'static str, f64, f64, bool)> = Vec::new();
+    let mut healthy_with_violations = Vec::new();
+    for (ordinal, label) in &rows {
+        let Some(report) = analyse(*ordinal, label, parameter, false) else {
+            continue;
+        };
+        let hard_failure = report.engine.starts_with("engine error");
+        if hard_failure {
+            engine_errors += 1;
+            checked += 1;
+            if report.class_ok() {
+                passing_hard_failures.push((
+                    *ordinal,
+                    label,
+                    report.mean.re,
+                    report.mean.im,
+                    report.mean_ok,
+                ));
+            } else {
+                failed += 1;
+                violations.push((
+                    *ordinal,
+                    label,
+                    report.class_violations,
+                    report.class_pairs,
+                ));
+            }
+        } else if !report.class_ok() {
+            healthy_with_violations.push((*ordinal, label, report.class_violations));
+        }
+    }
+    println!(
+        "batch t={parameter}: rows={} hard_failures={engine_errors} \
+         exact_conjugacy_checked={checked} exact_conjugacy_failed={failed}",
+        rows.len()
+    );
+    println!(
+        "  rows the engine computes whose conjugacy law still fails: {} {:?}",
+        healthy_with_violations.len(),
+        &healthy_with_violations[..healthy_with_violations.len().min(5)]
+    );
+    for (ordinal, label, violations, pairs) in violations.iter().take(5) {
+        println!("  witness {ordinal} {label}: {violations}/{pairs} violations");
+    }
+    println!(
+        "  hard failures that PASS the conjugacy law ({}): {passing_hard_failures:?}",
+        passing_hard_failures.len()
+    );
+    // `batch` returns whether the *anchor* laws hold; the hard-failure verdict is
+    // printed above and, since R6.2's monodromy transport, the counts are:
+    // `t = 1/4` and `t = 5/4` (the verified domain) have no hard failure at all,
+    // while `t = 3/4` -- off that domain -- has none either, and the 50 rows whose
+    // local conjugacy law fails there are the frozen table ceasing to be a
+    // representation at that point of the zone, not a transport defect.
+    let closure = engine_errors > 0 && checked == engine_errors && failed == engine_errors;
+    println!(
+        "  closure: {} (violating={failed}, passing={}, of {engine_errors} hard failures)",
+        if engine_errors == 0 {
+            "no hard failure: the engine answers every row at this parameter"
+        } else if closure {
+            "every hard failure violates the exact conjugacy law"
+        } else {
+            "PARTIAL: the violating ones are proven non-representations; the passing ones need another discriminator (integrality is already known to fail)"
+        },
+        passing_hard_failures.len()
+    );
+    closure
+}
+
 fn main() -> std::process::ExitCode {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let gate = arguments.iter().any(|argument| argument == "--gate");
     let witnesses = arguments.iter().any(|argument| argument == "--witnesses");
+    let batch_requested = arguments.iter().any(|argument| argument == "--batch");
     let positional: Vec<String> = arguments
         .into_iter()
         .filter(|argument| !argument.starts_with("--"))
         .collect();
     let mut ok = true;
-    if witnesses {
+    if batch_requested {
+        let parameter = positional
+            .first()
+            .map(|text| {
+                let (numerator, denominator) = text.split_once('/').unwrap_or((text, "1"));
+                Rat::new(numerator.parse().unwrap(), denominator.parse().unwrap())
+                    .expect("parameter")
+            })
+            .unwrap_or_else(|| Rat::new(3, 4).expect("0"));
+        ok = batch(parameter);
+    } else if witnesses {
         println!("witness   t=1/4 class/norm/cov      t=3/4 class/norm/cov");
         for (ordinal, label, kind) in WITNESSES {
             let quarter = analyse(ordinal, label, Rat::new(1, 4).expect("0"), false);
             let three = analyse(ordinal, label, Rat::new(3, 4).expect("0"), false);
-            let format = |report: Option<Report>| match report {
+            let format = |report: &Option<Report>| match report {
                 Some(report) => format!(
                     "{}/{}/{}{}",
                     if report.class_ok() {
@@ -565,13 +741,21 @@ fn main() -> std::process::ExitCode {
                 ),
                 None => "missing".to_string(),
             };
-            let quarter_report = format(quarter);
-            let three_report = format(three);
+            let quarter_report = format(&quarter);
+            let three_report = format(&three);
             println!(
                 "{ordinal:>6} {label:<4} ({kind})   {quarter_report:<20} {three_report}"
             );
-            ok &= analyse(ordinal, label, Rat::new(1, 4).expect("0"), false)
-                .is_some_and(|report| report.class_ok() && report.norm_ok());
+            // The recorded status is asserted at both parameters, not printed
+            // and trusted: `ok` means all three laws hold.
+            let satisfied = |report: &Option<Report>| {
+                report.as_ref().is_some_and(|report| {
+                    report.class_ok() && report.norm_ok() && report.covariance_ok()
+                })
+            };
+            if kind == "ok" {
+                ok &= satisfied(&quarter) && satisfied(&three);
+            }
         }
         println!(
             "legend: class/norm/cov columns are \u{201c}0\u{201d} for a passing law and the violation count otherwise; \
@@ -618,10 +802,7 @@ mod tests {
     ///
     /// The naive "lattice invariance" equality is deliberately **not** asserted:
     /// a full-star character acts on translations as one Bloch factor per star
-    /// member, so `chi({E|L} h) == chi(h)` is not a law.  Nor is the anchor
-    /// parameter the whole story: what the other parameters do is reported by
-    /// the ledger (`--witnesses`), not frozen into this test while the parameter
-    /// semantics are still being settled.
+    /// member, so `chi({E|L} h) == chi(h)` is not a law.
     #[test]
     fn the_anchor_restriction_satisfies_the_space_group_conjugacy_law() {
         for (ordinal, label, _) in WITNESSES {
@@ -647,6 +828,45 @@ mod tests {
                 report.dimension,
                 report.expected_dimension
             );
+        }
+    }
+
+    /// The **conjugate coset** `t = 3/4` satisfies the same three laws, and the
+    /// seven witnesses that used to fail closed there now compute characters.
+    ///
+    /// This is the R6.2 finding in test form: the 58 non-integral multiplicities
+    /// and the conjugacy violations measured at `t = 3/4` were caused by the
+    /// canonicalized wave vector (the frozen table paired with a wave vector it
+    /// does not describe), not by the frozen tables or the multiplicity solver.
+    /// With the raw `k(t)` every witness passes at both parameters; a regression
+    /// that re-introduces the reduction fails here.
+    #[test]
+    fn the_conjugate_coset_witnesses_satisfy_the_three_laws() {
+        for (ordinal, label, kind) in WITNESSES {
+            assert_eq!(kind, "ok", "the recorded status is the current reading");
+            for parameter in [Rat::new(1, 4).expect("0"), Rat::new(3, 4).expect("0")] {
+                let report = analyse(ordinal, label, parameter, false)
+                    .unwrap_or_else(|| panic!("ordinal {ordinal} {label} missing"));
+                assert_eq!(
+                    report.class_violations, 0,
+                    "ordinal {ordinal} {label} t={parameter}: conjugacy law (worst {:.3e})",
+                    report.worst_class
+                );
+                assert!(
+                    report.norm_ok(),
+                    "ordinal {ordinal} {label} t={parameter}: norm {} is not a non-negative integer",
+                    report.norm
+                );
+                assert_eq!(
+                    report.covariance_violations, 0,
+                    "ordinal {ordinal} {label} t={parameter}: Bloch covariance"
+                );
+                assert!(
+                    report.direction_is_reciprocal,
+                    "ordinal {ordinal} {label}: the frozen direction must be a parent \
+                     reciprocal lattice vector for the monodromy contract to apply"
+                );
+            }
         }
     }
 

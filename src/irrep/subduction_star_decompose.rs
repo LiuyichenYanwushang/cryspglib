@@ -946,35 +946,36 @@ fn line_arms(
 
 /// `k = t . direction` as an exact vector; `t` is the caller's rational
 /// parameter and `direction` the frozen table's own direction.
+///
+/// **This is the wave vector the frozen table is evaluated at, unreduced.**  The
+/// frozen little co-group matrices `D` are solved at `k = Gamma` (no Bloch
+/// factor), so the character of the band on an operation `(R, T)` is
+/// `D(R) * exp(2 pi i k.T)`: the parameter *is* part of the representation, and
+/// reducing `k` into the parent's fundamental cell while keeping `D` would
+/// silently evaluate a different band.
+///
+/// What a parameter step `t -> t + n` does is therefore a **relabelling**, not a
+/// gauge: `chi^t+n = chi^t * Phi_{n v}` with `Phi_K(R) = exp(2 pi i K.T_R)` a
+/// one-dimensional little-group character, so the shifted table is the table of
+/// the image under the monodromy map `M_{n v}` of
+/// [`crate::irrep::line_monodromy`] and
+///
+/// ```text
+/// decompose(alpha, t + n)  ==  decompose(M_{n v}(alpha), t).
+/// ```
+///
+/// R6.1 shipped the opposite reading (reduce `k`, keep the label) and the R6.2
+/// audit revoked it.  Witness (ordinal 11328, SG 210, measured on the current
+/// build): `M_v(DT3) = DT4`; the reduced engine answered `Z1` for `DT3` at both
+/// parameters, while the correct transport gives `Z2` -- the decomposition the
+/// frozen table of `DT4` has at `t = 1/4`, and exactly what `DT3` at `t = 5/4`
+/// now returns (`tests/line_monodromy.rs` checks this on all 5,756 rows).
 fn line_wave_vector(direction: &Vec3R, parameter: &Rat) -> Result<Vec3R, FullStarError> {
     let mut scaled = [Rat::ZERO; 3];
     for (axis, value) in scaled.iter_mut().enumerate() {
         *value = parameter.checked_mul(direction.get(axis))?;
     }
     Ok(Vec3R::new(scaled))
-}
-
-/// The parent's reciprocal lattice in the frame the frozen direction lives in
-/// (the conventional reciprocal basis).
-fn parent_reciprocal(parent_sg: u8) -> Result<Lattice, FullStarError> {
-    Ok(Lattice::new(exact_primitive_basis(parent_sg)?)?.reciprocal()?)
-}
-
-/// Reduce a parent wave vector into the parent's fundamental cell.
-///
-/// The frozen little-group characters are pure **Gamma-point** point characters
-/// (`chi(R,T) = D(R) exp(2 pi i k.T)`), so the pair `(D, k)` is only the irrep the
-/// table describes when `k` is its canonical representative.  Two parameters that
-/// differ by a parent reciprocal lattice vector describe the *same* parent irrep
-/// (Bloch), but evaluating the frozen `D` at the shifted `k` multiplies the
-/// character by a gauge factor `exp(2 pi i G.T)` and can flip the child irrep the
-/// solver picks: ordinal 11328 (SG 210 `DT3`) gave `Z1` at `t = 1/4` and `Z2` at
-/// `t = 5/4` before this reduction, with identical trivial content and a passing
-/// reconstruction on both sides, so no gate could see it.  All 5,756 pinned
-/// `t = 1/4` wave vectors are already canonical, so the reduction leaves the
-/// validated convention untouched and makes equivalent parameters agree.
-fn canonical_wave_vector(parent_sg: u8, wave_vector: &Vec3R) -> Result<Vec3R, FullStarError> {
-    Ok(parent_reciprocal(parent_sg)?.reduce(wave_vector)?.representative)
 }
 
 /// Validate the context shared by every line entry point.
@@ -1017,19 +1018,18 @@ fn line_folded_arms(
     embedding: &SubgroupEmbedding,
     little_dimension: u8,
 ) -> Result<Vec<FoldedStar>, FullStarError> {
-    // Each arm's wave vector is the image of the **canonical** centre wave
-    // vector under the arm's own parent rotation: `R^-T k`.  Folding the raw
-    // `t . arm` instead would be the same child coset (the two differ by a
-    // parent reciprocal vector whose image is a child reciprocal vector) but it
-    // would not be the same canonical representative the character evaluation
-    // uses, which is exactly the gauge inconsistency `canonical_wave_vector`
-    // removes.
+    // Each arm's wave vector is the image of the centre wave vector under the
+    // arm's own parent rotation: `R^-T k(t)`, i.e. exactly `t . arm`.  It is fed
+    // to the fold **unreduced**: the parent's Bloch phases and the child's are
+    // read at wave vectors that differ by (K, T^T K) together, and reducing only
+    // one of the two halves would pair the frozen table with a wave vector it
+    // does not describe (see [`line_wave_vector`]).
     let mut folded = Vec::with_capacity(arms.len());
     for (_, rotation) in arms {
         let action = Mat3R::from_ints(*rotation).inverse()?.transpose();
         let arm_k = action.checked_mul_vector(wave_vector)?;
         folded.push(FoldArm {
-            wave_vector: canonical_wave_vector(embedding.parent_sg(), &arm_k)?,
+            wave_vector: arm_k,
             dimension: usize::from(little_dimension),
         });
     }
@@ -1057,7 +1057,7 @@ pub fn line_trivial_content_via_blocks(
     let direction = line_direction(table)?;
     let arms = line_arms(subgroup, embedding, table, &direction)?;
     let parameter = Rat::new(OFFICIAL_LINE_PARAMETER.0, OFFICIAL_LINE_PARAMETER.1)?;
-    let wave_vector = canonical_wave_vector(subgroup.parent_sg, &line_wave_vector(&direction, &parameter)?)?;
+    let wave_vector = line_wave_vector(&direction, &parameter)?;
     let arms: &[(Vec3R, Mat3I)] = &arms;
     let wave_vector = &wave_vector;
     let direction = &direction;
@@ -1131,7 +1131,7 @@ pub fn subduce_line_at_parameter(
     validate_line_context(subgroup, embedding, table)?;
     let direction = line_direction(table)?;
     let arms = line_arms(subgroup, embedding, table, &direction)?;
-    let wave_vector = canonical_wave_vector(subgroup.parent_sg, &line_wave_vector(&direction, &parameter)?)?;
+    let wave_vector = line_wave_vector(&direction, &parameter)?;
     let child_sg = embedding.subgroup_sg();
     let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
     let child_reciprocal = child_cell.reciprocal()?;
@@ -1237,15 +1237,13 @@ impl LineSubduction {
         &self.parameter
     }
 
-    /// `t . direction` in the frozen table's own frame, **reduced into the
-    /// parent's fundamental cell** (see [`canonical_wave_vector`]).
+    /// The raw `t . direction` in the frozen table's own frame, **unreduced**
+    /// (see [`line_wave_vector`]).
     ///
-    /// The reduction is what makes two parameters that differ by a parent
-    /// reciprocal lattice vector describe the same parent irrep; the frozen
-    /// character table is only paired with the canonical representative.  Before
-    /// R6.1's fix this accessor returned the raw `t . direction`, so equivalent
-    /// parameters reported wave vectors differing by a parent reciprocal vector
-    /// (`(0,1,0)` against `(0,5,0)` on SG 210) and could decompose differently.
+    /// Two parameters one step apart report wave vectors differing by exactly the
+    /// frozen direction, which is a parent reciprocal lattice vector: the same
+    /// point of the parent's zone, and the reason the transported query is the
+    /// monodromy image of the label rather than the label again.
     pub const fn wave_vector(&self) -> &Vec3R {
         &self.wave_vector
     }
@@ -2438,6 +2436,7 @@ fn reconstruct(
 mod tests {
     use super::*;
     use crate::irrep::LabelConvention;
+    use crate::irrep::line_monodromy;
     use crate::irrep::subduction::star::FoldedPoint;
     use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
     use crate::irrep::subduce_irrep;
@@ -4411,17 +4410,21 @@ mod tests {
         assert_eq!(stars, vec![4, 8], "multi-point orbits");
     }
 
-    /// Equivalent parameters (differing by a parent reciprocal lattice vector)
-    /// describe the same parent irrep, so the decomposition must be **identical**,
-    /// not merely equal in its trivial content.
+    /// A parameter step by a parent reciprocal lattice vector is the
+    /// **monodromy image** of the label, not a gauge of the label itself:
     ///
-    /// This is the gauge regression for reviewer D's P1: ordinal 11328 (SG 210
-    /// `DT3`) gave `Z1` at `t = 1/4` and `Z2` at `t = 5/4` before the canonical
-    /// wave vector was introduced, with the same trivial content (1 = pinned) and
-    /// a passing reconstruction on both sides, so no gate could see it.  The
-    /// affected rows are the DT rows of SG 210/227/228 below.
+    /// ```text
+    /// decompose(alpha, t + n)  ==  decompose(M_{n v}(alpha), t)
+    /// ```
+    ///
+    /// The 40 contexts below are the rows of reviewer D's P1 (DT rows of SG
+    /// 210/227/228) where the two readings differ.  R6.1 read them as a gauge
+    /// slip and canonicalized the wave vector, which answers `Z1` for SG 210
+    /// `DT3` at *both* parameters; the correct transport answers `Z2`, the
+    /// decomposition of the pinned `DT4` at `t = 1/4`, because `M_v(DT3) = DT4`
+    /// (see `tests/line_monodromy.rs` for the corpus-wide version).
     #[test]
-    fn a_reciprocal_vector_shift_of_the_parameter_changes_nothing() {
+    fn a_reciprocal_vector_shift_of_the_parameter_is_the_monodromy_image() {
         let contexts = subgroups();
         let cases: [(usize, &str); 40] = [
             (11328, "DT3"),
@@ -4473,14 +4476,23 @@ mod tests {
             let embedding =
                 SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
             let table = line_table(subgroup.parent_sg, label);
-            let reference = subduce_line_at_parameter(
-                subgroup,
-                &embedding,
-                table,
-                official(),
-            )
-            .unwrap_or_else(|error| panic!("ordinal {ordinal} {label} t=1/4: {error}"));
-            for numerator in [5i128, 9, 13] {
+            let direction = line_direction(table).expect("the frozen direction parses");
+            let map = line_monodromy::monodromy(subgroup.parent_sg, &direction);
+            for (steps, numerator) in [(1usize, 5i128), (2, 9), (3, 13)] {
+                let orbit = map
+                    .orbit(label, steps)
+                    .unwrap_or_else(|| panic!("ordinal {ordinal} {label}: orbit {steps}"));
+                let image = orbit[steps];
+                let image_table = line_table(subgroup.parent_sg, image);
+                let reference = subduce_line_at_parameter(
+                    subgroup,
+                    &embedding,
+                    image_table,
+                    official(),
+                )
+                .unwrap_or_else(|error| {
+                    panic!("ordinal {ordinal} {label} image {image} t=1/4: {error}")
+                });
                 let shifted = subduce_line_at_parameter(
                     subgroup,
                     &embedding,
@@ -4488,15 +4500,31 @@ mod tests {
                     Rat::new(numerator, 4).unwrap(),
                 )
                 .unwrap_or_else(|error| panic!("ordinal {ordinal} {label} t={numerator}/4: {error}"));
+                // The premise of the contract: the two parameters differ by an
+                // integer multiple of the frozen direction, i.e. by a parent
+                // reciprocal lattice vector.
+                let delta = shifted
+                    .wave_vector()
+                    .checked_sub(reference.wave_vector())
+                    .expect("the wave vectors are both exact");
+                let factor = Rat::new(numerator, 4)
+                    .unwrap()
+                    .checked_sub(official())
+                    .expect("the parameter step");
+                let expected = Vec3R::new([
+                    factor.checked_mul(direction.get(0)).unwrap(),
+                    factor.checked_mul(direction.get(1)).unwrap(),
+                    factor.checked_mul(direction.get(2)).unwrap(),
+                ]);
                 assert_eq!(
-                    shifted.wave_vector(),
-                    reference.wave_vector(),
-                    "ordinal {ordinal} {label} t={numerator}/4 must share the canonical wave vector"
+                    delta, expected,
+                    "ordinal {ordinal} {label} t={numerator}/4 must be {factor} direction steps \
+                     away from the official parameter"
                 );
                 assert_eq!(
                     target_rows(&shifted),
                     target_rows(&reference),
-                    "ordinal {ordinal} {label} t={numerator}/4"
+                    "ordinal {ordinal} {label} t={numerator}/4 must transport to {image}"
                 );
                 assert_eq!(
                     shifted

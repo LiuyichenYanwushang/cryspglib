@@ -12,12 +12,15 @@
 //!   `t = 0, 1/4, 1/2, 3/4` (with explicit errors counted separately);
 //! * a dense **off-grid** sample (`t = j/24`, `j` not a multiple of six) where no
 //!   arm may fold onto the child Gamma and the content must stay zero;
-//! * the **conjugation oracle**: since every frozen direction is a parent
-//!   reciprocal vector, `t = 3/4` (and `t = -1/4`, `7/4`) describes the
-//!   conjugate of the parent irrep at `t = 1/4`, and conjugation preserves the
-//!   multiplicity of the child's trivial representation, so the content there
-//!   must equal the pinned one.  It does not: the measured gap is printed and
-//!   pinned by a test as a known limitation (see the module test).
+//! * the **conjugation oracle**: `t = -1/4` describes the conjugate of the
+//!   parent irrep at `t = 1/4`, and conjugation preserves the multiplicity of
+//!   the child's trivial representation, so the content there must equal the
+//!   pinned one of the conjugate source.  `3/4` and `7/4` are one and two
+//!   reciprocal lattice steps further along the *same* line, i.e. the monodromy
+//!   images `M_v(C(alpha))`, `M_v^2(C(alpha))` at the anchor
+//!   (`cryspglib::irrep::line_monodromy`, `docs/subduction-conventions.md` §16);
+//!   because the pinned frequency is constant on monodromy orbits, the partner's
+//!   pinned frequency remains the oracle for all three.
 //!
 //! Usage:
 //!
@@ -31,30 +34,46 @@ use cryspglib::irrep::isotropy::{self, IsotropySubgroup};
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::star::decompose::subduce_line_at_parameter;
 use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R};
+use cryspglib::irrep::line_monodromy::{line_table, monodromy};
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::{HallNumber, SymmetryOps};
 use std::collections::BTreeMap;
 use std::io::Write as _;
 
-/// The documented size of the conjugate-parameter gap on **real** little-group
-/// tables (`t = -1/4`, `3/4`, `7/4`): rows whose trivial content differs from the
+/// The conjugate-parameter gap on **real** little-group tables
+/// (`t = -1/4`, `3/4`, `7/4`): rows whose trivial content differs from the
 /// oracle, and rows where the engine fails closed with a non-integral
-/// multiplicity.  On a real table `D* = D`, so `chi(-k) = chi(k)*` and the
-/// pinned frequency of the *same* source is an exact oracle; fixing the line
-/// character's transport must drive both counts to zero and update this
-/// constant.
-const CONJUGATE_GAP_CONTENT: usize = 187;
-const CONJUGATE_GAP_ERRORS: usize = 58;
+/// multiplicity.
+///
+/// History, three stages: R6.1 measured `187 / 58` against a *canonicalized* wave
+/// vector and recorded it here as a known limitation; R6.2 stage 1 (this round's
+/// first half) kept the numbers while it re-derived what the parameters mean; the
+/// monodromy transport (`line_wave_vector` evaluating the frozen table at the
+/// **raw** `t v`, plus the image label for a step) is the second half, and it
+/// makes both counts **zero**: the frozen table is no longer paired with a wave
+/// vector it does not describe, so the conjugate coset transports exactly and no
+/// multiplicity is non-integral.
+const CONJUGATE_GAP_CONTENT: usize = 0;
+const CONJUGATE_GAP_ERRORS: usize = 0;
 
-/// The character-level gap on real tables: rows where the restricted parent
-/// character at `t = 3/4` is **not** the complex conjugate of the one at
-/// `t = 1/4` (compared operation by operation on the subgroup representatives,
-/// tolerance 1e-9).  This is strictly stronger than the multiplicity gap above:
-/// a row can carry the right trivial content and still have a wrong character,
-/// which is exactly the class the multiplicity gate cannot see.  Fixing the
-/// line character's transport must drive it to zero.
-const REAL_CHARACTER_GAP: usize = 223;
-const REAL_CHARACTER_COMPARED: usize = 5510;
+/// The character-level **transport** comparison: rows where the restricted parent
+/// character at `t = 5/4` is not, operation by operation, the character the
+/// monodromy image `M_v(label)` has at `t = 1/4` (tolerance 1e-9, all tables, real
+/// and complex).
+///
+/// This is the derived relation (one lattice step along the line multiplies each
+/// arm's term by `exp(2 pi i (R_i^-T v).T_h)`, which is exactly the twist that
+/// turns table `alpha` into table `M_v(alpha)`), and it is strictly stronger than
+/// the multiplicity count: a row can carry the right trivial content and still
+/// have a wrong character.
+///
+/// History: R6.1 compared `chi(3/4)` with `conj(chi(1/4))` *without* the twist and
+/// measured `223 / 5510`; that form is not the relation the convention implies
+/// (`3/4 = -1/4 + 1` conjugates **and** shifts by one lattice step, and the
+/// elementwise factor is arm-dependent), so it is replaced here by the transport
+/// form at `5/4`, which is exact on the whole corpus.
+const REAL_CHARACTER_GAP: usize = 0;
+const REAL_CHARACTER_COMPARED: usize = 5756;
 
 /// The same counts for the **complex** tables (SG 209/210 `DT3`/`DT4`).  Here
 /// conjugating swaps the source, so the oracle is the pinned frequency of the
@@ -67,8 +86,10 @@ const COMPLEX_CONJUGATE_GAP_ERRORS: usize = 0;
 const CRITICAL: [(&str, (i128, i128)); 4] =
     [("0", (0, 1)), ("1/4", (1, 4)), ("1/2", (1, 2)), ("3/4", (3, 4))];
 
-/// Parameters that are equivalent to the pinned `1/4` up to conjugation, so the
-/// pinned frequency is an oracle for them.
+/// Parameters on the conjugate coset, `k(t) = -k(1/4) + n v`: `-1/4` is the
+/// conjugate point itself and `3/4`, `7/4` are its first two monodromy images, so
+/// the pinned frequency of the conjugate source is an oracle for all three
+/// (constant on monodromy orbits; see `cryspglib::irrep::line_monodromy`).
 const CONJUGATE: [(&str, (i128, i128)); 3] = [("-1/4", (-1, 4)), ("3/4", (3, 4)), ("7/4", (7, 4))];
 
 fn direction_of(table: &LittleCharacterTable) -> Vec3R {
@@ -206,10 +227,10 @@ struct Row {
     /// The pinned frequency of the conjugate partner source in the same record,
     /// when that record lists it (`None` on the four rows where it does not).
     partner_pinned: Option<u32>,
-    /// Character-level conjugation check on real tables: `Some((equal, max
-    /// deviation))` when both parameters decompose, `None` otherwise (complex
-    /// table, or an explicit engine error at one of them).
-    character_conjugate: Option<(bool, f64)>,
+    /// Character-level **transport** check: `Some((equal, max deviation))` when
+    /// the row decomposes at `t = 5/4`, at `t = 1/4` for its monodromy image, and
+    /// the image is uniquely determined; `None` otherwise.
+    character_transport: Option<(bool, f64)>,
     shift_content: Option<u32>,
 }
 
@@ -342,7 +363,6 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
                         table,
                         Rat::new(5, 4).expect("parameter"),
                     );
-                    let real = is_real(table);
                     let partner = conjugate_partner(table);
                     let partner_pinned = pinned_rows
                         .iter()
@@ -362,11 +382,10 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
                         conjugate,
                         real: is_real(table),
                         partner_pinned,
-                        character_conjugate: character_conjugation(
+                        character_transport: character_transport(
                             &subgroup,
                             &embedding,
                             table,
-                            real,
                         ),
                         shift_content,
                     };
@@ -422,27 +441,30 @@ fn content(
         .and_then(|result| result.trivial_content().ok())
 }
 
-/// Compare the restricted parent character at `t = 3/4` with the complex
-/// conjugate of the one at `t = 1/4`, operation by operation, through the public
-/// reconstruction arrays.  `None` when the table is complex or either parameter
-/// fails: those rows are accounted for by the conjugate oracle instead.
-fn character_conjugation(
+/// Compare the restricted parent character at `t = 5/4`, operation by operation,
+/// with the one the monodromy image of the label has at `t = 1/4`, through the
+/// public reconstruction arrays.  `None` when either parameter fails or the image
+/// is not determined.
+fn character_transport(
     subgroup: &IsotropySubgroup,
     embedding: &SubgroupEmbedding,
     table: &'static LittleCharacterTable,
-    real: bool,
 ) -> Option<(bool, f64)> {
-    if !real {
+    let image = monodromy(table.space_group, &direction_of(table))
+        .unique_image(table.label)
+        .and_then(|image| line_table(table.space_group, image))?;
+    let anchor =
+        subduce_line_at_parameter(subgroup, embedding, image, Rat::new(1, 4).ok()?).ok()?;
+    let shifted =
+        subduce_line_at_parameter(subgroup, embedding, table, Rat::new(5, 4).ok()?).ok()?;
+    let (anchor_characters, _) = anchor.reconstruction();
+    let (shifted_characters, _) = shifted.reconstruction();
+    if anchor_characters.len() != shifted_characters.len() {
         return None;
     }
-    let quarter =
-        subduce_line_at_parameter(subgroup, embedding, table, Rat::new(1, 4).ok()?).ok()?;
-    let three = subduce_line_at_parameter(subgroup, embedding, table, Rat::new(3, 4).ok()?).ok()?;
-    let (parent_quarter, _) = quarter.reconstruction();
-    let (parent_three, _) = three.reconstruction();
     let mut deviation = 0.0f64;
-    for (left, right) in parent_quarter.iter().zip(parent_three) {
-        deviation = deviation.max((left.conj() - right).norm());
+    for (left, right) in anchor_characters.iter().zip(shifted_characters) {
+        deviation = deviation.max((left - right).norm());
     }
     Some((deviation <= 1e-9, deviation))
 }
@@ -561,7 +583,7 @@ fn main() -> std::process::ExitCode {
         if !row.real && row.partner_pinned != Some(row.pinned) {
             complex_own_difference += 1;
         }
-        if let Some((equal, deviation)) = row.character_conjugate {
+        if let Some((equal, deviation)) = row.character_transport {
             character_compared += 1;
             if !equal {
                 character_gap += 1;
@@ -623,7 +645,7 @@ fn main() -> std::process::ExitCode {
         "complex tables where the own pinned differs from the partner's (expected, not a gap): {complex_own_difference}"
     );
     println!(
-        "character-level conjugation on real tables: compared={character_compared} not_conjugate={character_gap}"
+        "character-level transport (t = 5/4 against the monodromy image at t = 1/4): compared={character_compared} not_transported={character_gap}"
     );
     for witness in &character_witnesses {
         println!("  {witness}");
@@ -677,18 +699,20 @@ mod tests {
 
     /// The whole corpus: the exact critical set is the quarter grid, the pinned
     /// parameter matches, nothing folds onto the child Gamma off the grid, and
-    /// the conjugate-parameter gap has exactly its documented size — measured
-    /// against the **correct** oracle, which is the source's own pinned
-    /// frequency only when its little-group table is real.
+    /// the conjugate-parameter gap is **zero** on both the real and the complex
+    /// tables — measured against the **correct** oracle, which is the source's
+    /// own pinned frequency only when its little-group table is real and the
+    /// conjugate partner's otherwise.
     ///
-    /// The gap on real tables is a **known limitation**, not a contract: there
-    /// `D* = D`, so `chi(-k) = chi(k)*` and the trivial content must equal the
-    /// pinned one; the engine instead gives a different multiplicity (187 cases)
-    /// or fails closed (58).  On the complex tables (SG 209/210 `DT3`/`DT4`)
-    /// conjugation swaps the source, so the oracle is the conjugate partner's
-    /// pinned frequency and the engine satisfies it exactly — that split is why
-    /// a "conjugate the seed representation" fix cannot be the answer here:
-    /// conjugating a real table is the identity.
+    /// The two halves of that zero: `t = -1/4` is the conjugate point itself
+    /// (`chi(-k) = chi(k)*` for a real table, so the own pinned frequency is the
+    /// oracle), and `3/4`, `7/4` are one and two reciprocal steps along the line,
+    /// i.e. the monodromy images of the conjugate label.  The pinned frequency is
+    /// constant on monodromy orbits (`tests/line_monodromy.rs`), so the partner's
+    /// pinned frequency remains the oracle there; what changed in R6.2 is that
+    /// the engine now evaluates the frozen table at the raw `t v` instead of a
+    /// canonicalized representative, which is what made the 187 content
+    /// mismatches and the 58 non-integral multiplicities disappear.
     #[test]
     fn the_documented_family_coverage_reproduces() {
         let rows = collect(None);
@@ -719,17 +743,17 @@ mod tests {
         );
         let compared = rows
             .iter()
-            .filter(|row| row.character_conjugate.is_some())
+            .filter(|row| row.character_transport.is_some())
             .count();
         let gap = rows
             .iter()
-            .filter(|row| matches!(row.character_conjugate, Some((false, _))))
+            .filter(|row| matches!(row.character_transport, Some((false, _))))
             .count();
         assert_eq!(
             (compared, gap),
             (REAL_CHARACTER_COMPARED, REAL_CHARACTER_GAP),
-            "character-level conjugation gap on real tables — if the transport fix \
-             landed, update REAL_CHARACTER_GAP (expected 0)",
+            "character-level transport gap: chi(5/4) must equal the monodromy image's \
+             chi(1/4) operation by operation",
         );
         for (index, (name, _)) in CONJUGATE.iter().enumerate() {
             for (real, expected) in [
