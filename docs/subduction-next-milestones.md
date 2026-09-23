@@ -165,9 +165,13 @@ R4 应拆成多张“小批次卡”，不能把“补完全部 128 个子群”
 
 负责：全局审计、覆盖报告和必要的缺口回归。
 
-**状态（2026-09-22）：验收清单已由 R4 批次 1/2a/2b 满足** —— 下面的数字已全部实测
-（全表审计 511 s、两个门禁同时 exit 0、`VERDICT complete`），缺口清点为空。
-R5 卡本身只剩"覆盖报告的正式收口"这类文档工作。
+**状态（2026-09-22）：已关闭。** 验收清单全部实测通过：三个门禁
+（`--require-complete`、`--require-w-complete`、`--require-full-decomposition`）
+同时 exit 0、`VERDICT complete scope=global`，缺口清点为空。正式覆盖报告（语料分母、
+每条结果的五项验证、独立 fixture、复现命令与边界）见
+[subduction-audit.md](subduction-audit.md) 的「R5：普通离散标量覆盖闭合」一节；
+R4 三个批次的范围、证据与文件所有权见
+[subduction-r4-batches.md](subduction-r4-batches.md)。
 
 验收目标是在当前固定语料上同时满足：
 

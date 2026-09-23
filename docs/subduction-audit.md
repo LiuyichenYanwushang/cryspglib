@@ -296,3 +296,75 @@ T = B^T
 
 后续扩充必须重新运行审计并更新实际覆盖。磁群、spinor 和离散子群 irrep 数据
 未提供的 k 不会因这些工具而自动获得支持。
+
+## R5：普通离散标量覆盖闭合（正式报告，2026-09-22）
+
+**结论**：在固定语料上，普通离散标量的完整分解**已闭合**。三个门禁
+（`--require-complete`、`--require-w-complete`、`--require-full-decomposition`）
+同时运行时 **exit 0**、判词 `VERDICT complete scope=global
+full_decomposition=complete`。本节是 R5 卡要求的"覆盖报告"；复现 511 s。
+
+### 语料与分母（先声明范围，再谈百分比）
+
+| 项 | 数量 | 说明 |
+|---|---:|---|
+| 冻结 isotropy 记录 | 15,239 | 全部 embedding 可用（`embedding_ok=15239`） |
+| probe（普通标量） | **366,260** | 每条记录在普通标量探针上的展开，**分母就是这个数** |
+| 其中完整分解 | **366,260（100%）** | `identity_only = missing = error = uncomputed = 0` |
+| 存储恒等正项 | 94,271 | 全部比对通过，`mismatch = 0` |
+| Γ Frobenius | 1,895 | 全部通过，`failures = 0` |
+| w 频率行（别的波矢） | 5,756 | 恒等重数全部算出并匹配，`mismatched = engine_errors = 0` |
+| spinor 记录 | 3,611 | **不在分母内**（普通标量分导明确拒绝） |
+
+`identity_only` 路径（第六轮的恒等-only 入口）仍然存在且仍被审计复算，但在这份语料上
+已经没有 probe 需要它：`probe_identity_only = 0`。
+
+### 每条完整结果被验证什么（不是只比恒等列）
+
+审计对每个成功结果都检查下面五项，任何一项非零都是 `hard_failures`，并且在**所有**
+门禁组合下都让运行以 exit 1 结束（负例测试
+`every_production_check_violation_is_a_hard_failure` 逐项钉住）：
+
+| 检查 | 字段 | 当前值 |
+|---|---|---:|
+| `Σ multiplicity × child_little_dim × child_star_size = parent_full_dim` | `production_dim_mismatch` | 0 |
+| 重数为非负整数 | `production_integrality_mismatch` | 0 |
+| 逐操作重建子导字符 | `production_recon_mismatch` | 0 |
+| 目标能对上冻结 CIR 来源身份 | `target_source_unmatched` | 0 |
+| 来源号与标签读数一致 | `label_source_disagreement` | 0 |
+
+另有独立的来源矩阵 fixture 继续参与门禁（`tests/subduction_star_source.rs` 的
+1,232 次字符比较、`tests/subduction_compound_stars.rs` 的复成分与 k/-k 对照），
+它们不经过诱导算法，因此不是自证。**非平凡标签可以置换**：恒等频率吻合不能替代
+规范标签检查，所以 `label_source_disagreement` 与 `target_source_unmatched` 单独计入
+`hard_failures`，而不是只看恒等列。
+
+### 缺口清点（R5 卡要求的口径修正）
+
+清点工具 `examples/census_subduction_gaps.rs` 仍然是"从**新审计**生成剩余缺口"，
+replay 校验没有被关闭：它现在拒绝非 `identity_only` 行、仍校验首个缺失星与引擎错误
+一致。覆盖闭合后审计里没有 `identity_only` 行，工具按**空 manifest + 零计数**返回
+（回归测试 `a_closed_audit_replays_as_an_empty_manifest`），而不是静默失败或伪造缺口。
+清点结果（批 2a 后）为 `records=83 probes=221 stars=331 missing_stars=326`，
+批 2b 后清零。
+
+### 复现
+
+```bash
+CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
+  --example audit_irrep_subduction -- \
+  --require-complete --require-w-complete --require-full-decomposition \
+  --output target/r5_audit.tsv
+# exit 0；判词 VERDICT complete scope=global full_decomposition=complete
+```
+
+### 边界（这些不在 100% 里）
+
+* spinor / 双群分导：明确拒绝，单独扩展；
+* 参数化 k 源的**完整**分解（R6）：当前只算恒等重数（5,756 行）；
+* 磁共表示分导（R9–R11）：磁表只提供候选记录查询，不是经过验证的磁嵌入；
+  230 个 Type-II/grey UNI 在磁表中没有记录，是数据来源边界；
+* 官方方向 descriptor（R7）与正式 API（R8）：`dim = 2`/`dim ≥ 4` 仍是内部记法，
+  `irrep::subduction` 仍是 `#[doc(hidden)]`。
+
+因此"100%"只等于**这份固定 ordinary scalar 语料的完整分解**，不是项目完成度。

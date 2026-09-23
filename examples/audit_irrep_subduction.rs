@@ -2619,6 +2619,61 @@ mod tests {
         }
     }
 
+    /// R5: the per-result production checks are load-bearing, not decoration.
+    ///
+    /// Every completed decomposition must satisfy
+    /// `sum multiplicity x child little dimension x child star size = parent full
+    /// dimension`, the per-operation reconstruction, integral multiplicities, the
+    /// frozen CIR source identity and the label agreement.  A single violation of
+    /// any of them is a hard failure under **every** gate combination, so a run
+    /// cannot trade one of those invariants for coverage.
+    #[test]
+    fn every_production_check_violation_is_a_hard_failure() {
+        for (name, counts) in [
+            (
+                "dimension",
+                Counts {
+                    production_dim_mismatch: 1,
+                    ..Counts::default()
+                },
+            ),
+            (
+                "integrality",
+                Counts {
+                    production_integrality_mismatch: 1,
+                    ..Counts::default()
+                },
+            ),
+            (
+                "reconstruction",
+                Counts {
+                    production_recon_mismatch: 1,
+                    ..Counts::default()
+                },
+            ),
+            (
+                "source identity",
+                Counts {
+                    target_source_unmatched: 1,
+                    ..Counts::default()
+                },
+            ),
+            (
+                "label agreement",
+                Counts {
+                    label_source_disagreement: 1,
+                    ..Counts::default()
+                },
+            ),
+        ] {
+            assert!(counts.hard_failures() >= 1, "{name} must be a hard failure");
+            assert_eq!(counts.exit_code(Gates::default()), 1, "{name}: exit code");
+            for gates in all_gate_combinations() {
+                assert_eq!(counts.exit_code(gates), 1, "{name}: gates={}", gates.label());
+            }
+        }
+    }
+
     #[test]
     fn a_run_without_mismatches_still_exits_zero() {
         let counts = Counts::default();

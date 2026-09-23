@@ -275,6 +275,25 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
 
+    const AUDIT_HEADER: &str = "kind\tordinal\tparent_sg\tsubgroup_sg\tdirection\tdomain\tarms\tsize\tprobe_ml\tprobe_sg\tprobe_k\tprobe_src\tstored\tcomputed\tstatus\tdetail\n";
+
+    /// R5: once the coverage is closed the audit has no identity-only row, so the
+    /// replay must produce an **empty** manifest instead of failing -- and it must
+    /// still ignore rows that are not identity-only rather than inventing gaps.
+    #[test]
+    fn a_closed_audit_replays_as_an_empty_manifest() {
+        let requests = read_requests(std::io::Cursor::new(AUDIT_HEADER)).unwrap();
+        assert!(requests.is_empty());
+        let covered = format!(
+            "{AUDIT_HEADER}identity\t1\t2\t1\tP1\t1\t1\t1\tGM1\t2\t0/1,0/1,0/1\tordinary\
+             \t1\t1\tpassed\tgeometry=not_checked\n"
+        );
+        assert!(
+            read_requests(std::io::Cursor::new(covered)).unwrap().is_empty(),
+            "a full row must not be replayed as a gap"
+        );
+    }
+
     /// Count the per-star statuses exactly as the manifest does.
     fn status_counts(ordinal: usize, ml: &str) -> (usize, usize, usize) {
         let contexts = subgroups().unwrap();
