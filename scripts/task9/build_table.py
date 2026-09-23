@@ -265,8 +265,19 @@ def main(argv=None):
     parser.add_argument("--out", required=True)
     parser.add_argument(
         "--expected",
-        help="JSON list of every ordinal the table must cover; defaults to the "
-             "ordinal set of the existing --out module",
+        help="JSON list of every ordinal the table must cover; an explicit list "
+             "replaces --out/--baseline as the expected universe",
+    )
+    parser.add_argument(
+        "--baseline",
+        default=os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "src",
+            "irrep",
+            "subduction_settings_data.rs",
+        ),
+        help="tracked module whose ordinal set the new table must match "
+             "(default: the committed table; used when --out does not exist yet)",
     )
     parser.add_argument(
         "--check",
@@ -295,13 +306,38 @@ def main(argv=None):
     empty = load_jsonl(args.empty, only_records=False)
 
     committed = parse_committed(args.out)
+    baseline = (
+        parse_committed(args.baseline)
+        if args.baseline
+        and os.path.abspath(args.baseline) != os.path.abspath(args.out)
+        else None
+    )
     if args.expected:
         with open(args.expected, encoding="utf-8") as handle:
             expected = {int(value) for value in json.load(handle)}
-    elif committed is not None:
-        expected = set(committed)
     else:
-        expected = None
+        # The expected universe never comes from the input alone: either the
+        # output module already exists, or the tracked baseline module supplies
+        # it.  A missing `--out` (typo, fresh directory, deleted file) must not
+        # turn "cannot tell complete from truncated" into a successful write.
+        sources = {}
+        if committed is not None:
+            sources["--out"] = set(committed)
+        if baseline is not None:
+            sources["--baseline"] = set(baseline)
+        if len({frozenset(values) for values in sources.values()}) > 1:
+            raise SystemExit(
+                "the existing --out module and the --baseline module disagree on the "
+                "ordinal set; pass --expected to state the intended universe explicitly"
+            )
+        expected = next(iter(sources.values()), None)
+        if expected is None and not args.partial:
+            raise SystemExit(
+                f"cannot determine the expected ordinal set: {args.out} does not exist "
+                f"and no baseline module was found at {args.baseline}; pass "
+                "--expected <ordinals.json>, --baseline <module>, or --partial for an "
+                "experimental table"
+            )
 
     entries, duplicates = assemble(census, shifts, empty)
     if duplicates:

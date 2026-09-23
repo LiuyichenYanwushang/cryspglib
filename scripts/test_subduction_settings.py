@@ -114,12 +114,11 @@ class CommittedModuleTest(unittest.TestCase):
 
     def test_committed_entries_address_the_pinned_records(self):
         # The committed module is the full table: one entry per pinned isotropy
-        # record, in ordinal order, each addressing its own record.
-        self.assertEqual(len(self.entries), len(self.records))
-        self.assertEqual(
-            [entry["ordinal"] for entry in self.entries],
-            list(range(len(self.records))),
-        )
+        # record, in ordinal order, each addressing its own record.  The
+        # coverage rule is the generator's own `check_ordinal_coverage`, so this
+        # test and the online `--check` cannot drift apart (a duplicate that
+        # replaces a missing ordinal used to pass the CLI).
+        gen.check_ordinal_coverage(self.entries, len(self.records))
         for entry in self.entries:
             self.assertTrue(
                 gen.entry_addresses_record(entry, self.records),

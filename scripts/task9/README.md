@@ -53,13 +53,18 @@ python3 ../../scripts/task9/build_table.py --check \
 ```
 
 `build_table.py` validates before it writes: duplicated ordinals are conflicts,
-the assembled ordinal set must equal the set the output module already carries
-(or an explicit `--expected` list), unmatched census records are reported by
-status, and the file is replaced atomically.  `--check` compares a fresh assembly
-with the committed module; `--partial` is the explicit escape hatch for
-experiments.  ``--shifts``/``--derived`` accept every shape the derivation tools
-write (``{"solved": ...}``, ``{"accepted": ..., "shifts": ...}`` and a bare map),
-so the multi-pass fix chain can be expressed as one command.
+the assembled ordinal set must equal the expected universe, unmatched census
+records are reported by status, and the file is replaced atomically.  The
+expected universe never comes from the input alone: an explicit ``--expected``
+list wins, otherwise the existing ``--out`` module and the tracked ``--baseline``
+module (default ``src/irrep/subduction_settings_data.rs``) must agree on it --
+so a missing or misspelled ``--out`` (fresh directory, deleted file) can no
+longer turn "cannot tell complete from truncated" into a successful write.  With
+no expected universe at all the assembler refuses unless ``--partial`` is passed
+for an experimental table.  ``--check`` compares a fresh assembly with the
+committed module.  ``--shifts``/``--derived`` accept every shape the derivation
+tools write (``{"solved": ...}``, ``{"accepted": ..., "shifts": ...}`` and a bare
+map), so the multi-pass fix chain can be expressed as one command.
 
 ### Provenance status of the committed table
 

@@ -3,9 +3,11 @@
 
 `scripts/task9/build_table.py` is the only writer of
 ``src/irrep/subduction_settings_data.rs``.  These tests exercise the states that
-used to pass silently: an empty or truncated census, duplicated records, and a
-`--check` mismatch.  They run entirely on temporary files and never touch the
-committed module.
+used to pass silently: an empty or truncated census, duplicated records, a
+`--check` mismatch, and -- the case the first round of tests missed -- a **new
+output path**, where no existing module can supply the expected ordinal set.
+They run entirely on temporary files, pin their own `--baseline` fixture, and
+never touch the committed module.
 
 Usage::
 
@@ -61,6 +63,8 @@ class AssemblerTest(unittest.TestCase):
         self.shifts = os.path.join(self.directory.name, "shifts.json")
         self.empty = os.path.join(self.directory.name, "empty.jsonl")
         self.out = os.path.join(self.directory.name, "table.rs")
+        self.baseline = os.path.join(self.directory.name, "baseline.rs")
+        self.expected = os.path.join(self.directory.name, "expected.json")
         with open(self.shifts, "w", encoding="utf-8") as handle:
             json.dump({"solved": {}}, handle)
         open(self.empty, "w", encoding="utf-8").close()
@@ -70,12 +74,17 @@ class AssemblerTest(unittest.TestCase):
             for line in lines:
                 handle.write(line + "\n")
 
+    def write_baseline(self, entries):
+        with open(self.baseline, "w", encoding="utf-8") as handle:
+            handle.write(module(entries))
+
     def run_assembler(self, *extra):
         argv = [
             "--census", self.census,
             "--shifts", self.shifts,
             "--empty", self.empty,
             "--out", self.out,
+            "--baseline", self.baseline,
             *extra,
         ]
         stdout, stderr = io.StringIO(), io.StringIO()
@@ -85,12 +94,17 @@ class AssemblerTest(unittest.TestCase):
                 build_table.main(argv)
             except SystemExit as error:
                 code = error.code if isinstance(error.code, int) else 1
+                if isinstance(error.code, str):
+                    # An uncaught SystemExit would print this; keep it visible so
+                    # the assertions can check the refusal reason.
+                    stderr.write(error.code + "\n")
         return code, stdout.getvalue(), stderr.getvalue()
 
     def test_an_empty_input_cannot_write_a_table(self):
         self.write_census([])
         with open(self.out, "w", encoding="utf-8") as handle:
             handle.write(module([(0, 1, 1), (1, 1, 1)]))
+        self.write_baseline([(0, 1, 1), (1, 1, 1)])
         with open(self.out, encoding="utf-8") as handle:
             before = handle.read()
         code, _, _ = self.run_assembler()
@@ -106,6 +120,7 @@ class AssemblerTest(unittest.TestCase):
         self.write_census([census_line(0, 1, 1)])
         with open(self.out, "w", encoding="utf-8") as handle:
             handle.write(module([(0, 1, 1), (1, 1, 1)]))
+        self.write_baseline([(0, 1, 1), (1, 1, 1)])
         code, _, _ = self.run_assembler()
         self.assertNotEqual(code, 0)
         # An explicit `--partial` is the documented escape hatch.
@@ -118,6 +133,7 @@ class AssemblerTest(unittest.TestCase):
         self.write_census([census_line(0, 1, 1), census_line(0, 1, 1)])
         with open(self.out, "w", encoding="utf-8") as handle:
             handle.write(module([(0, 1, 1)]))
+        self.write_baseline([(0, 1, 1)])
         code, _, stderr = self.run_assembler()
         self.assertNotEqual(code, 0)
         self.assertIn("duplicated", stderr)
@@ -126,6 +142,7 @@ class AssemblerTest(unittest.TestCase):
         self.write_census([census_line(0, 1, 1), census_line(1, 1, 1)])
         with open(self.out, "w", encoding="utf-8") as handle:
             handle.write(module([(0, 1, 1), (1, 1, 1)]))
+        self.write_baseline([(0, 1, 1), (1, 1, 1)])
         code, _, _ = self.run_assembler()
         self.assertEqual(code, 0)
         code, stdout, _ = self.run_assembler("--check")
@@ -138,6 +155,48 @@ class AssemblerTest(unittest.TestCase):
         code, _, _ = self.run_assembler()
         self.assertEqual(code, 0)
         code, _, _ = self.run_assembler("--check")
+        self.assertEqual(code, 0)
+
+    def test_a_new_output_needs_a_known_expected_universe(self):
+        # The case the first round missed: `--out` does not exist yet, so only
+        # `--baseline` (or `--expected`) can tell a complete table from a
+        # truncated input.  An empty census must not write a zero-entry "full"
+        # table, and a rejected build must not create the output at all.
+        self.write_census([])
+        self.write_baseline([(0, 1, 1), (1, 1, 1)])
+        self.assertFalse(os.path.exists(self.out))
+        code, _, stderr = self.run_assembler()
+        self.assertNotEqual(code, 0, "an unknown universe must not permit a write")
+        self.assertFalse(os.path.exists(self.out), "a rejected build wrote its output")
+        # A complete input for the same fresh output path is accepted.
+        self.write_census([census_line(0, 1, 1), census_line(1, 1, 1)])
+        code, _, _ = self.run_assembler()
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.exists(self.out))
+        # With no baseline either, the assembler refuses instead of guessing.
+        os.unlink(self.out)
+        missing = os.path.join(self.directory.name, "absent.rs")
+        code, _, stderr = self.run_assembler("--baseline", missing)
+        self.assertNotEqual(code, 0)
+        self.assertIn("cannot determine the expected ordinal set", stderr)
+        self.assertFalse(os.path.exists(self.out))
+        # `--partial` is the explicit escape hatch for an experimental table.
+        code, _, _ = self.run_assembler("--baseline", missing, "--partial")
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.exists(self.out))
+
+    def test_output_and_baseline_must_agree_on_the_ordinal_set(self):
+        self.write_census([census_line(0, 1, 1)])
+        with open(self.out, "w", encoding="utf-8") as handle:
+            handle.write(module([(0, 1, 1)]))
+        self.write_baseline([(0, 1, 1), (1, 1, 1)])
+        code, _, stderr = self.run_assembler()
+        self.assertNotEqual(code, 0)
+        self.assertIn("disagree", stderr)
+        # An explicit `--expected` states the intended universe and wins.
+        with open(self.expected, "w", encoding="utf-8") as handle:
+            json.dump([0], handle)
+        code, _, _ = self.run_assembler("--expected", self.expected)
         self.assertEqual(code, 0)
 
     def test_load_shifts_accepts_every_pipeline_shape(self):

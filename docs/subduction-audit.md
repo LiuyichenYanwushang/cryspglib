@@ -496,6 +496,22 @@ VERDICT complete scope=global
 | 提醒：`scripts/task9/README.md` 路径多退一级、12 个脚本硬编码 `/home/liuyichen/...` | **属实** | README 路径改为从 `target/task9` 出发的 `../../…`；12 个脚本改为从 `__file__` 推导 `REPO`；补上只在 `target/task9/` 里存在、被三个 tracked 脚本 import 的 `derive_shift.py`（现在已入库），全部脚本可 import |
 | 提醒：审计文档仍把"exit 2 / identity_only=14713"写成当前状态 | 属实 | 改为显式历史 + 当前状态（R4 后 `identity_only=0`、该门禁 exit 0），并写明 `empty scope` 的语义 |
 
+**跟进复核（同一 reviewer，针对 `c37d3b9`）指出两处仍可绕过的门禁，均已补**：
+
+1. `build_table.py` 在 `--out` **尚不存在**时没有预期全集，完整性检查被跳过，
+   空输入会写出零条目表并 exit 0（`test_an_empty_input_cannot_write_a_table` 只覆盖了
+   "已有非空基线"这一半）。现在预期全集只能来自 `--expected`、已存在的 `--out`、或
+   **tracked 的 `--baseline` 模块**（默认 `src/irrep/subduction_settings_data.rs`）；
+   三者不一致即报错，全部缺失时拒绝写入（除非显式 `--partial`）。reviewer 给出的最小
+   复现命令现在 exit 1、不创建输出；`scripts/test_build_table.py` 加到 7 条
+   （新增"新输出路径必须知道全集"与"out 与 baseline 必须一致"）。
+2. `generate_subduction_settings.py --check` 的覆盖检查是**数量相等 + 逐条身份**，
+   重复 ordinal（如 `[0,1,1]` 对 3 条记录）能顶替缺失项通过，而 `compare()` 以
+   ordinal 为键会把重复合并。现在抽出共享实现 `check_ordinal_coverage`（要求
+   ordinal 序列严格等于 `range(len(records))`，报出缺失/重复/越界），
+   **在线 `--check` 与离线测试调用同一个函数**，避免"测试严格、生产宽松"的分叉。
+   reviewer 的四个回归用例（`gate_regression_tests.py`）现在 4/4 通过。
+
 **关于正式生成入口的统一**（发现 1 的建议）：现在只有一个 writer——
 `scripts/task9/build_table.py`；`--check` 是它的门禁。诚实说明一条边界：
 **历史那份表的逐字节重生成无法只靠 tracked 输入完成**，因为最后的 child-shift 集合是

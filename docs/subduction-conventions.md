@@ -540,6 +540,15 @@ isotropy 记录（如 `--parent 2 --ordinal 0`），现在直接报 `empty scope
 回归：`an_empty_scope_is_rejected_instead_of_reporting_clean`，同时确认
 `--parent 1 --ordinal 0` 与 `--parent 1` 仍然正常。
 
+**生成管线的门禁与运行时无关，但同样按"失败关闭"要求：** 全表只有一个 writer
+（`scripts/task9/build_table.py`），它必须先确定"预期 ordinal 全集"才允许写：
+`--expected` 显式列表优先，否则已存在的 `--out` 与 tracked 的 `--baseline` 模块
+（默认 `src/irrep/subduction_settings_data.rs`）必须一致，两者都不可用时拒绝写入
+（除非显式 `--partial`）——否则"输出路径打错/在新目录重建"会把"分不清完整与截断"
+变成一次成功写入。旧生成器 `scripts/generate_subduction_settings.py` 的 `--check`
+与离线测试共用 `check_ordinal_coverage`：ordinal 序列必须严格等于
+`range(len(records))`，只比条数会被重复项顶替缺失项。
+
 **工具不再吞错误。** `examples/probe_subduction_settings.rs` 之前把
 `subduce_full_star_with_embedding` 的任何错误写成 `trivial=0`，而 0 在这条流水线里
 是**合法结果**（表示约定落在共轭分支上），两者混淆会把引擎缺数据误判成物理结论。

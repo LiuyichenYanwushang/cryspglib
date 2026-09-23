@@ -66,9 +66,12 @@ pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源�
 参数约定 `t = 1/4`）；官方 live oracle 全量通过：w 行 5,756 = pinned 5,756、
 `mismatches=0`；
 settings 管线：`test_subduction_settings.py` 10 passed（离线核对 15,239 行覆盖、
-身份、`|det U| = 分母³`、shift 最简）、`test_build_table.py` 5 passed（汇编器拒绝
-空/截断/重复输入）、`generate_subduction_settings.py --check` 在线复推 75 条遗留记录
-通过、`build_table.py --check` 可按 README 步骤 7 重建比对；
+身份、`|det U| = 分母³`、shift 最简；覆盖规则与 `--check` 共用
+`check_ordinal_coverage`）、`test_build_table.py` 7 passed（汇编器拒绝空/截断/重复、
+**新输出路径必须先知道预期全集**、`--out` 与 `--baseline` 必须一致）、
+`generate_subduction_settings.py --check` 在线复推 75 条遗留记录通过、
+`build_table.py --check` 可按 README 步骤 7 重建比对；第三方 reviewer 的
+`gate_regression_tests.py` 4/4 通过；
 全表审计（**三个门禁**：`--require-complete --require-w-complete
 --require-full-decomposition`）**同时退出 0**、判词 `VERDICT complete scope=global
 full_decomposition=complete`（`identity_rows=94271`、probe **366260/366260 完整分解、
@@ -3454,3 +3457,27 @@ R5 的正式报告、独立性表、100% 覆盖结论见 `docs/subduction-audit.
    identity_only=14713」改为显式历史 + 当前状态；`scripts/task9/README.md` 里三处
    w 门禁的"仍 exit 2 / 仍无法计算"也标注为历史（现在 `w_computed=5756/5756`、
    门禁 exit 0）。
+
+### 第三方复核跟进（2026-09-23，针对 `c37d3b9`）
+
+同一 reviewer 复核上一轮修复，认可 `L_H ⊆ L_G`、分母传递、probe 错误语义与空 scope
+四处，但指出生成管线两处仍可绕过的门禁（都已在主线程复现、修复、并用 reviewer 提供的
+`gate_regression_tests.py` 验证 4/4 通过）：
+
+1. `build_table.py` 在 `--out` **不存在**时 `expected=None`，完整性检查被跳过，
+   空输入会写出零条目表并 exit 0（我原来的测试只覆盖"已有非空基线"）。现在预期全集
+   来自 `--expected`、已存在的 `--out`、或 tracked 的 `--baseline` 模块（默认
+   `src/irrep/subduction_settings_data.rs`）；三者不一致报错，全部缺失时拒绝写入，
+  只有显式 `--partial` 例外。reviewer 的最小复现命令现在 exit 1 且不创建输出；
+   我自己的 `test_build_table.py` 加到 7 条覆盖这两个新分支。
+2. `generate_subduction_settings.py --check` 的覆盖检查只比**条数 + 逐条身份**，
+   `[0,1,1]` 对 3 条记录能顶替缺失的 ordinal 2（`compare()` 以 ordinal 为键会合并
+   重复）。现在抽出共享实现 `check_ordinal_coverage`（ordinal 序列必须严格等于
+   `range(len(records))`，并报缺失/重复/越界），**在线 `--check` 与离线测试调用同一
+   函数**，杜绝"测试严格、生产宽松"的分叉。
+
+reviewer 同时确认：历史表逐字节重生成属于**已披露、未解决**的独立问题（需要归档输入、
+合并顺序与选择依据），与"当前冻结表可离线核验 + 引擎可嵌入"是两个层次的保证；这一
+区分保留在 `scripts/task9/README.md` 的 Provenance status 与审计报告的诚实边界里。
+本轮只改 Python 脚本与文档，Rust 侧未动，故不重跑全表审计（`c37d3b9` 的 517.1 s、
+三门口禁 exit 0 仍然有效）。

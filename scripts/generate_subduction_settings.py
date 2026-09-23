@@ -814,6 +814,32 @@ def entry_addresses_record(entry, records):
     )
 
 
+def check_ordinal_coverage(committed, record_count):
+    """The committed module must address every pinned record exactly once.
+
+    Count equality is not coverage: a module whose ordinals are ``[0, 1, 1]``
+    over three pinned records has the right length and each surviving row still
+    names its own record, yet ordinal 2 is missing -- and `compare()` keys by
+    ordinal, so the duplicate would collapse silently.  This is the single
+    implementation the offline tests and the online ``--check`` both call, so a
+    test can never be stricter than the gate it is meant to pin.
+    """
+    ordinals = [entry["ordinal"] for entry in committed]
+    expected = list(range(record_count))
+    if ordinals == expected:
+        return
+    duplicated = sorted({value for value in ordinals if ordinals.count(value) > 1})
+    missing = sorted(set(expected) - set(ordinals))
+    outside = sorted(set(ordinals) - set(expected))
+    raise GenerationError(
+        f"the committed module must address every pinned record exactly once and in "
+        f"ordinal order, but {len(ordinals)} entries leave {len(missing)} ordinals "
+        f"uncovered (first {missing[:5]}), repeat {len(duplicated)} ordinals "
+        f"(first {duplicated[:5]}) and carry {len(outside)} ordinals outside the "
+        f"pinned range (first {outside[:5]})"
+    )
+
+
 def _split_top_level(text):
     """Split on commas that are not inside brackets."""
     fields = []
@@ -922,15 +948,12 @@ def main(argv=None):
         committed_text = handle.read()
     committed = parse_committed(committed_text)
     records = load_machine_records()
-    # The shipped module is the full table: it must cover every pinned record,
-    # and every row must address its own record.  This tool checks the coverage
-    # and its own 75 rows; the conventions of the other rows are checked by
-    # `scripts/task9/build_table.py --check`.
-    if len(committed) != len(records):
-        raise GenerationError(
-            f"the committed module has {len(committed)} entries but the pinned "
-            f"tables carry {len(records)} isotropy records"
-        )
+    # The shipped module is the full table: it must address every pinned record
+    # **exactly once, in ordinal order** (`check_ordinal_coverage`, the same
+    # function the offline tests call), and every row must name its own record.
+    # This tool checks the coverage and its own 75 rows; the conventions of the
+    # other rows are checked by `scripts/task9/build_table.py --check`.
+    check_ordinal_coverage(committed, len(records))
     for entry in committed:
         if not entry_addresses_record(entry, records):
             raise GenerationError(
