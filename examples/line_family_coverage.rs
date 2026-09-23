@@ -36,12 +36,32 @@ use cryspglib::{HallNumber, SymmetryOps};
 use std::collections::BTreeMap;
 use std::io::Write as _;
 
-/// The documented size of the conjugate-parameter gap (`t = -1/4`, `3/4`, `7/4`):
-/// rows whose trivial content differs from the pinned value, and rows where the
-/// engine fails closed with a non-integral multiplicity.  Fixing the line
-/// character's gauge must drive both to zero and update this constant.
-const CONJUGATE_GAP_CONTENT: usize = 199;
+/// The documented size of the conjugate-parameter gap on **real** little-group
+/// tables (`t = -1/4`, `3/4`, `7/4`): rows whose trivial content differs from the
+/// oracle, and rows where the engine fails closed with a non-integral
+/// multiplicity.  On a real table `D* = D`, so `chi(-k) = chi(k)*` and the
+/// pinned frequency of the *same* source is an exact oracle; fixing the line
+/// character's transport must drive both counts to zero and update this
+/// constant.
+const CONJUGATE_GAP_CONTENT: usize = 187;
 const CONJUGATE_GAP_ERRORS: usize = 58;
+
+/// The character-level gap on real tables: rows where the restricted parent
+/// character at `t = 3/4` is **not** the complex conjugate of the one at
+/// `t = 1/4` (compared operation by operation on the subgroup representatives,
+/// tolerance 1e-9).  This is strictly stronger than the multiplicity gap above:
+/// a row can carry the right trivial content and still have a wrong character,
+/// which is exactly the class the multiplicity gate cannot see.  Fixing the
+/// line character's transport must drive it to zero.
+const REAL_CHARACTER_GAP: usize = 223;
+const REAL_CHARACTER_COMPARED: usize = 5510;
+
+/// The same counts for the **complex** tables (SG 209/210 `DT3`/`DT4`).  Here
+/// conjugating swaps the source, so the oracle is the pinned frequency of the
+/// conjugate *partner* in the same isotropy record; the engine satisfies it
+/// exactly, which is why the gap above is a real-table statement.
+const COMPLEX_CONJUGATE_GAP_CONTENT: usize = 0;
+const COMPLEX_CONJUGATE_GAP_ERRORS: usize = 0;
 
 /// The four critical parameters of the frozen corpus.
 const CRITICAL: [(&str, (i128, i128)); 4] =
@@ -180,6 +200,16 @@ struct Row {
     off_grid_content: Option<Option<u32>>,
     /// The conjugation oracle at `t = -1/4, 3/4, 7/4`.
     conjugate: [Option<u32>; 3],
+    /// Whether the frozen little-group table is real (`D* = D`), i.e. whether the
+    /// oracle is the *own* pinned frequency rather than the partner's.
+    real: bool,
+    /// The pinned frequency of the conjugate partner source in the same record,
+    /// when that record lists it (`None` on the four rows where it does not).
+    partner_pinned: Option<u32>,
+    /// Character-level conjugation check on real tables: `Some((equal, max
+    /// deviation))` when both parameters decompose, `None` otherwise (complex
+    /// table, or an explicit engine error at one of them).
+    character_conjugate: Option<(bool, f64)>,
     shift_content: Option<u32>,
 }
 
@@ -189,7 +219,7 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
     if let Some(writer) = writer.as_mut() {
         writeln!(
             writer,
-            "ordinal\tparent\tchild\tlabel\tarms\tpinned\tcritical_denominator\tc0\tc1_4\tc1_2\tc3_4\toff_grid_arms\toff_grid_content\tc_m1_4\tc3_4_conj\tc7_4\tshift_1_4"
+            "ordinal\tparent\tchild\tlabel\treal\tpartner\tpartner_pinned\tarms\tpinned\tcritical_denominator\tc0\tc1_4\tc1_2\tc3_4\toff_grid_arms\toff_grid_content\tc_m1_4\tc3_4_conj\tc7_4\tshift_1_4"
         )
         .expect("write header");
     }
@@ -312,6 +342,12 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
                         table,
                         Rat::new(5, 4).expect("parameter"),
                     );
+                    let real = is_real(table);
+                    let partner = conjugate_partner(table);
+                    let partner_pinned = pinned_rows
+                        .iter()
+                        .find(|candidate| candidate.parent_ml == partner)
+                        .map(|candidate| u32::from(candidate.frequency));
                     let entry = Row {
                         ordinal: subgroup.ordinal,
                         parent,
@@ -324,6 +360,14 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
                         off_grid_arms,
                         off_grid_content,
                         conjugate,
+                        real: is_real(table),
+                        partner_pinned,
+                        character_conjugate: character_conjugation(
+                            &subgroup,
+                            &embedding,
+                            table,
+                            real,
+                        ),
                         shift_content,
                     };
                     if let Some(writer) = writer.as_mut() {
@@ -333,11 +377,14 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
                         };
                         writeln!(
                             writer,
-                            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                             entry.ordinal,
                             entry.parent,
                             entry.child,
                             entry.label,
+                            entry.real,
+                            partner,
+                            entry.partner_pinned.map_or_else(|| "-".to_string(), |value| value.to_string()),
                             entry.arms,
                             entry.pinned,
                             entry.critical_denominator,
@@ -375,6 +422,78 @@ fn content(
         .and_then(|result| result.trivial_content().ok())
 }
 
+/// Compare the restricted parent character at `t = 3/4` with the complex
+/// conjugate of the one at `t = 1/4`, operation by operation, through the public
+/// reconstruction arrays.  `None` when the table is complex or either parameter
+/// fails: those rows are accounted for by the conjugate oracle instead.
+fn character_conjugation(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+    real: bool,
+) -> Option<(bool, f64)> {
+    if !real {
+        return None;
+    }
+    let quarter =
+        subduce_line_at_parameter(subgroup, embedding, table, Rat::new(1, 4).ok()?).ok()?;
+    let three = subduce_line_at_parameter(subgroup, embedding, table, Rat::new(3, 4).ok()?).ok()?;
+    let (parent_quarter, _) = quarter.reconstruction();
+    let (parent_three, _) = three.reconstruction();
+    let mut deviation = 0.0f64;
+    for (left, right) in parent_quarter.iter().zip(parent_three) {
+        deviation = deviation.max((left.conj() - right).norm());
+    }
+    Some((deviation <= 1e-9, deviation))
+}
+
+/// Whether the frozen little-group table is real, i.e. `D* = D`.
+fn is_real(table: &LittleCharacterTable) -> bool {
+    table
+        .operations
+        .iter()
+        .all(|operation| operation.character[1] == 0)
+}
+
+/// The conjugate partner label of one frozen source, found from the character
+/// tables themselves (never from a hand-written list): the table of the same
+/// parent with the element-wise conjugate characters under the same rotations.
+fn conjugate_partner(table: &LittleCharacterTable) -> &'static str {
+    let mut wanted: Vec<([[i32; 3]; 3], [i32; 2])> = table
+        .operations
+        .iter()
+        .map(|operation| {
+            (
+                operation.rotation.map(|row| row.map(i32::from)),
+                [operation.character[0], -operation.character[1]],
+            )
+        })
+        .collect();
+    wanted.sort();
+    for candidate in W_LITTLE_CHARACTERS {
+        if candidate.space_group != table.space_group
+            || candidate.operations.len() != table.operations.len()
+        {
+            continue;
+        }
+        let mut actual: Vec<([[i32; 3]; 3], [i32; 2])> = candidate
+            .operations
+            .iter()
+            .map(|operation| {
+                (
+                    operation.rotation.map(|row| row.map(i32::from)),
+                    operation.character,
+                )
+            })
+            .collect();
+        actual.sort();
+        if actual == wanted {
+            return candidate.label;
+        }
+    }
+    table.label
+}
+
 fn main() -> std::process::ExitCode {
     let mut gate = false;
     let mut output: Option<String> = None;
@@ -403,7 +522,13 @@ fn main() -> std::process::ExitCode {
     let mut off_grid_sampled = 0usize;
     let mut shift_mismatch = 0usize;
     let mut shift_error = 0usize;
-    let mut conjugate = [(0usize, 0usize); 3];
+    // Split by table type: a real table has `D* = D` (own pinned is the oracle),
+    // a complex one has the conjugate *partner* as its oracle.
+    let mut conjugate: BTreeMap<(&str, bool), (usize, usize, usize)> = Default::default();
+    let mut complex_own_difference = 0usize;
+    let mut character_compared = 0usize;
+    let mut character_gap = 0usize;
+    let mut character_witnesses = Vec::new();
     let mut conjugate_witnesses = Vec::new();
     for row in &rows {
         *critical_sizes.entry(row.critical_denominator).or_default() += 1;
@@ -433,19 +558,41 @@ fn main() -> std::process::ExitCode {
             Some(_) => shift_mismatch += 1,
             None => shift_error += 1,
         }
+        if !row.real && row.partner_pinned != Some(row.pinned) {
+            complex_own_difference += 1;
+        }
+        if let Some((equal, deviation)) = row.character_conjugate {
+            character_compared += 1;
+            if !equal {
+                character_gap += 1;
+                if character_witnesses.len() < 5 {
+                    character_witnesses.push(format!(
+                        "ordinal {} {}: max |chi(1/4)* - chi(3/4)| = {deviation:.3e}",
+                        row.ordinal, row.label
+                    ));
+                }
+            }
+        }
         for (index, value) in row.conjugate.iter().enumerate() {
+            let entry = conjugate
+                .entry((CONJUGATE[index].0, row.real))
+                .or_default();
+            let Some(expected) = row.partner_pinned else {
+                entry.2 += 1;
+                continue;
+            };
             match value {
-                Some(found) if *found == row.pinned => {}
+                Some(found) if *found == expected => {}
                 Some(value) => {
-                    conjugate[index].0 += 1;
+                    entry.0 += 1;
                     if conjugate_witnesses.len() < 5 {
                         conjugate_witnesses.push(format!(
-                            "ordinal {} {} t={}: content {value} != pinned {}",
-                            row.ordinal, row.label, CONJUGATE[index].0, row.pinned
+                            "ordinal {} {} (real={}) t={}: content {value} != oracle pinned {expected}",
+                            row.ordinal, row.label, row.real, CONJUGATE[index].0
                         ));
                     }
                 }
-                None => conjugate[index].1 += 1,
+                None => entry.1 += 1,
             }
         }
     }
@@ -463,25 +610,54 @@ fn main() -> std::process::ExitCode {
     println!(
         "equivalent parameter t = 5/4: content mismatched={shift_mismatch} errors={shift_error} (complete-decomposition comparison lives in audit_irrep_subduction)"
     );
-    for (index, (name, _)) in CONJUGATE.iter().enumerate() {
-        println!(
-            "conjugation oracle t = {name}: content mismatched={} errors={} (known gap)",
-            conjugate[index].0, conjugate[index].1
-        );
+    for (name, _) in CONJUGATE.iter() {
+        for real in [true, false] {
+            let (mismatch, error, missing) =
+                conjugate.get(&(*name, real)).copied().unwrap_or((0, 0, 0));
+            println!(
+                "conjugation oracle t = {name} real_table={real}: content mismatched={mismatch} errors={error} partner_row_missing={missing}"
+            );
+        }
+    }
+    println!(
+        "complex tables where the own pinned differs from the partner's (expected, not a gap): {complex_own_difference}"
+    );
+    println!(
+        "character-level conjugation on real tables: compared={character_compared} not_conjugate={character_gap}"
+    );
+    for witness in &character_witnesses {
+        println!("  {witness}");
     }
     for witness in &conjugate_witnesses {
         println!("  {witness}");
     }
     if gate {
-        let known_gap = conjugate
+        let real_gap = CONJUGATE
             .iter()
-            .all(|(wrong, errors)| *wrong == CONJUGATE_GAP_CONTENT && *errors == CONJUGATE_GAP_ERRORS);
+            .all(|(name, _)| {
+                conjugate
+                    .get(&(*name, true))
+                    .copied()
+                    .map(|(wrong, errors, _)| (wrong, errors))
+                    == Some((CONJUGATE_GAP_CONTENT, CONJUGATE_GAP_ERRORS))
+            });
+        let complex_gap = CONJUGATE.iter().all(|(name, _)| {
+            conjugate
+                .get(&(*name, false))
+                .copied()
+                .map(|(wrong, errors, _)| (wrong, errors))
+                == Some((COMPLEX_CONJUGATE_GAP_CONTENT, COMPLEX_CONJUGATE_GAP_ERRORS))
+        });
+        let known_gap = real_gap && complex_gap;
+        let character_documented =
+            character_compared == REAL_CHARACTER_COMPARED && character_gap == REAL_CHARACTER_GAP;
         let ok = pinned_mismatch == 0
             && pinned_error == 0
             && off_grid_arms == 0
             && off_grid_content_bad == 0
             && shift_mismatch == 0
             && shift_error == 0
+            && character_documented
             && known_gap
             && critical_sizes.len() == 1
             && critical_sizes.get(&4).copied() == Some(rows.len());
@@ -501,13 +677,18 @@ mod tests {
 
     /// The whole corpus: the exact critical set is the quarter grid, the pinned
     /// parameter matches, nothing folds onto the child Gamma off the grid, and
-    /// the conjugate-parameter gap has exactly its documented size.
+    /// the conjugate-parameter gap has exactly its documented size — measured
+    /// against the **correct** oracle, which is the source's own pinned
+    /// frequency only when its little-group table is real.
     ///
-    /// The gap is a **known limitation**, not a contract: `t = -1/4` and its
-    /// shifts describe the conjugate parent irrep, whose trivial content must
-    /// equal the pinned one, so the engine is wrong (or fails closed) on those
-    /// rows.  Fixing the line character's gauge must drive both counts to zero
-    /// and update the constants at the top of this file.
+    /// The gap on real tables is a **known limitation**, not a contract: there
+    /// `D* = D`, so `chi(-k) = chi(k)*` and the trivial content must equal the
+    /// pinned one; the engine instead gives a different multiplicity (187 cases)
+    /// or fails closed (58).  On the complex tables (SG 209/210 `DT3`/`DT4`)
+    /// conjugation swaps the source, so the oracle is the conjugate partner's
+    /// pinned frequency and the engine satisfies it exactly — that split is why
+    /// a "conjugate the seed representation" fix cannot be the answer here:
+    /// conjugating a real table is the identity.
     #[test]
     fn the_documented_family_coverage_reproduces() {
         let rows = collect(None);
@@ -536,24 +717,56 @@ mod tests {
             rows.iter().all(|row| row.shift_content == Some(row.pinned)),
             "t = 5/4 is the same parent irrep as t = 1/4"
         );
-        let gap: Vec<(usize, usize)> = (0..3)
-            .map(|index| {
-                rows.iter()
-                    .fold((0, 0), |(wrong, errors), row| match row.conjugate[index] {
-                        Some(value) if value == row.pinned => (wrong, errors),
-                        Some(_) => (wrong + 1, errors),
-                        None => (wrong, errors + 1),
-                    })
-            })
-            .collect();
-        for (index, (wrong, errors)) in gap.iter().enumerate() {
-            assert_eq!(
-                (*wrong, *errors),
-                (CONJUGATE_GAP_CONTENT, CONJUGATE_GAP_ERRORS),
-                "known conjugate-parameter gap at t = {} — if the gauge fix landed, \
-                 update CONJUGATE_GAP_CONTENT/ERRORS to the new (expected zero) values",
-                CONJUGATE[index].0
-            );
+        let compared = rows
+            .iter()
+            .filter(|row| row.character_conjugate.is_some())
+            .count();
+        let gap = rows
+            .iter()
+            .filter(|row| matches!(row.character_conjugate, Some((false, _))))
+            .count();
+        assert_eq!(
+            (compared, gap),
+            (REAL_CHARACTER_COMPARED, REAL_CHARACTER_GAP),
+            "character-level conjugation gap on real tables — if the transport fix \
+             landed, update REAL_CHARACTER_GAP (expected 0)",
+        );
+        for (index, (name, _)) in CONJUGATE.iter().enumerate() {
+            for (real, expected) in [
+                (true, (CONJUGATE_GAP_CONTENT, CONJUGATE_GAP_ERRORS)),
+                (
+                    false,
+                    (COMPLEX_CONJUGATE_GAP_CONTENT, COMPLEX_CONJUGATE_GAP_ERRORS),
+                ),
+            ] {
+                let (wrong, errors, missing) =
+                    rows.iter().fold((0, 0, 0), |(wrong, errors, missing), row| {
+                        if row.real != real {
+                            return (wrong, errors, missing);
+                        }
+                        let Some(expected) = row.partner_pinned else {
+                            return (wrong, errors, missing + 1);
+                        };
+                        match row.conjugate[index] {
+                            Some(value) if value == expected => (wrong, errors, missing),
+                            Some(_) => (wrong + 1, errors, missing),
+                            None => (wrong, errors + 1, missing),
+                        }
+                    });
+                assert_eq!(
+                    (wrong, errors),
+                    expected,
+                    "conjugate-parameter gap at t = {name} on real_table={real} — \
+                     if the transport fix landed, update the CONJUGATE_GAP_* constants",
+                );
+                // The four rows whose record does not list the conjugate partner
+                // have no oracle and are reported, not counted as a gap.
+                assert_eq!(
+                    missing,
+                    if real { 0 } else { 4 },
+                    "partner rows missing at t = {name}",
+                );
+            }
         }
     }
 }
