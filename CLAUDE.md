@@ -38,7 +38,9 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo test --release --package cryspglib --example audit_irrep_subduction \
   --example census_subduction_gaps --example probe_subduction_settings \
-  --example line_family_coverage
+  --example line_family_coverage --example line_transport_ledger
+CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
+  cargo run --release -p cryspglib --example line_transport_ledger -- --witnesses --gate
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo run --release -p cryspglib --example line_family_coverage -- --gate
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
@@ -60,7 +62,8 @@ python3 scripts/check_other_wave_vector_rows.py
 lib `409 passed / 4 ignored`，全部测试二进制（`--tests`，22 个）`570 passed / 0 failed /
 4 ignored`，doctest `27 passed`，
 example 审计回归 `20 passed`、缺口清点回归 `7 passed`、settings 探针回归 `2 passed`、
-参数族覆盖回归 `1 passed`（91 s，全表 5,756 行 × 4 个网格点 + 18 个网格外支持检查）；
+参数族覆盖回归 `1 passed`（91 s，全表 5,756 行 × 4 个网格点 + 18 个网格外支持检查）、
+transport ledger 回归 `2 passed`（anchor 共轭律/范数/Bloch 协变 + 平移账本非空）；
 严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
@@ -3587,6 +3590,31 @@ reviewer 同时确认：历史表逐字节重生成属于**已披露、未解决
 "任意 t 成立 / 仅特定 t 成立"的分档说明，以及覆盖说明里"已计算 / 有独立对照 /
 仅内部一致 / 不支持"四种证据级别的逐条列举；另需处理 R6.1 记下的两处定义域边界
 （大分母 fail-closed 上限、`t = 0` 一类形式值是否应改为显式错误）。
+
+### R6.2 更正与第 1 步：translation-aware ledger（2026-09-23）
+
+外部复核指出上一轮的两条过强假设，均已复现并处理，**结论按三阶段记账**：
+
+1. **R6.1 的 `t ≡ t+1` 假设被撤销**：冻结方向 `v` 是母群倒格矢，而线小群含分数平移，
+   `exp(2πi v·T)` 在这些群上非平凡，因此 `t` 与 `t+1` 是否同一 parent irrep 需要
+   monodromy 语义（`(k+G, M_G(α)) ~ (k, α)`），不能默认同 label。`w_parameter_shift`
+   门禁目前实际隐含 `M ≡ 1`，属过强，待改写（未改代码）。
+2. **`efe8abb` 的 223/187 降级**：translation-aware ledger 显示 4 个"可算"见证
+   （11329/12306/12307/12311）在 `3/4` 上仍满足共轭律、投影范数为整数 ⇒ 它们是
+   **合法分支/gauge 差异**，不是错误。故 223/187 不再作为独立错误计数。
+3. **唯一硬失败 = 58 处非整数重数**：`examples/line_transport_ledger.rs`（新 tracked
+   example）在完整子群枚举（子群自身 data-Hall 操作映射进母群帧，保留精确平移）、
+   精确元素共轭、`(1/|H|)Σ|χ|²` 投影范数、Bloch 协变三项上给出：
+   * anchor `1/4`：11 个见证 **全部通过**（共轭律 0 违反 / 1296 对，范数整数如 14）；
+   * `3/4`：4 个可算见证通过；7 个非整数见证**违反共轭律**（14429/14430/14503/14723
+     各 8 处、14460/11360 各 72 处、14453 144 处，偏差到 4.0）
+   ⇒ 送进投影的对象在这些参数上**不是子群 H 的表示** ⇒ **transport/assembly 缺陷**，
+   与 seed 共轭选择、multiplier 选择都无关。修复验收：任意参数共轭律违反 0 +
+   投影重数非负整数 + anchor 5,756/5,756 与复表伙伴 oracle 不变。
+   常驻不变量：`the_anchor_restriction_satisfies_the_space_group_conjugacy_law`
+   （只钉 anchor，未把任何过强等式写进测试；naive "lattice invariance" 与
+   "seed multiplicativity" 都**不**成立/不作为律，见 example 文档）。
+   复现：`line_transport_ledger --witnesses`、`line_transport_ledger 14453 SM1`。
 
 ### R6.2：参数族覆盖说明（2026-09-23）
 

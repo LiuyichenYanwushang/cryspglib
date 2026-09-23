@@ -112,7 +112,17 @@ R6.2 不把它们写成物理结论。
 
 ## 4. 已知缺口与边界（必须与结论一起引用）
 
-1. **共轭参数（实表：字符层 223 行 + 58 行 fail-closed）**：`t = -1/4, 3/4, 7/4` 上，冻结表为
+1. **共轭参数：记账已按三阶段更正（见 [subduction-conventions.md](subduction-conventions.md) §16）**。
+   `examples/line_transport_ledger.rs`（translation-aware ledger）给出当前判据：
+   - 223 处字符差 / 187 行重数差是 **reciprocal-gauge / 分支差异**，不是错误
+     （4 个可算见证在 `3/4` 上共轭律 0 违反、范数为整数）；
+   - **唯一硬失败是 58 处非整数重数**：7 个该类见证在 `3/4` 上**违反空间群共轭律**
+     （8/72/144 处），即送进投影的对象不是子群表示 ⇒ transport/assembly 缺陷；
+   - anchor `t = 1/4` 上 11 个见证全部通过三条律（共轭律、投影范数整数、Bloch 协变）。
+   复现：`line_transport_ledger --witnesses`（逐见证表）与
+   `line_transport_ledger 14453 SM1`（单行完整账本）。
+
+1b. 以下为 `efe8abb` 当时的措辞（保留历史，勿作为独立错误计数引用）：**共轭参数（实表：字符层 223 行 + 58 行 fail-closed）**：`t = -1/4, 3/4, 7/4` 上，冻结表为
    **实**的行里有 187 行给出与 oracle 不同的重数、58 行报非整数重数（fail-closed）。
    因为实表下 `χ_{-k} = χ_k*`，这条 oracle 是无争议的，所以这是实现缺口而不是边界；
    复表（`DT3`/`DT4`）那 188 行用伙伴源 oracle 全部通过（见命题 3）。
