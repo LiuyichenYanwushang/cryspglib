@@ -20,31 +20,64 @@ cd cryspglib
 mkdir -p target/task9 && cd target/task9   # scripts write their evidence here
 
 # 1. census: one official query per (parent, irrep), SET I ALL OR 1
-python3 ../../../scripts/audit_subduction_settings.py \
+python3 ../../scripts/audit_subduction_settings.py \
     --output census_or1.jsonl --workers 8
 
 # 2. which of those conventions does the engine already accept?
-python3 ../../../scripts/task9/probe_census.py census_or1.jsonl --out rejected.jsonl
+python3 ../../scripts/task9/probe_census.py census_or1.jsonl --out rejected.jsonl
 
 # 3. derive the child shift the official program implies (OR 1 vs OR 2), and keep
 #    only the shifts the engine accepts
-python3 ../../../scripts/task9/derive_shift_oracle.py \
+python3 ../../scripts/task9/derive_shift_oracle.py \
     --census census_or1.jsonl --rejected rejected.jsonl --out derived_shift2.json
 
 # 4. fall back to an engine-validated search where the derivation is rejected
-python3 ../../../scripts/task9/solve_record_delta.py rejected.jsonl --out record_delta.json
+python3 ../../scripts/task9/solve_record_delta.py rejected.jsonl --out record_delta.json
 
 # 5. the 195 records whose legacy compound spelling prints an empty table are
 #    addressed through the compact little_irr_full_label spelling
-python3 ../../../scripts/task9/fix_empty_labels.py \
+python3 ../../scripts/task9/fix_empty_labels.py \
     --census census_or1.jsonl --out empty_fixed.jsonl
 
 # 6. emit `src/irrep/subduction_settings_data.rs`
-python3 ../../../scripts/task9/build_table.py \
+python3 ../../scripts/task9/build_table.py \
     --census census_or1.jsonl --shifts record_delta.json \
     --derived derived_shift2.json --legacy legacy_shifts.json \
-    --empty empty_fixed.jsonl --out ../../../src/irrep/subduction_settings_data.rs
+    --empty empty_fixed.jsonl --out ../../src/irrep/subduction_settings_data.rs
+
+# 7. verify a fresh assembly against the committed module (never writes)
+python3 ../../scripts/task9/build_table.py --check \
+    --census census_or1.jsonl --shifts record_delta.json \
+    --derived derived_shift2.json --legacy legacy_shifts.json \
+    --empty empty_fixed.jsonl --out ../../src/irrep/subduction_settings_data.rs
 ```
+
+`build_table.py` validates before it writes: duplicated ordinals are conflicts,
+the assembled ordinal set must equal the set the output module already carries
+(or an explicit `--expected` list), unmatched census records are reported by
+status, and the file is replaced atomically.  `--check` compares a fresh assembly
+with the committed module; `--partial` is the explicit escape hatch for
+experiments.  ``--shifts``/``--derived`` accept every shape the derivation tools
+write (``{"solved": ...}``, ``{"accepted": ..., "shifts": ...}`` and a bare map),
+so the multi-pass fix chain can be expressed as one command.
+
+### Provenance status of the committed table
+
+The table's conventions were derived by this pipeline with its evidence under
+``target/task9/``, which is **not tracked**: rebuilding the committed module byte
+for byte needs that evidence chain (the final shift set is the merge of several
+incremental fix files), so byte-for-byte reproduction from tracked inputs alone
+is *not* claimed for the historical build.  What is checked today:
+
+* ``scripts/test_subduction_settings.py`` reads the committed module offline and
+  checks one entry per pinned isotropy record, ordinal order, record identity,
+  unimodularity (``|det U| = denominator^3``) and reduced child shifts;
+* ``scripts/test_build_table.py`` pins the assembler's refusal states;
+* the engine embeds all 15,239 frozen rows (audit ``embedded_records=15239/15239``)
+  and ``every_frozen_setting_keeps_the_subgroup_lattice_inside_the_parent``
+  re-checks ``L_H subset L_G`` for every row;
+* ``--check`` in step 7 is the gate for any future rebuild: regenerate the
+  evidence with steps 1-5, then require the assembler to reproduce the module.
 
 ## Second pass: every record embedded (2026-09-21, second session)
 
@@ -190,8 +223,10 @@ stores them as label, space group, dimension and type only -- no k vector and no
 character row -- so it cannot answer them.
 `scripts/check_other_wave_vector_rows.py` makes that executable (11 offline
 tests) and checks everything that table does pin; the audit reports the rows in
-its own `w_scope` line and gates them with `--require-w-complete`, which exits 2
-while they are uncomputed.  Their **little-group** tables are not missing, though:
+its own `w_scope` line and gates them with `--require-w-complete`, which exited 2
+while they were uncomputed (**historical**: round 18 below supplies the frozen
+little-group characters, the engine computes all 5,756 rows and the gate exits 0;
+11 -> 16 offline tests).  Their **little-group** tables are not missing, though:
 `data_little.txt` carries all 73 sources (`little_irr_full_label` /
 `little_irr_space_group` / `little_irr_full_dim`, dimensions equal to
 `irrep_w_dimension`, e.g. SG 225 `DT1-DT4` = 6, `DT5` = `SM1-SM4` = 12), and the
@@ -264,19 +299,20 @@ found this round (both reproducible from the shipped `iso`):
 
 ```bash
 # compare all 1,006 w-carrying records (28 (SG, irrep) groups) two ways
-python3 ../../../scripts/verify_w_subduction_oracle.py \
-    --json ../../../target/task9/w_subduction_oracle.json --verbose
+python3 ../../scripts/verify_w_subduction_oracle.py \
+    --json ../../target/task9/w_subduction_oracle.json --verbose
 # offline regressions for the parser and the comparison
-python3 -m unittest discover -s ../../../scripts -p test_verify_w_subduction_oracle.py
+python3 -m unittest discover -s ../../scripts -p test_verify_w_subduction_oracle.py
 ```
 
 Measured: 28 groups, 1,150 records, 5,756 oracle w rows against 5,756 pinned w
 rows, 0 mismatches (144 of those records pin the negative direction: the oracle
-lists no w entry and the pinned table has none).  The engine gate
-`audit_irrep_subduction --require-w-complete` still exits 2, because the engine
-itself cannot compute the rows until the 73 little-group characters are
-available; the release scope therefore has to state the two tracks separately
-(see `docs/subduction-audit.md`).
+lists no w entry and the pinned table has none).  **Historical note**: at the
+time of this round the engine gate `audit_irrep_subduction --require-w-complete`
+still exited 2 because the engine could not compute the rows until the 73
+little-group characters were available.  It computes all 5,756 now (round 18
+below) and the gate exits 0; the release scope still states the tracks
+separately (see `docs/subduction-audit.md`).
 
 Side finding while probing the oracle: asking a parametric-k irrep for
 `DISPLAY ISOTROPY` makes the program compute that isotropy table on the fly and
@@ -288,16 +324,17 @@ Frequency column itself stays empty for parametric k.
 
 ## Little-group characters of the 73 other-wave-vector irreps (2026-09-22, round 18)
 
-The engine still cannot compute the 5,756 w rows because their 73 source irreps
-live at parametric k and the pinned irrep table carries no character for them.
-`little_irr_full_matrices` (2.22M integers) is still undecoded, but the official
-program answers the question indirectly, and the new
-`scripts/freeze_w_little_characters.py` automates it:
+At the time of this round the engine could not compute the 5,756 w rows because
+their 73 source irreps live at parametric k and the pinned irrep table carries no
+character for them.  `little_irr_full_matrices` (2.22M integers) was still
+undecoded, but the official program answers the question indirectly, and the new
+`scripts/freeze_w_little_characters.py` automates it (the frozen tables are what
+the engine now uses; the audit's `w_computed=5756/5756` is the current state):
 
 ```bash
-python3 ../../../scripts/freeze_w_little_characters.py \
-    --json ../../../target/task9/w_little_characters.json --verbose
-python3 -m unittest discover -s ../../../scripts -p test_freeze_w_little_characters.py
+python3 ../../scripts/freeze_w_little_characters.py \
+    --json ../../target/task9/w_little_characters.json --verbose
+python3 -m unittest discover -s ../../scripts -p test_freeze_w_little_characters.py
 ```
 
 For each parent it reads the Gamma irreps' compatibility lists for the line

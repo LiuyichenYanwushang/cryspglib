@@ -460,6 +460,8 @@ pub struct FullStarSubduction {
     subgroup_sg: u8,
     ordinal: usize,
     setting: Mat3I,
+    /// Shared denominator of `setting`: `U = setting / setting_denominator`.
+    setting_denominator: i32,
     seed_k: Vec3R,
     blocks: Vec<FullStarBlock>,
     representatives: Vec<ExactSeitz>,
@@ -512,9 +514,15 @@ impl FullStarSubduction {
         self.ordinal
     }
 
-    /// The setting transform of the embedding this result belongs to.
+    /// Numerator of the setting transform of the embedding this result belongs
+    /// to; the exact matrix is `setting() / setting_denominator()`.
     pub const fn setting(&self) -> Mat3I {
         self.setting
+    }
+
+    /// Denominator of the setting transform, always positive.
+    pub const fn setting_denominator(&self) -> i32 {
+        self.setting_denominator
     }
 
     /// The parent probe's stored selected-arm wave vector.
@@ -1119,6 +1127,7 @@ fn decompose_folded_stars(
         subgroup_sg: child_sg,
         ordinal: embedding.ordinal(),
         setting: embedding.setting(),
+        setting_denominator: embedding.setting_denominator(),
         seed_k: *star.seed_k(),
         blocks,
         representatives: embedding.representatives().to_vec(),
@@ -2100,6 +2109,7 @@ mod tests {
     use super::*;
     use crate::irrep::LabelConvention;
     use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
+    use crate::irrep::subduce_irrep;
     use crate::irrep::subduction::subduce_irrep_with_embedding;
 
     fn probe(sg: u8, ml: &str) -> &'static IrrepRecord {
@@ -3636,6 +3646,50 @@ mod tests {
             rep.character(&operation),
             Err(StarError::ConstructedRotationNotCovered { .. })
         ));
+    }
+
+    /// A fractional frozen setting has to reach the result object **with its
+    /// denominator**: ordinal 26 is `U = [[1,2,1],[-1,2,-1],[-1,0,1]] / 2`, and
+    /// a caller that only received the numerator would transform coordinates
+    /// with the wrong matrix.  Both result types carry `(setting, denominator)`
+    /// now; this pins the real denominator-2 record rather than a synthetic one.
+    #[test]
+    fn a_fractional_setting_reaches_the_results_with_its_denominator() {
+        let built = |parent: u8, ml: &str, direction: &str| embedding(parent, ml, direction);
+        let mut found = None;
+        for irrep in query::irreps_of(3).iter().filter(|irrep| !irrep.spinor) {
+            let Ok(subgroups) =
+                crate::irrep::isotropy::isotropy_subgroups(3, irrep.ml, LabelConvention::Cdml)
+            else {
+                continue;
+            };
+            for subgroup in subgroups {
+                if subgroup.ordinal == 26 {
+                    found = Some((subgroup, irrep));
+                }
+            }
+        }
+        let (subgroup, probe) = found.expect("ordinal 26 is owned by an SG 3 irrep");
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
+        assert_eq!(embedding.setting_denominator(), 2);
+        assert_eq!(embedding.setting(), [[1, 2, 1], [-1, 2, -1], [-1, 0, 1]]);
+        let full = subduce_full_star_with_embedding(&subgroup, &embedding, probe)
+            .expect("the fractional record decomposes");
+        assert_eq!(full.setting(), embedding.setting());
+        assert_eq!(full.setting_denominator(), embedding.setting_denominator());
+        // No Gamma-owned record carries a fractional setting on this corpus
+        // (scanned over all 230 parents when this test was written), so the
+        // compact result type is pinned on a Gamma context with denominator one
+        // plus the same accessor wiring.
+        let gamma = subgroup_of(221, "GM4+", "P1");
+        let gamma_embedding = built(221, "GM4+", "P1");
+        assert_eq!(gamma_embedding.setting_denominator(), 1);
+        let compact = subduce_irrep(&gamma, "GM3+").expect("golden Gamma case");
+        assert_eq!(compact.setting(), gamma_embedding.setting());
+        assert_eq!(
+            compact.setting_denominator(),
+            gamma_embedding.setting_denominator()
+        );
     }
 
     /// A constructed star reports the little dimension of its own

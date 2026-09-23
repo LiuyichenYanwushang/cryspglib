@@ -3,11 +3,12 @@
 import argparse
 import collections
 import json
+import os
 import subprocess
 from fractions import Fraction
 from math import gcd
 
-REPO = "/home/liuyichen/TB_rs/cryspglib"
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PROBE = f"{REPO}/target/release/examples/probe_subduction_settings"
 
 

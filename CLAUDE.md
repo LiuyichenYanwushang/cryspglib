@@ -37,46 +37,54 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo test --release --package cryspglib --doc
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo test --release --package cryspglib --example audit_irrep_subduction \
-  --example census_subduction_gaps
+  --example census_subduction_gaps --example probe_subduction_settings
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo clippy -p cryspglib --all-targets --release -- -D warnings
 
 cd /home/liuyichen/TB_rs/cryspglib
 python3 -m unittest discover -s scripts -p test_verify_isotropy_oracle.py
 python3 -m unittest discover -s scripts -p test_check_other_wave_vector_rows.py
+python3 -m unittest discover -s scripts -p test_subduction_settings.py
+python3 -m unittest discover -s scripts -p test_build_table.py
 python3 scripts/verify_isotropy_oracle.py
 python3 scripts/check_other_wave_vector_rows.py
 ```
 
-`--tests` 不运行 example 内的回归；上面的 audit 与 census 两个 example
+`--tests` 不运行 example 内的回归；上面的 audit、census、probe 三个 example
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
-当前基线（2026-09-23，R5 收口 + 两个对抗性复核处理后，`-p cryspglib` 限定到本 crate）：
-lib `399 passed / 4 ignored`，全部测试二进制（`--tests`，22 个）`560 passed / 0 failed /
+当前基线（2026-09-23，R5 收口 + 两轮内部复核 + 一次第三方复核处理后，`-p cryspglib`
+限定到本 crate）：
+lib `402 passed / 4 ignored`，全部测试二进制（`--tests`，22 个）`563 passed / 0 failed /
 4 ignored`，doctest `27 passed`，
-example 审计回归 `18 passed`、缺口清点回归 `7 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
+example 审计回归 `19 passed`、缺口清点回归 `7 passed`、settings 探针回归 `2 passed`；
+严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
 pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源已解为参数化
 直线 `k = Γ + t·v`，冻结 little 特征标表 73/73，引擎已算出全部 5,756 行，
 参数约定 `t = 1/4`）；官方 live oracle 全量通过：w 行 5,756 = pinned 5,756、
 `mismatches=0`；
+settings 管线：`test_subduction_settings.py` 10 passed（离线核对 15,239 行覆盖、
+身份、`|det U| = 分母³`、shift 最简）、`test_build_table.py` 5 passed（汇编器拒绝
+空/截断/重复输入）、`generate_subduction_settings.py --check` 在线复推 75 条遗留记录
+通过、`build_table.py --check` 可按 README 步骤 7 重建比对；
 全表审计（**三个门禁**：`--require-complete --require-w-complete
 --require-full-decomposition`）**同时退出 0**、判词 `VERDICT complete scope=global
 full_decomposition=complete`（`identity_rows=94271`、probe **366260/366260 完整分解、
 恒等-only 0**、w `5756/5756`、`engine_errors=0`、`hard_failures=0`，约 520–540 s
-（本仓库 521.7 s，独立复核 541.0 s 与 535 s）；R4 批 2a 后 `366039 + 221`，批 1 后
-`357033 + 9227`，R2 后 `353382 + 12878`，R2 前 `351547 + 14713`）。普通离散标量
+（本仓库 521.7 s / 523.9 s，独立复核 541.0 s 与 535 s）；R4 批 2a 后 `366039 + 221`，
+批 1 后 `357033 + 9227`，R2 后 `353382 + 12878`，R2 前 `351547 + 14713`）。普通离散标量
 覆盖在固定语料上已闭合（R5 验收清单：恒等正项 94,271/0 不匹配、Γ Frobenius
 1,895/1,895、w 行 5,756/0 错误，全部满足）；缺口清点的门禁用法是
 `census_subduction_gaps <audit.tsv> --require-empty`（要求至少一条 probe 行、每条都被
 引擎回答、且无 identity-only 行；R5 审计上打印 `probe_rows=366260 identity_only_rows=0
-closed=true` 并 exit 0），正式报告见
+closed=true` 并 exit 0）；空 scope 的审计（如 `--parent 2 --ordinal 0`）现在报
+`empty scope` 并非零退出，不再冒充 `clean`。正式报告见
 `docs/subduction-audit.md` 的「R5：普通离散标量覆盖闭合」小节。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
 后端同时启用），与本 crate 无关，但会让整条命令以 exit 101 结束、0 个测试执行。
-
 ### 2026-08-26 有限域类型化
 
 本轮按 `RUST_TYPE_MODERNIZATION_PLAN.md` 区分三类数据，而不是把所有有限数据库
@@ -3399,3 +3407,50 @@ R5 的正式报告、独立性表、100% 覆盖结论见 `docs/subduction-audit.
 仍不可验证（如实保留）：几何 oracle 只有 22 组 (SG, irrep) / 62 行抽样（15,239 行的
 0.31%），扩大它要对 4,777 个普通 irrep 各起一次官方 `iso`，是独立工作量；B 也无法
 验证历史增量数字（需逐提交重跑）与"114,770 条引擎零项"（absent 探针无归档 oracle）。
+
+### 第三方复核（2026-09-23，公开仓库浏览 + 隔离复现）
+
+第三个独立 reviewer 审阅 `0386cfa`..`ff2e4a4`（R5 收口提交之后），给 5 条发现 + 3 条
+提醒，未质疑 R5 的 366,260/366,260 与恒等正项 94,271/0 不匹配。逐条已复现并处理
+（细节与证据表见 `docs/subduction-audit.md` 的「第三方复核」小节）：
+
+1. **P1：旧 settings 生成器与六字段全表不兼容**（`generate_subduction_settings.py`
+   仍是 69+6 条五字段；`--write` 会覆盖 15,239 条正式模块）。复现时发现
+   `scripts/test_subduction_settings.py` **当时就是红的**（2 个 setUpClass error）。
+   处理：`parse_committed` 支持六字段；`--write` 改为拒绝执行并指向
+   `scripts/task9/build_table.py`；`--check` 改为校验它自己的 75 条遗留记录 + 模块
+   覆盖全部 15,239 个 ordinal（在线实跑通过）；数据模块头与生成器头同步改指 task9；
+   该测试重写为 10 passed。
+2. **P1：嵌入验证缺 `L_H ⊆ L_G`**。用公共 API 复现：SG 1 自嵌入 + `U = diag(2,1/2,1)`
+   （`det U = 1`，唯一有限操作映到自身）此前被 `probe_embedding` 当 `Ok` 返回。
+   处理：`validate_candidate` 先检查子群格每一行都在母群格里；新增负例
+   `a_setting_whose_lattice_is_not_a_parent_sublattice_is_rejected` 与全表回归
+   `every_frozen_setting_keeps_the_subgroup_lattice_inside_the_parent`（15,239 行
+   逐一重算，分数行 ≥ 30 条；审计 embedding 仍 15,239/15,239，未误伤）。
+3. **P2：结果对象丢 setting 分母**（`IrrepSubduction`/`FullStarSubduction` 只有分子；
+   ordinal 26 的分母是 2）。处理：两个结果类型新增 `setting_denominator()`，
+   回归 `a_fractional_setting_reaches_the_results_with_its_denominator` 在 ordinal 26
+   上钉住 `setting()/setting_denominator()`。
+4. **P2：`probe_subduction_settings.rs` 把失败写成 `trivial=0`**（与"真的 0"混淆，
+   而 0 在这条流水线里表示约定落在共轭分支）。处理：三态 `<n>` / `?` / `error`
+   （原因到 stderr），`--profile` 失败输出 `profile=error`，两条单测。
+5. **P2：`scripts/task9/build_table.py` 先写后验、不去重、空输入 exit 0**。处理：
+   重写为验证后写（重复 ordinal 报错、必须覆盖既有模块的 ordinal 集合或 `--expected`、
+   未覆盖记录按 status 报告、`os.replace` 原子替换）、新增 `--check` 与显式
+   `--partial`，`--shifts/--derived` 接受管线三种形状且可重复；新增
+   `scripts/test_build_table.py`（5 条回归）。**诚实边界**：历史那张表的逐字节重生成
+   需要未跟踪的 `target/task9/` 证据链（最终 shift 是多次增量修补的合并，2,703 条
+   非零），仓库只声称内容可核（离线覆盖/身份/幺模/最简 + 引擎 15,239/15,239 +
+   75 条遗留记录在线复推），见 `scripts/task9/README.md` 的 Provenance status。
+6. **提醒（空 scope）**：`--parent 2 --ordinal 0` 之前打印 `VERDICT clean ...
+   probe_full_success=0/0` 且 exit 0。处理：审计在范围内零记录时报 `empty scope`
+   并非零退出，回归 `an_empty_scope_is_rejected_instead_of_reporting_clean`。
+7. **提醒（可移植性）**：`scripts/task9/README.md` 的 `../../../scripts/...` 多退一级
+   （从 `target/task9` 应是 `../../`）；12 个 task9 脚本硬编码 `/home/liuyichen/...`。
+   处理：README 路径改正、脚本改为从 `__file__` 推导 `REPO`；并把只在
+   `target/task9/` 存在、却被三个 tracked 脚本 import 的 `derive_shift.py` 入库；
+   全部脚本可 import。
+8. **提醒（文档混用历史与当前）**：审计文档「当前全局基线 exit 2 /
+   identity_only=14713」改为显式历史 + 当前状态；`scripts/task9/README.md` 里三处
+   w 门禁的"仍 exit 2 / 仍无法计算"也标注为历史（现在 `w_computed=5756/5756`、
+   门禁 exit 0）。

@@ -28,12 +28,17 @@ CARGO_TARGET_DIR=$PWD/cryspglib/target cargo run --release -p cryspglib \
   （完整分解**或**恒等内容）、几何与 Frobenius 检查无未计算项。
 - `--require-full-decomposition` 要求所选范围内每个普通 probe 都是**完整分解**；
   恒等-only 结果在这个门禁下**计为不完整**（它在 `--require-complete` 下算通过，
-  因为回答恒等重数是另一个问题）。当前全局基线在新门禁下 **exit 2**，摘要行
-  `full_decomposition: ... identity_only=14713 incomplete=14713 global=covered`
-  明确报告 14,713 个缺口；旧的 `--require-complete`（以及 w 门禁）仍 exit 0。
+  因为回答恒等重数是另一个问题）。**当前状态**：R4 三个批次闭合后全局为
+  `identity_only=0`、`incomplete=0`，该门禁 **exit 0**（判词见本文 R5 报告）。
+  **历史**：R4 之前它曾 exit 2 并报告 14,713 个缺口，摘要行形如
+  `full_decomposition: ... identity_only=14713 incomplete=14713 global=covered`；
+  这段历史口径保留在 R4 各批次小节与第六轮表里，不再代表当前全局状态。
   这条门禁的存在就是为了防止再次把"恒等项通过"当成"完整分解完成"。
   范围语义：`--parent`/`--ordinal` 限定运行时只报告该范围的完整分解状态，
   判词带 `global_coverage=not_established`；局部全过不会被表述成全局覆盖完成。
+  一个**选不中任何记录**的范围（例如 `--parent 2 --ordinal 0`，ordinal 0 属于
+  SG 1）不是"空范围内通过"，而是 `empty scope` 错误、非零退出：零 probe 的报告
+  证明不了任何事，CI 里按 (parent, ordinal) 循环时一个笔误不会冒充成功。
 - `--require-w-complete` 另外要求 5,756 条 `other_wave_vector_subduction` 也被
   **引擎**计算。**现已闭合**：审计只走块路线
   （`line_trivial_content_via_blocks`：把直线源的臂按 `LINE_PARAMETER = 1/4` 折叠、
@@ -472,3 +477,33 @@ VERDICT complete scope=global
 * 仍未验证（如实保留）：几何 oracle 只有 22 组 (SG, irrep) / 62 行抽样（占 15,239 行的
   0.31%），扩大它需要为 4,777 个普通 irrep 各起一次官方 `iso`，是独立工作量，与本节的
   100% 结论无关，**不因为上面两项已复现而改写**。
+
+### 第三方复核（2026-09-23，公开仓库浏览 + 隔离复现）
+
+第三个独立 reviewer 从公开仓库审阅了 `0386cfa`..`ff2e4a4` 区间（本节的 R5 收口提交
+在 `ff2e4a4` 之后，部分发现针对的是生成管线而不是 R5 数字），给出 5 条发现 + 3 条
+提醒，**没有**质疑 R5 的 366,260/366,260 与恒等正项 94,271/0 不匹配。逐条处置
+（全部在主线程复现后修）：
+
+| 发现 | 复现结果（主线程） | 处置 |
+|---|---|---|
+| P1：`scripts/generate_subduction_settings.py` 仍是 69+6 条、五字段的旧生成器，`--write` 会覆盖 15,239 条六字段的正式模块 | **属实，且已有后果**：`scripts/test_subduction_settings.py` 因此**当前就是红的**（`parse_committed` 解析不了六字段，2 个 setUpClass error） | 旧生成器的 `parse_committed` 改为六字段；`--write` 改为**拒绝执行**（指向 `scripts/task9/build_table.py`）；`--check` 改为校验它自己的 75 条遗留记录 + 模块覆盖全部 15,239 个 ordinal；该测试重写后 10 passed；数据模块头与生成器头同步改指 task9 管线 |
+| P1：嵌入验证缺 `L_H ⊆ L_G`，`det U = ±1` 不够 | **属实**：`probe_embedding` 对 SG 1 自嵌入 + `U = diag(2,1/2,1)` 返回 `Ok`（已用公共 API 复现） | `validate_candidate` 增加包含性检查；全表 15,239 行回归 + 负例各一条；审计 embedding 仍 15,239/15,239（未误伤任何冻结行） |
+| P2：`IrrepSubduction`/`FullStarSubduction` 只存 setting 分子，丢失分母（ordinal 26 分母为 2） | **属实**：两处只复制 `embedding.setting()` | 两个结果类型新增 `setting_denominator()`；ordinal 26 上的回归钉住与嵌入一致 |
+| P2：`probe_subduction_settings.rs` 把计算失败写成 `trivial=0`，与"真的 0"混淆 | **属实**（`Err(_) => 0`） | 三态分开（`<n>` / `?` / `error` + stderr 原因），profile 失败输出 `profile=error`；两条单测 |
+| P2：`scripts/task9/build_table.py` 先写文件后统计、不去重、空输入也能 exit 0 | **属实** | 重写为"先验证后写"：重复 ordinal 报错、必须覆盖既有模块的 ordinal 集合（或 `--expected`）、未覆盖记录按 status 报告、`os.replace` 原子替换、新增 `--check` 与显式 `--partial`；新增 `scripts/test_build_table.py`（5 条回归）；`--shifts/--derived` 接受管线实际写出的三种形状并可重复 |
+| 提醒：`--parent 2 --ordinal 0` 选不中记录却报 `clean` | **属实**：`VERDICT clean ... probe_full_success=0/0`、exit 0 | 审计新增 `empty scope` 错误（非零退出）+ 回归；合法 scope 仍 exit 0 |
+| 提醒：`scripts/task9/README.md` 路径多退一级、12 个脚本硬编码 `/home/liuyichen/...` | **属实** | README 路径改为从 `target/task9` 出发的 `../../…`；12 个脚本改为从 `__file__` 推导 `REPO`；补上只在 `target/task9/` 里存在、被三个 tracked 脚本 import 的 `derive_shift.py`（现在已入库），全部脚本可 import |
+| 提醒：审计文档仍把"exit 2 / identity_only=14713"写成当前状态 | 属实 | 改为显式历史 + 当前状态（R4 后 `identity_only=0`、该门禁 exit 0），并写明 `empty scope` 的语义 |
+
+**关于正式生成入口的统一**（发现 1 的建议）：现在只有一个 writer——
+`scripts/task9/build_table.py`；`--check` 是它的门禁。诚实说明一条边界：
+**历史那份表的逐字节重生成无法只靠 tracked 输入完成**，因为最后的 child-shift 集合是
+多次增量修补文件（`recorded_shift.json`、`final_shifts.json`、`one27_out.json` …，
+合计 2,703 条非零 shift）的合并，这些证据在未跟踪的 `target/task9/` 里；因此本仓库
+**不声称**该表的字节级可复现，只声称：模块内容离线可核（每个 pinned ordinal 一条、
+身份相符、`|det U| = 分母³`、shift 最简）、引擎可嵌入全部 15,239 行（审计
+`embedded_records=15239/15239` + 全表 `L_H ⊆ L_G` 回归）、以及 75 条遗留记录**在线**
+经官方 oracle 复推一致（`generate_subduction_settings.py --check` 刚刚实跑通过：
+`checked 75 legacy entries ... the committed module covers all 15239 pinned records`）。
+未来重建的口径见 `scripts/task9/README.md` 的「Provenance status」小节。

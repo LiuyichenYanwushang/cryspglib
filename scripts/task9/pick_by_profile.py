@@ -16,8 +16,8 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, '/home/liuyichen/TB_rs/cryspglib/scripts')
-REPO = '/home/liuyichen/TB_rs/cryspglib'
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(REPO, "scripts"))
 
 import probe_census as probe_mod          # noqa: E402
 import generate_subduction_settings as generator  # noqa: E402

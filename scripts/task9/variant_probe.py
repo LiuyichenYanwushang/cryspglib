@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """For one parent, derive U under a setting variant and ask the engine."""
 import collections, json, os, sys, tempfile, zipfile
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, '.')
-sys.path.insert(0, '/home/liuyichen/TB_rs/cryspglib/scripts')
+sys.path.insert(0, os.path.join(REPO, "scripts"))
 import audit_subduction_settings as audit
 import probe_census as pm
 
@@ -26,7 +27,7 @@ def main(sg, heads):
         by_irrep[r["irrep"]].append(r)
     with tempfile.TemporaryDirectory() as root:
         dd = os.path.join(root, "data"); os.makedirs(dd)
-        with zipfile.ZipFile('/home/liuyichen/TB_rs/cryspglib/isotropy_subgroup/iso.zip') as z:
+        with zipfile.ZipFile(os.path.join(REPO, "isotropy_subgroup", "iso.zip")) as z:
             z.extractall(dd)
         b = os.path.join(dd, "iso"); os.chmod(b, 0o755)
         wr = os.path.join(root, "w"); os.makedirs(wr)

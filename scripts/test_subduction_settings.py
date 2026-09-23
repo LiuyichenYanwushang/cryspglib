@@ -8,7 +8,9 @@ derivations.  The anchors store the exact printed basis and origin of a few
 records, as printed by the pinned official ``iso`` binary; the derivation code
 has to reproduce the committed ``U``/``delta`` from those values plus the
 pinned machine table.  ``python3 scripts/generate_subduction_settings.py
---check`` is the online half of the same gate (it re-queries the oracle).
+--check`` is the online half of the same gate for the 75 records this generator
+derives (it re-queries the oracle); the full 15,239-record table is assembled
+and checked by ``scripts/task9/build_table.py`` (see scripts/task9/README.md).
 
 Usage::
 
@@ -111,8 +113,13 @@ class CommittedModuleTest(unittest.TestCase):
         cls.selected = gen.select_records(cls.records)
 
     def test_committed_entries_address_the_pinned_records(self):
-        self.assertEqual(len(self.entries), 75)
-        self.assertEqual(len({entry["ordinal"] for entry in self.entries}), 75)
+        # The committed module is the full table: one entry per pinned isotropy
+        # record, in ordinal order, each addressing its own record.
+        self.assertEqual(len(self.entries), len(self.records))
+        self.assertEqual(
+            [entry["ordinal"] for entry in self.entries],
+            list(range(len(self.records))),
+        )
         for entry in self.entries:
             self.assertTrue(
                 gen.entry_addresses_record(entry, self.records),
@@ -120,56 +127,57 @@ class CommittedModuleTest(unittest.TestCase):
             )
         # A different ordinal is a different (parent, subgroup) pair and must
         # not pass the same identity check; the same holds for a wrong child.
-        other = dict(self.entries[0])
+        # The witness is a pinned record whose pair is not the trivial (1, 1).
+        legacy = next(
+            entry
+            for entry in self.entries
+            if (entry["parent"], entry["child"]) == (16, 22)
+        )
+        other = dict(legacy)
         other["ordinal"] = 370  # the pinned record is (19, 19), not (16, 22)
         self.assertFalse(gen.entry_addresses_record(other, self.records))
-        swapped = dict(self.entries[0])
+        swapped = dict(legacy)
         swapped["child"] = 1
         self.assertFalse(gen.entry_addresses_record(swapped, self.records))
         # An out-of-range ordinal is rejected instead of read past the table.
-        outside = dict(self.entries[0])
+        outside = dict(legacy)
         outside["ordinal"] = len(self.records)
         self.assertFalse(gen.entry_addresses_record(outside, self.records))
 
-    def test_comments_carry_the_source_record_identity(self):
-        sizes = {}
-        for record in self.selected:
-            sizes[record["ordinal"]] = abs(gen.geometry.det3(record["basis"]))
+    def test_every_setting_is_unimodular_and_the_legacy_rules_hold(self):
+        # `U = numerator / denominator` is unimodular over the rationals for
+        # every row, including the 30 fractional monoclinic conventions; the
+        # legacy rows keep the pair rules this generator derives.
+        legacy = {entry["ordinal"]: entry for entry in self.selected}
         for entry in self.entries:
-            record = self.records[entry["ordinal"]]
-            expected = (
-                f"{record['parent']} {record['ml']} {record['label']} -> "
-                f"#{record['child']} (size {sizes[entry['ordinal']]})"
-            )
-            self.assertTrue(
-                entry["comment"].startswith(expected),
-                f"ordinal {entry['ordinal']}: comment {entry['comment']!r} does "
-                f"not name {expected!r}",
-            )
-
-    def test_settings_are_unimodular_and_match_the_previous_rules(self):
-        for entry in self.entries:
-            self.assertTrue(gen.integers(entry["setting"]))
-            self.assertEqual(abs(gen.geometry.det3(entry["setting"])), 1)
-            extra = gen.EXTRA_RECORDS.get(entry["ordinal"])
-            expected = extra[4] if extra is not None else gen.PREVIOUS_RULES[(entry["parent"], entry["child"])]
+            numerator = entry["setting"]
+            denominator = entry["setting_denominator"]
+            self.assertTrue(gen.integers(numerator))
+            self.assertGreater(denominator, 0)
+            self.assertTrue(gen.integers(numerator) or denominator > 1)
+            determinant = gen.geometry.det3(numerator)
             self.assertEqual(
-                entry["setting"],
-                expected,
-                f"ordinal {entry['ordinal']}",
+                abs(determinant),
+                denominator ** 3,
+                f"ordinal {entry['ordinal']}: |det U| != 1",
             )
+            if entry["ordinal"] not in legacy:
+                continue
+            extra = gen.EXTRA_RECORDS.get(entry["ordinal"])
+            expected = (
+                extra[4]
+                if extra is not None
+                else gen.PREVIOUS_RULES[(entry["parent"], entry["child"])]
+            )
+            self.assertEqual(entry["setting"], expected, f"ordinal {entry['ordinal']}")
+            self.assertEqual(denominator, 1, f"ordinal {entry['ordinal']}")
 
-    def test_only_the_126_child_shift_is_non_zero_and_reduced(self):
-        non_zero = [
-            entry
-            for entry in self.entries
-            if list(entry["child_shift"]) != list(gen.ZERO_SHIFT)
-        ]
-        self.assertEqual(len(non_zero), 1)
-        entry = non_zero[0]
-        self.assertEqual((entry["parent"], entry["child"]), (139, 126))
-        self.assertEqual(entry["child_shift"], [1, 1, 1, 4])
-        self.assertIn("origin choice", entry["comment"])
+    def test_child_shifts_are_reduced_and_the_126_shift_survives(self):
+        # The full table carries 2,703 non-zero shifts (the incremental sweep);
+        # this generator's 75 legacy rows carry exactly one, #126, and every row
+        # of the table must be a reduced spelling.
+        legacy = {record["ordinal"] for record in self.selected}
+        non_zero = []
         for entry in self.entries:
             x, y, z, denominator = entry["child_shift"]
             self.assertGreater(denominator, 0)
@@ -177,6 +185,14 @@ class CommittedModuleTest(unittest.TestCase):
             for value in (x, y, z):
                 divisor = gen._gcd(divisor, value)
             self.assertEqual(divisor, 1, f"ordinal {entry['ordinal']} is unreduced")
+            if entry["ordinal"] in legacy and list(entry["child_shift"]) != list(
+                gen.ZERO_SHIFT
+            ):
+                non_zero.append(entry)
+        self.assertEqual(
+            [(entry["parent"], entry["child"]) for entry in non_zero], [(139, 126)]
+        )
+        self.assertEqual(non_zero[0]["child_shift"], [1, 1, 1, 4])
 
 
 class FrozenAnchorTest(unittest.TestCase):
@@ -200,9 +216,10 @@ class FrozenAnchorTest(unittest.TestCase):
             self.assertEqual(record["child"], anchor["child"])
             setting = gen.derive_setting(record, frozen_basis(anchor))
             self.assertEqual(setting, anchor["setting"], f"ordinal {ordinal}")
+            committed = gen.rational_setting(self.entries[ordinal])
             self.assertEqual(
                 setting,
-                self.entries[ordinal]["setting"],
+                committed,
                 f"ordinal {ordinal} disagrees with the committed module",
             )
             gen.check_origin(record, frozen_origin(anchor))

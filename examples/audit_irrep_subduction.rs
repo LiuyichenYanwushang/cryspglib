@@ -2367,6 +2367,24 @@ fn run_audit(options: Options, writer: Box<dyn Write>) -> Result<(u8, Counts), S
     for sg in 1..=230u8 {
         auditor.audit_sg(sg)?;
     }
+    // An empty scope must never read as a clean run: `--parent 2 --ordinal 0`
+    // selects nothing (ordinal 0 belongs to SG 1), and a CI loop over
+    // (parent, ordinal) pairs would otherwise get `VERDICT clean` with zero
+    // probes for a typo.  The pinned ordinal space is checked by ownership
+    // here, not only by bounds.
+    if auditor.options.scoped() && auditor.counts.records == 0 {
+        let scope = match (auditor.options.parent, auditor.options.ordinal) {
+            (Some(parent), Some(ordinal)) => format!("--parent {parent} --ordinal {ordinal}"),
+            (Some(parent), None) => format!("--parent {parent}"),
+            (None, Some(ordinal)) => format!("--ordinal {ordinal}"),
+            (None, None) => unreachable!("an unscoped run is never empty"),
+        };
+        return Err(format!(
+            "empty scope: {scope} selects no non-spinor isotropy record; the ordinal does \
+             not belong to that parent (or the parent has no condensates), so a report \
+             over zero probes would prove nothing"
+        ));
+    }
     auditor.finish()
 }
 
@@ -2421,6 +2439,37 @@ mod tests {
                 ..Gates::default()
             },
         )
+    }
+
+    /// A scope that selects nothing is an error, not a clean run of zero probes.
+    ///
+    /// Ordinal 0 belongs to SG 1, so `--parent 2 --ordinal 0` is a contradiction;
+    /// before this guard the audit reported `VERDICT clean` with
+    /// `probe_full_success=0/0` and exit 0 (reproduced before the fix).
+    #[test]
+    fn an_empty_scope_is_rejected_instead_of_reporting_clean() {
+        let sink = SharedSink::default();
+        let options = Options {
+            parent: Some(2),
+            ordinal: Some(0),
+            ..Options::default()
+        };
+        let error = run_audit(options, Box::new(sink.clone()))
+            .expect_err("an empty scope must fail");
+        assert!(error.contains("empty scope"), "{error}");
+        // The same ordinal under its real parent still runs, and so does a
+        // parent-only scope, so the guard rejects only the empty case.
+        let options = Options {
+            parent: Some(1),
+            ordinal: Some(0),
+            ..Options::default()
+        };
+        assert!(run_audit(options, Box::new(SharedSink::default())).is_ok());
+        let options = Options {
+            parent: Some(1),
+            ..Options::default()
+        };
+        assert!(run_audit(options, Box::new(SharedSink::default())).is_ok());
     }
 
     /// Every combination of the three independent gates.

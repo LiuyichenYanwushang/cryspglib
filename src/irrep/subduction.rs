@@ -1663,6 +1663,20 @@ fn validate_candidate(
     subgroup_lattice: &Lattice,
     expected: usize,
 ) -> Result<Option<CandidateOperations>, SubductionError> {
+    // `L_H` must be a sublattice of `L_G`: every subgroup translation is also a
+    // parent translation.  A rational setting with `det U = +-1` does **not**
+    // imply this on its own (SG 1 self-embedding with `U = diag(2, 1/2, 1)` sends
+    // the child translation `(1,0,0)` to `(1/2,0,0)`, which is not a parent
+    // translation), and the finite-operation checks below cannot see it: that
+    // map fixes the single representative `(I|0)` and keeps one coset modulo
+    // `L_H`, so it would be accepted as a space-group embedding.  The unordered
+    // setting search is unimodular and always passes this; the fractional rows
+    // of the frozen table are the ones it really guards.
+    for index in 0..3 {
+        if !parent_lattice.contains(&Vec3R::new(*subgroup_lattice.rows().row(index)))? {
+            return Ok(None);
+        }
+    }
     let mut operations = Vec::with_capacity(subgroup_operations.len());
     // The mapped operations are kept **before** the parent-lattice reduction as
     // well: reducing mod `L_G` can remove a vector in `L_G \ L_H`, and
@@ -1791,6 +1805,12 @@ pub struct IrrepSubduction {
     subgroup_sg: u8,
     ordinal: usize,
     setting: Mat3I,
+    /// Shared denominator of `setting`: `U = setting / setting_denominator`.
+    /// Carried next to the numerator because a few monoclinic records reach the
+    /// official subgroup cell only through a fractional change of basis (ordinal
+    /// 26 is the first one); a caller that only got the numerator would silently
+    /// transform coordinates with the wrong matrix.
+    setting_denominator: i32,
     folded_k: [Rat; 3],
     targets: Vec<SubductionTarget>,
     parent_characters: Vec<Complex64>,
@@ -1829,9 +1849,15 @@ impl IrrepSubduction {
         self.ordinal
     }
 
-    /// The setting transform of the embedding this result belongs to.
+    /// Numerator of the setting transform of the embedding this result belongs
+    /// to; the exact matrix is `setting() / setting_denominator()`.
     pub const fn setting(&self) -> Mat3I {
         self.setting
+    }
+
+    /// Denominator of the setting transform, always positive.
+    pub const fn setting_denominator(&self) -> i32 {
+        self.setting_denominator
     }
 
     /// The probe's wave vector folded into the subgroup frame, `T^T k_G`.
@@ -2183,6 +2209,7 @@ fn decompose_active_block(
         subgroup_sg: embedding.subgroup_sg(),
         ordinal: embedding.ordinal(),
         setting: embedding.setting(),
+        setting_denominator: embedding.setting_denominator(),
         folded_k: [folded.get(0), folded.get(1), folded.get(2)],
         targets: solved.targets,
         parent_characters: parent_characters.to_vec(),
@@ -2786,6 +2813,98 @@ mod tests {
 
     fn vec3(values: [i32; 3]) -> Vec3R {
         Vec3R::from_ints(values)
+    }
+
+    /// A setting whose image lattice is not a sublattice of the parent lattice
+    /// is not a space-group embedding, however unimodular it is.
+    ///
+    /// SG 1 self-embedding with `U = diag(2, 1/2, 1) = diag(4, 1, 2) / 2` has
+    /// `det U = 1`, maps the single finite operation `(I|0)` to itself and keeps
+    /// one coset modulo `L_H`, so every finite-operation check passes -- but it
+    /// sends the child translation `(1,0,0)` to `(1/2,0,0)`, which is not in
+    /// `L_G = Z^3`.  Without the containment check in `validate_candidate` the
+    /// engine returned this embedding as `Ok` (reproduced before the fix).
+    #[test]
+    fn a_setting_whose_lattice_is_not_a_parent_sublattice_is_rejected() {
+        use crate::irrep::LabelConvention;
+        use crate::irrep::isotropy::isotropy_subgroups;
+        let subgroup = query::irreps_of(1)
+            .iter()
+            .filter(|irrep| !irrep.spinor)
+            .flat_map(|irrep| {
+                isotropy_subgroups(1, irrep.ml, LabelConvention::Cdml).unwrap_or_default()
+            })
+            .find(|subgroup| subgroup.ordinal == 0)
+            .expect("SG 1 self-embedding record");
+        assert_eq!(subgroup.record.basis, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+        assert!(SubgroupEmbedding::from_isotropy_subgroup(&subgroup).is_ok());
+        assert!(matches!(
+            SubgroupEmbedding::probe_embedding(
+                &subgroup,
+                [[4, 0, 0], [0, 1, 0], [0, 0, 2]],
+                2,
+                [0, 0, 0, 1]
+            ),
+            Err(SubductionError::FrozenEmbeddingRejected { .. })
+        ));
+        // The same lattice written without the fraction (`U = diag(1,1,1)`) is
+        // the identity embedding and stays accepted.
+        assert!(
+            SubgroupEmbedding::probe_embedding(
+                &subgroup,
+                [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                1,
+                [0, 0, 0, 1]
+            )
+            .is_ok()
+        );
+    }
+
+    /// Every frozen setting maps the subgroup lattice into the parent lattice.
+    ///
+    /// This is the whole-table form of the check above: the fractional rows of
+    /// `FROZEN_EMBEDDING_SETTINGS` are exactly where a derivation slip would
+    /// show up as `L_H ⊄ L_G`, and the audit would otherwise accept the row.
+    #[test]
+    fn every_frozen_setting_keeps_the_subgroup_lattice_inside_the_parent() {
+        use super::settings_data::{FROZEN_EMBEDDING_SETTINGS, FrozenEmbeddingSetting};
+        let entries: &[FrozenEmbeddingSetting] = FROZEN_EMBEDDING_SETTINGS;
+        let mut fractional = 0usize;
+        for entry in entries {
+            let (ordinal, parent, _, setting, setting_denominator, _) = *entry;
+            let parent_primitive = exact_primitive_basis(parent).expect("parent basis");
+            let parent_lattice = Lattice::new(parent_primitive).expect("parent lattice");
+            let stored = &ISOTROPY_SUBGROUPS[ordinal];
+            let basis_conventional = Mat3R::from_ints(stored.basis)
+                .checked_mul(&parent_primitive)
+                .expect("stored basis times parent primitive");
+            let inverse = rational_setting(setting, setting_denominator)
+                .expect("rational setting")
+                .inverse()
+                .expect("invertible setting");
+            let subgroup_lattice = Lattice::new(
+                inverse
+                    .checked_mul(&basis_conventional)
+                    .expect("image lattice"),
+            )
+            .expect("non-singular image lattice");
+            for index in 0..3 {
+                let row = subgroup_lattice.rows().row(index);
+                assert!(
+                    parent_lattice
+                        .contains(&Vec3R::new(*row))
+                        .expect("lattice membership"),
+                    "ordinal {ordinal}: L_H row {row:?} is not a parent translation"
+                );
+            }
+            if setting_denominator != 1 {
+                fractional += 1;
+            }
+        }
+        assert!(
+            fractional >= 30,
+            "the fractional settings must stay exercised, got {fractional}"
+        );
     }
 
     #[test]

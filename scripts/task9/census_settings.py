@@ -21,7 +21,7 @@ import sys
 import tempfile
 import zipfile
 
-REPO = "/home/liuyichen/TB_rs/cryspglib"
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 import audit_subduction_settings as audit  # noqa: E402
 

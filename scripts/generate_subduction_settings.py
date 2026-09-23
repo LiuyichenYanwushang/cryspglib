@@ -41,13 +41,18 @@ the parent primitive basis must equal the printed origin exactly.
 Usage::
 
     python3 scripts/generate_subduction_settings.py            # --check
-    python3 scripts/generate_subduction_settings.py --write    # regenerate
     python3 scripts/generate_subduction_settings.py --check --evidence /tmp/x.jsonl
 
-``--check`` (the default) re-queries the official oracle and compares the result
-with the committed module, byte for byte; it never writes.  ``--write``
-regenerates ``src/irrep/subduction_settings_data.rs`` (and refuses to write when
-any derivation check fails).  Both modes are deterministic.
+Scope of this tool today: it derives the conventions of its **75 legacy records**
+(69 task-8 records plus six label/shear witnesses) from the official oracle and
+checks those rows of the committed module.  The shipped
+``src/irrep/subduction_settings_data.rs`` is the **15,239-record full table**
+assembled by ``scripts/task9/build_table.py`` (see ``scripts/task9/README.md``);
+this tool is the library those task-9 scripts import, and it deliberately has no
+writer anymore -- ``--write`` fails instead of replacing the full table with its
+75-record subset.  ``--check`` (the default) re-queries the official oracle,
+compares the 75 derived rows with the committed module and verifies that the
+module covers every pinned ordinal.  It never writes.
 """
 
 from __future__ import annotations
@@ -742,104 +747,12 @@ def _build_entries(oracle_dir):
 # ── Rust emission ────────────────────────────────────────────────────────────
 
 
-def rust_setting(setting):
-    if setting == IDENTITY:
-        return "IDENTITY"
-    if setting == CYCLIC:
-        return "CYCLIC"
-    return "[" + ", ".join(
-        "[" + ", ".join(str(value) for value in row) + "]" for row in setting
-    ) + "]"
-
-
-def rust_shift(shift):
-    if list(shift) == list(ZERO_SHIFT):
-        return "NO_SHIFT"
-    return "[" + ", ".join(str(value) for value in shift) + "]"
-
-
-def render(entries, hashes):
-    lines = [
-        "//! Generated per-ordinal embedding settings for the full-subduction engine.",
-        "//!",
-        "//! `DO NOT EDIT`: regenerate with",
-        "//! `python3 scripts/generate_subduction_settings.py --write`; verify with",
-        "//! `python3 scripts/generate_subduction_settings.py --check`.",
-        "//!",
-        "//! Scope: 69 task-8 records plus six task-9 label/shear witnesses,",
-        "//! keyed by their **0-based raw isotropy ordinal** (the index",
-        "//! into `ISOTROPY_SUBGROUPS`).  Other records keep the engine's candidate",
-        "//! search; this table deliberately does not grow beyond that scope.",
-        "//!",
-        "//! Provenance, re-derived by every `--check` run:",
-        "//! * pinned archive `isotropy_subgroup/iso.zip`",
-        f"//!   (SHA-256 `{hashes['iso.zip']}`); the machine isotropy tables are read",
-        "//!   from that ZIP, never from an extracted checkout. The binary and its",
-        "//!   data files are also extracted from this ZIP into a private directory;",
-        "//! * official `iso` 9.6.1 oracle, one isolated process per record and ITA",
-        "//!   setting, commands `SET I ALL OR 1|2`, `VALUE PARENT/IRREP/DIRECTION`,",
-        "//!   `SHOW SUBGROUP/DIRECTION/BASIS/ORIGIN/SIZE/ELEMENTS`, `DISPLAY ISOTROPY`;",
-        "//! * `setting` is `U = W . P_parent . (P_sub . B_oracle)^-1`, an exact integer",
-        "//!   matrix with `|det| = 1` (no signed-permutation restriction); the stored",
-        "//!   origin converted through `P_parent` must equal the printed origin exactly;",
-        "//! * `child_shift` is the **origin difference** between the recorded ITA",
-        "//!   setting (`SET I ALL OR 1`, the setting the tables are recorded in) and the",
-        "//!   printed setting that the shipped Hall row provably belongs to, mapped into",
-        "//!   the child cell.  The Hall row is `SG_DATA_HALL[subgroup]` in the",
-        "//!   digest-pinned `scripts/hall_operations.json`",
-        f"//!   (SHA-256 `{hashes['hall_operations.json']}`), the frame the engine loads;",
-        "//!   the setting is selected by exact equality of the full expanded operation",
-        "//!   set (never fitted to one matching operation) and a row matching no setting",
-        "//!   fails the generator.",
-        "",
-        "use crate::mathfunc::Mat3I;",
-        "",
-        "/// Identity setting transform.",
-        "const IDENTITY: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];",
-        "",
-        "/// Cyclic axis permutation used by the rhombohedral and C-centred records.",
-        "const CYCLIC: Mat3I = [[0, 0, 1], [1, 0, 0], [0, 1, 0]];",
-        "",
-        "/// No child origin shift: the isotropy record already uses the Hall frame.",
-        "const NO_SHIFT: [i32; 4] = [0, 0, 0, 1];",
-        "",
-        "/// `(ordinal, parent SG, subgroup SG, U, child shift `(x, y, z, d)`)`.",
-        "///",
-        "/// `child_shift` is applied in the **subgroup's own conventional cell**: an",
-        "/// operation `(R | t)` of the shipped Hall row becomes",
-        "/// `(R | t + delta - R delta)` before the affine map into the parent.  It is",
-        "/// non-zero only where the isotropy table and the Hall row use different ITA",
-        "/// origin choices (#126).",
-        "pub type FrozenEmbeddingSetting = (usize, u8, u8, Mat3I, [i32; 4]);",
-        "",
-        "/// One entry per covered isotropy record ordinal.",
-        "pub static FROZEN_EMBEDDING_SETTINGS: &[FrozenEmbeddingSetting] = &[",
-    ]
-    for entry in entries:
-        comment = (
-            f"    // {entry['parent']} {entry['ml']} {entry['label']} -> "
-            f"#{entry['child']} (size {entry['size']})"
-        )
-        if entry["origin_choice"]:
-            comment += f", delta = {entry['origin_choice']}"
-        lines.append(comment)
-        lines.append(
-            f"    ({entry['ordinal']}, {entry['parent']}, {entry['child']}, "
-            f"{rust_setting(entry['setting'])}, {rust_shift(entry['child_shift'])}),"
-        )
-    lines.append("];")
-    lines.append("")
-    return "\n".join(lines)
-
-
-# ── committed-module parsing and comparison ──────────────────────────────────
-
-
 def parse_committed(text):
     """Parse the committed entries back, for semantic comparison and tests.
 
-    Each entry keeps the source comment that precedes it, so the record
-    identity a comment claims can be checked against the pinned tables.
+    The shipped module is the 15,239-record full table, so one entry is
+    `(ordinal, parent, child, U numerator, U denominator, child shift)`; a
+    caller that only wants its own legacy rows filters by ordinal.
     """
     marker = "pub static FROZEN_EMBEDDING_SETTINGS"
     if marker not in text:
@@ -849,25 +762,25 @@ def parse_committed(text):
     constants = {"IDENTITY": IDENTITY, "CYCLIC": CYCLIC}
     shifts = {"NO_SHIFT": list(ZERO_SHIFT)}
     entries = []
-    comment = None
     for raw_line in body.splitlines():
-        stripped = raw_line.strip()
-        if stripped.startswith("//"):
-            comment = stripped[2:].strip()
-            continue
         line = raw_line.split("//")[0].strip()
         if not line.startswith("("):
             continue
         fields = _split_top_level(line.strip().rstrip(",").strip("()"))
-        if len(fields) != 5:
+        if len(fields) != 6:
             raise GenerationError(f"cannot parse entry: {line!r}")
         ordinal, parent, child = (int(fields[i]) for i in range(3))
-        setting_text, shift_text = fields[3], fields[4]
+        setting_text, denominator_text, shift_text = fields[3], fields[4], fields[5]
         if setting_text in constants:
             setting = constants[setting_text]
         else:
-            setting = [[int(value) for value in row.split(",")] for row in
-                       setting_text.strip("[]").split("], [")]
+            setting = [
+                [int(value) for value in row.split(",")]
+                for row in setting_text.strip("[]").split("], [")
+            ]
+        denominator = int(denominator_text)
+        if denominator <= 0:
+            raise GenerationError(f"non-positive setting denominator: {line!r}")
         if shift_text in shifts:
             shift = list(shifts[shift_text])
         else:
@@ -878,11 +791,10 @@ def parse_committed(text):
                 "parent": parent,
                 "child": child,
                 "setting": setting,
+                "setting_denominator": denominator,
                 "child_shift": shift,
-                "comment": comment,
             }
         )
-        comment = None
     return entries
 
 
@@ -921,16 +833,22 @@ def _split_top_level(text):
     return fields
 
 
+def rational_setting(entry):
+    """`U` of one parsed entry as exact fractions (`numerator / denominator`)."""
+    denominator = entry.get("setting_denominator", 1)
+    return [
+        [Fraction(int(value), denominator) for value in row] for row in entry["setting"]
+    ]
+
+
 def compare(entries, committed):
-    if len(entries) != len(committed):
-        raise GenerationError(
-            f"committed table has {len(committed)} entries, derived {len(entries)}"
-        )
-    for derived, stored in zip(entries, committed):
-        if derived["ordinal"] != stored["ordinal"]:
+    """Check the derived legacy rows against the committed full table."""
+    by_ordinal = {entry["ordinal"]: entry for entry in committed}
+    for derived in entries:
+        stored = by_ordinal.get(derived["ordinal"])
+        if stored is None:
             raise GenerationError(
-                f"ordinal mismatch: derived {derived['ordinal']}, committed "
-                f"{stored['ordinal']}"
+                f"ordinal {derived['ordinal']}: the committed module has no entry"
             )
         for field in ("parent", "child"):
             if derived[field] != stored[field]:
@@ -938,14 +856,16 @@ def compare(entries, committed):
                     f"ordinal {derived['ordinal']}: derived {field} {derived[field]} "
                     f"!= committed {stored[field]}"
                 )
-        for field in ("setting", "child_shift"):
-            if [list(row) if isinstance(row, list) else row for row in derived[field]] != [
-                list(row) if isinstance(row, list) else row for row in stored[field]
-            ]:
-                raise GenerationError(
-                    f"ordinal {derived['ordinal']}: derived {field} {derived[field]} "
-                    f"!= committed {stored[field]}"
-                )
+        if rational_setting(derived) != rational_setting(stored):
+            raise GenerationError(
+                f"ordinal {derived['ordinal']}: derived U {derived['setting']} "
+                f"!= committed {stored['setting']}/{stored['setting_denominator']}"
+            )
+        if list(derived["child_shift"]) != list(stored["child_shift"]):
+            raise GenerationError(
+                f"ordinal {derived['ordinal']}: derived child shift "
+                f"{derived['child_shift']} != committed {stored['child_shift']}"
+            )
 
 
 def archive_hashes():
@@ -970,7 +890,7 @@ def main(argv=None):
     parser.add_argument(
         "--write",
         action="store_true",
-        help=f"regenerate {os.path.relpath(OUTPUT, ROOT)} (default: --check)",
+        help="refused: the full table is assembled by scripts/task9/build_table.py",
     )
     parser.add_argument(
         "--check",
@@ -983,24 +903,34 @@ def main(argv=None):
         help="write the derived entries as JSON lines (reproducible probe)",
     )
     arguments = parser.parse_args(argv)
-    if arguments.check and arguments.write:
-        parser.error("--check and --write are mutually exclusive")
+    if arguments.write:
+        raise GenerationError(
+            f"{os.path.relpath(OUTPUT, ROOT)} is the 15,239-record table assembled "
+            "by scripts/task9/build_table.py (see scripts/task9/README.md); this "
+            f"tool derives only its {len(select_records(load_machine_records()))} "
+            "legacy records and must not replace it. Run "
+            "`python3 scripts/task9/build_table.py --check` against the same "
+            "evidence to verify the full table."
+        )
     hashes = archive_hashes()
     entries = build_entries()
     if arguments.evidence:
         with open(arguments.evidence, "w", encoding="utf-8") as handle:
             for entry in entries:
                 handle.write(json.dumps(entry, sort_keys=True) + "\n")
-    if arguments.write:
-        text = render(entries, hashes)
-        with open(OUTPUT, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        print(f"wrote {os.path.relpath(OUTPUT, ROOT)}: {len(entries)} entries")
-        return 0
     with open(OUTPUT, encoding="utf-8") as handle:
         committed_text = handle.read()
     committed = parse_committed(committed_text)
     records = load_machine_records()
+    # The shipped module is the full table: it must cover every pinned record,
+    # and every row must address its own record.  This tool checks the coverage
+    # and its own 75 rows; the conventions of the other rows are checked by
+    # `scripts/task9/build_table.py --check`.
+    if len(committed) != len(records):
+        raise GenerationError(
+            f"the committed module has {len(committed)} entries but the pinned "
+            f"tables carry {len(records)} isotropy records"
+        )
     for entry in committed:
         if not entry_addresses_record(entry, records):
             raise GenerationError(
@@ -1009,20 +939,16 @@ def main(argv=None):
                 f"{entry['child']})"
             )
     compare(entries, committed)
-    expected = render(entries, hashes)
-    if expected != committed_text:
-        raise GenerationError(
-            f"{os.path.relpath(OUTPUT, ROOT)} differs from the freshly derived "
-            "module (regenerate with --write)"
-        )
     nonzero = [
         entry for entry in entries if list(entry["child_shift"]) != list(ZERO_SHIFT)
     ]
     pairs = {(entry["parent"], entry["child"]) for entry in entries}
     print(
-        f"checked {len(entries)} entries against the official oracle "
-        f"({len(pairs)} pairs, {len(nonzero)} non-zero child shift)"
+        f"checked {len(entries)} legacy entries against the official oracle "
+        f"({len(pairs)} pairs, {len(nonzero)} non-zero child shift); the committed "
+        f"module covers all {len(records)} pinned records"
     )
+    print(f"pinned archives: {hashes}")
     return 0
 
 

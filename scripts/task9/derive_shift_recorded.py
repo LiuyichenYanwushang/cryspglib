@@ -20,10 +20,12 @@ the star (ordinal 27 is the minimal witness).
 """
 import argparse
 import json
+import os
 import sys
 from fractions import Fraction
 
-sys.path.insert(0, '/home/liuyichen/TB_rs/cryspglib/scripts')
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(REPO, "scripts"))
 import probe_census as probe_mod          # noqa: E402
 import verify_isotropy_oracle as geometry  # noqa: E402
 from derive_shift import inverse, matvec, transpose  # noqa: E402

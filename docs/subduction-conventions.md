@@ -511,3 +511,39 @@ pinned 行对小群之外的 `-I`、`m_y` 存的是字面 0。任何代码都不
 不再硬编码 1；`stored_child_components_at` 遇到无法展开的子群记录**大声报错**而不
 `continue`——把生成 bug 伪装成「缺数据」比报错更糟。这两条都由复核 B 指出。
 
+## 15. 嵌入验证与结果元信息的两条契约（第三方复核，2026-09-23）
+
+**嵌入的必要条件是 `L_H ⊆ L_G`。** `validate_candidate` 现在先检查候选映射推出的
+子群格 `U^-1 · W · P_parent` 的每一行都落在母群格 `Lattice::new(P_parent)` 里，
+再检查有限操作映射、代表元数目与模 `L_H` 的闭合性。原因：`det U = ±1` **不**蕴含
+包含关系——SG 1 自嵌入取 `U = diag(2, 1/2, 1)`（即 `diag(4,1,2)/2`）时，
+`det U = 1`、唯一有限操作 `(I|0)` 映射到自身、模 `L_H` 只有一个陪集，所有有限检查
+都通过，但它把子群平移 `(1,0,0)` 送到 `(1/2,0,0) ∉ Z³`，根本不是空间群嵌入；
+修复前 `probe_embedding` 会把它当 `Ok` 返回（已复现）。搜索路径只枚举幺模候选，
+天然满足该条件；这条检查真正守护的是**分数 `U`** 的候选与冻结行。
+回归：`a_setting_whose_lattice_is_not_a_parent_sublattice_is_rejected`（负例）
+与 `every_frozen_setting_keeps_the_subgroup_lattice_inside_the_parent`（全表
+15,239 行逐一重算包含关系，并断言分数行仍 ≥ 30 条）。
+
+**结果对象必须带 setting 的分母。** `U = setting / setting_denominator` 是有理矩阵，
+冻结表里有 30 条分母为 2、3 条分母为 -2（最简写法下）的记录（ordinal 26 是第一个
+分母 2 的行：`U = [[1,2,1],[-1,2,-1],[-1,0,1]] / 2`）。`SubgroupEmbedding` 一直同时
+暴露分子与分母，但 `IrrepSubduction` 与 `FullStarSubduction` 之前只复制分子，调用方
+拿到 `setting()` 会按整数矩阵做坐标变换。两个结果类型现在都有
+`setting_denominator()`；回归 `a_fractional_setting_reaches_the_results_with_its_denominator`
+在 ordinal 26 上钉住 `setting()/setting_denominator()` 与嵌入一致（并说明当前语料里
+没有 Γ 归属的分数行，所以 `IrrepSubduction` 一侧只钉接线 + 幺模 Γ 上下文）。
+
+**空范围不是通过。** 审计的 `--parent`/`--ordinal` 组合若选不中任何非 spinor
+isotropy 记录（如 `--parent 2 --ordinal 0`），现在直接报 `empty scope` 错误并非零
+退出，不再打印 `VERDICT clean` 与 `probe_full_success=0/0`（修复前即如此，已复现）。
+回归：`an_empty_scope_is_rejected_instead_of_reporting_clean`，同时确认
+`--parent 1 --ordinal 0` 与 `--parent 1` 仍然正常。
+
+**工具不再吞错误。** `examples/probe_subduction_settings.rs` 之前把
+`subduce_full_star_with_embedding` 的任何错误写成 `trivial=0`，而 0 在这条流水线里
+是**合法结果**（表示约定落在共轭分支上），两者混淆会把引擎缺数据误判成物理结论。
+现在三态分开：`trivial=<n>` 是算出的重数、`trivial=?` 是结构上不可用、`trivial=error`
+是计算失败（原因打到 stderr），`--profile` 同理输出 `profile=error` 而不是一个
+"少了若干项、可能恰好匹配目标"的更短 profile。
+

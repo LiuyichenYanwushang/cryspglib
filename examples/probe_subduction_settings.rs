@@ -25,7 +25,14 @@
 //! condensing irrep**, which is the property that makes the subgroup the
 //! isotropy subgroup of that direction: a convention that validates but reports
 //! zero has placed the subgroup on a different (conjugate) branch, and that is
-//! invisible to the embedding check alone.  Exit status is 0 when every
+//! invisible to the embedding check alone.  Three states are kept apart:
+//! `trivial=<n>` is a computed multiplicity, `trivial=?` means the child's
+//! trivial row or the condensing probe was not found, and `trivial=error` means
+//! the decomposition itself failed -- the reason is printed on standard error
+//! and never folded into a zero (a zero is a *result* here, so confusing the two
+//! would misreport an engine gap as a conjugate branch).  A `--profile` line
+//! whose subduction failed prints `profile=error` rather than a shorter profile
+//! that could accidentally match a target.  Exit status is 0 when every
 //! candidate was evaluated and 1 on malformed input.
 //!
 //! ```text
@@ -66,51 +73,83 @@ fn trivial_child_label(sg: u8) -> Option<&'static str> {
 }
 
 /// Trivial content of one parent irrep under one convention.
+///
+/// A failure is **not** a zero: zero is a real answer here (it is how a
+/// convention on a conjugate branch shows up), so the error is propagated with
+/// the context needed to diagnose it.
 fn trivial_content(
     subgroup: &IsotropySubgroup,
     embedding: &SubgroupEmbedding,
     probe: &'static IrrepRecord,
     trivial: &str,
-) -> u32 {
-    match subduce_full_star_with_embedding(subgroup, embedding, probe) {
-        Ok(result) => result
-            .blocks()
-            .iter()
-            .map(|block| block.multiplicity(trivial))
-            .sum(),
-        Err(_) => 0,
-    }
+) -> Result<u32, String> {
+    let result = subduce_full_star_with_embedding(subgroup, embedding, probe).map_err(|error| {
+        format!(
+            "SG {} {} under ordinal {}: {error}",
+            subgroup.parent_sg, probe.ml, subgroup.ordinal
+        )
+    })?;
+    Ok(result
+        .blocks()
+        .iter()
+        .map(|block| block.multiplicity(trivial))
+        .sum())
 }
 
 /// Trivial content of the record's own condensing irrep under one convention.
+///
+/// `Ok(None)` means the answer is structurally unavailable (no unique trivial
+/// child row, or the condensing probe is missing); `Err` means the engine was
+/// asked and failed.
 fn condensing_trivial(
     subgroup: &IsotropySubgroup,
     embedding: &SubgroupEmbedding,
-) -> Option<u32> {
-    let probe: &'static IrrepRecord = query::irreps_of(subgroup.parent_sg)
+) -> Result<Option<u32>, String> {
+    let Some(probe) = query::irreps_of(subgroup.parent_sg)
         .iter()
-        .find(|record| record.ml == subgroup.irrep_ml)?;
-    let trivial = trivial_child_label(embedding.subgroup_sg())?;
-    Some(trivial_content(subgroup, embedding, probe, trivial))
+        .find(|record| record.ml == subgroup.irrep_ml)
+    else {
+        return Ok(None);
+    };
+    let Some(trivial) = trivial_child_label(embedding.subgroup_sg()) else {
+        return Ok(None);
+    };
+    trivial_content(subgroup, embedding, probe, trivial).map(Some)
+}
+
+/// The printed token for one `condensing_trivial` outcome, plus the reason to
+/// log when the answer is unavailable or failed.
+fn render_trivial(outcome: Result<Option<u32>, String>) -> (String, Option<String>) {
+    match outcome {
+        Ok(Some(value)) => (value.to_string(), None),
+        Ok(None) => ("?".to_string(), None),
+        Err(reason) => ("error".to_string(), Some(reason)),
+    }
 }
 
 /// `label=mult` for every parent irrep whose subduction contains the trivial
 /// representation, which is exactly the table the audit compares against.
-fn trivial_profile(subgroup: &IsotropySubgroup, embedding: &SubgroupEmbedding) -> String {
+///
+/// One failed subduction fails the whole profile: a profile with an entry
+/// silently missing could equal a target profile for the wrong reason.
+fn trivial_profile(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+) -> Result<String, String> {
     let Some(trivial) = trivial_child_label(embedding.subgroup_sg()) else {
-        return String::from("?");
+        return Ok(String::from("?"));
     };
     let mut parts = Vec::new();
     for record in query::irreps_of(subgroup.parent_sg) {
         if record.spinor {
             continue;
         }
-        let value = trivial_content(subgroup, embedding, record, trivial);
+        let value = trivial_content(subgroup, embedding, record, trivial)?;
         if value > 0 {
             parts.push(format!("{}={}", record.ml, value));
         }
     }
-    parts.join(",")
+    Ok(parts.join(","))
 }
 
 struct Candidate {
@@ -201,6 +240,7 @@ fn main() -> Result<(), String> {
     let mut out = io::BufWriter::new(stdout.lock());
     let mut unknown = 0usize;
     let mut rejected = 0usize;
+    let mut unavailable = 0usize;
     for (index, line) in stdin.lock().lines().enumerate() {
         let line = line.map_err(|error| format!("stdin: {error}"))?;
         let Some(candidate) = parse_candidate(&line, index + 1)? else {
@@ -219,17 +259,27 @@ fn main() -> Result<(), String> {
             candidate.shift,
         ) {
             Ok(embedding) => {
-                let trivial = condensing_trivial(subgroup, &embedding)
-                    .map(|value| value.to_string())
-                    .unwrap_or_else(|| "?".to_string());
+                let (trivial, reason) = render_trivial(condensing_trivial(subgroup, &embedding));
+                if let Some(reason) = reason {
+                    eprintln!("{}: trivial content unavailable: {reason}", candidate.id);
+                    unavailable += 1;
+                }
                 if profile {
+                    let text = match trivial_profile(subgroup, &embedding) {
+                        Ok(text) => text,
+                        Err(reason) => {
+                            eprintln!("{}: profile unavailable: {reason}", candidate.id);
+                            unavailable += 1;
+                            String::from("error")
+                        }
+                    };
                     writeln!(
                         out,
                         "{} OK {} trivial={} profile={}",
                         candidate.id,
                         embedding.representatives().len(),
                         trivial,
-                        trivial_profile(subgroup, &embedding)
+                        text
                     )
                     .map_err(|error| error.to_string())?;
                 } else {
@@ -251,6 +301,42 @@ fn main() -> Result<(), String> {
         }
     }
     out.flush().map_err(|error| error.to_string())?;
-    eprintln!("probed candidates, {rejected} rejected, {unknown} unknown ordinals");
+    eprintln!(
+        "probed candidates, {rejected} rejected, {unknown} unknown ordinals, \
+         {unavailable} with an unavailable trivial content"
+    );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The three states stay apart: a computed zero is a result, an unavailable
+    /// answer is `?`, and a failure is `error` with its reason kept.
+    #[test]
+    fn the_trivial_token_distinguishes_zero_unknown_and_failure() {
+        assert_eq!(render_trivial(Ok(Some(0))), ("0".to_string(), None));
+        assert_eq!(render_trivial(Ok(Some(3))), ("3".to_string(), None));
+        assert_eq!(render_trivial(Ok(None)), ("?".to_string(), None));
+        let (token, reason) = render_trivial(Err("missing child data".to_string()));
+        assert_eq!(token, "error");
+        assert_eq!(reason.as_deref(), Some("missing child data"));
+    }
+
+    /// A real convention reports a computed multiplicity, so the wiring is not
+    /// only exercised through the failure path.
+    #[test]
+    fn an_accepted_convention_reports_a_computed_multiplicity() {
+        let table = load_subgroups().expect("pinned records");
+        let subgroup = table.get(&26).expect("ordinal 26");
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
+        let (token, reason) = render_trivial(condensing_trivial(subgroup, &embedding));
+        assert!(reason.is_none(), "{reason:?}");
+        assert!(
+            token.parse::<u32>().is_ok(),
+            "a successful convention must report a number, got {token}"
+        );
+        assert!(trivial_profile(subgroup, &embedding).is_ok());
+    }
 }

@@ -1,7 +1,9 @@
 //! Generated per-ordinal embedding settings for the full-subduction engine.
 //!
-//! `DO NOT EDIT`: regenerate with the task-9 settings pipeline
-//! (`scripts/generate_subduction_settings.py`).
+//! `DO NOT EDIT`: this module is assembled by the task-9 settings pipeline
+//! (`scripts/task9/README.md`); `scripts/task9/build_table.py --check`
+//! re-assembles it and compares byte for byte, and the older
+//! `scripts/generate_subduction_settings.py` refuses to write it.
 //!
 //! Every entry is derived from the pinned ISOTROPY archive
 //! `isotropy_subgroup/iso.zip`
