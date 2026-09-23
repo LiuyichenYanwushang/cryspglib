@@ -355,7 +355,20 @@ CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
   --example audit_irrep_subduction -- \
   --require-complete --require-w-complete --require-full-decomposition \
   --output target/r5_audit.tsv
-# exit 0；判词 VERDICT complete scope=global full_decomposition=complete
+```
+
+实测（2026-09-22，约 520 s，exit 0）：
+
+```text
+coverage: embedded_records=15239/15239 positive_stored_compared=94271/94271
+  probe_full_success=366260/366260 probe_identity_only=0/366260 probe_answered=366260/366260
+  absent_zero=271989 frobenius_evaluated=1895/1895 w_computed=5756/5756
+production_checks: dimension_mismatch=0 integrality_mismatch=0 reconstruction_mismatch=0
+  target_source_unmatched=0 label_source_disagreement=0
+w_scope: rows=5756 computed=5756 uncomputed=0 mismatched=0 engine_errors=0
+VERDICT complete scope=global
+  gates=--require-complete,--require-full-decomposition,--require-w-complete
+  full_decomposition=complete
 ```
 
 ### 边界（这些不在 100% 里）
