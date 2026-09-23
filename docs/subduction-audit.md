@@ -64,7 +64,7 @@ oracle 5,756 条 w 行对 pinned 5,756 条 w 行、0 不匹配**，其中 144 �
 
 | 范围 | 证据 | 状态 |
 |---|---|---|
-| 普通恒等分导（15,239 记录 / 94,271 正项 / 366,260 probe / Γ Frobenius 1,895） | **cryspglib 引擎计算** + 几何与零项检查 | 范围内闭合，0 未支持。366,260 个 probe 结果分两类：**351,547 个完整分解 + 14,713 个仅恒等重数**（例：ordinal 13345 `W1` 的完整分解仍 `MissingChildStarData`，其恒等重数由 `trivial_content_with_embedding` 精确回答） |
+| 普通离散标量分导（15,239 记录 / 94,271 正项 / 366,260 probe / Γ Frobenius 1,895） | **cryspglib 引擎计算** + 几何与零项检查 | **范围内完全闭合**：366,260/366,260 个 probe 都是**完整分解**（`identity_only = missing = error = uncomputed = 0`），恒等正项 94,271/0 不匹配；正式报告见本文「R5：普通离散标量覆盖闭合」一节 |
 | 其它波矢 w 行（1,006 记录 / 5,756 行） | **cryspglib 引擎计算**（`line_trivial_content_via_blocks` + 冻结 little 特征标 73/73，单一算法、不按答案选择）+ 官方 `iso` live oracle 逐行复核 | **5,756/5,756 计算且与 pinned 相同**，`mismatched=0`、`engine_errors=0`；`--require-w-complete` 退出 0，判词 `VERDICT complete scope=global`。w API 目前只返回**恒等重数**（不含完整分解） |
 
 这 5,756 行的源现在**全部有冻结特征标**：
@@ -220,12 +220,11 @@ T = B^T
 |---|---:|---|
 | `--require-complete --require-w-complete` | 0 | `VERDICT complete scope=global gates=--require-complete,--require-w-complete full_decomposition=not_gated` |
 | `--require-full-decomposition` | **0** | `full_decomposition: scope=global probes=366260 full_success=366260 identity_only=0 missing=0 error=0 uncomputed=0 incomplete=0 global=covered`，`VERDICT complete ... full_decomposition=complete` |
-| 三个门禁同时 | **2** | 同上；完整分解缺口优先于其它门禁的通过 |
+| 三个门禁同时 | **0** | `VERDICT complete scope=global gates=--require-complete,--require-full-decomposition,--require-w-complete full_decomposition=complete` |
 
-即：恒等分导表与 w 行的**恒等重数**已经闭合（旧两个门禁 exit 0），但**普通离散
-标量的完整分解**在 R4 批次 2a 后是 366,039/366,260 = 99.94%，仍余 221 条缺口，
-其余里程碑按 `docs/subduction-next-milestones.md` 逐批补齐；在缺口清零前，新门禁
-一直退出 2，不得用恒等项通过代替完整分解验收。
+即：**三个门禁同时 exit 0**。普通离散标量的完整分解在 R4 三个批次后是
+366,260/366,260 = 100%，恒等分导表与 w 行的恒等重数各自闭合。缺口清零前本表第三行
+曾是"完整分解缺口优先、exit 2"，那段历史口径保留在 R4 各批次小节里。
 
 ### R1/R2：表外目标由「子群操作 + 精确 q」现场构造
 

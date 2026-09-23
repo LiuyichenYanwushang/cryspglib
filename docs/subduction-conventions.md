@@ -462,8 +462,10 @@ centering 消光，判定用 `Lattice::contains`）。落在其它 `q` 的折叠
   全部标量 probe 上两条路径一致，以及 SG 196 的上述四元组。
 
 全表审计（`examples/audit_irrep_subduction.rs`）据此把探针结果分为
-`full_success` 与 `identity_only` 两类，二者都与存储表逐条比较：14,713 条
-恒等-only 中 160 条是存储正项，全部复现，0 不匹配、0 假阳性。范围闭合的判词由
+`full_success` 与 `identity_only` 两类，二者都与存储表逐条比较（历史：第六轮时
+14,713 条恒等-only 中 160 条是存储正项，全部复现，0 不匹配、0 假阳性；R4 三个批次
+把 `identity_only` 清零后，这条恒等-only 路径仍保留在审计里，只是不再有 probe
+需要它，`probe_identity_only = 0`）。范围闭合的判词由
 `--require-complete` 给出；`other_wave_vector_subduction` 的 5,756 行因 pinned
 irrep 表没有其 73 个源 irrep 的 k 矢量与特征标行，单独由 `--require-w-complete`
 与 `w_scope` 行报告，未计入该范围。它们的**小群表**在归档 `data_little.txt` 中完整

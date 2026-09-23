@@ -1,9 +1,12 @@
 # 完整 irrep 分导：供独立 DeepSeek CLI 顺序执行的任务卡
 
-> 2026-09-22 更新：原任务 1–8 已落地，任务 9 已闭合恒等内容审计，但仍有
-> 14,713 个普通 probe 缺完整分解。当前状态和后续 R0–R12 执行卡见
-> [subduction-next-milestones.md](subduction-next-milestones.md)。本文保留历史设计，
-> 其中的旧基线和示例签名不代表当前实现；不要从任务 0 重新执行。
+> 2026-09-22 更新：原任务 1–8 已落地，任务 9 已闭合恒等内容审计；R4 的三个批次
+> （构造目标 / 一维投影 catalogue / 二维投影表）随后把普通离散标量的**完整分解**
+> 做到 366,260/366,260 = 100%（三门口禁 exit 0，见
+> [subduction-audit.md](subduction-audit.md) 的 R5 报告）。当前状态和后续 R6–R12
+> 执行卡见 [subduction-next-milestones.md](subduction-next-milestones.md)。本文保留
+> 历史设计，其中的旧基线（如"14,713 个 probe 缺完整分解"）和示例签名不代表当前
+> 实现；不要从任务 0 重新执行。
 
 本计划针对能直接读写仓库的独立 DeepSeek CLI。按任务卡顺序执行，每次只完成一张；
 本文件是实施计划，不代表下面的引擎已经实现。基准日期：2026-09-21。
