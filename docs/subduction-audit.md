@@ -429,6 +429,7 @@ coverage: embedded_records=15239/15239 positive_stored_compared=94271/94271
 production_checks: dimension_mismatch=0 integrality_mismatch=0 reconstruction_mismatch=0
   target_source_unmatched=0 label_source_disagreement=0
 w_scope: rows=5756 computed=5756 uncomputed=0 mismatched=0 engine_errors=0
+w_parameter_shift: checked=5756 mismatched=0 (t = 5/4 against t = 1/4, complete decomposition per block and target)
 VERDICT complete scope=global
   gates=--require-complete,--require-full-decomposition,--require-w-complete
   full_decomposition=complete

@@ -460,6 +460,14 @@ struct Counts {
     /// row stays reported instead of computed.
     w_character_blocked: usize,
     w_frequency_mismatch: usize,
+    /// Rows whose **complete** decomposition at the equivalent parameter
+    /// `t = 5/4` differs from the official `t = 1/4` one.  Every frozen
+    /// direction is a parent reciprocal vector, so the two parameters describe
+    /// the same parent irrep and the decompositions must agree target by target;
+    /// before R6.1's canonical wave vector they did not (40 rows, SG 210/227/228,
+    /// invisible to the identity-frequency comparison alone).
+    w_parameter_shift_mismatch: usize,
+    w_parameter_shift_checked: usize,
     /// Block-route calls that returned `Err`: an arithmetic/context failure in
     /// the computation itself, not a missing pinned input.  A demonstrated
     /// error must fail the run under every flag combination.
@@ -625,6 +633,7 @@ impl Counts {
             + self.w_conflict
             + self.w_source_mismatch
             + self.w_frequency_mismatch
+            + self.w_parameter_shift_mismatch
             + self.w_engine_error
             + self.accounting_violations
             + self.census_mismatch
@@ -1458,28 +1467,87 @@ origin={},{},{},{}",
                                 let parameter = cryspglib::irrep::subduction::star::decompose::
                                     official_line_parameter()
                                     .map_err(|error| error.to_string())?;
-                                // A plain `match` (not `and_then`) keeps the
-                                // large error type out of a closure.
-                                let computed = match cryspglib::irrep::subduction::star::decompose::
-                                    subduce_line_at_parameter(
-                                        subgroup, embedding, table, parameter,
-                                    ) {
-                                    Ok(result) => result.trivial_content(),
-                                    Err(error) => Err(error),
-                                };
-                                match computed {
-                                    Ok(value) if value == u32::from(entry.frequency) => {
-                                        self.counts.w_computed += 1;
-                                        w_status = "computed".to_string();
-                                    }
-                                    Ok(value) => {
-                                        self.counts.w_frequency_mismatch += 1;
-                                        w_status = format!("computed_mismatch:{value}");
-                                        self.mismatch(format!(
-                                            "ordinal {ordinal}: other-wave-vector row {} computed \
-                                             {value}, pinned {}",
-                                            entry.parent_ml, entry.frequency
-                                        ));
+                                let decomposition =
+                                    cryspglib::irrep::subduction::star::decompose::
+                                        subduce_line_at_parameter(
+                                            subgroup, embedding, table, parameter,
+                                        );
+                                match decomposition {
+                                    Ok(result) => {
+                                        let computed = result.trivial_content();
+                                        match computed {
+                                            Ok(value) if value == u32::from(entry.frequency) => {
+                                                self.counts.w_computed += 1;
+                                                w_status = "computed".to_string();
+                                                // R6.1 gauge regression, at audit
+                                                // scale: `t = 5/4` is the same
+                                                // parent irrep as `t = 1/4` (every
+                                                // frozen direction is a parent
+                                                // reciprocal vector), so the whole
+                                                // decomposition must agree target
+                                                // by target.  Comparing only the
+                                                // identity frequency is what let
+                                                // the 40-row gauge slip through.
+                                                let shifted =
+                                                    cryspglib::irrep::subduction::Rat::new(5, 4)
+                                                        .map_err(|error| error.to_string())?;
+                                                self.counts.w_parameter_shift_checked += 1;
+                                                match cryspglib::irrep::subduction::star::decompose::
+                                                    subduce_line_at_parameter(
+                                                        subgroup, embedding, table, shifted,
+                                                    )
+                                                {
+                                                    Ok(shifted_result) => {
+                                                        if line_decomposition_key(&result)
+                                                            != line_decomposition_key(
+                                                                &shifted_result,
+                                                            )
+                                                        {
+                                                            self.counts
+                                                                .w_parameter_shift_mismatch += 1;
+                                                            self.mismatch(format!(
+                                                                "ordinal {ordinal}: \
+                                                                 other-wave-vector row {} \
+                                                                 decomposes differently at \
+                                                                 t = 5/4",
+                                                                entry.parent_ml
+                                                            ));
+                                                        }
+                                                    }
+                                                    Err(error) => {
+                                                        self.counts.w_parameter_shift_mismatch += 1;
+                                                        self.bump_error(&format!(
+                                                            "w-line-shift:{error}"
+                                                        ));
+                                                        self.mismatch(format!(
+                                                            "ordinal {ordinal}: \
+                                                             other-wave-vector row {} engine \
+                                                             error at t = 5/4: {error}",
+                                                            entry.parent_ml
+                                                        ));
+                                                    }
+                                                }
+                                            }
+                                            Ok(value) => {
+                                                self.counts.w_frequency_mismatch += 1;
+                                                w_status = format!("computed_mismatch:{value}");
+                                                self.mismatch(format!(
+                                                    "ordinal {ordinal}: other-wave-vector row {} \
+                                                     computed {value}, pinned {}",
+                                                    entry.parent_ml, entry.frequency
+                                                ));
+                                            }
+                                            Err(error) => {
+                                                self.counts.w_engine_error += 1;
+                                                w_status = format!("blocks_err:{error}");
+                                                self.bump_error(&format!("w-line:{error}"));
+                                                self.mismatch(format!(
+                                                    "ordinal {ordinal}: other-wave-vector row {} \
+                                                     engine error: {error}",
+                                                    entry.parent_ml
+                                                ));
+                                            }
+                                        }
                                     }
                                     Err(error) => {
                                         // A `Err` from the block route is a
@@ -1921,6 +1989,10 @@ origin={},{},{},{}",
             counts.w_character_blocked
         );
         eprintln!(
+            "w_parameter_shift: checked={} mismatched={} (t = 5/4 against t = 1/4, complete decomposition per block and target)",
+            counts.w_parameter_shift_checked, counts.w_parameter_shift_mismatch
+        );
+        eprintln!(
             "completeness: missing_probes={} uncomputed_probes={} uncomputed_entries={} unresolved_entries={} duplicate_same={} geometry_filter_errors={} frobenius_unevaluated={} basis_errors={} w_uncomputed={}",
             counts.probes.missing,
             counts.probes.uncomputed(),
@@ -2295,6 +2367,54 @@ fn probe_source_label(probe: &IrrepRecord) -> &'static str {
     }
 }
 
+/// A parameter-independent summary of one line decomposition: every block with
+/// its stored child `k`, star size, arm count, dimensions and every target with
+/// its multiplicity, label, CIR number and component identity.
+///
+/// Blocks are compared as a **multiset**: a parameter shift may reorder the same
+/// blocks (measured: ordinal 10030 `SM1` swaps its two blocks between `t = 1/4`
+/// and `t = 3/4` with identical contents), and the order is not part of the
+/// decomposition.  Targeting `q` is deliberately excluded: it is the unreduced
+/// folded coordinate, so it may legitimately differ by a child reciprocal
+/// vector between equivalent parameters.
+fn line_decomposition_key(
+    result: &cryspglib::irrep::subduction::star::decompose::LineSubduction,
+) -> Vec<String> {
+    let mut keys: Vec<String> = result
+        .blocks()
+        .iter()
+        .map(|block| {
+            let targets: Vec<String> = block
+                .targets()
+                .iter()
+                .map(|target| {
+                    format!(
+                        "{}x{} {:?} {:?} {:?}",
+                        target.multiplicity,
+                        target.dimension,
+                        target.ml,
+                        target.irnumber,
+                        target.component
+                    )
+                })
+                .collect();
+            format!(
+                "k=({},{},{}) star={} arms={} dim={} little={} [{}]",
+                block.stored_k().get(0),
+                block.stored_k().get(1),
+                block.stored_k().get(2),
+                block.star_size(),
+                block.arm_count(),
+                block.block_dimension(),
+                block.little_dimension(),
+                targets.join("; ")
+            )
+        })
+        .collect();
+    keys.sort();
+    keys
+}
+
 fn production_detail(outcome: &CallOutcome, geometry: Geometry) -> String {
     format!(
         "geometry={} blocks_targets={} targets_without_source={} trivial_by_label={}",
@@ -2617,6 +2737,31 @@ mod tests {
         // The failed row is also still "uncomputed", so the w gate sees it; the
         // hard failure must dominate the incompleteness verdict.
         assert_eq!(counts.w_incomplete(), 1);
+        for gates in all_gate_combinations() {
+            assert_eq!(counts.exit_code(gates), 1, "gates={}", gates.label());
+        }
+    }
+
+    /// A parameter-shift mismatch is a hard failure under every gate
+    /// combination.  This is the counter that makes the R6.1 gauge class (the
+    /// same parent irrep decomposing differently at an equivalent parameter)
+    /// impossible to ship again: the identity frequency alone does not see it.
+    #[test]
+    fn a_line_parameter_shift_mismatch_fails_under_every_flag_combination() {
+        let counts = Counts {
+            w_parameter_shift_mismatch: 1,
+            w_entries: 1,
+            w_computed: 1,
+            w_parameter_shift_checked: 1,
+            ..Counts::default()
+        };
+        assert!(
+            counts.hard_failures() >= 1,
+            "an equivalent parameter with a different decomposition is a hard failure"
+        );
+        // Every row is computed, so no completeness gate sees it: only the hard
+        // failure can stop this run.
+        assert_eq!(counts.w_incomplete(), 0);
         for gates in all_gate_combinations() {
             assert_eq!(counts.exit_code(gates), 1, "gates={}", gates.label());
         }

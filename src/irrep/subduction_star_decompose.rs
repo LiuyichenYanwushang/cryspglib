@@ -886,9 +886,12 @@ fn line_direction(table: &LittleCharacterTable) -> Result<Vec3R, FullStarError> 
 ///
 /// Delegates to [`line_trivial_content_via_blocks`], which folds the line's arms
 /// through the same `build_block` stage the discrete probes use.  The earlier
-/// hand-written per-arm sum is gone: it disagreed with the pinned rows on 1,599
-/// values and returned errors on 241 more, and keeping it would let a caller pick
-/// whichever answer it liked.
+/// hand-written per-arm sum is gone, and with it the possibility of a caller
+/// picking whichever of two answers it liked: that implementation disagreed with
+/// the pinned rows on 1,599 values and returned errors on 241 more (measured
+/// during the R5 review round and recorded in `docs/task9-remaining-work.md`,
+/// "Review fixes (post-113)"; the code itself has since been deleted, so the two
+/// numbers are a historical record rather than a recomputable check).
 pub fn line_trivial_content_with_embedding(
     subgroup: &IsotropySubgroup,
     embedding: &SubgroupEmbedding,
@@ -898,7 +901,16 @@ pub fn line_trivial_content_with_embedding(
 }
 
 /// The arms of a parametric-k line: the images of its direction under the
-/// parent's own operations, deduplicated exactly.
+/// parent's own operations, deduplicated by **exact vector equality** -- not
+/// modulo the parent reciprocal lattice, so `a` and `a + G` are two arms.
+///
+/// That is the frozen convention the pinned rows were produced with: for the 73
+/// frozen sources the two readings do differ (2,574 arm pairs differ by a parent
+/// reciprocal vector), and the exact one is the one whose
+/// `little dimension x arms` reproduces the pinned full-star dimensions 73/73.
+/// Every arm still lies in the centre's coset modulo the parent reciprocal
+/// lattice (50,226/50,226 arms over all 5,756 rows), which is why the folded
+/// child stars are unaffected by the choice.
 ///
 /// The direction comes from the frozen little-character table (the frame the
 /// official program prints it in); the same vector is what the parameter
@@ -1225,7 +1237,15 @@ impl LineSubduction {
         &self.parameter
     }
 
-    /// `t . direction` in the frozen table's own frame.
+    /// `t . direction` in the frozen table's own frame, **reduced into the
+    /// parent's fundamental cell** (see [`canonical_wave_vector`]).
+    ///
+    /// The reduction is what makes two parameters that differ by a parent
+    /// reciprocal lattice vector describe the same parent irrep; the frozen
+    /// character table is only paired with the canonical representative.  Before
+    /// R6.1's fix this accessor returned the raw `t . direction`, so equivalent
+    /// parameters reported wave vectors differing by a parent reciprocal vector
+    /// (`(0,1,0)` against `(0,5,0)` on SG 210) and could decompose differently.
     pub const fn wave_vector(&self) -> &Vec3R {
         &self.wave_vector
     }

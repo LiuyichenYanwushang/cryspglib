@@ -37,7 +37,10 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo test --release --package cryspglib --doc
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo test --release --package cryspglib --example audit_irrep_subduction \
-  --example census_subduction_gaps --example probe_subduction_settings
+  --example census_subduction_gaps --example probe_subduction_settings \
+  --example line_family_coverage
+CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
+  cargo run --release -p cryspglib --example line_family_coverage -- --gate
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo clippy -p cryspglib --all-targets --release -- -D warnings
 
@@ -53,10 +56,11 @@ python3 scripts/check_other_wave_vector_rows.py
 `--tests` 不运行 example 内的回归；上面的 audit、census、probe 三个 example
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
-当前基线（2026-09-23，R5 收口 + 复核处理 + R6.1 复核修正后，`-p cryspglib` 限定到本 crate）：
+当前基线（2026-09-23，R5 收口 + 复核处理 + R6.1 复核修正 + R6.2 参数族覆盖后，`-p cryspglib` 限定到本 crate）：
 lib `409 passed / 4 ignored`，全部测试二进制（`--tests`，22 个）`570 passed / 0 failed /
 4 ignored`，doctest `27 passed`，
-example 审计回归 `19 passed`、缺口清点回归 `7 passed`、settings 探针回归 `2 passed`；
+example 审计回归 `20 passed`、缺口清点回归 `7 passed`、settings 探针回归 `2 passed`、
+参数族覆盖回归 `1 passed`（91 s，全表 5,756 行 × 4 个网格点 + 18 个网格外支持检查）；
 严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
@@ -3583,3 +3587,38 @@ reviewer 同时确认：历史表逐字节重生成属于**已披露、未解决
 "任意 t 成立 / 仅特定 t 成立"的分档说明，以及覆盖说明里"已计算 / 有独立对照 /
 仅内部一致 / 不支持"四种证据级别的逐条列举；另需处理 R6.1 记下的两处定义域边界
 （大分母 fail-closed 上限、`t = 0` 一类形式值是否应改为显式错误）。
+
+### R6.2：参数族覆盖说明（2026-09-23）
+
+交付：`docs/subduction-r6-coverage.md`（正式报告）、`docs/subduction-conventions.md`
+§16 的"能力 B"小节、新 example `examples/line_family_coverage.rs`（`--gate` 可进 CI，
+`--output` 出逐行 TSV）、审计新增 `w_parameter_shift` 硬门禁。全部数字由 example 重算：
+
+* **命题 1（支持集 = 四分之一网格，E2）**：单臂的条件是三个子群格基矢条件的**交**，
+  支持集是各臂点集的**并**；实测 5,756/5,756 行的支持集恒为 `{0, 1/4, 1/2, 3/4}`，
+  且在 103,608 个网格外 (行, 参数) 组合里折到子群 Γ 的臂数**全为 0**。
+  实现陷阱：把跨臂的并集写成"生成元取 lcm"会算成交集（曾在本轮自测中给出
+  `{2: 2192, 4: 3564}` 的错误直方图，被 example 的测试当场抓住），
+  example 现在逐臂枚举点集后合并。
+* **命题 2（网格外恒为 0，E2）**：`content(t) > 0 ⇒ 有臂折到 Γ`，故 `t ∉ (1/4)Z`（非
+  退化点）时 `content(t) = 0`；引擎在 1/25 抽样行上全部为 0（4 行 fail-closed）。
+* **命题 3（共轭 oracle，E2）**：73/73 个 direction ∈ `G*_parent`，故
+  `k(3/4) ≡ -k(1/4)`，共轭不改变恒等重数 ⇒ `content(-1/4) = content(3/4) =
+  content(7/4) = pinned`。**实测 199 行重数不同、58 行报非整数重数**——三者计数相同，
+  是本轮发现的**已知缺口**（线源字符在共轭代表元上的相位约定不自洽；`t = 1/4, 5/4`
+  恰好落在同一正代表元上所以全绿）。经用户裁决：**如实记录 + 把 `t ≡ 1/4 + n` 定为
+  已验证域**，不改成 fail-closed、不现在重构字符（选项 A）；修复以"199/58 → 0 且
+  前两档保持全绿"为验收，记账处是 example 的 `CONJUGATE_GAP_CONTENT/ERRORS`。
+* **命题 4（等价参数，E2 + 门禁）**：`(t - 1/4)·v ∈ G*_parent` 时（含 `t = 5/4, 9/4`）
+  与 `t = 1/4` **逐块逐目标**相同；审计新增 `w_parameter_shift: checked=5756
+  mismatched=0` 并计入 `hard_failures`，配常驻负例
+  `a_line_parameter_shift_mismatch_fails_under_every_flag_combination`。
+* **形式值**：`t = 0`（2,918 行 ≠ pinned）与 `t = 1/2`（2,822 行 ≠ pinned、58 行
+  fail-closed）是**另一个母群 irrep / 退化点**，返回形式值，不作为物理结论。
+* **性能边界（写进报告）**：`t = 1/4` 走存储路径全表 11–14 s；一般参数大分母 +
+  非平凡小余群单次可到 p99 ≈ 40 s、最大 53.6 s，所以全表逐点扫描不可行，
+  R6.2 用"精确支持集 + 抽样佐证"，不假装逐点算过。
+* 本轮还补了 reviewer C 的点：审计的 w 边界（只比恒等重数）已写进 §16 与审计报告；
+  `line_arms` 的精确去重约定、`wave_vector()` 已规范化、`FullStarBlock::q()` 未规范化
+  都写进 doc；`1,599/241` 标注为历史记录（实现已删，不可复算）；
+  `NonIntegralLineFrequency` 死变体删除。
