@@ -274,6 +274,12 @@ impl ComponentStar {
 pub struct ConstructedStar {
     sg: u8,
     rep: ConstructedLittleRep,
+    /// Complex dimension of the constructed little-group irrep: one for the
+    /// Bloch phase and the one-dimensional projective catalogue, two for the
+    /// gated two-dimensional table.  It is carried explicitly instead of being
+    /// hard-coded, because a caller asking a star for its little dimension must
+    /// not be told "one" for a two-dimensional family.
+    little_dimension: u8,
     arms: Vec<StarArm>,
     lattice: Lattice,
     reciprocal: Lattice,
@@ -286,7 +292,12 @@ impl ConstructedStar {
     /// `q` is the child-frame point the representation is defined at (already
     /// reduced modulo the child reciprocal lattice); the arms are its orbit
     /// under the child's complete data-Hall operation list, one arm per class.
-    pub(super) fn new(sg: u8, q: Vec3R, rep: ConstructedLittleRep) -> Result<Self, StarError> {
+    pub(super) fn new(
+        sg: u8,
+        q: Vec3R,
+        rep: ConstructedLittleRep,
+        little_dimension: u8,
+    ) -> Result<Self, StarError> {
         let lattice = Lattice::new(exact_primitive_basis(sg)?)?;
         let reciprocal = lattice.reciprocal()?;
         let hall = strict_sg_hall_ops(sg)?;
@@ -295,6 +306,7 @@ impl ConstructedStar {
         Ok(Self {
             sg,
             rep,
+            little_dimension,
             arms,
             lattice,
             reciprocal,
@@ -307,10 +319,9 @@ impl ConstructedStar {
         self.arms.len()
     }
 
-    /// Selected-arm dimension of the constructive little-group irrep: always one,
-    /// because only a trivial little co-group is constructed.
+    /// Selected-arm dimension of the constructed little-group irrep.
     pub const fn dimension(&self) -> usize {
-        1
+        self.little_dimension as usize
     }
 
     /// The induced full-star character, after checking membership.

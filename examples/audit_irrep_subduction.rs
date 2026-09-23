@@ -2619,16 +2619,19 @@ mod tests {
         }
     }
 
-    /// R5: the per-result production checks are load-bearing, not decoration.
+    /// The wiring, not the production increments: every counted production
+    /// violation is summed into `hard_failures` and turns the exit code into 1
+    /// under **every** gate combination, so a run cannot trade one of those
+    /// invariants for coverage.
     ///
-    /// Every completed decomposition must satisfy
-    /// `sum multiplicity x child little dimension x child star size = parent full
-    /// dimension`, the per-operation reconstruction, integral multiplicities, the
-    /// frozen CIR source identity and the label agreement.  A single violation of
-    /// any of them is a hard failure under **every** gate combination, so a run
-    /// cannot trade one of those invariants for coverage.
+    /// Honest scope (reviewer B): this test sets the counters directly and
+    /// therefore does not prove that the production paths increment them -- it
+    /// pins `Counts::hard_failures` and `Counts::exit_code` only.  Two of the
+    /// five are unreachable on this corpus anyway and the other three compare
+    /// objects the engine has already validated itself; the report's
+    /// independence table says which evidence is real.
     #[test]
-    fn every_production_check_violation_is_a_hard_failure() {
+    fn every_counted_production_violation_is_a_hard_failure() {
         for (name, counts) in [
             (
                 "dimension",

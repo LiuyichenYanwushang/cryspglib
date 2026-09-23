@@ -254,3 +254,18 @@ records=83 probes=221 stars=331 missing_stars=326 constructed_stars=2 reachable_
 `scripts/classify_subduction_gap_sources.py` 也再没有 `missing_discrete_scalar_data` 行
 可分类。后续若再出现缺口，按同一流程重跑即可；闭合本身由完整门禁（而不是清点工具）
 证明。
+
+**复核 A/B 之后的加固（2026-09-23）**：空 manifest 不可与"传错文件"混为一谈。
+工具现在用**精确 token** 识别 `identity_only` marker（子串判据会把改名的
+`identity-only;` 当成"没有缺口"），摘要行打印真实计数
+`audit_rows=389150 probe_rows=366260 identity_only_rows=0 unanswered_probe_rows=0
+closed=true`（不再打印恒为 0 的 `replay_errors`/`dimension_errors`），识别不到 marker
+时打警告，并新增门禁用法：
+
+```bash
+census_subduction_gaps <audit.tsv> --require-empty   # 至少一条 probe 行、全部被引擎回答、无 identity-only 行
+```
+
+残留限制（写在工具文档里）：若 marker 被改名而其余字段仍合法，本工具无法与"已闭合"
+区分——所以它打印两个计数而不是一个光秃秃的 0。replay 的 6 条拒绝路径与 marker 漂移
+各有一条负例。

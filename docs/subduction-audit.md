@@ -344,17 +344,32 @@ probe 需要它**（`probe_identity_only = 0`），所以审计本身不再复�
 | 来源号与标签读数一致 | 引擎 `TargetSourceMismatch`（by_label vs total） | `label_source_disagreement` | 0 | 现有语料不可达（同 SG 内 0 个重复 ml、0 条 compound 含 Γ 一维成分） |
 
 它们的**共同效果**是实的：任何一项非零都会进入 `hard_failures`，并在**所有**门禁组合下
-让运行 exit 1（负例测试 `every_production_check_violation_is_a_hard_failure` 钉住接线）。
+让运行 exit 1（负例测试 `every_counted_production_violation_is_a_hard_failure` 钉住接线；
+复核 B 指出该测试只设置计数器、不驱动生产自增点，名字与注释已按此改口）。
 但要诚实说明：这三项"审计侧"检查并不是对引擎的独立复算（引擎在更早的层已经用同一批
 对象、同一容差比较过并以 Err 收口），另两项在现有语料上不可达。因此**真正独立的证据是
 引擎的 Err 路径本身**（`probes.error` → hard failure → exit 1）以及下面这些外部 fixture，
 而不是这张表里的零值。
+
+**对 R4 新增的「构造目标」这五项还要再退一步（复核 B）**：构造目标没有冻结 CIR 来源
+（`irnumber = None`），所以"目标对上来源身份"与"来源号/标签一致"两项对它是**恒真**的；
+又由于每个空间群都有平凡 Γ 行，子群 Γ 星永远命中 stored 行，恒等频率比较**从不**看到
+构造星（复核 B 在 6 个见证上下文里数到 44 个构造块，`gamma_constructed = 0`）。构造路径
+因此只剩引擎自身的维数/整数性/重建检查，加下一条的外部对照。
 
 另有独立的来源矩阵 fixture 继续参与门禁（`tests/subduction_star_source.rs` 的
 1,232 次字符比较、`tests/subduction_compound_stars.rs` 的复成分与 k/-k 对照），
 它们不经过诱导算法，因此不是自证。**非平凡标签可以置换**：恒等频率吻合不能替代
 规范标签检查，所以 `label_source_disagreement` 与 `target_source_unmatched` 单独计入
 `hard_failures`，而不是只看恒等列。
+
+### 构造目标的外部对照（唯一一条，计数已钉死）
+
+`the_catalogue_reproduces_pinned_little_group_characters` 在**离散** pinned k 点上
+（归档有字符表、引擎已自行验证过的小群行）逐操作比较 catalogue 与 pinned 字符：
+**1,328 条记录 / 7,578 个操作 / 94 条走二维表 / 1,660 条延后**，四个数在测试里都是
+`assert_eq!` 钉值（复核 B 之前只有下限断言，静默缩水不会被发现）。它不经过缺口数据，
+所以不循环；范围只有"离散点上的非平凡小余群"，不覆盖参数化折叠点本身。
 
 ### 缺口清点（R5 卡要求的口径修正）
 
@@ -364,6 +379,25 @@ replay 校验没有被关闭：它现在拒绝非 `identity_only` 行、仍校�
 （回归测试 `a_closed_audit_replays_as_an_empty_manifest`），而不是静默失败或伪造缺口。
 清点结果（批 2a 后）为 `records=83 probes=221 stars=331 missing_stars=326`，
 批 2b 后清零。
+
+**复核 A/B 之后加固（2026-09-23）**：空 manifest 的两种来源（审计真的闭合 vs 传错/
+截断/格式漂移的文件）此前不可区分（A 提出，B 用 `identity-only;` 漂移实跑复现）。
+现在 `read_requests` 用**精确 token**（而不是子串）识别 marker，摘要行给出
+`audit_rows`、`probe_rows`、`identity_only_rows`、`unanswered_probe_rows` 与 `closed`
+（不再打印恒为 0 的 `replay_errors`/`dimension_errors` 常量），没有识别到 marker 时
+打警告，并新增 `--require-empty`：要求审计**至少有一条 probe 行、每条 probe 行都被
+引擎回答、且没有 identity-only 行**，否则 exit 1。在 R5 审计上：
+
+```text
+$ census_subduction_gaps target/r5_audit.tsv --require-empty
+records=0 probes=0 stars=0 missing_stars=0 constructed_stars=0 reachable_stars=0
+audit_rows=389150 probe_rows=366260 identity_only_rows=0 unanswered_probe_rows=0 closed=true   （exit 0）
+```
+
+残留限制写在工具文档里：**被改名**的 marker 若其余字段仍合法，本工具无法与"已闭合"
+区分，所以它打印两个计数而不是一个光秃秃的 0。replay 的 6 条拒绝路径现在各有一条
+负例（`the_replay_rejections_are_all_reachable`），marker 漂移另有一条
+（`a_renamed_identity_only_marker_is_not_silently_dropped`）。
 
 ### 复现
 
@@ -400,3 +434,41 @@ VERDICT complete scope=global
   `irrep::subduction` 仍是 `#[doc(hidden)]`。
 
 因此"100%"只等于**这份固定 ordinary scalar 语料的完整分解**，不是项目完成度。
+
+### 对抗性复核（2026-09-23，两个独立 reviewer）
+
+复核 A（覆盖声明与门禁真实性）与复核 B（实现与回归质量）都是只读审查，结论均为
+**可接受、无阻断项**；B 用不依赖本 crate 的路径（自建 cocycle/扭群代数、直接读
+`iso.zip` 重算分母 366,260、独立重跑三门口禁 535 s）复现了本节所有头条数字。已处理：
+
+| 发现 | 处置 |
+|---|---|
+| A-P1：`13345 W1–W5`「永久反例」的说法过期 | 文档改写（`e9e8e8e`）；该上下文现已完全回答 |
+| A-P2：五项生产检查里有三项同义反复、两项在语料上不可达 | 本节独立性表逐项标注（不再称"load-bearing"） |
+| A-P2：`CLAUDE.md` 基线数字过期 | 基线块更新（18/4、161、三门禁、520–540 s） |
+| B-P1：C2×C2 族"唯一二维"的**证明前提** `omega(g,g)=±1` 为假（实测含 1/6…5/6，child #43 有 `omega(g,g)=i`） | 结论不变、论证改写（`subduction_catalogue.rs` 与批次卡）；`1d1b95e` 提交信息以文档为准 |
+| B-P2：构造目标在五项检查里结构性只剩一项有效；恒等比较永不看到构造星 | 本节新增「构造目标的外部对照」小节，并说明原因 |
+| B-P2：构造路径唯一的 pinned 对照只有下限断言 | 四个计数改为 `assert_eq!` 钉值（1,328 / 7,578 / 94 / 1,660） |
+| B-P2：端到端 fail-closed 负例被三个批次替换殆尽 | 补 `an_out_of_scope_co_group_still_reports_missing_child_star_data`（真实嵌入 + 手工构造越界星）与 solver 三条负方向（含 `MAX_GRID`） |
+| B-P2：census 空输入放宽后无法区分"闭合"与"格式漂移" | 精确 token + 计数 + 警告 + `--require-empty` + 6 条拒绝路径负例（见上） |
+| B-P2：`every_production_check_violation_is_a_hard_failure` 只测接线 | 改名 `every_counted_production_violation_is_a_hard_failure` 并在注释里写明它不驱动生产自增点 |
+| B-P3：`ConstructedStar::dimension()` 硬编码 1（二维族会答错） | 维数改为显式携带并加回归 |
+| B-P3：`subduction_catalogue.rs` 的重复 doc 行、`4 != order` 死代码、多处过期的 `#[allow(dead_code)]`（实际都在调用链上） | 全部删除，严格 clippy 仍零警告 |
+| B-P3：census 错误路径 `{other:?}` 单行 >6 KB | 改为报告块数与错误本身 |
+| B-P3：SG 38/40 的 pinned 行对小群外操作存字面 0 | 写入 `subduction-conventions.md` §14 的存储行契约（"row = 每个列出操作的特征标"不成立） |
+| B-P2（潜在，未触发）：`stored_child_components_at` 对无法展开的记录直接 `?` | 保留大声报错并写明理由（伪装成"缺数据"更糟）；语料上 8,388 条记录 0 条不可展开 |
+
+**复核 A 列出的"无法验证"项，本轮主线程已补两项**（记录在
+`target/r5_review_a_unverified.md`，输入全部是仓库内冻结文件 + tracked 脚本）：
+
+* R3/R4 中间离线数字：重跑 `scripts/classify_subduction_gap_sources.py` 得到
+  `899 = 215 解析 + 684 参数化`、`684 组 / 123 子群 / 81,576 矩阵元`、批 1 的
+  `215 组 / 41 子群 / 4,212 星 / 3,651 + 119 probe`、批 2a 的
+  `58 = 52 + 6 / 221 / 83 / 29 / 331 = 326 + 2 + 3`，全部与文档一致；且重跑产物与冻结的
+  `target/r4_groups.tsv` **SHA-256 完全相同**（`acec85f0…`）。
+* 73 张 w 特征标表：重跑 `scripts/freeze_w_little_characters.py`（调用随包官方 `iso`）
+  得到 `sources solved: 73 | failures: 0`，生成的 Rust 表与提交的
+  `src/irrep/w_little_characters_data.rs` **逐字节相同**。
+* 仍未验证（如实保留）：几何 oracle 只有 22 组 (SG, irrep) / 62 行抽样（占 15,239 行的
+  0.31%），扩大它需要为 4,777 个普通 irrep 各起一次官方 `iso`，是独立工作量，与本节的
+  100% 结论无关，**不因为上面两项已复现而改写**。

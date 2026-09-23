@@ -474,3 +474,40 @@ irrep 表没有其 73 个源 irrep 的 k 矢量与特征标行，单独由 `--re
 73/73 个源的基点都是 Γ、自由参数恰为一个（cF 的 `(1,0,1)`/`(1,1,2)`，cI 的
 `(1,-1,1)`/`(0,0,1)` 等）。因此不存在单一数值 k 可以去折叠，剩下的工作是解码这些
 直线上的小群特征标，再按线（而不是点）对照 5,756 个存储频率。
+
+## 14. 存储行与构造目标的两条契约（对抗性复核 B，2026-09-23）
+
+**存储行只在记录自己的小群上有定义。** 归档字符行是「该 irrep 在其 k 点的小群
+（及其代表元）上的取值」，表里列出的**其它**操作可以是占位值：SG 38/40 有 4 条
+pinned 行对小群之外的 `-I`、`m_y` 存的是字面 0。任何代码都不得把这种 0 当特征标
+读；生产路径只在 `H_q` 内（或经完整星诱导出的臂上）取值，所以当前无影响，但
+「row = 每个列出操作的特征标」**不是**契约。要用行外的值，必须先证明该行确实
+给该操作定义了值。
+
+**构造目标没有归档来源，因此它的独立证据只有一条。** 构造目标（`irnumber = None`）
+不参与「来源身份」与「来源号/标签一致」两项审计检查（对它是恒真的），而子群 Γ 星
+永远命中 stored 行（每个空间群都有平凡 Γ 行），于是恒等频率比较**从不**看到构造星。
+所以构造路径的证据是：catalogue 与 pinned 离散字符的逐操作对照
+（`the_catalogue_reproduces_pinned_little_group_characters`，计数钉死为
+1,328 条 pinned 行 / 7,578 个操作 / 94 条走二维表 / 1,660 条延后）、两族结构门禁
+与正交门禁、以及引擎自身的 Gram/维数/重建检查。这些事实写在 R5 报告的独立性表里。
+
+**fail-closed 的分层与它们的测试。** 判据链是
+`has_trivial_little_co_group`（纯几何）→ 一维 solver 只在解数 `== |P_q|` 时返回
+→ 两族结构门禁 + 正交门禁 → 其余一律空表 → `select_representative` 报
+`MissingChildStarData`。三层各自有负例：
+
+- `the_one_dimensional_solver_returns_nothing_instead_of_a_subset`：非上边界 cocycle
+  返回空（不是子集）、`MAX_ORDER`（48 阶 Γ 点）返回空、合成的大分母 co-group 超过
+  `MAX_GRID` 时返回空；
+- `an_out_of_scope_co_group_still_reports_missing_child_star_data`：在真实嵌入
+  （225 `X1+` P3 → #221）上把折叠星放到越界点 (0,0,1/2)，`build_block` 必须报
+  `MissingChildStarData`——覆盖闭合后 pinned 语料里已没有能触发该分支的 probe，
+  所以这条负例是手工构造的，且**必须**保留；
+- `constructed_targets_have_their_own_identity_and_no_borrowed_labels`：构造目标的
+  身份只由精确点与构造小群给出，不借用任何 stored 标签。
+
+`ConstructedStar::dimension()` 现在携带真实的小群维数（一维两族为 1、二维族为 2），
+不再硬编码 1；`stored_child_components_at` 遇到无法展开的子群记录**大声报错**而不
+`continue`——把生成 bug 伪装成「缺数据」比报错更糟。这两条都由复核 B 指出。
+

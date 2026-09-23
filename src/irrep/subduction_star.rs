@@ -66,7 +66,6 @@ pub enum StarError {
     Subduction(#[from] SubductionError),
     /// A frozen parametric-k source has no character for one of its own
     /// little-group rotations, so the line arm source cannot answer.
-    #[allow(dead_code)]
     #[error("frozen line source {label} of space group {sg} has no character for its own rotation")]
     MissingFrozenRotation { sg: u8, label: &'static str },
     /// The transport list does not contain the identity operation itself.
@@ -983,7 +982,6 @@ impl FoldedPoint {
     /// The parametric-k line source folds the arms of a line rather than the
     /// star of a discrete `k`, so it has to build these directly; see
     /// `docs/task9-remaining-work.md` for the data shape.
-    #[allow(dead_code)]
     pub(crate) fn from_parts(q: Vec3R, arm_indices: Vec<usize>) -> Self {
         Self { q, arm_indices }
     }
@@ -1031,7 +1029,6 @@ impl FoldedStar {
     ///
     /// Same reason as [`FoldedPoint::from_parts`]: the parametric-k line source
     /// produces folded stars that no `ScalarStar` ever builds.
-    #[allow(dead_code)]
     pub(crate) fn from_parts(
         points: Vec<FoldedPoint>,
         seed_dimension: usize,

@@ -51,9 +51,10 @@ python3 scripts/check_other_wave_vector_rows.py
 `--tests` 不运行 example 内的回归；上面的 audit 与 census 两个 example
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
-当前基线（2026-09-22，R5 收口后，`-p cryspglib` 限定到本 crate）：
-lib `396 passed / 4 ignored`，integration `161 passed`，doctest `27 passed`，
-example 审计回归 `18 passed`、缺口清点回归 `4 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
+当前基线（2026-09-23，R5 收口 + 两个对抗性复核处理后，`-p cryspglib` 限定到本 crate）：
+lib `399 passed / 4 ignored`，全部测试二进制（`--tests`，22 个）`560 passed / 0 failed /
+4 ignored`，doctest `27 passed`，
+example 审计回归 `18 passed`、缺口清点回归 `7 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
 pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源已解为参数化
@@ -64,10 +65,13 @@ pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源�
 --require-full-decomposition`）**同时退出 0**、判词 `VERDICT complete scope=global
 full_decomposition=complete`（`identity_rows=94271`、probe **366260/366260 完整分解、
 恒等-only 0**、w `5756/5756`、`engine_errors=0`、`hard_failures=0`，约 520–540 s
-（本仓库 521.7 s，独立复核 541.0 s）；R4 批 2a 后 `366039 + 221`，批 1 后
+（本仓库 521.7 s，独立复核 541.0 s 与 535 s）；R4 批 2a 后 `366039 + 221`，批 1 后
 `357033 + 9227`，R2 后 `353382 + 12878`，R2 前 `351547 + 14713`）。普通离散标量
 覆盖在固定语料上已闭合（R5 验收清单：恒等正项 94,271/0 不匹配、Γ Frobenius
-1,895/1,895、w 行 5,756/0 错误，全部满足）；缺口清点为空，正式报告见
+1,895/1,895、w 行 5,756/0 错误，全部满足）；缺口清点的门禁用法是
+`census_subduction_gaps <audit.tsv> --require-empty`（要求至少一条 probe 行、每条都被
+引擎回答、且无 identity-only 行；R5 审计上打印 `probe_rows=366260 identity_only_rows=0
+closed=true` 并 exit 0），正式报告见
 `docs/subduction-audit.md` 的「R5：普通离散标量覆盖闭合」小节。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
@@ -3303,9 +3307,12 @@ doctest 27、audit example 17、census example 3，严格 all-target clippy 通�
 
 * **52 组：非退化 C2×C2** —— 元素阶 (1,2,2,2)、交换、交换子配对
   `beta_ij = phi_ij - phi_ji` 的根只有单位元 ⇒ twisted algebra ≅ M₂(ℂ) ⇒
-  **唯一二维不可约表示，字符 (2,0,0,0)**。证明：`g²=e ⇒ u_g² = omega(g,g)·1` 且
-  `omega(g,g)=±1`；`u_g` 不能是标量（标量 ⇒ `omega(g,h)=omega(h,g)` ∀h ⇒ g 正则，
-  与"只有一个 ω-正则类"矛盾）⇒ 2×2 特征值 ±1 ⇒ 迹 0。
+  **唯一二维不可约表示，字符 (2,0,0,0)**。证明（复核 B 修正：**不能**用
+  `omega(g,g)=±1`——`g²=e` 只对旋转部分成立，cocycle 是代表元乘积的格平移相位，
+  实测出现 1/6、1/4、1/3、2/3、3/4、5/6，child #43 上 `omega(g,g)=i`）：
+  `u_g² = omega(g,g)·1` 且 `omega(g,g) ≠ 0` ⇒ 特征值 `±sqrt(omega(g,g))` 相异；
+  `u_g` 不能是标量（标量 ⇒ `omega(g,h)=omega(h,g)` ∀h ⇒ g 与全群正交，与配对
+  非退化矛盾）⇒ 两个一维特征空间 ⇒ 迹 0。
 * **6 组：D3 且 cocycle 为上边界** —— 元素阶 (1,3,3,2,2,2)、非交换、配对恒 0、
   ψ 解恰 2 个（`|Hom(D3,U(1))|`）⇒ 目标 = ψ 规范 × 普通不可约表示 `{1,1,2}`；
   用哪个 ψ 解不影响**集合**（两解相差 sign 特征标，sign ⊗ 普通不可约只是置换）。
@@ -3318,13 +3325,77 @@ doctest 27、audit example 17、census example 3，严格 all-target clippy 通�
 （每个字符 `(1/|P_q|)Σ|χ|² = 1`、`Σ dim² = |P_q|`）；范围外（如立方 Γ 点，阶 48）
 返回空表、入口保持 `MissingChildStarData`。
 
-证据：`the_projective_tables_cover_only_the_two_gated_families`（#43 得唯一二维目标、
-#160 得 {1,1,2}、#221 Γ 为空）；扩展后的 pinned 对照
-**1,328 条记录 / 7,578 个操作全部命中，其中 94 条走二维投影表**（1,660 条范围外跳过）；
-端到端 ordinal 3988 = 12/12、12041 = 19/19 均 `VERDICT clean`；审计 example 的
-批次见证改为 13345/13346/3988 全部 exit 0。
+证据：`the_projective_tables_cover_only_the_two_gated_families`（#43 得唯一二维目标且
+整行字符钉为 `(2,0,0,0)`、#160 得 `{1,1,2}` 且三行整表钉为
+`(1,1,1,1,1,1)`/`(1,1,1,-1,-1,-1)`/`(2,-1,-1,0,0,0)`、#221 Γ 为空）；扩展后的 pinned 对照
+**1,328 条记录 / 7,578 个操作全部命中，其中 94 条走二维投影表**（1,660 条范围外跳过），
+四个数在 R5 收口后由 `assert_eq!` 钉值；端到端 ordinal 3988 = 12/12、12041 = 19/19 均
+`VERDICT clean`；审计 example 的批次见证改为 13345/13346/3988 全部 exit 0。
 
-边界：缺口清零后 `census_subduction_gaps` 的输入为空，工具改为接受空输入并报零计数
-（R5 的收口由完整门禁证明）；真实数据里已不存在"仍缺数据"的端到端负例，fail-closed
-由单元级门禁（范围外 co-group 返回空表）保证。验证：lib 396、integration 162、
-doctest 27、audit example 17、census example 3，严格 all-target clippy 通过。
+边界：缺口清零后 `census_subduction_gaps` 的输入为空；工具现在用精确 token 识别
+marker、摘要给出 `audit_rows/probe_rows/identity_only_rows/unanswered_probe_rows/closed`，
+并以 `--require-empty` 作为门禁（R5 审计上 `probe_rows=366260 identity_only_rows=0
+closed=true` exit 0）。真实数据里已不存在"仍缺数据"的端到端负例，fail-closed 由
+`the_one_dimensional_solver_returns_nothing_instead_of_a_subset` 与
+`an_out_of_scope_co_group_still_reports_missing_child_star_data`（真实嵌入 + 手工越界星，
+见复核 B 那节）保证。验证：lib 396、integration 162、doctest 27、audit example 17、
+census example 3，严格 all-target clippy 通过（本轮当时值；处理后见文件开头的当前基线）。
+
+### 分导 R5 收口与两个对抗性复核（2026-09-23）
+
+R5 的正式报告、独立性表、100% 覆盖结论见 `docs/subduction-audit.md` 的
+「R5：普通离散标量覆盖闭合」一节；批次证据见 `docs/subduction-r4-batches.md`。
+本节只记这一轮复核的处理与仍不可验证的边界。
+
+两个独立 reviewer（A：覆盖声明与门禁真实性；B：实现与回归质量）都只读、都不提交，
+结论均为**可接受、无阻断项**。B 用不依赖本 crate 的路径独立复现了头条数字：
+自建 cocycle 与扭群代数中心幂等元分解（58 组 → `(4,(1,2,2,2),(2,)): 52` +
+`(6,(1,2,2,2,3,3),(1,1,2)): 6`）、直接读 `iso.zip` 重算 15,239 记录 / 94,271 条 /
+4,777 标量 irrep / 366,260 分母、独立重跑三门口禁（535 s，exit 0，数字逐项一致）。
+
+已按发现修改（全部在主线程复现后处理）：
+
+1. **P1（B）：C2×C2"唯一二维"的证明前提为假**。原文用 `g²=e ⇒ omega(g,g)=±1`，
+   但 `g²=e` 只约束旋转部分，cocycle 是代表元乘积的格平移相位；实测 58 组里
+   `omega(g,g)` 取 1/6、1/4、1/3、2/3、3/4、5/6，child #43 `q=(0,1,1/2)` 上为 `i`。
+   结论不变：`u_g² = omega(g,g)·1`、`omega(g,g) ≠ 0` ⇒ 特征值 `±sqrt(omega(g,g))`
+   相异；`u_g` 非标量由配对非退化保证 ⇒ 迹 0。代码注释、批次卡、本文件与
+   `1d1b95e` 的提交信息都以新论证为准。
+2. **P2（B）：构造目标的独立证据只有一条，且原先只有下限断言**。构造目标无 CIR
+   来源 ⇒ "来源身份/标签一致"两项对它恒真；子群 Γ 星永远命中 stored 行 ⇒ 恒等频率
+   比较永不覆盖构造星。`the_catalogue_reproduces_pinned_little_group_characters` 的
+   1,328 / 7,578 / 94 / 1,660 改为 `assert_eq!`，R5 报告新增"构造目标的外部对照"小节。
+3. **P2（B）：端到端 fail-closed 负例在三个批次里被替换殆尽**。补
+   `an_out_of_scope_co_group_still_reports_missing_child_star_data`（真实嵌入
+   225 `X1+` P3 → #221，把手工折叠星放到 16 阶点 (0,0,1/2)，`build_block` 必须报
+   `MissingChildStarData`）与一维 solver 三条负方向（非上边界 / `MAX_ORDER` /
+   `MAX_GRID` 均返回空表而不是子集）。
+4. **P2（A+B）：census 空输入无法区分"闭合"与"漂移"**。marker 改为精确 token，
+   摘要打印真实计数（删掉恒为 0 的 `replay_errors`/`dimension_errors` 常量），
+   新增 `--require-empty`（至少一条 probe 行、全部被引擎回答、无 identity-only 行），
+   6 条 replay 拒绝路径各一条负例 + 1 条 marker 漂移负例；残留限制（被改名的 marker
+   若其余字段合法则无法识别）写进工具文档。
+5. **P2（A）：五项生产检查的独立性**。R5 报告逐项标注"同义反复/语料上不可达"，
+   并把接线测试改名为 `every_counted_production_violation_is_a_hard_failure`，
+   注释写明它只测 `Counts::hard_failures`/`exit_code`、不驱动生产自增点。
+6. **P3（B）**：`ConstructedStar::dimension()` 不再硬编码 1（二维族现在报 2，带回归）；
+   删除 `subduction_catalogue.rs` 的重复 doc 行与 `4 != order` 死代码；删除 7 处过期的
+   `#[allow(dead_code)]`（`LineArmSource`、`ArmCharacterSource`、`line_folded_stars`、
+   `FoldedPoint/FoldedStar::from_parts`、`MissingFrozenRotation` 实际都在调用链上，
+   clippy `-D warnings` 仍零警告）；census 错误路径不再 dump 整个 `FullStarSubduction`。
+7. **存储行契约（B）**：SG 38/40 有 4 条 pinned 行对小群之外的 `-I`/`m_y` 存字面 0
+   ⇒ "row = 每个列出操作的特征标"不成立，已写入 `docs/subduction-conventions.md` §14。
+   `stored_child_components_at` 对无法展开的记录保留大声报错（不 `continue`），
+   理由同节注明。
+
+主线程另补做了复核 A 的"无法验证"清单里的两项（记录在
+`target/r5_review_a_unverified.md`）：重跑 `scripts/classify_subduction_gap_sources.py`
+得到 899 = 215 解析 + 684 参数化、684 组/123 子群/81,576 矩阵元、批 1 的
+215/41/4,212/3,651/119、批 2a 的 58 = 52+6、221、83、29、331 = 326+2+3，重跑产物与
+冻结 `target/r4_groups.tsv` **SHA-256 相同**；重跑 `scripts/freeze_w_little_characters.py`
+（官方 `iso`）得 `sources solved: 73 | failures: 0`，生成的 Rust 表与提交的
+`src/irrep/w_little_characters_data.rs` **逐字节相同**。
+
+仍不可验证（如实保留）：几何 oracle 只有 22 组 (SG, irrep) / 62 行抽样（15,239 行的
+0.31%），扩大它要对 4,777 个普通 irrep 各起一次官方 `iso`，是独立工作量；B 也无法
+验证历史增量数字（需逐提交重跑）与"114,770 条引擎零项"（absent 探针无归档 oracle）。

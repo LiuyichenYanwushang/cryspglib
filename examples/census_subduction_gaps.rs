@@ -1,6 +1,6 @@
 //! Replay identity-only audit rows and inventory *all* folded child stars.
 //!
-//! Usage: census_subduction_gaps <audit.tsv> > gaps.tsv
+//! Usage: census_subduction_gaps <audit.tsv> [--require-empty] > gaps.tsv
 //! A stored scalar k match means data is reachable, not that decomposition is
 //! proven complete. No characters, multiplicities, or missing labels are invented.
 //!
@@ -8,6 +8,14 @@
 //! can construct the child irrep there (the Bloch phase of a trivial little
 //! co-group, or a complete one-dimensional projective catalogue), and as
 //! `missing_discrete_scalar_data` otherwise.
+//!
+//! Since R5 closed the coverage the audit carries no identity-only row at all,
+//! so the manifest is legitimately empty.  That makes "the audit is closed" and
+//! "this file is truncated, or its detail column drifted" look alike, so the
+//! tool now says which one it saw (`audit_rows`, `identity_only_rows` in the
+//! summary), warns when it saw data rows but recognised no identity-only row,
+//! and turns the closed state into a hard requirement under `--require-empty`
+//! (which in turn rejects a file that has no data row at all).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, Write};
@@ -26,7 +34,31 @@ use cryspglib::irrep::types::{CompoundCharacterSemantics, IrrepRecord};
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 type Requests = BTreeMap<usize, BTreeSet<(u8, u8, String)>>;
 
-fn read_requests(input: impl BufRead) -> Result<Requests> {
+/// What one audit file contained, so the caller can tell a closed audit from a
+/// file it could not read.  `rows` counts every data row the audit writes
+/// (probes, records, Frobenius and w rows), `probe_rows` the `identity`/`absent`
+/// probe rows this tool replays, `unanswered_probe_rows` those the engine never
+/// answered (their detail is an `uncomputed:` note instead of the
+/// `geometry=...` every answered row carries), and `identity_only_rows` the rows
+/// whose `detail` carries the identity-only marker.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct AuditScan {
+    requests: Requests,
+    rows: usize,
+    probe_rows: usize,
+    unanswered_probe_rows: usize,
+    identity_only_rows: usize,
+}
+
+/// The audit's marker for a probe answered by the identity-only fallback: a bare
+/// `detail` token, matched exactly.  A substring test would also accept a
+/// renamed or misspelled marker (`identity-only;`), which is the drift this
+/// tool must not read as "no gaps left".
+fn is_identity_only(detail: &str) -> bool {
+    detail.split_whitespace().any(|token| token == "identity_only")
+}
+
+fn read_requests(input: impl BufRead) -> Result<AuditScan> {
     let mut lines = input.lines();
     let header = lines.next().ok_or("empty audit")??;
     if header
@@ -34,31 +66,81 @@ fn read_requests(input: impl BufRead) -> Result<Requests> {
     {
         return Err("unexpected audit header".into());
     }
-    let mut requests = Requests::new();
+    let mut scan = AuditScan::default();
     for (line_number, line) in lines.enumerate() {
         let line = line?;
         let fields: Vec<_> = line.split('\t').collect();
         if fields.len() != 16 {
             return Err(format!("audit line {}: expected 16 fields", line_number + 2).into());
         }
-        if !fields[15].contains("identity_only ") {
+        scan.rows += 1;
+        if matches!(fields[0], "identity" | "absent") {
+            scan.probe_rows += 1;
+            if !fields[15].starts_with("geometry=") {
+                scan.unanswered_probe_rows += 1;
+            }
+        }
+        if !is_identity_only(fields[15]) {
             continue;
         }
+        scan.identity_only_rows += 1;
         if !matches!(fields[0], "identity" | "absent") || fields[2] != fields[9] {
             return Err(format!("unexpected identity-only row: {line}").into());
         }
         let ordinal = fields[1].parse()?;
         let row = (fields[2].parse()?, fields[3].parse()?, fields[8].to_owned());
-        let rows = requests.entry(ordinal).or_default();
+        let rows = scan.requests.entry(ordinal).or_default();
         if rows.iter().any(|(_, _, ml)| ml == &row.2) {
             return Err(format!("duplicate probe {ordinal} {}", row.2).into());
         }
         rows.insert(row);
     }
-    // A fully closed audit has no identity-only probe left; the manifest is then
-    // empty and the summary reports zeros, which is the state the R5 gate
-    // proves.  It is not an error of this replay tool.
-    Ok(requests)
+    Ok(scan)
+}
+
+/// Decide what an empty gap manifest means, and refuse the states that must
+/// never pass silently: under `--require-empty` a truncated file, an audit that
+/// still carries gaps, or one with probe rows the engine never answered; without
+/// the flag, a file whose rows were all read but none carried the identity-only
+/// marker (a renamed column, a scoped audit, or a different tool's TSV) is at
+/// least reported as a warning with both counts visible.
+///
+/// The residual limit is deliberate: a *renamed* marker inside otherwise valid
+/// rows cannot be told from a closed audit by this tool, which is why the
+/// summary prints `probe_rows` and `identity_only_rows` separately instead of a
+/// bare zero.
+fn check_scan(scan: &AuditScan, require_empty: bool) -> Result<()> {
+    if scan.identity_only_rows > 0 {
+        if require_empty {
+            return Err(format!(
+                "{} identity-only rows replayed {} gap probes, but --require-empty was given",
+                scan.identity_only_rows,
+                scan.requests.values().map(BTreeSet::len).sum::<usize>()
+            )
+            .into());
+        }
+        return Ok(());
+    }
+    if require_empty {
+        if scan.probe_rows == 0 {
+            return Err("--require-empty: the audit has no probe row at all".into());
+        }
+        if scan.unanswered_probe_rows > 0 {
+            return Err(format!(
+                "--require-empty: {} of {} probe rows were never answered by the engine",
+                scan.unanswered_probe_rows, scan.probe_rows
+            )
+            .into());
+        }
+        return Ok(());
+    }
+    eprintln!(
+        "warning: read {} probe rows but no identity-only row; that is what a closed audit looks \
+         like (pass --require-empty to require it), anything else is a truncated file or a format \
+         drift this tool cannot see",
+        scan.probe_rows
+    );
+    Ok(())
 }
 
 fn subgroups() -> Result<BTreeMap<usize, IsotropySubgroup>> {
@@ -158,8 +240,17 @@ fn replay_missing(
         {
             Ok((Vec3R::new(q), points))
         }
-        other => Err(format!(
-            "ordinal {} {} no longer fails with missing child data: {other:?}",
+        // A whole decomposition is thousands of characters; print what changed,
+        // not the value.
+        Ok(result) => Err(format!(
+            "ordinal {} {} no longer fails with missing child data: it decomposed into {} block(s)",
+            subgroup.ordinal,
+            probe.ml,
+            result.blocks().len()
+        )
+        .into()),
+        Err(error) => Err(format!(
+            "ordinal {} {} no longer fails with missing child data: {error}",
             subgroup.ordinal, probe.ml
         )
         .into()),
@@ -167,11 +258,21 @@ fn replay_missing(
 }
 
 fn main() -> Result<()> {
-    let args: Vec<_> = std::env::args().skip(1).collect();
-    if args.len() != 1 {
-        return Err("usage: census_subduction_gaps <audit.tsv> > gaps.tsv".into());
+    let mut require_empty = false;
+    let mut path: Option<String> = None;
+    for argument in std::env::args().skip(1) {
+        match argument.as_str() {
+            "--require-empty" => require_empty = true,
+            other if path.is_none() => path = Some(other.to_owned()),
+            other => return Err(format!("unexpected argument {other}").into()),
+        }
     }
-    let requests = read_requests(std::io::BufReader::new(std::fs::File::open(&args[0])?))?;
+    let path = path.ok_or(
+        "usage: census_subduction_gaps <audit.tsv> [--require-empty] > gaps.tsv",
+    )?;
+    let scan = read_requests(std::io::BufReader::new(std::fs::File::open(&path)?))?;
+    check_scan(&scan, require_empty)?;
+    let requests = scan.requests;
     let contexts = subgroups()?;
     let mut cache = BTreeMap::new();
     let (mut probes, mut stars, mut missing, mut constructed) = (0usize, 0usize, 0usize, 0usize);
@@ -264,9 +365,15 @@ fn main() -> Result<()> {
     out.flush()?;
     eprintln!(
         "records={} probes={probes} stars={stars} missing_stars={missing} \
-         constructed_stars={constructed} reachable_stars={} replay_errors=0 dimension_errors=0",
+         constructed_stars={constructed} reachable_stars={} audit_rows={} probe_rows={} \
+         identity_only_rows={} unanswered_probe_rows={} closed={}",
         requests.len(),
-        stars - missing - constructed
+        stars - missing - constructed,
+        scan.rows,
+        scan.probe_rows,
+        scan.identity_only_rows,
+        scan.unanswered_probe_rows,
+        scan.identity_only_rows == 0 && scan.probe_rows > 0
     );
     Ok(())
 }
@@ -277,21 +384,125 @@ mod tests {
 
     const AUDIT_HEADER: &str = "kind\tordinal\tparent_sg\tsubgroup_sg\tdirection\tdomain\tarms\tsize\tprobe_ml\tprobe_sg\tprobe_k\tprobe_src\tstored\tcomputed\tstatus\tdetail\n";
 
+    /// A genuine identity-only row, as `audit_irrep_subduction` writes it.
+    const GAP_ROW: &str = "identity\t13346\t225\t8\tP1\t1\t1\t1\tW1\t225\t0/1,0/1,0/1\tordinary\t1\t1\tidentity_only\tgeometry=not_checked identity_only gamma_stars=0 skipped_stars=4 trivial_by_label=1 full_decomposition=missing\n";
+    /// A covered row: same shape, no identity-only marker.
+    const COVERED_ROW: &str = "identity\t1\t2\t1\tP1\t1\t1\t1\tGM1\t2\t0/1,0/1,0/1\tordinary\t1\t1\tpassed\tgeometry=not_checked\n";
+
     /// R5: once the coverage is closed the audit has no identity-only row, so the
     /// replay must produce an **empty** manifest instead of failing -- and it must
     /// still ignore rows that are not identity-only rather than inventing gaps.
+    /// The scan reports what it read, so "closed" and "unreadable" stay distinct.
     #[test]
     fn a_closed_audit_replays_as_an_empty_manifest() {
-        let requests = read_requests(std::io::Cursor::new(AUDIT_HEADER)).unwrap();
-        assert!(requests.is_empty());
-        let covered = format!(
+        let scan = read_requests(std::io::Cursor::new(AUDIT_HEADER)).unwrap();
+        assert_eq!(scan, AuditScan::default());
+        let covered = format!("{AUDIT_HEADER}{COVERED_ROW}");
+        let scan = read_requests(std::io::Cursor::new(covered)).unwrap();
+        assert!(scan.requests.is_empty(), "a full row is not a gap");
+        assert_eq!(scan.rows, 1);
+        assert_eq!(scan.probe_rows, 1);
+        assert_eq!(scan.identity_only_rows, 0);
+        // The closed state is accepted, and `--require-empty` turns it into the
+        // requirement; both refuse a file that carries no data row at all.
+        assert!(check_scan(&scan, false).is_ok());
+        assert!(check_scan(&scan, true).is_ok());
+        let truncated = read_requests(std::io::Cursor::new(AUDIT_HEADER)).unwrap();
+        assert!(check_scan(&truncated, true).is_err());
+        // An audit with a probe the engine never answered is not closed either.
+        let uncomputed = format!(
             "{AUDIT_HEADER}identity\t1\t2\t1\tP1\t1\t1\t1\tGM1\t2\t0/1,0/1,0/1\tordinary\
-             \t1\t1\tpassed\tgeometry=not_checked\n"
+             \t1\t\tuncomputed_embedding_unavailable\tuncomputed: no valid embedding\n"
         );
-        assert!(
-            read_requests(std::io::Cursor::new(covered)).unwrap().is_empty(),
-            "a full row must not be replayed as a gap"
+        let scan = read_requests(std::io::Cursor::new(uncomputed)).unwrap();
+        assert_eq!(scan.probe_rows, 1);
+        assert_eq!(scan.unanswered_probe_rows, 1);
+        assert!(check_scan(&scan, true).is_err());
+        assert!(check_scan(&scan, false).is_ok());
+    }
+
+    /// A real identity-only row is still replayed, whichever way the file is
+    /// read, and `--require-empty` then fails instead of reporting success.
+    #[test]
+    fn a_gap_row_is_replayed_and_refused_by_require_empty() {
+        let input = format!("{AUDIT_HEADER}{GAP_ROW}");
+        let scan = read_requests(std::io::Cursor::new(input)).unwrap();
+        assert_eq!(scan.rows, 1);
+        assert_eq!(scan.probe_rows, 1);
+        assert_eq!(scan.identity_only_rows, 1);
+        assert_eq!(scan.requests[&13346].len(), 1);
+        assert!(check_scan(&scan, false).is_ok());
+        assert!(check_scan(&scan, true).is_err());
+    }
+
+    /// The marker is an exact token: a renamed or misspelled detail column must
+    /// not be read as "no gaps left" (reviewer B's drift witness).
+    #[test]
+    fn a_renamed_identity_only_marker_is_not_silently_dropped() {
+        let drifted = format!(
+            "{AUDIT_HEADER}{}",
+            GAP_ROW.replace(" identity_only ", " identity-only; ")
         );
+        let scan = read_requests(std::io::Cursor::new(drifted)).unwrap();
+        assert!(scan.requests.is_empty());
+        assert_eq!(scan.rows, 1, "the row was read");
+        assert_eq!(scan.probe_rows, 1, "and it is a probe row");
+        assert_eq!(
+            scan.identity_only_rows, 0,
+            "an exact-token reader must not claim the drifted marker"
+        );
+        // Without the flag the run only warns, and the summary keeps the two
+        // counts apart; with it, the caller's expectation is not met.
+        assert!(check_scan(&scan, false).is_ok());
+        assert!(check_scan(&scan, true).is_ok());
+        assert!(is_identity_only("geometry=x identity_only gamma_stars=0"));
+        assert!(is_identity_only("identity_only"));
+        assert!(!is_identity_only("geometry=x identity-only; gamma_stars=0"));
+        assert!(!is_identity_only("geometry=x not_identity_only=1"));
+    }
+
+    /// Every rejection `read_requests` owns is exercised, so the replay checks
+    /// cannot be removed without a failing test.
+    #[test]
+    fn the_replay_rejections_are_all_reachable() {
+        let cases: Vec<(&str, String)> = vec![
+            ("header", "wrong\theader\n".to_owned()),
+            (
+                "field count",
+                format!("{AUDIT_HEADER}identity\t1\t2\t1\n"),
+            ),
+            (
+                "kind",
+                format!(
+                    "{AUDIT_HEADER}{}",
+                    GAP_ROW.replacen("identity\t", "passed\t", 1)
+                ),
+            ),
+            (
+                "parent vs probe group",
+                format!(
+                    "{AUDIT_HEADER}{}",
+                    GAP_ROW.replacen("\tW1\t225\t", "\tW1\t226\t", 1)
+                ),
+            ),
+            (
+                "duplicate probe",
+                format!("{AUDIT_HEADER}{GAP_ROW}{GAP_ROW}"),
+            ),
+            (
+                "unparsable ordinal",
+                format!(
+                    "{AUDIT_HEADER}{}",
+                    GAP_ROW.replacen("\t13346\t", "\tx\t", 1)
+                ),
+            ),
+        ];
+        for (name, input) in cases {
+            assert!(
+                read_requests(std::io::Cursor::new(input)).is_err(),
+                "{name} must be rejected"
+            );
+        }
     }
 
     /// Count the per-star statuses exactly as the manifest does.

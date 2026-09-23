@@ -645,7 +645,6 @@ pub struct TrivialContent {
 /// a q-block is the little dimension times its arms, and its character sums the
 /// transported little character over those arms (`line_character`'s logic,
 /// inlined here because `FullStarError` does not convert into `StarError`).
-#[allow(dead_code)]
 struct LineArmSource<'a> {
     table: &'static LittleCharacterTable,
     direction: Vec3R,
@@ -653,7 +652,6 @@ struct LineArmSource<'a> {
     arms: &'a [(Vec3R, Mat3I)],
 }
 
-#[allow(dead_code)]
 impl LineArmSource<'_> {
     /// Dimension of the parent q-block carried by `arm_indices`.
     fn q_block_dimension(&self, arm_indices: &[usize]) -> Result<u32, StarError> {
@@ -723,7 +721,6 @@ impl LineArmSource<'_> {
 /// `build_block` can consume the line representation.  `parameter` is
 /// [`LINE_PARAMETER`], `dimension` the little dimension of the source, and the
 /// block of a group is `dimension * arms in the group`.
-#[allow(dead_code)]
 fn line_folded_stars(
     arms: &[(Vec3R, Mat3I)],
     parameter: &Rat,
@@ -1211,7 +1208,6 @@ struct Representative {
 /// A discrete probe's star and a parametric-k line's arms answer the same two
 /// questions, so `build_block` is generic over them without changing what it
 /// does downstream.
-#[allow(dead_code)]
 enum ArmCharacterSource<'a> {
     /// A discrete probe's star.
     Cir(&'a ScalarStar),
@@ -1219,7 +1215,6 @@ enum ArmCharacterSource<'a> {
     Line(&'a LineArmSource<'a>),
 }
 
-#[allow(dead_code)]
 impl ArmCharacterSource<'_> {
     fn q_block_dimension(&self, arm_indices: &[usize]) -> Result<u32, StarError> {
         match self {
@@ -1410,6 +1405,16 @@ fn star_has_stored_components(
 }
 
 /// Pinned child rows whose effective arm folds onto `q`.
+/// The pinned components that live at `q`, modulo the child reciprocal lattice.
+///
+/// A child record the engine cannot expand (an unsupported character space, e.g.
+/// a compound row with no readable selected-arm trace) is **not** skipped here:
+/// it fails the whole lookup loudly.  Turning it into `continue` would report the
+/// star as `MissingChildStarData`, i.e. as an archive gap, when the truth is that
+/// the shipped record could not be read -- a generation bug wearing a coverage
+/// gap's clothes.  The distinction is unreachable on the pinned corpus (reviewer
+/// B checked all 4,105 ordinary, 672 compound and 3,611 spinor records: zero
+/// unexpandable), and the loud branch is what keeps it visible if that changes.
 fn stored_child_components_at(
     child_sg: u8,
     q: &Vec3R,
@@ -2031,7 +2036,7 @@ fn build_evaluator(
         )?))),
         (SubductionComponent::Constructed { .. }, ComponentCharacters::Constructed(rep)) => {
             Ok(ChildStarEvaluator::Constructed(Box::new(
-                ConstructedStar::new(child_sg, component.base_k, rep.clone())?,
+                ConstructedStar::new(child_sg, component.base_k, rep.clone(), component.dimension)?,
             )))
         }
         _ => Err(FullStarError::TargetSourceMismatch {
@@ -3633,6 +3638,77 @@ mod tests {
         ));
     }
 
+    /// A constructed star reports the little dimension of its own
+    /// representation.  The two-dimensional family used to be reported as one
+    /// (the method was hard-coded), which no production path read but which
+    /// would mislead any caller that asked.
+    #[test]
+    fn a_two_dimensional_constructed_star_reports_its_dimension() {
+        let cell = Lattice::new(exact_primitive_basis(43).unwrap()).unwrap();
+        let reciprocal = cell.reciprocal().unwrap();
+        let q = Vec3R::new([rat(0, 1), rat(1, 1), rat(1, 2)]);
+        let components = constructed_child_components_at(43, &q, &reciprocal).unwrap();
+        assert_eq!(components.len(), 1, "one two-dimensional irrep");
+        let component = &components[0];
+        assert_eq!(component.dimension, 2);
+        let ComponentCharacters::Constructed(rep) = &component.characters else {
+            panic!("a constructed component carries a constructed source");
+        };
+        let star = ConstructedStar::new(43, component.base_k, rep.clone(), component.dimension)
+            .expect("child #43 constructed star");
+        assert_eq!(star.dimension(), 2);
+        assert!(star.arm_count() > 0);
+    }
+
+    /// The fail-closed boundary itself, end to end in the block builder: a
+    /// folded child star whose little co-group is outside the constructed
+    /// families must report `MissingChildStarData` -- not a partial block, and
+    /// not a silent zero.
+    ///
+    /// Closed coverage means no pinned probe reaches this point any more, so the
+    /// star is built by hand at the point `constructed_targets_available`
+    /// rejects and fed to the same `build_block` stage the entry point uses.
+    /// This is the Err path `select_representative` owns; the audits that used
+    /// to carry it were replaced by positive tests once the batches closed the
+    /// gaps, which left the boundary untested until this witness.
+    #[test]
+    fn an_out_of_scope_co_group_still_reports_missing_child_star_data() {
+        let child = 221;
+        let cell = Lattice::new(exact_primitive_basis(child).expect("child #221 basis"))
+            .expect("child lattice");
+        let reciprocal = cell.reciprocal().expect("child reciprocal");
+        // Child #221 at (0, 0, 1/2): a sixteen-element little co-group, beyond
+        // the one-dimensional batch (`MAX_ORDER = 6`) and outside both gated
+        // projective families.
+        let q = Vec3R::new([rat(0, 1), rat(0, 1), rat(1, 2)]);
+        assert!(
+            stored_child_components_at(child, &q, &reciprocal)
+                .expect("stored lookup")
+                .is_empty(),
+            "the witness must not be answerable from pinned rows"
+        );
+        assert!(
+            !constructed_targets_available(child, &q, &reciprocal).expect("catalogue lookup"),
+            "the witness must stay outside the constructed families"
+        );
+        let star = FoldedStar::from_parts(vec![FoldedPoint::from_parts(q, vec![0])], 1, 1, 1);
+        let built = embedding(225, "X1+", "P3");
+        assert_eq!(built.subgroup_sg(), child);
+        let parent_star = ScalarStar::new(probe(225, "X1+")).expect("parent star");
+        let error = build_block(
+            &built,
+            &ArmCharacterSource::Cir(&parent_star),
+            &star,
+            &cell,
+            &reciprocal,
+        )
+        .expect_err("an out-of-scope co-group must fail closed");
+        assert!(
+            matches!(error, FullStarError::MissingChildStarData { sg, .. } if sg == child),
+            "{error:?}"
+        );
+    }
+
     /// A constructed target is induced over the **child's own star**, not
     /// answered by its little-group character.
     ///
@@ -3644,12 +3720,8 @@ mod tests {
     #[test]
     fn a_constructed_star_induces_over_the_child_star() {
         let q = Vec3R::new([rat(1, 4), rat(1, 3), rat(0, 1)]);
-        let star = ConstructedStar::new(
-            2,
-            q,
-            ConstructedLittleRep::BlochPhase { q },
-        )
-        .expect("child #2 constructed star");
+        let star = ConstructedStar::new(2, q, ConstructedLittleRep::BlochPhase { q }, 1)
+            .expect("child #2 constructed star");
         assert_eq!(star.arm_count(), 2, "P-1 sends q to -q, two arms");
         assert_eq!(star.dimension(), 1);
         let translation = |values: [i32; 3]| {
