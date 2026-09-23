@@ -12,7 +12,7 @@
 
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup};
 use cryspglib::irrep::query;
-use cryspglib::irrep::subduction::SubgroupEmbedding;
+use cryspglib::irrep::subduction::{Rat, SubgroupEmbedding, Vec3R};
 use cryspglib::irrep::subduction::star::decompose::{
     line_trivial_content_via_blocks, line_trivial_content_with_embedding, official_line_parameter,
     subduce_line_at_parameter,
@@ -233,4 +233,145 @@ fn the_block_route_matches_every_pinned_row_of_sg196() {
         }
     }
     assert_eq!(checked, 106, "SG 196 has 106 w rows");
+}
+
+/// A parameter on the **conjugate** coset (`t = 3/4`) differs from the anchor by
+/// exactly the reciprocal-gauge factor.
+///
+/// The frozen direction `v` is a parent reciprocal vector, and `3/4 = -1/4 + 1`,
+/// so `t = 3/4` sits on the conjugate coset.  The engine evaluates the Bloch
+/// factor at the *reduced* representative `k_c(3/4)`, which differs from the
+/// anchor's conjugate `-k_pin` by `G = k_c(3/4) + k_pin`; measured with the
+/// transport ledger (`target/r6_scan/ledger.rs`, 2026-09-23) the restricted
+/// parent character is
+///
+/// ```text
+/// chi(3/4)(h) = conj(chi(1/4)(h)) * exp(2 pi i G . T_h)
+/// ```
+///
+/// operation by operation, with a **unit-modulus** factor: a pure reciprocal
+/// gauge, not a garbled character.  On these witnesses the factor is `-1` on the
+/// operations whose translation has a quarter along the direction and `+1`
+/// elsewhere, and the trivial content at `3/4` is the multiplicity of the
+/// `exp(2 pi i v . T)`-twisted child representation, so it is **not** required to
+/// equal the pinned value (`12306 SM1`: `1 -> 0`).
+///
+/// The ledger also measured that no simple phase variant fixes both sides (for
+/// `11329 DT1`, deviation of the anchor at `1/4` / of the conjugation at `3/4`):
+/// the arm's own `k` `2.83 / 3.16`, the arm's own reduced `k` `2.83 / 2.83`, the
+/// frozen operation's own translation `3.16 / 3.16` (this one *does* fix the
+/// conjugation and breaks the validated anchor by `4.0`), and the arm's `k` with
+/// the frozen translation `2.83 / 2.83`.
+///
+/// Why this test exists: it pins that the anchor `t = 1/4` is the *only*
+/// validated parameter and that the conjugate parameter is related to it by this
+/// factor.  Conjugating the seed representation inside the transport (the
+/// experiment of 2026-09-23) made the real-table content gap vanish and broke
+/// eight complex rows that satisfy the partner-source oracle today, i.e. it
+/// changed what `t` means instead of fixing a defect; landing such a change
+/// requires deliberately rewriting this test and the contract in
+/// `docs/subduction-conventions.md` §16.
+#[test]
+fn a_conjugate_parameter_carries_the_reciprocal_gauge_factor() {
+    // (parent SG, ordinal, source, pinned content, content at t = 3/4)
+    let cases = [
+        (210u8, 11329usize, "DT1", 1u32, 1u32),
+        (219, 12306, "SM1", 1, 0),
+    ];
+    for (sg, ordinal, label, pinned, at_three_quarters) in cases {
+        let subgroup = find(sg, ordinal);
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
+        let table = table_for(&subgroup, label);
+        let quarter = subduce_line_at_parameter(
+            &subgroup,
+            &embedding,
+            table,
+            official_line_parameter().unwrap(),
+        )
+        .unwrap_or_else(|error| panic!("ordinal {ordinal} {label} t=1/4: {error}"));
+        let three = subduce_line_at_parameter(
+            &subgroup,
+            &embedding,
+            table,
+            Rat::new(3, 4).unwrap(),
+        )
+        .unwrap_or_else(|error| panic!("ordinal {ordinal} {label} t=3/4: {error}"));
+
+        assert_eq!(
+            quarter.trivial_content().unwrap(),
+            pinned,
+            "ordinal {ordinal} {label}: the anchor content is the pinned frequency"
+        );
+        assert_eq!(
+            three.trivial_content().unwrap(),
+            at_three_quarters,
+            "ordinal {ordinal} {label}: the conjugate parameter is the twisted multiplicity, \
+             not the pinned one (making them equal changes what `t` means)"
+        );
+
+        // G = k_c(3/4) + k_pin, in the parent's own reciprocal coordinates.
+        let g = sum(three.wave_vector(), quarter.wave_vector());
+        let (quarter_characters, _) = quarter.reconstruction();
+        let (three_characters, _) = three.reconstruction();
+        let representatives = quarter.representatives();
+        assert_eq!(representatives.len(), quarter_characters.len());
+        assert_eq!(representatives.len(), three_characters.len());
+
+        let mut negative_factors = 0usize;
+        let mut non_unit = 0usize;
+        for (index, h) in representatives.iter().enumerate() {
+            let factor = gauge_phase(&g, h.translation());
+            if (factor.0 * factor.0 + factor.1 * factor.1 - 1.0).abs() > 1e-12 {
+                non_unit += 1;
+            }
+            if factor.0 < -0.5 {
+                negative_factors += 1;
+            }
+            // conj(chi(1/4)) * factor
+            let expected_re = quarter_characters[index].re * factor.0
+                + quarter_characters[index].im * factor.1;
+            let expected_im = quarter_characters[index].re * factor.1
+                - quarter_characters[index].im * factor.0;
+            let deviation = ((three_characters[index].re - expected_re).powi(2)
+                + (three_characters[index].im - expected_im).powi(2))
+            .sqrt();
+            assert!(
+                deviation <= 1e-9,
+                "ordinal {ordinal} {label} h[{index}]: chi(3/4) = {:.6}{:+.6}i deviates from \
+                 conj(chi(1/4)) * exp(2 pi i G.T) by {deviation:.3e}",
+                three_characters[index].re,
+                three_characters[index].im
+            );
+        }
+        assert_eq!(non_unit, 0, "the gauge factor must be unit modulus");
+        assert!(
+            negative_factors > 0,
+            "ordinal {ordinal} {label}: G is a parent reciprocal vector and the little group is \
+             nonsymmorphic along v, so exp(2 pi i G.T) is a *non-trivial* character of the line's \
+             little group; if it became trivial, `t` and `t + 1` really would be the same irrep \
+             and this test (and the contract) must be rewritten"
+        );
+    }
+}
+
+/// Component-wise sum of two exact vectors.
+fn sum(left: &Vec3R, right: &Vec3R) -> Vec3R {
+    let mut values = [Rat::ZERO; 3];
+    for (axis, value) in values.iter_mut().enumerate() {
+        *value = left
+            .get(axis)
+            .checked_add(right.get(axis))
+            .expect("exact sum");
+    }
+    Vec3R::new(values)
+}
+
+/// `exp(2 pi i g . t)` as a real/imaginary pair.
+fn gauge_phase(g: &Vec3R, t: &Vec3R) -> (f64, f64) {
+    let mut angle = 0.0f64;
+    for axis in 0..3 {
+        angle += g.get(axis).to_f64() * t.get(axis).to_f64();
+    }
+    let angle = std::f64::consts::TAU * angle;
+    (angle.cos(), angle.sin())
 }
