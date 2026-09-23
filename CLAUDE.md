@@ -53,8 +53,8 @@ python3 scripts/check_other_wave_vector_rows.py
 `--tests` 不运行 example 内的回归；上面的 audit、census、probe 三个 example
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
-当前基线（2026-09-23，R5 收口 + 复核处理后进入 R6.0/R6.1，`-p cryspglib` 限定到本 crate）：
-lib `407 passed / 4 ignored`，全部测试二进制（`--tests`，22 个）`568 passed / 0 failed /
+当前基线（2026-09-23，R5 收口 + 复核处理 + R6.1 复核修正后，`-p cryspglib` 限定到本 crate）：
+lib `409 passed / 4 ignored`，全部测试二进制（`--tests`，22 个）`570 passed / 0 failed /
 4 ignored`，doctest `27 passed`，
 example 审计回归 `19 passed`、缺口清点回归 `7 passed`、settings 探针回归 `2 passed`；
 严格 all-target clippy 通过（Cargo 仍报告既有
@@ -75,7 +75,8 @@ settings 管线：`test_subduction_settings.py` 10 passed（离线核对 15,239 
 --require-full-decomposition`）**同时退出 0**、判词 `VERDICT complete scope=global
 full_decomposition=complete`（`identity_rows=94271`、probe **366260/366260 完整分解、
 恒等-only 0**、w `5756/5756`、`engine_errors=0`、`hard_failures=0`；R6.1 把 w 门禁从
-Γ-only 路径升级为**完整分解**后为 604.8 s，此前 Γ-only 口径 517.1–541.0 s）；
+Γ-only 路径升级为**完整分解**后墙钟 557.0–604.8 s，此前 Γ-only 口径 517.1–541.0 s；
+同一二进制上的净代价实测约 +4.8 s / 5,756 行，墙钟差属机器负载、不是 A/B）；
 R4 批 2a 后 `366039 + 221`，
 批 1 后 `357033 + 9227`，R2 后 `353382 + 12878`，R2 前 `351547 + 14713`）。普通离散标量
 覆盖在固定语料上已闭合（R5 验收清单：恒等正项 94,271/0 不匹配、Γ Frobenius
@@ -705,6 +706,17 @@ w 频率**，审计的 `--require-w-complete` 门禁继续生效。
    母群 **primitive** 分数坐标再折叠。ordinal 13824（SG 225 → #1）conventional
    读法 12/12 臂全落在 Γ，primitive 读法才是非退化的；所有用 conventional 直接
    折叠的计数都必须丢弃。
+
+> **更正（2026-09-23，R6.1 实测；本条与第十二轮一起看，勿再引用上面的"必须转成
+> primitive"）**：第十一轮已把 12 臂的根因定位为**约化格用错**（conventional 旋转
+> 配 primitive 帧的格），第十二轮修好后两个帧读法都给出 3 个臂。现网实现（R6.1
+> `subduce_line_at_parameter`）**全程在母群 conventional 倒格坐标下**：
+> `direction`、pinned `little_k`（SG 196 `X1 = (0,1,0)`、`L1 = (1,1,1)/2`）与冻结
+> little 群操作都是 conventional，`fold_wave_vector` 直接作用在 `t·direction` 上，
+> 没有任何 primitive 换算；唯一一次约化是 `canonical_wave_vector` 把 `k` 约化进
+> `Lattice::new(exact_primitive_basis(parent)).reciprocal()`，对 5,756 条 pinned
+> `t = 1/4` 波矢零位移。细节见 `docs/subduction-conventions.md` §16 与
+> `docs/subduction-r6-plan.md` §4。
 2. **锚点：child = #1（P1）时频率 = 源的 full-star 维数**。ordinal 13824 的存储行是
    `6 x DT1..DT4`、`12 x DT5, SM1..SM4`，与 little 表的 dim 6/12 逐项一致；这正是
    「P1 上恒等表示重数 = 维数」的必然结果，可作为公式的基准点。
@@ -3504,13 +3516,70 @@ reviewer 同时确认：历史表逐字节重生成属于**已披露、未解决
   两个源的折叠几何统一。
 * **分支与失败语义的见证**：`10038`（SG 196 `W1` `4D1` → #1）在 `t = 1/4` 是
   `Z1`×2 + `GM1`×4、恒等重数 4 == pinned，在两侧 `t = 1/6`、`t = 1/3` 变成 6 个
-  构造块、恒等重数 0（都等于手算臂数）；`t = 1/4, 3/4, 5/4` 在该源上逐目标相同
-  （只钉这一例，一般位移规则留 R6.2）；`13543` 的 `DT5` 在 `t = 1/7` 报
-  `MissingChildStarData{sg:136}`，同记录在 `t = 1/4` 正常——证明是参数问题而非记录问题。
-* 验证：lib `407 passed / 4 ignored`、测试二进制 `568 passed`、doctest 27、审计 example
-  19、缺口清点 7、settings 探针 2，严格 all-target clippy 零警告；全表审计 604.8 s
-  exit 0。
+  构造块、恒等重数 0（都等于独立于多重度求解器的几何计数）；`t = 1/4, 3/4, 5/4`
+  在该源上逐目标相同（只钉这一例，一般位移规则留 R6.2）；`13543` 的 `DT5` 在
+  `t = 1/7` 报 `MissingChildStarData{sg:136}`，同记录在 `t = 1/4` 正常——证明是参数
+  问题而非记录问题。
+* 验证：lib `409 passed / 4 ignored`、测试二进制 `570 passed`、doctest 27、审计 example
+  19、缺口清点 7、settings 探针 2，严格 all-target clippy 零警告；全表审计
+  557.0–604.8 s exit 0。
+
+### R6.1 复核处理（2026-09-23，reviewer C/D）
+
+第二轮 adversarial review 的两份报告（C：数学/结构；D：契约/声明/测试强度）逐条复核
+后处理，结论与证据：
+
+* **P1-1（真 bug，已修）gauge 不一致**：`t` 与 `t + Δ`（`Δ·direction` 是母群倒格矢）
+  是**同一个母群 irrep**，但引擎把 `k` 的原始值直接喂给冻结的 Γ 点字符 `D`，等价参数
+  会解出不同的子群 irrep：ordinal 11328（SG 210 `DT3`）在 `t = 1/4` 给 `Z1`、`t = 5/4`
+  给 `Z2`，恒等重数都是 1（== pinned）、两侧重构都通过，**任何门禁都看不见**。
+  受影响 40 行（SG 210 的 11328–11333、SG 227 的 14430/14432/14504/14506、SG 228 的
+  14723/14726，`DT1`–`DT4`）。修法：新增 `canonical_wave_vector`（把 `k` 约化进
+  `Lattice::new(exact_primitive_basis(parent)).reciprocal()`），每条臂取"规范中心 `k`
+  在该臂自身旋转下的像"再折叠。**对 5,756 条 pinned `t = 1/4` 波矢零位移**，所以 R5
+  已验收的约定原样保留；新增回归
+  `a_reciprocal_vector_shift_of_the_parameter_changes_nothing`（40 行 × `t = 5/4, 9/4,
+  13/4` 与 `t = 1/4` 逐项相同），并复现 11328 三个参数下逐位一致。
+* **P1-2（已补）轨道化折叠缺常驻回归**：新增
+  `a_generic_parameter_folds_into_multi_point_child_stars`——`10030 DT1` 在 `t = 1/7`
+  给出 3 个块、每块 2 点 2 臂、`parent_dimension = 6`、恒等重数 0；`13543 SM1` 的星
+  大小为 [4, 8]。reviewer D 复现过"把修复换回旧的按 q 分组，其余测试与整个审计全绿"，
+  这两条就是那个漏洞的钉子。
+* **P1-3（措辞）**："独立手算"是过度表述：计数只用另一条多重度读法，臂集合/帧/Γ 判定与
+  引擎共用。测试与 §16 已改为"独立于多重度求解器的几何计数"，并明确一般参数上**只有
+  内部一致性 + 这条几何计数**，外部 oracle 仅在 `t = 1/4`（pinned 频率 + live oracle）。
+* **P2-1（已写进契约）能力 A 的参数域**：一般 `t` 下 54/5,756 行（`t = 1/7, 1/6, 1/3,
+  2/7`）报 `MissingChildStarData`（子群 #123–#138 的 2 点星、#221–#224 的 6 点星），
+  `t = 3/8` 报 30 行；小余群非平凡时的网格搜索有 `MAX_GRID = 200_000` 上限——实测
+  `10030 DT1` 在 `t = 1/100000` 仍 `Ok`、`t ≥ 1/1000000` 起报错（边界正是 `2 × 10^5`，
+  与 `|P_q| = 2` 下的 `MAX_GRID` 逐位吻合）；`t = 0` 及"`t·v` 稳定子更大"的参数返回
+  **形式值**（`10030 DT1 t=0 → Ok(3)`、`13543 DT5 t=0 → Ok(0)`），不是错误也不是物理
+  结论。全部写进 §16，属 R6.2 的分区输入。
+* **P2-2（已改）帧的文档自相矛盾**：`docs/subduction-r6-plan.md` §4 与 CLAUDE 第九轮
+  的"必须换算到 primitive"是原型阶段的错措辞（第十一轮已定位 12 臂的根因是约化格用错）。
+  实测帧：`direction`、pinned `little_k`、冻结 little 群操作全程 conventional，引擎
+  没有任何 primitive 换算。§4 已按实测重写，第九轮处加了更正块。
+* **P2-3（已改）`docs/subduction-audit.md` 过期**：w 分支的机制改为
+  `subduce_line_at_parameter(..., official_line_parameter())` 的完整分解、
+  `LINE_PARAMETER` → `OFFICIAL_LINE_PARAMETER`、复现一节的"约 520 s"改为三个实测值
+  并注明墙钟差属负载。
+* **P2-4（已注明）两个不可达失败变体**：`MissingChildTrivialIrrep`（唯一恒等 Γ 行对
+  230 个 SG 钉死）与 `TargetSourceMismatch`（两个读数同源）是**表损坏防御分支**，
+  公网 API 在 pinned 数据上不可达，没有也无法写负例；文档不再与两条可达变体并列。
+* **P2-5（已改）访问器 doc**：`LineSubduction::blocks()`（每块是一个**子群轨道**，不是
+  每个 `q`）、`FullStarBlock::stored_k()`（constructed 块给的是约化后的折叠坐标）、
+  `FullStarBlock::q()`（**未约化**，跨参数比较必须先约化或改用 `wave_vector()`）。
+* **P3-1/3-2/3-3/3-4（已改）测试与死代码**：`assert_line_invariants` 的 doc 注明它重算
+  的是构造时已强制的不变式（重构钉子，不是正确性证据）；`the_block_route_is_the_public_route`
+  从 `f(a) == f(a)` 改成对 `subduce_line_at_parameter(...).trivial_content()` 与 pinned
+  频率两条比较；6 处 `Rat::new(1, 4)` 字面量改用 `official_line_parameter()`；退役的
+  `FullStarError::NonIntegralLineFrequency`（已无构造点）删除；"特殊值 + 非平凡小余群"
+  明确记为**无单元见证**、只由 5,756 行审计覆盖。
+* **P3-5（已记）计时**：同二进制 5,756 行实测完整分解 10.97 s 对 Γ-only 6.13 s +
+  0.01 s ⇒ 升级净代价约 +4.8 s，不是 +88 s；审计墙钟 557.0 / 604.8 s 与 reviewer 在
+  并发负载下的 697.6 s 不可当 A/B。
 
 **R6.2 待做**：参数区间与例外集、`t` 的一般等价类（现在只有个案观测）、5,756 行
 "任意 t 成立 / 仅特定 t 成立"的分档说明，以及覆盖说明里"已计算 / 有独立对照 /
-仅内部一致 / 不支持"四种证据级别的逐条列举。
+仅内部一致 / 不支持"四种证据级别的逐条列举；另需处理 R6.1 记下的两处定义域边界
+（大分母 fail-closed 上限、`t = 0` 一类形式值是否应改为显式错误）。

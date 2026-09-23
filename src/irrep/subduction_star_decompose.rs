@@ -141,19 +141,6 @@ pub enum FullStarError {
         /// Frozen source label.
         label: &'static str,
     },
-    /// The line-character average did not come out as a non-negative integer,
-    /// so the conventions behind it are wrong and nothing is returned.
-    #[error(
-        "line source {label} of space group {sg} gave the non-integral frequency {value:?}"
-    )]
-    NonIntegralLineFrequency {
-        /// Parent space group number.
-        sg: u8,
-        /// Frozen source label.
-        label: &'static str,
-        /// The average that failed the integrality gate.
-        value: num_complex::Complex64,
-    },
     /// No child operation transports a component's effective arm to the block
     /// representative inside the child star.
     ///
@@ -288,6 +275,12 @@ pub enum FullStarError {
         ml: &'static str,
     },
     /// A reported constituent does not agree with its stored CIR source.
+    ///
+    /// Table-corruption guard, **unreachable through the public API on the pinned
+    /// data**: both readings compared here are derived from the same target list
+    /// (`ml` and `irnumber` come from one `ChildComponent`), so the branch only
+    /// fires if the frozen tables are inconsistent with each other.  No negative
+    /// test can be written against it without fabricating such a table.
     #[error("child target {ml} of space group {sg} disagrees with its stored CIR source")]
     TargetSourceMismatch {
         /// Child space group number.
@@ -298,9 +291,11 @@ pub enum FullStarError {
     /// The child table has no unique trivial row, so the trivial content of a
     /// subduction onto that child is not defined by the table.
     ///
-    /// An all-ones one-dimensional Gamma row is the trivial representation of
-    /// the child group in its own stored setting; there is exactly one of them
-    /// for every space group of the pinned table, so this variant reports a
+    /// Table-corruption guard, unreachable through the public API on the pinned
+    /// data: an all-ones one-dimensional Gamma row is the trivial representation
+    /// of the child group in its own stored setting, and exactly one exists for
+    /// every space group (pinned for all 230 by
+    /// `every_space_group_has_one_trivial_gamma_row`), so this variant reports a
     /// broken child table rather than a physical possibility.
     #[error("space group {sg} has no unique trivial Gamma irrep")]
     MissingChildTrivialIrrep {
@@ -372,6 +367,15 @@ pub struct FullStarBlock {
 
 impl FullStarBlock {
     /// The representative folded point whose class matched stored child data.
+    ///
+    /// This is the **unreduced** folded coordinate `T^T k`: two parameters that
+    /// differ by a parent reciprocal vector give child cosets that differ by a
+    /// child reciprocal vector, so `q()` itself is not comparable across
+    /// parameters (`t = 1/4` and `t = 5/4` differ here on 5,716 of the 5,756
+    /// pinned rows while every other field agrees).  Compare
+    /// [`LineSubduction::wave_vector`]
+    /// or the reported `(stored_k, star, dim, arm, targets)` tuple instead, or
+    /// reduce `q()` into the child's own reciprocal cell first.
     pub const fn q(&self) -> &Vec3R {
         &self.q
     }
@@ -384,7 +388,11 @@ impl FullStarBlock {
     /// `ConjugateRealification` block reached through the conjugate arm it is
     /// the exact negation of the record's stored `k`, even though no
     /// `IrrepRecord` stores that arm; it is never reduced or wrapped to a
-    /// positive representative.
+    /// positive representative.  For a **constructed** block -- the ordinary
+    /// case at a generic parameter, where no child table row exists at all --
+    /// there is no stored `k` to report and this is the block's folded
+    /// coordinate reduced into the child's reciprocal cell, i.e. the canonical
+    /// child coset the constructed Bloch target lives on.
     pub const fn stored_k(&self) -> &Vec3R {
         &self.stored_k
     }
@@ -835,8 +843,8 @@ pub const OFFICIAL_LINE_PARAMETER: (i128, i128) = (1, 4);
 /// The official parameter as an exact rational.
 ///
 /// The constant cannot fail `Rat::new`; the `Result` exists so callers never
-/// unwrap (the audit and the R6 tests both build the value from here rather than
-/// repeating the literal).
+/// unwrap.  The audit and the R6 tests all build the value from here, so moving
+/// the constant is felt by every pinned comparison instead of being pinned twice.
 pub fn official_line_parameter() -> Result<Rat, SubductionError> {
     Rat::new(OFFICIAL_LINE_PARAMETER.0, OFFICIAL_LINE_PARAMETER.1)
 }
@@ -934,6 +942,29 @@ fn line_wave_vector(direction: &Vec3R, parameter: &Rat) -> Result<Vec3R, FullSta
     Ok(Vec3R::new(scaled))
 }
 
+/// The parent's reciprocal lattice in the frame the frozen direction lives in
+/// (the conventional reciprocal basis).
+fn parent_reciprocal(parent_sg: u8) -> Result<Lattice, FullStarError> {
+    Ok(Lattice::new(exact_primitive_basis(parent_sg)?)?.reciprocal()?)
+}
+
+/// Reduce a parent wave vector into the parent's fundamental cell.
+///
+/// The frozen little-group characters are pure **Gamma-point** point characters
+/// (`chi(R,T) = D(R) exp(2 pi i k.T)`), so the pair `(D, k)` is only the irrep the
+/// table describes when `k` is its canonical representative.  Two parameters that
+/// differ by a parent reciprocal lattice vector describe the *same* parent irrep
+/// (Bloch), but evaluating the frozen `D` at the shifted `k` multiplies the
+/// character by a gauge factor `exp(2 pi i G.T)` and can flip the child irrep the
+/// solver picks: ordinal 11328 (SG 210 `DT3`) gave `Z1` at `t = 1/4` and `Z2` at
+/// `t = 5/4` before this reduction, with identical trivial content and a passing
+/// reconstruction on both sides, so no gate could see it.  All 5,756 pinned
+/// `t = 1/4` wave vectors are already canonical, so the reduction leaves the
+/// validated convention untouched and makes equivalent parameters agree.
+fn canonical_wave_vector(parent_sg: u8, wave_vector: &Vec3R) -> Result<Vec3R, FullStarError> {
+    Ok(parent_reciprocal(parent_sg)?.reduce(wave_vector)?.representative)
+}
+
 /// Validate the context shared by every line entry point.
 fn validate_line_context(
     subgroup: &IsotropySubgroup,
@@ -970,18 +1001,23 @@ fn validate_line_context(
 /// 6 in the probe that motivated this helper).
 fn line_folded_arms(
     arms: &[(Vec3R, Mat3I)],
-    parameter: &Rat,
+    wave_vector: &Vec3R,
     embedding: &SubgroupEmbedding,
     little_dimension: u8,
 ) -> Result<Vec<FoldedStar>, FullStarError> {
+    // Each arm's wave vector is the image of the **canonical** centre wave
+    // vector under the arm's own parent rotation: `R^-T k`.  Folding the raw
+    // `t . arm` instead would be the same child coset (the two differ by a
+    // parent reciprocal vector whose image is a child reciprocal vector) but it
+    // would not be the same canonical representative the character evaluation
+    // uses, which is exactly the gauge inconsistency `canonical_wave_vector`
+    // removes.
     let mut folded = Vec::with_capacity(arms.len());
-    for (direction, _) in arms {
-        let mut scaled = [Rat::ZERO; 3];
-        for (axis, value) in scaled.iter_mut().enumerate() {
-            *value = parameter.checked_mul(direction.get(axis))?;
-        }
+    for (_, rotation) in arms {
+        let action = Mat3R::from_ints(*rotation).inverse()?.transpose();
+        let arm_k = action.checked_mul_vector(wave_vector)?;
         folded.push(FoldArm {
-            wave_vector: Vec3R::new(scaled),
+            wave_vector: canonical_wave_vector(embedding.parent_sg(), &arm_k)?,
             dimension: usize::from(little_dimension),
         });
     }
@@ -994,7 +1030,11 @@ fn line_folded_arms(
 /// Folds the line's arms into the child's zone with the shared [`fold_arms`], reads
 /// the child Gamma block through the same `build_block` stage the discrete probes
 /// use, and extracts the child's trivial row exactly as
-/// [`trivial_content_with_embedding`] does.
+/// [`trivial_content_with_embedding`] does.  It is kept as the R5 route so the
+/// 5,756-row audit history stays reproducible, and as a second reading of
+/// [`subduce_line_at_parameter`]`(...).trivial_content()`: it skips the non-Gamma
+/// blocks and the reconstruction, so agreement between the two is a real (if
+/// narrow) check rather than a delegation.
 pub fn line_trivial_content_via_blocks(
     subgroup: &IsotropySubgroup,
     embedding: &SubgroupEmbedding,
@@ -1005,9 +1045,8 @@ pub fn line_trivial_content_via_blocks(
     let direction = line_direction(table)?;
     let arms = line_arms(subgroup, embedding, table, &direction)?;
     let parameter = Rat::new(OFFICIAL_LINE_PARAMETER.0, OFFICIAL_LINE_PARAMETER.1)?;
-    let wave_vector = line_wave_vector(&direction, &parameter)?;
+    let wave_vector = canonical_wave_vector(subgroup.parent_sg, &line_wave_vector(&direction, &parameter)?)?;
     let arms: &[(Vec3R, Mat3I)] = &arms;
-    let parameter = &parameter;
     let wave_vector = &wave_vector;
     let direction = &direction;
     let child_sg = embedding.subgroup_sg();
@@ -1027,7 +1066,7 @@ pub fn line_trivial_content_via_blocks(
         wave_vector: *wave_vector,
         arms,
     };
-    let stars = line_folded_arms(arms, parameter, embedding, table.dimension)?;
+    let stars = line_folded_arms(arms, wave_vector, embedding, table.dimension)?;
     let mut total = 0u32;
     for star in &stars {
         let mut is_gamma = false;
@@ -1080,7 +1119,7 @@ pub fn subduce_line_at_parameter(
     validate_line_context(subgroup, embedding, table)?;
     let direction = line_direction(table)?;
     let arms = line_arms(subgroup, embedding, table, &direction)?;
-    let wave_vector = line_wave_vector(&direction, &parameter)?;
+    let wave_vector = canonical_wave_vector(subgroup.parent_sg, &line_wave_vector(&direction, &parameter)?)?;
     let child_sg = embedding.subgroup_sg();
     let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
     let child_reciprocal = child_cell.reciprocal()?;
@@ -1090,7 +1129,7 @@ pub fn subduce_line_at_parameter(
         wave_vector,
         arms: &arms,
     };
-    let stars = line_folded_arms(&arms, &parameter, embedding, table.dimension)?;
+    let stars = line_folded_arms(&arms, &wave_vector, embedding, table.dimension)?;
     // The parent full-star dimension of a line irrep is `little dim x arms`: the
     // frozen table's `dimension` is the little dimension and the arms are the
     // star of the line.
@@ -1217,7 +1256,11 @@ impl LineSubduction {
         self.parent_dimension
     }
 
-    /// Folded child-star blocks, one per distinct folded `q`.
+    /// Folded child-star blocks, one per child **orbit** (star), not one per
+    /// folded `q`: a block carries every folded point of its orbit together with
+    /// every parent arm that lands on one of them.  At a generic parameter most
+    /// orbits have more than one point, so `blocks().len()` is strictly smaller
+    /// than the number of folded points.
     pub fn blocks(&self) -> &[FullStarBlock] {
         &self.blocks
     }
@@ -4001,6 +4044,15 @@ mod tests {
     /// folds each arm and counts, which is the geometric statement.  (The child
     /// must have a trivial little co-group at every folded point for the closed
     /// form to apply, which is why it is only used with child #1.)
+    ///
+    /// Scope, so the comparison is not over-read: only the **multiplicity
+    /// solver** (`build_block` and its character inner product) is replaced.  The
+    /// arm set, the frame and the Gamma test come from the same helpers
+    /// (`line_direction`, `line_arms`, `fold_wave_vector`, `Lattice::contains`)
+    /// the entry point uses, so a frame or arm-set error is absorbed on both
+    /// sides.  It is a second reading of the multiplicity stage, not an
+    /// independent oracle; only the pinned `t = 1/4` frequencies (and the audit
+    /// over all 5,756 rows) are external.
     fn arms_folding_to_child_gamma(
         subgroup: &IsotropySubgroup,
         embedding: &SubgroupEmbedding,
@@ -4047,6 +4099,17 @@ mod tests {
             .collect()
     }
 
+    /// The official parameter, read through the public accessor so that moving
+    /// the constant is felt by these tests instead of being pinned twice.
+    fn official() -> Rat {
+        official_line_parameter().expect("the official parameter is a valid rational")
+    }
+
+    /// Re-assert the two invariants the constructor already enforces before it
+    /// returns `Ok` (dimension conservation and per-arm reconstruction).  This is
+    /// a **tripwire for future refactors that would drop those checks**, not
+    /// independent evidence: it re-runs the same predicates the same tolerance
+    /// gates, so it cannot fail for a result that was built successfully.
     fn assert_line_invariants(result: &LineSubduction) {
         assert_eq!(
             result.covered_dimension(),
@@ -4084,7 +4147,7 @@ mod tests {
             let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
             for row in &pinned {
                 let table = line_table(196, row.parent_ml);
-                let parameter = Rat::new(1, 4).unwrap();
+                let parameter = official();
                 let result = subduce_line_at_parameter(subgroup, &embedding, table, parameter)
                     .unwrap_or_else(|error| {
                         panic!("ordinal {ordinal} {} t=1/4: {error}", row.parent_ml)
@@ -4106,8 +4169,10 @@ mod tests {
 
     /// A generic parameter is answered by the constructed Bloch phases: no stored
     /// child row is used, every folded q is its own one-dimensional child irrep,
-    /// and the trivial content is the **hand-computed** number of arms folding
-    /// onto the child's Gamma point (zero here).
+    /// and the trivial content is the **geometric** count of arms folding onto the
+    /// child's Gamma point (zero here, so this particular assertion is `0 == 0`;
+    /// the nonzero anchor for the same closed form is the pinned `t = 1/4`
+    /// comparison in the tests around it and in the full audit).
     #[test]
     fn a_generic_line_parameter_decomposes_into_constructed_targets() {
         let subgroup = subgroup_of(196, "W1", "4D1");
@@ -4119,7 +4184,9 @@ mod tests {
             .expect("a generic parameter decomposes");
         assert_line_invariants(&result);
         assert_eq!(result.parent_dimension(), 6);
-        assert_eq!(result.blocks().len(), 6, "one block per distinct folded q");
+        // Child #1 has a trivial point group, so every orbit is a singleton and
+        // the block count still equals the number of folded points here.
+        assert_eq!(result.blocks().len(), 6, "one block per child orbit");
         assert!(
             result
                 .blocks()
@@ -4137,8 +4204,9 @@ mod tests {
 
     /// The special value `t = 1/4` and its two neighbours: the decomposition is
     /// complete on both sides, but only the special value carries the pinned
-    /// frequency, and the trivial content equals the hand-computed arm count in
-    /// all three cases.
+    /// frequency, and the trivial content equals the geometric arm count in
+    /// all three cases (the `t = 1/4` one is nonzero and externally pinned; the
+    /// two neighbours are `0 == 0`).
     #[test]
     fn a_special_line_parameter_differs_from_its_neighbours() {
         let subgroup = subgroup_of(196, "W1", "4D1");
@@ -4146,7 +4214,7 @@ mod tests {
         let table = line_table(196, "DT1");
         let pinned = 4u32;
 
-        let special = Rat::new(1, 4).unwrap();
+        let special = official();
         let result = subduce_line_at_parameter(&subgroup, &embedding, table, special)
             .expect("the official parameter decomposes");
         assert_line_invariants(&result);
@@ -4191,7 +4259,7 @@ mod tests {
             &subgroup,
             &embedding,
             table,
-            Rat::new(1, 4).unwrap(),
+            official(),
         )
         .expect("t = 1/4");
         for (numerator, denominator) in [(3i128, 4i128), (5, 4)] {
@@ -4224,7 +4292,7 @@ mod tests {
                 &subgroup,
                 &embedding,
                 foreign,
-                Rat::new(1, 4).unwrap()
+                official()
             ),
             Err(FullStarError::LineSourceMismatch { .. })
         ));
@@ -4255,10 +4323,178 @@ mod tests {
             subgroup,
             &embedding,
             table,
-            Rat::new(1, 4).unwrap(),
+            official(),
         )
         .expect("the official parameter is covered");
         assert_line_invariants(&official);
+    }
+
+    /// R6.1 regression for the orbit-shaped folding: at a generic parameter the
+    /// folded child stars really are **orbits** with more than one point, and the
+    /// block tiling stays exact.
+    ///
+    /// Before the orbit fix each reduced `q` was its own star, which the
+    /// Gamma-only R5 path never revealed; these contexts were the witnesses
+    /// (reviewer D: replacing the fix with the old grouping left every other test
+    /// and the whole audit green).
+    #[test]
+    fn a_generic_parameter_folds_into_multi_point_child_stars() {
+        // SG 196 `W1` -> child #18 `DT1` (ordinal 10030): three folded stars of
+        // two points each.
+        let contexts = subgroups();
+        let subgroup = contexts
+            .values()
+            .find(|subgroup| subgroup.ordinal == 10030)
+            .expect("ordinal 10030");
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
+        assert_eq!(embedding.subgroup_sg(), 18);
+        let result = subduce_line_at_parameter(
+            subgroup,
+            &embedding,
+            line_table(196, "DT1"),
+            Rat::new(1, 7).unwrap(),
+        )
+        .expect("the generic point decomposes");
+        assert_line_invariants(&result);
+        assert_eq!(result.blocks().len(), 3, "three folded orbits");
+        assert!(
+            result
+                .blocks()
+                .iter()
+                .all(|block| block.star_size() == 2 && block.arm_count() == 2),
+            "{:?}",
+            result
+                .blocks()
+                .iter()
+                .map(|block| (block.star_size(), block.arm_count(), block.block_dimension()))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(result.parent_dimension(), 6);
+        assert_eq!(result.trivial_content().unwrap(), 0);
+
+        // SG 225 `W5` -> child #136 `SM1`: orbits of four and eight points.
+        let subgroup = contexts
+            .values()
+            .find(|subgroup| subgroup.ordinal == 13543)
+            .expect("ordinal 13543");
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
+        let result = subduce_line_at_parameter(
+            subgroup,
+            &embedding,
+            line_table(subgroup.parent_sg, "SM1"),
+            Rat::new(1, 7).unwrap(),
+        )
+        .expect("the generic point decomposes");
+        assert_line_invariants(&result);
+        let mut stars: Vec<usize> = result.blocks().iter().map(FullStarBlock::star_size).collect();
+        stars.sort_unstable();
+        assert_eq!(stars, vec![4, 8], "multi-point orbits");
+    }
+
+    /// Equivalent parameters (differing by a parent reciprocal lattice vector)
+    /// describe the same parent irrep, so the decomposition must be **identical**,
+    /// not merely equal in its trivial content.
+    ///
+    /// This is the gauge regression for reviewer D's P1: ordinal 11328 (SG 210
+    /// `DT3`) gave `Z1` at `t = 1/4` and `Z2` at `t = 5/4` before the canonical
+    /// wave vector was introduced, with the same trivial content (1 = pinned) and
+    /// a passing reconstruction on both sides, so no gate could see it.  The
+    /// affected rows are the DT rows of SG 210/227/228 below.
+    #[test]
+    fn a_reciprocal_vector_shift_of_the_parameter_changes_nothing() {
+        let contexts = subgroups();
+        let cases: [(usize, &str); 40] = [
+            (11328, "DT3"),
+            (11329, "DT3"),
+            (11330, "DT3"),
+            (11331, "DT3"),
+            (11332, "DT3"),
+            (11333, "DT3"),
+            (14430, "DT1"),
+            (14432, "DT1"),
+            (14504, "DT1"),
+            (14506, "DT1"),
+            (14723, "DT1"),
+            (14726, "DT1"),
+            (11328, "DT1"),
+            (11329, "DT1"),
+            (11330, "DT1"),
+            (11331, "DT1"),
+            (11332, "DT1"),
+            (11333, "DT1"),
+            (14430, "DT2"),
+            (14432, "DT2"),
+            (14504, "DT2"),
+            (14506, "DT2"),
+            (14723, "DT2"),
+            (14726, "DT2"),
+            (11328, "DT4"),
+            (11329, "DT4"),
+            (11330, "DT4"),
+            (11331, "DT4"),
+            (11332, "DT4"),
+            (11333, "DT4"),
+            (14430, "DT4"),
+            (14432, "DT4"),
+            (14504, "DT4"),
+            (14506, "DT4"),
+            (14723, "DT4"),
+            (14726, "DT4"),
+            (14430, "DT3"),
+            (14432, "DT3"),
+            (14723, "DT4"),
+            (14726, "DT3"),
+        ];
+        let mut checked = 0usize;
+        for (ordinal, label) in cases {
+            let Some(subgroup) = contexts.get(&ordinal) else {
+                continue;
+            };
+            let embedding =
+                SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
+            let table = line_table(subgroup.parent_sg, label);
+            let reference = subduce_line_at_parameter(
+                subgroup,
+                &embedding,
+                table,
+                official(),
+            )
+            .unwrap_or_else(|error| panic!("ordinal {ordinal} {label} t=1/4: {error}"));
+            for numerator in [5i128, 9, 13] {
+                let shifted = subduce_line_at_parameter(
+                    subgroup,
+                    &embedding,
+                    table,
+                    Rat::new(numerator, 4).unwrap(),
+                )
+                .unwrap_or_else(|error| panic!("ordinal {ordinal} {label} t={numerator}/4: {error}"));
+                assert_eq!(
+                    shifted.wave_vector(),
+                    reference.wave_vector(),
+                    "ordinal {ordinal} {label} t={numerator}/4 must share the canonical wave vector"
+                );
+                assert_eq!(
+                    target_rows(&shifted),
+                    target_rows(&reference),
+                    "ordinal {ordinal} {label} t={numerator}/4"
+                );
+                assert_eq!(
+                    shifted
+                        .blocks()
+                        .iter()
+                        .map(|block| (block.star_size(), block.arm_count(), block.block_dimension()))
+                        .collect::<Vec<_>>(),
+                    reference
+                        .blocks()
+                        .iter()
+                        .map(|block| (block.star_size(), block.arm_count(), block.block_dimension()))
+                        .collect::<Vec<_>>(),
+                    "ordinal {ordinal} {label} t={numerator}/4 block geometry"
+                );
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, 40, "every gauge-regression context must be present");
     }
 
     /// A constructed star reports the little dimension of its own

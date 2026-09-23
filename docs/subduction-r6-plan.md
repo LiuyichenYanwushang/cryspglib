@@ -83,15 +83,17 @@ R6.2 的覆盖说明必须逐条区分**已计算 / 有独立对照 / 仅内部�
 
 交付：线源完整分解入口 + 轨道化折叠修复 + 5 条常驻单元测试；审计的 w 门禁由
 Γ-only 路径升级为**完整分解**。实测：`t = 1/4` 下 5,756/5,756 条 pinned 行完整分解
-且恒等重数等于 pinned 频率（604.8 s，三门口禁 exit 0）；一般参数、特殊值两侧、手算
-臂数对照、外来源与越界点的负例全部通过（明细见 §16 的验收表）。
+且恒等重数等于 pinned 频率（604.8 s，三门口禁 exit 0）；一般参数、特殊值两侧、
+独立于多重度求解器的臂数对照、外来源与越界点的负例全部通过（明细见 §16 的验收表）。
+一般参数上**没有外部 oracle**：那里的证据级别是内部一致性加一条独立的几何计数，
+唯一的外部对照仍是 `t = 1/4` 的 pinned 频率（与全表审计），R6.2 必须如实分列。
 
 交付：`subduce_line_at_parameter(...)` 的完整分解（复用 `build_block`/`reconstruct`），
 先在少量有理参数点上跑通，再扩大。验收（三组，见 §5 的测试重点）：
 
-1. **已知点回归**：`t = 1/4`（官方参数约定，`LINE_PARAMETER`）下，完整分解算出的
-   **恒等重数**必须等于 pinned 频率行（独立来源：官方程序 `SHOW FREQUENCY`），覆盖
-   全部可得上下文；
+1. **已知点回归**：`t = 1/4`（官方参数约定，`OFFICIAL_LINE_PARAMETER`）下，完整分解
+   算出的**恒等重数**必须等于 pinned 频率行（独立来源：官方程序 `SHOW FREQUENCY`），
+   覆盖全部可得上下文；
 2. **一般位置与特殊值两侧**：一般 `t`（折叠 q 落一般位置）、`t` 使折叠 q 命中
    stored 子群 k、`t` 使折叠 q 落特殊点（非平凡小余群），以及这些特殊值**两侧**的
    精确有理点，都要有端到端样例；
@@ -106,14 +108,31 @@ R6.2 的覆盖说明必须逐条区分**已计算 / 有独立对照 / 仅内部�
 
 ## 4. 帧与参数约定（R6.0 必须写死的东西）
 
-* pinned `little_k` 的方向在母群 **primitive 倒格基**；官方 `DISPLAY KPOINT` 打印
-  **conventional** 帧（SG 196 `DT=(1,0,1)` ↔ 官方 `(0,2a,0)`）。冻结 little 特征标表
-  的 `direction` 字段是**官方打印的 conventional 方向**（例如 `("0","2","0")`）。
-* 引擎入口接受 `(表, 有理 t)`：`k_conv = t · direction`，再换算到母群 primitive 倒格
-  基后折叠（与 `line_trivial_content_via_blocks` 现有做法一致，见
-  `w_arm_count` 诊断记录）。
+**整套量都在母群 conventional 倒格坐标下**（R6.1 实测更正：本节早先写的"pinned
+`little_k` 在 primitive 倒格基、引擎要把 `k_conv` 换算到 primitive 再折叠"是**错的**，
+代码从来没有做过那次换算）：
+
+* 冻结 little 表的 `direction` 是**官方打印的 conventional 方向**（SG 196 `DT` 的
+  `("0","2","0")`），冻结的 little 群操作/平移也自述为 conventional 帧；
+* pinned `little_k` 同样是 conventional：SG 196 的 `X1 = (0,1,0)`、`L1 = (1,1,1)/2`
+  （primitive 读法应为 `X = (1/2,0,1/2)`）。`exact_primitive_basis` 只提供**格子**，
+  不改变坐标系；
+* 引擎入口接受 `(表, 有理 t)`：`k = t · direction`，**同一向量**直接进
+  `fold_wave_vector(T, k)`（`T` = 嵌入的精确仿射变换），臂集合、字符求值与折叠共用
+  这一个向量，没有任何二次换算；
+* 唯一一次"约化"是**规范波矢**：`k` 被约化进母群倒格基本胞
+  （`canonical_wave_vector`，用 `Lattice::new(exact_primitive_basis(parent)).reciprocal()`）。
+  冻结的 `D` 是纯 Γ 点字符，`(D, k)` 只在 `k` 取规范代表元时才是那张表描述的那个
+  母群 irrep；同一条约化对 5,756 条 pinned `t = 1/4` 波矢**零位移**，所以 R5 已验收的
+  约定原样保留（见 §16 的 R6.1 修复条目）。
+* 交叉证据：`10038 DT1` 在 `t = 1/4` 折出 6 个臂（2 + 4），little 群冻结为
+  `{E, C2y}`（正是 conventional 帧下 `(0,2,0)` 的稳定子，12/2 = 6），且
+  `parent_dimension = little_dim × arms = 6 = pinned DT1 dim`，三者同时吻合。
 * `t` 与 `t + Δ` 何时是同一个表示：当 `Δ · direction` 是母群倒格矢量（含 centering
-  消光）时相同。R6.1 用**可执行的等价性测试**钉住这一条，而不是写口号。
+  消光）时相同。R6.1 已用**可执行的等价性测试**钉住这一条
+  （`a_reciprocal_vector_shift_of_the_parameter_changes_nothing`，覆盖 40 条曾受
+  gauge 影响的 pinned 行在 `t = 5/4, 9/4, 13/4` 上与 `t = 1/4` 逐项相同），而不是只
+  写口号；一般位移规则的完整刻画仍属 R6.2。
 
 ## 5. 测试重点（reviewer 建议，写入验收）
 

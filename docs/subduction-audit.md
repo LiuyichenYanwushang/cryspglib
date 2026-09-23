@@ -40,14 +40,18 @@ CARGO_TARGET_DIR=$PWD/cryspglib/target cargo run --release -p cryspglib \
   SG 1）不是"空范围内通过"，而是 `empty scope` 错误、非零退出：零 probe 的报告
   证明不了任何事，CI 里按 (parent, ordinal) 循环时一个笔误不会冒充成功。
 - `--require-w-complete` 另外要求 5,756 条 `other_wave_vector_subduction` 也被
-  **引擎**计算。**现已闭合**：审计只走块路线
-  （`line_trivial_content_via_blocks`：把直线源的臂按 `LINE_PARAMETER = 1/4` 折叠、
-  归组后交给既有的 `build_block` 折叠/解块流程），逐行与 pinned 频率比较，
+  **引擎**计算。**现已闭合**：审计走 R6.1 的**完整分解**
+  （`subduce_line_at_parameter(..., official_line_parameter())`，即 `k = t·direction`
+  在 `OFFICIAL_LINE_PARAMETER = 1/4` 上折出子群轨道、逐块解重数后取
+  `trivial_content()`），逐行与 pinned 频率比较，
   实测 `w_scope: rows=5756 computed=5756 uncomputed=0 mismatched=0 engine_errors=0`，
   两个旧门禁同时开启仍退出 0、判词 `VERDICT complete scope=global`。
-  w 门禁只覆盖**恒等重数**；这些源的完整分解是独立范围（R6）。
+  这次升级替换掉了 R5 的 Γ-only 块路线（`line_trivial_content_via_blocks`：按
+  `t = 1/4` 折叠、归组后交给既有的 `build_block` 流程、只建 Γ 块），后者保留为常驻的
+  第二读数；R6.1 的完整分解与新的验收口径见
+  [subduction-conventions.md](subduction-conventions.md) §16。
   注意审计**不按期望答案选择算法**：不一致一律计入 `w_frequency_mismatch`，
-  块路线返回 `Err` 一律计入 `w_engine_error`；两个计数都已并入
+  分解返回 `Err` 一律计入 `w_engine_error`；两个计数都已并入
   `hard_failures()`，因此在任何开关组合下都退出 1（永久负例见 example 的
   `a_frequency_mismatch_fails_under_every_flag_combination` 与
   `a_w_engine_error_fails_under_every_flag_combination`）。
@@ -70,7 +74,7 @@ oracle 5,756 条 w 行对 pinned 5,756 条 w 行、0 不匹配**，其中 144 �
 | 范围 | 证据 | 状态 |
 |---|---|---|
 | 普通离散标量分导（15,239 记录 / 94,271 正项 / 366,260 probe / Γ Frobenius 1,895） | **cryspglib 引擎计算** + 几何与零项检查 | **范围内完全闭合**：366,260/366,260 个 probe 都是**完整分解**（`identity_only = missing = error = uncomputed = 0`），恒等正项 94,271/0 不匹配；正式报告见本文「R5：普通离散标量覆盖闭合」一节 |
-| 其它波矢 w 行（1,006 记录 / 5,756 行） | **cryspglib 引擎计算**（`line_trivial_content_via_blocks` + 冻结 little 特征标 73/73，单一算法、不按答案选择）+ 官方 `iso` live oracle 逐行复核 | **5,756/5,756 计算且与 pinned 相同**，`mismatched=0`、`engine_errors=0`；`--require-w-complete` 退出 0，判词 `VERDICT complete scope=global`。w API 目前只返回**恒等重数**（不含完整分解） |
+| 其它波矢 w 行（1,006 记录 / 5,756 行） | **cryspglib 引擎计算**（R6.1 起为 `subduce_line_at_parameter` 的**完整分解** + 冻结 little 特征标 73/73，单一算法、不按答案选择；R5 的 Γ-only 块路线保留为第二读数）+ 官方 `iso` live oracle 逐行复核 | **5,756/5,756 计算且与 pinned 相同**，`mismatched=0`、`engine_errors=0`；`--require-w-complete` 退出 0，判词 `VERDICT complete scope=global`。门禁比较的是**恒等重数**（`trivial_content()`），完整分解在 `t = 1/4` 上逐行算过（见 §16） |
 
 这 5,756 行的源现在**全部有冻结特征标**：
 `src/irrep/w_little_characters_data.rs` 覆盖 73/73（`W_LITTLE_CHARACTERS_UNRESOLVED`
@@ -80,8 +84,9 @@ SG 202/203/209/210 的 `DT3`/`DT4`（348 行）由小群配对路线闭合（Γ 
 pinned 源次序给出拆分，并用归档 CIR 在 X 点的字符逐操作交叉核对；详见
 `docs/isotropy-data-semantics.md` §4 与 `docs/task9-remaining-work.md`）。
 锚点回归：`tests/w_little_characters.rs`（6 项）。此后的轮次已在引擎侧完成
-Mackey/特征标求和（`line_trivial_content_via_blocks` 走既有 `build_block` 折叠/解块
-流程），把 5,756 行的频率全部算出并与 pinned 表逐行比较；下文的 Python 原型记录
+Mackey/特征标求和（R5 的 `line_trivial_content_via_blocks` 只建 Γ 块，R6.1 起改用
+`subduce_line_at_parameter` 的完整分解，两者都走既有 `build_block` 折叠/解块流程），
+把 5,756 行的频率全部算出并与 pinned 表逐行比较；下文的 Python 原型记录
 保留为历史推导。
 
 Mackey/特征标求和的 Python 原型（`target/task9/explore/proto_freq.py`，未入库）已把公式
@@ -413,7 +418,9 @@ CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
   --output target/r5_audit.tsv
 ```
 
-实测（2026-09-22，约 520 s，exit 0）：
+实测（2026-09-23，R5 收口轮 604.8 s、R6.1 升级后同一口径，均 exit 0；同一二进制上
+w 门禁由 Γ-only 换成完整分解的净代价实测约 **+4.8 s / 5,756 行**，见 §16 的计时说明。
+墙钟时间随机器负载浮动，604.8 s 与 reviewer 在并发负载下测得的 697.6 s 不是 A/B）：
 
 ```text
 coverage: embedded_records=15239/15239 positive_stored_compared=94271/94271
@@ -430,9 +437,11 @@ VERDICT complete scope=global
 ### 边界（这些不在 100% 里）
 
 * spinor / 双群分导：明确拒绝，单独扩展；
-* 参数化 k 源的**完整**分解（R6）：当前只算恒等重数（5,756 行），而且那 5,756 行是
-  **冻结在官方程序的参数约定 `t = 1/4`**（`subduction_star_decompose.rs` 的
-  `LINE_PARAMETER`）上的频率，不代表任意 t 都成立；
+* 参数化 k 源的**完整**分解（R6）：R6.1 已交付**单个显式参数值**的完整分解（能力 A），
+  但 R5 的 w 门禁只比较**恒等重数**；那 5,756 行是冻结在官方程序的参数约定
+  `OFFICIAL_LINE_PARAMETER = 1/4` 上的频率，**不代表任意 t 都成立**。一般 t 的参数域
+  边界（大分母的 fail-closed 上限、`t = 0` 一类的形式值）与整族覆盖说明（能力 B）
+  属 R6.2，见 [subduction-conventions.md](subduction-conventions.md) §16；
 * 磁共表示分导（R9–R11）：磁表只提供候选记录查询，不是经过验证的磁嵌入；
   230 个 Type-II/grey UNI 在磁表中没有记录，是数据来源边界；
 * 官方方向 descriptor（R7）与正式 API（R8）：`dim = 2`/`dim ≥ 4` 仍是内部记法，

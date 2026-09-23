@@ -582,12 +582,27 @@ pub fn subduce_line_at_parameter(
   （官方打印的 conventional 方向，例如 SG 196 `DT` 的 `("0","2","0")`）；臂、字符与
   折叠共用这一个向量，帧不再做二次换算。`t = 1/4` 是官方参数约定
   （`OFFICIAL_LINE_PARAMETER`），不是引擎选择。
+* **帧：整套量都在母群 conventional 倒格坐标下**（实测钉死，勿按"primitive 折算"实现）：
+  `direction`、pinned `little_k`（SG 196 `X1 = (0,1,0)`、`L1 = (1,1,1)/2`）与冻结
+  little 群操作都是 conventional 帧；`exact_primitive_basis` 只提供**格子**，不改变
+  坐标系；`fold_wave_vector` 直接作用在 `t·direction` 上，没有任何二次换算。
+* **规范波矢（R6.1 的 gauge 修复）**：冻结的 `D` 是纯 Γ 点字符，`(D, k)` 只在 `k` 取
+  规范代表元时才是那张表描述的母群 irrep，所以 `k` 先被约化进母群倒格基本胞
+  （`canonical_wave_vector`），每条臂的波矢取"规范中心 `k` 在该臂自身旋转下的像"。
+  不加这一步时，相差一个母群倒格矢的等价参数会解出**不同的子群 irrep**（ordinal
+  11328 SG 210 `DT3` 在 `t = 1/4` 给 `Z1`、`t = 5/4` 给 `Z2`，恒等重数相同、
+  两侧重构都通过，任何门禁都看不见；受影响 40 行，见
+  `a_reciprocal_vector_shift_of_the_parameter_changes_nothing`）。约化对 5,756 条
+  pinned `t = 1/4` 波矢零位移，所以 R5 已验收的约定原样保留。
 * 输出 `LineSubduction`：`parent_dimension = little_dim × arms`、每个折叠子群星一个
   `FullStarBlock`（`q`、`stored_k`、`star_size`、`arm_count`、`little_dimension`、
   `block_dimension`、目标表）、`reconstruction()`、`setting()/setting_denominator()`、
   `parameter()`、`wave_vector()`，以及 `trivial_content()`——恒等重数的两个读数
   （冻结 CIR 来源号与行标签）必须一致，否则 `TargetSourceMismatch`；子群没有唯一
-  恒等 Γ 行时 `MissingChildTrivialIrrep`，**绝不以 0 代替**。
+  恒等 Γ 行时 `MissingChildTrivialIrrep`，**绝不以 0 代替**。这两个变体是**表损坏
+  防御分支**：两个读数同源（同一 `ChildComponent` 的 `ml` 与 `irnumber`），唯一恒等
+  Γ 行又对 230 个 SG 钉死过，所以公网 API 在 pinned 数据上**不可达**，也没有负例；
+  它们与下面两条可达的失败语义不是同一等级，不要并列成"都已验证"。
 * 不变式（引擎内强制，失败即 `Err`）：`Σ mult × dim × star = parent_dimension`
   （`TotalDimensionMismatch`）、逐子群代表元的完整星重构（`ReconstructionMismatch`）、
   每个 q 块的 `χ(E) = block_dimension`（`QBlockIdentityMismatch`）。
@@ -608,12 +623,51 @@ R5 的 Γ-only 入口保留为 [`line_trivial_content_via_blocks`]，但审计�
 
 | 组 | 内容 | 结果 |
 |---|---|---|
-| 已知点 | `t = 1/4` 下**全部 5,756 条 pinned w 行**的完整分解，恒等重数 == pinned 频率 | 审计 `w_computed=5756/5756`、`mismatched=0`、`engine_errors=0`（604.8 s，三门口禁 exit 0）；另有 SG 196 的 106 行作为单元测试常驻 |
-| 一般位置 | child #1（`10038` `W1` `4D1`）`t = 1/7`：6 个构造块、每块 1 维、恒等重数 0 | 与**手算**臂数一致（0 条臂折到子群 Γ） |
-| 特殊值两侧 | 同一记录 `t = 1/4`（2 块：`Z1`×2 + `GM1`×4、恒等重数 4 == pinned）对 `t = 1/6`、`t = 1/3`（各 6 块、恒等重数 0） | 两侧都完整、都等于手算臂数；证明"参数变了结论就变" |
+| 已知点 | `t = 1/4` 下**全部 5,756 条 pinned w 行**的完整分解，恒等重数 == pinned 频率 | 审计 `w_computed=5756/5756`、`mismatched=0`、`engine_errors=0`、`hard_failures=0`（R6.1 升级当轮 604.8 s、规范波矢修复后复跑 557.0 s，三门口禁 exit 0）；另有 SG 196 的 106 行作为单元测试常驻 |
+| 一般位置 | child #1（`10038` `W1` `4D1`）`t = 1/7`：6 个构造块、每块 1 维、恒等重数 0 | 与**独立于多重度求解器的几何计数**一致（0 条臂折到子群 Γ；臂集合/帧/Γ 判定与引擎共用，所以这是第二读数而非外部 oracle） |
+| 特殊值两侧 | 同一记录 `t = 1/4`（2 块：`Z1`×2 + `GM1`×4、恒等重数 4 == pinned）对 `t = 1/6`、`t = 1/3`（各 6 块、恒等重数 0） | 两侧都完整、都等于几何计数（这一对的 `0 == 0` 只是弱断言，非零锚点是 `t = 1/4` 的 pinned 值）；证明"参数变了结论就变" |
 | 约定（个案） | `t = 1/4, 3/4, 5/4` 在该源上给出**逐目标相同**的分解 | 只钉这一例；一般位移规则属 R6.2 |
 | 失败语义 | 别家的 `table` → `LineSourceMismatch`；越界一般点 → `MissingChildStarData` | 两条负例都断言具体变体 |
 
-**仍未承诺**：`t` 的一般等价类（哪些位移保持同一个母群表示）只是个案观测；`t = 1/2`
-与 `t = 1` **不是**官方参数（pinned 频率各有不匹配）；由参数化源导出的"整族结论"、
-例外集与覆盖说明都留给 R6.2。
+**证据级别（防止把内部自洽写成外部正确）**：
+
+| 声明 | 证据级别 |
+|---|---|
+| `t = 1/4` 的**恒等重数** == pinned 频率（全 5,756 行） | **外部**：pinned 行来自官方程序 `SHOW FREQUENCY`，另经 `verify_w_subduction_oracle.py` 的 live oracle 双向比较 |
+| `t = 1/4` 的**完整分解**（维数守恒、逐代表元重构） | **内部一致性**：引擎自身的两个不变式；没有独立的完整分解 oracle（官方不打印载荷） |
+| 一般 `t` 的分解 | **内部一致性 + 一条独立几何计数**（只替换多重度求解器）；无外部 oracle |
+| 折叠点小余群非平凡的参数 | 单元测试里**没有**专门见证；只由审计的 5,756 行覆盖（那里含大量非平凡小余群点，且带 pinned 频率对照）。这是覆盖边界，不要写成"单元测试已覆盖" |
+| `MissingChildStarData` / `LineSourceMismatch` | 有常驻负例（断言具体变体） |
+| `MissingChildTrivialIrrep` / `TargetSourceMismatch` | **表损坏防御分支，公网 API 在 pinned 数据上不可达**（见上方失败语义条目），没有也无法写负例 |
+
+**能力 A 的参数定义域（诚实边界，全部由 5,756 行全表清点或指定记录实测）**：
+
+* **一般位置**：绝大多数 `t` 能给出完整分解，例如 `t = 1/7, 1/6, 1/3, 2/7` 各
+  `Ok = 5702/5756`，其余 `54/5756` 报 `MissingChildStarData`（子群 #123–#138 的
+  2 点子群星与 #221–#224 的 6 点子群星）；`t = 3/8` 报 30 条。原因是**折叠点的
+  小余群不在已构造的两族内**（>1 维射影族缺失 / 网格搜索超限），不是 pinned 数据
+  缺行，也不是"重数为零"。
+* **参数分母上限（fail-closed）**：小余群非平凡时要走
+  `subduction_catalogue::one_dimensional_characters` 的网格搜索，绑定门禁是
+  `MAX_GRID = 200_000`（另有 `MAX_ORDER = 6`、`MAX_WORK = 4_000_000`），
+  `modulus = lcm(cocycle 分母) × |P_q|`、`combinations = modulus^(生成元数)`。
+  实测 ordinal 10030 `DT1`（child #18，`|P_q| = 2`）：`t = 1/100000` 仍 `Ok`，
+  `t ≥ 1/1000000` 起 `MissingChildStarData`——边界正是 `2 × 10^5`，与 `MAX_GRID`
+  逐位吻合。超限返回空目录 → 显式错误，绝不返回部分结果或 0。
+  这不是"任意有理 t 都支持"：能力 A 的域是"分母足够小的有理 t"，R6.2 必须把这条
+  写进覆盖说明。
+* **`t = 0`（以及任何使 `t·v` 的稳定子严格大于冻结小群的 `t`）**：此时臂集合仍由
+  **direction** 生成，引擎回答的是"由冻结 little 群表示诱导出的形式表示"，**不是**
+  DT 线 irrep 在 Γ 的分导（后者不存在）。实测：`10030 DT1 t=0 → Ok(3) blocks=1`、
+  `13543 DT5 t=0 → Ok(0) blocks=1`、`10038 DT1 t=0 → Ok(6)`（对照 `t = 1/4` 分别是
+  `1`、`1`、`4`）。这是一个**形式值**，不是错误也不是物理结论；R6.2 必须显式分区，
+  并决定是否改成显式错误。
+* **计时**（同机同二进制，5,756 行顺序计时）：完整分解 `10.97 s` 对 R5 的 Γ-only
+  `6.13 s` + `trivial_content()` `0.01 s` ⇒ R6.1 升级的真实代价约 **+4.8 s**；
+  审计总时长的差异（517.1 / 557.0 / 604.8 s，reviewer 在并发负载下测得 697.6 s）是
+  机器负载，不是本次升级的成本，不要把两组墙钟并列当成 A/B。
+
+**仍未承诺**：`t` 的一般等价类（哪些位移保持同一个母群表示）只是个案观测（已知：
+`Δ·direction ∈ G*_parent` 时相同，且有 40 行回归）；`t = 1/2` 与 `t = 1` **不是**
+官方参数（pinned 频率各有不匹配）；由参数化源导出的"整族结论"、例外集与覆盖说明
+都留给 R6.2。

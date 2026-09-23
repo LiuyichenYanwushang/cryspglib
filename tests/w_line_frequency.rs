@@ -14,7 +14,8 @@ use cryspglib::irrep::isotropy::{self, IsotropySubgroup};
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::SubgroupEmbedding;
 use cryspglib::irrep::subduction::star::decompose::{
-    line_trivial_content_via_blocks, line_trivial_content_with_embedding,
+    line_trivial_content_via_blocks, line_trivial_content_with_embedding, official_line_parameter,
+    subduce_line_at_parameter,
 };
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::irrep::LabelConvention;
@@ -172,17 +173,31 @@ fn a_singular_record_basis_is_rejected() {
 
 #[test]
 fn the_block_route_is_the_public_route() {
-    // The retired hand-written sum disagreed with the pinned rows; the public
-    // entry point delegates, so both must answer identically everywhere.
+    // The legacy helper now delegates to the block route, so comparing the two
+    // would be `f(a) == f(a)`.  Compare against the **R6.1 public route**
+    // instead: the complete line decomposition at the official parameter, whose
+    // trivial content must equal the legacy frequency on every pinned row.
     for ordinal in [10030usize, 10032, 10033] {
         let subgroup = find(196, ordinal);
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
         for entry in subgroup.other_wave_vector_subduction().unwrap() {
             let table = table_for(&subgroup, entry.parent_ml);
+            let parameter = official_line_parameter().unwrap();
+            let complete = subduce_line_at_parameter(&subgroup, &embedding, table, parameter)
+                .unwrap_or_else(|error| panic!("ordinal {ordinal} {}: {error}", entry.parent_ml));
+            let trivial = complete
+                .trivial_content()
+                .unwrap_or_else(|error| panic!("ordinal {ordinal} {}: {error}", entry.parent_ml));
+            assert_eq!(
+                trivial,
+                u32::from(entry.frequency),
+                "ordinal {ordinal} {} pinned frequency",
+                entry.parent_ml
+            );
             assert_eq!(
                 line_trivial_content_with_embedding(&subgroup, &embedding, table),
-                line_trivial_content_via_blocks(&subgroup, &embedding, table),
-                "ordinal {ordinal} {}",
+                Ok(trivial),
+                "ordinal {ordinal} {} legacy route",
                 entry.parent_ml
             );
         }
