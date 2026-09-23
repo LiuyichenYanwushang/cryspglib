@@ -53,9 +53,8 @@ python3 scripts/check_other_wave_vector_rows.py
 `--tests` 不运行 example 内的回归；上面的 audit、census、probe 三个 example
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
-当前基线（2026-09-23，R5 收口 + 两轮内部复核 + 一次第三方复核处理后，`-p cryspglib`
-限定到本 crate）：
-lib `402 passed / 4 ignored`，全部测试二进制（`--tests`，22 个）`563 passed / 0 failed /
+当前基线（2026-09-23，R5 收口 + 复核处理后进入 R6.0/R6.1，`-p cryspglib` 限定到本 crate）：
+lib `407 passed / 4 ignored`，全部测试二进制（`--tests`，22 个）`568 passed / 0 failed /
 4 ignored`，doctest `27 passed`，
 example 审计回归 `19 passed`、缺口清点回归 `7 passed`、settings 探针回归 `2 passed`；
 严格 all-target clippy 通过（Cargo 仍报告既有
@@ -75,8 +74,9 @@ settings 管线：`test_subduction_settings.py` 10 passed（离线核对 15,239 
 全表审计（**三个门禁**：`--require-complete --require-w-complete
 --require-full-decomposition`）**同时退出 0**、判词 `VERDICT complete scope=global
 full_decomposition=complete`（`identity_rows=94271`、probe **366260/366260 完整分解、
-恒等-only 0**、w `5756/5756`、`engine_errors=0`、`hard_failures=0`，约 520–540 s
-（本仓库 521.7 s / 523.9 s，独立复核 541.0 s 与 535 s）；R4 批 2a 后 `366039 + 221`，
+恒等-only 0**、w `5756/5756`、`engine_errors=0`、`hard_failures=0`；R6.1 把 w 门禁从
+Γ-only 路径升级为**完整分解**后为 604.8 s，此前 Γ-only 口径 517.1–541.0 s）；
+R4 批 2a 后 `366039 + 221`，
 批 1 后 `357033 + 9227`，R2 后 `353382 + 12878`，R2 前 `351547 + 14713`）。普通离散标量
 覆盖在固定语料上已闭合（R5 验收清单：恒等正项 94,271/0 不匹配、Γ Frobenius
 1,895/1,895、w 行 5,756/0 错误，全部满足）；缺口清点的门禁用法是
@@ -3481,3 +3481,36 @@ reviewer 同时确认：历史表逐字节重生成属于**已披露、未解决
 区分保留在 `scripts/task9/README.md` 的 Provenance status 与审计报告的诚实边界里。
 本轮只改 Python 脚本与文档，Rust 侧未动，故不重跑全表审计（`c37d3b9` 的 517.1 s、
 三门口禁 exit 0 仍然有效）。
+
+### R6.0/R6.1：参数化 k 的完整分解（2026-09-23）
+
+计划、能力 A/B 的分界与验收清单见 `docs/subduction-r6-plan.md`；契约在
+`docs/subduction-conventions.md` §16。本轮交付：
+
+* **R6.0 契约**：`OFFICIAL_LINE_PARAMETER = (1, 4)` + `official_line_parameter()`，
+  新公开入口 `subduce_line_at_parameter(subgroup, embedding, table, parameter)` 与结果
+  类型 `LineSubduction`（`parent_dimension`、blocks、`reconstruction()`、
+  `trivial_content()`、setting 分子/分母、参数与波矢）。输入帧：`t · table.direction`
+  用冻结表自己存的方向；不支持一律显式报错（`LineSourceMismatch`、
+  `MissingChildStarData`、`MissingChildTrivialIrrep`、`TargetSourceMismatch`），
+  **绝不以 0 代替失败**。
+* **R6.1 端到端**：先在 SG 196 的 106 条 pinned 行上跑通（单元测试），再把审计的
+  w 门禁整体换成"官方参数下的完整分解"——5,756/5,756 条 pinned 行完整分解且恒等重数
+  等于 pinned 频率（604.8 s，三门口禁 exit 0，其余计数与 R5 完全一致）。
+* **修掉一个 R5 遗留的结构错误**：旧的 `line_folded_stars` 把每个约化 `q` 当成一个
+  子群星，而 `FoldedStar` 的语义是子群点群下的**轨道**；Γ-only 路径不做重构，所以
+  这个错误一直不可见，第一次在一般参数上做完整分解时重构在恒等元给出 12/8 而不是 6
+  才暴露。现在线源改用离散路径共享的 `fold_arms`（轨道划分 + 臂数一致性检查），
+  两个源的折叠几何统一。
+* **分支与失败语义的见证**：`10038`（SG 196 `W1` `4D1` → #1）在 `t = 1/4` 是
+  `Z1`×2 + `GM1`×4、恒等重数 4 == pinned，在两侧 `t = 1/6`、`t = 1/3` 变成 6 个
+  构造块、恒等重数 0（都等于手算臂数）；`t = 1/4, 3/4, 5/4` 在该源上逐目标相同
+  （只钉这一例，一般位移规则留 R6.2）；`13543` 的 `DT5` 在 `t = 1/7` 报
+  `MissingChildStarData{sg:136}`，同记录在 `t = 1/4` 正常——证明是参数问题而非记录问题。
+* 验证：lib `407 passed / 4 ignored`、测试二进制 `568 passed`、doctest 27、审计 example
+  19、缺口清点 7、settings 探针 2，严格 all-target clippy 零警告；全表审计 604.8 s
+  exit 0。
+
+**R6.2 待做**：参数区间与例外集、`t` 的一般等价类（现在只有个案观测）、5,756 行
+"任意 t 成立 / 仅特定 t 成立"的分档说明，以及覆盖说明里"已计算 / 有独立对照 /
+仅内部一致 / 不支持"四种证据级别的逐条列举。

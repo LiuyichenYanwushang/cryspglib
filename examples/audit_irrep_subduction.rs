@@ -1448,15 +1448,26 @@ origin={},{},{},{}",
                     match table {
                         Some(table) => {
                             self.counts.w_character_frozen += 1;
-                            // The block route is *the* computation; the pinned
-                            // value is only compared against it.  Selecting an
-                            // algorithm by its agreement with the expected answer
-                            // would hide exactly the errors this audit exists to
-                            // find.
+                            // R6.1: the **complete** decomposition at the
+                            // official parameter is *the* computation; the pinned
+                            // value is only compared against its trivial content.
+                            // Selecting an algorithm by its agreement with the
+                            // expected answer would hide exactly the errors this
+                            // audit exists to find.
                             if let Some(embedding) = embedding.as_ref() {
-                                match cryspglib::irrep::subduction::star::decompose::
-                                    line_trivial_content_via_blocks(subgroup, embedding, table)
-                                {
+                                let parameter = cryspglib::irrep::subduction::star::decompose::
+                                    official_line_parameter()
+                                    .map_err(|error| error.to_string())?;
+                                // A plain `match` (not `and_then`) keeps the
+                                // large error type out of a closure.
+                                let computed = match cryspglib::irrep::subduction::star::decompose::
+                                    subduce_line_at_parameter(
+                                        subgroup, embedding, table, parameter,
+                                    ) {
+                                    Ok(result) => result.trivial_content(),
+                                    Err(error) => Err(error),
+                                };
+                                match computed {
                                     Ok(value) if value == u32::from(entry.frequency) => {
                                         self.counts.w_computed += 1;
                                         w_status = "computed".to_string();

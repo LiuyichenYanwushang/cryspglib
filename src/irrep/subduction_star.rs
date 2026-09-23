@@ -979,9 +979,9 @@ impl FoldedPoint {
 
     /// Build one folded point from a folded wave vector and its parent arms.
     ///
-    /// The parametric-k line source folds the arms of a line rather than the
-    /// star of a discrete `k`, so it has to build these directly; see
-    /// `docs/task9-remaining-work.md` for the data shape.
+    /// Test-only synthetic constructor: the production folding path builds
+    /// points through `fold_arms`.
+    #[cfg(test)]
     pub(crate) fn from_parts(q: Vec3R, arm_indices: Vec<usize>) -> Self {
         Self { q, arm_indices }
     }
@@ -1027,8 +1027,8 @@ impl FoldedStar {
 
     /// Build one folded child star from its points and dimensions.
     ///
-    /// Same reason as [`FoldedPoint::from_parts`]: the parametric-k line source
-    /// produces folded stars that no `ScalarStar` ever builds.
+    /// Test-only synthetic constructor; see [`FoldedPoint::from_parts`].
+    #[cfg(test)]
     pub(crate) fn from_parts(
         points: Vec<FoldedPoint>,
         seed_dimension: usize,

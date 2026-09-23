@@ -556,3 +556,64 @@ isotropy 记录（如 `--parent 2 --ordinal 0`），现在直接报 `empty scope
 是计算失败（原因打到 stderr），`--profile` 同理输出 `profile=error` 而不是一个
 "少了若干项、可能恰好匹配目标"的更短 profile。
 
+
+## 16. R6.0/R6.1 契约：参数化 k 的完整分解（显式参数值）
+
+**能力 A（本轮交付）**：给定 `(isotropy 记录, 母群参数化源, 有理参数 t)`，算**这一个
+参数点**的完整分解；不承诺任何参数区间上的结论。能力 B（整个参数族的覆盖说明）留到
+R6.2，见 [subduction-r6-plan.md](subduction-r6-plan.md) §1。
+
+```rust
+pub const OFFICIAL_LINE_PARAMETER: (i128, i128) = (1, 4);
+pub fn official_line_parameter() -> Result<Rat, SubductionError>;
+pub fn subduce_line_at_parameter(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+    parameter: Rat,
+) -> Result<LineSubduction, FullStarError>;
+```
+
+输入/输出契约：
+
+* `table` 必须属于 `subgroup.parent_sg`（否则 `LineSourceMismatch`）；记录与嵌入必须
+  互相一致（与离散入口同一套 `StaleIsotropyRecord`/`EmbeddingContextMismatch` 校验）。
+* `parameter = t`：波矢是 `t · table.direction`，方向用的是**冻结表自己存的**那份
+  （官方打印的 conventional 方向，例如 SG 196 `DT` 的 `("0","2","0")`）；臂、字符与
+  折叠共用这一个向量，帧不再做二次换算。`t = 1/4` 是官方参数约定
+  （`OFFICIAL_LINE_PARAMETER`），不是引擎选择。
+* 输出 `LineSubduction`：`parent_dimension = little_dim × arms`、每个折叠子群星一个
+  `FullStarBlock`（`q`、`stored_k`、`star_size`、`arm_count`、`little_dimension`、
+  `block_dimension`、目标表）、`reconstruction()`、`setting()/setting_denominator()`、
+  `parameter()`、`wave_vector()`，以及 `trivial_content()`——恒等重数的两个读数
+  （冻结 CIR 来源号与行标签）必须一致，否则 `TargetSourceMismatch`；子群没有唯一
+  恒等 Γ 行时 `MissingChildTrivialIrrep`，**绝不以 0 代替**。
+* 不变式（引擎内强制，失败即 `Err`）：`Σ mult × dim × star = parent_dimension`
+  （`TotalDimensionMismatch`）、逐子群代表元的完整星重构（`ReconstructionMismatch`）、
+  每个 q 块的 `χ(E) = block_dimension`（`QBlockIdentityMismatch`）。
+* 失败语义与离散路径相同：折叠点子群表里没有、且小余群不在已构造的两族内 →
+  `MissingChildStarData`（见证：ordinal 13543 的 `DT5` 在 `t = 1/7` 报
+  `MissingChildStarData{sg:136}`，而同一条记录在 `t = 1/4` 正常分解——所以这是参数
+  问题而不是记录问题）。
+
+**R6.1 修掉的 R5 遗留结构错误（Γ-only 路径看不见）**：旧的 `line_folded_stars` 把每个
+约化 `q` 各当作一个子群星，而 `FoldedStar` 的语义是**子群点群下的轨道**。Γ-only 路径
+只建 Γ 块、从不做重构，所以这个错误一直被掩盖；第一次在一般参数上做完整分解时，重构
+在恒等元上给出 12（或 8）而不是 6，直接失败。现在改为复用离散路径的共享
+`fold_arms`（轨道划分 + 每个轨道内臂数一致性检查），线源与离散源的折叠几何彻底统一；
+R5 的 Γ-only 入口保留为 [`line_trivial_content_via_blocks`]，但审计的 w 门禁已经改用
+**完整分解**（见下）。
+
+**R6.1 验收（本轮实测）**：
+
+| 组 | 内容 | 结果 |
+|---|---|---|
+| 已知点 | `t = 1/4` 下**全部 5,756 条 pinned w 行**的完整分解，恒等重数 == pinned 频率 | 审计 `w_computed=5756/5756`、`mismatched=0`、`engine_errors=0`（604.8 s，三门口禁 exit 0）；另有 SG 196 的 106 行作为单元测试常驻 |
+| 一般位置 | child #1（`10038` `W1` `4D1`）`t = 1/7`：6 个构造块、每块 1 维、恒等重数 0 | 与**手算**臂数一致（0 条臂折到子群 Γ） |
+| 特殊值两侧 | 同一记录 `t = 1/4`（2 块：`Z1`×2 + `GM1`×4、恒等重数 4 == pinned）对 `t = 1/6`、`t = 1/3`（各 6 块、恒等重数 0） | 两侧都完整、都等于手算臂数；证明"参数变了结论就变" |
+| 约定（个案） | `t = 1/4, 3/4, 5/4` 在该源上给出**逐目标相同**的分解 | 只钉这一例；一般位移规则属 R6.2 |
+| 失败语义 | 别家的 `table` → `LineSourceMismatch`；越界一般点 → `MissingChildStarData` | 两条负例都断言具体变体 |
+
+**仍未承诺**：`t` 的一般等价类（哪些位移保持同一个母群表示）只是个案观测；`t = 1/2`
+与 `t = 1` **不是**官方参数（pinned 频率各有不匹配）；由参数化源导出的"整族结论"、
+例外集与覆盖说明都留给 R6.2。

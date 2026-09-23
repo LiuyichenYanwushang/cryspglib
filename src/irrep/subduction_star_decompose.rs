@@ -60,14 +60,14 @@ use crate::mathfunc::Mat3I;
 use super::super::{
     ComplexTarget, ExactSeitz, Lattice, Mat3R, Rat, SUBDUCTION_TOLERANCE, SubductionComponent,
     SubductionError, SubductionTarget, SubgroupEmbedding, Vec3R, bloch_phase, character_of,
-    exact_primitive_basis, fold_wave_vector, inline_k_vector, shift_operations,
+    exact_primitive_basis, inline_k_vector, shift_operations,
     solve_prepared_character_block, validate_record_and_embedding,
     strict_sg_hall_ops, validate_subduction_context,
 };
 use super::scalar_star::{ComponentStar, ConstructedStar, ScalarStar};
 use super::{
-    ConstructedLittleRep, FoldedPoint, FoldedStar, OrdinaryStar, StarError, arm_wave_vector,
-    catalogue,
+    ConstructedLittleRep, FoldArm, FoldedStar, OrdinaryStar, StarError, arm_wave_vector,
+    catalogue, fold_arms,
 };
 
 /// The identity rotation, as stored in every Hall operation table.
@@ -720,57 +720,6 @@ impl LineArmSource<'_> {
     }
 }
 
-/// Fold the star arms of a parametric-k line into the child's Brillouin zone
-/// and group them into folded child stars.
-///
-/// A discrete probe gets these from `ScalarStar::folded_stars`; the line source
-/// has to build them from the line's arms, which is the piece
-/// `docs/task9-remaining-work.md` records as the last structural gap before
-/// `build_block` can consume the line representation.  `parameter` is
-/// [`LINE_PARAMETER`], `dimension` the little dimension of the source, and the
-/// block of a group is `dimension * arms in the group`.
-fn line_folded_stars(
-    arms: &[(Vec3R, Mat3I)],
-    parameter: &Rat,
-    embedding: &SubgroupEmbedding,
-    child_reciprocal: &Lattice,
-    dimension: u32,
-) -> Result<Vec<FoldedStar>, FullStarError> {
-    let mut groups: Vec<(Vec3R, Vec<usize>)> = Vec::new();
-    for (index, (arm, _)) in arms.iter().enumerate() {
-        let mut scaled = [Rat::ZERO; 3];
-        for (axis, value) in scaled.iter_mut().enumerate() {
-            *value = parameter.checked_mul(arm.get(axis))?;
-        }
-        let q = fold_wave_vector(embedding.transform(), &Vec3R::new(scaled))?;
-        let reduced = child_reciprocal.reduce(&q)?.representative;
-        match groups.iter_mut().find(|(existing, _)| *existing == reduced) {
-            Some((_, indices)) => indices.push(index),
-            None => groups.push((reduced, vec![index])),
-        }
-    }
-    let mut stars = Vec::with_capacity(groups.len());
-    for (q, indices) in groups {
-        let arm_count = indices.len();
-        let block = dimension
-            .checked_mul(u32::try_from(arm_count).map_err(|_| SubductionError::RationalOverflow {
-                operation: "line folded star arms",
-            })?)
-            .ok_or(SubductionError::RationalOverflow {
-                operation: "line folded star block",
-            })?;
-        stars.push(FoldedStar::from_parts(
-            vec![FoldedPoint::from_parts(q, indices)],
-            usize::try_from(dimension).unwrap_or(0),
-            arm_count,
-            block,
-        ));
-    }
-    Ok(stars)
-}
-
-
-
 /// Multiplicity of the subgroup's **trivial** representation in the subduction
 /// of one scalar parent probe.
 ///
@@ -881,7 +830,16 @@ pub fn trivial_content_with_embedding(
 /// different parameter is a different representation of the *parent* group, so
 /// this is the program's convention rather than an engine choice; it is pinned
 /// here and the whole pinned table validates it in the audit.
-const LINE_PARAMETER: (i128, i128) = (1, 4);
+pub const OFFICIAL_LINE_PARAMETER: (i128, i128) = (1, 4);
+
+/// The official parameter as an exact rational.
+///
+/// The constant cannot fail `Rat::new`; the `Result` exists so callers never
+/// unwrap (the audit and the R6 tests both build the value from here rather than
+/// repeating the literal).
+pub fn official_line_parameter() -> Result<Rat, SubductionError> {
+    Rat::new(OFFICIAL_LINE_PARAMETER.0, OFFICIAL_LINE_PARAMETER.1)
+}
 
 /// The frozen table's direction as an exact rational vector.
 fn line_direction(table: &LittleCharacterTable) -> Result<Vec3R, FullStarError> {
@@ -931,18 +889,57 @@ pub fn line_trivial_content_with_embedding(
     line_trivial_content_via_blocks(subgroup, embedding, table)
 }
 
-/// The same frequency computed through `build_block` instead of the hand-written
-/// per-arm sum.
+/// The arms of a parametric-k line: the images of its direction under the
+/// parent's own operations, deduplicated exactly.
 ///
-/// Folds the line's arms into the child's zone with [`line_folded_stars`], reads
-/// the child Gamma block through the same `build_block` stage the discrete probes
-/// use, and extracts the child's trivial row exactly as
-/// [`trivial_content_with_embedding`] does.
-pub fn line_trivial_content_via_blocks(
+/// The direction comes from the frozen little-character table (the frame the
+/// official program prints it in); the same vector is what the parameter
+/// multiplies in [`line_wave_vector`], so arms, characters and folding all speak
+/// one frame.
+fn line_arms(
     subgroup: &IsotropySubgroup,
     embedding: &SubgroupEmbedding,
     table: &'static LittleCharacterTable,
-) -> Result<u32, FullStarError> {
+    direction: &Vec3R,
+) -> Result<Vec<(Vec3R, Mat3I)>, FullStarError> {
+    let parent_lattice = embedding.parent_lattice();
+    let parent_ops =
+        parent_lattice.deduplicate(&strict_sg_hall_ops(subgroup.parent_sg)?.operations)?;
+    let mut arms: Vec<(Vec3R, Mat3I)> = Vec::new();
+    for operation in &parent_ops {
+        let rotation = operation.rotation();
+        let action = Mat3R::from_ints(rotation).inverse()?.transpose();
+        let image = action.checked_mul_vector(direction)?;
+        if arms.iter().any(|(arm, _)| *arm == image) {
+            continue;
+        }
+        arms.push((image, rotation));
+    }
+    if arms.is_empty() {
+        return Err(FullStarError::MissingLineRotation {
+            sg: table.space_group,
+            label: table.label,
+        });
+    }
+    Ok(arms)
+}
+
+/// `k = t . direction` as an exact vector; `t` is the caller's rational
+/// parameter and `direction` the frozen table's own direction.
+fn line_wave_vector(direction: &Vec3R, parameter: &Rat) -> Result<Vec3R, FullStarError> {
+    let mut scaled = [Rat::ZERO; 3];
+    for (axis, value) in scaled.iter_mut().enumerate() {
+        *value = parameter.checked_mul(direction.get(axis))?;
+    }
+    Ok(Vec3R::new(scaled))
+}
+
+/// Validate the context shared by every line entry point.
+fn validate_line_context(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+) -> Result<(), FullStarError> {
     // Reuse the production context validation: the record must still be the
     // stored one (a mutated basis, origin, subgroup number or irrep context is a
     // `StaleIsotropyRecord`) and the embedding must have been built from it.
@@ -956,33 +953,59 @@ pub fn line_trivial_content_via_blocks(
             label: table.label,
         });
     }
+    Ok(())
+}
 
-    let parent_lattice = embedding.parent_lattice();
-    let parent_ops =
-        parent_lattice.deduplicate(&strict_sg_hall_ops(subgroup.parent_sg)?.operations)?;
-    let direction = line_direction(table)?;
-    let mut arms: Vec<(Vec3R, Mat3I)> = Vec::new();
-    for operation in &parent_ops {
-        let rotation = operation.rotation();
-        let action = Mat3R::from_ints(rotation).inverse()?.transpose();
-        let image = action.checked_mul_vector(&direction)?;
-        if arms.iter().any(|(arm, _)| *arm == image) {
-            continue;
+/// Fold a parametric-k line's arms into the child's zone and partition them into
+/// **child stars**.
+///
+/// The line's arm list is `(image of the direction, parent rotation)` at one
+/// parameter value; this turns it into the same `FoldArm` geometry the discrete
+/// star adapters use, so the folded blocks are child *orbits* (one block per
+/// orbit, each carrying every arm that folds onto one of its points) and the
+/// reconstruction invariant is the discrete one.  Treating each folded q as its
+/// own star instead would count a multi-point child orbit once per point: the
+/// R5 Gamma-only path never reconstructed, so it could not see that; the first
+/// full decomposition at a generic `t` did (identity character 12 or 8 instead of
+/// 6 in the probe that motivated this helper).
+fn line_folded_arms(
+    arms: &[(Vec3R, Mat3I)],
+    parameter: &Rat,
+    embedding: &SubgroupEmbedding,
+    little_dimension: u8,
+) -> Result<Vec<FoldedStar>, FullStarError> {
+    let mut folded = Vec::with_capacity(arms.len());
+    for (direction, _) in arms {
+        let mut scaled = [Rat::ZERO; 3];
+        for (axis, value) in scaled.iter_mut().enumerate() {
+            *value = parameter.checked_mul(direction.get(axis))?;
         }
-        arms.push((image, rotation));
-    }
-    if arms.is_empty() {
-        return Err(FullStarError::MissingLineRotation {
-            sg: table.space_group,
-            label: table.label,
+        folded.push(FoldArm {
+            wave_vector: Vec3R::new(scaled),
+            dimension: usize::from(little_dimension),
         });
     }
-    let parameter = Rat::new(LINE_PARAMETER.0, LINE_PARAMETER.1)?;
-    let mut scaled = [Rat::ZERO; 3];
-    for (axis, value) in scaled.iter_mut().enumerate() {
-        *value = parameter.checked_mul(direction.get(axis))?;
-    }
-    let wave_vector = Vec3R::new(scaled);
+    Ok(fold_arms(embedding, embedding.parent_sg(), &folded)?)
+}
+
+/// The same frequency computed through `build_block` instead of the hand-written
+/// per-arm sum.
+///
+/// Folds the line's arms into the child's zone with the shared [`fold_arms`], reads
+/// the child Gamma block through the same `build_block` stage the discrete probes
+/// use, and extracts the child's trivial row exactly as
+/// [`trivial_content_with_embedding`] does.
+pub fn line_trivial_content_via_blocks(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+) -> Result<u32, FullStarError> {
+    validate_line_context(subgroup, embedding, table)?;
+
+    let direction = line_direction(table)?;
+    let arms = line_arms(subgroup, embedding, table, &direction)?;
+    let parameter = Rat::new(OFFICIAL_LINE_PARAMETER.0, OFFICIAL_LINE_PARAMETER.1)?;
+    let wave_vector = line_wave_vector(&direction, &parameter)?;
     let arms: &[(Vec3R, Mat3I)] = &arms;
     let parameter = &parameter;
     let wave_vector = &wave_vector;
@@ -1004,13 +1027,7 @@ pub fn line_trivial_content_via_blocks(
         wave_vector: *wave_vector,
         arms,
     };
-    let stars = line_folded_stars(
-        arms,
-        parameter,
-        embedding,
-        &child_reciprocal,
-        u32::from(table.dimension),
-    )?;
+    let stars = line_folded_arms(arms, parameter, embedding, table.dimension)?;
     let mut total = 0u32;
     for star in &stars {
         let mut is_gamma = false;
@@ -1037,6 +1054,235 @@ pub fn line_trivial_content_via_blocks(
         }
     }
     Ok(total)
+}
+
+/// The complete subduction of one parametric-k line at **one explicit
+/// parameter value** (`k = t . direction`).
+///
+/// This is R6's *ability A*: the whole folded-star decomposition of the parent
+/// line irrep at a rational `t`, with the same invariants the discrete entry
+/// point enforces (dimension conservation, integral multiplicities, per-arm
+/// reconstruction of the parent character).  It is **not** a statement about a
+/// parameter range: a different `t` is a different parent representation and has
+/// to be asked for separately (see `docs/subduction-r6-plan.md` §1).
+///
+/// Failure semantics are the discrete ones: a folded child star whose little
+/// co-group is outside the constructed families and whose `q` matches no stored
+/// child row is a [`FullStarError::MissingChildStarData`] error, never a zero
+/// result.  A table from another parent is [`FullStarError::LineSourceMismatch`],
+/// and a stale record/embedding pair fails exactly as in the discrete path.
+pub fn subduce_line_at_parameter(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+    parameter: Rat,
+) -> Result<LineSubduction, FullStarError> {
+    validate_line_context(subgroup, embedding, table)?;
+    let direction = line_direction(table)?;
+    let arms = line_arms(subgroup, embedding, table, &direction)?;
+    let wave_vector = line_wave_vector(&direction, &parameter)?;
+    let child_sg = embedding.subgroup_sg();
+    let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
+    let child_reciprocal = child_cell.reciprocal()?;
+    let source = LineArmSource {
+        table,
+        direction,
+        wave_vector,
+        arms: &arms,
+    };
+    let stars = line_folded_arms(&arms, &parameter, embedding, table.dimension)?;
+    // The parent full-star dimension of a line irrep is `little dim x arms`: the
+    // frozen table's `dimension` is the little dimension and the arms are the
+    // star of the line.
+    let arm_count = u32::try_from(arms.len()).map_err(|_| {
+        SubductionError::RationalOverflow {
+            operation: "line arm count",
+        }
+    })?;
+    let parent_dimension =
+        u32::from(table.dimension)
+            .checked_mul(arm_count)
+            .ok_or(SubductionError::RationalOverflow {
+                operation: "line full-star dimension",
+            })?;
+
+    let source = ArmCharacterSource::Line(&source);
+    let mut blocks = Vec::with_capacity(stars.len());
+    let mut covered = 0u32;
+    for star in &stars {
+        let block = build_block(embedding, &source, star, &child_cell, &child_reciprocal)?;
+        covered = covered.checked_add(block.block_dimension()).ok_or(
+            SubductionError::RationalOverflow {
+                operation: "line full-star dimension",
+            },
+        )?;
+        blocks.push(block);
+    }
+    if covered != parent_dimension {
+        return Err(FullStarError::TotalDimensionMismatch {
+            expected: parent_dimension,
+            found: covered,
+        });
+    }
+    let (parent_characters, reconstructed) = reconstruct(embedding, &source, &blocks)?;
+    Ok(LineSubduction {
+        parent_sg: subgroup.parent_sg,
+        label: table.label,
+        k_label: table.k_label,
+        parameter,
+        wave_vector,
+        subgroup_sg: child_sg,
+        ordinal: embedding.ordinal(),
+        setting: embedding.setting(),
+        setting_denominator: embedding.setting_denominator(),
+        parent_dimension,
+        blocks,
+        representatives: embedding.representatives().to_vec(),
+        parent_characters,
+        reconstructed,
+        tolerance: SUBDUCTION_TOLERANCE,
+    })
+}
+
+/// The full decomposition of one parametric-k line irrep at one parameter
+/// value; see [`subduce_line_at_parameter`].
+#[derive(Debug, Clone)]
+pub struct LineSubduction {
+    parent_sg: u8,
+    label: &'static str,
+    k_label: &'static str,
+    parameter: Rat,
+    wave_vector: Vec3R,
+    subgroup_sg: u8,
+    ordinal: usize,
+    setting: Mat3I,
+    setting_denominator: i32,
+    parent_dimension: u32,
+    blocks: Vec<FullStarBlock>,
+    representatives: Vec<ExactSeitz>,
+    parent_characters: Vec<Complex64>,
+    reconstructed: Vec<Complex64>,
+    tolerance: f64,
+}
+
+impl LineSubduction {
+    /// Parent space group number.
+    pub const fn parent_sg(&self) -> u8 {
+        self.parent_sg
+    }
+
+    /// Compact little-irrep label of the source, e.g. `DT1`.
+    pub const fn label(&self) -> &'static str {
+        self.label
+    }
+
+    /// Program label of the k domain, e.g. `DT`.
+    pub const fn k_label(&self) -> &'static str {
+        self.k_label
+    }
+
+    /// The exact parameter `t` this result belongs to.
+    pub const fn parameter(&self) -> &Rat {
+        &self.parameter
+    }
+
+    /// `t . direction` in the frozen table's own frame.
+    pub const fn wave_vector(&self) -> &Vec3R {
+        &self.wave_vector
+    }
+
+    /// Subgroup space group number.
+    pub const fn subgroup_sg(&self) -> u8 {
+        self.subgroup_sg
+    }
+
+    /// Isotropy record ordinal of the embedding.
+    pub const fn ordinal(&self) -> usize {
+        self.ordinal
+    }
+
+    /// Numerator of the embedding's setting transform; the exact matrix is
+    /// `setting() / setting_denominator()`.
+    pub const fn setting(&self) -> Mat3I {
+        self.setting
+    }
+
+    /// Denominator of the setting transform, always positive.
+    pub const fn setting_denominator(&self) -> i32 {
+        self.setting_denominator
+    }
+
+    /// Full-star dimension of the line irrep: little dimension x arms.
+    pub const fn parent_dimension(&self) -> u32 {
+        self.parent_dimension
+    }
+
+    /// Folded child-star blocks, one per distinct folded `q`.
+    pub fn blocks(&self) -> &[FullStarBlock] {
+        &self.blocks
+    }
+
+    /// Subgroup coset representatives the reconstruction was checked on.
+    pub fn representatives(&self) -> &[ExactSeitz] {
+        &self.representatives
+    }
+
+    /// The parent line character on the subgroup representatives and its
+    /// reconstruction from the reported child irreps (equal entries are the
+    /// witness that the decomposition is complete in the parent frame).
+    pub fn reconstruction(&self) -> (&[Complex64], &[Complex64]) {
+        (&self.parent_characters, &self.reconstructed)
+    }
+
+    /// Tolerance used for the multiplicity, dimension and reconstruction checks.
+    pub const fn tolerance(&self) -> f64 {
+        self.tolerance
+    }
+
+    /// Total parent subspace accounted for by the reported blocks; equal to
+    /// [`Self::parent_dimension`] by construction.
+    pub fn covered_dimension(&self) -> u32 {
+        self.blocks.iter().map(FullStarBlock::block_dimension).sum()
+    }
+
+    /// Multiplicity of the subgroup's trivial representation in this
+    /// decomposition, read through the child's frozen CIR source number and
+    /// cross-checked against the child row's label -- the same two readings the
+    /// R5 audit compares against the pinned identity table.
+    ///
+    /// Errors instead of guessing: a missing or ambiguous trivial child row is
+    /// [`FullStarError::MissingChildTrivialIrrep`], and two readings that
+    /// disagree are a [`FullStarError::TargetSourceMismatch`].
+    pub fn trivial_content(&self) -> Result<u32, FullStarError> {
+        let trivial = trivial_child_record(self.subgroup_sg)
+            .ok_or(FullStarError::MissingChildTrivialIrrep { sg: self.subgroup_sg })?;
+        let cir = match trivial.source_identity() {
+            IrrepSourceIdentity::OrdinaryScalar { cir_irnumber } => cir_irnumber,
+            IrrepSourceIdentity::Compound { .. } | IrrepSourceIdentity::Spin { .. } => {
+                return Err(FullStarError::MissingChildTrivialIrrep { sg: self.subgroup_sg });
+            }
+        };
+        let mut total = 0u32;
+        for block in &self.blocks {
+            for target in block.targets() {
+                if target.dimension == trivial.dim && target.irnumber == Some(cir) {
+                    total += target.multiplicity;
+                }
+            }
+        }
+        let by_label: u32 = self
+            .blocks
+            .iter()
+            .map(|block| block.multiplicity(trivial.ml))
+            .sum();
+        if total != by_label {
+            return Err(FullStarError::TargetSourceMismatch {
+                sg: self.subgroup_sg,
+                ml: trivial.ml,
+            });
+        }
+        Ok(total)
+    }
 }
 
 /// The child table's trivial row: one-dimensional, at Gamma, and `+1` on every
@@ -1092,12 +1338,13 @@ fn decompose_folded_stars(
     let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
     let child_reciprocal = child_cell.reciprocal()?;
 
+    let source = ArmCharacterSource::Cir(star);
     let mut blocks = Vec::with_capacity(folded.len());
     let mut covered = 0u32;
     for folded_star in folded {
         let block = build_block(
             embedding,
-            &ArmCharacterSource::Cir(star),
+            &source,
             folded_star,
             &child_cell,
             &child_reciprocal,
@@ -1116,7 +1363,7 @@ fn decompose_folded_stars(
         });
     }
 
-    let (parent_characters, reconstructed) = reconstruct(embedding, star, &blocks)?;
+    let (parent_characters, reconstructed) = reconstruct(embedding, &source, &blocks)?;
     Ok(FullStarSubduction {
         parent_sg: star.parent_sg(),
         parent_ml: star.probe_ml(),
@@ -1240,6 +1487,26 @@ impl ArmCharacterSource<'_> {
         match self {
             Self::Cir(star) => star.q_block_character(arm_indices, operation),
             Self::Line(source) => source.q_block_character(arm_indices, operation),
+        }
+    }
+
+    /// Character of the **whole** parent star on one parent operation.
+    ///
+    /// `build_block` reads a single q-block (the arms folding onto one child
+    /// point); the independent reconstruction instead needs the parent star's
+    /// value on each subgroup representative, which is the sum over every arm.
+    /// Both sources answer that from the same per-arm data, so the line path
+    /// gets the same reconstruction gate as the discrete one.
+    fn full_character(&self, operation: &ExactSeitz) -> Result<Complex64, FullStarError> {
+        match self {
+            Self::Cir(star) => Ok(star.character(operation)?),
+            Self::Line(source) => {
+                let mut value = Complex64::new(0.0, 0.0);
+                for index in 0..source.arms.len() {
+                    value += source.q_block_character(&[index], operation)?;
+                }
+                Ok(value)
+            }
         }
     }
 }
@@ -2067,14 +2334,14 @@ fn build_evaluator(
 /// the two sides.
 fn reconstruct(
     embedding: &SubgroupEmbedding,
-    star: &ScalarStar,
+    source: &ArmCharacterSource,
     blocks: &[FullStarBlock],
 ) -> Result<(Vec<Complex64>, Vec<Complex64>), FullStarError> {
     let representatives = embedding.representatives();
     let mut parent_characters = Vec::with_capacity(representatives.len());
     let mut pulled_back = Vec::with_capacity(representatives.len());
     for operation in representatives {
-        parent_characters.push(star.character(operation)?);
+        parent_characters.push(source.full_character(operation)?);
         let child = embedding.transform().unmap_operation(operation)?;
         pulled_back.push(
             shift_operations(
@@ -2108,6 +2375,7 @@ fn reconstruct(
 mod tests {
     use super::*;
     use crate::irrep::LabelConvention;
+    use crate::irrep::subduction::star::FoldedPoint;
     use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
     use crate::irrep::subduce_irrep;
     use crate::irrep::subduction::subduce_irrep_with_embedding;
@@ -3690,6 +3958,307 @@ mod tests {
             compact.setting_denominator(),
             gamma_embedding.setting_denominator()
         );
+    }
+
+    /// Every ordinary isotropy record of the pinned table, keyed by ordinal.
+    fn subgroups() -> std::collections::BTreeMap<usize, IsotropySubgroup> {
+        let mut table = std::collections::BTreeMap::new();
+        for sg in 1..=230u8 {
+            for record in query::irreps_of(sg) {
+                if record.spinor || record.subgroups().is_empty() {
+                    continue;
+                }
+                let Ok(records) =
+                    crate::irrep::isotropy::isotropy_subgroups(sg, record.ml, LabelConvention::Cdml)
+                else {
+                    continue;
+                };
+                for subgroup in records {
+                    table.insert(subgroup.ordinal, subgroup);
+                }
+            }
+        }
+        table
+    }
+
+    // ── R6.1: the parametric-k line at one explicit parameter value ──────────
+
+    /// The frozen little-character table of one parent and source label.
+    fn line_table(parent: u8, label: &str) -> &'static LittleCharacterTable {
+        crate::irrep::w_little_characters_data::W_LITTLE_CHARACTERS
+            .iter()
+            .find(|table| {
+                usize::from(table.space_group) == usize::from(parent) && table.label == label
+            })
+            .unwrap_or_else(|| panic!("SG {parent} has no frozen line source {label}"))
+    }
+
+    /// The number of parent arms whose `t . arm` folds onto the child's Gamma
+    /// point, times the little dimension: the closed form the trivial content of
+    /// a **trivial-little-co-group child** must equal.
+    ///
+    /// This deliberately does not touch the character/multiplicity machinery: it
+    /// folds each arm and counts, which is the geometric statement.  (The child
+    /// must have a trivial little co-group at every folded point for the closed
+    /// form to apply, which is why it is only used with child #1.)
+    fn arms_folding_to_child_gamma(
+        subgroup: &IsotropySubgroup,
+        embedding: &SubgroupEmbedding,
+        table: &'static LittleCharacterTable,
+        parameter: &Rat,
+    ) -> u32 {
+        let direction = line_direction(table).expect("direction");
+        let arms = line_arms(subgroup, embedding, table, &direction).expect("arms");
+        let child_cell = Lattice::new(exact_primitive_basis(embedding.subgroup_sg()).unwrap())
+            .expect("child cell");
+        let child_reciprocal = child_cell.reciprocal().expect("child reciprocal");
+        let mut count = 0u32;
+        for (arm, _) in &arms {
+            let mut scaled = [Rat::ZERO; 3];
+            for (axis, value) in scaled.iter_mut().enumerate() {
+                *value = parameter.checked_mul(arm.get(axis)).expect("scaled arm");
+            }
+            let q = crate::irrep::subduction::fold_wave_vector(
+                embedding.transform(),
+                &Vec3R::new(scaled),
+            )
+            .expect("folded arm");
+            if child_reciprocal.contains(&q).expect("gamma test") {
+                count += 1;
+            }
+        }
+        count * u32::from(table.dimension)
+    }
+
+    /// One target per block as `(multiplicity, dimension, label, source)`, in the
+    /// block order, so two decompositions can be compared structurally.
+    fn target_rows(result: &LineSubduction) -> Vec<(u32, u8, Option<&'static str>, Option<u32>)> {
+        result
+            .blocks()
+            .iter()
+            .flat_map(|block| {
+                block
+                    .targets()
+                    .iter()
+                    .map(|target| {
+                        (target.multiplicity, target.dimension, target.ml, target.irnumber)
+                    })
+            })
+            .collect()
+    }
+
+    fn assert_line_invariants(result: &LineSubduction) {
+        assert_eq!(
+            result.covered_dimension(),
+            result.parent_dimension(),
+            "the blocks must cover the line's full-star dimension"
+        );
+        let (parent, reconstructed) = result.reconstruction();
+        assert_eq!(parent.len(), reconstructed.len());
+        for (found, expected) in reconstructed.iter().zip(parent) {
+            assert!(
+                (found - expected).norm() <= result.tolerance(),
+                "reconstruction {found} != {expected}"
+            );
+        }
+    }
+
+    /// R6.1 known-point regression: at the official parameter `t = 1/4` the
+    /// **complete** decomposition of every pinned SG 196 line row carries the
+    /// pinned identity frequency (the pinned rows come from the official
+    /// program, so this is an external comparison, not internal consistency).
+    #[test]
+    fn the_official_line_parameter_reproduces_the_pinned_frequencies_of_sg_196() {
+        let contexts = subgroups();
+        let mut rows = 0usize;
+        for (ordinal, subgroup) in &contexts {
+            if subgroup.parent_sg != 196 {
+                continue;
+            }
+            let Ok(pinned) = subgroup.other_wave_vector_subduction() else {
+                continue;
+            };
+            if pinned.is_empty() {
+                continue;
+            }
+            let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
+            for row in &pinned {
+                let table = line_table(196, row.parent_ml);
+                let parameter = Rat::new(1, 4).unwrap();
+                let result = subduce_line_at_parameter(subgroup, &embedding, table, parameter)
+                    .unwrap_or_else(|error| {
+                        panic!("ordinal {ordinal} {} t=1/4: {error}", row.parent_ml)
+                    });
+                assert_line_invariants(&result);
+                let trivial = result.trivial_content().expect("trivial content");
+                assert_eq!(
+                    trivial,
+                    u32::from(row.frequency),
+                    "ordinal {ordinal} {} t=1/4",
+                    row.parent_ml
+                );
+                rows += 1;
+            }
+        }
+        // SG 196's pinned line rows; pinned so a shrinking sweep fails.
+        assert_eq!(rows, 106, "SG 196 pinned line rows");
+    }
+
+    /// A generic parameter is answered by the constructed Bloch phases: no stored
+    /// child row is used, every folded q is its own one-dimensional child irrep,
+    /// and the trivial content is the **hand-computed** number of arms folding
+    /// onto the child's Gamma point (zero here).
+    #[test]
+    fn a_generic_line_parameter_decomposes_into_constructed_targets() {
+        let subgroup = subgroup_of(196, "W1", "4D1");
+        let embedding = embedding(196, "W1", "4D1");
+        assert_eq!(embedding.subgroup_sg(), 1);
+        let table = line_table(196, "DT1");
+        let parameter = Rat::new(1, 7).unwrap();
+        let result = subduce_line_at_parameter(&subgroup, &embedding, table, parameter)
+            .expect("a generic parameter decomposes");
+        assert_line_invariants(&result);
+        assert_eq!(result.parent_dimension(), 6);
+        assert_eq!(result.blocks().len(), 6, "one block per distinct folded q");
+        assert!(
+            result
+                .blocks()
+                .iter()
+                .all(|block| block.targets().iter().all(|target| matches!(
+                    target.component,
+                    SubductionComponent::Constructed { .. }
+                ))),
+            "a generic point has no stored child row"
+        );
+        let hand = arms_folding_to_child_gamma(&subgroup, &embedding, table, &parameter);
+        assert_eq!(hand, 0, "no arm folds onto the child Gamma at t = 1/7");
+        assert_eq!(result.trivial_content().unwrap(), hand);
+    }
+
+    /// The special value `t = 1/4` and its two neighbours: the decomposition is
+    /// complete on both sides, but only the special value carries the pinned
+    /// frequency, and the trivial content equals the hand-computed arm count in
+    /// all three cases.
+    #[test]
+    fn a_special_line_parameter_differs_from_its_neighbours() {
+        let subgroup = subgroup_of(196, "W1", "4D1");
+        let embedding = embedding(196, "W1", "4D1");
+        let table = line_table(196, "DT1");
+        let pinned = 4u32;
+
+        let special = Rat::new(1, 4).unwrap();
+        let result = subduce_line_at_parameter(&subgroup, &embedding, table, special)
+            .expect("the official parameter decomposes");
+        assert_line_invariants(&result);
+        assert_eq!(result.trivial_content().unwrap(), pinned);
+        assert_eq!(
+            arms_folding_to_child_gamma(&subgroup, &embedding, table, &special),
+            pinned,
+            "the hand count must agree with the pinned frequency"
+        );
+        // Stored child rows answer the special point: `Z1` x2 and `GM1` x4.
+        let rows = target_rows(&result);
+        assert_eq!(rows.len(), 2, "{rows:?}");
+        assert!(rows.iter().any(|row| row.2 == Some("Z1") && row.0 == 2));
+        assert!(rows.iter().any(|row| row.2 == Some("GM1") && row.0 == 4));
+
+        for (numerator, denominator) in [(1i128, 6i128), (1, 3)] {
+            let parameter = Rat::new(numerator, denominator).unwrap();
+            let result =
+                subduce_line_at_parameter(&subgroup, &embedding, table, parameter)
+                    .expect("both sides of the special value decompose");
+            assert_line_invariants(&result);
+            let hand = arms_folding_to_child_gamma(&subgroup, &embedding, table, &parameter);
+            assert_eq!(hand, 0, "t = {parameter} is generic");
+            assert_eq!(
+                result.trivial_content().unwrap(),
+                hand,
+                "t = {parameter} must not reproduce the pinned frequency"
+            );
+        }
+    }
+
+    /// A `1/2` parameter shift that keeps the star's arm set is a case-level
+    /// equivalence, not a general rule: `1/4`, `3/4` and `5/4` give the same
+    /// decomposition for this source.  Characterising the general shift belongs
+    /// to R6.2, so this test pins the observed case and nothing more.
+    #[test]
+    fn a_half_shift_of_the_line_parameter_can_leave_the_decomposition_unchanged() {
+        let subgroup = subgroup_of(196, "W1", "4D1");
+        let embedding = embedding(196, "W1", "4D1");
+        let table = line_table(196, "DT1");
+        let reference = subduce_line_at_parameter(
+            &subgroup,
+            &embedding,
+            table,
+            Rat::new(1, 4).unwrap(),
+        )
+        .expect("t = 1/4");
+        for (numerator, denominator) in [(3i128, 4i128), (5, 4)] {
+            let result = subduce_line_at_parameter(
+                &subgroup,
+                &embedding,
+                table,
+                Rat::new(numerator, denominator).unwrap(),
+            )
+            .expect("shifted parameter");
+            assert_line_invariants(&result);
+            assert_eq!(target_rows(&result), target_rows(&reference));
+            assert_eq!(
+                result.trivial_content().unwrap(),
+                reference.trivial_content().unwrap()
+            );
+        }
+    }
+
+    /// Failure semantics: a frozen table of another parent is refused, and a
+    /// folded point outside the constructed families with no stored row is a
+    /// missing-data error, never a zero multiplicity.
+    #[test]
+    fn a_line_refuses_foreign_sources_and_out_of_scope_points() {
+        let subgroup = subgroup_of(196, "W1", "4D1");
+        let embedding = embedding(196, "W1", "4D1");
+        let foreign = line_table(202, "DT1");
+        assert!(matches!(
+            subduce_line_at_parameter(
+                &subgroup,
+                &embedding,
+                foreign,
+                Rat::new(1, 4).unwrap()
+            ),
+            Err(FullStarError::LineSourceMismatch { .. })
+        ));
+
+        // Ordinal 13543 (SG 225 `W5` -> child #136): at a generic parameter two
+        // folded points of one child star have no stored row and their little
+        // co-group is outside the constructed families.
+        let contexts = subgroups();
+        let subgroup = contexts
+            .values()
+            .find(|subgroup| subgroup.ordinal == 13543)
+            .expect("ordinal 13543");
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
+        assert_eq!(embedding.subgroup_sg(), 136);
+        let table = line_table(subgroup.parent_sg, "DT5");
+        assert!(matches!(
+            subduce_line_at_parameter(
+                subgroup,
+                &embedding,
+                table,
+                Rat::new(1, 7).unwrap()
+            ),
+            Err(FullStarError::MissingChildStarData { sg: 136, .. })
+        ));
+        // The same source at the official parameter does have the data, so the
+        // error above is about the parameter, not about the record.
+        let official = subduce_line_at_parameter(
+            subgroup,
+            &embedding,
+            table,
+            Rat::new(1, 4).unwrap(),
+        )
+        .expect("the official parameter is covered");
+        assert_line_invariants(&official);
     }
 
     /// A constructed star reports the little dimension of its own
