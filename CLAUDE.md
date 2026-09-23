@@ -51,21 +51,24 @@ python3 scripts/check_other_wave_vector_rows.py
 `--tests` 不运行 example 内的回归；上面的 audit 与 census 两个 example
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
 
-当前基线（2026-09-22，R4 批 2b 后，`-p cryspglib` 限定到本 crate）：
-lib `396 passed / 4 ignored`，integration `162 passed`，doctest `27 passed`，
-example 审计回归 `17 passed`、缺口清点回归 `3 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
+当前基线（2026-09-22，R5 收口后，`-p cryspglib` 限定到本 crate）：
+lib `396 passed / 4 ignored`，integration `161 passed`，doctest `27 passed`，
+example 审计回归 `18 passed`、缺口清点回归 `4 passed`；严格 all-target clippy 通过（Cargo 仍报告既有
 workspace manifest 警告）；isotropy oracle 离线测试 `9 passed`、真实 oracle
 `62` 行 / `26` 个描述串 / `62` 个 origin 通过；其它波矢行门禁离线测试 `16 passed`、
 pinned 数据 `checks_failed=0`（73 源 / 1,006 记录 / 5,756 行；73/73 源已解为参数化
-直线 `k = Γ + t·v`，冻结 little 特征标表 73/73，引擎已算出全部 5,756 行）；
-全表审计（`--require-complete --require-full-decomposition`）**两个门禁同时退出 0**、
-判词 `VERDICT complete scope=global full_decomposition=complete`（`identity_rows=94271`、
-probe **366260/366260 完整分解、恒等-only 0**、w `5756/5756`、`engine_errors=0`、
-`hard_failures=0`，约 511 s；R4 批 2a 后 `366039 + 221`，批 1 后 `357033 + 9227`，
-R2 后 `353382 + 12878`，R2 前 `351547 + 14713`）。普通离散标量覆盖在固定语料上已
-闭合（R5 验收清单：恒等正项 94,271/0 不匹配、Γ Frobenius 1,895/1,895、w 行
-5,756/0 错误，全部满足）；缺口清点为空，见
-`docs/subduction-gap-census.md` 的“R4 批 2b 后”小节。
+直线 `k = Γ + t·v`，冻结 little 特征标表 73/73，引擎已算出全部 5,756 行，
+参数约定 `t = 1/4`）；官方 live oracle 全量通过：w 行 5,756 = pinned 5,756、
+`mismatches=0`；
+全表审计（**三个门禁**：`--require-complete --require-w-complete
+--require-full-decomposition`）**同时退出 0**、判词 `VERDICT complete scope=global
+full_decomposition=complete`（`identity_rows=94271`、probe **366260/366260 完整分解、
+恒等-only 0**、w `5756/5756`、`engine_errors=0`、`hard_failures=0`，约 520–540 s
+（本仓库 521.7 s，独立复核 541.0 s）；R4 批 2a 后 `366039 + 221`，批 1 后
+`357033 + 9227`，R2 后 `353382 + 12878`，R2 前 `351547 + 14713`）。普通离散标量
+覆盖在固定语料上已闭合（R5 验收清单：恒等正项 94,271/0 不匹配、Γ Frobenius
+1,895/1,895、w 行 5,756/0 错误，全部满足）；缺口清点为空，正式报告见
+`docs/subduction-audit.md` 的「R5：普通离散标量覆盖闭合」小节。
 注意**不要**在 workspace 根跑不带 `-p` 的 `cargo test --release`：sibling 成员
 `Rustb` 当前自身编译失败（`ndarray_lapack.rs:23` E0259、`lib.rs:320` E0080 两个 BLAS
 后端同时启用），与本 crate 无关，但会让整条命令以 exit 101 结束、0 个测试执行。

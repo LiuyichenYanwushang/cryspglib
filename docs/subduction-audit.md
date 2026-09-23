@@ -137,8 +137,10 @@ centering 消光），只替换臂字符来源；另行手写折叠判定会重�
 
 每条子群记录遍历该母群的全部标量源表示，调用实际的
 `subduce_full_star_with_embedding`。恒等项为零的几何证明作为交叉检查保留，但
-**不能跳过完整分解调用**。ordinal 13345 的 W1–W5 仍是永久反例：它们没有恒等项，
-却缺少完整分解所需的子群 k 数据；把它们仅记成零项会错误宣告完整覆盖。
+**不能跳过完整分解调用**。历史反例（现已闭合）：ordinal 13345 的 W1–W5 当初既没有
+恒等项、又缺少完整分解所需的子群 k 数据，把它们仅记成零项就会错误宣告完整覆盖；
+R4 批次 1 给它们补上了构造目标（实测 31/31 完整分解，见
+[subduction-r4-batches.md](subduction-r4-batches.md)）。
 
 ### 恒等内容：第二条精确路径
 
@@ -198,6 +200,10 @@ T = B^T
 矩阵见证，保证冻结机制不会被无意限制成 signed permutations。
 
 ## 全表结果（2026-09-22 第六轮，普通恒等分导表闭合）
+
+> **历史小节**：下表是第六轮（R4 之前）的结果，`351,547 完整 + 14,713 恒等-only`
+> 的分法只描述当时的状态；R4 三个批次之后 `identity_only = 0`，当前口径见本文末节
+> 「R5：普通离散标量覆盖闭合」。
 
 `audit_irrep_subduction --require-complete` 全表运行 452 s，退出码 0，判词
 `VERDICT complete scope=global`：
@@ -301,7 +307,12 @@ T = B^T
 **结论**：在固定语料上，普通离散标量的完整分解**已闭合**。三个门禁
 （`--require-complete`、`--require-w-complete`、`--require-full-decomposition`）
 同时运行时 **exit 0**、判词 `VERDICT complete scope=global
-full_decomposition=complete`。本节是 R5 卡要求的"覆盖报告"；复现 511 s。
+full_decomposition=complete`。本节是 R5 卡要求的"覆盖报告"；全表复现约 520–540 s
+（本仓库记录的两次：521.7 s 与独立复核 541.0 s，同一份代码、数字逐项一致）。
+
+**注意作用域**：`--parent`/`--ordinal` 的局部运行即使带上全部门禁也仍 exit 0，
+判词里是 `global=not_established`；只有不带 scope 的全表运行才证明全局覆盖，
+CI 里按 ordinal 循环不能替代它。
 
 ### 语料与分母（先声明范围，再谈百分比）
 
@@ -315,22 +326,29 @@ full_decomposition=complete`。本节是 R5 卡要求的"覆盖报告"；复现 
 | w 频率行（别的波矢） | 5,756 | 恒等重数全部算出并匹配，`mismatched = engine_errors = 0` |
 | spinor 记录 | 3,611 | **不在分母内**（普通标量分导明确拒绝） |
 
-`identity_only` 路径（第六轮的恒等-only 入口）仍然存在且仍被审计复算，但在这份语料上
-已经没有 probe 需要它：`probe_identity_only = 0`。
+`identity_only` 路径（第六轮的恒等-only 入口）仍然存在，但在这份语料上已经**没有
+probe 需要它**（`probe_identity_only = 0`），所以审计本身不再复算任何恒等-only 行；
+这条入口的精确性现在由 `tests/subduction_identity_regressions.rs` 在 2,075 个 probe
+上逐条对照完整分解（458 个正项）来保证。
 
 ### 每条完整结果被验证什么（不是只比恒等列）
 
-审计对每个成功结果都检查下面五项，任何一项非零都是 `hard_failures`，并且在**所有**
-门禁组合下都让运行以 exit 1 结束（负例测试
-`every_production_check_violation_is_a_hard_failure` 逐项钉住）：
+先分清"谁来强制"和"谁能独立反驳"（独立复核 A 指出这里原先的说法过强，本节已改）：
 
-| 检查 | 字段 | 当前值 |
-|---|---|---:|
-| `Σ multiplicity × child_little_dim × child_star_size = parent_full_dim` | `production_dim_mismatch` | 0 |
-| 重数为非负整数 | `production_integrality_mismatch` | 0 |
-| 逐操作重建子导字符 | `production_recon_mismatch` | 0 |
-| 目标能对上冻结 CIR 来源身份 | `target_source_unmatched` | 0 |
-| 来源号与标签读数一致 | `label_source_disagreement` | 0 |
+| 不变式 | 强制点（真实门禁） | 审计字段 | 当前值 | 审计层的独立性 |
+|---|---|---|---:|---|
+| `Σ multiplicity × child_little_dim × child_star_size = parent_full_dim` | 引擎 `TotalDimensionMismatch` / `StarDimensionMismatch`（`subduction_star_decompose.rs` 构造块时即 Err） | `production_dim_mismatch` | 0 | **同义反复**：审计比较的是引擎同一批对象算出的量 |
+| 重数为非负整数 | 引擎 `NonIntegralMultiplicity`（`subduction.rs`） | `production_integrality_mismatch` | 0 | 该字段实际查的是**维数配平**，不是整数性（口径已修正） |
+| 逐操作重建子导字符 | 引擎重建检查（同一容差 `SUBDUCTION_TOLERANCE`） | `production_recon_mismatch` | 0 | 审计拿到的就是引擎已比较过的同一对向量 |
+| 目标对上冻结 CIR 来源身份 | 引擎 `TargetSourceMismatch` | `target_source_unmatched` | 0 | 现有语料不可达（4105 个 CIR 号无重复），只可能由代码 bug 触发 |
+| 来源号与标签读数一致 | 引擎 `TargetSourceMismatch`（by_label vs total） | `label_source_disagreement` | 0 | 现有语料不可达（同 SG 内 0 个重复 ml、0 条 compound 含 Γ 一维成分） |
+
+它们的**共同效果**是实的：任何一项非零都会进入 `hard_failures`，并在**所有**门禁组合下
+让运行 exit 1（负例测试 `every_production_check_violation_is_a_hard_failure` 钉住接线）。
+但要诚实说明：这三项"审计侧"检查并不是对引擎的独立复算（引擎在更早的层已经用同一批
+对象、同一容差比较过并以 Err 收口），另两项在现有语料上不可达。因此**真正独立的证据是
+引擎的 Err 路径本身**（`probes.error` → hard failure → exit 1）以及下面这些外部 fixture，
+而不是这张表里的零值。
 
 另有独立的来源矩阵 fixture 继续参与门禁（`tests/subduction_star_source.rs` 的
 1,232 次字符比较、`tests/subduction_compound_stars.rs` 的复成分与 k/-k 对照），
@@ -373,7 +391,9 @@ VERDICT complete scope=global
 ### 边界（这些不在 100% 里）
 
 * spinor / 双群分导：明确拒绝，单独扩展；
-* 参数化 k 源的**完整**分解（R6）：当前只算恒等重数（5,756 行）；
+* 参数化 k 源的**完整**分解（R6）：当前只算恒等重数（5,756 行），而且那 5,756 行是
+  **冻结在官方程序的参数约定 `t = 1/4`**（`subduction_star_decompose.rs` 的
+  `LINE_PARAMETER`）上的频率，不代表任意 t 都成立；
 * 磁共表示分导（R9–R11）：磁表只提供候选记录查询，不是经过验证的磁嵌入；
   230 个 Type-II/grey UNI 在磁表中没有记录，是数据来源边界；
 * 官方方向 descriptor（R7）与正式 API（R8）：`dim = 2`/`dim ≥ 4` 仍是内部记法，
