@@ -89,7 +89,7 @@ k_H = T^T k_G
 
 **任务 0：保存当前基线**
 
-输入：当前工作区、`CLAUDE.md`、`docs/isotropy-data-semantics.md`。
+输入：当前工作区、`AGENTS.md`、`docs/isotropy-data-semantics.md`。
 
 工作：
 

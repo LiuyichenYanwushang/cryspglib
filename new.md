@@ -4,7 +4,7 @@
 > 其中 §二.6 讨论的 `SG_SETTING_ORIGIN` 表与 `extract_sg_settings.py` 后来被证明
 > 是**用 stride 3 误读 4 整数 origin 字段**的产物（205/230 个 SG 因此得到非零垃圾
 > 整数），二者已删除，`IrrepRecord::sg_setting` 一并移除。当前的事实来源是
-> `CLAUDE.md`（"顺带清理"节）与 `docs/isotropy-data-semantics.md`；本文中的
+> `AGENTS.md`（"顺带清理"节）与 `docs/isotropy-data-semantics.md`；本文中的
 > 表格、基线数字和文件名不再代表仓库现状。
 
 ## 一、Baseline 演变

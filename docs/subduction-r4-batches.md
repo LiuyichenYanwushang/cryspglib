@@ -68,7 +68,7 @@ R2 只对子群 #1 构造目标（`child_sg != 1` 直接返回空，保持 `Miss
 - `src/irrep/subduction_star_decompose.rs`：`constructed_child_components_at` 的判据、
   `ChildStarEvaluator::Constructed` 持有构造星、单元测试。
 - `tests/subduction_constructed_stars.rs`（新）：端到端与负例。
-- `docs/subduction-r4-batches.md`、`docs/subduction-gap-sources.md`、`CLAUDE.md`。
+- `docs/subduction-r4-batches.md`、`docs/subduction-gap-sources.md`、`AGENTS.md`。
 
 ### 验收（实测）
 

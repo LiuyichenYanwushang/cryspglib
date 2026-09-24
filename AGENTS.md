@@ -1,6 +1,103 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for coding agents working in this repository: the round-by-round ledger,
+the current baseline and the verification gates that must be re-run after every
+change.
+
+History of the name: this file used to be `CLAUDE.md`.  On 2026-09-23 it absorbed
+the progress/risk list that had been drafted as `AGENT.md` and was renamed to
+`AGENTS.md` -- the workspace-instruction candidate list of the harness in use is
+`["AGENTS.md", "CLAUDE.md"]` (plus the `.local.md` overlays), so the singular
+`AGENT.md` is **not** loaded as workspace instructions.  Historical entries below
+that say "按 `CLAUDE.md` 跑基线" refer to this same file.
+
+---
+
+## 当前状态：进度、剩余工作与已知风险（先读这一节）
+
+> 本文件的工作区指令预算是 65536 字节，超长时**只加载开头部分**，所以这一节放在最
+> 前面；下面是按时间累积的轮次账本，保留历史措辞，**勿把中间阶段的数字当当前结论**
+> （每个被推翻的阶段都在原处标注了撤销）。
+>
+> 本节基准：`5ecb70b`（R6.2 monodromy 步，2026-09-23），紧接其后的两处文档/门禁
+> 待办见 §3 第 1、2 条。
+
+### 1. 参数化 k 族的完成度（四层，全部可复现）
+
+| 层 | 状态 | 证据 / 复现 |
+|---|---|---|
+| 官方锚点 `t = 1/4` | ✅ 闭合 | 5,756/5,756 恒等频率 == pinned（**外部** oracle：官方 `SHOW FREQUENCY`；`scripts/verify_w_subduction_oracle.py` live 双向比对）；完整分解过维数/整重数/重建三不变式 |
+| 等价参数 `t = 1/4 + n` | ✅ 本轮闭合 | monodromy 契约 `(k+K, M_K(α)) ~ (k, α)`：`decompose(α, t+n) == decompose(M_{nv}(α), t)`。分解逐块逐目标 5,756/5,756（审计 `w_parameter_shift: checked=5756 mismatched=0 skipped_undetermined_image=0`）；字符层 5,756/5,756（`line_family_coverage --gate`） |
+| 共轭 coset `-1/4, 3/4, 7/4` | ✅ 本轮闭合 | 推导链 = 逐臂共轭恒等 + 整数步位移 + pinned 的 monodromy 不变性（816 条非平凡像逐条断言）；实测实表/复表 content oracle **0 不一致 0 错误**（旧数字 187/58/223 已证明是 R6.1 规范波矢的产物） |
+| 网格外非退化 `t ∉ (1/4)Z` | ✅ 证明级 | 支持集恰为 `(1/4)Z`（5,756 行精确枚举）；103,608 个网格外组合折到子群 Γ 的臂数全 0 ⇒ `content = 0` |
+
+**已验证域 = `t ≡ 1/4 (mod 1)`**（等价地 `(t − 1/4)·v ∈ G*_parent`）：只有这些参数
+既可从冻结表推导、又有 oracle。域外参数（`3/4`、`1/2`、`0` …）引擎仍给出一致字符
+（hard failure 0、共轭律 0 违反），但**没有 oracle**，报告只给实测值。
+
+### 2. 离"彻底"还差什么
+
+* **A. 参数语义未决（影响面最大，也是唯一"文档说别用但 API 照常给 Ok"的地方）**：
+  `t = 0` 与 `t = 1/2`（凡让 `t·v` 稳定子严格大于冻结小群的参数）返回**形式值**
+  （`t=0` 有 2,918 行 ≠ pinned，`t=1/2` 有 2,822 行 ≠ pinned、58 行 fail-closed），
+  它不是该 k 点上那条线 irrep 的分导。修法二选一：返回 typed error，或在
+  `LineSubduction` 上加参数种类标记（`ParameterKind::Formal`），不要只写在文档里。
+* **B. 部分参数直接算不出来（fail-closed，非静默错）**：一般 `t`（`1/7, 1/6, 1/3,
+  2/7`）各 **54/5,756** 行报 `MissingChildStarData`（子群 #123–#138 的 2 点星、
+  #221–#224 的 6 点星），`t = 3/8` 报 30 行；根因是缺失的**二维射影小余群目录**。
+  另有 `MAX_GRID = 200_000` 分母悬崖（实测 `10030 DT1`：`t = 1/100000` 可算，
+  `t ≥ 1/1000000` 起 fail-closed）——"支持任意有理 t"永远要带这条限制。
+* **C. 没有外部 oracle 的部分**：一般 `t` 下的**非恒等目标**（官方不打印分导载荷，
+  pinned 只有恒等频率），证据是维数守恒 + 逐代表元重构 + 一条独立几何计数，级别 **E3**；
+  另有 **4 行**的 isotropy 记录未列共轭伙伴源，共轭 coset 上无 oracle（覆盖 5,752/5,756）。
+* **D. 范围之外**：spinor/双群 3,611 条记录显式拒绝；磁共表示没有验证过的磁嵌入
+  （230 个 Type-II/grey UNI 在磁表里无记录）；只覆盖 73 个冻结直线源（= pinned w 表
+  的全部，但不等于"230 个空间群所有线上的所有参数化 k"）；`irrep::subduction` 与
+  `irrep::line_monodromy` 仍是 `#[doc(hidden)]`，转正由 task 12 决定。
+
+⇒ 现在的 "100%" 等于**固定 ordinary-scalar 语料 + 已验证域 `t ≡ 1/4 (mod 1)` 的完整
+分解**，不等于项目完成度。
+
+### 3. 已知风险 / 待办清单（按优先级，做完请删条并记账）
+
+1. **`docs/subduction-audit.md` 未同步（本轮唯一漏掉的正式报告）**：第 432 行仍是
+   R6.1 口径的 `w_parameter_shift: checked=5756 mismatched=0 (t = 5/4 against t = 1/4,
+   ...)`；应改成新语义（对照 monodromy 像）并附本轮 `elapsed=548.5s` 的实测块，
+   "边界"小节第 2 条也应指向 §16 的已验证域。
+2. **`skipped_undetermined_image` 是门禁盲区**：它既不在 `hard_failures()` 也不在
+   `w_incomplete()` 里。今天为 0，但一旦将来冻结表出现两个指纹相同的源，transport
+   比较会被**静默跳过**而门禁照样报 complete。应升级为硬失败或计入 `w_incomplete`。
+3. **ledger 的本地 `character()` 复刻缺常驻对齐断言**：`examples/line_transport_ledger.rs`
+   复制了引擎的逐臂字符公式（注释称曾与 `engine.reconstruction()` 逐代表元
+   bit-identical，但那是一次性实测）；本轮把它的 `centre` 从"规范化"改成"原始"，
+   等价性没有被测试钉住。建议加断言：引擎成功时逐代表元 ≤1e-12，否则"独立诊断"
+   可能诊断的是另一个对象。
+4. **monodromy 契约的前提要在新增源时强制**：契约只对"方向 ∈ G\*_parent"成立
+   （73/73 已由 ledger 逐行断言 `direction_is_parent_reciprocal_lattice=true`）。
+   若将来加入方向不是倒格矢的源，`t` 与 `t+1` 根本不是同一个 k 点，语义必须换成
+   "不同 k 点"而不是 monodromy 位移。
+5. **性能**：审计 548.5 s、`line_family_coverage --gate` 110 s、`line_monodromy` 测试
+   23.6 s，全部**单线程**，机器 8 核。probe/行之间彼此独立，rayon 化预计把审计压到
+   ~90–120 s；门禁必须是"同一输入串行 vs 并行 TSV 逐字节一致"，而不是只对总数。
+6. **`t=0/1/2` 形式值的 API 语义**（= §2 A）：长期最容易被误用的一处。
+
+### 4. 本轮交付（`5ecb70b`）
+
+* 新 API `src/irrep/line_monodromy.rs`：`monodromy(parent, &shift)`、
+  `complex_conjugation(parent)`、`LineMonodromy::{image, unique_image, orbit,
+  undetermined, images}`、`LabelImage::{Unique, Ambiguous, Missing}` 与冻结数据访问器；
+  指纹按**精确操作**（旋转 + 分数平移）为键，73/73 源像唯一。
+* 引擎撤销 R6.1 的 `canonical_wave_vector`（连 `parent_reciprocal` 一起删除），
+  改用原始 `k(t) = t·direction`。
+* `tests/line_monodromy.rs` 5 条常驻测试：四条契约恒等式（73/136/136/136）、pinned
+  频率在 816 条非平凡像上不变、73/73 像可报告、全表 transport 5,756/5,756、
+  以及"同标签读法在 40 行上不同"的反例（撤销读法的钉子）。
+* 审计 `w_parameter_shift` 改为对照 monodromy 像，并新增
+  `skipped_undetermined_image` / `same_label_witnesses` 两个计数（后者 = 40，证明
+  门禁非空转）；`line_family_coverage` 的 `CONJUGATE_GAP_*` 由 `187/58` 改为 `0/0`、
+  字符层由"缺 twist 的共轭比较"改为 transport 比较（5,756/5,756）。
+* 文档三阶段记账：`docs/subduction-conventions.md` §16、`docs/subduction-r6-coverage.md`
+  命题 3/4 与分档、`docs/subduction-r6-plan.md` §4、本文件末尾的轮次记录。
 
 ---
 
