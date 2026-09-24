@@ -702,8 +702,12 @@ impl LineArmSource<'_> {
                 .inverse()?
                 .compose(operation)?
                 .compose(&transport)?;
-            let image =
-                Mat3R::from_ints(conjugate.rotation()).checked_mul_vector(&self.direction)?;
+            // The Seitz rotation acts on direct coordinates; reciprocal vectors
+            // transform by its inverse transpose.
+            let image = Mat3R::from_ints(conjugate.rotation())
+                .inverse()?
+                .transpose()
+                .checked_mul_vector(&self.direction)?;
             if image != self.direction {
                 // The operation moves this arm; it contributes no diagonal term.
                 continue;
@@ -978,8 +982,8 @@ fn line_wave_vector(direction: &Vec3R, parameter: &Rat) -> Result<Vec3R, FullSta
     Ok(Vec3R::new(scaled))
 }
 
-/// Whether a parameter keeps the frozen line little co-group or makes distinct
-/// line arms coincide at the same parent wave vector.
+/// Whether parameter-scaled wave vectors of distinct line arms coincide modulo
+/// the parent reciprocal lattice.
 fn line_parameter_kind(
     parent_lattice: &Lattice,
     table: &'static LittleCharacterTable,
@@ -1246,12 +1250,12 @@ pub fn subduce_line_at_parameter(
 /// Classification of a parameter on a frozen parametric-k line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParameterKind {
-    /// No distinct frozen line arm is reciprocal-equivalent to this wave vector;
-    /// the frozen line little co-group is the actual little co-group.
+    /// For every distinct arm `a`, `t * (a - v)` is not in the parent reciprocal
+    /// lattice; the frozen line little co-group is the actual little co-group.
     LineIrrep,
-    /// Distinct frozen line arms coincide modulo the parent reciprocal lattice.
-    /// The result is a formal induction from the frozen line little co-group and
-    /// must not be interpreted as an irrep at the enhanced-symmetry wave vector.
+    /// Some distinct arm `a` satisfies `t * (a - v)` in the parent reciprocal
+    /// lattice. The actual little co-group is enhanced, so this is a formal
+    /// induction from the frozen line little co-group, not an irrep at that k.
     Formal,
 }
 
@@ -4291,8 +4295,8 @@ mod tests {
     }
 
     /// At enhanced-symmetry values the frozen line representation is only a
-    /// formal induction. The type tag comes from exact reciprocal equivalence
-    /// of distinct line arms, not from special-casing parameter text.
+    /// formal induction. The type tag tests reciprocal equivalence of the
+    /// parameter-scaled arm wave vectors, not parameter text.
     #[test]
     fn enhanced_line_parameters_are_marked_formal() {
         let subgroup = subgroup_of(196, "W1", "4D1");

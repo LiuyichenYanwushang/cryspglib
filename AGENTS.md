@@ -34,8 +34,11 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 **已有官方锚点且经输运验证的域**：逐源 `t = 1/4 + n`；本轮检查 `v/d` 后发现 73/73
 源均 `d=1`，即 v 已是母群倒格上的沿线最小步长。成功结果通过
 `LineSubduction::parameter_kind()` 区分实际线表示与退化点形式诱导：若不同冻结臂在该
-参数下相差母群倒格矢，返回 `ParameterKind::Formal`；例如 `t=0` 和 SG 196 `DT1` 的
-`t=1/2`。这只标记成功计算的语义，不替代缺失目标数据时的显式错误，也不提供域外 oracle。
+参数下的波矢 `t·a` 与中心波矢 `t·v` 相差母群倒格矢，返回 `ParameterKind::Formal`；
+例如 SG 196 `DT1` 的 `t=0,1/2`。这只标记成功计算的语义，不替代缺失目标数据时的显式
+错误，也不提供域外 oracle。当前 73 个冻结源的母群全为立方群；若扩展非立方源，冻结
+表生成器也必须使用与 Rust 一致的倒空间逆转置作用，不能沿用仅在当前正交矩阵上等价的
+直接矩阵作用。
 
 **R6.2 审计更正**：`monodromy(parent, K)` 计算一般倒格字符扭曲；只有 `K` 平行于某源
 方向时才表示该源的参数位移。SG 203 的 `K=(2,0,0)` 是跨线扭曲见证，不是参数步进。
@@ -47,10 +50,11 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 
 * **A. ✅ 参数语义已有 API 标记**：`LineSubduction::parameter_kind()` 通过精确母群倒格
   等价检查区分 `ParameterKind::LineIrrep` 与 `ParameterKind::Formal`。若两个不同的冻结
-  方向臂在 `k=t·v` 处等价，后者表示从冻结线小群得到的形式诱导，不能当作增强小群的
+  方向臂 `a` 满足 `t·(a-v) ∈ L*_parent`，后者表示从冻结线小群得到的形式诱导，不能当作增强小群的
   实际线 irrep 分导。永久测试钉住 SG 196 `DT1` 的 `t=0,1/2` 为 Formal、官方 `1/4`
   与 `1/6,1/3` 为 LineIrrep。部分记录在 `t=1/2` 仍因缺少子群目标字符而显式失败；无
-  oracle 的边界不变。
+  oracle 的边界不变。当前完整表 gate 尚未汇总所有行的 `ParameterKind` 分布；永久类型断言
+  是上述 SG 196 见证。
 * **B. 部分参数直接算不出来（fail-closed，非静默错）**：一般 `t`（`1/7, 1/6, 1/3,
   2/7`）各 **54/5,756** 行报 `MissingChildStarData`（子群 #123–#138 的 2 点星、
   #221–#224 的 6 点星），`t = 3/8` 报 30 行；根因是缺失的**二维射影小余群目录**。
@@ -91,8 +95,8 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    `line_family_coverage --gate`（实测 112.0 s）和 `line_monodromy` 集成测试（实测 26.3 s），
    后续如需继续缩短全量验证再单独评估并行化。
 4. **✅ `t=0/1/2` 形式值的 API 语义**（= §2 A）：`LineSubduction::parameter_kind()`
-   以精确母群倒格等价标记增强小群点的形式诱导；永久测试覆盖 `t=0,1/2` 与非退化
-   对照值。类型标记不填补目标字符缺失，也不声称有外部 oracle。
+   以 `t·(a-v) ∈ L*_parent` 的精确判定标记增强小群点的形式诱导；永久测试覆盖 `t=0,1/2`
+   与非退化对照值。完整表 gate 未累计类型标签；类型标记不填补目标字符缺失，也不声称有外部 oracle。
 
 ### 4. 本轮交付（`5ecb70b`）
 
