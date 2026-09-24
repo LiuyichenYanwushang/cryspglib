@@ -978,6 +978,42 @@ fn line_wave_vector(direction: &Vec3R, parameter: &Rat) -> Result<Vec3R, FullSta
     Ok(Vec3R::new(scaled))
 }
 
+/// Whether a parameter keeps the frozen line little co-group or makes distinct
+/// line arms coincide at the same parent wave vector.
+fn line_parameter_kind(
+    parent_lattice: &Lattice,
+    table: &'static LittleCharacterTable,
+    direction: &Vec3R,
+    wave_vector: &Vec3R,
+    parameter: &Rat,
+    arms: &[(Vec3R, Mat3I)],
+) -> Result<ParameterKind, FullStarError> {
+    if !arms.iter().any(|(arm, _)| arm == direction) {
+        return Err(FullStarError::MissingLineRotation {
+            sg: table.space_group,
+            label: table.label,
+        });
+    }
+    for (arm, _) in arms {
+        if arm == direction {
+            continue;
+        }
+        let arm_wave_vector = line_wave_vector(arm, parameter)?;
+        let difference = arm_wave_vector.checked_sub(wave_vector)?;
+        // For a direct lattice with row basis B, q belongs to its reciprocal
+        // lattice exactly when B q has integer coordinates. This preserves
+        // centring extinctions without constructing (B^-1)^T for every query.
+        if parent_lattice
+            .rows()
+            .checked_mul_vector(&difference)?
+            .is_integral()
+        {
+            return Ok(ParameterKind::Formal);
+        }
+    }
+    Ok(ParameterKind::LineIrrep)
+}
+
 /// Validate the context shared by every line entry point.
 fn validate_line_context(
     subgroup: &IsotropySubgroup,
@@ -1116,6 +1152,9 @@ pub fn line_trivial_content_via_blocks(
 /// reconstruction of the parent character).  It is **not** a statement about a
 /// parameter range: a different `t` is a different parent representation and has
 /// to be asked for separately (see `docs/subduction-r6-plan.md` §1).
+/// A successful result reports whether this is an actual frozen-line irrep
+/// (`ParameterKind::LineIrrep`) or a formal induction at an enhanced-symmetry
+/// parameter (`ParameterKind::Formal`).
 ///
 /// Failure semantics are the discrete ones: a folded child star whose little
 /// co-group is outside the constructed families and whose `q` matches no stored
@@ -1132,6 +1171,14 @@ pub fn subduce_line_at_parameter(
     let direction = line_direction(table)?;
     let arms = line_arms(subgroup, embedding, table, &direction)?;
     let wave_vector = line_wave_vector(&direction, &parameter)?;
+    let parameter_kind = line_parameter_kind(
+        embedding.parent_lattice(),
+        table,
+        &direction,
+        &wave_vector,
+        &parameter,
+        &arms,
+    )?;
     let child_sg = embedding.subgroup_sg();
     let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
     let child_reciprocal = child_cell.reciprocal()?;
@@ -1187,12 +1234,25 @@ pub fn subduce_line_at_parameter(
         setting: embedding.setting(),
         setting_denominator: embedding.setting_denominator(),
         parent_dimension,
+        parameter_kind,
         blocks,
         representatives: embedding.representatives().to_vec(),
         parent_characters,
         reconstructed,
         tolerance: SUBDUCTION_TOLERANCE,
     })
+}
+
+/// Classification of a parameter on a frozen parametric-k line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParameterKind {
+    /// No distinct frozen line arm is reciprocal-equivalent to this wave vector;
+    /// the frozen line little co-group is the actual little co-group.
+    LineIrrep,
+    /// Distinct frozen line arms coincide modulo the parent reciprocal lattice.
+    /// The result is a formal induction from the frozen line little co-group and
+    /// must not be interpreted as an irrep at the enhanced-symmetry wave vector.
+    Formal,
 }
 
 /// The full decomposition of one parametric-k line irrep at one parameter
@@ -1209,6 +1269,7 @@ pub struct LineSubduction {
     setting: Mat3I,
     setting_denominator: i32,
     parent_dimension: u32,
+    parameter_kind: ParameterKind,
     blocks: Vec<FullStarBlock>,
     representatives: Vec<ExactSeitz>,
     parent_characters: Vec<Complex64>,
@@ -1272,6 +1333,14 @@ impl LineSubduction {
     /// Full-star dimension of the line irrep: little dimension x arms.
     pub const fn parent_dimension(&self) -> u32 {
         self.parent_dimension
+    }
+
+    /// Whether this is an actual line irrep or a formal induction at an
+    /// enhanced-symmetry parameter value. `Formal` results preserve the
+    /// decomposition from the frozen line little group; they are not claims
+    /// about irreps of the larger little group at that wave vector.
+    pub const fn parameter_kind(&self) -> ParameterKind {
+        self.parameter_kind
     }
 
     /// Folded child-star blocks, one per child **orbit** (star), not one per
@@ -4219,6 +4288,37 @@ mod tests {
         let hand = arms_folding_to_child_gamma(&subgroup, &embedding, table, &parameter);
         assert_eq!(hand, 0, "no arm folds onto the child Gamma at t = 1/7");
         assert_eq!(result.trivial_content().unwrap(), hand);
+    }
+
+    /// At enhanced-symmetry values the frozen line representation is only a
+    /// formal induction. The type tag comes from exact reciprocal equivalence
+    /// of distinct line arms, not from special-casing parameter text.
+    #[test]
+    fn enhanced_line_parameters_are_marked_formal() {
+        let subgroup = subgroup_of(196, "W1", "4D1");
+        let embedding = embedding(196, "W1", "4D1");
+        let table = line_table(196, "DT1");
+
+        for parameter in [Rat::ZERO, Rat::new(1, 2).unwrap()] {
+            let result = subduce_line_at_parameter(&subgroup, &embedding, table, parameter)
+                .unwrap_or_else(|error| panic!("t = {parameter} should decompose: {error}"));
+            assert_eq!(
+                result.parameter_kind(),
+                ParameterKind::Formal,
+                "t = {parameter} has an enhanced parent little group"
+            );
+            assert_line_invariants(&result);
+        }
+
+        for parameter in [official(), Rat::new(1, 6).unwrap(), Rat::new(1, 3).unwrap()] {
+            let result = subduce_line_at_parameter(&subgroup, &embedding, table, parameter)
+                .unwrap_or_else(|error| panic!("t = {parameter} should decompose: {error}"));
+            assert_eq!(
+                result.parameter_kind(),
+                ParameterKind::LineIrrep,
+                "t = {parameter} keeps the frozen line little group"
+            );
+        }
     }
 
     /// The special value `t = 1/4` and its two neighbours: the decomposition is
