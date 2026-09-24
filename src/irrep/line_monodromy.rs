@@ -1,10 +1,8 @@
 //! Monodromy of the frozen parametric-k line sources under a reciprocal shift.
 //!
 //! A parametric-k row lives on a line `k(t) = t * v` whose direction `v` is a
-//! **parent reciprocal lattice vector** (for the 73 frozen sources: `(0,2,0)`
-//! and `(2,2,0)` in the parent's conventional reciprocal basis, both all-even
-//! and therefore in the reciprocal lattice of every F-centred parent).  So `t`
-//! and `t + 1` name the same point of the parent's Brillouin zone.
+//! **parent reciprocal lattice vector**. So `t` and `t + 1` name the same point
+//! of the parent's Brillouin zone.
 //!
 //! They do **not** name the same frozen table.  The frozen
 //! [`LittleCharacterTable`]s store the little co-group matrices `D(R)` solved at
@@ -15,21 +13,30 @@
 //! chi_alpha^t(R, T_R) = D_alpha(R) * exp(2 pi i t (v . T_R)).
 //! ```
 //!
-//! Shifting the parameter by one multiplies that character by the
-//! **reciprocal-shift twist** `Phi_v(R) = exp(2 pi i v.T_R)`, which is a genuine
-//! one-dimensional character of the line's little group.  The twisted character
-//! is again an irreducible character of the same little group, so it is the
-//! frozen table of *another* label:
+//! For a reciprocal shift `K`, multiplying by the **reciprocal-shift twist**
+//! `Phi_K(R) = exp(2 pi i K.T_R)` gives the frozen character at `k + K`. When
+//! `K = delta * v` for a source's direction `v`, this is the parameter shift
+//! `t -> t + delta`. The twist must be a one-dimensional character of that
+//! source's little group; when it is, the shifted character is another label:
 //!
 //! ```text
 //! rho_{k+K, M_K(alpha)}  ~  rho_{k, alpha},        K in L*_G.
 //! ```
 //!
-//! `M_K` is the **monodromy map** of the parent.  On a nonsymmorphic line it
-//! need not be the identity: SG 209/210/227/228 swap their one-dimensional `DT`
-//! and `SM` conjugate pairs.  Two consequences are used by the audit:
+//! `M_K` is the **monodromy map** of a line little group. For operations
+//! `g=(R_g,t_g)` and `h=(R_h,t_h)`, the exact condition is
+//! `((I-R_g^T)K)·t_h ∈ Z` for every pair; requiring `R_g^{-T}K = K` is
+//! sufficient but unnecessarily restrictive. A reciprocal shift that fails
+//! the exact character test is returned as [`LabelImage::UnsupportedShift`]
+//! rather than guessed from the phase formula. On a nonsymmorphic line, valid
+//! monodromy need not be the identity. Along each source's own frozen
+//! direction, SG 203/210 swap `DT1 <-> DT2` and `DT3 <-> DT4`, while SG
+//! 227/228 swap `DT1 <-> DT3` and `DT2 <-> DT4`; SG 209 and the `SM` sources
+//! are unchanged. The `DT3`/`DT4` complex-conjugation map in SG 209/210 is a
+//! separate operation. Two consequences are used by the audit:
 //!
-//! * the character data of label `alpha` at `t + 1` **is** the character data of
+//! * when the line step `v` is reciprocal and its twist is a character, the
+//!   character data of label `alpha` at `t + 1` **is** the character data of
 //!   label `M_v(alpha)` at `t`, so a decomposition transported by one parameter
 //!   step must be compared against `M_v(alpha)` and not against `alpha` again;
 //! * the trivial content is a gauge-invariant number, so it is constant on
@@ -38,10 +45,13 @@
 //!
 //! # How the map is computed
 //!
-//! Never from label names.  The shifted character vector `D_alpha(R) * Phi_K(R)`
-//! is matched against every frozen table of the same parent, and the unique
-//! match is `M_K(alpha)`.  That covers real sources, the `DT3`/`DT4` swap and any
-//! longer cycle with one mechanism.  A label whose image is not unique (two
+//! Never from label names. The shifted character vector `D_alpha(R) * Phi_K(R)`
+//! is matched exactly against every frozen table of the same parent, and the
+//! unique match is `M_K(alpha)`. The rational phase is reduced modulo one and
+//! checked as an exact Gaussian-integer character; there is no floating-point
+//! matching tolerance. That covers real sources, the `DT3`/`DT4` swap and any
+//! cycle representable by the frozen Gaussian phases with one mechanism. A
+//! label whose image is not unique (two
 //! frozen tables sharing a fingerprint) or absent is reported as
 //! [`LabelImage::Ambiguous`] / [`LabelImage::Missing`] rather than guessed.
 //!
@@ -49,14 +59,16 @@
 //! plus fractional translation), so two operations that share a rotation stay
 //! distinct and the map is exact rather than tolerance-limited in its keys.
 //!
-//! See `docs/subduction-conventions.md` section 16 for the contract and the
-//! parameter domain in which it has been measured.
+//! See `docs/subduction-conventions.md` section 16 for the contract and its
+//! verified parameter domain.
 
-use crate::irrep::subduction::{Rat, Vec3R};
+use crate::irrep::subduction::{
+    Lattice, Mat3R, Rat, SubductionError, Vec3R, exact_primitive_basis,
+};
 use crate::irrep::w_little_characters_data::{
     LittleCharacterTable, LittleOperation, W_LITTLE_CHARACTERS,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Exact key of one frozen little-group operation: the rotation plus the
 /// translation as exact `(numerator, denominator)` pairs.
@@ -65,16 +77,15 @@ use std::collections::BTreeMap;
 /// group can share it); the translation is what makes the key the operation.
 type OperationKey = ([[i8; 3]; 3], [(i128, i128); 3]);
 
-/// A character vector of one frozen table, keyed by operation.
-type Fingerprint = BTreeMap<OperationKey, (f64, f64)>;
+/// A frozen character value together with its exact rational phase in turns.
+#[derive(Debug, Clone, Copy)]
+struct PhasedCharacter {
+    value: [i32; 2],
+    phase: Rat,
+}
 
-/// Tolerance of the fingerprint comparison.
-///
-/// The frozen characters are exact integers in `{-1, 0, 1}` (real and imaginary
-/// parts apart), and the twist is a phase computed in `f64`, so an exact match
-/// after the phase is reproduced to `1e-9`.  The tolerance is far below the
-/// `sqrt(2)` that separates any two distinct characters of these tables.
-const FINGERPRINT_TOLERANCE: f64 = 1e-9;
+/// A character vector of one frozen table, keyed by operation.
+type Fingerprint = BTreeMap<OperationKey, PhasedCharacter>;
 
 /// Where one label of a frozen table goes under a monodromy map.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +97,9 @@ pub enum LabelImage {
     Ambiguous(Vec<&'static str>),
     /// No frozen table of the parent carries the shifted fingerprint.
     Missing,
+    /// The shift is reciprocal, but its exact Bloch phase does not define a
+    /// one-dimensional character on this source's little group.
+    UnsupportedShift,
 }
 
 impl LabelImage {
@@ -93,7 +107,7 @@ impl LabelImage {
     pub fn unique(&self) -> Option<&'static str> {
         match self {
             Self::Unique(label) => Some(label),
-            Self::Ambiguous(_) | Self::Missing => None,
+            Self::Ambiguous(_) | Self::Missing | Self::UnsupportedShift => None,
         }
     }
 
@@ -105,7 +119,7 @@ impl LabelImage {
 
 /// The monodromy map `M_K` of one parent, one shift.
 ///
-/// Built by [`monodromy`] (shift by a rational multiple of a frozen direction)
+/// Built by [`monodromy`] (a reciprocal shift in the parent's conventional frame)
 /// or by [`complex_conjugation`] (the label map induced by `chi -> conj(chi)`).
 #[derive(Debug, Clone)]
 pub struct LineMonodromy {
@@ -169,7 +183,9 @@ impl LineMonodromy {
         for _ in 0..steps {
             current = match self.images.get(current)? {
                 LabelImage::Unique(image) => image,
-                LabelImage::Ambiguous(_) | LabelImage::Missing => return None,
+                LabelImage::Ambiguous(_) | LabelImage::Missing | LabelImage::UnsupportedShift => {
+                    return None;
+                }
             };
             orbit.push(current);
         }
@@ -237,20 +253,21 @@ fn operation_key(operation: &LittleOperation) -> Option<OperationKey> {
     let translation = operation_translation(operation)?;
     let mut key = [(0i128, 1i128); 3];
     for (axis, value) in key.iter_mut().enumerate() {
-        *value = (translation.get(axis).numerator(), translation.get(axis).denominator());
+        *value = (
+            translation.get(axis).numerator(),
+            translation.get(axis).denominator(),
+        );
     }
     Some((operation.rotation, key))
 }
 
-/// `exp(2 pi i shift . translation)`, the reciprocal-shift twist on one
-/// operation.
-fn twist_phase(shift: &Vec3R, translation: &Vec3R) -> (f64, f64) {
-    let mut angle = 0.0f64;
+/// `shift . translation`, the exact phase in turns for one operation.
+fn phase_turns(shift: &Vec3R, translation: &Vec3R) -> Result<Rat, SubductionError> {
+    let mut turns = Rat::ZERO;
     for axis in 0..3 {
-        angle += shift.get(axis).to_f64() * translation.get(axis).to_f64();
+        turns = turns.checked_add(shift.get(axis).checked_mul(translation.get(axis))?)?;
     }
-    let angle = std::f64::consts::TAU * angle;
-    (angle.cos(), angle.sin())
+    Ok(turns)
 }
 
 /// One frozen table's character vector, optionally shifted by the twist `K` and
@@ -259,46 +276,128 @@ fn fingerprint(
     table: &LittleCharacterTable,
     shift: Option<&Vec3R>,
     conjugate: bool,
-) -> Option<Fingerprint> {
+) -> Result<Option<Fingerprint>, SubductionError> {
     let mut out = Fingerprint::new();
     for operation in table.operations {
-        let key = operation_key(operation)?;
-        let (mut re, mut im) = (
-            f64::from(operation.character[0]),
-            f64::from(operation.character[1]),
-        );
-        if conjugate {
-            im = -im;
-        }
-        if let Some(shift) = shift {
-            let translation = operation_translation(operation)?;
-            let (cos, sin) = twist_phase(shift, &translation);
-            let (a, b) = (re, im);
-            re = a * cos - b * sin;
-            im = a * sin + b * cos;
-        }
-        out.insert(key, (re, im));
+        let Some(key) = operation_key(operation) else {
+            return Ok(None);
+        };
+        let re = operation.character[0];
+        let im = if conjugate {
+            let Some(imaginary) = operation.character[1].checked_neg() else {
+                return Ok(None);
+            };
+            imaginary
+        } else {
+            operation.character[1]
+        };
+        let value = [re, im];
+        let phase = if value == [0, 0] {
+            Rat::ZERO
+        } else if let Some(shift) = shift {
+            let Some(translation) = operation_translation(operation) else {
+                return Ok(None);
+            };
+            phase_turns(shift, &translation)?
+        } else {
+            Rat::ZERO
+        };
+        out.insert(key, PhasedCharacter { value, phase });
     }
-    Some(out)
+    Ok(Some(out))
 }
 
-/// Match a fingerprint against every frozen table of one parent.
-fn match_fingerprint(parent: u8, wanted: &Fingerprint) -> LabelImage {
+/// The exact quarter-turn phase, reduced modulo one, if it is a Gaussian unit.
+fn quarter_turn(phase: Rat) -> Option<u8> {
+    let residue = Rat::new(
+        phase.numerator().rem_euclid(phase.denominator()),
+        phase.denominator(),
+    )
+    .ok()?;
+    (0..4).find(|turn| Rat::new(i128::from(*turn), 4).ok() == Some(residue))
+}
+
+/// Apply an exact root-of-unity phase to a frozen Gaussian-integer character.
+fn apply_phase(value: [i32; 2], phase: Rat) -> Option<[i32; 2]> {
+    if value == [0, 0] {
+        return Some(value);
+    }
+    match quarter_turn(phase)? {
+        0 => Some(value),
+        1 => Some([value[1].checked_neg()?, value[0]]),
+        2 => Some([value[0].checked_neg()?, value[1].checked_neg()?]),
+        3 => Some([value[1], value[0].checked_neg()?]),
+        _ => None,
+    }
+}
+
+fn fingerprint_matches(wanted: &Fingerprint, actual: &Fingerprint) -> bool {
+    wanted.len() == actual.len()
+        && wanted.iter().all(|(key, phased)| {
+            actual.get(key).is_some_and(|candidate| {
+                apply_phase(phased.value, phased.phase) == Some(candidate.value)
+            })
+        })
+}
+
+/// Whether `exp(2 pi i shift . t_g)` is a one-dimensional character on the
+/// frozen little-group operations.
+///
+/// If `g h` is represented by `(R_g R_h, t_g + R_g t_h)` up to a parent
+/// lattice vector, multiplicativity reduces to
+/// `((I - R_g^T) shift) . t_h` being integral. The lattice-vector remainder is
+/// integral because `shift` has already been checked against the parent's
+/// reciprocal lattice. This includes cases where the shift is not fixed as an
+/// exact vector but its residual pairs integrally with every representative
+/// translation.
+fn shift_twist_is_character(
+    table: &LittleCharacterTable,
+    shift: &Vec3R,
+) -> Result<bool, SubductionError> {
+    let transposed_images = table
+        .operations
+        .iter()
+        .map(|operation| {
+            let rotation = operation.rotation.map(|row| row.map(i32::from));
+            Mat3R::from_ints(rotation)
+                .transpose()
+                .checked_mul_vector(shift)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    for image in transposed_images {
+        let residual = shift.checked_sub(&image)?;
+        for other in table.operations {
+            let Some(translation) = operation_translation(other) else {
+                return Ok(false);
+            };
+            let mut pairing = Rat::ZERO;
+            for axis in 0..3 {
+                pairing =
+                    pairing.checked_add(residual.get(axis).checked_mul(translation.get(axis))?)?;
+            }
+            if !pairing.is_integer() {
+                return Ok(false);
+            }
+        }
+    }
+    Ok(true)
+}
+
+fn match_fingerprint(
+    parent: u8,
+    wanted: &Fingerprint,
+    eligible: Option<&BTreeSet<&'static str>>,
+) -> LabelImage {
     let mut found: Vec<&'static str> = Vec::new();
     for candidate in line_sources(parent) {
-        let Some(actual) = fingerprint(candidate, None, false) else {
-            continue;
-        };
-        if actual.len() != wanted.len() {
+        if eligible.is_some_and(|eligible| !eligible.contains(candidate.label)) {
             continue;
         }
-        let equal = actual.iter().all(|(key, value)| {
-            wanted.get(key).is_some_and(|other| {
-                (value.0 - other.0).abs() <= FINGERPRINT_TOLERANCE
-                    && (value.1 - other.1).abs() <= FINGERPRINT_TOLERANCE
-            })
-        });
-        if equal {
+        let Ok(Some(actual)) = fingerprint(candidate, None, false) else {
+            continue;
+        };
+        if fingerprint_matches(wanted, &actual) {
             found.push(candidate.label);
         }
     }
@@ -309,44 +408,64 @@ fn match_fingerprint(parent: u8, wanted: &Fingerprint) -> LabelImage {
     }
 }
 
-/// Build the monodromy map `M_K` of `parent` for the shift `K`.
+/// Build the monodromy map `M_K` of `parent` for a reciprocal shift `K`.
 ///
-/// The shift is expressed in the parent's **conventional reciprocal basis**, the
-/// frame the frozen `direction` fields live in.  The map is a statement about
-/// the frozen tables; whether `K` is a genuine parent reciprocal lattice vector
-/// (the premise of the contract) is the caller's check -- see
-/// `SubgroupEmbedding::parent_lattice` and `Lattice::contains`.
-pub fn monodromy(parent: u8, shift: &Vec3R) -> LineMonodromy {
+/// `K` is expressed in the parent's conventional reciprocal basis. The exact
+/// reciprocal-lattice membership is checked here. Since one parent may carry
+/// several line little groups, each label is independently marked
+/// [`LabelImage::UnsupportedShift`] when the exact reciprocal-shift phase does
+/// not define a one-dimensional character on that source's little group.
+pub fn monodromy(parent: u8, shift: &Vec3R) -> Result<LineMonodromy, SubductionError> {
+    let direct = Lattice::new(exact_primitive_basis(parent)?)?;
+    if !direct.reciprocal()?.contains(shift)? {
+        return Err(SubductionError::NonReciprocalShift {
+            sg: parent,
+            shift: *shift,
+        });
+    }
+    let sources = line_sources(parent);
+    let mut eligible = BTreeSet::new();
+    for source in &sources {
+        if shift_twist_is_character(source, shift)? {
+            eligible.insert(source.label);
+        }
+    }
     let mut images = BTreeMap::new();
-    for source in line_sources(parent) {
-        let image = match fingerprint(source, Some(shift), false) {
-            Some(shifted) => match_fingerprint(parent, &shifted),
-            // A frozen table whose own operations cannot be parsed has no
-            // computable image; reporting `Missing` keeps the caller from
-            // marching through a guess.
-            None => LabelImage::Missing,
+    for source in sources {
+        let image = if !eligible.contains(source.label) {
+            LabelImage::UnsupportedShift
+        } else {
+            match fingerprint(source, Some(shift), false)? {
+                Some(shifted) => match_fingerprint(parent, &shifted, Some(&eligible)),
+                // A frozen table whose own operations cannot be parsed has no
+                // computable image; reporting `Missing` keeps the caller from
+                // marching through a guess.
+                None => LabelImage::Missing,
+            }
         };
         images.insert(source.label, image);
     }
-    LineMonodromy {
+    Ok(LineMonodromy {
         parent,
         shift: *shift,
         conjugate: false,
         images,
-    }
+    })
 }
 
 /// The map induced by complex conjugation of the character: `chi -> conj(chi)`.
 ///
-/// For the frozen sources of SG 209/210 this is the `DT3 <-> DT4` pair, i.e. the
-/// same two-cycle the shift produces; keeping the two maps apart is what lets
-/// the contract test check `C . M_K = M_-K . C` instead of assuming it.
+/// For SG 209 and 210 this exchanges `DT3 <-> DT4`; it is the same as SG 210's
+/// along-line shift, but SG 209's along-line shift is the identity. Keeping the
+/// maps distinct lets the contract test check `C . M_K = M_-K . C` rather than
+/// assuming they are the same operation.
 pub fn complex_conjugation(parent: u8) -> LineMonodromy {
     let mut images = BTreeMap::new();
     for source in line_sources(parent) {
         let image = match fingerprint(source, None, true) {
-            Some(conjugated) => match_fingerprint(parent, &conjugated),
-            None => LabelImage::Missing,
+            Ok(Some(conjugated)) => match_fingerprint(parent, &conjugated, None),
+            Ok(None) => LabelImage::Missing,
+            Err(_) => LabelImage::Missing,
         };
         images.insert(source.label, image);
     }
@@ -355,5 +474,47 @@ pub fn complex_conjugation(parent: u8) -> LineMonodromy {
         shift: Vec3R::zero(),
         conjugate: true,
         images,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_phase, parse_fraction, phase_turns};
+    use crate::irrep::subduction::{Rat, Vec3R};
+
+    #[test]
+    fn gaussian_phase_turns_keep_the_positive_bloch_sign() {
+        let translation = Vec3R::from_ints([1, 0, 0]);
+        let positive_quarter = Vec3R::new([parse_fraction("1/4").unwrap(), Rat::ZERO, Rat::ZERO]);
+        let negative_quarter = Vec3R::new([parse_fraction("-1/4").unwrap(), Rat::ZERO, Rat::ZERO]);
+
+        assert_eq!(
+            phase_turns(&positive_quarter, &translation).unwrap(),
+            parse_fraction("1/4").unwrap()
+        );
+        assert_eq!(
+            phase_turns(&negative_quarter, &translation).unwrap(),
+            parse_fraction("-1/4").unwrap()
+        );
+        assert_eq!(
+            apply_phase([1, 0], parse_fraction("1/4").unwrap()),
+            Some([0, 1])
+        );
+        assert_eq!(
+            apply_phase([1, 0], parse_fraction("-1/4").unwrap()),
+            Some([0, -1])
+        );
+        assert_eq!(
+            apply_phase([1, 0], parse_fraction("5/4").unwrap()),
+            Some([0, 1])
+        );
+
+        // The zero character is unchanged by any phase; nonzero values outside
+        // the frozen Gaussian units cannot be represented by this table format.
+        assert_eq!(
+            apply_phase([0, 0], parse_fraction("1/3").unwrap()),
+            Some([0, 0])
+        );
+        assert_eq!(apply_phase([1, 0], parse_fraction("1/3").unwrap()), None);
     }
 }

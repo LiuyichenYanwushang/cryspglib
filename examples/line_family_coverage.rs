@@ -31,10 +31,10 @@
 //! ```
 use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup};
+use cryspglib::irrep::line_monodromy::{line_table, monodromy, operation_translation};
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::star::decompose::subduce_line_at_parameter;
 use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R};
-use cryspglib::irrep::line_monodromy::{line_table, monodromy};
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::{HallNumber, SymmetryOps};
 use std::collections::BTreeMap;
@@ -83,8 +83,12 @@ const COMPLEX_CONJUGATE_GAP_CONTENT: usize = 0;
 const COMPLEX_CONJUGATE_GAP_ERRORS: usize = 0;
 
 /// The four critical parameters of the frozen corpus.
-const CRITICAL: [(&str, (i128, i128)); 4] =
-    [("0", (0, 1)), ("1/4", (1, 4)), ("1/2", (1, 2)), ("3/4", (3, 4))];
+const CRITICAL: [(&str, (i128, i128)); 4] = [
+    ("0", (0, 1)),
+    ("1/4", (1, 4)),
+    ("1/2", (1, 2)),
+    ("3/4", (3, 4)),
+];
 
 /// Parameters on the conjugate coset, `k(t) = -k(1/4) + n v`: `-1/4` is the
 /// conjugate point itself and `3/4`, `7/4` are its first two monodromy images, so
@@ -118,7 +122,11 @@ fn dot(left: &Vec3R, right: &Vec3R) -> Rat {
     let mut total = Rat::ZERO;
     for axis in 0..3 {
         total = total
-            .checked_add(left.get(axis).checked_mul(right.get(axis)).expect("product"))
+            .checked_add(
+                left.get(axis)
+                    .checked_mul(right.get(axis))
+                    .expect("product"),
+            )
             .expect("sum");
     }
     total
@@ -134,11 +142,7 @@ fn subgroup_generator(c: &Rat) -> Option<Rat> {
 }
 
 fn gcd(a: i128, b: i128) -> i128 {
-    if b == 0 {
-        a.abs()
-    } else {
-        gcd(b, a % b)
-    }
+    if b == 0 { a.abs() } else { gcd(b, a % b) }
 }
 
 /// `lcm` of two positive rationals, or the non-zero one when the other is zero.
@@ -149,8 +153,8 @@ fn rational_lcm(a: &Rat, b: &Rat) -> Rat {
     if b.is_zero() {
         return *a;
     }
-    let numerator = (a.numerator().abs() / gcd(a.numerator().abs(), b.numerator().abs()))
-        * b.numerator().abs();
+    let numerator =
+        (a.numerator().abs() / gcd(a.numerator().abs(), b.numerator().abs())) * b.numerator().abs();
     let denominator = gcd(a.denominator().abs(), b.denominator().abs());
     Rat::new(numerator, denominator).expect("lcm")
 }
@@ -224,8 +228,9 @@ struct Row {
     /// Whether the frozen little-group table is real (`D* = D`), i.e. whether the
     /// oracle is the *own* pinned frequency rather than the partner's.
     real: bool,
-    /// The pinned frequency of the conjugate partner source in the same record,
-    /// when that record lists it (`None` on the four rows where it does not).
+    /// The pinned frequency of the exact conjugate source in the same record,
+    /// when that record lists it. The corpus test pins a unique source partner
+    /// for every frozen table, so `None` means that this record has no partner row.
     partner_pinned: Option<u32>,
     /// Character-level **transport** check: `Some((equal, max deviation))` when
     /// the row decomposes at `t = 5/4`, at `t = 1/4` for its monodromy image, and
@@ -364,10 +369,12 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
                         Rat::new(5, 4).expect("parameter"),
                     );
                     let partner = conjugate_partner(table);
-                    let partner_pinned = pinned_rows
-                        .iter()
-                        .find(|candidate| candidate.parent_ml == partner)
-                        .map(|candidate| u32::from(candidate.frequency));
+                    let partner_pinned = partner.and_then(|partner| {
+                        pinned_rows
+                            .iter()
+                            .find(|candidate| candidate.parent_ml == partner)
+                            .map(|candidate| u32::from(candidate.frequency))
+                    });
                     let entry = Row {
                         ordinal: subgroup.ordinal,
                         parent,
@@ -382,11 +389,7 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
                         conjugate,
                         real: is_real(table),
                         partner_pinned,
-                        character_transport: character_transport(
-                            &subgroup,
-                            &embedding,
-                            table,
-                        ),
+                        character_transport: character_transport(&subgroup, &embedding, table),
                         shift_content,
                     };
                     if let Some(writer) = writer.as_mut() {
@@ -402,7 +405,7 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
                             entry.child,
                             entry.label,
                             entry.real,
-                            partner,
+                            partner.unwrap_or("-"),
                             entry.partner_pinned.map_or_else(|| "-".to_string(), |value| value.to_string()),
                             entry.arms,
                             entry.pinned,
@@ -451,6 +454,7 @@ fn character_transport(
     table: &'static LittleCharacterTable,
 ) -> Option<(bool, f64)> {
     let image = monodromy(table.space_group, &direction_of(table))
+        .ok()?
         .unique_image(table.label)
         .and_then(|image| line_table(table.space_group, image))?;
     let anchor =
@@ -477,43 +481,55 @@ fn is_real(table: &LittleCharacterTable) -> bool {
         .all(|operation| operation.character[1] == 0)
 }
 
-/// The conjugate partner label of one frozen source, found from the character
-/// tables themselves (never from a hand-written list): the table of the same
-/// parent with the element-wise conjugate characters under the same rotations.
-fn conjugate_partner(table: &LittleCharacterTable) -> &'static str {
-    let mut wanted: Vec<([[i32; 3]; 3], [i32; 2])> = table
+type ExactCharacterKey = ([[i32; 3]; 3], [(i128, i128); 3], [i32; 2]);
+
+/// Sorted exact operation/character keys, retaining translations as well as
+/// rotations so different Seitz representatives cannot be conflated.
+fn character_keys(table: &LittleCharacterTable, conjugate: bool) -> Option<Vec<ExactCharacterKey>> {
+    let mut keys = table
         .operations
         .iter()
         .map(|operation| {
-            (
+            let translation = operation_translation(operation)?;
+            let imaginary = if conjugate {
+                operation.character[1].checked_neg()?
+            } else {
+                operation.character[1]
+            };
+            Some((
                 operation.rotation.map(|row| row.map(i32::from)),
-                [operation.character[0], -operation.character[1]],
-            )
+                std::array::from_fn(|axis| {
+                    let value = translation.get(axis);
+                    (value.numerator(), value.denominator())
+                }),
+                [operation.character[0], imaginary],
+            ))
         })
-        .collect();
-    wanted.sort();
+        .collect::<Option<Vec<_>>>()?;
+    keys.sort_unstable();
+    Some(keys)
+}
+
+/// The conjugate partner label, if a same-parent source has the exact
+/// conjugated character on the same operations. Missing data stays missing.
+fn conjugate_partner(table: &LittleCharacterTable) -> Option<&'static str> {
+    let wanted = character_keys(table, true)?;
+    let mut found = None;
     for candidate in W_LITTLE_CHARACTERS {
-        if candidate.space_group != table.space_group
-            || candidate.operations.len() != table.operations.len()
-        {
+        if candidate.space_group != table.space_group {
             continue;
         }
-        let mut actual: Vec<([[i32; 3]; 3], [i32; 2])> = candidate
-            .operations
-            .iter()
-            .map(|operation| {
-                (
-                    operation.rotation.map(|row| row.map(i32::from)),
-                    operation.character,
-                )
-            })
-            .collect();
-        actual.sort();
+        let Some(actual) = character_keys(candidate, false) else {
+            continue;
+        };
         if actual == wanted {
-            return candidate.label;
+            if found.is_some() {
+                return None;
+            }
+            found = Some(candidate.label);
         }
     }
-    table.label
+    found
 }
 
 fn main() -> std::process::ExitCode {
@@ -554,13 +570,14 @@ fn main() -> std::process::ExitCode {
     let mut conjugate_witnesses = Vec::new();
     for row in &rows {
         *critical_sizes.entry(row.critical_denominator).or_default() += 1;
-        *arity_histogram.entry((
-            row.critical[0],
-            row.critical[1],
-            row.critical[2],
-            row.critical[3],
-        ))
-        .or_default() += 1;
+        *arity_histogram
+            .entry((
+                row.critical[0],
+                row.critical[1],
+                row.critical[2],
+                row.critical[3],
+            ))
+            .or_default() += 1;
         match row.critical[1] {
             Some(value) if value == row.pinned => {}
             Some(_) => pinned_mismatch += 1,
@@ -596,9 +613,7 @@ fn main() -> std::process::ExitCode {
             }
         }
         for (index, value) in row.conjugate.iter().enumerate() {
-            let entry = conjugate
-                .entry((CONJUGATE[index].0, row.real))
-                .or_default();
+            let entry = conjugate.entry((CONJUGATE[index].0, row.real)).or_default();
             let Some(expected) = row.partner_pinned else {
                 entry.2 += 1;
                 continue;
@@ -654,15 +669,13 @@ fn main() -> std::process::ExitCode {
         println!("  {witness}");
     }
     if gate {
-        let real_gap = CONJUGATE
-            .iter()
-            .all(|(name, _)| {
-                conjugate
-                    .get(&(*name, true))
-                    .copied()
-                    .map(|(wrong, errors, _)| (wrong, errors))
-                    == Some((CONJUGATE_GAP_CONTENT, CONJUGATE_GAP_ERRORS))
-            });
+        let real_gap = CONJUGATE.iter().all(|(name, _)| {
+            conjugate
+                .get(&(*name, true))
+                .copied()
+                .map(|(wrong, errors, _)| (wrong, errors))
+                == Some((CONJUGATE_GAP_CONTENT, CONJUGATE_GAP_ERRORS))
+        });
         let complex_gap = CONJUGATE.iter().all(|(name, _)| {
             conjugate
                 .get(&(*name, false))
@@ -696,6 +709,18 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_frozen_source_has_one_exact_conjugate_partner() {
+        for source in W_LITTLE_CHARACTERS {
+            assert!(
+                conjugate_partner(source).is_some(),
+                "SG {} {} has no unique exact conjugate source",
+                source.space_group,
+                source.label
+            );
+        }
+    }
 
     /// The whole corpus: the exact critical set is the quarter grid, the pinned
     /// parameter matches, nothing folds onto the child Gamma off the grid, and
@@ -739,7 +764,7 @@ mod tests {
         );
         assert!(
             rows.iter().all(|row| row.shift_content == Some(row.pinned)),
-            "t = 5/4 is the same parent irrep as t = 1/4"
+            "t = 5/4 preserves the pinned trivial content after label transport"
         );
         let compared = rows
             .iter()
@@ -764,19 +789,20 @@ mod tests {
                 ),
             ] {
                 let (wrong, errors, missing) =
-                    rows.iter().fold((0, 0, 0), |(wrong, errors, missing), row| {
-                        if row.real != real {
-                            return (wrong, errors, missing);
-                        }
-                        let Some(expected) = row.partner_pinned else {
-                            return (wrong, errors, missing + 1);
-                        };
-                        match row.conjugate[index] {
-                            Some(value) if value == expected => (wrong, errors, missing),
-                            Some(_) => (wrong + 1, errors, missing),
-                            None => (wrong, errors + 1, missing),
-                        }
-                    });
+                    rows.iter()
+                        .fold((0, 0, 0), |(wrong, errors, missing), row| {
+                            if row.real != real {
+                                return (wrong, errors, missing);
+                            }
+                            let Some(expected) = row.partner_pinned else {
+                                return (wrong, errors, missing + 1);
+                            };
+                            match row.conjugate[index] {
+                                Some(value) if value == expected => (wrong, errors, missing),
+                                Some(_) => (wrong + 1, errors, missing),
+                                None => (wrong, errors + 1, missing),
+                            }
+                        });
                 assert_eq!(
                     (wrong, errors),
                     expected,

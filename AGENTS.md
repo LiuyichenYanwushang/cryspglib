@@ -19,21 +19,27 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 前面；下面是按时间累积的轮次账本，保留历史措辞，**勿把中间阶段的数字当当前结论**
 > （每个被推翻的阶段都在原处标注了撤销）。
 >
-> 本节基准：`5ecb70b`（R6.2 monodromy 步，2026-09-23），紧接其后的两处文档/门禁
-> 待办见 §3 第 1、2 条。
+> 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
+> 见 §3。
 
 ### 1. 参数化 k 族的完成度（四层，全部可复现）
 
 | 层 | 状态 | 证据 / 复现 |
 |---|---|---|
 | 官方锚点 `t = 1/4` | ✅ 闭合 | 5,756/5,756 恒等频率 == pinned（**外部** oracle：官方 `SHOW FREQUENCY`；`scripts/verify_w_subduction_oracle.py` live 双向比对）；完整分解过维数/整重数/重建三不变式 |
-| 等价参数 `t = 1/4 + n` | ✅ 本轮闭合 | monodromy 契约 `(k+K, M_K(α)) ~ (k, α)`：`decompose(α, t+n) == decompose(M_{nv}(α), t)`。分解逐块逐目标 5,756/5,756（审计 `w_parameter_shift: checked=5756 mismatched=0 skipped_undetermined_image=0`）；字符层 5,756/5,756（`line_family_coverage --gate`） |
+| 沿线倒格平移 | ✅ 闭合 | 73/73 源的 `d=gcd(coords_{G*}(v))=1`，所以最小沿线倒格步长就是 v；完整分解逐块逐目标 5,756/5,756（`tests/line_monodromy.rs::the_engine_transports_every_primitive_line_reciprocal_step`），原审计另独立钉住 `t=5/4` 的 5,756 行 |
 | 共轭 coset `-1/4, 3/4, 7/4` | ✅ 本轮闭合 | 推导链 = 逐臂共轭恒等 + 整数步位移 + pinned 的 monodromy 不变性（816 条非平凡像逐条断言）；实测实表/复表 content oracle **0 不一致 0 错误**（旧数字 187/58/223 已证明是 R6.1 规范波矢的产物） |
 | 网格外非退化 `t ∉ (1/4)Z` | ✅ 证明级 | 支持集恰为 `(1/4)Z`（5,756 行精确枚举）；103,608 个网格外组合折到子群 Γ 的臂数全 0 ⇒ `content = 0` |
 
-**已验证域 = `t ≡ 1/4 (mod 1)`**（等价地 `(t − 1/4)·v ∈ G*_parent`）：只有这些参数
-既可从冻结表推导、又有 oracle。域外参数（`3/4`、`1/2`、`0` …）引擎仍给出一致字符
-（hard failure 0、共轭律 0 违反），但**没有 oracle**，报告只给实测值。
+**已有官方锚点且经输运验证的域**：逐源 `t = 1/4 + n`；本轮检查 `v/d` 后发现 73/73
+源均 `d=1`，即 v 已是母群倒格上的沿线最小步长。不等价的域外参数（`0`、`1/2`
+等）仍是形式值、缺目标字符来源或没有 oracle，须按各自文档的边界理解。
+
+**R6.2 审计更正**：`monodromy(parent, K)` 计算一般倒格字符扭曲；只有 `K` 平行于某源
+方向时才表示该源的参数位移。SG 203 的 `K=(2,0,0)` 是跨线扭曲见证，不是参数步进。
+沿源方向的非恒等映射只出现在 SG 203/210（DT1↔DT2、DT3↔DT4）和 SG 227/228
+（DT1↔DT3、DT2↔DT4）；SG 209 沿线恒等，SM 源沿自身方向不移动。测试现在逐源钉住
+73 个沿线标签像、816 条 pinned 非恒等频率对，并分别标明通用跨线扭曲测试的范围。
 
 ### 2. 离"彻底"还差什么
 
@@ -60,41 +66,44 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 
 ### 3. 已知风险 / 待办清单（按优先级，做完请删条并记账）
 
-1. **`docs/subduction-audit.md` 未同步（本轮唯一漏掉的正式报告）**：第 432 行仍是
-   R6.1 口径的 `w_parameter_shift: checked=5756 mismatched=0 (t = 5/4 against t = 1/4,
-   ...)`；应改成新语义（对照 monodromy 像）并附本轮 `elapsed=548.5s` 的实测块，
-   "边界"小节第 2 条也应指向 §16 的已验证域。
-2. **`skipped_undetermined_image` 是门禁盲区**：它既不在 `hard_failures()` 也不在
-   `w_incomplete()` 里。今天为 0，但一旦将来冻结表出现两个指纹相同的源，transport
-   比较会被**静默跳过**而门禁照样报 complete。应升级为硬失败或计入 `w_incomplete`。
-3. **ledger 的本地 `character()` 复刻缺常驻对齐断言**：`examples/line_transport_ledger.rs`
+1. **ledger 的本地 `character()` 复刻缺常驻对齐断言**：`examples/line_transport_ledger.rs`
    复制了引擎的逐臂字符公式（注释称曾与 `engine.reconstruction()` 逐代表元
    bit-identical，但那是一次性实测）；本轮把它的 `centre` 从"规范化"改成"原始"，
    等价性没有被测试钉住。建议加断言：引擎成功时逐代表元 ≤1e-12，否则"独立诊断"
    可能诊断的是另一个对象。
-4. **monodromy 契约的前提要在新增源时强制**：契约只对"方向 ∈ G\*_parent"成立
-   （73/73 已由 ledger 逐行断言 `direction_is_parent_reciprocal_lattice=true`）。
-   若将来加入方向不是倒格矢的源，`t` 与 `t+1` 根本不是同一个 k 点，语义必须换成
-   "不同 k 点"而不是 monodromy 位移。
-5. **性能**：审计 548.5 s、`line_family_coverage --gate` 110 s、`line_monodromy` 测试
-   23.6 s，全部**单线程**，机器 8 核。probe/行之间彼此独立，rayon 化预计把审计压到
-   ~90–120 s；门禁必须是"同一输入串行 vs 并行 TSV 逐字节一致"，而不是只对总数。
-6. **`t=0/1/2` 形式值的 API 语义**（= §2 A）：长期最容易被误用的一处。
+2. **monodromy 的精确适用域**：`K` 必须属于精确的母群倒格；对单条线源还须逐对检查
+   `((I-R_g^T)K)·t_h ∈ Z`，这是 `exp(2πi K·t_g)` 成为小群一维特征标的精确条件；
+   `R^{-T}K=K` 仅是充分条件。API 对非倒格矢返回 `NonReciprocalShift`，对不满足相位
+   条件的源返回 `LabelImage::UnsupportedShift`。三个 reciprocal 基矢上实测支持 159/219
+   个“源×基矢”对；这是一般字符扭曲的适用性清点，不是沿线位移覆盖。只有 `K=delta*v`
+   才能据此称为该源的参数步进。73/73 冻结线的沿线像唯一、完整分解逐目标输运通过。
+   任意三维倒格移仍须通过精确相位检验并在冻结表中找到唯一像，不能只因属于倒格就声称有标签输运。
+3. **性能**：本轮已将 `audit_irrep_subduction` 改为按母群空间群并行；全表 8 线程
+   `RAYON_NUM_THREADS=8` 为 121.6 s，`RAYON_NUM_THREADS=1` 为 554.7 s，三道门禁
+   结果一致，389,151 行 / 59,770,080 字节 TSV `cmp` 逐字节相同（SHA-256
+   `3df39d03b5518df950e9d2dd14195a03784a3bf0ab293b833ceae2f28f601406`）。
+   `--progress N` 仍按已完成记录报告；child 缓存跨 worker 共享。无法确定 monodromy
+   image 的行现在按硬失败处理，并以逐行发射计数检查 w-row 报告不丢行。剩余热点是
+   `line_family_coverage --gate`（实测 112.0 s）和 `line_monodromy` 集成测试（实测 26.3 s），
+   后续如需继续缩短全量验证再单独评估并行化。
+4. **`t=0/1/2` 形式值的 API 语义**（= §2 A）：长期最容易被误用的一处。
 
 ### 4. 本轮交付（`5ecb70b`）
 
 * 新 API `src/irrep/line_monodromy.rs`：`monodromy(parent, &shift)`、
   `complex_conjugation(parent)`、`LineMonodromy::{image, unique_image, orbit,
-  undetermined, images}`、`LabelImage::{Unique, Ambiguous, Missing}` 与冻结数据访问器；
-  指纹按**精确操作**（旋转 + 分数平移）为键，73/73 源像唯一。
+  undetermined, images}`、`LabelImage::{Unique, Ambiguous, Missing, UnsupportedShift}` 与冻结数据访问器；
+  指纹按精确 Seitz 操作键控，相位精确按有理数计算并与冻结 Gaussian 整数特征标匹配；
+  73/73 沿线源像唯一。
 * 引擎撤销 R6.1 的 `canonical_wave_vector`（连 `parent_reciprocal` 一起删除），
   改用原始 `k(t) = t·direction`。
-* `tests/line_monodromy.rs` 5 条常驻测试：四条契约恒等式（73/136/136/136）、pinned
-  频率在 816 条非平凡像上不变、73/73 像可报告、全表 transport 5,756/5,756、
-  以及"同标签读法在 40 行上不同"的反例（撤销读法的钉子）。
+* `tests/line_monodromy.rs` 11 条常驻集成测试：契约恒等式（73/136/136/136）、pinned
+  频率 816 条、73/73 沿线标签钉值、全表 transport 5,756/5,756、通用扭曲适用性与
+  reciprocal-shift 负例，以及"同标签读法在 40 行上不同"的反例（撤销读法的钉子）。
 * 审计 `w_parameter_shift` 改为对照 monodromy 像，并新增
-  `skipped_undetermined_image` / `same_label_witnesses` 两个计数（后者 = 40，证明
-  门禁非空转）；`line_family_coverage` 的 `CONJUGATE_GAP_*` 由 `187/58` 改为 `0/0`、
+  `skipped_undetermined_image`（本轮更名为 `comparison_skipped` 并升级为硬失败）与
+  `same_label_witnesses` 两个计数（后者 = 40，证明门禁非空转）；`line_family_coverage`
+  的 `CONJUGATE_GAP_*` 由 `187/58` 改为 `0/0`、
   字符层由"缺 twist 的共轭比较"改为 transport 比较（5,756/5,756）。
 * 文档三阶段记账：`docs/subduction-conventions.md` §16、`docs/subduction-r6-coverage.md`
   命题 3/4 与分档、`docs/subduction-r6-plan.md` §4、本文件末尾的轮次记录。
@@ -3778,28 +3787,33 @@ API 测试（不动引擎）→ 用 monodromy 映射重写 `w_parameter_shift` �
 * **新 API** `src/irrep/line_monodromy.rs`（`#[doc(hidden)] pub mod`）：
   `monodromy(parent, &shift)`、`complex_conjugation(parent)`、`LineMonodromy::
   {image, unique_image, orbit, undetermined, images}`、`LabelImage::{Unique,
-  Ambiguous, Missing}`、`line_parents/line_sources/line_table/line_direction/
+  Ambiguous, Missing, UnsupportedShift}`、`line_parents/line_sources/line_table/line_direction/
   operation_translation/parse_fraction`。指纹按**精确操作**（旋转 + 分数平移的
-  `(num,den)` 对）为键，不再只用旋转；匹配容差 1e-9。73/73 源像唯一，
-  `undetermined_labels=0`。
-* **测试** `tests/line_monodromy.rs`（5 条，全部常驻）：
+  `(num,den)` 对）为键；相位模 1 精确计算并匹配冻结 Gaussian 整数特征标，不用浮点
+  容差。当前物化器支持四分之一圈单位相位；无法由冻结格式表示的相位报告 `Missing`，
+  不猜标签。73/73 源像唯一，
+  `M_0` 对 73 个源均唯一。注意 `monodromy(parent,K)` 接受通用倒格扭曲；仅当 `K`
+  平行于某源方向时才是该源的参数位移。沿线非恒等映射为 SG 203/210 的
+  `DT1↔DT2`、`DT3↔DT4`，以及 SG 227/228 的 `DT1↔DT3`、`DT2↔DT4`；SG 209 沿线恒等。
+* **测试** `tests/line_monodromy.rs`（11 条集成测试，全部常驻）：
   `the_monodromy_contract_identities_hold`（`M_0=id`、`M_-K=M_K^-1`、
   `M_{2K}=M_K²`、`C·M_K=M_-K·C`；73/136/136/136 次断言）、
   `the_pinned_frequencies_are_constant_on_monodromy_orbits`（**816** 条非平凡像，
   pinned 频率逐条相等 —— 这是"位移不是恒等"与 pinned 表相容的物理依据）、
   `every_frozen_label_has_a_reportable_image`、**transport**：
-  `the_engine_transports_a_parameter_step_by_the_monodromy_map`
+  `the_engine_transports_every_primitive_line_reciprocal_step`
   （**5,756/5,756** 行完整分解相等、`non-trivial_images=816`、
   `undetermined=0`）、以及撤销读法的见证
   `a_parameter_step_is_not_the_identity_on_a_nontrivial_monodromy`
   （**40 行**同标签读法给出不同分解，正是 R6.1 记为"40 行 gauge 滑移"的那批）。
   修复前该 transport 测试在**第 1 行**就失败（ordinal 11328 `DT3`：规范波矢给
   `Z1`，正确的 `DT4@1/4` 给 `Z2`）——这就是"红门禁"记录。
-* **审计 `w_parameter_shift` 重写**：比较 `decompose(α, 5/4)` 与
+* **审计 `w_parameter_shift` 重写（后被本轮修订）**：比较 `decompose(α, 5/4)` 与
   `decompose(M_v(α), 1/4)`，未定像计数为 `skipped_undetermined_image`，同标签
   读法作 `same_label_witnesses` 见证计数（非空转证据）。实测
   `checked=5756 mismatched=0 skipped_undetermined_image=0 same_label_witnesses=40`；
-  配常驻单测（mismatch → 每个门禁组合都 exit 1；skipped → exit 0）。
+  配常驻单测（mismatch → 每个门禁组合都 exit 1；当时 skipped → exit 0）。**这段是历史口径**：
+  当前计数名为 `comparison_skipped`，无法比较的行按硬失败处理，并输出行级诊断；见本节 §3。
 * **58/50/223 的最终定性**：撤销约化后，`line_transport_ledger --batch` 在
   `t = 1/4, 3/4, 5/4` 三个参数上 **hard failure 全为 0**（各 5,756 行），ledger
   自己的共轭律复算违反 **0**（此前 3/4 上 58/50），`line_family_coverage --gate`
@@ -3817,7 +3831,8 @@ API 测试（不动引擎）→ 用 monodromy 映射重写 `w_parameter_shift` �
   **不再作为独立错误计数引用**。
 * **本轮门禁**：三门口禁审计 exit 0、`VERDICT complete`、553.8 s
   （`identity 94271/94271`、probe 366260/366260、w `5756/5756`、`hard_failures=0`、
-  `w_parameter_shift checked=5756 mismatched=0`）；`line_family_coverage --gate` exit 0；
-  `line_monodromy` 5/5、`w_line_frequency` 8/8（其 `a_conjugate_parameter_carries_the_
+  `w_parameter_shift checked=5756 mismatched=0`）；`line_family_coverage` example 2 项与
+  `--gate` 均通过；
+  `line_monodromy` 11/11、模块内 Gaussian phase 单元测试 1/1、`w_line_frequency` 8/8（其 `a_conjugate_parameter_carries_the_
   reciprocal_gauge_factor` 按新读法**有意重写**：`χ(3/4) = conj(χ(1/4))·Φ_v` 逐代表元，
   并钉住两档实测的负因子数 4/8 与 0/8，对应"位移非恒等"与"该行位移等于自身"两种情形）。

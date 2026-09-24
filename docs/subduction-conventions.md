@@ -598,16 +598,34 @@ pub fn subduce_line_at_parameter(
   ```
 
   `M_K` 由**字符指纹**算出（绝不按标签名硬编码），实现在
-  [`crate::irrep::line_monodromy`]（`monodromy` / `complex_conjugation` / `orbit`）。
-  它在 SG 209/210/227/228 的 DT/SM 共轭对上不是恒等；受影响的行就是 R6.1 记下的
-  **40 行**（`tests/line_monodromy.rs` 的
-  `a_parameter_step_is_not_the_identity_on_a_nontrivial_monodromy` 把它们作为
-  "同标签读法是错的"的见证逐条列出）。R6.1 把 `Z1@1/4 → Z2@5/4` 读成 gauge 滑移，
-  实际它是**正确的位移**：`M_v(DT3) = DT4`，而 pinned `DT4@1/4` 的分解正是 `Z2`。
-* **已验证域（用户裁定 2026-09-23）**：`t ≡ 1/4 (mod 1)`（等价地
-  `(t − 1/4)·v ∈ G*_parent`）。只有这些参数既可由冻结表推导又有 oracle：此时
-  pinned 频率在 monodromy 轨道上不变（816 条非平凡像全表钉住），位移后的分解等于
-  像的 anchor 分解。`t = 3/4` 一类（共轭 coset 再走半步）既不等于 pinned，也不由
+  [`crate::irrep::line_monodromy`]（`monodromy` / `complex_conjugation` / `orbit`）；相位
+  以有理数模 1 计算，再与冻结 Gaussian 整数特征标精确比较，不走浮点容差。当前
+  冻结值是 `(实部, 虚部)` 整数对，因此非零字符项只直接支持 Gaussian 单位相位（四分之一圈）；
+  其他有效根相位若不能匹配冻结表，会返回 `Missing`，表示当前冻结格式里没有可用像。
+  沿源自身方向的非恒等映射为：SG 203/210 交换 `DT1↔DT2`、`DT3↔DT4`；SG 227/228
+  交换 `DT1↔DT3`、`DT2↔DT4`；SG 209 的沿线映射为恒等，`SM` 源沿自身方向也不移动。
+  SG 209/210 的 `DT3`/`DT4` 仍互为复共轭，但复共轭是另一种映射，不能与沿线位移混为一谈。
+  非恒等沿线映射在 pinned 表上产生 **816** 条可比较的频率对；参数输运中同标签读法
+  失效的 **40 行**由 `a_parameter_step_is_not_the_identity_on_a_nontrivial_monodromy`
+  逐条见证。R6.1 把 SG 210 的 `Z1@1/4 → Z2@5/4` 读成 gauge 滑移，实际是正确位移：
+  该行的 `M_v(DT3) = DT4`，而 pinned `DT4@1/4` 的分解正是 `Z2`。
+  `monodromy(parent, K)` 是通用的倒格字符扭曲映射；只有当 `K = delta * v` 与某个源的
+  冻结方向 `v` 平行时，它才表示该源参数 `t -> t + delta` 的沿线位移。SG 203 的
+  `K=(2,0,0)` 见证是跨线扭曲示例，不是参数步进。函数先精确验证 `K ∈ G*_parent`；
+  对每个线源再逐对检查小群
+  操作相位是否乘法：对 `g=(R_g,t_g)`、`h=(R_h,t_h)`，必须有
+  `((I−R_g^T)K)·t_h ∈ Z`。这是 `exp(2πi K·t_g)` 成为该线小群一维特征标的精确条件；
+  `R_g^{-T}K=K` 只是更强的充分条件。不能通过精确检查时返回
+  `LabelImage::UnsupportedShift`，不猜相位公式的像。对每个冻结源，令
+  `d = gcd(coords_{G*}(v))`，则 `v/d` 是沿该线的
+  最小倒格平移；全表 73/73 源的像唯一，且完整分解满足
+  `decompose(α, 1/4 + 1/d) = decompose(M_{v/d}(α), 1/4)`；实测这 73 个源都 `d=1`，
+  所以没有扩展参数集合，确认的仍是 `t = 1/4 + n`。
+* **已有官方锚点且经输运验证的域**：逐源为 `t = 1/4 + n/d`，其中 `v/d` 是该母群
+  倒格上的沿线最小正步长。它满足 `(t − 1/4)·v ∈ G*_parent`；完整分解等于相应
+  monodromy 像在 anchor 的分解。pinned 频率在 monodromy 轨道上不变（816 条非平凡像
+  全表钉住）。除此之外的退化或非平移等价参数仍没有同等级 oracle。`t = 3/4` 一类
+  （共轭 coset 再走半步）若不满足该源的倒格等价条件，就既不等于 pinned，也不由
   该表的标签描述，引擎仍会给出一致的字符（hard failure 0）但**没有 oracle**，
   报告只给实测值，不作结论。
 * 输出 `LineSubduction`：`parent_dimension = little_dim × arms`、每个折叠子群星一个
@@ -642,10 +660,11 @@ R5 的 Γ-only 入口保留为 [`line_trivial_content_via_blocks`]，但审计�
 | 已知点 | `t = 1/4` 下**全部 5,756 条 pinned w 行**的完整分解，恒等重数 == pinned 频率 | 审计 `w_computed=5756/5756`、`mismatched=0`、`engine_errors=0`、`hard_failures=0`（R6.1 升级当轮 604.8 s、规范波矢修复后复跑 557.0 s，三门口禁 exit 0）；另有 SG 196 的 106 行作为单元测试常驻 |
 | 一般位置 | child #1（`10038` `W1` `4D1`）`t = 1/7`：6 个构造块、每块 1 维、恒等重数 0 | 与**独立于多重度求解器的几何计数**一致（0 条臂折到子群 Γ；臂集合/帧/Γ 判定与引擎共用，所以这是第二读数而非外部 oracle） |
 | 特殊值两侧 | 同一记录 `t = 1/4`（2 块：`Z1`×2 + `GM1`×4、恒等重数 4 == pinned）对 `t = 1/6`、`t = 1/3`（各 6 块、恒等重数 0） | 两侧都完整、都等于几何计数（这一对的 `0 == 0` 只是弱断言，非零锚点是 `t = 1/4` 的 pinned 值）；证明"参数变了结论就变" |
-| 约定（全表） | `t = 5/4` 的完整分解 == `M_v(α)` 在 `t = 1/4` 的完整分解 | **5,756/5,756**，`undetermined_image=0`，同标签读法在 40 行上不同（审计 `w_parameter_shift` 硬门禁 + `tests/line_monodromy.rs`） |
+| 约定（全表） | `t = 5/4` 的完整分解 == `M_v(α)` 在 `t = 1/4` 的完整分解 | **5,756/5,756**，`comparison_skipped=0`（非零时硬失败），同标签读法在 40 行上不同（审计 `w_parameter_shift` 硬门禁 + `tests/line_monodromy.rs`） |
 | 约定（字符层） | `χ(5/4, α) == χ(1/4, M_v(α))` 逐代表元 | **5,756/5,756**（`line_family_coverage --gate`，容差 1e-9） |
-| monodromy 代数 | `M_0 = id`、`M_-K = M_K^-1`、`M_{2K} = M_K²`、`C·M_K = M_-K·C` | 73 parents 逐条断言（`the_monodromy_contract_identities_hold`，`undetermined_labels=0`） |
-| pinned 不变性 | pinned 频率在 monodromy 轨道上不变 | **816** 条非平凡像逐条相等（`the_pinned_frequencies_are_constant_on_monodromy_orbits`） |
+| monodromy 代数 | `M_0 = id`、`M_-K = M_K^-1`、`M_{2K} = M_K²`、`C·M_K = M_-K·C` | 11 个母群、73 个源；M₀ 覆盖断言 73/73，逆/复合/共轭关系各 136 项；这些方向映射也包含合法跨线扭曲（`the_monodromy_contract_identities_hold`） |
+| 沿线标签 | 每个源沿自身冻结方向的标签像 | 73/73 唯一且逐标签钉值；非恒等映射限于 SG 203/210/227/228 的 DT 源（`along_line_images_match_the_frozen_parent_labels`） |
+| pinned 不变性 | pinned 频率在沿线 monodromy 轨道上不变 | **816** 条非平凡像逐条相等，测试精确断言 816（`the_pinned_frequencies_are_constant_on_monodromy_orbits`） |
 | 失败语义 | 别家的 `table` → `LineSourceMismatch`；越界一般点 → `MissingChildStarData` | 两条负例都断言具体变体 |
 
 **证据级别（防止把内部自洽写成外部正确）**：
@@ -699,7 +718,7 @@ R5 的 Γ-only 入口保留为 [`line_trivial_content_via_blocks`]，但审计�
   全为 0）。网格外（非退化点）`content(t) = 0` 是**证明级**结论。
 * `t = 1/4` == pinned（**外部**官方输出）；`t = 5/4`（以及任何
   `(t - 1/4)·v ∈ G*_parent`）的**完整分解逐块逐目标**等于 `M_v^{n}(α)` 在 `t = 1/4`
-  的分解——审计的 `w_parameter_shift` 硬门禁（5,756 行；`skipped_undetermined_image=0`，
+  的分解——审计的 `w_parameter_shift` 硬门禁（5,756 行；`comparison_skipped=0`，
   同标签读法在 40 行上不同，作为"门禁非空转"的见证计数）。字符层同表核对
   （`line_family_coverage --gate`：`χ(5/4) == χ(M_v(α), 1/4)`，5,756/5,756）。
 * **共轭/位移参数（`k(t) ≡ -k(1/4)`）的记账：三阶段，已闭合**（勿把中间阶段的数字

@@ -52,6 +52,10 @@ pub enum SubductionError {
     /// Space group number outside 1-230.
     #[error("space group {sg} is outside 1-230")]
     InvalidSpaceGroup { sg: u8 },
+    /// A proposed reciprocal-space translation is not in the parent's exact
+    /// reciprocal lattice.
+    #[error("wave-vector shift {shift} is not reciprocal for space group {sg}")]
+    NonReciprocalShift { sg: u8, shift: Vec3R },
     /// `SG_DATA_HALL` has no Hall number for this space group.
     ///
     /// The strict source never falls back to the first Hall setting: the
@@ -1549,7 +1553,7 @@ fn same_record(left: &IsotropyRecord, right: &IsotropyRecord) -> bool {
 }
 
 /// The stored primitive basis as exact rationals.
-fn exact_primitive_basis(sg: u8) -> Result<Mat3R, SubductionError> {
+pub(crate) fn exact_primitive_basis(sg: u8) -> Result<Mat3R, SubductionError> {
     let basis =
         parent_primitive_basis(sg).map_err(|_| SubductionError::InvalidSpaceGroup { sg })?;
     let mut rows = [[Rat::ZERO; 3]; 3];

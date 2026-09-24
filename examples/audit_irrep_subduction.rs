@@ -91,9 +91,9 @@ use std::env;
 use std::fs::File;
 use std::io::{self, BufWriter, Write};
 use std::process::ExitCode;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
-use cryspglib::irrep::{LabelConvention, generated_data};
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup, parent_primitive_basis, subgroup_size};
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::star::decompose::{
@@ -107,6 +107,8 @@ use cryspglib::irrep::subduction::{
 use cryspglib::irrep::types::{
     CompoundCharacterSemantics, IrrepRecord, IrrepSourceIdentity, KVector,
 };
+use cryspglib::irrep::{LabelConvention, generated_data};
+use rayon::prelude::*;
 
 const EXPECTED_CONDENSATES: usize = 15_239;
 const EXPECTED_IDENTITY_ROWS: usize = 94_271;
@@ -251,6 +253,12 @@ struct ProbeCounts {
     uncomputed_no_trivial: usize,
 }
 
+macro_rules! add_count_fields {
+    ($target:ident; $($field:ident),+ $(,)?) => {
+        $($target.$field += *$field;)+
+    };
+}
+
 impl ProbeCounts {
     /// Probes handed to the production engine.
     fn attempted(&self) -> usize {
@@ -290,13 +298,25 @@ impl ProbeCounts {
     }
 
     fn add(&mut self, other: &ProbeCounts) {
-        self.total += other.total;
-        self.full_success += other.full_success;
-        self.identity_only += other.identity_only;
-        self.missing += other.missing;
-        self.error += other.error;
-        self.uncomputed_embedding += other.uncomputed_embedding;
-        self.uncomputed_no_trivial += other.uncomputed_no_trivial;
+        let ProbeCounts {
+            total,
+            full_success,
+            identity_only,
+            missing,
+            error,
+            uncomputed_embedding,
+            uncomputed_no_trivial,
+        } = other;
+        add_count_fields!(
+            self;
+            total,
+            full_success,
+            identity_only,
+            missing,
+            error,
+            uncomputed_embedding,
+            uncomputed_no_trivial,
+        );
     }
 }
 
@@ -373,17 +393,33 @@ impl EntryCounts {
     }
 
     fn add(&mut self, other: &EntryCounts) {
-        self.entries += other.entries;
-        self.unique += other.unique;
-        self.unresolved += other.unresolved;
-        self.duplicate_same += other.duplicate_same;
-        self.duplicate_conflict += other.duplicate_conflict;
-        self.passed += other.passed;
-        self.mismatch += other.mismatch;
-        self.embedding_unavailable += other.embedding_unavailable;
-        self.no_trivial += other.no_trivial;
-        self.missing += other.missing;
-        self.error += other.error;
+        let EntryCounts {
+            entries,
+            unique,
+            unresolved,
+            duplicate_same,
+            duplicate_conflict,
+            passed,
+            mismatch,
+            embedding_unavailable,
+            no_trivial,
+            missing,
+            error,
+        } = other;
+        add_count_fields!(
+            self;
+            entries,
+            unique,
+            unresolved,
+            duplicate_same,
+            duplicate_conflict,
+            passed,
+            mismatch,
+            embedding_unavailable,
+            no_trivial,
+            missing,
+            error,
+        );
     }
 }
 
@@ -446,6 +482,7 @@ struct Counts {
     gamma_record_non_gamma_probe: usize,
     w_records: usize,
     w_entries: usize,
+    w_rows_emitted: usize,
     /// Rows whose `(label, space group)` pair is one of the 73 frozen
     /// other-wave-vector sources and whose space group is the record's parent.
     w_source_resolved: usize,
@@ -550,7 +587,139 @@ impl Gates {
     }
 }
 
+fn line_image_skip_reason(
+    image: Option<&cryspglib::irrep::line_monodromy::LabelImage>,
+) -> (&'static str, &'static str) {
+    use cryspglib::irrep::line_monodromy::LabelImage;
+
+    match image {
+        Some(LabelImage::UnsupportedShift) => (
+            "computed_transport_skipped:unsupported_shift",
+            "exact little-group rotation criterion for the phase twist is not met",
+        ),
+        Some(LabelImage::Ambiguous(_)) => (
+            "computed_transport_skipped:ambiguous_image",
+            "frozen fingerprints give multiple image labels",
+        ),
+        Some(LabelImage::Missing) | None => (
+            "computed_transport_skipped:missing_image",
+            "frozen data has no image label",
+        ),
+        Some(LabelImage::Unique(_)) => {
+            unreachable!("line_image_skip_reason called for a unique image")
+        }
+    }
+}
+
 impl Counts {
+    fn add(&mut self, other: &Counts) {
+        let Counts {
+            records,
+            records_embedding_ok,
+            records_embedding_failed,
+            records_no_trivial,
+            probes,
+            entries,
+            absent_zero_engine,
+            absent_zero_geometry,
+            absent_positive,
+            absent_attempted,
+            geometry_reject_absent,
+            geometry_eligible_absent,
+            geometry_filter_errors,
+            geometry_contradictions,
+            basis_errors,
+            probe_rows_emitted,
+            stored_k_mismatch,
+            stored_domain_out_of_range,
+            target_source_unmatched,
+            production_dim_mismatch,
+            production_integrality_mismatch,
+            production_recon_mismatch,
+            label_source_disagreement,
+            frobenius_records,
+            frobenius_pass,
+            frobenius_mismatch,
+            frobenius_unevaluated,
+            frobenius_strict,
+            frobenius_realification,
+            frobenius_compound,
+            gamma_record_non_gamma_probe,
+            w_records,
+            w_entries,
+            w_rows_emitted,
+            w_source_resolved,
+            w_source_mismatch,
+            w_character_frozen,
+            w_character_blocked,
+            w_frequency_mismatch,
+            w_parameter_shift_mismatch,
+            w_parameter_shift_checked,
+            w_parameter_shift_skipped,
+            w_parameter_shift_witnesses,
+            w_engine_error,
+            w_conflict,
+            w_computed,
+            spinor_records,
+            spinor_probe_rows,
+            accounting_violations,
+            census_mismatch,
+        } = other;
+        self.probes.add(probes);
+        self.entries.add(entries);
+        add_count_fields!(
+            self;
+            records,
+            records_embedding_ok,
+            records_embedding_failed,
+            records_no_trivial,
+            absent_zero_engine,
+            absent_zero_geometry,
+            absent_positive,
+            absent_attempted,
+            geometry_reject_absent,
+            geometry_eligible_absent,
+            geometry_filter_errors,
+            geometry_contradictions,
+            basis_errors,
+            probe_rows_emitted,
+            stored_k_mismatch,
+            stored_domain_out_of_range,
+            target_source_unmatched,
+            production_dim_mismatch,
+            production_integrality_mismatch,
+            production_recon_mismatch,
+            label_source_disagreement,
+            frobenius_records,
+            frobenius_pass,
+            frobenius_mismatch,
+            frobenius_unevaluated,
+            frobenius_strict,
+            frobenius_realification,
+            frobenius_compound,
+            gamma_record_non_gamma_probe,
+            w_records,
+            w_entries,
+            w_rows_emitted,
+            w_source_resolved,
+            w_source_mismatch,
+            w_character_frozen,
+            w_character_blocked,
+            w_frequency_mismatch,
+            w_parameter_shift_mismatch,
+            w_parameter_shift_checked,
+            w_parameter_shift_skipped,
+            w_parameter_shift_witnesses,
+            w_engine_error,
+            w_conflict,
+            w_computed,
+            spinor_records,
+            spinor_probe_rows,
+            accounting_violations,
+            census_mismatch,
+        );
+    }
+
     fn absorb(&mut self, tally: &RecordTally) {
         self.records += tally.records;
         self.records_embedding_ok += tally.records_embedding_ok;
@@ -576,6 +745,12 @@ impl Counts {
             return Some(format!(
                 "emitted probe rows {} != probes_total {}",
                 self.probe_rows_emitted, self.probes.total
+            ));
+        }
+        if self.w_rows_emitted != self.w_entries {
+            return Some(format!(
+                "emitted other-wave-vector rows {} != w_entries {}",
+                self.w_rows_emitted, self.w_entries
             ));
         }
         self.probes
@@ -645,6 +820,7 @@ impl Counts {
             + self.w_source_mismatch
             + self.w_frequency_mismatch
             + self.w_parameter_shift_mismatch
+            + self.w_parameter_shift_skipped
             + self.w_engine_error
             + self.accounting_violations
             + self.census_mismatch
@@ -749,6 +925,40 @@ impl ChildSources {
     }
 }
 
+const SPACE_GROUP_CACHE_SIZE: usize = u8::MAX as usize + 1;
+
+fn cache_cells<T>() -> Vec<OnceLock<T>> {
+    (0..SPACE_GROUP_CACHE_SIZE)
+        .map(|_| OnceLock::new())
+        .collect()
+}
+
+struct SharedChildCaches {
+    trivial: Vec<OnceLock<Option<&'static IrrepRecord>>>,
+    sources: Vec<OnceLock<ChildSources>>,
+    reciprocal: Vec<OnceLock<Option<Lattice>>>,
+}
+
+impl SharedChildCaches {
+    fn new() -> Self {
+        Self {
+            trivial: cache_cells(),
+            sources: cache_cells(),
+            reciprocal: cache_cells(),
+        }
+    }
+
+    fn child_sources(&self, sg: u8) -> &ChildSources {
+        self.sources[usize::from(sg)].get_or_init(|| ChildSources::build(sg))
+    }
+}
+
+static SHARED_CHILD_CACHES: OnceLock<SharedChildCaches> = OnceLock::new();
+
+fn shared_child_caches() -> &'static SharedChildCaches {
+    SHARED_CHILD_CACHES.get_or_init(SharedChildCaches::new)
+}
+
 #[derive(Debug, Default, Clone)]
 struct CallOutcome {
     total: u32,
@@ -783,6 +993,78 @@ impl CallErrorKind {
 
 // ── Auditor ──────────────────────────────────────────────────────────────────
 
+#[derive(Clone, Default)]
+struct ReportBuffer(Arc<Mutex<Vec<u8>>>);
+
+impl ReportBuffer {
+    fn contents(&self) -> Vec<u8> {
+        self.0.lock().expect("report buffer lock").clone()
+    }
+}
+
+impl Write for ReportBuffer {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        self.0
+            .lock()
+            .map_err(|_| io::Error::other("report buffer lock poisoned"))?
+            .extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+struct AuditPart {
+    counts: Counts,
+    error_detail: BTreeMap<String, usize>,
+    mismatches: Vec<String>,
+    anomalies: Vec<String>,
+    distinct_probes: HashSet<(u8, u16)>,
+    output: Vec<u8>,
+}
+
+struct ProgressReporter {
+    completed: std::sync::atomic::AtomicUsize,
+    printed_through: Mutex<usize>,
+    interval: usize,
+    started: Instant,
+}
+
+impl ProgressReporter {
+    fn new(interval: usize, started: Instant) -> Self {
+        Self {
+            completed: std::sync::atomic::AtomicUsize::new(0),
+            printed_through: Mutex::new(0),
+            interval,
+            started,
+        }
+    }
+
+    fn record_complete(&self) {
+        use std::sync::atomic::Ordering;
+
+        let completed = self.completed.fetch_add(1, Ordering::Relaxed) + 1;
+        if self.interval == 0 || !completed.is_multiple_of(self.interval) {
+            return;
+        }
+        let Ok(mut printed_through) = self.printed_through.lock() else {
+            return;
+        };
+        let current = self.completed.load(Ordering::Relaxed);
+        let mut next = *printed_through + self.interval;
+        while next <= current {
+            eprintln!(
+                "progress records={next} elapsed={:.1}s",
+                self.started.elapsed().as_secs_f64()
+            );
+            *printed_through = next;
+            next += self.interval;
+        }
+    }
+}
+
 struct Auditor {
     options: Options,
     counts: Counts,
@@ -790,13 +1072,11 @@ struct Auditor {
     mismatches: Vec<String>,
     anomalies: Vec<String>,
     distinct_probes: HashSet<(u8, u16)>,
-    trivial_cache: HashMap<u8, Option<&'static IrrepRecord>>,
-    sources_cache: HashMap<u8, ChildSources>,
-    reciprocal_cache: HashMap<u8, Option<Lattice>>,
     order_cache: HashMap<u8, usize>,
     writer: Box<dyn Write>,
-    records_done: usize,
     started: Instant,
+    progress: Option<Arc<ProgressReporter>>,
+    check_census: bool,
     io_error: Option<String>,
 }
 
@@ -809,19 +1089,24 @@ impl Auditor {
             mismatches: Vec::new(),
             anomalies: Vec::new(),
             distinct_probes: HashSet::new(),
-            trivial_cache: HashMap::new(),
-            sources_cache: HashMap::new(),
-            reciprocal_cache: HashMap::new(),
             order_cache: HashMap::new(),
             writer,
-            records_done: 0,
             started: Instant::now(),
+            progress: None,
+            check_census: true,
             io_error: None,
         }
     }
 
     fn bump_error(&mut self, key: &str) {
         *self.error_detail.entry(key.to_string()).or_insert(0) += 1;
+    }
+
+    fn note_w_transport_skipped(&mut self, ordinal: usize, label: &str, reason: &str) {
+        self.counts.w_parameter_shift_skipped += 1;
+        self.mismatch(format!(
+            "ordinal {ordinal}: other-wave-vector row {label} transport comparison skipped: {reason}"
+        ));
     }
 
     fn anomaly(&mut self, message: String) {
@@ -836,6 +1121,47 @@ impl Auditor {
             self.mismatches.push(message.clone());
         }
         eprintln!("MISMATCH {message}");
+    }
+
+    fn absorb_part(&mut self, part: AuditPart) {
+        self.counts.add(&part.counts);
+        for (key, value) in part.error_detail {
+            *self.error_detail.entry(key).or_default() += value;
+        }
+        self.anomalies.extend(
+            part.anomalies
+                .into_iter()
+                .take(MISMATCH_PRINT_LIMIT.saturating_sub(self.anomalies.len())),
+        );
+        self.mismatches.extend(
+            part.mismatches
+                .into_iter()
+                .take(MISMATCH_PRINT_LIMIT.saturating_sub(self.mismatches.len())),
+        );
+        self.distinct_probes.extend(part.distinct_probes);
+
+        if self.io_error.is_none()
+            && let Err(error) = self.writer.write_all(&part.output)
+        {
+            self.io_error = Some(error.to_string());
+        }
+    }
+
+    fn finish_part(mut self, output: Vec<u8>) -> Result<AuditPart, String> {
+        if let Some(error) = self.io_error.take() {
+            return Err(format!("writing the report failed: {error}"));
+        }
+        self.writer
+            .flush()
+            .map_err(|error| format!("flushing the report failed: {error}"))?;
+        Ok(AuditPart {
+            counts: self.counts,
+            error_detail: self.error_detail,
+            mismatches: self.mismatches,
+            anomalies: self.anomalies,
+            distinct_probes: self.distinct_probes,
+            output,
+        })
     }
 
     fn emit(&mut self, line: String) {
@@ -927,21 +1253,21 @@ impl Auditor {
     }
 
     fn trivial_child(&mut self, sg: u8) -> Option<&'static IrrepRecord> {
-        if let Some(cached) = self.trivial_cache.get(&sg) {
-            return *cached;
-        }
-        let found = find_trivial_child(sg);
-        self.trivial_cache.insert(sg, found);
-        found
+        shared_child_caches()
+            .trivial
+            .get(usize::from(sg))?
+            .get_or_init(|| find_trivial_child(sg))
+            .as_ref()
+            .copied()
     }
 
     fn child_reciprocal(&mut self, sg: u8) -> Option<Lattice> {
-        if let Some(cached) = self.reciprocal_cache.get(&sg) {
-            return *cached;
-        }
-        let lattice = build_child_reciprocal(sg).ok();
-        self.reciprocal_cache.insert(sg, lattice);
-        lattice
+        shared_child_caches()
+            .reciprocal
+            .get(usize::from(sg))?
+            .get_or_init(|| build_child_reciprocal(sg).ok())
+            .as_ref()
+            .copied()
     }
 
     fn parent_point_group_order(&mut self, sg: u8) -> Option<usize> {
@@ -1023,17 +1349,8 @@ impl Auditor {
                     continue;
                 }
                 self.audit_record(sg, *record_index, subgroup, &probes, &probe_by_ml, &stars)?;
-                self.records_done += 1;
-                if self.options.progress > 0
-                    && self.records_done.is_multiple_of(self.options.progress)
-                {
-                    eprintln!(
-                        "progress records={} stored={} calls={} elapsed={:.1}s",
-                        self.records_done,
-                        self.counts.entries.entries,
-                        self.counts.probes.attempted(),
-                        self.started.elapsed().as_secs_f64()
-                    );
+                if let Some(progress) = &self.progress {
+                    progress.record_complete();
                 }
             }
         }
@@ -1507,48 +1824,67 @@ origin={},{},{},{}",
                                                     match cryspglib::irrep::line_monodromy::
                                                         line_direction(table)
                                                     {
-                                                        Some(direction) => direction,
+                                                        Some(direction) => Some(direction),
                                                         None => {
-                                                            self.counts
-                                                                .w_parameter_shift_skipped += 1;
-                                                            self.mismatch(format!(
-                                                                "ordinal {ordinal}: \
-                                                                 other-wave-vector row {} has an \
-                                                                 unparsable frozen direction",
-                                                                entry.parent_ml
-                                                            ));
-                                                            return Ok(());
+                                                            w_status =
+                                                                "computed_transport_skipped:unparsable_direction"
+                                                                    .to_string();
+                                                            self.note_w_transport_skipped(
+                                                                ordinal,
+                                                                entry.parent_ml,
+                                                                "unparsable frozen direction",
+                                                            );
+                                                            None
                                                         }
                                                     };
-                                                let map =
-                                                    cryspglib::irrep::line_monodromy::monodromy(
-                                                        entry.parent_sg,
-                                                        &shift,
-                                                    );
-                                                match map.unique_image(entry.parent_ml) {
-                                                    None => {
-                                                        // The frozen fingerprints do not
-                                                        // determine the image: skipped and
-                                                        // reported, never guessed.
-                                                        self.counts.w_parameter_shift_skipped += 1;
-                                                    }
-                                                    Some(image) => {
-                                                        let image_table =
+                                                if let Some(shift) = shift {
+                                                    let map =
+                                                        cryspglib::irrep::line_monodromy::monodromy(
+                                                            entry.parent_sg,
+                                                            &shift,
+                                                        );
+                                                    match map {
+                                                        Err(error) => {
+                                                            w_status =
+                                                                "computed_transport_skipped:invalid_reciprocal_shift"
+                                                                    .to_string();
+                                                            self.note_w_transport_skipped(
+                                                                ordinal,
+                                                                entry.parent_ml,
+                                                                &format!("invalid reciprocal shift: {error}"),
+                                                            );
+                                                        }
+                                                        Ok(map) => match map
+                                                            .unique_image(entry.parent_ml)
+                                                        {
+                                                            None => {
+                                                                let (status, reason) =
+                                                                    line_image_skip_reason(
+                                                                        map.image(entry.parent_ml),
+                                                                    );
+                                                                w_status = status.to_string();
+                                                                self.note_w_transport_skipped(
+                                                                    ordinal,
+                                                                    entry.parent_ml,
+                                                                    reason,
+                                                                );
+                                                            }
+                                                            Some(image) => {
+                                                                let image_table =
                                                             cryspglib::irrep::line_monodromy::
                                                                 line_table(
                                                                     entry.parent_sg,
                                                                     image,
                                                                 );
-                                                        let shifted =
+                                                                let shifted =
                                                             cryspglib::irrep::subduction::Rat::new(
                                                                 5, 4,
                                                             )
                                                             .map_err(|error| error.to_string())?;
-                                                        self.counts.w_parameter_shift_checked += 1;
-                                                        // The errors are narrowed to `String`
-                                                        // right here: `FullStarError` is large
-                                                        // and must not travel through a closure.
-                                                        let transported =
+                                                                // The errors are narrowed to `String`
+                                                                // right here: `FullStarError` is large
+                                                                // and must not travel through a closure.
+                                                                let transported =
                                                             cryspglib::irrep::subduction::star::decompose::
                                                                 subduce_line_at_parameter(
                                                                     subgroup,
@@ -1557,7 +1893,7 @@ origin={},{},{},{}",
                                                                     shifted,
                                                                 )
                                                                 .map_err(|error| error.to_string());
-                                                        let reference = image_table.map(|image_table| {
+                                                                let reference = image_table.map(|image_table| {
                                                             cryspglib::irrep::subduction::star::decompose::
                                                                 subduce_line_at_parameter(
                                                                     subgroup,
@@ -1567,15 +1903,21 @@ origin={},{},{},{}",
                                                                 )
                                                                 .map_err(|error| error.to_string())
                                                         });
-                                                        match (transported, reference) {
-                                                            (Ok(shifted_result), Some(Ok(reference))) => {
-                                                                if line_decomposition_key(
-                                                                    &shifted_result,
-                                                                ) != line_decomposition_key(&reference)
-                                                                {
-                                                                    self.counts
+                                                                match (transported, reference) {
+                                                                    (
+                                                                        Ok(shifted_result),
+                                                                        Some(Ok(reference)),
+                                                                    ) => {
+                                                                        self.counts
+                                                                        .w_parameter_shift_checked += 1;
+                                                                        if line_decomposition_key(
+                                                                        &shifted_result,
+                                                                    ) != line_decomposition_key(
+                                                                        &reference,
+                                                                    ) {
+                                                                        self.counts
                                                                         .w_parameter_shift_mismatch += 1;
-                                                                    self.mismatch(format!(
+                                                                        self.mismatch(format!(
                                                                         "ordinal {ordinal}: \
                                                                          other-wave-vector row {} \
                                                                          at t = 5/4 does not \
@@ -1583,53 +1925,61 @@ origin={},{},{},{}",
                                                                          image {image} at t = 1/4",
                                                                         entry.parent_ml
                                                                     ));
-                                                                }
-                                                                // The revoked reading, measured
-                                                                // rather than assumed: where it
-                                                                // differs, the gate above is not
-                                                                // vacuous.
-                                                                if line_decomposition_key(&result)
-                                                                    != line_decomposition_key(
+                                                                    }
+                                                                        // The revoked reading, measured
+                                                                        // rather than assumed: where it
+                                                                        // differs, the gate above is not
+                                                                        // vacuous.
+                                                                        if line_decomposition_key(
+                                                                        &result,
+                                                                    ) != line_decomposition_key(
                                                                         &shifted_result,
-                                                                    )
-                                                                {
-                                                                    self.counts
+                                                                    ) {
+                                                                        self.counts
                                                                         .w_parameter_shift_witnesses += 1;
-                                                                }
-                                                            }
-                                                            (Ok(_), None) => {
-                                                                self.counts
-                                                                    .w_parameter_shift_skipped += 1;
-                                                            }
-                                                            (Ok(_), Some(Err(error))) => {
-                                                                self.counts
+                                                                    }
+                                                                    }
+                                                                    (Ok(_), None) => {
+                                                                        w_status =
+                                                                        "computed_transport_skipped:missing_image_table"
+                                                                            .to_string();
+                                                                        self.note_w_transport_skipped(
+                                                                        ordinal,
+                                                                        entry.parent_ml,
+                                                                        "monodromy image has no frozen character table",
+                                                                    );
+                                                                    }
+                                                                    (Ok(_), Some(Err(error))) => {
+                                                                        self.counts
                                                                     .w_parameter_shift_mismatch += 1;
-                                                                self.bump_error(&format!(
-                                                                    "w-line-image:{error}"
-                                                                ));
-                                                                self.mismatch(format!(
-                                                                    "ordinal {ordinal}: \
+                                                                        self.bump_error(&format!(
+                                                                            "w-line-image:{error}"
+                                                                        ));
+                                                                        self.mismatch(format!(
+                                                                            "ordinal {ordinal}: \
                                                                      monodromy image {image} of \
                                                                      {} has no decomposition at \
                                                                      t = 1/4: {error}",
-                                                                    entry.parent_ml
-                                                                ));
-                                                            }
-                                                            (Err(error), _) => {
-                                                                self.counts
+                                                                            entry.parent_ml
+                                                                        ));
+                                                                    }
+                                                                    (Err(error), _) => {
+                                                                        self.counts
                                                                     .w_parameter_shift_mismatch += 1;
-                                                                self.bump_error(&format!(
-                                                                    "w-line-shift:{error}"
-                                                                ));
-                                                                self.mismatch(format!(
-                                                                    "ordinal {ordinal}: \
+                                                                        self.bump_error(&format!(
+                                                                            "w-line-shift:{error}"
+                                                                        ));
+                                                                        self.mismatch(format!(
+                                                                            "ordinal {ordinal}: \
                                                                      other-wave-vector row {} \
                                                                      engine error at t = 5/4: \
                                                                      {error}",
-                                                                    entry.parent_ml
-                                                                ));
+                                                                            entry.parent_ml
+                                                                        ));
+                                                                    }
+                                                                }
                                                             }
-                                                        }
+                                                        },
                                                     }
                                                 }
                                             }
@@ -1702,6 +2052,7 @@ origin={},{},{},{}",
                         seen.insert(entry.parent_ml, entry.frequency);
                     }
                 }
+                self.counts.w_rows_emitted += 1;
                 self.emit(format!(
                     "w_entry\t{ordinal}\t{sg}\t{child_sg}\t{direction}\t0\t{}\t{}\t{}\t{sg}\t\tother_wave_vector\t{}\t\t{w_status}\tstored_parent_sg={} parent_sg_match={parent_sg_match} frozen_source={frozen}",
                     subgroup.record.arms,
@@ -1727,10 +2078,7 @@ origin={},{},{},{}",
     ) -> Result<CallOutcome, String> {
         let mut outcome = CallOutcome::default();
         {
-            let sources = self
-                .sources_cache
-                .entry(child_sg)
-                .or_insert_with(|| ChildSources::build(child_sg));
+            let sources = shared_child_caches().child_sources(child_sg);
             for block in result.blocks() {
                 let term_dimension: u32 = block
                     .targets()
@@ -1767,10 +2115,8 @@ origin={},{},{},{}",
                             }
                         }
                         None => {
-                            if !matches!(
-                                target.component,
-                                SubductionComponent::Constructed { .. }
-                            ) {
+                            if !matches!(target.component, SubductionComponent::Constructed { .. })
+                            {
                                 outcome.targets_without_source += 1;
                             }
                         }
@@ -1977,7 +2323,7 @@ origin={},{},{},{}",
             .flush()
             .map_err(|error| format!("flushing the report failed: {error}"))?;
         let distinct_probes = self.distinct_probes.len();
-        if !self.options.scoped() {
+        if self.check_census {
             self.census_check(distinct_probes);
         }
         if let Some(error) = self.counts.accounting_error() {
@@ -2074,9 +2420,10 @@ origin={},{},{},{}",
             counts.label_source_disagreement
         );
         eprintln!(
-            "other_wave_vector: records={} rows={} source_resolved={} source_mismatch={} computed={} engine_errors={} conflicts={}",
+            "other_wave_vector: records={} rows={} emitted={} source_resolved={} source_mismatch={} computed={} engine_errors={} conflicts={}",
             counts.w_records,
             counts.w_entries,
+            counts.w_rows_emitted,
             counts.w_source_resolved,
             counts.w_source_mismatch,
             counts.w_computed,
@@ -2084,8 +2431,9 @@ origin={},{},{},{}",
             counts.w_conflict
         );
         eprintln!(
-            "w_scope: rows={} computed={} uncomputed={} mismatched={} engine_errors={} character_tables_frozen={} character_tables_blocked={} reason=none gate=--require-w-complete",
+            "w_scope: rows={} emitted={} computed={} uncomputed={} mismatched={} engine_errors={} character_tables_frozen={} character_tables_blocked={} reason=none gate=--require-w-complete",
             counts.w_entries,
+            counts.w_rows_emitted,
             counts.w_computed,
             counts.w_incomplete(),
             counts.w_frequency_mismatch,
@@ -2094,7 +2442,7 @@ origin={},{},{},{}",
             counts.w_character_blocked
         );
         eprintln!(
-            "w_parameter_shift: checked={} mismatched={} skipped_undetermined_image={} same_label_witnesses={} (t = 5/4 against the monodromy image at t = 1/4, complete decomposition per block and target)",
+            "w_parameter_shift: checked={} mismatched={} comparison_skipped={} same_label_witnesses={} (t = 5/4 against the monodromy image at t = 1/4, complete decomposition per block and target)",
             counts.w_parameter_shift_checked,
             counts.w_parameter_shift_mismatch,
             counts.w_parameter_shift_skipped,
@@ -2574,6 +2922,37 @@ fn identity_line(
 
 // ── Entry point ──────────────────────────────────────────────────────────────
 
+fn audit_space_group(
+    options: &Options,
+    sg: u8,
+    progress: Option<Arc<ProgressReporter>>,
+) -> Result<AuditPart, String> {
+    let report = ReportBuffer::default();
+    let mut auditor = Auditor::new(options.clone(), Box::new(report.clone()));
+    auditor.progress = progress;
+    auditor.audit_sg(sg)?;
+    auditor.finish_part(report.contents())
+}
+
+fn collect_audit_parts(
+    options: &Options,
+    space_groups: &[u8],
+    parallel: bool,
+    progress: Option<Arc<ProgressReporter>>,
+) -> Vec<Result<AuditPart, String>> {
+    if parallel {
+        space_groups
+            .par_iter()
+            .map(|&sg| audit_space_group(options, sg, progress.clone()))
+            .collect()
+    } else {
+        space_groups
+            .iter()
+            .map(|&sg| audit_space_group(options, sg, progress.clone()))
+            .collect()
+    }
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
@@ -2601,10 +2980,33 @@ fn run() -> Result<ExitCode, String> {
 }
 
 fn run_audit(options: Options, writer: Box<dyn Write>) -> Result<(u8, Counts), String> {
+    let space_groups = match options.parent {
+        Some(parent) => vec![parent],
+        None => (1..=230u8).collect(),
+    };
+    let check_census = !options.scoped();
+    run_audit_with_space_groups(options, writer, &space_groups, true, check_census)
+}
+
+fn run_audit_with_space_groups(
+    options: Options,
+    writer: Box<dyn Write>,
+    space_groups: &[u8],
+    parallel: bool,
+    check_census: bool,
+) -> Result<(u8, Counts), String> {
+    let started = Instant::now();
+    let progress =
+        (options.progress > 0).then(|| Arc::new(ProgressReporter::new(options.progress, started)));
     let mut auditor = Auditor::new(options, writer);
+    auditor.started = started;
+    auditor.check_census = check_census;
     auditor.emit(HEADER.to_string());
-    for sg in 1..=230u8 {
-        auditor.audit_sg(sg)?;
+    // A slice is an indexed Rayon iterator, so collect preserves the input
+    // order while the independent space-group jobs run concurrently.
+    let parts = collect_audit_parts(&auditor.options, space_groups, parallel, progress);
+    for part in parts {
+        auditor.absorb_part(part?);
     }
     // An empty scope must never read as a clean run: `--parent 2 --ordinal 0`
     // selects nothing (ordinal 0 belongs to SG 1), and a CI loop over
@@ -2632,7 +3034,6 @@ fn run_audit(options: Options, writer: Box<dyn Write>) -> Result<(u8, Counts), S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Default)]
@@ -2680,6 +3081,79 @@ mod tests {
         )
     }
 
+    #[test]
+    fn parallel_space_groups_match_serial_run_output_and_merged_counts() {
+        let options = Options {
+            progress: 0,
+            ..Options::default()
+        };
+        // Deliberately use a non-sorted order: collection must preserve the
+        // caller's order even when groups finish at different times.
+        let space_groups = [24, 1, 5];
+        let parallel_sink = SharedSink::default();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(3)
+            .build()
+            .expect("parallel test pool");
+        let (parallel_exit, parallel_counts) = pool
+            .install(|| {
+                run_audit_with_space_groups(
+                    options.clone(),
+                    Box::new(parallel_sink.clone()),
+                    &space_groups,
+                    true,
+                    false,
+                )
+            })
+            .expect("parallel space-group audit succeeds");
+        assert!(
+            parallel_sink
+                .text()
+                .lines()
+                .any(|line| line.starts_with("record\t")),
+            "parallel report must contain emitted rows"
+        );
+
+        let serial_sink = SharedSink::default();
+        let (serial_exit, serial_counts) = run_audit_with_space_groups(
+            options,
+            Box::new(serial_sink.clone()),
+            &space_groups,
+            false,
+            false,
+        )
+        .expect("serial space-group audit succeeds");
+
+        assert_eq!(parallel_sink.text(), serial_sink.text());
+        assert_eq!(format!("{parallel_counts:?}"), format!("{serial_counts:?}"));
+        assert_eq!(parallel_exit, serial_exit);
+    }
+
+    #[test]
+    fn child_source_cache_initializes_safely_under_concurrent_first_access() {
+        let caches = SharedChildCaches::new();
+        let barrier = Arc::new(std::sync::Barrier::new(3));
+        let caches = &caches;
+        let addresses = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..3)
+                .map(|_| {
+                    let barrier = Arc::clone(&barrier);
+                    let caches = caches;
+                    scope.spawn(move || {
+                        barrier.wait();
+                        caches.child_sources(1) as *const ChildSources as usize
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("cache worker panicked"))
+                .collect::<Vec<_>>()
+        });
+
+        assert!(addresses.iter().all(|address| *address == addresses[0]));
+    }
+
     /// A scope that selects nothing is an error, not a clean run of zero probes.
     ///
     /// Ordinal 0 belongs to SG 1, so `--parent 2 --ordinal 0` is a contradiction;
@@ -2693,8 +3167,8 @@ mod tests {
             ordinal: Some(0),
             ..Options::default()
         };
-        let error = run_audit(options, Box::new(sink.clone()))
-            .expect_err("an empty scope must fail");
+        let error =
+            run_audit(options, Box::new(sink.clone())).expect_err("an empty scope must fail");
         assert!(error.contains("empty scope"), "{error}");
         // The same ordinal under its real parent still runs, and so does a
         // parent-only scope, so the guard rejects only the empty case.
@@ -2841,7 +3315,10 @@ mod tests {
             w_entries: 1,
             ..Counts::default()
         };
-        assert!(counts.hard_failures() >= 1, "an engine error is a hard failure");
+        assert!(
+            counts.hard_failures() >= 1,
+            "an engine error is a hard failure"
+        );
         // The failed row is also still "uncomputed", so the w gate sees it; the
         // hard failure must dominate the incompleteness verdict.
         assert_eq!(counts.w_incomplete(), 1);
@@ -2875,20 +3352,72 @@ mod tests {
         for gates in all_gate_combinations() {
             assert_eq!(counts.exit_code(gates), 1, "gates={}", gates.label());
         }
-        // An undetermined image is *skipped*, not failed: the frozen fingerprints
-        // (not a policy choice) decide it, and the counter makes the boundary
-        // visible in the same line as the check.
+        // An undetermined image is a hard failure: the audit cannot certify
+        // transport without knowing the monodromy image, and must not silently
+        // accept a skipped comparison.
         let skipped = Counts {
             w_parameter_shift_skipped: 3,
             w_entries: 1,
+            w_rows_emitted: 1,
             w_computed: 1,
             ..Counts::default()
         };
-        assert_eq!(skipped.hard_failures(), 0);
+        assert_eq!(skipped.hard_failures(), 3);
         assert_eq!(skipped.w_incomplete(), 0);
         for gates in all_gate_combinations() {
-            assert_eq!(skipped.exit_code(gates), 0, "gates={}", gates.label());
+            assert_eq!(skipped.exit_code(gates), 1, "gates={}", gates.label());
         }
+    }
+
+    #[test]
+    fn line_image_diagnostics_distinguish_unsupported_ambiguous_and_missing() {
+        use cryspglib::irrep::line_monodromy::LabelImage;
+
+        assert_eq!(
+            line_image_skip_reason(Some(&LabelImage::UnsupportedShift)),
+            (
+                "computed_transport_skipped:unsupported_shift",
+                "exact little-group rotation criterion for the phase twist is not met"
+            )
+        );
+        assert_eq!(
+            line_image_skip_reason(Some(&LabelImage::Ambiguous(vec!["DT1", "DT2"]))),
+            (
+                "computed_transport_skipped:ambiguous_image",
+                "frozen fingerprints give multiple image labels"
+            )
+        );
+        assert_eq!(
+            line_image_skip_reason(Some(&LabelImage::Missing)),
+            (
+                "computed_transport_skipped:missing_image",
+                "frozen data has no image label"
+            )
+        );
+    }
+
+    #[test]
+    fn a_skipped_line_transport_names_the_affected_row() {
+        let mut auditor = Auditor::new(Options::default(), Box::new(SharedSink::default()));
+        auditor.note_w_transport_skipped(10030, "DT1", "no unique monodromy image");
+
+        assert_eq!(auditor.counts.w_parameter_shift_skipped, 1);
+        assert_eq!(auditor.counts.hard_failures(), 1);
+        assert!(auditor.mismatches[0].contains("ordinal 10030"));
+        assert!(auditor.mismatches[0].contains("DT1"));
+        assert!(auditor.mismatches[0].contains("no unique monodromy image"));
+    }
+
+    #[test]
+    fn missing_w_report_rows_are_an_accounting_error() {
+        let counts = Counts {
+            w_entries: 1,
+            ..Counts::default()
+        };
+        assert_eq!(
+            counts.accounting_error().as_deref(),
+            Some("emitted other-wave-vector rows 0 != w_entries 1")
+        );
     }
 
     /// An identity-only result closes the *identity* gate and is a gap for the
@@ -2906,7 +3435,11 @@ mod tests {
             ..Counts::default()
         };
         assert_eq!(counts.hard_failures(), 0);
-        assert_eq!(counts.incomplete(), 0, "identity-only closes the identity gate");
+        assert_eq!(
+            counts.incomplete(),
+            0,
+            "identity-only closes the identity gate"
+        );
         assert_eq!(counts.full_decomposition_incomplete(), 1);
         assert_eq!(
             counts.verdict(Gates {
@@ -3001,7 +3534,12 @@ mod tests {
             assert!(counts.hard_failures() >= 1, "{name} must be a hard failure");
             assert_eq!(counts.exit_code(Gates::default()), 1, "{name}: exit code");
             for gates in all_gate_combinations() {
-                assert_eq!(counts.exit_code(gates), 1, "{name}: gates={}", gates.label());
+                assert_eq!(
+                    counts.exit_code(gates),
+                    1,
+                    "{name}: gates={}",
+                    gates.label()
+                );
             }
         }
     }
@@ -3150,9 +3688,7 @@ mod tests {
         );
         // The five W probes carry no Gamma folded star, so their absent zeroes
         // come from the engine and not from the geometry filter.
-        for row in rows.iter().filter(|row| {
-            row.probe.starts_with('W')
-        }) {
+        for row in rows.iter().filter(|row| row.probe.starts_with('W')) {
             assert_eq!(
                 row.computed, "0",
                 "probe {} has no Gamma folded star, so the trivial content is zero",
@@ -3222,7 +3758,13 @@ mod tests {
         assert_eq!(counts.geometry_contradictions, 0);
         assert_eq!(counts.entries.passed, 3);
         assert_eq!(exit_code, 0);
-        assert_eq!(counts.verdict(Gates { complete: true, ..Gates::default() }), Verdict::Clean);
+        assert_eq!(
+            counts.verdict(Gates {
+                complete: true,
+                ..Gates::default()
+            }),
+            Verdict::Clean
+        );
 
         let rows = emitted_probe_rows(&tsv);
         assert_eq!(rows.len(), 40);
@@ -3301,7 +3843,10 @@ mod tests {
             "one emitted row per probe"
         );
         assert_eq!(
-            auditor.counts.exit_code(Gates { complete: true, ..Gates::default() }),
+            auditor.counts.exit_code(Gates {
+                complete: true,
+                ..Gates::default()
+            }),
             2,
             "--require-complete must report the uncomputed probes"
         );
@@ -3361,21 +3906,45 @@ mod tests {
         counts.probes.total = 1;
         counts.probes.error = 1;
         assert_eq!(counts.verdict(Gates::default()), Verdict::Inconsistent);
-        assert_eq!(counts.exit_code(Gates { complete: true, ..Gates::default() }), 1);
+        assert_eq!(
+            counts.exit_code(Gates {
+                complete: true,
+                ..Gates::default()
+            }),
+            1
+        );
         // Missing data alone is incomplete, and only under --require-complete.
         let mut counts = Counts::default();
         counts.probes.total = 2;
         counts.probes.full_success = 1;
         counts.probes.missing = 1;
         assert_eq!(counts.verdict(Gates::default()), Verdict::Clean);
-        assert_eq!(counts.verdict(Gates { complete: true, ..Gates::default() }), Verdict::Incomplete);
-        assert_eq!(counts.exit_code(Gates { complete: true, ..Gates::default() }), 2);
+        assert_eq!(
+            counts.verdict(Gates {
+                complete: true,
+                ..Gates::default()
+            }),
+            Verdict::Incomplete
+        );
+        assert_eq!(
+            counts.exit_code(Gates {
+                complete: true,
+                ..Gates::default()
+            }),
+            2
+        );
         // Uncomputed probes are incompleteness, never silent coverage.
         let mut counts = Counts::default();
         counts.probes.total = 3;
         counts.probes.full_success = 1;
         counts.probes.uncomputed_embedding = 2;
-        assert_eq!(counts.verdict(Gates { complete: true, ..Gates::default() }), Verdict::Incomplete);
+        assert_eq!(
+            counts.verdict(Gates {
+                complete: true,
+                ..Gates::default()
+            }),
+            Verdict::Incomplete
+        );
         // The other-wave rows are a scope of their own: uncomputed w rows are
         // incomplete under the w gate, not under the ordinary one.
         let mut counts = Counts::default();
@@ -3383,18 +3952,48 @@ mod tests {
         counts.probes.full_success = 1;
         counts.w_entries = 4;
         assert_eq!(counts.verdict(Gates::default()), Verdict::Clean);
-        assert_eq!(counts.verdict(Gates { complete: true, ..Gates::default() }), Verdict::Clean);
-        assert_eq!(counts.verdict(Gates { w_complete: true, ..Gates::default() }), Verdict::Incomplete);
-        assert_eq!(counts.exit_code(Gates { w_complete: true, ..Gates::default() }), 2);
+        assert_eq!(
+            counts.verdict(Gates {
+                complete: true,
+                ..Gates::default()
+            }),
+            Verdict::Clean
+        );
+        assert_eq!(
+            counts.verdict(Gates {
+                w_complete: true,
+                ..Gates::default()
+            }),
+            Verdict::Incomplete
+        );
+        assert_eq!(
+            counts.exit_code(Gates {
+                w_complete: true,
+                ..Gates::default()
+            }),
+            2
+        );
         counts.w_computed = 4;
-        assert_eq!(counts.verdict(Gates { w_complete: true, ..Gates::default() }), Verdict::Clean);
+        assert_eq!(
+            counts.verdict(Gates {
+                w_complete: true,
+                ..Gates::default()
+            }),
+            Verdict::Clean
+        );
         // A w computation error is a hard failure, whatever the gates say.
         let mut counts = Counts::default();
         counts.w_entries = 4;
         counts.w_computed = 4;
         counts.w_engine_error = 1;
         assert_eq!(counts.verdict(Gates::default()), Verdict::Inconsistent);
-        assert_eq!(counts.exit_code(Gates { w_complete: true, ..Gates::default() }), 1);
+        assert_eq!(
+            counts.exit_code(Gates {
+                w_complete: true,
+                ..Gates::default()
+            }),
+            1
+        );
         // Positive-entry partition: a dropped stored row is caught.
         let mut entries = EntryCounts::default();
         entries.entries = 2;
@@ -3417,7 +4016,13 @@ mod tests {
         counts.probes.full_success = 1;
         counts.geometry_contradictions = 1;
         assert_eq!(counts.verdict(Gates::default()), Verdict::Inconsistent);
-        assert_eq!(counts.exit_code(Gates { complete: true, ..Gates::default() }), 1);
+        assert_eq!(
+            counts.exit_code(Gates {
+                complete: true,
+                ..Gates::default()
+            }),
+            1
+        );
     }
 
     #[test]

@@ -415,12 +415,13 @@ audit_rows=389150 probe_rows=366260 identity_only_rows=0 unanswered_probe_rows=0
 CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
   --example audit_irrep_subduction -- \
   --require-complete --require-w-complete --require-full-decomposition \
-  --output target/r5_audit.tsv
+  --output target/r6_audit.tsv
 ```
 
-实测（2026-09-23，R5 收口轮 604.8 s、R6.1 升级后同一口径，均 exit 0；同一二进制上
-w 门禁由 Γ-only 换成完整分解的净代价实测约 **+4.8 s / 5,756 行**，见 §16 的计时说明。
-墙钟时间随机器负载浮动，604.8 s 与 reviewer 在并发负载下测得的 697.6 s 不是 A/B）：
+实测历史：2026-09-23 R5/R6.1 为 604.8 s；2026-09-24 本轮 R6.2 在
+`RAYON_NUM_THREADS=8` 下为 **124.2 s**（墙钟还包含约 31 s 的干净构建）。旧版同二进制上
+w 门禁由 Γ-only 换成完整分解的净代价约 **+4.8 s / 5,756 行**；这些计时受机器负载影响，
+不作为严格 A/B 性能比较：
 
 ```text
 coverage: embedded_records=15239/15239 positive_stored_compared=94271/94271
@@ -429,7 +430,8 @@ coverage: embedded_records=15239/15239 positive_stored_compared=94271/94271
 production_checks: dimension_mismatch=0 integrality_mismatch=0 reconstruction_mismatch=0
   target_source_unmatched=0 label_source_disagreement=0
 w_scope: rows=5756 computed=5756 uncomputed=0 mismatched=0 engine_errors=0
-w_parameter_shift: checked=5756 mismatched=0 (t = 5/4 against t = 1/4, complete decomposition per block and target)
+w_parameter_shift: checked=5756 mismatched=0 comparison_skipped=0 same_label_witnesses=40
+  (t = 5/4 against the monodromy image at t = 1/4, complete decomposition per block and target)
 VERDICT complete scope=global
   gates=--require-complete,--require-full-decomposition,--require-w-complete
   full_decomposition=complete
@@ -438,11 +440,11 @@ VERDICT complete scope=global
 ### 边界（这些不在 100% 里）
 
 * spinor / 双群分导：明确拒绝，单独扩展；
-* 参数化 k 源的**完整**分解（R6）：R6.1 已交付**单个显式参数值**的完整分解（能力 A），
-  但 R5 的 w 门禁只比较**恒等重数**；那 5,756 行是冻结在官方程序的参数约定
-  `OFFICIAL_LINE_PARAMETER = 1/4` 上的频率，**不代表任意 t 都成立**。一般 t 的参数域
-  边界（大分母的 fail-closed 上限、`t = 0` 一类的形式值）与整族覆盖说明（能力 B）
-  属 R6.2，见 [subduction-conventions.md](subduction-conventions.md) §16；
+* 参数化 k 源（R6）：73 个冻结线源的显式参数完整分解已实现；官方锚点为
+  `OFFICIAL_LINE_PARAMETER = 1/4`，整数步 `t → t+n` 的完整分解按精确 monodromy 像逐块
+  输运，5,756/5,756 行通过。一般 `t` 仍受 little-group/catalogue 覆盖和分母上限约束；
+  任意三维倒格移也只有在逐对相位检验通过且冻结表中找到唯一像时才可输运。
+  参数域与整族覆盖说明见 [subduction-conventions.md](subduction-conventions.md) §16；
 * 磁共表示分导（R9–R11）：磁表只提供候选记录查询，不是经过验证的磁嵌入；
   230 个 Type-II/grey UNI 在磁表中没有记录，是数据来源边界；
 * 官方方向 descriptor（R7）与正式 API（R8）：`dim = 2`/`dim ≥ 4` 仍是内部记法，

@@ -360,7 +360,8 @@ fn a_conjugate_parameter_carries_the_reciprocal_gauge_factor() {
             "ordinal {ordinal} {label}: the twisted operations are a measured property of the \
              frozen table, not a convention"
         );
-        let map = monodromy(sg, &line_direction(table).expect("frozen direction"));
+        let map = monodromy(sg, &line_direction(table).expect("frozen direction"))
+            .expect("frozen direction is a reciprocal-lattice vector");
         assert_eq!(
             map.unique_image(label),
             Some(image),

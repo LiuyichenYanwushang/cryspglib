@@ -4477,7 +4477,8 @@ mod tests {
                 SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
             let table = line_table(subgroup.parent_sg, label);
             let direction = line_direction(table).expect("the frozen direction parses");
-            let map = line_monodromy::monodromy(subgroup.parent_sg, &direction);
+            let map = line_monodromy::monodromy(subgroup.parent_sg, &direction)
+                .expect("frozen line direction is reciprocal");
             for (steps, numerator) in [(1usize, 5i128), (2, 9), (3, 13)] {
                 let orbit = map
                     .orbit(label, steps)
