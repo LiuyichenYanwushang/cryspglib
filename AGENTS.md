@@ -66,11 +66,12 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 
 ### 3. 已知风险 / 待办清单（按优先级，做完请删条并记账）
 
-1. **ledger 的本地 `character()` 复刻缺常驻对齐断言**：`examples/line_transport_ledger.rs`
-   复制了引擎的逐臂字符公式（注释称曾与 `engine.reconstruction()` 逐代表元
-   bit-identical，但那是一次性实测）；本轮把它的 `centre` 从"规范化"改成"原始"，
-   等价性没有被测试钉住。建议加断言：引擎成功时逐代表元 ≤1e-12，否则"独立诊断"
-   可能诊断的是另一个对象。
+1. **✅ ledger 字符副本与引擎重构对齐已钉住**：`examples/line_transport_ledger.rs`
+   每次 `subduce_line_at_parameter` 成功后，都会将本地 `character()` 在引擎公开的每个
+   representative 上与 `reconstruction().0` 和 `.1` 比较，误差必须 ≤1e-12；任何分歧
+   立即带 ordinal、label、参数、操作和代表元编号失败。常驻测试覆盖 11 个 witness；
+   本轮 `line_transport_ledger --batch 1/4` 实跑 pinned 全表 5,756 行，0 个引擎错误且
+   逐代表元对齐断言全部通过。
 2. **monodromy 的精确适用域**：`K` 必须属于精确的母群倒格；对单条线源还须逐对检查
    `((I-R_g^T)K)·t_h ∈ Z`，这是 `exp(2πi K·t_g)` 成为小群一维特征标的精确条件；
    `R^{-T}K=K` 仅是充分条件。API 对非倒格矢返回 `NonReciprocalShift`，对不满足相位

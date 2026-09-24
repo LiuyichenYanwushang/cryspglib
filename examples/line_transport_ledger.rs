@@ -65,11 +65,13 @@
 use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy;
 use cryspglib::irrep::query;
-use cryspglib::irrep::subduction::star::decompose::subduce_line_at_parameter;
+use cryspglib::irrep::subduction::star::decompose::{LineSubduction, subduce_line_at_parameter};
 use cryspglib::irrep::subduction::{
     ExactSeitz, Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R, strict_sg_hall_ops,
 };
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
+
+const LEDGER_CHARACTER_COPY_TOLERANCE: f64 = 1e-12;
 
 /// A small complex type: the crate's `num_complex` version is not linkable from
 /// an example, and only four operations are needed.
@@ -151,9 +153,9 @@ struct Arm {
     image: Vec3R,
 }
 
-/// The engine's per-arm character sum, replicated.  `ledger` validated this
-/// against the public `reconstruction()` arrays wherever the engine succeeds
-/// (bit-identical to 0.0e0 on every representative).
+/// The engine's per-arm character sum, replicated. Every successful engine
+/// evaluation is checked against the public reconstruction arrays below before
+/// this copy is used by the ledger.
 fn character(
     arms: &[Arm],
     direction: &Vec3R,
@@ -183,10 +185,53 @@ fn character(
         }) else {
             continue;
         };
-        let d = C::new(f64::from(frozen.character[0]), f64::from(frozen.character[1]));
+        let d = C::new(
+            f64::from(frozen.character[0]),
+            f64::from(frozen.character[1]),
+        );
         total = total.add(d.mul(phase(centre, conjugate.translation())));
     }
     total
+}
+
+/// Keep the ledger's copied character formula tied to the object the engine
+/// actually decomposed. Compare both the source character and its independently
+/// reconstructed value on the exact representatives used by the engine.
+fn assert_character_matches_engine_reconstruction(
+    result: &LineSubduction,
+    arms: &[Arm],
+    direction: &Vec3R,
+    centre: &Vec3R,
+    table: &LittleCharacterTable,
+) {
+    let (engine_parent, engine_rebuilt) = result.reconstruction();
+    let representatives = result.representatives();
+    let tolerance = result.tolerance().min(LEDGER_CHARACTER_COPY_TOLERANCE);
+    assert!(
+        !representatives.is_empty(),
+        "ordinal {} {} t={}: successful engine result has no representatives",
+        result.ordinal(),
+        result.label(),
+        result.parameter()
+    );
+    assert_eq!(engine_parent.len(), representatives.len());
+    assert_eq!(engine_rebuilt.len(), representatives.len());
+    for (index, operation) in representatives.iter().enumerate() {
+        let copied = character(arms, direction, centre, table, operation);
+        let parent = C::new(engine_parent[index].re, engine_parent[index].im);
+        let rebuilt = C::new(engine_rebuilt[index].re, engine_rebuilt[index].im);
+        let parent_error = copied.sub(parent).norm();
+        let rebuilt_error = copied.sub(rebuilt).norm();
+        assert!(
+            parent_error <= tolerance && rebuilt_error <= tolerance,
+            "ordinal {} {} t={}: ledger character diverges at representative {index} \
+             {operation:?}: source error {parent_error:.3e}, reconstruction error {rebuilt_error:.3e}, \
+             tolerance {tolerance:.3e}",
+            result.ordinal(),
+            result.label(),
+            result.parameter()
+        );
+    }
 }
 
 /// The complete child group in the parent frame: the child's own data-Hall
@@ -245,12 +290,7 @@ impl Report {
     }
 }
 
-fn analyse(
-    ordinal: usize,
-    label: &str,
-    parameter: Rat,
-    verbose: bool,
-) -> Option<Report> {
+fn analyse(ordinal: usize, label: &str, parameter: Rat, verbose: bool) -> Option<Report> {
     for sg in 1..=230u8 {
         for record in query::irreps_of(sg) {
             if record.spinor || record.subgroups().is_empty() {
@@ -264,7 +304,8 @@ fn analyse(
                 if subgroup.ordinal != ordinal {
                     continue;
                 }
-                let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
+                let embedding =
+                    SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
                 let table = W_LITTLE_CHARACTERS
                     .iter()
                     .find(|table| {
@@ -275,9 +316,15 @@ fn analyse(
                 let direction = direction_of(table);
                 // The parent's reciprocal lattice, used only to state that a
                 // parameter step is a lattice step (the contract's premise).
-                let parent_reciprocal = lattice_of(subgroup.parent_sg).reciprocal().expect("reciprocal");
+                let parent_reciprocal = lattice_of(subgroup.parent_sg)
+                    .reciprocal()
+                    .expect("reciprocal");
                 let parent_ops = lattice_of(subgroup.parent_sg)
-                    .deduplicate(&strict_sg_hall_ops(subgroup.parent_sg).expect("Hall ops").operations)
+                    .deduplicate(
+                        &strict_sg_hall_ops(subgroup.parent_sg)
+                            .expect("Hall ops")
+                            .operations,
+                    )
                     .expect("deduplicate");
                 let mut arms: Vec<Arm> = Vec::new();
                 for operation in &parent_ops {
@@ -310,12 +357,15 @@ fn analyse(
                     .contains(&direction)
                     .expect("reciprocal lattice test");
                 let engine = subduce_line_at_parameter(&subgroup, &embedding, table, parameter);
+                if let Ok(result) = &engine {
+                    assert_character_matches_engine_reconstruction(
+                        result, &arms, &direction, &centre, table,
+                    );
+                }
                 let engine_note = match &engine {
                     Ok(result) => format!(
                         "content={:?}",
-                        result
-                            .trivial_content()
-                            .map_err(|error| error.to_string())
+                        result.trivial_content().map_err(|error| error.to_string())
                     ),
                     Err(error) => format!("engine error: {error}"),
                 };
@@ -350,9 +400,10 @@ fn analyse(
                         // The translation the reduced list would drop: match the
                         // conjugated element against the enumerated one with the
                         // same rotation and keep the difference.
-                        if let Some(reduced) = elements.iter().find(|candidate| {
-                            candidate.rotation() == conjugated.rotation()
-                        }) {
+                        if let Some(reduced) = elements
+                            .iter()
+                            .find(|candidate| candidate.rotation() == conjugated.rotation())
+                        {
                             let delta = conjugated
                                 .translation()
                                 .checked_sub(reduced.translation())
@@ -450,9 +501,8 @@ fn analyse(
                                 f64::from(frozen.character[0]),
                                 f64::from(frozen.character[1]),
                             );
-                            prediction = prediction.add(
-                                bloch.mul(d.mul(phase(&centre, conjugate.translation()))),
-                            );
+                            prediction = prediction
+                                .add(bloch.mul(d.mul(phase(&centre, conjugate.translation()))));
                         }
                         covariance_checks += 1;
                         if direct.sub(prediction).norm() > 1e-9 {
@@ -482,11 +532,7 @@ fn analyse(
                 return Some(Report {
                     parameter: name,
                     direction_is_reciprocal,
-                    wave_vector: (
-                        centre.get(0),
-                        centre.get(1),
-                        centre.get(2),
-                    ),
+                    wave_vector: (centre.get(0), centre.get(1), centre.get(2)),
                     engine: engine_note,
                     dimension: identity.re,
                     expected_dimension: arms.len() * usize::from(table.dimension),
@@ -553,8 +599,11 @@ fn run_row(ordinal: usize, label: &str, parameters: &[Rat], gate: bool) -> bool 
         );
         println!(
             "    chi(E) = {:+.4} [expected {}]   conjugacy law: {} violations / {} pairs (worst {:.3e})",
-            report.dimension, report.expected_dimension, report.class_violations,
-            report.class_pairs, report.worst_class
+            report.dimension,
+            report.expected_dimension,
+            report.class_violations,
+            report.class_pairs,
+            report.worst_class
         );
         println!(
             "    norm <chi,chi> = {:.6} (integer: {})   mean = ({:+.4},{:+.4}) (trivial content: {})   \
@@ -645,12 +694,7 @@ fn batch(parameter: Rat) -> bool {
                 ));
             } else {
                 failed += 1;
-                violations.push((
-                    *ordinal,
-                    label,
-                    report.class_violations,
-                    report.class_pairs,
-                ));
+                violations.push((*ordinal, label, report.class_violations, report.class_pairs));
             }
         } else if !report.class_ok() {
             healthy_with_violations.push((*ordinal, label, report.class_violations));
@@ -737,15 +781,17 @@ fn main() -> std::process::ExitCode {
                     } else {
                         report.covariance_violations.to_string()
                     },
-                    if report.nonzero_shift_pairs > 0 { "*" } else { "" }
+                    if report.nonzero_shift_pairs > 0 {
+                        "*"
+                    } else {
+                        ""
+                    }
                 ),
                 None => "missing".to_string(),
             };
             let quarter_report = format(&quarter);
             let three_report = format(&three);
-            println!(
-                "{ordinal:>6} {label:<4} ({kind})   {quarter_report:<20} {three_report}"
-            );
+            println!("{ordinal:>6} {label:<4} ({kind})   {quarter_report:<20} {three_report}");
             // The recorded status is asserted at both parameters, not printed
             // and trusted: `ok` means all three laws hold.
             let satisfied = |report: &Option<Report>| {
