@@ -53,25 +53,13 @@ use super::StarError;
 /// The identity rotation, as stored in every Hall operation table.
 const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
-/// Upper bound on the search grid used per generator.
-///
-/// The co-groups behind the R4 gap groups have order at most four here, and one
-/// or two generators, so the bound is never reached in practice; it keeps a
-/// pathological co-group from turning the solver into a hot loop.  Exceeding it
-/// is a fail-closed empty catalogue, never a partial one.
-const MAX_GRID: i128 = 200_000;
-
 /// Largest little co-group the exact solver searches.
 ///
 /// R4 batch 2a needs the one-dimensional solution set for `|P_q| <= 4`; batch 2b
 /// also needs it for the six-element `D_3` family, where it supplies the gauge
 /// (its two solutions are `Hom(D_3, U(1))`) rather than a catalogue.  Anything
-/// bigger is out of scope: the search below would grow with the order, so it
-/// returns an empty catalogue and keeps the missing-data behaviour.
+/// bigger is out of scope and returns an empty catalogue.
 const MAX_ORDER: usize = 6;
-
-/// Upper bound on `combinations x |P_q|^2`, the solver's work per co-group.
-const MAX_WORK: i128 = 4_000_000;
 
 /// The little co-group of one exact child point.
 #[derive(Debug, Clone)]
@@ -184,10 +172,10 @@ pub(super) fn little_co_group(
 ///
 /// The result is the complete solution set of
 /// `psi_i + psi_j - psi_k == turns[i][j] (mod 1)`, with `psi` in `[0, 1)`.
-/// Every returned vector is verified against every equation, so a returned
-/// catalogue is never wrong; a search that cannot finish (too many generators
-/// or a grid beyond [`MAX_GRID`]) returns an empty catalogue instead of a
-/// partial one.
+/// Candidate phases are derived from each generator's finite order, so search
+/// size depends on the co-group rather than the cocycle denominator. Every
+/// returned vector is verified against every equation; unsupported group
+/// orders and inconsistent systems return no catalogue rather than a subset.
 pub(super) fn one_dimensional_characters(
     co_group: &LittleCoGroup,
 ) -> Result<Vec<Vec<Rat>>, StarError> {
@@ -197,39 +185,19 @@ pub(super) fn one_dimensional_characters(
     }
     let identity = 0usize; // `little_co_group` puts the identity first.
     let generators = co_group.generators()?;
-    let mut modulus = 1i128;
-    for row in &co_group.turns {
-        for value in row {
-            modulus = lcm(modulus, value.denominator());
-        }
-    }
-    // A gauge can be finer than the cocycle (a C2 cocycle of 1/3 is gauged by a
-    // character of 1/6), so the grid is scaled by the group order.
-    modulus = modulus
-        .checked_mul(i128::try_from(order).map_err(|_| {
-            StarError::Subduction(SubductionError::RationalOverflow {
-                operation: "little co-group order",
-            })
-        })?)
-        .ok_or(StarError::Subduction(SubductionError::RationalOverflow {
-            operation: "cocycle modulus",
-        }))?;
-    if generators.is_empty() || modulus <= 0 {
-        return Ok(Vec::new());
-    }
-    let mut combinations = 1i128;
-    for _ in &generators {
-        combinations = combinations.saturating_mul(modulus);
-        if combinations > MAX_GRID
-            || combinations.saturating_mul((order * order) as i128) > MAX_WORK
-        {
-            return Ok(Vec::new());
-        }
-    }
+    let choices = generators
+        .iter()
+        .map(|generator| co_group.generator_values(*generator, identity))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut solutions = Vec::new();
-    let mut odometer = vec![0i128; generators.len()];
+    let mut odometer = vec![0usize; generators.len()];
     loop {
-        if let Some(psi) = co_group.complete(&generators, &odometer, modulus, identity)?
+        let assignment: Vec<Rat> = choices
+            .iter()
+            .zip(&odometer)
+            .map(|(values, index)| values[*index])
+            .collect();
+        if let Some(psi) = co_group.complete(&generators, &assignment, identity)?
             && !solutions.contains(&psi)
         {
             solutions.push(psi);
@@ -241,7 +209,7 @@ pub(super) fn one_dimensional_characters(
                 return Ok(solutions);
             }
             odometer[position] += 1;
-            if odometer[position] < modulus {
+            if odometer[position] < choices[position].len() {
                 break;
             }
             odometer[position] = 0;
@@ -251,6 +219,58 @@ pub(super) fn one_dimensional_characters(
 }
 
 impl LittleCoGroup {
+    /// All possible values of a projective character on one generator.
+    ///
+    /// If `g` has order `m`, summing the character equations for
+    /// `e, g, ..., g^(m-1)` multiplied by `g` gives
+    /// `m * psi(g) = sum_r omega(g^r, g) (mod 1)`. Thus there are exactly `m`
+    /// candidate roots, independent of the cocycle denominator.
+    fn generator_values(
+        &self,
+        generator: usize,
+        identity: usize,
+    ) -> Result<Vec<Rat>, StarError> {
+        let mut power = identity;
+        let mut order = 0usize;
+        let mut phase = Rat::ZERO;
+        loop {
+            phase = fractional(phase.checked_add(self.turns[power][generator])?)?;
+            power = self.product_position(power, generator)?;
+            order += 1;
+            if power == identity {
+                break;
+            }
+            if order >= self.order() {
+                return Err(StarError::LittleCoGroupNotClosed {
+                    q: [self.q.get(0), self.q.get(1), self.q.get(2)],
+                });
+            }
+        }
+        let generator_order = order;
+        let order = i128::try_from(generator_order).map_err(|_| {
+            StarError::Subduction(SubductionError::RationalOverflow {
+                operation: "little co-group generator order",
+            })
+        })?;
+        let denominator = Rat::from_integer(order);
+        let mut values = Vec::with_capacity(generator_order);
+        for branch in 0..generator_order {
+            let branch = i128::try_from(branch).map_err(|_| {
+                StarError::Subduction(SubductionError::RationalOverflow {
+                    operation: "little co-group generator root",
+                })
+            })?;
+            let value = phase
+                .checked_add(Rat::from_integer(branch))?
+                .checked_div(denominator)?;
+            let value = fractional(value)?;
+            if !values.contains(&value) {
+                values.push(value);
+            }
+        }
+        Ok(values)
+    }
+
     /// A generating set of positions, greedily closed under products.
     fn generators(&self) -> Result<Vec<usize>, StarError> {
         let order = self.order();
@@ -299,15 +319,14 @@ impl LittleCoGroup {
     fn complete(
         &self,
         generators: &[usize],
-        assignment: &[i128],
-        modulus: i128,
+        assignment: &[Rat],
         identity: usize,
     ) -> Result<Option<Vec<Rat>>, StarError> {
         let order = self.order();
         let mut psi: Vec<Option<Rat>> = vec![None; order];
         psi[identity] = Some(Rat::ZERO);
         for (generator, value) in generators.iter().zip(assignment) {
-            psi[*generator] = Some(Rat::new(value.rem_euclid(modulus), modulus)?);
+            psi[*generator] = Some(*value);
         }
         loop {
             let mut changed = false;
@@ -639,21 +658,6 @@ pub(super) fn fractional(value: Rat) -> Result<Rat, SubductionError> {
     Rat::new(remainder, denominator)
 }
 
-/// Least common multiple of two positive integers.
-fn lcm(left: i128, right: i128) -> i128 {
-    if left == 0 || right == 0 {
-        return 0;
-    }
-    let mut a = left.abs();
-    let mut b = right.abs();
-    while b != 0 {
-        let remainder = a % b;
-        a = b;
-        b = remainder;
-    }
-    (left.abs() / a).saturating_mul(right.abs())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -843,53 +847,83 @@ mod tests {
         let cubic = little_co_group(221, &gamma, &reciprocal).unwrap();
         assert_eq!(cubic.order(), 48);
         assert!(one_dimensional_characters(&cubic).unwrap().is_empty());
+    }
 
-        // The grid/work caps are the second fail-closed layer.  The archive's
-        // cocycles live on a 1/12 grid, so no real co-group comes near the cap
-        // (the largest real search is `12 x 6 = 72` per generator, well under
-        // `MAX_GRID`); this synthetic Klein four with a 1/512 cocycle reaches it
-        // and must return nothing rather than a subset.
-        let scaled = LittleCoGroup {
+    /// Generator-order enumeration is independent of the cocycle denominator.
+    #[test]
+    fn generator_order_search_handles_large_cocycle_denominators() {
+        let mut scaled = LittleCoGroup {
             representatives: vec![
                 ExactSeitz::identity(),
                 ExactSeitz::new([[-1, 0, 0], [0, -1, 0], [0, 0, 1]], Vec3R::zero()),
                 ExactSeitz::new([[-1, 0, 0], [0, 1, 0], [0, 0, -1]], Vec3R::zero()),
                 ExactSeitz::new([[1, 0, 0], [0, -1, 0], [0, 0, -1]], Vec3R::zero()),
             ],
-            turns: vec![
-                vec![Rat::ZERO; 4],
-                vec![
-                    Rat::ZERO,
-                    Rat::ZERO,
-                    Rat::new(1, 512).unwrap(),
-                    Rat::new(1, 512).unwrap(),
-                ],
-                vec![
-                    Rat::ZERO,
-                    Rat::new(511, 512).unwrap(),
-                    Rat::ZERO,
-                    Rat::new(1, 512).unwrap(),
-                ],
-                vec![
-                    Rat::ZERO,
-                    Rat::new(511, 512).unwrap(),
-                    Rat::new(511, 512).unwrap(),
-                    Rat::ZERO,
-                ],
-            ],
+            turns: vec![vec![Rat::ZERO; 4]; 4],
             q: Vec3R::zero(),
         };
-        let mut modulus = 1i128;
-        for row in &scaled.turns {
-            for value in row {
-                modulus = lcm(modulus, value.denominator());
+
+        // Build a genuine coboundary from a 1-cochain with denominator 512.
+        // Its four characters are this cochain plus Hom(C2 x C2, U(1)).
+        let expected = [
+            Rat::ZERO,
+            Rat::new(1, 512).unwrap(),
+            Rat::new(2, 512).unwrap(),
+            Rat::new(3, 512).unwrap(),
+        ];
+        for left in 0..4 {
+            for right in 0..4 {
+                let product = scaled.product_position(left, right).unwrap();
+                scaled.turns[left][right] = fractional(
+                    expected[left]
+                        .checked_add(expected[right])
+                        .unwrap()
+                        .checked_sub(expected[product])
+                        .unwrap(),
+                )
+                .unwrap();
             }
         }
+
+        let characters = one_dimensional_characters(&scaled).unwrap();
+        assert_eq!(characters.len(), 4, "the full Hom(C2 x C2,U(1)) coset");
         assert!(
-            modulus.saturating_mul(modulus) > MAX_GRID,
-            "the witness must exceed MAX_GRID, modulus {modulus}"
+            characters
+                .iter()
+                .any(|character| character.as_slice() == expected.as_slice()),
+            "the cochain used to build the cocycle is one of its gauges"
         );
-        assert!(one_dimensional_characters(&scaled).unwrap().is_empty());
+        for character in &characters {
+            for left in 0..4 {
+                for right in 0..4 {
+                    let product = scaled.product_position(left, right).unwrap();
+                    let residual = fractional(
+                        character[left]
+                            .checked_add(character[right])
+                            .unwrap()
+                            .checked_sub(character[product])
+                            .unwrap()
+                            .checked_sub(scaled.turns[left][right])
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    assert!(residual.is_zero(), "{character:?} at ({left}, {right})");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_trivial_co_group_has_its_unique_projective_character() {
+        let trivial = LittleCoGroup {
+            representatives: vec![ExactSeitz::identity()],
+            turns: vec![vec![Rat::ZERO]],
+            q: Vec3R::zero(),
+        };
+        assert_eq!(
+            one_dimensional_characters(&trivial).unwrap(),
+            vec![vec![Rat::ZERO]]
+        );
     }
 
     /// The decisive evidence for the catalogue: at every pinned child `k` whose

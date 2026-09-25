@@ -495,11 +495,12 @@ pinned 行对小群之外的 `-I`、`m_y` 存的是字面 0。任何代码都不
 **fail-closed 的分层与它们的测试。** 判据链是
 `has_trivial_little_co_group`（纯几何）→ 一维 solver 只在解数 `== |P_q|` 时返回
 → 两族结构门禁 + 正交门禁 → 其余一律空表 → `select_representative` 报
-`MissingChildStarData`。三层各自有负例：
+`MissingChildStarData`。边界由以下正反回归钉住：
 
 - `the_one_dimensional_solver_returns_nothing_instead_of_a_subset`：非上边界 cocycle
-  返回空（不是子集）、`MAX_ORDER`（48 阶 Γ 点）返回空、合成的大分母 co-group 超过
-  `MAX_GRID` 时返回空；
+  返回空（不是子集）、`MAX_ORDER`（48 阶 Γ 点）返回空；
+- `generator_order_search_handles_large_cocycle_denominators`：分母为 512 的合成 coboundary
+  返回完整四个解，证明搜索成本由小余群生成元阶决定，不随相位分母增长；
 - `an_out_of_scope_co_group_still_reports_missing_child_star_data`：在真实嵌入
   （225 `X1+` P3 → #221）上把折叠星放到越界点 (0,0,1/2)，`build_block` 必须报
   `MissingChildStarData`——覆盖闭合后 pinned 语料里已没有能触发该分支的 probe，
@@ -683,17 +684,14 @@ R5 的 Γ-only 入口保留为 [`line_trivial_content_via_blocks`]，但审计�
 * **一般位置**：绝大多数 `t` 能给出完整分解，例如 `t = 1/7, 1/6, 1/3, 2/7` 各
   `Ok = 5702/5756`，其余 `54/5756` 报 `MissingChildStarData`（子群 #123–#138 的
   2 点子群星与 #221–#224 的 6 点子群星）；`t = 3/8` 报 30 条。原因是**折叠点的
-  小余群不在已构造的两族内**（>1 维射影族缺失 / 网格搜索超限），不是 pinned 数据
-  缺行，也不是"重数为零"。
-* **参数分母上限（fail-closed）**：小余群非平凡时要走
-  `subduction_catalogue::one_dimensional_characters` 的网格搜索，绑定门禁是
-  `MAX_GRID = 200_000`（另有 `MAX_ORDER = 6`、`MAX_WORK = 4_000_000`），
-  `modulus = lcm(cocycle 分母) × |P_q|`、`combinations = modulus^(生成元数)`。
-  实测 ordinal 10030 `DT1`（child #18，`|P_q| = 2`）：`t = 1/100000` 仍 `Ok`，
-  `t ≥ 1/1000000` 起 `MissingChildStarData`——边界正是 `2 × 10^5`，与 `MAX_GRID`
-  逐位吻合。超限返回空目录 → 显式错误，绝不返回部分结果或 0。
-  这不是"任意有理 t 都支持"：能力 A 的域是"分母足够小的有理 t"，R6.2 必须把这条
-  写进覆盖说明。
+  高维射影小余群表示族尚未构造**，不是 pinned 数据缺行，也不是"重数为零"。
+* **有限小余群的一维求解范围**：`subduction_catalogue::one_dimensional_characters`
+  现在按每个生成元的有限阶枚举相位根，再逐式验证完整 projective character 方程；搜索
+  不再随 cocycle 分母增长。合成分母 512 的 coboundary 回归返回完整四个解；真实见证
+  ordinal 10030 `DT1`（child #18，`|P_q| = 2`）在 `t = 1/1000000` 现在完整分解成功，
+  维数、重建与恒等内容均有断言。剩余边界来自表示族而非网格大小：一维 solver 只搜索
+  `|P_q| ≤ 6`，高维射影目标只覆盖经结构门禁证明的 C2×C2 与 D3 家族；其它小群仍显式
+  返回 `MissingChildStarData`。有理中间量超过 `i128` 时也会显式报算术错误。
 * **`t = 0`（以及任何使 `t·v` 的稳定子严格大于冻结小群的 `t`）**：此时臂集合仍由
   **direction** 生成，引擎回答的是"由冻结 little 群表示诱导出的形式表示"，**不是**
   DT 线 irrep 在 Γ 的分导（后者不存在）。实测：`10030 DT1 t=0 → Ok(3) blocks=1`、

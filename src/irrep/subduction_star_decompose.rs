@@ -4495,6 +4495,19 @@ mod tests {
         assert_eq!(result.parent_dimension(), 6);
         assert_eq!(result.trivial_content().unwrap(), 0);
 
+        // A large parameter denominator must not turn a finite character
+        // search into MissingChildStarData.
+        let fine = subduce_line_at_parameter(
+            subgroup,
+            &embedding,
+            line_table(196, "DT1"),
+            Rat::new(1, 1_000_000).unwrap(),
+        )
+        .expect("finite generator roots do not depend on the parameter denominator");
+        assert_line_invariants(&fine);
+        assert_eq!(fine.blocks().len(), 3);
+        assert_eq!(fine.trivial_content().unwrap(), 0);
+
         // SG 225 `W5` -> child #136 `SM1`: orbits of four and eight points.
         let subgroup = contexts
             .values()

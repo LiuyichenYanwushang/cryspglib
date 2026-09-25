@@ -111,10 +111,12 @@ decompose(α, t + Δ) == decompose(M_{Δv}(α), t)     （逐块逐目标）
 
 * 每行的四个网格值 `(content(0), content(1/4), content(1/2), content(3/4))` 直方图
   由 example 打印；`content(1/4)` 分量永远等于 pinned（E1）。
-* 参数分母上限：小余群非平凡时走网格搜索，绑定门禁 `MAX_GRID = 200_000`
-  （另有 `MAX_ORDER = 6`、`MAX_WORK = 4_000_000`）。实测 ordinal 10030 `DT1`
-  （`|P_q| = 2`）在 `t = 1/100000` 仍 `Ok`、`t ≥ 1/1000000` 起
-  `MissingChildStarData`；超限**报错**，不返回部分结果。
+* **高分母一维字符搜索已修**：原 `MAX_GRID`/`MAX_WORK` 网格搜索会让工作量随 cocycle
+  分母平方增长。现在由生成元阶导出有限根并逐式校验，合成分母 512 的 C2×C2
+  coboundary 返回完整四解；ordinal 10030 `DT1`（child #18，`|P_q|=2`）在
+  `t=1/1000000` 的端到端完整分解通过。边界现由目标表示族决定：一维 solver 保留
+  `MAX_ORDER=6`，高维投影目标只覆盖已证明的 C2×C2 与 D3 两族；未覆盖族仍
+  `MissingChildStarData`，不会返回部分结果。
 * 性能：`t = 1/4` 走存储路径，全表 5,756 行约 11–14 s；一般参数（尤其大分母、
   非平凡小余群）单次调用可到 p99 ≈ 40 s、最大 53.6 s（reviewer C 实测，
   446 行 × `t = 1/97` 合计约 724 s）。因此本报告的**全表**逐行计算只覆盖网格点与
@@ -171,7 +173,8 @@ pinned 的完整分解（标签按 monodromy 位移）"。**已验证域**仍为
    复现：`line_transport_ledger --witnesses`（逐见证表）、
    `line_transport_ledger --batch 3/4`（全表 hard-failure/共轭律清点）与
    `line_transport_ledger 14453 SM1`（单行完整账本）。
-2. **参数分母上限**：`MAX_GRID` 等三道 fail-closed 门禁（§2）。
+2. **目标表示族边界**：一维 solver 的 `MAX_ORDER=6` 与当前两类高维投影表示构造器
+   （§2）；高分母本身不再触发网格搜索拒绝。
 3. **性能长尾**：一般参数单次调用最坏分钟级（§2），全表 × 多参数的逐点审计不可行，
    这是把一般参数改为"支持集判定 + 抽样佐证"的原因。
 4. **非恒等目标**：官方 pinned 只有恒等频率，一般参数下的非 Γ 目标**没有任何外部

@@ -55,11 +55,14 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   与 `1/6,1/3` 为 LineIrrep。部分记录在 `t=1/2` 仍因缺少子群目标字符而显式失败；无
   oracle 的边界不变。当前完整表 gate 尚未汇总所有行的 `ParameterKind` 分布；永久类型断言
   是上述 SG 196 见证。
-* **B. 部分参数直接算不出来（fail-closed，非静默错）**：一般 `t`（`1/7, 1/6, 1/3,
-  2/7`）各 **54/5,756** 行报 `MissingChildStarData`（子群 #123–#138 的 2 点星、
-  #221–#224 的 6 点星），`t = 3/8` 报 30 行；根因是缺失的**二维射影小余群目录**。
-  另有 `MAX_GRID = 200_000` 分母悬崖（实测 `10030 DT1`：`t = 1/100000` 可算，
-  `t ≥ 1/1000000` 起 fail-closed）——"支持任意有理 t"永远要带这条限制。
+* **B. 部分参数仍因目标小群类型不支持而算不出来（fail-closed，非静默错）**：一般
+  `t`（`1/7, 1/6, 1/3, 2/7`）各 **54/5,756** 行报 `MissingChildStarData`
+  （子群 #123–#138 的 2 点星、#221–#224 的 6 点星），`t = 3/8` 报 30 行；根因是尚未
+  覆盖的高维射影小余群表示族。旧的 `MAX_GRID` 分母悬崖已移除：一维投影字符按生成元
+  阶枚举有限根，不再按 cocycle 分母扫描；永久回归现证明 ordinal 10030 `DT1` 在
+  `t = 1/1000000` 完整分解成功。仍有限制：一维 solver 的 `MAX_ORDER=6`、只覆盖已证明
+  的高维射影族，以及有理运算超出 `i128` 时显式报错；不能据此声称所有 rational `t`
+  都有目标表示数据。
 * **C. 没有外部 oracle 的部分**：一般 `t` 下的**非恒等目标**（官方不打印分导载荷，
   pinned 只有恒等频率），证据是维数守恒 + 逐代表元重构 + 一条独立几何计数，级别 **E3**；
   另有 **4 行**的 isotropy 记录未列共轭伙伴源，共轭 coset 上无 oracle（覆盖 5,752/5,756）。
@@ -121,6 +124,22 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   字符层由"缺 twist 的共轭比较"改为 transport 比较（5,756/5,756）。
 * 文档三阶段记账：`docs/subduction-conventions.md` §16、`docs/subduction-r6-coverage.md`
   命题 3/4 与分档、`docs/subduction-r6-plan.md` §4、本文件末尾的轮次记录。
+
+### 5. 2026-09-25：移除一维投影字符的分母搜索悬崖
+
+`subduction_catalogue::one_dimensional_characters` 不再按 cocycle 分母扫描网格。对每个
+有限阶生成元 `g`，由 `g^r g = g^(r+1)` 的项目字符方程求出 `ord(g)·ψ(g)`，只枚举
+`ord(g)` 个根，再对完整乘法表逐式校验。合成分母 512 的 C2×C2 coboundary 回归钉住
+四个解；真实见证 ordinal 10030 `DT1` 在 `t=1/1000000` 完整分解通过。边界现由支持的
+共群阶 / 高维射影表示族及精确有理数溢出决定，不再随相位分母增长。
+
+本轮验证：catalogue 单测 6 项、真实高分母端到端见证、全 `--tests`、doctest 27 项、五个
+example 测试组 39 项、line transport / line-family 两个 gate、全局三门禁分导审计
+（366260/366260 full decomposition，exit 0）、严格 all-target clippy、4 个离线 Python
+套件、live isotropy oracle 62/62 与 w-source 5756/5756 均通过。独立数学复核未发现阻断项。
+
+当前仍待补的直接功能缺口是一般参数下尚未构造的高维射影小余群表示族：`t=1/7,1/6,1/3,2/7`
+各有 54 行、`t=3/8` 有 30 行显式返回 `MissingChildStarData`（见 §2 B 与 R6 coverage 报告）。
 
 ---
 
