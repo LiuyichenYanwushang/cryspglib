@@ -11,6 +11,8 @@
 ```bash
 CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
   --example line_family_coverage -- --gate --output target/r6_family.tsv
+CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
+  --example line_family_coverage -- --projective-sample-sweep
 CARGO_TARGET_DIR=$PWD/target cargo test --release -p cryspglib --example line_family_coverage
 ```
 
@@ -111,11 +113,18 @@ decompose(α, t + Δ) == decompose(M_{Δv}(α), t)     （逐块逐目标）
 
 * 每行的四个网格值 `(content(0), content(1/4), content(1/2), content(3/4))` 直方图
   由 example 打印；`content(1/4)` 分量永远等于 pinned（E1）。
+* **D4 gap batch**：先前五个参数点的 54/30 个失败行都落在阶 8 的 D4 little co-group，
+  projective cocycle 是 coboundary，完整表为四个 gauge-twisted 一维行加一个 gauge-twisted
+  标准二维行。`--projective-sample-sweep` 对 5,756 行逐一计算 `t=1/7,1/6,1/3,2/7,3/8`；
+  五个参数均 `full=5756/5756, missing=0, other_errors=0`，且恒等重数为零。example 测试
+  `every_line_row_decomposes_with_zero_trivial_content_at_the_five_gap_samples` 常驻执行同一
+  扫描。这是五点抽样闭合，不是对全部 rational 参数的覆盖证明。
 * **高分母一维字符搜索已修**：原 `MAX_GRID`/`MAX_WORK` 网格搜索会让工作量随 cocycle
   分母平方增长。现在由生成元阶导出有限根并逐式校验，合成分母 512 的 C2×C2
   coboundary 返回完整四解；ordinal 10030 `DT1`（child #18，`|P_q|=2`）在
   `t=1/1000000` 的端到端完整分解通过。边界现由目标表示族决定：一维 solver 保留
-  `MAX_ORDER=6`，高维投影目标只覆盖已证明的 C2×C2 与 D3 两族；未覆盖族仍
+  `MAX_ORDER=8`；阶 8 的阿贝尔 coboundary 小余群也走通用一维路径。高维投影目标只覆盖已
+  证明的非退化 C2×C2、coboundary D3 与 coboundary D4 三族；非 coboundary D4 和其它群仍
   `MissingChildStarData`，不会返回部分结果。
 * 性能：`t = 1/4` 走存储路径，全表 5,756 行约 11–14 s；一般参数（尤其大分母、
   非平凡小余群）单次调用可到 p99 ≈ 40 s、最大 53.6 s（reviewer C 实测，
@@ -173,7 +182,7 @@ pinned 的完整分解（标签按 monodromy 位移）"。**已验证域**仍为
    复现：`line_transport_ledger --witnesses`（逐见证表）、
    `line_transport_ledger --batch 3/4`（全表 hard-failure/共轭律清点）与
    `line_transport_ledger 14453 SM1`（单行完整账本）。
-2. **目标表示族边界**：一维 solver 的 `MAX_ORDER=6` 与当前两类高维投影表示构造器
+2. **目标表示族边界**：一维 solver 的 `MAX_ORDER=8` 与当前三类高维投影表示构造器
    （§2）；高分母本身不再触发网格搜索拒绝。
 3. **性能长尾**：一般参数单次调用最坏分钟级（§2），全表 × 多参数的逐点审计不可行，
    这是把一般参数改为"支持集判定 + 抽样佐证"的原因。

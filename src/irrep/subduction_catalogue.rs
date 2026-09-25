@@ -27,15 +27,17 @@
 //!   `psi` of `P_q`, i.e. every exact solution of
 //!   `psi_i + psi_j - psi_k == omega_ij (mod 1)`.
 //!
-//! The caller only uses a catalogue when the solver returns exactly `|P_q|`
-//! solutions.  The solution set is either empty or a coset of
+//! The caller uses this one-dimensional catalogue only when the solver returns
+//! exactly `|P_q|` solutions.  The solution set is either empty or a coset of
 //! `Hom(P_q, U(1))`, whose size is `|P_q / [P_q, P_q]|`; requiring that size to
 //! be `|P_q|` therefore means `P_q` is abelian *and* the cocycle is a
 //! coboundary, which is exactly the case where **every** irreducible projective
-//! representation of `P_q` is one-dimensional.  A co-group whose cocycle is not a coboundary
-//! (needing a two-dimensional projective irrep) and a non-abelian co-group
-//! return fewer solutions and are left to the higher-dimensional batch: this
-//! module never guesses a catalogue.
+//! representation of `P_q` is one-dimensional.  A co-group whose cocycle is not
+//! a coboundary, and a non-abelian co-group, return fewer solutions; the small
+//! higher-dimensional families those cover are built separately by
+//! [`projective_targets`], each behind its own finite structural gates.  A
+//! co-group outside both paths returns an empty catalogue: this module never
+//! guesses one.
 //!
 //! The caller must build the constants with the **same** exact point the
 //! character is evaluated at.  A reconstructed little-group operation is not a
@@ -57,9 +59,16 @@ const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 ///
 /// R4 batch 2a needs the one-dimensional solution set for `|P_q| <= 4`; batch 2b
 /// also needs it for the six-element `D_3` family, where it supplies the gauge
-/// (its two solutions are `Hom(D_3, U(1))`) rather than a catalogue.  Anything
-/// bigger is out of scope and returns an empty catalogue.
-const MAX_ORDER: usize = 6;
+/// (its two solutions are `Hom(D_3, U(1))`) rather than a catalogue.  This batch
+/// adds the eight-element `D4` family: the solver enumerates its four gauges and
+/// [`projective_targets`] turns them into the four gauge-twisted one-dimensional
+/// characters plus the gauge-twisted ordinary two-dimensional character.
+/// Raising this bound also lets the generic all-one-dimensional path handle
+/// order-eight abelian co-groups whenever their cocycle is a coboundary.
+/// Anything bigger -- for example the order-48 cubic `Gamma` point, where the
+/// generator candidates alone are far more numerous -- is out of scope and
+/// returns an empty catalogue, so the caller keeps `MissingChildStarData`.
+const MAX_ORDER: usize = 8;
 
 /// The little co-group of one exact child point.
 #[derive(Debug, Clone)]
@@ -396,8 +405,9 @@ pub(super) struct ProjectiveTarget {
 
 /// The projective character table of a small little co-group.
 ///
-/// Two families are covered, each behind its own structural gate, and anything
-/// else returns an empty table (the caller keeps `MissingChildStarData`):
+/// Three higher-dimensional families are covered, each behind its own
+/// structural gate, and anything else returns an empty table (the caller keeps
+/// `MissingChildStarData`):
 ///
 /// * `|P_q| = 4`, abelian, every non-identity element of order two, and a
 ///   **non-degenerate** commutator pairing `beta_ij = phi_ij - phi_ji`.  Then
@@ -419,6 +429,15 @@ pub(super) struct ProjectiveTarget {
 ///   with dimensions `{2, 1, 1}`.  The *set* of targets does not depend on which
 ///   solution is used, because the two solutions differ by the sign character
 ///   and tensoring with it permutes the ordinary irreps.
+/// * `|P_q| = 8`, an exact `D4` multiplication table with a **coboundary**
+///   cocycle: the four gauges are `Hom(D4, U(1)) = D4/[D4,D4] = C2 x C2`, and
+///   the projective irreps are the gauged ordinary ones, with dimensions
+///   `{1, 1, 1, 1, 2}`.  Recognition and the character construction are finite
+///   gates on the multiplication table; see [`d4_central_involution`] and
+///   [`dihedral_eight_targets`].  A non-coboundary `D4` factor system -- for
+///   example the section cocycle of the non-split extension
+///   `1 -> C2 -> D16 -> D4 -> 1` -- has no one-dimensional solution and is
+///   rejected rather than approximated by the coboundary table.
 pub(super) fn projective_targets(
     child_sg: u8,
     q: &Vec3R,
@@ -433,6 +452,9 @@ pub(super) fn projective_targets(
     }
     if order == 6 {
         return dihedral_six_targets(&co_group, identity, &q);
+    }
+    if order == 8 {
+        return dihedral_eight_targets(&co_group, identity, &q);
     }
     Ok(Vec::new())
 }
@@ -566,6 +588,209 @@ fn dihedral_six_targets(
         targets.push(ProjectiveTarget {
             dimension,
             constants: constants_of(co_group, q, &traces)?,
+        });
+    }
+    let total: u32 = targets
+        .iter()
+        .map(|target| u32::from(target.dimension) * u32::from(target.dimension))
+        .sum();
+    if total != u32::try_from(order).unwrap_or(0) {
+        return Ok(Vec::new());
+    }
+    Ok(targets)
+}
+
+/// Recognize an exact `D4` multiplication table and return its central
+/// involution, or `None` when the table is not `D4`.
+///
+/// Both gates are finite and structural -- no labels, no characters:
+///
+/// * the element-order profile is exactly `(1, 5, 2)`: one identity, five
+///   involutions and two elements of order four.  Among the groups of order
+///   eight this profile is unique to `D4`: `C2^3` has seven involutions,
+///   `C4 x C2` three, `Q8` one, and `C8` has four elements of order eight.
+/// * a generating relation of the standard presentation actually holds: some
+///   order-four `r` and involution `s` satisfy `s r s = r^-1`, and `{r, s}`
+///   spans the whole table, so the group really is
+///   `<r, s | r^4 = s^2 = 1, s r s = r^-1>`.
+///
+/// The central involution is `r^2`; it is also checked to be the **unique**
+/// involution commuting with every element, which is the element the ordinary
+/// two-dimensional character is pinned on.
+fn d4_central_involution(
+    co_group: &LittleCoGroup,
+    identity: usize,
+) -> Result<Option<usize>, StarError> {
+    let order = co_group.order();
+    if order != 8 {
+        return Ok(None);
+    }
+    let mut orders = Vec::with_capacity(order);
+    for i in 0..order {
+        let mut power = i;
+        let mut value = 1usize;
+        while power != identity {
+            power = co_group.product_position(power, i)?;
+            value += 1;
+            if value > order {
+                return Ok(None);
+            }
+        }
+        orders.push(value);
+    }
+    if orders[identity] != 1
+        || orders.iter().filter(|value| **value == 2).count() != 5
+        || orders.iter().filter(|value| **value == 4).count() != 2
+    {
+        return Ok(None);
+    }
+    let mut central = None;
+    'rotation: for rotation in 0..order {
+        if orders[rotation] != 4 {
+            continue;
+        }
+        let squared = co_group.product_position(rotation, rotation)?;
+        let inverse = co_group.product_position(squared, rotation)?;
+        for (reflection, &reflection_order) in orders.iter().enumerate() {
+            if reflection_order != 2 {
+                continue;
+            }
+            let conjugate = co_group
+                .product_position(co_group.product_position(reflection, rotation)?, reflection)?;
+            if conjugate == inverse
+                && co_group
+                    .close_span(&[identity], &[rotation, reflection])?
+                    .len()
+                    == order
+            {
+                central = Some(squared);
+                break 'rotation;
+            }
+        }
+    }
+    let Some(central) = central else {
+        return Ok(None);
+    };
+    if orders[central] != 2 {
+        return Ok(None);
+    }
+    for (i, &element_order) in orders.iter().enumerate() {
+        if element_order != 2 {
+            continue;
+        }
+        let mut is_central = true;
+        for j in 0..order {
+            if co_group.product_position(i, j)? != co_group.product_position(j, i)? {
+                is_central = false;
+                break;
+            }
+        }
+        if is_central != (i == central) {
+            return Ok(None);
+        }
+    }
+    Ok(Some(central))
+}
+
+/// The eight-element dihedral family (see [`projective_targets`]).
+///
+/// **Finite proof gates**, all on the multiplication table:
+///
+/// * recognition: [`d4_central_involution`] proves the table is `D4` and names
+///   its unique central involution;
+/// * coboundary: `one_dimensional_characters` returns exactly
+///   `|Hom(D4, U(1))| = |D4/[D4,D4]| = 4` solutions.  A non-coboundary factor
+///   system has no one-dimensional solution at all, and a co-group with the
+///   `D4` profile but only some gauges cannot exist, so `!= 4` is the whole
+///   coboundary gate.  The `D16` section-cocycle test drives the rejection.
+/// * characters: the four one-dimensional irreps are `exp(2 pi i psi)` for the
+///   four gauges, and the two-dimensional irrep is `exp(2 pi i psi_0)` times
+///   the ordinary standard character.  In the standard realization on `R^2`,
+///   `r -> [[0,-1],[1,0]]` and `s -> diag(1,-1)`, the ordinary traces are `2`
+///   at the identity, `-2` at the central involution `r^2` and `0` on the other
+///   six elements.  The gauge factors out because `omega = delta psi` makes
+///   `g -> exp(-2 pi i psi(g)) u_g` an ordinary representation, hence
+///   `tr(u_g) = exp(2 pi i psi(g)) tr(v_g)`.  The four gauges differ by the
+///   ordinary linear characters (`C2 x C2`), which are trivial on the centre, so
+///   the two-dimensional trace at the central involution `z` is the
+///   gauge-independent `-2 exp(2 pi i psi(z))`, the same square root of
+///   `omega(z,z)` in every gauge.  The phase is retained without assuming a
+///   particular value for `omega(z,z)`.  The scalar equation
+///   `chi(g) chi(h) = omega(g,h) chi(gh)` is deliberately never used: it is
+///   false for the trace of a two-dimensional representation.
+/// * completeness and orthonormality: the five rows are pairwise orthonormal
+///   under `(1/|P|) sum_g chi_a(g) conj(chi_b(g))`, and their squared dimensions
+///   sum to `|P| = 8`.  This is a **trace-level Gram matrix**; it is the finite
+///   gate that replaces any use of the false scalar equation above, and it also
+///   shows the five rows exhaust the projective irreps.
+fn dihedral_eight_targets(
+    co_group: &LittleCoGroup,
+    identity: usize,
+    q: &Vec3R,
+) -> Result<Vec<ProjectiveTarget>, StarError> {
+    let order = co_group.order();
+    let Some(central) = d4_central_involution(co_group, identity)? else {
+        return Ok(Vec::new());
+    };
+    // Coboundary gate: the gauge coset has exactly |Hom(D4, U(1))| = 4 members.
+    let gauge = one_dimensional_characters(co_group)?;
+    if gauge.len() != 4 {
+        return Ok(Vec::new());
+    }
+    let mut rows: Vec<Vec<num_complex::Complex64>> = Vec::with_capacity(5);
+    for psi in &gauge {
+        rows.push(
+            psi.iter()
+                .map(|value| {
+                    num_complex::Complex64::from_polar(1.0, std::f64::consts::TAU * value.to_f64())
+                })
+                .collect(),
+        );
+    }
+    rows.push(
+        gauge[0]
+            .iter()
+            .enumerate()
+            .map(|(position, psi)| {
+                let standard = if position == identity {
+                    2.0
+                } else if position == central {
+                    -2.0
+                } else {
+                    0.0
+                };
+                num_complex::Complex64::from_polar(1.0, std::f64::consts::TAU * psi.to_f64())
+                    * standard
+            })
+            .collect(),
+    );
+    // Trace-level orthonormality of the whole five-row table.
+    let scale = 1.0
+        / f64::from(u32::try_from(order).map_err(|_| {
+            StarError::Subduction(SubductionError::RationalOverflow {
+                operation: "little co-group order",
+            })
+        })?);
+    for (a, left) in rows.iter().enumerate() {
+        for (b, right) in rows.iter().enumerate() {
+            let inner: num_complex::Complex64 = left
+                .iter()
+                .zip(right)
+                .map(|(x, y)| x * y.conj())
+                .sum::<num_complex::Complex64>()
+                * scale;
+            let expected = if a == b { 1.0 } else { 0.0 };
+            if (inner - num_complex::Complex64::new(expected, 0.0)).norm() > 1e-9 {
+                return Ok(Vec::new());
+            }
+        }
+    }
+    let mut targets = Vec::with_capacity(5);
+    for (index, row) in rows.iter().enumerate() {
+        let dimension = if index + 1 == rows.len() { 2 } else { 1 };
+        targets.push(ProjectiveTarget {
+            dimension,
+            constants: constants_of(co_group, q, row)?,
         });
     }
     let total: u32 = targets
@@ -722,12 +947,11 @@ mod tests {
                 .all(|(a, b)| (a - b).norm() <= SUBDUCTION_TOLERANCE)
     }
 
-    /// The two batch-2b families, described by their structure rather than by a
-    /// pinned row: a non-degenerate four-element co-group has exactly one
-    /// two-dimensional irrep with character `(2, 0, 0, 0)`, and `D_3` with a
-    /// coboundary cocycle has the gauged ordinary irreps `{1, 1, 2}`.
+    /// The C2 x C2 and D3 examples from batch 2b, described by their structure
+    /// rather than by a pinned row. The separate D4 regression below pins the
+    /// order-eight coboundary family.
     #[test]
-    fn the_projective_tables_cover_only_the_two_gated_families() {
+    fn the_projective_tables_cover_only_the_gated_families() {
         let cell = Lattice::new(exact_primitive_basis(43).unwrap()).unwrap();
         let reciprocal = cell.reciprocal().unwrap();
         // Ordinal 3988 folds onto child #43 with a four-element C2 x C2
@@ -813,6 +1037,287 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    /// Multiplicative orders of the co-group elements, indexed by position; the
+    /// identity is at position zero for every co-group built here.
+    fn element_orders(co_group: &LittleCoGroup) -> Vec<usize> {
+        (0..co_group.order())
+            .map(|element| {
+                let mut power = element;
+                let mut value = 1usize;
+                while power != 0 {
+                    power = co_group.product_position(power, element).unwrap();
+                    value += 1;
+                }
+                value
+            })
+            .collect()
+    }
+
+    /// The classification's order-eight `D4` witness: child #136 (`P4_2/mnm`)
+    /// at `q = (0, 0, 1/3)`, a point on the four-fold axis whose little
+    /// co-group is `4mm = D4`.  The cocycle is a coboundary there, so the
+    /// projective catalogue is the four gauged ordinary one-dimensional
+    /// characters plus the gauged ordinary two-dimensional one.
+    #[test]
+    fn the_order_eight_d4_catalogue_is_four_gauges_and_the_standard_rep() {
+        let cell = Lattice::new(exact_primitive_basis(136).unwrap()).unwrap();
+        let reciprocal = cell.reciprocal().unwrap();
+        let q = Vec3R::new([Rat::ZERO, Rat::ZERO, Rat::new(1, 3).unwrap()]);
+        let co_group = little_co_group(136, &q, &reciprocal).unwrap();
+        assert_eq!(
+            co_group.order(),
+            8,
+            "the 4mm little co-group has order eight"
+        );
+        let orders = element_orders(&co_group);
+        let profile: Vec<usize> = (1..=4)
+            .map(|value| orders.iter().filter(|order| **order == value).count())
+            .collect();
+        assert_eq!(
+            profile,
+            vec![1, 5, 0, 2],
+            "the D4 element-order profile: one identity, five involutions, no element of \
+             order three, two elements of order four"
+        );
+        let central = d4_central_involution(&co_group, 0)
+            .unwrap()
+            .expect("the (1, 5, 2) table passes the D4 generating-relation gate");
+        assert_eq!(
+            orders[central], 2,
+            "the central involution is an involution"
+        );
+
+        let gauge = one_dimensional_characters(&co_group).unwrap();
+        assert_eq!(gauge.len(), 4, "|Hom(D4, U(1))| = |D4/[D4,D4]| = 4");
+
+        let targets = projective_targets(136, &q, &reciprocal).unwrap();
+        let dimensions: Vec<u8> = targets.iter().map(|target| target.dimension).collect();
+        assert_eq!(dimensions, vec![1, 1, 1, 1, 2]);
+        let total: u32 = targets
+            .iter()
+            .map(|target| u32::from(target.dimension) * u32::from(target.dimension))
+            .sum();
+        assert_eq!(total, 8, "sum of squared dimensions = |P_q|");
+
+        let rows: Vec<Vec<Complex64>> = targets
+            .iter()
+            .map(|target| character_vector(target, &co_group))
+            .collect();
+        for row in &rows[..4] {
+            for value in row {
+                assert!(
+                    (value.norm() - 1.0).abs() <= SUBDUCTION_TOLERANCE,
+                    "a one-dimensional gauge row must have unit modulus: {value}"
+                );
+            }
+        }
+        for (a, left) in rows.iter().enumerate() {
+            for (b, right) in rows.iter().enumerate() {
+                let inner: Complex64 = left
+                    .iter()
+                    .zip(right)
+                    .map(|(x, y)| x * y.conj())
+                    .sum::<Complex64>()
+                    / 8.0;
+                let expected = if a == b { 1.0 } else { 0.0 };
+                assert!(
+                    (inner - Complex64::new(expected, 0.0)).norm() <= SUBDUCTION_TOLERANCE,
+                    "rows {a} and {b} are not orthonormal: {inner}"
+                );
+            }
+        }
+        // The two-dimensional row is the gauge-twisted ordinary standard
+        // character.  Its ordinary traces are fixed without a character table by
+        // the standard realization on `R^2`, `r -> [[0,-1],[1,0]]` and
+        // `s -> diag(1,-1)`: trace `2` at the identity, `-2` at `r^2` (the
+        // unique central involution) and `0` on the other six elements.  The
+        // gauge multiplies every trace by a unit phase (see
+        // `dihedral_eight_targets`); at this witness the cocycle is trivial on
+        // the centre and the solver's first gauge takes the value `0` there, so
+        // the returned row is exactly the ordinary character.  (The scalar
+        // equation `chi(g) chi(h) = omega(g,h) chi(gh)` is never used: it is
+        // false for a two-dimensional trace.)
+        for (position, value) in rows[4].iter().enumerate() {
+            let expected = if position == 0 {
+                Complex64::new(2.0, 0.0)
+            } else if position == central {
+                Complex64::new(-2.0, 0.0)
+            } else {
+                Complex64::new(0.0, 0.0)
+            };
+            assert!(
+                (value - expected).norm() <= SUBDUCTION_TOLERANCE,
+                "the standard D4 row at position {position}: {value} != {expected}"
+            );
+        }
+    }
+
+    /// The larger one-dimensional search bound also admits abelian order-eight
+    /// co-groups. They stay on the generic scalar path and are not misidentified
+    /// as D4 by the high-dimensional catalogue gate.
+    #[test]
+    fn an_abelian_order_eight_cogroup_has_eight_scalar_characters() {
+        let zero = Vec3R::zero();
+        let quarter_turn =
+            ExactSeitz::new([[0, -1, 0], [1, 0, 0], [0, 0, 1]], zero);
+        let inversion = ExactSeitz::new([[-1, 0, 0], [0, -1, 0], [0, 0, -1]], zero);
+        let mut representatives = Vec::with_capacity(8);
+        let mut power = ExactSeitz::identity();
+        for _ in 0..4 {
+            representatives.push(power);
+            representatives.push(power.compose(&inversion).unwrap());
+            power = power.compose(&quarter_turn).unwrap();
+        }
+        let co_group = LittleCoGroup {
+            turns: vec![vec![Rat::ZERO; 8]; 8],
+            representatives,
+            q: zero,
+        };
+        assert_eq!(co_group.order(), 8);
+        assert_eq!(
+            one_dimensional_characters(&co_group).unwrap().len(),
+            8,
+            "C4 x C2 has eight ordinary scalar irreps"
+        );
+        assert!(
+            d4_central_involution(&co_group, 0).unwrap().is_none(),
+            "the C4 x C2 element-order profile is not D4"
+        );
+    }
+
+    /// The `D16` section cocycle: a genuine **non-coboundary** `D4` factor
+    /// system.  The test refuses to accept the coboundary `D4` table for it.
+    ///
+    /// `D16 = <R, S | R^8 = S^2 = 1, S R S = R^-1>` has centre `<R^4>`, and its
+    /// quotient by that centre is
+    /// `D4 = <r, s | r^4 = s^2 = 1, s r s = r^-1>` (`r = R Z`, `s = S Z`).  The
+    /// set-theoretic section `r^a s^b -> R^a S^b` (`a` in `0..4`, `b` in
+    /// `0..2`) is not a homomorphism, because `R^4 != 1`; its defect
+    /// `sigma(g) sigma(h) sigma(gh)^-1` lands in the centre, so the factor
+    /// system takes only the values `0` and `1/2`.  A gauge `psi` with
+    /// `delta psi = omega` would make `g -> exp(-2 pi i psi(g)) sigma(g)` a
+    /// homomorphism and would split the extension; `D16` is not `C2 x D4` (its
+    /// centre has order two, while `C2 x D4` has three central involutions), so
+    /// no gauge exists.  The cocycle identity is additionally verified by brute
+    /// force below, so the negative case is a valid factor system and not a
+    /// single-entry mutation.
+    #[test]
+    fn a_non_coboundary_d4_factor_system_returns_no_catalogue() {
+        let co_group = d16_section_cocycle_on_d4();
+        assert_eq!(co_group.order(), 8);
+        // The recognition gates pass: the table really is D4, so the emptiness
+        // asserted below can only come from the coboundary gate.
+        assert_eq!(
+            element_orders(&co_group)
+                .iter()
+                .filter(|value| **value == 2)
+                .count(),
+            5
+        );
+        assert!(
+            d4_central_involution(&co_group, 0).unwrap().is_some(),
+            "the D16 section cocycle lives on an exact D4 multiplication table"
+        );
+        // Valid factor system: the cocycle identity
+        // `omega(i,j) omega(ij,k) == omega(j,k) omega(i,jk)` on every triple.
+        for i in 0..8 {
+            for j in 0..8 {
+                for k in 0..8 {
+                    let ij = co_group.product_position(i, j).unwrap();
+                    let jk = co_group.product_position(j, k).unwrap();
+                    let left = fractional(
+                        co_group.turns[i][j]
+                            .checked_add(co_group.turns[ij][k])
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    let right = fractional(
+                        co_group.turns[j][k]
+                            .checked_add(co_group.turns[i][jk])
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(left, right, "cocycle identity at ({i}, {j}, {k})");
+                }
+            }
+        }
+        // Non-coboundary: no one-dimensional projective character, because a
+        // gauge would split `D16 -> D4`.  The D4 branch must therefore return
+        // nothing rather than the coboundary table.
+        let gauge = one_dimensional_characters(&co_group).unwrap();
+        assert!(
+            gauge.is_empty(),
+            "a non-coboundary D4 factor system has no gauge: {gauge:?}"
+        );
+        assert!(
+            dihedral_eight_targets(&co_group, 0, &Vec3R::zero())
+                .unwrap()
+                .is_empty(),
+            "the non-coboundary factor system must not return the D4 coboundary table"
+        );
+    }
+
+    /// The eight symmetries of the square as `3 x 3` integer matrices, in the
+    /// order `r^a s^b` (`a` in `0..4`, `b` in `0..2`), so position `2a + b` is
+    /// the group element `r^a s^b` and position zero is the identity.
+    fn d4_representatives() -> Vec<ExactSeitz> {
+        let r = ExactSeitz::new([[0, -1, 0], [1, 0, 0], [0, 0, 1]], Vec3R::zero());
+        let s = ExactSeitz::new([[1, 0, 0], [0, -1, 0], [0, 0, 1]], Vec3R::zero());
+        let mut representatives = Vec::with_capacity(8);
+        let mut power = ExactSeitz::identity();
+        for _ in 0..4 {
+            representatives.push(power);
+            representatives.push(power.compose(&s).unwrap());
+            power = power.compose(&r).unwrap();
+        }
+        representatives
+    }
+
+    /// The `D16 -> D4` section cocycle as a hand-built [`LittleCoGroup`].
+    ///
+    /// `D16` is modelled exactly by pairs `(a, b)` with `a` in `Z/8`, `b` in
+    /// `Z/2` and `(a,b)(c,d) = (a + (-1)^b c, b + d)`; the section lifts the D4
+    /// normal form `r^a s^b` (`a` in `0..4`) to `(a, b)`, and the defect of a
+    /// product is either `(0, 0)` or the centre `(4, 0)`.
+    fn d16_section_cocycle_on_d4() -> LittleCoGroup {
+        let representatives = d4_representatives();
+        let order = representatives.len();
+        let mut turns = Vec::with_capacity(order);
+        for i in 0..order {
+            let mut row = Vec::with_capacity(order);
+            for j in 0..order {
+                let (a, b) = ((i / 2) as i32, (i % 2) as i32);
+                let (c, d) = ((j / 2) as i32, (j % 2) as i32);
+                let signed_c = if b == 0 { c } else { -c };
+                // The D4 product and the D16 product of the two lifts.
+                let product_d4 = ((a + signed_c).rem_euclid(4), (b + d) % 2);
+                let lift = |x: i32, y: i32| (x.rem_euclid(8), y.rem_euclid(2));
+                let (left_a, left_b) = {
+                    let (a0, b0) = lift(a, b);
+                    let (c0, d0) = lift(c, d);
+                    let signed = if b0 == 0 { c0 } else { -c0 };
+                    ((a0 + signed).rem_euclid(8), (b0 + d0).rem_euclid(2))
+                };
+                let (right_a, right_b) = lift(product_d4.0, product_d4.1);
+                let defect = (
+                    (left_a - right_a).rem_euclid(8),
+                    (left_b - right_b).rem_euclid(2),
+                );
+                row.push(match defect {
+                    (0, 0) => Rat::ZERO,
+                    (4, 0) => Rat::new(1, 2).unwrap(),
+                    _ => panic!("the D16 section defect left the centre: {defect:?}"),
+                });
+            }
+            turns.push(row);
+        }
+        LittleCoGroup {
+            representatives,
+            turns,
+            q: Vec3R::zero(),
+        }
     }
 
     /// The one-dimensional solver's negative direction, which no real data
@@ -931,6 +1436,16 @@ mod tests {
     /// the engine's own validated little-group character row must be **one of**
     /// the catalogue characters, on every little-group operation.
     ///
+    /// Rows of dimension two are compared too: a two-dimensional pinned little
+    /// irrep at a co-group inside the gated families must be one of the
+    /// constructed two-dimensional targets.  This is where the `D4` family is
+    /// cross-checked against real data -- the `W5`/`X5`/`M5` rows of the
+    /// tetragonal and cubic space groups are exactly the relevant dimension-2
+    /// `D4` source rows.  (Two-dimensional rows whose co-group is a
+    /// **non-coboundary** `D4`, e.g. SG 212/213 `X1`/`X2` or SG 227 `W1`/`W2`,
+    /// are not matchable by construction: they are counted as deferred, never
+    /// as matched, and the negative test below drives the rejection directly.)
+    ///
     /// This is also the *only* external check the constructed targets have.  A
     /// constructed target carries no frozen CIR source, so two of the five
     /// production counters are vacuous for it, and the child Gamma star -- the
@@ -944,6 +1459,9 @@ mod tests {
         let mut operations_compared = 0usize;
         let mut projective = 0usize;
         let mut deferred = 0usize;
+        let mut d4_one_dimensional = 0usize;
+        let mut two_dimensional = 0usize;
+        let mut d4_two_dimensional = 0usize;
         for sg in 1u8..=230 {
             let cell = Lattice::new(exact_primitive_basis(sg).unwrap()).unwrap();
             let reciprocal = cell.reciprocal().unwrap();
@@ -952,7 +1470,8 @@ mod tests {
                 let Ok(row) = record.ordinary_scalar_selected_arm_block_trace() else {
                     continue;
                 };
-                if row.dimension() != 1 {
+                let dimension = row.dimension();
+                if dimension != 1 && dimension != 2 {
                     continue;
                 }
                 let k = inline_k_vector(record).unwrap();
@@ -973,6 +1492,15 @@ mod tests {
                     .collect();
                 let one_dimensional = characters.len() == co_group.order();
                 let matched = if one_dimensional {
+                    // Every projective irrep is one-dimensional here, so a
+                    // dimension-two pinned row would contradict the pinned
+                    // dimension; fail loudly instead of silently skipping.
+                    assert_eq!(
+                        dimension, 1,
+                        "SG {sg} {} at k = {k:?}: a two-dimensional row at a co-group with only \
+                         one-dimensional projective irreps",
+                        record.ml
+                    );
                     characters.iter().any(|psi| {
                         let constants = constants(&co_group, psi).unwrap();
                         operations.iter().enumerate().all(|(index, operation)| {
@@ -984,8 +1512,9 @@ mod tests {
                         })
                     })
                 } else {
-                    // R4 batch 2b: a higher-dimensional little irrep, compared
-                    // the same way against the gated projective table.
+                    // R4 batch 2b and the `D4` batch: a higher-dimensional little
+                    // irrep, compared the same way against the gated projective
+                    // table.
                     let targets = projective_targets(sg, &k, &reciprocal).unwrap();
                     if targets.is_empty() {
                         deferred += 1;
@@ -1005,12 +1534,27 @@ mod tests {
                         })
                     });
                     projective += 1;
+                    // The full D4 table carries four scalar source rows and
+                    // one two-dimensional source row per character set.
+                    if co_group.order() == 8 && dimension == 1 {
+                        d4_one_dimensional += 1;
+                    }
+                    if dimension == 2 {
+                        two_dimensional += 1;
+                        if co_group.order() == 8 {
+                            // A non-empty order-eight table is the `D4` one (the
+                            // recognition and coboundary gates decide it), so
+                            // these are exactly the dimension-two `D4` source
+                            // rows the batch was written for.
+                            d4_two_dimensional += 1;
+                        }
+                    }
                     used
                 };
                 assert!(
                     matched,
                     "SG {sg} {} at k = {:?}: the pinned little-group character is not in the \
-                     one-dimensional catalogue",
+                     constructed projective catalogue",
                     record.ml, k
                 );
                 records_used += 1;
@@ -1021,15 +1565,40 @@ mod tests {
         // evidence the constructed targets have (they carry no frozen CIR source
         // and the pinned identity-frequency table never sees them), so a silent
         // shrinkage of the compared set must fail here rather than pass a
-        // `>= 100` threshold.  The numbers are the ones reported in
-        // `docs/subduction-r4-batches.md` and `docs/subduction-audit.md`.
-        assert_eq!(records_used, 1328, "pinned rows compared");
-        assert_eq!(operations_compared, 7578, "little-group operations compared");
-        assert_eq!(projective, 94, "rows answered through the higher-dimensional table");
-        assert_eq!(deferred, 1660, "rows deferred to the higher-dimensional batch");
+        // `>= 100` threshold.
+        //
+        // Before the `D4` batch (one-dimensional solver gate `MAX_ORDER = 6`,
+        // dimension-one rows only) the four counters were
+        // `records_used = 1328`, `operations_compared = 7578`, `projective = 94`,
+        // `deferred = 1660`.  After raising the gate to 8 and extending the
+        // corpus to dimension-two rows they are the values pinned below:
+        // `2661 / 22302 / 719 / 293 / 121 / 1282`, where the fifth counter is the
+        // dimension-two `D4` subset of the fourth.  Order-eight rows moved out of
+        // `deferred` (1660 -> 1282), while the newly considered dimension-two
+        // rows with a co-group of order > 8 moved in; two-dimensional rows with a
+        // non-coboundary `D4` co-group stay deferred because their table is
+        // intentionally not constructed.
         println!(
             "catalogue cross-check: {records_used} pinned rows, {operations_compared} operations, \
-             {projective} of them through the higher-dimensional table, {deferred} deferred"
+             {projective} of them through the higher-dimensional table ({d4_one_dimensional} \
+             D4 dimension-one, {two_dimensional} dimension-two, {d4_two_dimensional} of them D4), \
+             {deferred} deferred"
+        );
+        assert_eq!(records_used, 2661, "pinned rows compared");
+        assert_eq!(
+            operations_compared, 22302,
+            "little-group operations compared"
+        );
+        assert_eq!(
+            projective, 719,
+            "rows answered through the higher-dimensional table"
+        );
+        assert_eq!(d4_one_dimensional, 332, "one-dimensional D4 source rows");
+        assert_eq!(two_dimensional, 293, "dimension-two rows so compared");
+        assert_eq!(d4_two_dimensional, 121, "dimension-two D4 rows so compared");
+        assert_eq!(
+            deferred, 1282,
+            "rows deferred to the higher-dimensional batch"
         );
     }
 }

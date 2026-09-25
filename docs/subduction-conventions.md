@@ -489,12 +489,13 @@ pinned 行对小群之外的 `-I`、`m_y` 存的是字面 0。任何代码都不
 永远命中 stored 行（每个空间群都有平凡 Γ 行），于是恒等频率比较**从不**看到构造星。
 所以构造路径的证据是：catalogue 与 pinned 离散字符的逐操作对照
 （`the_catalogue_reproduces_pinned_little_group_characters`，计数钉死为
-1,328 条 pinned 行 / 7,578 个操作 / 94 条走二维表 / 1,660 条延后）、两族结构门禁
-与正交门禁、以及引擎自身的 Gram/维数/重建检查。这些事实写在 R5 报告的独立性表里。
+2,661 条 pinned 行 / 22,302 个操作 / 719 条走高维目录 / 293 条源行维数为 2
+（其中 121 条 D4）/ 1,282 条延后）、各族结构门禁与正交门禁、以及引擎自身的
+Gram/维数/重建检查。这些事实写在 R5 报告的独立性表里。
 
 **fail-closed 的分层与它们的测试。** 判据链是
 `has_trivial_little_co_group`（纯几何）→ 一维 solver 只在解数 `== |P_q|` 时返回
-→ 两族结构门禁 + 正交门禁 → 其余一律空表 → `select_representative` 报
+→ C2×C2、D3、D4 三族结构门禁 + 正交门禁 → 其余一律空表 → `select_representative` 报
 `MissingChildStarData`。边界由以下正反回归钉住：
 
 - `the_one_dimensional_solver_returns_nothing_instead_of_a_subset`：非上边界 cocycle
@@ -508,7 +509,7 @@ pinned 行对小群之外的 `-I`、`m_y` 存的是字面 0。任何代码都不
 - `constructed_targets_have_their_own_identity_and_no_borrowed_labels`：构造目标的
   身份只由精确点与构造小群给出，不借用任何 stored 标签。
 
-`ConstructedStar::dimension()` 现在携带真实的小群维数（一维两族为 1、二维族为 2），
+`ConstructedStar::dimension()` 现在携带真实的小群维数（一维目标为 1，二维目标为 2），
 不再硬编码 1；`stored_child_components_at` 遇到无法展开的子群记录**大声报错**而不
 `continue`——把生成 bug 伪装成「缺数据」比报错更糟。这两条都由复核 B 指出。
 
@@ -641,10 +642,10 @@ pub fn subduce_line_at_parameter(
 * 不变式（引擎内强制，失败即 `Err`）：`Σ mult × dim × star = parent_dimension`
   （`TotalDimensionMismatch`）、逐子群代表元的完整星重构（`ReconstructionMismatch`）、
   每个 q 块的 `χ(E) = block_dimension`（`QBlockIdentityMismatch`）。
-* 失败语义与离散路径相同：折叠点子群表里没有、且小余群不在已构造的两族内 →
-  `MissingChildStarData`（见证：ordinal 13543 的 `DT5` 在 `t = 1/7` 报
-  `MissingChildStarData{sg:136}`，而同一条记录在 `t = 1/4` 正常分解——所以这是参数
-  问题而不是记录问题）。
+* 失败语义与离散路径相同：折叠点子群表里没有、且小余群不在已构造的三族内 →
+  `MissingChildStarData`。ordinal 13543 的 D4 缺口已由正向端到端测试覆盖；真正的越界
+  负例仍由 order-16 的手工构造星 `an_out_of_scope_co_group_still_reports_missing_child_star_data`
+  钉住，不能返回部分分解或零。
 
 **R6.1 修掉的 R5 遗留结构错误（Γ-only 路径看不见）**：旧的 `line_folded_stars` 把每个
 约化 `q` 各当作一个子群星，而 `FoldedStar` 的语义是**子群点群下的轨道**。Γ-only 路径
@@ -675,23 +676,28 @@ R5 的 Γ-only 入口保留为 [`line_trivial_content_via_blocks`]，但审计�
 | `t = 1/4` 的**恒等重数** == pinned 频率（全 5,756 行） | **外部**：pinned 行来自官方程序 `SHOW FREQUENCY`，另经 `verify_w_subduction_oracle.py` 的 live oracle 双向比较 |
 | `t = 1/4` 的**完整分解**（维数守恒、逐代表元重构） | **内部一致性**：引擎自身的两个不变式；没有独立的完整分解 oracle（官方不打印载荷） |
 | 一般 `t` 的分解 | **内部一致性 + 一条独立几何计数**（只替换多重度求解器）；无外部 oracle |
-| 折叠点小余群非平凡的参数 | 单元测试里**没有**专门见证；只由审计的 5,756 行覆盖（那里含大量非平凡小余群点，且带 pinned 频率对照）。这是覆盖边界，不要写成"单元测试已覆盖" |
+| 一般参数的非平凡小余群 | D4 有字符目录回归与 ordinal 13543/14106/13691 三个端到端见证；五个样本参数另对 5,756 行全扫。其它非平凡小余群仍按已证明的 family gate 支持或 fail-closed；一般参数没有外部完整分解 oracle |
 | `MissingChildStarData` / `LineSourceMismatch` | 有常驻负例（断言具体变体） |
 | `MissingChildTrivialIrrep` / `TargetSourceMismatch` | **表损坏防御分支，公网 API 在 pinned 数据上不可达**（见上方失败语义条目），没有也无法写负例 |
 
 **能力 A 的参数定义域（诚实边界，全部由 5,756 行全表清点或指定记录实测）**：
 
-* **一般位置**：绝大多数 `t` 能给出完整分解，例如 `t = 1/7, 1/6, 1/3, 2/7` 各
-  `Ok = 5702/5756`，其余 `54/5756` 报 `MissingChildStarData`（子群 #123–#138 的
-  2 点子群星与 #221–#224 的 6 点子群星）；`t = 3/8` 报 30 条。原因是**折叠点的
-  高维射影小余群表示族尚未构造**，不是 pinned 数据缺行，也不是"重数为零"。
+* **五个精确参数采样点**：旧的 54/5,756（`t = 1/7,1/6,1/3,2/7`）与 30/5,756
+  （`t = 3/8`）个 `MissingChildStarData` 已通过 D4 构造族闭合。`--projective-sample-sweep`
+  对全部 5,756 行逐点重算，五个参数各为 `full=5756/5756, missing=0, other_errors=0`，
+  且恒等重数均为 0；example 回归
+  `every_line_row_decomposes_with_zero_trivial_content_at_the_five_gap_samples` 常驻保护此范围；
+  旧失败星都是阶 8 的 D4/C4v little co-group，且 projective cocycle 可由四个一维 gauge
+  解消，缺少的是标准二维普通 irrep。该扫描只覆盖这五个有理点，不代表所有 rational `t`。
 * **有限小余群的一维求解范围**：`subduction_catalogue::one_dimensional_characters`
   现在按每个生成元的有限阶枚举相位根，再逐式验证完整 projective character 方程；搜索
   不再随 cocycle 分母增长。合成分母 512 的 coboundary 回归返回完整四个解；真实见证
   ordinal 10030 `DT1`（child #18，`|P_q| = 2`）在 `t = 1/1000000` 现在完整分解成功，
   维数、重建与恒等内容均有断言。剩余边界来自表示族而非网格大小：一维 solver 只搜索
-  `|P_q| ≤ 6`，高维射影目标只覆盖经结构门禁证明的 C2×C2 与 D3 家族；其它小群仍显式
-  返回 `MissingChildStarData`。有理中间量超过 `i128` 时也会显式报算术错误。
+  `|P_q| ≤ 8`；阶 8 的阿贝尔 coboundary 小余群也由通用一维路径处理。高维射影目标覆盖
+  经结构门禁证明的非退化 C2×C2、coboundary D3 与 coboundary D4 家族；其它小群、非
+  coboundary D4 仍显式返回 `MissingChildStarData`。
+  有理中间量超过 `i128` 时也会显式报算术错误。
 * **`t = 0`（以及任何使 `t·v` 的稳定子严格大于冻结小群的 `t`）**：此时臂集合仍由
   **direction** 生成，引擎回答的是"由冻结 little 群表示诱导出的形式表示"，**不是**
   DT 线 irrep 在 Γ 的分导（后者不存在）。实测：`10030 DT1 t=0 → Ok(3) blocks=1`、

@@ -55,14 +55,15 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   与 `1/6,1/3` 为 LineIrrep。部分记录在 `t=1/2` 仍因缺少子群目标字符而显式失败；无
   oracle 的边界不变。当前完整表 gate 尚未汇总所有行的 `ParameterKind` 分布；永久类型断言
   是上述 SG 196 见证。
-* **B. 部分参数仍因目标小群类型不支持而算不出来（fail-closed，非静默错）**：一般
-  `t`（`1/7, 1/6, 1/3, 2/7`）各 **54/5,756** 行报 `MissingChildStarData`
-  （子群 #123–#138 的 2 点星、#221–#224 的 6 点星），`t = 3/8` 报 30 行；根因是尚未
-  覆盖的高维射影小余群表示族。旧的 `MAX_GRID` 分母悬崖已移除：一维投影字符按生成元
-  阶枚举有限根，不再按 cocycle 分母扫描；永久回归现证明 ordinal 10030 `DT1` 在
-  `t = 1/1000000` 完整分解成功。仍有限制：一维 solver 的 `MAX_ORDER=6`、只覆盖已证明
-  的高维射影族，以及有理运算超出 `i128` 时显式报错；不能据此声称所有 rational `t`
-  都有目标表示数据。
+* **B. 五个一般参数采样点已闭合；其余参数域仍非全覆盖**：阶 8、coboundary D4/C4v
+  的二维标准表示已构造。新增全表采样 gate 对 `t=1/7,1/6,1/3,2/7,3/8` 各计算
+  **5,756/5,756** 完整分解，`missing=0, other_errors=0, content_mismatches=0`；此前
+  54/30 条缺口全属这一族。
+  这只是五点采样，不证明任意 rational `t` 都可分解。旧的 `MAX_GRID` 分母悬崖已移除：
+  一维投影字符按生成元阶枚举有限根，不随 cocycle 分母增长；永久回归还证明 ordinal
+  10030 `DT1` 在 `t=1/1000000` 完整分解成功。当前边界是 solver `MAX_ORDER=8`、高维表只
+  覆盖已证明的 C2×C2、D3、D4+coboundary 族；非 coboundary D4 与更高阶/其它小群仍显式
+  失败，有理运算超出 `i128` 也显式报错。
 * **C. 没有外部 oracle 的部分**：一般 `t` 下的**非恒等目标**（官方不打印分导载荷，
   pinned 只有恒等频率），证据是维数守恒 + 逐代表元重构 + 一条独立几何计数，级别 **E3**；
   另有 **4 行**的 isotropy 记录未列共轭伙伴源，共轭 coset 上无 oracle（覆盖 5,752/5,756）。
@@ -138,8 +139,29 @@ example 测试组 39 项、line transport / line-family 两个 gate、全局三�
 （366260/366260 full decomposition，exit 0）、严格 all-target clippy、4 个离线 Python
 套件、live isotropy oracle 62/62 与 w-source 5756/5756 均通过。独立数学复核未发现阻断项。
 
-当前仍待补的直接功能缺口是一般参数下尚未构造的高维射影小余群表示族：`t=1/7,1/6,1/3,2/7`
-各有 54 行、`t=3/8` 有 30 行显式返回 `MissingChildStarData`（见 §2 B 与 R6 coverage 报告）。
+在该轮之后，当时仍待补的是五个样本点以外的参数点分类与更高阶小余群表示族；特别是
+order-8 非 coboundary D4、order 12/16/24/48 等群仍 fail-closed。后续第 6 节关闭了五个
+采样点的 54/30 行缺口，但不构成所有 rational `t` 的覆盖证明。
+
+### 6. 2026-09-25：D4 投影字符族与五点全表采样闭合
+
+独立分类发现此前 `t=1/7,1/6,1/3,2/7` 的 54 行与 `t=3/8` 的 30 行全由阶 8 D4/C4v
+小余群造成；一维 gauge 有 4 个，但还需要标准二维表示。新增 `dihedral_eight_targets`：
+用元素阶、D4 生成关系与唯一中心 involution 识别群；必须有恰 4 个一维 projective gauge
+解（coboundary 门禁）；生成 4 个一维目标与 1 个二维标准目标。负例由 D16→D4 的合法
+非平凡 cocycle 构造并逐三元验证 cocycle 恒等式，不使用无效单槽注入。`MAX_ORDER` 从 6
+扩到 8；order-16 负例仍返回 `MissingChildStarData`。
+
+验证：目录回归 9/9（含 C4×C2 阶 8 阿贝尔一维路径），含 2,661 条 pinned 字符 / 22,302
+个操作、其中 332 个 D4 一维源与 293 个二维源（121 个 D4）；端到端 gap 回归 2/2，另覆盖
+ordinal 13543、14106 与 13691；
+`line_family_coverage --projective-sample-sweep` 对 5,756 行与五个精确参数逐一扫描，
+每点均完整 5,756、`missing=0`、`other_errors=0`、`content_mismatches=0`。本轮另复跑全
+`--tests`、doctest 27 项、
+examples 40 项、严格 all-target clippy、`line_family_coverage --gate` 与
+`line_transport_ledger --witnesses --gate`；全部通过。全局三门禁审计再次得到
+366,260/366,260 完整分解、`identity_only=0`、`hard_failures=0`、exit 0。此结果只说明五个
+样本点的一般参数覆盖，不代表任意 rational `t` 全覆盖。
 
 ---
 

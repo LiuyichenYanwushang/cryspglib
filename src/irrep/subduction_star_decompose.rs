@@ -4402,11 +4402,11 @@ mod tests {
         }
     }
 
-    /// Failure semantics: a frozen table of another parent is refused, and a
-    /// folded point outside the constructed families with no stored row is a
-    /// missing-data error, never a zero multiplicity.
+    /// Failure and coverage semantics: a frozen table of another parent is
+    /// refused, while the former D4 gap in child #136 is now completely
+    /// decomposed through the constructed projective-character table.
     #[test]
-    fn a_line_refuses_foreign_sources_and_out_of_scope_points() {
+    fn a_line_refuses_foreign_sources_and_resolves_the_d4_gap() {
         let subgroup = subgroup_of(196, "W1", "4D1");
         let embedding = embedding(196, "W1", "4D1");
         let foreign = line_table(202, "DT1");
@@ -4420,9 +4420,9 @@ mod tests {
             Err(FullStarError::LineSourceMismatch { .. })
         ));
 
-        // Ordinal 13543 (SG 225 `W5` -> child #136): at a generic parameter two
-        // folded points of one child star have no stored row and their little
-        // co-group is outside the constructed families.
+        // Ordinal 13543 (SG 225 `W5` -> child #136): this was the original
+        // generic-parameter gap.  Its two-point child star has a D4 little
+        // co-group and is now answered by the constructed five-row table.
         let contexts = subgroups();
         let subgroup = contexts
             .values()
@@ -4431,17 +4431,24 @@ mod tests {
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
         assert_eq!(embedding.subgroup_sg(), 136);
         let table = line_table(subgroup.parent_sg, "DT5");
-        assert!(matches!(
-            subduce_line_at_parameter(
-                subgroup,
-                &embedding,
-                table,
-                Rat::new(1, 7).unwrap()
-            ),
-            Err(FullStarError::MissingChildStarData { sg: 136, .. })
-        ));
+        let result = subduce_line_at_parameter(
+            subgroup,
+            &embedding,
+            table,
+            Rat::new(1, 7).unwrap(),
+        )
+        .expect("the D4 projective catalogue resolves the formerly missing child star");
+        assert_line_invariants(&result);
+        assert_eq!(result.trivial_content().unwrap(), 0);
+        assert!(result.blocks().iter().any(|block| {
+            block.star_size() == 2
+                && block.targets().iter().any(|target| {
+                    target.dimension == 2
+                        && matches!(target.component, SubductionComponent::Constructed { .. })
+                })
+        }));
         // The same source at the official parameter does have the data, so the
-        // error above is about the parameter, not about the record.
+        // pinned row remains a separate externally anchored branch.
         let official = subduce_line_at_parameter(
             subgroup,
             &embedding,
@@ -4450,6 +4457,72 @@ mod tests {
         )
         .expect("the official parameter is covered");
         assert_line_invariants(&official);
+    }
+
+    /// Nonzero-cocycle and symmorphic D4 gaps both reach the complete constructed
+    /// table.  These exact isotropy ordinals were among the failures in the
+    /// generic-parameter census; each formerly missing two-point child star now
+    /// contains the constructed standard 2D target and passes full reconstruction.
+    #[test]
+    fn sampled_d4_gap_witnesses_decompose_with_the_constructed_two_dimensional_target() {
+        let contexts = subgroups();
+        let nonzero_cocycle_q = [Rat::ZERO, Rat::ZERO, Rat::new(5, 7).unwrap()];
+        let parameters = [
+            ("1/7", Rat::new(1, 7).unwrap()),
+            ("1/6", Rat::new(1, 6).unwrap()),
+            ("1/3", Rat::new(1, 3).unwrap()),
+            ("2/7", Rat::new(2, 7).unwrap()),
+            ("3/8", Rat::new(3, 8).unwrap()),
+        ];
+        let witnesses = [
+            (13543usize, 225u8, 136u8, "DT5", Some(nonzero_cocycle_q)),
+            (14106, 226, 137, "DT5", Some(nonzero_cocycle_q)),
+            (13691, 225, 127, "DT5", None),
+        ];
+        for (parameter_label, parameter) in parameters {
+            for (ordinal, parent, child, label, expected_q) in witnesses {
+                let subgroup = contexts
+                    .values()
+                    .find(|subgroup| subgroup.ordinal == ordinal)
+                    .unwrap_or_else(|| panic!("missing isotropy ordinal {ordinal}"));
+                assert_eq!(subgroup.parent_sg, parent, "ordinal {ordinal}");
+                let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup)
+                    .unwrap_or_else(|error| panic!("ordinal {ordinal}: {error}"));
+                assert_eq!(embedding.subgroup_sg(), child, "ordinal {ordinal}");
+                let result = subduce_line_at_parameter(
+                    subgroup,
+                    &embedding,
+                    line_table(parent, label),
+                    parameter,
+                )
+                .unwrap_or_else(|error| {
+                    panic!("ordinal {ordinal} {parent} {label} t={parameter_label}: {error}")
+                });
+                assert_line_invariants(&result);
+                assert_eq!(result.trivial_content().unwrap(), 0, "ordinal {ordinal}");
+                let dimension_two = result
+                    .blocks()
+                    .iter()
+                    .flat_map(|block| block.targets())
+                    .find(|target| {
+                        target.sg == child
+                            && target.dimension == 2
+                            && matches!(target.component, SubductionComponent::Constructed { .. })
+                    })
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "ordinal {ordinal} at t={parameter_label}: missing constructed D4 2D target"
+                        )
+                    });
+                if parameter_label == "1/7" && let Some(expected_q) = expected_q {
+                    assert!(
+                        matches!(dimension_two.component, SubductionComponent::Constructed { q, .. } if q == expected_q),
+                        "ordinal {ordinal}: expected the D4 target at {expected_q:?}, got {:?}",
+                        dimension_two.component
+                    );
+                }
+            }
+        }
     }
 
     /// R6.1 regression for the orbit-shaped folding: at a generic parameter the
@@ -4703,8 +4776,8 @@ mod tests {
             .expect("child lattice");
         let reciprocal = cell.reciprocal().expect("child reciprocal");
         // Child #221 at (0, 0, 1/2): a sixteen-element little co-group, beyond
-        // the one-dimensional batch (`MAX_ORDER = 6`) and outside both gated
-        // projective families.
+        // the one-dimensional batch (`MAX_ORDER = 8`) and outside all three
+        // gated projective families.
         let q = Vec3R::new([rat(0, 1), rat(0, 1), rat(1, 2)]);
         assert!(
             stored_child_components_at(child, &q, &reciprocal)

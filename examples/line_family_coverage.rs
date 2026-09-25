@@ -28,12 +28,16 @@
 //! line_family_coverage                 # summary
 //! line_family_coverage --gate          # exit 1 unless the documented numbers reproduce
 //! line_family_coverage --output out.tsv  # per-row evidence table
+//! line_family_coverage --projective-sample-sweep  # all rows at five exact rational samples
+//! line_family_coverage --projective-sample-sweep --gate  # run both gates
 //! ```
 use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup};
 use cryspglib::irrep::line_monodromy::{line_table, monodromy, operation_translation};
 use cryspglib::irrep::query;
-use cryspglib::irrep::subduction::star::decompose::subduce_line_at_parameter;
+use cryspglib::irrep::subduction::star::decompose::{
+    FullStarError, subduce_line_at_parameter,
+};
 use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R};
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::{HallNumber, SymmetryOps};
@@ -484,6 +488,85 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
     rows
 }
 
+/// Five rational points that previously exposed the sampled D4 target gap.
+const PROJECTIVE_SAMPLE_PARAMETERS: [(&str, i128, i128); 5] = [
+    ("1/7", 1, 7),
+    ("1/6", 1, 6),
+    ("1/3", 1, 3),
+    ("2/7", 2, 7),
+    ("3/8", 3, 8),
+];
+
+/// Sweep every pinned line row at the five rational samples that previously
+/// failed on the D4 family. Every result must also have zero trivial content:
+/// these sample parameters lie outside the corpus' exact critical set `(1/4)Z`.
+/// This is a finite sample gate, not a claim about all rational parameters.
+fn projective_sample_sweep() -> bool {
+    let jobs = collect_jobs();
+    let mut complete = jobs.len() == 5756;
+    println!("projective sample sweep: rows={}", jobs.len());
+    for (label, numerator, denominator) in PROJECTIVE_SAMPLE_PARAMETERS {
+        let parameter = Rat::new(numerator, denominator).expect("sample parameter");
+        let failures = jobs
+            .par_iter()
+            .filter_map(|job| {
+                let result = subduce_line_at_parameter(
+                    &job.context.subgroup,
+                    &job.context.embedding,
+                    job.table,
+                    parameter,
+                );
+                let (missing, content_mismatch, detail) = match result {
+                    Err(error) => (
+                        matches!(error, FullStarError::MissingChildStarData { .. }),
+                        false,
+                        error.to_string(),
+                    ),
+                    Ok(result) => match result.trivial_content() {
+                        Ok(0) => return None,
+                        Ok(value) => (
+                            false,
+                            true,
+                            format!("unexpected trivial content {value}"),
+                        ),
+                        Err(error) => (false, true, format!("trivial-content check failed: {error}")),
+                    },
+                };
+                Some((
+                    job.context.subgroup.ordinal,
+                    job.table.label,
+                    job.context.child,
+                    missing,
+                    content_mismatch,
+                    detail,
+                ))
+            })
+            .collect::<Vec<_>>();
+        let missing = failures.iter().filter(|failure| failure.3).count();
+        let content_mismatches = failures.iter().filter(|failure| failure.4).count();
+        let other = failures.len() - missing;
+        println!(
+            "t={label}: full={}/{}, missing={}, other_errors={}, content_mismatches={}",
+            jobs.len() - failures.len(),
+            jobs.len(),
+            missing,
+            other,
+            content_mismatches
+        );
+        for (ordinal, source, child, _, _, detail) in failures.iter().take(5) {
+            println!("  ordinal={ordinal} source={source} child=#{child}: {detail}");
+        }
+        complete &= failures.is_empty();
+    }
+    if complete {
+        println!("projective sample sweep gate: ok (five sampled parameters only)");
+        true
+    } else {
+        println!("projective sample sweep gate: FAILED");
+        false
+    }
+}
+
 fn content(
     subgroup: &IsotropySubgroup,
     embedding: &SubgroupEmbedding,
@@ -585,17 +668,31 @@ fn conjugate_partner(table: &LittleCharacterTable) -> Option<&'static str> {
 
 fn main() -> std::process::ExitCode {
     let mut gate = false;
+    let mut run_projective_sample_sweep = false;
     let mut output: Option<String> = None;
     let mut arguments = std::env::args().skip(1);
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--gate" => gate = true,
+            "--projective-sample-sweep" => run_projective_sample_sweep = true,
             "--output" => output = arguments.next(),
             other => {
                 eprintln!("unknown argument {other}");
                 return std::process::ExitCode::from(2);
             }
         }
+    }
+    let sample_gate_ok = if run_projective_sample_sweep {
+        projective_sample_sweep()
+    } else {
+        true
+    };
+    if run_projective_sample_sweep && !gate && output.is_none() {
+        return if sample_gate_ok {
+            std::process::ExitCode::SUCCESS
+        } else {
+            std::process::ExitCode::from(1)
+        };
     }
     let mut file = output.map(|path| {
         std::fs::File::create(&path).unwrap_or_else(|error| panic!("create {path}: {error}"))
@@ -749,12 +846,20 @@ fn main() -> std::process::ExitCode {
             && critical_sizes.get(&4).copied() == Some(rows.len());
         if ok {
             println!("gate: ok (documented numbers reproduce)");
-            return std::process::ExitCode::SUCCESS;
+            return if sample_gate_ok {
+                std::process::ExitCode::SUCCESS
+            } else {
+                std::process::ExitCode::from(1)
+            };
         }
         println!("gate: FAILED");
         return std::process::ExitCode::from(1);
     }
-    std::process::ExitCode::SUCCESS
+    if sample_gate_ok {
+        std::process::ExitCode::SUCCESS
+    } else {
+        std::process::ExitCode::from(1)
+    }
 }
 
 #[cfg(test)]
@@ -771,6 +876,11 @@ mod tests {
                 source.label
             );
         }
+    }
+
+    #[test]
+    fn every_line_row_decomposes_with_zero_trivial_content_at_the_five_gap_samples() {
+        assert!(projective_sample_sweep());
     }
 
     /// The whole corpus: the exact critical set is the quarter grid, the pinned
