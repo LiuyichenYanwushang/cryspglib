@@ -594,7 +594,7 @@ pub fn subduce_line_at_parameter(
   `Φ_{nv}(R) = exp(2πi n (v·T_R))`，它在线小群上是**真正的一维特征标**，把标签送到
 
   ```text
-  (k + K, M_K(α)) ~ (k, α)，  decompose(α, t + n) == decompose(M_{n v}(α), t)（逐块逐目标）
+  (k + K, α) ~ (k, M_K(α))，  decompose(α, t + n) == decompose(M_{n v}(α), t)（逐块逐目标）
   ```
 
   `M_K` 由**字符指纹**算出（绝不按标签名硬编码），实现在

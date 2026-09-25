@@ -124,7 +124,7 @@ R6.2 的覆盖说明必须逐条区分**已计算 / 有独立对照 / 仅内部�
   母群倒格基本胞，**该修复已被撤销**，见 §16）：冻结的 `D` 是在 `k = Γ` 处解出的纯 Γ
   点字符，参数通过 Bloch 因子 `exp(2πi t (v·T))` 进入，所以 `k(t) = t·direction`
   **原样**参与字符求值与折叠。把 `k` 约化而保留 `D` 等于换一条带来算；一个参数步是
-  标签的 monodromy 位移（`(k + K, M_K(α)) ~ (k, α)`，`cryspglib::irrep::line_monodromy`），
+  标签的 monodromy 位移（`(k + K, α) ~ (k, M_K(α))`，`cryspglib::irrep::line_monodromy`），
   不是 gauge。
 * 交叉证据：`10038 DT1` 在 `t = 1/4` 折出 6 个臂（2 + 4），little 群冻结为
   `{E, C2y}`（正是 conventional 帧下 `(0,2,0)` 的稳定子，12/2 = 6），且

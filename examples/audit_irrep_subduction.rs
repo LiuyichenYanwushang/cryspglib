@@ -503,7 +503,7 @@ struct Counts {
     ///
     /// Every frozen direction is a parent reciprocal lattice vector, so the two
     /// parameters describe the same band at the same point of the parent's zone
-    /// and the step is the relabelling `(k + K, M_K(alpha)) ~ (k, alpha)`, not a
+    /// and the step is the relabelling `(k + K, alpha) ~ (k, M_K(alpha))`, not a
     /// gauge (`docs/subduction-conventions.md` §16).  R6.1 compared the *same*
     /// label at both parameters -- the over-strong `M == 1` reading -- and
     /// canonicalized the wave vector to silence the 40 rows (SG 210/227/228) that

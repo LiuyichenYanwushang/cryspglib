@@ -13,14 +13,15 @@
 //! chi_alpha^t(R, T_R) = D_alpha(R) * exp(2 pi i t (v . T_R)).
 //! ```
 //!
-//! For a reciprocal shift `K`, multiplying by the **reciprocal-shift twist**
-//! `Phi_K(R) = exp(2 pi i K.T_R)` gives the frozen character at `k + K`. When
-//! `K = delta * v` for a source's direction `v`, this is the parameter shift
-//! `t -> t + delta`. The twist must be a one-dimensional character of that
-//! source's little group; when it is, the shifted character is another label:
+//! For a reciprocal shift `K`, define `M_K` by twisting the frozen row
+//! `D_alpha(R)` with `Phi_K(R) = exp(2 pi i K.T_R)`, so
+//! `D_{M_K(alpha)}(R) = D_alpha(R) * Phi_K(R)`. When `K = delta * v` for a
+//! source's direction `v`, this is the parameter shift `t -> t + delta`. The
+//! twist must be a one-dimensional character of that source's little group;
+//! when it is, the full Bloch representations obey:
 //!
 //! ```text
-//! rho_{k+K, M_K(alpha)}  ~  rho_{k, alpha},        K in L*_G.
+//! rho_{k+K, alpha}  ~  rho_{k, M_K(alpha)},        K in L*_G.
 //! ```
 //!
 //! `M_K` is the **monodromy map** of a line little group. For operations

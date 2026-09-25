@@ -37,8 +37,9 @@ use cryspglib::irrep::subduction::star::decompose::subduce_line_at_parameter;
 use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R};
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::{HallNumber, SymmetryOps};
+use rayon::prelude::*;
 use std::collections::BTreeMap;
-use std::io::Write as _;
+use std::sync::Arc;
 
 /// The conjugate-parameter gap on **real** little-group tables
 /// (`t = -1/4`, `3/4`, `7/4`): rows whose trivial content differs from the
@@ -232,6 +233,7 @@ struct Row {
     /// when that record lists it. The corpus test pins a unique source partner
     /// for every frozen table, so `None` means that this record has no partner row.
     partner_pinned: Option<u32>,
+    partner: Option<&'static str>,
     /// Character-level **transport** check: `Some((equal, max deviation))` when
     /// the row decomposes at `t = 5/4`, at `t = 1/4` for its monodromy image, and
     /// the image is uniquely determined; `None` otherwise.
@@ -239,16 +241,25 @@ struct Row {
     shift_content: Option<u32>,
 }
 
-fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
-    let mut rows_out = Vec::new();
-    let mut writer = output;
-    if let Some(writer) = writer.as_mut() {
-        writeln!(
-            writer,
-            "ordinal\tparent\tchild\tlabel\treal\tpartner\tpartner_pinned\tarms\tpinned\tcritical_denominator\tc0\tc1_4\tc1_2\tc3_4\toff_grid_arms\toff_grid_content\tc_m1_4\tc3_4_conj\tc7_4\tshift_1_4"
-        )
-        .expect("write header");
-    }
+struct RowContext {
+    subgroup: IsotropySubgroup,
+    embedding: SubgroupEmbedding,
+    child: u8,
+    child_lattice: Lattice,
+    child_reciprocal: Lattice,
+    rotations: Vec<Mat3R>,
+}
+
+struct RowJob {
+    context: Arc<RowContext>,
+    table: &'static LittleCharacterTable,
+    pinned: u32,
+    partner: Option<&'static str>,
+    partner_pinned: Option<u32>,
+}
+
+fn collect_jobs() -> Vec<RowJob> {
+    let mut jobs = Vec::new();
     for sg in 1..=230u8 {
         for record in query::irreps_of(sg) {
             if record.spinor || record.subgroups().is_empty() {
@@ -280,6 +291,14 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
                     .iter()
                     .map(|operation| Mat3R::from_ints(operation.rotation))
                     .collect();
+                let context = Arc::new(RowContext {
+                    subgroup,
+                    embedding,
+                    child,
+                    child_lattice,
+                    child_reciprocal,
+                    rotations,
+                });
                 for row in &pinned_rows {
                     let Some(table) = W_LITTLE_CHARACTERS.iter().find(|table| {
                         usize::from(table.space_group) == usize::from(parent)
@@ -287,87 +306,6 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
                     }) else {
                         continue;
                     };
-                    // The arms: images of the frozen direction under the parent
-                    // rotations, deduplicated by exact equality.
-                    let direction = direction_of(table);
-                    let mut arms: Vec<Vec3R> = Vec::new();
-                    for rotation in &rotations {
-                        let action = rotation.inverse().expect("inverse").transpose();
-                        let image = action.checked_mul_vector(&direction).expect("arm");
-                        if !arms.contains(&image) {
-                            arms.push(image);
-                        }
-                    }
-                    // The exact critical set: one rational subgroup generator per
-                    // arm, from the three child lattice basis vectors.
-                    let mut critical_points: std::collections::BTreeSet<(i128, i128)> =
-                        Default::default();
-                    for arm in &arms {
-                        critical_points.extend(arm_critical_points(
-                            arm,
-                            &embedding,
-                            &child_lattice,
-                        ));
-                    }
-                    let critical_denominator = critical_points.len() as i128;
-                    // Content at the four critical parameters.
-                    let mut critical = [None; 4];
-                    for (index, (_, (numerator, denominator))) in CRITICAL.iter().enumerate() {
-                        critical[index] = content(
-                            &subgroup,
-                            &embedding,
-                            table,
-                            Rat::new(*numerator, *denominator).expect("parameter"),
-                        );
-                    }
-                    // Off-grid sample: arms folding onto the child Gamma, plus
-                    // the engine's answer on a sample of rows (the call is the
-                    // expensive part; the support statement is exact).
-                    let mut off_grid_arms = 0usize;
-                    let sampled = rows_out.len() % 25 == 0;
-                    let mut off_grid_content = None;
-                    for j in 1..24i128 {
-                        if j % 6 == 0 {
-                            continue;
-                        }
-                        let t = Rat::new(j, 24).expect("parameter");
-                        let mut hits = 0usize;
-                        for arm in &arms {
-                            let mut scaled = [Rat::ZERO; 3];
-                            for (axis, value) in scaled.iter_mut().enumerate() {
-                                *value = t.checked_mul(arm.get(axis)).expect("scaled arm");
-                            }
-                            let q = embedding
-                                .transform()
-                                .matrix()
-                                .transpose()
-                                .checked_mul_vector(&Vec3R::new(scaled))
-                                .expect("folded arm");
-                            if child_reciprocal.contains(&q).expect("gamma test") {
-                                hits += 1;
-                            }
-                        }
-                        off_grid_arms += hits;
-                        if sampled && j == 1 {
-                            off_grid_content = Some(content(&subgroup, &embedding, table, t));
-                        }
-                    }
-                    // The conjugation oracle.
-                    let mut conjugate = [None; 3];
-                    for (index, (_, (numerator, denominator))) in CONJUGATE.iter().enumerate() {
-                        conjugate[index] = content(
-                            &subgroup,
-                            &embedding,
-                            table,
-                            Rat::new(*numerator, *denominator).expect("parameter"),
-                        );
-                    }
-                    let shift_content = content(
-                        &subgroup,
-                        &embedding,
-                        table,
-                        Rat::new(5, 4).expect("parameter"),
-                    );
                     let partner = conjugate_partner(table);
                     let partner_pinned = partner.and_then(|partner| {
                         pinned_rows
@@ -375,62 +313,175 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
                             .find(|candidate| candidate.parent_ml == partner)
                             .map(|candidate| u32::from(candidate.frequency))
                     });
-                    let entry = Row {
-                        ordinal: subgroup.ordinal,
-                        parent,
-                        child,
-                        label: table.label,
-                        arms: arms.len(),
+                    jobs.push(RowJob {
+                        context: Arc::clone(&context),
+                        table,
                         pinned: u32::from(row.frequency),
-                        critical_denominator,
-                        critical,
-                        off_grid_arms,
-                        off_grid_content,
-                        conjugate,
-                        real: is_real(table),
+                        partner,
                         partner_pinned,
-                        character_transport: character_transport(&subgroup, &embedding, table),
-                        shift_content,
-                    };
-                    if let Some(writer) = writer.as_mut() {
-                        let text = |value: Option<u32>| match value {
-                            Some(value) => value.to_string(),
-                            None => "error".to_string(),
-                        };
-                        writeln!(
-                            writer,
-                            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-                            entry.ordinal,
-                            entry.parent,
-                            entry.child,
-                            entry.label,
-                            entry.real,
-                            partner.unwrap_or("-"),
-                            entry.partner_pinned.map_or_else(|| "-".to_string(), |value| value.to_string()),
-                            entry.arms,
-                            entry.pinned,
-                            entry.critical_denominator,
-                            text(entry.critical[0]),
-                            text(entry.critical[1]),
-                            text(entry.critical[2]),
-                            text(entry.critical[3]),
-                            entry.off_grid_arms,
-                            entry
-                                .off_grid_content
-                                .map_or_else(|| "-".to_string(), text),
-                            text(entry.conjugate[0]),
-                            text(entry.conjugate[1]),
-                            text(entry.conjugate[2]),
-                            text(entry.shift_content),
-                        )
-                        .expect("write row");
-                    }
-                    rows_out.push(entry);
+                    });
                 }
             }
         }
     }
-    rows_out
+    jobs
+}
+
+fn compute_row(job: &RowJob, index: usize) -> Row {
+    let context = &job.context;
+    let subgroup = &context.subgroup;
+    let embedding = &context.embedding;
+    let table = job.table;
+    // The arms: images of the frozen direction under the parent rotations,
+    // deduplicated by exact equality.
+    let direction = direction_of(table);
+    let mut arms: Vec<Vec3R> = Vec::new();
+    for rotation in &context.rotations {
+        let action = rotation.inverse().expect("inverse").transpose();
+        let image = action.checked_mul_vector(&direction).expect("arm");
+        if !arms.contains(&image) {
+            arms.push(image);
+        }
+    }
+    // The exact critical set: one rational subgroup generator per arm, from
+    // the three child lattice basis vectors.
+    let mut critical_points: std::collections::BTreeSet<(i128, i128)> = Default::default();
+    for arm in &arms {
+        critical_points.extend(arm_critical_points(arm, embedding, &context.child_lattice));
+    }
+    let critical_denominator = critical_points.len() as i128;
+    // Content at the four critical parameters.
+    let mut critical = [None; 4];
+    for (parameter_index, (_, (numerator, denominator))) in CRITICAL.iter().enumerate() {
+        critical[parameter_index] = content(
+            subgroup,
+            embedding,
+            table,
+            Rat::new(*numerator, *denominator).expect("parameter"),
+        );
+    }
+    // Off-grid sample: arms folding onto the child Gamma, plus the engine's
+    // answer on one in every 25 rows. The row index is assigned before workers
+    // start, so the sampling pattern remains deterministic under parallelism.
+    let mut off_grid_arms = 0usize;
+    let sampled = index.is_multiple_of(25);
+    let mut off_grid_content = None;
+    for j in 1..24i128 {
+        if j % 6 == 0 {
+            continue;
+        }
+        let t = Rat::new(j, 24).expect("parameter");
+        let mut hits = 0usize;
+        for arm in &arms {
+            let mut scaled = [Rat::ZERO; 3];
+            for (axis, value) in scaled.iter_mut().enumerate() {
+                *value = t.checked_mul(arm.get(axis)).expect("scaled arm");
+            }
+            let q = embedding
+                .transform()
+                .matrix()
+                .transpose()
+                .checked_mul_vector(&Vec3R::new(scaled))
+                .expect("folded arm");
+            if context.child_reciprocal.contains(&q).expect("gamma test") {
+                hits += 1;
+            }
+        }
+        off_grid_arms += hits;
+        if sampled && j == 1 {
+            off_grid_content = Some(content(subgroup, embedding, table, t));
+        }
+    }
+    // The conjugation oracle.
+    let mut conjugate = [None; 3];
+    for (parameter_index, (_, (numerator, denominator))) in CONJUGATE.iter().enumerate() {
+        conjugate[parameter_index] = content(
+            subgroup,
+            embedding,
+            table,
+            Rat::new(*numerator, *denominator).expect("parameter"),
+        );
+    }
+    let shift_content = content(
+        subgroup,
+        embedding,
+        table,
+        Rat::new(5, 4).expect("parameter"),
+    );
+    Row {
+        ordinal: subgroup.ordinal,
+        parent: subgroup.parent_sg,
+        child: context.child,
+        label: table.label,
+        arms: arms.len(),
+        pinned: job.pinned,
+        critical_denominator,
+        critical,
+        off_grid_arms,
+        off_grid_content,
+        conjugate,
+        real: is_real(table),
+        partner_pinned: job.partner_pinned,
+        partner: job.partner,
+        character_transport: character_transport(subgroup, embedding, table),
+        shift_content,
+    }
+}
+
+fn write_rows(writer: &mut dyn std::io::Write, rows: &[Row]) {
+    writeln!(
+        writer,
+        "ordinal\tparent\tchild\tlabel\treal\tpartner\tpartner_pinned\tarms\tpinned\tcritical_denominator\tc0\tc1_4\tc1_2\tc3_4\toff_grid_arms\toff_grid_content\tc_m1_4\tc3_4_conj\tc7_4\tshift_1_4"
+    )
+    .expect("write header");
+    let text = |value: Option<u32>| match value {
+        Some(value) => value.to_string(),
+        None => "error".to_string(),
+    };
+    for entry in rows {
+        writeln!(
+            writer,
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            entry.ordinal,
+            entry.parent,
+            entry.child,
+            entry.label,
+            entry.real,
+            entry.partner.unwrap_or("-"),
+            entry
+                .partner_pinned
+                .map_or_else(|| "-".to_string(), |value| value.to_string()),
+            entry.arms,
+            entry.pinned,
+            entry.critical_denominator,
+            text(entry.critical[0]),
+            text(entry.critical[1]),
+            text(entry.critical[2]),
+            text(entry.critical[3]),
+            entry.off_grid_arms,
+            entry.off_grid_content.map_or_else(|| "-".to_string(), text),
+            text(entry.conjugate[0]),
+            text(entry.conjugate[1]),
+            text(entry.conjugate[2]),
+            text(entry.shift_content),
+        )
+        .expect("write row");
+    }
+}
+
+fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
+    let jobs = collect_jobs();
+    // Vec's indexed parallel iterator preserves input order on collect. Rows
+    // are emitted below serially, so reports stay byte-for-byte deterministic.
+    let rows = jobs
+        .par_iter()
+        .enumerate()
+        .map(|(index, job)| compute_row(job, index))
+        .collect::<Vec<_>>();
+    if let Some(writer) = output {
+        write_rows(writer, &rows);
+    }
+    rows
 }
 
 fn content(

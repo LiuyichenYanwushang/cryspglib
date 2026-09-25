@@ -27,6 +27,7 @@ use cryspglib::irrep::subduction::{
     ExactSeitz, Lattice, Mat3R, Rat, SubductionError, SubgroupEmbedding, Vec3R,
 };
 use cryspglib::irrep::{LabelConvention, isotropy, query};
+use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// One step of a source's own line: `k(t + 1) = k(t) + v`.
@@ -618,6 +619,49 @@ fn pinned_rows() -> Vec<(
     out
 }
 
+#[derive(Clone, Copy)]
+struct FrozenLineTransport {
+    primitive_parameter_steps: usize,
+    primitive_image:
+        Option<&'static cryspglib::irrep::w_little_characters_data::LittleCharacterTable>,
+    full_step_image:
+        Option<&'static cryspglib::irrep::w_little_characters_data::LittleCharacterTable>,
+}
+
+/// Precompute source-level shifts and label images once, rather than repeating
+/// them for every isotropy row carrying the same parent line source.
+fn frozen_line_transports() -> BTreeMap<(u8, &'static str), FrozenLineTransport> {
+    let mut transports = BTreeMap::new();
+    for parent in line_parents() {
+        for source in line_sources(parent) {
+            let (primitive_shift, primitive_parameter_steps) = primitive_reciprocal_step(source);
+            let primitive_map = checked_monodromy(parent, &primitive_shift);
+            let primitive_image = primitive_map
+                .unique_image(source.label)
+                .and_then(|label| line_table(parent, label));
+            let full_map = checked_monodromy(parent, &one_step(source));
+            let full_step_image = full_map
+                .unique_image(source.label)
+                .and_then(|label| line_table(parent, label));
+            assert!(
+                transports
+                    .insert(
+                        (parent, source.label),
+                        FrozenLineTransport {
+                            primitive_parameter_steps,
+                            primitive_image,
+                            full_step_image,
+                        },
+                    )
+                    .is_none(),
+                "SG {parent} {} appears twice in the frozen source list",
+                source.label
+            );
+        }
+    }
+    transports
+}
+
 /// The trivial content of the pinned table, as a map from row label to the set
 /// of frequencies the pinned rows carry for this subgroup.
 fn pinned_frequencies(subgroup: &isotropy::IsotropySubgroup) -> BTreeMap<&'static str, u16> {
@@ -641,19 +685,19 @@ fn pinned_frequencies(subgroup: &isotropy::IsotropySubgroup) -> BTreeMap<&'stati
 fn the_pinned_frequencies_are_constant_on_monodromy_orbits() {
     let mut checked = 0usize;
     let mut moved_pairs: BTreeSet<(&'static str, &'static str)> = BTreeSet::new();
+    let transports = frozen_line_transports();
     for (subgroup, row) in pinned_rows() {
-        let Some(table) = line_table(subgroup.parent_sg, row.parent_ml) else {
+        let Some(image_table) = transports
+            .get(&(subgroup.parent_sg, row.parent_ml))
+            .and_then(|source| source.full_step_image)
+        else {
             continue;
         };
-        let map = checked_monodromy(subgroup.parent_sg, &one_step(table));
-        let Some(image) = map.unique_image(row.parent_ml) else {
-            continue;
-        };
-        if image == row.parent_ml {
+        if image_table.label == row.parent_ml {
             continue;
         }
         let frequencies = pinned_frequencies(&subgroup);
-        let Some(other) = frequencies.get(image) else {
+        let Some(other) = frequencies.get(image_table.label) else {
             // The subgroup's row list does not carry the image: the transport
             // claim is about the parent's frozen table, not about this row list,
             // so there is nothing to compare here.
@@ -662,10 +706,10 @@ fn the_pinned_frequencies_are_constant_on_monodromy_orbits() {
         assert_eq!(
             other, &row.frequency,
             "ordinal {} {} and its monodromy image {} must carry the same pinned frequency",
-            subgroup.ordinal, row.parent_ml, image
+            subgroup.ordinal, row.parent_ml, image_table.label
         );
         checked += 1;
-        moved_pairs.insert((row.parent_ml, image));
+        moved_pairs.insert((row.parent_ml, image_table.label));
     }
     assert_eq!(
         checked, 816,
@@ -720,64 +764,63 @@ fn key(result: &LineSubduction) -> Vec<String> {
 #[test]
 fn the_engine_transports_every_primitive_line_reciprocal_step() {
     let official = official_line_parameter().expect("the official parameter is valid");
-    let mut checked = 0usize;
-    let mut moved = 0usize;
-    let mut undetermined = 0usize;
     let rows = pinned_rows();
     assert_eq!(rows.len(), 5_756, "the pinned line corpus has 5,756 rows");
-    for (subgroup, row) in rows {
-        let Some(table) = line_table(subgroup.parent_sg, row.parent_ml) else {
-            undetermined += 1;
-            continue;
-        };
-        let (shift, parameter_steps) = primitive_reciprocal_step(table);
-        let parameter = official
-            .checked_add(Rat::new(1, parameter_steps as i128).expect("positive step index"))
-            .expect("shifted parameter");
-        let map = checked_monodromy(subgroup.parent_sg, &shift);
-        let Some(image) = map.unique_image(row.parent_ml) else {
-            undetermined += 1;
-            continue;
-        };
-        let Some(image_table) = line_table(subgroup.parent_sg, image) else {
-            undetermined += 1;
-            continue;
-        };
-        let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(&subgroup) else {
-            undetermined += 1;
-            continue;
-        };
-        // The transported query uses the same frozen table at the first
-        // reciprocal-equivalent parameter. Its character twist must equal the
-        // monodromy image at the official parameter.
-        let transported = subduce_line_at_parameter(&subgroup, &embedding, table, parameter)
+    let transports = frozen_line_transports();
+    let outcomes = rows
+        .par_iter()
+        .map(|(subgroup, row)| {
+            let source = transports.get(&(subgroup.parent_sg, row.parent_ml))?;
+            let image_table = source.primitive_image?;
+            let parameter = official
+                .checked_add(
+                    Rat::new(1, source.primitive_parameter_steps as i128)
+                        .expect("positive step index"),
+                )
+                .expect("shifted parameter");
+            let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(subgroup) else {
+                return None;
+            };
+            // The transported query uses the same frozen table at the first
+            // reciprocal-equivalent parameter. Its character twist must equal
+            // the monodromy image at the official parameter.
+            let transported = subduce_line_at_parameter(
+                subgroup,
+                &embedding,
+                line_table(subgroup.parent_sg, row.parent_ml).expect("frozen source exists"),
+                parameter,
+            )
             .unwrap_or_else(|error| {
                 panic!(
                     "ordinal {} {} at t={parameter}: {error}",
                     subgroup.ordinal, row.parent_ml,
                 )
             });
-        let reference = subduce_line_at_parameter(&subgroup, &embedding, image_table, official)
-            .unwrap_or_else(|error| {
-                panic!(
-                    "ordinal {} {} (monodromy image of {}) at t=1/4: {error}",
-                    subgroup.ordinal, image, row.parent_ml
-                )
-            });
-        assert_eq!(
-            key(&transported),
-            key(&reference),
-            "ordinal {} {}: the decomposition at t={parameter} must equal the one of its \
-             monodromy image {} at t=1/4",
-            subgroup.ordinal,
-            row.parent_ml,
-            image
-        );
-        checked += 1;
-        if image != row.parent_ml {
-            moved += 1;
-        }
-    }
+            let reference = subduce_line_at_parameter(subgroup, &embedding, image_table, official)
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "ordinal {} {} (monodromy image of {}) at t=1/4: {error}",
+                        subgroup.ordinal, image_table.label, row.parent_ml
+                    )
+                });
+            assert_eq!(
+                key(&transported),
+                key(&reference),
+                "ordinal {} {}: the decomposition at t={parameter} must equal the one of its \
+                 monodromy image {} at t=1/4",
+                subgroup.ordinal,
+                row.parent_ml,
+                image_table.label
+            );
+            Some(image_table.label != row.parent_ml)
+        })
+        .collect::<Vec<_>>();
+    let checked = outcomes.iter().filter(|outcome| outcome.is_some()).count();
+    let moved = outcomes
+        .iter()
+        .filter(|outcome| **outcome == Some(true))
+        .count();
+    let undetermined = outcomes.len() - checked;
     assert_eq!(checked, 5_756, "every pinned row must be compared");
     assert_eq!(
         undetermined, 0,
@@ -802,36 +845,25 @@ fn the_engine_transports_every_primitive_line_reciprocal_step() {
 #[test]
 fn a_parameter_step_is_not_the_identity_on_a_nontrivial_monodromy() {
     let shifted = stepped(1);
-    let mut witnesses: Vec<(usize, &'static str)> = Vec::new();
-    for (subgroup, row) in pinned_rows() {
-        let Some(table) = line_table(subgroup.parent_sg, row.parent_ml) else {
-            continue;
-        };
-        let map = checked_monodromy(subgroup.parent_sg, &one_step(table));
-        let Some(image) = map.unique_image(row.parent_ml) else {
-            continue;
-        };
-        if image == row.parent_ml {
-            continue;
-        }
-        let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(&subgroup) else {
-            continue;
-        };
-        let (Ok(reference), Ok(same_label)) = (
-            subduce_line_at_parameter(
-                &subgroup,
-                &embedding,
-                table,
-                official_line_parameter().expect("official"),
-            ),
-            subduce_line_at_parameter(&subgroup, &embedding, table, shifted),
-        ) else {
-            continue;
-        };
-        if key(&same_label) != key(&reference) {
-            witnesses.push((subgroup.ordinal, row.parent_ml));
-        }
-    }
+    let transports = frozen_line_transports();
+    let official = official_line_parameter().expect("official");
+    let witnesses = pinned_rows()
+        .par_iter()
+        .filter_map(|(subgroup, row)| {
+            let source = transports.get(&(subgroup.parent_sg, row.parent_ml))?;
+            let image_table = source.full_step_image?;
+            if image_table.label == row.parent_ml {
+                return None;
+            }
+            let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).ok()?;
+            let source_table = line_table(subgroup.parent_sg, row.parent_ml)?;
+            let reference =
+                subduce_line_at_parameter(subgroup, &embedding, source_table, official).ok()?;
+            let same_label =
+                subduce_line_at_parameter(subgroup, &embedding, source_table, shifted).ok()?;
+            (key(&same_label) != key(&reference)).then_some((subgroup.ordinal, row.parent_ml))
+        })
+        .collect::<Vec<_>>();
     assert_eq!(witnesses.len(), 40, "pin every same-label counterexample");
     println!(
         "same-label shift witnesses: {} ({:?})",

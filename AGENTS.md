@@ -91,9 +91,13 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    结果一致，389,151 行 / 59,770,080 字节 TSV `cmp` 逐字节相同（SHA-256
    `3df39d03b5518df950e9d2dd14195a03784a3bf0ab293b833ceae2f28f601406`）。
    `--progress N` 仍按已完成记录报告；child 缓存跨 worker 共享。无法确定 monodromy
-   image 的行现在按硬失败处理，并以逐行发射计数检查 w-row 报告不丢行。剩余热点是
-   `line_family_coverage --gate`（实测 112.0 s）和 `line_monodromy` 集成测试（实测 26.3 s），
-   后续如需继续缩短全量验证再单独评估并行化。
+   image 的行现在按硬失败处理，并以逐行发射计数检查 w-row 报告不丢行。`line_family_coverage`
+   已按行并行计算、按原顺序单线程写 TSV；同一构建实测 1 线程 123.08 s、8 线程
+   19.29 s，`--gate` 两次通过，输出逐字节相同（SHA-256
+   `9683ddef83b367fbc33b730412ac06d1e3d7483352f3d61e0ad00c5895e807fc`）。它的 2 项 example
+   测试通过。`line_monodromy` 集成测试现在按源预计算倒格步与 monodromy 像，再并行比较
+   每条独立记录；8 线程实测 11/11 通过、测试时长 4.67 s（旧实测 26.3 s）。严格
+   all-target clippy 通过。其他测试是否并行化，待新的全量 profile 显示明确热点后再决定。
 4. **✅ `t=0/1/2` 形式值的 API 语义**（= §2 A）：`LineSubduction::parameter_kind()`
    以 `t·(a-v) ∈ L*_parent` 的精确判定标记增强小群点的形式诱导；永久测试覆盖 `t=0,1/2`
    与非退化对照值。完整表 gate 未累计类型标签；类型标记不填补目标字符缺失，也不声称有外部 oracle。
@@ -3790,7 +3794,7 @@ API 测试（不动引擎）→ 用 monodromy 映射重写 `w_parameter_shift` �
   73 个方向 `(0,2,0)`/`(2,2,0)` 都是母群倒格矢。所以 `t → t + n` 乘上
   reciprocal-shift twist `Φ_{nv}(R) = exp(2πi n v·T_R)`，它在线小群上是**真一维
   特征标**，把标签送到 `M_{nv}(α)`：
-  `(k + K, M_K(α)) ~ (k, α)`、`decompose(α, t+n) == decompose(M_{nv}(α), t)`。
+  `(k + K, α) ~ (k, M_K(α))`、`decompose(α, t+n) == decompose(M_{nv}(α), t)`。
   引擎必须用**原始** `k(t) = t·v`；R6.1 的 `canonical_wave_vector`（把 `k` 约化进
   母群基本胞、保留标签）等于**换一条带来算**，已删除（含 `parent_reciprocal`
   死函数）。
