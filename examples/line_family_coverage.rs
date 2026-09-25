@@ -28,7 +28,7 @@
 //! line_family_coverage                 # summary
 //! line_family_coverage --gate          # exit 1 unless the documented numbers reproduce
 //! line_family_coverage --output out.tsv  # per-row evidence table
-//! line_family_coverage --projective-sample-sweep  # all rows at five exact rational samples
+//! line_family_coverage --projective-sample-sweep  # all rows at 42 exact rational samples
 //! line_family_coverage --projective-sample-sweep --gate  # run both gates
 //! ```
 use cryspglib::irrep::LabelConvention;
@@ -488,24 +488,65 @@ fn collect(output: Option<&mut dyn std::io::Write>) -> Vec<Row> {
     rows
 }
 
-/// Five rational points that previously exposed the sampled D4 target gap.
-const PROJECTIVE_SAMPLE_PARAMETERS: [(&str, i128, i128); 5] = [
-    ("1/7", 1, 7),
-    ("1/6", 1, 6),
+/// All reduced, off-quarter-grid rational points in `(0, 1)` with denominator 3–12.
+const PROJECTIVE_SAMPLE_PARAMETERS: [(&str, i128, i128); 42] = [
     ("1/3", 1, 3),
+    ("2/3", 2, 3),
+    ("1/5", 1, 5),
+    ("2/5", 2, 5),
+    ("3/5", 3, 5),
+    ("4/5", 4, 5),
+    ("1/6", 1, 6),
+    ("5/6", 5, 6),
+    ("1/7", 1, 7),
     ("2/7", 2, 7),
+    ("3/7", 3, 7),
+    ("4/7", 4, 7),
+    ("5/7", 5, 7),
+    ("6/7", 6, 7),
+    ("1/8", 1, 8),
     ("3/8", 3, 8),
+    ("5/8", 5, 8),
+    ("7/8", 7, 8),
+    ("1/9", 1, 9),
+    ("2/9", 2, 9),
+    ("4/9", 4, 9),
+    ("5/9", 5, 9),
+    ("7/9", 7, 9),
+    ("8/9", 8, 9),
+    ("1/10", 1, 10),
+    ("3/10", 3, 10),
+    ("7/10", 7, 10),
+    ("9/10", 9, 10),
+    ("1/11", 1, 11),
+    ("2/11", 2, 11),
+    ("3/11", 3, 11),
+    ("4/11", 4, 11),
+    ("5/11", 5, 11),
+    ("6/11", 6, 11),
+    ("7/11", 7, 11),
+    ("8/11", 8, 11),
+    ("9/11", 9, 11),
+    ("10/11", 10, 11),
+    ("1/12", 1, 12),
+    ("5/12", 5, 12),
+    ("7/12", 7, 12),
+    ("11/12", 11, 12),
 ];
 
-/// Sweep every pinned line row at the five rational samples that previously
-/// failed on the D4 family. Every result must also have zero trivial content:
-/// these sample parameters lie outside the corpus' exact critical set `(1/4)Z`.
-/// This is a finite sample gate, not a claim about all rational parameters.
-fn projective_sample_sweep() -> bool {
+/// Sweep every pinned line row at the provided reduced rational samples, all
+/// outside the corpus' exact critical set `(1/4)Z`. Every result must also have
+/// zero trivial content. This is a finite sample gate, not a claim about all
+/// rational parameters.
+fn projective_sample_sweep(parameters: &[(&str, i128, i128)]) -> bool {
     let jobs = collect_jobs();
     let mut complete = jobs.len() == 5756;
-    println!("projective sample sweep: rows={}", jobs.len());
-    for (label, numerator, denominator) in PROJECTIVE_SAMPLE_PARAMETERS {
+    println!(
+        "projective sample sweep: rows={} parameters={}",
+        jobs.len(),
+        parameters.len()
+    );
+    for &(label, numerator, denominator) in parameters {
         let parameter = Rat::new(numerator, denominator).expect("sample parameter");
         let failures = jobs
             .par_iter()
@@ -516,20 +557,25 @@ fn projective_sample_sweep() -> bool {
                     job.table,
                     parameter,
                 );
-                let (missing, content_mismatch, detail) = match result {
-                    Err(error) => (
-                        matches!(error, FullStarError::MissingChildStarData { .. }),
-                        false,
-                        error.to_string(),
-                    ),
+                let (missing, other_error, content_mismatch, detail) = match result {
+                    Err(error) => {
+                        let missing = matches!(error, FullStarError::MissingChildStarData { .. });
+                        (missing, !missing, false, error.to_string())
+                    }
                     Ok(result) => match result.trivial_content() {
                         Ok(0) => return None,
                         Ok(value) => (
                             false,
+                            false,
                             true,
                             format!("unexpected trivial content {value}"),
                         ),
-                        Err(error) => (false, true, format!("trivial-content check failed: {error}")),
+                        Err(error) => (
+                            false,
+                            true,
+                            false,
+                            format!("trivial-content check failed: {error}"),
+                        ),
                     },
                 };
                 Some((
@@ -537,14 +583,15 @@ fn projective_sample_sweep() -> bool {
                     job.table.label,
                     job.context.child,
                     missing,
+                    other_error,
                     content_mismatch,
                     detail,
                 ))
             })
             .collect::<Vec<_>>();
         let missing = failures.iter().filter(|failure| failure.3).count();
-        let content_mismatches = failures.iter().filter(|failure| failure.4).count();
-        let other = failures.len() - missing;
+        let other = failures.iter().filter(|failure| failure.4).count();
+        let content_mismatches = failures.iter().filter(|failure| failure.5).count();
         println!(
             "t={label}: full={}/{}, missing={}, other_errors={}, content_mismatches={}",
             jobs.len() - failures.len(),
@@ -553,13 +600,16 @@ fn projective_sample_sweep() -> bool {
             other,
             content_mismatches
         );
-        for (ordinal, source, child, _, _, detail) in failures.iter().take(5) {
+        for (ordinal, source, child, _, _, _, detail) in failures.iter().take(5) {
             println!("  ordinal={ordinal} source={source} child=#{child}: {detail}");
         }
         complete &= failures.is_empty();
     }
     if complete {
-        println!("projective sample sweep gate: ok (five sampled parameters only)");
+        println!(
+            "projective sample sweep gate: ok ({} selected parameters only)",
+            parameters.len()
+        );
         true
     } else {
         println!("projective sample sweep gate: FAILED");
@@ -683,7 +733,7 @@ fn main() -> std::process::ExitCode {
         }
     }
     let sample_gate_ok = if run_projective_sample_sweep {
-        projective_sample_sweep()
+        projective_sample_sweep(&PROJECTIVE_SAMPLE_PARAMETERS)
     } else {
         true
     };
@@ -867,6 +917,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn projective_sample_list_is_exactly_the_off_quarter_rationals_through_denominator_twelve() {
+        let critical = [
+            Rat::new(1, 4).unwrap(),
+            Rat::new(1, 2).unwrap(),
+            Rat::new(3, 4).unwrap(),
+        ];
+        let actual: Vec<Rat> = PROJECTIVE_SAMPLE_PARAMETERS
+            .iter()
+            .map(|(label, numerator, denominator)| {
+                let parameter = Rat::new(*numerator, *denominator).unwrap();
+                assert_eq!(
+                    *label,
+                    format!("{}/{}", parameter.numerator(), parameter.denominator()),
+                    "sample labels must use reduced fractions"
+                );
+                parameter
+            })
+            .collect();
+        let mut expected = Vec::new();
+        for denominator in 3..=12 {
+            for numerator in 1..denominator {
+                if gcd(numerator, denominator) != 1 {
+                    continue;
+                }
+                let parameter = Rat::new(numerator, denominator).unwrap();
+                if !critical.contains(&parameter) {
+                    expected.push(parameter);
+                }
+            }
+        }
+        assert_eq!(expected.len(), 42);
+        assert_eq!(actual.len(), expected.len());
+        let actual_set = actual.iter().copied().collect::<std::collections::HashSet<_>>();
+        let expected_set = expected.into_iter().collect::<std::collections::HashSet<_>>();
+        assert_eq!(actual_set.len(), actual.len(), "sample values must be unique");
+        assert_eq!(actual_set, expected_set);
+    }
+
+    #[test]
     fn every_frozen_source_has_one_exact_conjugate_partner() {
         for source in W_LITTLE_CHARACTERS {
             assert!(
@@ -876,11 +965,6 @@ mod tests {
                 source.label
             );
         }
-    }
-
-    #[test]
-    fn every_line_row_decomposes_with_zero_trivial_content_at_the_five_gap_samples() {
-        assert!(projective_sample_sweep());
     }
 
     /// The whole corpus: the exact critical set is the quarter grid, the pinned

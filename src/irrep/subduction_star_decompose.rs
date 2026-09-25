@@ -4467,19 +4467,25 @@ mod tests {
     fn sampled_d4_gap_witnesses_decompose_with_the_constructed_two_dimensional_target() {
         let contexts = subgroups();
         let nonzero_cocycle_q = [Rat::ZERO, Rat::ZERO, Rat::new(5, 7).unwrap()];
-        let parameters = [
-            ("1/7", Rat::new(1, 7).unwrap()),
-            ("1/6", Rat::new(1, 6).unwrap()),
-            ("1/3", Rat::new(1, 3).unwrap()),
-            ("2/7", Rat::new(2, 7).unwrap()),
-            ("3/8", Rat::new(3, 8).unwrap()),
-        ];
+        let mut parameters = Vec::new();
+        for denominator in 3..=12 {
+            for numerator in 1..denominator {
+                let parameter = Rat::new(numerator, denominator).unwrap();
+                if parameter.denominator() != denominator || (4 * numerator) % denominator == 0 {
+                    continue;
+                }
+                parameters.push(parameter);
+            }
+        }
+        assert_eq!(parameters.len(), 42);
+        let q_one_seventh = Rat::new(1, 7).unwrap();
         let witnesses = [
             (13543usize, 225u8, 136u8, "DT5", Some(nonzero_cocycle_q)),
             (14106, 226, 137, "DT5", Some(nonzero_cocycle_q)),
             (13691, 225, 127, "DT5", None),
         ];
-        for (parameter_label, parameter) in parameters {
+        for parameter in parameters {
+            let parameter_label = format!("{}/{}", parameter.numerator(), parameter.denominator());
             for (ordinal, parent, child, label, expected_q) in witnesses {
                 let subgroup = contexts
                     .values()
@@ -4514,7 +4520,7 @@ mod tests {
                             "ordinal {ordinal} at t={parameter_label}: missing constructed D4 2D target"
                         )
                     });
-                if parameter_label == "1/7" && let Some(expected_q) = expected_q {
+                if parameter == q_one_seventh && let Some(expected_q) = expected_q {
                     assert!(
                         matches!(dimension_two.component, SubductionComponent::Constructed { q, .. } if q == expected_q),
                         "ordinal {ordinal}: expected the D4 target at {expected_q:?}, got {:?}",

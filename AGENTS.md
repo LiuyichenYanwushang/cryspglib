@@ -55,11 +55,13 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   与 `1/6,1/3` 为 LineIrrep。部分记录在 `t=1/2` 仍因缺少子群目标字符而显式失败；无
   oracle 的边界不变。当前完整表 gate 尚未汇总所有行的 `ParameterKind` 分布；永久类型断言
   是上述 SG 196 见证。
-* **B. 五个一般参数采样点已闭合；其余参数域仍非全覆盖**：阶 8、coboundary D4/C4v
-  的二维标准表示已构造。新增全表采样 gate 对 `t=1/7,1/6,1/3,2/7,3/8` 各计算
-  **5,756/5,756** 完整分解，`missing=0, other_errors=0, content_mismatches=0`；此前
-  54/30 条缺口全属这一族。
-  这只是五点采样，不证明任意 rational `t` 都可分解。旧的 `MAX_GRID` 分母悬崖已移除：
+* **B. 分母 3–12 的全部非临界小分母样本已闭合；任意分母仍非全覆盖**：阶 8、coboundary
+  D4/C4v 的二维标准表示已构造。扩展全表采样 gate 对所有约分后分母 `3..12` 且
+  `t ∉ (1/4)Z` 的 42 个参数各计算 **5,756/5,756** 完整分解，
+  `missing=0, other_errors=0, content_mismatches=0`；此前 54/30 条缺口全属这一族。永久
+  D4 端到端测试让三个见证在 42 点都命中构造二维目标。42 点全表扫描是显式 CLI gate，
+  不放进默认 example 测试以控制运行时。
+  这是有限采样，不证明任意 rational `t` 都可分解。旧的 `MAX_GRID` 分母悬崖已移除：
   一维投影字符按生成元阶枚举有限根，不随 cocycle 分母增长；永久回归还证明 ordinal
   10030 `DT1` 在 `t=1/1000000` 完整分解成功。当前边界是 solver `MAX_ORDER=8`、高维表只
   覆盖已证明的 C2×C2、D3、D4+coboundary 族；非 coboundary D4 与更高阶/其它小群仍显式
@@ -163,6 +165,15 @@ examples 40 项、严格 all-target clippy、`line_family_coverage --gate` 与
 366,260/366,260 完整分解、`identity_only=0`、`hard_failures=0`、exit 0。此结果只说明五个
 样本点的一般参数覆盖，不代表任意 rational `t` 全覆盖。
 
+### 7. 2026-09-26：扩展到分母 3–12 的 42 个非临界参数
+
+`line_family_coverage --projective-sample-sweep` 现扫描 `0<t<1` 中所有约分后分母为
+3–12、且不属于 `(1/4)Z` 的 42 个有理点；5,756 行在每一点均完整分解，
+`missing=0`、`other_errors=0`、`content_mismatches=0`。常驻 D4 端到端测试在全部 42 点验证
+三条见证记录具有构造二维目标、零恒等重数与逐操作重建；全表扩展扫描保留为显式 CLI gate，
+不增加默认 example 测试的分钟级耗时。该批仍是有限样本，后续需推导任意分母下 little
+co-group 的精确支持域。
+
 ---
 
 ## Rust 风格化改造账本（2026-08-15 起）
@@ -218,6 +229,16 @@ python3 scripts/check_other_wave_vector_rows.py
 
 `--tests` 不运行 example 内的回归；上面的 audit、census、probe 三个 example
 必须单独执行，不能只以 library/integration 测试通过代替门禁退出码与逐星清点验证。
+
+R6 扩展参数域门禁（5,756 行 × 42 个参数，扫描约 1–2 分钟，编译时间另计）不放入每次改动的快速基线；
+修改参数化分导、projective catalogue 或折叠逻辑时，以及更新本文件的 42 点覆盖声明前，
+必须显式运行：
+
+```bash
+CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
+  cargo run --release -p cryspglib --example line_family_coverage -- \
+  --projective-sample-sweep --gate
+```
 
 当前基线（2026-09-23，R5 收口 + 复核处理 + R6.1 复核修正 + R6.2 参数族覆盖后，`-p cryspglib` 限定到本 crate）：
 lib `409 passed / 4 ignored`，全部测试二进制（`--tests`，22 个）`570 passed / 0 failed /

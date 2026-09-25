@@ -12,7 +12,7 @@
 CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
   --example line_family_coverage -- --gate --output target/r6_family.tsv
 CARGO_TARGET_DIR=$PWD/target cargo run --release -p cryspglib \
-  --example line_family_coverage -- --projective-sample-sweep
+  --example line_family_coverage -- --projective-sample-sweep --gate
 CARGO_TARGET_DIR=$PWD/target cargo test --release -p cryspglib --example line_family_coverage
 ```
 
@@ -113,12 +113,12 @@ decompose(α, t + Δ) == decompose(M_{Δv}(α), t)     （逐块逐目标）
 
 * 每行的四个网格值 `(content(0), content(1/4), content(1/2), content(3/4))` 直方图
   由 example 打印；`content(1/4)` 分量永远等于 pinned（E1）。
-* **D4 gap batch**：先前五个参数点的 54/30 个失败行都落在阶 8 的 D4 little co-group，
-  projective cocycle 是 coboundary，完整表为四个 gauge-twisted 一维行加一个 gauge-twisted
-  标准二维行。`--projective-sample-sweep` 对 5,756 行逐一计算 `t=1/7,1/6,1/3,2/7,3/8`；
-  五个参数均 `full=5756/5756, missing=0, other_errors=0`，且恒等重数为零。example 测试
-  `every_line_row_decomposes_with_zero_trivial_content_at_the_five_gap_samples` 常驻执行同一
-  扫描。这是五点抽样闭合，不是对全部 rational 参数的覆盖证明。
+* **D4 gap batch 与小分母扫描**：先前五个参数点的 54/30 个失败行都落在阶 8 的 D4 little
+  co-group，projective cocycle 是 coboundary，完整表为四个 gauge-twisted 一维行加一个
+  gauge-twisted 标准二维行。`--projective-sample-sweep` 对 5,756 行逐一扫描所有约分后
+  分母 `3..12` 且不在 `(1/4)Z` 的 **42 个**有理参数；每点均 `full=5756/5756, missing=0,
+  other_errors=0, content_mismatches=0`。常驻 D4 端到端测试对三条见证在全部 42 点逐一命中
+  构造二维目标并通过重建。这是有限样本闭合，不是对全部 rational 参数的覆盖证明。
 * **高分母一维字符搜索已修**：原 `MAX_GRID`/`MAX_WORK` 网格搜索会让工作量随 cocycle
   分母平方增长。现在由生成元阶导出有限根并逐式校验，合成分母 512 的 C2×C2
   coboundary 返回完整四解；ordinal 10030 `DT1`（child #18，`|P_q|=2`）在
@@ -128,8 +128,9 @@ decompose(α, t + Δ) == decompose(M_{Δv}(α), t)     （逐块逐目标）
   `MissingChildStarData`，不会返回部分结果。
 * 性能：`t = 1/4` 走存储路径，全表 5,756 行约 11–14 s；一般参数（尤其大分母、
   非平凡小余群）单次调用可到 p99 ≈ 40 s、最大 53.6 s（reviewer C 实测，
-  446 行 × `t = 1/97` 合计约 724 s）。因此本报告的**全表**逐行计算只覆盖网格点与
-  廉价的支持集判定，一般参数的引擎答案按抽样复核（`1/25` 行）。
+  446 行 × `t = 1/97` 合计约 724 s）。因此本报告的**全表**逐行计算覆盖网格点、分母
+  `3..12` 的 42 个非临界小分母参数，以及廉价的支持集判定；这些参数之外（特别是较大
+  分母）的一般参数引擎答案仍按抽样复核（旧的大分母样本为 `1/25` 行）。
 
 ## 3. 每行/每参数的分档（能力 B 的交付形式）
 
@@ -184,8 +185,8 @@ pinned 的完整分解（标签按 monodromy 位移）"。**已验证域**仍为
    `line_transport_ledger 14453 SM1`（单行完整账本）。
 2. **目标表示族边界**：一维 solver 的 `MAX_ORDER=8` 与当前三类高维投影表示构造器
    （§2）；高分母本身不再触发网格搜索拒绝。
-3. **性能长尾**：一般参数单次调用最坏分钟级（§2），全表 × 多参数的逐点审计不可行，
-   这是把一般参数改为"支持集判定 + 抽样佐证"的原因。
+3. **性能长尾**：一般参数单次调用最坏分钟级（§2），全表 × 任意多参数的逐点审计不可行；
+   小分母 `3..12` 的 42 点已全表扫描，其余一般参数仍采用"支持集判定 + 抽样佐证"。
 4. **非恒等目标**：官方 pinned 只有恒等频率，一般参数下的非 Γ 目标**没有任何外部
    对照**，只有引擎自检（维数守恒、逐代表元重构），属 E3。
 5. **范围**：仅普通标量；spinor、磁共表示、非 73 源的其他参数化 k 都不在本报告内。

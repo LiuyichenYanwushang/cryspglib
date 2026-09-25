@@ -676,19 +676,19 @@ R5 的 Γ-only 入口保留为 [`line_trivial_content_via_blocks`]，但审计�
 | `t = 1/4` 的**恒等重数** == pinned 频率（全 5,756 行） | **外部**：pinned 行来自官方程序 `SHOW FREQUENCY`，另经 `verify_w_subduction_oracle.py` 的 live oracle 双向比较 |
 | `t = 1/4` 的**完整分解**（维数守恒、逐代表元重构） | **内部一致性**：引擎自身的两个不变式；没有独立的完整分解 oracle（官方不打印载荷） |
 | 一般 `t` 的分解 | **内部一致性 + 一条独立几何计数**（只替换多重度求解器）；无外部 oracle |
-| 一般参数的非平凡小余群 | D4 有字符目录回归与 ordinal 13543/14106/13691 三个端到端见证；五个样本参数另对 5,756 行全扫。其它非平凡小余群仍按已证明的 family gate 支持或 fail-closed；一般参数没有外部完整分解 oracle |
+| 一般参数的非平凡小余群 | D4 有字符目录回归；ordinal 13543/14106/13691 三个见证在 42 个有理样本点均到达构造二维目标；另对 5,756 行全扫 42 点。其它非平凡小余群仍按已证明的 family gate 支持或 fail-closed；一般参数没有外部完整分解 oracle |
 | `MissingChildStarData` / `LineSourceMismatch` | 有常驻负例（断言具体变体） |
 | `MissingChildTrivialIrrep` / `TargetSourceMismatch` | **表损坏防御分支，公网 API 在 pinned 数据上不可达**（见上方失败语义条目），没有也无法写负例 |
 
 **能力 A 的参数定义域（诚实边界，全部由 5,756 行全表清点或指定记录实测）**：
 
-* **五个精确参数采样点**：旧的 54/5,756（`t = 1/7,1/6,1/3,2/7`）与 30/5,756
+* **42 个小分母有理采样点**：旧的 54/5,756（`t = 1/7,1/6,1/3,2/7`）与 30/5,756
   （`t = 3/8`）个 `MissingChildStarData` 已通过 D4 构造族闭合。`--projective-sample-sweep`
-  对全部 5,756 行逐点重算，五个参数各为 `full=5756/5756, missing=0, other_errors=0`，
-  且恒等重数均为 0；example 回归
-  `every_line_row_decomposes_with_zero_trivial_content_at_the_five_gap_samples` 常驻保护此范围；
-  旧失败星都是阶 8 的 D4/C4v little co-group，且 projective cocycle 可由四个一维 gauge
-  解消，缺少的是标准二维普通 irrep。该扫描只覆盖这五个有理点，不代表所有 rational `t`。
+  现扫描 `0<t<1` 中所有约分后分母 `3..12` 且不在 `(1/4)Z` 的 42 个参数；对全部 5,756
+  行逐点重算，每点均为 `full=5756/5756, missing=0, other_errors=0, content_mismatches=0`。
+  常驻 `sampled_d4_gap_witnesses_decompose_with_the_constructed_two_dimensional_target` 测试
+  对三条见证在全部 42 点逐一要求构造二维目标、零恒等重数与逐操作重建。旧失败星是阶 8
+  的 D4/C4v little co-group，缺少标准二维普通 irrep。该有限扫描不代表所有 rational `t`。
 * **有限小余群的一维求解范围**：`subduction_catalogue::one_dimensional_characters`
   现在按每个生成元的有限阶枚举相位根，再逐式验证完整 projective character 方程；搜索
   不再随 cocycle 分母增长。合成分母 512 的 coboundary 回归返回完整四个解；真实见证
