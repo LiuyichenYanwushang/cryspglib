@@ -40,13 +40,16 @@ use cryspglib::irrep::subduction::star::decompose::{
     FullStarError, ParameterKind, official_line_parameter, subduce_line_at_parameter,
 };
 use cryspglib::irrep::subduction::star::line_domain::{
-    ParentDomain, child_exceptional_parameters, little_co_group_order, minimal_parameter_step,
-    minimal_parameter_step_via_coordinates, parent_domain, reciprocal_lattice,
-    require_reciprocal_direction, rotation_set, verify_against_grid,
+    ParentDomain, child_cocycle_is_a_coboundary, child_exceptional_parameters,
+    little_co_group_order, minimal_parameter_step, minimal_parameter_step_via_coordinates,
+    parent_domain, reciprocal_lattice, require_reciprocal_direction, rotation_set,
+    verify_against_grid,
 };
+use cryspglib::irrep::generated_data::SG_DATA_HALL;
 use cryspglib::irrep::subduction::{Rat, SubgroupEmbedding, Vec3R, fold_wave_vector};
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::irrep::{LabelConvention, isotropy, query};
+use cryspglib::{HallNumber, SymmetryOps};
 use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::io::{BufWriter, Write as _};
@@ -264,6 +267,81 @@ fn run() -> Result<ExitCode, String> {
     for violation in &violations {
         eprintln!("census violation: {violation}");
     }
+    if gate {
+        // Boundary census: the projective class at the child's **own** exceptional
+        // parameters, where the little co-group is strictly larger than the exact
+        // stabiliser of the direction and the domain theorem therefore does not
+        // apply.  The point is to measure the boundary rather than assume it: the
+        // engine needs a non-coboundary family exactly at the parameters counted
+        // as NON-TRIVIAL here.
+        let mut boundary: BTreeMap<(usize, bool, TargetClass), usize> = BTreeMap::new();
+        let mut boundary_probes = 0usize;
+        let mut boundary_errors = 0usize;
+        // How the production engine answered each probe, so the boundary can say
+        // whether a non-trivial class was computed or came from stored rows.
+        let answered: BTreeMap<String, TargetClass> = probes
+            .iter()
+            .map(|probe| {
+                (
+                    format!("{}|{}|{}", probe.ordinal, probe.label, probe.parameter),
+                    probe.class,
+                )
+            })
+            .collect();
+        for record in &records {
+            let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup) else {
+                continue;
+            };
+            let Ok(reciprocal) = reciprocal_lattice(record.child_sg) else {
+                continue;
+            };
+            let Ok(rotations) = rotation_set(record.child_sg) else {
+                continue;
+            };
+            for (label, _) in &record.labels {
+                let Some(table) = line_table(record.parent_sg, label) else {
+                    continue;
+                };
+                let Ok(candidates) = child_exceptional_parameters(&embedding, table) else {
+                    continue;
+                };
+                let Some(direction) = line_direction(table) else {
+                    continue;
+                };
+                let Ok(folded) = fold_wave_vector(embedding.transform(), &direction) else {
+                    continue;
+                };
+                for (parameter, _) in &candidates {
+                    let Ok(order) =
+                        little_co_group_order(&reciprocal, &folded, &rotations, *parameter)
+                    else {
+                        boundary_errors += 1;
+                        continue;
+                    };
+                    boundary_probes += 1;
+                    let class = answered
+                        .get(&format!("{}|{}|{}", record.ordinal, label, parameter))
+                        .copied()
+                        .unwrap_or(TargetClass::Error);
+                    match child_cocycle_is_a_coboundary(record.child_sg, &folded, *parameter) {
+                        Ok(trivial) => *boundary.entry((order, trivial, class)).or_insert(0usize) += 1,
+                        Err(_) => boundary_errors += 1,
+                    }
+                }
+            }
+        }
+        println!(
+            "projective class at the child's exceptional parameters: {boundary_probes} probes, \
+             {boundary_errors} error(s)"
+        );
+        for ((order, trivial, class), count) in &boundary {
+            println!(
+                "    child order {order} {} engine {class:?}: {count}",
+                if *trivial { "trivial     " } else { "NON-TRIVIAL " }
+            );
+        }
+    }
+
     if gate || require_covered {
         if !violations.is_empty() {
             println!("gate: FAILED ({} violation(s))", violations.len());
@@ -496,13 +574,22 @@ fn probe_record(
     // frame (both are fed the same lattice), so this is the control that does;
     // the mutations of the third review round are what it exists for.
     //
-    // Two limits, both measured.  (1) The census consumes the child frame only
-    // through the reciprocal lattice and the rotation set, so a *sibling* space
-    // group that shares both — 109 of the 116 child space groups have one — is
+    // Two limits, both measured.  (1) The census consumes the child frame through
+    // the reciprocal lattice, the rotation set and the embedding's transform (the
+    // transform is not a function of the child number, so a sibling swap keeps
+    // it); a *sibling* space group that shares the lattice and the rotation set —
+    // 109 of the 116 child space groups have one — is therefore
     // indistinguishable here.  The engine does consume the whole embedding, but a
     // sibling frame cannot reach it: `SubgroupEmbedding::build` refuses a record
     // whose numbers disagree (`StaleIsotropyRecord`), which also makes the
     // child-number comparison just below a restatement rather than a control.
+    // The **parent** frame has the same blind spot and no independent source
+    // inside this gate: dropping a rotation from `rotation_set(parent_sg)` outside
+    // the generic stabiliser leaves the gate at exit 0 with an unchanged summary
+    // line (measured: parent comparisons 2,580 -> 2,571, and the published parent
+    // orders in the TSV change), and only the module tests
+    // `every_space_group_rotation_set_is_its_stored_hall_settings` and
+    // `every_frozen_source_is_exceptional_only_at_zero_and_one_half` catch it.
     // (2) Both frame values below are compared with *themselves*: after the two
     // space group numbers are known to agree, `reciprocal_lattice(child_sg)` and
     // `reciprocal_lattice(embedding.subgroup_sg())` are the same function of the
@@ -805,6 +892,29 @@ fn probe_record(
                     record.ordinal
                 ));
             }
+            // The projective class of the folded direction at this parameter.  At a
+            // parameter that is **not** one of the child's own exceptional
+            // parameters the little co-group is the exact stabiliser of the folded
+            // direction, and the domain theorem (`line_domain` module
+            // documentation) then makes the class trivial — the same conclusion for
+            // every real parameter, not just this one.  That is a direct test of
+            // the theorem on every generic probe; the exceptional parameters carry
+            // a larger little co-group and get the separate measurement below.
+            match child_cocycle_is_a_coboundary(record.child_sg, &folded, parameter) {
+                Ok(trivial) => {
+                    if census_order == 0 && !trivial {
+                        failures.push(format!(
+                            "ordinal {} {label} t={parameter}: the projective class is non-trivial \
+                             at a generic parameter, contradicting the domain theorem",
+                            record.ordinal
+                        ));
+                    }
+                }
+                Err(error) => failures.push(format!(
+                    "ordinal {} {label} t={parameter}: projective class: {error}",
+                    record.ordinal
+                )),
+            }
             let parent = domain
                 .exceptional
                 .iter()
@@ -1081,6 +1191,45 @@ fn check_invariants(
     evidence: &CensusEvidence,
     violations: &mut Vec<String>,
 ) {
+    // The child-side step comparison runs once per (record, label) per child
+    // rotation, so its total is `sum over (record, label) of |rotation_set(child)|`
+    // — with the rotation set counted through the crate's **independent** database
+    // route (the stored Hall setting, as in
+    // `every_space_group_rotation_set_is_its_stored_hall_settings`).  Without this
+    // the total is only printed: dropping one rotation from `rotation_set` leaves
+    // the gate's summary line intact and merely lowers the printed count
+    // (measured: 28,713 -> 28,666 when SG 38 loses one).
+    let mut expected_child_comparisons = 0usize;
+    for record in records {
+        let stored = SG_DATA_HALL[usize::from(record.child_sg)];
+        let independent = match SymmetryOps::from_hall_number(
+            HallNumber::try_from(usize::from(stored)).expect("stored Hall number"),
+        ) {
+            Ok(operations) => operations,
+            Err(error) => {
+                violations.push(format!(
+                    "child #{}: independent rotation lookup failed: {error}",
+                    record.child_sg
+                ));
+                continue;
+            }
+        };
+        let mut rotations: Vec<[[i32; 3]; 3]> = Vec::new();
+        for operation in &independent.operations {
+            if !rotations.contains(&operation.rotation) {
+                rotations.push(operation.rotation);
+            }
+        }
+        expected_child_comparisons = expected_child_comparisons
+            .saturating_add(rotations.len().saturating_mul(record.labels.len()));
+    }
+    if evidence.child_algorithms.0 != expected_child_comparisons {
+        violations.push(format!(
+            "the child step comparison ran {} time(s) but the stored Hall settings of the \
+             records' child space groups predict {expected_child_comparisons}",
+            evidence.child_algorithms.0
+        ));
+    }
     // 1. The frozen tables are the generic stabiliser (already enforced while
     //    building the domains; repeated here so a future refactor cannot drop it).
     for ((sg, label), domain) in domains {

@@ -105,6 +105,283 @@ impl LittleCoGroup {
     }
 }
 
+/// An affine form `sum_v coefficients[v] * x_v + constant` over the phases of the
+/// chosen generators, used by the coboundary decision below.
+#[derive(Clone, Debug)]
+struct AffineForm {
+    coefficients: Vec<i128>,
+    constant: Rat,
+}
+
+impl AffineForm {
+    fn zero(variables: usize) -> Self {
+        Self {
+            coefficients: vec![0; variables],
+            constant: Rat::ZERO,
+        }
+    }
+
+    fn checked_add(&self, other: &Self) -> Result<Self, SubductionError> {
+        let mut coefficients = Vec::with_capacity(self.coefficients.len());
+        for (left, right) in self.coefficients.iter().zip(&other.coefficients) {
+            coefficients.push(
+                left.checked_add(*right)
+                    .ok_or(SubductionError::RationalOverflow {
+                        operation: "coboundary coefficient",
+                    })?,
+            );
+        }
+        Ok(Self {
+            coefficients,
+            constant: self.constant.checked_add(other.constant)?,
+        })
+    }
+}
+
+/// Bezout coefficients `(g, p, q)` with `g = gcd(|a|, |b|) > 0` and `p a + q b = g`.
+fn bezout(left: i128, right: i128) -> Result<(i128, i128, i128), SubductionError> {
+    let overflow = || SubductionError::RationalOverflow {
+        operation: "syzygy elimination",
+    };
+    let (mut old_r, mut r) = (left, right);
+    let (mut old_s, mut s) = (1i128, 0i128);
+    let (mut old_t, mut t) = (0i128, 1i128);
+    while r != 0 {
+        let quotient = old_r.checked_div(r).ok_or_else(overflow)?;
+        let next_r = old_r.checked_sub(quotient.checked_mul(r).ok_or_else(overflow)?).ok_or_else(overflow)?;
+        old_r = r;
+        r = next_r;
+        let next_s = old_s.checked_sub(quotient.checked_mul(s).ok_or_else(overflow)?).ok_or_else(overflow)?;
+        old_s = s;
+        s = next_s;
+        let next_t = old_t.checked_sub(quotient.checked_mul(t).ok_or_else(overflow)?).ok_or_else(overflow)?;
+        old_t = t;
+        t = next_t;
+    }
+    if old_r < 0 {
+        Ok((
+            old_r.checked_neg().ok_or_else(overflow)?,
+            old_s.checked_neg().ok_or_else(overflow)?,
+            old_t.checked_neg().ok_or_else(overflow)?,
+        ))
+    } else {
+        Ok((old_r, old_s, old_t))
+    }
+}
+
+/// A `Z`-basis of the **integer syzygies** `{ y in Z^m : sum_i y_i rows[i] = 0 }`
+/// of `m` integer rows of length `t`.
+///
+/// The rows are reduced to an integer row echelon form while the unimodular row
+/// operations are tracked in an appended identity block, so the appended block
+/// holds the transformation `U` with `U rows = echelon`; the rows of `U` whose
+/// echelon row vanished are exactly a `Z`-basis of the syzygies, because the
+/// nonzero echelon rows are linearly independent over `Q`.  The matrices here have
+/// at most `t <= 6` columns (one per generator of a little co-group) and at most
+/// `6 * 48` rows, so the elimination stays small; every operation is checked.
+fn syzygy_basis(rows: &[Vec<i128>]) -> Result<Vec<Vec<i128>>, SubductionError> {
+    let overflow = || SubductionError::RationalOverflow {
+        operation: "syzygy elimination",
+    };
+    let count = rows.len();
+    let columns = rows.first().map_or(0, |row| row.len());
+    let mut work: Vec<Vec<i128>> = Vec::with_capacity(count);
+    for (index, row) in rows.iter().enumerate() {
+        let mut extended = row.clone();
+        extended.extend((0..count).map(|column| i128::from(column == index)));
+        work.push(extended);
+    }
+    let mut pivot = 0usize;
+    for column in 0..columns {
+        let Some(found) = (pivot..count).find(|row| work[*row][column] != 0) else {
+            continue;
+        };
+        work.swap(pivot, found);
+        for row in (pivot + 1)..count {
+            let (a, b) = (work[pivot][column], work[row][column]);
+            if b == 0 {
+                continue;
+            }
+            let (g, p, q) = bezout(a, b)?;
+            let left = p;
+            let right = q;
+            let cancel_left = b.checked_div(g).ok_or_else(overflow)?;
+            let cancel_right = a.checked_div(g).ok_or_else(overflow)?;
+            // Two rows are updated in lockstep, so an index loop is the clear
+            // form here; an iterator borrows `work` twice.
+            #[allow(clippy::needless_range_loop)]
+            for entry in column..(columns + count) {
+                let pivot_entry = work[pivot][entry];
+                let row_entry = work[row][entry];
+                let new_pivot = left
+                    .checked_mul(pivot_entry)
+                    .and_then(|value| right.checked_mul(row_entry).and_then(|other| value.checked_add(other)))
+                    .ok_or_else(overflow)?;
+                let new_row = cancel_left
+                    .checked_mul(pivot_entry)
+                    .and_then(|value| {
+                        cancel_right
+                            .checked_mul(row_entry)
+                            .and_then(|other| other.checked_sub(value))
+                    })
+                    .ok_or_else(overflow)?;
+                work[pivot][entry] = new_pivot;
+                work[row][entry] = new_row;
+            }
+        }
+        pivot += 1;
+        if pivot == count {
+            break;
+        }
+    }
+    let mut basis = Vec::new();
+    for row in &work {
+        if row[..columns].iter().all(|entry| *entry == 0) {
+            basis.push(row[columns..].to_vec());
+        }
+    }
+    Ok(basis)
+}
+
+impl LittleCoGroup {
+    /// The group multiplication table: `table[i][j]` is the position of the
+    /// product of representatives `i` and `j`.
+    pub(super) fn multiplication_table(&self) -> Result<Vec<Vec<usize>>, StarError> {
+        let order = self.order();
+        let mut table = vec![vec![0usize; order]; order];
+        for (i, row) in table.iter_mut().enumerate() {
+            for (j, cell) in row.iter_mut().enumerate() {
+                *cell = self.product_position(i, j)?;
+            }
+        }
+        Ok(table)
+    }
+
+    /// Whether the factor system is a **coboundary**:
+    /// `psi_i + psi_j - psi_k == turns[i][j] (mod 1)` has a solution.
+    ///
+    /// This is the order-independent version of what
+    /// [`one_dimensional_characters`] decides for `|P_q| <= MAX_ORDER` (its
+    /// solution set is empty exactly when the cocycle is not a coboundary).  The
+    /// order bound matters for the census: 1,980 of its probes have child little
+    /// co-groups of order 12 to 48, where the one-dimensional solver returns an
+    /// empty set for *two* different reasons ("out of scope" and "non-coboundary")
+    /// and therefore cannot decide the class.
+    ///
+    /// Method.  Choosing one variable per generator (the identity's phase is
+    /// gauged to zero) and propagating `psi_k = psi_i + psi_j - turns[i][j]` along
+    /// products writes every phase as an affine form in those variables.  The
+    /// equations for a generator against every element then read `C x == d
+    /// (mod 1)` with `C` integral, and such a system is solvable over the reals
+    /// modulo one exactly when `y . d` is an integer for every integer syzygy `y`
+    /// of the rows of `C` (the characters of `Z^m` that annihilate `Im C + Z^m`).
+    /// Checking a `Z`-basis of the syzygies is therefore a complete decision.
+    pub(super) fn cocycle_is_a_coboundary(&self) -> Result<bool, StarError> {
+        let order = self.order();
+        let table = self.multiplication_table()?;
+        let identity = 0usize;
+        let generators: Vec<usize> = self
+            .generators()?
+            .into_iter()
+            .filter(|position| *position != identity)
+            .collect();
+        let variables = generators.len();
+        let mut forms: Vec<Option<AffineForm>> = vec![None; order];
+        forms[identity] = Some(AffineForm::zero(variables));
+        for (variable, position) in generators.iter().enumerate() {
+            let mut form = AffineForm::zero(variables);
+            form.coefficients[variable] = 1;
+            forms[*position] = Some(form);
+        }
+        loop {
+            let mut changed = false;
+            for i in 0..order {
+                for j in 0..order {
+                    let product = table[i][j];
+                    if forms[product].is_some() {
+                        continue;
+                    }
+                    let (Some(left), Some(right)) = (&forms[i], &forms[j]) else {
+                        continue;
+                    };
+                    let mut form = left.checked_add(right)?;
+                    form.constant = form.constant.checked_sub(self.turns[i][j])?;
+                    forms[product] = Some(form);
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        if forms.iter().any(|form| form.is_none()) {
+            return Err(StarError::LittleCoGroupNotClosed {
+                q: [self.q.get(0), self.q.get(1), self.q.get(2)],
+            });
+        }
+        let mut rows: Vec<Vec<i128>> = Vec::with_capacity(variables.saturating_mul(order));
+        let mut right_hand: Vec<Rat> = Vec::with_capacity(variables.saturating_mul(order));
+        for generator in &generators {
+            for element in 0..order {
+                let product = table[*generator][element];
+                let start = forms[*generator].as_ref().expect("known");
+                let middle = forms[element].as_ref().expect("known");
+                let end = forms[product].as_ref().expect("known");
+                let mut row = vec![0i128; variables];
+                for (index, cell) in row.iter_mut().enumerate() {
+                    *cell = start.coefficients[index] + middle.coefficients[index]
+                        - end.coefficients[index];
+                }
+                let mut value = self.turns[*generator][element];
+                value = value.checked_sub(start.constant)?;
+                value = value.checked_sub(middle.constant)?;
+                value = value.checked_add(end.constant)?;
+                rows.push(row);
+                right_hand.push(fractional(value)?);
+            }
+        }
+        for syzygy in syzygy_basis(&rows)? {
+            let mut sum = Rat::ZERO;
+            for (index, coefficient) in syzygy.iter().enumerate() {
+                if *coefficient == 0 {
+                    continue;
+                }
+                sum = sum.checked_add(
+                    right_hand[index].checked_mul(Rat::from_integer(*coefficient))?,
+                )?;
+            }
+            if !sum.is_integer() {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Whether two factor systems on the **same** co-group differ by a
+    /// coboundary, i.e. whether they represent the same class in `H^2(P, U(1))`.
+    pub(super) fn cohomologous_to(&self, other: &Self) -> Result<bool, StarError> {
+        if self.order() != other.order() {
+            return Err(StarError::LittleCoGroupNotClosed {
+                q: [self.q.get(0), self.q.get(1), self.q.get(2)],
+            });
+        }
+        let mut turns = Vec::with_capacity(self.order());
+        for (left, right) in self.turns.iter().zip(&other.turns) {
+            let mut row = Vec::with_capacity(left.len());
+            for (a, b) in left.iter().zip(right) {
+                row.push(fractional(a.checked_sub(*b)?)?);
+            }
+            turns.push(row);
+        }
+        let quotient = LittleCoGroup {
+            representatives: self.representatives.clone(),
+            turns,
+            q: self.q,
+        };
+        quotient.cocycle_is_a_coboundary()
+    }
+}
+
 /// One exact little co-group at the child point `q`.
 pub(super) fn little_co_group(
     child_sg: u8,
@@ -886,6 +1163,8 @@ pub(super) fn fractional(value: Rat) -> Result<Rat, SubductionError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::irrep::line_monodromy::line_direction;
+    use crate::irrep::w_little_characters_data::W_LITTLE_CHARACTERS;
     use crate::irrep::query;
     use crate::irrep::subduction::{SUBDUCTION_TOLERANCE, character_of, inline_k_vector};
     use num_complex::Complex64;
@@ -1273,6 +1552,93 @@ mod tests {
             power = power.compose(&r).unwrap();
         }
         representatives
+    }
+
+    /// The order-independent coboundary decision: the trivial cocycle and every
+    /// explicit coboundary are accepted, the hand-built `D16 -> D4` section
+    /// cocycle is rejected, and on every co-group the one-dimensional solver is in
+    /// scope for, the two decisions agree.
+    #[test]
+    fn the_coboundary_decision_matches_the_one_dimensional_solver() {
+        // The trivial factor system.
+        let mut trivial = d16_section_cocycle_on_d4();
+        for row in trivial.turns.iter_mut() {
+            for turn in row.iter_mut() {
+                *turn = Rat::ZERO;
+            }
+        }
+        assert!(trivial.cocycle_is_a_coboundary().unwrap());
+
+        // An explicit coboundary: turns[i][j] = psi_i + psi_j - psi_k.
+        let order = trivial.order();
+        let table = trivial.multiplication_table().unwrap();
+        let psi: Vec<Rat> = (0..order)
+            .map(|position| {
+                Rat::new(i128::try_from(position).unwrap(), i128::try_from(order).unwrap()).unwrap()
+            })
+            .collect();
+        let mut gauge = trivial.clone();
+        for i in 0..order {
+            for j in 0..order {
+                let k = table[i][j];
+                gauge.turns[i][j] = fractional(
+                    psi[i].checked_add(psi[j]).unwrap().checked_sub(psi[k]).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+        assert!(gauge.cocycle_is_a_coboundary().unwrap());
+        assert!(gauge.cohomologous_to(&trivial).unwrap());
+        assert!(gauge.cohomologous_to(&gauge).unwrap());
+
+        // The `D16 -> D4` section cocycle is a genuine non-coboundary, and it is
+        // not cohomologous to the trivial one.
+        let section = d16_section_cocycle_on_d4();
+        assert!(!section.cocycle_is_a_coboundary().unwrap());
+        assert!(!section.cohomologous_to(&trivial).unwrap());
+
+        // Corpus cross-check: wherever the one-dimensional solver is in scope
+        // (order <= MAX_ORDER) its empty/非-empty answer must be the same decision.
+        let mut compared = 0usize;
+        let mut empty = 0usize;
+        for table in W_LITTLE_CHARACTERS {
+            let direction = line_direction(table).expect("direction");
+            let lattice = Lattice::new(exact_primitive_basis(table.space_group).unwrap())
+                .unwrap()
+                .reciprocal()
+                .unwrap();
+            for parameter in [
+                Rat::ZERO,
+                Rat::new(1, 8).unwrap(),
+                Rat::new(1, 7).unwrap(),
+                Rat::new(1, 4).unwrap(),
+                Rat::new(3, 8).unwrap(),
+                Rat::new(1, 2).unwrap(),
+            ] {
+                let q = Vec3R::new([
+                    parameter.checked_mul(direction.get(0)).unwrap(),
+                    parameter.checked_mul(direction.get(1)).unwrap(),
+                    parameter.checked_mul(direction.get(2)).unwrap(),
+                ]);
+                let co_group = little_co_group(table.space_group, &q, &lattice).unwrap();
+                if co_group.order() > MAX_ORDER {
+                    continue;
+                }
+                let solver = !one_dimensional_characters(&co_group).unwrap().is_empty();
+                let decision = co_group.cocycle_is_a_coboundary().unwrap();
+                assert_eq!(
+                    decision, solver,
+                    "SG {} {} at t = {parameter}: decision {decision} != solver {solver}",
+                    table.space_group, table.label
+                );
+                compared += 1;
+                if !decision {
+                    empty += 1;
+                }
+            }
+        }
+        assert!(compared >= 300, "the cross-check must be broad: {compared}");
+        assert!(empty > 0, "the cross-check must include non-coboundaries");
     }
 
     /// The `D16 -> D4` section cocycle as a hand-built [`LittleCoGroup`].

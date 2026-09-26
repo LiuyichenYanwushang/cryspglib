@@ -115,8 +115,8 @@ use crate::irrep::line_monodromy::line_direction;
 use crate::irrep::w_little_characters_data::LittleCharacterTable;
 
 use super::{
-    Lattice, Mat3I, Mat3R, Rat, SubductionError, SubgroupEmbedding, Vec3R, exact_primitive_basis,
-    fold_wave_vector, strict_sg_hall_ops,
+    Lattice, Mat3I, Mat3R, Rat, StarError, SubductionError, SubgroupEmbedding, Vec3R,
+    exact_primitive_basis, fold_wave_vector, strict_sg_hall_ops,
 };
 
 /// Scan bound for the congruence on `j`; it only has to cover the possible
@@ -251,6 +251,60 @@ fn lcm(left: i128, right: i128) -> Result<i128, SubductionError> {
             operation: "parameter-domain lcm",
         })?;
     absolute(scaled)
+}
+
+/// Whether the factor system of one folded direction is a **coboundary** at one
+/// parameter, decided without the catalogue's order bound.
+///
+/// This is the exact per-point decision the domain theorem does not cover: at an
+/// exceptional parameter the little co-group of `q(t)` is strictly larger than the
+/// generic one, the divisibility argument of the module documentation does not
+/// apply, and the class may be non-trivial.  The catalogue's one-dimensional
+/// solver answers the same question only for `|P_q| <= MAX_ORDER` (where an empty
+/// solution set means "non-coboundary"), which leaves the 1,980 census probes with
+/// child orders 12 to 48 undecided; this entry point decides them too.
+///
+/// The class is a function of the child, the folded direction and the parameter
+/// only: the cocycle is built from the child's own operations and `q(t)`, so the
+/// parent star does not enter it.
+pub fn child_cocycle_is_a_coboundary(
+    child_sg: u8,
+    folded: &Vec3R,
+    parameter: Rat,
+) -> Result<bool, StarError> {
+    let child_reciprocal = reciprocal_lattice(child_sg)?;
+    if !folded.is_zero() {
+        require_reciprocal_direction(&child_reciprocal, folded, child_sg, "folded direction")?;
+    }
+    let q = scale(folded, &parameter)?;
+    let co_group = super::catalogue::little_co_group(child_sg, &q, &child_reciprocal)?;
+    co_group.cocycle_is_a_coboundary()
+}
+
+/// Whether two parameters of the same folded direction carry the **same**
+/// projective class, i.e. whether `omega_first / omega_second` is a coboundary.
+///
+/// This is the complete invariant the construction offers: two factor systems
+/// represent the same class in `H^2(P, U(1))` exactly when their quotient is a
+/// coboundary, and the decision above is exact for every order.  The domain
+/// theorem says the answer is `true` for any two parameters of one domain (both
+/// classes are trivial); the census measures it directly at the exceptional
+/// parameters, where the little co-group is larger.
+pub fn child_cocycles_are_cohomologous(
+    child_sg: u8,
+    folded: &Vec3R,
+    first: Rat,
+    second: Rat,
+) -> Result<bool, StarError> {
+    let child_reciprocal = reciprocal_lattice(child_sg)?;
+    if !folded.is_zero() {
+        require_reciprocal_direction(&child_reciprocal, folded, child_sg, "folded direction")?;
+    }
+    let first_group =
+        super::catalogue::little_co_group(child_sg, &scale(folded, &first)?, &child_reciprocal)?;
+    let second_group =
+        super::catalogue::little_co_group(child_sg, &scale(folded, &second)?, &child_reciprocal)?;
+    first_group.cohomologous_to(&second_group)
 }
 
 /// The rational step generating `{ t : t . w in lattice }`, or `None` when `w`
@@ -1267,6 +1321,27 @@ mod tests {
         // 341 frozen little-group operations in total; the same sum appears
         // independently in the census as `682 = 2 x sum of generic orders`.
         assert_eq!(checked, 341, "every frozen little-group operation is checked");
+    }
+
+    /// The **other** reachable `DomainCensusInconsistent` reason: a lattice whose
+    /// quotient exponent exceeds the scan bound.  `diag(7, 7, 7)` with
+    /// `w = (1, 0, 0)` needs the centring multiple seven while the scan stops at
+    /// six, so the step is refused instead of being reported as one; the coordinate
+    /// route has no scan and answers the true generator.
+    #[test]
+    fn a_lattice_with_a_large_quotient_exponent_is_scan_rejected() {
+        let lattice = Lattice::new(Mat3R::diagonal([7, 7, 7])).expect("lattice");
+        let w = Vec3R::from_ints([1, 0, 0]);
+        assert!(matches!(
+            minimal_parameter_step(&lattice, &w),
+            Err(SubductionError::DomainCensusInconsistent {
+                reason: "no centring multiple of the integrality step lands in the lattice"
+            })
+        ));
+        assert_eq!(
+            minimal_parameter_step_via_coordinates(&lattice, &w).expect("coordinate route"),
+            Some(rational(7, 1))
+        );
     }
 
     /// A direction outside the group's reciprocal lattice is rejected instead of

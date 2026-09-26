@@ -348,6 +348,34 @@ co-group 的精确支持域。
   `SymmetryOps::from_hall_number(SG_DATA_HALL[sg])`（与 `strict_sg_hall_ops` 不同的数据
   入口）重建 230/230 个空间群的旋转集合并逐集合断言；教训是"帧值有几个，就要有几个
   独立的定义源"，别只补被审查者点到的那一个。
+* **第六轮对抗性审查（针对 `5b7103a`，隔离 worktree + 独立 target）**：无 P0。两条新控制
+  都复现载重（SG 38→`Z^3` 门禁 exit 1 / 64 条 `probe child order 4 != census child order 2`，
+  SG 38→SG 5 为 94 条；BASE 上两者 exit 0 且 summary 逐字相同；`6Z^3` 正对照 54+1 条），
+  新子群阶比较在 35,039/42,073 个探针上真的执行（83.3%），包含-加-指数论证被判为可靠
+  （并独立核对 230/230 的 `|det L*| == #自心平移`）。4 条发现全部接受并修：
+  ① **P1：`byte-identical counts` 措辞不实**——旋转集合少一个元素时门禁 exit 0 且
+  `probes/stored/constructed/unsupported/errors` 不变，但**被打印的**子群步长比较数
+  28,713 → 28,666（母群侧 2,580 → 2,571）。现补**独立计数断言**：子群比较数必须等于
+  Σ over (记录,标号) of（子群存储 Hall setting 的旋转数，用 `SymmetryOps::from_hall_number`
+  数），变异实测 gate exit 1 且报文 `ran 28666 time(s) ... predict 28713`。
+  ② **P1："两个 reason 都有负例"当时不成立**——"无中心化倍数"只有可达性、没有负例；现补
+  `a_lattice_with_a_large_quotient_exponent_is_scan_rejected`（`diag(7,7,7)`、`w=(1,0,0)`
+  → 该 reason；坐标路线给 7）。
+  ③ **P2：兄弟群注释的理由写错**——普查消费子群帧除了倒格与旋转集合还用了嵌入的变换
+  （变换不是子群号函数，故兄弟交换保留它），已按此改写。
+  ④ **P2：母群侧有同类盲点且未记录**——`rotation_set(parent_sg)` 在**泛稳定子之外**少一个
+  旋转时门禁 exit 0、summary 不变（母群比较数 2,580 → 2,571，TSV 里的母群阶也变），只有
+  `every_space_group_rotation_set_is_its_stored_hall_settings` 与
+  `every_frozen_source_is_exceptional_only_at_zero_and_one_half` 抓得住；已在 example 注释里
+  写明。审查者另确认：`folded == 0` 分支在语料上 0/5,756 从未执行。
+* **M2.2（2026-09-26）阶无关的类判定**：见 `docs/subduction-r6-coverage.md` §4b。要点：
+  `cocycle_is_a_coboundary`（生成元传播 + 整系数 syzygy + 对偶判据）、
+  `child_cocycle_is_a_coboundary`、`child_cocycles_are_cohomologous`（类相等即可计算的
+  完全不变量）；与一维求解器在 ≥300 个语料共群上一致、手工 D16→D4 非平凡被判非平凡。
+  门禁对每个探针算类：**generic 探针必须平凡**（7,034 个全过）；子群例外参数边界实测
+  35,039 探针 0 错误，非平凡只出现在阶 4（3,260，其中 292 需构造）、阶 8（936，44）、
+  阶 16（134，4）——**非 coboundary 族在语料上载重**，推翻此前"只有合成例子会走到它"的
+  推测。仍待 M2.3：域内细网格重算作为引擎侧经验控制。
 
 ---
 
