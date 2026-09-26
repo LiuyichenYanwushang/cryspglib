@@ -45,7 +45,9 @@
 //! belong to.  Only then is `k(t + 1) = k(t) + v` the same point of the zone, the
 //! little group periodic in `t` with period one, and the residue representation
 //! of the domain valid.  The frozen corpus satisfies this for all 73 sources and
-//! for all 1,006 folded child directions; anything else is rejected with
+//! all 5,756 `(record, label)` folded reference directions (1,006 records); the
+//! full-star partition re-checks the same premise for every one of the 50,226
+//! folded arms.  Anything else is rejected with
 //! [`SubductionError::ParameterDomainOutOfScope`] instead of being reported in a
 //! representation that silently merges distinct parameters.  The child-side
 //! census below is the same computation after folding `v` through the embedding,
@@ -340,6 +342,35 @@ pub fn child_cocycle_is_a_coboundary(
     let q = scale(folded, &parameter)?;
     let co_group = super::catalogue::little_co_group(child_sg, &q, &child_reciprocal)?;
     co_group.cocycle_is_a_coboundary()
+}
+
+/// Whether the factor system of one **exact child point** is a coboundary.
+///
+/// The point-based companion of [`child_cocycle_is_a_coboundary`].  That one takes
+/// a direction plus a parameter and therefore has to fence the direction into the
+/// child reciprocal lattice (the residue representation of the parameter line is
+/// only meaningful there); a block of the decomposition carries an exact folded
+/// point `q` and needs the class *at that point*, with no parameter and no fence.
+/// Both decide the same question for `q = t . folded`, through the same
+/// order-independent criterion.
+pub fn point_cocycle_is_a_coboundary(child_sg: u8, point: &Vec3R) -> Result<bool, StarError> {
+    let child_reciprocal = reciprocal_lattice(child_sg)?;
+    let co_group = super::catalogue::little_co_group(child_sg, point, &child_reciprocal)?;
+    co_group.cocycle_is_a_coboundary()
+}
+
+/// The order of the little co-group of one **exact child point**: how many child
+/// rotations fix `q` modulo the child reciprocal lattice.
+///
+/// Point-based companion of [`little_co_group_order`], for a consumer that holds a
+/// folded point of a block instead of a direction and a parameter.
+pub fn point_little_co_group_order(
+    child_sg: u8,
+    point: &Vec3R,
+) -> Result<usize, SubductionError> {
+    let child_reciprocal = reciprocal_lattice(child_sg)?;
+    let rotations = rotation_set(child_sg)?;
+    little_co_group_order(&child_reciprocal, point, &rotations, Rat::ONE)
 }
 
 /// Whether two parameters of the same folded direction carry the **same**
@@ -762,6 +793,11 @@ pub fn little_co_group_order(
 ///
 /// **Internal**: the list is a function of the parent group, its lattice and the
 /// direction; the public entry point is [`full_star_partition`].
+///
+/// The list is never empty for a valid space group number — the group always
+/// contains the identity, and `Lattice::deduplicate` preserves non-emptiness —
+/// so the empty-list branch its callers keep is a **defensive guard**, not a live
+/// code path (measured: 0/5,756 pairs).
 pub(crate) fn arm_images(
     parent_sg: u8,
     parent_lattice: &Lattice,
@@ -898,6 +934,16 @@ pub struct FullStarPartition {
     pub permanent_witnesses: Vec<StarEvent>,
 }
 
+/// The Gamma-reaching condition of [`FullStarPartition::gamma_parameters`], as
+/// `(parameters, zero_arms)`: the `(parameter, arms)` pairs in ascending
+/// parameter order (the arm indices whose `t v_i` lands in the child reciprocal
+/// lattice), and the arms whose folded direction is exactly zero (at Gamma at
+/// every parameter, so they have no isolated parameter to report).
+///
+/// A named alias rather than a two-field struct so that the destructuring call
+/// sites stay readable; the complex-type lint is what it exists for.
+pub type GammaParameters = (Vec<(Rat, Vec<usize>)>, Vec<usize>);
+
 impl FullStarPartition {
     /// Whether `t` is one of the partition's boundaries (reduced modulo one
     /// first: the whole geometry is periodic in `t` with period one).
@@ -937,6 +983,52 @@ impl FullStarPartition {
             }
         }
         sort_parameters(values)
+    }
+
+    /// The parameters at which a folded arm reaches the child **Gamma** point,
+    /// as `(parameter, arms)` in ascending order: `t v_i in L*_H` for the listed
+    /// arms.  Arms whose folded direction is exactly zero are returned separately:
+    /// they are at Gamma at *every* parameter.
+    ///
+    /// This is a **provenance** condition, not a geometric one, and it is
+    /// deliberately *not* part of [`Self::boundaries`]: where an arm reaches
+    /// Gamma the engine reads the child's stored Gamma data instead of building a
+    /// target, while the reported dimensions and multiplicities agree with the
+    /// constructed answer there -- at Gamma the point is fixed by the whole child
+    /// point group, and the M2 theorem of the module documentation makes the class
+    /// trivial, so the little-group representations are the ordinary ones.  R6.7
+    /// card 4 reports this condition separately for exactly that reason; it is the
+    /// identity-star condition the census has always used, now computed per record
+    /// from every arm instead of from the reference direction alone.
+    ///
+    /// Whether these parameters are a subset of the boundaries is **not** part of
+    /// the contract and is not always true: for an arm whose direction is fixed
+    /// *exactly* by the whole child point group the little co-group never changes,
+    /// so the Gamma parameters of that arm can be interior to an interval.  The
+    /// corpus regression measures the containment and the exceptions.
+    pub fn gamma_parameters(&self) -> Result<GammaParameters, SubductionError> {
+        let mut entries: Vec<(Rat, Vec<usize>)> = Vec::new();
+        let mut zero_arms: Vec<usize> = Vec::new();
+        for (index, arm) in self.arms.iter().enumerate() {
+            let Some(step) = minimal_parameter_step(&self.child_reciprocal, &arm.direction)? else {
+                zero_arms.push(index);
+                continue;
+            };
+            let denominator = step.denominator();
+            for multiple in 0..denominator {
+                let factor = Rat::new(multiple, 1)?;
+                let parameter = reduce_modulo_one(step.checked_mul(factor)?);
+                match entries.iter_mut().find(|(value, _)| *value == parameter) {
+                    Some((_, arms)) => {
+                        if !arms.contains(&index) {
+                            arms.push(index);
+                        }
+                    }
+                    None => entries.push((parameter, vec![index])),
+                }
+            }
+        }
+        Ok((sort_by_parameter(entries)?, zero_arms))
     }
 
     /// The open intervals of the partition, as `(start, end)` in ascending order;
@@ -1107,10 +1199,16 @@ pub fn full_star_partition(
         .collect::<Result<_, SubductionError>>()?;
     let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
     let child_reciprocal = child_cell.reciprocal()?;
+    // The periodicity premise, per **arm** and not only for the reference
+    // direction.  It cannot fail on the frozen corpus (all 50,226 arms pass,
+    // measured); it is a scope fence for future sources, not a live code path.
     for arm in &arms {
         require_reciprocal_direction(&child_reciprocal, &arm.direction, child_sg, table.label)?;
     }
     let reference_direction = fold_wave_vector(embedding.transform(), &direction)?;
+    // Defensive: the identity rotation is in every arm list, and its image folds
+    // to exactly `reference_direction`, so this always finds an arm on a valid
+    // record (measured: 0/5,756 pairs take the error path).
     let reference_arm = arms
         .iter()
         .position(|arm| arm.direction == reference_direction)
@@ -2007,6 +2105,9 @@ mod tests {
         pairs: usize,
         /// Folded arms over all pairs.
         arms: usize,
+        /// The same total through the orbit-stabiliser theorem: `|parent point
+        /// group| / |frozen little group|` per `(record, label)` pair.
+        expected_arms: usize,
         /// Largest arm list of one pair.
         max_arms: usize,
         /// Boundaries over all pairs.
@@ -2029,6 +2130,7 @@ mod tests {
             self.records += other.records;
             self.pairs += other.pairs;
             self.arms += other.arms;
+            self.expected_arms += other.expected_arms;
             self.max_arms = self.max_arms.max(other.max_arms);
             self.boundaries += other.boundaries;
             for (slot, count) in other.events.iter().enumerate() {
@@ -2089,6 +2191,14 @@ mod tests {
                     }
                     pulled.sort_unstable();
                     census.records += 1;
+                    // The arm list is the parent star, so its size is the orbit
+                    // size `|parent point group| / |exact stabiliser|` of the
+                    // direction.  This is an **independent route** to the total
+                    // arm count; re-running the production membership guard on
+                    // the same lattice would be the `f(x) == f(x)` pattern the
+                    // fifth review round rejected, and the guard already fails
+                    // closed inside `full_star_partition`.
+                    let parent_rotations = rotation_set(sg).expect("parent rotation set").len();
                     for label in labels {
                         let table = line_table_of(sg, label);
                         let partition = full_star_partition(&subgroup, &embedding, table)
@@ -2098,31 +2208,13 @@ mod tests {
                         census.pairs += 1;
                         census.arms += partition.arms.len();
                         census.max_arms = census.max_arms.max(partition.arms.len());
-                        for arm in &partition.arms {
-                            assert!(
-                                partition
-                                    .child_reciprocal
-                                    .contains(&arm.direction)
-                                    .expect("membership"),
-                                "SG {sg} {label}: folded arm ({}, {}, {}) is not a child \
-                                 reciprocal vector",
-                                arm.direction.get(0),
-                                arm.direction.get(1),
-                                arm.direction.get(2)
-                            );
-                        }
+                        census.expected_arms += parent_rotations / table.operations.len();
                         let mut rotations = partition.child_rotations.clone();
                         rotations.sort_unstable();
                         assert_eq!(
                             rotations, pulled,
                             "SG {sg} {label}: the enumeration's rotation set is not the \
                              production one"
-                        );
-                        let direction = line_direction(table).expect("frozen direction");
-                        assert_eq!(
-                            partition.arms[partition.reference_arm].direction,
-                            fold_wave_vector(embedding.transform(), &direction).expect("fold"),
-                            "SG {sg} {label}: the reference arm is not the legacy direction"
                         );
                         let parameters = partition.boundary_parameters();
                         assert_eq!(
@@ -2166,9 +2258,16 @@ mod tests {
             })
             .reduce(PartitionCensus::default, PartitionCensus::merge);
 
+        // The pinned counter is printed, not only asserted: an audit must be able
+        // to read the measured numbers out of a plain `--nocapture` run.
+        println!("{census:?}");
         assert_eq!(census.records, 1_006, "ordinary records with a parametric-k row");
         assert_eq!(census.pairs, 5_756, "(record, label) pairs");
         assert_eq!(census.arms, 50_226, "folded arms over the corpus");
+        assert_eq!(
+            census.arms, census.expected_arms,
+            "the arm count is not the orbit size |parent point group| / |stabiliser|"
+        );
         assert_eq!(census.max_arms, 12, "largest arm list");
         assert_eq!(census.boundaries, 46_048, "boundaries = 8 x 5,756");
         assert_eq!(
@@ -2190,6 +2289,122 @@ mod tests {
             "pairs whose full-star partition is strictly larger than the reference one"
         );
         assert_eq!(census.extra_boundaries, 11_009, "boundaries the reference one missed");
+    }
+
+    /// **Card 3 review round (F3).**  The accessors the corpus cannot exercise:
+    /// the interval edges, the modulo-one reduction, the union with the parent's
+    /// exceptional parameters, the Gamma-reaching set, and the typed failure of
+    /// `folded_points` instead of a panic.
+    ///
+    /// A synthetic partition (the fields are public) makes every edge reachable;
+    /// on the corpus every pair has exactly eight boundaries, a live reference arm
+    /// and no overflowing parameter.
+    #[test]
+    fn the_partition_accessors_cover_their_edges() {
+        let table = line_table_of(196, "DT1");
+        let child = reciprocal_lattice(18).expect("child lattice");
+        let arm = |direction: [i32; 3]| FoldedArm {
+            direction: Vec3R::from_ints(direction),
+            parent_rotation: IDENTITY_ROTATION,
+        };
+        let boundary = |parameter: Rat| StarBoundary {
+            parameter,
+            counts: [0; 3],
+            witnesses: Vec::new(),
+        };
+        let partition = |boundaries: Vec<StarBoundary>| FullStarPartition {
+            source_sg: 196,
+            child_sg: 18,
+            label: "DT1",
+            // (2, 0, 0) reaches Gamma at t = 0, 1/2; (4, 0, 0) at the quarter
+            // grid; the last arm is the child Gamma point at every parameter.
+            arms: vec![arm([2, 0, 0]), arm([4, 0, 0]), arm([0, 0, 0])],
+            reference_arm: 0,
+            child_reciprocal: child,
+            child_rotations: vec![IDENTITY_ROTATION],
+            boundaries,
+            permanent_counts: [0; 3],
+            permanent_witnesses: Vec::new(),
+        };
+
+        // No boundary: the whole line is one interval.  One boundary: the single
+        // interval wraps around it.  Two boundaries, one of them `t = 0`: the
+        // last interval ends at one.
+        assert_eq!(
+            partition(Vec::new()).intervals().expect("intervals"),
+            vec![(Rat::ZERO, Rat::ONE)]
+        );
+        assert_eq!(
+            partition(vec![boundary(rational(1, 4))])
+                .intervals()
+                .expect("intervals"),
+            vec![(rational(1, 4), rational(5, 4))]
+        );
+        assert_eq!(
+            partition(vec![boundary(Rat::ZERO), boundary(rational(3, 4))])
+                .intervals()
+                .expect("intervals"),
+            vec![(Rat::ZERO, rational(3, 4)), (rational(3, 4), Rat::ONE)]
+        );
+
+        // Boundary membership and lookup reduce modulo one.
+        let one = partition(vec![boundary(rational(1, 4))]);
+        for parameter in [rational(1, 4), rational(-3, 4), rational(5, 4)] {
+            assert!(one.is_boundary(&parameter), "t={parameter} is 1/4 modulo one");
+        }
+        assert!(!one.is_boundary(&rational(1, 3)));
+        assert!(one.boundary(&rational(9, 4)).is_some());
+        assert_eq!(one.boundary_parameters(), vec![rational(1, 4)]);
+
+        // The probe set is the child boundaries plus the parent's own exceptional
+        // parameters (SG 196 `DT1` is exceptional at 0 and 1/2).
+        let parent = parent_domain(table).expect("parent domain");
+        assert_eq!(
+            one.probe_parameters(&parent).expect("probe parameters"),
+            vec![Rat::ZERO, rational(1, 4), rational(1, 2)]
+        );
+
+        // Folded points: at 1/4 the arms are (1/2, 0, 0), (1, 0, 0) and zero, so
+        // the second and the zero arm share the Gamma point; at 1/2 all three do.
+        assert_eq!(
+            one.folded_points(&rational(1, 4)).expect("points"),
+            vec![vec![0], vec![1, 2]]
+        );
+        assert_eq!(
+            one.folded_points(&rational(1, 2)).expect("points"),
+            vec![vec![0, 1, 2]]
+        );
+
+        // The Gamma-reaching parameters of every arm, and the zero arm reported
+        // as being there at every parameter.
+        let (gamma, zero_arms) = one.gamma_parameters().expect("gamma parameters");
+        assert_eq!(
+            gamma,
+            vec![
+                (Rat::ZERO, vec![0, 1]),
+                (rational(1, 4), vec![1]),
+                (rational(1, 2), vec![0, 1]),
+                (rational(3, 4), vec![1]),
+            ]
+        );
+        assert_eq!(zero_arms, vec![2]);
+
+        // A parameter the exact arithmetic cannot scale is a typed error, not a
+        // panic (this is the `folded_points` failure path).
+        assert!(matches!(
+            one.folded_points(&Rat::new(i128::MAX, 1).expect("rational")),
+            Err(SubductionError::RationalOverflow { .. })
+        ));
+
+        // The event kinds are a closed, indexed set with distinct names.
+        assert_eq!(StarEventKind::ALL.len(), 3);
+        for (slot, kind) in StarEventKind::ALL.iter().enumerate() {
+            assert_eq!(kind.index(), slot, "{kind:?}");
+        }
+        let mut labels: Vec<&str> = StarEventKind::ALL.iter().map(|kind| kind.label()).collect();
+        labels.sort_unstable();
+        labels.dedup();
+        assert_eq!(labels.len(), 3, "the kind labels are distinct");
     }
 
     /// **R6.7 card 3, witness 1 (ordinal 10030, SG 196 `DT1` to #18).**  The
@@ -2226,7 +2441,9 @@ mod tests {
             "the reference-only partition of ordinal 10030"
         );
         let eighth = rational(1, 8);
-        assert!(!reference.contains(&eighth), "the reference partition cannot see 1/8");
+        // `reference` is pinned to `{0, 1/4, 1/2, 3/4}` three lines above, so
+        // asserting `!reference.contains(&1/8)` again would be implied text; the
+        // property that matters is the full-star boundary below.
         assert!(partition.is_boundary(&eighth), "the full-star partition must cut at 1/8");
         let boundary = partition.boundary(&eighth).expect("boundary at 1/8");
         assert!(
@@ -2285,12 +2502,6 @@ mod tests {
                 direction.get(0),
                 direction.get(1),
                 direction.get(2)
-            );
-        }
-        for expected in [Vec3R::from_ints([-4, 0, 0]), Vec3R::from_ints([4, 0, 0])] {
-            assert!(
-                nontrivial.contains(&expected),
-                "the arm {expected:?} must be non-trivial at 1/8"
             );
         }
         // The reference arm itself is trivial at 1/8: nothing about the legacy

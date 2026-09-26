@@ -30,7 +30,11 @@ use crate::irrep::types::{
     CharacterRow, CompoundSelectedArmCharacter, IrrepRecord, IrrepSourceIdentity, IsotropyRecord,
     KVector, SeitzOperation,
 };
-use crate::mathfunc::Mat3I;
+// Re-exported so that the public signatures of this module (`rotation_set`,
+// `FoldedArm`, `StarEvent`, `FullStarPartition`) can be named by an external
+// crate; an external example could not spell the alias while this was a private
+// import (card-3 audit round, F7).
+pub use crate::mathfunc::Mat3I;
 use num_complex::Complex64;
 
 #[path = "subduction_star.rs"]

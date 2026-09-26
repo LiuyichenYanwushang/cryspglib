@@ -176,7 +176,8 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > ③ **P2 边界审计跨块混用证据**：cocycle 取自参考折叠点，而 `TargetClass::Constructed`
 > 只表示"某个块含构造目标"。见证——ordinal 13688（SG 225 `SM1` → #134，`t=1/8`）非平凡
 > 阶 16 块全为 stored，构造目标在别的块。逐块重算后更正为 **192 / 0 / 0**（原报
-> 292 / 44 / 4，即"构造的非平凡类 340 个"作废；新全表统计不得预先钉成 192，需重测）。
+> 292 / 44 / 4，即"构造的非平凡类 340 个"作废；外部审查给出的逐块口径是 `192 / 0 / 0`，
+> 但本条**不是**已验证数字——卡 4 必须重测并以其测量值为准）。
 > 另有措辞错误：`w ∈ L*` **不**蕴含对每个实数 `t` 都有 `t·w ∈ L*`（只在 `sZ` 上成立）。
 
 **执行顺序：更正声明 → 修复同群比较 → 完整分区 → 逐块统计 → 正确的域内匹配 → 门禁 →
@@ -195,7 +196,8 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   **结果**：模块文档 / coverage §4b / 本文件 §2 B 三处均已按此改写，两个见证（10030、10038
   均在 `t=1/8`）写在原处并注明"待完整分区后验证"；成员资格版本的错误解释按"空条件 +
   51,804 中失败 4,877"改写、"24,430"（不可复现，按描述是 5,117）原地撤销、边界统计
-  `292/44/4 = 340` 撤回为逐块 `192/0/0`（卡 4 重测）；`--domain-sweep` 草稿留在分支
+  `292/44/4 = 340` 撤回（外部审查的逐块口径是 `192/0/0`，尚未由本方复算：卡 4 重测）；
+  `--domain-sweep` 草稿留在分支
   `wip/domain-sweep`（`42ee4c5`）。
 * **卡 2（同群比较）✅ 已完成（`2f1e03f`）** 涉及 `subduction_catalogue.rs`、`subduction_line_domain.rs`，必要时
   在 `subduction_star.rs` 加错误类型。`cohomologous_to` 改为：① 按精确旋转矩阵建立两边
@@ -508,6 +510,44 @@ co-group 的精确支持域。
   **"其中 292/44/4 需构造、合计 340"已撤回**：cocycle 在参考折叠点算，而
   `TargetClass::Constructed` 只说明某个块有构造目标（见证 ordinal 13688，SG 225 `SM1`
   → #134 @ `t=1/8`）；逐块重算为 192/0/0，新清点见 R6.7 卡 4。仍待 M2.3：域内细网格重算作为引擎侧经验控制。
+* **R6.7 卡 3 审核轮（审计审核，隔离 worktree + 独立 target，针对 `470ae2a`）**：**无 P0**，
+  1×P1 + 7×P2，全部接受并处理（本提交）：
+  ① **P1：撤销数字未标全**。`examples/line_domain_census.rs` 里"measured: 24,430 violations"
+  仍以实测口径出现（其余四处都已标撤销）；已改写为"空条件 + 51,804 中失败 4,877、
+  24,430 按描述不可复现（描述给 5,117）、撤销"。该文件当时正被卡 4 使用，所以这条修复随
+  卡 4 一并落地。
+  ② **P2：三个零检测力断言**（就是第五轮判为 P1 的 `f(x)==f(x)` 形态）：语料回归里逐臂
+  重跑生产路径的倒格成员资格判定（越界早在 `full_star_partition` 内 fail-closed）、
+  "参考臂方向 == 折叠后的冻结方向"（`reference_arm` 就是按这个等式选的）、以及由
+  `assert_eq!(reference, {0,1/4,1/2,3/4})` 蕴含的 `!contains(1/8)`。已改：前者的位置换成
+  **轨道–稳定子**独立计数 `Σ|rotation_set(parent)|/|冻结小群| == 50,226`（新字段
+  `expected_arms`，语料回归断言两路一致）；后两者删除并在原处注明理由。
+  ③ **P2：新 API 无调用者/无测试**（`probe_parameters`、`intervals`、`StarEventKind::ALL/label`、
+  `folded_points` 错误路径、`boundary` 的 mod 1 归约）。新增合成分区单测
+  `the_partition_accessors_cover_their_edges`（空 / 单边界 / 环绕区间、`t±1` 与 `9/4` 查询、
+  与母群例外参数的并集、折叠点分组、Γ 到达集合与零方向臂、`i128::MAX` 参数返回
+  `RationalOverflow` 而非 panic、三种事件的 `index`/`label` 一致）；`--lib line_domain` 现 **20 项**。
+  ④ **P2：不可达守卫**。`arm_images` 不可能返回空表（群含恒等元且 `deduplicate` 保非空）、
+  `reference_arm` 必命中、逐臂周期前提在语料上 0/5,756 失败——三处已在原处标为
+  **防御性守卫**而不是活路径。
+  ⑤ **P2：作用域措辞**。模块文档与 §2 B 的"1,006 folded child directions"更正为
+  **1,006 记录 / 5,756 条 (记录,标号) 参考折叠方向 / 50,226 条臂**（1,006 是记录数）。
+  ⑥ **P2：交接文档仍在推荐已撤销的做法**。`docs/handoff-2026-09-26-line-subduction.md`
+  第 5 步（"每域一个代表点"）已加 **Superseded** 说明并指向 §3b 卡 3–6 与 §4b 的撤回。
+  ⑦ **P2：外部不可命名 `Mat3I`**。新公开签名暴露了 `irrep::subduction` 的私有导入别名；
+  现改为 `pub use crate::mathfunc::Mat3I`，外部 crate 可直接书写
+  `cryspglib::irrep::subduction::Mat3I`（审查者的示例正是被 E0603 挡住）。
+  ⑧ **P2：证据不可见**。语料回归现在先 `println!("{census:?}")` 再断言，
+  `--nocapture` 可直接读到全部钉值。
+  **审查者复现的事实（留档）**：独立第二实现（自写 `(i,j,R_H)` 枚举，从不调用
+  `full_star_partition`）得到 records 1006 / pairs 5756 / arms 50226 / boundaries 46048 /
+  events [1039264, 1981608, 7474912] / permanent [27008, 0, 178036] / reference_parameters
+  35039 / pairs_with_extra 2273 / extra 11009，与提交信息逐项一致；三个变异全部复现
+  （母群旋转 437/2、只留 `i=j` 437/2 且 10030 仍过、只留参考臂 436/3），且**没有任何无关
+  测试被变异波及**（说明新控制不冗余、也没有"声称能看见却看不见"的）；`--tests` 23 个
+  二进制 **612 passed / 0 failed**、doctest 27、五个 example 组 40 项、三门禁与
+  `--projective-sample-sweep`（42 参数）全部 exit 0。**未验证（审查者明示）**：卡 4 的
+  192/0/0、卡 5–6 的引擎侧区间恒定、全局三门禁审计与 live oracle（本轮未声称）。
 * **R6.7 卡 3（2026-09-26）完整 full-star 参数分区**：外部审查的 P1 修复。新 API
   `line_domain::{arm_images, FoldedArm, StarEventKind, StarEvent, StarBoundary,
   FullStarPartition, full_star_partition}`、`decompose::line_star_geometry`；生产
