@@ -44,7 +44,7 @@ use cryspglib::irrep::subduction::star::line_domain::{
     minimal_parameter_step_via_coordinates, parent_domain, reciprocal_lattice,
     require_reciprocal_direction, rotation_set, verify_against_grid,
 };
-use cryspglib::irrep::subduction::{Rat, SubgroupEmbedding, fold_wave_vector};
+use cryspglib::irrep::subduction::{Rat, SubgroupEmbedding, Vec3R, fold_wave_vector};
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::irrep::{LabelConvention, isotropy, query};
 use rayon::prelude::*;
@@ -471,6 +471,91 @@ fn probe_record(
             failures,
         };
     };
+    // The child frame must be the child's own: the lattice and the rotation set
+    // are rebuilt from the embedding's subgroup, the lattice must be invariant
+    // under every rotation used, and the record's subgroup number must agree.
+    // Neither the grid check nor the two-algorithm comparison can see a wrong
+    // frame (both are fed the same lattice), so this is the only control that
+    // does; the mutations of the third review round are what it exists for.
+    if record.child_sg != embedding.subgroup_sg() {
+        failures.push(format!(
+            "ordinal {}: record child #{} != embedding subgroup #{}",
+            record.ordinal,
+            record.child_sg,
+            embedding.subgroup_sg()
+        ));
+    }
+    match reciprocal_lattice(embedding.subgroup_sg()) {
+        Ok(expected) => {
+            for (name, left, right) in [
+                ("rebuilt", &child_reciprocal, &expected),
+                ("expected", &expected, &child_reciprocal),
+            ] {
+                for row in 0..3 {
+                    let vector = Vec3R::new(*right.rows().row(row));
+                    if !left.contains(&vector).unwrap_or(false) {
+                        failures.push(format!(
+                            "ordinal {}: the {name} child lattice is not the embedding's \
+                             reciprocal lattice (row {row})",
+                            record.ordinal
+                        ));
+                    }
+                }
+            }
+        }
+        Err(error) => failures.push(format!(
+            "ordinal {}: no reciprocal lattice for child #{}: {error}",
+            record.ordinal,
+            embedding.subgroup_sg()
+        )),
+    }
+    match rotation_set(embedding.subgroup_sg()) {
+        Ok(expected) => {
+            if child_rotations != expected {
+                failures.push(format!(
+                    "ordinal {}: the child rotation set is not the embedding subgroup's",
+                    record.ordinal
+                ));
+            }
+        }
+        Err(error) => failures.push(format!(
+            "ordinal {}: no rotation set for child #{}: {error}",
+            record.ordinal,
+            embedding.subgroup_sg()
+        )),
+    }
+    for rotation in &child_rotations {
+        let Ok(action) = cryspglib::irrep::subduction::Mat3R::from_ints(*rotation).inverse()
+        else {
+            failures.push(format!("ordinal {}: child rotation is singular", record.ordinal));
+            continue;
+        };
+        let Ok(action) = action.transpose().inverse() else {
+            failures.push(format!("ordinal {}: child rotation is singular", record.ordinal));
+            continue;
+        };
+        for row in 0..3 {
+            let basis = Vec3R::new(*child_reciprocal.rows().row(row));
+            match action.checked_mul_vector(&basis) {
+                Ok(image) => match child_reciprocal.contains(&image) {
+                    Ok(true) => {}
+                    Ok(false) => failures.push(format!(
+                        "ordinal {}: child rotation {rotation:?} does not preserve the child \
+                         lattice (row {row})",
+                        record.ordinal
+                    )),
+                    Err(error) => failures.push(format!(
+                        "ordinal {}: child lattice test failed: {error}",
+                        record.ordinal
+                    )),
+                },
+                Err(error) => failures.push(format!(
+                    "ordinal {}: child rotation action failed: {error}",
+                    record.ordinal
+                )),
+            }
+        }
+    }
     for (label, pinned) in &record.labels {
         let Some(table) = line_table(record.parent_sg, label) else {
             failures.push(format!(
@@ -530,10 +615,7 @@ fn probe_record(
                         continue;
                     }
                 };
-                let (Ok(w), Ok(other)) = (
-                    image.checked_sub(&folded),
-                    image.checked_sub(&folded),
-                ) else {
+                let Ok(w) = image.checked_sub(&folded) else {
                     failures.push(format!(
                         "ordinal {}: child rotation difference failed",
                         record.ordinal
@@ -542,7 +624,7 @@ fn probe_record(
                 };
                 match (
                     minimal_parameter_step(&child_reciprocal, &w),
-                    minimal_parameter_step_via_coordinates(&child_reciprocal, &other),
+                    minimal_parameter_step_via_coordinates(&child_reciprocal, &w),
                 ) {
                     (Ok(scan), Ok(coordinates)) => {
                         child_algorithms.0 += 1;
@@ -845,16 +927,13 @@ fn step_algorithm_cross_check(
                     continue;
                 }
             };
-            let (Ok(w), Ok(other)) = (
-                image.checked_sub(&domain.direction),
-                image.checked_sub(&domain.direction),
-            ) else {
+            let Ok(w) = image.checked_sub(&domain.direction) else {
                 failures.push(format!("SG {sg} {label}: rotation difference failed"));
                 continue;
             };
             match (
                 minimal_parameter_step(&lattice, &w),
-                minimal_parameter_step_via_coordinates(&lattice, &other),
+                minimal_parameter_step_via_coordinates(&lattice, &w),
             ) {
                 (Ok(scan), Ok(coordinates)) => {
                     checks += 1;
@@ -1075,6 +1154,53 @@ fn check_invariants(
     if records.is_empty() {
         violations.push("no isotropy record carries parametric-k rows".to_string());
     }
+    // 7b. The frozen table is the generic stabiliser as a *set*, not only in
+    //     order: compare its rotations with those that fix the direction exactly.
+    for ((sg, label), domain) in domains {
+        let Ok(rotations) = rotation_set(*sg) else {
+            violations.push(format!("SG {sg} {label}: no rotation set"));
+            continue;
+        };
+        let mut generic_flat: Vec<Vec<i32>> = Vec::new();
+        for rotation in &rotations {
+            let Ok(image) = cryspglib::irrep::subduction::Mat3R::from_ints(*rotation)
+                .inverse()
+                .and_then(|matrix| matrix.transpose().checked_mul_vector(&domain.direction))
+            else {
+                violations.push(format!("SG {sg} {label}: rotation image failed"));
+                continue;
+            };
+            if image == domain.direction {
+                generic_flat.push(rotation.iter().flatten().copied().collect());
+            }
+        }
+        let Some(table) = line_table(*sg, label) else {
+            violations.push(format!("SG {sg} {label}: no frozen table"));
+            continue;
+        };
+        let mut frozen: Vec<Vec<i32>> = table
+            .operations
+            .iter()
+            .map(|operation| {
+                operation
+                    .rotation
+                    .iter()
+                    .flatten()
+                    .map(|value| i32::from(*value))
+                    .collect()
+            })
+            .collect();
+        generic_flat.sort();
+        frozen.sort();
+        if generic_flat != frozen {
+            violations.push(format!(
+                "SG {sg} {label}: the frozen rotation set is not the generic stabiliser \
+                 (generic {} vs frozen {} rotations)",
+                generic_flat.len(),
+                frozen.len()
+            ));
+        }
+    }
     // 8. The exact enumeration is cross-checked against the group itself on a
     //    uniform grid.  The two methods share only the lattice membership test.
     let mut grid_checks = 0usize;
@@ -1105,6 +1231,9 @@ fn check_invariants(
             "the enumeration disagrees with the group in {grid_mismatches} of \
              {grid_checks} grid predicates"
         ));
+    }
+    if grid_checks == 0 {
+        violations.push("the parent grid cross-check never ran".to_string());
     }
     println!("grid cross-check: {grid_checks} predicates, {grid_mismatches} mismatch(es)");
     // 7. The generic sample is never a formal parameter and never unsupported.

@@ -191,8 +191,12 @@ fn lcm(left: i128, right: i128) -> Result<i128, SubductionError> {
 /// The rational step generating `{ t : t . w in lattice }`, or `None` when `w`
 /// is zero (the operation fixes every point of the line).
 ///
-/// The returned step `s > 0` generates the solution subgroup, so the parameters
-/// in `[0, 1)` are the residues `j s mod 1`, `j = 0 .. denominator - 1`.
+/// The returned step `s > 0` generates the solution subgroup.  For `w` **in**
+/// `lattice` the parameters in `[0, 1)` are exactly the residues `j s mod 1`,
+/// `j = 0 .. denominator - 1`; for `w` outside the lattice the solution set is
+/// not periodic in `t`, so those residues are *not* the parameters and the
+/// public entry points refuse such a direction (see
+/// [`require_reciprocal_direction`]).
 pub fn minimal_parameter_step(
     lattice: &Lattice,
     w: &Vec3R,
@@ -505,7 +509,7 @@ pub fn child_candidates(
     }
     let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
     let child_reciprocal = child_cell.reciprocal()?;
-    require_reciprocal_direction(&child_reciprocal, folded, child_sg, "")?;
+    require_reciprocal_direction(&child_reciprocal, folded, child_sg, "folded direction")?;
     let rotations = rotation_set(child_sg)?;
     exceptional_parameters(&child_reciprocal, folded, &rotations)
 }
@@ -592,7 +596,6 @@ mod tests {
             // The order agreeing is not enough: the *rotation sets* must be the
             // same, otherwise the frozen table would describe a different
             // subgroup of the same size.
-            let lattice = reciprocal_lattice(table.space_group).expect("lattice");
             let rotations = rotation_set(table.space_group).expect("rotations");
             let mut generic: Vec<Mat3I> = Vec::new();
             for rotation in &rotations {
@@ -618,7 +621,6 @@ mod tests {
                 "SG {} {}: the frozen rotation set is not the generic stabiliser",
                 table.space_group, table.label
             );
-            let _ = &lattice;
             sources += 1;
         }
         assert_eq!(sources, 73, "the frozen corpus");

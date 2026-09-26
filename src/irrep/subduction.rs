@@ -269,14 +269,16 @@ pub enum SubductionError {
     /// merge parameters that must stay distinct.  The census fails closed instead
     /// of reporting such a domain.
     #[error(
-        "the direction of space group {sg} source {label} is not a reciprocal lattice vector, \
+        "the direction of space group {sg} ({label}) is not a reciprocal lattice vector, \
          so its parameter domain is not periodic and out of scope"
     )]
     ParameterDomainOutOfScope {
         /// Space group the direction belongs to (parent for a line source, the
         /// child for a folded direction).
         sg: u8,
-        /// Frozen source label, or the empty string for a folded direction.
+        /// What the direction belongs to: the frozen source label for a line
+        /// source, `"folded direction"` for a folded one.  Never empty, so the
+        /// message cannot collapse into a double space.
         label: &'static str,
     },
 }
