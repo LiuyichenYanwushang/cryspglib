@@ -639,6 +639,16 @@ co-group 的精确支持域。
   把点换成 `(1,2,3)` 仍 4/4 通过）——已删除并注明；⑤ 措辞四处：代表点 vs 共轭点、11,009 的
   三元组口径与 1,278 重复探针、2,449 的变异作用域、`192/0/0` 归因属于推断（见上）。
   **未修（记为残余，交给卡 5/6）**：recount 没有逐探针产物（审核 F9 建议 `--output-recount`）。
+  **卡 4 第二轮审核（验证 `79e67fc`，隔离 worktree，无 P0，1×P1 + 9×P2，全部处理）**：P1 =
+  `carries_reference` **未绑定**——构造后把该标志搬到同 probe 的最后一个块，门禁仍 exit 0，而
+  头号订正表从 4138/192/0 变成 4146/184/0；现在 `EngineBlock` 还带 `little_dimension`（引擎自己
+  的 Σ 维数×重数，独立于逐目标重数）、`representative`/`q`、`carries_reference`/`carries_gamma`，
+  `check_blocks` 逐字段比对，并且**订正边界表本身**（4,330 探针、4138/192/0、逐阶 3068/192、
+  936/0、134/0）与 recount 总数（11,009 / 27,507 / 28 几何 / 1,692 对）都钉成门禁断言；
+  `--output-blocks` 的**表头**改为与写入端**独立**的字面量比对（共用 const 时改表头两侧一起动、
+  看不见）。**新变异验证（本方复跑）**：搬移 `carries_reference` → exit 1（29,274 violations）；
+  recount 置空 → exit 1（`probed 0 parameter(s), expected 11009`）；`little_dimension` 改坏 →
+  exit 1（80,293）；表头换列 → exit 1（报文逐字给出表头差异）。残余仍只有 `--output-recount`。
   **新变异验证（本方复跑）**：记录来源翻转 → exit 1（引擎绑定）；重数 +1 → exit 1（同一绑定）；
   TSV 星大小 +1 → exit 1 / 80,293 条读回 violation；Γ 丢 `t=0` → exit 1（`expected 23024`）。
 * **R6.7 卡 3（2026-09-26）完整 full-star 参数分区**：外部审查的 P1 修复。新 API

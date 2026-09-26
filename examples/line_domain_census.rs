@@ -83,6 +83,13 @@ use std::io::{BufWriter, Write as _};
 use std::process::ExitCode;
 use std::sync::Mutex;
 
+/// The `--output-blocks` header, shared by the writer and the read-back so the
+/// column names are validated too (verification review F3: swapping two header
+/// names left the gate green).
+const BLOCK_TSV_HEADER: &str = "ordinal\tparent_sg\tchild_sg\tlabel\tparameter\tindex\t\
+star_size\tarm_count\tarm_indices\tblock_dimension\tlittle_co_group\t\
+cocycle_trivial\tblock_source\tterms\tcarries_reference\tcarries_gamma";
+
 const USAGE: &str = "\
 line_domain_census [--gate] [--require-covered] [--full-star-recount] [--sequential]
                    [--output <path>] [--output-blocks <path>]
@@ -411,19 +418,45 @@ struct EngineBlock {
     arm_count: usize,
     arm_indices: Vec<usize>,
     block_dimension: u32,
+    /// `Σ dimension × multiplicity` through the engine's **own** bookkeeping
+    /// (`FullStarBlock::little_dimension`), which is computed from the solved
+    /// targets rather than re-summed here: the independent route to the
+    /// per-target terms the verification review asked for.
+    little_dimension: u32,
     source: BlockSource,
     stored_targets: usize,
     target_count: usize,
     terms: Vec<(u8, u32)>,
+    /// The representative the engine reports, and the folded coordinate it was
+    /// read at.  Without these a post-construction move of the recorded
+    /// `representative_point` was invisible (verification review F4).
+    representative: usize,
+    q: Vec3R,
+    /// Whether the block carries the reference folded point / reaches Gamma,
+    /// recomputed here from the engine's own points.  Both were unbound before
+    /// (verification review F1/F5), and the unbound `carries_reference` was what
+    /// let a swap move the headline corrected table from 4138/192/0 to
+    /// 4146/184/0 with a green gate.
+    carries_reference: bool,
+    carries_gamma: bool,
 }
 
 /// Read one engine block's own statistics.
-fn engine_block(block: &FullStarBlock) -> EngineBlock {
+fn engine_block(block: &FullStarBlock, reference_point: &Vec3R, child_reciprocal: &Lattice) -> EngineBlock {
+    let mut carries_reference = false;
+    let mut carries_gamma = false;
+    for point in block.points() {
+        carries_gamma |= child_reciprocal.contains(point.q()).unwrap_or(false);
+        carries_reference |= child_reciprocal
+            .same_mod(point.q(), reference_point)
+            .unwrap_or(false);
+    }
     EngineBlock {
         star_size: block.points().len(),
         arm_count: block.points().iter().map(|point| point.arm_count()).sum(),
         arm_indices: block.arm_indices(),
         block_dimension: block.block_dimension(),
+        little_dimension: block.little_dimension(),
         source: classify_block(block.targets()),
         stored_targets: block
             .targets()
@@ -436,6 +469,10 @@ fn engine_block(block: &FullStarBlock) -> EngineBlock {
             .iter()
             .map(|target| (target.dimension, target.multiplicity))
             .collect(),
+        representative: block.representative(),
+        q: *block.q(),
+        carries_reference,
+        carries_gamma,
     }
 }
 
@@ -638,13 +675,7 @@ fn run() -> Result<ExitCode, String> {
             )),
         };
         if let Some(writer) = writer.as_mut() {
-            writeln!(
-                writer,
-                "ordinal\tparent_sg\tchild_sg\tlabel\tparameter\tindex\tstar_size\tarm_count\t\
-                 arm_indices\tblock_dimension\tlittle_co_group\tcocycle_trivial\tblock_source\t\
-                 terms\tcarries_reference\tcarries_gamma"
-            )
-            .map_err(|error| error.to_string())?;
+            writeln!(writer, "{BLOCK_TSV_HEADER}").map_err(|error| error.to_string())?;
         }
         for probe in &probes {
             for block in &probe.blocks {
@@ -699,6 +730,19 @@ fn run() -> Result<ExitCode, String> {
             // Every data row is also **parsed** and compared with the statistic
             // it came from: a row count alone did not notice the card-4 audit's
             // `star_size + 1` mutation, which left the file the right length.
+            // A separate literal, deliberately **not** the writer's own const: two
+            // independent definition sources are what makes a changed header
+            // visible (with the shared const, swapping two names moved both sides
+            // together and stayed green).
+            const EXPECTED_HEADER: &str = "ordinal\tparent_sg\tchild_sg\tlabel\tparameter\t\
+index\tstar_size\tarm_count\tarm_indices\tblock_dimension\tlittle_co_group\t\
+cocycle_trivial\tblock_source\tterms\tcarries_reference\tcarries_gamma";
+            if text.lines().next() != Some(EXPECTED_HEADER) {
+                block_file_failures.push(format!(
+                    "the --output-blocks header is {:?}, expected {EXPECTED_HEADER:?}",
+                    text.lines().next().unwrap_or("")
+                ));
+            }
             let mut written = text.lines().skip(1);
             let mut rows = 0usize;
             for (probe, block) in probes
@@ -742,6 +786,8 @@ fn run() -> Result<ExitCode, String> {
         block_rows,
         block_file_rows,
         gamma: &gamma,
+        recount: &recount_report,
+        recount_ran: recount,
     };
     report(
         &domains,
@@ -961,6 +1007,31 @@ fn run() -> Result<ExitCode, String> {
                 "the corrected boundary census lost {missing_reference_blocks} non-trivial-class \
                  probe(s) whose reference point no block carries"
             ));
+        }
+        // The corrected table is the card-4 deliverable, so it is **pinned**, not
+        // only printed: the verification review's `carries_reference` swap rewrote
+        // it to 4146/184/0 (per-child-order 2/4/8/16 rows moved) with a green gate.
+        if non_trivial != 4_330 || corrected_totals != [4_138, 192, 0] {
+            violations.push(format!(
+                "the corrected boundary table is {}/{}/{} over {non_trivial} non-trivial-class \
+                 probe(s), expected 4138/192/0 over 4330",
+                corrected_totals[0], corrected_totals[1], corrected_totals[2]
+            ));
+        }
+        for (order, expected) in [(4usize, [3_068usize, 192, 0]), (8, [936, 0, 0]), (16, [134, 0, 0])] {
+            let mut found = [0usize; 3];
+            for ((found_order, source), count) in &corrected {
+                if *found_order == order {
+                    found[source.index()] += count;
+                }
+            }
+            if found != expected {
+                violations.push(format!(
+                    "the corrected boundary table at child order {order} is {}/{}/{}, expected \
+                     {}/{}/{}",
+                    found[0], found[1], found[2], expected[0], expected[1], expected[2]
+                ));
+            }
         }
     }
 
@@ -2202,6 +2273,18 @@ fn probe_record(
             cache,
         };
         for (parameter, census_order) in parameters {
+            // The reference folded point the engine binding needs, computed with
+            // the same helper the statistics use (`scale_point`).
+            let reference_point_for_engine = match scale_point(&folded, &parameter) {
+                Ok(point) => point,
+                Err(error) => {
+                    failures.push(format!(
+                        "ordinal {} {label} t={parameter}: the reference folded point: {error}",
+                        record.ordinal
+                    ));
+                    continue;
+                }
+            };
             let child_order = if folded.is_zero() {
                 child_rotations.len()
             } else {
@@ -2274,8 +2357,17 @@ fn probe_record(
                     failures.extend(block_failures);
                     // The engine's own reading of the same blocks, kept so the
                     // gate can bind every recorded statistic to it.
-                    let engine_blocks: Vec<EngineBlock> =
-                        result.blocks().iter().map(engine_block).collect();
+                    let engine_blocks: Vec<EngineBlock> = result
+                        .blocks()
+                        .iter()
+                        .map(|block| {
+                            engine_block(
+                                block,
+                                &reference_point_for_engine,
+                                block_context.child_reciprocal,
+                            )
+                        })
+                        .collect();
                     let targets: Vec<_> = result
                         .blocks()
                         .iter()
@@ -2415,6 +2507,11 @@ struct CensusEvidence<'a> {
     /// audit showed that dropping the `t = 0` entries left a self-contradictory
     /// printout and a green gate.
     gamma: &'a GammaReport,
+    /// The full-star recount aggregate, and whether the pass was requested at all.
+    /// Without the "ran" flag a mutation that made the pass vacuous left the gate
+    /// green while it printed `full-star recount: not run` (verification review F6).
+    recount: &'a RecountReport,
+    recount_ran: bool,
 }
 
 /// Compare one written `--output-blocks` row against the statistic it came from.
@@ -2957,9 +3054,9 @@ fn check_invariants(
     }
     if evidence.gamma.contained != evidence.gamma.entries {
         violations.push(format!(
-            "{} of {} Gamma entr(ies) are not full-star boundaries",
-            evidence.gamma.entries.saturating_sub(evidence.gamma.contained),
-            evidence.gamma.entries
+            "the Gamma enumeration reports {} contained of {} entr(ies); every entry must be a \
+             full-star boundary",
+            evidence.gamma.contained, evidence.gamma.entries
         ));
     }
     if evidence.gamma.exceptional != 0 {
@@ -2979,6 +3076,42 @@ fn check_invariants(
         violations.push(format!(
             "the Gamma parameter-set shapes cover {gamma_pairs} (record, label) pairs, expected 5756"
         ));
+    }
+    if evidence.gamma.shapes.len() != 8 {
+        violations.push(format!(
+            "the Gamma parameter-set shapes number {}, expected 8",
+            evidence.gamma.shapes.len()
+        ));
+    }
+    // The full-star recount pass, when it was requested, must have run and must
+    // reproduce its corpus totals -- otherwise a mutation can turn it into a no-op
+    // and the gate keeps passing (verification review F6).
+    if evidence.recount_ran {
+        if evidence.recount.probes != 11_009 {
+            violations.push(format!(
+                "the full-star recount probed {} parameter(s), expected 11009",
+                evidence.recount.probes
+            ));
+        }
+        if evidence.recount.blocks != 27_507 {
+            violations.push(format!(
+                "the full-star recount classified {} block(s), expected 27507",
+                evidence.recount.blocks
+            ));
+        }
+        if evidence.recount.geometries.len() != 28 {
+            violations.push(format!(
+                "the full-star recount saw {} distinct block geometr(ies), expected 28",
+                evidence.recount.geometries.len()
+            ));
+        }
+        if evidence.recount.changed_pairs.len() != 1_692 {
+            violations.push(format!(
+                "the full-star recount changed {} (record, label) pair(s) against t = 1/7, \
+                 expected 1692",
+                evidence.recount.changed_pairs.len()
+            ));
+        }
     }
     if evidence.algorithm_mismatches > 0 {
         violations.push(format!(
@@ -3352,6 +3485,13 @@ fn check_blocks(probes: &[Probe], evidence: &CensusEvidence, violations: &mut Ve
                     probe.ordinal, probe.label, probe.parameter
                 )),
                 Some(engine) => {
+                    let recorded_little: u32 = block
+                        .terms
+                        .iter()
+                        .map(|(dimension, multiplicity)| {
+                            u32::from(*dimension).saturating_mul(*multiplicity)
+                        })
+                        .sum();
                     if block.star_size != engine.star_size
                         || block.arm_count != engine.arm_count
                         || block.arm_indices != engine.arm_indices
@@ -3360,9 +3500,14 @@ fn check_blocks(probes: &[Probe], evidence: &CensusEvidence, violations: &mut Ve
                         || block.stored_targets != engine.stored_targets
                         || block.target_count != engine.target_count
                         || block.terms != engine.terms
+                        || block.representative_point != engine.q
+                        || block.carries_reference != engine.carries_reference
+                        || block.carries_gamma != engine.carries_gamma
                     {
                         violations.push(format!(
-                            "ordinal {} {} t={}: block {index} records star/arms/dimension                              {}/{}/{} and source {}/{} of {} with terms {:?}, but the engine                              block is {}/{}/{} and {}/{} of {} with terms {:?}",
+                            "ordinal {} {} t={}: block {index} records star/arms/dimension \
+                             {}/{}/{} and source {}/{} of {} with terms {:?}, but the engine \
+                             block is {}/{}/{} and {}/{} of {} with terms {:?}",
                             probe.ordinal,
                             probe.label,
                             probe.parameter,
@@ -3380,6 +3525,47 @@ fn check_blocks(probes: &[Probe], evidence: &CensusEvidence, violations: &mut Ve
                             engine.stored_targets,
                             engine.target_count,
                             engine.terms,
+                        ));
+                        violations.push(format!(
+                            "ordinal {} {} t={}: block {index} differs from the engine in \
+                             carries_reference {}/{} and carries_gamma {}/{} and representative \
+                             point {:?}/{:?}",
+                            probe.ordinal,
+                            probe.label,
+                            probe.parameter,
+                            block.carries_reference,
+                            engine.carries_reference,
+                            block.carries_gamma,
+                            engine.carries_gamma,
+                            block.representative_point,
+                            engine.q,
+                        ));
+                    }
+                    // The engine's own little-group bookkeeping is a second route
+                    // to the recorded per-target terms (`Σ dim × mult`), so a
+                    // consistent `multiplicity + 1` in both readings still shows
+                    // up here (verification review F2).
+                    if recorded_little != engine.little_dimension {
+                        violations.push(format!(
+                            "ordinal {} {} t={}: block {index} records terms {:?} summing to \
+                             {recorded_little}, but the engine's little-group dimension is {}",
+                            probe.ordinal,
+                            probe.label,
+                            probe.parameter,
+                            block.terms,
+                            engine.little_dimension
+                        ));
+                    }
+                    // A representative outside the star it indexes would make the
+                    // point-class re-read below meaningless (verification review
+                    // F4: moving `representative_point` to the last point of the
+                    // block was invisible).
+                    if block.star_size == 0 || engine.representative >= block.star_size {
+                        violations.push(format!(
+                            "ordinal {} {} t={}: block {index} has star size {} but the engine's \
+                             representative is {}",
+                            probe.ordinal, probe.label, probe.parameter, block.star_size,
+                            engine.representative
                         ));
                     }
                 }
@@ -3772,6 +3958,7 @@ mod tests {
         let table = line_table(record.parent_sg, "DT1").expect("the frozen DT1 table");
         for (parameter, expected) in [
             (rational(1, 9), vec![1usize, 1, 1, 1, 1, 1]),
+            (rational(1, 7), vec![1, 1, 1, 1, 1, 1]),
             (rational(1, 8), vec![1, 1, 2, 2]),
         ] {
             let geometry = line_star_geometry(&record.subgroup, &embedding, table, parameter)
@@ -3792,6 +3979,7 @@ mod tests {
         // just below.
         for (parameter, expected) in [
             (rational(1, 9), vec![1usize, 1, 1, 1, 1, 1]),
+            (rational(1, 7), vec![1, 1, 1, 1, 1, 1]),
             (rational(1, 8), vec![1, 1, 2, 2]),
         ] {
             let result =
@@ -3801,6 +3989,25 @@ mod tests {
                 result.blocks().iter().map(|block| block.arm_count()).collect();
             counts.sort_unstable();
             assert_eq!(counts, expected, "the engine's blocks at t={parameter}");
+            // The reported terms are pinned too, so the census test does not defer
+            // the whole structure to the library test (verification review F10).
+            let expected_terms: Vec<(u8, u32)> = if expected.len() == 6 {
+                vec![(1, 1); 6]
+            } else {
+                vec![(1, 1), (1, 1), (1, 2), (1, 2)]
+            };
+            let mut terms: Vec<(u8, u32)> = result
+                .blocks()
+                .iter()
+                .flat_map(|block| {
+                    block
+                        .targets()
+                        .iter()
+                        .map(|target| (target.dimension, target.multiplicity))
+                })
+                .collect();
+            terms.sort_unstable();
+            assert_eq!(terms, expected_terms, "the engine's terms at t={parameter}");
             // No per-block class or order assertion here: the child is P1, so
             // `point_cocycle_is_a_coboundary(1, _)` and
             // `point_little_co_group_order(1, _)` are constant at *every* point by
