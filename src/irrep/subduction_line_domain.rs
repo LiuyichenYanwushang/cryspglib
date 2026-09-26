@@ -105,20 +105,49 @@
 //! the theorem that "the only parameter dependence left in the decomposition is
 //! the gauge, so the multiplicities are constant on each domain and one
 //! representative parameter per domain suffices".  That is **withdrawn**
-//! (external review, 2026-09-26, accepted): the partition implemented here is
-//! generated from the **reference** folded direction only, while the reported
-//! decomposition depends on the whole star — every folded arm's own little
-//! co-group and every pairwise arm identification.  Corpus witnesses: ordinal
+//! (external review, 2026-09-26, accepted): the partition it referred to is
+//! generated from the **reference** folded direction only
+//! ([`child_exceptional_parameters`]), while the reported decomposition depends
+//! on the whole star — every folded arm's own little co-group and every pairwise
+//! arm identification.  Corpus witnesses, both now permanent regressions: ordinal
 //! 10030 (SG 196 `DT1` to #18) has reference candidates `{0, 1/4, 1/2, 3/4}` yet
 //! another folded arm acquires an order-four little co-group with a
 //! **non-trivial** cocycle at `t = 1/8`; ordinal 10038 (SG 196 `DT1` to P1) keeps
 //! every child little group trivial yet its arms merge at `t = 1/8` (six
 //! one-dimensional blocks of multiplicity one at `1/9` and `1/7`, four blocks of
-//! multiplicities 2, 1, 1, 2 at `1/8`).  The complete full-star partition —
-//! `t (R_H^{-T} v_i - v_i) in L*_H` for every arm and `t (R_H^{-T} v_i - v_j) in
-//! L*_H` for every ordered pair — and the multiplicity check on it are the R6.7
-//! cards recorded in `AGENTS.md`.  Until that partition exists the
-//! decomposition-constancy claim is **not** supported by this module.
+//! multiplicities 2, 1, 1, 2 at `1/8`).
+//!
+//! # The full-star partition
+//!
+//! [`full_star_partition`] replaces the reference-only reading: the predicates
+//! `t (R_H^{-T} v_i - v_i) in L*_H` for every folded arm and
+//! `t (R_H^{-T} v_i - v_j) in L*_H` for every ordered arm pair and every child
+//! rotation, all solved with the same exact step solver, with a zero difference
+//! recorded as a relation that holds on the whole domain instead of as a
+//! boundary.  Every parameter of `[0, 1)` is then either a boundary or inside one
+//! open interval on which the folded geometry — which arms share a point, which
+//! points share a child star, and every point's little co-group — is constant,
+//! because each of those quantities is a truth value of one of the enumerated
+//! predicates.  On such an interval no rotation enters a little co-group, so every
+//! arm's rotations fix its direction *exactly* and the local theorem above makes
+//! that arm's factor system a coboundary at every parameter of the interval: the
+//! projective content cannot change between boundaries either.
+//!
+//! Measured on the corpus (the permanent regression
+//! `the_full_star_partition_of_the_frozen_corpus_is_the_eighth_grid`): the
+//! partition of all 5,756 `(record, label)` pairs is exactly the eighth grid
+//! `{0, 1/8, 1/4, 3/8, 1/2, 5/8, 3/4, 7/8}`, 2,273 of those pairs are strictly
+//! larger than the reference-only candidate set, and every one of the 50,226
+//! folded arms is a child reciprocal lattice vector (the periodicity premise, now
+//! checked per **arm** and not only for the reference direction).
+//!
+//! What the partition does **not** carry is the engine-side control: that the
+//! reported multiplicities and target sources are constant on an interval, and
+//! that the `stored`/`constructed` provenance — which may change *inside* an
+//! interval, because a stored child `k` is hit at isolated parameters — does not
+//! change the decomposition.  That comparison is R6.7 cards 5-6 (`AGENTS.md`);
+//! until it runs, decomposition constancy rests on the derivation above and is
+//! not measured by this module.
 //!
 //! The theorem's own premise is the **child** side: the census gate counts, for
 //! every record and label, the rotations with `w_R = 0` and compares the count
@@ -138,6 +167,7 @@
 //! violations" quoted here before is not reproducible as described (the described
 //! count gives 5,117 pairs) and is withdrawn.
 
+use crate::irrep::isotropy::IsotropySubgroup;
 use crate::irrep::line_monodromy::line_direction;
 use crate::irrep::w_little_characters_data::LittleCharacterTable;
 
@@ -145,11 +175,15 @@ use super::{
     Lattice, Mat3I, Mat3R, Rat, StarError, SubductionError, SubgroupEmbedding, Vec3R,
     exact_primitive_basis, fold_wave_vector, strict_sg_hall_ops,
 };
+use super::decompose::FullStarError;
 
 /// Scan bound for the congruence on `j`; it only has to cover the possible
 /// exponents of a reciprocal lattice over `Z^3` (1 for P, 2 for A/B/C/I/F,
 /// 3 for R), so it is a constant of the centring classification.
 const CENTRING_SCAN: i128 = 6;
+
+/// The identity rotation, as the Hall data stores it.
+const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
 /// One parameter at which the little group of `k(t)` is strictly larger than the
 /// frozen one.
@@ -640,6 +674,15 @@ pub fn parent_domain(table: &LittleCharacterTable) -> Result<ParentDomain, Subdu
 /// The **candidate** parameters in `[0, 1)` of one isotropy record's folded
 /// wave vector, with the child little co-group order at each.
 ///
+/// **Reference direction only.**  This partitions the line by the folded frozen
+/// direction `T^T v` alone and therefore misses every relation between *other*
+/// arms (an arm gaining a little co-group, two arms merging, one arm's image
+/// landing on another).  It is kept because the census's historical probes and
+/// the R6.5/R6.6 numbers were built on it, and as the "reference" side of the
+/// card-3 regression; new code that needs the partition of the whole star must
+/// use [`full_star_partition`].  Measured: 2,273 of the 5,756 corpus pairs have a
+/// strictly larger full-star partition.
+///
 /// The folded wave vector is `q(t) = t . T^T v`, so the same exact computation
 /// applies in the child's reciprocal lattice with the child's own rotations.
 /// `t = 0` is a solution of *every* operation's condition, so it is always in the
@@ -705,6 +748,452 @@ pub fn little_co_group_order(
     Ok(order)
 }
 
+// ── The full-star partition ──────────────────────────────────────────────────
+
+/// The unreduced arms of a parametric-k line: `R^-T v` for every distinct parent
+/// rotation, deduplicated by **exact vector equality**.
+///
+/// This is the production arm list -- `decompose::line_arms` delegates here -- so
+/// the partition below and the engine cannot disagree about which arms a line
+/// has.  The exact (not modulo `L*`) reading is the frozen convention: the two
+/// readings differ on 2,574 arm pairs of the corpus and only the exact one
+/// reproduces the pinned full-star dimensions 73/73 (see
+/// `decompose::line_arms` for the measurement).
+///
+/// **Internal**: the list is a function of the parent group, its lattice and the
+/// direction; the public entry point is [`full_star_partition`].
+pub(crate) fn arm_images(
+    parent_sg: u8,
+    parent_lattice: &Lattice,
+    direction: &Vec3R,
+) -> Result<Vec<(Vec3R, Mat3I)>, SubductionError> {
+    let parent_ops = parent_lattice.deduplicate(&strict_sg_hall_ops(parent_sg)?.operations)?;
+    let mut arms: Vec<(Vec3R, Mat3I)> = Vec::new();
+    for operation in &parent_ops {
+        let rotation = operation.rotation();
+        let action = Mat3R::from_ints(rotation).inverse()?.transpose();
+        let image = action.checked_mul_vector(direction)?;
+        if arms.iter().any(|(arm, _)| *arm == image) {
+            continue;
+        }
+        arms.push((image, rotation));
+    }
+    Ok(arms)
+}
+
+/// One arm of a parametric-k line **in the child frame**.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FoldedArm {
+    /// `T^T (R^-T v)`: the direction whose `t`-multiple is this arm's wave
+    /// vector.  Unreduced, exactly as the engine uses it.
+    pub direction: Vec3R,
+    /// The parent rotation the arm came from; the arm's stable identity.
+    pub parent_rotation: Mat3I,
+}
+
+/// Which full-star relation a parameter boundary belongs to.
+///
+/// Every relation is one predicate `t (R^-T v_i - v_j) in L*_H`; the kind names
+/// which part of the folded geometry it can change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum StarEventKind {
+    /// `i == j`, `R != 1`: the child rotation `R` joins the little co-group of
+    /// arm `i`'s folded point, so that point's little co-group grows.
+    LittleCoGroupGrowth,
+    /// `i != j`, `R = 1`: two distinct arms fold onto the same child point.
+    ArmMerge,
+    /// `i != j`, `R != 1`: the image of arm `i` under `R` is arm `j`, so the two
+    /// folded points lie in one child star.
+    OrbitIdentification,
+}
+
+impl StarEventKind {
+    /// Every kind, in the order the counts arrays use.
+    pub const ALL: [Self; 3] = [
+        Self::LittleCoGroupGrowth,
+        Self::ArmMerge,
+        Self::OrbitIdentification,
+    ];
+
+    /// Position in a counts array.
+    pub const fn index(self) -> usize {
+        match self {
+            Self::LittleCoGroupGrowth => 0,
+            Self::ArmMerge => 1,
+            Self::OrbitIdentification => 2,
+        }
+    }
+
+    /// Short human-readable name, for the census report.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::LittleCoGroupGrowth => "little-co-group growth",
+            Self::ArmMerge => "arm merge",
+            Self::OrbitIdentification => "orbit identification",
+        }
+    }
+}
+
+/// One exact relation of the full-star partition: the predicate
+/// `t (R^-T v_arm - v_image) in L*_H`, with the arm and child rotation that
+/// trigger it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StarEvent {
+    /// Index into [`FullStarPartition::arms`].
+    pub arm: usize,
+    /// Index into [`FullStarPartition::arms`] whose point the image lands on.
+    pub image: usize,
+    /// The child rotation `R` of the relation.
+    pub rotation: Mat3I,
+    /// Which geometry the relation changes.
+    pub kind: StarEventKind,
+}
+
+/// One parameter at which at least one full-star relation becomes true.
+///
+/// `counts` are **exact** (how many `(arm, image, rotation)` triples hold exactly
+/// at this parameter); `witnesses` are bounded -- one per `(kind, arm)` pair --
+/// so a boundary such as `t = 0`, where every relation holds at once, cannot blow
+/// the partition up.  The geometry itself is recomputed from [`FoldArm`]s by the
+/// consumer (R6.7 card 6 checks it against the production grouping); the witness
+/// list is for the audit trail, not for the decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StarBoundary {
+    /// The exact parameter in `[0, 1)`.
+    pub parameter: Rat,
+    /// Exact counts, indexed by [`StarEventKind::index`].
+    pub counts: [usize; 3],
+    /// Bounded exact witnesses.
+    pub witnesses: Vec<StarEvent>,
+}
+
+/// The **full-star** parameter partition of one isotropy record: every parameter
+/// at which some relation between the line's folded arms changes, plus the
+/// relations that hold at every parameter.
+#[derive(Debug, Clone)]
+pub struct FullStarPartition {
+    /// Parent space group of the frozen source.
+    pub source_sg: u8,
+    /// Child space group of the record's embedding.
+    pub child_sg: u8,
+    /// Frozen source label, e.g. `DT1`.
+    pub label: &'static str,
+    /// The folded arms, in the production order.
+    pub arms: Vec<FoldedArm>,
+    /// Index of the arm that *is* the frozen direction: the one the legacy
+    /// single-direction census partitioned by.
+    pub reference_arm: usize,
+    /// The child's reciprocal lattice, in the frame of `arms[].direction`.
+    pub child_reciprocal: Lattice,
+    /// The child's distinct rotations, the `R` of the enumeration.
+    pub child_rotations: Vec<Mat3I>,
+    /// Boundaries in `[0, 1)`, ascending.  Empty when no relation is
+    /// parameter-dependent (every predicate holds identically).
+    pub boundaries: Vec<StarBoundary>,
+    /// Relations whose difference vector is **zero**: they hold at every
+    /// parameter of the domain and are deliberately *not* reported as boundaries.
+    /// Exact counts, indexed by [`StarEventKind::index`].
+    pub permanent_counts: [usize; 3],
+    /// Bounded witnesses of the permanent relations (one per `(kind, arm)`).
+    pub permanent_witnesses: Vec<StarEvent>,
+}
+
+impl FullStarPartition {
+    /// Whether `t` is one of the partition's boundaries (reduced modulo one
+    /// first: the whole geometry is periodic in `t` with period one).
+    pub fn is_boundary(&self, parameter: &Rat) -> bool {
+        self.boundary(parameter).is_some()
+    }
+
+    /// The boundary at `t`, if any.
+    pub fn boundary(&self, parameter: &Rat) -> Option<&StarBoundary> {
+        let reduced = reduce_modulo_one(*parameter);
+        self.boundaries
+            .iter()
+            .find(|boundary| boundary.parameter == reduced)
+    }
+
+    /// The exact boundary parameters in `[0, 1)`, ascending.
+    pub fn boundary_parameters(&self) -> Vec<Rat> {
+        self.boundaries
+            .iter()
+            .map(|boundary| boundary.parameter)
+            .collect()
+    }
+
+    /// The parameters the census probes for this record: the full-star
+    /// boundaries together with the source's own exceptional parameters, sorted.
+    ///
+    /// The parent side is not implied by the child side: a parameter where two
+    /// parent arms coincide modulo the parent reciprocal lattice makes the
+    /// production answer a *formal* induction
+    /// ([`super::decompose::ParameterKind::Formal`]) even though the folded
+    /// geometry is untouched, so both sets are kept.
+    pub fn probe_parameters(&self, parent: &ParentDomain) -> Result<Vec<Rat>, SubductionError> {
+        let mut values: Vec<Rat> = self.boundary_parameters();
+        for entry in &parent.exceptional {
+            if !values.contains(&entry.parameter) {
+                values.push(entry.parameter);
+            }
+        }
+        sort_parameters(values)
+    }
+
+    /// The open intervals of the partition, as `(start, end)` in ascending order;
+    /// the last one wraps around `t = 1` (`end = first + 1`).  A partition with no
+    /// boundary is the single interval `(0, 1)`.
+    ///
+    /// The endpoints are boundaries (or `0`/`1`); the interior points are the
+    /// parameters at which the folded geometry is guaranteed constant.
+    pub fn intervals(&self) -> Result<Vec<(Rat, Rat)>, SubductionError> {
+        let parameters = self.boundary_parameters();
+        let Some(&first) = parameters.first() else {
+            return Ok(vec![(Rat::ZERO, Rat::ONE)]);
+        };
+        let mut out = Vec::with_capacity(parameters.len());
+        for (index, start) in parameters.iter().enumerate() {
+            let end = match parameters.get(index + 1) {
+                Some(next) => *next,
+                None => first.checked_add(Rat::ONE)?,
+            };
+            out.push((*start, end));
+        }
+        Ok(out)
+    }
+
+    /// The arms grouped by folded point at one parameter: indices of arms whose
+    /// `t v_i` agree modulo the child reciprocal lattice, in arm order.
+    ///
+    /// This is the point-level grouping the production `fold_arms` starts from;
+    /// its orbit partition additionally identifies points under the child
+    /// rotations (see `decompose::line_star_geometry`).  The grouping is periodic
+    /// in `t` with period one because every arm is a child reciprocal vector
+    /// (checked when the partition was built).
+    pub fn folded_points(&self, parameter: &Rat) -> Result<Vec<Vec<usize>>, SubductionError> {
+        let mut points: Vec<(Vec3R, Vec<usize>)> = Vec::new();
+        'arms: for (index, arm) in self.arms.iter().enumerate() {
+            let q = scale(&arm.direction, parameter)?;
+            for (representative, indices) in points.iter_mut() {
+                if self.child_reciprocal.same_mod(representative, &q)? {
+                    indices.push(index);
+                    continue 'arms;
+                }
+            }
+            points.push((q, vec![index]));
+        }
+        Ok(points.into_iter().map(|(_, indices)| indices).collect())
+    }
+}
+
+/// Add one event to a `(counts, witnesses)` pair.
+///
+/// The counts are exact; the witness list keeps one relation per `(kind, arm)`
+/// so a boundary where every relation holds at once stays bounded while every
+/// arm taking part is still represented.
+fn record_star_event(
+    counts: &mut [usize; 3],
+    witnesses: &mut Vec<StarEvent>,
+    event: StarEvent,
+) {
+    counts[event.kind.index()] += 1;
+    if witnesses
+        .iter()
+        .any(|existing| existing.kind == event.kind && existing.arm == event.arm)
+    {
+        return;
+    }
+    witnesses.push(event);
+}
+
+/// Sort `(parameter, payload)` pairs by exact rational value.
+///
+/// `Rat` deliberately does not implement `Ord`; the pairs come from one record's
+/// enumeration, so their denominators share a small common multiple and an
+/// overflow is reported instead of falling back to `f64`.  The sort is stable, so
+/// equal parameters keep the enumeration order.
+fn sort_by_parameter<T>(values: Vec<(Rat, T)>) -> Result<Vec<(Rat, T)>, SubductionError> {
+    let mut common: i128 = 1;
+    for (parameter, _) in &values {
+        common = lcm(common, parameter.denominator())?;
+    }
+    let mut keyed: Vec<(i128, Rat, T)> = Vec::with_capacity(values.len());
+    for (parameter, payload) in values {
+        let key = parameter
+            .numerator()
+            .checked_mul(common / parameter.denominator())
+            .ok_or(SubductionError::RationalOverflow {
+                operation: "full-star partition ordering",
+            })?;
+        keyed.push((key, parameter, payload));
+    }
+    keyed.sort_by_key(|(key, _, _)| *key);
+    Ok(keyed
+        .into_iter()
+        .map(|(_, parameter, payload)| (parameter, payload))
+        .collect())
+}
+
+/// The complete full-star parameter partition of one isotropy record's line.
+///
+/// The reference-direction census ([`child_exceptional_parameters`]) partitions
+/// by the folded direction of the frozen source alone.  That is **not** enough:
+/// the reported decomposition depends on the whole star, so this entry point
+/// enumerates every relation that can change the folded geometry, over all
+/// ordered arm pairs `(i, j)` and all child rotations `R`:
+///
+/// ```text
+/// t (R^-T v_i - v_j) in L*_H,      v_i = T^T (R_i^-T v),
+/// ```
+///
+/// with `i = j` covering a growth of one folded point's little co-group, `i != j`
+/// with `R = 1` a merge of two arms, and `i != j` with `R != 1` an orbit
+/// identification.  Every difference vector is solved with the same exact step
+/// solver as the reference census ([`minimal_parameter_step`]), and a **zero**
+/// difference is recorded as a permanent relation instead of a boundary: it holds
+/// at every parameter, so it cuts nothing (this is the mistake the earlier
+/// reference-only reading made in the opposite direction -- the reference
+/// direction is exactly fixed by the whole frozen little group, so its own
+/// relations are all zero and the reference partition sees nothing).
+///
+/// What the partition is and is not:
+///
+/// * It is **exact**: every parameter in `[0, 1)` is either a boundary or inside
+///   exactly one open interval on which the whole folded geometry -- which arms
+///   fold onto one point, which points lie in one child star, and every point's
+///   little co-group -- is constant.  Each of those quantities is a truth value
+///   of one of the enumerated predicates, and a predicate `t w in L*_H` with
+///   `w != 0` is true exactly on the residue classes of one rational step (with
+///   `w = 0` it is true everywhere), so no interval hides a change.
+/// * It is **not** a statement that the engine's multiplicities are constant on
+///   an interval.  That needs the per-arm factor-system argument (the M2 theorem:
+///   on an interval no rotation enters a little co-group, so every arm's rotations
+///   fix its direction *exactly* and its factor system is a coboundary at every
+///   parameter of the interval), plus the engine-side control that the stored
+///   child data and the constructed catalogue agree there.  R6.7 cards 5-6 are
+///   that control; this function only supplies the partition they run on.
+/// * It is **not** a partition of the reported *presentation*.  The canonical
+///   block order sorts exact folded coordinates, so block indices and the
+///   `stored`/`constructed` provenance of a block may change inside one interval
+///   (a stored child k-point is hit at isolated parameters, and the same
+///   representation can be read from either source).  Comparisons across
+///   parameters must therefore match blocks by geometry and characters, never by
+///   position or provenance.
+///
+/// The periodicity premise is checked for **every** folded arm, not only for the
+/// reference one: folding must send each arm into the child's reciprocal lattice,
+/// otherwise `t` and `t + 1` are different folded points and the residue
+/// representation of the parameter line is invalid.  A violation is reported as
+/// [`SubductionError::ParameterDomainOutOfScope`] (wrapped in
+/// [`FullStarError::Subduction`], like every other failure of the line path).
+pub fn full_star_partition(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+) -> Result<FullStarPartition, FullStarError> {
+    super::decompose::validate_line_context(subgroup, embedding, table)?;
+    let direction = line_direction(table).ok_or(SubductionError::InvalidFrozenDirection {
+        sg: table.space_group,
+        label: table.label,
+    })?;
+    let child_sg = embedding.subgroup_sg();
+    let arms: Vec<FoldedArm> = arm_images(subgroup.parent_sg, embedding.parent_lattice(), &direction)?
+        .into_iter()
+        .map(|(arm, parent_rotation)| {
+            Ok(FoldedArm {
+                direction: fold_wave_vector(embedding.transform(), &arm)?,
+                parent_rotation,
+            })
+        })
+        .collect::<Result<_, SubductionError>>()?;
+    let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
+    let child_reciprocal = child_cell.reciprocal()?;
+    for arm in &arms {
+        require_reciprocal_direction(&child_reciprocal, &arm.direction, child_sg, table.label)?;
+    }
+    let reference_direction = fold_wave_vector(embedding.transform(), &direction)?;
+    let reference_arm = arms
+        .iter()
+        .position(|arm| arm.direction == reference_direction)
+        .ok_or(SubductionError::InvalidFrozenDirection {
+            sg: table.space_group,
+            label: table.label,
+        })?;
+    let child_rotations = rotation_set(child_sg)?;
+    let identity = IDENTITY_ROTATION;
+
+    let mut events: Vec<(Rat, StarEvent)> = Vec::new();
+    let mut permanent_counts = [0usize; 3];
+    let mut permanent_witnesses: Vec<StarEvent> = Vec::new();
+    for (arm_index, arm) in arms.iter().enumerate() {
+        for (image_index, image_arm) in arms.iter().enumerate() {
+            for rotation in &child_rotations {
+                if arm_index == image_index && *rotation == identity {
+                    // The reflexive relation: an arm is itself at every
+                    // parameter.  It is true by construction, not an event.
+                    continue;
+                }
+                let image = Mat3R::from_ints(*rotation)
+                    .inverse()?
+                    .transpose()
+                    .checked_mul_vector(&arm.direction)?;
+                let difference = image.checked_sub(&image_arm.direction)?;
+                let kind = if arm_index == image_index {
+                    StarEventKind::LittleCoGroupGrowth
+                } else if *rotation == identity {
+                    StarEventKind::ArmMerge
+                } else {
+                    StarEventKind::OrbitIdentification
+                };
+                let event = StarEvent {
+                    arm: arm_index,
+                    image: image_index,
+                    rotation: *rotation,
+                    kind,
+                };
+                let Some(step) = minimal_parameter_step(&child_reciprocal, &difference)? else {
+                    record_star_event(&mut permanent_counts, &mut permanent_witnesses, event);
+                    continue;
+                };
+                let denominator = step.denominator();
+                for multiple in 0..denominator {
+                    let factor = Rat::new(multiple, 1)?;
+                    let parameter = reduce_modulo_one(step.checked_mul(factor)?);
+                    events.push((parameter, event));
+                }
+            }
+        }
+    }
+
+    let mut boundaries: Vec<StarBoundary> = Vec::new();
+    for (parameter, event) in sort_by_parameter(events)? {
+        if boundaries
+            .last()
+            .is_none_or(|last| last.parameter != parameter)
+        {
+            boundaries.push(StarBoundary {
+                parameter,
+                counts: [0; 3],
+                witnesses: Vec::new(),
+            });
+        }
+        let last = boundaries.last_mut().expect("just pushed");
+        record_star_event(&mut last.counts, &mut last.witnesses, event);
+    }
+
+    Ok(FullStarPartition {
+        source_sg: table.space_group,
+        child_sg,
+        label: table.label,
+        arms,
+        reference_arm,
+        child_reciprocal,
+        child_rotations,
+        boundaries,
+        permanent_counts,
+        permanent_witnesses,
+    })
+}
+
 /// [`minimal_parameter_step`] computed through the lattice's own coordinate map.
 ///
 /// `t . w in L*` is equivalent to `t . (C w) in Z^3` with `C` the lattice
@@ -746,6 +1235,57 @@ mod tests {
 
     fn rational(numerator: i128, denominator: i128) -> Rat {
         Rat::new(numerator, denominator).expect("rational")
+    }
+
+    /// The frozen little-character table of one parent and line label.
+    fn line_table_of(sg: u8, label: &str) -> &'static LittleCharacterTable {
+        W_LITTLE_CHARACTERS
+            .iter()
+            .find(|table| {
+                usize::from(table.space_group) == usize::from(sg) && table.label == label
+            })
+            .unwrap_or_else(|| panic!("SG {sg} has no frozen line source {label}"))
+    }
+
+    /// The ordinary isotropy records of one parent that carry at least one
+    /// parametric-k row, with their frozen source labels -- the same walk the
+    /// census uses to build its probe list.
+    fn line_records_of(sg: u8) -> Vec<(IsotropySubgroup, Vec<&'static str>)> {
+        use crate::irrep::{LabelConvention, isotropy, query};
+        let mut out = Vec::new();
+        for record in query::irreps_of(sg) {
+            if record.spinor || record.subgroups().is_empty() {
+                continue;
+            }
+            let Ok(subgroups) = isotropy::isotropy_subgroups(sg, record.ml, LabelConvention::Cdml)
+            else {
+                continue;
+            };
+            for subgroup in subgroups {
+                let Ok(rows) = subgroup.other_wave_vector_subduction() else {
+                    continue;
+                };
+                let mut labels: Vec<&'static str> = Vec::new();
+                for row in rows {
+                    if !labels.contains(&row.parent_ml) {
+                        labels.push(row.parent_ml);
+                    }
+                }
+                if !labels.is_empty() {
+                    out.push((subgroup, labels));
+                }
+            }
+        }
+        out
+    }
+
+    /// One line record of `parent_sg` by isotropy ordinal.
+    fn record_of(parent_sg: u8, ordinal: usize) -> IsotropySubgroup {
+        line_records_of(parent_sg)
+            .into_iter()
+            .find(|(subgroup, _)| subgroup.ordinal == ordinal)
+            .map(|(subgroup, _)| subgroup)
+            .unwrap_or_else(|| panic!("SG {parent_sg} has no line record {ordinal}"))
     }
 
     /// The frozen tables *are* the little group of the direction: the order
@@ -1453,5 +1993,451 @@ mod tests {
             }
         }
         assert!(checks > 200_000, "the grid check must be broad: {checks}");
+    }
+
+    /// Aggregate facts of the full-star partition over a set of line records.
+    ///
+    /// The corpus control runs one entry per parent space group and merges the
+    /// results, so the reported totals are sums of exact counts and not a sample.
+    #[derive(Debug, Default, Clone, Copy)]
+    struct PartitionCensus {
+        /// Ordinary isotropy records carrying at least one parametric-k row.
+        records: usize,
+        /// `(record, label)` pairs, i.e. frozen line sources of those records.
+        pairs: usize,
+        /// Folded arms over all pairs.
+        arms: usize,
+        /// Largest arm list of one pair.
+        max_arms: usize,
+        /// Boundaries over all pairs.
+        boundaries: usize,
+        /// Relation counts per [`StarEventKind`] over all boundaries.
+        events: [usize; 3],
+        /// Permanent relation counts per [`StarEventKind`].
+        permanent: [usize; 3],
+        /// Parameters the reference-only partition enumerated.
+        reference_parameters: usize,
+        /// Pairs whose full-star partition is strictly larger.
+        pairs_with_extra: usize,
+        /// Boundaries those pairs add.
+        extra_boundaries: usize,
+    }
+
+    impl PartitionCensus {
+        /// Sum two censuses; the components are independent counts.
+        fn merge(mut self, other: Self) -> Self {
+            self.records += other.records;
+            self.pairs += other.pairs;
+            self.arms += other.arms;
+            self.max_arms = self.max_arms.max(other.max_arms);
+            self.boundaries += other.boundaries;
+            for (slot, count) in other.events.iter().enumerate() {
+                self.events[slot] += count;
+            }
+            for (slot, count) in other.permanent.iter().enumerate() {
+                self.permanent[slot] += count;
+            }
+            self.reference_parameters += other.reference_parameters;
+            self.pairs_with_extra += other.pairs_with_extra;
+            self.extra_boundaries += other.extra_boundaries;
+            self
+        }
+    }
+
+    /// **R6.7 card 3, corpus control.**  The full-star partition of every frozen
+    /// parametric-k pair is exactly the eighth grid, and every premise the
+    /// partition relies on holds over the whole corpus -- measured, not sampled:
+    ///
+    /// * every one of the 50,226 folded arms is a child reciprocal lattice vector
+    ///   (the periodicity premise, checked per **arm** instead of per reference
+    ///   direction);
+    /// * `rotation_set(child_sg)`, the `R` of the enumeration, is the same set as
+    ///   the rotations the production folding pulls back through the embedding on
+    ///   all 1,006 records, so no orbit relation can be missed;
+    /// * the legacy reference candidates are a subset of the boundaries -- and
+    ///   2,273 of the 5,756 pairs gain at least one boundary (11,009 in total),
+    ///   which is the external review's P1 made into a permanent number.
+    ///
+    /// The pinned totals are this corpus's measured values.  A change in the arm
+    /// enumeration, the step solver or the record walk shows up here instead of
+    /// silently shrinking the parameter set the census probes.
+    #[test]
+    fn the_full_star_partition_of_the_frozen_corpus_is_the_eighth_grid() {
+        use rayon::prelude::*;
+
+        let eighth_grid: Vec<Rat> = (0..8).map(|multiple| rational(multiple, 8)).collect();
+        let census = (1u16..=230)
+            .into_par_iter()
+            .map(|sg| {
+                let sg = u8::try_from(sg).expect("space group number");
+                let mut census = PartitionCensus::default();
+                for (subgroup, labels) in line_records_of(sg) {
+                    let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup)
+                        .unwrap_or_else(|error| panic!("ordinal {}: {error}", subgroup.ordinal));
+                    // The production folding's own rotation set, pulled back
+                    // through the embedding -- the second definition source.
+                    let mut pulled: Vec<Mat3I> = Vec::new();
+                    for operation in embedding.representatives() {
+                        let rotation = embedding
+                            .transform()
+                            .unmap_operation(operation)
+                            .expect("unmap")
+                            .rotation();
+                        if !pulled.contains(&rotation) {
+                            pulled.push(rotation);
+                        }
+                    }
+                    pulled.sort_unstable();
+                    census.records += 1;
+                    for label in labels {
+                        let table = line_table_of(sg, label);
+                        let partition = full_star_partition(&subgroup, &embedding, table)
+                            .unwrap_or_else(|error| {
+                                panic!("SG {sg} {label} ordinal {}: {error}", subgroup.ordinal)
+                            });
+                        census.pairs += 1;
+                        census.arms += partition.arms.len();
+                        census.max_arms = census.max_arms.max(partition.arms.len());
+                        for arm in &partition.arms {
+                            assert!(
+                                partition
+                                    .child_reciprocal
+                                    .contains(&arm.direction)
+                                    .expect("membership"),
+                                "SG {sg} {label}: folded arm ({}, {}, {}) is not a child \
+                                 reciprocal vector",
+                                arm.direction.get(0),
+                                arm.direction.get(1),
+                                arm.direction.get(2)
+                            );
+                        }
+                        let mut rotations = partition.child_rotations.clone();
+                        rotations.sort_unstable();
+                        assert_eq!(
+                            rotations, pulled,
+                            "SG {sg} {label}: the enumeration's rotation set is not the \
+                             production one"
+                        );
+                        let direction = line_direction(table).expect("frozen direction");
+                        assert_eq!(
+                            partition.arms[partition.reference_arm].direction,
+                            fold_wave_vector(embedding.transform(), &direction).expect("fold"),
+                            "SG {sg} {label}: the reference arm is not the legacy direction"
+                        );
+                        let parameters = partition.boundary_parameters();
+                        assert_eq!(
+                            parameters, eighth_grid,
+                            "SG {sg} {label}: the full-star boundaries are not the eighth grid"
+                        );
+                        census.boundaries += parameters.len();
+                        for boundary in &partition.boundaries {
+                            for (slot, count) in boundary.counts.iter().enumerate() {
+                                census.events[slot] += count;
+                            }
+                        }
+                        for (slot, count) in partition.permanent_counts.iter().enumerate() {
+                            census.permanent[slot] += count;
+                        }
+                        let reference: Vec<Rat> =
+                            child_exceptional_parameters(&embedding, table)
+                                .expect("reference candidates")
+                                .into_iter()
+                                .map(|(parameter, _)| parameter)
+                                .collect();
+                        census.reference_parameters += reference.len();
+                        for parameter in &reference {
+                            assert!(
+                                partition.is_boundary(parameter),
+                                "SG {sg} {label}: the reference parameter {parameter} is missing \
+                                 from the full-star partition"
+                            );
+                        }
+                        let extra = parameters
+                            .iter()
+                            .filter(|parameter| !reference.contains(parameter))
+                            .count();
+                        if extra > 0 {
+                            census.pairs_with_extra += 1;
+                            census.extra_boundaries += extra;
+                        }
+                    }
+                }
+                census
+            })
+            .reduce(PartitionCensus::default, PartitionCensus::merge);
+
+        assert_eq!(census.records, 1_006, "ordinary records with a parametric-k row");
+        assert_eq!(census.pairs, 5_756, "(record, label) pairs");
+        assert_eq!(census.arms, 50_226, "folded arms over the corpus");
+        assert_eq!(census.max_arms, 12, "largest arm list");
+        assert_eq!(census.boundaries, 46_048, "boundaries = 8 x 5,756");
+        assert_eq!(
+            census.events,
+            [1_039_264, 1_981_608, 7_474_912],
+            "exact relation counts per kind over all boundaries"
+        );
+        assert_eq!(
+            census.permanent,
+            [27_008, 0, 178_036],
+            "relations true at every parameter (no arm pair is exactly coincident)"
+        );
+        assert_eq!(
+            census.reference_parameters, 35_039,
+            "parameters the reference-only partition enumerated"
+        );
+        assert_eq!(
+            census.pairs_with_extra, 2_273,
+            "pairs whose full-star partition is strictly larger than the reference one"
+        );
+        assert_eq!(census.extra_boundaries, 11_009, "boundaries the reference one missed");
+    }
+
+    /// **R6.7 card 3, witness 1 (ordinal 10030, SG 196 `DT1` to #18).**  The
+    /// reference-only partition of this record is `{0, 1/4, 1/2, 3/4}`.  At
+    /// `t = 1/8` a **second** folded arm acquires an order-four little co-group
+    /// whose cocycle is non-trivial, so the legacy partition declares a constant
+    /// decomposition on an interval that hides a change.
+    ///
+    /// The class decision here is the order-independent one
+    /// ([`child_cocycle_is_a_coboundary`], M2.2), so it covers the order-four
+    /// co-group the one-dimensional catalogue solver would have had to guess at.
+    #[test]
+    fn the_line_10030_partition_adds_one_eighth_with_a_nontrivial_arm_class() {
+        let subgroup = record_of(196, 10030);
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
+        let table = line_table_of(196, "DT1");
+        assert_eq!(embedding.subgroup_sg(), 18);
+        let partition = full_star_partition(&subgroup, &embedding, table).expect("partition");
+        assert_eq!(partition.arms.len(), 6);
+
+        let reference: Vec<Rat> = child_exceptional_parameters(&embedding, table)
+            .expect("reference candidates")
+            .into_iter()
+            .map(|(parameter, _)| parameter)
+            .collect();
+        assert_eq!(
+            reference,
+            vec![
+                Rat::ZERO,
+                rational(1, 4),
+                rational(1, 2),
+                rational(3, 4)
+            ],
+            "the reference-only partition of ordinal 10030"
+        );
+        let eighth = rational(1, 8);
+        assert!(!reference.contains(&eighth), "the reference partition cannot see 1/8");
+        assert!(partition.is_boundary(&eighth), "the full-star partition must cut at 1/8");
+        let boundary = partition.boundary(&eighth).expect("boundary at 1/8");
+        assert!(
+            boundary.counts[StarEventKind::LittleCoGroupGrowth.index()] > 0,
+            "1/8 must be a little-co-group boundary: {boundary:?}"
+        );
+        assert!(
+            boundary
+                .witnesses
+                .iter()
+                .any(|event| event.kind == StarEventKind::LittleCoGroupGrowth),
+            "the growth witness must be kept: {boundary:?}"
+        );
+
+        // The arms that change: the class and order of every arm at 1/8.
+        let ninth = rational(1, 9);
+        let mut nontrivial: Vec<Vec3R> = Vec::new();
+        for arm in &partition.arms {
+            let order = little_co_group_order(
+                &partition.child_reciprocal,
+                &arm.direction,
+                &partition.child_rotations,
+                eighth,
+            )
+            .expect("order at 1/8");
+            let trivial =
+                child_cocycle_is_a_coboundary(partition.child_sg, &arm.direction, eighth)
+                    .expect("class at 1/8");
+            if !trivial {
+                assert_eq!(order, 4, "a non-trivial class needs the order-four co-group");
+                nontrivial.push(arm.direction);
+            }
+            assert!(
+                child_cocycle_is_a_coboundary(partition.child_sg, &arm.direction, ninth)
+                    .expect("class at 1/9"),
+                "every arm is trivial at the generic 1/9"
+            );
+            assert_eq!(
+                little_co_group_order(
+                    &partition.child_reciprocal,
+                    &arm.direction,
+                    &partition.child_rotations,
+                    ninth,
+                )
+                .expect("order at 1/9"),
+                2,
+                "the generic little co-group of an arm has order two"
+            );
+        }
+        assert_eq!(nontrivial.len(), 2, "exactly two arms change class at 1/8");
+        for direction in &nontrivial {
+            assert!(
+                *direction == Vec3R::from_ints([-4, 0, 0])
+                    || *direction == Vec3R::from_ints([4, 0, 0]),
+                "the non-trivial arms are the (4, 0, 0) pair, got ({}, {}, {})",
+                direction.get(0),
+                direction.get(1),
+                direction.get(2)
+            );
+        }
+        for expected in [Vec3R::from_ints([-4, 0, 0]), Vec3R::from_ints([4, 0, 0])] {
+            assert!(
+                nontrivial.contains(&expected),
+                "the arm {expected:?} must be non-trivial at 1/8"
+            );
+        }
+        // The reference arm itself is trivial at 1/8: nothing about the legacy
+        // direction reveals the change.
+        assert!(
+            child_cocycle_is_a_coboundary(
+                partition.child_sg,
+                &partition.arms[partition.reference_arm].direction,
+                eighth,
+            )
+            .expect("class of the reference arm"),
+            "the reference arm stays trivial at 1/8"
+        );
+    }
+
+    /// **R6.7 card 3, witness 2 (ordinal 10038, SG 196 `DT1` to P1).**  Every
+    /// child little group is trivial at every parameter -- no cocycle changes at
+    /// all -- yet the arms merge at `t = 1/8`: at `1/9` and `1/7` the six arms
+    /// fold onto six separate points (six one-dimensional blocks of multiplicity
+    /// one), at `1/8` onto four points (blocks of dimension 2, 1, 1, 2).  The
+    /// reference-only partition of this record is `{0}` alone, so it cannot see
+    /// the merge; the full-star partition cuts at `1/8` by an `ArmMerge` event.
+    ///
+    /// Both halves are pinned: the partition (with the exact event counts) and
+    /// the **production** geometry and decomposition, so the witness cannot be
+    /// satisfied by a partition that no longer describes the engine.
+    #[test]
+    fn the_line_10038_partition_sees_the_arm_merge_at_one_eighth() {
+        let subgroup = record_of(196, 10038);
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
+        let table = line_table_of(196, "DT1");
+        assert_eq!(embedding.subgroup_sg(), 1);
+        let partition = full_star_partition(&subgroup, &embedding, table).expect("partition");
+        assert_eq!(partition.arms.len(), 6);
+
+        let reference: Vec<Rat> = child_exceptional_parameters(&embedding, table)
+            .expect("reference candidates")
+            .into_iter()
+            .map(|(parameter, _)| parameter)
+            .collect();
+        assert_eq!(
+            reference,
+            vec![Rat::ZERO],
+            "with a trivial child point group the reference direction is fixed exactly"
+        );
+        let eighth = rational(1, 8);
+        assert!(partition.is_boundary(&eighth), "the full-star partition must cut at 1/8");
+        let boundary = partition.boundary(&eighth).expect("boundary at 1/8");
+        assert_eq!(
+            boundary.counts,
+            [0, 4, 0],
+            "1/8 is an arm merge, not a little-co-group growth: {boundary:?}"
+        );
+        assert!(
+            boundary
+                .witnesses
+                .iter()
+                .all(|event| event.kind == StarEventKind::ArmMerge),
+            "only merge witnesses belong to this boundary: {boundary:?}"
+        );
+
+        // No little co-group ever changes: every arm is trivial and of order one
+        // at the two generic parameters and at the boundary.
+        for parameter in [rational(1, 9), rational(1, 7), eighth] {
+            for arm in &partition.arms {
+                assert_eq!(
+                    little_co_group_order(
+                        &partition.child_reciprocal,
+                        &arm.direction,
+                        &partition.child_rotations,
+                        parameter,
+                    )
+                    .expect("order"),
+                    1,
+                    "child P1: every folded point has the trivial little co-group"
+                );
+                assert!(
+                    child_cocycle_is_a_coboundary(partition.child_sg, &arm.direction, parameter)
+                        .expect("class"),
+                    "child P1: every class is trivial"
+                );
+            }
+        }
+
+        // The geometry the partition cuts: points and child stars.
+        for (parameter, points) in [
+            (rational(1, 9), 6usize),
+            (rational(1, 7), 6),
+            (eighth, 4),
+        ] {
+            assert_eq!(
+                partition.folded_points(&parameter).expect("folded points").len(),
+                points,
+                "folded points at {parameter}"
+            );
+        }
+        let generic = crate::irrep::subduction::star::decompose::line_star_geometry(
+            &subgroup,
+            &embedding,
+            table,
+            rational(1, 9),
+        )
+        .expect("geometry at 1/9");
+        assert_eq!(generic.len(), 6, "six one-point child stars at 1/9");
+        assert!(
+            generic
+                .iter()
+                .all(|star| star.star_size() == 1 && star.arm_count() == 1),
+            "six separate arms at 1/9"
+        );
+        let merged = crate::irrep::subduction::star::decompose::line_star_geometry(&subgroup, &embedding, table, eighth)
+            .expect("geometry at 1/8");
+        let mut arms: Vec<usize> = merged.iter().map(|star| star.arm_count()).collect();
+        arms.sort_unstable();
+        assert_eq!(arms, vec![1, 1, 2, 2], "four child stars at 1/8");
+        let mut dimensions: Vec<u32> = merged.iter().map(|star| star.block_dimension()).collect();
+        dimensions.sort_unstable();
+        assert_eq!(dimensions, vec![1, 1, 2, 2], "the merged blocks carry two arms");
+
+        // The engine's own answer changes at 1/8 although no class does: six
+        // blocks of dimension one at 1/9, four blocks 2 + 1 + 1 + 2 at 1/8.
+        for (parameter, expected) in [
+            (rational(1, 9), vec![(1u8, 1u32); 6]),
+            (rational(1, 7), vec![(1, 1); 6]),
+            (eighth, vec![(1, 1), (1, 1), (1, 2), (1, 2)]),
+        ] {
+            let result = crate::irrep::subduction::star::decompose::subduce_line_at_parameter(
+                &subgroup, &embedding, table, parameter,
+            )
+            .unwrap_or_else(|error| panic!("decomposition at {parameter}: {error}"));
+            assert_eq!(
+                result.covered_dimension(),
+                result.parent_dimension(),
+                "the blocks cover the line at {parameter}"
+            );
+            let mut terms: Vec<(u8, u32)> = result
+                .blocks()
+                .iter()
+                .flat_map(|block| {
+                    block
+                        .targets()
+                        .iter()
+                        .map(|target| (target.dimension, target.multiplicity))
+                })
+                .collect();
+            terms.sort_unstable();
+            assert_eq!(terms, expected, "reported child terms at {parameter}");
+        }
     }
 }

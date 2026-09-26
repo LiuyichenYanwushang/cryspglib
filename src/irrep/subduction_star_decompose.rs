@@ -920,25 +920,22 @@ pub fn line_trivial_content_with_embedding(
 /// official program prints it in); the same vector is what the parameter
 /// multiplies in [`line_wave_vector`], so arms, characters and folding all speak
 /// one frame.
+///
+/// The enumeration itself lives in
+/// [`super::line_domain::arm_images`](crate::irrep::subduction::star::line_domain::arm_images),
+/// which the full-star parameter partition (R6.7 card 3) also uses: the
+/// partition and the engine must not be able to disagree about the arm list.
 fn line_arms(
     subgroup: &IsotropySubgroup,
     embedding: &SubgroupEmbedding,
     table: &'static LittleCharacterTable,
     direction: &Vec3R,
 ) -> Result<Vec<(Vec3R, Mat3I)>, FullStarError> {
-    let parent_lattice = embedding.parent_lattice();
-    let parent_ops =
-        parent_lattice.deduplicate(&strict_sg_hall_ops(subgroup.parent_sg)?.operations)?;
-    let mut arms: Vec<(Vec3R, Mat3I)> = Vec::new();
-    for operation in &parent_ops {
-        let rotation = operation.rotation();
-        let action = Mat3R::from_ints(rotation).inverse()?.transpose();
-        let image = action.checked_mul_vector(direction)?;
-        if arms.iter().any(|(arm, _)| *arm == image) {
-            continue;
-        }
-        arms.push((image, rotation));
-    }
+    let arms = super::line_domain::arm_images(
+        subgroup.parent_sg,
+        embedding.parent_lattice(),
+        direction,
+    )?;
     if arms.is_empty() {
         return Err(FullStarError::MissingLineRotation {
             sg: table.space_group,
@@ -1019,7 +1016,7 @@ fn line_parameter_kind(
 }
 
 /// Validate the context shared by every line entry point.
-fn validate_line_context(
+pub(crate) fn validate_line_context(
     subgroup: &IsotropySubgroup,
     embedding: &SubgroupEmbedding,
     table: &'static LittleCharacterTable,
@@ -1074,6 +1071,27 @@ fn line_folded_arms(
         });
     }
     Ok(fold_arms(embedding, embedding.parent_sg(), &folded)?)
+}
+
+/// The folded child-star geometry of one parametric-k line at one parameter:
+/// exactly the arm list, the folding and the orbit partition the production
+/// decomposition uses.
+///
+/// R6.7 cards 5-6 use it to compare two parameters of one partition interval by
+/// **geometry** instead of by block index: a block's arms are identified by their
+/// parent rotation (a stable label across parameters), while block order, folded
+/// coordinates and `stored`/`constructed` provenance all move with `t`.
+pub fn line_star_geometry(
+    subgroup: &IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+    parameter: Rat,
+) -> Result<Vec<FoldedStar>, FullStarError> {
+    validate_line_context(subgroup, embedding, table)?;
+    let direction = line_direction(table)?;
+    let arms = line_arms(subgroup, embedding, table, &direction)?;
+    let wave_vector = line_wave_vector(&direction, &parameter)?;
+    line_folded_arms(&arms, &wave_vector, embedding, table.dimension)
 }
 
 /// The same frequency computed through `build_block` instead of the hand-written
