@@ -394,6 +394,51 @@ struct RecountReport {
 /// the report shows the first few rather than growing with the corpus.
 const GAMMA_WITNESSES: usize = 8;
 
+/// What the engine's own [`FullStarBlock`] says about one block, read directly
+/// from the block object.
+///
+/// The card-4 audit found that the gate's only provenance check was a relation
+/// among values written by one `block_stat` call, so a mutation that swapped
+/// `source`, `stored_targets`, `target_count` and `terms` between two blocks of
+/// the same probe -- for every ordinal except the two pinned witnesses -- left
+/// the gate green (P1).  Keeping the engine's own reading and comparing the
+/// recorded statistics against it binds every block statistic to the block it
+/// claims to describe; the same reading covers the per-target (dimension,
+/// multiplicity) pairs, which the audit could also bump by one unnoticed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EngineBlock {
+    star_size: usize,
+    arm_count: usize,
+    arm_indices: Vec<usize>,
+    block_dimension: u32,
+    source: BlockSource,
+    stored_targets: usize,
+    target_count: usize,
+    terms: Vec<(u8, u32)>,
+}
+
+/// Read one engine block's own statistics.
+fn engine_block(block: &FullStarBlock) -> EngineBlock {
+    EngineBlock {
+        star_size: block.points().len(),
+        arm_count: block.points().iter().map(|point| point.arm_count()).sum(),
+        arm_indices: block.arm_indices(),
+        block_dimension: block.block_dimension(),
+        source: classify_block(block.targets()),
+        stored_targets: block
+            .targets()
+            .iter()
+            .filter(|target| target.irnumber.is_some())
+            .count(),
+        target_count: block.targets().len(),
+        terms: block
+            .targets()
+            .iter()
+            .map(|target| (target.dimension, target.multiplicity))
+            .collect(),
+    }
+}
+
 /// One probe of the census.
 struct Probe {
     ordinal: usize,
@@ -411,6 +456,10 @@ struct Probe {
     /// One [`BlockStat`] per `result.blocks()` entry, in block order; empty when
     /// the engine did not answer.
     blocks: Vec<BlockStat>,
+    /// The engine's own reading of the same blocks, in the same order.  The gate
+    /// compares every recorded statistic against it, so a corruption of the
+    /// census-side bookkeeping cannot pass on its own.
+    engine_blocks: Vec<EngineBlock>,
     /// The engine's own dimension bookkeeping, absent for an unsupported or
     /// failed probe.
     dimensions: Option<BlockDimensions>,
@@ -639,6 +688,7 @@ fn run() -> Result<ExitCode, String> {
             writer.flush().map_err(|error| error.to_string())?;
         }
     }
+    let mut block_file_failures: Vec<String> = Vec::new();
     let block_file_rows = match &output_blocks {
         None => None,
         Some(path) => {
@@ -646,7 +696,38 @@ fn run() -> Result<ExitCode, String> {
                 .map_err(|error| format!("cannot read back {path}: {error}"))?;
             // One header line plus one line per block; `str::lines` does not
             // invent a last empty line, so the count is the file's row count.
-            Some(text.lines().count().saturating_sub(1))
+            // Every data row is also **parsed** and compared with the statistic
+            // it came from: a row count alone did not notice the card-4 audit's
+            // `star_size + 1` mutation, which left the file the right length.
+            let mut written = text.lines().skip(1);
+            let mut rows = 0usize;
+            for (probe, block) in probes
+                .iter()
+                .flat_map(|probe| probe.blocks.iter().map(move |block| (probe, block)))
+            {
+                let Some(line) = written.next() else {
+                    block_file_failures.push(format!(
+                        "the --output-blocks file ends after {rows} row(s), before block \
+                         ({} {} t={} block {})",
+                        probe.ordinal, probe.label, probe.parameter, block.index
+                    ));
+                    break;
+                };
+                rows += 1;
+                if let Err(error) = check_block_row(line, block, rows) {
+                    block_file_failures.push(format!(
+                        "the --output-blocks row for ({} {} t={} block {}): {error}",
+                        probe.ordinal, probe.label, probe.parameter, block.index
+                    ));
+                }
+            }
+            if let Some(extra) = written.next() {
+                block_file_failures.push(format!(
+                    "the --output-blocks file has a data row beyond the {rows} collected block(s):                      {:?}",
+                    &extra[..extra.len().min(60)]
+                ));
+            }
+            Some(rows)
         }
     };
 
@@ -660,6 +741,7 @@ fn run() -> Result<ExitCode, String> {
         algorithm_mismatches,
         block_rows,
         block_file_rows,
+        gamma: &gamma,
     };
     report(
         &domains,
@@ -673,6 +755,7 @@ fn run() -> Result<ExitCode, String> {
 
     let mut violations: Vec<String> = probe_errors;
     violations.extend(algorithm_failures);
+    violations.extend(block_file_failures);
     violations.extend(recount_report.failures.iter().cloned());
     check_invariants(&domains, &records, &probes, &evidence, &mut violations);
 
@@ -2182,12 +2265,17 @@ fn probe_record(
                 table,
                 parameter,
             );
-            let (class, parameter_kind, content, detail, blocks, dimensions) = match result {
+            let (class, parameter_kind, content, detail, blocks, dimensions, engine_blocks) =
+                match result {
                 Ok(result) => {
                     let dimensions = block_dimensions(table, &result, &mut failures);
                     let (blocks, block_failures) =
                         block_stats(&block_context, parameter, &result, &dimensions);
                     failures.extend(block_failures);
+                    // The engine's own reading of the same blocks, kept so the
+                    // gate can bind every recorded statistic to it.
+                    let engine_blocks: Vec<EngineBlock> =
+                        result.blocks().iter().map(engine_block).collect();
                     let targets: Vec<_> = result
                         .blocks()
                         .iter()
@@ -2213,6 +2301,7 @@ fn probe_record(
                         ),
                         blocks,
                         Some(dimensions),
+                        engine_blocks,
                     )
                 }
                 Err(FullStarError::MissingChildStarData { sg, points, .. }) => (
@@ -2222,8 +2311,17 @@ fn probe_record(
                     format!("missing child data: sg={sg} points={points}"),
                     Vec::new(),
                     None,
+                    Vec::new(),
                 ),
-                Err(error) => (TargetClass::Error, None, None, error.to_string(), Vec::new(), None),
+                Err(error) => (
+                    TargetClass::Error,
+                    None,
+                    None,
+                    error.to_string(),
+                    Vec::new(),
+                    None,
+                    Vec::new(),
+                ),
             };
             let anchor_mismatch = if parameter == official {
                 match (content, *pinned) {
@@ -2255,6 +2353,7 @@ fn probe_record(
                     None => detail,
                 },
                 blocks,
+                engine_blocks,
                 dimensions,
                 partition_arms: partition.as_ref().map(|built| built.arms.len()),
             });
@@ -2309,8 +2408,64 @@ struct CensusEvidence<'a> {
     /// asked for, so dropping a row in that loop cannot pass unnoticed.
     block_rows: usize,
     /// Data rows read back from the written `--output-blocks` file, when one was
-    /// written; the file is re-read instead of trusting the writer's own count.
+    /// written; the file is re-read instead of trusting the writer's own count,
+    /// and each row is parsed and compared with its statistic.
     block_file_rows: Option<usize>,
+    /// The Gamma-reaching report, asserted rather than only printed: the card-4
+    /// audit showed that dropping the `t = 0` entries left a self-contradictory
+    /// printout and a green gate.
+    gamma: &'a GammaReport,
+}
+
+/// Compare one written `--output-blocks` row against the statistic it came from.
+///
+/// Field by field, by **parsing** the text: re-formatting the expected row with
+/// the writer's own formatter would only re-run the writer.
+fn check_block_row(line: &str, block: &BlockStat, row: usize) -> Result<(), String> {
+    let fields: Vec<&str> = line.split('\t').collect();
+    if fields.len() != 16 {
+        return Err(format!("{row}: {} field(s), expected 16", fields.len()));
+    }
+    let arms = block
+        .arm_indices
+        .iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    let terms = block
+        .terms
+        .iter()
+        .map(|(dimension, multiplicity)| format!("{dimension}x{multiplicity}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let expected: [String; 16] = [
+        block.ordinal.to_string(),
+        block.parent_sg.to_string(),
+        block.child_sg.to_string(),
+        block.label.to_string(),
+        block.parameter.to_string(),
+        block.index.to_string(),
+        block.star_size.to_string(),
+        block.arm_count.to_string(),
+        arms,
+        block.block_dimension.to_string(),
+        block.little_co_group.to_string(),
+        if block.cocycle_trivial {
+            "trivial".to_string()
+        } else {
+            "non-trivial".to_string()
+        },
+        block.source.label().to_string(),
+        terms,
+        block.carries_reference.to_string(),
+        block.carries_gamma.to_string(),
+    ];
+    for (slot, (found, want)) in fields.iter().zip(expected.iter()).enumerate() {
+        if found != want {
+            return Err(format!("{row} field {slot}: {found:?} != {want:?}"));
+        }
+    }
+    Ok(())
 }
 
 /// Add one record's Gamma report to the corpus-wide one.
@@ -2787,6 +2942,44 @@ fn check_invariants(
                 .collect::<Vec<_>>()
         ));
     }
+    // The Gamma-reaching condition, asserted rather than only printed (card-4
+    // audit F5): the mutation that dropped the `t = 0` entries printed a
+    // self-contradictory line ("17,268 entries, 23,024 contained") and still left
+    // the gate green.  The four counts and the shape total are corpus
+    // measurements; `contained == entries` is the measured claim that every
+    // Gamma-reaching parameter is a full-star boundary (the documented exception
+    // has no corpus witness).
+    if evidence.gamma.entries != 23_024 {
+        violations.push(format!(
+            "the Gamma enumeration reports {} (parameter, arms) entr(ies), expected 23024",
+            evidence.gamma.entries
+        ));
+    }
+    if evidence.gamma.contained != evidence.gamma.entries {
+        violations.push(format!(
+            "{} of {} Gamma entr(ies) are not full-star boundaries",
+            evidence.gamma.entries.saturating_sub(evidence.gamma.contained),
+            evidence.gamma.entries
+        ));
+    }
+    if evidence.gamma.exceptional != 0 {
+        violations.push(format!(
+            "{} Gamma entr(ies) took the exactly-fixed-arm exception, which has no corpus witness",
+            evidence.gamma.exceptional
+        ));
+    }
+    if evidence.gamma.zero_arms != 0 {
+        violations.push(format!(
+            "{} arm(s) have a zero folded direction and are at Gamma everywhere",
+            evidence.gamma.zero_arms
+        ));
+    }
+    let gamma_pairs: usize = evidence.gamma.shapes.values().sum();
+    if gamma_pairs != 5_756 {
+        violations.push(format!(
+            "the Gamma parameter-set shapes cover {gamma_pairs} (record, label) pairs, expected 5756"
+        ));
+    }
     if evidence.algorithm_mismatches > 0 {
         violations.push(format!(
             "the centring scan and the coordinate map disagree in {} of {} rotations",
@@ -3147,6 +3340,49 @@ fn check_blocks(probes: &[Probe], evidence: &CensusEvidence, violations: &mut Ve
                     block.target_count,
                     recomputed.label()
                 ));
+            }
+            // The engine's own reading of the same block (card-4 audit P1/P2).
+            // Without this, a swap of `source`, `stored_targets`, `target_count`
+            // and `terms` between two blocks of one probe passed the whole gate
+            // for every ordinal except the pinned witnesses, and a
+            // `multiplicity + 1` mutation left no trace at all.
+            match probe.engine_blocks.get(index) {
+                None => violations.push(format!(
+                    "ordinal {} {} t={}: block {index} has no engine reading to bind to",
+                    probe.ordinal, probe.label, probe.parameter
+                )),
+                Some(engine) => {
+                    if block.star_size != engine.star_size
+                        || block.arm_count != engine.arm_count
+                        || block.arm_indices != engine.arm_indices
+                        || block.block_dimension != engine.block_dimension
+                        || block.source != engine.source
+                        || block.stored_targets != engine.stored_targets
+                        || block.target_count != engine.target_count
+                        || block.terms != engine.terms
+                    {
+                        violations.push(format!(
+                            "ordinal {} {} t={}: block {index} records star/arms/dimension                              {}/{}/{} and source {}/{} of {} with terms {:?}, but the engine                              block is {}/{}/{} and {}/{} of {} with terms {:?}",
+                            probe.ordinal,
+                            probe.label,
+                            probe.parameter,
+                            block.star_size,
+                            block.arm_count,
+                            block.block_dimension,
+                            block.source.label(),
+                            block.stored_targets,
+                            block.target_count,
+                            block.terms,
+                            engine.star_size,
+                            engine.arm_count,
+                            engine.block_dimension,
+                            engine.source.label(),
+                            engine.stored_targets,
+                            engine.target_count,
+                            engine.terms,
+                        ));
+                    }
+                }
             }
             match recompute.classify(probe.child_sg, &block.representative_point) {
                 Ok(class)
@@ -3565,17 +3801,11 @@ mod tests {
                 result.blocks().iter().map(|block| block.arm_count()).collect();
             counts.sort_unstable();
             assert_eq!(counts, expected, "the engine's blocks at t={parameter}");
-            for block in result.blocks() {
-                assert!(
-                    point_cocycle_is_a_coboundary(1, block.q()).expect("the block's own class"),
-                    "child P1: every block's own class is trivial"
-                );
-                assert_eq!(
-                    point_little_co_group_order(1, block.q()).expect("the block's own order"),
-                    1,
-                    "child P1: every block's own co-group has order one"
-                );
-            }
+            // No per-block class or order assertion here: the child is P1, so
+            // `point_cocycle_is_a_coboundary(1, _)` and
+            // `point_little_co_group_order(1, _)` are constant at *every* point by
+            // construction and would assert nothing (card-4 audit F8, the same
+            // tautology the card-3 math review removed from the library test).
         }
         let report = census_report(196, 10_038, true);
         assert!(

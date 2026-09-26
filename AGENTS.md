@@ -250,8 +250,9 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   `classify_probe` 保留仅作对照）；每个 `result.blocks()` 条目一条 `BlockStat`，键为
   (ordinal, parent_sg, child_sg, label, parameter, block index)，含星大小、臂数、臂表、块维数、
   **该块自己的**小余群阶与 cocycle 类、目标来源、逐目标 (维数,重数)、`same_mod` 判定的参考点
-  携带、是否有臂到达 Γ；小余群与类在块的**每个点**上重算并要求一致（共轭点），按精确点做
-  进程内 memo。`--output-blocks` 新增逐块 TSV（16 列），`--output` **一字未动**。
+  携带、是否有臂到达 Γ；小余群与类在**代表点**上重算（`check_blocks` 用新的 `PointClassCache`
+  再读一次，这是有检测力的那一半），块内其它点的循环只是守卫——那些点由共轭性保证与代表点
+  同类，语料上不可能分歧（卡 4 审核 F4）。`--output-blocks` 新增逐块 TSV（16 列），`--output` **一字未动**。
   **实测**（`--gate --require-covered`，8 线程 45–55 s，exit 0）：`probes=42073 stored=33985
   constructed=8088 unsupported=0 errors=0` **逐字未变**；**80,293 块 / 42,073 探针**
   （0 空块、每探针恰一块携带参考点、22,385 块到达 Γ）；块来源 `54,718/25,575/0`，**块自己的**
@@ -259,13 +260,20 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   ——旧 probe 口径正是在这些探针上错标。
   **订正后的边界表**（子群例外参数 ∧ 参考点非平凡，4,330 探针，0 缺参考块）：
   `stored=4,138 / constructed=192 / mixed=0`，逐子群阶 `4: 3,068/192`、`8: 936/0`、`16: 134/0`。
-  **外部审查的 `192/0/0` 是这张表 constructed 列按阶 4/8/16 的读数，不是 stored 列**——按
-  (stored, constructed, mixed) 读应为 `4,138/192/0`。旧 probe 口径表保留并标 withdrawn，其
+  **外部审查的 `192/0/0` 与这张表的 constructed 列（按阶 4/8/16）一致**——按
+  (stored, constructed, mixed) 读应为 `4,138/192/0`；至于对方原意是否就是那一列，本仓库证据
+  无法判定（审核 F10：这属于推断，可测的内容已如上钉住）。旧 probe 口径表保留并标 withdrawn，其
   非平凡三元组实测 `3,990/340/0`、逐阶恰为被撤销的 `292/44/4 = 340`（旧数字被复现而非被替换）。
-  **full-star recount 通过程**（`--full-star-recount`，也随 `--gate`）：11,009 个新增参数探针 /
-  27,507 块 / **28 种块几何**；来源 `18,231/9,276/0`、非平凡类 `2,020/0/0`（阶 4: 1,364、
-  8: 656）；1,692 对 (记录,标号) 的新增参数几何与 generic `t=1/7` 不同；新增参数按构造
-  **不是**子群例外参数 ⇒ 旧参考块口径在其中选中 0 个（非平凡块只存在于逐块口径）。
+  **full-star recount 通过程**（`--full-star-recount`，也随 `--gate`）：新增集恰为
+  `full_star_partition` 边界 \ 参考候选，共 **11,009 个 (记录,标号,参数) 三元组**——其中
+  **1,278 个本来就是主普查探针**（`t=1/4`: 639、`t=1/2`: 639），它们贡献 27,507 块中的
+  **1,593 块重复计数**（全部 stored），所以"11,009 个新增探针"是三元组口径而非全新探针
+  （审核 F6）；27,507 块 / **28 种块几何**；来源 `18,231/9,276/0`、非平凡类 `2,020/0/0`
+  （阶 4: 1,364、8: 656）；1,692 对 (记录,标号) 的新增参数几何与 generic `t=1/7` 不同；
+  新增参数按构造**不是**子群例外参数 ⇒ 旧参考块口径在其中选中 0 个（非平凡块只存在于逐块
+  口径）。**残余（审核 F9）**：recount 只产出聚合值，没有逐探针产物，因此"集合相等/28 种几何/
+  1,692 对"目前只能靠独立复算核对；`--output-recount` 留给卡 5/6（区间比较本来就需要同一份
+  逐探针几何）。
   **Γ 到达单列**：23,024 个 (参数,臂) 条目，**23,024 全部落在 full-star 边界上，例外 0、
   恒 Γ 臂 0**；"整点群精确固定该臂"的例外在语料上**无见证**，由合成单测（含"未精确固定必须
   失败"负例）覆盖；Γ 集按参数集形状 + 对数聚合（8 种形状，和为 5,756），因为它是 (记录,标号)
@@ -276,8 +284,9 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   （其 `1/8` 只由 recount 覆盖，参考候选集只有 `{0,1/4,1/2,3/4}`）。
   **变异（先做后跑）**：① 块来源改成 probe 口径 → 门禁 **2,449 violations**/exit 1（首条
   `ordinal 10030 SM1 t=1/8: block 1 is recorded as constructed but its own 1/1 stored target(s)
-  classify it as stored`），example 测试 1 项失败；② 块自己的 cocycle 换成参考点 cocycle →
-  **14,819 violations**/exit 1，example 测试 1 项失败。串行/并行**两个 TSV 逐字节相同**
+  classify it as stored`），example 测试 1 项失败——这是**主路径**口径；在共享的 `block_stats`
+  内改同一处给 **2,450**（2,448 + 2 个 pinned 见证），审核 F7 记录的差异仅此；② 块自己的
+  cocycle 换成参考点 cocycle → **14,819 violations**/exit 1，example 测试 1 项失败。串行/并行**两个 TSV 逐字节相同**
   （42,074 / 80,294 行；probe TSV SHA-256 仍为 `c7b8606e…`，block TSV
   `07dedd421efe15cab846d7e3686ecb203cc7c8d49d23e139860cee761ddc4df0`）。
   **未做**：跨参数目标匹配（卡 5）、区间内两点控制（卡 6）、母群形式边界的内点。
@@ -613,6 +622,25 @@ co-group 的精确支持域。
   **给卡 6 的提醒**：比较含 `ParameterKind` 的输出时必须用 `probe_parameters(parent)` 取内点，
   不能用 `intervals()`——母群形式边界是独立集合，语料上恰好嵌在八分之一网格内，没有见证能
   压到二者的并集。
+* **R6.7 卡 4 审核轮（审计审核，隔离 worktree + 独立目标，针对 `3f3899e`）**：**无 P0**，
+  1×P1 + 9×P2；20 多个头条数字**全部逐项复现**（含把父提交 `36746f8` 的 census 重建成
+  逐字节相同、SHA 相同的 probe TSV；独立重算全部 80,293 块、订正边界表、recount 与 Γ）。
+  **P1（已修）**：块来源**没有绑定到引擎**——把同一 probe 内首个 stored 与首个 constructed 块
+  的 `source`/`stored_targets`/`target_count`/`terms` 整体互换（除 10030/10038/13688 外全部
+  ordinal），门禁 exit 0、0 violation、4/4 测试通过；唯一探测者是 pinned 见证。现在 `Probe`
+  保存**引擎自己的**逐块读数 `EngineBlock`（直接由 `FullStarBlock` 读），`check_blocks` 逐字段
+  比对（星大小、臂数、臂表、块维数、来源、stored/total、terms）。**P2（已修）**：
+  ① 逐目标 `(维数,重数)` 同样未绑定（`multiplicity + 1` 全表变异曾全绿）——同一条绑定覆盖；
+  ② `--output-blocks` 只校验行数不校验内容（`star_size + 1` 写进每行仍全绿）——现在**逐行
+  解析**并与内存统计逐字段比对（同一变异给 80,293 条 violation）；③ Γ 聚合只打印不断言
+  （丢掉 `t=0` 条目会产生自相矛盾的打印且门禁仍绿）——现在把 `23,024 / 23,024 / 0 / 0` 与
+  8 种形状覆盖 5,756 对钉成门禁断言（同一变异给 `reports 17268 ... expected 23024`）；
+  ④ census 里新增的 10038 测试含与库内被删的同一个**空转**循环（P1 子群 ⇒ 两个量恒常；
+  把点换成 `(1,2,3)` 仍 4/4 通过）——已删除并注明；⑤ 措辞四处：代表点 vs 共轭点、11,009 的
+  三元组口径与 1,278 重复探针、2,449 的变异作用域、`192/0/0` 归因属于推断（见上）。
+  **未修（记为残余，交给卡 5/6）**：recount 没有逐探针产物（审核 F9 建议 `--output-recount`）。
+  **新变异验证（本方复跑）**：记录来源翻转 → exit 1（引擎绑定）；重数 +1 → exit 1（同一绑定）；
+  TSV 星大小 +1 → exit 1 / 80,293 条读回 violation；Γ 丢 `t=0` → exit 1（`expected 23024`）。
 * **R6.7 卡 3（2026-09-26）完整 full-star 参数分区**：外部审查的 P1 修复。新 API
   `line_domain::{arm_images, FoldedArm, StarEventKind, StarEvent, StarBoundary,
   FullStarPartition, full_star_partition}`、`decompose::line_star_geometry`；生产
