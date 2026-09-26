@@ -174,6 +174,32 @@ examples 40 项、严格 all-target clippy、`line_family_coverage --gate` 与
 不增加默认 example 测试的分钟级耗时。该批仍是有限样本，后续需推导任意分母下 little
 co-group 的精确支持域。
 
+### 8. 2026-09-26：R6.5 精确参数域普查（把采样换成划分）
+
+用户裁定的下一轮顺序是"先普查，再按计数选表示族"（`docs/subduction-next-milestones.md`
+的 R6 与 handoff 的建议）。本轮只做普查，不动求解器：
+
+* 新模块 `src/irrep/subduction_line_domain.rs`（`irrep::subduction::star::line_domain`）：
+  `parent_domain(table)`、`child_exceptional_parameters(embedding, direction)`、
+  `minimal_parameter_step(lattice, w)`、`verify_against_grid(...)`、`rotation_set`。
+  数学：`R` 在参数 `t` 进入稳定子 ⟺ `t·w_R ∈ L*_parent`（`w_R = R^{-T}v − v`），
+  解集是 `Q` 的子群；先求 `t·w ∈ Z^3` 的公分母步长，再用中心化格指数（P=1、
+  A/B/C/I/F=2、R=3）定出最小 `n`，步长为二者之积，`[0,1)` 内例外参数是其有限残类。
+  全过程精确 `i128` 有理算术，无浮点、无随分母增长的网格；自检失败返回
+  `DomainCensusInconsistent`，方向不可解析返回 `InvalidFrozenDirection`。
+* `examples/line_domain_census.rs`（`--gate`、`--require-covered`、`--sequential`、
+  `--output`）：按划分逐点调用**生产**分解，记录 `stored / constructed / unsupported /
+  error`、子群小余群阶、生产 `ParameterKind` 与恒等重数；gate 断言冻结表 == generic
+  稳定子、`ParameterKind::Formal` ⟺ 普查例外参数、`child_order == 1 ⇒ 可答`、
+  `unsupported ⇒ child_order > 1`、官方锚点 5,756 行全部可答、generic 采样（`t = 1/7`）
+  非形式且可答、无探针丢失，以及网格交叉验证 0 不符。
+* **实测**：73 源 / 1,006 记录 / **42,073 探针**，`unsupported=0`、`errors=0`；例外参数
+  形状与八分之一网格见 §2 B；网格交叉验证 **371,520 谓词 / 0 不符**；8 线程 14.7 s，
+  `--gate` exit 0。
+* **仍未证明**（写在 §2 B 与 coverage 报告里，勿越界声明）：域划分是精确的，但"同一域
+  内部射影 cocycle 类恒定"没有证明；域内代表性由 42 点采样、每记录 `t = 1/7` 与审计
+  锚点支撑。
+
 ---
 
 ## Rust 风格化改造账本（2026-08-15 起）

@@ -32,6 +32,11 @@
 /// the co-group is one-dimensional; see the module documentation.
 #[path = "subduction_catalogue.rs"]
 pub mod catalogue;
+/// Exact parameter-domain census of the frozen line sources: where the little
+/// group of `k(t) = t . v` is strictly enhanced, and which child target
+/// catalogue answers the folded stars there.
+#[path = "subduction_line_domain.rs"]
+pub mod line_domain;
 #[path = "subduction_star_decompose.rs"]
 pub mod decompose;
 #[path = "subduction_scalar_star.rs"]

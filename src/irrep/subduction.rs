@@ -228,6 +228,28 @@ pub enum SubductionError {
     /// would be paid on every `Result` in this module.
     #[error("image of the rotation is not an integer matrix")]
     NonIntegralRotationImage { rotation: Box<Mat3R> },
+    /// A frozen source's `direction` field is not a parsable rational vector.
+    ///
+    /// The parameter-domain census reads the direction directly, so it reports
+    /// the offending table instead of silently treating it as the zero vector.
+    #[error("the frozen direction of space group {sg} source {label} is not a rational vector")]
+    InvalidFrozenDirection {
+        /// Parent space group number.
+        sg: u8,
+        /// Frozen source label.
+        label: &'static str,
+    },
+    /// The exact parameter-domain census contradicted itself.
+    ///
+    /// The solution set of `t . w in L*` is a subgroup of `Q`, so a scan that
+    /// finds hits which are not multiples of one another disproves the arithmetic
+    /// behind the census.  The census reports the failure instead of publishing a
+    /// domain it cannot justify.
+    #[error("parameter-domain census is inconsistent: {reason}")]
+    DomainCensusInconsistent {
+        /// Which internal invariant failed.
+        reason: &'static str,
+    },
 }
 
 // ── Checked rationals ────────────────────────────────────────────────────────
