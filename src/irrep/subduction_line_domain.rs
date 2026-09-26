@@ -85,31 +85,58 @@
 //! `H^2(P, U(1))`; a homomorphism from a divisible group to a finite group is
 //! trivial.  Hence:
 //!
-//! **Theorem.**  On every domain of the census the factor system of the folded
-//! direction has **trivial** class in `H^2(P, U(1))`, for every real parameter and
-//! not only for the probed ones.  The class is therefore constant on each domain —
-//! it is the identity there.  The only parameter dependence left in the
-//! decomposition is the **gauge**: the target catalogue is the ordinary irreps of
-//! `P` twisted by a gauge solving a linear system with continuous coefficients,
-//! and the multiplicities are integer-valued continuous functions of `t`, hence
-//! constant on the interval.  A non-coboundary family can therefore be reachable
-//! only at an exceptional parameter, where the little co-group is strictly larger
-//! and this argument does not apply; those parameters are finitely many and the
-//! census probes them exactly.
+//! **Local theorem (fixed direction).**  With `beta_t(R) = exp(2 pi i t (q1 .
+//! tau_R))` the factor system of the fixed direction is an explicit coboundary,
 //!
-//! Both premises are checked on the corpus.  Parent side: all 341 operations of
-//! the 73 frozen little groups fix their direction exactly
-//! (`every_frozen_little_group_fixes_its_whole_direction`, which also asserts
-//! `parent_domain`'s `generic_order` counts the same set).  Child side: the census
-//! gate counts, for every record and label, the rotations with `w_R = 0` and
-//! compares the count with the child order at the generic sample.
+//! ```text
+//! omega_t(R,S) = beta_t(R) beta_t(S) / beta_t(R S)     for every real t,
+//! ```
 //!
-//! The first formulation of that child-side check used membership `w_R in L*`
-//! instead of exact fixity and was wrong: the constraint `t . w_R in L*` then
-//! holds at every parameter (so the rotation *is* in the little co-group
-//! everywhere) while `chi_{s q1} . lambda` is a factor system only at the isolated
-//! `s` with `s w_R in L*`.  Measured witness: `w = (0, 4, 0)` with step `1/4`,
-//! which produced 24,430 gate violations before the check was corrected.
+//! because `R^T q1 = q1` for every `R in P` makes the unreduced defect
+//! `lambda_RS = tau_R + R tau_S - tau_RS` and the symmetrised form agree after
+//! pairing with `q1`.  Equivalently, `s -> [omega_s]` is a homomorphism from the
+//! divisible group `(R,+)` into the finite group `H^2(P, U(1))`, hence trivial.
+//! In particular the class is trivial at *every* parameter, not only at the probed
+//! ones, and a non-coboundary family is reachable only at an exceptional parameter
+//! of the little co-group, where the stabiliser is strictly larger and this
+//! argument does not apply.
+//!
+//! **Withdrawn add-on (full decomposition).**  Earlier revisions concluded from
+//! the theorem that "the only parameter dependence left in the decomposition is
+//! the gauge, so the multiplicities are constant on each domain and one
+//! representative parameter per domain suffices".  That is **withdrawn**
+//! (external review, 2026-09-26, accepted): the partition implemented here is
+//! generated from the **reference** folded direction only, while the reported
+//! decomposition depends on the whole star — every folded arm's own little
+//! co-group and every pairwise arm identification.  Corpus witnesses: ordinal
+//! 10030 (SG 196 `DT1` to #18) has reference candidates `{0, 1/4, 1/2, 3/4}` yet
+//! another folded arm acquires an order-four little co-group with a
+//! **non-trivial** cocycle at `t = 1/8`; ordinal 10038 (SG 196 `DT1` to P1) keeps
+//! every child little group trivial yet its arms merge at `t = 1/8` (six
+//! one-dimensional blocks of multiplicity one at `1/9` and `1/7`, four blocks of
+//! multiplicities 2, 1, 1, 2 at `1/8`).  The complete full-star partition —
+//! `t (R_H^{-T} v_i - v_i) in L*_H` for every arm and `t (R_H^{-T} v_i - v_j) in
+//! L*_H` for every ordered pair — and the multiplicity check on it are the R6.7
+//! cards recorded in `AGENTS.md`.  Until that partition exists the
+//! decomposition-constancy claim is **not** supported by this module.
+//!
+//! The theorem's own premise is the **child** side: the census gate counts, for
+//! every record and label, the rotations with `w_R = 0` and compares the count
+//! with the child order at the generic sample.  The parent-side check (all 341
+//! operations of the 73 frozen little groups fix their direction exactly, with
+//! `parent_domain`'s `generic_order` counting the same set) is a separate control
+//! — it pins the frozen parent table as the exact stabiliser — not the premise.
+//!
+//! An earlier formulation of the child-side check used membership `w_R in L*`
+//! instead of exact fixity.  On this corpus that is **vacuous**, not merely
+//! weaker: the scope fence requires the direction to be a reciprocal lattice
+//! vector and every rotation preserves that lattice, so *every* rotation
+//! satisfies it (2,580/2,580 parent, 28,713/28,713 child).  It also does not imply
+//! that `chi_{s q1} . lambda` is a factor system for every real `s` — on that
+//! rotation set the cocycle identity fails at 4,877 of 51,804 (pair, `s`) probes,
+//! while on the exact stabiliser it holds 51,804/51,804.  The figure "24,430
+//! violations" quoted here before is not reproducible as described (the described
+//! count gives 5,117 pairs) and is withdrawn.
 
 use crate::irrep::line_monodromy::line_direction;
 use crate::irrep::w_little_characters_data::LittleCharacterTable;
