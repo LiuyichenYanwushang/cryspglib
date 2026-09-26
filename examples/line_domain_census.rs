@@ -494,10 +494,20 @@ fn probe_record(
     // sibling frame cannot reach it: `SubgroupEmbedding::build` refuses a record
     // whose numbers disagree (`StaleIsotropyRecord`), which also makes the
     // child-number comparison just below a restatement rather than a control.
-    // (2) The lattice comparison below compares `reciprocal_lattice` with itself
-    // (same function, same argument), so it cannot see that function being wrong;
-    // that is covered instead by the probe-side order comparison against the
-    // census's own child order and by the per-space-group unit test.
+    // (2) Both frame values below are compared with *themselves*: after the two
+    // space group numbers are known to agree, `reciprocal_lattice(child_sg)` and
+    // `reciprocal_lattice(embedding.subgroup_sg())` are the same function of the
+    // same argument, and so are the two `rotation_set` calls.  Neither comparison
+    // can see its function being wrong.  That is covered for the lattice by the
+    // probe-side order comparison against the census's own child order (the only
+    // place the two lattice constructions meet), and for both values by the
+    // per-space-group unit tests `every_space_group_reciprocal_lattice_is_...` and
+    // `every_space_group_rotation_set_is_its_stored_hall_settings`.  Measured in
+    // the fifth review round: an A/C swap of the SG 38 lattice and SG 38 -> Z^3
+    // both pass this gate unchanged (exit 0, identical counts) and are caught by
+    // the unit tests and by the order comparison; dropping one rotation from
+    // SG 38's rotation set passes this gate unchanged and is caught by the
+    // rotation-set unit test alone.
     if record.child_sg != embedding.subgroup_sg() {
         failures.push(format!(
             "ordinal {}: record child #{} != embedding subgroup #{}",

@@ -329,6 +329,13 @@ co-group 的精确支持域。
   的 |det| = 216、SG 148 的格含 `(1,0,0)`、F 步长 1），并把四次运行判为假阳性。今后对
   抗性审查要么用私有 worktree + 私有 target，要么在每次运行前后对源文件做哈希并留档；
   "并发变异期间的测试结果不是证据"。
+  ⑤ **同一类自指漏洞的第二个值（本轮自查补上）**：`rotation_set` 在门禁里也只与自身比较，
+  所以做了它的变异实验——SG 38 的旋转集合少一个元素时**门禁仍 exit 0 且计数逐字相同**，
+  只有新的 `every_space_group_rotation_set_is_its_stored_hall_settings` 报
+  `SG 38 (Hall 185): rotation-set order`。该测试用 crate 的
+  `SymmetryOps::from_hall_number(SG_DATA_HALL[sg])`（与 `strict_sg_hall_ops` 不同的数据
+  入口）重建 230/230 个空间群的旋转集合并逐集合断言；教训是"帧值有几个，就要有几个
+  独立的定义源"，别只补被审查者点到的那一个。
 
 ---
 

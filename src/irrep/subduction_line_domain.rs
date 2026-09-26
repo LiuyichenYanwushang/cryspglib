@@ -871,6 +871,47 @@ mod tests {
         );
     }
 
+    /// The rotation set of one space group is the one its **stored Hall setting**
+    /// prescribes, rebuilt through the crate's independent `SymmetryOps` lookup.
+    ///
+    /// [`rotation_set`] is the other frame value the census consumes, and the gate
+    /// compares it only with itself (`rotation_set(child_sg)` against
+    /// `rotation_set(embedding.subgroup_sg())`, after the two space group numbers
+    /// are known to agree), so a set corrupted for one space group would be as
+    /// invisible as the corrupted lattice of the fifth review round.  This is the
+    /// control for it: `strict_sg_hall_ops` reads the stored Hall number through
+    /// the subduction loader, `SymmetryOps::from_hall_number` reads the same
+    /// number through the crate's own database API.
+    #[test]
+    fn every_space_group_rotation_set_is_its_stored_hall_settings() {
+        for sg in 1..=230u8 {
+            let stored = crate::irrep::generated_data::SG_DATA_HALL[usize::from(sg)];
+            assert_ne!(stored, 0, "SG {sg}: no stored Hall number");
+            let operations = crate::SymmetryOps::from_hall_number(
+                crate::HallNumber::try_from(usize::from(stored)).expect("Hall number"),
+            )
+            .expect("operations");
+            let mut expected: Vec<Mat3I> = Vec::new();
+            for operation in &operations.operations {
+                if !expected.contains(&operation.rotation) {
+                    expected.push(operation.rotation);
+                }
+            }
+            let mut actual = rotation_set(sg).expect("rotation set");
+            assert_eq!(
+                actual.len(),
+                expected.len(),
+                "SG {sg} (Hall {stored}): rotation-set order"
+            );
+            actual.sort_unstable();
+            expected.sort_unstable();
+            assert_eq!(
+                actual, expected,
+                "SG {sg} (Hall {stored}): rotation set differs from the stored Hall setting"
+            );
+        }
+    }
+
     /// The A- and C-centred congruence conditions differ, which is what lets the
     /// per-space-group assertion above see a centring swap: an A/C exchange keeps
     /// the index at two, so every index- or order-based control stayed silent on

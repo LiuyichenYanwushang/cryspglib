@@ -269,10 +269,16 @@ R6.4 之前的域结论来自分母采样（42 个点）。R6.5 把它换成**�
   **自己的纯平移**（`strict_sg_hall_ops` 的恒等旋转操作）导出同余条件 `h·c ∈ Z`，并断言
   其条数等于格指数——两个都在 `Z^3` 里的格，包含关系加相同指数即为相等。A↔C 交换
   （指数都是 2，此前对所有控制不可见）由 `the_per_space_group_congruences_separate_a_from_c`
-  钉住：A 心满足 `k+l` 偶、C 心满足 `h+k` 偶，两者互斥。残余（写在 example 注释里）：
-  同倒格同旋转集合的**兄弟空间群**（116 个子群中 109 个有）在普查里仍不可区分，且
-  记录号一致性其实由 `SubgroupEmbedding::build` 的 `StaleIsotropyRecord` 保证，属于
-  复述而非独立控制。
+  钉住：A 心满足 `k+l` 偶、C 心满足 `h+k` 偶，两者互斥。**同一类漏洞的第二个值也补了
+  控制**：`rotation_set` 在门禁里同样只与自身比较，把 SG 38 的旋转集合少一个元素的变异
+  实测**门禁仍 exit 0、计数逐字相同**，只有新单元测试
+  `every_space_group_rotation_set_is_its_stored_hall_settings` 报
+  `SG 38 (Hall 185): rotation-set order`；该测试用 crate 自己的
+  `SymmetryOps::from_hall_number(SG_DATA_HALL[sg])` 重建每个空间群的旋转集合（与
+  `strict_sg_hall_ops` 走不同的数据入口），230/230 逐集合相等。残余（写在 example
+  注释里）：同倒格同旋转集合的**兄弟空间群**（116 个子群中 109 个有）在普查里仍不可
+  区分，且记录号一致性其实由 `SubgroupEmbedding::build` 的 `StaleIsotropyRecord` 保证，
+  属于复述而非独立控制。
 * `DomainCensusInconsistent` 的**五**个 `reason` 中**两个**可达且都有负例：新增的
   `"the centring scan requires a lattice contained in Z^3"`（第四轮的分数行见证），以及
   "无中心化倍数"——后者只在**非空间群格**上（`diag(7,7,7)` 的合成格会走到；230 个空间
