@@ -32,14 +32,22 @@
 //! 3. The step is `c n` and the exceptional parameters are its residues
 //!    `j (c n) mod 1` for `j = 0 .. denominator(c n) - 1`.
 //!
-//! The step is returned together with an internal consistency check: every
-//! scanned hit above the minimum must be a multiple of it (otherwise the set
-//! would not be a subgroup and this module reports
-//! [`SubductionError::DomainCensusInconsistent`] rather than a wrong domain).
+//! The step comes with two independent controls.  Internally, every hit of the
+//! finite scan must be a multiple of the smallest one, otherwise the solution
+//! set would not be a subgroup and the module reports
+//! [`SubductionError::DomainCensusInconsistent`] instead of a wrong domain.
+//! Externally, [`minimal_parameter_step_via_coordinates`] recomputes the same
+//! step through the lattice's own coordinate map, an algorithm that shares no
+//! arithmetic with the centring scan; the corpus gate compares the two on every
+//! `(source, rotation)` pair.
 //!
-//! Scope: the frozen corpus (73 sources, cubic parent point groups) plus any
-//! direction whose operations are read in the parent's conventional reciprocal
-//! frame, which is the frame of the frozen `direction` field.  The child-side
+//! Scope: directions that are **reciprocal lattice vectors** of the group they
+//! belong to.  Only then is `k(t + 1) = k(t) + v` the same point of the zone, the
+//! little group periodic in `t` with period one, and the residue representation
+//! of the domain valid.  The frozen corpus satisfies this for all 73 sources and
+//! for all 1,006 folded child directions; anything else is rejected with
+//! [`SubductionError::ParameterDomainOutOfScope`] instead of being reported in a
+//! representation that silently merges distinct parameters.  The child-side
 //! census below is the same computation after folding `v` through the embedding,
 //! so it covers the folded little co-group of every isotropy record of a source.
 
@@ -109,10 +117,33 @@ fn reduce_modulo_one(value: Rat) -> Rat {
     Rat::new(numerator, denominator).unwrap_or(Rat::ZERO)
 }
 
-/// The parent's reciprocal lattice in the frame the frozen `direction` lives in
-/// (the conventional reciprocal basis).
-pub fn parent_reciprocal(parent_sg: u8) -> Result<Lattice, SubductionError> {
-    Lattice::new(exact_primitive_basis(parent_sg)?)?.reciprocal()
+/// The reciprocal lattice of one space group, in the conventional reciprocal
+/// frame the frozen `direction` fields live in.
+///
+/// Works for any space group: the census uses it on the parent of a line source
+/// and on the child a source folds into.
+pub fn reciprocal_lattice(sg: u8) -> Result<Lattice, SubductionError> {
+    Lattice::new(exact_primitive_basis(sg)?)?.reciprocal()
+}
+
+/// Refuse a direction that is not a lattice vector of `lattice`.
+///
+/// The census represents a domain by the residues of an exact step in `[0, 1)`,
+/// which is only the same set of little groups when `k(t + 1) = k(t) + v` with
+/// `v` in the reciprocal lattice; see the module documentation.  The frozen
+/// corpus passes this for all 73 sources and all 1,006 folded child directions
+/// (the census gate re-checks the parent side on every source), so the guard is a
+/// scope fence for future sources rather than a live code path.
+pub fn require_reciprocal_direction(
+    lattice: &Lattice,
+    direction: &Vec3R,
+    sg: u8,
+    label: &'static str,
+) -> Result<(), SubductionError> {
+    if lattice.contains(direction)? {
+        return Ok(());
+    }
+    Err(SubductionError::ParameterDomainOutOfScope { sg, label })
 }
 
 /// Exact scaling of a rational vector.
@@ -189,27 +220,27 @@ pub fn minimal_parameter_step(
             reason: "the integrality step did not clear the denominators",
         });
     }
-    let mut n: Option<i128> = None;
+    let mut hits: Vec<i128> = Vec::new();
     for j in 1..=CENTRING_SCAN {
         let factor = Rat::new(j, 1)?;
         if lattice.contains(&scale(&u, &factor)?)? {
-            n = Some(j);
-            break;
+            hits.push(j);
         }
     }
-    let Some(n) = n else {
+    let Some(&n) = hits.first() else {
         return Err(SubductionError::DomainCensusInconsistent {
             reason: "no centring multiple of the integrality step lands in the lattice",
         });
     };
-    for j in 1..n {
-        let factor = Rat::new(j, 1)?;
-        if lattice.contains(&scale(&u, &factor)?)? {
-            return Err(SubductionError::DomainCensusInconsistent {
-                reason: "the centring scan found a smaller multiple than the minimum",
-            });
-        }
+    // The solution set is a subgroup of `Z` here, so every hit of the scan must
+    // be a multiple of the smallest one.  A violation disproves the arithmetic
+    // behind the scan and is reported rather than smoothed over.
+    if hits.iter().any(|hit| *hit % n != 0) {
+        return Err(SubductionError::DomainCensusInconsistent {
+            reason: "a centring multiple of the step lands in the lattice without the minimum                      dividing it",
+        });
     }
+
     let step = c.checked_mul(Rat::new(n, 1)?)?;
     if step.denominator() <= 0 || step.numerator() <= 0 {
         return Err(SubductionError::DomainCensusInconsistent {
@@ -267,13 +298,16 @@ pub struct GridCheck {
 /// Recompute `R fixes k(t)` directly from the group on a uniform grid and
 /// compare it with the exact enumeration.
 ///
-/// This is the census's independent control: the enumeration derives *where* an
-/// operation joins the little group from a solution subgroup of `Q`, while this
-/// check asks the lattice predicate itself at every `t = k / denominator`.  The
-/// two methods share no code path beyond the lattice membership test, so a
-/// disagreement is a real finding.  A coarse grid can miss an exceptional
-/// parameter (that only weakens the check), but it can never manufacture a
-/// mismatch while the enumeration is correct.
+/// What this check does and does not establish: the *predicate* is recomputed
+/// from the group (`Lattice::preserves`, i.e. `contains(R^-T k - k)`) instead of
+/// from the residue list, so it validates the geometry of the condition and the
+/// residue enumeration.  It shares the step algebra (`minimal_parameter_step`)
+/// with the enumeration, so it cannot detect a wrong step; and a grid whose
+/// denominator is not a multiple of a step misses that step's parameters
+/// entirely, which is why the corpus gate uses denominators that cover the
+/// measured grid and why [`minimal_parameter_step_via_coordinates`] exists as a
+/// second, arithmetic-independent step.  A coarse grid can only weaken the check;
+/// while the enumeration is correct it can never produce a mismatch.
 pub fn verify_against_grid(
     lattice: &Lattice,
     direction: &Vec3R,
@@ -384,7 +418,8 @@ pub fn parent_domain(table: &LittleCharacterTable) -> Result<ParentDomain, Subdu
         sg: table.space_group,
         label: table.label,
     })?;
-    let lattice = parent_reciprocal(table.space_group)?;
+    let lattice = reciprocal_lattice(table.space_group)?;
+    require_reciprocal_direction(&lattice, &direction, table.space_group, table.label)?;
     let rotations = rotation_set(table.space_group)?;
     let mut generic_order = 0usize;
     for rotation in &rotations {
@@ -414,28 +449,97 @@ pub fn parent_domain(table: &LittleCharacterTable) -> Result<ParentDomain, Subdu
     })
 }
 
-/// The parameters in `[0, 1)` at which the **folded** wave vector of one
-/// isotropy record has a strictly larger little co-group than at a generic
-/// parameter.
+/// The **candidate** parameters in `[0, 1)` of one isotropy record's folded
+/// wave vector, with the child little co-group order at each.
 ///
 /// The folded wave vector is `q(t) = t . T^T v`, so the same exact computation
 /// applies in the child's reciprocal lattice with the child's own rotations.
+/// `t = 0` is a solution of *every* operation's condition, so it is always in the
+/// returned set (for a child whose point group is trivial it is not an
+/// enhancement); use [`little_co_group_order`] to compare the order at any
+/// parameter with the generic one.
+///
+/// The record's frozen direction must fold into a lattice vector of the child's
+/// reciprocal lattice, otherwise `t` and `t + 1` are different folded points and
+/// the domain is rejected with
+/// [`SubductionError::ParameterDomainOutOfScope`].
 pub fn child_exceptional_parameters(
     embedding: &SubgroupEmbedding,
-    direction: &Vec3R,
+    table: &LittleCharacterTable,
 ) -> Result<Vec<(Rat, usize)>, SubductionError> {
-    let folded = fold_wave_vector(embedding.transform(), direction)?;
+    let direction = line_direction(table).ok_or(SubductionError::InvalidFrozenDirection {
+        sg: table.space_group,
+        label: table.label,
+    })?;
+    let folded = fold_wave_vector(embedding.transform(), &direction)?;
+    let child_sg = embedding.subgroup_sg();
     if folded.is_zero() {
         // A direction folding to the child Gamma point is fixed by every child
         // rotation at every parameter, so the little co-group never changes and
-        // there is no exceptional parameter; the caller sees the full child point
+        // there is no candidate parameter; the caller sees the full child point
         // group at every `t`.
         return Ok(Vec::new());
     }
-    let child_cell = Lattice::new(exact_primitive_basis(embedding.subgroup_sg())?)?;
+    let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
     let child_reciprocal = child_cell.reciprocal()?;
-    let rotations = rotation_set(embedding.subgroup_sg())?;
+    require_reciprocal_direction(&child_reciprocal, &folded, child_sg, "")?;
+    let rotations = rotation_set(child_sg)?;
     exceptional_parameters(&child_reciprocal, &folded, &rotations)
+}
+
+/// The order of the little co-group of `k(t) = t . direction` at one exact
+/// parameter: how many of `rotations` fix `t . direction` modulo `lattice`.
+///
+/// This is defined for **every** parameter, including ones the census does not
+/// list as candidates, so a caller never has to read an unknown order as zero.
+pub fn little_co_group_order(
+    lattice: &Lattice,
+    direction: &Vec3R,
+    rotations: &[Mat3I],
+    parameter: Rat,
+) -> Result<usize, SubductionError> {
+    let k = scale(direction, &parameter)?;
+    let mut order = 0usize;
+    for rotation in rotations {
+        if lattice.preserves(*rotation, &k)? {
+            order += 1;
+        }
+    }
+    Ok(order)
+}
+
+/// [`minimal_parameter_step`] computed through the lattice's own coordinate map.
+///
+/// `t . w in L*` is equivalent to `t . (C w) in Z^3` with `C` the lattice
+/// coordinate matrix, so the positive generator is the least common multiple of
+/// the rationals `q_i / p_i` over the nonzero components of `C w`.  This route
+/// uses the lattice basis instead of the membership predicate and the centring
+/// scan, so agreement between the two is a real cross-check of the scan (the
+/// corpus gate compares them on every `(source, rotation)` pair).
+pub fn minimal_parameter_step_via_coordinates(
+    lattice: &Lattice,
+    w: &Vec3R,
+) -> Result<Option<Rat>, SubductionError> {
+    if w.is_zero() {
+        return Ok(None);
+    }
+    let coordinates = lattice.coordinates(w)?;
+    let mut accumulated: Option<Rat> = None;
+    for axis in 0..3 {
+        let value = coordinates.get(axis);
+        if value.is_zero() {
+            continue;
+        }
+        let component = Rat::new(value.denominator().abs(), value.numerator().abs())?;
+        accumulated = Some(match accumulated {
+            None => component,
+            Some(current) => Rat::new(
+                lcm(current.numerator(), component.numerator())?,
+                gcd(current.denominator(), component.denominator()),
+            )?,
+        });
+    }
+    Ok(accumulated)
 }
 
 #[cfg(test)]
@@ -516,7 +620,7 @@ mod tests {
     #[test]
     fn the_minimal_step_covers_every_centring_type() {
         // P: the reciprocal lattice is Z^3.
-        let primitive = parent_reciprocal(221).expect("P lattice");
+        let primitive = reciprocal_lattice(221).expect("P lattice");
         assert_eq!(
             minimal_parameter_step(&primitive, &Vec3R::from_ints([1, 1, 0])).unwrap(),
             Some(Rat::new(1, 1).unwrap())
@@ -526,7 +630,7 @@ mod tests {
             Some(Rat::new(1, 2).unwrap())
         );
         // F: all-same-parity integer vectors.
-        let face = parent_reciprocal(225).expect("F lattice");
+        let face = reciprocal_lattice(225).expect("F lattice");
         assert_eq!(
             minimal_parameter_step(&face, &Vec3R::from_ints([1, 1, 1])).unwrap(),
             Some(Rat::new(1, 1).unwrap())
@@ -536,7 +640,7 @@ mod tests {
             Some(Rat::new(2, 1).unwrap())
         );
         // I: even coordinate sum.
-        let body = parent_reciprocal(229).expect("I lattice");
+        let body = reciprocal_lattice(229).expect("I lattice");
         assert_eq!(
             minimal_parameter_step(&body, &Vec3R::from_ints([1, 1, 0])).unwrap(),
             Some(Rat::new(1, 1).unwrap())
@@ -549,7 +653,7 @@ mod tests {
         // lattice is `{ (h, k, l) : -h + k + l = 0 (mod 3) }` (measured on the
         // small vectors, e.g. `(1, 1, 0)` and `(1, 0, -2)` are in it while
         // `(2, 0, 0)` is not).
-        let rhombohedral = parent_reciprocal(166).expect("R lattice");
+        let rhombohedral = reciprocal_lattice(166).expect("R lattice");
         assert_eq!(
             minimal_parameter_step(&rhombohedral, &Vec3R::from_ints([1, 1, 1])).unwrap(),
             Some(Rat::new(3, 1).unwrap())
@@ -589,7 +693,6 @@ mod tests {
             .iter()
             .find(|table| table.space_group == 196 && table.label == "DT1")
             .expect("SG 196 DT1");
-        let direction = line_direction(table).expect("direction");
         let mut found = 0usize;
         for record in query::irreps_of(196) {
             if record.spinor || record.subgroups().is_empty() {
@@ -604,7 +707,7 @@ mod tests {
                 let embedding =
                     SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
                 let parameters =
-                    child_exceptional_parameters(&embedding, &direction).expect("child domain");
+                    child_exceptional_parameters(&embedding, table).expect("child domain");
                 let values: Vec<Rat> = parameters.iter().map(|(value, _)| *value).collect();
                 assert_eq!(
                     values,
@@ -629,6 +732,119 @@ mod tests {
         assert!(found > 0, "no SG 196 DT1 record onto #18");
     }
 
+    /// The step computed by the centring scan equals the step computed through
+    /// the lattice's own coordinate map, on every `(source, rotation)` pair and
+    /// on synthetic vectors with mixed signs, zeros and large numerators.
+    #[test]
+    fn the_two_step_algorithms_agree() {
+        let mut checked = 0usize;
+        for table in W_LITTLE_CHARACTERS {
+            let domain = parent_domain(table).expect("domain");
+            let lattice = reciprocal_lattice(table.space_group).expect("lattice");
+            let rotations = rotation_set(table.space_group).expect("rotations");
+            for rotation in &rotations {
+                let image = Mat3R::from_ints(*rotation)
+                    .inverse()
+                    .unwrap()
+                    .transpose()
+                    .checked_mul_vector(&domain.direction)
+                    .unwrap();
+                let w = image.checked_sub(&domain.direction).unwrap();
+                assert_eq!(
+                    minimal_parameter_step(&lattice, &w).unwrap(),
+                    minimal_parameter_step_via_coordinates(&lattice, &w).unwrap(),
+                    "SG {} {} rotation {rotation:?}",
+                    table.space_group,
+                    table.label
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked >= 2_000, "the cross-check must be broad: {checked}");
+        // Synthetic vectors over every centring type, including mixed signs and
+        // large numerators.  `w = 0` is the only case with no constraint.
+        for sg in [221u8, 225, 229, 166, 12, 62] {
+            let lattice = reciprocal_lattice(sg).expect("lattice");
+            for w in [
+                [0, 0, 0],
+                [1, 0, 0],
+                [-1, 0, 0],
+                [2, -3, 0],
+                [-4, 6, -8],
+                [7, -7, 7],
+                [12, 18, -24],
+                [1_000_003, -2_000_006, 3_000_009],
+            ] {
+                let w = Vec3R::from_ints(w);
+                assert_eq!(
+                    minimal_parameter_step(&lattice, &w).unwrap(),
+                    minimal_parameter_step_via_coordinates(&lattice, &w).unwrap(),
+                    "SG {sg} w={w:?}"
+                );
+            }
+        }
+    }
+
+    /// A direction outside the group's reciprocal lattice is rejected instead of
+    /// being given a residue domain: without `v in L*` the little group is not
+    /// periodic in `t`, so `t` and `t + 1` are different points of the zone.
+    ///
+    /// The frozen corpus never triggers the guard (all 73 directions are
+    /// reciprocal lattice vectors), so the fence is tested directly on a lattice
+    /// where both outcomes are available: SG 148's R-centred reciprocal lattice
+    /// contains `(1, 0, 1)` but not `(1, 0, 0)`.
+    #[test]
+    fn a_direction_outside_the_reciprocal_lattice_is_out_of_scope() {
+        let lattice = reciprocal_lattice(148).expect("lattice");
+        assert!(lattice.contains(&Vec3R::from_ints([1, 0, 1])).unwrap());
+        assert!(!lattice.contains(&Vec3R::from_ints([1, 0, 0])).unwrap());
+        require_reciprocal_direction(&lattice, &Vec3R::from_ints([1, 0, 1]), 148, "T1")
+            .expect("in scope");
+        assert!(matches!(
+            require_reciprocal_direction(&lattice, &Vec3R::from_ints([1, 0, 0]), 148, "T1"),
+            Err(SubductionError::ParameterDomainOutOfScope { sg: 148, .. })
+        ));
+        // Every frozen source is in scope, so the census's own domain is total on
+        // the corpus.
+        for table in W_LITTLE_CHARACTERS {
+            assert!(
+                parent_domain(table).is_ok(),
+                "SG {} {}",
+                table.space_group,
+                table.label
+            );
+        }
+    }
+
+    /// The per-parameter order is defined everywhere, including parameters the
+    /// census does not list, and matches the generic order off the exceptional
+    /// set.
+    #[test]
+    fn the_little_co_group_order_is_defined_at_every_parameter() {
+        let table = W_LITTLE_CHARACTERS
+            .iter()
+            .find(|table| table.space_group == 196 && table.label == "DT1")
+            .expect("SG 196 DT1");
+        let domain = parent_domain(table).expect("domain");
+        let lattice = reciprocal_lattice(196).expect("lattice");
+        let rotations = rotation_set(196).expect("rotations");
+        for (parameter, expected) in [
+            (Rat::ZERO, domain.parent_rotations),
+            (rational(1, 2), 4),
+            (rational(1, 4), domain.generic_order),
+            (rational(1, 7), domain.generic_order),
+            (rational(3, 8), domain.generic_order),
+            (rational(-1, 2), 4),
+            (rational(3, 2), 4),
+        ] {
+            assert_eq!(
+                little_co_group_order(&lattice, &domain.direction, &rotations, parameter).unwrap(),
+                expected,
+                "SG 196 DT1 t={parameter}"
+            );
+        }
+    }
+
     /// The enumeration and a direct group computation agree on a uniform grid,
     /// for every frozen source.
     #[test]
@@ -636,7 +852,7 @@ mod tests {
         let mut checks = 0usize;
         for table in W_LITTLE_CHARACTERS {
             let domain = parent_domain(table).expect("domain");
-            let lattice = parent_reciprocal(table.space_group).expect("lattice");
+            let lattice = reciprocal_lattice(table.space_group).expect("lattice");
             let rotations = rotation_set(table.space_group).expect("rotations");
             for denominator in [24i128, 120] {
                 let result =

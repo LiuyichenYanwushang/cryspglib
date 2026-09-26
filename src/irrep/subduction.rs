@@ -244,11 +244,34 @@ pub enum SubductionError {
     /// The solution set of `t . w in L*` is a subgroup of `Q`, so a scan that
     /// finds hits which are not multiples of one another disproves the arithmetic
     /// behind the census.  The census reports the failure instead of publishing a
-    /// domain it cannot justify.
+    /// domain it cannot justify.  The variant is also used for the census's other
+    /// internal invariants (a scan with no multiple at all, a non-positive step,
+    /// a folded direction outside the child lattice), each with its own `reason`.
     #[error("parameter-domain census is inconsistent: {reason}")]
     DomainCensusInconsistent {
         /// Which internal invariant failed.
         reason: &'static str,
+    },
+    /// The parameter-domain census was asked about a direction that is not a
+    /// reciprocal lattice vector of the group it belongs to.
+    ///
+    /// The census represents a domain by the residues of an exact step in
+    /// `[0, 1)`, which is only the same set of *little groups* when
+    /// `k(t + 1) = k(t) + v` with `v` in the reciprocal lattice.  For any other
+    /// direction `t` and `t + 1` are different points of the zone, the little
+    /// group is not periodic, and the residue representation would silently
+    /// merge parameters that must stay distinct.  The census fails closed instead
+    /// of reporting such a domain.
+    #[error(
+        "the direction of space group {sg} source {label} is not a reciprocal lattice vector, \
+         so its parameter domain is not periodic and out of scope"
+    )]
+    ParameterDomainOutOfScope {
+        /// Space group the direction belongs to (parent for a line source, the
+        /// child for a folded direction).
+        sg: u8,
+        /// Frozen source label, or the empty string for a folded direction.
+        label: &'static str,
     },
 }
 

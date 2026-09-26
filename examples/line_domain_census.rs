@@ -40,10 +40,11 @@ use cryspglib::irrep::subduction::star::decompose::{
     FullStarError, ParameterKind, official_line_parameter, subduce_line_at_parameter,
 };
 use cryspglib::irrep::subduction::star::line_domain::{
-    ParentDomain, child_exceptional_parameters, parent_domain, parent_reciprocal, rotation_set,
-    verify_against_grid,
+    ParentDomain, child_exceptional_parameters, little_co_group_order, minimal_parameter_step,
+    minimal_parameter_step_via_coordinates, parent_domain, reciprocal_lattice,
+    require_reciprocal_direction, rotation_set, verify_against_grid,
 };
-use cryspglib::irrep::subduction::{Rat, SubgroupEmbedding};
+use cryspglib::irrep::subduction::{Rat, SubgroupEmbedding, fold_wave_vector};
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::irrep::{LabelConvention, isotropy, query};
 use rayon::prelude::*;
@@ -112,7 +113,19 @@ struct Record {
     parent_sg: u8,
     child_sg: u8,
     subgroup: isotropy::IsotropySubgroup,
-    labels: Vec<&'static str>,
+    /// Frozen source label and the pinned frequency of its row, so the anchor
+    /// probe can be compared with the pinned table instead of only printed.
+    labels: Vec<(&'static str, u16)>,
+}
+
+/// What one record contributed to the census.
+struct RecordReport {
+    probes: Vec<Probe>,
+    /// `(checks, mismatches)` of the child-side grid cross-check.
+    child_grid: (usize, usize),
+    /// The record's candidate parameters (parent union child).
+    child_parameters: Vec<Rat>,
+    failures: Vec<String>,
 }
 
 fn main() -> ExitCode {
@@ -150,7 +163,7 @@ fn run() -> Result<ExitCode, String> {
     let official = official_line_parameter().map_err(|error| error.to_string())?;
     let generic = Rat::new(GENERIC_SAMPLE.0, GENERIC_SAMPLE.1).map_err(|e| e.to_string())?;
 
-    let per_record: Vec<Vec<Probe>> = if sequential {
+    let per_record: Vec<RecordReport> = if sequential {
         records.iter().map(|record| probe_record(record, &domains, official, generic)).collect()
     } else {
         records
@@ -160,12 +173,23 @@ fn run() -> Result<ExitCode, String> {
     };
     let mut probes: Vec<Probe> = Vec::new();
     let mut probe_errors: Vec<String> = Vec::new();
-    for (record, rows) in records.iter().zip(per_record) {
-        if rows.is_empty() {
+    let mut child_grid = (0usize, 0usize);
+    let mut child_union: Vec<Rat> = Vec::new();
+    for (record, report) in records.iter().zip(per_record) {
+        if report.probes.is_empty() {
             probe_errors.push(format!("ordinal {} produced no probe", record.ordinal));
         }
-        probes.extend(rows);
+        probe_errors.extend(report.failures);
+        child_grid.0 += report.child_grid.0;
+        child_grid.1 += report.child_grid.1;
+        for parameter in report.child_parameters {
+            if !child_union.contains(&parameter) {
+                child_union.push(parameter);
+            }
+        }
+        probes.extend(report.probes);
     }
+    child_union = sorted_parameters(child_union);
 
     if let Some(path) = &output {
         let mut writer = BufWriter::new(
@@ -204,10 +228,19 @@ fn run() -> Result<ExitCode, String> {
         }
     }
 
-    report(&domains, &records, &probes, &probe_errors);
+    let (algorithm_checks, algorithm_mismatches, algorithm_failures) =
+        step_algorithm_cross_check(&domains);
+    let evidence = CensusEvidence {
+        child_grid,
+        child_union: &child_union,
+        algorithm_checks,
+        algorithm_mismatches,
+    };
+    report(&domains, &records, &probes, &probe_errors, &evidence);
 
     let mut violations: Vec<String> = probe_errors;
-    check_invariants(&domains, &records, &probes, &mut violations);
+    violations.extend(algorithm_failures);
+    check_invariants(&domains, &records, &probes, &evidence, &mut violations);
 
     let unsupported = probes
         .iter()
@@ -275,10 +308,19 @@ fn records() -> Result<Vec<Record>, String> {
                 let Ok(rows) = subgroup.other_wave_vector_subduction() else {
                     continue;
                 };
-                let mut labels: Vec<&'static str> = Vec::new();
+                let mut labels: Vec<(&'static str, u16)> = Vec::new();
                 for row in rows {
-                    if !labels.contains(&row.parent_ml) {
-                        labels.push(row.parent_ml);
+                    match labels.iter().find(|(label, _)| *label == row.parent_ml) {
+                        Some((_, frequency)) => {
+                            if *frequency != row.frequency {
+                                return Err(format!(
+                                    "ordinal {}: label {} carries two pinned frequencies \
+                                     ({frequency} and {})",
+                                    subgroup.ordinal, row.parent_ml, row.frequency
+                                ));
+                            }
+                        }
+                        None => labels.push((row.parent_ml, row.frequency)),
                     }
                 }
                 if labels.is_empty() {
@@ -324,6 +366,10 @@ fn sorted_parameters(mut values: Vec<Rat>) -> Vec<Rat> {
     values
 }
 
+/// The parameters of one record: `(probed parameters with their parent order, the
+/// child's own candidate parameters)`.
+type RecordParameters = (Vec<(Rat, usize)>, Vec<Rat>);
+
 /// The partition of one record: the parent's exceptional parameters, the folded
 /// child's exceptional parameters, the official anchor and one generic sample.
 fn record_parameters(
@@ -332,11 +378,9 @@ fn record_parameters(
     table: &'static LittleCharacterTable,
     official: Rat,
     generic: Rat,
-) -> Result<Vec<(Rat, usize)>, String> {
+) -> Result<RecordParameters, String> {
     let embedding = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup)
         .map_err(|error| format!("ordinal {}: {error}", record.ordinal))?;
-    let direction = line_direction(table)
-        .ok_or_else(|| format!("SG {} {}: unparsable direction", record.parent_sg, table.label))?;
     let mut parameters: Vec<(Rat, usize)> = Vec::new();
     let push = |parameter: Rat, order: usize, parameters: &mut Vec<(Rat, usize)>| {
         match parameters.iter_mut().find(|(value, _)| *value == parameter) {
@@ -347,10 +391,11 @@ fn record_parameters(
     for entry in &domain.exceptional {
         push(entry.parameter, 0, &mut parameters);
     }
-    let folded = child_exceptional_parameters(&embedding, &direction)
+    let folded = child_exceptional_parameters(&embedding, table)
         .map_err(|error| format!("ordinal {} child domain: {error}", record.ordinal))?;
-    for (parameter, order) in folded {
-        push(parameter, order, &mut parameters);
+    let child_candidates: Vec<Rat> = folded.iter().map(|(parameter, _)| *parameter).collect();
+    for (parameter, _) in &folded {
+        push(*parameter, 0, &mut parameters);
     }
     for parameter in [official, generic] {
         push(parameter, 0, &mut parameters);
@@ -364,31 +409,138 @@ fn record_parameters(
             .map_or(0, |(_, order)| *order);
         ordered.push((value, order));
     }
-    Ok(ordered)
+    Ok((ordered, child_candidates))
 }
 
 /// Probe one record at every parameter of its partition.
+///
+/// The child little co-group order is recomputed at **every** probed parameter
+/// with [`little_co_group_order`], not only at the parameters the child census
+/// lists, so no probe ever carries an unknown order.  The child-side enumeration
+/// is also cross-checked against the group on a uniform grid right here.
 fn probe_record(
     record: &Record,
     domains: &BTreeMap<(u8, &'static str), ParentDomain>,
     official: Rat,
     generic: Rat,
-) -> Vec<Probe> {
+) -> RecordReport {
     let mut out = Vec::new();
-    for label in &record.labels {
+    let mut failures = Vec::new();
+    let mut child_grid = (0usize, 0usize);
+    let mut child_parameters: Vec<Rat> = Vec::new();
+    let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup) else {
+        failures.push(format!("ordinal {}: embedding rejected", record.ordinal));
+        return RecordReport {
+            probes: out,
+            child_grid,
+            child_parameters,
+            failures,
+        };
+    };
+    let Ok(child_reciprocal) = reciprocal_lattice(record.child_sg) else {
+        failures.push(format!(
+            "ordinal {}: child #{} has no reciprocal lattice",
+            record.ordinal, record.child_sg
+        ));
+        return RecordReport {
+            probes: out,
+            child_grid,
+            child_parameters,
+            failures,
+        };
+    };
+    let Ok(child_rotations) = rotation_set(record.child_sg) else {
+        failures.push(format!(
+            "ordinal {}: child #{} has no rotation set",
+            record.ordinal, record.child_sg
+        ));
+        return RecordReport {
+            probes: out,
+            child_grid,
+            child_parameters,
+            failures,
+        };
+    };
+    for (label, pinned) in &record.labels {
         let Some(table) = line_table(record.parent_sg, label) else {
+            failures.push(format!(
+                "ordinal {}: no frozen table for SG {} {label}",
+                record.ordinal, record.parent_sg
+            ));
             continue;
         };
         let Some(domain) = domains.get(&(record.parent_sg, label)) else {
+            failures.push(format!(
+                "ordinal {}: no census domain for SG {} {label}",
+                record.ordinal, record.parent_sg
+            ));
             continue;
         };
-        let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup) else {
+        let Ok(direction) = line_direction(table).ok_or(()) else {
+            failures.push(format!(
+                "ordinal {}: SG {} {label} has no parsable direction",
+                record.ordinal, record.parent_sg
+            ));
             continue;
         };
-        let Ok(parameters) = record_parameters(record, domain, table, official, generic) else {
+        // The folded direction is `q(t) = t . q1`; both the grid cross-check and
+        // the per-parameter order use `q1`.
+        let Ok(folded) = fold_wave_vector(embedding.transform(), &direction) else {
+            failures.push(format!("ordinal {}: folding failed", record.ordinal));
             continue;
         };
-        for (parameter, child_order) in parameters {
+        if !folded.is_zero()
+            && let Err(error) =
+                require_reciprocal_direction(&child_reciprocal, &folded, record.child_sg, "")
+        {
+            failures.push(format!(
+                "ordinal {}: the folded direction is out of scope: {error}",
+                record.ordinal
+            ));
+            continue;
+        }
+        for denominator in [24i128, 120] {
+            match verify_against_grid(&child_reciprocal, &folded, &child_rotations, denominator) {
+                Ok(check) => {
+                    child_grid.0 += check.checks;
+                    child_grid.1 += check.mismatches;
+                }
+                Err(error) => failures.push(format!(
+                    "ordinal {} child grid 1/{denominator}: {error}",
+                    record.ordinal
+                )),
+            }
+        }
+        let Ok((parameters, child_candidates)) =
+            record_parameters(record, domain, table, official, generic)
+        else {
+            failures.push(format!(
+                "ordinal {}: parameter partition failed for {label}",
+                record.ordinal
+            ));
+            continue;
+        };
+        for parameter in child_candidates {
+            if !child_parameters.contains(&parameter) {
+                child_parameters.push(parameter);
+            }
+        }
+        for (parameter, _) in parameters {
+            let child_order = if folded.is_zero() {
+                child_rotations.len()
+            } else {
+                match little_co_group_order(&child_reciprocal, &folded, &child_rotations, parameter)
+                {
+                    Ok(order) => order,
+                    Err(error) => {
+                        failures.push(format!(
+                            "ordinal {} {label} t={parameter}: child order: {error}",
+                            record.ordinal
+                        ));
+                        continue;
+                    }
+                }
+            };
             let parent = domain
                 .exceptional
                 .iter()
@@ -431,6 +583,19 @@ fn probe_record(
                 ),
                 Err(error) => (TargetClass::Error, None, None, error.to_string()),
             };
+            let anchor_mismatch = if parameter == official {
+                match (content, *pinned) {
+                    (Some(value), expected) if value != u32::from(expected) => Some(format!(
+                        "anchor content {value} != pinned {expected}"
+                    )),
+                    (None, _) if class != TargetClass::Error => {
+                        Some("anchor has no trivial content".to_string())
+                    }
+                    _ => None,
+                }
+            } else {
+                None
+            };
             out.push(Probe {
                 ordinal: record.ordinal,
                 parent_sg: record.parent_sg,
@@ -443,19 +608,42 @@ fn probe_record(
                 class,
                 parameter_kind,
                 content,
-                detail,
+                detail: match anchor_mismatch {
+                    Some(note) => format!("{note}; {}", detail),
+                    None => detail,
+                },
             });
         }
     }
-    out
+    child_parameters.sort_by_key(|value| value.numerator() * 10_080 / value.denominator());
+    child_parameters.dedup();
+    RecordReport {
+        probes: out,
+        child_grid,
+        child_parameters,
+        failures,
+    }
 }
 
 /// Human-readable summary: the partition, the classes and the open boundary.
+/// The census evidence that does not live in a single probe.
+struct CensusEvidence<'a> {
+    /// `(checks, mismatches)` of the child-side grid cross-check over all records.
+    child_grid: (usize, usize),
+    /// The union of the records' child candidate parameters.
+    child_union: &'a [Rat],
+    /// How often the centring scan and the coordinate map route were compared,
+    /// and how often they disagreed.
+    algorithm_checks: usize,
+    algorithm_mismatches: usize,
+}
+
 fn report(
     domains: &BTreeMap<(u8, &'static str), ParentDomain>,
     records: &[Record],
     probes: &[Probe],
     errors: &[String],
+    evidence: &CensusEvidence,
 ) {
     println!(
         "sources={} records={} probes={} probe_errors={}",
@@ -463,6 +651,25 @@ fn report(
         records.len(),
         probes.len(),
         errors.len()
+    );
+    println!(
+        "child-side grid cross-check: {} predicates, {} mismatch(es); candidate parameters {{{}}}",
+        evidence.child_grid.0,
+        evidence.child_grid.1,
+        evidence
+            .child_union
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    println!(
+        "probes without a child order: {}",
+        probes.iter().filter(|probe| probe.child_order == 0).count()
+    );
+    println!(
+        "step algorithms: {} rotation comparisons, {} disagreement(s)",
+        evidence.algorithm_checks, evidence.algorithm_mismatches
     );
     let mut parent_shapes: BTreeMap<Vec<(String, usize, usize)>, usize> = BTreeMap::new();
     for domain in domains.values() {
@@ -535,11 +742,75 @@ fn report(
     }
 }
 
+/// Compare the centring scan with the coordinate-map route for every source
+/// rotation: an arithmetic-independent control of the step, since the two
+/// algorithms share no code beyond the rational helpers.
+fn step_algorithm_cross_check(
+    domains: &BTreeMap<(u8, &'static str), ParentDomain>,
+) -> (usize, usize, Vec<String>) {
+    let mut checks = 0usize;
+    let mut mismatches = 0usize;
+    let mut failures = Vec::new();
+    for ((sg, label), domain) in domains {
+        let Ok(lattice) = reciprocal_lattice(*sg) else {
+            failures.push(format!("SG {sg} {label}: no reciprocal lattice"));
+            continue;
+        };
+        let Ok(rotations) = rotation_set(*sg) else {
+            failures.push(format!("SG {sg} {label}: no rotation set"));
+            continue;
+        };
+        for rotation in &rotations {
+            let image = match cryspglib::irrep::subduction::Mat3R::from_ints(*rotation)
+                .inverse()
+                .and_then(|matrix| matrix.transpose().checked_mul_vector(&domain.direction))
+            {
+                Ok(image) => image,
+                Err(error) => {
+                    failures.push(format!("SG {sg} {label}: rotation image: {error}"));
+                    continue;
+                }
+            };
+            let (Ok(w), Ok(other)) = (
+                image.checked_sub(&domain.direction),
+                image.checked_sub(&domain.direction),
+            ) else {
+                failures.push(format!("SG {sg} {label}: rotation difference failed"));
+                continue;
+            };
+            match (
+                minimal_parameter_step(&lattice, &w),
+                minimal_parameter_step_via_coordinates(&lattice, &other),
+            ) {
+                (Ok(scan), Ok(coordinates)) => {
+                    checks += 1;
+                    if scan != coordinates {
+                        mismatches += 1;
+                        failures.push(format!(
+                            "SG {sg} {label} rotation {rotation:?}: centring scan {:?} != \
+                             coordinate map {:?}",
+                            scan.map(|value| value.to_string()),
+                            coordinates.map(|value| value.to_string())
+                        ));
+                    }
+                }
+                (scan, coordinates) => failures.push(format!(
+                    "SG {sg} {label} rotation {rotation:?}: step failed ({:?} / {:?})",
+                    scan.err().map(|error| error.to_string()),
+                    coordinates.err().map(|error| error.to_string())
+                )),
+            }
+        }
+    }
+    (checks, mismatches, failures)
+}
+
 /// Every invariant the census claims, checked against the probes.
 fn check_invariants(
     domains: &BTreeMap<(u8, &'static str), ParentDomain>,
     records: &[Record],
     probes: &[Probe],
+    evidence: &CensusEvidence,
     violations: &mut Vec<String>,
 ) {
     // 1. The frozen tables are the generic stabiliser (already enforced while
@@ -592,9 +863,16 @@ fn check_invariants(
             ));
         }
     }
-    // 3. A trivial child little co-group is always answerable, and an
+    // 3. Every probe carries a real child little co-group order (never the
+    //    sentinel zero), a trivial co-group is always answerable, and an
     //    unsupported probe must be explained by an enhanced child co-group.
     for probe in probes {
+        if probe.child_order == 0 {
+            violations.push(format!(
+                "ordinal {} {} t={}: no child little co-group order was computed",
+                probe.ordinal, probe.label, probe.parameter
+            ));
+        }
         if probe.child_order == 1 && probe.class == TargetClass::Unsupported {
             violations.push(format!(
                 "ordinal {} {} t={}: unsupported although the child co-group is trivial",
@@ -608,7 +886,77 @@ fn check_invariants(
             ));
         }
     }
-    // 4. The official anchor is answered for every pinned row.
+    // 3b. An engine error is a hard failure of the census run, under every flag:
+    //     `errors` is not allowed to be a pure diagnostic counter.
+    for probe in probes.iter().filter(|probe| probe.class == TargetClass::Error) {
+        violations.push(format!(
+            "ordinal {} {} t={}: engine error: {}",
+            probe.ordinal, probe.label, probe.parameter, probe.detail
+        ));
+    }
+    // 3c. The child-side census is cross-checked against the child group on a
+    //     uniform grid, and its corpus-wide candidate set is exactly the eighth
+    //     grid measured for this corpus.  Both are assertions, not report lines.
+    if evidence.child_grid.1 > 0 {
+        violations.push(format!(
+            "the child enumeration disagrees with the child group in {} of {} grid predicates",
+            evidence.child_grid.1, evidence.child_grid.0
+        ));
+    }
+    if evidence.child_grid.0 == 0 {
+        violations.push("the child grid cross-check never ran".to_string());
+    }
+    let expected_child: Vec<Rat> = [
+        (0i128, 1i128),
+        (1, 8),
+        (1, 4),
+        (3, 8),
+        (1, 2),
+        (5, 8),
+        (3, 4),
+        (7, 8),
+    ]
+    .iter()
+    .map(|(numerator, denominator)| Rat::new(*numerator, *denominator).expect("rational"))
+    .collect();
+    if evidence.child_union != expected_child.as_slice() {
+        violations.push(format!(
+            "the child candidate parameters are {:?}, expected the eighth grid {:?}",
+            evidence
+                .child_union
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>(),
+            expected_child
+                .iter()
+                .map(|value| value.to_string())
+                .collect::<Vec<_>>()
+        ));
+    }
+    if evidence.algorithm_mismatches > 0 {
+        violations.push(format!(
+            "the centring scan and the coordinate map disagree in {} of {} rotations",
+            evidence.algorithm_mismatches, evidence.algorithm_checks
+        ));
+    }
+    if evidence.algorithm_checks < 2_000 {
+        violations.push(format!(
+            "the two step algorithms were compared only {} times",
+            evidence.algorithm_checks
+        ));
+    }
+    // 3e. The frozen directions are in scope for the residue representation.
+    for ((sg, label), domain) in domains {
+        match reciprocal_lattice(*sg).and_then(|lattice| {
+            require_reciprocal_direction(&lattice, &domain.direction, *sg, label)
+        }) {
+            Ok(()) => {}
+            Err(error) => violations.push(format!("SG {sg} {label}: {error}")),
+        }
+    }
+    // 4. The official anchor is answered for every pinned row, and its trivial
+    //    content equals the pinned frequency (compared while probing; the label
+    //    detail carries the mismatch).
     let official = official_line_parameter().ok();
     let mut anchor = 0usize;
     for probe in probes {
@@ -620,6 +968,14 @@ fn check_invariants(
             violations.push(format!(
                 "ordinal {} {}: the official anchor is unsupported",
                 probe.ordinal, probe.label
+            ));
+        }
+        if probe.detail.contains("!= pinned") {
+            violations.push(format!(
+                "ordinal {} {}: {detail}",
+                probe.ordinal,
+                probe.label,
+                detail = probe.detail
             ));
         }
     }
@@ -647,7 +1003,7 @@ fn check_invariants(
     let mut grid_checks = 0usize;
     let mut grid_mismatches = 0usize;
     for ((sg, label), domain) in domains {
-        let Ok(lattice) = parent_reciprocal(*sg) else {
+        let Ok(lattice) = reciprocal_lattice(*sg) else {
             violations.push(format!("SG {sg} {label}: no parent reciprocal lattice"));
             continue;
         };
