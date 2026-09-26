@@ -298,17 +298,21 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo run --release -p cryspglib --example line_domain_census -- --gate
 ```
 
-单元回归（`cargo test --release -p cryspglib --lib line_domain`，13 项）：冻结表 == generic
+单元回归（`cargo test --release -p cryspglib --lib line_domain`，14 项）：冻结表 == generic
 稳定子（73 源）、例外参数恰为 `{0,1/2}` 与六种形状、P/F/I/R 四种 centring 的步长见证
 （含 R 心 `(2,0,0) → 3/2`）、SG 196 `DT1 → #18` 子群侧恰为四分之一网格、
 两种步长算法在 2,580+ 合成向量上一致、`t = 0`/`1/2`/`1/4`/`1/7`/`3/8` 与负参数及
 `3/2` 上的子群小余群阶、倒格矢作用域围栏、24 与 120 网格上的枚举-群一致性
-（>200k 谓词），以及第四、五轮新增的三项：分数行前提的 fail-closed 见证
+（>200k 谓词），以及第四、五轮新增的四项：分数行前提的 fail-closed 见证
 （`a_fractional_lattice_is_rejected_by_the_centring_scan`，含 `w = 0` 的次序约定与
 `w = (2,0,0)` 的第二见证）、230 个空间群的倒格与自心平移的两个独立构造
 （`every_space_group_reciprocal_lattice_is_integral_with_small_exponent`，含 16 个 F 心
 空间群的**逐号**钉值与指数/exponent 直方图）、A 心与 C 心同余条件的互斥见证
-（`the_per_space_group_congruences_separate_a_from_c`）。
+（`the_per_space_group_congruences_separate_a_from_c`）、以及每个空间群的旋转集合与
+其存储 Hall setting 的独立重算
+（`every_space_group_rotation_set_is_its_stored_hall_settings`，走
+`SymmetryOps::from_hall_number` 而非 `strict_sg_hall_ops`；SG 38 少一个旋转的变异只被
+它抓住，门禁仍 exit 0）。
 
 ## 5. 与 R6.1 验收的关系
 
