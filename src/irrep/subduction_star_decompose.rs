@@ -66,8 +66,8 @@ use super::super::{
 };
 use super::scalar_star::{ComponentStar, ConstructedStar, ScalarStar};
 use super::{
-    ConstructedLittleRep, FoldArm, FoldedStar, OrdinaryStar, StarError, arm_wave_vector,
-    catalogue, fold_arms,
+    ConstructedLittleRep, FoldArm, FoldedPoint, FoldedStar, OrdinaryStar, StarError,
+    arm_wave_vector, catalogue, fold_arms,
 };
 
 /// The identity rotation, as stored in every Hall operation table.
@@ -363,7 +363,20 @@ pub struct FullStarBlock {
     /// One child full-star character evaluator per target, used by the
     /// independent reconstruction; not part of the reported decomposition.
     evaluators: Vec<ChildStarEvaluator>,
+    /// The folded points of this child star with the parent arm indices that
+    /// land on each, in the star's canonical order.
+    ///
+    /// Consumers that compare two parameters (R6.7 cards 5-6) match blocks by
+    /// the **parent arm identity** carried here: the folded coordinates, the
+    /// block order and the `stored`/`constructed` provenance all move with the
+    /// parameter, while which parent arms share a child star does not (within a
+    /// partition interval).
+    points: Vec<FoldedPoint>,
+    /// Position of the representative point in `points`: the one whose class
+    /// matched stored child data (or whose constructed coordinate was used).
+    representative: usize,
 }
+
 
 impl FullStarBlock {
     /// The representative folded point whose class matched stored child data.
@@ -422,6 +435,35 @@ impl FullStarBlock {
     /// Non-zero target terms, in the child table's order.
     pub fn targets(&self) -> &[FullStarTarget] {
         &self.targets
+    }
+
+    /// The folded points of this child star, in canonical order, each with the
+    /// parent arm indices that folded onto it.
+    pub fn points(&self) -> &[FoldedPoint] {
+        &self.points
+    }
+
+    /// Position in [`Self::points`] of the representative the targets were read
+    /// at.
+    pub const fn representative(&self) -> usize {
+        self.representative
+    }
+
+    /// Every parent arm carried by this block, ascending and deduplicated.
+    ///
+    /// This is the block's **stable identity across parameters**: within one
+    /// interval of the full-star partition the same arms share a child star, so
+    /// two blocks are the same object exactly when their arm sets agree (the
+    /// folded coordinates and the reported provenance do move with `t`).
+    pub fn arm_indices(&self) -> Vec<usize> {
+        let mut arms: Vec<usize> = self
+            .points
+            .iter()
+            .flat_map(|point| point.arm_indices().iter().copied())
+            .collect();
+        arms.sort_unstable();
+        arms.dedup();
+        arms
     }
 
     /// Multiplicity of one sourced target label, or `0` when it does not appear.
@@ -1777,6 +1819,8 @@ fn build_block(
         little_dimension,
         targets,
         evaluators,
+        points: folded_star.points().to_vec(),
+        representative: representative.point,
     })
 }
 

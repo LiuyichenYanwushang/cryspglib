@@ -2226,6 +2226,62 @@ mod tests {
                             for (slot, count) in boundary.counts.iter().enumerate() {
                                 census.events[slot] += count;
                             }
+                            // The bounded-witness contract, checked instead of
+                            // documented: at most one witness per (kind, arm),
+                            // every recorded relation satisfies the predicate it
+                            // names at exactly this parameter, and the kind is the
+                            // one its indices imply.  Without this a mutation that
+                            // drops the bound or blanks `image` passes the whole
+                            // suite (card-3 math review, finding 2).
+                            assert!(
+                                boundary.witnesses.len()
+                                    <= StarEventKind::ALL.len() * partition.arms.len(),
+                                "SG {sg} {label} t={}: {} witnesses exceed the \
+                                 one-per-(kind, arm) bound over {} arms",
+                                boundary.parameter,
+                                boundary.witnesses.len(),
+                                partition.arms.len()
+                            );
+                            let mut seen: Vec<(StarEventKind, usize)> = Vec::new();
+                            for event in &boundary.witnesses {
+                                let expected = if event.arm == event.image {
+                                    StarEventKind::LittleCoGroupGrowth
+                                } else if event.rotation == IDENTITY_ROTATION {
+                                    StarEventKind::ArmMerge
+                                } else {
+                                    StarEventKind::OrbitIdentification
+                                };
+                                assert_eq!(
+                                    event.kind, expected,
+                                    "SG {sg} {label} t={}: witness {event:?} has the wrong kind",
+                                    boundary.parameter
+                                );
+                                let pair = (event.kind, event.arm);
+                                assert!(
+                                    !seen.contains(&pair),
+                                    "SG {sg} {label} t={}: witness {pair:?} is recorded twice",
+                                    boundary.parameter
+                                );
+                                seen.push(pair);
+                                assert_star_predicate(
+                                    &partition,
+                                    event,
+                                    &boundary.parameter,
+                                    &format!("SG {sg} {label}"),
+                                );
+                            }
+                        }
+                        for event in &partition.permanent_witnesses {
+                            // A permanent relation holds at *every* parameter, so
+                            // its predicate must hold at two unrelated ones.
+                            for parameter in [Rat::ZERO, rational(1, 7)] {
+                                assert_star_predicate(
+                                    &partition,
+                                    event,
+                                    &parameter,
+                                    &format!("SG {sg} {label} (permanent)"),
+                                );
+                            }
                         }
                         for (slot, count) in partition.permanent_counts.iter().enumerate() {
                             census.permanent[slot] += count;
@@ -2275,10 +2331,14 @@ mod tests {
             [1_039_264, 1_981_608, 7_474_912],
             "exact relation counts per kind over all boundaries"
         );
+        // The zero in the middle is structural, not a measurement: `arm_images`
+        // deduplicates by **exact** vector equality, so two distinct arms can
+        // never fold onto the same direction and a permanent `ArmMerge` cannot
+        // exist (card-3 math review, finding 4).  The other two are corpus counts.
         assert_eq!(
             census.permanent,
             [27_008, 0, 178_036],
-            "relations true at every parameter (no arm pair is exactly coincident)"
+            "relations true at every parameter (the ArmMerge zero is a tautology of the dedup)"
         );
         assert_eq!(
             census.reference_parameters, 35_039,
@@ -2405,6 +2465,39 @@ mod tests {
         labels.sort_unstable();
         labels.dedup();
         assert_eq!(labels.len(), 3, "the kind labels are distinct");
+    }
+
+    /// Whether one recorded relation really holds at one parameter:
+    /// `t (R^-T v_arm - v_image) in L*_H`, recomputed from the recorded triple
+    /// through the child lattice the partition carries.
+    ///
+    /// This is the check that makes the bounded witness list meaningful: it uses
+    /// the arm and rotation the event *records*, so a wrong `arm`, `image` or
+    /// `rotation` field — or a witness recorded at a parameter where the relation
+    /// is false — fails here even though the counts and the boundary set agree.
+    fn assert_star_predicate(
+        partition: &FullStarPartition,
+        event: &StarEvent,
+        parameter: &Rat,
+        context: &str,
+    ) {
+        let image = Mat3R::from_ints(event.rotation)
+            .inverse()
+            .expect("rotation")
+            .transpose()
+            .checked_mul_vector(&partition.arms[event.arm].direction)
+            .expect("image");
+        let difference = image
+            .checked_sub(&partition.arms[event.image].direction)
+            .expect("difference");
+        let scaled = scale(&difference, parameter).expect("scaled difference");
+        assert!(
+            partition
+                .child_reciprocal
+                .contains(&scaled)
+                .expect("membership"),
+            "{context} t={parameter}: the witness {event:?} does not satisfy its own predicate"
+        );
     }
 
     /// **R6.7 card 3, witness 1 (ordinal 10030, SG 196 `DT1` to #18).**  The
@@ -2563,28 +2656,15 @@ mod tests {
             "only merge witnesses belong to this boundary: {boundary:?}"
         );
 
-        // No little co-group ever changes: every arm is trivial and of order one
-        // at the two generic parameters and at the boundary.
-        for parameter in [rational(1, 9), rational(1, 7), eighth] {
-            for arm in &partition.arms {
-                assert_eq!(
-                    little_co_group_order(
-                        &partition.child_reciprocal,
-                        &arm.direction,
-                        &partition.child_rotations,
-                        parameter,
-                    )
-                    .expect("order"),
-                    1,
-                    "child P1: every folded point has the trivial little co-group"
-                );
-                assert!(
-                    child_cocycle_is_a_coboundary(partition.child_sg, &arm.direction, parameter)
-                        .expect("class"),
-                    "child P1: every class is trivial"
-                );
-            }
-        }
+        // The child point group is trivial, so no little co-group *can* change:
+        // with `rotation_set(1) = {I}` both `little_co_group_order` and
+        // `child_cocycle_is_a_coboundary` are constant at **every** parameter and
+        // asserting them per parameter would assert nothing (card-3 math review,
+        // finding 3).  What is asserted instead is the reason the reference-only
+        // partition is blind here: the child frame has one rotation, and the
+        // reference candidates below are `{0}` alone.
+        assert_eq!(partition.child_rotations.len(), 1, "child P1 has one rotation");
+        assert_eq!(partition.child_rotations, vec![IDENTITY_ROTATION]);
 
         // The geometry the partition cuts: points and child stars.
         for (parameter, points) in [

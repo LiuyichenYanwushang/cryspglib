@@ -21,12 +21,34 @@
 //! * the trivial content, so the anchor rows stay comparable with the pinned
 //!   table.
 //!
+//! R6.7 card 4 binds every statistic to the individual **child-star block**
+//! instead of to the whole probe.  A probe-level `stored`/`constructed` label is
+//! a statement about *some* block: it says nothing about the block whose little
+//! co-group or cocycle one is asking about, and the accepted external finding is
+//! exactly that -- ordinal 13688 (SG 225 `SM1` -> child #134, `t = 1/8`) carries
+//! an order-16 non-trivial block that is entirely **stored** while a *different*
+//! block of the same probe holds constructed targets.  The block-level reading is
+//! therefore the primary one here:
+//!
+//! * every `result.blocks()` entry yields a [`BlockStat`] (record, source,
+//!   parameter, block index) with its own star size, arm set, dimension, little
+//!   co-group, own cocycle class and own target source;
+//! * the `--gate` boundary table pairs a non-trivial class at the reference
+//!   folded point with the **reference-carrying block**'s own source, and keeps
+//!   the old probe-level table only as a clearly labelled withdrawn convention;
+//! * a full-star recount pass runs the production decomposition at every
+//!   parameter the card-3 partition [`full_star_partition`] adds beyond the
+//!   reference candidate set and classifies every block there.
+//!
 //! Usage:
 //!
 //! ```text
 //! line_domain_census                 # summary + parameter partition
 //! line_domain_census --gate          # exit 1 unless every invariant holds
+//! line_domain_census --full-star-recount
+//!                                    # rerun the gate's card-3 recount pass alone
 //! line_domain_census --output out.tsv
+//! line_domain_census --output-blocks blocks.tsv
 //! line_domain_census --sequential    # one thread (default: rayon over records)
 //! ```
 //!
@@ -37,31 +59,43 @@
 
 use cryspglib::irrep::line_monodromy::{line_direction, line_table};
 use cryspglib::irrep::subduction::star::decompose::{
-    FullStarError, ParameterKind, official_line_parameter, subduce_line_at_parameter,
+    FullStarBlock, FullStarError, FullStarTarget, LineSubduction, ParameterKind,
+    official_line_parameter, subduce_line_at_parameter,
 };
 use cryspglib::irrep::subduction::star::line_domain::{
-    ParentDomain, child_cocycle_is_a_coboundary, child_exceptional_parameters,
-    little_co_group_order, minimal_parameter_step, minimal_parameter_step_via_coordinates,
-    parent_domain, reciprocal_lattice, require_reciprocal_direction, rotation_set,
+    FoldedArm, FullStarPartition, GammaParameters, ParentDomain, child_cocycle_is_a_coboundary, child_exceptional_parameters,
+    full_star_partition, little_co_group_order, minimal_parameter_step,
+    minimal_parameter_step_via_coordinates, parent_domain, point_cocycle_is_a_coboundary,
+    point_little_co_group_order, reciprocal_lattice, require_reciprocal_direction, rotation_set,
     verify_against_grid,
 };
 use cryspglib::irrep::generated_data::SG_DATA_HALL;
-use cryspglib::irrep::subduction::{Rat, SubgroupEmbedding, Vec3R, fold_wave_vector};
+use cryspglib::irrep::subduction::{
+    Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R, fold_wave_vector,
+};
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::irrep::{LabelConvention, isotropy, query};
+use cryspglib::mathfunc::Mat3I;
 use cryspglib::{HallNumber, SymmetryOps};
 use rayon::prelude::*;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{BufWriter, Write as _};
 use std::process::ExitCode;
+use std::sync::Mutex;
 
 const USAGE: &str = "\
-line_domain_census [--gate] [--require-covered] [--sequential] [--output <path>]
+line_domain_census [--gate] [--require-covered] [--full-star-recount] [--sequential]
+                   [--output <path>] [--output-blocks <path>]
 
-  --gate               exit 1 unless the census invariants hold
+  --gate               exit 1 unless the census invariants hold (includes the
+                       full-star recount pass)
   --require-covered    additionally fail when any (record, parameter) is unsupported
+  --full-star-recount  run the card-3 full-star recount pass on its own, with
+                       the gate's failure semantics
   --sequential         one thread (default parallel over isotropy records)
   --output <path>      write the per-probe table as TSV
+  --output-blocks <path>
+                       write the per-block table as TSV
 ";
 
 /// The generic parameter used to prove that a non-exceptional point is answered
@@ -94,6 +128,272 @@ impl TargetClass {
     }
 }
 
+/// How the targets of one **child-star block** were sourced.
+///
+/// This is the R6.7 card 4 replacement for the probe-level [`TargetClass`]: the
+/// old label answered "does *some* target of this probe come from a pinned child
+/// row", which is not a statement about the block whose little co-group or
+/// cocycle is under discussion.  The accepted witness is ordinal 13688 (SG 225
+/// `SM1` -> child #134, `t = 1/8`), where the non-trivial order-16 block is
+/// entirely stored while another block of the same probe holds constructed
+/// targets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum BlockSource {
+    /// Every target of the block came from a pinned child row.
+    Stored,
+    /// No target of the block came from a pinned child row.
+    Constructed,
+    /// The block mixes both sources.
+    Mixed,
+}
+
+impl BlockSource {
+    /// Position in a counts array.
+    const fn index(self) -> usize {
+        match self {
+            Self::Stored => 0,
+            Self::Constructed => 1,
+            Self::Mixed => 2,
+        }
+    }
+
+    /// Short human-readable name, for the report.
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Stored => "stored",
+            Self::Constructed => "constructed",
+            Self::Mixed => "mixed",
+        }
+    }
+}
+
+/// Classify one block from **its own targets and nothing else**.
+///
+/// The signature is the control: it receives one slice, so adding, removing or
+/// reclassifying an unrelated block of the same probe cannot move this block's
+/// label.  An empty slice is `Stored` ("every target is stored" holds
+/// vacuously); the probe-level rule below shows why that is the harmless
+/// reading rather than a claim about data that does not exist.
+fn classify_block(targets: &[FullStarTarget]) -> BlockSource {
+    classify_counts(
+        targets.iter().filter(|target| target.irnumber.is_some()).count(),
+        targets.len(),
+    )
+}
+
+/// The classification rule as a function of the two counts the block itself
+/// determines.
+///
+/// Split out so the gate can recompute a recorded label from the counts it
+/// stored while reading the block, instead of calling [`classify_block`] on the
+/// same slice again: with a single function the gate check would be a
+/// restatement, and a mutation that classifies every block by the probe-level
+/// rule would pass it.
+const fn classify_counts(stored: usize, total: usize) -> BlockSource {
+    if stored == total {
+        BlockSource::Stored
+    } else if stored == 0 {
+        BlockSource::Constructed
+    } else {
+        BlockSource::Mixed
+    }
+}
+
+/// The legacy **probe-level** rule, kept only to measure what it would have
+/// said.  It is the rule the card-4 finding withdraws: `stored` means "every
+/// target of the whole probe is stored", and one constructed target in any
+/// block makes every block of the probe `constructed`.
+///
+/// It has exactly two outcomes -- a probe is never `mixed` under it -- which is
+/// the shape of the objection: a probe that carries both kinds is reported as if
+/// all of it were constructed, and the stored block's own answer is lost.
+fn classify_probe(targets: &[&FullStarTarget]) -> BlockSource {
+    if targets.iter().all(|target| target.irnumber.is_some()) {
+        BlockSource::Stored
+    } else {
+        BlockSource::Constructed
+    }
+}
+
+/// The little co-group order and cocycle class of one exact child point, memoized.
+///
+/// Both quantities are functions of the child space group and the **exact**
+/// point, and the same point is asked for over and over: at `t = 0` every probe
+/// of a child space group asks about `q = (0, 0, 0)`, where the little co-group
+/// is the whole child point group and the class decision is the expensive one
+/// (the order-independent syzygy solve of M2.2).  The memo is keyed by the exact
+/// rational point, so a hit means an identical input -- no reduction, no coset
+/// identity, is assumed here.
+#[derive(Default)]
+struct PointClassCache {
+    entries: Mutex<PointClassTable>,
+}
+
+/// The memo's key: the child space group and the **exact** rational point.  A
+/// named alias because the type is otherwise unreadable at the use sites.
+type PointClassTable = HashMap<(u8, [Rat; 3]), Result<PointClass, String>>;
+
+/// What one child point contributes to a block's statistics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PointClass {
+    /// Order of the little co-group fixing the point modulo the child
+    /// reciprocal lattice.
+    little_co_group: usize,
+    /// Whether the point's own factor system is a coboundary.
+    cocycle_trivial: bool,
+}
+
+impl PointClassCache {
+    /// The class data of one point of one child group.
+    fn classify(&self, child_sg: u8, point: &Vec3R) -> Result<PointClass, String> {
+        let key = (child_sg, *point.as_array());
+        let lock = || {
+            self.entries
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+        };
+        if let Some(hit) = lock().get(&key) {
+            return hit.clone();
+        }
+        let computed = point_little_co_group_order(child_sg, point)
+            .map_err(|error| error.to_string())
+            .and_then(|little_co_group| {
+                point_cocycle_is_a_coboundary(child_sg, point)
+                    .map(|cocycle_trivial| PointClass {
+                        little_co_group,
+                        cocycle_trivial,
+                    })
+                    .map_err(|error| error.to_string())
+            });
+        lock().insert(key, computed.clone());
+        computed
+    }
+}
+
+/// Every statistic of one child-star block, bound to its
+/// (record, source, parameter, block) key.
+///
+/// The block is the unit the card-4 finding asks for: its **own** arm set, star
+/// size, dimension, little co-group, cocycle class and target source, none of
+/// which may be read off another block or off the probe as a whole.
+struct BlockStat {
+    ordinal: usize,
+    parent_sg: u8,
+    child_sg: u8,
+    label: &'static str,
+    parameter: Rat,
+    /// Position in `result.blocks()`.
+    index: usize,
+    /// `block.points().len()`.
+    star_size: usize,
+    /// `Σ point.arm_count()`: `block.arm_count()`, recomputed here.
+    arm_count: usize,
+    /// `block.arm_indices()`: the parent arms of this child star.
+    arm_indices: Vec<usize>,
+    block_dimension: u32,
+    little_co_group: usize,
+    cocycle_trivial: bool,
+    /// `classify_block(block.targets())`.
+    source: BlockSource,
+    /// `(dimension, multiplicity)` of every reported target.
+    terms: Vec<(u8, u32)>,
+    /// Whether the block carries the reference folded point `t . q1`, decided by
+    /// the exact child reciprocal-lattice equivalence `same_mod`.
+    carries_reference: bool,
+    /// Whether one of the block's folded points is the child Gamma point, i.e.
+    /// one of its arms reaches `Gamma` at this parameter.
+    carries_gamma: bool,
+    /// Targets read from a pinned child row.
+    stored_targets: usize,
+    /// Targets of the block.
+    target_count: usize,
+    /// `block.star_size()`, for the cross-check against `star_size`.
+    declared_star_size: usize,
+    /// `block.arm_count()`, for the cross-check against `arm_count`.
+    declared_arm_count: usize,
+    /// How many of the block's points were compared for little-co-group order
+    /// **and** class agreement; must equal `star_size`.
+    point_checks: usize,
+    /// How many of those comparisons disagreed.  Disagreement is impossible for
+    /// conjugate points and is a gate violation, not a warning: the block's
+    /// reported co-group and class would otherwise describe one point of the
+    /// star only.
+    point_disagreements: usize,
+    /// The block's own representative folded coordinate `q`.
+    ///
+    /// Kept so the gate can call the two point-level entry points again on the
+    /// **block's** point instead of trusting the value the statistics were built
+    /// with: a wrong point, a wrong child group or a stale memo entry then shows
+    /// up as a disagreement.  It is not written to `--output-blocks`.
+    representative_point: Vec3R,
+}
+
+/// The engine's own dimension bookkeeping of one probe, absent when the engine
+/// did not answer at all.
+struct BlockDimensions {
+    /// `result.blocks().len()`.
+    reported_blocks: usize,
+    /// `result.covered_dimension()`.
+    covered: u32,
+    /// `result.parent_dimension()`.
+    parent: u32,
+    /// `parent / table.dimension`: the number of parent arms the probe carried,
+    /// derived from the engine's own dimension identity rather than from the
+    /// block list.
+    arm_total: usize,
+}
+
+/// A borrowed view of [`GammaParameters`]: the `(parameter, arms)` entries and
+/// the arms that are at Gamma at every parameter.
+type GammaArms<'a> = (&'a [(Rat, Vec<usize>)], &'a [usize]);
+
+/// What one `(record, label)` contributed to the card-3 Gamma report.
+#[derive(Default)]
+struct GammaReport {
+    /// `(parameter, arms)` entries of [`FullStarPartition::gamma_parameters`].
+    entries: usize,
+    /// Entries whose parameter is a full-star boundary.
+    contained: usize,
+    /// Entries whose parameter is **not** a boundary and whose reaching arm is
+    /// fixed exactly by the whole child point group (verified pointwise).
+    exceptional: usize,
+    /// Arms whose folded direction is exactly zero: at Gamma at every parameter,
+    /// reported separately by the partition and counted here.
+    zero_arms: usize,
+    /// The distinct Gamma parameters, as report keys.
+    shapes: BTreeMap<Vec<(String, Vec<usize>)>, usize>,
+    /// Up to [`GAMMA_WITNESSES`] exceptional witnesses, for the printout.
+    witnesses: Vec<String>,
+}
+
+/// What the full-star recount pass measured over one record.
+#[derive(Default)]
+struct RecountReport {
+    /// The `(record, label, parameter)` probes the card-3 partition adds beyond
+    /// the reference candidate set.
+    probes: usize,
+    /// Blocks classified in the pass.
+    blocks: usize,
+    /// Blocks by [`BlockSource`].
+    sources: [usize; 3],
+    /// Blocks whose **own** cocycle is non-trivial, by [`BlockSource`].
+    non_trivial: [usize; 3],
+    /// Little co-group order histogram of the non-trivial blocks.
+    non_trivial_orders: BTreeMap<usize, usize>,
+    /// Every distinct block geometry seen (the canonical partition of the arm
+    /// list into child stars, by parent arm index).
+    geometries: BTreeSet<Vec<Vec<usize>>>,
+    /// `(record, label)` pairs whose geometry at an added parameter differs from
+    /// the geometry at the generic sample `t = 1/7`.
+    changed_pairs: BTreeSet<(usize, &'static str)>,
+    /// Failures of this pass; they are gate violations.
+    failures: Vec<String>,
+}
+
+/// Keep the Gamma exception witnesses bounded: the condition is measured, and
+/// the report shows the first few rather than growing with the corpus.
+const GAMMA_WITNESSES: usize = 8;
+
 /// One probe of the census.
 struct Probe {
     ordinal: usize,
@@ -108,6 +408,16 @@ struct Probe {
     parameter_kind: Option<ParameterKind>,
     content: Option<u32>,
     detail: String,
+    /// One [`BlockStat`] per `result.blocks()` entry, in block order; empty when
+    /// the engine did not answer.
+    blocks: Vec<BlockStat>,
+    /// The engine's own dimension bookkeeping, absent for an unsupported or
+    /// failed probe.
+    dimensions: Option<BlockDimensions>,
+    /// `FullStarPartition::arms.len()` for this `(record, label)`, when the
+    /// card-3 partition was built; the gate compares it with the arm total the
+    /// engine's dimension identity gives.
+    partition_arms: Option<usize>,
 }
 
 /// One isotropy record that carries at least one parametric-k row.
@@ -130,6 +440,10 @@ struct RecordReport {
     child_algorithms: (usize, usize),
     /// The record's candidate parameters (parent union child).
     child_parameters: Vec<Rat>,
+    /// The card-3 Gamma-reaching report of this record's `(record, label)` pairs.
+    gamma: GammaReport,
+    /// The card-3 full-star recount pass of this record.
+    recount: RecountReport,
     failures: Vec<String>,
 }
 
@@ -147,6 +461,12 @@ fn run() -> Result<ExitCode, String> {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let gate = arguments.iter().any(|argument| argument == "--gate");
     let require_covered = arguments.iter().any(|argument| argument == "--require-covered");
+    // The full-star recount pass is a gate pass: `--gate` runs it, and
+    // `--full-star-recount` runs it (and its assertions) on its own, with the
+    // same failure semantics -- a flag that runs a check and then exits 0 on its
+    // failures would be a failure path that does not fail.
+    let full_star_recount = arguments.iter().any(|argument| argument == "--full-star-recount");
+    let recount = gate || full_star_recount;
     let sequential = arguments.iter().any(|argument| argument == "--sequential");
     if arguments.iter().any(|argument| argument == "--help" || argument == "-h") {
         print!("{USAGE}");
@@ -162,18 +482,32 @@ fn run() -> Result<ExitCode, String> {
                 .ok_or_else(|| "--output needs a path".to_string())
         })
         .transpose()?;
+    let output_blocks = arguments
+        .iter()
+        .position(|argument| argument == "--output-blocks")
+        .map(|index| {
+            arguments
+                .get(index + 1)
+                .cloned()
+                .ok_or_else(|| "--output-blocks needs a path".to_string())
+        })
+        .transpose()?;
 
     let domains = source_domains()?;
     let records = records()?;
     let official = official_line_parameter().map_err(|error| error.to_string())?;
     let generic = Rat::new(GENERIC_SAMPLE.0, GENERIC_SAMPLE.1).map_err(|e| e.to_string())?;
+    let cache = PointClassCache::default();
 
     let per_record: Vec<RecordReport> = if sequential {
-        records.iter().map(|record| probe_record(record, &domains, official, generic)).collect()
+        records
+            .iter()
+            .map(|record| probe_record(record, &domains, official, generic, recount, &cache))
+            .collect()
     } else {
         records
             .par_iter()
-            .map(|record| probe_record(record, &domains, official, generic))
+            .map(|record| probe_record(record, &domains, official, generic, recount, &cache))
             .collect()
     };
     let mut probes: Vec<Probe> = Vec::new();
@@ -181,6 +515,8 @@ fn run() -> Result<ExitCode, String> {
     let mut child_grid = (0usize, 0usize);
     let mut child_algorithms = (0usize, 0usize);
     let mut child_union: Vec<Rat> = Vec::new();
+    let mut gamma = GammaReport::default();
+    let mut recount_report = RecountReport::default();
     for (record, report) in records.iter().zip(per_record) {
         if report.probes.is_empty() {
             probe_errors.push(format!("ordinal {} produced no probe", record.ordinal));
@@ -195,6 +531,8 @@ fn run() -> Result<ExitCode, String> {
                 child_union.push(parameter);
             }
         }
+        merge_gamma(&mut gamma, report.gamma);
+        merge_recount(&mut recount_report, report.recount);
         probes.extend(report.probes);
     }
     child_union = sorted_parameters(child_union);
@@ -236,6 +574,82 @@ fn run() -> Result<ExitCode, String> {
         }
     }
 
+    // The per-block table.  `--output` above is deliberately unchanged; this is
+    // a new artifact with one row per child-star block, so a block's own source,
+    // co-group and cocycle are readable without re-running the engine.  The
+    // emission loop counts its rows on every run and the written file is counted
+    // back from disk, so a writer that drops rows cannot pass either check.
+    let mut block_rows = 0usize;
+    {
+        let mut writer = match &output_blocks {
+            None => None,
+            Some(path) => Some(BufWriter::new(
+                std::fs::File::create(path)
+                    .map_err(|error| format!("cannot create {path}: {error}"))?,
+            )),
+        };
+        if let Some(writer) = writer.as_mut() {
+            writeln!(
+                writer,
+                "ordinal\tparent_sg\tchild_sg\tlabel\tparameter\tindex\tstar_size\tarm_count\t\
+                 arm_indices\tblock_dimension\tlittle_co_group\tcocycle_trivial\tblock_source\t\
+                 terms\tcarries_reference\tcarries_gamma"
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        for probe in &probes {
+            for block in &probe.blocks {
+                if let Some(writer) = writer.as_mut() {
+                    writeln!(
+                        writer,
+                        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                        block.ordinal,
+                        block.parent_sg,
+                        block.child_sg,
+                        block.label,
+                        block.parameter,
+                        block.index,
+                        block.star_size,
+                        block.arm_count,
+                        block
+                            .arm_indices
+                            .iter()
+                            .map(usize::to_string)
+                            .collect::<Vec<_>>()
+                            .join(","),
+                        block.block_dimension,
+                        block.little_co_group,
+                        if block.cocycle_trivial { "trivial" } else { "non-trivial" },
+                        block.source.label(),
+                        block
+                            .terms
+                            .iter()
+                            .map(|(dimension, multiplicity)| format!("{dimension}x{multiplicity}"))
+                            .collect::<Vec<_>>()
+                            .join(","),
+                        block.carries_reference,
+                        block.carries_gamma,
+                    )
+                    .map_err(|error| error.to_string())?;
+                }
+                block_rows += 1;
+            }
+        }
+        if let Some(writer) = writer.as_mut() {
+            writer.flush().map_err(|error| error.to_string())?;
+        }
+    }
+    let block_file_rows = match &output_blocks {
+        None => None,
+        Some(path) => {
+            let text = std::fs::read_to_string(path)
+                .map_err(|error| format!("cannot read back {path}: {error}"))?;
+            // One header line plus one line per block; `str::lines` does not
+            // invent a last empty line, so the count is the file's row count.
+            Some(text.lines().count().saturating_sub(1))
+        }
+    };
+
     let (algorithm_checks, algorithm_mismatches, algorithm_failures) =
         step_algorithm_cross_check(&domains);
     let evidence = CensusEvidence {
@@ -244,11 +658,22 @@ fn run() -> Result<ExitCode, String> {
         child_union: &child_union,
         algorithm_checks,
         algorithm_mismatches,
+        block_rows,
+        block_file_rows,
     };
-    report(&domains, &records, &probes, &probe_errors, &evidence);
+    report(
+        &domains,
+        &records,
+        &probes,
+        &probe_errors,
+        &evidence,
+        &gamma,
+        &recount_report,
+    );
 
     let mut violations: Vec<String> = probe_errors;
     violations.extend(algorithm_failures);
+    violations.extend(recount_report.failures.iter().cloned());
     check_invariants(&domains, &records, &probes, &evidence, &mut violations);
 
     let unsupported = probes
@@ -274,41 +699,92 @@ fn run() -> Result<ExitCode, String> {
         // apply.  The point is to measure the boundary rather than assume it: the
         // engine needs a non-coboundary family exactly at the parameters counted
         // as NON-TRIVIAL here.
-        let mut boundary: BTreeMap<(usize, bool, TargetClass), usize> = BTreeMap::new();
+        //
+        // Two tables are printed.  The **corrected** one (R6.7 card 4) pairs the
+        // non-trivial class of the reference folded point with the *own* source
+        // and little co-group of the block that carries that point.  The
+        // **withdrawn** one is the old probe-level table, whose `Constructed`
+        // column only ever meant "some target of some block of this probe was
+        // constructed" -- the mixing that made "292/44/4 = 340 non-trivial
+        // constructed classes" wrong (witness ordinal 13688).  It stays in the
+        // printout, labelled, so its numbers can be compared with the corrected
+        // ones on the same run; nothing is pinned to it.
+        let mut legacy: BTreeMap<(usize, bool, TargetClass), usize> = BTreeMap::new();
+        let mut corrected: BTreeMap<(usize, BlockSource), usize> = BTreeMap::new();
+        // Non-trivial-class probes by source, in the two conventions.
+        let mut legacy_totals = [0usize; 3];
+        let mut corrected_totals = [0usize; 3];
         let mut boundary_probes = 0usize;
         let mut boundary_errors = 0usize;
-        // How the production engine answered each probe, so the boundary can say
-        // whether a non-trivial class was computed or came from stored rows.
-        let answered: BTreeMap<String, TargetClass> = probes
+        // A non-trivial probe whose reference point no block carries: the
+        // corrected table would be silently short, so it is a counted failure.
+        let mut missing_reference_blocks = 0usize;
+        let answered: BTreeMap<String, &Probe> = probes
             .iter()
             .map(|probe| {
                 (
                     format!("{}|{}|{}", probe.ordinal, probe.label, probe.parameter),
-                    probe.class,
+                    probe,
                 )
             })
             .collect();
         for record in &records {
             let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup) else {
+                boundary_errors += 1;
+                violations.push(format!(
+                    "ordinal {}: the boundary census cannot build the embedding",
+                    record.ordinal
+                ));
                 continue;
             };
             let Ok(reciprocal) = reciprocal_lattice(record.child_sg) else {
+                boundary_errors += 1;
+                violations.push(format!(
+                    "ordinal {}: the boundary census found no reciprocal lattice for child #{}",
+                    record.ordinal, record.child_sg
+                ));
                 continue;
             };
             let Ok(rotations) = rotation_set(record.child_sg) else {
+                boundary_errors += 1;
+                violations.push(format!(
+                    "ordinal {}: the boundary census found no rotation set for child #{}",
+                    record.ordinal, record.child_sg
+                ));
                 continue;
             };
             for (label, _) in &record.labels {
                 let Some(table) = line_table(record.parent_sg, label) else {
+                    boundary_errors += 1;
+                    violations.push(format!(
+                        "ordinal {}: the boundary census found no frozen table for SG {} {label}",
+                        record.ordinal, record.parent_sg
+                    ));
                     continue;
                 };
                 let Ok(candidates) = child_exceptional_parameters(&embedding, table) else {
+                    boundary_errors += 1;
+                    violations.push(format!(
+                        "ordinal {} {label}: the boundary census cannot enumerate the child's \
+                         exceptional parameters",
+                        record.ordinal
+                    ));
                     continue;
                 };
                 let Some(direction) = line_direction(table) else {
+                    boundary_errors += 1;
+                    violations.push(format!(
+                        "ordinal {} {label}: the boundary census cannot parse the frozen direction",
+                        record.ordinal
+                    ));
                     continue;
                 };
                 let Ok(folded) = fold_wave_vector(embedding.transform(), &direction) else {
+                    boundary_errors += 1;
+                    violations.push(format!(
+                        "ordinal {} {label}: the boundary census cannot fold the direction",
+                        record.ordinal
+                    ));
                     continue;
                 };
                 for (parameter, _) in &candidates {
@@ -319,30 +795,93 @@ fn run() -> Result<ExitCode, String> {
                         continue;
                     };
                     boundary_probes += 1;
-                    let class = answered
-                        .get(&format!("{}|{}|{}", record.ordinal, label, parameter))
-                        .copied()
-                        .unwrap_or(TargetClass::Error);
+                    let key = format!("{}|{}|{}", record.ordinal, label, parameter);
+                    let probe = answered.get(&key).copied();
+                    if probe.is_none() {
+                        boundary_errors += 1;
+                        violations.push(format!(
+                            "ordinal {} {label} t={parameter}: the boundary census has no probe for \
+                             a child-exceptional parameter",
+                            record.ordinal
+                        ));
+                    }
+                    let class = probe.map_or(TargetClass::Error, |probe| probe.class);
                     match child_cocycle_is_a_coboundary(record.child_sg, &folded, *parameter) {
-                        Ok(trivial) => *boundary.entry((order, trivial, class)).or_insert(0usize) += 1,
-                        Err(_) => boundary_errors += 1,
+                        Ok(trivial) => {
+                            *legacy.entry((order, trivial, class)).or_insert(0usize) += 1;
+                            if trivial {
+                                continue;
+                            }
+                        }
+                        Err(error) => {
+                            boundary_errors += 1;
+                            violations.push(format!(
+                                "ordinal {} {label} t={parameter}: the boundary census cannot \
+                                 decide the class: {error}",
+                                record.ordinal
+                            ));
+                            continue;
+                        }
+                    }
+                    legacy_totals[match class {
+                        TargetClass::Stored => 0,
+                        TargetClass::Constructed => 1,
+                        TargetClass::Unsupported | TargetClass::Error => 2,
+                    }] += 1;
+                    match probe.and_then(|probe| {
+                        probe.blocks.iter().find(|block| block.carries_reference)
+                    }) {
+                        Some(block) => {
+                            corrected_totals[block.source.index()] += 1;
+                            *corrected
+                                .entry((block.little_co_group, block.source))
+                                .or_insert(0usize) += 1;
+                        }
+                        None => missing_reference_blocks += 1,
                     }
                 }
             }
         }
         println!(
-            "projective class at the child's exceptional parameters: {boundary_probes} probes, \
-             {boundary_errors} error(s)"
+            "withdrawn convention -- projective class at the child's exceptional parameters, \
+             probe-level: {boundary_probes} probes, {boundary_errors} error(s)"
         );
-        for ((order, trivial, class), count) in &boundary {
+        for ((order, trivial, class), count) in &legacy {
             println!(
                 "    child order {order} {} engine {class:?}: {count}",
                 if *trivial { "trivial     " } else { "NON-TRIVIAL " }
             );
         }
+        let non_trivial = legacy_totals.iter().sum::<usize>();
+        println!(
+            "    non-trivial-class probes: stored={} constructed={} other={} \
+             (the withdrawn `292/44/4 = 340` family)",
+            legacy_totals[0], legacy_totals[1], legacy_totals[2]
+        );
+        println!(
+            "corrected convention (R6.7 card 4) -- the reference-carrying block's own source: \
+             {non_trivial} non-trivial-class probe(s), {missing_reference_blocks} without a \
+             reference block"
+        );
+        for ((order, source), count) in &corrected {
+            println!(
+                "    child order {order} NON-TRIVIAL block {}: {count}",
+                source.label()
+            );
+        }
+        println!(
+            "    non-trivial-class blocks: stored={} constructed={} mixed={}",
+            corrected_totals[0], corrected_totals[1], corrected_totals[2]
+        );
+        if missing_reference_blocks > 0 {
+            violations.push(format!(
+                "the corrected boundary census lost {missing_reference_blocks} non-trivial-class \
+                 probe(s) whose reference point no block carries"
+            ));
+        }
     }
 
-    if gate || require_covered {
+    if gate || require_covered || full_star_recount {
         if !violations.is_empty() {
             println!("gate: FAILED ({} violation(s))", violations.len());
             return Ok(ExitCode::from(1));
@@ -382,42 +921,53 @@ fn source_domains() -> Result<BTreeMap<(u8, &'static str), ParentDomain>, String
 fn records() -> Result<Vec<Record>, String> {
     let mut out = Vec::new();
     for sg in 1..=230u8 {
-        for record in query::irreps_of(sg) {
-            if record.spinor || record.subgroups().is_empty() {
+        out.extend(records_of(sg)?);
+    }
+    Ok(out)
+}
+
+/// The same walk, restricted to one parent space group.
+///
+/// Split out so the card-4 regression tests can build one record without
+/// enumerating the whole corpus first; both callers go through the same code, so
+/// a test cannot exercise a record the census would not have built.
+fn records_of(sg: u8) -> Result<Vec<Record>, String> {
+    let mut out = Vec::new();
+    for record in query::irreps_of(sg) {
+        if record.spinor || record.subgroups().is_empty() {
+            continue;
+        }
+        let subgroups = isotropy::isotropy_subgroups(sg, record.ml, LabelConvention::Cdml)
+            .map_err(|error| format!("SG {sg} {}: {error}", record.ml))?;
+        for subgroup in subgroups {
+            let Ok(rows) = subgroup.other_wave_vector_subduction() else {
+                continue;
+            };
+            let mut labels: Vec<(&'static str, u16)> = Vec::new();
+            for row in rows {
+                match labels.iter().find(|(label, _)| *label == row.parent_ml) {
+                    Some((_, frequency)) => {
+                        if *frequency != row.frequency {
+                            return Err(format!(
+                                "ordinal {}: label {} carries two pinned frequencies \
+                                 ({frequency} and {})",
+                                subgroup.ordinal, row.parent_ml, row.frequency
+                            ));
+                        }
+                    }
+                    None => labels.push((row.parent_ml, row.frequency)),
+                }
+            }
+            if labels.is_empty() {
                 continue;
             }
-            let subgroups = isotropy::isotropy_subgroups(sg, record.ml, LabelConvention::Cdml)
-                .map_err(|error| format!("SG {sg} {}: {error}", record.ml))?;
-            for subgroup in subgroups {
-                let Ok(rows) = subgroup.other_wave_vector_subduction() else {
-                    continue;
-                };
-                let mut labels: Vec<(&'static str, u16)> = Vec::new();
-                for row in rows {
-                    match labels.iter().find(|(label, _)| *label == row.parent_ml) {
-                        Some((_, frequency)) => {
-                            if *frequency != row.frequency {
-                                return Err(format!(
-                                    "ordinal {}: label {} carries two pinned frequencies \
-                                     ({frequency} and {})",
-                                    subgroup.ordinal, row.parent_ml, row.frequency
-                                ));
-                            }
-                        }
-                        None => labels.push((row.parent_ml, row.frequency)),
-                    }
-                }
-                if labels.is_empty() {
-                    continue;
-                }
-                out.push(Record {
-                    ordinal: subgroup.ordinal,
-                    parent_sg: sg,
-                    child_sg: u8::try_from(subgroup.record.sg).unwrap_or(0),
-                    subgroup,
-                    labels,
-                });
-            }
+            out.push(Record {
+                ordinal: subgroup.ordinal,
+                parent_sg: sg,
+                child_sg: u8::try_from(subgroup.record.sg).unwrap_or(0),
+                subgroup,
+                labels,
+            });
         }
     }
     Ok(out)
@@ -514,56 +1064,725 @@ fn step_is_vacuous_or_one(step: &Option<Rat>) -> bool {
     }
 }
 
+/// The three child-frame values one probe needs, or `None` with the reason
+/// recorded in `failures`.
+///
+/// All three are required before anything is probed, so the failure is reported
+/// once per record instead of silently turning into an empty probe list.
+fn probe_frame(
+    record: &Record,
+    failures: &mut Vec<String>,
+) -> Option<(SubgroupEmbedding, Lattice, Vec<Mat3I>)> {
+    let embedding = match SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup) {
+        Ok(embedding) => embedding,
+        Err(error) => {
+            failures.push(format!("ordinal {}: embedding rejected: {error}", record.ordinal));
+            return None;
+        }
+    };
+    let reciprocal = match reciprocal_lattice(record.child_sg) {
+        Ok(lattice) => lattice,
+        Err(error) => {
+            failures.push(format!(
+                "ordinal {}: child #{} has no reciprocal lattice: {error}",
+                record.ordinal, record.child_sg
+            ));
+            return None;
+        }
+    };
+    let rotations = match rotation_set(record.child_sg) {
+        Ok(rotations) => rotations,
+        Err(error) => {
+            failures.push(format!(
+                "ordinal {}: child #{} has no rotation set: {error}",
+                record.ordinal, record.child_sg
+            ));
+            return None;
+        }
+    };
+    Some((embedding, reciprocal, rotations))
+}
+
+/// `factor . vector`, componentwise.  `line_domain` keeps its own scaling helper
+/// private, so the census scales the reference folded direction itself; the
+/// result is compared against the engine's folded points with `same_mod`, not
+/// with equality, so a componentwise rational product is all that is needed.
+fn scale_point(vector: &Vec3R, factor: &Rat) -> Result<Vec3R, String> {
+    let mut values = [Rat::ZERO; 3];
+    for (axis, value) in vector.as_array().iter().enumerate() {
+        values[axis] = value
+            .checked_mul(*factor)
+            .map_err(|error| format!("scaling {vector} by {factor}: {error}"))?;
+    }
+    Ok(Vec3R::new(values))
+}
+
+/// Everything one probe's [`BlockStat`]s need beyond the engine result itself.
+struct BlockContext<'a> {
+    ordinal: usize,
+    parent_sg: u8,
+    child_sg: u8,
+    label: &'static str,
+    child_reciprocal: &'a Lattice,
+    /// `q1 = T^T v`: the reference folded **direction**; the reference folded
+    /// point of a probe is `t . q1`.
+    reference_direction: Vec3R,
+    /// The partition's reference arm, when the card-3 partition was built.  The
+    /// `same_mod` reading of `carries_reference` is compared with it: the arm
+    /// identity and the point identity must agree.
+    reference_arm: Option<usize>,
+    /// The partition's Gamma enumeration, when it was built.  Used to
+    /// cross-check the blocks' own `carries_gamma` against the partition's
+    /// arithmetic.
+    gamma: Option<GammaArms<'a>>,
+    cache: &'a PointClassCache,
+}
+
+/// One [`BlockStat`] per block of one answered probe, plus any consistency
+/// failure found while reading them.
+///
+/// The block is described by its **own** data only: its points give the star
+/// size, the arm count and the arm set; its folded coordinate gives the little
+/// co-group and the cocycle class through the point-based entry points, and the
+/// same two quantities are recomputed at every other point of the star -- star
+/// points are conjugate, so a disagreement means the block's single reported
+/// value would describe only one of its points.
+fn block_stats(
+    context: &BlockContext,
+    parameter: Rat,
+    result: &LineSubduction,
+    dimensions: &BlockDimensions,
+) -> (Vec<BlockStat>, Vec<String>) {
+    let mut stats = Vec::with_capacity(result.blocks().len());
+    let mut failures = Vec::new();
+    let reference_point = match scale_point(&context.reference_direction, &parameter) {
+        Ok(point) => point,
+        Err(error) => {
+            failures.push(format!(
+                "ordinal {} {} t={parameter}: the reference folded point: {error}",
+                context.ordinal, context.label
+            ));
+            context.reference_direction
+        }
+    };
+    for (index, block) in result.blocks().iter().enumerate() {
+        let stat = block_stat(context, &reference_point, parameter, index, block, &mut failures);
+        stats.push(stat);
+    }
+    // The reference point must be carried by exactly one block, and the arms of
+    // the blocks must partition the arm list the engine's dimension identity
+    // gives.  Both are checked here as well as in `check_invariants`, where the
+    // stored statistics are asserted instead of the slice they came from.
+    let reference_blocks = stats.iter().filter(|stat| stat.carries_reference).count();
+    if reference_blocks > 1 {
+        failures.push(format!(
+            "ordinal {} {} t={parameter}: {reference_blocks} blocks carry the reference folded \
+             point",
+            context.ordinal,
+            context.label
+        ));
+    }
+    let mut arm_seen = vec![0usize; dimensions.arm_total];
+    for stat in &stats {
+        for arm in &stat.arm_indices {
+            match arm_seen.get_mut(*arm) {
+                Some(slot) => *slot += 1,
+                None => failures.push(format!(
+                    "ordinal {} {} t={parameter}: block {} carries arm {arm} outside the \
+                     {}-arm list",
+                    context.ordinal,
+                    context.label,
+                    stat.index,
+                    dimensions.arm_total
+                )),
+            }
+        }
+    }
+    for (arm, count) in arm_seen.iter().enumerate() {
+        if *count != 1 {
+            failures.push(format!(
+                "ordinal {} {} t={parameter}: arm {arm} appears in {count} blocks, not exactly \
+                 one",
+                context.ordinal,
+                context.label
+            ));
+        }
+    }
+    (stats, failures)
+}
+
+/// One block's statistics; `failures` collects the pointwise disagreements.
+fn block_stat(
+    context: &BlockContext,
+    reference_point: &Vec3R,
+    parameter: Rat,
+    index: usize,
+    block: &FullStarBlock,
+    failures: &mut Vec<String>,
+) -> BlockStat {
+    let arms = block.arm_indices();
+    let star_size = block.points().len();
+    let arm_count: usize = block.points().iter().map(|point| point.arm_count()).sum();
+    let mut little_co_group = 0usize;
+    let mut cocycle_trivial = true;
+    let mut point_checks = 0usize;
+    let mut point_disagreements = 0usize;
+    let mut carries_gamma = false;
+    let mut carries_reference = false;
+    for point in block.points() {
+        if context.child_reciprocal.contains(point.q()).unwrap_or(false) {
+            carries_gamma = true;
+        }
+        match context
+            .child_reciprocal
+            .same_mod(point.q(), reference_point)
+        {
+            Ok(true) => carries_reference = true,
+            Ok(false) => {}
+            Err(error) => failures.push(format!(
+                "ordinal {} {} t={parameter} block {index}: the reference-point test failed: \
+                 {error}",
+                context.ordinal, context.label
+            )),
+        }
+        match context.cache.classify(context.child_sg, point.q()) {
+            Ok(class) => {
+                if point_checks == 0 {
+                    little_co_group = class.little_co_group;
+                    cocycle_trivial = class.cocycle_trivial;
+                } else if class.little_co_group != little_co_group
+                    || class.cocycle_trivial != cocycle_trivial
+                {
+                    point_disagreements += 1;
+                    failures.push(format!(
+                        "ordinal {} {} t={parameter} block {index}: the conjugate points of one \
+                         child star disagree (order {} / {:?} against {} / {:?})",
+                        context.ordinal,
+                        context.label,
+                        class.little_co_group,
+                        class.cocycle_trivial,
+                        little_co_group,
+                        cocycle_trivial
+                    ));
+                }
+                point_checks += 1;
+            }
+            Err(error) => failures.push(format!(
+                "ordinal {} {} t={parameter} block {index}: point class: {error}",
+                context.ordinal, context.label
+            )),
+        }
+    }
+    if let (Some(reference_arm), true) = (context.reference_arm, carries_reference)
+        && !arms.contains(&reference_arm)
+    {
+        failures.push(format!(
+            "ordinal {} {} t={parameter} block {index}: the block carries the reference folded \
+             point but not the reference arm {reference_arm}",
+            context.ordinal, context.label
+        ));
+    }
+    if let Some((entries, zero_arms)) = context.gamma {
+        let gamma = gamma_arms(entries, zero_arms, &parameter);
+        let expected = arms.iter().any(|arm| gamma.contains(arm));
+        if expected != carries_gamma {
+            failures.push(format!(
+                "ordinal {} {} t={parameter} block {index}: the block's folded points say \
+                 carries_gamma={carries_gamma} but the partition's Gamma arithmetic says \
+                 {expected} for arms {arms:?}",
+                context.ordinal, context.label
+            ));
+        }
+    }
+    let stored_targets = block
+        .targets()
+        .iter()
+        .filter(|target| target.irnumber.is_some())
+        .count();
+    BlockStat {
+        ordinal: context.ordinal,
+        parent_sg: context.parent_sg,
+        child_sg: context.child_sg,
+        label: context.label,
+        parameter,
+        index,
+        star_size,
+        arm_count,
+        arm_indices: arms,
+        block_dimension: block.block_dimension(),
+        little_co_group,
+        cocycle_trivial,
+        source: classify_block(block.targets()),
+        terms: block
+            .targets()
+            .iter()
+            .map(|target| (target.dimension, target.multiplicity))
+            .collect(),
+        carries_reference,
+        carries_gamma,
+        stored_targets,
+        target_count: block.targets().len(),
+        declared_star_size: block.star_size(),
+        declared_arm_count: block.arm_count(),
+        point_checks,
+        point_disagreements,
+        representative_point: *block.q(),
+    }
+}
+
+/// The arms at Gamma at one parameter: the partition's entries for it plus the
+/// arms whose folded direction is exactly zero (at Gamma at every parameter).
+fn gamma_arms(
+    entries: &[(Rat, Vec<usize>)],
+    zero_arms: &[usize],
+    parameter: &Rat,
+) -> Vec<usize> {
+    let mut arms = zero_arms.to_vec();
+    if let Some((_, listed)) = entries.iter().find(|(value, _)| value == parameter) {
+        arms.extend(listed.iter().copied());
+    }
+    arms.sort_unstable();
+    arms.dedup();
+    arms
+}
+
+/// The engine's own dimension bookkeeping of one answered probe.
+///
+/// `covered` is the engine's own sum of block dimensions and `parent` its
+/// `dimension x arms` identity; dividing the latter by the frozen little
+/// dimension gives the number of parent arms the probe carried, which the block
+/// arm sets must partition.  An inexact division is reported, never rounded.
+fn block_dimensions(
+    table: &LittleCharacterTable,
+    result: &LineSubduction,
+    failures: &mut Vec<String>,
+) -> BlockDimensions {
+    let parent = result.parent_dimension();
+    let dimension = u32::from(table.dimension);
+    let arm_total = if dimension == 0 || !parent.is_multiple_of(dimension) {
+        failures.push(format!(
+            "ordinal {} {}: the parent dimension {parent} is not a multiple of the frozen \
+             little dimension {dimension}",
+            result.ordinal(),
+            result.label()
+        ));
+        0
+    } else {
+        usize::try_from(parent / dimension).unwrap_or(0)
+    };
+    BlockDimensions {
+        reported_blocks: result.blocks().len(),
+        covered: result.covered_dimension(),
+        parent,
+        arm_total,
+    }
+}
+
+/// Whether the whole child point group fixes one folded direction **exactly**
+/// (`w_R = 0` for every child rotation).
+///
+/// This is the premise of the M2 local theorem and the only documented reason a
+/// Gamma-reaching parameter can be interior to a partition interval: where every
+/// child rotation fixes the arm's direction, the arm's little co-group never
+/// grows, so no boundary of the partition is created by the arm arriving at
+/// Gamma -- the condition changes *where the answer is read from*, not the
+/// geometry.
+fn exactly_fixed_arm(arm: &FoldedArm, rotations: &[Mat3I]) -> Result<bool, String> {
+    for rotation in rotations {
+        let image = Mat3R::from_ints(*rotation)
+            .inverse()
+            .and_then(|matrix| matrix.transpose().checked_mul_vector(&arm.direction))
+            .map_err(|error| error.to_string())?;
+        if image != arm.direction {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// Fill the Gamma-reaching report of one `(record, label)` from the card-3
+/// partition, returning the `(parameter, arms)` entries and the always-Gamma
+/// arms for the block-side cross-check.
+///
+/// The condition reported here is a **provenance** one (`t v_i in L*_H`), not a
+/// geometric one: where an arm reaches Gamma the engine may read stored child
+/// Gamma data instead of building a target.  It is therefore *not* part of
+/// [`FullStarPartition::boundaries`], and the report asserts the containment
+/// that does hold -- every Gamma parameter is a boundary unless the reaching arm
+/// is fixed exactly by the whole child point group, which is verified pointwise
+/// before the exception is granted.
+fn report_gamma(
+    partition: &FullStarPartition,
+    ordinal: usize,
+    report: &mut GammaReport,
+    failures: &mut Vec<String>,
+) -> GammaParameters {
+    let (entries, zero_arms) = match partition.gamma_parameters() {
+        Ok(entries) => entries,
+        Err(error) => {
+            failures.push(format!(
+                "ordinal {} {}: the Gamma enumeration failed: {error}",
+                ordinal, partition.label
+            ));
+            return (Vec::new(), Vec::new());
+        }
+    };
+    report.entries += entries.len();
+    report.zero_arms += zero_arms.len();
+    let shape: Vec<(String, Vec<usize>)> = entries
+        .iter()
+        .map(|(parameter, arms)| (parameter.to_string(), arms.clone()))
+        .collect();
+    *report.shapes.entry(shape).or_insert(0) += 1;
+    for (parameter, arms) in &entries {
+        if partition.is_boundary(parameter) {
+            report.contained += 1;
+            continue;
+        }
+        // Not a boundary: the documented exception must hold, and it is verified
+        // rather than asserted -- for an arm listed at this parameter, every
+        // child rotation must fix the arm's direction exactly.
+        let mut explained = None;
+        for arm in arms {
+            let Some(folded) = partition.arms.get(*arm) else {
+                failures.push(format!(
+                    "ordinal {} {} t={parameter}: the Gamma arm {arm} is not in the arm list",
+                    ordinal, partition.label
+                ));
+                continue;
+            };
+            match exactly_fixed_arm(folded, &partition.child_rotations) {
+                Ok(true) => {
+                    explained = Some((*arm, folded.parent_rotation));
+                    break;
+                }
+                Ok(false) => {}
+                Err(error) => failures.push(format!(
+                    "ordinal {} {} t={parameter}: the exact-fixity test of arm {arm} failed: \
+                     {error}",
+                    ordinal, partition.label
+                )),
+            }
+        }
+        match explained {
+            Some((arm, _)) => {
+                report.exceptional += 1;
+                if report.witnesses.len() < GAMMA_WITNESSES {
+                    report.witnesses.push(format!(
+                        "ordinal {} {} t={parameter}: arm {arm} (direction ({}, {}, {})) reaches \
+                         Gamma inside an interval and is fixed exactly by all {} child rotations",
+                        ordinal,
+                        partition.label,
+                        partition.arms[arm].direction.get(0),
+                        partition.arms[arm].direction.get(1),
+                        partition.arms[arm].direction.get(2),
+                        partition.child_rotations.len()
+                    ));
+                }
+            }
+            None => failures.push(format!(
+                "ordinal {} {} t={parameter}: arms {arms:?} reach Gamma but the parameter is not \
+                 a full-star boundary and no reaching arm is fixed exactly by the whole child \
+                 point group",
+                ordinal, partition.label
+            )),
+        }
+    }
+    (entries, zero_arms)
+}
+
+/// The canonical geometry of a block list: the parent arm indices grouped by
+/// child star, ascending.
+///
+/// Block **order**, folded coordinates and provenance all move with the
+/// parameter; which arms share a child star does not (inside one partition
+/// interval).  Card 5 matches blocks across parameters by exactly this key.
+fn block_geometry(blocks: &[BlockStat]) -> Vec<Vec<usize>> {
+    let mut geometry: Vec<Vec<usize>> = blocks
+        .iter()
+        .map(|block| block.arm_indices.clone())
+        .collect();
+    geometry.sort();
+    geometry
+}
+
+/// The card-4 full-star recount pass of one `(record, label)`.
+///
+/// Runs the **production** decomposition at every parameter the card-3 partition
+/// adds beyond the reference candidate set and classifies every block there, so
+/// the parameter set that the legacy reference-only partition never cut is
+/// measured instead of assumed to be equal.  Every failure is pushed into the
+/// report, which the caller turns into gate violations.
+#[allow(clippy::too_many_arguments)]
+fn recount_label(
+    subgroup: &isotropy::IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+    partition: &FullStarPartition,
+    child_candidates: &[Rat],
+    generic: Rat,
+    context: &BlockContext,
+    probes: &[Probe],
+    report: &mut RecountReport,
+) {
+    let mut added: Vec<Rat> = Vec::new();
+    for parameter in partition.boundary_parameters() {
+        if !child_candidates.contains(&parameter) {
+            added.push(parameter);
+        }
+    }
+    // The geometry at the generic sample, taken from the production blocks of the
+    // probe the census already ran there: the comparison is engine output against
+    // engine output, so a recount parameter that does not change the block
+    // structure is visible as such.
+    let generic_geometry = probes
+        .iter()
+        .find(|probe| probe.label == table.label && probe.parameter == generic)
+        .map(|probe| block_geometry(&probe.blocks));
+    for parameter in added {
+        report.probes += 1;
+        let result = match subduce_line_at_parameter(subgroup, embedding, table, parameter) {
+            Ok(result) => result,
+            Err(error) => {
+                report.failures.push(format!(
+                    "ordinal {} {} t={parameter}: the full-star recount decomposition failed: \
+                     {error}",
+                    context.ordinal, table.label
+                ));
+                continue;
+            }
+        };
+        let mut failures = Vec::new();
+        let dimensions = block_dimensions(table, &result, &mut failures);
+        let (blocks, block_failures) = block_stats(context, parameter, &result, &dimensions);
+        failures.extend(block_failures);
+        if dimensions.covered != dimensions.parent {
+            failures.push(format!(
+                "ordinal {} {} t={parameter}: the recount blocks cover {} of the parent \
+                 dimension {}",
+                context.ordinal, table.label, dimensions.covered, dimensions.parent
+            ));
+        }
+        for failure in failures {
+            report.failures.push(failure);
+        }
+        report.blocks += blocks.len();
+        for block in &blocks {
+            report.sources[block.source.index()] += 1;
+            if !block.cocycle_trivial {
+                report.non_trivial[block.source.index()] += 1;
+                *report.non_trivial_orders.entry(block.little_co_group).or_insert(0) += 1;
+            }
+        }
+        let geometry = block_geometry(&blocks);
+        if generic_geometry.as_ref().is_some_and(|generic| *generic != geometry) {
+            report.changed_pairs.insert((context.ordinal, table.label));
+        }
+        report.geometries.insert(geometry);
+    }
+}
+
+/// How many blocks one recount witness decomposition may have; the pinned
+/// witnesses are small and a changed structure must not blow this up silently.
+const WITNESS_BLOCKS: usize = 64;
+
+/// The two card-3 witnesses, asserted through the card-4 per-block statistics.
+///
+/// Both are properties of the **engine's own block structure**, measured on the
+/// production answer, so a partition that no longer describes the engine cannot
+/// satisfy them:
+///
+/// * ordinal 10038 (SG 196 `DT1` -> P1): six one-armed blocks at `t = 1/9` and
+///   four blocks with arm counts `2, 1, 1, 2` at `t = 1/8`.  `1/9` is *not* a
+///   partition boundary, so the witness runs the engine there explicitly: the
+///   merge at `1/8` is only a change if the neighbouring generic parameter is
+///   really unmerged.
+/// * ordinal 10030 (SG 196 `DT1` -> #18): at `t = 1/8` a block whose **own**
+///   cocycle is non-trivial and whose little co-group has order four -- the
+///   change the reference partition cannot see because the reference arm itself
+///   stays trivial there.
+fn recount_witnesses(
+    record: &Record,
+    embedding: &SubgroupEmbedding,
+    cache: &PointClassCache,
+) -> Vec<String> {
+    let pinned = match record.ordinal {
+        10_038 => (196, "DT1", 1),
+        10_030 => (196, "DT1", 18),
+        _ => return Vec::new(),
+    };
+    let mut failures = Vec::new();
+    if record.parent_sg != pinned.0 || !record.labels.iter().any(|(label, _)| *label == pinned.1) {
+        failures.push(format!(
+            "ordinal {}: the pinned witness source SG {} {} is gone (found SG {} with labels {:?})",
+            record.ordinal,
+            pinned.0,
+            pinned.1,
+            record.parent_sg,
+            record.labels.iter().map(|(label, _)| *label).collect::<Vec<_>>()
+        ));
+        return failures;
+    }
+    let label = pinned.1;
+    let Some(table) = line_table(record.parent_sg, label) else {
+        failures.push(format!("ordinal {}: no frozen table for {label}", record.ordinal));
+        return failures;
+    };
+    if record.child_sg != pinned.2 {
+        failures.push(format!(
+            "ordinal {}: the pinned witness child is #{}, not #{}",
+            record.ordinal, record.child_sg, pinned.2
+        ));
+    }
+    let Ok(child_reciprocal) = reciprocal_lattice(record.child_sg) else {
+        failures.push(format!("ordinal {}: no child reciprocal lattice", record.ordinal));
+        return failures;
+    };
+    let Some(direction) = line_direction(table) else {
+        failures.push(format!("ordinal {}: no parsable direction for {label}", record.ordinal));
+        return failures;
+    };
+    let Ok(reference_direction) = fold_wave_vector(embedding.transform(), &direction) else {
+        failures.push(format!("ordinal {}: folding the direction failed", record.ordinal));
+        return failures;
+    };
+    let context = BlockContext {
+        ordinal: record.ordinal,
+        parent_sg: record.parent_sg,
+        child_sg: record.child_sg,
+        label,
+        child_reciprocal: &child_reciprocal,
+        reference_direction,
+        // The witnesses are about the block structure itself, so the reference
+        // arm and the Gamma enumeration are not needed; the partition-side
+        // versions of both are checked by the recount pass above.
+        reference_arm: None,
+        gamma: None,
+        cache,
+    };
+    let eighth = Rat::new(1, 8).expect("1/8");
+    let ninth = Rat::new(1, 9).expect("1/9");
+    for parameter in [ninth, eighth] {
+        let result =
+            match subduce_line_at_parameter(&record.subgroup, embedding, table, parameter) {
+                Ok(result) => result,
+                Err(error) => {
+                    failures.push(format!(
+                        "ordinal {} {label} t={parameter}: the witness decomposition failed: \
+                         {error}",
+                        record.ordinal
+                    ));
+                    continue;
+                }
+            };
+        if result.blocks().len() > WITNESS_BLOCKS {
+            failures.push(format!(
+                "ordinal {} {label} t={parameter}: {} blocks, more than the witness bound {}",
+                record.ordinal,
+                result.blocks().len(),
+                WITNESS_BLOCKS
+            ));
+            continue;
+        }
+        let mut dimension_failures = Vec::new();
+        let dimensions = block_dimensions(table, &result, &mut dimension_failures);
+        failures.extend(dimension_failures);
+        let (blocks, block_failures) = block_stats(&context, parameter, &result, &dimensions);
+        failures.extend(block_failures);
+        if record.ordinal == 10_038 {
+            // Six one-armed blocks at the generic `1/9`, four blocks with arm
+            // counts `2, 1, 1, 2` at the merge `1/8`.  The expectation is padded
+            // with zeros, so a lost block cannot pass as a shorter list.
+            let expected: [usize; 6] = if parameter == ninth {
+                [1, 1, 1, 1, 1, 1]
+            } else {
+                [1, 1, 2, 2, 0, 0]
+            };
+            let mut arms: Vec<usize> = blocks.iter().map(|block| block.arm_count).collect();
+            arms.sort_unstable();
+            let mut actual = arms.clone();
+            actual.resize(expected.len(), 0);
+            if actual != expected.to_vec() {
+                failures.push(format!(
+                    "ordinal {} {label} t={parameter}: the witness expects block arm counts {:?} \
+                     but the engine reports {:?} ({} block(s))",
+                    record.ordinal,
+                    expected,
+                    arms,
+                    blocks.len()
+                ));
+            }
+        }
+        if record.ordinal == 10_030 {
+            // The class change is the witness here: order four and non-trivial
+            // at `1/8`, and nothing non-trivial at the generic `1/9`.
+            let non_trivial: Vec<(usize, bool, BlockSource)> = blocks
+                .iter()
+                .filter(|block| !block.cocycle_trivial)
+                .map(|block| (block.little_co_group, block.cocycle_trivial, block.source))
+                .collect();
+            if parameter == ninth {
+                if !non_trivial.is_empty() {
+                    failures.push(format!(
+                        "ordinal {} {label} t={parameter}: the generic control already carries a \
+                         non-trivial block class: {non_trivial:?}",
+                        record.ordinal
+                    ));
+                }
+            } else {
+                match non_trivial.iter().find(|(order, _, _)| *order == 4) {
+                    Some((_, _, source)) if *source != BlockSource::Stored => failures.push(format!(
+                        "ordinal {} {label} t={parameter}: the order-four non-trivial block is {}, \
+                         not stored",
+                        record.ordinal,
+                        source.label()
+                    )),
+                    Some(_) => {}
+                    None => failures.push(format!(
+                        "ordinal {} {label} t={parameter}: no block has a non-trivial cocycle of \
+                         order four (non-trivial blocks: {non_trivial:?})",
+                        record.ordinal
+                    )),
+                }
+            }
+        }
+    }
+    failures
+}
 /// Probe one record at every parameter of its partition.
 ///
 /// The child little co-group order is recomputed at **every** probed parameter
 /// with [`little_co_group_order`], not only at the parameters the child census
 /// lists, so no probe ever carries an unknown order.  The child-side enumeration
 /// is also cross-checked against the group on a uniform grid right here.
+///
+/// Every answered probe also carries one [`BlockStat`] per `result.blocks()`
+/// entry, and -- when `recount` is set -- the card-3 full-star partition drives
+/// an extra pass over the parameters it adds to the reference candidate set.
 fn probe_record(
     record: &Record,
     domains: &BTreeMap<(u8, &'static str), ParentDomain>,
     official: Rat,
     generic: Rat,
+    recount: bool,
+    cache: &PointClassCache,
 ) -> RecordReport {
     let mut out = Vec::new();
     let mut failures = Vec::new();
     let mut child_grid = (0usize, 0usize);
     let mut child_algorithms = (0usize, 0usize);
     let mut child_parameters: Vec<Rat> = Vec::new();
-    let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup) else {
-        failures.push(format!("ordinal {}: embedding rejected", record.ordinal));
+    let mut gamma = GammaReport::default();
+    let mut recount_report = RecountReport::default();
+    let frame = probe_frame(record, &mut failures);
+    let Some((embedding, child_reciprocal, child_rotations)) = frame else {
         return RecordReport {
             probes: out,
             child_grid,
             child_algorithms: (0, 0),
             child_parameters,
-            failures,
-        };
-    };
-    let Ok(child_reciprocal) = reciprocal_lattice(record.child_sg) else {
-        failures.push(format!(
-            "ordinal {}: child #{} has no reciprocal lattice",
-            record.ordinal, record.child_sg
-        ));
-        return RecordReport {
-            probes: out,
-            child_grid,
-            child_algorithms: (0, 0),
-            child_parameters,
-            failures,
-        };
-    };
-    let Ok(child_rotations) = rotation_set(record.child_sg) else {
-        failures.push(format!(
-            "ordinal {}: child #{} has no rotation set",
-            record.ordinal, record.child_sg
-        ));
-        return RecordReport {
-            probes: out,
-            child_grid,
-            child_algorithms: (0, 0),
-            child_parameters,
+            gamma,
+            recount: recount_report,
             failures,
         };
     };
@@ -763,11 +1982,16 @@ fn probe_record(
                 // `w_R = 0`: only then is `chi_{t q1} . lambda` a factor system for
                 // every real parameter, which is what makes the projective class
                 // trivial on the whole domain.  Membership of `w_R` in `L*_child`
-                // is *weaker* and was the first, wrong formulation of this check
-                // (measured: 24,430 violations, witness `w = (0, 4, 0)` with step
-                // `1/4`, where the little-group condition holds at every parameter
-                // but the factor system is a cocycle only at the isolated
-                // parameters with `t w_R in L*`).  The step solver is not used as
+                // was the first, wrong formulation of this check; on this corpus it
+                // is **vacuous** rather than weaker (the scope fence plus every
+                // rotation preserving the lattice makes it true for every rotation:
+                // 28,713/28,713), and it does not make the factor system a cocycle
+                // for every real parameter -- on that rotation set the cocycle
+                // identity fails at 4,877 of 51,804 (pair, parameter) probes, while
+                // on the exact stabiliser it holds 51,804/51,804.  The figure
+                // "24,430 violations" quoted here before is not reproducible as
+                // described (the described count is 5,117 pairs) and is withdrawn.
+                // The step solver is not used as
                 // the premise either: `Some(1)` is also returned for `w` in `Z^3`
                 // outside `L*`, where the constraint binds exactly at the integer
                 // parameters and the residues `{0}` are correct.
@@ -856,11 +2080,44 @@ fn probe_record(
             ));
             continue;
         };
-        for parameter in child_candidates {
-            if !child_parameters.contains(&parameter) {
-                child_parameters.push(parameter);
+        for parameter in &child_candidates {
+            if !child_parameters.contains(parameter) {
+                child_parameters.push(*parameter);
             }
         }
+        // The card-3 full-star partition of this (record, label): the boundary
+        // set the recount pass runs on and the Gamma-reaching arms the block
+        // statistics are cross-checked against.  A failure here is a counted
+        // failure, never a skipped pass.
+        let mut partition: Option<FullStarPartition> = None;
+        let mut gamma_entries: Option<GammaParameters> = None;
+        if recount {
+            match full_star_partition(&record.subgroup, &embedding, table) {
+                Ok(built) => {
+                    let (entries, zero_arms) =
+                        report_gamma(&built, record.ordinal, &mut gamma, &mut failures);
+                    gamma_entries = Some((entries, zero_arms));
+                    partition = Some(built);
+                }
+                Err(error) => failures.push(format!(
+                    "ordinal {} {label}: the full-star partition failed: {error}",
+                    record.ordinal
+                )),
+            }
+        }
+        let block_context = BlockContext {
+            ordinal: record.ordinal,
+            parent_sg: record.parent_sg,
+            child_sg: record.child_sg,
+            label,
+            child_reciprocal: &child_reciprocal,
+            reference_direction: folded,
+            reference_arm: partition.as_ref().map(|built| built.reference_arm),
+            gamma: gamma_entries
+                .as_ref()
+                .map(|(entries, zero_arms)| (entries.as_slice(), zero_arms.as_slice())),
+            cache,
+        };
         for (parameter, census_order) in parameters {
             let child_order = if folded.is_zero() {
                 child_rotations.len()
@@ -925,14 +2182,21 @@ fn probe_record(
                 table,
                 parameter,
             );
-            let (class, parameter_kind, content, detail) = match result {
+            let (class, parameter_kind, content, detail, blocks, dimensions) = match result {
                 Ok(result) => {
+                    let dimensions = block_dimensions(table, &result, &mut failures);
+                    let (blocks, block_failures) =
+                        block_stats(&block_context, parameter, &result, &dimensions);
+                    failures.extend(block_failures);
                     let targets: Vec<_> = result
                         .blocks()
                         .iter()
                         .flat_map(|block| block.targets())
                         .collect();
-                    let stored = targets.iter().all(|target| target.irnumber.is_some());
+                    // The **withdrawn** probe-level rule, measured alongside the
+                    // per-block sources so the two readings can be compared on
+                    // the same run (`--output-blocks` carries the block one).
+                    let stored = classify_probe(&targets) == BlockSource::Stored;
                     let content = result.trivial_content().map_err(|error| error.to_string());
                     (
                         if stored { TargetClass::Stored } else { TargetClass::Constructed },
@@ -947,6 +2211,8 @@ fn probe_record(
                                 Err(error) => format!("content error: {error}"),
                             }
                         ),
+                        blocks,
+                        Some(dimensions),
                     )
                 }
                 Err(FullStarError::MissingChildStarData { sg, points, .. }) => (
@@ -954,8 +2220,10 @@ fn probe_record(
                     None,
                     None,
                     format!("missing child data: sg={sg} points={points}"),
+                    Vec::new(),
+                    None,
                 ),
-                Err(error) => (TargetClass::Error, None, None, error.to_string()),
+                Err(error) => (TargetClass::Error, None, None, error.to_string(), Vec::new(), None),
             };
             let anchor_mismatch = if parameter == official {
                 match (content, *pinned) {
@@ -986,8 +2254,29 @@ fn probe_record(
                     Some(note) => format!("{note}; {}", detail),
                     None => detail,
                 },
+                blocks,
+                dimensions,
+                partition_arms: partition.as_ref().map(|built| built.arms.len()),
             });
         }
+        // The recount pass: every parameter the card-3 partition adds beyond the
+        // reference candidate set, every block of the production answer there.
+        if let Some(partition) = &partition {
+            recount_label(
+                &record.subgroup,
+                &embedding,
+                table,
+                partition,
+                &child_candidates,
+                generic,
+                &block_context,
+                &out,
+                &mut recount_report,
+            );
+        }
+    }
+    if recount {
+        failures.extend(recount_witnesses(record, &embedding, cache));
     }
     child_parameters.sort_by_key(|value| value.numerator() * 10_080 / value.denominator());
     child_parameters.dedup();
@@ -996,6 +2285,8 @@ fn probe_record(
         child_grid,
         child_algorithms,
         child_parameters,
+        gamma,
+        recount: recount_report,
         failures,
     }
 }
@@ -1013,6 +2304,47 @@ struct CensusEvidence<'a> {
     /// and how often they disagreed.
     algorithm_checks: usize,
     algorithm_mismatches: usize,
+    /// Data rows the `--output-blocks` emission loop produced.  Checked against
+    /// the collected block count on **every** run, whether or not a file was
+    /// asked for, so dropping a row in that loop cannot pass unnoticed.
+    block_rows: usize,
+    /// Data rows read back from the written `--output-blocks` file, when one was
+    /// written; the file is re-read instead of trusting the writer's own count.
+    block_file_rows: Option<usize>,
+}
+
+/// Add one record's Gamma report to the corpus-wide one.
+fn merge_gamma(total: &mut GammaReport, part: GammaReport) {
+    total.entries += part.entries;
+    total.contained += part.contained;
+    total.exceptional += part.exceptional;
+    total.zero_arms += part.zero_arms;
+    for (shape, count) in part.shapes {
+        *total.shapes.entry(shape).or_insert(0) += count;
+    }
+    for witness in part.witnesses {
+        if total.witnesses.len() < GAMMA_WITNESSES {
+            total.witnesses.push(witness);
+        }
+    }
+}
+
+/// Add one record's recount report to the corpus-wide one.
+fn merge_recount(total: &mut RecountReport, part: RecountReport) {
+    total.probes += part.probes;
+    total.blocks += part.blocks;
+    for (slot, count) in total.sources.iter_mut().zip(part.sources) {
+        *slot += count;
+    }
+    for (slot, count) in total.non_trivial.iter_mut().zip(part.non_trivial) {
+        *slot += count;
+    }
+    for (order, count) in part.non_trivial_orders {
+        *total.non_trivial_orders.entry(order).or_insert(0) += count;
+    }
+    total.geometries.extend(part.geometries);
+    total.changed_pairs.extend(part.changed_pairs);
+    total.failures.extend(part.failures);
 }
 
 fn report(
@@ -1021,6 +2353,8 @@ fn report(
     probes: &[Probe],
     errors: &[String],
     evidence: &CensusEvidence,
+    gamma: &GammaReport,
+    recount: &RecountReport,
 ) {
     println!(
         "sources={} records={} probes={} probe_errors={}",
@@ -1119,6 +2453,115 @@ fn report(
                 "  witness ordinal {} {} t={} child #{}: {}",
                 probe.ordinal, probe.label, probe.parameter, probe.child_sg, probe.detail
             );
+        }
+    }
+    // The card-4 block statistics: totals by source, the legacy probe-level
+    // reading on the same probes, and the two card-3 passes.
+    let mut block_sources = [0usize; 3];
+    let mut block_classes = [0usize; 3];
+    let mut reference_blocks = 0usize;
+    let mut blocks_with_gamma = 0usize;
+    let mut empty_blocks = 0usize;
+    for probe in probes {
+        for block in &probe.blocks {
+            block_sources[block.source.index()] += 1;
+            if !block.cocycle_trivial {
+                block_classes[block.source.index()] += 1;
+            }
+            if block.carries_reference {
+                reference_blocks += 1;
+            }
+            if block.carries_gamma {
+                blocks_with_gamma += 1;
+            }
+            if block.target_count == 0 {
+                empty_blocks += 1;
+            }
+        }
+    }
+    let mut probe_classes = [0usize; 3];
+    for probe in probes {
+        probe_classes[match probe.class {
+            TargetClass::Stored => 0,
+            TargetClass::Constructed => 1,
+            TargetClass::Unsupported | TargetClass::Error => 2,
+        }] += 1;
+    }
+    println!(
+        "child-star blocks: {} block(s) over {} probe(s), {} row(s) emitted for --output-blocks \
+         ({} empty, {} carry the reference point, {} reach Gamma)",
+        block_sources.iter().sum::<usize>(),
+        probes.len(),
+        evidence.block_rows,
+        empty_blocks,
+        reference_blocks,
+        blocks_with_gamma
+    );
+    println!(
+        "  block source: stored={} constructed={} mixed={}",
+        block_sources[0], block_sources[1], block_sources[2]
+    );
+    println!(
+        "  non-trivial own cocycle: stored={} constructed={} mixed={}",
+        block_classes[0], block_classes[1], block_classes[2]
+    );
+    println!(
+        "  withdrawn probe-level source on the same probes: stored={} constructed={} \
+         other={}",
+        probe_classes[0], probe_classes[1], probe_classes[2]
+    );
+    if recount.probes == 0 {
+        println!("full-star recount: not run (pass --gate or --full-star-recount)");
+    } else {
+        println!(
+            "full-star recount: {} added parameter probe(s), {} block(s), {} distinct block \
+             geometr{}",
+            recount.probes,
+            recount.blocks,
+            recount.geometries.len(),
+            if recount.geometries.len() == 1 { "y" } else { "ies" }
+        );
+        println!(
+            "  block source: stored={} constructed={} mixed={}",
+            recount.sources[0], recount.sources[1], recount.sources[2]
+        );
+        println!(
+            "  non-trivial own cocycle: stored={} constructed={} mixed={} by little co-group \
+             order {:?}",
+            recount.non_trivial[0],
+            recount.non_trivial[1],
+            recount.non_trivial[2],
+            recount.non_trivial_orders
+        );
+        println!(
+            "  (record, label) pairs whose recount geometry differs from the generic sample: {}",
+            recount.changed_pairs.len()
+        );
+        println!(
+            "Gamma-reaching arms: {} (parameter, arms) entr(ies), {} contained in the full-star \
+             boundaries, {} exceptional (arm fixed exactly by the whole child point group), \
+             {} always-Gamma arm(s)",
+            gamma.entries, gamma.contained, gamma.exceptional, gamma.zero_arms
+        );
+        println!("  Gamma parameter-set shapes (pair count):");
+        for (shape, count) in gamma.shapes.iter().take(12) {
+            println!(
+                "    {count:>4} pair(s): {{{}}}",
+                shape
+                    .iter()
+                    .map(|(parameter, arms)| format!(
+                        "t={parameter} arms[{}]",
+                        arms.iter().map(usize::to_string).collect::<Vec<_>>().join(",")
+                    ))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        if gamma.shapes.len() > 12 {
+            println!("    ... {} more distinct shape(s)", gamma.shapes.len() - 12);
+        }
+        for witness in &gamma.witnesses {
+            println!("    exception: {witness}");
         }
     }
 }
@@ -1517,5 +2960,638 @@ fn check_invariants(
                 ));
             }
         }
+    }
+    check_blocks(probes, evidence, violations);
+}
+
+/// R6.7 card 4: every per-block statistic, asserted on the **stored** data.
+///
+/// The checks here read the [`BlockStat`]s the probe carries, not the
+/// `result.blocks()` slice they were read from, so a block list that is dropped,
+/// reordered, mislabelled or given another block's data between `probe_record`
+/// and this point is visible.  The two point-level entry points are called a
+/// second time on each block's own representative point: that catches a wrong
+/// point, a wrong child group or a stale memo entry (the plumbing), but *not* an
+/// error inside `point_little_co_group_order` /
+/// `point_cocycle_is_a_coboundary` itself -- those are pinned by the
+/// `line_domain` unit tests, and no check here can see into them.
+fn check_blocks(probes: &[Probe], evidence: &CensusEvidence, violations: &mut Vec<String>) {
+    // A **fresh** memo for the second reading: the recorded value came from the
+    // run's shared memo, so reusing it here would answer with the same entry
+    // whatever point is passed in, and the comparison could not fail on a wrong
+    // point.
+    let recompute = PointClassCache::default();
+    let mut block_total = 0usize;
+    let mut answered_probes = 0usize;
+    for probe in probes {
+        let Some(dimensions) = &probe.dimensions else {
+            if !probe.blocks.is_empty() {
+                violations.push(format!(
+                    "ordinal {} {} t={}: the engine did not answer but the probe carries {} block \
+                     statistic(s)",
+                    probe.ordinal,
+                    probe.label,
+                    probe.parameter,
+                    probe.blocks.len()
+                ));
+            }
+            continue;
+        };
+        answered_probes += 1;
+        if dimensions.reported_blocks != probe.blocks.len() {
+            violations.push(format!(
+                "ordinal {} {} t={}: the engine reports {} block(s) but {} statistic(s) were \
+                 collected",
+                probe.ordinal,
+                probe.label,
+                probe.parameter,
+                dimensions.reported_blocks,
+                probe.blocks.len()
+            ));
+        }
+        if dimensions.covered != dimensions.parent {
+            violations.push(format!(
+                "ordinal {} {} t={}: the blocks cover {} of the parent dimension {}",
+                probe.ordinal, probe.label, probe.parameter, dimensions.covered, dimensions.parent
+            ));
+        }
+        if dimensions.arm_total == 0 {
+            violations.push(format!(
+                "ordinal {} {} t={}: the parent dimension {} gives no arm count",
+                probe.ordinal, probe.label, probe.parameter, dimensions.parent
+            ));
+        }
+        if let Some(arms) = probe.partition_arms
+            && arms != dimensions.arm_total
+        {
+            violations.push(format!(
+                "ordinal {} {} t={}: the full-star partition lists {arms} arm(s) but the engine's \
+                 dimension identity gives {}",
+                probe.ordinal, probe.label, probe.parameter, dimensions.arm_total
+            ));
+        }
+        let mut dimension_sum = 0u32;
+        let mut arm_seen = vec![0usize; dimensions.arm_total];
+        let mut reference_blocks = 0usize;
+        for (index, block) in probe.blocks.iter().enumerate() {
+            if block.index != index {
+                violations.push(format!(
+                    "ordinal {} {} t={}: block statistic {index} carries block index {}",
+                    probe.ordinal, probe.label, probe.parameter, block.index
+                ));
+            }
+            if block.ordinal != probe.ordinal
+                || block.parent_sg != probe.parent_sg
+                || block.child_sg != probe.child_sg
+                || block.label != probe.label
+                || block.parameter != probe.parameter
+            {
+                violations.push(format!(
+                    "ordinal {} {} t={}: block {index} is bound to another key \
+                     ({}, {}, #{}, {}, t={})",
+                    probe.ordinal,
+                    probe.label,
+                    probe.parameter,
+                    block.ordinal,
+                    block.parent_sg,
+                    block.child_sg,
+                    block.label,
+                    block.parameter
+                ));
+            }
+            dimension_sum += block.block_dimension;
+            // `star_size` / `arm_count` / `arm_indices` are recomputed from the
+            // block's points; the engine's own accessors must agree.
+            if block.star_size != block.declared_star_size {
+                violations.push(format!(
+                    "ordinal {} {} t={}: block {index} has {} point(s) but reports star size {}",
+                    probe.ordinal,
+                    probe.label,
+                    probe.parameter,
+                    block.star_size,
+                    block.declared_star_size
+                ));
+            }
+            if block.arm_count != block.declared_arm_count {
+                violations.push(format!(
+                    "ordinal {} {} t={}: block {index} sums {} arm(s) over its points but reports \
+                     {}",
+                    probe.ordinal,
+                    probe.label,
+                    probe.parameter,
+                    block.arm_count,
+                    block.declared_arm_count
+                ));
+            }
+            if block.arm_indices.len() != block.arm_count {
+                violations.push(format!(
+                    "ordinal {} {} t={}: block {index} lists {} distinct arm(s) for {} arm(s)",
+                    probe.ordinal,
+                    probe.label,
+                    probe.parameter,
+                    block.arm_indices.len(),
+                    block.arm_count
+                ));
+            }
+            if !block.arm_indices.windows(2).all(|pair| pair[0] < pair[1]) {
+                violations.push(format!(
+                    "ordinal {} {} t={}: block {index} arm list {:?} is not strictly ascending",
+                    probe.ordinal, probe.label, probe.parameter, block.arm_indices
+                ));
+            }
+            if block.point_checks != block.star_size {
+                violations.push(format!(
+                    "ordinal {} {} t={}: block {index} compared {} of its {} point(s)",
+                    probe.ordinal,
+                    probe.label,
+                    probe.parameter,
+                    block.point_checks,
+                    block.star_size
+                ));
+            }
+            if block.point_disagreements != 0 {
+                violations.push(format!(
+                    "ordinal {} {} t={}: block {index} has {} conjugate-point disagreement(s): its \
+                     reported co-group and class describe one point of the star only",
+                    probe.ordinal,
+                    probe.label,
+                    probe.parameter,
+                    block.point_disagreements
+                ));
+            }
+            if block.terms.len() != block.target_count {
+                violations.push(format!(
+                    "ordinal {} {} t={}: block {index} lists {} term(s) for {} target(s)",
+                    probe.ordinal,
+                    probe.label,
+                    probe.parameter,
+                    block.terms.len(),
+                    block.target_count
+                ));
+            }
+            // The classifier recomputed from the block's own target counts.  A
+            // single small mutation -- classifying every block by the whole
+            // probe, the withdrawn convention -- makes this disagree on every
+            // probe that mixes sources, and the pinned witness below covers the
+            // case where it matters most.
+            let recomputed = classify_counts(block.stored_targets, block.target_count);
+            if recomputed != block.source {
+                violations.push(format!(
+                    "ordinal {} {} t={}: block {index} is recorded as {} but its own \
+                     {}/{} stored target(s) classify it as {}",
+                    probe.ordinal,
+                    probe.label,
+                    probe.parameter,
+                    block.source.label(),
+                    block.stored_targets,
+                    block.target_count,
+                    recomputed.label()
+                ));
+            }
+            match recompute.classify(probe.child_sg, &block.representative_point) {
+                Ok(class)
+                    if class.little_co_group == block.little_co_group
+                        && class.cocycle_trivial == block.cocycle_trivial => {}
+                Ok(class) => violations.push(format!(
+                    "ordinal {} {} t={}: block {index} records little co-group {} / cocycle \
+                     trivial={} but its own point has {} / {}",
+                    probe.ordinal,
+                    probe.label,
+                    probe.parameter,
+                    block.little_co_group,
+                    block.cocycle_trivial,
+                    class.little_co_group,
+                    class.cocycle_trivial
+                )),
+                Err(error) => violations.push(format!(
+                    "ordinal {} {} t={}: block {index} point-class recomputation failed: {error}",
+                    probe.ordinal, probe.label, probe.parameter
+                )),
+            }
+            for arm in &block.arm_indices {
+                match arm_seen.get_mut(*arm) {
+                    Some(slot) => *slot += 1,
+                    None => violations.push(format!(
+                        "ordinal {} {} t={}: block {index} carries arm {arm} outside the \
+                         {}-arm list",
+                        probe.ordinal, probe.label, probe.parameter, dimensions.arm_total
+                    )),
+                }
+            }
+            if block.carries_reference {
+                reference_blocks += 1;
+            }
+        }
+        if dimension_sum != dimensions.covered {
+            violations.push(format!(
+                "ordinal {} {} t={}: the block dimensions sum to {dimension_sum} but the engine \
+                 covers {}",
+                probe.ordinal, probe.label, probe.parameter, dimensions.covered
+            ));
+        }
+        for (arm, count) in arm_seen.iter().enumerate() {
+            if *count != 1 {
+                violations.push(format!(
+                    "ordinal {} {} t={}: arm {arm} appears in {count} block(s), not exactly one",
+                    probe.ordinal, probe.label, probe.parameter
+                ));
+            }
+        }
+        // "At most one block carries the reference point, and it must exist":
+        // the reference arm belongs to exactly one child star, so a count of two
+        // would mean two blocks share a point and a count of zero that the
+        // engine's folding lost the reference arm.
+        if reference_blocks != 1 {
+            violations.push(format!(
+                "ordinal {} {} t={}: {reference_blocks} block(s) carry the reference folded point, \
+                 expected exactly one",
+                probe.ordinal, probe.label, probe.parameter
+            ));
+        }
+        block_total += probe.blocks.len();
+    }
+    if answered_probes == 0 {
+        violations.push("no probe was answered, so no block was classified".to_string());
+    }
+    if evidence.block_rows != block_total {
+        violations.push(format!(
+            "the --output-blocks emission loop produced {} row(s) for {block_total} collected \
+             block(s)",
+            evidence.block_rows
+        ));
+    }
+    if let Some(rows) = evidence.block_file_rows
+        && rows != block_total
+    {
+        violations.push(format!(
+            "the --output-blocks file holds {rows} data row(s) for {block_total} collected block(s)"
+        ));
+    }
+    // 10. The pinned card-4 witness (ordinal 13688, SG 225 `SM1` -> child #134,
+    //     `t = 1/8`).  The legacy rule labels the whole probe by whether *any*
+    //     block carries a constructed target; here the order-16 non-trivial block
+    //     is entirely stored while a different block of the same probe is not.
+    //     Without this the block-level correction would be untested on the case
+    //     that motivated it.
+    let eighth = Rat::new(1, 8).expect("1/8");
+    let witness: Vec<&Probe> = probes
+        .iter()
+        .filter(|probe| {
+            probe.ordinal == 13_688 && probe.label == "SM1" && probe.parameter == eighth
+        })
+        .collect();
+    if witness.is_empty() {
+        violations.push(
+            "ordinal 13688 SM1 t=1/8 is gone: the pinned card-4 witness cannot be checked"
+                .to_string(),
+        );
+    }
+    for probe in witness {
+        if probe.child_sg != 134 {
+            violations.push(format!(
+                "ordinal 13688 SM1: the child is #{} but the pinned witness is #134",
+                probe.child_sg
+            ));
+        }
+        if probe.class != TargetClass::Constructed {
+            violations.push(format!(
+                "ordinal 13688 SM1 t=1/8: the legacy probe-level rule says {:?}, so the witness no \
+                 longer shows the two conventions disagreeing",
+                probe.class
+            ));
+        }
+        let clean = probe
+            .blocks
+            .iter()
+            .find(|block| !block.cocycle_trivial && block.little_co_group == 16);
+        match clean {
+            Some(block) if block.source == BlockSource::Stored => {}
+            Some(block) => violations.push(format!(
+                "ordinal 13688 SM1 t=1/8: the order-16 non-trivial block is {}",
+                block.source.label()
+            )),
+            None => violations.push(
+                "ordinal 13688 SM1 t=1/8: no block has a non-trivial order-16 cocycle".to_string(),
+            ),
+        }
+        if !probe
+            .blocks
+            .iter()
+            .any(|block| block.source != BlockSource::Stored)
+        {
+            violations.push(
+                "ordinal 13688 SM1 t=1/8: every block is stored, so the probe-level rule cannot \
+                 have been mislabelling one of them"
+                    .to_string(),
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cryspglib::irrep::subduction::SubductionComponent;
+    use cryspglib::irrep::subduction::star::decompose::line_star_geometry;
+    use cryspglib::irrep::subduction::star::line_domain::StarBoundary;
+
+    fn rational(numerator: i128, denominator: i128) -> Rat {
+        Rat::new(numerator, denominator).expect("rational")
+    }
+
+    /// The census record of one ordinal, through the same walk `records` uses.
+    fn record_of(parent_sg: u8, ordinal: usize) -> Record {
+        records_of(parent_sg)
+            .expect("the parent's records")
+            .into_iter()
+            .find(|record| record.ordinal == ordinal)
+            .unwrap_or_else(|| panic!("SG {parent_sg} has no parametric-k record {ordinal}"))
+    }
+
+    /// The census report of one record, exactly as `run` builds it.
+    fn census_report(parent_sg: u8, ordinal: usize, recount: bool) -> RecordReport {
+        let domains = source_domains().expect("the frozen domains");
+        let official = official_line_parameter().expect("the official parameter");
+        let generic = Rat::new(GENERIC_SAMPLE.0, GENERIC_SAMPLE.1).expect("the generic sample");
+        let cache = PointClassCache::default();
+        let record = record_of(parent_sg, ordinal);
+        probe_record(&record, &domains, official, generic, recount, &cache)
+    }
+
+    /// One probe of a report, by source label and parameter.
+    fn probe_of<'a>(report: &'a RecordReport, label: &str, parameter: Rat) -> &'a Probe {
+        report
+            .probes
+            .iter()
+            .find(|probe| probe.label == label && probe.parameter == parameter)
+            .unwrap_or_else(|| panic!("no probe {label} t={parameter}"))
+    }
+
+    /// A synthetic target: `irnumber` is the whole stored/constructed
+    /// distinction [`classify_block`] reads.
+    fn target(irnumber: Option<u32>) -> FullStarTarget {
+        FullStarTarget {
+            sg: 1,
+            ml: None,
+            bc: None,
+            row_ml: None,
+            component: if irnumber.is_some() {
+                SubductionComponent::Ordinary
+            } else {
+                SubductionComponent::Constructed { q: [Rat::ZERO; 3], index: 0 }
+            },
+            dimension: 1,
+            multiplicity: 1,
+            irnumber,
+        }
+    }
+
+    /// **R6.7 card 4, regression (b).**  The classifier is a function of the
+    /// slice it is handed and of nothing else, which is the API-level control
+    /// for "adding or removing an unrelated block cannot change this block's
+    /// label".  The withdrawal the card turns on is shown at the same time: the
+    /// legacy probe-level rule applied to the **union** of the two blocks says
+    /// `constructed` for a block that is entirely stored.
+    #[test]
+    fn the_block_classifier_takes_only_its_own_slice() {
+        let stored = [target(Some(1)), target(Some(2))];
+        let constructed = [target(None)];
+        let mixed = [target(Some(1)), target(None)];
+        assert_eq!(classify_block(&stored), BlockSource::Stored);
+        assert_eq!(classify_block(&constructed), BlockSource::Constructed);
+        assert_eq!(classify_block(&mixed), BlockSource::Mixed);
+        // The empty slice is `Stored` ("every target is stored" holds
+        // vacuously); the report counts empty blocks so the reading is visible.
+        assert_eq!(classify_block(&[]), BlockSource::Stored);
+
+        let before = classify_block(&stored);
+        // An unrelated block appears, is classified, and disappears again.
+        let unrelated = [target(None), target(None)];
+        assert_eq!(classify_block(&unrelated), BlockSource::Constructed);
+        assert_eq!(
+            classify_block(&stored),
+            before,
+            "classifying another slice must not move this block's label"
+        );
+        assert_eq!(classify_block(&stored), BlockSource::Stored);
+
+        // The legacy rule on the whole probe: one constructed target anywhere
+        // makes the whole probe `constructed`, and with it every block of it.
+        let union: Vec<&FullStarTarget> = stored.iter().chain(constructed.iter()).collect();
+        assert_eq!(classify_probe(&union), BlockSource::Constructed);
+        assert_ne!(
+            classify_probe(&union),
+            classify_block(&stored),
+            "the withdrawn probe-level rule must disagree with the block's own slice"
+        );
+    }
+
+    /// **R6.7 card 4, regression (a): the pinned witness.**  Ordinal 13688
+    /// (SG 225 `SM1` -> child #134) at `t = 1/8` carries an order-16 block whose
+    /// own cocycle is non-trivial and whose targets are **all stored**, while a
+    /// different block of the same probe carries constructed targets.  The
+    /// legacy probe-level rule therefore labels this probe `constructed` and
+    /// would have said the same about the non-trivial block -- the accepted
+    /// finding this card exists to remove.
+    #[test]
+    fn the_13688_witness_is_a_block_level_correction() {
+        let report = census_report(225, 13_688, false);
+        assert!(
+            report.failures.is_empty(),
+            "the record must probe cleanly: {:?}",
+            report.failures
+        );
+        let probe = probe_of(&report, "SM1", rational(1, 8));
+        assert_eq!(probe.child_sg, 134, "the pinned witness child");
+        assert_eq!(
+            probe.class,
+            TargetClass::Constructed,
+            "the legacy probe-level rule is what the finding withdraws"
+        );
+        let own: Vec<BlockSource> = probe.blocks.iter().map(|block| block.source).collect();
+        assert!(
+            own.contains(&BlockSource::Stored) && own.iter().any(|s| *s != BlockSource::Stored),
+            "the probe must mix block sources, got {own:?}"
+        );
+        let clean = probe
+            .blocks
+            .iter()
+            .find(|block| !block.cocycle_trivial && block.little_co_group == 16)
+            .expect("the order-16 non-trivial block");
+        assert_eq!(
+            clean.source,
+            BlockSource::Stored,
+            "the non-trivial block is entirely stored and must not inherit the probe's label"
+        );
+        assert!(clean.carries_reference, "the reference block is the order-16 one");
+        assert_eq!(
+            clean.little_co_group, probe.child_order,
+            "the reference-carrying block's own co-group is the census's order at the reference point"
+        );
+        // The block's own class is the class of the point it carries, read
+        // again from that point: the plane the finding is about is exactly this
+        // one -- the reference point is non-trivial, and the other blocks are not
+        // (one of them is constructed), so a single probe-level label cannot
+        // describe both.
+        assert!(
+            !point_cocycle_is_a_coboundary(134, &clean.representative_point)
+                .expect("the block's own class"),
+            "the order-16 block's own point is non-trivial"
+        );
+        assert!(
+            probe.blocks.len() >= 2,
+            "the witness needs at least two blocks, got {}",
+            probe.blocks.len()
+        );
+        assert!(
+            probe
+                .blocks
+                .iter()
+                .any(|block| block.index != clean.index && block.source != clean.source),
+            "a different block of the same probe carries the other source"
+        );
+    }
+
+    /// **Card 4, the Gamma exception branch, exercised synthetically.**  Every
+    /// Gamma-reaching parameter of the corpus is a full-star boundary (measured:
+    /// 23,024/23,024 contained, 0 exceptional), so the documented exception --
+    /// an arm fixed *exactly* by the whole child point group, whose Gamma
+    /// parameters can then be interior to an interval -- has no corpus witness,
+    /// and neither has the failure next to it.  A synthetic partition (the
+    /// fields are public) exercises both, so the branch is not dead code that
+    /// only looks like a check.
+    #[test]
+    fn the_gamma_exception_requires_an_exactly_fixed_arm() {
+        let child_reciprocal = reciprocal_lattice(1).expect("P1's reciprocal lattice");
+        let quarter_turn: Mat3I = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
+        let partition = |rotations: Vec<Mat3I>| FullStarPartition {
+            source_sg: 196,
+            child_sg: 1,
+            label: "DT1",
+            // `(2, 0, 0)` reaches Gamma exactly at `t = 0` and `t = 1/2` in Z^3.
+            arms: vec![FoldedArm {
+                direction: Vec3R::from_ints([2, 0, 0]),
+                parent_rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            }],
+            reference_arm: 0,
+            child_reciprocal,
+            child_rotations: rotations,
+            // `t = 0` is cut, `t = 1/2` is deliberately interior: the child is
+            // P1, so no rotation ever enters the little co-group and the
+            // partition has nothing to cut at `1/2`.
+            boundaries: vec![StarBoundary {
+                parameter: Rat::ZERO,
+                counts: [0; 3],
+                witnesses: Vec::new(),
+            }],
+            permanent_counts: [0; 3],
+            permanent_witnesses: Vec::new(),
+        };
+
+        // P1's point group is trivial, so every arm is fixed by all of it: the
+        // interior parameter is explained and counted as the exception.
+        let mut report = GammaReport::default();
+        let mut failures = Vec::new();
+        let (entries, zero_arms) = report_gamma(
+            &partition(vec![[[1, 0, 0], [0, 1, 0], [0, 0, 1]]]),
+            196,
+            &mut report,
+            &mut failures,
+        );
+        assert!(failures.is_empty(), "the explained exception is not a failure: {failures:?}");
+        assert!(zero_arms.is_empty(), "the arm does not fold to zero");
+        assert_eq!(entries.len(), 2, "t = 0 and t = 1/2 both reach Gamma");
+        assert_eq!(report.entries, 2);
+        assert_eq!(report.contained, 1, "t = 0 is a boundary");
+        assert_eq!(report.exceptional, 1, "t = 1/2 is interior and explained");
+        assert_eq!(report.witnesses.len(), 1, "the exception keeps its witness");
+
+        // The same interior parameter without exact fixity: a rotation of the
+        // child moves the arm, so the exception does not apply and the report
+        // must fail instead of quietly counting it.
+        let mut report = GammaReport::default();
+        let mut failures = Vec::new();
+        let (entries, _) = report_gamma(&partition(vec![quarter_turn]), 196, &mut report, &mut failures);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(report.exceptional, 0, "a moved arm is not an exception");
+        assert_eq!(failures.len(), 1, "the unexplained interior parameter is a failure");
+        assert!(
+            failures[0].contains("no reaching arm is fixed exactly"),
+            "the failure names the missing premise: {failures:?}"
+        );
+    }
+
+    /// **R6.7 card 4, regression (c): the arm merge of ordinal 10038.**
+    /// SG 196 `DT1` -> P1 has a trivial child little co-group everywhere, so no
+    /// cocycle changes; the geometry still does: six one-armed child stars at
+    /// the generic `t = 1/9` and four stars with arm counts `2, 1, 1, 2` at
+    /// `t = 1/8`.  The production decomposition is checked on the same two
+    /// parameters, so the geometry cannot drift away from the reported blocks.
+    #[test]
+    fn the_10038_witness_merges_its_arms_at_one_eighth() {
+        let record = record_of(196, 10_038);
+        let embedding =
+            SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup).expect("embedding");
+        assert_eq!(embedding.subgroup_sg(), 1, "the P1 child of the witness");
+        let table = line_table(record.parent_sg, "DT1").expect("the frozen DT1 table");
+        for (parameter, expected) in [
+            (rational(1, 9), vec![1usize, 1, 1, 1, 1, 1]),
+            (rational(1, 8), vec![1, 1, 2, 2]),
+        ] {
+            let geometry = line_star_geometry(&record.subgroup, &embedding, table, parameter)
+                .expect("the production geometry");
+            assert_eq!(geometry.len(), expected.len(), "child stars at t={parameter}");
+            let mut arms: Vec<usize> = geometry.iter().map(|star| star.arm_count()).collect();
+            arms.sort_unstable();
+            assert_eq!(arms, expected, "arm counts at t={parameter}");
+            assert!(
+                geometry.iter().all(|star| star.star_size() == 1),
+                "each child star of this line is a single folded point"
+            );
+        }
+        // The reported decomposition of the same two parameters.  `1/8` is not a
+        // parameter the reference-partition census probes for this record -- that
+        // is the card-3 finding -- so it is asked for through the production
+        // entry point, and the census side is checked through the recount report
+        // just below.
+        for (parameter, expected) in [
+            (rational(1, 9), vec![1usize, 1, 1, 1, 1, 1]),
+            (rational(1, 8), vec![1, 1, 2, 2]),
+        ] {
+            let result =
+                subduce_line_at_parameter(&record.subgroup, &embedding, table, parameter)
+                    .expect("the production decomposition");
+            let mut counts: Vec<usize> =
+                result.blocks().iter().map(|block| block.arm_count()).collect();
+            counts.sort_unstable();
+            assert_eq!(counts, expected, "the engine's blocks at t={parameter}");
+            for block in result.blocks() {
+                assert!(
+                    point_cocycle_is_a_coboundary(1, block.q()).expect("the block's own class"),
+                    "child P1: every block's own class is trivial"
+                );
+                assert_eq!(
+                    point_little_co_group_order(1, block.q()).expect("the block's own order"),
+                    1,
+                    "child P1: every block's own co-group has order one"
+                );
+            }
+        }
+        let report = census_report(196, 10_038, true);
+        assert!(
+            report.failures.is_empty() && report.recount.failures.is_empty(),
+            "the recount of the witness must be clean: {:?} {:?}",
+            report.failures,
+            report.recount.failures
+        );
+        assert!(
+            report.recount.changed_pairs.contains(&(10_038, "DT1")),
+            "the recount must see the reference partition's blind spot on this pair"
+        );
+        assert!(
+            report.recount.probes >= 2,
+            "the recount must add the merge parameter and its neighbours, got {}",
+            report.recount.probes
+        );
     }
 }
