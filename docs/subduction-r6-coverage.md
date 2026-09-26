@@ -244,18 +244,41 @@ R6.4 之前的域结论来自分母采样（42 个点）。R6.5 把它换成**�
   （"2,076"、"6,880 恒真 + 1,720 可判错"、以及"5,160 全部依赖步长"），都已作废。
 * **中心化扫描的前提是显式守卫的（第四轮审查）**：扫描先积分再套同余式，只在格含于
   `Z^3` 时完备，所以 `minimal_parameter_step` 现在先检查行是否整（否则
-  `DomainCensusInconsistent`）。同一轮补的 `every_space_group_reciprocal_lattice_is_integral_with_small_exponent`
+  `DomainCensusInconsistent`；`w = 0` 在检查之前就返回 `None`，因为零属于任何格）。
+  同一轮补的 `every_space_group_reciprocal_lattice_is_integral_with_small_exponent`
   把两条前提都钉在 230/230 个空间群上：倒格行全整；**格指数 ∈ {1:149, 2:58, 3:7,
   4:16}**（4 恰好是 16 个 F 心空间群，P=1、A/B/C/I=2、R=3）；**商 `Z^3/L*` 的指数
   （exponent）∈ {1:149, 2:74, 3:7}**。扫描界 6 要覆盖的是后者（最小中心化倍数 `n`
-  整除 exponent），不是前者——本文件与 `AGENTS.md` 早先把两者都写成"指数最大为 3"，
-  其中"格指数"那一半被 SG 22（F222）证伪，现已按下表的实测口径改写。分数行见证：
-  `diag(1/2,1/2,1/2)` 配 `w = (1,0,0)` —— 中心化扫描返回 `DomainCensusInconsistent`，
-  坐标路线返回 `1/2`（两条算法都测）。
-* `DomainCensusInconsistent` 的四个 `reason` 中只有"无中心化倍数"可达，且只在
-  **非空间群格**上（`diag(7,7,7)` 的合成格会走到；230 个空间群的商指数最大为 3、
-  扫描界为 6，永远命中）。其余三条（未清分母、最小者不整除、非正步长）是把步长代数
-  改坏时才会触发的防御性守卫：fail-closed、没有负例，也不宣称有。
+  整除 exponent），不是前者。**出处更正（第五轮审查）**：错的口径只有两处，且两处措辞
+  不同——本文件 `0c17232` 写的 "230 个空间群的中心化格指数最大为 3"，以及 `AGENTS.md`
+  `84172f6` 把 exponent 表 `P=1 / A,B,C,I,F=2 / R=3` 当成"中心化格指数"（F 写成 2）。
+  被 SG 22（F222，指数 4、exponent 2）证伪的是"格指数 ≤ 3"这一半；`minimal_parameter_step`
+  的文档在 `e93686b` 之前没有这两条前提句，`e93686b` 提交信息里"三处都写了"是**过度
+  声明**，以本条为准。分数行见证：`diag(1/2,1/2,1/2)` 配 `w = (1,0,0)` —— 中心化扫描
+  返回 `DomainCensusInconsistent`，坐标路线返回 `1/2`；同一输入上**未加守卫**的扫描会
+  返回 `1`（只留 `t = 0`），而模块内部的"命中都是最小者的倍数"自检**不会**触发，所以
+  这条守卫是载重的，不是装饰。
+* **子群帧控制的自指漏洞已补（第五轮审查）**：该轮审查者把 `reciprocal_lattice` 对单个
+  空间群改坏（SG 38 → 另一个心、SG 38 → `Z^3`、SG 5 → `Z^3`），门禁**全部 exit 0 且
+  计数逐字相同**——因为 `record.child_sg == embedding.subgroup_sg()` 之后，
+  "重建的格"与"期望的格"是同一个函数同一个参数（`f(x) == f(x)`）；阳性对照
+  （SG 38 → `6Z^3`）会以 54 条 probe error 失败，说明该函数确实在关键路径上。现在两个
+  方向都补了控制：① `probe_record` 把**普查自己**算出的子群小余群阶（来自
+  `child_candidates`，其格在函数内部由 `exact_primitive_basis` 直接构造）带到每个探针上，
+  与用 `reciprocal_lattice(child_sg)` 重算的阶逐点比较；② 新的单元测试用每个空间群
+  **自己的纯平移**（`strict_sg_hall_ops` 的恒等旋转操作）导出同余条件 `h·c ∈ Z`，并断言
+  其条数等于格指数——两个都在 `Z^3` 里的格，包含关系加相同指数即为相等。A↔C 交换
+  （指数都是 2，此前对所有控制不可见）由 `the_per_space_group_congruences_separate_a_from_c`
+  钉住：A 心满足 `k+l` 偶、C 心满足 `h+k` 偶，两者互斥。残余（写在 example 注释里）：
+  同倒格同旋转集合的**兄弟空间群**（116 个子群中 109 个有）在普查里仍不可区分，且
+  记录号一致性其实由 `SubgroupEmbedding::build` 的 `StaleIsotropyRecord` 保证，属于
+  复述而非独立控制。
+* `DomainCensusInconsistent` 的**五**个 `reason` 中**两个**可达且都有负例：新增的
+  `"the centring scan requires a lattice contained in Z^3"`（第四轮的分数行见证），以及
+  "无中心化倍数"——后者只在**非空间群格**上（`diag(7,7,7)` 的合成格会走到；230 个空间
+  群的商指数最大为 3、扫描界为 6，永远命中）。其余三条（未清分母、最小者不整除、非正
+  步长）是把步长代数改坏时才会触发的防御性守卫：fail-closed、没有负例，也不宣称有。
+  `subduction.rs` 的变体文档在第五轮按此改写（此前仍写"四个、只有一个可达"）。
 * 划分本身是 **E2（推导 + 两条相互独立的构造 + 网格对照）**；"域内每一点都可分解"
   仍是 **E3（域内采样）**，因为普查只证明小余群阶在域内恒定，**没有**证明射影
   cocycle 类（coboundary 与否）在域内恒定。因此任意 rational `t` 的全覆盖仍未成立；
@@ -269,12 +292,17 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo run --release -p cryspglib --example line_domain_census -- --gate
 ```
 
-单元回归（`cargo test --release -p cryspglib --lib line_domain`，8 项）：冻结表 == generic
+单元回归（`cargo test --release -p cryspglib --lib line_domain`，13 项）：冻结表 == generic
 稳定子（73 源）、例外参数恰为 `{0,1/2}` 与六种形状、P/F/I/R 四种 centring 的步长见证
 （含 R 心 `(2,0,0) → 3/2`）、SG 196 `DT1 → #18` 子群侧恰为四分之一网格、
 两种步长算法在 2,580+ 合成向量上一致、`t = 0`/`1/2`/`1/4`/`1/7`/`3/8` 与负参数及
-`3/2` 上的子群小余群阶、倒格矢作用域围栏，以及 24 与 120 网格上的枚举-群一致性
-（>200k 谓词）。
+`3/2` 上的子群小余群阶、倒格矢作用域围栏、24 与 120 网格上的枚举-群一致性
+（>200k 谓词），以及第四、五轮新增的三项：分数行前提的 fail-closed 见证
+（`a_fractional_lattice_is_rejected_by_the_centring_scan`，含 `w = 0` 的次序约定与
+`w = (2,0,0)` 的第二见证）、230 个空间群的倒格与自心平移的两个独立构造
+（`every_space_group_reciprocal_lattice_is_integral_with_small_exponent`，含 16 个 F 心
+空间群的**逐号**钉值与指数/exponent 直方图）、A 心与 C 心同余条件的互斥见证
+（`the_per_space_group_congruences_separate_a_from_c`）。
 
 ## 5. 与 R6.1 验收的关系
 

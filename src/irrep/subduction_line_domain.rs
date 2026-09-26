@@ -120,8 +120,13 @@ fn reduce_modulo_one(value: Rat) -> Rat {
 /// The reciprocal lattice of one space group, in the conventional reciprocal
 /// frame the frozen `direction` fields live in.
 ///
-/// Works for any space group: the census uses it on the parent of a line source
-/// and on the child a source folds into.
+/// Fails only for an out-of-range number.  The lattice is the one of the **stored
+/// Hall setting** of that space group number ([`exact_primitive_basis`] switches
+/// on the centring of `SG_DATA_HALL[sg]`), which is what the frozen directions
+/// and the census use; 27 space group numbers have Hall settings with a different
+/// centring, so "the reciprocal lattice of SG `n`" is shorthand for that setting.
+/// The census uses it on the parent of a line source and on the child a source
+/// folds into.
 pub fn reciprocal_lattice(sg: u8) -> Result<Lattice, SubductionError> {
     Lattice::new(exact_primitive_basis(sg)?)?.reciprocal()
 }
@@ -198,16 +203,22 @@ fn lcm(left: i128, right: i128) -> Result<i128, SubductionError> {
 /// public entry points refuse such a direction (see
 /// [`require_reciprocal_direction`]).
 ///
-/// **Precondition:** `lattice` must be contained in `Z^3` in the frame of `w`,
-/// and the quotient `Z^3 / lattice` must have exponent at most
-/// [`CENTRING_SCAN`].  Both hold for the reciprocal lattice of every space group
-/// (index at most four, exponent at most three; asserted by
+/// **Precondition:** for `w` different from zero, `lattice` must be contained in
+/// `Z^3` in the frame of `w`, and the quotient `Z^3 / lattice` must have exponent
+/// at most [`CENTRING_SCAN`].  Both hold for the reciprocal lattice of the stored
+/// Hall setting of every space group number (index at most four, exponent at most
+/// three; asserted by
 /// `every_space_group_reciprocal_lattice_is_integral_with_small_exponent`).  The
 /// centring scan integrates first and applies the congruences afterwards, which
 /// is only complete under those hypotheses; a lattice with fractional rows would
-/// need `Lattice::coordinates` instead.  The first is checked and reported as
-/// [`SubductionError::DomainCensusInconsistent`], so a future caller cannot get a
-/// silently wrong step; the second would surface as the scan finding no hit.
+/// need `Lattice::coordinates` instead.  The first hypothesis is checked for
+/// `w != 0` and reported as [`SubductionError::DomainCensusInconsistent`], so a
+/// future caller cannot get a silently wrong step.  `w = 0` needs neither: zero is
+/// in every lattice, so the answer is `Ok(None)` for any lattice, before the
+/// check.  The second hypothesis is sufficient rather than necessary -- the scan
+/// errors exactly when the least admissible centring multiple exceeds the bound,
+/// which an exponent above [`CENTRING_SCAN`] implies but does not exhaust (a
+/// lattice like `diag(4, 3, 1)` still answers many `w` correctly).
 pub fn minimal_parameter_step(
     lattice: &Lattice,
     w: &Vec3R,
@@ -725,25 +736,56 @@ mod tests {
         );
     }
 
+    /// The centring vectors of one space group: the translation parts of the
+    /// pure translations in its stored Hall setting, identity first.
+    ///
+    /// This reads the group's **own operations**, not the `Centering` table entry
+    /// that [`exact_primitive_basis`] switches on, so it is the second route the
+    /// per-space-group assertion below compares [`reciprocal_lattice`] with.  The
+    /// pure translations of a conventional cell are the centring coset
+    /// representatives, so their number is the index of the direct lattice in
+    /// `Z^3` and hence also of its dual in `Z^3`.
+    fn centring_vectors(sg: u8) -> Vec<Vec3R> {
+        let hall = strict_sg_hall_ops(sg).expect("hall operations");
+        let mut centring: Vec<Vec3R> = Vec::new();
+        for operation in &hall.operations {
+            if operation.rotation() != [[1, 0, 0], [0, 1, 0], [0, 0, 1]] {
+                continue;
+            }
+            let translation = *operation.translation();
+            if !centring.contains(&translation) {
+                centring.push(translation);
+            }
+        }
+        assert!(!centring.is_empty(), "SG {sg}: no pure translation");
+        centring
+    }
+
     /// The centring scan's preconditions hold for every space group, not only for
-    /// the frozen corpus.
+    /// the frozen corpus, and the lattice they are stated for is the one the
+    /// group's own operations imply.
     ///
-    /// Two exact facts are needed, and both are asserted here instead of being
-    /// argued in prose.  First, the reciprocal lattice of a conventional cell is
-    /// contained in `Z^3`, which is what licenses the scan's "integrate first,
-    /// apply the congruences afterwards" order.  Second, the quotient `Z^3 / L*`
-    /// has exponent at most three, so the smallest admissible centring multiple
-    /// is never larger than that and the scan bound ([`CENTRING_SCAN`] = 6)
-    /// always finds it.
+    /// Three exact facts are asserted here instead of being argued in prose.
+    /// First, every `L*` is contained in `Z^3` and satisfies the congruence
+    /// conditions of the group's **own** pure translations, with the same index as
+    /// their number -- containment plus equal index pins the lattice, since both
+    /// live in `Z^3`; that is what closes the gap the fifth review round found, in
+    /// which a `reciprocal_lattice` corrupted for one space group was invisible to
+    /// every control because the census compares it only with itself.  Second, the
+    /// quotient `Z^3 / L*` has exponent at most three, so the smallest admissible
+    /// centring multiple is never larger than that and the scan bound
+    /// ([`CENTRING_SCAN`] = 6) always finds it.  Third, the F-centred groups are
+    /// pinned by number, so the claim in the previous sentence is about *those*
+    /// lattices and not only about a histogram.
     ///
-    /// The **index** is not the quantity the bound needs, and this test exists in
-    /// this shape because a first version asserted "index at most three" and was
-    /// falsified by SG 22: the F-centred lattices are the fixed-parity lattice
-    /// `{h = k = l (mod 2)}` with index four, but exponent two.
+    /// The **index** is not the quantity the scan bound needs: the F-centred
+    /// lattices are the fixed-parity lattice `{h = k = l (mod 2)}` with index four
+    /// but exponent two, so an index-based bound of three would be wrong for them.
     #[test]
     fn every_space_group_reciprocal_lattice_is_integral_with_small_exponent() {
         let mut by_index = std::collections::BTreeMap::new();
         let mut by_exponent = std::collections::BTreeMap::new();
+        let mut index_four: Vec<u8> = Vec::new();
         for sg in 1..=230u8 {
             let lattice = reciprocal_lattice(sg).expect("reciprocal lattice");
             assert!(
@@ -761,6 +803,36 @@ mod tests {
                 "SG {sg}: centring index {index} is outside 1..=4"
             );
             *by_index.entry(index).or_insert(0usize) += 1;
+            if index == 4 {
+                index_four.push(sg);
+            }
+            // The independent route: the group's own pure translations give the
+            // congruences `h . c in Z` that define the dual of its direct lattice.
+            let centring = centring_vectors(sg);
+            assert_eq!(
+                u128::try_from(centring.len()).expect("small count"),
+                index,
+                "SG {sg}: {} centring vectors but index {index}",
+                centring.len()
+            );
+            for row in 0..3 {
+                let generator = Vec3R::new(*lattice.rows().row(row));
+                for vector in &centring {
+                    let mut product = Rat::ZERO;
+                    for axis in 0..3 {
+                        let term = generator
+                            .get(axis)
+                            .checked_mul(vector.get(axis))
+                            .expect("product");
+                        product = product.checked_add(term).expect("sum");
+                    }
+                    assert!(
+                        product.is_integer(),
+                        "SG {sg}: reciprocal row {row} fails the congruence of the centring \
+                         vector {vector:?}"
+                    );
+                }
+            }
             // The exponent of `Z^3 / L*`: the smallest `e` with `e Z^3 <= L*`.
             let exponent = (1..=CENTRING_SCAN)
                 .find(|candidate| {
@@ -774,6 +846,8 @@ mod tests {
                     })
                 })
                 .expect("a centring multiple inside the scan bound");
+            // Belt-and-braces: the exact histogram below is the control, this line
+            // keeps the scan's margin explicit where it is used.
             assert!(
                 exponent <= 3,
                 "SG {sg}: the quotient exponent {exponent} exceeds the scan's margin"
@@ -783,13 +857,45 @@ mod tests {
         assert_eq!(
             by_index,
             std::collections::BTreeMap::from([(1, 149), (2, 58), (3, 7), (4, 16)]),
-            "the 16 index-four lattices are exactly the F-centred space groups"
+            "the centring index histogram of the 230 stored settings"
+        );
+        assert_eq!(
+            index_four,
+            vec![22, 42, 43, 69, 70, 196, 202, 203, 209, 210, 216, 219, 225, 226, 227, 228],
+            "the index-four lattices are exactly the F-centred space groups"
         );
         assert_eq!(
             by_exponent,
             std::collections::BTreeMap::from([(1, 149), (2, 74), (3, 7)]),
             "the exponent is what the scan bound has to cover"
         );
+    }
+
+    /// The A- and C-centred congruence conditions differ, which is what lets the
+    /// per-space-group assertion above see a centring swap: an A/C exchange keeps
+    /// the index at two, so every index- or order-based control stayed silent on
+    /// it (fifth review round).
+    #[test]
+    fn the_per_space_group_congruences_separate_a_from_c() {
+        // SG 38 Amm2 is A-centred: the condition is `k + l` even.
+        let a_centred = reciprocal_lattice(38).expect("A-centred lattice");
+        assert!(a_centred.contains(&Vec3R::from_ints([0, 1, 1])).unwrap());
+        assert!(!a_centred.contains(&Vec3R::from_ints([1, 1, 0])).unwrap());
+        // SG 5 C2 is C-centred: the condition is `h + k` even.
+        let c_centred = reciprocal_lattice(5).expect("C-centred lattice");
+        assert!(c_centred.contains(&Vec3R::from_ints([1, 1, 0])).unwrap());
+        assert!(!c_centred.contains(&Vec3R::from_ints([0, 1, 1])).unwrap());
+        // Both are index two, so the difference is invisible to the histogram.
+        for lattice in [a_centred, c_centred] {
+            assert_eq!(
+                lattice
+                    .determinant()
+                    .expect("determinant")
+                    .to_integer()
+                    .expect("integer"),
+                2
+            );
+        }
     }
 
     /// The step solver on one witness per centring type.
@@ -965,6 +1071,12 @@ mod tests {
     /// precondition is checked, and the coordinate route (which has no such
     /// precondition) gives the correct step for the same input.  Witness from the
     /// fourth review round: `diag(1/2, 1/2, 1/2)` with `w = (1, 0, 0)`.
+    ///
+    /// The unguarded scan is not merely imprecise here, it is silently wrong:
+    /// replaying it on this input returns the step `1` (residues `{0}`), losing the
+    /// parameter `t = 1/2` that the membership test itself accepts, and the
+    /// module's internal "every hit is a multiple of the minimum" self-check does
+    /// not fire because the hits are `1 ..= 6` with minimum one.
     #[test]
     fn a_fractional_lattice_is_rejected_by_the_centring_scan() {
         let half = rational(1, 2);
@@ -975,13 +1087,38 @@ mod tests {
         ]))
         .expect("fractional lattice");
         let w = Vec3R::from_ints([1, 0, 0]);
+        // The reason string is part of the public diagnostic, so it is pinned
+        // rather than matched as "some inconsistency".
         assert!(matches!(
             minimal_parameter_step(&lattice, &w),
-            Err(SubductionError::DomainCensusInconsistent { .. })
+            Err(SubductionError::DomainCensusInconsistent {
+                reason: "the centring scan requires a lattice contained in Z^3"
+            })
         ));
         assert_eq!(
             minimal_parameter_step_via_coordinates(&lattice, &w).expect("coordinate route"),
             Some(rational(1, 2))
+        );
+        // `w = 0` is answered *before* the precondition check, because zero is in
+        // every lattice: both routes agree on `None` even for this lattice.  The
+        // ordering is deliberate; moving the check above it would make the two
+        // routes disagree here.
+        let zero = Vec3R::zero();
+        assert_eq!(minimal_parameter_step(&lattice, &zero).expect("zero w"), None);
+        assert_eq!(
+            minimal_parameter_step_via_coordinates(&lattice, &zero).expect("zero w"),
+            None
+        );
+        // The other witness of the same shape: a component with denominator two
+        // makes the true step `1/4`, and the unguarded scan returns `1/2`.
+        let doubled = Vec3R::from_ints([2, 0, 0]);
+        assert!(matches!(
+            minimal_parameter_step(&lattice, &doubled),
+            Err(SubductionError::DomainCensusInconsistent { .. })
+        ));
+        assert_eq!(
+            minimal_parameter_step_via_coordinates(&lattice, &doubled).expect("coordinate route"),
+            Some(rational(1, 4))
         );
     }
 

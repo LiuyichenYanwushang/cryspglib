@@ -372,8 +372,11 @@ fn sorted_parameters(mut values: Vec<Rat>) -> Vec<Rat> {
     values
 }
 
-/// The parameters of one record: `(probed parameters with their parent order, the
-/// child's own candidate parameters)`.
+/// The parameters of one record: `(probed parameters with the census's child
+/// little co-group order there, the child's own candidate parameters)`.
+///
+/// The order is zero for a parameter the child census does not list, which the
+/// probe path reads as "no census-side expectation at this parameter".
 type RecordParameters = (Vec<(Rat, usize)>, Vec<Rat>);
 
 /// The partition of one record: the parent's exceptional parameters, the folded
@@ -400,8 +403,14 @@ fn record_parameters(
     let folded = child_exceptional_parameters(&embedding, table)
         .map_err(|error| format!("ordinal {} child domain: {error}", record.ordinal))?;
     let child_candidates: Vec<Rat> = folded.iter().map(|(parameter, _)| *parameter).collect();
-    for (parameter, _) in &folded {
-        push(*parameter, 0, &mut parameters);
+    // The child order the **census itself** computes at each of its candidate
+    // parameters.  It is carried into the probe so the gate can compare it with
+    // the order recomputed from `reciprocal_lattice(child_sg)`: without that
+    // comparison the child-frame assertions below can only compare that function
+    // with itself, and a `reciprocal_lattice` corrupted for one space group is
+    // invisible (fifth review round).
+    for (parameter, order) in &folded {
+        push(*parameter, *order, &mut parameters);
     }
     for parameter in [official, generic] {
         push(parameter, 0, &mut parameters);
@@ -475,13 +484,20 @@ fn probe_record(
     // are rebuilt from the embedding's subgroup, the lattice must be invariant
     // under every rotation used, and the record's subgroup number must agree.
     // Neither the grid check nor the two-algorithm comparison can see a wrong
-    // frame (both are fed the same lattice), so this is the only control that
-    // does; the mutations of the third review round are what it exists for.
-    // Limitation, measured in the fourth round: a *sibling* space group with the
-    // same reciprocal lattice and the same rotation set (109 of the 116 child
-    // groups have one) is indistinguishable here.  That is immaterial because the
-    // frame is consumed only through those two values; what the assertion rules
-    // out is a frame that would change them.
+    // frame (both are fed the same lattice), so this is the control that does;
+    // the mutations of the third review round are what it exists for.
+    //
+    // Two limits, both measured.  (1) The census consumes the child frame only
+    // through the reciprocal lattice and the rotation set, so a *sibling* space
+    // group that shares both — 109 of the 116 child space groups have one — is
+    // indistinguishable here.  The engine does consume the whole embedding, but a
+    // sibling frame cannot reach it: `SubgroupEmbedding::build` refuses a record
+    // whose numbers disagree (`StaleIsotropyRecord`), which also makes the
+    // child-number comparison just below a restatement rather than a control.
+    // (2) The lattice comparison below compares `reciprocal_lattice` with itself
+    // (same function, same argument), so it cannot see that function being wrong;
+    // that is covered instead by the probe-side order comparison against the
+    // census's own child order and by the per-space-group unit test.
     if record.child_sg != embedding.subgroup_sg() {
         failures.push(format!(
             "ordinal {}: record child #{} != embedding subgroup #{}",
@@ -679,7 +695,7 @@ fn probe_record(
                 child_parameters.push(parameter);
             }
         }
-        for (parameter, _) in parameters {
+        for (parameter, census_order) in parameters {
             let child_order = if folded.is_zero() {
                 child_rotations.len()
             } else {
@@ -695,6 +711,21 @@ fn probe_record(
                     }
                 }
             };
+            // The probe-side order comes from `reciprocal_lattice(child_sg)`, the
+            // census-side one from `child_candidates`, which builds its lattice
+            // inline from `exact_primitive_basis`.  This is the only place in the
+            // gate where the two constructions meet, so it is what makes a wrong
+            // child lattice observable here (a parameter the child census does not
+            // list carries order zero and is skipped; the per-space-group
+            // correctness of the function itself is pinned by
+            // `line_domain::tests::every_space_group_reciprocal_lattice_is_integral_with_small_exponent`).
+            if census_order > 0 && census_order != child_order {
+                failures.push(format!(
+                    "ordinal {} {label} t={parameter}: probe child order {child_order} != census \
+                     child order {census_order}",
+                    record.ordinal
+                ));
+            }
             let parent = domain
                 .exceptional
                 .iter()
