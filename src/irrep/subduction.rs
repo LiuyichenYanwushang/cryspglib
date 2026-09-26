@@ -243,10 +243,16 @@ pub enum SubductionError {
     ///
     /// The solution set of `t . w in L*` is a subgroup of `Q`, so a scan that
     /// finds hits which are not multiples of one another disproves the arithmetic
-    /// behind the census.  The census reports the failure instead of publishing a
-    /// domain it cannot justify.  The variant is also used for the census's other
-    /// internal invariants (a scan with no multiple at all, a non-positive step,
-    /// a folded direction outside the child lattice), each with its own `reason`.
+    /// behind the census; the census reports the failure instead of publishing a
+    /// domain it cannot justify.  Of the `reason` strings the census can produce,
+    /// only `"no centring multiple of the integrality step lands in the lattice"`
+    /// is reachable, and only for a lattice that is not a space group's
+    /// reciprocal lattice (on all 230 space groups the centring exponent is at
+    /// most three and the scan is bounded by six).  The other arms -- a step that
+    /// did not clear the denominators, a scanned hit that the minimum does not
+    /// divide, a non-positive step -- are defensive guards against a future
+    /// change in the step algebra, unreachable as the code stands and therefore
+    /// without negative tests; they fail closed if they ever fire.
     #[error("parameter-domain census is inconsistent: {reason}")]
     DomainCensusInconsistent {
         /// Which internal invariant failed.

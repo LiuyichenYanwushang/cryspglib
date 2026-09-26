@@ -155,27 +155,37 @@ fn scale(vector: &Vec3R, factor: &Rat) -> Result<Vec3R, SubductionError> {
     Ok(Vec3R::new(values))
 }
 
-fn gcd(left: i128, right: i128) -> i128 {
-    let (mut a, mut b) = (left.abs(), right.abs());
+/// `|value|` as a checked operation: `i128::MIN` has no positive counterpart, so
+/// the census reports `RationalOverflow` instead of panicking in a debug build.
+fn absolute(value: i128) -> Result<i128, SubductionError> {
+    value
+        .checked_abs()
+        .ok_or(SubductionError::RationalOverflow {
+            operation: "parameter-domain absolute value",
+        })
+}
+
+fn gcd(left: i128, right: i128) -> Result<i128, SubductionError> {
+    let (mut a, mut b) = (absolute(left)?, absolute(right)?);
     while b != 0 {
         let next = a % b;
         a = b;
         b = next;
     }
-    a
+    Ok(a)
 }
 
 fn lcm(left: i128, right: i128) -> Result<i128, SubductionError> {
     if left == 0 || right == 0 {
         return Ok(0);
     }
-    let divisor = gcd(left, right);
+    let divisor = gcd(left, right)?;
     let scaled = (left / divisor)
         .checked_mul(right)
         .ok_or(SubductionError::RationalOverflow {
             operation: "parameter-domain lcm",
         })?;
-    Ok(scaled.abs())
+    absolute(scaled)
 }
 
 /// The rational step generating `{ t : t . w in lattice }`, or `None` when `w`
@@ -201,12 +211,12 @@ pub fn minimal_parameter_step(
         // The generator is taken positive: the solution set is symmetric
         // (`t` and `-t` either both work or both fail), so only its positive
         // generator matters.
-        let component = Rat::new(value.denominator().abs(), value.numerator().abs())?;
+        let component = Rat::new(absolute(value.denominator())?, absolute(value.numerator())?)?;
         accumulated = Some(match accumulated {
             None => component,
             Some(current) => Rat::new(
                 lcm(current.numerator(), component.numerator())?,
-                gcd(current.denominator(), component.denominator()),
+                gcd(current.denominator(), component.denominator())?,
             )?,
         });
     }
@@ -237,7 +247,7 @@ pub fn minimal_parameter_step(
     // behind the scan and is reported rather than smoothed over.
     if hits.iter().any(|hit| *hit % n != 0) {
         return Err(SubductionError::DomainCensusInconsistent {
-            reason: "a centring multiple of the step lands in the lattice without the minimum                      dividing it",
+            reason: "a scanned multiple lands in the lattice without the minimum dividing it",
         });
     }
 
@@ -358,12 +368,16 @@ pub fn rotation_set(sg: u8) -> Result<Vec<Mat3I>, SubductionError> {
     Ok(rotations)
 }
 
-/// The exceptional parameters in `[0, 1)` induced by one direction: the union
-/// over the given rotations of the residues of their steps.
+/// The candidate parameters in `[0, 1)` induced by one direction: the union over
+/// the given rotations of the residues of their steps, each with the number of
+/// rotations fixing `k(t)`.
 ///
-/// `counts` receives, per parameter, the number of rotations fixing `k(t)`; the
-/// caller pairs it with the generic order to get the enhancement size.
-pub fn exceptional_parameters(
+/// **Internal.**  The residue representation is only valid when `direction` is a
+/// lattice vector of `lattice`; this function cannot check that (it has no space
+/// group for the error text), so the public entry points [`parent_domain`] and
+/// [`child_exceptional_parameters`] call [`require_reciprocal_direction`] first
+/// and are the only supported way to obtain a domain.
+fn exceptional_parameters(
     lattice: &Lattice,
     direction: &Vec3R,
     rotations: &[Mat3I],
@@ -472,19 +486,28 @@ pub fn child_exceptional_parameters(
         label: table.label,
     })?;
     let folded = fold_wave_vector(embedding.transform(), &direction)?;
-    let child_sg = embedding.subgroup_sg();
+    child_candidates(embedding.subgroup_sg(), &folded)
+}
+
+/// The candidate parameters of one **folded** direction in the child frame.
+///
+/// Split out of [`child_exceptional_parameters`] so the degenerate case is
+/// testable without fabricating an embedding: `folded = 0` means the line folds
+/// onto the child Gamma point, which every child rotation fixes at every
+/// parameter, so the little co-group never changes and the candidate set is
+/// empty (the caller sees the full child point group throughout).
+pub fn child_candidates(
+    child_sg: u8,
+    folded: &Vec3R,
+) -> Result<Vec<(Rat, usize)>, SubductionError> {
     if folded.is_zero() {
-        // A direction folding to the child Gamma point is fixed by every child
-        // rotation at every parameter, so the little co-group never changes and
-        // there is no candidate parameter; the caller sees the full child point
-        // group at every `t`.
         return Ok(Vec::new());
     }
     let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
     let child_reciprocal = child_cell.reciprocal()?;
-    require_reciprocal_direction(&child_reciprocal, &folded, child_sg, "")?;
+    require_reciprocal_direction(&child_reciprocal, folded, child_sg, "")?;
     let rotations = rotation_set(child_sg)?;
-    exceptional_parameters(&child_reciprocal, &folded, &rotations)
+    exceptional_parameters(&child_reciprocal, folded, &rotations)
 }
 
 /// The order of the little co-group of `k(t) = t . direction` at one exact
@@ -530,12 +553,12 @@ pub fn minimal_parameter_step_via_coordinates(
         if value.is_zero() {
             continue;
         }
-        let component = Rat::new(value.denominator().abs(), value.numerator().abs())?;
+        let component = Rat::new(absolute(value.denominator())?, absolute(value.numerator())?)?;
         accumulated = Some(match accumulated {
             None => component,
             Some(current) => Rat::new(
                 lcm(current.numerator(), component.numerator())?,
-                gcd(current.denominator(), component.denominator()),
+                gcd(current.denominator(), component.denominator())?,
             )?,
         });
     }
@@ -566,9 +589,75 @@ mod tests {
                 table.space_group,
                 table.label
             );
+            // The order agreeing is not enough: the *rotation sets* must be the
+            // same, otherwise the frozen table would describe a different
+            // subgroup of the same size.
+            let lattice = reciprocal_lattice(table.space_group).expect("lattice");
+            let rotations = rotation_set(table.space_group).expect("rotations");
+            let mut generic: Vec<Mat3I> = Vec::new();
+            for rotation in &rotations {
+                let image = Mat3R::from_ints(*rotation)
+                    .inverse()
+                    .unwrap()
+                    .transpose()
+                    .checked_mul_vector(&domain.direction)
+                    .unwrap();
+                if image == domain.direction {
+                    generic.push(*rotation);
+                }
+            }
+            let mut frozen: Vec<Mat3I> = table
+                .operations
+                .iter()
+                .map(|operation| operation.rotation.map(|row| row.map(i32::from)))
+                .collect();
+            generic.sort_unstable();
+            frozen.sort_unstable();
+            assert_eq!(
+                generic, frozen,
+                "SG {} {}: the frozen rotation set is not the generic stabiliser",
+                table.space_group, table.label
+            );
+            let _ = &lattice;
             sources += 1;
         }
         assert_eq!(sources, 73, "the frozen corpus");
+    }
+
+    /// A step of `i128::MIN` numerator cannot be made positive; the census
+    /// reports `RationalOverflow` instead of panicking (in a debug build the
+    /// lost `abs()` used to abort on negation overflow).
+    #[test]
+    fn an_extreme_numerator_is_a_typed_error_not_a_panic() {
+        let lattice = Lattice::integer();
+        let w = Vec3R::new([
+            Rat::new(i128::MIN, 1).expect("MIN is a valid numerator"),
+            Rat::ZERO,
+            Rat::ZERO,
+        ]);
+        assert!(matches!(
+            minimal_parameter_step(&lattice, &w),
+            Err(SubductionError::RationalOverflow { .. })
+        ));
+        assert!(matches!(
+            minimal_parameter_step_via_coordinates(&lattice, &w),
+            Err(SubductionError::RationalOverflow { .. })
+        ));
+    }
+
+    /// A folded direction of zero has no candidate parameter: every child
+    /// rotation fixes the child Gamma point at every `t`, so the little co-group
+    /// never changes.  The branch is unreachable on the frozen corpus and is
+    /// covered here directly.
+    #[test]
+    fn a_zero_folded_direction_has_no_candidate_parameter() {
+        for child_sg in [1u8, 2, 18, 123, 221] {
+            assert_eq!(
+                child_candidates(child_sg, &Vec3R::zero()).expect("candidates"),
+                Vec::new(),
+                "child #{child_sg}"
+            );
+        }
     }
 
     /// The exact partition of the frozen corpus: every source has exceptional

@@ -123,6 +123,8 @@ struct RecordReport {
     probes: Vec<Probe>,
     /// `(checks, mismatches)` of the child-side grid cross-check.
     child_grid: (usize, usize),
+    /// `(checks, mismatches)` of the child-side two-algorithm step comparison.
+    child_algorithms: (usize, usize),
     /// The record's candidate parameters (parent union child).
     child_parameters: Vec<Rat>,
     failures: Vec<String>,
@@ -174,6 +176,7 @@ fn run() -> Result<ExitCode, String> {
     let mut probes: Vec<Probe> = Vec::new();
     let mut probe_errors: Vec<String> = Vec::new();
     let mut child_grid = (0usize, 0usize);
+    let mut child_algorithms = (0usize, 0usize);
     let mut child_union: Vec<Rat> = Vec::new();
     for (record, report) in records.iter().zip(per_record) {
         if report.probes.is_empty() {
@@ -182,6 +185,8 @@ fn run() -> Result<ExitCode, String> {
         probe_errors.extend(report.failures);
         child_grid.0 += report.child_grid.0;
         child_grid.1 += report.child_grid.1;
+        child_algorithms.0 += report.child_algorithms.0;
+        child_algorithms.1 += report.child_algorithms.1;
         for parameter in report.child_parameters {
             if !child_union.contains(&parameter) {
                 child_union.push(parameter);
@@ -232,6 +237,7 @@ fn run() -> Result<ExitCode, String> {
         step_algorithm_cross_check(&domains);
     let evidence = CensusEvidence {
         child_grid,
+        child_algorithms,
         child_union: &child_union,
         algorithm_checks,
         algorithm_mismatches,
@@ -427,12 +433,14 @@ fn probe_record(
     let mut out = Vec::new();
     let mut failures = Vec::new();
     let mut child_grid = (0usize, 0usize);
+    let mut child_algorithms = (0usize, 0usize);
     let mut child_parameters: Vec<Rat> = Vec::new();
     let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup) else {
         failures.push(format!("ordinal {}: embedding rejected", record.ordinal));
         return RecordReport {
             probes: out,
             child_grid,
+            child_algorithms: (0, 0),
             child_parameters,
             failures,
         };
@@ -445,6 +453,7 @@ fn probe_record(
         return RecordReport {
             probes: out,
             child_grid,
+            child_algorithms: (0, 0),
             child_parameters,
             failures,
         };
@@ -457,6 +466,7 @@ fn probe_record(
         return RecordReport {
             probes: out,
             child_grid,
+            child_algorithms: (0, 0),
             child_parameters,
             failures,
         };
@@ -498,6 +508,63 @@ fn probe_record(
                 record.ordinal
             ));
             continue;
+        }
+        // The child frame gets the same arithmetic-independent control as the
+        // parent: the centring scan and the lattice coordinate map must produce
+        // the same step for every child rotation.  This is what makes the
+        // child-side claim independent rather than a second reading of the same
+        // algebra (a wrong *frame* is caught by the frame checks, a wrong step
+        // by this comparison).
+        if !folded.is_zero() {
+            for rotation in &child_rotations {
+                let image = match cryspglib::irrep::subduction::Mat3R::from_ints(*rotation)
+                    .inverse()
+                    .and_then(|matrix| matrix.transpose().checked_mul_vector(&folded))
+                {
+                    Ok(image) => image,
+                    Err(error) => {
+                        failures.push(format!(
+                            "ordinal {}: child rotation image: {error}",
+                            record.ordinal
+                        ));
+                        continue;
+                    }
+                };
+                let (Ok(w), Ok(other)) = (
+                    image.checked_sub(&folded),
+                    image.checked_sub(&folded),
+                ) else {
+                    failures.push(format!(
+                        "ordinal {}: child rotation difference failed",
+                        record.ordinal
+                    ));
+                    continue;
+                };
+                match (
+                    minimal_parameter_step(&child_reciprocal, &w),
+                    minimal_parameter_step_via_coordinates(&child_reciprocal, &other),
+                ) {
+                    (Ok(scan), Ok(coordinates)) => {
+                        child_algorithms.0 += 1;
+                        if scan != coordinates {
+                            child_algorithms.1 += 1;
+                            failures.push(format!(
+                                "ordinal {} child rotation {rotation:?}: centring scan {:?} != \
+                                 coordinate map {:?}",
+                                record.ordinal,
+                                scan.map(|value| value.to_string()),
+                                coordinates.map(|value| value.to_string())
+                            ));
+                        }
+                    }
+                    (scan, coordinates) => failures.push(format!(
+                        "ordinal {} child rotation {rotation:?}: step failed ({:?} / {:?})",
+                        record.ordinal,
+                        scan.err().map(|error| error.to_string()),
+                        coordinates.err().map(|error| error.to_string())
+                    )),
+                }
+            }
         }
         for denominator in [24i128, 120] {
             match verify_against_grid(&child_reciprocal, &folded, &child_rotations, denominator) {
@@ -620,6 +687,7 @@ fn probe_record(
     RecordReport {
         probes: out,
         child_grid,
+        child_algorithms,
         child_parameters,
         failures,
     }
@@ -630,6 +698,8 @@ fn probe_record(
 struct CensusEvidence<'a> {
     /// `(checks, mismatches)` of the child-side grid cross-check over all records.
     child_grid: (usize, usize),
+    /// `(checks, mismatches)` of the child-side two-algorithm comparison.
+    child_algorithms: (usize, usize),
     /// The union of the records' child candidate parameters.
     child_union: &'a [Rat],
     /// How often the centring scan and the coordinate map route were compared,
@@ -668,8 +738,12 @@ fn report(
         probes.iter().filter(|probe| probe.child_order == 0).count()
     );
     println!(
-        "step algorithms: {} rotation comparisons, {} disagreement(s)",
-        evidence.algorithm_checks, evidence.algorithm_mismatches
+        "step algorithms: parent {} rotation comparisons / {} disagreement(s); \
+         child {} / {}",
+        evidence.algorithm_checks,
+        evidence.algorithm_mismatches,
+        evidence.child_algorithms.0,
+        evidence.child_algorithms.1
     );
     let mut parent_shapes: BTreeMap<Vec<(String, usize, usize)>, usize> = BTreeMap::new();
     for domain in domains.values() {
@@ -873,15 +947,9 @@ fn check_invariants(
                 probe.ordinal, probe.label, probe.parameter
             ));
         }
-        if probe.child_order == 1 && probe.class == TargetClass::Unsupported {
-            violations.push(format!(
-                "ordinal {} {} t={}: unsupported although the child co-group is trivial",
-                probe.ordinal, probe.label, probe.parameter
-            ));
-        }
         if probe.class == TargetClass::Unsupported && probe.child_order <= 1 {
             violations.push(format!(
-                "ordinal {} {} t={}: unsupported with child co-group order {}",
+                "ordinal {} {} t={}: unsupported although the child co-group has order {}",
                 probe.ordinal, probe.label, probe.parameter, probe.child_order
             ));
         }
@@ -944,6 +1012,15 @@ fn check_invariants(
             "the two step algorithms were compared only {} times",
             evidence.algorithm_checks
         ));
+    }
+    if evidence.child_algorithms.1 > 0 {
+        violations.push(format!(
+            "the child step algorithms disagree in {} of {} comparisons",
+            evidence.child_algorithms.1, evidence.child_algorithms.0
+        ));
+    }
+    if evidence.child_algorithms.0 == 0 {
+        violations.push("the child two-algorithm comparison never ran".to_string());
     }
     // 3e. The frozen directions are in scope for the residue representation.
     for ((sg, label), domain) in domains {
@@ -1025,7 +1102,8 @@ fn check_invariants(
     }
     if grid_mismatches > 0 {
         violations.push(format!(
-            "the enumeration disagrees with the group in {grid_mismatches} of {grid_checks}              grid predicates"
+            "the enumeration disagrees with the group in {grid_mismatches} of \
+             {grid_checks} grid predicates"
         ));
     }
     println!("grid cross-check: {grid_checks} predicates, {grid_mismatches} mismatch(es)");

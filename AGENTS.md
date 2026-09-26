@@ -65,10 +65,16 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   `q(t)=t·T^T v` 的候选参数并集**恰为八分之一网格**
   `{0,1/8,1/4,3/8,1/2,5/8,3/4,7/8}`（门禁断言，不是打印）。按该划分逐点跑生产分解：
   **42,073 个 (记录, 参数) 探针、`unsupported=0`、`errors=0`**（`stored=33,985`、
-  `constructed=8,088`；每个探针都有真实子群小余群阶，无 0 哨兵）。独立控制三条：
-  母群网格 **371,520 谓词 / 0 不符**、子群网格 **4,134,672 谓词 / 0 不符**、
-  两种步长算法（中心化扫描 vs 格坐标映射）**2,580 次比较 / 0 分歧**；`--sequential` 与
-  并行输出逐字节相同（SHA-256 `8a90a685…` 为旧版；本轮加了断言后需重算）。域划分是
+  控制与证据（措辞按第二轮审查收紧，勿把网格对照说成独立算法）：**母群网格 371,520
+  谓词 / 0 不符**、**子群网格 4,134,672 谓词 / 0 不符**——这两条是「谓词 vs 残类枚举」的
+  对照，**共用步长代数**，只验证条件的几何；网格分母不整除步长时会漏掉该例外参数
+  （decoy：方向 `(7,0,0)`、步长 `1/7`，1/24 与 1/120 上只剩 `t = 0`）。真正算术独立的是
+  **两种步长算法**（中心化扫描 vs `Lattice::coordinates` 映射）：母群 **2,580 次比较 /
+  0 分歧**，子群侧 **28,713 次比较 / 0 分歧**（覆盖 116 个子群 SG，含 P/I/R 心）。另有
+  冻结表与 generic 稳定子的**旋转集合逐一相等**（73/73，不再是只比阶）。`--sequential`
+  与并行 TSV **逐字节相同**（42,074 行，SHA-256
+  `c7b8606e999a570e954690102eff82f803d1d9ccba2217006f9f3aad79eeed30`；`84172f6` 的旧值
+  `8a90a685…` 只对应加断言前的输出）。域划分是
   **E2**（推导 + 独立重算）；**任意 rational `t` 的全覆盖仍未证明**——普查只证明小余群阶
   在域内恒定，**没有**证明射影 cocycle 类（coboundary 与否）在域内恒定，域内代表性仍由
   42 点采样、每记录 `t=1/7` 与审计锚点支撑。作用域围栏：方向必须是所在群的倒格矢
@@ -197,8 +203,14 @@ co-group 的精确支持域。
 的 R6 与 handoff 的建议）。本轮只做普查，不动求解器：
 
 * 新模块 `src/irrep/subduction_line_domain.rs`（`irrep::subduction::star::line_domain`）：
-  `parent_domain(table)`、`child_exceptional_parameters(embedding, direction)`、
-  `minimal_parameter_step(lattice, w)`、`verify_against_grid(...)`、`rotation_set`。
+  `parent_domain(table)`、`child_exceptional_parameters(embedding, table)`（**签名在
+  `6e0fb4c` 之后改为收 `table`**：方向与诊断标签都从冻结表取）、
+  `child_candidates(child_sg, folded)`、`minimal_parameter_step(lattice, w)`、
+  `minimal_parameter_step_via_coordinates(lattice, w)`、
+  `little_co_group_order(lattice, direction, rotations, t)`、`verify_against_grid(...)`、
+  `rotation_set(sg)`、`reciprocal_lattice(sg)`（原 `parent_reciprocal`，父子通用）、
+  `require_reciprocal_direction(...)`；`exceptional_parameters` 已降为模块私有（公开
+  入口必须先过作用域围栏）。新错误变体：`ParameterDomainOutOfScope`。
   数学：`R` 在参数 `t` 进入稳定子 ⟺ `t·w_R ∈ L*_parent`（`w_R = R^{-T}v − v`），
   解集是 `Q` 的子群；先求 `t·w ∈ Z^3` 的公分母步长，再用中心化格指数（P=1、
   A/B/C/I/F=2、R=3）定出最小 `n`，步长为二者之积，`[0,1)` 内例外参数是其有限残类。
@@ -211,11 +223,28 @@ co-group 的精确支持域。
   `unsupported ⇒ child_order > 1`、官方锚点 5,756 行全部可答、generic 采样（`t = 1/7`）
   非形式且可答、无探针丢失，以及网格交叉验证 0 不符。
 * **实测**：73 源 / 1,006 记录 / **42,073 探针**，`unsupported=0`、`errors=0`；例外参数
-  形状与八分之一网格见 §2 B；网格交叉验证 **母群 371,520 谓词 / 子群 4,134,672 谓词，
-  均 0 不符**，两种步长算法 2,580 次比较 0 分歧；8 线程约 20 s，`--gate` exit 0。
+  形状与八分之一网格见 §2 B；网格对照 **母群 371,520 谓词 / 子群 4,134,672 谓词，均
+  0 不符**，两种步长算法 **母群 2,580 + 子群 28,713 次比较 / 0 分歧**；8 线程约 20 s，
+  `--gate` exit 0。
 * **仍未证明**（写在 §2 B 与 coverage 报告里，勿越界声明）：域划分是精确的，但"同一域
   内部射影 cocycle 类恒定"没有证明；域内代表性由 42 点采样、每记录 `t = 1/7` 与审计
   锚点支撑。
+* **第二轮对抗性审查（针对 `6e0fb4c` 的 9 处修复）判定 EFFECTIVE、无 P0**，并给出 10 条
+  残余（1×P1 + 9×P2），已全部接受并在其后一个提交里处理。必须留在案上的更正：
+  ① 上一轮把母群/子群网格写成"独立控制"是**过度声明**（它们与枚举共用步长代数），现
+  已改写，并把子群侧的两种步长算法比较补上（28,713 次 / 0 分歧）——那才是子群侧的算术
+  独立控制；审查者还证明：把子群网格检查喂进父群倒格（错的帧）仍报 0 不符，说明网格
+  检查**看不见错的帧**（错的旋转集合能被看见：70,128/33,395,328 不符）。
+  ② `6e0fb4c` 提交信息里的"非空转谓词 2,076"**不可复现**：复算为 `t ∈ {0,1/2}` 上共
+  10,320 个谓词，其中 6,880 个恒真、1,720 个（`t=1/2`，两个分母）才可判错；非空转
+  结论成立，数字以 1,720 为准。
+  ③ 提交信息说"合并了冗余规则"当时**并未合并**（两条都在），现已真的合并为一条。
+  ④ `DomainCensusInconsistent` 文档曾称覆盖"折叠方向不在子格"，实际那条走
+  `ParameterDomainOutOfScope`；四条 `reason` 中只有"无中心化倍数"可达（且只在非空间群
+  格上），现已如实写明并把其余三条标为防御性守卫。
+  ⑤ `i128::MIN` 分子在 debug 构建会 panic（`abs()` 取负溢出），现改 `checked_abs` +
+  `RationalOverflow`，附回归。
+  ⑥ 零折叠方向分支在语料上 0/5,756 且无测试，现拆出 `child_candidates` 直接测试。
 
 ---
 
