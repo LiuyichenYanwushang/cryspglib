@@ -117,6 +117,18 @@ pub enum StarError {
         q[2]
     )]
     LittleCoGroupNotClosed { q: [Rat; 3] },
+    /// Two factor systems were compared without a common group.
+    ///
+    /// A class comparison is only defined on one group: the two little co-groups
+    /// must have the same rotations and the same multiplication, so that one
+    /// cocycle table can be re-indexed onto the other.  Orders alone are not
+    /// enough — `C2 x C2` and `C4` both have order four — so a mismatch is
+    /// reported instead of subtracting two unrelated tables.
+    #[error(
+        "the two little co-groups are not the same group (orders {left} and {right}, or the \
+         rotations/multiplication differ)"
+    )]
+    IncompatibleLittleCoGroups { left: usize, right: usize },
     /// The transversals do not cover the whole parent star.
     #[error(
         "{represented} transporters of {ml} do not cover all {operations} operations of \

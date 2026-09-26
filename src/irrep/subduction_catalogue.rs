@@ -360,16 +360,50 @@ impl LittleCoGroup {
     /// Whether two factor systems on the **same** co-group differ by a
     /// coboundary, i.e. whether they represent the same class in `H^2(P, U(1))`.
     pub(super) fn cohomologous_to(&self, other: &Self) -> Result<bool, StarError> {
-        if self.order() != other.order() {
-            return Err(StarError::LittleCoGroupNotClosed {
-                q: [self.q.get(0), self.q.get(1), self.q.get(2)],
-            });
+        let order = self.order();
+        let incompatible = || StarError::IncompatibleLittleCoGroups {
+            left: order,
+            right: other.order(),
+        };
+        if other.order() != order {
+            return Err(incompatible());
         }
-        let mut turns = Vec::with_capacity(self.order());
-        for (left, right) in self.turns.iter().zip(&other.turns) {
-            let mut row = Vec::with_capacity(left.len());
-            for (a, b) in left.iter().zip(right) {
-                row.push(fractional(a.checked_sub(*b)?)?);
+        // 1. Operation correspondence by exact rotation: both sides must carry the
+        //    same set of rotations, or there is no common group to compare on.
+        let mut permutation = Vec::with_capacity(order);
+        for operation in &self.representatives {
+            let Some(position) = other
+                .representatives
+                .iter()
+                .position(|candidate| candidate.rotation() == operation.rotation())
+            else {
+                return Err(incompatible());
+            };
+            permutation.push(position);
+        }
+        // 2. The correspondence must preserve the multiplication table, which is what
+        //    makes "the same group" precise rather than "the same rotations".
+        let left_table = self.multiplication_table()?;
+        let right_table = other.multiplication_table()?;
+        for i in 0..order {
+            for j in 0..order {
+                if permutation[left_table[i][j]] != right_table[permutation[i]][permutation[j]] {
+                    return Err(incompatible());
+                }
+            }
+        }
+        // 3. Quotient cocycle, re-indexed through the correspondence.  Different
+        //    representative translations are *not* a reason to refuse: they change
+        //    the factor system by a coboundary, which is exactly what this decision
+        //    is about.
+        let mut turns = Vec::with_capacity(order);
+        for i in 0..order {
+            let mut row = Vec::with_capacity(order);
+            for j in 0..order {
+                row.push(fractional(
+                    self.turns[i][j]
+                        .checked_sub(other.turns[permutation[i]][permutation[j]])?,
+                )?);
             }
             turns.push(row);
         }
@@ -1639,6 +1673,90 @@ mod tests {
         }
         assert!(compared >= 300, "the cross-check must be broad: {compared}");
         assert!(empty > 0, "the cross-check must include non-coboundaries");
+    }
+
+    /// A class comparison needs a **common group**: the external review's witness
+    /// is SG 83, direction `(0, 3, 1)`, where `t = 1/2` and `t = 1/3` both give
+    /// order four but different rotation sets (`C2 x C2` against `C4`).  The old
+    /// implementation compared orders only and returned `Ok(true)`; the quotient
+    /// was not even a cocycle.  Orders alone are never enough.
+    #[test]
+    fn a_class_comparison_needs_a_common_group() {
+        let reciprocal = Lattice::new(exact_primitive_basis(83).unwrap())
+            .unwrap()
+            .reciprocal()
+            .unwrap();
+        let point = |parameter: Rat| {
+            Vec3R::new([
+                Rat::ZERO,
+                parameter.checked_mul(Rat::from_integer(3)).unwrap(),
+                parameter,
+            ])
+        };
+        let half = little_co_group(83, &point(Rat::new(1, 2).unwrap()), &reciprocal).unwrap();
+        let third = little_co_group(83, &point(Rat::new(1, 3).unwrap()), &reciprocal).unwrap();
+        assert_eq!(half.order(), 4);
+        assert_eq!(third.order(), 4);
+        let mut left: Vec<Mat3I> = half
+            .representatives
+            .iter()
+            .map(|operation| operation.rotation())
+            .collect();
+        let mut right: Vec<Mat3I> = third
+            .representatives
+            .iter()
+            .map(|operation| operation.rotation())
+            .collect();
+        left.sort_unstable();
+        right.sort_unstable();
+        assert_ne!(
+            left, right,
+            "the witness must be two *different* groups of the same order"
+        );
+        assert!(matches!(
+            half.cohomologous_to(&third),
+            Err(StarError::IncompatibleLittleCoGroups { left: 4, right: 4 })
+        ));
+        // An order mismatch is rejected as well.
+        assert!(matches!(
+            half.cohomologous_to(&cyclic_two(Rat::ZERO)),
+            Err(StarError::IncompatibleLittleCoGroups { .. })
+        ));
+    }
+
+    /// The same group with a **re-indexed** cocycle table is still comparable: the
+    /// correspondence is built from the rotations and checked against the
+    /// multiplication table, so a permutation of the representatives is not a
+    /// different group.  Representative *translations* may differ freely too — they
+    /// change the factor system by a coboundary, which is the very thing the
+    /// comparison decides.
+    #[test]
+    fn a_reindexed_same_group_is_still_comparable() {
+        let section = d16_section_cocycle_on_d4();
+        let order = section.order();
+        let mut representatives = section.representatives.clone();
+        representatives.reverse();
+        let mut turns = vec![vec![Rat::ZERO; order]; order];
+        for i in 0..order {
+            for j in 0..order {
+                turns[order - 1 - i][order - 1 - j] = section.turns[i][j];
+            }
+        }
+        let reindexed = LittleCoGroup {
+            representatives,
+            turns,
+            q: section.q,
+        };
+        assert!(reindexed.cohomologous_to(&section).unwrap());
+        let mut trivial = section.clone();
+        for row in trivial.turns.iter_mut() {
+            for turn in row.iter_mut() {
+                *turn = Rat::ZERO;
+            }
+        }
+        assert!(!section.cohomologous_to(&trivial).unwrap());
+        assert!(!reindexed.cohomologous_to(&trivial).unwrap());
+        assert!(trivial.cohomologous_to(&trivial).unwrap());
     }
 
     /// The `D16 -> D4` section cocycle as a hand-built [`LittleCoGroup`].
