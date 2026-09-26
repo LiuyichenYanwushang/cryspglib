@@ -427,6 +427,15 @@ fn record_parameters(
     Ok((ordered, child_candidates))
 }
 
+/// Whether the step solver reports "no constraint, or the integrality step one",
+/// which is what a rotation that fixes the whole direction must produce.
+fn step_is_vacuous_or_one(step: &Option<Rat>) -> bool {
+    match step {
+        None => true,
+        Some(value) => *value == Rat::new(1, 1).expect("one"),
+    }
+}
+
 /// Probe one record at every parameter of its partition.
 ///
 /// The child little co-group order is recomputed at **every** probed parameter
@@ -631,6 +640,16 @@ fn probe_record(
         // child-side claim independent rather than a second reading of the same
         // algebra (a wrong *frame* is caught by the frame checks, a wrong step
         // by this comparison).
+        //
+        // The same loop also checks the premise of the domain theorem (see the
+        // module documentation of `line_domain`): a rotation fixes the *whole*
+        // direction, `w_R = R^{-T} q1 - q1 in L*_child`, exactly when its step is
+        // one.  Those are the rotations whose factor system stays a cocycle for
+        // every real parameter, which is what makes the projective class trivial
+        // on the whole domain.  The count is then compared with the child order at
+        // the generic sample below, which is the same number by an independent
+        // route (group membership rather than the step solver).
+        let mut generic_rotations = 0usize;
         if !folded.is_zero() {
             for rotation in &child_rotations {
                 let image = match cryspglib::irrep::subduction::Mat3R::from_ints(*rotation)
@@ -653,6 +672,38 @@ fn probe_record(
                     ));
                     continue;
                 };
+                // The theorem's premise is **exact fixity** of the whole direction,
+                // `w_R = 0`: only then is `chi_{t q1} . lambda` a factor system for
+                // every real parameter, which is what makes the projective class
+                // trivial on the whole domain.  Membership of `w_R` in `L*_child`
+                // is *weaker* and was the first, wrong formulation of this check
+                // (measured: 24,430 violations, witness `w = (0, 4, 0)` with step
+                // `1/4`, where the little-group condition holds at every parameter
+                // but the factor system is a cocycle only at the isolated
+                // parameters with `t w_R in L*`).  The step solver is not used as
+                // the premise either: `Some(1)` is also returned for `w` in `Z^3`
+                // outside `L*`, where the constraint binds exactly at the integer
+                // parameters and the residues `{0}` are correct.
+                if w.is_zero() {
+                    generic_rotations += 1;
+                }
+                let step = match minimal_parameter_step(&child_reciprocal, &w) {
+                    Ok(step) => step,
+                    Err(error) => {
+                        failures.push(format!(
+                            "ordinal {} {label}: child rotation step: {error}",
+                            record.ordinal
+                        ));
+                        continue;
+                    }
+                };
+                if w.is_zero() && !step_is_vacuous_or_one(&step) {
+                    failures.push(format!(
+                        "ordinal {} {label}: the rotation {rotation:?} fixes the whole direction \
+                         but the step solver returns {step:?}",
+                        record.ordinal
+                    ));
+                }
                 match (
                     minimal_parameter_step(&child_reciprocal, &w),
                     minimal_parameter_step_via_coordinates(&child_reciprocal, &w),
@@ -678,6 +729,24 @@ fn probe_record(
                     )),
                 }
             }
+        }
+        // The premise count against the census's own generic order: the rotations
+        // that fix the whole direction are exactly the generic little co-group, so
+        // the child order at the generic sample must equal `generic_rotations`.
+        match little_co_group_order(&child_reciprocal, &folded, &child_rotations, generic) {
+            Ok(order) => {
+                if order != generic_rotations {
+                    failures.push(format!(
+                        "ordinal {} {label}: the generic child order {order} differs from the \
+                         {generic_rotations} rotations that fix the whole direction",
+                        record.ordinal
+                    ));
+                }
+            }
+            Err(error) => failures.push(format!(
+                "ordinal {} {label}: generic child order: {error}",
+                record.ordinal
+            )),
         }
         for denominator in [24i128, 120] {
             match verify_against_grid(&child_reciprocal, &folded, &child_rotations, denominator) {

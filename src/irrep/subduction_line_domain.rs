@@ -50,6 +50,66 @@
 //! representation that silently merges distinct parameters.  The child-side
 //! census below is the same computation after folding `v` through the embedding,
 //! so it covers the folded little co-group of every isotropy record of a source.
+//!
+//! # The projective class on a domain
+//!
+//! Decomposing a line source at a parameter `t` needs the **projective**
+//! characters of the child little co-group of the folded point `q(t) = t . q1`:
+//! its factor system is
+//!
+//! ```text
+//! omega_t(R, S) = chi_{q(t)}(lambda_RS),  lambda_RS = tau_R + R tau_S - tau_RS,
+//! ```
+//!
+//! with one chosen child operation `(R, tau_R)` per rotation and `lambda_RS` the
+//! **unreduced** defect, an element of the child lattice `L` (see
+//! `subduction_catalogue`).  Whether the class of `omega_t` in `H^2(P, U(1))` can
+//! change inside a domain decides whether one representative parameter per domain
+//! is enough, so it is the question this section settles.
+//!
+//! Let `P = { R : R^{-T} q1 = q1 }`, the **exact** stabiliser of the direction,
+//! i.e. the rotations with `w_R = R^{-T} q1 - q1 = 0`.  On a domain of the census
+//! the little co-group of `q(t)` is exactly `P`: a rotation with `w_R != 0`
+//! satisfies `t . w_R in L*` only at the isolated parameters the census lists, so
+//! it enters the little co-group, if at all, at an exceptional parameter and never
+//! inside a domain.  For `R in P` the defect identity
+//! `lambda_RS + lambda_{R S,T} = R lambda_{S,T} + lambda_{R,ST}` together with
+//! `(R^T - I) q1 = 0` gives
+//!
+//! ```text
+//! omega_s(R,S) omega_s(RS,T) = omega_s(S,T) omega_s(R,ST)   for every real s,
+//! ```
+//!
+//! so `s -> omega_s` is a family of factor systems on `P`, and `s -> [omega_s]` is
+//! a homomorphism from the divisible group `(R, +)` into the finite group
+//! `H^2(P, U(1))`; a homomorphism from a divisible group to a finite group is
+//! trivial.  Hence:
+//!
+//! **Theorem.**  On every domain of the census the factor system of the folded
+//! direction has **trivial** class in `H^2(P, U(1))`, for every real parameter and
+//! not only for the probed ones.  The class is therefore constant on each domain —
+//! it is the identity there.  The only parameter dependence left in the
+//! decomposition is the **gauge**: the target catalogue is the ordinary irreps of
+//! `P` twisted by a gauge solving a linear system with continuous coefficients,
+//! and the multiplicities are integer-valued continuous functions of `t`, hence
+//! constant on the interval.  A non-coboundary family can therefore be reachable
+//! only at an exceptional parameter, where the little co-group is strictly larger
+//! and this argument does not apply; those parameters are finitely many and the
+//! census probes them exactly.
+//!
+//! Both premises are checked on the corpus.  Parent side: all 341 operations of
+//! the 73 frozen little groups fix their direction exactly
+//! (`every_frozen_little_group_fixes_its_whole_direction`, which also asserts
+//! `parent_domain`'s `generic_order` counts the same set).  Child side: the census
+//! gate counts, for every record and label, the rotations with `w_R = 0` and
+//! compares the count with the child order at the generic sample.
+//!
+//! The first formulation of that child-side check used membership `w_R in L*`
+//! instead of exact fixity and was wrong: the constraint `t . w_R in L*` then
+//! holds at every parameter (so the rotation *is* in the little co-group
+//! everywhere) while `chi_{s q1} . lambda` is a factor system only at the isolated
+//! `s` with `s w_R in L*`.  Measured witness: `w = (0, 4, 0)` with step `1/4`,
+//! which produced 24,430 gate violations before the check was corrected.
 
 use crate::irrep::line_monodromy::line_direction;
 use crate::irrep::w_little_characters_data::LittleCharacterTable;
@@ -1161,6 +1221,52 @@ mod tests {
             minimal_parameter_step_via_coordinates(&lattice, &doubled).expect("coordinate route"),
             Some(rational(1, 4))
         );
+    }
+
+    /// The premise of the domain theorem, on the parent side: every rotation of a
+    /// frozen line's little group fixes the **whole** direction, i.e.
+    /// `R^{-T} v = v` exactly, so `w_R = 0`.
+    ///
+    /// Fixity is the right hypothesis, not membership of `w_R` in the reciprocal
+    /// lattice: `chi_{s v} . lambda` is a factor system for *every real* `s` only
+    /// when `(R^T - I)v = 0`, and that is what makes the projective class of the
+    /// frozen line trivial on the whole line rather than only at sampled
+    /// parameters.  (A rotation with `w_R` a nonzero lattice vector satisfies the
+    /// little-group condition at every parameter as well, but the factor system
+    /// `chi_{s v} . lambda` is then a cocycle only at the isolated `s` with
+    /// `s w_R in L*`; the census corpus contains no such frozen rotation, which is
+    /// what the equality below asserts.)
+    #[test]
+    fn every_frozen_little_group_fixes_its_whole_direction() {
+        let mut checked = 0usize;
+        for table in W_LITTLE_CHARACTERS {
+            let domain = parent_domain(table).expect("domain");
+            assert_eq!(
+                domain.generic_order,
+                table.operations.len(),
+                "SG {} {}: the frozen table is not the exact stabiliser of the direction",
+                table.space_group,
+                table.label
+            );
+            for operation in table.operations {
+                let rotation: Mat3I = operation.rotation.map(|row| row.map(i32::from));
+                let image = Mat3R::from_ints(rotation)
+                    .inverse()
+                    .expect("inverse")
+                    .transpose()
+                    .checked_mul_vector(&domain.direction)
+                    .expect("rotation image");
+                assert_eq!(
+                    image, domain.direction,
+                    "SG {} {}: the frozen rotation {rotation:?} does not fix the whole direction",
+                    table.space_group, table.label
+                );
+                checked += 1;
+            }
+        }
+        // 341 frozen little-group operations in total; the same sum appears
+        // independently in the census as `682 = 2 x sum of generic orders`.
+        assert_eq!(checked, 341, "every frozen little-group operation is checked");
     }
 
     /// A direction outside the group's reciprocal lattice is rejected instead of
