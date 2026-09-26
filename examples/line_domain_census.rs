@@ -477,6 +477,11 @@ fn probe_record(
     // Neither the grid check nor the two-algorithm comparison can see a wrong
     // frame (both are fed the same lattice), so this is the only control that
     // does; the mutations of the third review round are what it exists for.
+    // Limitation, measured in the fourth round: a *sibling* space group with the
+    // same reciprocal lattice and the same rotation set (109 of the 116 child
+    // groups have one) is indistinguishable here.  That is immaterial because the
+    // frame is consumed only through those two values; what the assertion rules
+    // out is a frame that would change them.
     if record.child_sg != embedding.subgroup_sg() {
         failures.push(format!(
             "ordinal {}: record child #{} != embedding subgroup #{}",

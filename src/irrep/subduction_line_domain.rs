@@ -197,12 +197,30 @@ fn lcm(left: i128, right: i128) -> Result<i128, SubductionError> {
 /// not periodic in `t`, so those residues are *not* the parameters and the
 /// public entry points refuse such a direction (see
 /// [`require_reciprocal_direction`]).
+///
+/// **Precondition:** `lattice` must be contained in `Z^3` in the frame of `w`,
+/// and the quotient `Z^3 / lattice` must have exponent at most
+/// [`CENTRING_SCAN`].  Both hold for the reciprocal lattice of every space group
+/// (index at most four, exponent at most three; asserted by
+/// `every_space_group_reciprocal_lattice_is_integral_with_small_exponent`).  The
+/// centring scan integrates first and applies the congruences afterwards, which
+/// is only complete under those hypotheses; a lattice with fractional rows would
+/// need `Lattice::coordinates` instead.  The first is checked and reported as
+/// [`SubductionError::DomainCensusInconsistent`], so a future caller cannot get a
+/// silently wrong step; the second would surface as the scan finding no hit.
 pub fn minimal_parameter_step(
     lattice: &Lattice,
     w: &Vec3R,
 ) -> Result<Option<Rat>, SubductionError> {
     if w.is_zero() {
         return Ok(None);
+    }
+    // The scan integrates first (`t . w in Z^3`), so it needs a lattice inside
+    // the integer lattice; see the precondition in the documentation.
+    if !lattice.rows().is_integral() {
+        return Err(SubductionError::DomainCensusInconsistent {
+            reason: "the centring scan requires a lattice contained in Z^3",
+        });
     }
     // 1. `t . w in Z^3` <=> `t in c Z`, with `c` the lcm of `q_i / p_i` over the
     //    nonzero components `w_i = p_i / q_i` in lowest terms.
@@ -707,6 +725,73 @@ mod tests {
         );
     }
 
+    /// The centring scan's preconditions hold for every space group, not only for
+    /// the frozen corpus.
+    ///
+    /// Two exact facts are needed, and both are asserted here instead of being
+    /// argued in prose.  First, the reciprocal lattice of a conventional cell is
+    /// contained in `Z^3`, which is what licenses the scan's "integrate first,
+    /// apply the congruences afterwards" order.  Second, the quotient `Z^3 / L*`
+    /// has exponent at most three, so the smallest admissible centring multiple
+    /// is never larger than that and the scan bound ([`CENTRING_SCAN`] = 6)
+    /// always finds it.
+    ///
+    /// The **index** is not the quantity the bound needs, and this test exists in
+    /// this shape because a first version asserted "index at most three" and was
+    /// falsified by SG 22: the F-centred lattices are the fixed-parity lattice
+    /// `{h = k = l (mod 2)}` with index four, but exponent two.
+    #[test]
+    fn every_space_group_reciprocal_lattice_is_integral_with_small_exponent() {
+        let mut by_index = std::collections::BTreeMap::new();
+        let mut by_exponent = std::collections::BTreeMap::new();
+        for sg in 1..=230u8 {
+            let lattice = reciprocal_lattice(sg).expect("reciprocal lattice");
+            assert!(
+                lattice.rows().is_integral(),
+                "SG {sg}: the reciprocal lattice has fractional rows"
+            );
+            let index = lattice
+                .determinant()
+                .expect("determinant")
+                .to_integer()
+                .expect("integer determinant")
+                .unsigned_abs();
+            assert!(
+                (1..=4).contains(&index),
+                "SG {sg}: centring index {index} is outside 1..=4"
+            );
+            *by_index.entry(index).or_insert(0usize) += 1;
+            // The exponent of `Z^3 / L*`: the smallest `e` with `e Z^3 <= L*`.
+            let exponent = (1..=CENTRING_SCAN)
+                .find(|candidate| {
+                    let step = i32::try_from(*candidate).expect("scan bound fits in i32");
+                    (0..3).all(|axis| {
+                        let mut unit = [0i32; 3];
+                        unit[axis] = step;
+                        lattice
+                            .contains(&Vec3R::from_ints(unit))
+                            .expect("membership")
+                    })
+                })
+                .expect("a centring multiple inside the scan bound");
+            assert!(
+                exponent <= 3,
+                "SG {sg}: the quotient exponent {exponent} exceeds the scan's margin"
+            );
+            *by_exponent.entry(exponent).or_insert(0usize) += 1;
+        }
+        assert_eq!(
+            by_index,
+            std::collections::BTreeMap::from([(1, 149), (2, 58), (3, 7), (4, 16)]),
+            "the 16 index-four lattices are exactly the F-centred space groups"
+        );
+        assert_eq!(
+            by_exponent,
+            std::collections::BTreeMap::from([(1, 149), (2, 74), (3, 7)]),
+            "the exponent is what the scan bound has to cover"
+        );
+    }
+
     /// The step solver on one witness per centring type.
     #[test]
     fn the_minimal_step_covers_every_centring_type() {
@@ -874,6 +959,30 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A lattice with fractional rows cannot use the centring scan: the
+    /// precondition is checked, and the coordinate route (which has no such
+    /// precondition) gives the correct step for the same input.  Witness from the
+    /// fourth review round: `diag(1/2, 1/2, 1/2)` with `w = (1, 0, 0)`.
+    #[test]
+    fn a_fractional_lattice_is_rejected_by_the_centring_scan() {
+        let half = rational(1, 2);
+        let lattice = Lattice::new(Mat3R::new([
+            [half, Rat::ZERO, Rat::ZERO],
+            [Rat::ZERO, half, Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, half],
+        ]))
+        .expect("fractional lattice");
+        let w = Vec3R::from_ints([1, 0, 0]);
+        assert!(matches!(
+            minimal_parameter_step(&lattice, &w),
+            Err(SubductionError::DomainCensusInconsistent { .. })
+        ));
+        assert_eq!(
+            minimal_parameter_step_via_coordinates(&lattice, &w).expect("coordinate route"),
+            Some(rational(1, 2))
+        );
     }
 
     /// A direction outside the group's reciprocal lattice is rejected instead of
