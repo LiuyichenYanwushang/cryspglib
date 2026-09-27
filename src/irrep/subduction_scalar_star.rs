@@ -245,6 +245,27 @@ impl ComponentStar {
         )
     }
 
+    /// The little-group character of this component at **one arm**.
+    ///
+    /// `point` names the arm by wave vector, compared modulo the component's
+    /// reciprocal lattice — the equivalence [`collect_arms`] merges by — so the
+    /// caller is independent of the canonical arm order, which moves with the
+    /// parameter for a parametric-k line.  Zero when `point` is not an arm; the
+    /// arm's contribution to [`Self::character`] otherwise.
+    pub(super) fn point_character(
+        &self,
+        point: &Vec3R,
+        operation: &ExactSeitz,
+    ) -> Result<Complex64, StarError> {
+        for (index, arm) in self.arms.iter().enumerate() {
+            if !self.reciprocal.same_mod(arm.wave_vector(), point)? {
+                continue;
+            }
+            return self.arm_trace(index, operation);
+        }
+        Ok(Complex64::new(0.0, 0.0))
+    }
+
     /// The stored row as the shared little-group character source.
     pub(super) fn character_source(&self) -> LittleCharacter<'_> {
         LittleCharacter::Stored {
@@ -338,6 +359,37 @@ impl ConstructedStar {
             false,
             operation,
         )
+    }
+
+    /// The little-group character of this constructed representation at **one
+    /// arm**.
+    ///
+    /// `point` names the arm by wave vector, compared modulo the star's
+    /// reciprocal lattice (the equivalence [`collect_arms`] merges by), so the
+    /// caller is independent of the canonical arm order, which moves with the
+    /// parameter for a parametric-k line.  Zero when `point` is not an arm; the
+    /// arm's contribution to [`Self::character`] otherwise, i.e. the little-group
+    /// character of the conjugated operation with the constructed Bloch phase.
+    pub(super) fn point_character(
+        &self,
+        point: &Vec3R,
+        operation: &ExactSeitz,
+    ) -> Result<Complex64, StarError> {
+        for (index, arm) in self.arms.iter().enumerate() {
+            if !self.reciprocal.same_mod(arm.wave_vector(), point)? {
+                continue;
+            }
+            return arm_character(
+                arm,
+                &LittleCharacter::Constructed(&self.rep),
+                &self.lattice,
+                &self.reciprocal,
+                false,
+                index,
+                operation,
+            );
+        }
+        Ok(Complex64::new(0.0, 0.0))
     }
 }
 

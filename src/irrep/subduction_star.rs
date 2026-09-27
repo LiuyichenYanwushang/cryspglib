@@ -581,6 +581,47 @@ impl OrdinaryStar {
         )
     }
 
+    /// The little-group character of this row's representation at **one arm**.
+    ///
+    /// `point` names the arm by its wave vector, compared modulo the parent
+    /// reciprocal lattice (the same equivalence [`collect_arms`] merges by), so
+    /// the caller does not have to know the canonical arm order — which moves
+    /// with the parameter for a parametric-k line.  The value is that arm's
+    /// contribution to [`Self::character`]: zero when `point` is not an arm, and
+    /// otherwise `chi_seed(g_i^-1 h g_i)` on the exact conjugated operation with
+    /// the **seed** wave vector, i.e. the little-group character of the row at
+    /// that arm, Bloch phase included.
+    pub(super) fn point_character(
+        &self,
+        point: &Vec3R,
+        operation: &ExactSeitz,
+    ) -> Result<Complex64, StarError> {
+        let character = LittleCharacter::Stored {
+            row: &self.selected_row,
+            ml: self.probe.ml,
+            row_k: &self.seed_k,
+        };
+        let mut total = Complex64::new(0.0, 0.0);
+        for (index, arm) in self.arms.iter().enumerate() {
+            if !self
+                .parent_reciprocal
+                .same_mod(arm.wave_vector(), point)?
+            {
+                continue;
+            }
+            total += arm_character(
+                arm,
+                &character,
+                &self.parent_lattice,
+                &self.parent_reciprocal,
+                false,
+                index,
+                operation,
+            )?;
+        }
+        Ok(total)
+    }
+
     /// Fold every arm into the child frame and partition the folded points into
     /// child stars.
     ///

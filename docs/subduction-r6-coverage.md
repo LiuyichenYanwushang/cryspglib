@@ -423,11 +423,50 @@ R6.4 之前的域结论来自分母采样（42 个点）。R6.5 把它换成**�
   四处措辞更正（代表点 vs 共轭点、11,009 的三元组口径与 1,278 重复探针、2,449 的变异作用域、
   `192/0/0` 归因属于推断）。残余：`--output-recount` 留给卡 5/6。
 
+* **域内跨参数比较（R6.7 卡 5，2026-09-26）**。`--domain-sweep` 重写为两层，比较"同一
+  full-star 分区区间内的两个参数"：**几何层**用**母群臂集合**配对两端的子群块（臂集合是跨参数
+  身份：块序、点序、代表点位置、构造目标的枚举编号都随 `t` 动），再比块数 / 星大小 / 臂数 /
+  逐点臂分组 / 块维数 / 小群旋转集合；**表示层**为每对匹配块取共同 seed 臂，在**该臂的
+  child 小群**（child Hall 帧，按旋转对齐的同一套操作）上取每个目标的**逐臂 little-group
+  字符**，除以卡 1 的显式 gauge `exp(2πi q(t)·τ_h)` 后用字符内积一一配对，再比较配对后的
+  重数；匹配歧义、无伙伴、维数不符、重数不符都是显式错误。排序 `(维数,重数)` 表被明确禁止：
+  两个不同一维目标交换重数在排序表下不可见，而字符配对能看见。
+  **为什么需要新的库读数**：诱导字符是 `Σ_{被该操作固定的臂} χ_臂(h)`，每臂带自己的
+  `exp(2πi q_j(t)·τ)`，实测在卡 1 gauge 下跨参数只能到 0.73–1.0；**逐臂**读数则到
+  `1−2.2e-16`。因此新增 `FullStarBlock::target_character`（诱导，`reconstruction` 的逐目标
+  读数）与 `FullStarBlock::target_little_character`（逐臂，`point` 按波矢 mod 星自身倒格
+  定位，故不依赖随 `t` 变的臂序），并由库内回归
+  `the_per_arm_character_sums_to_the_induced_character` 钉住 `Σ_点 = target_character`。
+  **实测**（`--gate --require-covered --domain-sweep`，8 线程与 `--sequential` 两次都 exit 0）：
+  5,756 对 / **46,048 区间** / **92,096 次区间内生产分解** / 46,048 次比较 / **0 失败**；
+  168,408 块对与 174,672 目标对全部匹配；区间内块来源 `stored=0 / constructed=174,672 /
+  mixed=0`（区间内没有 stored 目标——"存储↔构造匹配"这条在本语料是合成分支）；seed 小群阶
+  `{1: 91,984; 2: 62,408; 4: 13,584; 8: 432}`；最差匹配分数 `0.99999999999999978`。
+  **卡 4 残余关闭**：`--output-recount` 写出 11,009 行并**逐行解析回读**逐字段比较（行数断言
+  == recount 探针数）。串行/并行三个 TSV 逐字节相同（probe/block SHA 未变，recount
+  `a14598c1…`）。**变异**：去掉 gauge → exit 1（21,608 区间失败）；诱导字符代替逐臂 → exit 1；
+  第二侧重数 +1 → exit 1；排序表替换字符匹配 → 模块测试失败而**语料门禁仍 exit 0**（实测
+  6,264 个双目标块全是 `[(1,1),(1,1)]`，重数相等 ⇒ 该交换在本语料是 no-op，已钉
+  `same_dimension_swaps = 0`，此情形由模块测试承担）。**本轮自查的第五个变异发现并修掉一个
+  真实盲点**：把比较**两侧都取自第一个参数的分解**时门禁仍 exit 0（46,048 次"比较"、0 失败、
+  计数逐字不变）。修法是两条按参数绑定几何的控制——每个折叠点必须等于**本侧参数**的
+  `t·direction`（mod 子群倒格；用 mod 是因为边界上合并臂报告的是等价类代表元），且每对匹配块
+  要求两侧 seed 点不相同（"与自身比较是空转"）；同一变异现在 exit 1（336,820 violations）。
+
 复现：
 
 ```bash
 CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   cargo run --release -p cryspglib --example line_domain_census -- --gate
+```
+
+域内跨参数比较（卡 5；单跑也会在自己的失败上 exit 1，验收命令同时给两个 flag，串行加
+`--sequential` 逐字节可比）：
+
+```bash
+CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
+  cargo run --release -p cryspglib --example line_domain_census -- \
+    --gate --require-covered --domain-sweep
 ```
 
 单元回归（`cargo test --release -p cryspglib --lib line_domain`，19 项）：冻结表 == generic

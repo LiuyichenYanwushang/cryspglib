@@ -91,8 +91,8 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   10030 与 10038 均在 `t=1/8`）。**完整 full-star 分区现已交付（R6.7 卡 3）**：
   `line_domain::full_star_partition` 对全部臂与臂对枚举精确条件，语料上分区恰为八分之一网格、
   2,273/5,756 对严格大于参考分区；卡 4 已交付逐块统计与 full-star recount 通过程（11,009 个
-  新增参数），census 的**主探针集**仍是旧的参考分区（卡 6 切换），区间内重数恒定的门禁化控制
-  见卡 5–6。非 coboundary 族只可能在**小余群**例外参数出现这一条仍成立。
+  新增参数），卡 5 已交付"区间内两点 + 几何/字符匹配"的跨参数比较（46,048 区间、0 失败，见 §3b），
+  census 的**主探针集**仍是旧的参考分区（卡 6 切换并把边界/区间守恒接入门禁）。非 coboundary 族只可能在**小余群**例外参数出现这一条仍成立。
   定理的前提是**子群侧**（门禁逐 (记录,标号) 数 `w_R = 0` 并与 generic 采样阶比较）；母群侧
   341 个冻结操作精确固定方向是**另一条对照**（钉住"冻结母群表 == 精确稳定子"），不是本定理
   的前提。**被撤销的中间版本**：第一版把前提写成 `w_R ∈ L*`（成员资格）——在语料上它是
@@ -294,16 +294,70 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   本轮新建 4 项；`mixed` 在语料上从不出现（0/80,293、0/27,507），变体与打印路径有合成单测。
   `--output-blocks` 的行数检查在第一次运行时因"未写文件却要求行数"自杀失败，已改为"发射循环
   计数 + 回读文件计数"两条都在。
-* **卡 5（修正 `--domain-sweep` 的比较对象）** 现有草稿比较含 `component`、`q`、CIR 编号的
-  字符串；参数改变时构造目标的 `q` 会变、stored/constructed 也可能切换，故不适用。改为两层：
-  ① **几何结构**——用稳定的母群方向臂身份匹配两端子群块，比较臂分组、每点臂数、星大小与
-  小群旋转集合（同一区间内应一致）；② **规范统一后的表示**——为对应块选共同方向臂作 seed，
-  把两端目标输运到对应的未约化 `q_i(t)` 与同一套 Seitz 代表元，用卡 1 的显式 gauge 消去
-  参数相关相位，在**同一个有限群**上用字符匹配/字符内积建立一一对应，再比较对应目标的维数
-  与重数。**不得只比维数与重数的排序表**（两个一维表示交换重数会漏检）；字符比较沿用现有
-  容差与完整性检查，匹配不唯一或失败要明确报错。永久回归：仅因 `q`/构造编号变化不产生假
-  失败；stored 与 constructed 表示同一目标时可匹配；两个不同一维目标交换不等重数必须失败；
-  10038 的 `1/9`、`1/7` 六块结构与 `1/8` 四块结构分别钉值。
+* **卡 5（修正 `--domain-sweep` 的比较对象）✅ 已完成（本轮提交）** 草稿（`wip/domain-sweep`
+  的 `42ee4c5`）整体替换为两层比较，由 `--domain-sweep` 驱动；该 flag 单独运行也 exit 1
+  （与 `--full-star-recount` 同一规则：报错后 exit 0 的检查是"不失败的失败路径"）。改动文件：
+  `examples/line_domain_census.rs`（主）+ `subduction_star_decompose.rs` / `subduction_star.rs` /
+  `subduction_scalar_star.rs`（新公开读数）。
+  **几何层**：每个 (记录,标号) 用 `partition.probe_parameters(parent)`（**不是** `intervals()`）
+  切出开区间，每区间取两个精确三等分内点各跑一次生产分解；块按**母群臂集合**一一配对（块序、折叠点、
+  代表点、构造目标编号都随 `t` 动，臂集合不动），再比块数 / 星大小 / 臂数 / **逐点臂分组** / 块维数 /
+  小群旋转集合；不符时报文含 ordinal、标号、两个参数与出错块的臂集合。
+  **规范统一层**：每对匹配块取共同 seed 臂，在**该臂的 child 小群**（child Hall 帧，按旋转对齐）上取
+  每个目标的**逐臂** little-group 字符，除以卡 1 的显式 gauge `exp(2πi q(t)·τ_h)`，用字符内积一一配对，
+  再比配对后的重数；**禁止排序 (维数,重数) 表**。匹配歧义 / 无伙伴 / 维数不符 / 重数不符全部显式报错。
+  **新 API（规格要的单一 accessor 不够，理由为实测）**：`FullStarBlock::target_character(term, op)`
+  （诱导 full-star 字符，child Hall 帧，含块自身 q / 存储 k 的 Bloch 相位）与
+  `FullStarBlock::target_little_character(term, point, op)`（**逐臂**读数，`point` 按波矢 mod 星自身
+  倒格定位，故不依赖随 `t` 变的臂序；满足 `Σ_点 = target_character`）；错误
+  `FullStarError::UnknownTargetTerm`；库内 `ChildStarEvaluator::point_character` 与三个 star 的
+  `point_character`。理由：诱导字符是 `Σ_{被固定的臂} χ_臂(h)`，每臂带自己的 `exp(2πi q_j(t)·τ)`，
+  实测没有任何单一 gauge 能跨参数对齐它（分数只有 0.73–1.0），逐臂读数则是 `1−2.2e-16`。永久库回归
+  `the_per_arm_character_sums_to_the_induced_character`（10030 `DT1`，两参数 × 全部代表元 + 越界 term 报错）。
+  **实测**（`--gate --require-covered --domain-sweep`，8 线程与 `--sequential` 各一次，**两次都 exit 0**）：
+  **5,756** 对、**46,048** 区间、**92,096** 次区间内分解、**46,048** 次比较、**0 失败**；匹配
+  **168,408** 块对 / **174,672** 目标对；区间内块来源 `stored=0 / constructed=174,672 / mixed=0`（语料
+  区间内没有 stored 目标）；每块目标数 `{1: 162,144; 2: 6,264}`；seed 小群阶
+  `{1: 91,984; 2: 62,408; 4: 13,584; 8: 432}`；最差匹配分数 `0.99999999999999978`；重数不符 0、歧义 0；
+  多目标块形状 `{[(1,1),(1,1)]: 6,264}`、**同维数可交换重数对 0**、非 full-star 边界的探针参数 0。
+  主探针集逐字未变：`probes=42073 stored=33985 constructed=8088 unsupported=0 errors=0`。
+  **卡 4 残余**：新增 `--output-recount <path>`（每 recount 探针一行：键 + 逐块臂集合/臂数/维数/来源），
+  行数断言 == recount 探针数 **11,009**，写出的每行都**解析回读**并与内存行逐字段比较（表头用独立字面量）。
+  串行/并行三个 TSV **逐字节相同**：probe `c7b8606e…`（42,074 行，未变）、block `07dedd42…`
+  （80,294 行，未变）、recount **`a14598c1…`**（11,010 行 = 表头 + 11,009 行，新）。
+  `cargo clippy -p cryspglib --all-targets --release -- -D warnings` exit 0；`--lib` **441 passed / 0 failed**；
+  example 测试 **10 项**。
+  **变异（在冻结源上先做后跑，每次还原后复核 sha256）**：① **排序 (维数,重数) 表**替换字符匹配 →
+  新模块测试 `the_matcher_uses_characters_and_not_a_sorted_term_table` **失败**（`the swapped
+  multiplicities must fail, got Ok(([(0, 0), (1, 1)], 1.0))`），而**整个语料门禁仍 exit 0**——实测 6,264 个
+  双目标块**全部**是 `[(1,1),(1,1)]`（重数相等），"两个不同一维目标交换重数"在本语料上是 no-op
+  （`same_dimension_swaps = 0` 已钉住），该情形只能由模块测试承担；② 去掉卡 1 gauge → **exit 1**
+  （21,608/46,048 区间失败、40,428 violations，首条 10030 `DT1` `(0,1/8)` `t=1/24 vs 1/12` 块 `[4,5]`）；
+  ③ 用**诱导**字符代替逐臂读数 → **exit 1**（15,712 区间、24,932 violations）；④ 第二个参数的目标重数
+  **+1** → **exit 1**（46,048 区间全失败、168,412 violations，报文点名块与"multiplicity 1 … and 2"），
+  而把双目标块的重数**互换**（数据变异）→ exit 0（同上 no-op）。
+  **本方新增的第五个变异发现了一个真实盲点（已修）**：把比较**两侧都取自第一个参数的分解**
+  （`M5`）时门禁**仍 exit 0**——46,048 次"比较"、0 失败、计数逐字不变，正是本计划禁止的
+  "检查对象丢失但门禁通过"。修法是两条按参数绑定几何的控制：① `SweepBlock::read` 现在按**本侧参数**
+  验算每个折叠点（`t·direction` 与引擎报告点 mod 子群倒格相等；用 mod 是因为**边界**上合并臂报告的是
+  等价类代表元——第一版用精确相等，10038 的 `1/8` 立即失败，这个反例写进了测试注释）；② 每个匹配块还
+  要求两侧 seed 点**不相同**（`q1 == q2` 即判失败："与自身比较是空转"），并各自与本侧参数的
+  `t·direction` 对齐。同一 `M5` 变异现在 **exit 1（336,820 violations）**；只把**几何层**两侧取自
+  `r1` 的变体 **exit 1**（576 个区间失败，报"seed 臂不在自己块的点里"）；把两个内点都塌到左端点
+  （`M6`）**exit 1**（85,163 violations）。`interior_points` 同时改为拒绝非正区间（零长区间 = 与自身比较）。
+  新回归 `the_sweep_binds_every_block_to_its_own_parameter`（错参拒绝 + 三点内点正值 + 非正区间报错）。
+  **永久回归（example 10 项，其中卡 5 新增 6 项）**：字符匹配/排序表禁令与重数交换、匹配歧义、存储↔构造
+  （同上测试内）、几何层按臂集合而非块序号配对（含打乱序、逐点分组变化、小群变大、块数变化）、
+  gauge 载重与"仅 q/构造编号变化"正对照（10030 `DT1` 区间 `(1/8,1/4)`：构造点 `1/3`→`1/6`、2 阶小群、
+  诱导字符 `−1`→`−√3`，gauge 后分数 1）、10038 `DT1` 的区间逻辑（`1/9∈(0,1/8)`、`1/7∈(1/8,1/4)`，
+  `1/8` 不是任何区间的内点，跨边界比较按块数 6 vs 4 失败）、按参数绑定、recount 指纹行往返与坏行拒绝。
+  **未做 / 限制（如实）**：① 母群形式边界是独立集合，但本语料上 `probe_parameters(parent)` 与
+  `partition.boundary_parameters()` 给出同一组参数（实测 `parent_only_parameters = 0`），故"并集"这条
+  在本语料**没有见证**，代码按并集实现但无法用本语料变异证明；② 区间内 stored 目标不存在，
+  存储/构造互换只能由合成分支钉住；③ 同维数不同重数的目标对在本语料不存在，重数交换只能由模块测试钉住
+  （见变异 ①④）；④ `--gate` 单独运行不跑 sweep（验收命令同时给两个 flag），但 sweep 自己的失败在
+  `--domain-sweep` 单独运行时也 exit 1；⑤ 区间内两点是引擎侧经验控制，完整覆盖的数学依据仍是
+  穷尽事件的分区推导（卡 6 做计数守恒与故障注入）。
 * **卡 6（接入门禁）** 对每个 (record, source)：检查所有边界点；对每个开区间取两个精确有理
   内部点（如三等分点）；两点上检查全部折叠块后执行卡 5 的匹配；每次分解继续强制整数重数、
   维数守恒与逐操作字符重建。门禁必须检查**计数守恒**（应检查区间数 = 成功 + 明确失败），
@@ -678,6 +732,51 @@ co-group 的精确支持域。
   几何（臂→点、点→星、每点小余群）都是所枚举谓词的真值。**未做**：census 未接入（卡 6）；
   区间内 `stored`/`constructed` 允许变化（存储 k 点只在孤立参数命中），跨参数比较按几何 + 字符
   匹配（卡 5）；`folded = 0`（整条线折到子群 Γ）仍走 `child_candidates` 的空集分支。
+* **R6.7 卡 5（2026-09-26）域内跨参数比较**：`--domain-sweep` 重写（草稿 `42ee4c5` 作废）。
+  改动 `examples/line_domain_census.rs`（主）+ `subduction_star_decompose.rs`（新公开读数
+  `FullStarBlock::target_character` / `target_little_character`、错误 `UnknownTargetTerm`）+
+  `subduction_star.rs` / `subduction_scalar_star.rs`（各自的 `point_character`）。**规格里的
+  单一"把两端输运到同一套 Seitz 代表元"的 accessor 不够**：诱导字符是 `Σ_{被该操作固定的臂}
+  χ_臂(h)`，每臂带自己的 `exp(2πi q_j(t)·τ)`，实测没有任何单一 gauge 能跨参数对齐（分数
+  0.73–1.0），逐臂读数则是 `1−2.2e-16`；两者由库内回归
+  `the_per_arm_character_sums_to_the_induced_character`（10030 `DT1`，2 参数 × 全部代表元 +
+  越界 term 报错）钉住 `Σ_点 = target_character`。**几何层**按母群臂集合配对块（臂集合是跨
+  参数身份；块序、点序、代表点、构造目标编号都随 `t` 动），比块数/星大小/臂数/逐点臂分组/块维数/
+  小群旋转集合；**表示层**取共同 seed 臂、在该臂 child 小群（child Hall 帧，按旋转对齐）上把
+  两端逐臂字符除以卡 1 gauge 后用字符内积一一配对，再比重数；**不使用排序 (维数,重数) 表**。
+  **实测**（`--gate --require-covered --domain-sweep`，8 线程与 `--sequential` 各一次，两次
+  exit 0；串行 wall 465.45 s）：5,756 对 / **46,048 区间** / **92,096 次区间内分解** /
+  46,048 次比较 / **0 失败**；168,408 块对、174,672 目标对；区间内来源 `0/174,672/0`；
+  每块目标数 `{1: 162,144; 2: 6,264}`；seed 小群阶 `{1: 91,984; 2: 62,408; 4: 13,584;
+  8: 432}`；最差分数 `1−2.2e-16`；同维数可交换重数对 **0**、非 full-star 边界参数 **0**；
+  主计数 `probes=42073 stored=33985 constructed=8088 unsupported=0 errors=0` 逐字未变。
+  卡 4 残余一并交付：`--output-recount`（11,009 行写出 = 11,009 行解析回读逐字段比较，
+  行数断言 == recount 探针数；表头用独立字面量）。三个 TSV 串行/并行**逐字节相同**：
+  probe `c7b8606e…`、block `07dedd42…`、recount **`a14598c1…`**（11,010 行）。
+  **变异（本方独立复跑，除注明外）**：去掉 gauge → exit 1（21,608 区间、40,428 violations）；
+  用诱导字符代替逐臂 → exit 1（15,712 区间、24,932）；第二侧重数 +1 → exit 1（168,412）；
+  排序 (维数,重数) 表 → **模块测试失败、语料门禁仍 exit 0**（实测 6,264 个双目标块全是
+  `[(1,1),(1,1)]`，"交换两个同维数目标"在本语料是 no-op，只能由模块测试钉住，已钉
+  `same_dimension_swaps = 0`）。**本方第五个变异（`M5`）发现真实盲点并已修**：把比较**两侧
+  都取自第一个参数的分解**时门禁**仍 exit 0**（46,048 次"比较"、0 失败、计数逐字不变）——
+  现在 `SweepBlock::read` 按**本侧参数**验算每个折叠点（`t·direction` 与引擎报告点 **mod
+  子群倒格**相等；用 mod 是因为边界上合并臂报告的是等价类代表元，第一版用精确相等被 10038
+  的 `1/8` 立刻打回），且每对匹配块要求两侧 seed 点**不相同**（`q1 == q2` 即判"与自身比较是
+  空转"）并各自与本侧参数对齐；`interior_points` 拒绝非正区间。同一 `M5` 现在 exit 1
+  （336,820 violations）、只坏几何层的变体 exit 1（576 区间）、两内点塌到左端点 exit 1
+  （85,163）；新回归 `the_sweep_binds_every_block_to_its_own_parameter`。**未做/限制**：
+  母群形式边界在本语料嵌在八分之一网格内（`parent_only_parameters = 0`）⇒"并集"无见证；
+  区间内无 stored 目标、无同维数不同重数对 ⇒ 这两条由模块测试承担；`--gate` 单独不跑 sweep
+  （验收命令给两个 flag），但 `--domain-sweep` 单独运行也 exit 1。卡 4 的 `--output-recount`
+  残余就此关闭。
+* **卡 5 验证（本方，2026-09-26，补丁后源码 `dbff734d…`）**：`cargo test --release -p cryspglib
+  --tests` 23 个二进制 **614 passed / 0 failed**、doctest 27、`--lib line_domain` 20、
+  `--lib catalogue` 12、`--example line_domain_census` **10**；严格 all-target clippy exit 0；
+  `line_family_coverage --projective-sample-sweep --gate` exit 0；
+  `line_transport_ledger --witnesses --gate` exit 0；全局三门禁审计
+  `audit_irrep_subduction --require-complete --require-w-complete --require-full-decomposition`
+  exit 0（`probe_full_success=366260/366260`、`hard_failures=0`、`accounting_violations=0`、
+  `census_mismatch=0`、`VERDICT complete`，116.8 s）。
 
 ---
 

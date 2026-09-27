@@ -266,6 +266,18 @@ pub enum FullStarError {
         /// Sum of the reported block dimensions.
         found: u32,
     },
+    /// A target term index outside the block's target list was asked for.
+    ///
+    /// [`FullStarBlock::target_character`] is the per-term reading of the same
+    /// evaluators [`LineSubduction::reconstruction`] sums over; an out-of-range
+    /// index would otherwise silently answer a neighbouring term's character.
+    #[error("target term {term} is outside the {targets} term(s) of this child star")]
+    UnknownTargetTerm {
+        /// Requested position in the block's target list.
+        term: usize,
+        /// Number of reported targets.
+        targets: usize,
+    },
     /// No unique child record backed a reported target.
     #[error("child target {ml} of space group {sg} has no unique source record in its q block")]
     AmbiguousTargetSource {
@@ -466,6 +478,97 @@ impl FullStarBlock {
         arms
     }
 
+    /// The character of one **reported target** on one child operation.
+    ///
+    /// `term` indexes [`Self::targets`].  The operation is read in the child's
+    /// own Hall frame — the same frame [`LineSubduction::representatives`]
+    /// produces by `embedding.transform().unmap_operation` followed by undoing
+    /// the embedding's `child_shift` — and it is exactly the list
+    /// [`LineSubduction::reconstruction`] sums
+    /// `multiplicity * target_character` over, so this accessor is the
+    /// per-target reading of that reconstruction rather than a second route to
+    /// the decomposition.
+    ///
+    /// The value is the **induced full-star** character of the target over the
+    /// child's own star: an arm the operation moves away contributes zero, and a
+    /// fixed arm contributes the conjugated little-group character (the same
+    /// rule every stored row follows).  On an operation that fixes exactly one
+    /// arm — for example any element of the little co-group of the block's own
+    /// folded point, read at that point — it is therefore the little-group
+    /// character of the target itself.
+    ///
+    /// The Bloch phase of the representation's own wave vector is **included**:
+    /// for a stored target that is the pinned row's own `k`, and for a
+    /// constructed target it is the block's folded point reduced modulo the
+    /// child reciprocal lattice ([`Self::stored_k`]).  Consequently the value
+    /// moves with the parameter along a line even when the decomposition does
+    /// not, and a cross-parameter comparison has to divide the card-1 gauge
+    /// `exp(2 pi i q(t) . tau)` out (R6.7 card 5, see
+    /// `examples/line_domain_census.rs`).
+    ///
+    /// An out-of-range `term` is [`FullStarError::UnknownTargetTerm`], and an
+    /// operation outside the target's own child group is the evaluator's error
+    /// (`StarError::OperationNotInParentGroup`), never a zero.
+    pub fn target_character(
+        &self,
+        term: usize,
+        operation: &ExactSeitz,
+    ) -> Result<Complex64, FullStarError> {
+        let evaluator =
+            self.evaluators
+                .get(term)
+                .ok_or(FullStarError::UnknownTargetTerm {
+                    term,
+                    targets: self.targets.len(),
+                })?;
+        evaluator.character(operation)
+    }
+
+    /// The **little-group** character of one reported target at one child point
+    /// of the block's own star.
+    ///
+    /// [`Self::target_character`] is the induced full-star character: an
+    /// operation that fixes several arms of the star contributes the sum of
+    /// their little-group characters.  That sum is what the reconstruction and
+    /// the solver use, but it is *not* a per-arm quantity: along a parametric-k
+    /// line each arm's Bloch phase moves with its own folded point, so the sum
+    /// is not related to its value at another parameter by any single gauge
+    /// (measured on the R6.7 card-5 corpus: matched blocks whose little
+    /// co-group leaves several arms fixed score 0.73–1.0 against each other
+    /// under the card-1 gauge, while the per-arm values below score 1.0).  This
+    /// accessor is the per-arm reading that a cross-parameter comparison needs.
+    ///
+    /// `point` names the arm by its child-frame wave vector, compared modulo the
+    /// target's own star reciprocal lattice — the same equivalence the star
+    /// constructor merges arms by — so the caller never depends on the canonical
+    /// arm order, which changes with the parameter.  A point that is not an arm
+    /// of this target's star contributes zero, exactly as it does to
+    /// [`Self::target_character`], and
+    /// `Σ over the block's points of target_little_character(term, point, g)`
+    /// equals `target_character(term, g)` for every operation `g`.
+    ///
+    /// At the block's own representative point and an operation of its little
+    /// group this is the little-group character of the reported representation,
+    /// **Bloch phase included**: for a constructed target the phase of the
+    /// target's own reduced folded point, for a stored target the phase of the
+    /// pinned row's stored `k`.  The frame is the child Hall frame, as in
+    /// [`Self::target_character`].
+    pub fn target_little_character(
+        &self,
+        term: usize,
+        point: &Vec3R,
+        operation: &ExactSeitz,
+    ) -> Result<Complex64, FullStarError> {
+        let evaluator =
+            self.evaluators
+                .get(term)
+                .ok_or(FullStarError::UnknownTargetTerm {
+                    term,
+                    targets: self.targets.len(),
+                })?;
+        evaluator.point_character(point, operation)
+    }
+
     /// Multiplicity of one sourced target label, or `0` when it does not appear.
     /// A constructed target has no label and is never matched here.
     pub fn multiplicity(&self, ml: &str) -> u32 {
@@ -639,6 +742,19 @@ impl ChildStarEvaluator {
             Self::Ordinary(star) => Ok(star.character(operation)?),
             Self::Component(star) => Ok(star.character(operation)?),
             Self::Constructed(star) => Ok(star.character(operation)?),
+        }
+    }
+
+    /// The arm at one child point: the per-arm term of [`Self::character`].
+    fn point_character(
+        &self,
+        point: &Vec3R,
+        operation: &ExactSeitz,
+    ) -> Result<Complex64, FullStarError> {
+        match self {
+            Self::Ordinary(star) => Ok(star.point_character(point, operation)?),
+            Self::Component(star) => Ok(star.point_character(point, operation)?),
+            Self::Constructed(star) => Ok(star.point_character(point, operation)?),
         }
     }
 }
@@ -4519,6 +4635,74 @@ mod tests {
         )
         .expect("the official parameter is covered");
         assert_line_invariants(&official);
+    }
+
+    /// **R6.7 card 5: the per-arm reading of one target is the little-group
+    /// character, and the per-arm values sum to the induced one.**
+    ///
+    /// The card-5 interval sweep compares two parameters of one partition
+    /// interval through `FullStarBlock::target_little_character`, because the
+    /// induced full-star character mixes the star's arms and each arm carries its
+    /// own parameter-dependent Bloch phase.  The identity asserted here (`the sum
+    /// over the block's own points equals the induced character`, for every child
+    /// operation) is what makes that reading the same object the solver and the
+    /// reconstruction use; an out-of-range term is a typed error rather than a
+    /// neighbour's character.
+    #[test]
+    fn the_per_arm_character_sums_to_the_induced_character() {
+        let contexts = subgroups();
+        let subgroup = contexts
+            .values()
+            .find(|subgroup| subgroup.ordinal == 10_030)
+            .expect("ordinal 10030 (SG 196 DT1)");
+        let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
+        let table = line_table(subgroup.parent_sg, "DT1");
+        let shift = embedding.child_shift().checked_neg().expect("shift");
+        let mut checked = 0usize;
+        for parameter in [Rat::new(1, 6).unwrap(), Rat::new(5, 24).unwrap()] {
+            let result = subduce_line_at_parameter(subgroup, &embedding, table, parameter)
+                .expect("the witness decomposition");
+            assert_line_invariants(&result);
+            for block in result.blocks() {
+                for term in 0..block.targets().len() {
+                    for operation in result.representatives() {
+                        let child = embedding
+                            .transform()
+                            .unmap_operation(operation)
+                            .expect("the child operation");
+                        let child = shift_operations(std::slice::from_ref(&child), &shift)
+                            .expect("the child Hall frame")[0];
+                        let mut total = Complex64::new(0.0, 0.0);
+                        for point in block.points() {
+                            total += block
+                                .target_little_character(term, point.q(), &child)
+                                .expect("the little-group character");
+                        }
+                        let induced =
+                            block.target_character(term, &child).expect("the induced character");
+                        assert!(
+                            (total - induced).norm() <= SUBDUCTION_TOLERANCE,
+                            "the per-arm characters of term {term} sum to {total} but the induced \
+                             character is {induced}"
+                        );
+                        checked += 1;
+                    }
+                    assert!(matches!(
+                        block.target_character(block.targets().len(), &ExactSeitz::identity()),
+                        Err(FullStarError::UnknownTargetTerm { .. })
+                    ));
+                    assert!(matches!(
+                        block.target_little_character(
+                            block.targets().len(),
+                            block.q(),
+                            &ExactSeitz::identity()
+                        ),
+                        Err(FullStarError::UnknownTargetTerm { .. })
+                    ));
+                }
+            }
+        }
+        assert!(checked > 0, "the identity has to be exercised");
     }
 
     /// Nonzero-cocycle and symmorphic D4 gaps both reach the complete constructed

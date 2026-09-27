@@ -38,7 +38,27 @@
 //!   the old probe-level table only as a clearly labelled withdrawn convention;
 //! * a full-star recount pass runs the production decomposition at every
 //!   parameter the card-3 partition [`full_star_partition`] adds beyond the
-//!   reference candidate set and classifies every block there.
+//!   reference candidate set and classifies every block there, and now emits one
+//!   `--output-recount` fingerprint row per probed parameter;
+//! * `--domain-sweep` (R6.7 card 5) compares two exact interior points of every
+//!   interval of `probe_parameters(parent)` in two layers.  **Geometry**: blocks
+//!   are matched one-to-one by their parent arm set -- the folded coordinates,
+//!   the block order, the engine's representative and a constructed target's
+//!   enumerated index all move with `t`, while which arms share a child star does
+//!   not -- and the star size, arm counts, per-point arm grouping, dimensions and
+//!   little co-group rotation sets must agree.  **Representation**: for each
+//!   matched block the targets are compared by their little-group characters at a
+//!   common seed arm, with the card-1 gauge `exp(2 pi i q(t) . tau)` divided out
+//!   ([`FullStarBlock::target_little_character`]), matched one-to-one by
+//!   character inner product and then compared multiplicity by multiplicity.
+//!
+//! The sweep compares **characters**, never a sorted `(dimension, multiplicity)`
+//! table: two distinct one-dimensional targets whose multiplicities are swapped
+//! leave that table unchanged.  It also never compares the induced full-star
+//! character directly -- that trace sums over the star's arms, each with its own
+//! parameter-dependent Bloch phase, so it is not related to its value at another
+//! parameter by any single gauge (measured: the matched blocks of the corpus
+//! score 0.73-1.0 that way, while the per-arm reading scores 1 - 2.2e-16).
 //!
 //! Usage:
 //!
@@ -47,8 +67,11 @@
 //! line_domain_census --gate          # exit 1 unless every invariant holds
 //! line_domain_census --full-star-recount
 //!                                    # rerun the gate's card-3 recount pass alone
+//! line_domain_census --domain-sweep  # the card-5 interval sweep (own failures
+//!                                    # are gate violations and exit 1)
 //! line_domain_census --output out.tsv
 //! line_domain_census --output-blocks blocks.tsv
+//! line_domain_census --output-recount recount.tsv
 //! line_domain_census --sequential    # one thread (default: rayon over records)
 //! ```
 //!
@@ -56,6 +79,16 @@
 //! the unsupported domains, not to pretend they are closed.  `--require-covered`
 //! turns a non-empty unsupported set into a failure, for the round that closes
 //! them all.
+//!
+//! Measured scope of the sweep on this corpus (8 threads, 1 m 23 s for
+//! `--gate --require-covered --domain-sweep`): 5,756 (record, label) pairs,
+//! 46,048 intervals, 92,096 interior decompositions, 46,048 comparisons, 0
+//! failures; 168,408 matched block pairs / 174,672 matched target pairs; every
+//! interior target is **constructed** (0 stored, 0 mixed), which is why the
+//! stored/constructed branch is pinned by a module test; 6,264 interior blocks
+//! carry two targets and all of them have the shape `[(1, 1), (1, 1)]`, so a
+//! multiplicity swap between them is a no-op on this corpus (measured, and
+//! reported as `same_dimension_swaps = 0`).
 
 use cryspglib::irrep::line_monodromy::{line_direction, line_table};
 use cryspglib::irrep::subduction::star::decompose::{
@@ -71,8 +104,9 @@ use cryspglib::irrep::subduction::star::line_domain::{
 };
 use cryspglib::irrep::generated_data::SG_DATA_HALL;
 use cryspglib::irrep::subduction::{
-    Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R, fold_wave_vector,
+    ExactSeitz, Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R, bloch_phase, fold_wave_vector,
 };
+use num_complex::Complex64;
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::irrep::{LabelConvention, isotropy, query};
 use cryspglib::mathfunc::Mat3I;
@@ -91,19 +125,44 @@ star_size\tarm_count\tarm_indices\tblock_dimension\tlittle_co_group\t\
 cocycle_trivial\tblock_source\tterms\tcarries_reference\tcarries_gamma";
 
 const USAGE: &str = "\
-line_domain_census [--gate] [--require-covered] [--full-star-recount] [--sequential]
-                   [--output <path>] [--output-blocks <path>]
+line_domain_census [--gate] [--require-covered] [--full-star-recount] [--domain-sweep]
+                   [--sequential] [--output <path>] [--output-blocks <path>]
+                   [--output-recount <path>]
 
   --gate               exit 1 unless the census invariants hold (includes the
                        full-star recount pass)
   --require-covered    additionally fail when any (record, parameter) is unsupported
   --full-star-recount  run the card-3 full-star recount pass on its own, with
                        the gate's failure semantics
+  --domain-sweep       R6.7 card 5: compare two exact interior points of every
+                       interval of `probe_parameters(parent)` by stable block
+                       identity (parent arm sets) and, per matched block, by
+                       gauge-unified little-group characters; failures are gate
+                       violations
   --sequential         one thread (default parallel over isotropy records)
   --output <path>      write the per-probe table as TSV
   --output-blocks <path>
                        write the per-block table as TSV
+  --output-recount <path>
+                       write the per-recount-probe geometry fingerprint as TSV
+                       (implies the recount pass; its row count is asserted)
 ";
+
+/// The `--output-recount` header, written and re-read independently so a changed
+/// column cannot move both sides at once (the card-4 audit lesson for
+/// `--output-blocks`).
+const RECOUNT_TSV_HEADER: &str = "ordinal\tparent_sg\tchild_sg\tlabel\tparameter\t\
+block_count\tblocks";
+
+/// The exact fraction of an interval's span used for its two interior points:
+/// the trisection points `left + span/3` and `left + 2 span/3`, both strictly
+/// inside because `span > 0`.
+const INTERIOR_FRACTION: (i128, i128) = (1, 3);
+
+/// Tolerance of the gauge-unified character matching.  The corpus agreement is
+/// at machine precision (measured worst score `1 - 2.3e-16` over the whole
+/// corpus), so this only absorbs `f64` trigonometry, not a modelling gap.
+const SWEEP_TOLERANCE: f64 = 1e-9;
 
 /// The generic parameter used to prove that a non-exceptional point is answered
 /// from the frozen line little group.  It is off the quarter grid and not one of
@@ -393,6 +452,195 @@ struct RecountReport {
     /// `(record, label)` pairs whose geometry at an added parameter differs from
     /// the geometry at the generic sample `t = 1/7`.
     changed_pairs: BTreeSet<(usize, &'static str)>,
+    /// One fingerprint row per probed parameter: the `--output-recount`
+    /// artifact the card-4 review asked for (its row count is asserted against
+    /// [`Self::probes`], so "the recount's set equality and its 28 geometries"
+    /// can be checked from a file instead of only from an aggregate).
+    rows: Vec<RecountRow>,
+    /// Failures of this pass; they are gate violations.
+    failures: Vec<String>,
+}
+
+/// One row of the `--output-recount` artifact: the probe key plus its
+/// block-level geometry fingerprint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RecountRow {
+    ordinal: usize,
+    parent_sg: u8,
+    child_sg: u8,
+    /// Owned so a row read back from disk is the same type as the row written.
+    label: String,
+    parameter: Rat,
+    /// `(arm indices, arm count, block dimension, source)` per block, in block
+    /// order.
+    blocks: Vec<(Vec<usize>, usize, u32, BlockSource)>,
+}
+
+impl RecountRow {
+    /// The row as TSV, exactly as the writer emits it.
+    fn to_tsv(&self) -> String {
+        let blocks = self
+            .blocks
+            .iter()
+            .map(|(arms, arm_count, dimension, source)| {
+                format!(
+                    "{}|{arm_count}|{dimension}|{}",
+                    arms.iter()
+                        .map(usize::to_string)
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    source.label()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(";");
+        format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            self.ordinal,
+            self.parent_sg,
+            self.child_sg,
+            self.label,
+            self.parameter,
+            self.blocks.len(),
+            blocks
+        )
+    }
+
+    /// Parse one written row back, field by field (never by re-running the
+    /// writer): the card-4 audit's lesson is that a row count alone does not
+    /// notice a corrupted row.
+    fn parse(line: &str, row: usize) -> Result<Self, String> {
+        let fields: Vec<&str> = line.split('\t').collect();
+        if fields.len() != 7 {
+            return Err(format!("{row}: {} field(s), expected 7", fields.len()));
+        }
+        let ordinal = fields[0]
+            .parse::<usize>()
+            .map_err(|error| format!("{row}: ordinal {}: {error}", fields[0]))?;
+        let parent_sg = fields[1]
+            .parse::<u8>()
+            .map_err(|error| format!("{row}: parent space group {}: {error}", fields[1]))?;
+        let child_sg = fields[2]
+            .parse::<u8>()
+            .map_err(|error| format!("{row}: child space group {}: {error}", fields[2]))?;
+        let parameter = parse_parameter(fields[4])
+            .map_err(|error| format!("{row}: parameter: {error}"))?;
+        let block_count = fields[5]
+            .parse::<usize>()
+            .map_err(|error| format!("{row}: block count {}: {error}", fields[5]))?;
+        let mut blocks = Vec::new();
+        if !fields[6].is_empty() {
+            for entry in fields[6].split(';') {
+                let parts: Vec<&str> = entry.split('|').collect();
+                if parts.len() != 4 {
+                    return Err(format!("{row}: block {entry:?} has {} field(s)", parts.len()));
+                }
+                let arms = if parts[0].is_empty() {
+                    Vec::new()
+                } else {
+                    parts[0]
+                        .split(',')
+                        .map(|value| {
+                            value
+                                .parse::<usize>()
+                                .map_err(|error| format!("{row}: arm {value}: {error}"))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                };
+                let arm_count = parts[1]
+                    .parse::<usize>()
+                    .map_err(|error| format!("{row}: arm count {}: {error}", parts[1]))?;
+                let dimension = parts[2]
+                    .parse::<u32>()
+                    .map_err(|error| format!("{row}: dimension {}: {error}", parts[2]))?;
+                let source = match parts[3] {
+                    "stored" => BlockSource::Stored,
+                    "constructed" => BlockSource::Constructed,
+                    "mixed" => BlockSource::Mixed,
+                    other => return Err(format!("{row}: block source {other:?}")),
+                };
+                blocks.push((arms, arm_count, dimension, source));
+            }
+        }
+        if blocks.len() != block_count {
+            return Err(format!(
+                "{row}: {block_count} block(s) announced but {} written",
+                blocks.len()
+            ));
+        }
+        Ok(Self {
+            ordinal,
+            parent_sg,
+            child_sg,
+            label: fields[3].to_string(),
+            parameter,
+            blocks,
+        })
+    }
+}
+
+/// What the R6.7 card-5 `--domain-sweep` measured over one record.
+///
+/// Every counter is a checkable object: `intervals == comparisons +
+/// failed_intervals` is the count conservation the card asks for, so an interval
+/// that silently disappeared cannot be hidden behind a green gate.
+#[derive(Default)]
+struct SweepReport {
+    /// `(record, label)` pairs swept.
+    pairs: usize,
+    /// Open intervals of `probe_parameters(parent)` over all pairs.
+    intervals: usize,
+    /// Production decompositions run at interior points: two per interval that
+    /// reached the engine.
+    points: usize,
+    /// Intervals whose two interior points were answered **and** whose geometry
+    /// and representation comparison reported no failure.
+    comparisons: usize,
+    /// Intervals that produced at least one failure; every one of them has a
+    /// message in [`Self::failures`].
+    failed_intervals: usize,
+    /// Matched block pairs / matched target pairs.
+    blocks: usize,
+    targets: usize,
+    /// Interior blocks by provenance ([`BlockSource`] order).  Measured, not
+    /// assumed: on this corpus no interior point of any interval has a stored
+    /// target, which is what makes the stored/constructed matching a synthetic
+    /// branch here (see the module tests).
+    sources: [usize; 3],
+    /// Matched target pairs whose multiplicities disagreed.
+    multiplicity_mismatches: usize,
+    /// Interior blocks that contain two targets of the same dimension with
+    /// different multiplicities: the blocks on which the card-5
+    /// "swap two distinct one-dimensional targets" mutation could be observed on
+    /// this corpus at all.  Measured: **none** -- every one of the 6,264
+    /// multi-target interior blocks has the shape `[(1, 1), (1, 1)]`, two
+    /// distinct one-dimensional targets with **equal** multiplicity, so a swap
+    /// between them is a no-op on this corpus.  That exact case is therefore
+    /// pinned by the module test
+    /// `the_matcher_uses_characters_and_not_a_sorted_term_table` (which is also
+    /// what the sorted-list mutation of the comparison fails), and the
+    /// `multi_shapes` histogram below is what makes the corpus's shape visible.
+    same_dimension_swaps: usize,
+    /// The target shapes (ascending `(dimension, multiplicity)` lists) of the
+    /// interior blocks that carry more than one target.
+    multi_shapes: BTreeMap<Vec<(u8, u32)>, usize>,
+    /// Matchings that were not one-to-one: a target with no partner, two
+    /// candidates at tolerance, or an unmatched dimension.
+    ambiguities: usize,
+    /// Targets per interior block, and little co-group order at the seed points:
+    /// the two shapes the sweep has to be able to exercise.
+    target_counts: BTreeMap<usize, usize>,
+    orders: BTreeMap<usize, usize>,
+    /// Probe parameters that are **not** full-star boundaries, i.e. the entries
+    /// the parent's own formal parameter set contributes to the union.  Measured
+    /// (corpus: **0**), because the parent's set is `{0, 1/2}` and both are
+    /// already eighth-grid boundaries -- so the union this sweep is built on is
+    /// implemented but not exercised by this corpus, and that is a scope
+    /// statement rather than a reason to drop it.
+    parent_only_parameters: usize,
+    /// The worst gauge-unified character score seen (`1.0` when nothing was
+    /// compared); the corpus agreement is at machine precision.
+    worst_score: f64,
     /// Failures of this pass; they are gate violations.
     failures: Vec<String>,
 }
@@ -530,6 +778,8 @@ struct RecordReport {
     gamma: GammaReport,
     /// The card-3 full-star recount pass of this record.
     recount: RecountReport,
+    /// The R6.7 card-5 interval sweep of this record.
+    sweep: SweepReport,
     failures: Vec<String>,
 }
 
@@ -552,7 +802,12 @@ fn run() -> Result<ExitCode, String> {
     // same failure semantics -- a flag that runs a check and then exits 0 on its
     // failures would be a failure path that does not fail.
     let full_star_recount = arguments.iter().any(|argument| argument == "--full-star-recount");
-    let recount = gate || full_star_recount;
+    // R6.7 card 5: the sweep is its own pass.  `--gate` alone does not run it
+    // (the acceptance command names both flags), but when it runs its failures
+    // are gate violations and exit 1 under `--gate` -- and under the flag alone,
+    // like `--full-star-recount`, because a check that reports and then exits 0
+    // would be a failure path that does not fail.
+    let domain_sweep = arguments.iter().any(|argument| argument == "--domain-sweep");
     let sequential = arguments.iter().any(|argument| argument == "--sequential");
     if arguments.iter().any(|argument| argument == "--help" || argument == "-h") {
         print!("{USAGE}");
@@ -578,6 +833,19 @@ fn run() -> Result<ExitCode, String> {
                 .ok_or_else(|| "--output-blocks needs a path".to_string())
         })
         .transpose()?;
+    let output_recount = arguments
+        .iter()
+        .position(|argument| argument == "--output-recount")
+        .map(|index| {
+            arguments
+                .get(index + 1)
+                .cloned()
+                .ok_or_else(|| "--output-recount needs a path".to_string())
+        })
+        .transpose()?;
+    // Asking for the artifact asks for the pass that produces it, with the same
+    // failure semantics as `--full-star-recount`.
+    let recount = gate || full_star_recount || output_recount.is_some();
 
     let domains = source_domains()?;
     let records = records()?;
@@ -588,12 +856,32 @@ fn run() -> Result<ExitCode, String> {
     let per_record: Vec<RecordReport> = if sequential {
         records
             .iter()
-            .map(|record| probe_record(record, &domains, official, generic, recount, &cache))
+            .map(|record| {
+                probe_record(
+                    record,
+                    &domains,
+                    official,
+                    generic,
+                    recount,
+                    domain_sweep,
+                    &cache,
+                )
+            })
             .collect()
     } else {
         records
             .par_iter()
-            .map(|record| probe_record(record, &domains, official, generic, recount, &cache))
+            .map(|record| {
+                probe_record(
+                    record,
+                    &domains,
+                    official,
+                    generic,
+                    recount,
+                    domain_sweep,
+                    &cache,
+                )
+            })
             .collect()
     };
     let mut probes: Vec<Probe> = Vec::new();
@@ -603,6 +891,10 @@ fn run() -> Result<ExitCode, String> {
     let mut child_union: Vec<Rat> = Vec::new();
     let mut gamma = GammaReport::default();
     let mut recount_report = RecountReport::default();
+    let mut sweep_report = SweepReport {
+        worst_score: 1.0,
+        ..SweepReport::default()
+    };
     for (record, report) in records.iter().zip(per_record) {
         if report.probes.is_empty() {
             probe_errors.push(format!("ordinal {} produced no probe", record.ordinal));
@@ -619,6 +911,7 @@ fn run() -> Result<ExitCode, String> {
         }
         merge_gamma(&mut gamma, report.gamma);
         merge_recount(&mut recount_report, report.recount);
+        merge_sweep(&mut sweep_report, report.sweep);
         probes.extend(report.probes);
     }
     child_union = sorted_parameters(child_union);
@@ -775,6 +1068,62 @@ cocycle_trivial\tblock_source\tterms\tcarries_reference\tcarries_gamma";
         }
     };
 
+    // The per-recount-probe artifact, the residual the card-4 review left open
+    // (there was no per-probe product, so the recount's set equality and its 28
+    // geometries could only be re-checked by re-running the pass).  The row
+    // count is asserted against the pass's own probe count and every row is
+    // parsed back and compared field by field.
+    let mut recount_rows_written = 0usize;
+    let mut recount_file_failures: Vec<String> = Vec::new();
+    let recount_file_rows = match &output_recount {
+        None => None,
+        Some(path) => {
+            let mut writer = BufWriter::new(
+                std::fs::File::create(path)
+                    .map_err(|error| format!("cannot create {path}: {error}"))?,
+            );
+            writeln!(writer, "{RECOUNT_TSV_HEADER}").map_err(|error| error.to_string())?;
+            for row in &recount_report.rows {
+                writeln!(writer, "{}", row.to_tsv()).map_err(|error| error.to_string())?;
+                recount_rows_written += 1;
+            }
+            writer.flush().map_err(|error| error.to_string())?;
+            let text = std::fs::read_to_string(path)
+                .map_err(|error| format!("cannot read back {path}: {error}"))?;
+            // A separate literal, deliberately **not** the writer's own const:
+            // two independent definition sources are what makes a changed header
+            // visible (card-4 audit, verification round 2).
+            const EXPECTED_HEADER: &str = "ordinal\tparent_sg\tchild_sg\tlabel\tparameter\t\
+block_count\tblocks";
+            if text.lines().next() != Some(EXPECTED_HEADER) {
+                recount_file_failures.push(format!(
+                    "the --output-recount header is {:?}, expected {EXPECTED_HEADER:?}",
+                    text.lines().next().unwrap_or("")
+                ));
+            }
+            let mut rows = 0usize;
+            for line in text.lines().skip(1) {
+                rows += 1;
+                match RecountRow::parse(line, rows) {
+                    Ok(parsed) => match recount_report.rows.get(rows - 1) {
+                        Some(expected) if *expected == parsed => {}
+                        Some(expected) => recount_file_failures.push(format!(
+                            "the --output-recount row {rows} is {parsed:?}, expected {expected:?}"
+                        )),
+                        None => recount_file_failures.push(format!(
+                            "the --output-recount file has a row {rows} beyond the {} collected",
+                            recount_report.rows.len()
+                        )),
+                    },
+                    Err(error) => {
+                        recount_file_failures.push(format!("the --output-recount row {rows}: {error}"))
+                    }
+                }
+            }
+            Some(rows)
+        }
+    };
+
     let (algorithm_checks, algorithm_mismatches, algorithm_failures) =
         step_algorithm_cross_check(&domains);
     let evidence = CensusEvidence {
@@ -788,6 +1137,10 @@ cocycle_trivial\tblock_source\tterms\tcarries_reference\tcarries_gamma";
         gamma: &gamma,
         recount: &recount_report,
         recount_ran: recount,
+        recount_rows_written,
+        recount_file_rows,
+        sweep: &sweep_report,
+        sweep_ran: domain_sweep,
     };
     report(
         &domains,
@@ -802,7 +1155,9 @@ cocycle_trivial\tblock_source\tterms\tcarries_reference\tcarries_gamma";
     let mut violations: Vec<String> = probe_errors;
     violations.extend(algorithm_failures);
     violations.extend(block_file_failures);
+    violations.extend(recount_file_failures.iter().cloned());
     violations.extend(recount_report.failures.iter().cloned());
+    violations.extend(sweep_report.failures.iter().cloned());
     check_invariants(&domains, &records, &probes, &evidence, &mut violations);
 
     let unsupported = probes
@@ -1035,7 +1390,10 @@ cocycle_trivial\tblock_source\tterms\tcarries_reference\tcarries_gamma";
         }
     }
 
-    if gate || require_covered || full_star_recount {
+    // `--domain-sweep` joins the flags that fail on their own failures: a pass
+    // that runs a check, reports a violation and then exits 0 would be a failure
+    // path that does not fail (the same rule `--full-star-recount` follows).
+    if gate || require_covered || full_star_recount || domain_sweep {
         if !violations.is_empty() {
             println!("gate: FAILED ({} violation(s))", violations.len());
             return Ok(ExitCode::from(1));
@@ -1660,6 +2018,826 @@ fn block_geometry(blocks: &[BlockStat]) -> Vec<Vec<usize>> {
     geometry
 }
 
+// ── R6.7 card 5: the two interior points of one interval ─────────────────────
+
+/// Parse one written rational back (`n` or `n/d`).
+fn parse_parameter(text: &str) -> Result<Rat, String> {
+    let (numerator, denominator) = match text.split_once('/') {
+        Some((numerator, denominator)) => (numerator, denominator),
+        None => (text, "1"),
+    };
+    let numerator = numerator
+        .trim()
+        .parse::<i128>()
+        .map_err(|error| format!("{text:?}: numerator: {error}"))?;
+    let denominator = denominator
+        .trim()
+        .parse::<i128>()
+        .map_err(|error| format!("{text:?}: denominator: {error}"))?;
+    Rat::new(numerator, denominator).map_err(|error| format!("{text:?}: {error}"))
+}
+
+/// Stable sort key of one exact rotation, so the two parameters' little groups
+/// can be aligned by rotation without relying on either list's order.
+fn rotation_key(rotation: &Mat3I) -> [i32; 9] {
+    let mut key = [0i32; 9];
+    for (slot, value) in key.iter_mut().enumerate() {
+        *value = rotation[slot / 3][slot % 3];
+    }
+    key
+}
+
+/// The open intervals of one `(record, label)`'s probe set, wrapping around
+/// `t = 1` like [`FullStarPartition::intervals`] but built from
+/// `probe_parameters(parent)`: the parent's formal boundaries are a separate set
+/// from the full-star boundaries, and on this corpus they happen to be nested
+/// inside the eighth grid, so `intervals()` alone cannot exercise their union.
+fn probe_intervals(parameters: &[Rat]) -> Result<Vec<(Rat, Rat)>, String> {
+    let Some(first) = parameters.first().copied() else {
+        return Ok(vec![(Rat::ZERO, Rat::ONE)]);
+    };
+    let mut out = Vec::with_capacity(parameters.len());
+    for (index, start) in parameters.iter().enumerate() {
+        let end = match parameters.get(index + 1) {
+            Some(next) => *next,
+            None => first.checked_add(Rat::ONE).map_err(|error| error.to_string())?,
+        };
+        out.push((*start, end));
+    }
+    Ok(out)
+}
+
+/// The two exact interior points of one interval: its trisection points.
+///
+/// A non-positive interval is a typed error rather than two copies of the same
+/// boundary point: `interior_points` is what makes two *different* parameters of
+/// the interval comparable, and a zero-length interval would compare a
+/// decomposition with itself while still counting as a checked interval.
+fn interior_points(left: &Rat, right: &Rat) -> Result<(Rat, Rat, Rat), String> {
+    let span = right.checked_sub(*left).map_err(|error| error.to_string())?;
+    // `Rat` is normalized with a positive denominator, so the sign is the
+    // numerator's.
+    if span.numerator() <= 0 {
+        return Err(format!("the interval ({left}, {right}) is not positive"));
+    }
+    let fraction = Rat::new(INTERIOR_FRACTION.0, INTERIOR_FRACTION.1)
+        .map_err(|error| error.to_string())?;
+    let step = span.checked_mul(fraction).map_err(|error| error.to_string())?;
+    let first = left.checked_add(step).map_err(|error| error.to_string())?;
+    let second = first.checked_add(step).map_err(|error| error.to_string())?;
+    Ok((step, first, second))
+}
+
+/// The child little group at one exact child point, in the child **Hall** frame
+/// [`FullStarBlock::target_little_character`] evaluates in.
+///
+/// The whole `embedding.representatives()` list is unfolded with the engine's
+/// own `unmap_operation` and the embedding's `child_shift`, then filtered by the
+/// exact fixity test `R^-T q = q (mod L*_child)` — the same filter, frame and
+/// shift `decompose::little_group_operations` applies internally.  The result is
+/// one operation per rotation [measured: the group's size equals
+/// `point_little_co_group_order` at every seed point of the sweep], and it is
+/// the **same** list at both parameters because the filter only depends on the
+/// rotation set, which the interval keeps fixed.
+fn child_little_group(
+    embedding: &SubgroupEmbedding,
+    child_reciprocal: &Lattice,
+    point: &Vec3R,
+) -> Result<Vec<ExactSeitz>, String> {
+    let shift = embedding
+        .child_shift()
+        .checked_neg()
+        .map_err(|error| error.to_string())?;
+    let mut out = Vec::new();
+    for operation in embedding.representatives() {
+        let child = embedding
+            .transform()
+            .unmap_operation(operation)
+            .map_err(|error| error.to_string())?;
+        match child_reciprocal.preserves(child.rotation(), point) {
+            Ok(true) => {}
+            Ok(false) => continue,
+            Err(error) => return Err(error.to_string()),
+        }
+        let rotated = Mat3R::from_ints(child.rotation())
+            .checked_mul_vector(&shift)
+            .map_err(|error| error.to_string())?;
+        let translation = child
+            .translation()
+            .checked_add(&shift)
+            .and_then(|value| value.checked_sub(&rotated))
+            .map_err(|error| error.to_string())?;
+        out.push(ExactSeitz::new(child.rotation(), translation));
+    }
+    if out.is_empty() {
+        return Err("the child little group of the point is empty".to_string());
+    }
+    Ok(out)
+}
+
+/// The child rotations fixing one exact child point modulo the child reciprocal
+/// lattice: the little co-group as a **set**, not only its order.
+fn little_co_group_rotations(
+    child_reciprocal: &Lattice,
+    rotations: &[Mat3I],
+    point: &Vec3R,
+) -> Result<Vec<Mat3I>, String> {
+    let mut out = Vec::new();
+    for rotation in rotations {
+        match child_reciprocal.preserves(*rotation, point) {
+            Ok(true) => out.push(*rotation),
+            Ok(false) => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    out.sort_by_key(rotation_key);
+    out.dedup();
+    Ok(out)
+}
+
+/// Layer 1 of the card-5 comparison: the parameter-stable geometry of one block.
+#[derive(Debug)]
+struct SweepBlock {
+    /// `FullStarBlock::arm_indices()`: the block's identity across parameters.
+    arm_indices: Vec<usize>,
+    /// Per folded point, the parent arms folding onto it (each ascending); the
+    /// multiset is compared as a whole because the star's point **order** moves
+    /// with the parameter.
+    points: Vec<Vec<usize>>,
+    star_size: usize,
+    arm_count: usize,
+    block_dimension: u32,
+    /// Little co-group of the block's own representative point.
+    rotations: Vec<Mat3I>,
+}
+
+impl SweepBlock {
+    /// Read one block's geometry from the engine's own block object, **bound to
+    /// the parameter whose decomposition produced it**.
+    ///
+    /// Every folded point is checked against `t * direction` of each parent arm
+    /// it carries: the point of a block is a function of the parameter, so a
+    /// block read from one parameter's decomposition and compared as if it were
+    /// the other parameter's is a lost check that every other guard of the sweep
+    /// accepts (measured: taking both sides of the comparison from the first
+    /// parameter's decomposition — `M5` in the card-5 report — left the gate at
+    /// exit 0 with 46,048 "comparisons" and no failure).  With this binding the
+    /// same mutation fails on the first interval, before any matching.
+    fn read(
+        context: &SweepContext,
+        parameter: Rat,
+        block: &FullStarBlock,
+    ) -> Result<Self, String> {
+        for point in block.points() {
+            for arm in point.arm_indices() {
+                let folded = context.arms.get(*arm).ok_or_else(|| {
+                    format!(
+                        "block {:?} carries the arm index {arm}, which the partition's arm table \
+                         does not have",
+                        block.arm_indices()
+                    )
+                })?;
+                let expected = scale_point(&folded.direction, &parameter)
+                    .map_err(|error| format!("the folded direction of arm {arm}: {error}"))?;
+                // Modulo the child reciprocal lattice, the equivalence the star
+                // constructor merges arms by: at a **boundary** two merged arms
+                // fold onto one point and the engine reports a class
+                // representative, so exact equality would be wrong there.
+                let same = context
+                    .child_reciprocal
+                    .same_mod(&expected, point.q())
+                    .map_err(|error| format!("the point of arm {arm}: {error}"))?;
+                if !same {
+                    return Err(format!(
+                        "at t={parameter} the block with arms {:?} reports the point {} for arm \
+                         {arm}, but that arm's folded direction at this parameter is {expected}, \
+                         which is not the same point modulo the child reciprocal lattice",
+                        block.arm_indices(),
+                        point.q()
+                    ));
+                }
+            }
+        }
+        let mut points: Vec<Vec<usize>> = block
+            .points()
+            .iter()
+            .map(|point| {
+                let mut arms = point.arm_indices().to_vec();
+                arms.sort_unstable();
+                arms
+            })
+            .collect();
+        points.sort();
+        Ok(Self {
+            arm_indices: block.arm_indices(),
+            arm_count: block.points().iter().map(|point| point.arm_count()).sum(),
+            star_size: block.points().len(),
+            block_dimension: block.block_dimension(),
+            points,
+            rotations: little_co_group_rotations(
+                context.child_reciprocal,
+                context.child_rotations,
+                block.q(),
+            )?,
+        })
+    }
+}
+
+/// Match the blocks of two parameters one-to-one by arm set and compare every
+/// parameter-stable quantity, naming the offending block on any mismatch.
+fn match_block_geometry(
+    left: &[SweepBlock],
+    right: &[SweepBlock],
+    key: &str,
+) -> Result<Vec<(usize, usize)>, String> {
+    if left.len() != right.len() {
+        return Err(format!(
+            "{key}: {} block(s) at the first parameter against {} at the second",
+            left.len(),
+            right.len()
+        ));
+    }
+    let mut matching = Vec::with_capacity(left.len());
+    let mut taken = vec![false; right.len()];
+    for (index, block) in left.iter().enumerate() {
+        let candidates: Vec<usize> = right
+            .iter()
+            .enumerate()
+            .filter(|(slot, other)| !taken[*slot] && other.arm_indices == block.arm_indices)
+            .map(|(slot, _)| slot)
+            .collect();
+        let partner = match candidates.as_slice() {
+            [only] => *only,
+            [] => {
+                return Err(format!(
+                    "{key}: block {index} with arms {:?} has no partner at the second parameter",
+                    block.arm_indices
+                ));
+            }
+            many => {
+                return Err(format!(
+                    "{key}: block {index} with arms {:?} matches {many:?} blocks at the second \
+                     parameter, so the identity is not one-to-one",
+                    block.arm_indices
+                ));
+            }
+        };
+        taken[partner] = true;
+        let other = &right[partner];
+        for (name, left_value, right_value) in [
+            ("star size", block.star_size, other.star_size),
+            ("arm count", block.arm_count, other.arm_count),
+            (
+                "block dimension",
+                block.block_dimension as usize,
+                other.block_dimension as usize,
+            ),
+        ] {
+            if left_value != right_value {
+                return Err(format!(
+                    "{key}: block {index} (arms {:?}) has {name} {left_value} at the first \
+                     parameter and {right_value} at the second",
+                    block.arm_indices
+                ));
+            }
+        }
+        if block.points != other.points {
+            return Err(format!(
+                "{key}: block {index} (arms {:?}) folds its parent arms onto different points \
+                 ({:?} against {:?})",
+                block.arm_indices, block.points, other.points
+            ));
+        }
+        if block.rotations != other.rotations {
+            return Err(format!(
+                "{key}: block {index} (arms {:?}) has little co-group order {} at the first \
+                 parameter and {} at the second",
+                block.arm_indices,
+                block.rotations.len(),
+                other.rotations.len()
+            ));
+        }
+        matching.push((index, partner));
+    }
+    Ok(matching)
+}
+
+/// Layer 2 of the card-5 comparison: one reported target with its
+/// **gauge-unified** little-group character vector.
+#[derive(Debug, Clone, PartialEq)]
+struct SweepTarget {
+    dimension: u8,
+    multiplicity: u32,
+    /// Provenance, reported but deliberately **not** part of the identity: a
+    /// stored and a constructed presentation of the same target must match.
+    stored: bool,
+    /// `chi_target(h) * conj(exp(2 pi i q(tau_seed) . tau_h))` over the common
+    /// operation list.
+    vector: Vec<Complex64>,
+}
+
+/// Inner product of two character vectors, normalized: `1` for equal vectors up
+/// to a global phase, `0` for orthogonal ones.
+fn character_score(left: &[Complex64], right: &[Complex64]) -> f64 {
+    let mut inner = Complex64::new(0.0, 0.0);
+    let mut left_norm = 0.0;
+    let mut right_norm = 0.0;
+    for (first, second) in left.iter().zip(right) {
+        inner += first * second.conj();
+        left_norm += first.norm_sqr();
+        right_norm += second.norm_sqr();
+    }
+    if left_norm == 0.0 || right_norm == 0.0 {
+        return 0.0;
+    }
+    inner.norm() / (left_norm.sqrt() * right_norm.sqrt())
+}
+
+/// Match two blocks' target lists one-to-one by gauge-unified character, then
+/// compare the matched multiplicities.
+///
+/// This is the card-5 core.  Matching is by the character vector rather than by
+/// any sorted `(dimension, multiplicity)` list, so two distinct one-dimensional
+/// targets whose multiplicities are swapped are caught: the swap leaves the
+/// sorted list unchanged but attaches the wrong multiplicity to each character.
+/// A target with no partner, a tie at the tolerance, a dimension disagreement
+/// and a matched pair with different multiplicities are all explicit errors.
+///
+/// Provenance is **not** part of the identity: [`SweepTarget::stored`] is
+/// carried for the report only, so a stored and a constructed presentation of
+/// the same character match (the corpus has no interior stored target, so this
+/// branch is covered by the module tests instead).
+fn match_targets(
+    left: &[SweepTarget],
+    right: &[SweepTarget],
+    key: &str,
+) -> Result<(Vec<(usize, usize)>, f64), TargetMismatch> {
+    if left.len() != right.len() {
+        return Err(TargetMismatch::Ambiguous(format!(
+            "{key}: {} target(s) at the first parameter against {} at the second",
+            left.len(),
+            right.len()
+        )));
+    }
+    let mut matching = Vec::with_capacity(left.len());
+    let mut taken = vec![false; right.len()];
+    let mut worst = 1.0f64;
+    for (index, target) in left.iter().enumerate() {
+        // Every candidate at tolerance, without a preference order: a tie is an
+        // error rather than a silent pick.
+        let hits: Vec<(usize, f64)> = right
+            .iter()
+            .enumerate()
+            .filter(|(slot, _)| !taken[*slot])
+            .map(|(slot, other)| (slot, character_score(&target.vector, &other.vector)))
+            .filter(|(_, score)| *score >= 1.0 - SWEEP_TOLERANCE)
+            .collect();
+        let partner = match hits.as_slice() {
+            [(only, score)] => {
+                worst = worst.min(*score);
+                *only
+            }
+            [] => {
+                return Err(TargetMismatch::Ambiguous(format!(
+                    "{key}: target {index} (dimension {}, multiplicity {}, {}) has no character \
+                     partner at the second parameter",
+                    target.dimension,
+                    target.multiplicity,
+                    if target.stored { "stored" } else { "constructed" }
+                )));
+            }
+            many => {
+                return Err(TargetMismatch::Ambiguous(format!(
+                    "{key}: target {index} (dimension {}, multiplicity {}) has {} character \
+                     partners at the second parameter, so the identity is not one-to-one",
+                    target.dimension,
+                    target.multiplicity,
+                    many.len()
+                )));
+            }
+        };
+        taken[partner] = true;
+        let other = &right[partner];
+        if target.dimension != other.dimension {
+            return Err(TargetMismatch::Ambiguous(format!(
+                "{key}: matched target {index} has dimension {} at the first parameter and {} at \
+                 the second",
+                target.dimension, other.dimension
+            )));
+        }
+        if target.multiplicity != other.multiplicity {
+            return Err(TargetMismatch::Multiplicity(format!(
+                "{key}: the matched dimension-{} target {index} has multiplicity {} at the first \
+                 parameter and {} at the second (the character match is the identity, so this is \
+                 a real multiplicity change, not a relabelling)",
+                target.dimension, target.multiplicity, other.multiplicity
+            )));
+        }
+        matching.push((index, partner));
+    }
+    Ok((matching, worst))
+}
+
+/// The gauge-unified character vectors of one block's targets, at one of the
+/// block's own folded points (`point`, the common seed arm's point), over the
+/// child little group of that point.
+///
+/// The gauge is the card-1 explicit cochain: the reported little-group character
+/// at the operation `h` carries the Bloch phase `exp(2 pi i q(t) . tau_h)`,
+/// which moves with the parameter, so dividing by it is what makes two
+/// parameters of one interval comparable.  Derivation and the measured
+/// confirmation are in the module documentation of `subduction_star_decompose`
+/// (`FullStarBlock::target_little_character`) and in the card-5 report.
+fn gauge_unified_targets(
+    block: &FullStarBlock,
+    point: &Vec3R,
+    operations: &[ExactSeitz],
+) -> Result<Vec<SweepTarget>, String> {
+    let mut out = Vec::with_capacity(block.targets().len());
+    for (term, target) in block.targets().iter().enumerate() {
+        let mut vector = Vec::with_capacity(operations.len());
+        for operation in operations {
+            let value = block
+                .target_little_character(term, point, operation)
+                .map_err(|error| error.to_string())?;
+            let gauge =
+                bloch_phase(point, operation.translation()).map_err(|error| error.to_string())?;
+            vector.push(value * gauge.conj());
+        }
+        out.push(SweepTarget {
+            dimension: target.dimension,
+            multiplicity: target.multiplicity,
+            stored: target.irnumber.is_some(),
+            vector,
+        });
+    }
+    Ok(out)
+}
+
+/// The common seed arm of two matched blocks: the smallest arm index they share
+/// (the arm sets are equal by construction, so this is the whole set's minimum).
+///
+/// An arm index is the stable identity here — folded coordinates, block order,
+/// the engine's representative point and the constructed target's enumerated
+/// index all move with the parameter.
+fn seed_point(block: &FullStarBlock, arm: usize, key: &str) -> Result<Vec3R, String> {
+    let mut found: Option<Vec3R> = None;
+    for point in block.points() {
+        if point.arm_indices().contains(&arm) {
+            if found.is_some() {
+                return Err(format!(
+                    "{key}: arm {arm} folds onto more than one point of one block"
+                ));
+            }
+            found = Some(*point.q());
+        }
+    }
+    found.ok_or_else(|| format!("{key}: the seed arm {arm} is in no point of its own block"))
+}
+
+/// Everything the sweep of one `(record, label)` needs beyond the partition.
+struct SweepContext<'a> {
+    ordinal: usize,
+    label: &'static str,
+    child_sg: u8,
+    child_reciprocal: &'a Lattice,
+    child_rotations: &'a [Mat3I],
+    /// The production folded directions, in arm order: `arms[a].direction`
+    /// scaled by `t` is arm `a`'s folded point at that parameter.
+    arms: &'a [FoldedArm],
+}
+
+/// Why one matched target pair was rejected; the two kinds are counted
+/// separately so the report can say which invariant moved.
+#[derive(Debug)]
+enum TargetMismatch {
+    /// A matched pair whose multiplicities disagree (the character identified
+    /// the two targets as the same representation).
+    Multiplicity(String),
+    /// No partner, a tie at the tolerance, or a dimension disagreement.
+    Ambiguous(String),
+}
+
+/// One `(record, label)`'s card-5 sweep, appended to the record's report.
+///
+/// Failures are reported, never skipped: a partition, probe-parameter, rational,
+/// engine, geometry or character failure all end up in `report.failures` and
+/// make the interval a counted failure, so the gate cannot claim to have checked
+/// an interval it lost.  `intervals == comparisons + failed_intervals` is then
+/// checkable from the report alone.
+fn sweep_label(
+    subgroup: &isotropy::IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+    partition: &FullStarPartition,
+    domain: &ParentDomain,
+    context: &SweepContext,
+    report: &mut SweepReport,
+) {
+    let parameters = match partition.probe_parameters(domain) {
+        Ok(parameters) => parameters,
+        Err(error) => {
+            report.failures.push(format!(
+                "ordinal {} {}: the sweep cannot list the probe parameters: {error}",
+                context.ordinal, context.label
+            ));
+            return;
+        }
+    };
+    // A probe set with no boundary at all is the single interval `(0, 1)`, which
+    // `probe_intervals` handles; an **empty** one would silently sweep nothing.
+    if parameters.is_empty() {
+        report.failures.push(format!(
+            "ordinal {} {}: the sweep probe set is empty, so no interval would be checked",
+            context.ordinal, context.label
+        ));
+        return;
+    }
+    let intervals = match probe_intervals(&parameters) {
+        Ok(intervals) => intervals,
+        Err(error) => {
+            report.failures.push(format!(
+                "ordinal {} {}: the sweep cannot split the probe set: {error}",
+                context.ordinal, context.label
+            ));
+            return;
+        }
+    };
+    report.pairs += 1;
+    for parameter in &parameters {
+        if !partition.is_boundary(parameter) {
+            report.parent_only_parameters += 1;
+        }
+    }
+    for (left, right) in intervals {
+        report.intervals += 1;
+        let mut failures: Vec<String> = Vec::new();
+        if let Err(error) = sweep_interval(
+            subgroup, embedding, table, context, left, right, report, &mut failures,
+        ) {
+            failures.push(error);
+        }
+        if failures.is_empty() {
+            report.comparisons += 1;
+        } else {
+            report.failed_intervals += 1;
+            report.failures.extend(failures);
+        }
+    }
+}
+
+/// One interval: two interior points, both decompositions, geometry and
+/// representation comparison.
+#[allow(clippy::too_many_arguments)]
+fn sweep_interval(
+    subgroup: &isotropy::IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+    context: &SweepContext,
+    left: Rat,
+    right: Rat,
+    report: &mut SweepReport,
+    failures: &mut Vec<String>,
+) -> Result<(), String> {
+    let key = format!(
+        "ordinal {} {} interval ({left}, {right})",
+        context.ordinal, context.label
+    );
+    let (_, first, second) =
+        interior_points(&left, &right).map_err(|error| format!("{key}: interior points: {error}"))?;
+    let mut results = Vec::with_capacity(2);
+    for parameter in [first, second] {
+        report.points += 1;
+        match subduce_line_at_parameter(subgroup, embedding, table, parameter) {
+            Ok(result) => results.push((parameter, result)),
+            Err(error) => {
+                return Err(format!(
+                    "{key}: the production decomposition failed at t={parameter}: {error}"
+                ));
+            }
+        }
+    }
+    let (t1, r1) = &results[0];
+    let (t2, r2) = &results[1];
+    let key = format!("{key} t={t1} against t={t2}");
+    // Layer 1: the production geometry at both parameters, read from the
+    // engine's own blocks.  `line_star_geometry` is deliberately not consulted
+    // here -- the comparison has to see the blocks the decomposition reported.
+    let mut geometry = Vec::with_capacity(2);
+    for (parameter, result) in [(t1, r1), (t2, r2)] {
+        let mut blocks = Vec::with_capacity(result.blocks().len());
+        for block in result.blocks() {
+            blocks.push(SweepBlock::read(context, *parameter, block)?);
+        }
+        geometry.push(blocks);
+    }
+    let matching = match_block_geometry(&geometry[0], &geometry[1], &key)?;
+    for (index, partner) in &matching {
+        report.blocks += 1;
+        let block = &r1.blocks()[*index];
+        let other = &r2.blocks()[*partner];
+        for target in block.targets() {
+            report.sources[usize::from(target.irnumber.is_none())] += 1;
+        }
+        *report.target_counts.entry(block.targets().len()).or_insert(0) += 1;
+        // The seed arm is the smallest arm of the (identical) arm sets; each
+        // block's own folded point for it is that side's gauge reference point.
+        let Some(arm) = block.arm_indices().first().copied() else {
+            failures.push(format!("{key}: block {index} carries no parent arm"));
+            continue;
+        };
+        let q1 = seed_point(block, arm, &key)?;
+        let q2 = seed_point(other, arm, &key)?;
+        // The partition's arm table and the engine's folded points have to be
+        // the same object: `arms[arm].direction * t` must be exactly the point
+        // the block reports for that arm -- on **both** sides, each against its
+        // own parameter.  Side 2 is the control the earlier version lacked: with
+        // both sides read from one decomposition (the `M5` vacuity mutation) the
+        // second parameter's point is not `t_2 * direction`, and this fires
+        // instead of the comparison quietly agreeing with itself.
+        let mut bound = true;
+        if q1 == q2 {
+            failures.push(format!(
+                "{key}: block {index} arm {arm} is at the same point {q1} at both interior \
+                 parameters, so comparing this block against itself would be vacuous"
+            ));
+            bound = false;
+        }
+        for (side, parameter, point) in [("the first", t1, q1), ("the second", t2, q2)] {
+            let expected = scale_point(&context.arms[arm].direction, parameter)
+                .map_err(|error| format!("{key}: the seed arm direction: {error}"))?;
+            let same = context
+                .child_reciprocal
+                .same_mod(&expected, &point)
+                .map_err(|error| format!("{key}: the seed arm point: {error}"))?;
+            if !same {
+                failures.push(format!(
+                    "{key}: at {side} parameter t={parameter} block {index} arm {arm} is at \
+                     {point} but the partition's folded direction says {expected}"
+                ));
+                bound = false;
+            }
+        }
+        if !bound {
+            continue;
+        }
+        // The same finite group at both ends, aligned by rotation: the
+        // operations are parameter-independent child Hall operations, and only
+        // the little co-group filter could have moved with the parameter.
+        let aligned = match align_little_groups(
+            embedding,
+            context,
+            &q1,
+            &q2,
+            block.arm_indices().as_slice(),
+            &key,
+            failures,
+        )? {
+            Some(aligned) => aligned,
+            None => continue,
+        };
+        *report.orders.entry(aligned.len()).or_insert(0) += 1;
+        // The child little-group order the census computes through
+        // `line_domain` must agree with the operation list built here.
+        match point_little_co_group_order(context.child_sg, &q1) {
+            Ok(order) if order == aligned.len() => {}
+            Ok(order) => failures.push(format!(
+                "{key}: the census child order at {q1} is {order} but the little group built for \
+                 the sweep has {} operation(s)",
+                aligned.len()
+            )),
+            Err(error) => failures.push(format!("{key}: the census child order at {q1}: {error}")),
+        }
+        // Layer 2: the targets' gauge-unified little-group characters.
+        let first_operations: Vec<ExactSeitz> =
+            aligned.iter().map(|(operation, _)| *operation).collect();
+        let second_operations: Vec<ExactSeitz> =
+            aligned.iter().map(|(_, counterpart)| *counterpart).collect();
+        // The block's arm set joins the key: a target mismatch has to name the
+        // offending block, not only the interval.
+        let block_key = format!("{key}: block {index} (arms {:?})", block.arm_indices());
+        let targets = gauge_unified_targets(block, &q1, &first_operations)
+            .map_err(|error| format!("{block_key}: the first parameter's targets: {error}"))?;
+        let other_targets = gauge_unified_targets(other, &q2, &second_operations)
+            .map_err(|error| format!("{block_key}: the second parameter's targets: {error}"))?;
+        // The per-arm identity that makes the little-group reading faithful: the
+        // sum over the block's own points of the little-group characters is the
+        // induced character the engine's solver and reconstruction use.  A point
+        // that resolves to no arm, or an arm the block's points miss, shows up
+        // here instead of silently scoring zero.
+        for (parameter, result, operations) in [
+            (t1, r1, &first_operations),
+            (t2, r2, &second_operations),
+        ] {
+            for (term, _) in result.blocks()[*index].targets().iter().enumerate() {
+                for operation in operations {
+                    let mut total = Complex64::new(0.0, 0.0);
+                    for star_point in result.blocks()[*index].points() {
+                        total += result.blocks()[*index]
+                            .target_little_character(term, star_point.q(), operation)
+                            .map_err(|error| {
+                                format!("{key}: the little-group character: {error}")
+                            })?;
+                    }
+                    let induced = result.blocks()[*index]
+                        .target_character(term, operation)
+                        .map_err(|error| format!("{key}: the induced character: {error}"))?;
+                    if (total - induced).norm() > SWEEP_TOLERANCE {
+                        failures.push(format!(
+                            "{key}: at t={parameter} the block's points sum to {total} but the \
+                             induced character of target {term} is {induced}"
+                        ));
+                    }
+                }
+            }
+        }
+        // What the multi-target blocks of this corpus actually look like, and
+        // whether a multiplicity swap between two distinct targets is observable
+        // on them at all: measured rather than assumed, because a mutation that
+        // the corpus cannot see must not be reported as caught.
+        let mut shapes: Vec<(u8, u32)> = targets
+            .iter()
+            .map(|target| (target.dimension, target.multiplicity))
+            .collect();
+        shapes.sort_unstable();
+        if shapes.len() > 1 {
+            *report.multi_shapes.entry(shapes.clone()).or_insert(0) += 1;
+        }
+        for (slot, target) in targets.iter().enumerate() {
+            if targets[slot + 1..]
+                .iter()
+                .any(|other| {
+                    other.dimension == target.dimension
+                        && other.multiplicity != target.multiplicity
+                })
+            {
+                report.same_dimension_swaps += 1;
+                break;
+            }
+        }
+        match match_targets(&targets, &other_targets, &block_key) {
+            Ok((pairs, matched_worst)) => {
+                report.worst_score = report.worst_score.min(matched_worst);
+                report.targets += pairs.len();
+            }
+            Err(TargetMismatch::Multiplicity(error)) => {
+                report.multiplicity_mismatches += 1;
+                failures.push(error);
+            }
+            Err(TargetMismatch::Ambiguous(error)) => {
+                report.ambiguities += 1;
+                failures.push(error);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The child little groups at the two seed points, aligned by rotation.
+///
+/// Returns `None` when the two sides expose different rotation sets (a counted
+/// failure is pushed) and an error when a group cannot be built at all.
+fn align_little_groups(
+    embedding: &SubgroupEmbedding,
+    context: &SweepContext,
+    q1: &Vec3R,
+    q2: &Vec3R,
+    arms: &[usize],
+    key: &str,
+    failures: &mut Vec<String>,
+) -> Result<Option<Vec<(ExactSeitz, ExactSeitz)>>, String> {
+    let operations = child_little_group(embedding, context.child_reciprocal, q1)
+        .map_err(|error| format!("{key}: the child little group at {q1}: {error}"))?;
+    let other_operations = child_little_group(embedding, context.child_reciprocal, q2)
+        .map_err(|error| format!("{key}: the child little group at {q2}: {error}"))?;
+    let mut other_by_rotation: BTreeMap<[i32; 9], ExactSeitz> = other_operations
+        .iter()
+        .map(|operation| (rotation_key(&operation.rotation()), *operation))
+        .collect();
+    let mut aligned = Vec::with_capacity(operations.len());
+    for operation in &operations {
+        match other_by_rotation.remove(&rotation_key(&operation.rotation())) {
+            Some(counterpart) => aligned.push((*operation, counterpart)),
+            None => {
+                failures.push(format!(
+                    "{key}: block with arms {arms:?} has a little-group rotation at the first \
+                     parameter that the second parameter's little group at {q2} does not have"
+                ));
+                return Ok(None);
+            }
+        }
+    }
+    if !other_by_rotation.is_empty() {
+        failures.push(format!(
+            "{key}: block with arms {arms:?} has {} little-group rotation(s) at the second \
+             parameter that the first parameter's little group at {q1} does not have",
+            other_by_rotation.len()
+        ));
+        return Ok(None);
+    }
+    Ok(Some(aligned))
+}
+
 /// The card-4 full-star recount pass of one `(record, label)`.
 ///
 /// Runs the **production** decomposition at every parameter the card-3 partition
@@ -1721,6 +2899,24 @@ fn recount_label(
             report.failures.push(failure);
         }
         report.blocks += blocks.len();
+        report.rows.push(RecountRow {
+            ordinal: context.ordinal,
+            parent_sg: context.parent_sg,
+            child_sg: context.child_sg,
+            label: table.label.to_string(),
+            parameter,
+            blocks: blocks
+                .iter()
+                .map(|block| {
+                    (
+                        block.arm_indices.clone(),
+                        block.arm_count,
+                        block.block_dimension,
+                        block.source,
+                    )
+                })
+                .collect(),
+        });
         for block in &blocks {
             report.sources[block.source.index()] += 1;
             if !block.cocycle_trivial {
@@ -1919,6 +3115,7 @@ fn probe_record(
     official: Rat,
     generic: Rat,
     recount: bool,
+    domain_sweep: bool,
     cache: &PointClassCache,
 ) -> RecordReport {
     let mut out = Vec::new();
@@ -1928,6 +3125,10 @@ fn probe_record(
     let mut child_parameters: Vec<Rat> = Vec::new();
     let mut gamma = GammaReport::default();
     let mut recount_report = RecountReport::default();
+    let mut sweep_report = SweepReport {
+        worst_score: 1.0,
+        ..SweepReport::default()
+    };
     let frame = probe_frame(record, &mut failures);
     let Some((embedding, child_reciprocal, child_rotations)) = frame else {
         return RecordReport {
@@ -1937,6 +3138,7 @@ fn probe_record(
             child_parameters,
             gamma,
             recount: recount_report,
+            sweep: sweep_report,
             failures,
         };
     };
@@ -2245,7 +3447,7 @@ fn probe_record(
         // failure, never a skipped pass.
         let mut partition: Option<FullStarPartition> = None;
         let mut gamma_entries: Option<GammaParameters> = None;
-        if recount {
+        if recount || domain_sweep {
             match full_star_partition(&record.subgroup, &embedding, table) {
                 Ok(built) => {
                     let (entries, zero_arms) =
@@ -2464,6 +3666,28 @@ fn probe_record(
                 &out,
                 &mut recount_report,
             );
+            // R6.7 card 5: two interior points of every interval of
+            // `probe_parameters(parent)`, compared by block identity and by
+            // gauge-unified little-group characters.
+            if domain_sweep {
+                let sweep_context = SweepContext {
+                    ordinal: record.ordinal,
+                    label,
+                    child_sg: record.child_sg,
+                    child_reciprocal: &child_reciprocal,
+                    child_rotations: &child_rotations,
+                    arms: &partition.arms,
+                };
+                sweep_label(
+                    &record.subgroup,
+                    &embedding,
+                    table,
+                    partition,
+                    domain,
+                    &sweep_context,
+                    &mut sweep_report,
+                );
+            }
         }
     }
     if recount {
@@ -2478,6 +3702,7 @@ fn probe_record(
         child_parameters,
         gamma,
         recount: recount_report,
+        sweep: sweep_report,
         failures,
     }
 }
@@ -2512,6 +3737,13 @@ struct CensusEvidence<'a> {
     /// green while it printed `full-star recount: not run` (verification review F6).
     recount: &'a RecountReport,
     recount_ran: bool,
+    /// Data rows the `--output-recount` emission loop produced, and the rows read
+    /// back from the written file (parsed and compared, not only counted).
+    recount_rows_written: usize,
+    recount_file_rows: Option<usize>,
+    /// The R6.7 card-5 sweep aggregate, and whether `--domain-sweep` asked for it.
+    sweep: &'a SweepReport,
+    sweep_ran: bool,
 }
 
 /// Compare one written `--output-blocks` row against the statistic it came from.
@@ -2581,6 +3813,35 @@ fn merge_gamma(total: &mut GammaReport, part: GammaReport) {
     }
 }
 
+/// Add one record's card-5 sweep report to the corpus-wide one.
+fn merge_sweep(total: &mut SweepReport, part: SweepReport) {
+    total.pairs += part.pairs;
+    total.intervals += part.intervals;
+    total.points += part.points;
+    total.comparisons += part.comparisons;
+    total.failed_intervals += part.failed_intervals;
+    total.parent_only_parameters += part.parent_only_parameters;
+    total.blocks += part.blocks;
+    total.targets += part.targets;
+    for (slot, count) in total.sources.iter_mut().zip(part.sources) {
+        *slot += count;
+    }
+    total.multiplicity_mismatches += part.multiplicity_mismatches;
+    total.same_dimension_swaps += part.same_dimension_swaps;
+    for (shape, count) in part.multi_shapes {
+        *total.multi_shapes.entry(shape).or_insert(0) += count;
+    }
+    total.ambiguities += part.ambiguities;
+    for (count, seen) in part.target_counts {
+        *total.target_counts.entry(count).or_insert(0) += seen;
+    }
+    for (order, seen) in part.orders {
+        *total.orders.entry(order).or_insert(0) += seen;
+    }
+    total.worst_score = total.worst_score.min(part.worst_score);
+    total.failures.extend(part.failures);
+}
+
 /// Add one record's recount report to the corpus-wide one.
 fn merge_recount(total: &mut RecountReport, part: RecountReport) {
     total.probes += part.probes;
@@ -2596,6 +3857,7 @@ fn merge_recount(total: &mut RecountReport, part: RecountReport) {
     }
     total.geometries.extend(part.geometries);
     total.changed_pairs.extend(part.changed_pairs);
+    total.rows.extend(part.rows);
     total.failures.extend(part.failures);
 }
 
@@ -2815,6 +4077,45 @@ fn report(
         for witness in &gamma.witnesses {
             println!("    exception: {witness}");
         }
+    }
+    // R6.7 card 5: the interval sweep, printed whether or not it ran so a
+    // vacuous pass is visible in the report as well as in the counters.
+    if !evidence.sweep_ran {
+        println!("domain sweep: not run (pass --domain-sweep)");
+    } else {
+        let sweep = evidence.sweep;
+        println!(
+            "domain sweep: {} (record, label) pair(s), {} interval(s), {} interior point(s), \
+             {} comparison(s), {} failed interval(s)",
+            sweep.pairs, sweep.intervals, sweep.points, sweep.comparisons, sweep.failed_intervals
+        );
+        println!(
+            "  matched {} block pair(s) / {} target pair(s); interior block source \
+             stored={} constructed={} mixed={}",
+            sweep.blocks, sweep.targets, sweep.sources[0], sweep.sources[1], sweep.sources[2]
+        );
+        println!(
+            "  interior targets per block {:?}, child little co-group order at the seed \
+             points {:?}",
+            sweep.target_counts, sweep.orders
+        );
+        println!(
+            "  worst matched gauge-unified character score {:.17}, multiplicity mismatch(es) \
+             {}, ambiguous matching(s) {}",
+            sweep.worst_score, sweep.multiplicity_mismatches, sweep.ambiguities
+        );
+        println!(
+            "  multi-target block shapes {:?}; blocks with a swappable same-dimension pair {}; \
+             probe parameter(s) that are not full-star boundaries {}",
+            sweep.multi_shapes, sweep.same_dimension_swaps, sweep.parent_only_parameters
+        );
+    }
+    if let Some(rows) = evidence.recount_file_rows {
+        println!(
+            "--output-recount: {} row(s) emitted, {rows} row(s) read back and parsed \
+             against the collected fingerprint(s)",
+            evidence.recount_rows_written
+        );
     }
 }
 
@@ -3110,6 +4411,135 @@ fn check_invariants(
                 "the full-star recount changed {} (record, label) pair(s) against t = 1/7, \
                  expected 1692",
                 evidence.recount.changed_pairs.len()
+            ));
+        }
+        // The card-4 residual: the recount now has a per-probe artifact, and its
+        // row count is the pass's own probe count -- not a separately written
+        // number that could drift.  The rows are also parsed back and compared
+        // field by field (in `run`), so a corrupted row cannot pass on the count.
+        if evidence.recount.rows.len() != evidence.recount.probes {
+            violations.push(format!(
+                "the recount fingerprint carries {} row(s) for {} probe(s)",
+                evidence.recount.rows.len(),
+                evidence.recount.probes
+            ));
+        }
+        if let Some(rows) = evidence.recount_file_rows
+            && rows != evidence.recount.probes
+        {
+            violations.push(format!(
+                "the --output-recount file has {rows} row(s) for {} probe(s)",
+                evidence.recount.probes
+            ));
+        }
+        // The emission-loop counter is only meaningful when the file was asked
+        // for; without the flag it is zero by construction (the check below runs
+        // on the file's own row count instead).
+        if evidence.recount_file_rows.is_some()
+            && evidence.recount.rows.len() != evidence.recount_rows_written
+        {
+            violations.push(format!(
+                "the --output-recount emission loop wrote {} row(s) for {} collected fingerprint(s)",
+                evidence.recount_rows_written,
+                evidence.recount.rows.len()
+            ));
+        }
+    }
+    // R6.7 card 5: the interval sweep.  Count conservation first: every interval
+    // is either compared or an explicitly reported failure, so a lost interval
+    // cannot hide behind the failure list or behind a green gate.
+    if evidence.sweep_ran {
+        if evidence.sweep.intervals
+            != evidence.sweep.comparisons + evidence.sweep.failed_intervals
+        {
+            violations.push(format!(
+                "the domain sweep checked {} interval(s) as {} comparison(s) + {} failure(s)",
+                evidence.sweep.intervals,
+                evidence.sweep.comparisons,
+                evidence.sweep.failed_intervals
+            ));
+        }
+        if evidence.sweep.failed_intervals > 0 {
+            violations.push(format!(
+                "the domain sweep failed on {} interval(s)",
+                evidence.sweep.failed_intervals
+            ));
+        }
+        if evidence.sweep.multiplicity_mismatches > 0 {
+            violations.push(format!(
+                "the domain sweep matched {} target pair(s) whose multiplicities disagree",
+                evidence.sweep.multiplicity_mismatches
+            ));
+        }
+        if evidence.sweep.ambiguities > 0 {
+            violations.push(format!(
+                "the domain sweep left {} matching(s) ambiguous or incomplete",
+                evidence.sweep.ambiguities
+            ));
+        }
+        if evidence.sweep.worst_score < 1.0 - 1e-9 {
+            violations.push(format!(
+                "the domain sweep's worst matched gauge-unified character score is {}",
+                evidence.sweep.worst_score
+            ));
+        }
+        // The corpus totals, pinned: a sweep that silently stops sweep
+        // (a wrong interval set, a shortened parameter list, a dropped block)
+        // moves one of them.  All of them are measured on the same run that
+        // establishes the pass.
+        for (name, found, expected) in [
+            ("(record, label) pair(s)", evidence.sweep.pairs, 5_756usize),
+            ("interval(s)", evidence.sweep.intervals, 46_048),
+            ("interior point(s)", evidence.sweep.points, 92_096),
+            ("comparison(s)", evidence.sweep.comparisons, 46_048),
+            ("matched block pair(s)", evidence.sweep.blocks, 168_408),
+            ("matched target pair(s)", evidence.sweep.targets, 174_672),
+        ] {
+            if found != expected {
+                violations.push(format!(
+                    "the domain sweep covered {found} {name}, expected {expected}"
+                ));
+            }
+        }
+        // Measured corpus facts, not assumptions: no interior point of any
+        // interval has a stored or a mixed target (so the stored/constructed
+        // match is a synthetic branch on this corpus), the little co-group at
+        // the seed points is order 1, 2, 4 or 8, and every multi-target block
+        // carries one target per dimension.
+        if evidence.sweep.sources != [0, 174_672, 0] {
+            violations.push(format!(
+                "the domain sweep's interior blocks are stored/constructed/mixed {}/{}/{}, \
+                 expected 0/174672/0",
+                evidence.sweep.sources[0], evidence.sweep.sources[1], evidence.sweep.sources[2]
+            ));
+        }
+        let expected_target_counts: BTreeMap<usize, usize> =
+            [(1usize, 162_144usize), (2, 6_264)].into_iter().collect();
+        if evidence.sweep.target_counts != expected_target_counts {
+            violations.push(format!(
+                "the domain sweep's interior targets per block are {:?}, expected {:?}",
+                evidence.sweep.target_counts, expected_target_counts
+            ));
+        }
+        let expected_orders: BTreeMap<usize, usize> = [
+            (1usize, 91_984usize),
+            (2, 62_408),
+            (4, 13_584),
+            (8, 432),
+        ]
+        .into_iter()
+        .collect();
+        if evidence.sweep.orders != expected_orders {
+            violations.push(format!(
+                "the domain sweep's seed-point little co-group orders are {:?}, expected {:?}",
+                evidence.sweep.orders, expected_orders
+            ));
+        }
+        if evidence.sweep.same_dimension_swaps != 0 {
+            violations.push(format!(
+                "the domain sweep found {} interior block(s) with two same-dimension targets of \
+                 different multiplicities, which the pinned corpus shape says do not exist",
+                evidence.sweep.same_dimension_swaps
             ));
         }
     }
@@ -3731,13 +5161,26 @@ mod tests {
     }
 
     /// The census report of one record, exactly as `run` builds it.
-    fn census_report(parent_sg: u8, ordinal: usize, recount: bool) -> RecordReport {
+    fn census_report(
+        parent_sg: u8,
+        ordinal: usize,
+        recount: bool,
+        domain_sweep: bool,
+    ) -> RecordReport {
         let domains = source_domains().expect("the frozen domains");
         let official = official_line_parameter().expect("the official parameter");
         let generic = Rat::new(GENERIC_SAMPLE.0, GENERIC_SAMPLE.1).expect("the generic sample");
         let cache = PointClassCache::default();
         let record = record_of(parent_sg, ordinal);
-        probe_record(&record, &domains, official, generic, recount, &cache)
+        probe_record(
+            &record,
+            &domains,
+            official,
+            generic,
+            recount,
+            domain_sweep,
+            &cache,
+        )
     }
 
     /// One probe of a report, by source label and parameter.
@@ -3817,7 +5260,7 @@ mod tests {
     /// finding this card exists to remove.
     #[test]
     fn the_13688_witness_is_a_block_level_correction() {
-        let report = census_report(225, 13_688, false);
+        let report = census_report(225, 13_688, false, false);
         assert!(
             report.failures.is_empty(),
             "the record must probe cleanly: {:?}",
@@ -4014,7 +5457,7 @@ mod tests {
             // construction and would assert nothing (card-4 audit F8, the same
             // tautology the card-3 math review removed from the library test).
         }
-        let report = census_report(196, 10_038, true);
+        let report = census_report(196, 10_038, true, false);
         assert!(
             report.failures.is_empty() && report.recount.failures.is_empty(),
             "the recount of the witness must be clean: {:?} {:?}",
@@ -4030,5 +5473,479 @@ mod tests {
             "the recount must add the merge parameter and its neighbours, got {}",
             report.recount.probes
         );
+    }
+    // ── R6.7 card 5: the interval sweep ──────────────────────────────────────
+
+    /// A synthetic target for the matcher: only the fields the comparison reads.
+    fn sweep_target(
+        dimension: u8,
+        multiplicity: u32,
+        stored: bool,
+        vector: [f64; 2],
+    ) -> SweepTarget {
+        SweepTarget {
+            dimension,
+            multiplicity,
+            stored,
+            vector: vector
+                .iter()
+                .map(|value| Complex64::new(*value, 0.0))
+                .collect(),
+        }
+    }
+
+    /// **Card 5, regression (c): two distinct one-dimensional targets with
+    /// swapped multiplicities must fail.**  The two characters (`[1, 1]` and
+    /// `[1, -1]`) are orthogonal, so the match is by character and one-to-one;
+    /// the swap leaves the multiset `{1x2, 1x1}` unchanged, so a comparison that
+    /// sorted the `(dimension, multiplicity)` table would see nothing.  The
+    /// positive control reverses the order **and** flips the provenance: the
+    /// same targets must then match, which is the "a stored and a constructed
+    /// representation of the same target must match" regression.
+    #[test]
+    fn the_matcher_uses_characters_and_not_a_sorted_term_table() {
+        let left = [
+            sweep_target(1, 2, true, [1.0, 1.0]),
+            sweep_target(1, 1, false, [1.0, -1.0]),
+        ];
+        let swapped = [
+            sweep_target(1, 1, false, [1.0, 1.0]),
+            sweep_target(1, 2, true, [1.0, -1.0]),
+        ];
+        match match_targets(&left, &swapped, "the swap witness") {
+            Err(TargetMismatch::Multiplicity(message)) => {
+                assert!(
+                    message.contains("multiplicity 2 at the first parameter and 1"),
+                    "the failure must name the swapped multiplicity: {message}"
+                );
+            }
+            other => panic!("the swapped multiplicities must fail, got {other:?}"),
+        }
+
+        // The same two targets in the other order, with the provenance moved
+        // with them: matched by character, not by position or by label.
+        let reordered = [
+            sweep_target(1, 1, true, [1.0, -1.0]),
+            sweep_target(1, 2, false, [1.0, 1.0]),
+        ];
+        let (pairs, worst) =
+            match_targets(&left, &reordered, "the reordered control").expect("the control matches");
+        assert_eq!(pairs, vec![(0, 1), (1, 0)], "the pairing is by character");
+        assert!(worst >= 1.0 - SWEEP_TOLERANCE, "the matched score is 1, got {worst}");
+
+        // Two targets with the same character are not distinguishable: an
+        // explicit error, never a silent pick.
+        let duplicated = [
+            sweep_target(1, 1, false, [1.0, 1.0]),
+            sweep_target(1, 1, true, [1.0, 1.0]),
+        ];
+        match match_targets(&left, &duplicated, "the ambiguity witness") {
+            Err(TargetMismatch::Ambiguous(message)) => {
+                assert!(message.contains("partners"), "the tie must be named: {message}");
+            }
+            other => panic!("a character tie must be an explicit error, got {other:?}"),
+        }
+
+        // A target with no character partner is an error too, not a dropped row.
+        let missing = [
+            sweep_target(1, 2, true, [1.0, 1.0]),
+            sweep_target(1, 1, false, [0.0, 1.0]),
+        ];
+        match match_targets(&left, &missing, "the missing witness") {
+            Err(TargetMismatch::Ambiguous(message)) => {
+                assert!(message.contains("no character partner"), "{message}");
+            }
+            other => panic!("an unmatched target must be an explicit error, got {other:?}"),
+        }
+
+        // A dimension disagreement between character-equal targets is caught.
+        let wrong_dimension = [
+            sweep_target(2, 2, true, [1.0, 1.0]),
+            sweep_target(1, 1, false, [1.0, -1.0]),
+        ];
+        match match_targets(&left, &wrong_dimension, "the dimension witness") {
+            Err(TargetMismatch::Ambiguous(message)) => {
+                assert!(message.contains("dimension 1 at the first parameter and 2"), "{message}");
+            }
+            other => panic!("a dimension change must be an explicit error, got {other:?}"),
+        }
+    }
+
+    /// One synthetic block geometry for the layer-1 comparison.
+    fn sweep_block(
+        arm_indices: Vec<usize>,
+        points: Vec<Vec<usize>>,
+        rotations: Vec<Mat3I>,
+    ) -> SweepBlock {
+        let star_size = points.len();
+        let arm_count = points.iter().map(Vec::len).sum();
+        SweepBlock {
+            arm_indices,
+            points,
+            star_size,
+            arm_count,
+            block_dimension: u32::try_from(arm_count).expect("small"),
+            rotations,
+        }
+    }
+
+    /// **Card 5, layer 1: blocks are matched by parent arm set, never by block
+    /// index.**  The two parameters' block orders really do move (the folded
+    /// coordinates, and with them the canonical order, are functions of `t`), so
+    /// an index-based comparison would pair `[1, 2]` with `[3]` and report a
+    /// mismatch on a pair that is actually the same geometry -- or, worse, pair
+    /// two different blocks and call it a match.  The pairing itself is asserted,
+    /// which is what an index-based matcher cannot satisfy.
+    #[test]
+    fn the_geometry_layer_matches_blocks_by_arm_set_and_not_by_index() {
+        let identity: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        let left = [
+            sweep_block(vec![1, 2], vec![vec![1], vec![2]], vec![identity]),
+            sweep_block(vec![3], vec![vec![3]], vec![identity]),
+        ];
+        let reordered = [
+            sweep_block(vec![3], vec![vec![3]], vec![identity]),
+            sweep_block(vec![1, 2], vec![vec![1], vec![2]], vec![identity]),
+        ];
+        let matching = match_block_geometry(&left, &reordered, "the reordered control")
+            .expect("the reordered blocks match by arm set");
+        assert_eq!(
+            matching,
+            vec![(0, 1), (1, 0)],
+            "the identity has to be the arm set, not the position"
+        );
+
+        // The star's internal grouping moves too: the same arms and the same
+        // star size, folded onto different points.
+        let wide_left = [
+            sweep_block(vec![1, 2, 3, 4], vec![vec![1, 2], vec![3, 4]], vec![identity]),
+            sweep_block(vec![5], vec![vec![5]], vec![identity]),
+        ];
+        let regrouped = [
+            sweep_block(vec![1, 2, 3, 4], vec![vec![1, 3], vec![2, 4]], vec![identity]),
+            sweep_block(vec![5], vec![vec![5]], vec![identity]),
+        ];
+        let error = match_block_geometry(&wide_left, &regrouped, "the regrouped witness")
+            .expect_err("a regrouped star is not the same block");
+        assert!(
+            error.contains("folds its parent arms onto different points"),
+            "the failure must name the offending block: {error}"
+        );
+
+        // A little co-group that grew between the two parameters.
+        let grown = [
+            sweep_block(
+                vec![1, 2],
+                vec![vec![1], vec![2]],
+                vec![[[0, -1, 0], [1, 0, 0], [0, 0, 1]]],
+            ),
+            sweep_block(vec![3], vec![vec![3]], vec![identity]),
+        ];
+        let error = match_block_geometry(&left, &grown, "the co-group witness")
+            .expect_err("a grown little co-group is not the same block");
+        assert!(error.contains("little co-group order"), "{error}");
+
+        // A different block count is named before any pairing.
+        let short = [sweep_block(vec![1, 2], vec![vec![1], vec![2]], vec![identity])];
+        let error = match_block_geometry(&left, &short, "the count witness")
+            .expect_err("a different block count is a mismatch");
+        assert!(error.contains("2 block(s)"), "{error}");
+    }
+
+    /// The frozen record's own `(record, label)` pair list, for the sweep tests.
+    fn sweep_context_of(
+        record: &Record,
+        label: &'static str,
+    ) -> (SubgroupEmbedding, FullStarPartition) {
+        let embedding =
+            SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup).expect("embedding");
+        let table = line_table(record.parent_sg, label).expect("the frozen table");
+        let partition = full_star_partition(&record.subgroup, &embedding, table)
+            .expect("the full-star partition");
+        (embedding, partition)
+    }
+
+    /// **Card 5, regressions (a) and (b): the gauge is load-bearing, and a pair
+    /// that differs only by the moving constructed point must not fail.**
+    ///
+    /// Ordinal 10030 `DT1`'s interval `(1/8, 1/4)` is the measured witness: the
+    /// block with arms `[4, 5]` reports a *different* constructed point at
+    /// `t = 1/6` (`q = 1/3`) and `t = 5/24` (`q = 1/6`), and its order-two little
+    /// co-group moves the induced full-star character from `-1` to `-sqrt(3)`.
+    /// The gauge-unified per-arm characters agree exactly, which is the identity
+    /// the sweep's layer 2 rests on; without the gauge the same comparison fails
+    /// (measured in the card-5 mutation run).
+    #[test]
+    fn the_gauge_unifies_a_moving_constructed_point() {
+        let record = record_of(196, 10_030);
+        let (embedding, partition) = sweep_context_of(&record, "DT1");
+        let table = line_table(record.parent_sg, "DT1").expect("the frozen table");
+        let t1 = rational(1, 6);
+        let t2 = rational(5, 24);
+        let first = subduce_line_at_parameter(&record.subgroup, &embedding, table, t1)
+            .expect("the decomposition at 1/6");
+        let second = subduce_line_at_parameter(&record.subgroup, &embedding, table, t2)
+            .expect("the decomposition at 5/24");
+        let block = first
+            .blocks()
+            .iter()
+            .find(|block| block.arm_indices() == vec![4, 5])
+            .expect("the witness block at 1/6");
+        let other = second
+            .blocks()
+            .iter()
+            .find(|block| block.arm_indices() == vec![4, 5])
+            .expect("the witness block at 5/24");
+        let q1 = seed_point(block, 4, "the witness").expect("the seed point at 1/6");
+        let q2 = seed_point(other, 4, "the witness").expect("the seed point at 5/24");
+        assert_ne!(q1, q2, "the constructed point must move between the two parameters");
+        assert_eq!(q1, Vec3R::new([rational(-2, 3), Rat::ZERO, Rat::ZERO]));
+        assert_eq!(q2, Vec3R::new([rational(-5, 6), Rat::ZERO, Rat::ZERO]));
+
+        let operations = child_little_group(&embedding, &partition.child_reciprocal, &q1)
+            .expect("the little group at 1/6");
+        assert_eq!(operations.len(), 2, "the witness little co-group has order two");
+        let other_operations = child_little_group(&embedding, &partition.child_reciprocal, &q2)
+            .expect("the little group at 5/24");
+        assert_eq!(
+            operations
+                .iter()
+                .map(|operation| rotation_key(&operation.rotation()))
+                .collect::<Vec<_>>(),
+            other_operations
+                .iter()
+                .map(|operation| rotation_key(&operation.rotation()))
+                .collect::<Vec<_>>(),
+            "the same finite group at both parameters, aligned by rotation"
+        );
+
+        // The raw presentation moves: the induced character at the non-identity
+        // operation is `-1` at `1/6` and `-sqrt(3)` at `5/24`.
+        let nontrivial = operations[1];
+        let raw1 = block
+            .target_character(0, &nontrivial)
+            .expect("the induced character at 1/6");
+        let raw2 = other
+            .target_character(0, &nontrivial)
+            .expect("the induced character at 5/24");
+        assert!(
+            (raw1 - raw2).norm() > 0.1,
+            "the raw presentation must move: {raw1} against {raw2}"
+        );
+        // The little-group reading at the common seed arm is what the sweep
+        // compares, and the gauge removes the motion.
+        let targets = gauge_unified_targets(block, &q1, &operations).expect("the targets at 1/6");
+        let other_targets =
+            gauge_unified_targets(other, &q2, &other_operations).expect("the targets at 5/24");
+        assert_eq!(targets.len(), 1);
+        let score = character_score(&targets[0].vector, &other_targets[0].vector);
+        assert!(
+            score >= 1.0 - 1e-12,
+            "the gauge-unified characters must agree, score {score}"
+        );
+        let (pairs, worst) = match_targets(&targets, &other_targets, "the witness")
+            .expect("the pair must match");
+        assert_eq!(pairs, vec![(0, 0)]);
+        assert!(worst >= 1.0 - 1e-12);
+        // The move is not a no-op: the ungauged per-arm values differ.
+        let ungauged1 = block
+            .target_little_character(0, &q1, &nontrivial)
+            .expect("the little-group character at 1/6");
+        let ungauged2 = other
+            .target_little_character(0, &q2, &nontrivial)
+            .expect("the little-group character at 5/24");
+        assert!(
+            (ungauged1 - ungauged2).norm() > 1e-9,
+            "the gauge has to be doing work: {ungauged1} against {ungauged2}"
+        );
+    }
+
+    /// **Card 5, regression (d): the interval logic is load-bearing, and the
+    /// 10038 structures are pinned through the sweep.**
+    ///
+    /// Ordinal 10038 `DT1` merges its arms exactly at `t = 1/8`: six one-armed
+    /// blocks at `1/9` and `1/7`, four blocks with arm counts `2, 1, 1, 2` at
+    /// `1/8`.  The sweep only compares **inside** an interval, so comparing the
+    /// two parameters across the boundary must fail -- which is asserted here on
+    /// the very same production decompositions, so a sweep that used the wrong
+    /// interval set (or none) cannot pass this test.
+    #[test]
+    fn the_sweep_intervals_are_what_keeps_the_10038_merge_out() {
+        let record = record_of(196, 10_038);
+        let (_, partition) = sweep_context_of(&record, "DT1");
+        let table = line_table(record.parent_sg, "DT1").expect("the frozen table");
+        let domains = source_domains().expect("the frozen domains");
+        let domain = domains
+            .get(&(record.parent_sg, "DT1"))
+            .expect("the DT1 domain");
+        let parameters = partition.probe_parameters(domain).expect("the probe set");
+        let intervals = probe_intervals(&parameters).expect("the intervals");
+        // `Rat` deliberately has no `Ord`; compare by cross-multiplication with
+        // the (normalized, positive) denominators.
+        let greater = |first: &Rat, second: &Rat| {
+            first.numerator() * second.denominator() > second.numerator() * first.denominator()
+        };
+        let inside = |parameter: &Rat| -> Option<(Rat, Rat)> {
+            intervals
+                .iter()
+                .find(|(left, right)| greater(parameter, left) && greater(right, parameter))
+                .copied()
+        };
+        let ninth = rational(1, 9);
+        let seventh = rational(1, 7);
+        let eighth = rational(1, 8);
+        // Measured: `probe_parameters(parent)` is the eighth grid, so 1/9 and
+        // 1/7 are interior to *different* intervals -- `(0, 1/8)` and
+        // `(1/8, 1/4)`.  The merge parameter 1/8 is the endpoint between them and
+        // is therefore never compared by the sweep.
+        assert_eq!(inside(&ninth), Some((Rat::ZERO, eighth)));
+        assert_eq!(inside(&seventh), Some((eighth, rational(1, 4))));
+        assert_ne!(inside(&ninth), inside(&seventh));
+        assert!(
+            inside(&eighth).is_none(),
+            "1/8 is the merge boundary and must not be interior to any interval"
+        );
+        assert!(
+            intervals
+                .iter()
+                .any(|(left, right)| *left == eighth || *right == eighth),
+            "1/8 must be an endpoint of an interval"
+        );
+
+        // Comparisons across the boundary really do have different geometry, so
+        // the interval logic is what keeps them out of the sweep.
+        let keep = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup).expect("embedding");
+        let decompose = |parameter: Rat| {
+            subduce_line_at_parameter(&record.subgroup, &keep, table, parameter)
+                .expect("the production decomposition")
+        };
+        let at_boundary = decompose(eighth);
+        let at_inside = decompose(ninth);
+        let context = SweepContext {
+            ordinal: record.ordinal,
+            label: "DT1",
+            child_sg: record.child_sg,
+            child_reciprocal: &partition.child_reciprocal,
+            child_rotations: &partition.child_rotations,
+            arms: &partition.arms,
+        };
+        let read = |parameter: Rat, result: &LineSubduction| -> Vec<SweepBlock> {
+            result
+                .blocks()
+                .iter()
+                .map(|block| {
+                    SweepBlock::read(&context, parameter, block).expect("the block geometry")
+                })
+                .collect()
+        };
+        let error = match_block_geometry(
+            &read(ninth, &at_inside),
+            &read(eighth, &at_boundary),
+            "the cross-boundary witness",
+        )
+        .expect_err("the merge must be visible across the boundary");
+        assert!(
+            error.contains("6 block(s) at the first parameter against 4"),
+            "the merge is a block-count change: {error}"
+        );
+
+        // And the sweep's own report for the witness: eight intervals, all of
+        // them compared, no failures.
+        let report = census_report(196, 10_038, true, true);
+        assert!(
+            report.failures.is_empty() && report.sweep.failures.is_empty(),
+            "the sweep of the witness must be clean: {:?} {:?}",
+            report.failures,
+            report.sweep.failures
+        );
+        assert_eq!(report.sweep.pairs, record.labels.len());
+        assert_eq!(report.sweep.intervals, 8 * record.labels.len());
+        assert_eq!(report.sweep.points, 2 * report.sweep.intervals);
+        assert_eq!(report.sweep.comparisons, report.sweep.intervals);
+        assert_eq!(report.sweep.failed_intervals, 0);
+        assert_eq!(report.sweep.sources[0], 0, "this child has no stored interior target");
+    }
+
+    /// **Card 5: every block is bound to the parameter whose decomposition
+    /// produced it, and the two interior points are two different parameters.**
+    ///
+    /// A comparison whose two sides are read from one decomposition satisfies
+    /// every other guard of the sweep: measured on the corpus (`M5`, author's
+    /// mutation, card-5 report) taking both sides from the first parameter left
+    /// the gate at exit 0 with 46,048 "comparisons" and 0 failures.  The binding
+    /// that closes it is asserted here at unit level, together with the
+    /// degenerate-interval guard that keeps a zero-length interval from comparing
+    /// one boundary point with itself.
+    #[test]
+    fn the_sweep_binds_every_block_to_its_own_parameter() {
+        let record = record_of(196, 10_030);
+        let (embedding, partition) = sweep_context_of(&record, "DT1");
+        let table = line_table(record.parent_sg, "DT1").expect("the frozen table");
+        let context = SweepContext {
+            ordinal: record.ordinal,
+            label: "DT1",
+            child_sg: record.child_sg,
+            child_reciprocal: &partition.child_reciprocal,
+            child_rotations: &partition.child_rotations,
+            arms: &partition.arms,
+        };
+        let first = subduce_line_at_parameter(&record.subgroup, &embedding, table, rational(1, 6))
+            .expect("the decomposition at 1/6");
+        let block = first
+            .blocks()
+            .iter()
+            .find(|block| block.arm_indices() == vec![4, 5])
+            .expect("the witness block at 1/6");
+        SweepBlock::read(&context, rational(1, 6), block)
+            .expect("the block is accepted at its own parameter");
+        let error = SweepBlock::read(&context, rational(5, 24), block)
+            .expect_err("a block of one parameter must not pass as the other's");
+        assert!(error.contains("folded direction"), "{error}");
+
+        // Two different interior points, strictly inside the interval.
+        let (step, low, high) = interior_points(&Rat::ZERO, &rational(1, 4)).expect("trisection");
+        assert_eq!(step, rational(1, 12));
+        assert_eq!(low, rational(1, 12));
+        assert_eq!(high, rational(1, 6));
+        assert_ne!(low, high, "the two interior points must be different parameters");
+
+        // A zero-length or reversed interval is a typed error, never a
+        // self-comparison counted as a checked interval.
+        for (left, right) in [
+            (rational(1, 4), rational(1, 4)),
+            (rational(1, 4), rational(1, 8)),
+        ] {
+            let error = interior_points(&left, &right).expect_err("a non-positive interval");
+            assert!(error.contains("not positive"), "{error}");
+        }
+    }
+
+    /// **Card 4 residual: the `--output-recount` fingerprint round-trips.**  The
+    /// gate writes the file and re-reads it; this pins the two halves at the unit
+    /// level, including that a corrupted field changes the parsed row (a row
+    /// count alone would not notice).
+    #[test]
+    fn the_recount_fingerprint_rows_round_trip() {
+        let report = census_report(196, 10_038, true, false);
+        assert_eq!(
+            report.recount.rows.len(),
+            report.recount.probes,
+            "one fingerprint row per recount probe"
+        );
+        assert!(report.recount.probes > 0, "the witness has recount probes");
+        for (index, row) in report.recount.rows.iter().enumerate() {
+            let text = row.to_tsv();
+            let parsed = RecountRow::parse(&text, index + 1).expect("the row parses back");
+            assert_eq!(&parsed, row, "row {index} must round-trip");
+        }
+        let mut corrupted: Vec<String> = report.recount.rows[0]
+            .to_tsv()
+            .split('\t')
+            .map(String::from)
+            .collect();
+        corrupted[5] = (report.recount.rows[0].blocks.len() + 1).to_string();
+        let error = RecountRow::parse(&corrupted.join("\t"), 1)
+            .expect_err("an inconsistent block count must be rejected");
+        assert!(error.contains("announced"), "{error}");
     }
 }
