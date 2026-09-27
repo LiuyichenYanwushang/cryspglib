@@ -40,8 +40,25 @@
 //!   parameter the card-3 partition [`full_star_partition`] adds beyond the
 //!   reference candidate set and classifies every block there, and now emits one
 //!   `--output-recount` fingerprint row per probed parameter;
-//! * `--domain-sweep` (R6.7 card 5) compares two exact interior points of every
-//!   interval of `probe_parameters(parent)` in two layers.  **Geometry**: blocks
+//! * `--domain-sweep` (R6.7 card 6) first runs the **production** decomposition
+//!   at every parameter of `probe_parameters(parent)` -- the boundary points,
+//!   which the interval comparison never touches -- and counts them
+//!   (`boundary_points == boundary_successes + boundary_failures`, with every
+//!   failure carrying the record, the label, the parameter and the engine's own
+//!   error), and it recomputes the arm geometry **itself** from the folded arms
+//!   and the child reciprocal lattice: every relation
+//!   `t (R^-T v_i - v_j) in L*_H` is enumerated over the same triples the
+//!   partition enumerates and decided with the census's own arithmetic (the
+//!   difference vector, mapped into the child lattice basis, scaled by `t` and
+//!   tested for integrality), the boundary set is re-derived from the relations'
+//!   residue sets, the event counts at every boundary are compared with the
+//!   partition's, no non-permanent relation may hold at an interior point of any
+//!   interval, and the arm count is recomputed as an orbit-stabiliser count over
+//!   the parent's rotations.  The partition's solver is never called on this
+//!   path, so a partition that reports a wrong parameter set, a wrong count or a
+//!   boundary no relation supports cannot agree with the audit by construction.
+//! * It then compares two exact interior points of every interval of
+//!   `probe_parameters(parent)` in two layers.  **Geometry**: blocks
 //!   are matched one-to-one by their parent arm set -- the folded coordinates,
 //!   the block order, the engine's representative and a constructed target's
 //!   enumerated index all move with `t`, while which arms share a child star does
@@ -80,10 +97,22 @@
 //! turns a non-empty unsupported set into a failure, for the round that closes
 //! them all.
 //!
-//! Measured scope of the sweep on this corpus (8 threads, 1 m 23 s for
-//! `--gate --require-covered --domain-sweep`): 5,756 (record, label) pairs,
+//! Measured scope of the sweep on this corpus (8 threads, 1 m 39 s - 1 m 52 s
+//! over repeated runs of `--gate --require-covered --domain-sweep`): 5,756
+//! (record, label) pairs,
 //! 46,048 intervals, 92,096 interior decompositions, 46,048 comparisons, 0
-//! failures; 168,408 matched block pairs / 174,672 matched target pairs; every
+//! failures; the card-6 boundary pass answers all **46,048** probe parameters
+//! (0 failures, 429,888 parent dimension, equal to the covered dimension and to
+//! the closed form `parameters x little dimension x arms`); the independent
+//! audit enumerates **2,477,298** relations (the closed form `n^2 r - n`),
+//! **205,044** of them identically true (the partition's own `permanent_counts`
+//! summed), re-derives the same **46,048** boundary parameters, evaluates
+//! **18,178,032** predicate instances at the boundaries and **36,356,064** at
+//! the interior points (twice as many, and exactly
+//! `evaluated x pairs == boundaries x (relations - permanent)`), finds no
+//! relation at any interior point and **0** disagreements, and reproduces the
+//! **50,226** arms as an orbit-stabiliser count (5,756 checks, 0 disagreements);
+//! 168,408 matched block pairs / 174,672 matched target pairs; every
 //! interior target is **constructed** (0 stored, 0 mixed), which is why the
 //! stored/constructed branch is pinned by a module test; 6,264 interior blocks
 //! carry two targets and all of them have the shape `[(1, 1), (1, 1)]`, so a
@@ -96,11 +125,11 @@ use cryspglib::irrep::subduction::star::decompose::{
     official_line_parameter, subduce_line_at_parameter,
 };
 use cryspglib::irrep::subduction::star::line_domain::{
-    FoldedArm, FullStarPartition, GammaParameters, ParentDomain, child_cocycle_is_a_coboundary, child_exceptional_parameters,
-    full_star_partition, little_co_group_order, minimal_parameter_step,
-    minimal_parameter_step_via_coordinates, parent_domain, point_cocycle_is_a_coboundary,
-    point_little_co_group_order, reciprocal_lattice, require_reciprocal_direction, rotation_set,
-    verify_against_grid,
+    FoldedArm, FullStarPartition, GammaParameters, ParentDomain, StarBoundary, StarEventKind,
+    child_cocycle_is_a_coboundary, child_exceptional_parameters, full_star_partition,
+    little_co_group_order, minimal_parameter_step, minimal_parameter_step_via_coordinates,
+    parent_domain, point_cocycle_is_a_coboundary, point_little_co_group_order,
+    reciprocal_lattice, require_reciprocal_direction, rotation_set, verify_against_grid,
 };
 use cryspglib::irrep::generated_data::SG_DATA_HALL;
 use cryspglib::irrep::subduction::{
@@ -134,11 +163,16 @@ line_domain_census [--gate] [--require-covered] [--full-star-recount] [--domain-
   --require-covered    additionally fail when any (record, parameter) is unsupported
   --full-star-recount  run the card-3 full-star recount pass on its own, with
                        the gate's failure semantics
-  --domain-sweep       R6.7 card 5: compare two exact interior points of every
-                       interval of `probe_parameters(parent)` by stable block
-                       identity (parent arm sets) and, per matched block, by
-                       gauge-unified little-group characters; failures are gate
-                       violations
+  --domain-sweep       R6.7 cards 5-6: run the production decomposition at
+                       every parameter of `probe_parameters(parent)` (the
+                       boundary points, counted and conserved), recompute the
+                       full-star arm geometry independently of the partition's
+                       solver (relations, boundary set, event counts, interior
+                       relation-freeness, orbit-stabiliser arm count), and
+                       compare two exact interior points of every interval by
+                       stable block identity (parent arm sets) and, per matched
+                       block, by gauge-unified little-group characters; failures
+                       are gate violations
   --sequential         one thread (default parallel over isotropy records)
   --output <path>      write the per-probe table as TSV
   --output-blocks <path>
@@ -182,6 +216,55 @@ const REPRESENTATIVE_SHIFT_PIN: usize = 168_408;
 /// the non-identity part of the fixity control's checks is predicted by the
 /// little-co-group histogram (the operand binding of verification round 2).
 const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+
+// ── R6.7 card 6 pinned totals ────────────────────────────────────────────────
+//
+// Every number below is printed by a plain run before the gate asserts it, so a
+// reviewer can read the measured value and the pinned value side by side.  Each
+// has an independent source next to its assertion in `check_invariants`.
+
+/// `Σ partition.probe_parameters(parent).len()`: the boundary pass runs the
+/// **production** decomposition once per probe parameter per pair, so this is
+/// also `boundary_successes + boundary_failures` (asserted).  The sweep's probe
+/// set is `probe_parameters`, which on this corpus is the eighth grid of every
+/// pair (`1/7` is a main-probe sample, not a boundary): 8 x 5,756.
+const BOUNDARY_POINT_PIN: usize = 46_048;
+
+/// Relations the audit enumerates over the corpus: `Σ (n^2 r - n)` with `n` the
+/// partition's arm count and `r` its child rotation count.  The gate compares
+/// this against the closed form accumulated independently per pair.
+const RELATION_PIN: usize = 2_477_298;
+
+/// Relations whose difference vector is exactly zero (true at every parameter),
+/// and the same number as the partition itself accounts for (`permanent_counts`
+/// summed).
+const PERMANENT_RELATION_PIN: usize = 205_044;
+
+/// Predicate instances `t w in L*_H` the audit evaluates at the partition's
+/// boundary parameters: every boundary evaluates the pair's whole non-permanent
+/// relation list, so this is `8 x (relations - permanent)` on this corpus (the
+/// gate also asserts that identity and the pinned value).
+const BOUNDARY_RELATION_EVALUATION_PIN: usize = 18_178_032;
+
+/// Predicate instances the audit evaluates at the two interior points of every
+/// interval: `16 x (relations - permanent)` on this corpus, twice the boundary
+/// total because each pair has two interior points per interval against one
+/// boundary parameter each.
+const INTERIOR_RELATION_EVALUATION_PIN: usize = 36_356_064;
+
+/// `Σ result.parent_dimension()` over the answered boundary parameters: the
+/// engine's own dimension identity summed over the card-6 boundary pass.  The
+/// gate pins it (it is also asserted equal to the covered-dimension sum), so a
+/// pass that does not really run the engine cannot keep its counters green.
+const BOUNDARY_DIMENSION_PIN: u64 = 429_888;
+
+/// Synthetic partitions the audit's gate-level self-check drives: the honest
+/// fixture, the lowered-count fixture and the moved-boundary fixture.
+const SELF_CHECK_CASE_PIN: usize = 3;
+
+/// `Σ partition.arms.len()`: the arm count the orbit–stabiliser route predicts
+/// from the parent's rotation group alone (73 sources, 5,756 pairs).
+const ARM_ORBIT_PIN: usize = 50_226;
 
 /// The generic parameter used to prove that a non-exceptional point is answered
 /// from the frozen line little group.  It is off the quarter grid and not one of
@@ -333,6 +416,9 @@ impl PointClassCache {
     fn classify(&self, child_sg: u8, point: &Vec3R) -> Result<PointClass, String> {
         let key = (child_sg, *point.as_array());
         let lock = || {
+            // Defensive guard, not a swallowed corpus result: a poisoned memo
+            // mutex means another worker panicked, and the memo holds only
+            // recomputable point classes, so the inner table is taken as is.
             self.entries
                 .lock()
                 .unwrap_or_else(|poison| poison.into_inner())
@@ -687,6 +773,26 @@ struct SweepReport {
     /// The worst gauge-unified character score seen (`1.0` when nothing was
     /// compared); the corpus agreement is at machine precision.
     worst_score: f64,
+    /// The R6.7 card-6 boundary pass: the number of `probe_parameters(parent)`
+    /// entries at which the **production** `subduce_line_at_parameter` was run,
+    /// and how many of them were answered / failed.  Every parameter is counted
+    /// before the engine is asked, so `boundary_points == boundary_successes +
+    /// boundary_failures` holds by construction and a lost item is impossible;
+    /// the gate asserts it and pins all three.
+    boundary_points: usize,
+    boundary_successes: usize,
+    boundary_failures: usize,
+    /// `Σ result.parent_dimension()` and `Σ result.covered_dimension()` over the
+    /// answered boundary parameters: two numbers taken **from the returned
+    /// decomposition**, so a boundary pass that stops calling the engine -- or
+    /// calls it and drops the answer -- moves them while every count stays where
+    /// it is.  They must be equal (the engine's own dimension identity) and are
+    /// pinned.
+    boundary_parent_dimension: u64,
+    boundary_covered_dimension: u64,
+    /// The R6.7 card-6 independent recomputation of the same pairs' arm geometry
+    /// from the folded arms and the child reciprocal lattice.
+    geometry: GeometryReport,
     /// Failures of this pass; they are gate violations.
     failures: Vec<String>,
 }
@@ -905,7 +1011,9 @@ fn run() -> Result<ExitCode, String> {
     let recount = gate || full_star_recount || output_recount.is_some();
 
     let domains = source_domains()?;
-    let records = records()?;
+    // Card 6: a subgroup record the census cannot read is a counted failure, not
+    // a silent skip, so it starts the violation list.
+    let (records, record_failures) = records()?;
     let official = official_line_parameter().map_err(|error| error.to_string())?;
     let generic = Rat::new(GENERIC_SAMPLE.0, GENERIC_SAMPLE.1).map_err(|e| e.to_string())?;
     let cache = PointClassCache::default();
@@ -1089,6 +1197,9 @@ index\tstar_size\tarm_count\tarm_indices\tblock_dimension\tlittle_co_group\t\
 cocycle_trivial\tblock_source\tterms\tcarries_reference\tcarries_gamma";
             if text.lines().next() != Some(EXPECTED_HEADER) {
                 block_file_failures.push(format!(
+                    // `unwrap_or("")` is a message default, not a swallowed
+                    // result: the branch itself is the failure, and an empty
+                    // header cannot equal the literal above.
                     "the --output-blocks header is {:?}, expected {EXPECTED_HEADER:?}",
                     text.lines().next().unwrap_or("")
                 ));
@@ -1154,6 +1265,8 @@ cocycle_trivial\tblock_source\tterms\tcarries_reference\tcarries_gamma";
 block_count\tblocks";
             if text.lines().next() != Some(EXPECTED_HEADER) {
                 recount_file_failures.push(format!(
+                    // A message default, not a swallowed result: the branch is
+                    // the failure (see the `--output-blocks` header above).
                     "the --output-recount header is {:?}, expected {EXPECTED_HEADER:?}",
                     text.lines().next().unwrap_or("")
                 ));
@@ -1210,6 +1323,9 @@ block_count\tblocks";
     );
 
     let mut violations: Vec<String> = probe_errors;
+    // Card 6: the records the walk could not census join the violations, so they
+    // are visible in the gate rather than only in the corpus total.
+    violations.extend(record_failures.iter().cloned());
     violations.extend(algorithm_failures);
     violations.extend(block_file_failures);
     violations.extend(recount_file_failures.iter().cloned());
@@ -1486,13 +1602,19 @@ fn source_domains() -> Result<BTreeMap<(u8, &'static str), ParentDomain>, String
     Ok(domains)
 }
 
-/// Every isotropy record that carries parametric-k rows, with its labels.
-fn records() -> Result<Vec<Record>, String> {
+/// Every isotropy record that carries parametric-k rows, with its labels, and the
+/// subgroup records that could not be censused at all.
+///
+/// The second half is the card-6 replacement for the two silent skips of
+/// [`records_of`]: a record the census cannot read is a **counted** failure, so
+/// the corpus total and the gate cannot disagree about what was censused.
+fn records() -> Result<(Vec<Record>, Vec<String>), String> {
     let mut out = Vec::new();
+    let mut failures = Vec::new();
     for sg in 1..=230u8 {
-        out.extend(records_of(sg)?);
+        out.extend(records_of(sg, &mut failures)?);
     }
-    Ok(out)
+    Ok((out, failures))
 }
 
 /// The same walk, restricted to one parent space group.
@@ -1500,7 +1622,13 @@ fn records() -> Result<Vec<Record>, String> {
 /// Split out so the card-4 regression tests can build one record without
 /// enumerating the whole corpus first; both callers go through the same code, so
 /// a test cannot exercise a record the census would not have built.
-fn records_of(sg: u8) -> Result<Vec<Record>, String> {
+///
+/// `failures` collects the subgroup records the census **cannot** enter.  Both of
+/// them used to be a silent `continue` (card-6 finding): a record whose pinned
+/// rows cannot be read, and a record whose child space group number does not fit
+/// the census's `u8` key.  Dropping either would shrink the corpus without
+/// moving any counter except the total, so they are counted failures now.
+fn records_of(sg: u8, failures: &mut Vec<String>) -> Result<Vec<Record>, String> {
     let mut out = Vec::new();
     for record in query::irreps_of(sg) {
         if record.spinor || record.subgroups().is_empty() {
@@ -1509,8 +1637,27 @@ fn records_of(sg: u8) -> Result<Vec<Record>, String> {
         let subgroups = isotropy::isotropy_subgroups(sg, record.ml, LabelConvention::Cdml)
             .map_err(|error| format!("SG {sg} {}: {error}", record.ml))?;
         for subgroup in subgroups {
-            let Ok(rows) = subgroup.other_wave_vector_subduction() else {
-                continue;
+            let rows = match subgroup.other_wave_vector_subduction() {
+                Ok(rows) => rows,
+                Err(error) => {
+                    failures.push(format!(
+                        "ordinal {} (SG {sg}): the pinned wave-vector rows cannot be read, so the \
+                         record is not censused: {error}",
+                        subgroup.ordinal
+                    ));
+                    continue;
+                }
+            };
+            let child_sg = match u8::try_from(subgroup.record.sg) {
+                Ok(child_sg) => child_sg,
+                Err(error) => {
+                    failures.push(format!(
+                        "ordinal {} (SG {sg}): the child space group {} does not fit the census's \
+                         space group key: {error}",
+                        subgroup.ordinal, subgroup.record.sg
+                    ));
+                    continue;
+                }
             };
             let mut labels: Vec<(&'static str, u16)> = Vec::new();
             for row in rows {
@@ -1533,7 +1680,7 @@ fn records_of(sg: u8) -> Result<Vec<Record>, String> {
             out.push(Record {
                 ordinal: subgroup.ordinal,
                 parent_sg: sg,
-                child_sg: u8::try_from(subgroup.record.sg).unwrap_or(0),
+                child_sg,
                 subgroup,
                 labels,
             });
@@ -1943,7 +2090,22 @@ fn block_dimensions(
         ));
         0
     } else {
-        usize::try_from(parent / dimension).unwrap_or(0)
+        // The conversion cannot fail on a target with 32-bit or wider `usize`;
+        // it is a counted failure rather than a `unwrap_or(0)` so a narrow target
+        // (or a future wider `u32`) shows up as the exact division it is instead
+        // of as "no arm count" (card-6 sweep of the error-swallowing sites).
+        match usize::try_from(parent / dimension) {
+            Ok(arm_total) => arm_total,
+            Err(error) => {
+                failures.push(format!(
+                    "ordinal {} {}: the arm count {} does not fit a usize: {error}",
+                    result.ordinal(),
+                    result.label(),
+                    parent / dimension
+                ));
+                0
+            }
+        }
     };
     BlockDimensions {
         reported_blocks: result.blocks().len(),
@@ -2149,6 +2311,483 @@ fn interior_points(left: &Rat, right: &Rat) -> Result<(Rat, Rat, Rat), String> {
     let first = left.checked_add(step).map_err(|error| error.to_string())?;
     let second = first.checked_add(step).map_err(|error| error.to_string())?;
     Ok((step, first, second))
+}
+
+// ── R6.7 card 6: the independent arm-geometry audit ─────────────────────────
+
+/// One full-star relation, recomputed by the census from the folded arms and the
+/// child reciprocal lattice **itself**.
+///
+/// The predicate is the card-3 one, `t (R^-T v_arm - v_image) in L*_H`, and the
+/// triples are exactly the partition's: every `(arm, image, rotation)` with the
+/// reflexive `(i, i, identity)` excluded.  The **decision** is not the
+/// partition's: the difference vector is formed explicitly, mapped once into the
+/// child reciprocal-lattice basis, and evaluated at a parameter by scaling that
+/// coordinate vector and asking for integrality.  The partition's own solver
+/// (`minimal_parameter_step`) and its residue enumeration are never called here,
+/// so a partition that reports a wrong parameter set, a wrong event count or a
+/// boundary that no relation supports cannot agree with this audit by
+/// construction.
+struct CensusRelation {
+    /// Which part of the folded geometry the relation can change.
+    kind: StarEventKind,
+    /// `C_H (R^-T v_arm - v_image)`: `t w in L*_H` is exactly `t * coordinates in
+    /// Z^3`, because a vector is `rows^T . coordinates` in the lattice basis.
+    coordinates: Vec3R,
+    /// Whether the difference vector is exactly zero: then the relation holds at
+    /// **every** parameter, which is why the partition records it as permanent
+    /// instead of cutting the domain at it.
+    permanent: bool,
+}
+
+impl CensusRelation {
+    /// Whether `t w in L*_H` at this parameter.
+    fn holds(&self, parameter: &Rat) -> Result<bool, String> {
+        if self.permanent {
+            return Ok(true);
+        }
+        for axis in 0..3 {
+            let component = self.coordinates.get(axis);
+            if component.is_zero() {
+                continue;
+            }
+            let scaled = parameter.checked_mul(component).map_err(|error| {
+                format!("the relation coordinate at axis {axis} times t={parameter}: {error}")
+            })?;
+            if scaled.denominator() != 1 {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+}
+
+/// What the card-6 independent arm-geometry audit measured over the corpus.
+#[derive(Default)]
+struct GeometryReport {
+    /// `(record, label)` pairs whose relation list was rebuilt.
+    pairs: usize,
+    /// Relations enumerated (the partition's triple set, minus the reflexive
+    /// `(i, i, identity)` relation).
+    relations: usize,
+    /// The closed form the enumeration has to match, `n^2 r - n`, accumulated
+    /// from the partition's own arm and rotation counts.
+    predicted_relations: usize,
+    /// Relations whose difference vector is exactly zero.
+    permanent: usize,
+    /// `Σ partition.permanent_counts`: the partition's own account of the same
+    /// relation set.
+    permanent_partition: usize,
+    /// Boundary parameters of the partition at which the whole relation list was
+    /// evaluated and compared with the recorded event counts.
+    boundaries: usize,
+    /// Boundary parameters the independent residue computation derives.
+    recomputed_boundaries: usize,
+    /// Predicate instances evaluated at boundary parameters.
+    evaluated: usize,
+    /// Interior points of the sweep's intervals at which the relation list was
+    /// evaluated (two per interval).
+    interior_points: usize,
+    /// Predicate instances evaluated at those interior points.
+    interior_evaluated: usize,
+    /// Interior points at which a non-permanent relation held: a cut the
+    /// partition does not report, so a violation rather than a note.
+    interior_holds: usize,
+    /// Disagreements between the audit and the partition, of any kind.
+    disagreements: usize,
+    /// Orbit–stabiliser arm-count checks, and how many of them disagreed with
+    /// `partition.arms.len()`.
+    arm_orbit_checks: usize,
+    arm_orbit_disagreements: usize,
+    /// `Σ partition.arms.len()`, the arm count the orbit–stabiliser route
+    /// predicts.
+    arms: usize,
+    /// `Σ probe parameter count x frozen little dimension x arm count`: the
+    /// closed form of the boundary pass' reported parent dimension, accumulated
+    /// from the partition's own counts.  It is the independent prediction of
+    /// [`SweepReport::boundary_parent_dimension`], which comes from the returned
+    /// decompositions themselves.
+    predicted_boundary_dimension: u64,
+}
+
+/// The census's own enumeration of one pair's full-star relations.
+///
+/// The rotation action is applied explicitly (`R^-T v = (R^T)^-1 v` on the arm's
+/// folded direction) and the difference is expressed in the child reciprocal
+/// lattice basis; nothing here reads the partition's events, counts or steps.
+fn census_relations(
+    partition: &FullStarPartition,
+    key: &str,
+) -> Result<Vec<CensusRelation>, String> {
+    let arms = &partition.arms;
+    let rotations = &partition.child_rotations;
+    let mut out = Vec::with_capacity(arms.len() * arms.len() * rotations.len());
+    for (arm_index, arm) in arms.iter().enumerate() {
+        for rotation in rotations {
+            let action = Mat3R::from_ints(*rotation)
+                .inverse()
+                .map_err(|error| format!("{key}: the rotation {rotation:?} is singular: {error}"))?
+                .transpose();
+            let image = action
+                .checked_mul_vector(&arm.direction)
+                .map_err(|error| format!("{key}: the image of arm {arm_index}: {error}"))?;
+            for (image_index, image_arm) in arms.iter().enumerate() {
+                if arm_index == image_index && *rotation == IDENTITY_ROTATION {
+                    // The reflexive relation: an arm is itself at every
+                    // parameter.  The partition excludes it for the same reason.
+                    continue;
+                }
+                let difference = image.checked_sub(&image_arm.direction).map_err(|error| {
+                    format!("{key}: the difference of arms {arm_index} and {image_index}: {error}")
+                })?;
+                let coordinates = partition
+                    .child_reciprocal
+                    .coordinates(&difference)
+                    .map_err(|error| {
+                        format!("{key}: the child lattice coordinates of the difference: {error}")
+                    })?;
+                let kind = if arm_index == image_index {
+                    StarEventKind::LittleCoGroupGrowth
+                } else if *rotation == IDENTITY_ROTATION {
+                    StarEventKind::ArmMerge
+                } else {
+                    StarEventKind::OrbitIdentification
+                };
+                out.push(CensusRelation {
+                    kind,
+                    coordinates,
+                    permanent: difference.is_zero(),
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Evaluate the whole relation list at one parameter, counting by kind.
+///
+/// **Only the non-permanent relations are counted**: an identically-true
+/// relation holds at every parameter by construction, so counting it here would
+/// make every interior point look like a missed cut.  Those relations are
+/// accounted for separately, by comparing their number with the partition's own
+/// `permanent_counts`.
+///
+/// `evaluated` is incremented once per relation **before** the predicate is
+/// decided, so a relation that fails to be decided is still counted as
+/// evaluated.
+fn relation_counts(
+    relations: &[CensusRelation],
+    parameter: &Rat,
+    evaluated: &mut usize,
+) -> Result<[usize; 3], String> {
+    let mut counts = [0usize; 3];
+    for relation in relations {
+        if relation.permanent {
+            continue;
+        }
+        *evaluated += 1;
+        if relation.holds(parameter)? {
+            counts[relation.kind.index()] += 1;
+        }
+    }
+    Ok(counts)
+}
+
+/// `t mod 1` of a normalized rational, in `[0, 1)`.
+fn reduce_modulo_one(value: Rat) -> Rat {
+    let denominator = value.denominator();
+    Rat::new(value.numerator().rem_euclid(denominator), denominator)
+        .expect("a residue of a normalized rational is a rational")
+}
+
+/// Sorted, deduplicated exact parameters: the census-side set representation,
+/// because `Rat` deliberately has no `Ord` and a `BTreeSet` is therefore not
+/// available.
+fn parameter_set(values: Vec<Rat>) -> Vec<Rat> {
+    let mut sorted = sorted_parameters(values);
+    sorted.dedup();
+    sorted
+}
+
+/// The values of the sorted `left` that are not in the sorted `right`.
+fn parameter_difference(left: &[Rat], right: &[Rat]) -> Vec<Rat> {
+    left.iter()
+        .copied()
+        .filter(|value| !right.contains(value))
+        .collect()
+}
+
+/// A parameter list for a failure message, through `Rat`'s `Display`: its
+/// `Debug` prints the private fields, which would hide the parameter's value.
+fn parameters_text(values: &[Rat]) -> String {
+    values
+        .iter()
+        .map(Rat::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Least positive rational that is an integer multiple of both arguments.
+///
+/// For normalized positive `p1/q1` and `p2/q2` the intersection of the subgroups
+/// they generate is generated by `lcm(p1, p2) / gcd(q1, q2)`.
+fn rational_lcm(left: &Rat, right: &Rat) -> Result<Rat, String> {
+    let left_numerator = left
+        .numerator()
+        .checked_abs()
+        .ok_or_else(|| "the relation step overflows".to_string())?;
+    let right_numerator = right
+        .numerator()
+        .checked_abs()
+        .ok_or_else(|| "the relation step overflows".to_string())?;
+    let numerator = if left_numerator == 0 || right_numerator == 0 {
+        0
+    } else {
+        (left_numerator / gcd(left_numerator, right_numerator))
+            .checked_mul(right_numerator)
+            .ok_or_else(|| "the relation step overflows".to_string())?
+    };
+    Rat::new(numerator, gcd(left.denominator(), right.denominator()))
+        .map_err(|error| format!("the relation step: {error}"))
+}
+
+/// The parameters of `[0, 1)` at which one relation holds, from its coordinate
+/// vector alone.
+///
+/// `t w in L*` holds iff `t c_i in Z` for every component `c_i = p_i / q_i` of
+/// the coordinate vector, i.e. iff `t` is a multiple of `q_i / |p_i|` for every
+/// nonzero component, so the solution set is the subgroup generated by the
+/// rational least common multiple of those generators and its residues in
+/// `[0, 1)` are the multiples of the reduced generator.
+fn relation_residues(relation: &CensusRelation) -> Result<Vec<Rat>, String> {
+    if relation.permanent {
+        return Ok(Vec::new());
+    }
+    let mut step: Option<Rat> = None;
+    for axis in 0..3 {
+        let component = relation.coordinates.get(axis);
+        if component.is_zero() {
+            continue;
+        }
+        let numerator = component
+            .numerator()
+            .checked_abs()
+            .ok_or_else(|| "a relation coordinate overflows".to_string())?;
+        let generator = Rat::new(component.denominator(), numerator)
+            .map_err(|error| format!("the relation generator: {error}"))?;
+        step = Some(match step {
+            None => generator,
+            Some(current) => rational_lcm(&current, &generator)?,
+        });
+    }
+    let Some(step) = step else {
+        // Every component is zero, which is the `permanent` case above; kept as a
+        // defensive guard rather than a silent empty answer.
+        return Err("the relation has no nonzero coordinate but is not permanent".to_string());
+    };
+    let capacity = usize::try_from(step.denominator())
+        .map_err(|error| format!("the relation residue count: {error}"))?;
+    let mut out = Vec::with_capacity(capacity);
+    for multiple in 0..step.denominator() {
+        let factor = Rat::new(multiple, 1)
+            .map_err(|error| format!("the relation residue {multiple}: {error}"))?;
+        let value = step
+            .checked_mul(factor)
+            .map_err(|error| format!("the relation residue {multiple}: {error}"))?;
+        out.push(reduce_modulo_one(value));
+    }
+    Ok(out)
+}
+
+/// The arm count as an **orbit–stabiliser** count.
+///
+/// The arms are the distinct images `R^-T v` of the frozen direction under the
+/// parent's rotation group, so `|orbit| = |G| / |Stab_G(v)|`.  The group is read
+/// here through [`rotation_set`] -- a different route from the deduplicated Hall
+/// operations `arm_images` enumerates -- and the stabiliser is counted by exact
+/// vector equality of the images.
+fn arm_orbit_count(parent_sg: u8, direction: &Vec3R) -> Result<usize, String> {
+    let rotations =
+        rotation_set(parent_sg).map_err(|error| format!("SG {parent_sg}: {error}"))?;
+    let mut stabiliser = 0usize;
+    for rotation in &rotations {
+        let image = Mat3R::from_ints(*rotation)
+            .inverse()
+            .map_err(|error| format!("SG {parent_sg}: the rotation {rotation:?} is singular: {error}"))?
+            .transpose()
+            .checked_mul_vector(direction)
+            .map_err(|error| format!("SG {parent_sg}: the rotation image: {error}"))?;
+        if image == *direction {
+            stabiliser += 1;
+        }
+    }
+    if stabiliser == 0 || !rotations.len().is_multiple_of(stabiliser) {
+        return Err(format!(
+            "the orbit–stabiliser count of SG {parent_sg} is not exact ({} rotation(s), \
+             {stabiliser} fixing the direction)",
+            rotations.len()
+        ));
+    }
+    Ok(rotations.len() / stabiliser)
+}
+
+/// Recompute one pair's arm geometry from the folded arms and the child
+/// reciprocal lattice, and check the partition against it.
+///
+/// Returns the relation list for the interior audit of the sweep's intervals; it
+/// is empty when the enumeration itself failed, which is already a counted
+/// failure.
+fn audit_arm_geometry(
+    table: &'static LittleCharacterTable,
+    partition: &FullStarPartition,
+    probe_parameters: usize,
+    key: &str,
+    report: &mut SweepReport,
+) -> Vec<CensusRelation> {
+    let relations = match census_relations(partition, key) {
+        Ok(relations) => relations,
+        Err(error) => {
+            report.geometry.disagreements += 1;
+            report
+                .failures
+                .push(format!("{key}: the independent relation enumeration failed: {error}"));
+            return Vec::new();
+        }
+    };
+    report.geometry.pairs += 1;
+    // The closed form `n^2 r - n` (the reflexive `(i, i, identity)` triples are
+    // excluded) is an independent count of the same enumeration, read from the
+    // partition's own arm and rotation counts: a truncated or duplicated
+    // enumeration cannot match it without a matching change in the partition.
+    let predicted = partition
+        .arms
+        .len()
+        .saturating_mul(partition.arms.len())
+        .saturating_mul(partition.child_rotations.len())
+        .saturating_sub(partition.arms.len());
+    report.geometry.relations += relations.len();
+    report.geometry.predicted_relations += predicted;
+    if relations.len() != predicted {
+        report.geometry.disagreements += 1;
+        report.failures.push(format!(
+            "{key}: the independent relation enumeration produced {} relation(s) but the closed \
+             form n^2 r - n of the partition's own counts predicts {predicted}",
+            relations.len()
+        ));
+    }
+    let permanent = relations
+        .iter()
+        .filter(|relation| relation.permanent)
+        .count();
+    let partition_permanent: usize = partition.permanent_counts.iter().sum();
+    report.geometry.permanent += permanent;
+    report.geometry.permanent_partition += partition_permanent;
+    if permanent != partition_permanent {
+        report.geometry.disagreements += 1;
+        report.failures.push(format!(
+            "{key}: the audit finds {permanent} identically-true relation(s) but the partition \
+             records {partition_permanent}"
+        ));
+    }
+    // The boundary set, recomputed as the union of the relations' residue sets.
+    // `Rat` deliberately has no `Ord`, so the set is a sorted, deduplicated
+    // vector rather than a `BTreeSet`.
+    let mut recomputed: Vec<Rat> = Vec::new();
+    for relation in &relations {
+        match relation_residues(relation) {
+            Ok(residues) => recomputed.extend(residues),
+            Err(error) => {
+                report.geometry.disagreements += 1;
+                report
+                    .failures
+                    .push(format!("{key}: the independent residue computation: {error}"));
+            }
+        }
+    }
+    let recomputed = parameter_set(recomputed);
+    let claimed_raw = partition.boundary_parameters();
+    let claimed = parameter_set(claimed_raw.clone());
+    report.geometry.recomputed_boundaries += recomputed.len();
+    if claimed.len() != claimed_raw.len() {
+        report.geometry.disagreements += 1;
+        report.failures.push(format!(
+            "{key}: the partition lists {} boundary parameter(s) but only {} distinct one(s)",
+            claimed_raw.len(),
+            claimed.len()
+        ));
+    }
+    if recomputed != claimed {
+        report.geometry.disagreements += 1;
+        report.failures.push(format!(
+            "{key}: the independently recomputed full-star boundary set is not the partition's: \
+             the partition cuts [{}] that no relation supports, and does not cut [{}] where a \
+             relation holds",
+            parameters_text(&parameter_difference(&claimed, &recomputed)),
+            parameters_text(&parameter_difference(&recomputed, &claimed))
+        ));
+    }
+    // At every boundary the partition claims, the relations that hold must be
+    // exactly the ones it records: the counts are exact on both sides.
+    for parameter in &claimed {
+        report.geometry.boundaries += 1;
+        let mut evaluated = report.geometry.evaluated;
+        let counts = match relation_counts(&relations, parameter, &mut evaluated) {
+            Ok(counts) => counts,
+            Err(error) => {
+                report.geometry.evaluated = evaluated;
+                report.geometry.disagreements += 1;
+                report.failures.push(format!(
+                    "{key} t={parameter}: the boundary relation audit: {error}"
+                ));
+                continue;
+            }
+        };
+        report.geometry.evaluated = evaluated;
+        let recorded = partition
+            .boundary(parameter)
+            .map_or([0usize; 3], |boundary| boundary.counts);
+        if counts != recorded {
+            report.geometry.disagreements += 1;
+            report.failures.push(format!(
+                "{key} t={parameter}: the audit finds {}/{}/{} relation(s) holding (little-co-group \
+                 growth / arm merge / orbit identification) but the partition records {}/{}/{}",
+                counts[0], counts[1], counts[2], recorded[0], recorded[1], recorded[2]
+            ));
+        }
+    }
+    // The arm count by orbit and stabiliser, against the partition's own list.
+    // The closed form of the boundary pass' reported parent dimension: every
+    // probe parameter contributes `frozen little dimension x arms`, and the
+    // engine's own `parent_dimension()` is what the pass accumulated.
+    report.geometry.predicted_boundary_dimension += (probe_parameters as u64)
+        * u64::from(table.dimension)
+        * (partition.arms.len() as u64);
+    report.geometry.arm_orbit_checks += 1;
+    report.geometry.arms += partition.arms.len();
+    match line_direction(table) {
+        Some(direction) => match arm_orbit_count(table.space_group, &direction) {
+            Ok(orbit) if orbit == partition.arms.len() => {}
+            Ok(orbit) => {
+                report.geometry.arm_orbit_disagreements += 1;
+                report.failures.push(format!(
+                    "{key}: the orbit–stabiliser count over the parent's rotations gives {orbit} \
+                     arm(s) but the partition lists {}",
+                    partition.arms.len()
+                ));
+            }
+            Err(error) => {
+                report.geometry.arm_orbit_disagreements += 1;
+                report.failures.push(format!("{key}: the orbit–stabiliser arm count: {error}"));
+            }
+        },
+        None => {
+            report.geometry.arm_orbit_disagreements += 1;
+            report.failures.push(format!(
+                "{key}: the frozen direction does not parse, so the arm count cannot be recomputed"
+            ));
+        }
+    }
+    relations
 }
 
 /// The child little group at one exact child point, in the child **Hall** frame
@@ -2731,6 +3370,7 @@ fn sweep_label(
             return;
         }
     };
+    let key = format!("ordinal {} {}", context.ordinal, context.label);
     // A probe set with no boundary at all is the single interval `(0, 1)`, which
     // `probe_intervals` handles; an **empty** one would silently sweep nothing.
     if parameters.is_empty() {
@@ -2780,11 +3420,32 @@ fn sweep_label(
             report.parent_only_parameters += 1;
         }
     }
+    // R6.7 card 6, part 1: the production decomposition at **every** probe
+    // parameter, not only at the interval interiors.  This is what makes the
+    // boundary parameters part of the swept evidence instead of only of the
+    // separate main-probe pass.  The counters are incremented around the call
+    // itself, with no early exit between them, so
+    // `boundary_points == boundary_successes + boundary_failures` cannot lose an
+    // item (the gate asserts it and pins the total).
+    sweep_boundary_pass(subgroup, embedding, table, &parameters, context, report);
+    // R6.7 card 6, part 2: the same pair's arm geometry, recomputed from the
+    // folded arms and the child reciprocal lattice without the partition's
+    // solver; the returned relation list is evaluated again at the interior
+    // points of every interval below.
+    let relations = audit_arm_geometry(table, partition, parameters.len(), &key, report);
     for (left, right) in intervals {
         report.intervals += 1;
         let mut failures: Vec<String> = Vec::new();
         if let Err(error) = sweep_interval(
-            subgroup, embedding, table, context, left, right, report, &mut failures,
+            subgroup,
+            embedding,
+            table,
+            context,
+            &relations,
+            left,
+            right,
+            report,
+            &mut failures,
         ) {
             failures.push(error);
         }
@@ -2797,6 +3458,50 @@ fn sweep_label(
     }
 }
 
+/// R6.7 card 6: run the **production** decomposition at every probe parameter of
+/// one `(record, label)`.
+///
+/// `boundary_points` is incremented before the engine is asked and exactly one of
+/// the two outcome counters after it, so every parameter is accounted for
+/// whether it is answered or fails.  A failure carries the record, the label,
+/// the parameter and the engine's own error text.
+fn sweep_boundary_pass(
+    subgroup: &isotropy::IsotropySubgroup,
+    embedding: &SubgroupEmbedding,
+    table: &'static LittleCharacterTable,
+    parameters: &[Rat],
+    context: &SweepContext,
+    report: &mut SweepReport,
+) {
+    for parameter in parameters {
+        report.boundary_points += 1;
+        match subduce_line_at_parameter(subgroup, embedding, table, *parameter) {
+            Ok(result) => {
+                report.boundary_successes += 1;
+                report.boundary_parent_dimension += u64::from(result.parent_dimension());
+                report.boundary_covered_dimension += u64::from(result.covered_dimension());
+                let mut failures = Vec::new();
+                let dimensions = block_dimensions(table, &result, &mut failures);
+                if dimensions.covered != dimensions.parent {
+                    failures.push(format!(
+                        "ordinal {} {} t={parameter}: the boundary decomposition covers {} of the \
+                         parent dimension {}",
+                        context.ordinal, context.label, dimensions.covered, dimensions.parent
+                    ));
+                }
+                report.failures.extend(failures);
+            }
+            Err(error) => {
+                report.boundary_failures += 1;
+                report.failures.push(format!(
+                    "ordinal {} {} t={parameter}: the boundary decomposition failed: {error}",
+                    context.ordinal, context.label
+                ));
+            }
+        }
+    }
+}
+
 /// One interval: two interior points, both decompositions, geometry and
 /// representation comparison.
 #[allow(clippy::too_many_arguments)]
@@ -2805,6 +3510,7 @@ fn sweep_interval(
     embedding: &SubgroupEmbedding,
     table: &'static LittleCharacterTable,
     context: &SweepContext,
+    relations: &[CensusRelation],
     left: Rat,
     right: Rat,
     report: &mut SweepReport,
@@ -2816,6 +3522,37 @@ fn sweep_interval(
     );
     let (_, first, second) =
         interior_points(&left, &right).map_err(|error| format!("{key}: interior points: {error}"))?;
+    // R6.7 card 6, part 3: the interior half of the arm-geometry audit.  The
+    // partition's exactness says that no relation with a nonzero difference
+    // vector holds strictly inside an interval; here that is checked by
+    // evaluating the whole independently enumerated relation list at both
+    // interior points.  Both points are counted before either is evaluated, so
+    // the two-per-interval conservation holds even when a relation fails to be
+    // decided.
+    report.geometry.interior_points += 2;
+    for parameter in [first, second] {
+        let mut evaluated = report.geometry.interior_evaluated;
+        let counts = match relation_counts(relations, &parameter, &mut evaluated) {
+            Ok(counts) => counts,
+            Err(error) => {
+                report.geometry.interior_evaluated = evaluated;
+                return Err(format!(
+                    "{key}: the interior relation audit at t={parameter}: {error}"
+                ));
+            }
+        };
+        report.geometry.interior_evaluated = evaluated;
+        let holding: usize = counts.iter().sum();
+        if holding > 0 {
+            report.geometry.interior_holds += 1;
+            failures.push(format!(
+                "{key}: at the interior parameter t={parameter} {holding} full-star relation(s) \
+                 hold (little-co-group growth {}, arm merge {}, orbit identification {}), so the \
+                 parameter is a cut the partition does not report",
+                counts[0], counts[1], counts[2]
+            ));
+        }
+    }
     let mut results = Vec::with_capacity(2);
     for parameter in [first, second] {
         report.points += 1;
@@ -3445,12 +4182,21 @@ fn probe_record(
             ] {
                 for row in 0..3 {
                     let vector = Vec3R::new(*right.rows().row(row));
-                    if !left.contains(&vector).unwrap_or(false) {
-                        failures.push(format!(
+                    // Card 6: this lattice error used to be swallowed into
+                    // `false` by `unwrap_or(false)`, which would have reported
+                    // "not the embedding's lattice" instead of the real error.
+                    // It is propagated now.
+                    match left.contains(&vector) {
+                        Ok(true) => {}
+                        Ok(false) => failures.push(format!(
                             "ordinal {}: the {name} child lattice is not the embedding's \
                              reciprocal lattice (row {row})",
                             record.ordinal
-                        ));
+                        )),
+                        Err(error) => failures.push(format!(
+                            "ordinal {}: the {name} child lattice test (row {row}): {error}",
+                            record.ordinal
+                        )),
                     }
                 }
             }
@@ -3677,15 +4423,21 @@ fn probe_record(
                 )),
             }
         }
-        let Ok((parameters, child_candidates)) =
-            record_parameters(record, domain, table, official, generic)
-        else {
-            failures.push(format!(
-                "ordinal {}: parameter partition failed for {label}",
-                record.ordinal
-            ));
-            continue;
-        };
+        let (parameters, child_candidates) =
+            match record_parameters(record, domain, table, official, generic) {
+                Ok(partition) => partition,
+                Err(error) => {
+                    // Counted, with the reason: this used to read "parameter
+                    // partition failed" and drop the cause, which is the
+                    // difference between a diagnosable corpus gap and a silent
+                    // one (card 6).
+                    failures.push(format!(
+                        "ordinal {} {label}: the parameter partition failed: {error}",
+                        record.ordinal
+                    ));
+                    continue;
+                }
+            };
         for parameter in &child_candidates {
             if !child_parameters.contains(parameter) {
                 child_parameters.push(*parameter);
@@ -3834,6 +4586,11 @@ fn probe_record(
                     // the same run (`--output-blocks` carries the block one).
                     let stored = classify_probe(&targets) == BlockSource::Stored;
                     let content = result.trivial_content().map_err(|error| error.to_string());
+                    // `content.as_ref().ok()` is not a swallowed error: the
+                    // `Err` arm is written into `detail` just below, and
+                    // `check_invariants` turns an answered probe without a
+                    // trivial content into a violation (guard 5), so a content
+                    // failure cannot pass as a missing number.
                     (
                         if stored { TargetClass::Stored } else { TargetClass::Constructed },
                         Some(result.parameter_kind()),
@@ -4096,8 +4853,34 @@ fn merge_sweep(total: &mut SweepReport, part: SweepReport) {
     total.little_fixity_checks += part.little_fixity_checks;
     total.little_fixity_non_identity_checks += part.little_fixity_non_identity_checks;
     total.little_fixity_mismatches += part.little_fixity_mismatches;
+    total.boundary_points += part.boundary_points;
+    total.boundary_successes += part.boundary_successes;
+    total.boundary_failures += part.boundary_failures;
+    total.boundary_parent_dimension += part.boundary_parent_dimension;
+    total.boundary_covered_dimension += part.boundary_covered_dimension;
+    merge_geometry(&mut total.geometry, part.geometry);
     total.worst_score = total.worst_score.min(part.worst_score);
     total.failures.extend(part.failures);
+}
+
+/// Add one record's card-6 arm-geometry audit to the corpus-wide one.
+fn merge_geometry(total: &mut GeometryReport, part: GeometryReport) {
+    total.pairs += part.pairs;
+    total.relations += part.relations;
+    total.predicted_relations += part.predicted_relations;
+    total.permanent += part.permanent;
+    total.permanent_partition += part.permanent_partition;
+    total.boundaries += part.boundaries;
+    total.recomputed_boundaries += part.recomputed_boundaries;
+    total.evaluated += part.evaluated;
+    total.interior_points += part.interior_points;
+    total.interior_evaluated += part.interior_evaluated;
+    total.interior_holds += part.interior_holds;
+    total.disagreements += part.disagreements;
+    total.arm_orbit_checks += part.arm_orbit_checks;
+    total.arm_orbit_disagreements += part.arm_orbit_disagreements;
+    total.arms += part.arms;
+    total.predicted_boundary_dimension += part.predicted_boundary_dimension;
 }
 
 /// Add one record's recount report to the corpus-wide one.
@@ -4377,6 +5160,42 @@ fn report(
             sweep.little_fixity_non_identity_checks,
             sweep.little_fixity_mismatches
         );
+        // R6.7 card 6: the boundary pass and the independent arm-geometry audit.
+        println!(
+            "  boundary pass: {} boundary point(s) at the production engine, {} answered, {} \
+             failed; answered decompositions {} parent / {} covered dimension",
+            sweep.boundary_points,
+            sweep.boundary_successes,
+            sweep.boundary_failures,
+            sweep.boundary_parent_dimension,
+            sweep.boundary_covered_dimension
+        );
+        let geometry = &sweep.geometry;
+        println!(
+            "  independent arm-geometry audit: {} pair(s), {} relation(s) enumerated (closed form \
+             {}), {} permanent (partition records {}), boundary set recomputed {} (partition {}), \
+             {} disagreement(s)",
+            geometry.pairs,
+            geometry.relations,
+            geometry.predicted_relations,
+            geometry.permanent,
+            geometry.permanent_partition,
+            geometry.recomputed_boundaries,
+            geometry.boundaries,
+            geometry.disagreements
+        );
+        println!(
+            "  relation predicate(s) evaluated: {} at the boundary parameters, {} at the {} \
+             interior point(s), {} interior point(s) where a relation holds; orbit–stabiliser arm \
+             count {} check(s) / {} disagreement(s) over {} arm(s)",
+            geometry.evaluated,
+            geometry.interior_evaluated,
+            geometry.interior_points,
+            geometry.interior_holds,
+            geometry.arm_orbit_checks,
+            geometry.arm_orbit_disagreements,
+            geometry.arms
+        );
     }
     if let Some(rows) = evidence.recount_file_rows {
         println!(
@@ -4445,6 +5264,151 @@ fn step_algorithm_cross_check(
         }
     }
     (checks, mismatches, failures)
+}
+
+/// The count conservations of the R6.7 card-6 sweep, as a gate-level check.
+///
+/// Split out of [`check_invariants`] so a fault-injection test can assert the
+/// gate's own reaction to a report instead of re-implementing it: the two
+/// conservations say that a parameter or an interval that was counted is either
+/// answered or an explicitly counted failure, and the two zero-checks turn a
+/// failure into a gate violation.
+fn sweep_conservation(sweep: &SweepReport, violations: &mut Vec<String>) {
+    if sweep.intervals != sweep.comparisons + sweep.failed_intervals {
+        violations.push(format!(
+            "the domain sweep checked {} interval(s) as {} comparison(s) + {} failure(s)",
+            sweep.intervals, sweep.comparisons, sweep.failed_intervals
+        ));
+    }
+    if sweep.boundary_points != sweep.boundary_successes + sweep.boundary_failures {
+        violations.push(format!(
+            "the domain sweep's boundary pass ran {} parameter(s) as {} success(es) + {} failure(s)",
+            sweep.boundary_points, sweep.boundary_successes, sweep.boundary_failures
+        ));
+    }
+    if sweep.failed_intervals > 0 {
+        violations.push(format!(
+            "the domain sweep failed on {} interval(s)",
+            sweep.failed_intervals
+        ));
+    }
+    if sweep.boundary_failures > 0 {
+        violations.push(format!(
+            "the domain sweep's boundary pass failed on {} parameter(s)",
+            sweep.boundary_failures
+        ));
+    }
+}
+
+/// Gate-level synthetic self-check of the audit's own comparisons.
+///
+/// The corpus is **clean**: every recomputed boundary set equals the partition's,
+/// every recorded event count equals the recomputed one and no interior point
+/// carries a relation.  A comparison branch that is deleted or that always
+/// answers "disagreement" is therefore invisible on the corpus, which is exactly
+/// the failure mode the previous review rounds found (a control that is only
+/// ever exercised in its passing direction).  Two synthetic partitions -- the
+/// fields are public -- drive the same [`audit_arm_geometry`] code:
+///
+/// * the honest one, whose boundary set and event counts are derived from the
+///   same relations: the audit must report neither a set nor a count
+///   disagreement;
+/// * the same partition with one recorded count lowered to `[0, 1, 0]`: the
+///   count comparison must fire;
+/// * the same partition with its second boundary moved from `1/2` to `1/4`: the
+///   set comparison must fire.
+///
+/// The synthetic arms are `(1, 0, 0)` and `(-1, 0, 0)` with the identity
+/// rotation, so the two arm-merge relations `t . (+-2, 0, 0) in Z^3` hold exactly
+/// at `t = 0` and `t = 1/2`.  Only the two messages under test are asserted: the
+/// arm count of this fixture is deliberately not the orbit of any real source, so
+/// the orbit-stabiliser check reports its own (expected) disagreement and is not
+/// part of this self-check.
+fn audit_self_check() -> (usize, Vec<String>) {
+    let mut violations = Vec::new();
+    // How many synthetic partitions were actually driven through the audit.  The
+    // gate pins it, so a self-check reduced to its honest fixture (the one that
+    // cannot fail) is visible as a moved count instead of as a green gate.
+    let mut cases = 0usize;
+    let arms = vec![
+        FoldedArm {
+            direction: Vec3R::from_ints([1, 0, 0]),
+            parent_rotation: IDENTITY_ROTATION,
+        },
+        FoldedArm {
+            direction: Vec3R::from_ints([-1, 0, 0]),
+            parent_rotation: IDENTITY_ROTATION,
+        },
+    ];
+    let identity: Mat3I = IDENTITY_ROTATION;
+    let base = FullStarPartition {
+        source_sg: 196,
+        child_sg: 1,
+        label: "SELFTEST",
+        arms,
+        reference_arm: 0,
+        child_reciprocal: Lattice::integer(),
+        child_rotations: vec![identity],
+        boundaries: Vec::new(),
+        permanent_counts: [0; 3],
+        permanent_witnesses: Vec::new(),
+    };
+    let zero = Rat::ZERO;
+    let half = Rat::new(1, 2).expect("1/2");
+    let boundary = |parameter: Rat, counts: [usize; 3]| StarBoundary {
+        parameter,
+        counts,
+        witnesses: Vec::new(),
+    };
+    let mut audit = |partition: &FullStarPartition| -> Vec<String> {
+        cases += 1;
+        let table = line_table(196, "DT1").expect("the frozen DT1 table");
+        let mut report = SweepReport {
+            worst_score: 1.0,
+            ..SweepReport::default()
+        };
+        audit_arm_geometry(table, partition, 0, "the audit self-check", &mut report);
+        report.failures
+    };
+    let reports = |failures: &[String], needle: &str| -> bool {
+        failures.iter().any(|failure| failure.contains(needle))
+    };
+    // The honest fixture: two arm-merge relations holding at 0 and 1/2.
+    let mut honest = base.clone();
+    honest.boundaries = vec![
+        boundary(zero, [0, 2, 0]),
+        boundary(half, [0, 2, 0]),
+    ];
+    let failures = audit(&honest);
+    for needle in ["boundary set is not the partition's", "the audit finds"] {
+        if reports(&failures, needle) {
+            violations.push(format!(
+                "the arm-geometry audit's self-check reported {needle:?} on an honest synthetic \
+                 partition: {failures:?}"
+            ));
+        }
+    }
+    // The recorded count lowered: the comparison has to fire.
+    let mut wrong_count = honest.clone();
+    wrong_count.boundaries[1].counts = [0, 1, 0];
+    let failures = audit(&wrong_count);
+    if !reports(&failures, "but the partition records 0/1/0") {
+        violations.push(format!(
+            "the arm-geometry audit's self-check did not notice a recorded event count of 0/1/0 \
+             where the relations hold 0/2/0: {failures:?}"
+        ));
+    }
+    // The boundary moved: the set comparison has to fire.
+    let mut moved = honest.clone();
+    moved.boundaries[1] = boundary(Rat::new(1, 4).expect("1/4"), [0, 0, 0]);
+    let failures = audit(&moved);
+    if !reports(&failures, "does not cut [1/2]") {
+        violations.push(format!(
+            "the arm-geometry audit's self-check did not notice a boundary moved from 1/2 to 1/4: \
+             {failures:?}"
+        ));
+    }
+    (cases, violations)
 }
 
 /// Every invariant the census claims, checked against the probes.
@@ -4713,24 +5677,23 @@ fn check_invariants(
             ));
         }
     }
-    // R6.7 card 5: the interval sweep.  Count conservation first: every interval
-    // is either compared or an explicitly reported failure, so a lost interval
-    // cannot hide behind the failure list or behind a green gate.
+    // R6.7 card 5/6: the interval sweep and the card-6 boundary pass.  Count
+    // conservation comes first: every interval is either compared or an
+    // explicitly reported failure, and every probe parameter either reached the
+    // engine or is a counted failure, so a lost item cannot hide behind the
+    // failure list or behind a green gate.
     if evidence.sweep_ran {
-        if evidence.sweep.intervals
-            != evidence.sweep.comparisons + evidence.sweep.failed_intervals
-        {
+        sweep_conservation(evidence.sweep, violations);
+        // The audit's own comparison branches, driven synthetically: the corpus
+        // only ever exercises their passing direction.  The number of fixtures
+        // actually audited is pinned, so a self-check that stops driving the two
+        // failing fixtures is visible.
+        let (self_check_cases, self_check_violations) = audit_self_check();
+        violations.extend(self_check_violations);
+        if self_check_cases != SELF_CHECK_CASE_PIN {
             violations.push(format!(
-                "the domain sweep checked {} interval(s) as {} comparison(s) + {} failure(s)",
-                evidence.sweep.intervals,
-                evidence.sweep.comparisons,
-                evidence.sweep.failed_intervals
-            ));
-        }
-        if evidence.sweep.failed_intervals > 0 {
-            violations.push(format!(
-                "the domain sweep failed on {} interval(s)",
-                evidence.sweep.failed_intervals
+                "the arm-geometry audit's self-check drove {self_check_cases} synthetic \
+                 partition(s), expected {SELF_CHECK_CASE_PIN}"
             ));
         }
         if evidence.sweep.multiplicity_mismatches > 0 {
@@ -4754,7 +5717,8 @@ fn check_invariants(
         // The corpus totals, pinned: a sweep that silently stops sweep
         // (a wrong interval set, a shortened parameter list, a dropped block)
         // moves one of them.  All of them are measured on the same run that
-        // establishes the pass.
+        // establishes the pass.  The card-6 boundary pass and geometry audit add
+        // their own pinned totals in the block right below.
         for (name, found, expected) in [
             ("(record, label) pair(s)", evidence.sweep.pairs, 5_756usize),
             ("interval(s)", evidence.sweep.intervals, 46_048),
@@ -4762,10 +5726,227 @@ fn check_invariants(
             ("comparison(s)", evidence.sweep.comparisons, 46_048),
             ("matched block pair(s)", evidence.sweep.blocks, 168_408),
             ("matched target pair(s)", evidence.sweep.targets, 174_672),
+            ("boundary point(s)", evidence.sweep.boundary_points, BOUNDARY_POINT_PIN),
+            (
+                "answered boundary point(s)",
+                evidence.sweep.boundary_successes,
+                BOUNDARY_POINT_PIN,
+            ),
+            ("failed boundary point(s)", evidence.sweep.boundary_failures, 0),
         ] {
             if found != expected {
                 violations.push(format!(
                     "the domain sweep covered {found} {name}, expected {expected}"
+                ));
+            }
+        }
+        // The two dimension sums are `u64` (the engine's own `u32` dimensions
+        // accumulated over 46,048 parameters), so they are compared and pinned
+        // in their own loop rather than through a lossy conversion.
+        for (name, found, expected) in [
+            (
+                "boundary parent dimension",
+                evidence.sweep.boundary_parent_dimension,
+                BOUNDARY_DIMENSION_PIN,
+            ),
+            (
+                "boundary covered dimension",
+                evidence.sweep.boundary_covered_dimension,
+                BOUNDARY_DIMENSION_PIN,
+            ),
+        ] {
+            if found != expected {
+                violations.push(format!(
+                    "the domain sweep covered {found} {name}, expected {expected}"
+                ));
+            }
+        }
+        // The two dimension sums of the boundary pass are the engine's own
+        // bookkeeping on every answered parameter; they must agree, which is the
+        // only census-side trace of the returned decompositions themselves.  The
+        // parent sum is then compared with the closed form the audit accumulates
+        // from the partition's own counts, so a pass that stops asking the engine
+        // cannot keep the pin.
+        if evidence.sweep.boundary_parent_dimension
+            != evidence.sweep.geometry.predicted_boundary_dimension
+        {
+            violations.push(format!(
+                "the boundary pass reports {} parent dimension over its probe parameters, the closed \
+                 form (parameters x little dimension x arms) predicts {}",
+                evidence.sweep.boundary_parent_dimension,
+                evidence.sweep.geometry.predicted_boundary_dimension
+            ));
+        }
+        if evidence.sweep.boundary_parent_dimension != evidence.sweep.boundary_covered_dimension {
+            violations.push(format!(
+                "the boundary pass' answered decompositions cover {} of the {} parent dimension \
+                 they report",
+                evidence.sweep.boundary_covered_dimension, evidence.sweep.boundary_parent_dimension
+            ));
+        }
+        // R6.7 card 6: the independent arm-geometry audit.  Its own conservation
+        // relations come first -- the enumerated relation count against the closed
+        // form read from the partition's arm and rotation counts, and the
+        // identically-true relations against the partition's own accounting -- and
+        // then the pinned totals, each of which has an independent predicted value
+        // next to it.
+        let geometry = &evidence.sweep.geometry;
+        if geometry.relations != geometry.predicted_relations {
+            violations.push(format!(
+                "the arm-geometry audit enumerated {} relation(s), the closed form n^2 r - n of the \
+                 partition's own counts predicts {}",
+                geometry.relations, geometry.predicted_relations
+            ));
+        }
+        if geometry.permanent != geometry.permanent_partition {
+            violations.push(format!(
+                "the arm-geometry audit finds {} identically-true relation(s), the partition \
+                 records {}",
+                geometry.permanent, geometry.permanent_partition
+            ));
+        }
+        if geometry.recomputed_boundaries != geometry.boundaries {
+            violations.push(format!(
+                "the arm-geometry audit recomputed {} boundary parameter(s), the partition claims \
+                 {}",
+                geometry.recomputed_boundaries, geometry.boundaries
+            ));
+        }
+        match evidence
+            .sweep
+            .boundary_points
+            .checked_sub(evidence.sweep.parent_only_parameters)
+        {
+            Some(expected) if expected == geometry.boundaries => {}
+            Some(expected) => violations.push(format!(
+                "the arm-geometry audit checked {} full-star boundary parameter(s), but the sweep \
+                 probed {expected} parameter(s) that are not parent-only",
+                geometry.boundaries
+            )),
+            None => violations.push(
+                "the domain sweep counted more parent-only parameters than probe parameters"
+                    .to_string(),
+            ),
+        }
+        if geometry.interior_points != 2 * evidence.sweep.intervals {
+            violations.push(format!(
+                "the arm-geometry audit evaluated {} interior point(s) for {} interval(s), expected \
+                 two per interval",
+                geometry.interior_points, evidence.sweep.intervals
+            ));
+        }
+        if geometry.interior_holds > 0 {
+            violations.push(format!(
+                "the arm-geometry audit found a full-star relation holding at {} interior point(s) \
+                 of the sweep",
+                geometry.interior_holds
+            ));
+        }
+        if geometry.disagreements > 0 {
+            violations.push(format!(
+                "the arm-geometry audit disagreed with the partition {} time(s)",
+                geometry.disagreements
+            ));
+        }
+        if geometry.evaluated == 0 || geometry.interior_evaluated == 0 {
+            violations.push(format!(
+                "the arm-geometry audit evaluated {} boundary and {} interior relation predicate(s)",
+                geometry.evaluated, geometry.interior_evaluated
+            ));
+        }
+        // The evaluation totals are bound to the relation list rather than only
+        // pinned: every boundary parameter evaluates its pair's whole
+        // non-permanent relation list, and every interval evaluates the same list
+        // at both of its interior points, so
+        // `evaluated x pairs == boundaries x (relations - permanent)` and
+        // `interior_evaluated x pairs == 2 x intervals x (relations - permanent)`.
+        // A loop that stops early, skips a relation or evaluates a stale list
+        // moves one side and not the other.  (On this corpus both reduce to
+        // 8x and 16x the non-permanent relation count.)
+        let non_permanent = match geometry.relations.checked_sub(geometry.permanent) {
+            Some(value) => value,
+            None => {
+                violations.push(format!(
+                    "the arm-geometry audit counts {} identically-true relation(s) more than its {} \
+                     enumerated relation(s)",
+                    geometry.permanent, geometry.relations
+                ));
+                0
+            }
+        };
+        for (name, left, right) in [
+            (
+                "boundary",
+                (geometry.evaluated as u128) * (geometry.pairs as u128),
+                (geometry.boundaries as u128) * (non_permanent as u128),
+            ),
+            (
+                "interior",
+                (geometry.interior_evaluated as u128) * (geometry.pairs as u128),
+                (2 * evidence.sweep.intervals as u128) * (non_permanent as u128),
+            ),
+        ] {
+            if left != right {
+                violations.push(format!(
+                    "the arm-geometry audit's {name} evaluation count is {left} relation-pair \
+                     evaluation(s), but every parameter evaluates the whole non-permanent relation \
+                     list, which gives {right}"
+                ));
+            }
+        }
+        if geometry.arm_orbit_checks != evidence.sweep.pairs {
+            violations.push(format!(
+                "the orbit–stabiliser arm count ran {} time(s) for {} pair(s)",
+                geometry.arm_orbit_checks, evidence.sweep.pairs
+            ));
+        }
+        if geometry.arm_orbit_disagreements > 0 {
+            violations.push(format!(
+                "the orbit–stabiliser arm count disagreed with the partition {} time(s)",
+                geometry.arm_orbit_disagreements
+            ));
+        }
+        for (name, found, expected) in [
+            (
+                "(record, label) pair(s) with a recomputed relation list",
+                geometry.pairs,
+                5_756usize,
+            ),
+            ("relation(s) enumerated", geometry.relations, RELATION_PIN),
+            (
+                "identically-true relation(s)",
+                geometry.permanent,
+                PERMANENT_RELATION_PIN,
+            ),
+            (
+                "boundary parameter(s) audited",
+                geometry.boundaries,
+                BOUNDARY_POINT_PIN,
+            ),
+            (
+                "boundary relation predicate(s) evaluated",
+                geometry.evaluated,
+                BOUNDARY_RELATION_EVALUATION_PIN,
+            ),
+            (
+                "interior relation predicate(s) evaluated",
+                geometry.interior_evaluated,
+                INTERIOR_RELATION_EVALUATION_PIN,
+            ),
+            (
+                "arm(s) counted by the orbit–stabiliser route",
+                geometry.arms,
+                ARM_ORBIT_PIN,
+            ),
+            (
+                "orbit–stabiliser arm count check(s)",
+                geometry.arm_orbit_checks,
+                5_756,
+            ),
+        ] {
+            if found != expected {
+                violations.push(format!(
+                    "the arm-geometry audit measured {found} {name}, expected {expected}"
                 ));
             }
         }
@@ -4969,6 +6150,10 @@ fn check_invariants(
     // 4. The official anchor is answered for every pinned row, and its trivial
     //    content equals the pinned frequency (compared while probing; the label
     //    detail carries the mismatch).
+    //
+    // `official_line_parameter().ok()` deliberately maps the error to `None`:
+    // with it, no probe matches the anchor below and `anchor == 0` is itself the
+    // violation two checks further down, so the failure is counted either way.
     let official = official_line_parameter().ok();
     let mut anchor = 0usize;
     for probe in probes {
@@ -5093,7 +6278,16 @@ fn check_invariants(
     }
     println!("grid cross-check: {grid_checks} predicates, {grid_mismatches} mismatch(es)");
     // 7. The generic sample is never a formal parameter and never unsupported.
-    let generic = Rat::new(GENERIC_SAMPLE.0, GENERIC_SAMPLE.1);
+    //    A generic sample that cannot even be built is a violation, not a
+    //    silently skipped check (card 6: the `if let Ok` here used to be the
+    //    only thing standing between a broken constant and a green gate).
+    let generic = Rat::new(GENERIC_SAMPLE.0, GENERIC_SAMPLE.1).map_err(|error| {
+        violations.push(format!(
+            "the generic sample {}/{} is not a rational: {error}",
+            GENERIC_SAMPLE.0, GENERIC_SAMPLE.1
+        ));
+        error
+    });
     if let Ok(generic) = generic {
         for probe in probes.iter().filter(|probe| probe.parameter == generic) {
             if probe.parameter_kind == Some(ParameterKind::Formal) {
@@ -5545,9 +6739,15 @@ mod tests {
     }
 
     /// The census record of one ordinal, through the same walk `records` uses.
+    ///
+    /// The walk's counted failures are asserted empty here: a test that silently
+    /// built its record from a walk that could not read half the corpus would be
+    /// testing a different census (card 6).
     fn record_of(parent_sg: u8, ordinal: usize) -> Record {
-        records_of(parent_sg)
-            .expect("the parent's records")
+        let mut failures = Vec::new();
+        let records = records_of(parent_sg, &mut failures).expect("the parent's records");
+        assert!(failures.is_empty(), "the witness walk must be clean: {failures:?}");
+        records
             .into_iter()
             .find(|record| record.ordinal == ordinal)
             .unwrap_or_else(|| panic!("SG {parent_sg} has no parametric-k record {ordinal}"))
@@ -6505,5 +7705,512 @@ mod tests {
         let error = RecountRow::parse(&corrupted.join("\t"), 1)
             .expect_err("an inconsistent block count must be rejected");
         assert!(error.contains("announced"), "{error}");
+    }
+
+    // ── R6.7 card 6: the boundary pass and the arm-geometry audit ────────────
+
+    /// One `(record, label)`'s sweep under an arbitrary partition: the frozen
+    /// one, or a deliberately mutated copy of it.
+    fn sweep_of(
+        record: &Record,
+        table: &'static LittleCharacterTable,
+        embedding: &SubgroupEmbedding,
+        partition: &FullStarPartition,
+    ) -> SweepReport {
+        let domains = source_domains().expect("the frozen domains");
+        let domain = domains
+            .get(&(record.parent_sg, table.label))
+            .unwrap_or_else(|| panic!("no frozen domain for SG {} {}", record.parent_sg, table.label));
+        let context = SweepContext {
+            ordinal: record.ordinal,
+            label: table.label,
+            child_sg: record.child_sg,
+            child_reciprocal: &partition.child_reciprocal,
+            child_rotations: &partition.child_rotations,
+            arms: &partition.arms,
+        };
+        let mut report = SweepReport {
+            worst_score: 1.0,
+            ..SweepReport::default()
+        };
+        sweep_label(
+            &record.subgroup,
+            embedding,
+            table,
+            partition,
+            domain,
+            &context,
+            &mut report,
+        );
+        report
+    }
+
+    /// The three child-frame values `sweep_boundary_pass` needs, for a witness
+    /// record.
+    fn witness_frame(record: &Record) -> (SubgroupEmbedding, Lattice) {
+        let embedding =
+            SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup).expect("embedding");
+        let reciprocal = reciprocal_lattice(record.child_sg).expect("the child lattice");
+        (embedding, reciprocal)
+    }
+
+    /// **Card 6, positive control: the audit is not vacuous, and it reproduces
+    /// the partition on the frozen witness.**
+    ///
+    /// The numbers here are the single-pair form of the corpus totals: the
+    /// relation count is the closed form `n^2 r - n`, the identically-true
+    /// relations are the partition's own `permanent_counts`, the recomputed
+    /// boundary set is the partition's, the two interior points of each of the
+    /// eight intervals hold no relation, and the arm count agrees with the
+    /// orbit–stabiliser count over the parent's rotations.
+    #[test]
+    fn the_arm_geometry_audit_reproduces_the_frozen_partition() {
+        let record = record_of(196, 10_030);
+        let (embedding, partition) = sweep_context_of(&record, "DT1");
+        let table = line_table(record.parent_sg, "DT1").expect("the frozen table");
+        let report = sweep_of(&record, table, &embedding, &partition);
+        assert!(
+            report.failures.is_empty(),
+            "the unmutated witness must audit cleanly: {:?}",
+            report.failures
+        );
+        let geometry = &report.geometry;
+        let arms = partition.arms.len();
+        let rotations = partition.child_rotations.len();
+        assert_eq!(geometry.pairs, 1);
+        assert!(
+            arms > 1 && rotations > 1,
+            "the witness must have a real star and rotations: {arms} arm(s), {rotations} rotation(s)"
+        );
+        assert_eq!(geometry.relations, arms * arms * rotations - arms);
+        assert_eq!(geometry.predicted_relations, geometry.relations);
+        assert_eq!(
+            geometry.permanent,
+            partition.permanent_counts.iter().sum::<usize>()
+        );
+        assert!(geometry.permanent > 0, "the witness has identically-true relations");
+        assert_eq!(geometry.boundaries, partition.boundary_parameters().len());
+        assert!(geometry.boundaries > 0, "the witness has boundaries");
+        assert_eq!(geometry.recomputed_boundaries, geometry.boundaries);
+        assert_eq!(geometry.disagreements, 0);
+        assert_eq!(
+            geometry.evaluated,
+            geometry.boundaries * (geometry.relations - geometry.permanent),
+            "every boundary evaluates the whole non-permanent relation list"
+        );
+        assert!(geometry.evaluated > 0);
+        assert_eq!(
+            geometry.interior_evaluated,
+            2 * report.intervals * (geometry.relations - geometry.permanent),
+            "every interval evaluates the whole list at both interior points"
+        );
+        assert!(geometry.interior_evaluated > 0);
+        assert_eq!(geometry.interior_points, 2 * report.intervals);
+        assert_eq!(geometry.interior_holds, 0);
+        assert_eq!(geometry.arm_orbit_checks, 1);
+        assert_eq!(geometry.arm_orbit_disagreements, 0);
+        assert_eq!(geometry.arms, arms);
+        // The boundary pass ran at every probe parameter and answered all of
+        // them, with the conservation the gate asserts.
+        assert_eq!(report.boundary_points, report.pairs * geometry.boundaries);
+        assert_eq!(report.boundary_successes, report.boundary_points);
+        assert_eq!(report.boundary_failures, 0);
+        assert_eq!(
+            report.boundary_points,
+            report.boundary_successes + report.boundary_failures
+        );
+        // The dimension sums come from the returned decompositions and match the
+        // closed form the audit accumulates from the partition's own counts.
+        assert_eq!(
+            report.boundary_parent_dimension, report.boundary_covered_dimension,
+            "every answered boundary decomposition must cover its parent dimension"
+        );
+        assert_eq!(
+            report.boundary_parent_dimension,
+            (report.boundary_points as u64) * u64::from(table.dimension) * (arms as u64)
+        );
+        assert_eq!(
+            report.geometry.predicted_boundary_dimension, report.boundary_parent_dimension
+        );
+    }
+
+    /// **Card 6: the audit's own comparisons, at unit level.**  The corpus only
+    /// ever exercises them in their passing direction (every count and every set
+    /// agrees), so the gate drives them with synthetic partitions; this is the
+    /// same call, kept in the fast test battery so a comparison that stops
+    /// working is visible without the minute-long corpus sweep.
+    #[test]
+    fn the_arm_geometry_audit_checks_its_own_comparisons() {
+        let (cases, violations) = audit_self_check();
+        assert_eq!(cases, SELF_CHECK_CASE_PIN);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    /// **Card 6, fault injection (a): dropping a boundary is caught by the
+    /// independent recomputation.**
+    ///
+    /// The mutation is a synthetic data mutation on the census's own copy: the
+    /// frozen partition of ordinal 10038 `DT1` is cloned and the arm-merge cut at
+    /// `t = 1/8` is removed from `boundaries` (`FullStarPartition`'s fields are
+    /// public; the library builder is untouched).  `probe_parameters` follows the
+    /// mutated list, so the sweep's own set-equality check cannot see the drop:
+    /// what sees it is the audit, which derives the boundary set from the
+    /// relations themselves.
+    ///
+    /// The **binding** half of the card's "boundary/parameter binding *or*
+    /// geometry integrity" is not reachable by mutating a `FullStarPartition`:
+    /// `probe_parameters` and `boundary_parameters` are both functions of the
+    /// same `boundaries` list, so any data mutation moves them together.  Its
+    /// witness is therefore the library-level one the card-5 audit recorded
+    /// (moving `1/8` inside `boundary_parameters`), and the duplicate-entry case
+    /// is asserted here instead: a partition that lists a parameter twice is
+    /// reported by the audit and turns into a zero-length interval the interval
+    /// guard rejects.
+    #[test]
+    fn dropping_a_boundary_is_caught_by_the_geometry_audit() {
+        let record = record_of(196, 10_038);
+        let (embedding, partition) = sweep_context_of(&record, "DT1");
+        let table = line_table(record.parent_sg, "DT1").expect("the frozen table");
+        let eighth = rational(1, 8);
+        assert!(
+            partition.is_boundary(&eighth),
+            "the witness cut must exist before the mutation"
+        );
+        let clean = sweep_of(&record, table, &embedding, &partition);
+        assert!(
+            clean.failures.is_empty(),
+            "the unmutated witness must sweep cleanly: {:?}",
+            clean.failures
+        );
+        assert_eq!(clean.geometry.disagreements, 0);
+
+        let mut mutated = partition.clone();
+        mutated
+            .boundaries
+            .retain(|boundary| boundary.parameter != eighth);
+        let report = sweep_of(&record, table, &embedding, &mutated);
+        assert!(
+            report.geometry.recomputed_boundaries > report.geometry.boundaries,
+            "the audit must still derive the dropped cut: {} against {}",
+            report.geometry.recomputed_boundaries,
+            report.geometry.boundaries
+        );
+        let audit = report
+            .failures
+            .iter()
+            .find(|failure| failure.contains("independently recomputed full-star boundary set"))
+            .unwrap_or_else(|| panic!("the drop must be reported: {:?}", report.failures));
+        assert!(
+            audit.contains("does not cut [1/8]"),
+            "the failure must name the missing parameter: {audit}"
+        );
+        // Count conservation is untouched by the mutation: the parameters that
+        // are still there were all probed and answered, so the gate's arithmetic
+        // still balances and the *finding* is the audit's, not a lost count.
+        let mut violations = Vec::new();
+        sweep_conservation(&report, &mut violations);
+        assert!(
+            report.boundary_points == report.boundary_successes + report.boundary_failures,
+            "a dropped boundary must not unbalance the boundary counters"
+        );
+
+        // A duplicated boundary entry is a different kind of corrupted partition
+        // list: the audit reports the duplicate instead of silently accepting the
+        // shortened set.
+        let mut duplicated = partition.clone();
+        let first = duplicated.boundaries[0].clone();
+        duplicated.boundaries.push(first);
+        let report = sweep_of(&record, table, &embedding, &duplicated);
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.contains("boundary parameter(s) but only")),
+            "a duplicated boundary must be reported: {:?}",
+            report.failures
+        );
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.contains("is not positive")),
+            "the zero-length interval it creates must be rejected: {:?}",
+            report.failures
+        );
+    }
+
+    /// **Card 6, fault injection (b): the dropped cut is a 6-against-4
+    /// arm-grouping change.**
+    ///
+    /// Same mutation as (a).  Two things are measured here, and the second is
+    /// what the card asks for:
+    ///
+    /// 1. The sweep's own interval `(0, 1/4)` of the mutated partition is
+    ///    compared at its trisection points `1/12` and `1/6`.  Both are
+    ///    **generic**: the merge at `1/8` is an isolated point event, so no
+    ///    interval comparison can see a dropped cut.  (This is asserted, not
+    ///    assumed: those are the measured block counts.)
+    /// 2. The cut really is an arm-grouping change of the kind the interval check
+    ///    is about: the production decompositions on either side of it -- the
+    ///    generic `1/12` and the dropped `1/8` -- are compared with the sweep's
+    ///    own [`match_block_geometry`], and the mismatch is the pinned `6` against
+    ///    `4` block count.
+    #[test]
+    fn the_dropped_merge_is_a_six_against_four_arm_grouping_change() {
+        let record = record_of(196, 10_038);
+        let (embedding, partition) = sweep_context_of(&record, "DT1");
+        let table = line_table(record.parent_sg, "DT1").expect("the frozen table");
+        let eighth = rational(1, 8);
+        let twelfth = rational(1, 12);
+        let mut mutated = partition.clone();
+        mutated
+            .boundaries
+            .retain(|boundary| boundary.parameter != eighth);
+        let report = sweep_of(&record, table, &embedding, &mutated);
+        assert!(
+            !report
+                .failures
+                .iter()
+                .any(|failure| failure.contains("at the first parameter against")),
+            "no interval comparison of the mutated sweep may see the dropped cut: {:?}",
+            report.failures
+        );
+        assert!(report.failures.len() >= 1, "the drop is still a failure");
+        assert_eq!(
+            report.intervals, 7,
+            "dropping one of the eight grid parameters leaves seven intervals"
+        );
+
+        let context = SweepContext {
+            ordinal: record.ordinal,
+            label: "DT1",
+            child_sg: record.child_sg,
+            child_reciprocal: &mutated.child_reciprocal,
+            child_rotations: &mutated.child_rotations,
+            arms: &mutated.arms,
+        };
+        let read = |parameter: Rat| -> Vec<SweepBlock> {
+            let result =
+                subduce_line_at_parameter(&record.subgroup, &embedding, table, parameter)
+                    .expect("the production decomposition");
+            result
+                .blocks()
+                .iter()
+                .map(|block| {
+                    SweepBlock::read(&context, parameter, block).expect("the block geometry")
+                })
+                .collect()
+        };
+        let generic = read(twelfth);
+        let merged = read(eighth);
+        assert_eq!(
+            generic.len(),
+            6,
+            "the generic geometry of this line is six one-armed stars"
+        );
+        assert_eq!(merged.len(), 4, "the merge at 1/8 gives four stars");
+        // The two trisection points of the mutated interval are both generic,
+        // which is why the interval machinery alone cannot see the drop.
+        assert_eq!(
+            read(rational(1, 6)).len(),
+            generic.len(),
+            "1/6 is generic as well: the two interior points of (0, 1/4) agree"
+        );
+        let error = match_block_geometry(&generic, &merged, "the dropped 10038 merge")
+            .expect_err("the dropped cut is an arm-grouping change");
+        assert!(
+            error.contains("6 block(s) at the first parameter against 4"),
+            "the merge is a block-count change: {error}"
+        );
+    }
+
+    /// **Card 6, fault injection (c): a block's source taken from an unrelated
+    /// block of the same probe is caught by the per-block binding.**
+    ///
+    /// The mutation is a synthetic data mutation on the census's own report: the
+    /// pinned ordinal 13688 `SM1` `t = 1/8` probe mixes stored and constructed
+    /// blocks, so moving one block's `source` to the other's value is visible
+    /// both in the block's own counts (`classify_counts`) and against the
+    /// engine's own reading of that block.
+    #[test]
+    fn a_borrowed_block_source_is_caught_by_the_engine_binding() {
+        let mut report = census_report(225, 13_688, false, false);
+        assert!(report.failures.is_empty(), "the witness must probe cleanly");
+        let eighth = rational(1, 8);
+        let probe = report
+            .probes
+            .iter_mut()
+            .find(|probe| probe.label == "SM1" && probe.parameter == eighth)
+            .expect("the pinned card-4 witness probe");
+        let stored = probe
+            .blocks
+            .iter()
+            .position(|block| block.source == BlockSource::Stored)
+            .expect("a stored block");
+        let constructed = probe
+            .blocks
+            .iter()
+            .position(|block| block.source != BlockSource::Stored)
+            .expect("a constructed block");
+        assert_ne!(stored, constructed);
+        probe.blocks[stored].source = probe.blocks[constructed].source;
+
+        let block_rows = report
+            .probes
+            .iter()
+            .map(|probe| probe.blocks.len())
+            .sum::<usize>();
+        let evidence = CensusEvidence {
+            child_grid: report.child_grid,
+            child_algorithms: report.child_algorithms,
+            child_union: &report.child_parameters,
+            algorithm_checks: 0,
+            algorithm_mismatches: 0,
+            block_rows,
+            block_file_rows: None,
+            gamma: &report.gamma,
+            recount: &report.recount,
+            recount_ran: false,
+            recount_rows_written: 0,
+            recount_file_rows: None,
+            sweep: &report.sweep,
+            sweep_ran: false,
+        };
+        let mut violations = Vec::new();
+        check_blocks(&report.probes, &evidence, &mut violations);
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.contains("is recorded as")
+                    && violation.contains("classify it as")),
+            "the block's own counts must reject the borrowed label: {violations:?}"
+        );
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.contains("but the engine block is")),
+            "the engine's own reading must reject it too: {violations:?}"
+        );
+        assert!(
+            violations.iter().any(|violation| violation.contains("block")
+                && violation.contains("1/8")),
+            "the failure must name the probe: {violations:?}"
+        );
+    }
+
+    /// **Card 6, fault injection (d): a decomposition that returns an error is
+    /// counted and fails the gate.**
+    ///
+    /// Every production entry point rejects a record whose embedding belongs to
+    /// another isotropy record, so pairing ordinal 10038's `DT1` subgroup with
+    /// ordinal 10030's embedding makes every boundary decomposition fail.  The
+    /// mutation is expressed directly on the census's own inputs (the two
+    /// records are both SG 196 `DT1` records of the frozen corpus); the boundary
+    /// pass is then run on its own, and the test asserts both halves of the card:
+    /// the item is still **counted** (`boundary_points == successes + failures`,
+    /// failures == parameters) and the **gate fails** (`sweep_conservation`
+    /// reports the failed parameters, and the runtime turns the failure list into
+    /// violations).
+    #[test]
+    fn a_failing_boundary_decomposition_is_counted_and_fails() {
+        let record = record_of(196, 10_038);
+        let other = record_of(196, 10_030);
+        let (embedding, partition) = sweep_context_of(&record, "DT1");
+        let (wrong_embedding, _) = witness_frame(&other);
+        let table = line_table(record.parent_sg, "DT1").expect("the frozen table");
+        let domains = source_domains().expect("the frozen domains");
+        let domain = domains.get(&(196, "DT1")).expect("the DT1 domain");
+        let parameters = partition.probe_parameters(domain).expect("the probe set");
+        assert_eq!(parameters.len(), 8, "the eighth grid of the witness");
+        // The engine error this mutation produces, read from the engine itself
+        // rather than described: the failure message has to carry it.
+        let engine_error = subduce_line_at_parameter(
+            &record.subgroup,
+            &wrong_embedding,
+            table,
+            parameters[0],
+        )
+        .expect_err("the mismatched embedding must be rejected")
+        .to_string();
+        let context = SweepContext {
+            ordinal: record.ordinal,
+            label: "DT1",
+            child_sg: record.child_sg,
+            child_reciprocal: &partition.child_reciprocal,
+            child_rotations: &partition.child_rotations,
+            arms: &partition.arms,
+        };
+        let mut report = SweepReport {
+            worst_score: 1.0,
+            ..SweepReport::default()
+        };
+        // The positive control on the very same call: with the record's own
+        // embedding every parameter is answered.
+        sweep_boundary_pass(
+            &record.subgroup,
+            &embedding,
+            table,
+            &parameters,
+            &context,
+            &mut report,
+        );
+        assert_eq!(report.boundary_successes, parameters.len());
+        assert_eq!(report.boundary_failures, 0);
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        // The mutation: the other record's embedding.
+        let mut report = SweepReport {
+            worst_score: 1.0,
+            ..SweepReport::default()
+        };
+        sweep_boundary_pass(
+            &record.subgroup,
+            &wrong_embedding,
+            table,
+            &parameters,
+            &context,
+            &mut report,
+        );
+        assert_eq!(report.boundary_points, parameters.len());
+        assert_eq!(
+            report.boundary_points,
+            report.boundary_successes + report.boundary_failures,
+            "no parameter may be lost when the engine fails"
+        );
+        assert_eq!(report.boundary_successes, 0);
+        assert_eq!(report.boundary_failures, parameters.len());
+        assert_eq!(
+            report.boundary_parent_dimension, 0,
+            "a failed parameter contributes no engine dimension"
+        );
+        assert_eq!(report.failures.len(), parameters.len());
+        for (index, failure) in report.failures.iter().enumerate() {
+            assert!(failure.contains("ordinal 10038"), "{failure}");
+            assert!(failure.contains("DT1"), "{failure}");
+            assert!(
+                failure.contains(&parameters[index].to_string()),
+                "the failure must name its parameter: {failure}"
+            );
+            assert!(
+                failure.contains(&engine_error),
+                "the failure must carry the engine's error {engine_error:?}: {failure}"
+            );
+        }
+        // The gate half: the conservation still holds (nothing was lost) and the
+        // failed parameters are a violation, so a run under `--gate` or
+        // `--domain-sweep` exits 1.
+        let mut violations = Vec::new();
+        sweep_conservation(&report, &mut violations);
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.contains("boundary pass failed on 8 parameter(s)")),
+            "the failed boundary parameters must fail the gate: {violations:?}"
+        );
+        assert!(
+            !violations
+                .iter()
+                .any(|violation| violation.contains("as 0 success(es) + 8 failure(s)")),
+            "the conservation itself must hold: {violations:?}"
+        );
     }
 }

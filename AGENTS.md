@@ -487,15 +487,47 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   严格 clippy exit 0；`--gate --require-covered --domain-sweep` 8 线程与 `--sequential` 两次
   exit 0（串行 465.92 s），46,048 区间 0 失败、钉值未变；三个 TSV 串并**逐字节相同**且 SHA
   未变（`c7b8606e…` / `07dedd42…` / `a14598c1…`）；family / ledger / 全局三门禁审计 exit 0。
-* **卡 6（接入门禁）** 对每个 (record, source)：检查所有边界点；对每个开区间取两个精确有理
-  内部点（如三等分点）；两点上检查全部折叠块后执行卡 5 的匹配；每次分解继续强制整数重数、
-  维数守恒与逐操作字符重建。门禁必须检查**计数守恒**（应检查区间数 = 成功 + 明确失败），
-  并把现有草稿里的 `let Ok(..) else { continue }`（嵌入、数据查找、分区构造、有理运算失败）
-  逐一改为进入失败计数，不得静默少查语料。故障注入回归：从 10030 分区删 `1/8` → 几何完整性
-  必须失败；从 10038 删臂合并边界 → 臂分组检查必须失败；把无关块来源赋给参考块 → 逐块来源
-  回归必须失败；强制一次分区/分解报错 → 门禁失败且计数保留该项。几何对照要**直接重算**所有
-  臂的倒格等价与子群轨道关系，不能只再调一次同一个分区函数。验收：不允许出现"检查对象丢失
-  但门禁仍通过"；两个内部点是引擎的经验控制，完整覆盖的数学依据仍是穷尽事件的分区推导。
+* **卡 6（接入门禁）✅ 已完成（本轮提交）** 唯一改动文件 `examples/line_domain_census.rs`（库零改动）。
+  **① 边界点进入 sweep**：`sweep_label` 现在对每个 (记录,标号) 在 `probe_parameters(parent)` 的
+  **每个**参数上跑生产 `subduce_line_at_parameter`（此前只有区间内点）。实测 **46,048 边界点 /
+  46,048 成功 / 0 失败**，失败报文带 ordinal、标号、参数与引擎错误原文；计数在调用点前后各加一次，
+  所以 `boundary_points == successes + failures` 结构性成立（门禁断言 + 钉值）。两个取自返回分解的
+  数（父维数和 == 覆盖维数和 == **429,888**）与审计独立累计的闭式 `Σ(参数数 × 小维数 × 臂数)` 相等
+  ——这条使"计数器对但引擎没被调用"的假成功无法蒙混（本方变异实测：假成功 → exit 1 / 3 violations）。
+  **② 直接重算臂几何（不调分区求解器）**：新 `CensusRelation` 用自备算术枚举全部 `(i,j,R)` 三元组
+  （`(i,i,1)` 除外），差向量显式算出、在子群倒格基下取坐标、按 `t` 缩放判整；由各关系残类并集
+  （有理 LCM + `Lattice::coordinates`）**独立推出**边界集，在每个边界点逐类比对事件计数，在每个区间
+  内点断言无非恒真关系成立，并用轨道–稳定化子 `|G|/|Stab|` 重算臂数。实测 **2,477,298** 条关系
+  （== 逐对 `n²r−n` 闭式）、**205,044** 条恒真（== 分区 `permanent_counts` 合计）、边界集
+  **46,048/46,048** 相符、谓词实例 **18,178,032**（边界）+ **36,356,064**（内点；并满足
+  `evaluated×pairs == boundaries×(relations−permanent)` 等两条精确恒等式）、内点成立关系 **0**、
+  臂 **50,226**（5,756 次检查 / 0 分歧）、分歧 **0**。
+  **③ 消除静默跳过**：`records_of` 的两处（行读取失败、child sg 超 `u8`）、`block_dimensions` 的
+  `unwrap_or(0)`、帧包含检查的 `contains(..).unwrap_or(false)`、generic 采样的 `if let Ok` 全部改为
+  计数失败/显式错误并接入门禁；`if gate {}` 块内的 `boundary_errors` 等按卡片要求原样保留（其
+  `little_co_group_order` 分支只计数不报报文，已在报告说明）；其余 `unwrap_or("")`（报文默认）、
+  锁中毒、`official.ok()`、`content.ok()` 就地注明为防御性且仍被既有门禁捕获。
+  **④ 故障注入（example 测试 19 项，新增 6 项）**：10038 `DT1` 删 `1/8` → 独立重推的边界集报
+  `does not cut [1/8]`；同一变异下突变区间 `(0,1/4)` 的两个三分点 `1/12`、`1/6` **都是 generic**
+  （已断言：切口是点事件，区间比较原理上看不见），被删切口本身经 `match_block_geometry` 是
+  **6 vs 4** 块数变化；13688 `SM1` `1/8` 借用他块 source → `check_blocks` 自身计数与引擎读数两条
+  报文齐发；用 10030 的嵌入喂 10038 的边界通过程 → 8/8 计数失败、每条含引擎错误原文、守恒仍成立；
+  另有正对照与门禁级**合成自检**（诚实夹具不报、记录计数改 `0/1/0` 必报、边界 `1/2→1/4` 必报，
+  夹具数钉 **3**）。**本方独立复跑的源码变异**：删边界通过程 → exit 1（6 violations）；假造成功
+  不调引擎而计数不变 → exit 1（3 violations，维度闭式 + 钉值）；删边界计数比对 → exit 1
+  （仅合成自检可见，1 violation，如实说明）；残类返回空 → exit 1（**5,760** violations，边界集不符）；
+  只审第一个内点、删轨道–稳定化子、枚举丢恒真关系亦全部 exit 1（实现方实测 2/3/10,917 violations）。
+  **验证**（源码 `84ac1786…`）：`--gate --require-covered --domain-sweep` 8 线程 exit 0（本方
+  1m39.8s 量级）、`--sequential` exit 0（本方 wall **564.88 s**）；`probes=42073 stored=33985
+  constructed=8088 unsupported=0 errors=0` **逐字未变**；三个 TSV 串并**逐字节相同**且 SHA 未变
+  （`c7b8606e…`/`07dedd42…`/`a14598c1…`）；`--tests` 23 二进制 **616/0**、doctest 27、
+  `--lib line_domain` 20、`--lib catalogue` 13、example **19**、严格 clippy exit 0；family / ledger /
+  全局三门禁审计 exit 0。**未做/限制（如实）**：① 参数集绑定无法由 `FullStarPartition` 数据变异
+  触发（两侧同源），见证仍是卡 5 的库内变异；② 边界计数比对在语料上只走"相等"方向，靠门禁级合成
+  自检绑定，删掉自检调用与钉值本身不可检测（belt-and-braces）；③ `records_of` 两处转换在语料上
+  不可达（0 次），是 fail-closed 栅栏；④ `--gate` 单独不跑 sweep（验收命令给两个 flag），
+  `--domain-sweep` 单独运行在自己的失败上 exit 1（已实测）；⑤ 边界答案的维数守恒是 belt-and-braces
+  （引擎已自检）。
 * **卡 7（全量重算、独立审核、提交与文档收口）** 每张卡先跑对应小范围回归；阶段验收按本文件
   的基线（见下文"当前验证基线"），并明确覆盖：
   `cargo test --release -p cryspglib --lib line_domain`、`--lib catalogue`、
@@ -926,6 +958,21 @@ co-group 的精确支持域。
   doctest 27、`--lib line_domain` 20、`--lib catalogue` 12、example **12**、clippy exit 0；
   `--gate --require-covered --domain-sweep` 串并两次 exit 0（串行 466.83 s），三个 TSV 逐字节相同且
   SHA 未变，family/ledger/全局三门禁审计 exit 0。
+
+* **R6.7 卡 6（2026-09-26）边界点入 sweep + 臂几何独立重算 + 故障注入**：唯一改动
+  `examples/line_domain_census.rs`（SHA `84ac1786…`，库零改动）。① 每个 (记录,标号) 在
+  `probe_parameters(parent)` 的每个参数上跑生产分解：**46,048 / 46,048 / 0 失败**，守恒
+  `points == successes + failures` 结构性成立并入门禁；两个取自返回分解的维数和（父/覆盖都
+  **429,888**）与独立闭式 `Σ(参数数 × 小维数 × 臂数)` 相等 ⇒ 假成功（计数对但不调引擎）被
+  变异实测抓住（exit 1 / 3 violations）。② 独立重算：**2,477,298** 条 `(i,j,R)` 关系
+  （== 闭式）、**205,044** 恒真（== 分区账）、边界集 **46,048/46,048** 相符、谓词实例
+  18,178,032（边界）+ 36,356,064（内点）、内点成立 **0**、轨道–稳定化子重算臂 **50,226**
+  （0 分歧）。③ 静默跳过（`records_of` 两处、`unwrap_or(0)`、帧包含 `unwrap_or(false)`、
+  generic `if let Ok`）全部改为计数失败。④ 故障注入 6 项新测试 + 门禁级合成自检；本方独立
+  复跑 5 个源码变异全部 exit 1（删边界通过程 6 条；假成功 3 条；删计数比对仅自检可见 1 条；
+  残类返回空 5,760 条）。验证：串行 wall **564.88 s**、`--tests` 616/0、example **19**、
+  clippy exit 0、三个 TSV SHA 未变、family/ledger/三门禁审计 exit 0。限制见 §3b（自检调用
+  本身不可检测、两处 fail-closed 栅栏语料不可达等）。
 
 ---
 
