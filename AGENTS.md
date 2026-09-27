@@ -457,6 +457,36 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   **`212,368` 非恒等**入断言（含门禁级合成自检与其输入绑定）；三个 TSV 串并**逐字节相同**（SHA 仍 `c7b8606e…` / `07dedd42…` / `a14598c1…`）；
   family / ledger / 全局三门禁审计全部 exit 0。
 
+* **卡 5 外部审核轮（第三条独立审核线，针对 `d66db48`，两条 P2，均已修）**：
+  ① **同调比较的重排对称性**：`cohomologous_to` 允许按旋转重排一侧，但求解器仍把**下标 0** 当
+  恒等元（`cocycle_is_a_coboundary` 的变量消元把恒等元的相位 gauge 成 0，`generators()` 的生成
+  元闭包从 0 开始）。审核方用 D4 fixture 造**非零** coboundary（`φ[7] = 1/4`，`ω = δφ`）再整体
+  反转操作与 cocycle 排列，实测 `ω_rev → 平凡 = false` 而 `平凡 → ω_rev = true`（同调关系
+  失去对称性；旧的重排测试只用非 coboundary 的 D16 section，两个方向都给 false，所以看不见）。
+  现在新增 `LittleCoGroup::identity_position()`（找**零平移**恒等元），`cocycle_is_a_coboundary`
+  与 `generators()` 都用它，`cohomologous_to` 构造商群后再把恒等元换回首位（保持结构体
+  "identity first" 的文档不变量）。新回归
+  `a_nonzero_coboundary_compares_symmetrically_after_reindexing`：四个方向断言（coboundary ↔
+  平凡、重排 ↔ 平凡、重排 ↔ 原）加**直接**对求解器的断言（重排后的 coboundary 仍是
+  coboundary、重排后的 D16 section 仍非 coboundary）。变异实测：把求解器的 identity 或
+  `generators()` 的 span 退回 0 → 该测试**失败**（原先两者都能逃逸）。
+  ② **字符匹配的相位/归一化门禁**：`character_score` 用的是归一化内积的**绝对值**，只判共线，
+  于是 `[1,1]` 与 `[-1,-1]` 被当成同一目标（分数 ≈ 1；审核方把第二侧全部 174,672 个统一后
+  字符乘 −1，整套门禁仍 exit 0 且报告逐行不变）。现在改为**有符号**的归一化内积（取实部），
+  并在 `gauge_target_slice` 里加字符合法性校验：所有分量有限、且 `χ(E)` 必须等于报告维数
+  （正实数）——卡 1 gauge 消掉之后没有残余相位自由度，`−1` 会把 `χ(E)` 变成负维数，本就不是
+  任何表示的字符。变异实测：审核方的"第二侧全局乘 −1"→ **exit 1**（46,048 区间全失败、
+  **168,412** violations，报文"has no character partner"）；把 `abs()` 改回去 → 新回归
+  **失败**。新回归：`the_matcher_uses_characters_and_not_a_sorted_term_table` 增加全局符号翻转
+  与有符号分数断言，新测试 `the_gauge_validates_the_character_at_the_identity`（`χ(E) ≠ 维数`、
+  非有限分量、缺零平移恒等元三种错误）。**语料不受影响**：最差匹配分数仍是
+  `0.99999999999999978`，46,048 区间 0 失败。**本提交的验证**（源码
+  `examples/line_domain_census.rs` = `54e44650…`、`subduction_catalogue.rs` = `569579d7…`）：
+  `--tests` 23 个二进制 **616 passed / 0 failed**（+1 为新的重排对称性回归）、doctest 27、
+  `--lib line_domain` 20、`--lib catalogue` **13**、`--example line_domain_census` **13**、
+  严格 clippy exit 0；`--gate --require-covered --domain-sweep` 8 线程与 `--sequential` 两次
+  exit 0（串行 465.92 s），46,048 区间 0 失败、钉值未变；三个 TSV 串并**逐字节相同**且 SHA
+  未变（`c7b8606e…` / `07dedd42…` / `a14598c1…`）；family / ledger / 全局三门禁审计 exit 0。
 * **卡 6（接入门禁）** 对每个 (record, source)：检查所有边界点；对每个开区间取两个精确有理
   内部点（如三等分点）；两点上检查全部折叠块后执行卡 5 的匹配；每次分解继续强制整数重数、
   维数守恒与逐操作字符重建。门禁必须检查**计数守恒**（应检查区间数 = 成功 + 明确失败），

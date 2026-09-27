@@ -2399,8 +2399,19 @@ struct SweepTarget {
     vector: Vec<Complex64>,
 }
 
-/// Inner product of two character vectors, normalized: `1` for equal vectors up
-/// to a global phase, `0` for orthogonal ones.
+/// Normalized **signed** inner product of two character vectors: `1` for equal
+/// characters, `-1` for one equal to the other's negative, `0` for orthogonal
+/// ones.
+///
+/// The absolute value this used to take only tested collinearity, which accepted
+/// a global `-1` as "the same target" (external review of the card-5 line, P2:
+/// multiplying every second-side vector by `-1` left the whole gate green).  Once
+/// the card-1 gauge is divided out there is no residual phase freedom left — the
+/// remaining object is an honest little-group character, and its value at the
+/// identity is the **dimension** (a positive real), which
+/// [`gauge_target_slice`] checks separately.  Comparing the real part is
+/// therefore the right test, and it is what makes `[1, 1]` and `[-1, -1]`
+/// different targets.
 fn character_score(left: &[Complex64], right: &[Complex64]) -> f64 {
     let mut inner = Complex64::new(0.0, 0.0);
     let mut left_norm = 0.0;
@@ -2413,7 +2424,7 @@ fn character_score(left: &[Complex64], right: &[Complex64]) -> f64 {
     if left_norm == 0.0 || right_norm == 0.0 {
         return 0.0;
     }
-    inner.norm() / (left_norm.sqrt() * right_norm.sqrt())
+    inner.re / (left_norm.sqrt() * right_norm.sqrt())
 }
 
 /// Match two blocks' target lists one-to-one by gauge-unified character, then
@@ -2546,6 +2557,19 @@ fn gauge_target_slice(
     operations: &[ExactSeitz],
     mut read: impl FnMut(usize, &ExactSeitz) -> Result<Complex64, String>,
 ) -> Result<Vec<SweepTarget>, String> {
+    // The identity of the little group, for the character-normalization check
+    // below: an honest little-group character takes the value **dimension** there,
+    // and the card-1 gauge divides by `exp(2 pi i q . 0) = 1`.
+    let identity = operations
+        .iter()
+        .position(|operation| {
+            operation.rotation() == IDENTITY_ROTATION && operation.translation().is_zero()
+        })
+        .ok_or_else(|| {
+            "the aligned little group carries no zero-translation identity, so the character \
+             normalization cannot be checked"
+                .to_string()
+        })?;
     let mut out = Vec::with_capacity(targets.len());
     for (term, target) in targets.iter().enumerate() {
         // The card-1 gauge is derived for constructed targets read at the block's
@@ -2567,6 +2591,23 @@ fn gauge_target_slice(
             let gauge =
                 bloch_phase(point, operation.translation()).map_err(|error| error.to_string())?;
             vector.push(value * gauge.conj());
+        }
+        // Character validity, not just shape: every entry finite, and `chi(E)`
+        // equal to the reported dimension.  Without this the matcher's normalized
+        // inner product would accept a vector that is not a character at all.
+        for (slot, value) in vector.iter().enumerate() {
+            if !value.re.is_finite() || !value.im.is_finite() {
+                return Err(format!(
+                    "target {term} has a non-finite character entry {value} at operation {slot}"
+                ));
+            }
+        }
+        let expected = Complex64::new(f64::from(target.dimension), 0.0);
+        if (vector[identity] - expected).norm() > SWEEP_TOLERANCE {
+            return Err(format!(
+                "target {term} has chi(E) = {} but its reported dimension is {}",
+                vector[identity], target.dimension
+            ));
         }
         out.push(SweepTarget {
             dimension: target.dimension,
@@ -5898,6 +5939,33 @@ mod tests {
             other => panic!("a character tie must be an explicit error, got {other:?}"),
         }
 
+        // External review of the card-5 line, P2: a global `-1` is **not** the
+        // same target.  The matcher used to take the absolute value of the inner
+        // product, which accepted `[1, 1]` against `[-1, -1]` with score ~1; the
+        // signed score is `-1` there, so there is no partner at all.
+        let flipped = [
+            sweep_target(1, 2, true, [-1.0, -1.0]),
+            sweep_target(1, 1, false, [-1.0, 1.0]),
+        ];
+        match match_targets(&left, &flipped, "the sign-flip witness") {
+            Err(TargetMismatch::Ambiguous(message)) => {
+                assert!(message.contains("no character partner"), "{message}");
+            }
+            other => panic!("a global sign flip must not match, got {other:?}"),
+        }
+        // The reviewer's exact corpus mutation is the same thing at vector level:
+        // one honest vector against its own negation scores `-1`, not `1`.
+        let honest = sweep_target(1, 1, false, [1.0, 1.0]);
+        let negated = sweep_target(1, 1, false, [-1.0, -1.0]);
+        assert!(
+            character_score(&honest.vector, &negated.vector) < -0.9,
+            "the signed score must separate a character from its negative"
+        );
+        assert!(
+            character_score(&honest.vector, &honest.vector) > 0.9,
+            "and it must still accept the character itself"
+        );
+
         // A target with no character partner is an error too, not a dropped row.
         let missing = [
             sweep_target(1, 2, true, [1.0, 1.0]),
@@ -6369,6 +6437,45 @@ mod tests {
         );
         let identity: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
         assert!(exactly_fixes(&identity, &class_point).expect("the identity is exact"));
+    }
+
+    /// **External review of the card-5 line, P2: the gauge-unified vector has to
+    /// be a character, not merely a vector of the right length.**  `chi(E)` is the
+    /// reported dimension (a positive real) and every entry is finite; a vector
+    /// that fails either check is an explicit error instead of something the
+    /// normalized inner product could still match against an honest character.
+    #[test]
+    fn the_gauge_validates_the_character_at_the_identity() {
+        let point = Vec3R::new([Rat::ZERO, Rat::ZERO, Rat::ZERO]);
+        // The aligned little group of a point always contains the identity.
+        let operations = [ExactSeitz::identity()];
+        let constructed = [target(None)];
+        let honest = gauge_target_slice(&constructed, &point, &operations, |_, _| {
+            Ok(Complex64::new(1.0, 0.0))
+        })
+        .expect("chi(E) = dimension is accepted");
+        assert_eq!(honest.len(), 1);
+        let error = gauge_target_slice(&constructed, &point, &operations, |_, _| {
+            Ok(Complex64::new(-1.0, 0.0))
+        })
+        .expect_err("chi(E) = -1 is not the dimension of a one-dimensional target");
+        assert!(error.contains("chi(E)"), "{error}");
+        let error = gauge_target_slice(&constructed, &point, &operations, |_, _| {
+            Ok(Complex64::new(f64::NAN, 0.0))
+        })
+        .expect_err("a non-finite character entry is rejected");
+        assert!(error.contains("non-finite"), "{error}");
+        // And a little group without a zero-translation identity is an error
+        // rather than a silent skip of the normalization check.
+        let shifted = [ExactSeitz::new(
+            IDENTITY_ROTATION,
+            Vec3R::new([Rat::ZERO, Rat::ZERO, Rat::new(1, 3).unwrap()]),
+        )];
+        let error = gauge_target_slice(&constructed, &point, &shifted, |_, _| {
+            Ok(Complex64::new(1.0, 0.0))
+        })
+        .expect_err("a missing zero-translation identity is an error");
+        assert!(error.contains("zero-translation identity"), "{error}");
     }
 
     /// **Card 4 residual: the `--output-recount` fingerprint round-trips.**  The

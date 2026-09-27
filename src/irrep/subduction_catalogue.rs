@@ -88,6 +88,26 @@ impl LittleCoGroup {
         self.representatives.len()
     }
 
+    /// Position of the **zero-translation identity**.
+    ///
+    /// `little_co_group` swaps it to position zero and the two solvers below used
+    /// to rely on that convention silently.  `cohomologous_to` re-indexes one side
+    /// through the rotation correspondence, so a hand-built or permuted co-group
+    /// can carry its identity anywhere; the phase elimination gauges
+    /// `psi(identity) = 0` and must find the real element (external review of the
+    /// card-5 line, P2: a non-zero coboundary compared `true` one way and `false`
+    /// the other after re-indexing).
+    fn identity_position(&self) -> Result<usize, StarError> {
+        self.representatives
+            .iter()
+            .position(|operation| {
+                operation.rotation() == IDENTITY_ROTATION && operation.translation().is_zero()
+            })
+            .ok_or(StarError::LittleCoGroupNotClosed {
+                q: [self.q.get(0), self.q.get(1), self.q.get(2)],
+            })
+    }
+
     /// Position of one rotation's representative.
     fn position(&self, rotation: Mat3I) -> Option<usize> {
         self.representatives
@@ -279,7 +299,7 @@ impl LittleCoGroup {
     pub(super) fn cocycle_is_a_coboundary(&self) -> Result<bool, StarError> {
         let order = self.order();
         let table = self.multiplication_table()?;
-        let identity = 0usize;
+        let identity = self.identity_position()?;
         let generators: Vec<usize> = self
             .generators()?
             .into_iter()
@@ -407,8 +427,21 @@ impl LittleCoGroup {
             }
             turns.push(row);
         }
+        // 4. Normalize: the invariant the struct documents ("identity first") has
+        //    to hold for the quotient too, because the character solvers index the
+        //    identity directly.  The solver above also looks the identity up, so
+        //    this is belt-and-braces rather than the only guard.
+        let mut representatives = self.representatives.clone();
+        let identity = self.identity_position()?;
+        if identity != 0 {
+            representatives.swap(0, identity);
+            for row in turns.iter_mut() {
+                row.swap(0, identity);
+            }
+            turns.swap(0, identity);
+        }
         let quotient = LittleCoGroup {
-            representatives: self.representatives.clone(),
+            representatives,
             turns,
             q: self.q,
         };
@@ -595,7 +628,7 @@ impl LittleCoGroup {
     fn generators(&self) -> Result<Vec<usize>, StarError> {
         let order = self.order();
         let mut generators: Vec<usize> = Vec::new();
-        let mut span = vec![0usize]; // the identity is position zero
+        let mut span = vec![self.identity_position()?];
         for candidate in 0..order {
             if span.contains(&candidate) {
                 continue;
@@ -1757,6 +1790,116 @@ mod tests {
         assert!(!section.cohomologous_to(&trivial).unwrap());
         assert!(!reindexed.cohomologous_to(&trivial).unwrap());
         assert!(trivial.cohomologous_to(&trivial).unwrap());
+    }
+
+    /// **External review of the card-5 line, P2: a *non-zero* coboundary has to
+    /// compare symmetrically after re-indexing.**
+    ///
+    /// The re-indexing test above uses the non-coboundary `D16` section, where
+    /// both directions answer `false` and an identity-at-zero assumption stayed
+    /// invisible.  Here the `D4` fixture (`little_co_group(136, q)`) carries the
+    /// explicit coboundary `omega = delta phi` with `phi[last] = 1/4`, and the
+    /// operations and the cocycle are reversed together: the class is trivial, so
+    /// **both** comparisons must answer `true`.  The identity is not at position
+    /// zero after the reversal, which is exactly what the solver used to assume.
+    #[test]
+    fn a_nonzero_coboundary_compares_symmetrically_after_reindexing() {
+        let cell = Lattice::new(exact_primitive_basis(136).unwrap()).unwrap();
+        let reciprocal = cell.reciprocal().unwrap();
+        let q = Vec3R::new([Rat::ZERO, Rat::ZERO, Rat::new(1, 3).unwrap()]);
+        let fixture = little_co_group(136, &q, &reciprocal).unwrap();
+        let order = fixture.order();
+        assert_eq!(order, 8, "the 4mm little co-group has order eight");
+        let table = fixture.multiplication_table().unwrap();
+
+        // omega = delta phi with phi[order - 1] = 1/4: turns[i][j] = phi_i + phi_j - phi_ij.
+        let mut phi = vec![Rat::ZERO; order];
+        phi[order - 1] = Rat::new(1, 4).unwrap();
+        let mut turns = vec![vec![Rat::ZERO; order]; order];
+        for i in 0..order {
+            for j in 0..order {
+                turns[i][j] = fractional(
+                    phi[i]
+                        .checked_add(phi[j])
+                        .unwrap()
+                        .checked_sub(phi[table[i][j]])
+                        .unwrap(),
+                )
+                .unwrap();
+            }
+        }
+        let coboundary = LittleCoGroup {
+            representatives: fixture.representatives.clone(),
+            turns,
+            q: fixture.q,
+        };
+        let mut trivial = fixture.clone();
+        for row in trivial.turns.iter_mut() {
+            for turn in row.iter_mut() {
+                *turn = Rat::ZERO;
+            }
+        }
+        // The class really is trivial, in both directions, before re-indexing.
+        assert!(coboundary.cohomologous_to(&trivial).unwrap());
+        assert!(trivial.cohomologous_to(&coboundary).unwrap());
+        assert!(coboundary.cohomologous_to(&coboundary).unwrap());
+
+        // Reverse the operations and the cocycle with them: the identity is now
+        // last, so the solver has to *find* it rather than assume position zero.
+        let mut representatives = fixture.representatives.clone();
+        representatives.reverse();
+        let mut reversed_turns = vec![vec![Rat::ZERO; order]; order];
+        for i in 0..order {
+            for j in 0..order {
+                reversed_turns[order - 1 - i][order - 1 - j] = coboundary.turns[i][j];
+            }
+        }
+        let reindexed = LittleCoGroup {
+            representatives,
+            turns: reversed_turns,
+            q: fixture.q,
+        };
+        assert!(
+            reindexed.cohomologous_to(&trivial).unwrap(),
+            "the re-indexed coboundary is still trivial"
+        );
+        assert!(
+            trivial.cohomologous_to(&reindexed).unwrap(),
+            "and the relation is symmetric"
+        );
+        assert!(reindexed.cohomologous_to(&coboundary).unwrap());
+        assert!(coboundary.cohomologous_to(&reindexed).unwrap());
+
+        // The solver itself, not only the quotient `cohomologous_to` builds, has
+        // to find the identity: a re-indexed coboundary is still a coboundary, and
+        // a re-indexed non-coboundary stays non-coboundary.  These four lines are
+        // what binds `cocycle_is_a_coboundary`'s identity lookup; without it they
+        // answer `false` / `true` respectively.
+        assert!(coboundary.cocycle_is_a_coboundary().unwrap());
+        assert!(trivial.cocycle_is_a_coboundary().unwrap());
+        assert!(
+            reindexed.cocycle_is_a_coboundary().unwrap(),
+            "the reversed coboundary is still a coboundary"
+        );
+        let section = d16_section_cocycle_on_d4();
+        let section_order = section.order();
+        let mut section_representatives = section.representatives.clone();
+        section_representatives.reverse();
+        let mut section_turns = vec![vec![Rat::ZERO; section_order]; section_order];
+        for i in 0..section_order {
+            for j in 0..section_order {
+                section_turns[section_order - 1 - i][section_order - 1 - j] = section.turns[i][j];
+            }
+        }
+        let reversed_section = LittleCoGroup {
+            representatives: section_representatives,
+            turns: section_turns,
+            q: section.q,
+        };
+        assert!(
+            !reversed_section.cocycle_is_a_coboundary().unwrap(),
+            "the reversed D16 section is still a non-coboundary"
+        );
     }
 
     /// The `D16 -> D4` section cocycle as a hand-built [`LittleCoGroup`].
