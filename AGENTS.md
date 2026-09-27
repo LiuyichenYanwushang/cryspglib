@@ -423,13 +423,38 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   断言外来纯平移对两个 accessor 都返回 `OperationNotInParentGroup`。④ **P2**：F4 合成反例
   是唯一见证、F7 传播在语料上不可见（无格错误注入测试）、`representative_shifts` 的两处文档
   互相矛盾（已统一为"度量约化代表元是否随参数变化，不度量约化墙"）、F1 控制的"未覆盖"
-  其实被双重覆盖（分区内部改动会同时触发卡 3 语料回归与 recount 钉值 27,518/27,507）、
+  其实被双重覆盖（分区内部改动会同时触发卡 3 语料回归与被钉住的 recount 块数 **27,507**；审核方
+  对"把边界在 `boundary_parameters()` 内部移动"的重建实测是 11,009 探针 / **27,517** 块 / 29 种几何，
+  门禁 exit 1 —— 先前的措辞写成"钉值 27,518/27,507"是错的，27,518 从未被钉住，已按实测更正）、
   `census:1496` 尚有一处 `let Ok(..) else { continue }`（卡 6 范围，5,756 的钉值使其收缩可见）。
-  **本提交的验证**（源码 `dce4b8e3…`）：`--tests` 23 个二进制 **614 passed / 0 failed**、doctest 27、
+  **`b2d39f3` 的验证审核（无结论被推翻，但发现 1 个新 P0 + 1 个 P1 + 4 个 P2，均已处理）**：
+  ① **P0（操作数未绑定）**：把被检查的旋转**换成恒等**（循环、计数器、直方图都不动）时，549,184 次
+  检查照跑、自检照过、门禁 exit 0 —— 即上一轮的控制只钉住了"跑了多少次"，没钉住"检查了什么"。
+  现在新增 `little_fixity_non_identity_checks` 并按独立关系钉住
+  （每个对齐小群恰有一个恒等 ⇒ `2 × (Σ(阶×块对数) − 块对数) = 212,368`）；计数器放在
+  `check_exact_fixity(report, rotation, point)` **内部**，数的是**实际传进去的**那个旋转
+  （第一版把计数写成"循环打算检查的操作"，同一变异仍能逃逸；另外第一版的预测式有优先级错误
+  `2 * (sum).saturating_sub(..) = 0`，被门禁自己当场抓住，两处都已修）。同一变异现在 **exit 1**
+  （`checked 0 non-identity rotation(s), predicted 212368`）；把操作数换成恒定的**非恒等**旋转也
+  **exit 1**（409,412 violations，mismatch 计数抓住）。恒定的**非恒等**旋转无法藏身：它必然在某个点上
+  不精确固定，被 mismatch 计数抓住。（如实说明：计数关系两侧都来自同一 `aligned` 列表，
+  它钉的是"循环覆盖了列表"，**不是**列表本身的来源——列表来源由阶直方图钉值与普查 child-order
+  交叉检查覆盖：`aligned.truncate(1)` 变异被那两条抓住，exit 1 / 82,693 violations。）
+  ② **P1（Component 分支零覆盖）**：删掉 `ComponentStar::point_character` 的成员校验时整套电池
+  （23 个测试二进制 614 项 + doctest + clippy + 普查门禁）**全绿**。现在新增库回归
+  `a_component_star_rejects_a_foreign_operation`（SG 83 `GM3+GM4+` 对 `GM1+`/`P1` 子群，走到
+  `ChildStarEvaluator::Component`），同一删除变异现在**测试失败**；测试自带"必须真的走到
+  Component 星"的非空转断言。③ **P2**：门禁自检的**输入**现在也被绑定（两个点都必须满足小群自己的
+  mod-`L*` 谓词，否则"两个点被换成同一个"的变异仍能过）；"独立关系"的措辞已按上一条收紧；
+  "守卫在读字符前触发"只在测试把 stored 目标放首位时成立（已注明）；`target_character` 的拒绝由
+  `character` 自身的校验给出、不经 `point_character`（已注明）；计数钉值与自检只在
+  `--domain-sweep` 下运行（属已披露的"`--gate` 单独不跑 sweep"）。
+  **本提交的验证**（源码 `baeeeb5c…`）：`--tests` 23 个二进制 **615 passed / 0 failed**（+1 为新的
+  Component 星回归）、doctest 27、
   `--lib line_domain` 20、`--lib catalogue` 12、`--example line_domain_census` **12**、严格 clippy
   exit 0；`--gate --require-covered --domain-sweep` 8 线程与 `--sequential` 两次 exit 0（串行 wall
-  516.04 s，随机器负载波动），钉值逐字未变、新计数 `168,408` 与 `549,184/0` 入断言（含门禁级
-  合成自检）；三个 TSV 串并**逐字节相同**（SHA 仍 `c7b8606e…` / `07dedd42…` / `a14598c1…`）；
+  470.12 s，随机器负载波动），钉值逐字未变、新计数 `168,408`、`549,184/0` 与
+  **`212,368` 非恒等**入断言（含门禁级合成自检与其输入绑定）；三个 TSV 串并**逐字节相同**（SHA 仍 `c7b8606e…` / `07dedd42…` / `a14598c1…`）；
   family / ledger / 全局三门禁审计全部 exit 0。
 
 * **卡 6（接入门禁）** 对每个 (record, source)：检查所有边界点；对每个开区间取两个精确有理

@@ -178,6 +178,11 @@ const SWEEP_TOLERANCE: f64 = 1e-9;
 /// fact that `stored_k` is not usable as the cross-parameter key.
 const REPRESENTATIVE_SHIFT_PIN: usize = 168_408;
 
+/// The identity rotation: every aligned little co-group contains exactly one, so
+/// the non-identity part of the fixity control's checks is predicted by the
+/// little-co-group histogram (the operand binding of verification round 2).
+const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+
 /// The generic parameter used to prove that a non-exceptional point is answered
 /// from the frozen line little group.  It is off the quarter grid and not one of
 /// the exceptional parameters of any frozen source (`{0, 1/2}`).
@@ -662,6 +667,15 @@ struct SweepReport {
     /// is built from).  A non-exact fixity is a partition boundary, so a
     /// mismatch here is both a partition error and a broken gauge hypothesis.
     little_fixity_checks: usize,
+    /// The subset of those checks whose rotation is **not** the identity.  The
+    /// count pin alone does not bind the operand: replacing the checked rotation
+    /// by the identity keeps the loop running 549,184 times and stays green
+    /// (verification of `b2d39f3`, P0).  Every aligned little co-group contains
+    /// exactly one identity, so this count is predicted independently as
+    /// `2 x (sum(order x blocks) - block pairs)`, and a constant non-identity
+    /// rotation cannot hide either: it fails the exact-fixity test at the first
+    /// point it does not fix, which the mismatch counter reports.
+    little_fixity_non_identity_checks: usize,
     little_fixity_mismatches: usize,
     /// Probe parameters that are **not** full-star boundaries, i.e. the entries
     /// the parent's own formal parameter set contributes to the union.  Measured
@@ -2564,6 +2578,26 @@ fn gauge_target_slice(
     Ok(out)
 }
 
+/// [`exactly_fixes`] with the control's counters incremented from the rotation
+/// that is **actually passed in**.
+///
+/// Counting the operations the loop *intends* to check does not bind the operand:
+/// replacing the argument by the identity left the count and the gate green
+/// (verification of `b2d39f3`, P0).  Here the counter sees the argument itself,
+/// so the same substitution moves `little_fixity_non_identity_checks` to zero and
+/// trips the gate's prediction.
+fn check_exact_fixity(
+    report: &mut SweepReport,
+    rotation: &Mat3I,
+    point: &Vec3R,
+) -> Result<bool, String> {
+    report.little_fixity_checks += 1;
+    if *rotation != IDENTITY_ROTATION {
+        report.little_fixity_non_identity_checks += 1;
+    }
+    exactly_fixes(rotation, point)
+}
+
 /// The little group built at `point` must fix it **exactly**, not only modulo
 /// the reciprocal lattice.
 ///
@@ -2844,8 +2878,7 @@ fn sweep_interval(
                 ("the first", t1, q1, first_operation),
                 ("the second", t2, q2, second_operation),
             ] {
-                report.little_fixity_checks += 1;
-                match exactly_fixes(&operation.rotation(), &point) {
+                match check_exact_fixity(report, &operation.rotation(), &point) {
                     Ok(true) => {}
                     Ok(false) => {
                         report.little_fixity_mismatches += 1;
@@ -4020,6 +4053,7 @@ fn merge_sweep(total: &mut SweepReport, part: SweepReport) {
     }
     total.representative_shifts += part.representative_shifts;
     total.little_fixity_checks += part.little_fixity_checks;
+    total.little_fixity_non_identity_checks += part.little_fixity_non_identity_checks;
     total.little_fixity_mismatches += part.little_fixity_mismatches;
     total.worst_score = total.worst_score.min(part.worst_score);
     total.failures.extend(part.failures);
@@ -4294,11 +4328,12 @@ fn report(
         );
         println!(
             "  matched block pair(s) whose reduced representative differs between the two \
-             interior points {} (of {}); exact-fixity check(s) of the card-1 gauge {} with {} \
-             mismatch(es)",
+             interior points {} (of {}); exact-fixity check(s) of the card-1 gauge {} ({} \
+             non-identity) with {} mismatch(es)",
             sweep.representative_shifts,
             sweep.blocks,
             sweep.little_fixity_checks,
+            sweep.little_fixity_non_identity_checks,
             sweep.little_fixity_mismatches
         );
     }
@@ -4784,6 +4819,27 @@ fn check_invariants(
                 evidence.sweep.little_fixity_checks, predicted_fixity
             ));
         }
+        // The **operand** has to be pinned too: each aligned little co-group has
+        // exactly one identity, so the number of checks whose rotation is not the
+        // identity is `2 x (sum(order x blocks) - block pairs)`.  Replacing the
+        // checked rotation by the identity keeps the loop and the count green
+        // (verification of `b2d39f3`, P0) and moves this counter.
+        // `2 * sum - 2 * blocks`: written out because `2 * (sum).saturating_sub(..)`
+        // parses the other way round and silently predicted 0.
+        let predicted_non_identity = 2 * evidence
+            .sweep
+            .orders
+            .iter()
+            .map(|(order, count)| order * count)
+            .sum::<usize>()
+            - 2 * evidence.sweep.blocks;
+        if evidence.sweep.little_fixity_non_identity_checks != predicted_non_identity {
+            violations.push(format!(
+                "the exact-fixity control checked {} non-identity rotation(s), predicted \
+                 2 x (sum(order x blocks) - block pairs) = {}",
+                evidence.sweep.little_fixity_non_identity_checks, predicted_non_identity
+            ));
+        }
         if predicted_fixity == 0 {
             violations.push(
                 "the exact-fixity control of the card-1 gauge never ran (no aligned little-group \
@@ -4794,6 +4850,7 @@ fn check_invariants(
         let selftest_rotation: Mat3I = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
         let half = Rat::new(1, 2).expect("the constant 1/2");
         let third = Rat::new(1, 3).expect("the constant 1/3");
+        let selftest_lattice = reciprocal_lattice(1).expect("SG 1 reciprocal lattice");
         for (label, point, expected) in [
             (
                 "fixed only modulo L*",
@@ -4802,6 +4859,19 @@ fn check_invariants(
             ),
             ("a point on the axis", Vec3R::new([Rat::ZERO, Rat::ZERO, third]), true),
         ] {
+            // The input is bound independently of the answer: it must be fixed
+            // modulo `L*` (the little group's own predicate), otherwise this pair
+            // of cases could be replaced by two copies of the other point.
+            match selftest_lattice.preserves(selftest_rotation, &point) {
+                Ok(true) => {}
+                Ok(false) => violations.push(format!(
+                    "the exact-fixity control's synthetic witness ({label}) is not fixed modulo \
+                     the reciprocal lattice, so it does not separate exact from mod-L* fixity"
+                )),
+                Err(error) => violations.push(format!(
+                    "the exact-fixity control's synthetic witness ({label}) lattice test: {error}"
+                )),
+            }
             match exactly_fixes(&selftest_rotation, &point) {
                 Ok(found) if found == expected => {}
                 Ok(found) => violations.push(format!(

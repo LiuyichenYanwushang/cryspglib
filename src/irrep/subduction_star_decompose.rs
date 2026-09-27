@@ -4761,6 +4761,62 @@ mod tests {
         assert!(checked > 0, "the identity has to be exercised");
     }
 
+    /// **Verification of `b2d39f3`, P1: the Component star's membership check
+    /// needs its own witness.**  The stored constituent / realification path
+    /// (`ChildStarEvaluator::Component`) is reached by a compound child row; SG 83
+    /// `GM3+GM4+` onto the `GM1+`/`P1` subgroup produces exactly those targets, so
+    /// the foreign-operation contract is asserted there too -- without it,
+    /// deleting `ComponentStar::point_character`'s check left the whole battery
+    /// (23 test binaries, 614 tests, doctest, clippy and the census gate) green.
+    #[test]
+    fn a_component_star_rejects_a_foreign_operation() {
+        let subgroup = isotropy_subgroup_for_direction(
+            83,
+            "GM1+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("the SG 83 GM1+ P1 subgroup");
+        let built = embedding(83, "GM1+", "P1");
+        let probe = query::irreps_of(83)
+            .iter()
+            .find(|record| record.ml == "GM3+GM4+" && !record.spinor)
+            .expect("the SG 83 GM3+GM4+ probe");
+        let result = subduce_full_star_with_embedding(&subgroup, &built, probe)
+            .expect("the compound self-restriction decomposition");
+        let foreign = ExactSeitz::new(
+            IDENTITY_ROTATION,
+            Vec3R::new([Rat::ZERO, Rat::ZERO, Rat::new(1, 3).unwrap()]),
+        );
+        let mut checked = 0usize;
+        for block in result.blocks() {
+            let constituents = block
+                .targets()
+                .iter()
+                .filter(|target| {
+                    matches!(target.component, SubductionComponent::Constituent { .. })
+                })
+                .count();
+            if constituents == 0 {
+                continue;
+            }
+            for term in 0..block.targets().len() {
+                assert!(
+                    matches!(
+                        block.target_little_character(term, block.q(), &foreign),
+                        Err(FullStarError::Star(StarError::OperationNotInParentGroup { .. }))
+                    ),
+                    "the Component star must reject a foreign operation"
+                );
+                checked += 1;
+            }
+        }
+        assert!(
+            checked > 0,
+            "the compound route has to reach a Component star, otherwise this test checks nothing"
+        );
+    }
+
     /// Nonzero-cocycle and symmorphic D4 gaps both reach the complete constructed
     /// table.  These exact isotropy ordinals were among the failures in the
     /// generic-parameter census; each formerly missing two-point child star now
