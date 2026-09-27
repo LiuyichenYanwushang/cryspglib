@@ -591,11 +591,19 @@ impl OrdinaryStar {
     /// otherwise `chi_seed(g_i^-1 h g_i)` on the exact conjugated operation with
     /// the **seed** wave vector, i.e. the little-group character of the row at
     /// that arm, Bloch phase included.
+    ///
+    /// The membership contract is [`Self::character`]'s: an operation outside
+    /// the parent group is [`StarError::OperationNotInParentGroup`], never a
+    /// zero — a point that is not an arm is the only source of the zero.
     pub(super) fn point_character(
         &self,
         point: &Vec3R,
         operation: &ExactSeitz,
     ) -> Result<Complex64, StarError> {
+        let reduced = operation.reduce(&self.parent_lattice)?;
+        if !self.parent_operations.contains(&reduced) {
+            return Err(StarError::OperationNotInParentGroup { sg: self.parent_sg });
+        }
         let character = LittleCharacter::Stored {
             row: &self.selected_row,
             ml: self.probe.ml,

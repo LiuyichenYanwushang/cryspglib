@@ -164,6 +164,20 @@ const INTERIOR_FRACTION: (i128, i128) = (1, 3);
 /// corpus), so this only absorbs `f64` trigonometry, not a modelling gap.
 const SWEEP_TOLERANCE: f64 = 1e-9;
 
+/// Matched block pairs whose **reduced** representative `stored_k` differs
+/// between the two interior points of one interval.
+///
+/// Measured: **every** pair (168,408 of 168,408) — the folded point moves
+/// continuously, so its reduced representative moves with it, and `stored_k` is
+/// therefore not a cross-parameter identity (which is why the comparison is on
+/// gauge-unified content).  The card-5 math review found the stronger, separate
+/// phenomenon of a representative that jumps **discontinuously** inside an
+/// interval (a reduction wall: 96 of them on a denser grid, witness ordinal
+/// 13719 SG 225 `SM1` at `t = 1/6`, where the gauge-unified content still agrees
+/// to 3.3e-16); this counter does not measure those walls, it pins the volume
+/// fact that `stored_k` is not usable as the cross-parameter key.
+const REPRESENTATIVE_SHIFT_PIN: usize = 168_408;
+
 /// The generic parameter used to prove that a non-exceptional point is answered
 /// from the frozen line little group.  It is off the quarter grid and not one of
 /// the exceptional parameters of any frozen source (`{0, 1/2}`).
@@ -631,6 +645,22 @@ struct SweepReport {
     /// the two shapes the sweep has to be able to exercise.
     target_counts: BTreeMap<usize, usize>,
     orders: BTreeMap<usize, usize>,
+    /// Matched block pairs whose **reduced** representative point
+    /// ([`FullStarBlock::stored_k`]) differs between the two parameters while the
+    /// unreduced folded points moved continuously: the engine's canonical
+    /// representative jumps at a reduction wall **inside** a partition interval
+    /// (R6.7 card 5 math review, P1-2, which measured 96 such walls on a denser
+    /// grid), and the card-5 comparison is on the gauge-unified content rather
+    /// than on that representative.  Measured, not assumed.
+    representative_shifts: usize,
+    /// Exact-fixity checks of the card-1 gauge's hypothesis: for every matched
+    /// block, every aligned little-group operation and both parameters, the
+    /// rotation must fix the seed arm's point **exactly**, not only modulo the
+    /// child reciprocal lattice (that weaker condition is what the little group
+    /// is built from).  A non-exact fixity is a partition boundary, so a
+    /// mismatch here is both a partition error and a broken gauge hypothesis.
+    little_fixity_checks: usize,
+    little_fixity_mismatches: usize,
     /// Probe parameters that are **not** full-star boundaries, i.e. the entries
     /// the parent's own formal parameter set contributes to the union.  Measured
     /// (corpus: **0**), because the parent's set is `{0, 1/2}` and both are
@@ -690,16 +720,27 @@ struct EngineBlock {
 }
 
 /// Read one engine block's own statistics.
-fn engine_block(block: &FullStarBlock, reference_point: &Vec3R, child_reciprocal: &Lattice) -> EngineBlock {
+///
+/// Every lattice query propagates its error: an overflow or an inconsistent
+/// lattice used to be swallowed into `false` on **both** sides of the compare,
+/// which would have turned a real failure into a matching pair of `false`s
+/// (card-5 audit F7).
+fn engine_block(
+    block: &FullStarBlock,
+    reference_point: &Vec3R,
+    child_reciprocal: &Lattice,
+) -> Result<EngineBlock, String> {
     let mut carries_reference = false;
     let mut carries_gamma = false;
     for point in block.points() {
-        carries_gamma |= child_reciprocal.contains(point.q()).unwrap_or(false);
+        carries_gamma |= child_reciprocal
+            .contains(point.q())
+            .map_err(|error| format!("the Gamma containment of {}: {error}", point.q()))?;
         carries_reference |= child_reciprocal
             .same_mod(point.q(), reference_point)
-            .unwrap_or(false);
+            .map_err(|error| format!("the reference comparison of {}: {error}", point.q()))?;
     }
-    EngineBlock {
+    Ok(EngineBlock {
         star_size: block.points().len(),
         arm_count: block.points().iter().map(|point| point.arm_count()).sum(),
         arm_indices: block.arm_indices(),
@@ -721,7 +762,7 @@ fn engine_block(block: &FullStarBlock, reference_point: &Vec3R, child_reciprocal
         q: *block.q(),
         carries_reference,
         carries_gamma,
-    }
+    })
 }
 
 /// One probe of the census.
@@ -1742,8 +1783,14 @@ fn block_stat(
     let mut carries_gamma = false;
     let mut carries_reference = false;
     for point in block.points() {
-        if context.child_reciprocal.contains(point.q()).unwrap_or(false) {
-            carries_gamma = true;
+        match context.child_reciprocal.contains(point.q()) {
+            Ok(true) => carries_gamma = true,
+            Ok(false) => {}
+            Err(error) => failures.push(format!(
+                "ordinal {} {} t={parameter} block {index}: the Gamma containment test failed: \
+                 {error}",
+                context.ordinal, context.label
+            )),
         }
         match context
             .child_reciprocal
@@ -2156,7 +2203,7 @@ fn little_co_group_rotations(
 }
 
 /// Layer 1 of the card-5 comparison: the parameter-stable geometry of one block.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct SweepBlock {
     /// `FullStarBlock::arm_indices()`: the block's identity across parameters.
     arm_indices: Vec<usize>,
@@ -2448,11 +2495,21 @@ fn match_targets(
 /// parameters of one interval comparable.  Derivation and the measured
 /// confirmation are in the module documentation of `subduction_star_decompose`
 /// (`FullStarBlock::target_little_character`) and in the card-5 report.
+///
+/// The derivation is for a **constructed** target, whose Bloch phase is the
+/// block's folded point.  A stored target is evaluated at its pinned `k`, where
+/// the same division is not proved (R6.7 card 5 math review, P1-1), so this
+/// fails closed instead of comparing an unproved quantity.  On this corpus the
+/// branch is unreachable — every interior point of every interval reports
+/// constructed targets only (measured: `stored=0` of 174,672) — which is why the
+/// module test `the_stored_branch_of_the_gauge_fails_closed` is the only
+/// witness that the guard fires.
 fn gauge_unified_targets(
     block: &FullStarBlock,
     point: &Vec3R,
     operations: &[ExactSeitz],
 ) -> Result<Vec<SweepTarget>, String> {
+    refuse_stored_targets(block.targets())?;
     let mut out = Vec::with_capacity(block.targets().len());
     for (term, target) in block.targets().iter().enumerate() {
         let mut vector = Vec::with_capacity(operations.len());
@@ -2472,6 +2529,44 @@ fn gauge_unified_targets(
         });
     }
     Ok(out)
+}
+
+/// The fail-closed guard of [`gauge_unified_targets`], split out so the branch
+/// has a witness even though the corpus never reaches it.
+fn refuse_stored_targets(targets: &[FullStarTarget]) -> Result<(), String> {
+    for (term, target) in targets.iter().enumerate() {
+        if let Some(irnumber) = target.irnumber {
+            return Err(format!(
+                "the card-1 gauge is derived for constructed targets read at the block's folded \
+                 point only, and this block's target {term} is the stored irrep {irnumber}: \
+                 divide out its own pinned k phase (or restrict the sweep to the interior of the \
+                 stored-k coincidence set) before comparing it across parameters"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The little group built at `point` must fix it **exactly**, not only modulo
+/// the reciprocal lattice.
+///
+/// This is the hypothesis that makes the card-1 gauge parameter-independent at
+/// the seed point even when the seed arm is not the block's representative arm
+/// (R6.7 card 5 math review, P1-3: the derivation in
+/// `FullStarBlock::target_little_character` needs `R_h^T q = q`, and the little
+/// group itself is built from the weaker `R_h^{-T} q = q (mod L*)`).  Inside a
+/// partition interval the two coincide — a non-exact fixity is exactly a
+/// boundary of the partition — so this is a control on the partition as much as
+/// on the gauge, and it is counted rather than assumed.
+fn exactly_fixes(rotation: &Mat3I, point: &Vec3R) -> Result<bool, String> {
+    let action = Mat3R::from_ints(*rotation)
+        .inverse()
+        .map_err(|error| error.to_string())?
+        .transpose();
+    let image = action
+        .checked_mul_vector(point)
+        .map_err(|error| error.to_string())?;
+    Ok(image == *point)
 }
 
 /// The common seed arm of two matched blocks: the smallest arm index they share
@@ -2563,6 +2658,30 @@ fn sweep_label(
             return;
         }
     };
+    // The probe set has to **be** the partition's, not merely come from the same
+    // function: a boundary that is *moved* (not dropped) leaves the interval
+    // count, every volume counter and every interval comparison identical, so
+    // the card-3 witness would silently stop being cut (card-5 audit F1:
+    // replacing 10038 `DT1`'s `1/8` by `1/7` kept the gate at exit 0 with only
+    // the printed `parent_only_parameters` moving 0 -> 1).
+    let mut expected: Vec<Rat> = partition.boundary_parameters();
+    for entry in &domain.exceptional {
+        if !expected.contains(&entry.parameter) {
+            expected.push(entry.parameter);
+        }
+    }
+    let expected = sorted_parameters(expected);
+    if parameters != expected {
+        report.failures.push(format!(
+            "ordinal {} {}: the sweep's probe parameter set is not the full-star boundaries plus \
+             the parent's exceptional parameters ({} entries against {})",
+            context.ordinal,
+            context.label,
+            parameters.len(),
+            expected.len()
+        ));
+        return;
+    }
     report.pairs += 1;
     for parameter in &parameters {
         if !partition.is_boundary(parameter) {
@@ -2697,6 +2816,40 @@ fn sweep_interval(
             None => continue,
         };
         *report.orders.entry(aligned.len()).or_insert(0) += 1;
+        // The card-1 gauge hypothesis, counted rather than assumed (R6.7 card 5
+        // math review, P1-3): each aligned little-group rotation has to fix the
+        // seed point **exactly**.  The little group itself is built from the
+        // weaker mod-`L*` fixity, so this is the step that makes the gauge
+        // parameter-independent even though the seed arm need not be the block's
+        // representative arm.
+        for (first_operation, second_operation) in &aligned {
+            for (side, parameter, point, operation) in [
+                ("the first", t1, q1, first_operation),
+                ("the second", t2, q2, second_operation),
+            ] {
+                report.little_fixity_checks += 1;
+                match exactly_fixes(&operation.rotation(), &point) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        report.little_fixity_mismatches += 1;
+                        failures.push(format!(
+                            "{key}: at {side} parameter t={parameter} the aligned little-group \
+                             rotation fixes the seed point {point} only modulo the child \
+                             reciprocal lattice, so the card-1 gauge is not exact there"
+                        ));
+                    }
+                    Err(error) => failures
+                        .push(format!("{key}: the exact-fixity control at t={parameter}: {error}")),
+                }
+            }
+        }
+        // The engine's canonical representative is allowed to jump inside an
+        // interval (a reduction wall); the comparison is on the gauge-unified
+        // content, so this is counted and reported rather than required to be
+        // constant.
+        if block.stored_k() != other.stored_k() {
+            report.representative_shifts += 1;
+        }
         // The child little-group order the census computes through
         // `line_domain` must agree with the operation list built here.
         match point_little_co_group_order(context.child_sg, &q1) {
@@ -2725,21 +2878,27 @@ fn sweep_interval(
         // induced character the engine's solver and reconstruction use.  A point
         // that resolves to no arm, or an arm the block's points miss, shows up
         // here instead of silently scoring zero.
-        for (parameter, result, operations) in [
-            (t1, r1, &first_operations),
-            (t2, r2, &second_operations),
+        for (parameter, result, operations, side_index) in [
+            (t1, r1, &first_operations, *index),
+            (t2, r2, &second_operations, *partner),
         ] {
-            for (term, _) in result.blocks()[*index].targets().iter().enumerate() {
+            // The **matched partner's** block on its own side: the pairing is by
+            // parent arm set, so the two indices need not be equal (card-5 audit
+            // F2 measured `index != partner` on the corpus).  Using the left
+            // index on the right decomposition checks a block the pair does not
+            // name.
+            let side_block = &result.blocks()[side_index];
+            for (term, _) in side_block.targets().iter().enumerate() {
                 for operation in operations {
                     let mut total = Complex64::new(0.0, 0.0);
-                    for star_point in result.blocks()[*index].points() {
-                        total += result.blocks()[*index]
+                    for star_point in side_block.points() {
+                        total += side_block
                             .target_little_character(term, star_point.q(), operation)
                             .map_err(|error| {
                                 format!("{key}: the little-group character: {error}")
                             })?;
                     }
-                    let induced = result.blocks()[*index]
+                    let induced = side_block
                         .target_character(term, operation)
                         .map_err(|error| format!("{key}: the induced character: {error}"))?;
                     if (total - induced).norm() > SWEEP_TOLERANCE {
@@ -3559,17 +3718,21 @@ fn probe_record(
                     failures.extend(block_failures);
                     // The engine's own reading of the same blocks, kept so the
                     // gate can bind every recorded statistic to it.
-                    let engine_blocks: Vec<EngineBlock> = result
-                        .blocks()
-                        .iter()
-                        .map(|block| {
-                            engine_block(
-                                block,
-                                &reference_point_for_engine,
-                                block_context.child_reciprocal,
-                            )
-                        })
-                        .collect();
+                    let mut engine_blocks: Vec<EngineBlock> = Vec::with_capacity(result.blocks().len());
+                    for block in result.blocks() {
+                        match engine_block(
+                            block,
+                            &reference_point_for_engine,
+                            block_context.child_reciprocal,
+                        ) {
+                            Ok(engine) => engine_blocks.push(engine),
+                            Err(error) => failures.push(format!(
+                                "ordinal {} {label} t={parameter}: the engine's own block reading: \
+                                 {error}",
+                                record.ordinal
+                            )),
+                        }
+                    }
                     let targets: Vec<_> = result
                         .blocks()
                         .iter()
@@ -3838,6 +4001,9 @@ fn merge_sweep(total: &mut SweepReport, part: SweepReport) {
     for (order, seen) in part.orders {
         *total.orders.entry(order).or_insert(0) += seen;
     }
+    total.representative_shifts += part.representative_shifts;
+    total.little_fixity_checks += part.little_fixity_checks;
+    total.little_fixity_mismatches += part.little_fixity_mismatches;
     total.worst_score = total.worst_score.min(part.worst_score);
     total.failures.extend(part.failures);
 }
@@ -4108,6 +4274,15 @@ fn report(
             "  multi-target block shapes {:?}; blocks with a swappable same-dimension pair {}; \
              probe parameter(s) that are not full-star boundaries {}",
             sweep.multi_shapes, sweep.same_dimension_swaps, sweep.parent_only_parameters
+        );
+        println!(
+            "  matched block pair(s) whose reduced representative differs between the two \
+             interior points {} (of {}); exact-fixity check(s) of the card-1 gauge {} with {} \
+             mismatch(es)",
+            sweep.representative_shifts,
+            sweep.blocks,
+            sweep.little_fixity_checks,
+            sweep.little_fixity_mismatches
         );
     }
     if let Some(rows) = evidence.recount_file_rows {
@@ -4535,11 +4710,58 @@ fn check_invariants(
                 evidence.sweep.orders, expected_orders
             ));
         }
+        // Pinned measured facts (card-5 audit F3): every multi-target interior
+        // block has the shape [(1,1),(1,1)], and no probe parameter comes from
+        // the parent side alone (the parent's formal boundaries are nested in
+        // the eighth grid on this corpus; the set equality above is what keeps
+        // this from hiding a moved child boundary).
+        let expected_shapes: BTreeMap<Vec<(u8, u32)>, usize> =
+            [(vec![(1u8, 1u32), (1, 1)], 6_264usize)].into_iter().collect();
+        if evidence.sweep.multi_shapes != expected_shapes {
+            violations.push(format!(
+                "the domain sweep's multi-target block shapes are {:?}, expected {:?}",
+                evidence.sweep.multi_shapes, expected_shapes
+            ));
+        }
+        if evidence.sweep.parent_only_parameters != 0 {
+            violations.push(format!(
+                "the domain sweep has {} probe parameter(s) that are not full-star boundaries,                  expected 0",
+                evidence.sweep.parent_only_parameters
+            ));
+        }
         if evidence.sweep.same_dimension_swaps != 0 {
             violations.push(format!(
                 "the domain sweep found {} interior block(s) with two same-dimension targets of \
                  different multiplicities, which the pinned corpus shape says do not exist",
                 evidence.sweep.same_dimension_swaps
+            ));
+        }
+        // The card-1 gauge's hypothesis has to be exercised and to hold: every
+        // aligned little-group rotation fixes its seed point exactly (a
+        // non-exact fixity would be a partition boundary, so this is also a
+        // partition control).
+        if evidence.sweep.little_fixity_mismatches > 0 {
+            violations.push(format!(
+                "the exact-fixity control of the card-1 gauge failed {} time(s)",
+                evidence.sweep.little_fixity_mismatches
+            ));
+        }
+        if evidence.sweep.little_fixity_checks == 0 {
+            violations.push(
+                "the exact-fixity control of the card-1 gauge never ran (no aligned little-group \
+                 operation was checked)"
+                    .to_string(),
+            );
+        }
+        // Measured, not assumed: the engine's reduced representative does move
+        // between the two interior points of some intervals (a reduction wall,
+        // R6.7 card 5 math review P1-2), while the gauge-unified content the
+        // sweep compares stays constant.
+        if evidence.sweep.representative_shifts != REPRESENTATIVE_SHIFT_PIN {
+            violations.push(format!(
+                "the domain sweep saw {} matched block pair(s) whose reduced representative \
+                 differs between the two interior points, expected {} (every matched pair)",
+                evidence.sweep.representative_shifts, REPRESENTATIVE_SHIFT_PIN
             ));
         }
     }
@@ -5650,6 +5872,42 @@ mod tests {
         let error = match_block_geometry(&left, &short, "the count witness")
             .expect_err("a different block count is a mismatch");
         assert!(error.contains("2 block(s)"), "{error}");
+
+        // Card-5 audit F4: the volume comparisons need a falsifier of their own
+        // (deleting them used to leave every test and the whole corpus green).
+        // Each is flipped in isolation, with the same arms, points and
+        // co-group, so only the named quantity differs.
+        let base: SweepBlock = sweep_block(vec![1, 2], vec![vec![1], vec![2]], vec![identity]);
+        let mut grown_star = base.clone();
+        grown_star.star_size += 1;
+        let error = match_block_geometry(
+            std::slice::from_ref(&base),
+            std::slice::from_ref(&grown_star),
+            "the star-size witness",
+        )
+        .expect_err("a different star size is a mismatch");
+        assert!(error.contains("star size 2 at the first parameter and 3"), "{error}");
+        let mut heavier = base.clone();
+        heavier.arm_count += 1;
+        let error = match_block_geometry(
+            std::slice::from_ref(&base),
+            std::slice::from_ref(&heavier),
+            "the arm-count witness",
+        )
+        .expect_err("a different arm count is a mismatch");
+        assert!(error.contains("arm count 2 at the first parameter and 3"), "{error}");
+        let mut fatter = base.clone();
+        fatter.block_dimension += 1;
+        let error = match_block_geometry(
+            std::slice::from_ref(&base),
+            std::slice::from_ref(&fatter),
+            "the block-dimension witness",
+        )
+        .expect_err("a different block dimension is a mismatch");
+        assert!(
+            error.contains("block dimension 2 at the first parameter and 3"),
+            "{error}"
+        );
     }
 
     /// The frozen record's own `(record, label)` pair list, for the sweep tests.
@@ -5918,6 +6176,55 @@ mod tests {
             let error = interior_points(&left, &right).expect_err("a non-positive interval");
             assert!(error.contains("not positive"), "{error}");
         }
+    }
+
+    /// **Card 5 math review P1-1: the card-1 gauge is derived for constructed
+    /// targets only, so a stored target fails closed instead of being compared
+    /// against an unproved quantity.**  The corpus never reaches the branch (no
+    /// interior stored target exists: `stored=0` of 174,672), so this test is the
+    /// guard's only witness.
+    #[test]
+    fn the_stored_branch_of_the_gauge_fails_closed() {
+        let constructed = [target(None)];
+        refuse_stored_targets(&constructed).expect("a constructed target is gaugeable");
+        let stored = [target(None), target(Some(7))];
+        let error = refuse_stored_targets(&stored).expect_err("a stored target must fail closed");
+        assert!(error.contains("stored irrep 7"), "{error}");
+        assert!(error.contains("card-1 gauge"), "{error}");
+    }
+
+    /// **Card 5 math review P1-3: the control that pins the gauge's exact-fixity
+    /// hypothesis is not vacuous.**  `Lattice::preserves` builds the little group
+    /// from mod-`L*` fixity; the gauge derivation needs exact fixity.  The same
+    /// point separates the two: a quarter turn about `z` fixes `(1/2, 1/2, 0)`
+    /// modulo `Z^3` but not exactly, and fixes `(0, 0, 1/3)` both ways.
+    #[test]
+    fn the_exact_fixity_control_distinguishes_mod_lattice_fixity() {
+        let lattice = reciprocal_lattice(1).expect("SG 1 reciprocal lattice");
+        let rotation: Mat3I = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
+        let class_point = Vec3R::new([rational(1, 2), rational(1, 2), Rat::ZERO]);
+        assert!(
+            lattice
+                .preserves(rotation, &class_point)
+                .expect("the mod-lattice fixity test"),
+            "the point is fixed modulo L*, which is why the little group contains the rotation"
+        );
+        assert!(
+            !exactly_fixes(&rotation, &class_point).expect("the exact fixity test"),
+            "the rotation must not count as an exact fixity of this point"
+        );
+        let axis_point = Vec3R::new([Rat::ZERO, Rat::ZERO, rational(1, 3)]);
+        assert!(
+            lattice
+                .preserves(rotation, &axis_point)
+                .expect("the mod-lattice fixity test")
+        );
+        assert!(
+            exactly_fixes(&rotation, &axis_point).expect("the exact fixity test"),
+            "a point on the rotation axis is fixed exactly"
+        );
+        let identity: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        assert!(exactly_fixes(&identity, &class_point).expect("the identity is exact"));
     }
 
     /// **Card 4 residual: the `--output-recount` fingerprint round-trips.**  The

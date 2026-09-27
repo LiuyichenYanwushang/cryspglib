@@ -552,7 +552,33 @@ impl FullStarBlock {
     /// **Bloch phase included**: for a constructed target the phase of the
     /// target's own reduced folded point, for a stored target the phase of the
     /// pinned row's stored `k`.  The frame is the child Hall frame, as in
-    /// [`Self::target_character`].
+    /// [`Self::target_character`], and so is the membership contract: an
+    /// operation outside the child group is the evaluator's error, never a zero
+    /// (a point that is not an arm of this target contributes zero).
+    ///
+    /// **Parameter independence of the card-1 gauge (R6.7 card 5 math review).**
+    /// For a **constructed** target the reading at arm `a`, divided by
+    /// `exp(2 pi i q_a(t) . tau_h)`, is independent of `t` inside a partition
+    /// interval.  Write `q_0(t) = t v_0 + mu(t)` for the representative point
+    /// (`mu` the reduction offset), `q_a = R_a^{-T} q_0`, `g_a = (R_a, tau_a)`
+    /// the arm's transporter and `h' = g_a^{-1} h g_a = (R', tau')` with
+    /// `tau' = R_a^{-1}(tau_h + (R_h - I) tau_a)`.  The evaluator's phase is
+    /// `exp(2 pi i q_0 . tau')` (its `mu` part cancels inside the catalogue's
+    /// character, which is representative independent), so the gauged value
+    /// carries `exp(2 pi i [t v_0 . tau' + mu . tau' - t v_a . tau_h])`, and
+    /// `(R_a^T v_a) . (R_a^{-1} w) = v_a . w` turns the first and third terms
+    /// into `q_a . (R_h - I) tau_a = (R_h^T q_a - q_a) . tau_a`.  Inside an
+    /// interval the mod-`L*_H` fixity used to build the little group is
+    /// **exact**, so `R_h^T q_a = q_a` and that term vanishes; the `mu` term is
+    /// the evaluator's own representative independence.  The extra phase a
+    /// non-canonical arm could have introduced is therefore identically one, and
+    /// the census pins its hypothesis (exact fixity at every matched operation)
+    /// as a counted, gate-asserted control.
+    ///
+    /// The derivation above is for a **constructed** target, whose phase is the
+    /// folded point's.  A **stored** target is evaluated at its pinned `k`, and
+    /// the same division is not proved for it; the census therefore fails closed
+    /// on an interior stored target instead of comparing an unproved quantity.
     pub fn target_little_character(
         &self,
         term: usize,

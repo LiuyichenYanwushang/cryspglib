@@ -252,11 +252,19 @@ impl ComponentStar {
     /// caller is independent of the canonical arm order, which moves with the
     /// parameter for a parametric-k line.  Zero when `point` is not an arm; the
     /// arm's contribution to [`Self::character`] otherwise.
+    ///
+    /// The membership contract is [`Self::character`]'s: an operation outside
+    /// the group is [`StarError::OperationNotInParentGroup`], never a zero — a
+    /// point that is not an arm is the only source of the zero.
     pub(super) fn point_character(
         &self,
         point: &Vec3R,
         operation: &ExactSeitz,
     ) -> Result<Complex64, StarError> {
+        let reduced = operation.reduce(&self.lattice)?;
+        if !self.operations.contains(&reduced) {
+            return Err(StarError::OperationNotInParentGroup { sg: self.sg });
+        }
         for (index, arm) in self.arms.iter().enumerate() {
             if !self.reciprocal.same_mod(arm.wave_vector(), point)? {
                 continue;
@@ -370,11 +378,19 @@ impl ConstructedStar {
     /// parameter for a parametric-k line.  Zero when `point` is not an arm; the
     /// arm's contribution to [`Self::character`] otherwise, i.e. the little-group
     /// character of the conjugated operation with the constructed Bloch phase.
+    ///
+    /// The membership contract is [`Self::character`]'s: an operation outside
+    /// the group is [`StarError::OperationNotInParentGroup`], never a zero — a
+    /// point that is not an arm is the only source of the zero.
     pub(super) fn point_character(
         &self,
         point: &Vec3R,
         operation: &ExactSeitz,
     ) -> Result<Complex64, StarError> {
+        let reduced = operation.reduce(&self.lattice)?;
+        if !self.operations.contains(&reduced) {
+            return Err(StarError::OperationNotInParentGroup { sg: self.sg });
+        }
         for (index, arm) in self.arms.iter().enumerate() {
             if !self.reciprocal.same_mod(arm.wave_vector(), point)? {
                 continue;

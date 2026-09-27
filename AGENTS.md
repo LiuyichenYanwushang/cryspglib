@@ -338,11 +338,11 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   而把双目标块的重数**互换**（数据变异）→ exit 0（同上 no-op）。
   **本方新增的第五个变异发现了一个真实盲点（已修）**：把比较**两侧都取自第一个参数的分解**
   （`M5`）时门禁**仍 exit 0**——46,048 次"比较"、0 失败、计数逐字不变，正是本计划禁止的
-  "检查对象丢失但门禁通过"。修法是两条按参数绑定几何的控制：① `SweepBlock::read` 现在按**本侧参数**
-  验算每个折叠点（`t·direction` 与引擎报告点 mod 子群倒格相等；用 mod 是因为**边界**上合并臂报告的是
-  等价类代表元——第一版用精确相等，10038 的 `1/8` 立即失败，这个反例写进了测试注释）；② 每个匹配块还
-  要求两侧 seed 点**不相同**（`q1 == q2` 即判失败："与自身比较是空转"），并各自与本侧参数的
-  `t·direction` 对齐。同一 `M5` 变异现在 **exit 1（336,820 violations）**；只把**几何层**两侧取自
+  "检查对象丢失但门禁通过"。修法是按参数绑定几何：每个匹配块要求两侧 seed 点**不相同**
+  （`q1 == q2` 即判失败："与自身比较是空转"），并各自与本侧参数的 `t·direction` mod 子群倒格对齐；
+  `SweepBlock::read` 另按**本侧参数**验算块里每个折叠点（审计 F5 实测：删掉这条后日志逐字节相同 ⇒
+  它在语料上**没有**检测力，真正关掉 M5 的是上面两条；保留为 belt-and-braces。用 mod 相等是因为边界
+  上合并臂报告的是等价类代表元——第一版用精确相等，10038 的 `1/8` 立即失败，这个反例写进了测试注释）。同一 `M5` 变异现在 **exit 1（336,820 violations）**；只把**几何层**两侧取自
   `r1` 的变体 **exit 1**（576 个区间失败，报"seed 臂不在自己块的点里"）；把两个内点都塌到左端点
   （`M6`）**exit 1**（85,163 violations）。`interior_points` 同时改为拒绝非正区间（零长区间 = 与自身比较）。
   新回归 `the_sweep_binds_every_block_to_its_own_parameter`（错参拒绝 + 三点内点正值 + 非正区间报错）。
@@ -358,6 +358,59 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   （见变异 ①④）；④ `--gate` 单独运行不跑 sweep（验收命令同时给两个 flag），但 sweep 自己的失败在
   `--domain-sweep` 单独运行时也 exit 1；⑤ 区间内两点是引擎侧经验控制，完整覆盖的数学依据仍是
   穷尽事件的分区推导（卡 6 做计数守恒与故障注入）。
+* **卡 5 审核轮（两项独立对抗性审核，针对 `9a48424`，各自私有 worktree + 私有 target）**：
+  **数学审核 无 P0，3×P1 + 4×P2；审计审核 无 P0，2×P1 + 7×P2**；全部接受或反驳并处理（本提交）。
+  **数学 P1-3（反驳 + 补控制）**：审核方指出 sweep 在 seed 臂（最小母群臂）而非块的规范点上取
+  gauge（实测只有 608/1168 个块两者相同），称"多余相位 `C ≡ 0` 无人推导或钉住"。本方推导证明
+  `C ≡ 0` 是**定理**：gauged 值携带 `exp(2πi q_a·(R_h − I)τ_a)`（由 `(R_a^T v_a)·(R_a^{-1}w) =
+  v_a·w` 化简），而区间内小群的 mod-`L*` 固定是**精确**固定 ⇒ 该项为 0；约化偏移 μ 项被 catalogue
+  字符的代表元无关性吸收。推导写入 `FullStarBlock::target_little_character` 文档，并把前提做成
+  **永久精确控制** `exactly_fixes`（逐匹配块 × 逐对齐操作 × 两侧；实测 **549,184** 次检查 / **0**
+  不符，门禁断言 `checks > 0 && mismatches == 0`）；新单测
+  `the_exact_fixity_control_distinguishes_mod_lattice_fixity`（同一旋转对 `(1/2,1/2,0)` 是 mod-`L*`
+  固定但非精确、对 `(0,0,1/3)` 两者都成立——控制因此不是空转）。变异（去掉小群过滤）现在给出
+  **686,560** 条 fixity mismatch + exit 1。
+  **数学 P1-1（接受并修）**：stored 目标的 Bloch 相位是 pinned `k`，卡 1 gauge 对它未证明；现在
+  `gauge_unified_targets` **fail-closed**（`refuse_stored_targets` + 单测
+  `the_stored_branch_of_the_gauge_fails_closed`）。语料上该分支不可达（实测 `stored=0/174,672`），
+  审核方另用穷举（5,756 对 × 全部臂 × 存储 k 与 ±k，**325,912** 次精确巧合全在边界、**0** 严格落在
+  区间内）替代了本方原先两点式的证据——该穷举是其证据，本方未复跑。
+  **数学 P1-2（接受为范围声明 + 记录）**：分区只枚举齐次谓词；未标注的还有 (a) 仿射的 stored-k 巧合
+  （按上述穷举是边界专属）、(b) **约化墙**（审核方在更密网格上实测 **96** 个严格落在区间内，见证
+  13719 SG 225 `SM1` `t=1/6`：`stored_k` 跳变而 gauge 后内容仍一致到 3.3e-16）、(c) 求解器的离散
+  平凡化 χ₀。响应：把"报告的分解在区间内恒定"改写为"**gauge 统一后的小群内容**恒定，至多差引擎的
+  规范代表元/枚举编号与 χ₀"（模块文档 + §3b + coverage §4b）；新增计数 `representative_shifts`
+  实测 **168,408/168,408**（每一对的约化代表元都不同 ⇒ `stored_k` 不能当跨参数键）并**钉值**；
+  约化墙本身按审核方测量记录在案，未由本方复跑。
+  **数学 P2 全部处理**：`character_score` 的相位盲性写进文档（全局相位正是 gauge 自由度；恒等操作
+  那项是维数——正实数——才锚定相位）；`point_character` 的错误契约与 `character` 一致（越界操作返回
+  `OperationNotInParentGroup`，不再是 0/1.0，三个 star 类型都改）；`point` 多臂重合时 Component/
+  Constructed 取**首臂**（Σ 恒等式以臂两两不同 mod `L*` 为前提）写进文档，sweep 的运行期恒等式检查
+  是守卫。
+  **审计 F1（P1，已修）**：sweep 的参数集**没有绑定到分区**——把 10038 `DT1` 的 `1/8` **移动**到
+  `1/7`（不是删除）时门禁仍 exit 0，唯一变化是打印的 `parent_only_parameters` 0→1（分区见证被静默
+  停止切割；合并是残类 `t ≡ 1/8 (mod 1/4)`，所以两个内点都 generic）。现在 `sweep_label` 逐对断言
+  参数集 == `partition.boundary_parameters()` ∪ 母群例外参数（集合相等），并把
+  `parent_only_parameters == 0` 与 `multi_shapes == {[(1,1),(1,1)]: 6,264}` 钉成门禁断言。同一变异
+  现在 **exit 1（11 violations）**，首条点名 `ordinal 10038 DT1`。**该控制覆盖不到的**：若变异发生在
+  `boundary_parameters()` 内部（两侧一起动），由卡 3 的语料回归（八分之一网格钉值）负责。
+  **审计 F2（P1，已修）**：per-arm 恒等式检查在第二侧用了左索引（审核方用 `assert_eq!(index, partner)`
+  探针证明语料上二者不同，23 处 panic）。现在按 side 取 `r1.blocks()[index]` / `r2.blocks()[partner]`。
+  **影响范围如实说明**：`Σ_点 = target_character` 对任意块都成立，所以旧写法**不会漏检**，只会把报文
+  指到错的块（归属错误）。
+  **审计 F3/F4/F5/F6/F7/F8/F9**：F3 两条打印量现在都钉成断言；F4 星大小/臂数/块维数比较此前无反例，
+  现在在 `the_geometry_layer_matches_blocks_by_arm_set_and_not_by_index` 里各自单独构造合成不符并
+  逐字断言报文；F5 见上（M5 归属更正）；F6 串行墙钟受负载影响（本方 465.45 s vs 审核方在并发编译下
+  500.97 s，只作参考；本轮复跑 **466.83 s**）；F7 `contains(..).unwrap_or(false)` 会把格错误吞成
+  `false`（两侧对称 ⇒ 不可见），现在 `engine_block` / `block_stat` 传播错误；F8 **残余**：label↔table
+  绑定依赖 `t=1/4` 的内容锚点而非单射（审核方：964/1,006 记录存在同内容标签组），留给卡 6/7；F9 见上。
+  **本提交的验证**（源码 `bcf0ad83…`）：`--tests` 23 个二进制 **614 passed / 0 failed**、doctest 27、
+  `--lib line_domain` 20、`--lib catalogue` 12、`--example line_domain_census` **12**（+2 新回归）、
+  严格 clippy exit 0；`--gate --require-covered --domain-sweep` 8 线程与 `--sequential` 两次 exit 0
+  （串行 wall 466.83 s），钉值逐字未变、新计数 `168,408` 与 `549,184/0` 入断言；三个 TSV 串并
+  **逐字节相同**（SHA 仍 `c7b8606e…` / `07dedd42…` / `a14598c1…`）；family / ledger / 全局三门禁审计
+  全部 exit 0。
+
 * **卡 6（接入门禁）** 对每个 (record, source)：检查所有边界点；对每个开区间取两个精确有理
   内部点（如三等分点）；两点上检查全部折叠块后执行卡 5 的匹配；每次分解继续强制整数重数、
   维数守恒与逐操作字符重建。门禁必须检查**计数守恒**（应检查区间数 = 成功 + 明确失败），
@@ -777,6 +830,26 @@ co-group 的精确支持域。
   `audit_irrep_subduction --require-complete --require-w-complete --require-full-decomposition`
   exit 0（`probe_full_success=366260/366260`、`hard_failures=0`、`accounting_violations=0`、
   `census_mismatch=0`、`VERDICT complete`，116.8 s）。
+
+* **R6.7 卡 5 审核轮（2026-09-26，两项独立对抗性审核，各自私有 worktree + 私有 target，针对
+  `9a48424`）**：**数学 无 P0（3×P1 + 4×P2）、审计 无 P0（2×P1 + 7×P2）**，逐条处理见 §3b 卡 5
+  审核轮条目。要点：① 数学 P1-3 **被反驳**——"seed 臂 gauge 的多余相位 `C ≡ 0`"不是巧合而是定理
+  （区间内小群的 mod-`L*` 固定是精确固定 ⇒ `q_a·(R_h − I)τ_a = 0`），推导进模块文档，前提做成
+  永久精确控制（`exactly_fixes`，实测 **549,184** 次检查 / **0** 不符，去掉小群过滤的变异给
+  **686,560** 条 mismatch）；② 数学 P1-1 接受——stored 目标的 gauge 未证明，改为 **fail-closed**
+  （语料不可达，单测是唯一见证；审核方的穷举 325,912 次 stored-k 巧合全部落在边界、0 在区间内，
+  记为其证据）；③ 数学 P1-2 接受为**范围声明**——"分解在区间内恒定"改写为"gauge 统一后的小群内容
+  恒定，至多差规范代表元/编号与 χ₀"，新增 `representative_shifts` 实测 **168,408/168,408** 并钉值，
+  约化墙（审核方实测 96 个在区间内、见证 13719 `SM1` `t=1/6`）按对方测量记录；④ 审计 F1 是**真漏洞**：
+  把 10038 `DT1` 的 `1/8` **移动**到 `1/7` 时门禁曾仍 exit 0（只改打印量），现逐对断言参数集 ==
+  `boundary_parameters()` ∪ 母群例外参数，同一变异 **exit 1（11 violations）**；⑤ 审计 F2 是**真 bug**：
+  per-arm 恒等式检查第二侧用了左索引，已按 side 取块（影响为归属，不是漏检，如实写明）；⑥ F3/F4/F7
+  分别补钉值断言、补合成反例、把 `unwrap_or(false)` 的静默吞错改为传播；F5 更正 M5 归属（读绑定在
+  语料上无检测力）、F6 更正墙钟口径、F8（label↔table 锚点非单射，964/1,006 记录有同内容标签组）
+  与 F9（Component/Constructed 取首臂）分别记为残余与文档。**本提交验证**：`--tests` 614/0（23 二进制）、
+  doctest 27、`--lib line_domain` 20、`--lib catalogue` 12、example **12**、clippy exit 0；
+  `--gate --require-covered --domain-sweep` 串并两次 exit 0（串行 466.83 s），三个 TSV 逐字节相同且
+  SHA 未变，family/ledger/全局三门禁审计 exit 0。
 
 ---
 
