@@ -394,8 +394,11 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   `parent_only_parameters == 0` 与 `multi_shapes == {[(1,1),(1,1)]: 6,264}` 钉成门禁断言。同一变异
   现在 **exit 1（11 violations）**，首条点名 `ordinal 10038 DT1`。**该控制覆盖不到的**：若变异发生在
   `boundary_parameters()` 内部（两侧一起动），由卡 3 的语料回归（八分之一网格钉值）负责。
-  **审计 F2（P1，已修）**：per-arm 恒等式检查在第二侧用了左索引（审核方用 `assert_eq!(index, partner)`
-  探针证明语料上二者不同，23 处 panic）。现在按 side 取 `r1.blocks()[index]` / `r2.blocks()[partner]`。
+  **审计 F2（P1，已修）**：per-arm 恒等式检查在第二侧用了左索引。现在按 side 取
+  `r1.blocks()[index]` / `r2.blocks()[partner]`。**数字更正（`d66db48` 的审核轮）**：第一轮审核
+  报的"23 处 panic"是进程中止前观察到的 panic 次数，不是对数；第二轮的仪表化计数实测
+  **1,728 个匹配对 `index != partner`**（576 个区间 / 72 个 (记录,标号) / 25 个 ordinal；每个
+  (记录,标号) 恰 24 个，是块 {4,5,6} 上的 3-循环）。本条先前的措辞已按此更正。
   **影响范围如实说明**：`Σ_点 = target_character` 对任意块都成立，所以旧写法**不会漏检**，只会把报文
   指到错的块（归属错误）。
   **审计 F3/F4/F5/F6/F7/F8/F9**：F3 两条打印量现在都钉成断言；F4 星大小/臂数/块维数比较此前无反例，
@@ -404,12 +407,30 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   500.97 s，只作参考；本轮复跑 **466.83 s**）；F7 `contains(..).unwrap_or(false)` 会把格错误吞成
   `false`（两侧对称 ⇒ 不可见），现在 `engine_block` / `block_stat` 传播错误；F8 **残余**：label↔table
   绑定依赖 `t=1/4` 的内容锚点而非单射（审核方：964/1,006 记录存在同内容标签组），留给卡 6/7；F9 见上。
-  **本提交的验证**（源码 `bcf0ad83…`）：`--tests` 23 个二进制 **614 passed / 0 failed**、doctest 27、
-  `--lib line_domain` 20、`--lib catalogue` 12、`--example line_domain_census` **12**（+2 新回归）、
-  严格 clippy exit 0；`--gate --require-covered --domain-sweep` 8 线程与 `--sequential` 两次 exit 0
-  （串行 wall 466.83 s），钉值逐字未变、新计数 `168,408` 与 `549,184/0` 入断言；三个 TSV 串并
-  **逐字节相同**（SHA 仍 `c7b8606e…` / `07dedd42…` / `a14598c1…`）；family / ledger / 全局三门禁审计
-  全部 exit 0。
+  **`d66db48` 的第二轮审核（无 P0 级结论被推翻，但 2 个 P0 级"控制未绑定"被发现并已修）**：
+  ① **P0-2**：精确固定控制的 `549,184` 只是**打印**，门禁只断言"跑过 + 无不符"，
+  于是 `exactly_fixes` 恒为 true 时门禁仍绿，把循环缩到只剩恒等操作时检查数 549,184→336,816
+  也**门禁与 12 项测试全绿**。现在门禁把检查数按独立关系钉住
+  （**2 × Σ(小群阶 × 块对数) = 549,184**，即每块对每个对齐操作每侧一次），并加了
+  **门禁级合成自检**（同一四分之一转对 `(1/2,1/2,0)` 必须非精确、对 `(0,0,1/3)` 必须精确）；
+  变异实测：恒为 true → **exit 1**（自检 violation），只留恒等操作 → **exit 1**
+  （`ran 336816 … predicted 549184`）。② **P0-3**：fail-closed 守卫的**调用点**未绑定
+  （把 `refuse_stored_targets(block.targets())?;` 整行删掉时门禁与 12 项测试全绿）——现在守卫
+  内联进 `gauge_target_slice`（`gauge_unified_targets` 的同一路径，字符读取以闭包注入），
+  单测直接调用该函数并证明守卫在**读取任何字符之前**触发；删掉守卫的变异现在**测试失败**
+  （门禁仍绿，因为语料不可达 —— 如实说明）。③ **P1-4**：`point_character` 的成员校验分支
+  此前**零覆盖**，现在库回归在 `t=1/4`（stored 路径）与 `1/6`、`5/24`（constructed 路径）上
+  断言外来纯平移对两个 accessor 都返回 `OperationNotInParentGroup`。④ **P2**：F4 合成反例
+  是唯一见证、F7 传播在语料上不可见（无格错误注入测试）、`representative_shifts` 的两处文档
+  互相矛盾（已统一为"度量约化代表元是否随参数变化，不度量约化墙"）、F1 控制的"未覆盖"
+  其实被双重覆盖（分区内部改动会同时触发卡 3 语料回归与 recount 钉值 27,518/27,507）、
+  `census:1496` 尚有一处 `let Ok(..) else { continue }`（卡 6 范围，5,756 的钉值使其收缩可见）。
+  **本提交的验证**（源码 `dce4b8e3…`）：`--tests` 23 个二进制 **614 passed / 0 failed**、doctest 27、
+  `--lib line_domain` 20、`--lib catalogue` 12、`--example line_domain_census` **12**、严格 clippy
+  exit 0；`--gate --require-covered --domain-sweep` 8 线程与 `--sequential` 两次 exit 0（串行 wall
+  516.04 s，随机器负载波动），钉值逐字未变、新计数 `168,408` 与 `549,184/0` 入断言（含门禁级
+  合成自检）；三个 TSV 串并**逐字节相同**（SHA 仍 `c7b8606e…` / `07dedd42…` / `a14598c1…`）；
+  family / ledger / 全局三门禁审计全部 exit 0。
 
 * **卡 6（接入门禁）** 对每个 (record, source)：检查所有边界点；对每个开区间取两个精确有理
   内部点（如三等分点）；两点上检查全部折叠块后执行卡 5 的匹配；每次分解继续强制整数重数、

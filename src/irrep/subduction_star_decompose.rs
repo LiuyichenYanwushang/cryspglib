@@ -4685,7 +4685,21 @@ mod tests {
         let table = line_table(subgroup.parent_sg, "DT1");
         let shift = embedding.child_shift().checked_neg().expect("shift");
         let mut checked = 0usize;
-        for parameter in [Rat::new(1, 6).unwrap(), Rat::new(5, 24).unwrap()] {
+        // Card-5 review round (P1-4): the little-group accessor's membership
+        // contract is `character`'s on every star type.  `1/4` is the stored
+        // regime and `1/6`, `5/24` are constructed, so the foreign-operation
+        // assertion below covers whichever evaluator variant each parameter uses;
+        // before this the branch had no witness at all (deleting the three
+        // `point_character` checks left the whole battery green).
+        let foreign = ExactSeitz::new(
+            IDENTITY_ROTATION,
+            Vec3R::new([Rat::ZERO, Rat::ZERO, Rat::new(1, 3).unwrap()]),
+        );
+        for parameter in [
+            Rat::new(1, 4).unwrap(),
+            Rat::new(1, 6).unwrap(),
+            Rat::new(5, 24).unwrap(),
+        ] {
             let result = subduce_line_at_parameter(subgroup, &embedding, table, parameter)
                 .expect("the witness decomposition");
             assert_line_invariants(&result);
@@ -4725,6 +4739,22 @@ mod tests {
                         ),
                         Err(FullStarError::UnknownTargetTerm { .. })
                     ));
+                    // A pure translation that is not a child operation is a
+                    // typed error on both accessors, never a zero or a phase.
+                    assert!(
+                        matches!(
+                            block.target_character(term, &foreign),
+                            Err(FullStarError::Star(StarError::OperationNotInParentGroup { .. }))
+                        ),
+                        "the induced accessor must reject a foreign operation"
+                    );
+                    assert!(
+                        matches!(
+                            block.target_little_character(term, block.q(), &foreign),
+                            Err(FullStarError::Star(StarError::OperationNotInParentGroup { .. }))
+                        ),
+                        "the little-group accessor must reject a foreign operation"
+                    );
                 }
             }
         }

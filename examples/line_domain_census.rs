@@ -646,12 +646,14 @@ struct SweepReport {
     target_counts: BTreeMap<usize, usize>,
     orders: BTreeMap<usize, usize>,
     /// Matched block pairs whose **reduced** representative point
-    /// ([`FullStarBlock::stored_k`]) differs between the two parameters while the
-    /// unreduced folded points moved continuously: the engine's canonical
-    /// representative jumps at a reduction wall **inside** a partition interval
-    /// (R6.7 card 5 math review, P1-2, which measured 96 such walls on a denser
-    /// grid), and the card-5 comparison is on the gauge-unified content rather
-    /// than on that representative.  Measured, not assumed.
+    /// ([`FullStarBlock::stored_k`]) differs between the two interior points:
+    /// measured **every** pair, because the folded point moves with the parameter
+    /// and its representative moves with it.  This is the volume fact that makes
+    /// `stored_k` unusable as a cross-parameter key; it does **not** measure the
+    /// discontinuous reduction walls the card-5 math review found (P1-2: 96
+    /// strictly inside intervals on a denser grid, witness ordinal 13719 SG 225
+    /// `SM1` at `t = 1/6`).  The card-5 comparison is on the gauge-unified
+    /// content, which is invariant to both.
     representative_shifts: usize,
     /// Exact-fixity checks of the card-1 gauge's hypothesis: for every matched
     /// block, every aligned little-group operation and both parameters, the
@@ -2509,32 +2511,34 @@ fn gauge_unified_targets(
     point: &Vec3R,
     operations: &[ExactSeitz],
 ) -> Result<Vec<SweepTarget>, String> {
-    refuse_stored_targets(block.targets())?;
-    let mut out = Vec::with_capacity(block.targets().len());
-    for (term, target) in block.targets().iter().enumerate() {
-        let mut vector = Vec::with_capacity(operations.len());
-        for operation in operations {
-            let value = block
-                .target_little_character(term, point, operation)
-                .map_err(|error| error.to_string())?;
-            let gauge =
-                bloch_phase(point, operation.translation()).map_err(|error| error.to_string())?;
-            vector.push(value * gauge.conj());
-        }
-        out.push(SweepTarget {
-            dimension: target.dimension,
-            multiplicity: target.multiplicity,
-            stored: target.irnumber.is_some(),
-            vector,
-        });
-    }
-    Ok(out)
+    gauge_target_slice(block.targets(), point, operations, |term, operation| {
+        block
+            .target_little_character(term, point, operation)
+            .map_err(|error| error.to_string())
+    })
 }
 
-/// The fail-closed guard of [`gauge_unified_targets`], split out so the branch
-/// has a witness even though the corpus never reaches it.
-fn refuse_stored_targets(targets: &[FullStarTarget]) -> Result<(), String> {
+/// [`gauge_unified_targets`] with the character reading injected.
+///
+/// The fail-closed guard against a stored target lives **inside** this function,
+/// on the same path the sweep uses, so removing it breaks the guard test — a
+/// separately callable `refuse_stored_targets(..)` left the call site unbound
+/// (audit of `d66db48`, P0-3: deleting the call kept the gate and every test
+/// green).  The injected reader also lets the test prove the guard fires
+/// **before** any character is read.
+fn gauge_target_slice(
+    targets: &[FullStarTarget],
+    point: &Vec3R,
+    operations: &[ExactSeitz],
+    mut read: impl FnMut(usize, &ExactSeitz) -> Result<Complex64, String>,
+) -> Result<Vec<SweepTarget>, String> {
+    let mut out = Vec::with_capacity(targets.len());
     for (term, target) in targets.iter().enumerate() {
+        // The card-1 gauge is derived for constructed targets read at the block's
+        // folded point only; a stored target is evaluated at its pinned `k`, where
+        // the same division is unproved (R6.7 card 5 math review, P1-1).  The
+        // corpus never reaches this branch (interior stored targets 0 of 174,672),
+        // so this guard and its test are the only witnesses that it fires.
         if let Some(irnumber) = target.irnumber {
             return Err(format!(
                 "the card-1 gauge is derived for constructed targets read at the block's folded \
@@ -2543,8 +2547,21 @@ fn refuse_stored_targets(targets: &[FullStarTarget]) -> Result<(), String> {
                  stored-k coincidence set) before comparing it across parameters"
             ));
         }
+        let mut vector = Vec::with_capacity(operations.len());
+        for operation in operations {
+            let value = read(term, operation)?;
+            let gauge =
+                bloch_phase(point, operation.translation()).map_err(|error| error.to_string())?;
+            vector.push(value * gauge.conj());
+        }
+        out.push(SweepTarget {
+            dimension: target.dimension,
+            multiplicity: target.multiplicity,
+            stored: false,
+            vector,
+        });
     }
-    Ok(())
+    Ok(out)
 }
 
 /// The little group built at `point` must fix it **exactly**, not only modulo
@@ -4746,12 +4763,55 @@ fn check_invariants(
                 evidence.sweep.little_fixity_mismatches
             ));
         }
-        if evidence.sweep.little_fixity_checks == 0 {
+        // Non-vacuousness has to hold **at gate level**, not only in the unit
+        // test: the count is predicted from the independently measured little
+        // co-group histogram as `2 x sum(order x blocks)` (one check per aligned
+        // operation per side), so a control that stops checking operations is
+        // caught here, and a synthetic pair separates exact from mod-`L*` fixity,
+        // so one that always answers `true` is caught too (audit of `d66db48`,
+        // P0-2: reducing the loop to the identity operation kept the gate green,
+        // and `exactly_fixes` constant was invisible to it).
+        let predicted_fixity: usize = 2 * evidence
+            .sweep
+            .orders
+            .iter()
+            .map(|(order, count)| order * count)
+            .sum::<usize>();
+        if evidence.sweep.little_fixity_checks != predicted_fixity {
+            violations.push(format!(
+                "the exact-fixity control of the card-1 gauge ran {} time(s), predicted \
+                 2 x sum(little-co-group order x block pairs) = {}",
+                evidence.sweep.little_fixity_checks, predicted_fixity
+            ));
+        }
+        if predicted_fixity == 0 {
             violations.push(
                 "the exact-fixity control of the card-1 gauge never ran (no aligned little-group \
                  operation was checked)"
                     .to_string(),
             );
+        }
+        let selftest_rotation: Mat3I = [[0, -1, 0], [1, 0, 0], [0, 0, 1]];
+        let half = Rat::new(1, 2).expect("the constant 1/2");
+        let third = Rat::new(1, 3).expect("the constant 1/3");
+        for (label, point, expected) in [
+            (
+                "fixed only modulo L*",
+                Vec3R::new([half, half, Rat::ZERO]),
+                false,
+            ),
+            ("a point on the axis", Vec3R::new([Rat::ZERO, Rat::ZERO, third]), true),
+        ] {
+            match exactly_fixes(&selftest_rotation, &point) {
+                Ok(found) if found == expected => {}
+                Ok(found) => violations.push(format!(
+                    "the exact-fixity control's own synthetic witness ({label}) answers {found}, \
+                     expected {expected}"
+                )),
+                Err(error) => violations.push(format!(
+                    "the exact-fixity control's own synthetic witness ({label}): {error}"
+                )),
+            }
         }
         // Measured, not assumed: the engine's reduced representative does move
         // between the two interior points of some intervals (a reduction wall,
@@ -6185,10 +6245,24 @@ mod tests {
     /// guard's only witness.
     #[test]
     fn the_stored_branch_of_the_gauge_fails_closed() {
+        let point = Vec3R::new([Rat::ZERO, Rat::ZERO, Rat::ZERO]);
+        let operations = [ExactSeitz::identity()];
         let constructed = [target(None)];
-        refuse_stored_targets(&constructed).expect("a constructed target is gaugeable");
-        let stored = [target(None), target(Some(7))];
-        let error = refuse_stored_targets(&stored).expect_err("a stored target must fail closed");
+        gauge_target_slice(&constructed, &point, &operations, |_, _| {
+            Ok(Complex64::new(1.0, 0.0))
+        })
+        .expect("a constructed target is gaugeable");
+        // The guard sits on the path `gauge_unified_targets` uses, and it fires
+        // before any character is read: the reader panics if it is reached
+        // (audit of `d66db48`, P0-3 -- a deletable `refuse_stored_targets` call
+        // left this branch unbound).
+        // The stored target comes first so the reader below cannot run for a
+        // constructed neighbour before the guard is reached.
+        let stored = [target(Some(7)), target(None)];
+        let error = gauge_target_slice(&stored, &point, &operations, |_, _| {
+            panic!("the stored guard must fail before any character is read")
+        })
+        .expect_err("a stored target must fail closed");
         assert!(error.contains("stored irrep 7"), "{error}");
         assert!(error.contains("card-1 gauge"), "{error}");
     }
