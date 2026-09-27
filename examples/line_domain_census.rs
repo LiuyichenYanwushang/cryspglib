@@ -262,6 +262,33 @@ const BOUNDARY_DIMENSION_PIN: u64 = 429_888;
 /// fixture, the lowered-count fixture and the moved-boundary fixture.
 const SELF_CHECK_CASE_PIN: usize = 3;
 
+/// The added boundaries of the full-star recount by event kind:
+/// `[growth only, merge only, orbit only, several kinds]`, measured before it is
+/// pinned (R6.7 card 7).
+const ADDED_BOUNDARY_KIND_PIN: [usize; 4] = [0, 2_100, 0, 8_909];
+
+/// Fixtures the binding self-check drives (honest, reused-answer and lost-item
+/// boundary; honest, repeated and lost interior).  Pinned so a self-check reduced
+/// to its honest fixture is visible as a moved count.
+const BINDING_CASE_PIN: usize = 6;
+
+/// Distinct interior parameters the relation audit evaluates: two per interval
+/// and the intervals are disjoint, so this is `2 x 46,048`.  A repeated point
+/// keeps the structural counters green and moves this one.
+const INTERIOR_PARAMETER_PIN: usize = 92_096;
+
+/// Histogram of the engine's own block count over the answered boundary
+/// parameters, as `(blocks, parameters)` pairs, pinned from a measured run (the
+/// gate prints it first).  The count changes at the cuts, so a pass that asks the
+/// engine once per `(record, label)` and reuses the answer cannot reproduce it.
+const BOUNDARY_BLOCK_SHAPE_PIN: [(usize, usize); 5] = [
+    (1, 21_872),
+    (2, 10_752),
+    (3, 12_356),
+    (4, 628),
+    (5, 440),
+];
+
 /// `Σ partition.arms.len()`: the arm count the orbit–stabiliser route predicts
 /// from the parent's rotation group alone (73 sources, 5,756 pairs).
 const ARM_ORBIT_PIN: usize = 50_226;
@@ -554,6 +581,12 @@ struct RecountReport {
     /// Every distinct block geometry seen (the canonical partition of the arm
     /// list into child stars, by parent arm index).
     geometries: BTreeSet<Vec<Vec<usize>>>,
+    /// The added boundaries classified by the event kinds the partition records
+    /// there: `[growth only, merge only, orbit only, several kinds]`.  R6.7 card 7
+    /// asks how the added cuts split between a little-co-group growth and an arm
+    /// merge; a boundary can carry both, so "several" is its own slot and the four
+    /// counts sum to the added-boundary total.
+    added_kinds: [usize; 4],
     /// `(record, label)` pairs whose geometry at an added parameter differs from
     /// the geometry at the generic sample `t = 1/7`.
     changed_pairs: BTreeSet<(usize, &'static str)>,
@@ -2385,6 +2418,29 @@ struct GeometryReport {
     recomputed_boundaries: usize,
     /// Predicate instances evaluated at boundary parameters.
     evaluated: usize,
+    /// Interior evaluations whose parameter had not yet been seen **in that
+    /// interval**, and evaluations that repeated one.
+    ///
+    /// The point count and the predicate count are structural, so evaluating the
+    /// first trisection point twice kept the gate green with a byte-identical
+    /// report (final audit of `36925ed`, P0).  These two counters are incremented
+    /// from the values the audit actually iterates, which is what binds it: the
+    /// gate requires `distinct == 2 x intervals` and `repeats == 0`.
+    interior_distinct: usize,
+    interior_repeats: usize,
+    /// Histogram of the **engine's own** block count over the answered boundary
+    /// parameters: `blocks -> parameters`.
+    ///
+    /// This is what binds the boundary pass to the engine.  The dimension sums
+    /// cannot: `parent_dimension()` is constant per `(record, label)`,
+    /// `covered_dimension()` is forced equal to it by the engine's own invariant,
+    /// and the "closed form" the gate compares them with is the same product -- so
+    /// a pass that calls the engine once per pair and reuses the answer for all
+    /// eight parameters kept the gate green and the report byte-identical (final
+    /// audit of `36925ed`, P0).  The block count changes at the cuts, so the
+    /// pinned histogram (and its equality with the answered-parameter count)
+    /// cannot be reproduced without asking the engine at every parameter.
+    boundary_block_shapes: BTreeMap<usize, usize>,
     /// Interior points of the sweep's intervals at which the relation list was
     /// evaluated (two per interval).
     interior_points: usize,
@@ -3480,6 +3536,13 @@ fn sweep_boundary_pass(
                 report.boundary_successes += 1;
                 report.boundary_parent_dimension += u64::from(result.parent_dimension());
                 report.boundary_covered_dimension += u64::from(result.covered_dimension());
+                // Engine-derived, parameter-sensitive evidence: one entry per
+                // answered parameter, keyed by that parameter.
+                *report
+                    .geometry
+                    .boundary_block_shapes
+                    .entry(result.blocks().len())
+                    .or_insert(0) += 1;
                 let mut failures = Vec::new();
                 let dimensions = block_dimensions(table, &result, &mut failures);
                 if dimensions.covered != dimensions.parent {
@@ -3530,7 +3593,21 @@ fn sweep_interval(
     // the two-per-interval conservation holds even when a relation fails to be
     // decided.
     report.geometry.interior_points += 2;
+    let mut seen: Vec<Rat> = Vec::with_capacity(2);
     for parameter in [first, second] {
+        // Bound per interval from the values actually iterated: a repeated point
+        // is a failure here and moves `interior_repeats`, which the gate requires
+        // to be zero.
+        if seen.contains(&parameter) {
+            report.geometry.interior_repeats += 1;
+            failures.push(format!(
+                "{key}: the interior relation audit evaluated t={parameter} twice, so one of the \
+                 interval's two points was never checked"
+            ));
+        } else {
+            seen.push(parameter);
+            report.geometry.interior_distinct += 1;
+        }
         let mut evaluated = report.geometry.interior_evaluated;
         let counts = match relation_counts(relations, &parameter, &mut evaluated) {
             Ok(counts) => counts,
@@ -3614,10 +3691,16 @@ fn sweep_interval(
         for (side, parameter, point) in [("the first", t1, q1), ("the second", t2, q2)] {
             let expected = scale_point(&context.arms[arm].direction, parameter)
                 .map_err(|error| format!("{key}: the seed arm direction: {error}"))?;
-            let same = context
-                .child_reciprocal
-                .same_mod(&expected, &point)
-                .map_err(|error| format!("{key}: the seed arm point: {error}"))?;
+            // **Exact** equality, not `same_mod`: the final math review (P1-b)
+            // showed that the C = 0 gauge derivation needs the seed arm's own
+            // folded multiple as its gauge point, and that this holds because
+            // `fold_arms` makes the class's *minimal* arm its representative while
+            // the seed arm is the block's smallest index.  At an interior
+            // parameter no two arms of a class coincide, so the engine's reported
+            // point must be exactly `t * direction`; the block-wide binding in
+            // `SweepBlock::read` keeps the weaker mod-L* form because it also runs
+            // at boundaries, where merged arms report a class representative.
+            let same = expected == point;
             if !same {
                 failures.push(format!(
                     "{key}: at {side} parameter t={parameter} block {index} arm {arm} is at \
@@ -3845,10 +3928,27 @@ fn recount_label(
     report: &mut RecountReport,
 ) {
     let mut added: Vec<Rat> = Vec::new();
-    for parameter in partition.boundary_parameters() {
-        if !child_candidates.contains(&parameter) {
-            added.push(parameter);
+    for boundary in &partition.boundaries {
+        if child_candidates.contains(&boundary.parameter) {
+            continue;
         }
+        added.push(boundary.parameter);
+        // Card 7's breakdown: which kinds of event the added cut carries, read
+        // from the partition's own per-boundary counts indexed by
+        // `StarEventKind::index()`.
+        let growth = boundary.counts[StarEventKind::LittleCoGroupGrowth.index()] > 0;
+        let merge = boundary.counts[StarEventKind::ArmMerge.index()] > 0;
+        let orbit = boundary.counts[StarEventKind::OrbitIdentification.index()] > 0;
+        let kinds = usize::from(growth) + usize::from(merge) + usize::from(orbit);
+        report.added_kinds[if kinds > 1 {
+            3
+        } else if growth {
+            0
+        } else if merge {
+            1
+        } else {
+            2
+        }] += 1;
     }
     // The geometry at the generic sample, taken from the production blocks of the
     // probe the census already ran there: the comparison is engine output against
@@ -4876,6 +4976,11 @@ fn merge_geometry(total: &mut GeometryReport, part: GeometryReport) {
     total.interior_points += part.interior_points;
     total.interior_evaluated += part.interior_evaluated;
     total.interior_holds += part.interior_holds;
+    total.interior_distinct += part.interior_distinct;
+    total.interior_repeats += part.interior_repeats;
+    for (blocks, count) in part.boundary_block_shapes {
+        *total.boundary_block_shapes.entry(blocks).or_insert(0) += count;
+    }
     total.disagreements += part.disagreements;
     total.arm_orbit_checks += part.arm_orbit_checks;
     total.arm_orbit_disagreements += part.arm_orbit_disagreements;
@@ -4885,6 +4990,9 @@ fn merge_geometry(total: &mut GeometryReport, part: GeometryReport) {
 
 /// Add one record's recount report to the corpus-wide one.
 fn merge_recount(total: &mut RecountReport, part: RecountReport) {
+    for (slot, count) in total.added_kinds.iter_mut().zip(part.added_kinds) {
+        *slot += count;
+    }
     total.probes += part.probes;
     total.blocks += part.blocks;
     for (slot, count) in total.sources.iter_mut().zip(part.sources) {
@@ -5069,9 +5177,10 @@ fn report(
         println!("full-star recount: not run (pass --gate or --full-star-recount)");
     } else {
         println!(
-            "full-star recount: {} added parameter probe(s), {} block(s), {} distinct block \
-             geometr{}",
+            "full-star recount: {} added parameter probe(s) {:?} by kind (growth only / merge \
+             only / orbit only / several), {} block(s), {} distinct block geometr{}",
             recount.probes,
+            recount.added_kinds,
             recount.blocks,
             recount.geometries.len(),
             if recount.geometries.len() == 1 { "y" } else { "ies" }
@@ -5324,6 +5433,90 @@ fn sweep_conservation(sweep: &SweepReport, violations: &mut Vec<String>) {
 /// arm count of this fixture is deliberately not the orbit of any real source, so
 /// the orbit-stabiliser check reports its own (expected) disagreement and is not
 /// part of this self-check.
+/// Gate-level synthetic self-check of the two card-6 bindings the final audit
+/// defeated on `36925ed`: the boundary pass' per-parameter engine block counts and
+/// the interior audit's two distinct parameters.
+///
+/// An absolute pin alone cannot see its own deletion (final audit, P2-1), so the
+/// decisions are driven here with fixtures that must and must not be rejected, and
+/// the number of fixtures is pinned by the caller.
+fn binding_self_check() -> (usize, Vec<String>) {
+    let mut violations = Vec::new();
+    let mut cases = 0usize;
+    let honest: BTreeMap<usize, usize> = BOUNDARY_BLOCK_SHAPE_PIN.iter().copied().collect();
+    let honest_total = honest.values().sum::<usize>();
+    let pinned = honest.clone();
+    cases += 1;
+    if let Some(error) = boundary_binding_error(&honest, honest_total, &pinned) {
+        violations.push(format!("the binding self-check rejected the honest histogram: {error}"));
+    }
+    // A histogram that could come from one engine call per pair: every parameter
+    // reporting the same block count.
+    cases += 1;
+    let reused: BTreeMap<usize, usize> = [(1usize, honest_total)].into_iter().collect();
+    if boundary_binding_error(&reused, honest_total, &pinned).is_none() {
+        violations.push(
+            "the binding self-check accepted a histogram where every parameter reports the same \
+             block count, which is what reusing one engine answer looks like"
+                .to_string(),
+        );
+    }
+    // A histogram that does not sum to the answered parameters.
+    cases += 1;
+    if boundary_binding_error(&pinned, honest_total + 1, &pinned).is_none() {
+        violations.push(
+            "the binding self-check accepted a histogram that does not sum to the answered \
+             parameter count"
+                .to_string(),
+        );
+    }
+    cases += 1;
+    if let Some(error) = interior_binding_error(2, 0, 1) {
+        violations.push(format!("the interior binding rejected the honest counts: {error}"));
+    }
+    cases += 1;
+    if interior_binding_error(1, 1, 1).is_none() {
+        violations.push("the interior binding accepted a repeated interior point".to_string());
+    }
+    cases += 1;
+    if interior_binding_error(1, 0, 1).is_none() {
+        violations.push("the interior binding accepted a lost interior point".to_string());
+    }
+    (cases, violations)
+}
+
+/// The boundary binding's decision, extracted so the self-check can drive it.
+fn boundary_binding_error(
+    shapes: &BTreeMap<usize, usize>,
+    answered: usize,
+    pinned: &BTreeMap<usize, usize>,
+) -> Option<String> {
+    if shapes.values().sum::<usize>() != answered {
+        return Some(format!(
+            "the boundary pass recorded {} engine block count(s) for {answered} answered \
+             parameter(s)",
+            shapes.values().sum::<usize>()
+        ));
+    }
+    if shapes != pinned {
+        return Some(format!("the per-parameter block-count histogram is {shapes:?}"));
+    }
+    None
+}
+
+/// The interior binding's decision, extracted for the same reason.
+fn interior_binding_error(distinct: usize, repeats: usize, intervals: usize) -> Option<String> {
+    if distinct != 2 * intervals {
+        return Some(format!(
+            "{distinct} distinct interior parameter(s) over {intervals} interval(s)"
+        ));
+    }
+    if repeats > 0 {
+        return Some(format!("{repeats} repeated interior point(s)"));
+    }
+    None
+}
+
 fn audit_self_check() -> (usize, Vec<String>) {
     let mut violations = Vec::new();
     // How many synthetic partitions were actually driven through the audit.  The
@@ -5620,6 +5813,20 @@ fn check_invariants(
     // reproduce its corpus totals -- otherwise a mutation can turn it into a no-op
     // and the gate keeps passing (verification review F6).
     if evidence.recount_ran {
+        // R6.7 card 7: how the added cuts split by event kind.  The four slots sum
+        // to the added-boundary total, so a lost entry is a violation too.
+        if evidence.recount.added_kinds.iter().sum::<usize>() != evidence.recount.probes {
+            violations.push(format!(
+                "the added boundaries are classified as {:?} but {} were probed",
+                evidence.recount.added_kinds, evidence.recount.probes
+            ));
+        }
+        if evidence.recount.added_kinds != ADDED_BOUNDARY_KIND_PIN {
+            violations.push(format!(
+                "the added boundaries by kind are {:?}, expected {:?}",
+                evidence.recount.added_kinds, ADDED_BOUNDARY_KIND_PIN
+            ));
+        }
         if evidence.recount.probes != 11_009 {
             violations.push(format!(
                 "the full-star recount probed {} parameter(s), expected 11009",
@@ -6014,6 +6221,50 @@ fn check_invariants(
         // aligned little-group rotation fixes its seed point exactly (a
         // non-exact fixity would be a partition boundary, so this is also a
         // partition control).
+        // Final audit of `36925ed`, P0: the boundary pass has to be bound to the
+        // **engine at every parameter**, not merely counted.  Each answered
+        // parameter contributes exactly one engine block count keyed by that
+        // parameter; the multiset of those counts cannot be produced without
+        // asking the engine eight times per pair, because the block count changes
+        // at the cuts, and its size must equal the answered-parameter count.
+        let block_shapes = evidence.sweep.geometry.boundary_block_shapes.clone();
+        let expected_block_shapes: BTreeMap<usize, usize> =
+            BOUNDARY_BLOCK_SHAPE_PIN.iter().copied().collect();
+        if let Some(error) = boundary_binding_error(
+            &block_shapes,
+            evidence.sweep.boundary_successes,
+            &expected_block_shapes,
+        ) {
+            violations.push(format!("the boundary-pass binding: {error}"));
+        }
+        let (binding_cases, binding_violations) = binding_self_check();
+        if binding_cases != BINDING_CASE_PIN {
+            violations.push(format!(
+                "the binding self-check drove {binding_cases} fixture(s), expected \
+                 {BINDING_CASE_PIN}"
+            ));
+        }
+        violations.extend(binding_violations);
+        // Final audit of `36925ed`, P0: the interior audit must evaluate two
+        // **distinct** parameters per interval.  The point count and the predicate
+        // count are structural and cannot see a repeated point, so the evaluations
+        // are keyed by the exact rational actually passed in.
+        let distinct_interior = evidence.sweep.geometry.interior_distinct;
+        let evaluated_interior = distinct_interior + evidence.sweep.geometry.interior_repeats;
+        if distinct_interior != INTERIOR_PARAMETER_PIN {
+            violations.push(format!(
+                "the interior relation audit evaluated {distinct_interior} distinct parameter(s), \
+                 expected {INTERIOR_PARAMETER_PIN}"
+            ));
+        }
+        if let Some(error) = interior_binding_error(
+            distinct_interior,
+            evidence.sweep.geometry.interior_repeats,
+            evidence.sweep.intervals,
+        ) {
+            violations.push(format!("the interior-audit binding: {error}"));
+        }
+        let _ = evaluated_interior;
         if evidence.sweep.little_fixity_mismatches > 0 {
             violations.push(format!(
                 "the exact-fixity control of the card-1 gauge failed {} time(s)",

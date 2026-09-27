@@ -132,8 +132,20 @@
 //! because each of those quantities is a truth value of one of the enumerated
 //! predicates.  On such an interval no rotation enters a little co-group, so every
 //! arm's rotations fix its direction *exactly* and the local theorem above makes
-//! that arm's factor system a coboundary at every parameter of the interval: the
-//! projective content cannot change between boundaries either.
+//! that arm's factor system a coboundary at every parameter of the interval.
+//!
+//! **The constancy conclusion needs one more step, and the step is continuity
+//! plus integrality** (final math review, P1-a): the coboundary theorem is what
+//! legitimises the gauge division used to *compare* two parameters, it does not by
+//! itself say that two parameters carry the same content.  On an interval the
+//! child little group `H_q` and the candidate target set are fixed (they are
+//! truth values of the enumerated predicates, and the parent's exceptional
+//! parameters are interval endpoints through `probe_parameters`); the `q`-block
+//! character is a finite sum of frozen row values times `exp(2 pi i t v . tau)`,
+//! hence **continuous** in `t`; and every multiplicity `m_tau(t) = <chi_block(t),
+//! chi_tau>` is then continuous and takes integer values, so it is locally
+//! constant on the interval and therefore constant.  That is the statement the
+//! engine-side sweep tests empirically, interval by interval.
 //!
 //! Measured on the corpus (the permanent regression
 //! `the_full_star_partition_of_the_frozen_corpus_is_the_eighth_grid`): the
