@@ -188,7 +188,7 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    （`check_invariants`、`report()`、`if gate {}`），不是调度或算术。
    **串行尾部并行化（2026-09-29 第二轮；唯一改动文件 `examples/line_domain_census.rs`）**：
    上面量出的三段串行尾里 `report()` 其实只有 0.008 s，真正的两段是：
-   ① **gate 段的逐记录表**（`if gate {}` 内的 withdrawn/corrected 两表：5,756 条记录 ×
+   ① **gate 段的逐记录表**（`if gate {}` 内的 withdrawn/corrected 两表：**1,006** 条 `Record` ×
    `SubgroupEmbedding::from_isotropy_subgroup` + 逐候选参数的 `child_cocycle_is_a_coboundary` /
    `little_co_group`）→ 改成 `records.par_iter()` 每记录局部累积、再**按记录序**合并：两张表是
    按各自元组键排序的 `BTreeMap`、violation 向量按记录序拼接，所以打印与报文逐字节不变；
@@ -201,7 +201,7 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    8 线程无 sweep）：prologue 0.017 + 并行区 8.75 + `report()`+计数 0.008 + `check_invariants` 1.53
    + gate 0.66 ≈ 10.96 s；并行区自身在 8 核上是 60.5 s 的单线程工作量（6.9×），余下的串行部分
    ≈1.3 s。**输出逐字节不变**：门禁报告与钉住的 `finalZAA` 逐行相同（只差 cargo 前导）、三个 TSV
-   SHA 未变、**8 线程与 1 线程输出逐字节相同**、example 23 项测试与严格 clippy 通过。
+   SHA 未变、**8 线程与 1 线程输出逐字节相同**、example 23 项测试与严格 clippy 通过（本轮加固后为 **24** 项，见下条复核条目）。
    验收电池（`target/logs/tailpar/summary.txt`，源码 `census.rs fc2c7681…`/`subduction.rs e4a55688…`）
    **193 s**：构建 0 s（只改了 example，增量）+ 发现 1 s + census-8 **32 s** + 并发档 71 s +
    池 56 s + 尾 33 s，680 passed / 0 failed、三门禁与 python/oracle 全 exit 0。
@@ -915,7 +915,8 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 * **性能轮第三段（串行尾部并行化，2026-09-29）：唯一改动文件 `examples/line_domain_census.rs`
   （`fc2c7681…`）**。上一轮量出的三段串行尾里 `report()` 实测只有 **0.008 s**（此前记的 1.53 s
   是计时点错位，已在 §3.3 原地更正），真正剩下的两段：**① gate 段的逐记录表**（`if gate {}` 内
-  withdrawn/corrected 两张表：5,756 条记录 × `SubgroupEmbedding::from_isotropy_subgroup` + 逐候选
+  withdrawn/corrected 两张表：**1,006** 条 `Record`（5,756 是 (记录,标号) 对的数目，复核方按 canary
+  数出闭包恰好跑 `records.len() = 1006` 次）× `SubgroupEmbedding::from_isotropy_subgroup` + 逐候选
   参数的 `child_cocycle_is_a_coboundary`/`little_co_group`）→ 改成 `records.par_iter()` 每记录局部
   累积、再**按记录序**合并：两张表是按各自元组键排序的 `BTreeMap`、violation 按记录序拼接，故打印
   与报文逐字节不变；**② `check_blocks` 的逐块点类重算**（80,293 块 × `PointClassCache::classify`）
@@ -932,6 +933,48 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   family/ledger/global 三门禁 + 4 个 python 单测 + oracle 全 exit 0。**残余（如实）**：并行区本身
   8.75 s vs 理想 7.56 s（6.9× vs 8×，≈14% 调度/内存开销）；`check_invariants` 的非重算部分与 gate
   的串行壳 ≈1.3 s 未并行化；`Mat3R::inverse` / `Lattice::reduce` 仍是剩余算术热点。
+
+* **性能轮第三段的独立复核（第七条审核线，针对 `b428a93`）：无 P0，1×P1 + 6×P2，全部接受
+  （本提交）**。复核方用私有 worktree（`b428a93` 与父 `b4638e8`）+ 私有 target 做了真 A/B：
+  **改动的等价性成立**——父版 `for record in &records` 循环体与新闭包体做归一化 diff 后**只差
+  三处 `continue` → `break 'record`**；八个 `BoundaryGate` 字段各有唯一写入点与唯一合并点；
+  canary（每记录注入一条 violation）证明闭包恰好跑 `records.len() = 1,006` 次、合并按 ordinal
+  升序（1006 个 part），反转合并顺序的对照会给出降序 ⇒ 探针有检测力；`check_blocks` 的预计算
+  用注入计数器实测与串行循环**分类同一批 80,293 块**（两版 `CB CALLS 80293`、`SKIPPED PROBE
+  BLOCKS 0`）；8 线程与 1 线程 stdout/stderr/三个 TSV 逐字节相同、与 `finalZAA` 相同；
+  所有时间数字复现（14.91→10.42、A 11.02、4 线程 22.21→18.21、带 sweep 37.44→32.36、
+  1 线程 66.29→66.53）。
+  **P1（接受，证据范围）**：`target/mut-*.py` 的 49 个锚点**没有一个落在这轮改动的行区间**里，
+  所以"21 个变异复现"是真的、但**不是这次改动的证据**（它只证明没有回归）。修法：把
+  `BoundaryGate` 与其合并提到文件作用域，新增常驻单测
+  `the_boundary_gate_merge_keeps_order_and_sums`（逐字段断言：两张表按条目相加——同一键来自两条
+  记录必须**求和**而非覆盖、三个计数器相加、violation 按合并顺序拼接，并带"只合并第一个 part
+  必须可分辨"的对照），变异实测：把 `legacy` 的合并改成 `insert`（覆盖）→ **该测试失败**
+  （`left: 1, right: 2`）。复核方自己做的 A/B 变异（`reverse_classes` 两版都 exit 1 / 21,600
+  violations / 同一报告 SHA；`step_by(2)` 两版都 exit 1 / 4 violations / 同一 SHA）作为外部
+  对照记录在它的报告里。
+  **P2-1（接受）**：`target/gate-par-patch.py` + `target/blocks-par-patch.py` 早先重放出的源码
+  **编译不过**（`E0608`：`recomputed` 被 `BlockSource` 遮蔽）——已修正补丁（声明与使用都改用
+  `recomputed_classes`），并实测：对父版源码依次打这两个补丁**逐字节重放** `b428a93` 的源码。
+  **P2-2（接受并补控制）**：八个合并字段里五个只在 gate 层**打印**（`drop_legacy_map` → exit 0、
+  只少 20 行表；删掉 `violations.extend` → exit 0 且报告与诚实运行逐字节相同）——现在由上面的
+  单测直接钉住全部八个字段。**P2-3（接受并修）**：gate 段自己产生的 violation 只被计数、从不
+  回显（回显循环在 `if gate {` **之前**，canary 实测 exit 1 / 1006 violations / stderr 为空）——
+  已把回显移到所有通过程之后，诚实运行输出不变（实测报告与 TSV 逐字节不变）。
+  **P2-4（接受）**：文档里"5,756 条记录"应为 **1,006** 条 `Record`（5,756 是 (记录,标号) 对数），
+  已改。**P2-5（接受为措辞）**："21 个变异复现"不等于"21 个都被抓住"（m2/m2b 本来就是已披露的
+  残余，本提交的措辞已明确）。**P2-6（接受）**：A/B 时间数字此前只在交互式输出里，现已写入
+  `target/logs/tailpar2/ab-timings.txt`（含复核方独立复现的那一组）。复核方的限制也一并记录：
+  单一语料；除它自己的 canary 外没有让 gate 真正失败的输入；未测 panic 路径（`panic=abort`
+  下会中止而不是计数）；时间数字来自单机。
+  **本提交的验证**（源码 `examples/line_domain_census.rs` = `47a02447…`、`subduction.rs` =
+  `e4a55688…`）：`cargo test --release -p cryspglib --example line_domain_census` **24 passed / 0 failed**
+  （+1 为新的合并回归）、新回归的变异实测（`legacy` 合并改成覆盖 → 该测试失败，`left: 1, right: 2`）；
+  门禁 `--gate --require-covered --domain-sweep` 8 线程与 1 线程各一次 exit 0，**报告与 `finalZAA`
+  逐行相同、8 线程与 1 线程输出逐字节相同、三个 TSV SHA 未变**（诚实运行的 stderr 为空，回显位置的
+  改动只影响失败路径）；验收电池（`target/logs/tailpar2/summary.txt`）**217 s**、41 个测试壳
+  **681 passed / 0 failed**、三门禁 + 4 个 python 单测 + oracle 全 exit 0；21 个变异在本修订上
+  逐个复现（`target/logs/finalTailpar2/summary.txt`，与 `finalPerf2` 逐条相同）。
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有

@@ -483,6 +483,56 @@ impl PointClassCache {
     }
 }
 
+/// One record's contribution to the gate block's two printed class tables.
+///
+/// The pass is per record and independent, so it runs in parallel and the
+/// per-record results are merged **in record order** by [`BoundaryGate::merge`].
+/// The two tables are `BTreeMap`s keyed by their own tuple, the counters are
+/// sums and the violation vectors are concatenated in order, so the merged
+/// result is exactly what the serial loop accumulated.  The struct lives at file
+/// scope rather than inside `run` so that the merge itself is under test
+/// (`the_boundary_gate_merge_keeps_order_and_sums`): five of the eight fields
+/// are only *printed* at gate level, so a merge that dropped or reordered a part
+/// would otherwise be visible only on a run whose corpus is already wrong.
+#[derive(Default)]
+struct BoundaryGate {
+    legacy: BTreeMap<(usize, bool, TargetClass), usize>,
+    corrected: BTreeMap<(usize, BlockSource), usize>,
+    legacy_totals: [usize; 3],
+    corrected_totals: [usize; 3],
+    boundary_probes: usize,
+    boundary_errors: usize,
+    missing_reference_blocks: usize,
+    violations: Vec<String>,
+}
+
+impl BoundaryGate {
+    /// Fold one record's contribution into the running total.
+    ///
+    /// Every field is additive: the maps are added entry-wise (a key that both
+    /// parts carry must **sum**, not overwrite), the counters are added and the
+    /// violations are appended.  Merging the parts in record order therefore
+    /// reproduces the serial loop's accumulators and its violation order.
+    fn merge(&mut self, part: BoundaryGate) {
+        for (key, count) in part.legacy {
+            *self.legacy.entry(key).or_insert(0usize) += count;
+        }
+        for (key, count) in part.corrected {
+            *self.corrected.entry(key).or_insert(0usize) += count;
+        }
+        for (slot, value) in self.legacy_totals.iter_mut().zip(part.legacy_totals) {
+            *slot += value;
+        }
+        for (slot, value) in self.corrected_totals.iter_mut().zip(part.corrected_totals) {
+            *slot += value;
+        }
+        self.boundary_probes += part.boundary_probes;
+        self.boundary_errors += part.boundary_errors;
+        self.missing_reference_blocks += part.missing_reference_blocks;
+        self.violations.extend(part.violations);
+    }
+}
+
 /// Every statistic of one child-star block, bound to its
 /// (record, source, parameter, block) key.
 ///
@@ -1395,9 +1445,6 @@ block_count\tblocks";
         unsupported,
         errors
     );
-    for violation in &violations {
-        eprintln!("census violation: {violation}");
-    }
     if gate {
         // Boundary census: the projective class at the child's **own** exceptional
         // parameters, where the little co-group is strictly larger than the exact
@@ -1415,21 +1462,6 @@ block_count\tblocks";
         // constructed classes" wrong (witness ordinal 13688).  It stays in the
         // printout, labelled, so its numbers can be compared with the corrected
         // ones on the same run; nothing is pinned to it.
-        /// One record's contribution to the two printed tables.  The pass is per
-        /// record and independent, so it runs in parallel; the tables are
-        /// `BTreeMap`s keyed by their own tuple and the per-record violation
-        /// vectors are concatenated in record order, so the printed report and
-        /// the violation list are identical to the serial loop's.
-        struct BoundaryGate {
-            legacy: BTreeMap<(usize, bool, TargetClass), usize>,
-            corrected: BTreeMap<(usize, BlockSource), usize>,
-            legacy_totals: [usize; 3],
-            corrected_totals: [usize; 3],
-            boundary_probes: usize,
-            boundary_errors: usize,
-            missing_reference_blocks: usize,
-            violations: Vec<String>,
-        }
         let answered: BTreeMap<String, &Probe> = probes
             .iter()
             .map(|probe| {
@@ -1576,31 +1608,21 @@ block_count\tblocks";
             }
             })
             .collect();
-        let mut legacy: BTreeMap<(usize, bool, TargetClass), usize> = BTreeMap::new();
-        let mut corrected: BTreeMap<(usize, BlockSource), usize> = BTreeMap::new();
-        let mut legacy_totals = [0usize; 3];
-        let mut corrected_totals = [0usize; 3];
-        let mut boundary_probes = 0usize;
-        let mut boundary_errors = 0usize;
-        let mut missing_reference_blocks = 0usize;
+        let mut boundary_gate = BoundaryGate::default();
         for part in boundary_parts {
-            for (key, count) in part.legacy {
-                *legacy.entry(key).or_insert(0usize) += count;
-            }
-            for (key, count) in part.corrected {
-                *corrected.entry(key).or_insert(0usize) += count;
-            }
-            for (slot, value) in legacy_totals.iter_mut().zip(part.legacy_totals) {
-                *slot += value;
-            }
-            for (slot, value) in corrected_totals.iter_mut().zip(part.corrected_totals) {
-                *slot += value;
-            }
-            boundary_probes += part.boundary_probes;
-            boundary_errors += part.boundary_errors;
-            missing_reference_blocks += part.missing_reference_blocks;
-            violations.extend(part.violations);
+            boundary_gate.merge(part);
         }
+        let BoundaryGate {
+            legacy,
+            corrected,
+            legacy_totals,
+            corrected_totals,
+            boundary_probes,
+            boundary_errors,
+            missing_reference_blocks,
+            violations: gate_violations,
+        } = boundary_gate;
+        violations.extend(gate_violations);
         println!(
             "withdrawn convention -- projective class at the child's exceptional parameters, \
              probe-level: {boundary_probes} probes, {boundary_errors} error(s)"
@@ -1665,6 +1687,14 @@ block_count\tblocks";
         }
     }
 
+    // Every violation is echoed **after** all the passes have contributed, so a
+    // failure inside `if gate {}` (or the recount block below) is readable and
+    // not only counted: the echo used to sit before the gate block, which left
+    // gate-level violations as a bare "gate: FAILED (N violation(s))" with an
+    // empty stderr (external review of `b428a93`, P2-3).
+    for violation in &violations {
+        eprintln!("census violation: {violation}");
+    }
     // `--domain-sweep` joins the flags that fail on their own failures: a pass
     // that runs a check, reports a violation and then exits 0 would be a failure
     // path that does not fail (the same rule `--full-star-recount` follows).
@@ -9619,6 +9649,60 @@ mod tests {
     /// eight intervals hold no relation, and the arm count agrees with the
     /// orbit–stabiliser count over the parent's rotations.
     #[test]
+    /// The gate's per-record pass is merged afterwards, so the merge is load
+    /// bearing: it has to add the two tables entry-wise (a key two records share
+    /// must sum, not overwrite), sum the counters and append the violations in
+    /// record order.  Five of the eight fields are only printed at gate level, so
+    /// a merge that dropped or reordered a part would show up only on a run whose
+    /// corpus is already wrong -- hence this direct control (external review of
+    /// `b428a93`: none of the mutation batteries touches this code).
+    #[test]
+    fn the_boundary_gate_merge_keeps_order_and_sums() {
+        fn part(ordinal: usize, count: usize, probes: usize, errors: usize, missing: usize) -> BoundaryGate {
+            let mut gate = BoundaryGate::default();
+            *gate.legacy.entry((ordinal, true, TargetClass::Stored)).or_insert(0) += count;
+            *gate.legacy.entry((7, false, TargetClass::Constructed)).or_insert(0) += 1;
+            *gate.corrected.entry((ordinal, BlockSource::Stored)).or_insert(0) += count;
+            gate.legacy_totals[0] += count;
+            gate.corrected_totals[1] += count;
+            gate.boundary_probes += probes;
+            gate.boundary_errors += errors;
+            gate.missing_reference_blocks += missing;
+            gate.violations.push(format!("record {ordinal}"));
+            gate
+        }
+
+        let mut total = BoundaryGate::default();
+        total.merge(part(1, 2, 3, 0, 0));
+        total.merge(part(2, 5, 7, 1, 2));
+
+        // the per-record tables keep one entry each ...
+        assert_eq!(total.legacy[&(1, true, TargetClass::Stored)], 2);
+        assert_eq!(total.legacy[&(2, true, TargetClass::Stored)], 5);
+        assert_eq!(total.corrected[&(1, BlockSource::Stored)], 2);
+        assert_eq!(total.corrected[&(2, BlockSource::Stored)], 5);
+        // ... and the key both records carry **sums** rather than being overwritten
+        assert_eq!(total.legacy[&(7, false, TargetClass::Constructed)], 2);
+        assert_eq!(total.legacy.len(), 3);
+        assert_eq!(total.corrected.len(), 2);
+        // every counter is additive, in both convention buckets
+        assert_eq!(total.legacy_totals, [7, 0, 0]);
+        assert_eq!(total.corrected_totals, [0, 7, 0]);
+        assert_eq!(total.boundary_probes, 10);
+        assert_eq!(total.boundary_errors, 1);
+        assert_eq!(total.missing_reference_blocks, 2);
+        // violations keep the order the parts were merged in
+        assert_eq!(total.violations, ["record 1", "record 2"]);
+
+        // Control: merging only the first part must be visible, i.e. this test
+        // would fail if the second `merge` call were dropped.
+        let mut dropped = BoundaryGate::default();
+        dropped.merge(part(1, 2, 3, 0, 0));
+        assert_ne!(dropped.legacy, total.legacy);
+        assert_ne!(dropped.boundary_probes, total.boundary_probes);
+        assert_ne!(dropped.violations, total.violations);
+    }
+
     fn the_arm_geometry_audit_reproduces_the_frozen_partition() {
         let record = record_of(196, 10_030);
         let (embedding, partition) = sweep_context_of(&record, "DT1");
