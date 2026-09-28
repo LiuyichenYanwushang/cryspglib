@@ -675,7 +675,8 @@ gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子
 | 同一命令，4 / 2 线程 | 60.96 / 99.91 s | 22.08 / 36.57 s |
 | 同一命令，1 线程 | 179.71 s | 66.29 s |
 | 加 `--domain-sweep`，8 线程 | 112 s | 38 s（电池记录）；尾部并行化后的交替 A/B **36.8/37.4 → 32.9/33.1 s** |
-| 全部验收（`target/chainFast.sh`，含构建） | —— | **313 s**（`final-round2`，含构建 90 s）→ **217 s**（`tailpar2`@`f2e7d09`）→ **189 s**（`tailpar3`@`acfc3f1`，增量构建 0 s） |
+| 全部验收（`target/chainFast.sh`，含构建） | —— | **313 s**（`final-round2`，含构建 90 s）→ **217 s**（`tailpar2`@`f2e7d09`）→ **189 s**（`tailpar3`@`acfc3f1`，增量构建 0 s）→ **193 s**（`tailpar6`@`53c6a3e`，第三版调度；三变体 191/192/193 s） |
+| `line_transport_ledger --batch 1/4`（单作业） | 24.49 s（单核） | **3.43 s**（`53c6a3e`，逐行 rayon；输出与旧日志逐字节相同） |
 
 比值为 2.84× / 2.76× / 2.73× / 2.71×；审核方在各自私有 target 上独立 A/B 得
 2.80× / 2.72× / 2.67× ⇒ 综合 **≈2.7–2.9×**（先前写的"2.9–3.0×"取自未提交草稿的相除，
@@ -684,12 +685,18 @@ gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子
 sha256）：**41 个测试壳**（23 个 `--tests` 二进制加 18 个 example 测试壳；`cargo test --tests`
 **不含** example 的单测，第一版电池因此漏掉 63 项，已修）合计 **680 passed / 0 failed**，
 另有 doctest、clippy `-D warnings`、family/ledger/global 三门禁与 5 个 python 门禁，全部 exit 0。
-**当前基线（`acfc3f1`）**：`target/logs/tailpar3/summary.txt`（日志头 `revision acfc3f1
-dirty-files 0`，两个源文件 sha256 与提交一致）**189 s** = 构建 0 s（增量）+ 发现 1 s +
-census-8 **32 s** +〔census-4 ‖ global-audit〕**65 s** + 池 57 s（44 个作业）+ 尾 34 s，
-41 个测试壳合计 **681 passed / 0 failed**（比 `final-round2` 的 680 多一项：`f2e7d09` 弄丢属性的
-card-6 正对照测试被 `acfc3f1` 恢复），三个 TSV 4 线程 == 8 线程且 SHA 未变，全局审计
-`VERDICT complete scope=global … full_decomposition=complete`。
+**当前基线（`53c6a3e`）**：`target/logs/tailpar6/summary.txt`（日志头 `revision 53c6a3e
+dirty-files 0`，三个源文件 sha256 与提交一致）**193 s** = 构建/发现 1 s +
+census-8 **33 s** +〔census-4 ‖ global-audit〕**65 s** + 池 **88 s**（44 个作业，5 个 python
+门禁已并入池内）+ 尾 7 s，41 个测试壳合计 **683 passed / 0 failed**、三个 TSV 4 线程 == 8 线程
+且 SHA 未变，全局审计 `VERDICT complete scope=global … full_decomposition=complete`。
+调度的三个变体实测 191 / 192 / 193 s（`tailpar4/5/6`），与 `acfc3f1` 的 189 s **没有显著差别**：
+逐项量出电池已吃满 CPU（phase 0–2 的 98 s 两段都近满载；池 +尾的 90–95 s 由 family 扫描
+单跑 39.9 s = 313 core·s 与各测试壳决定），再压调度只能挪几秒。相对 `final-round2` 的 680，
+`f2e7d09`/`acfc3f1` 的 681 与 `53c6a3e` 的 683 都不是 card-6 正对照的贡献（它在 680 里已计过）：
+681 那一项是 `the_boundary_gate_merge_keeps_order_and_sums`，683 的两项是本轮 F1 的两个新回归
+（`the_verdict_covers_every_requested_pass`、`the_gamma_assertions_run_only_when_their_pass_ran`）
+——此句原先的归因（"多一项 = 被恢复的 card-6 正对照"）是 `acfc3f1` 审核轮 F2 指出的错误，已改正。
 
 **基线口径更正**："≈16 min"是 **`chainFinal.sh`** 的一次完整运行（含 569 s 串行 census），
 `chainFinal2.sh` 换掉串行档后从未写过日志；因此新旧对比里有一部分不是调度收益，而是少跑了

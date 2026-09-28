@@ -177,7 +177,9 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    14.73 s = prologue **0.02 s** + 并行区 **8.76 s** + `check_invariants` **1.52 s** +
    `report()`+计数 **1.53 s** + `if gate {}` **4.44 s**；1 线程是 66.40 s = 0.02 + 60.46 + 1.51 + 1.51 + 4.41
    ⇒ **后三项 ≈7.5 s 是纯串行**（两种线程数下逐项相同），占 8 线程墙钟的一半；带 `--domain-sweep`
-   时并行区 30.36 s、串行尾仍是 ≈5.95 s。（**后续更正**：把计时点摆正后，那 1.53 s 属于
+   时并行区 30.36 s、串行尾仍是 ≈5.95 s（**这两个数是临时计时补丁的交互读数，未落盘**；同族的
+   A/B 数有日志 `target/logs/tailpar2/ab-sweep.txt`，不要把这一对当钉值——`acfc3f1` 审核轮 F4）。
+   （**后续更正**：把计时点摆正后，那 1.53 s 属于
    `check_invariants`，"`report()` 1.53 s" 是计时区间错位；`report()` 本身只有 **0.008 s**。）`target/logs/profile/t8b/` 的 gdb 采样与之一致：
    前 52/90 个时间样本是 **8 个 worker 全忙、主线程阻塞**，后 37/90 个样本**只剩主线程**在跑
    `check_invariants` 与 gate 代码（叶帧 `child_cocycle_is_a_coboundary`、`little_co_group`、
@@ -207,13 +209,19 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    验收电池（`target/logs/tailpar/summary.txt`，源码 `census.rs fc2c7681…`/`subduction.rs e4a55688…`）
    **193 s**：构建 0 s（只改了 example，增量）+ 发现 1 s + census-8 **32 s** + 并发档 71 s +
    池 56 s + 尾 33 s，680 passed / 0 failed、三门禁与 python/oracle 全 exit 0。
-   **当前基线（`acfc3f1`，`target/logs/tailpar3/summary.txt`，日志头 `dirty-files 0` + 两个源
-   文件 sha256）**：**189 s** = 构建 0 s + 发现 1 s + census-8 **32 s** +〔census-4 ‖ global-audit〕
-   **65 s** + 池 **57 s**（44 个作业）+ 尾 **34 s**，41 个测试壳 **681 passed / 0 failed**
-   （比 `final-round2` 的 680 多一项 = `acfc3f1` 恢复的 card-6 正对照测试）；仍以**单线程串行**
-   跑每个测试壳（`--test-threads=1`），池的长尾是 `line_transport_ledger --batch`（~45 s，
-   单线程）与 `cryspglib` 库壳（444 项 / 28.3 s）；**尾段 34 s 只有 2–3 个核在动**
-   （4 个 python 单测目前**顺序**跑），这是下一轮的调度目标（本轮未改）。
+   **当前基线（`53c6a3e`，`target/logs/tailpar7/summary.txt`，日志头 `dirty-files 2` + 三个源
+   文件 sha256 与提交一致）**：**190 s** = 构建/发现 1 s + census-8 **33 s** +〔census-4 ‖
+   global-audit〕**66/67 s** + 池 **57 s**（44 个作业）+ 尾 **32 s**，41 个测试壳
+   **683 passed / 0 failed**；冷构建档（`touch` 全部源文件后同一脚本）**316 s**
+   （`target/logs/cold2`，旧脚本同条件下 329 s = `cold-old`）。**与 `acfc3f1` 的 189 s 没有
+   显著差别**：逐项量出的原因是电池**已经吃满 CPU**（phase 0–2 的 99 s 里 census-8 ≈33 s、
+   `census-4 ‖ audit-4` ≈66 s 都接近满载），池 57 s 由 family 扫描（单跑 39.9 s = **313 core·s**、
+   8 线程效率 7.85×）与各测试壳的 core·s 决定，尾 32 s 由单核 oracle（32 s）决定；再压调度只能
+   挪几秒，详账（含被实测否决的"构建与普查重叠"变体：冷档 375 s）见下面的 `53c6a3e` 条目。
+   **681 → 683 的两项**是本轮 F1 的两个新回归（`the_verdict_covers_every_requested_pass`、
+   `the_gamma_assertions_run_only_when_their_pass_ran`），不是 card-6 正对照（后者在
+   `final-round2` 的 680 里就已经算过；`final-round2` 680 → `f2e7d09`/`acfc3f1` 681 的那一项是
+   `the_boundary_gate_merge_keeps_order_and_sums`）。
    **验收电池重排（`target/chainFast.sh`，零源码改动）**：把彼此独立的流压到 8 个核上——
    一次 `cargo build` → 8 线程 census（三个 TSV）→ 并发〔4 线程 determinism census
    （`taskset -c 0-3`）‖ 4 线程全局审计（`taskset 4-7`）〕→ 〔**41 个测试壳**（23 个 `--tests`
@@ -1002,26 +1010,98 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   通过程实际在 gate 块**之上**贡献，注释已按实际顺序改写（gate 块与它下面的 flag 块才是回显之后
   追加 violation 的两处）。
   ④ **P2（已修）**：文档里仍有一处把这次遍历的记录数写成 5,756（上一轮 P2-4 的同类残留），已改为
-  **1,006** 条 `Record`；`grep -rn "5,756 条记录"` 现为 **0 命中**（仓库源码与文档）。
+  **1,006** 条 `Record`（复核方 F3 指出原先那句"检索现为 0 命中"本身内嵌了被检索的字面量、
+  因而自指；现按语义描述，不再把该字面量写进说明里）。
   ⑤ **P2（已修）**：带 sweep 的 A/B 数字（36.8 → 32.44 s）没有日志来源；现已写入并改引
   `target/logs/tailpar2/ab-sweep.txt`（交替 A/B：**36 745 / 37 380 ms（改前）→ 32 941 / 33 058 ms
   （改后）**，两边三个 TSV 都与钉住值逐字节相同、改后报告与钉住修订逐行相同）。AGENTS.md 与
   coverage §4c 两处已统一引用同一份日志。
-  **如实说明（既有行为，未改）**：无门禁 flag 的裸运行会打印三条"依赖 sweep 的计数为 0"的 violation
-  却 **exit 0**——这与 `verdict` 只在 `gate || require_covered || full_star_recount || domain_sweep`
-  下生效有关，是卡 6 起就有的既有行为（`f2e7d09` 的裸运行逐字相同，非本提交引入）；裸运行不是验收
-  命令，验收命令始终带上 `--gate --require-covered --domain-sweep`。
+  **如实说明（既有行为，未改）**：无门禁 flag 的裸运行会打印三条"Gamma 计数为 0"的 violation
+  却 **exit 0**——这三条来自 `check_invariants` 里**无条件**的 Gamma 断言，而计数只在
+  `recount || domain_sweep`（即 `--gate`/`--full-star-recount`/`--output-recount`/`--domain-sweep`）
+  下收集，是卡 6 起就有的既有行为（`f2e7d09` 的裸运行逐字相同，非本提交引入）。
+  **（已被 `53c6a3e` 的 F1 修推翻并取代）**：同一原因也让 `--output <path>`、`--require-covered`
+  单独运行时打印这三条；`53c6a3e` 把断言改成只在计数被测量过时生效，并把三个产物 flag 接入判决，
+  现在这些组合都是 0 violation / exit 0，而 `--output-recount` 单独运行在 recount 失败时 **exit 1**。
   **本提交的验证**：`cargo test --release -p cryspglib --example line_domain_census` **24 passed /
   0 failed**、`--list` **24 条不同**、严格 clippy exit 0、`corrected` 覆盖变异使该测试失败；
   **验收电池**（`target/logs/tailpar3/summary.txt`，日志头 `revision acfc3f1 dirty-files 0`，
   两个源文件的 sha256 与提交一致）**189 s** = 构建 0 s（增量）+ 发现 1 s + census-8 **32 s**
   +〔census-4 ‖ global-audit〕**65 s** + 池 **57 s**（44 个作业）+ 尾 **34 s**，41 个测试壳
-  **681 passed / 0 failed**（`final-round2` 是 680：多出的这一项正是被恢复的 card-6 正对照测试）、
+  **681 passed / 0 failed**（`final-round2` 是 680；相对它多出来的那一项是 `f2e7d09` 新增、
+  `acfc3f1` 保留的合并单测 `the_boundary_gate_merge_keeps_order_and_sums`——**不是** card-6
+  正对照，后者在 `final-round2` 的 680 里就已经算过一次；`f2e7d09` 期间 card-6 丢属性、合并
+  测试注册两次，总数同样是 681。此句原先把 681−680 归因于 card-6，是审核轮 F2 指出的错误
+  归因，已改正）、
   三个 TSV 4 线程 == 8 线程且 SHA 未变（`c7b8606e…`/`07dedd42…`/`a14598c1…`）、全局审计
   `VERDICT complete scope=global … full_decomposition=complete`、doctest/clippy/4 个 python 单测 +
   oracle 全部 exit 0；**21 个变异**在本修订上逐个复现（`target/logs/finalTailpar3/summary.txt`，
   与 `finalTailpar2/summary.txt` **逐行相同**，唯一差异是修订 sha256 行：19 个 exit 1 + m2/m2b
   两个已披露残余 exit 0）。
+
+* **`acfc3f1` 验证审核的处置 + 第 3 轮性能（2026-09-29，`53c6a3e`）**：独立审核线（私有
+  worktree `target/review-adv/wt`@`13aa832` + 私有 target，报告 `target/review-adv/REPORT.md`）
+  复核了上一提交的全部结论：**三个主结论都成立**（`#[test]` 回归已修：24 条 `#[test]` →
+  24 条**不同**注册 → 24 passed，而 `f2e7d09` 实测 24 注册 / 23 不同 + `duplicated attribute`
+  + `never used` 两条警告；恢复的 card-6 正对照**有牙**——三种数据变异（删一条重算边界、删一条
+  关系、轨道–稳定化子臂数 −1）各自使它失败，只关掉其中一条比较由另外 3 个测试抓住；
+  `corrected` 的合并已被钉住（`+=`→`insert` 给出 `left: 1, right: 2`），八个字段全部有断言；
+  电池逐项可复算：189 s、41 个壳 = 23 `--tests` + 18 example、681/0、三个 TSV 4==8 且 SHA 未变、
+  报告与 `finalZAA` 逐行相同、`dirty-files 0` 与两个源文件 sha256 都和提交一致；21 个变异与
+  `finalTailpar2` 逐行相同（唯一差异是修订行），审核方自己重跑了 n3/m11/w4 三个锚点得到同样的
+  exit 码、计数与首条报文；`ab-sweep.txt` 的四个数与六个 TSV 全部对得上，审核方**自己的**交替
+  A/B 也复现了钉住 TSV；裸运行披露属实且是既有行为）。发现并已处理：
+  **① F1（P1，继承缺陷 + 披露不完整）**：`--output-recount <path>` **单独**运行会跑 recount
+  通过程、打印全部 violation 却 **exit 0**（审核方用电池自己的 `mut-p5` 实测：11 010 条、exit 0、
+  没有 `gate:` 行；而 `--full-star-recount`/`--gate` 都 exit 1），与源码里那句"与
+  `--full-star-recount` 同样的失败语义"矛盾——正是本系列禁止的"不失败的失败路径"，而披露只写了
+  裸运行。**已修**：三个产物 flag 通过新的 `verdict_requested` 进入判决；Gamma 计数断言只在
+  "测量它们的那个通过程跑过"（`recount_ran || sweep_ran`）时才生效——原来它们对零计数照样断言，
+  那三条"裸运行 violation"就是这么来的。修后实测：`--output-recount X` 单独在 `mut-p5` 下
+  **exit 1（11 010 条）**，诚实语料下 exit 0；裸运行、`--output X`、`--output-blocks X`、
+  `--require-covered` 全部 **0 violation / exit 0**（原来打印三条）；门禁报告从 `sources=` 到结尾
+  与钉住版逐行相同、三个 TSV SHA 未变。**两个常驻回归**，都实测有牙：把产物 flag 从谓词里去掉 →
+  `the_verdict_covers_every_requested_pass` 失败（`--output/--output-blocks/--output-recount must
+  reach the verdict`）；把守卫去掉 → `the_gamma_assertions_run_only_when_their_pass_ran` 失败。
+  **② F2（P1，`13aa832` 新引入的错误归因）**：两份文档把"681 − 680 = 被恢复的 card-6 正对照"
+  写成因果——**实测不成立**：`final-round2` 就已经有 card-6（23 条 `#[test]`、合并测试还没有）
+  ⇒ 680；`f2e7d09` 是 24 注册 / 23 不同（card-6 死掉、合并测试注册两次）⇒ **也已经是 681**；
+  相对 680 多出来的那一项是 `the_boundary_gate_merge_keeps_order_and_sums`，card-6 对总数没有贡献。
+  两份文档已按此改写（`acfc3f1` 的提交信息里 `681 = 680 − 1 + 1 + 1` 本来是对的）。
+  **③ F3（P2）**："`grep` 现为 0 命中"那句本身含被检索的字面量（自指）——已改为按语义描述，
+  不再内嵌该字面量。**④ F4（P2）**：§3.3 的"并行区 30.36 s、串行尾 ≈5.95 s"来自临时计时补丁的
+  交互读数、**没有落盘**（同族的 A/B 数有日志），已在原处标明"未留日志"，不再当钉值。
+  **⑤ F5（P2）**：合并测试文档注释写"八个字段里五个只在 gate 层打印"——按 gate 块实测是**三个**
+  （`legacy`、`boundary_probes`、`boundary_errors`），其余五个正是有 pin/violation 的那些；注释已改。
+  审核方另记：`--require-covered` 单独运行也会打印那三条 Gamma 计数 violation（看起来像覆盖失败，
+  其实是同一个零计数问题，`f2e7d09` 相同），**已随 F1 的修一起消失**。
+  **本轮的性能改动（第二个改动文件 `examples/line_transport_ledger.rs`）**：`--batch` 的 5 756 行
+  原来单核跑 **24.5 s**（用户态 24.5 s）；逐行工作彼此独立，改到 rayon 上、累加仍是**按行序的串行
+  循环**，所以打印的计数、前五条见证与其顺序**逐字节不变**（与电池日志 `ledger-batch.txt` 比较；
+  `--witnesses --gate` 同样逐字节相同）⇒ 单跑 **3.43 s（7.1×）**，example 测试 3 项通过。
+  **电池调度第三版（`target/chainFast2.sh`，零源码改动、与旧档同一批证据）**：最终只保留两条调度
+  改动——池按"长作业先发"（family 8 线程 → 库壳 4 个测试线程 → 其余 → ledger），以及 5 个 python
+  门禁（含 32 s 单核 oracle）与 clippy/doctest **并行**跑。**被实测否决的两条**：① 测试壳构建与
+  8 线程普查重叠（普查是二进制、不占 cargo 的 target 锁，看起来免费）：**冷构建档实测更慢**——
+  fat LTO 的 117 s 构建把普查从 33 s 拖到 **153 s**，整档 375 s（`target/logs/cold1`），而顺序版
+  同条件 329 s（`cold-old`），所以构建改回串行；② 把 python 门禁搬进池内：池 57 → 88 s，尾
+  34 → 7 s，两档合计没有收益（背后是 family 的 8 个 rayon 线程与 oracle 争核时的自旋），因此
+  python 留在尾段但与 clippy/doctest 并行（尾由 oracle 的 32 s 决定）。
+  **最终实测（全部 `53c6a3e`，源文件 sha256 与提交一致；`dirty-files 2` 是当时正在编辑的两份文档）**：
+  增量档 `target/logs/tailpar7` **190 s** = 构建/发现 1 s + census-8 33 s +〔census-4 ‖ global-audit〕
+  66/67 s + 池 **57 s** + 尾 **32 s**；冷构建档 `target/logs/cold2` **316 s**（旧脚本同条件
+  `cold-old` 329 s）；两个档都是 `683 passed / 0 failed`、三个 TSV 4==8 且 SHA 未变、
+  三门禁/doctest/clippy/oracle 全 exit 0。**如实结论（与预期相反）**：电池总时长基本没变
+  （189 → 190 s 增量档），因为它已经**吃满 CPU**：phase 0–2 的 99 s 两段都接近满载
+  （census-8 33 s；`census-4 ‖ audit-4` 66 s ≈ 8 核满载），池 57 s 由 family 扫描（单跑 39.9 s /
+  **313 core·s**，8 线程效率 7.85×）与各测试壳（部分壳内部也用 rayon）的 core·s 决定，尾 32 s
+  由单核 oracle（32 s）决定；family 在池里 56–88 s 的波动来自 8 核上多组线程池的自旋/调度，
+  而**单独跑 + 并发 oracle 实测只有 44.6 s**（连续两次单跑 39.81 / 40.43 s，无热降频）。
+  也就是说：再压调度只能挪几秒，真正能减少的只有**总工作量**（例如把 4 线程 determinism 普查
+  降为周期性检查、或缩小 family 采样集、或把 oracle 脚本改成多进程），那属于证据策略的取舍，
+  需明确决策后再动。本轮真正的收益是：ledger `--batch` 单作业 24.5 → **3.43 s**（7.1×，逐行
+  rayon、累加仍按行序，输出与旧日志逐字节相同），冷构建档 329 → **316 s**，以及把"哪一段还
+  有油水"从猜测变成了逐项实测。
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有
