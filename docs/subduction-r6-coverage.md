@@ -629,8 +629,9 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
 
 * **第五次复验（针对 `77bd51e`）与收口（2026-09-26）**：复核方的 w5（在单目标块上把交给比较的
   **操作列表**收窄成恒等元）曾 exit 0、报告逐字不变，使 93% 目标对的跨参数字符退化为维数。现在
-  ① `SweepSide::read` 自己计算 seed 点的子群小群并要求交进来的旋转集合恰好是它（收窄/截断/替换
-  列表在读字符前失败），② 新增 `character_entries` 计数（`read` 内按 `targets × operations` 累加）
+  ① `SweepSide::read` 自己计算 seed 点的子群小群并要求交进来的旋转集合恰好是它（**收窄/截断/重复**
+  在读字符前失败；**同旋转集合的替换**在读取过程中被操作成员资格与字符归一化控制抓住，见
+  `AGENTS.md` §3b 第六次复验条目），② 新增 `character_entries` 计数（`read` 内按 `targets × operations` 累加）
   与逐对期望 `(两侧目标数) × aligned.len()` 比较，语料总值钉 **583,776**；w1/w4/w5 现在都 exit 1。
   残余措辞补第四项并收紧：收窄操作列表已闭合；剩下的是刻意说谎（改写函数体、伪造**引擎答案**、
   手工伪造读数并补计数）。
