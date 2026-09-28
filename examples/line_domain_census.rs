@@ -491,9 +491,12 @@ impl PointClassCache {
 /// sums and the violation vectors are concatenated in order, so the merged
 /// result is exactly what the serial loop accumulated.  The struct lives at file
 /// scope rather than inside `run` so that the merge itself is under test
-/// (`the_boundary_gate_merge_keeps_order_and_sums`): five of the eight fields
-/// are only *printed* at gate level, so a merge that dropped or reordered a part
-/// would otherwise be visible only on a run whose corpus is already wrong.
+/// (`the_boundary_gate_merge_keeps_order_and_sums`): three of the eight fields
+/// (`legacy`, `boundary_probes`, `boundary_errors`) are only *printed* at gate
+/// level, so a merge that dropped or reordered a part would otherwise be visible
+/// only on a run whose corpus is already wrong.  (The earlier wording said five
+/// fields; measured against the gate block it is three -- verification review of
+/// `acfc3f1` F5 and of `53c6a3e` F2.)
 #[derive(Default)]
 struct BoundaryGate {
     legacy: BTreeMap<(usize, bool, TargetClass), usize>,
@@ -1433,7 +1436,15 @@ block_count\tblocks";
     violations.extend(recount_file_failures.iter().cloned());
     violations.extend(recount_report.failures.iter().cloned());
     violations.extend(sweep_report.failures.iter().cloned());
-    check_invariants(&domains, &records, &probes, &evidence, &mut violations);
+    check_invariants(
+        &domains,
+        &records,
+        &probes,
+        &evidence,
+        recount,
+        domain_sweep,
+        &mut violations,
+    );
 
     let unsupported = probes
         .iter()
@@ -6838,8 +6849,28 @@ fn check_invariants(
     records: &[Record],
     probes: &[Probe],
     evidence: &CensusEvidence,
+    recount_requested: bool,
+    sweep_requested: bool,
     violations: &mut Vec<String>,
 ) {
+    // A pass that was asked for must be the pass whose counters the assertions
+    // below read.  `recount_ran`/`sweep_ran` are the switch that turns the Gamma
+    // assertions and the recount pins on, so clearing them would switch those
+    // checks off silently: measured on `53c6a3e` (verification review, F1), the
+    // one-line mutation `recount_ran: recount` -> `false` (and the same for the
+    // sweep) left the acceptance command at exit 0 / 0 violations *and* the whole
+    // example suite at 26 passed.  Binding the request to the evidence closes it.
+    if recount_requested && !evidence.recount_ran {
+        violations.push(
+            "the full-star recount pass was requested but the evidence says it did not run"
+                .to_string(),
+        );
+    }
+    if sweep_requested && !evidence.sweep_ran {
+        violations.push(
+            "the domain sweep was requested but the evidence says it did not run".to_string(),
+        );
+    }
     // The child-side step comparison runs once per (record, label) per child
     // rotation, so its total is `sum over (record, label) of |rotation_set(child)|`
     // — with the rotation set counted through the crate's **independent** database
@@ -9692,6 +9723,36 @@ mod tests {
         (embedding, reciprocal)
     }
 
+    /// One record's `CensusEvidence`, with the two "did the pass run" flags under
+    /// the caller's control.
+    fn evidence_of<'a>(
+        report: &'a RecordReport,
+        recount_ran: bool,
+        sweep_ran: bool,
+    ) -> CensusEvidence<'a> {
+        let block_rows = report
+            .probes
+            .iter()
+            .map(|probe| probe.blocks.len())
+            .sum::<usize>();
+        CensusEvidence {
+            child_grid: report.child_grid,
+            child_algorithms: report.child_algorithms,
+            child_union: &report.child_parameters,
+            algorithm_checks: 0,
+            algorithm_mismatches: 0,
+            block_rows,
+            block_file_rows: None,
+            gamma: &report.gamma,
+            recount: &report.recount,
+            recount_ran,
+            recount_rows_written: 0,
+            recount_file_rows: None,
+            sweep: &report.sweep,
+            sweep_ran,
+        }
+    }
+
     /// The gate's per-record pass is merged afterwards, so the merge is load
     /// bearing: it has to add the two tables entry-wise (a key two records share
     /// must sum, not overwrite), sum the counters and append the violations in
@@ -9812,33 +9873,15 @@ mod tests {
             "the witness must not have measured the Gamma counters"
         );
         let gamma_violations = |recount_ran: bool| {
-            let block_rows = report
-                .probes
-                .iter()
-                .map(|probe| probe.blocks.len())
-                .sum::<usize>();
-            let evidence = CensusEvidence {
-                child_grid: report.child_grid,
-                child_algorithms: report.child_algorithms,
-                child_union: &report.child_parameters,
-                algorithm_checks: 0,
-                algorithm_mismatches: 0,
-                block_rows,
-                block_file_rows: None,
-                gamma: &report.gamma,
-                recount: &report.recount,
-                recount_ran,
-                recount_rows_written: 0,
-                recount_file_rows: None,
-                sweep: &report.sweep,
-                sweep_ran: false,
-            };
+            let evidence = evidence_of(&report, recount_ran, false);
             let mut violations = Vec::new();
             check_invariants(
                 &domains,
                 std::slice::from_ref(&record),
                 &report.probes,
                 &evidence,
+                false,
+                false,
                 &mut violations,
             );
             violations
@@ -9864,6 +9907,85 @@ mod tests {
                 "the violations must name {needle}: {reported:?}"
             );
         }
+    }
+
+    /// **Verification review of `53c6a3e`, F1: a pass that was requested must be
+    /// the pass whose counters the invariants read.**
+    ///
+    /// `check_invariants` reads `evidence.recount_ran`/`sweep_ran` as the switch
+    /// that turns the Gamma assertions and the recount pins on.  Measured on
+    /// `53c6a3e`, setting those two fields to `false` at the single construction
+    /// site left the acceptance command at exit 0 / 0 violations and the whole
+    /// example suite green, i.e. the switch could be turned off silently.  This
+    /// drives the checker directly: request without evidence is a violation,
+    /// evidence without a request is not (the flagless run), and both together is
+    /// clean once the counters are the pinned ones.
+    #[test]
+    fn the_evidence_must_carry_the_pass_that_was_requested() {
+        let domains = source_domains().expect("the frozen domains");
+        let record = record_of(196, 10_030);
+        let report = census_report(196, 10_030, true, false);
+        let checked = |recount_requested: bool,
+                       recount_ran: bool,
+                       sweep_requested: bool,
+                       sweep_ran: bool| {
+            let evidence = evidence_of(&report, recount_ran, sweep_ran);
+            let mut violations = Vec::new();
+            check_invariants(
+                &domains,
+                std::slice::from_ref(&record),
+                &report.probes,
+                &evidence,
+                recount_requested,
+                sweep_requested,
+                &mut violations,
+            );
+            violations
+        };
+        let coupling = |violations: &[String]| {
+            violations
+                .iter()
+                .filter(|violation| violation.contains("was requested but the evidence says"))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let silent = coupling(&checked(true, false, false, false));
+        assert_eq!(
+            silent.len(),
+            1,
+            "a requested recount that claims not to have run must be a violation: {silent:?}"
+        );
+        assert!(
+            silent[0].contains("recount") && silent[0].contains("did not run"),
+            "the violation must name the pass: {silent:?}"
+        );
+        let sweep_silent = coupling(&checked(false, false, true, false));
+        assert_eq!(
+            sweep_silent.len(),
+            1,
+            "the same for the sweep: {sweep_silent:?}"
+        );
+        assert!(
+            sweep_silent[0].contains("sweep"),
+            "the violation must name the pass: {sweep_silent:?}"
+        );
+        assert!(
+            coupling(&checked(false, false, false, false)).is_empty(),
+            "a run that requested nothing must not be accused"
+        );
+        let live = checked(true, true, true, true);
+        assert!(
+            coupling(&live).is_empty(),
+            "request and evidence together must be clean: {:?}",
+            coupling(&live)
+        );
+        // Non-vacuity: one record's counters are not the corpus pins, so the
+        // assertions this switch guards must still fire here.  Without this the
+        // test above could pass on a `check_invariants` that checks nothing.
+        assert!(
+            !live.is_empty(),
+            "the guarded corpus assertions must be live for this report"
+        );
     }
 
     /// **Card 6, positive control: the audit is not vacuous, and it reproduces
