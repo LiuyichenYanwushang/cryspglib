@@ -3563,15 +3563,24 @@ impl SweepSide<'_> {
 /// Compare the two **sides**' gauge-unified characters and record the outcome,
 /// returning the two readings so the caller can report on them.
 ///
-/// The operands are the sides themselves and the readings are produced here, so
-/// "compare one side with itself" is not expressible as an argument: doing it
-/// means reading the same side twice, which the provenance check rejects because
-/// the second reading then records the first parameter (adversarial
-/// re-verification of `9d0a7fd`, P0 residual: with the readings as parameters the
-/// body could point both operands at one of them and hide a full negation of the
-/// second side).  The vectors compared are additionally checked to carry the
-/// provenance of the reading that produced them ([`operand_origin_error`]), so an
-/// operand that no reading produced fails closed as well.
+/// Everything is in this one function: the two `read()` calls, the provenance
+/// checks, the parameter check and the match.  There is no forwarded operand and
+/// no forwarded provenance, so no rebinding **and no call-site construction** can
+/// substitute what is compared:
+///
+/// * handing the same side twice (or a side whose claimed parameter is the
+///   second's while its engine answer is the first's) is rejected by
+///   [`SweepSide::block`] or by the provenance / same-parameter checks;
+/// * handing a **forged `SideReading`** is not expressible here: the operands are
+///   read inside, and the vectors compared carry the stamp of the reading that
+///   produced them ([`operand_origin_error`]), so a hand-built reading whose
+///   stamps were copied along with its vectors no longer has a call site to
+///   appear at (fourth re-verification of `3b0b0d2`, q3);
+/// * what is left are deliberate lies inside this function's own body (its match
+///   line or checks) or a wholly fabricated engine answer -- the disclosed
+///   "a control cannot see its own removal" class, because honest data passes
+///   every structural check and the cross-parameter characters are equal by the
+///   theorem under test.
 #[allow(clippy::too_many_arguments)]
 fn compare_readings(
     first_side: &SweepSide,
@@ -3598,7 +3607,29 @@ fn compare_readings(
         failures.push(format!("{block_key}: {error}"));
         return Ok((first, second));
     }
-    match compare_operands(&first, &second, block_key) {
+    // (i) The comparison is a cross-parameter one, so the two readings have to be
+    // readings of two different parameters.  A duplicated side reaches this.
+    if first.source.parameter == second.source.parameter {
+        report.geometry.character_side_mismatches += 1;
+        failures.push(format!(
+            "{block_key}: both readings are recorded at t={}, so the cross-parameter comparison \
+             would compare one parameter with itself",
+            first.source.parameter
+        ));
+        return Ok((first, second));
+    }
+    // (ii) Each operand is checked against **its own** reading's provenance; both
+    // the operand and the provenance come from the readings made above, so there
+    // is nothing to substitute at a call site.
+    if let Some(error) =
+        operand_origin_error(&first.targets, &second.targets, &first.source, &second.source)
+    {
+        report.geometry.character_side_mismatches += 1;
+        failures.push(format!("{block_key}: {error}"));
+        return Ok((first, second));
+    }
+    // (iii) The readings' own targets are the operands.
+    match match_targets(&first.targets, &second.targets, block_key) {
         Ok((pairs, matched_worst)) => {
             report.worst_score = report.worst_score.min(matched_worst);
             report.targets += pairs.len();
@@ -3613,57 +3644,6 @@ fn compare_readings(
         }
     }
     Ok((first, second))
-}
-
-/// Match the two readings' characters, with every operand **inside** the function
-/// that matches them.
-///
-/// There is nothing to forward and nothing to swap: the operands are the two
-/// `SideReading`s' own `targets`, the provenance each operand is checked against
-/// is that same reading's `source`, and the pair itself has to be two different
-/// parameters.  The two shapes that defeated the earlier versions are closed by
-/// construction:
-///
-/// * `compare_operands(left, left, &first.source, &second.source, ..)` -- the
-///   operand moved alone (re-verification of `9d0a7fd`, r2): the right operand's
-///   vectors carry the first reading's origin, so step (ii) rejects it;
-/// * `compare_operands(left, left, &first.source, &first.source, ..)` -- operand
-///   **and** the provenance it is checked against moved together (re-verification
-///   of `b79a028`, r2mb): there is no longer a source argument to move; a caller
-///   that duplicates the reading trips step (i) (`same parameter`), and if it
-///   passes two readings of one parameter their sources agree in step (ii) but
-///   step (i) has already fired.
-///
-/// What remains is rewriting this function's own body -- a deliberate lie rather
-/// than a rebinding or a forwarding mistake -- which is the disclosed residual
-/// class ("a control cannot see its own removal").
-fn compare_operands(
-    first: &SideReading,
-    second: &SideReading,
-    block_key: &str,
-) -> Result<(Vec<(usize, usize)>, f64), TargetMismatch> {
-    // (i) The comparison is a cross-parameter one, so the two readings have to be
-    // readings of two different parameters.  This is the check that a duplicated
-    // argument trips, and it lives here, next to the match, rather than only in
-    // the caller.
-    if first.source.parameter == second.source.parameter {
-        return Err(TargetMismatch::Ambiguous(format!(
-            "both readings are recorded at t={}, so the cross-parameter comparison would compare \
-             one parameter with itself",
-            first.source.parameter
-        )));
-    }
-    // (ii) Each operand is checked against **its own** reading's provenance.
-    if let Some(error) = operand_origin_error(
-        &first.targets,
-        &second.targets,
-        &first.source,
-        &second.source,
-    ) {
-        return Err(TargetMismatch::Ambiguous(error));
-    }
-    // (iii) The readings' own targets are the operands.
-    match_targets(&first.targets, &second.targets, block_key)
 }
 
 /// The operands of the comparison have to be the vectors the two readings

@@ -772,6 +772,16 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   **P2**：`clippy --all-targets` 不 lint example 的 `#[cfg(test)]` 模块，三处测试调用丢弃 `Result`
   产生 `unused_must_use` 警告——三处都改为绑定返回值，`sweep_boundary_pass` 现在在**任一参数未回答**
   时返回 `Err`，`the_boundary_pass_binds_its_answers_to_its_requests` 断言"回答的参数集合 == 传入列表"。
+  **第四次复验（针对 `3b0b0d2`）后的最终验证**（源码 `19c64343…`）：**18 个变异在最终源码上逐个重跑、
+  逐个还原并复核 sha256：16 个 exit 1**——p2a 23,027 / p2b 138,148 / p3 23,034 / p4 7,461 / p5 11,010 /
+  p6 43,658 / p7 24,171 / n1 5,757 / n2 168,413 / n3 4 / n4 4 / n6 168,413 / m8 5,757 / m11 23,040 /
+  **r2mb 46,059**（伪造整条 `SweepSide`：`SweepSide::block()` 拒绝）/ **r2mb2 168,413**（自洽伪造 → 同参数
+  检查拒绝），**2 个残余 exit 0**（m2/m2b：在 `compare_readings` 函数体内刻意改写匹配实参）；诚实门禁
+  并行 **115 s** / 串行 **569 s** 均 exit 0，三个 TSV 串并**逐字节相同**且 SHA 未变
+  （`c7b8606e…`/`07dedd42…`/`a14598c1…`），`probes=42073 stored=33985 constructed=8088 unsupported=0
+  errors=0`、`349344/174672/0`、`8/8/0`、`46048/0`、`92096` 逐字未变；`--tests` 616/0、doctest 27、
+  `--lib` 20/13、example **23**、严格 clippy exit 0；family / ledger / 全局三门禁（VERDICT complete）
+  与四个 python 门禁、离线 oracle 全部 exit 0。
   **本轮验证**（源码 `6ca98d52…`）：**18 个变异在最终源码上重跑，16 个 exit 1**——p2a 23,027 /
   p2b 138,148 / p3 23,034 / p4 7,461 / p5 11,010 / p6 43,658 / p7 24,171 / n1 5,757 / n2 168,413 /
   n3 4 / n4 4 / n6 168,413 / m8 5,757 / m11 23,040 / **r2mb 168,413 / r2mb2 168,413**；**2 个残余**
