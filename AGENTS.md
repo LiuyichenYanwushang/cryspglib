@@ -209,19 +209,19 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    验收电池（`target/logs/tailpar/summary.txt`，源码 `census.rs fc2c7681…`/`subduction.rs e4a55688…`）
    **193 s**：构建 0 s（只改了 example，增量）+ 发现 1 s + census-8 **32 s** + 并发档 71 s +
    池 56 s + 尾 33 s，680 passed / 0 failed、三门禁与 python/oracle 全 exit 0。
-   **当前基线（`53c6a3e`，`target/logs/tailpar7/summary.txt`，日志头 `dirty-files 2` + 三个源
-   文件 sha256 与提交一致）**：**190 s** = 构建/发现 1 s + census-8 **33 s** +〔census-4 ‖
-   global-audit〕**66/67 s** + 池 **57 s**（44 个作业）+ 尾 **32 s**，41 个测试壳
-   **683 passed / 0 failed**；冷构建档（`touch` 全部源文件后同一脚本）**316 s**
-   （`target/logs/cold2`，旧脚本同条件下 329 s = `cold-old`）。**与 `acfc3f1` 的 189 s 没有
+   **当前基线（`7f8b016`）**：`target/logs/tailpar9/summary.txt`（example 改动后需重建的那一档）
+   **220 s** = 构建 13 s + 发现 17 s + census-8 **33 s** +〔census-4 ‖ audit-4〕**68 s** +
+   池 **57 s**（44 个作业）+ 尾 **32 s**，41 个测试壳 **684 passed / 0 failed**；完全增量档
+   **190 s**（`tailpar7`@`53c6a3e`，构建/发现 1 s）；冷构建档（`touch` 全部源文件后同一脚本）
+   **316 s**（`target/logs/cold2`，旧脚本同条件下 329 s = `cold-old`）。**与 `acfc3f1` 的 189 s 没有
    显著差别**：逐项量出的原因是电池**已经吃满 CPU**（phase 0–2 的 99 s 里 census-8 ≈33 s、
    `census-4 ‖ audit-4` ≈66 s 都接近满载），池 57 s 由 family 扫描（单跑 39.9 s = **313 core·s**、
    8 线程效率 7.85×）与各测试壳的 core·s 决定，尾 32 s 由单核 oracle（32 s）决定；再压调度只能
    挪几秒，详账（含被实测否决的"构建与普查重叠"变体：冷档 375 s）见下面的 `53c6a3e` 条目。
-   **681 → 683 的两项**是本轮 F1 的两个新回归（`the_verdict_covers_every_requested_pass`、
-   `the_gamma_assertions_run_only_when_their_pass_ran`），不是 card-6 正对照（后者在
-   `final-round2` 的 680 里就已经算过；`final-round2` 680 → `f2e7d09`/`acfc3f1` 681 的那一项是
-   `the_boundary_gate_merge_keeps_order_and_sums`）。
+   **680 → 681 → 683 → 684 的增量**依次是：`the_boundary_gate_merge_keeps_order_and_sums`
+   （`f2e7d09` 新增）、`the_verdict_covers_every_requested_pass` + `the_gamma_assertions_run_only_
+   when_their_pass_ran`（`53c6a3e`）、`the_evidence_must_carry_the_pass_that_was_requested`
+   （`7f8b016`）——**没有一项**是 card-6 正对照（它在 `final-round2` 的 680 里就已经算过）。
    **验收电池重排（`target/chainFast.sh`，零源码改动）**：把彼此独立的流压到 8 个核上——
    一次 `cargo build` → 8 线程 census（三个 TSV）→ 并发〔4 线程 determinism census
    （`taskset -c 0-3`）‖ 4 线程全局审计（`taskset 4-7`）〕→ 〔**41 个测试壳**（23 个 `--tests`
@@ -1107,6 +1107,51 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   钉住的是打印的 `rows=5756`（截断行数会改它）、退出码、`--witnesses --gate` 以及 ledger 自己的
   3 项单测。下一轮若要收紧，最省的办法是让并行 map 顺带返回行号并在串行累加里断言行号等于行序
   （能抓顺序/完整性变异），或统计不同波矢数并钉值（能抓"所有行都算成同一行"）。
+
+* **`53c6a3e`（+ `a5a68d9`、`25243a0`）的验证审核（第九条独立审核线）：无 P0，1×P1 + 3×P2，
+  全部接受（本提交 `7f8b016` + 文档）**。审核方（私有 worktree `target/review-vera/wt`@`25243a0`
+  + 私有 target，报告 `target/review-vera/REPORT.md`）复核：**F1 修复端到端成立**——它用电池自己的
+  `mut-p5` 在改前源码（`53c6a3e^`）上复现了缺陷原文（`--output-recount X` 单独：**11 010 条
+  violation、exit 0、无 `gate:` 行**），改后同一命令 **exit 1**，而裸运行/`--output X`/
+  `--output-blocks X` 都是 0 violation / exit 0；**两个新单测都有牙**（去掉谓词里的产物 flag →
+  `the_verdict_covers_every_requested_pass` FAILED；删掉守卫 → `the_gamma_assertions_run_only_when_
+  their_pass_ran` FAILED）；**钉值未动**（门禁报告从 `sources=` 到结尾与 `finalZAA` 逐行相同、
+  88 行；三个 TSV 8 线程与 4 线程都等于钉住 SHA；4 线程报告 == 8 线程报告）；**ledger 的并行**
+  与 `tailpar3`/`tailpar7` 两个日志逐字节相同、累加循环逐语句未改（它做了与上一轮同样的语句级
+  diff）；四个电池日志（190 / 316 / 329 / 375 s、683/0）逐项可复算、盘上 TSV == 钉值、41 个壳 =
+  23 + 18；681 → 683 是 F1 的两个新测试、680 → 681 是 `the_boundary_gate_merge_keeps_order_and_sums`
+  （`f2e7d09` 的双属性机制在源码里确认）；`5,756 条记录` 字面量确已消失；sweep 的两个数已标注
+  "未落盘"；26 条注册 / 26 条不同。发现并处理：
+  **① F1（P1）**：新守卫 `if evidence.recount_ran || evidence.sweep_ran { check_gamma(…) }` 的
+  **调用点没有常驻控制**——审核方实测：把构造处的 `recount_ran: recount` 与 `sweep_ran: domain_sweep`
+  一起改成 `false`，验收命令 **exit 0 / 0 violation**、整套 example 测试 **26 passed / 0 failed**，
+  于是新的 Gamma 断言**和**既有的 recount 计数钉值都被静默关掉（改前 Gamma 断言是无条件的，藏不住）。
+  **已修**：`check_invariants` 现在接收两个"请求"标志，并在"请求了却没跑"时记 violation
+  （`the full-star recount pass was requested but the evidence says it did not run` / sweep 同理）
+  ⇒ 同一变异现在在 `--gate --require-covered` 下 **exit 1（1 violation）**，诚实语料仍 exit 0 /
+  0 violation；检查器逻辑另有常驻回归 `the_evidence_must_carry_the_pass_that_was_requested`
+  （含"请求+证据齐全必须干净"与**非空转**断言：单条记录的计数不等于语料钉值，所以被守卫的断言
+  在该夹具上必须仍然开火）。**如实说明**：该调用点变异仍然只有**门禁**抓得到（电池每次都会跑），
+  example 单测抓不到（它们自带标志）。**② F2（P2）**：F5 只改了一半——`examples/line_domain_census.rs`
+  第 494 行（`BoundaryGate` 的文档注释）仍写"five of the eight fields"，已改成三个并注明两轮审核。
+  **③ F3（P2）**：coverage §4c 把被否决的 `tailpar6` 变体（python 进池：池 88 s / 尾 7 s / 193 s）
+  写成"当前基线"，与同一提交里的 AGENTS.md 和 `target/chainFast2.sh` 矛盾——已改为 `tailpar7`
+  （池 57 s / 尾 32 s / 190 s）并附冷档与两档对比。**④ F4（P2）**：ledger 的 A/B 数没有日志
+  （而同一提交刚给 sweep 的两个数加了"未落盘"标注），且 6.9× 墙钟是拿 **~14% 额外 CPU** 换的
+  （user 23.8 → 27.1 s），在 CPU 饱和的电池里这一点必须披露。**已补**：
+  `target/logs/ledger-ab.txt`（交替 A/B 各三次：pre **23.64/23.67/23.97 s**、post
+  **3.40/3.52/3.41 s**，pre == post 输出逐字节相同、post == `tailpar3/ledger-batch.txt`，
+  两个二进制都有 sha256），两份文档据此改写并写明 CPU 代价。审核方另记一条**归因口径**：
+  `tailpar2` 是唯一写着 681 的日志，其头行是 `revision b428a93 dirty-files 1`，但钉的
+  `census.rs` 哈希等于 `f2e7d09` 的提交内容——"@`f2e7d09`"这个标注由**哈希**支持、不由那行
+  revision 支持（现按此措辞）。
+  **本提交的验证**（源码 `census.rs da24aefc…`、`ledger.rs a04f26fd…`）：example 测试 **27 项**
+  （26 + 新的耦合回归）、`--list` 27 条不同、严格 clippy exit 0；`--gate --require-covered
+  --domain-sweep` 的电池（`target/logs/tailpar9`，源改动后需重建 example 上下文）**220 s**
+  = 构建 13 s + 发现 17 s + census-8 33 s +〔census-4 ‖ audit-4〕68 s + 池 57 s + 尾 32 s，
+  **684 passed / 0 failed**、三个 TSV 4==8 且 SHA 未变；完全增量档仍是 **190 s**（`tailpar7`）；
+  **21 个变异**在本修订上逐个复现（`target/logs/finalTailpar5/summary.txt`，与 `finalTailpar4`
+  逐行相同，唯一差异是修订哈希行：19 个 exit 1 + m2/m2b 两个已披露残余 exit 0）。
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有
