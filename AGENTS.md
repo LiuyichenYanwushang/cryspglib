@@ -168,10 +168,12 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    **串行前导/收尾**（`records()`、`source_domains()`、合并与报告），不是继续压算术。
    **验收电池重排（`target/chainFast.sh`，零源码改动）**：把彼此独立的流压到 8 个核上——
    一次 `cargo build` → 8 线程 census（三个 TSV）→ 并发〔4 线程 determinism census
-   （`taskset -c 0-3`）‖ 4 线程全局审计（`taskset -c 4-7`）〕→ 〔23 个测试二进制 + ledger +
-   family 的 8 路 `nice -n 10` 池〕→ 〔doctest ‖ clippy ‖ 5 个 python 门禁〕。实测 **285 s**
-   （旧 `chainFinal2.sh` ≈16 min）跑完全部验收：`--tests` **617 passed / 0 failed**、doctest、
-   clippy `-D warnings`、family/ledger/global 三门禁、python ×5 + oracle 全部 exit 0。
+   （`taskset -c 0-3`）‖ 4 线程全局审计（`taskset -c 4-7`）〕→ 〔**41 个测试壳**（23 个 `--tests`
+   二进制 + 18 个 example 测试壳；`cargo test --tests` **不含** example 的单测，第一版电池因此
+   漏掉 63 项，已修）+ ledger + family 的 8 路 `nice -n 10` 池〕→ 〔doctest ‖ clippy ‖
+   5 个 python 门禁〕。实测 **285 s（冷构建 88 s）/ 239 s（构建已热）**跑完全部验收
+   （旧 `chainFinal2.sh` ≈16 min）：`--tests` 617/0 加 example 壳 63 项 = **680 passed / 0 failed**、
+   doctest、clippy `-D warnings`、family/ledger/global 三门禁、python ×5 + oracle 全部 exit 0。
    同日实测：22 个测试二进制的串行墙钟合计只有 **24.1 s**（最慢 10.9 s），所以瓶颈从来不是
    测试，而是**构建**（库改动时 85–88 s，fat LTO + `codegen-units = 1`）与两次 census。
    **未做（如实）**：`Mat3R::inverse`（每个 3×3 逆 9 次 `checked_div`）与 `Lattice::reduce`

@@ -667,7 +667,11 @@ gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子
 | 门禁 `--gate --require-covered`，8 线程 | 42.27 s | 14.7 s |
 | 同一命令，1 线程 | 179.71 s | 66.5 s |
 | 加 `--domain-sweep`，8 线程 | 112 s | 36.8 s |
-| 全部验收（`target/chainFast.sh`） | ≈16 min | 285 s |
+| 全部验收（`target/chainFast.sh`） | ≈16 min | 285 s（冷构建 88 s）/ 239 s（构建已热） |
+
+验收电池跑 **41 个测试壳**（23 个 `--tests` 二进制加 18 个 example 测试壳；`cargo test --tests`
+**不含** example 的单测，第一版电池因此漏掉 63 项，已修）合计 **680 passed / 0 failed**，
+另有 doctest、clippy `-D warnings`、family/ledger/global 三门禁与 5 个 python 门禁，全部 exit 0。
 
 **值没有变**：三个 TSV 与改前逐字节相同（SHA-256 `c7b8606e…` / `07dedd42…` / `a14598c1…`，
 且 4 线程 == 8 线程），门禁报告逐行相同（diff 只剩 cargo 前导），本节 §4b 的全部钉值
