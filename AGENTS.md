@@ -172,13 +172,19 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    8 线程），门禁报告逐行相同（diff 只剩 cargo 前导），全部钉值未变——这是"只改速度、
    不改任何精确值"的语料级证据。新增模块回归
    `the_rational_fast_paths_agree_with_the_schoolbook_fractions`（7×6×7×6 网格 × 加/减/乘：
-   值 == 教科书分数且**表示规范**；另加 2^70 的宽分支见证）。**并行度没有变，但瓶颈的形状
-   已经量出来**：`target/logs/profile/t8b/`（8 线程、90 个时间样本 × 9 个线程块）显示运行分两段——
-   前 ~58% 的样本每 9 个线程块有 3 个空闲，后 ~42% **每 9 个只有 3 个在跑**（尾部只剩 2–3 个
-   worker，其余停在 rayon 的 `wait_until_cold`），即**负载不均**（少数记录远重于其它记录，
-   `par_iter` 按记录切分），**不是串行前导**：同一份 profile 里 `records_of`/`source_domains`
-   一帧都没采到（Amdahl 拟合出的 ≈11% "串行份额"因此是负载不均的等效值）。下一个热点是
-   **任务粒度/调度**（按 (记录,标号) 切分，或按预估代价降序发牌），不是继续压算术。
+   值 == 教科书分数且**表示规范**；另加 2^70 的宽分支见证）。**并行度没有变，但瓶颈的形状已经
+   按阶段量出来**（临时给 `run()` 装四个计时器，8 / 1 线程各跑一次）：8 线程无 sweep 的
+   14.73 s = prologue **0.02 s** + 并行区 **8.76 s** + `check_invariants` **1.52 s** +
+   `report()` **1.53 s** + `if gate {}` **4.44 s**；1 线程是 66.40 s = 0.02 + 60.46 + 1.51 + 1.51 + 4.41
+   ⇒ **后三项 ≈7.5 s 是纯串行**（两种线程数下逐项相同），占 8 线程墙钟的一半；带 `--domain-sweep`
+   时并行区 30.36 s、串行尾仍是 ≈5.95 s。`target/logs/profile/t8b/` 的 gdb 采样与之一致：
+   前 52/90 个时间样本是 **8 个 worker 全忙、主线程阻塞**，后 37/90 个样本**只剩主线程**在跑
+   `check_invariants` 与 gate 代码（叶帧 `child_cocycle_is_a_coboundary`、`little_co_group`、
+   `SubgroupEmbedding::from_isotropy_subgroup`、`verify_against_grid`），8 个 worker 全在
+   `wait_until_cold`；`records_of`/`source_domains` 一帧都没采到（prologue 实测 0.02 s）。
+   **先前的"负载不均、尾部只剩 2–3 个 worker"是误读**（那是 3 个样本窗口里共 3 个线程块在跑，
+   即每样本 1 个），外部复核方指出后已按实测改写 ⇒ 下一个热点是**并行化这三段串行尾部**
+   （`check_invariants`、`report()`、`if gate {}`），不是调度或算术。
    **验收电池重排（`target/chainFast.sh`，零源码改动）**：把彼此独立的流压到 8 个核上——
    一次 `cargo build` → 8 线程 census（三个 TSV）→ 并发〔4 线程 determinism census
    （`taskset -c 0-3`）‖ 4 线程全局审计（`taskset 4-7`）〕→ 〔**41 个测试壳**（23 个 `--tests`
@@ -187,11 +193,12 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    5 个 python 门禁〕。**唯一一次全量记录**
    （`target/logs/final-round2/battery/summary.txt`；日志头现在同时钉 `git rev-parse`、
    脏文件数与 `subduction.rs`/`census.rs` 的 sha256——外部审查 **P1-1** 指出旧的 fastA/fastB
-   只记 commit，而它们跑的是**未提交**的改动树，所以那两个日志不再作为引用）：
-   构建 90 s + census 38 s + 并发档 68 s + 池 56 s + 尾 37 s = **313 s**，
+   只记 commit，而它们跑的是**未提交**的改动树，所以那两个日志不再作为引用；`final-round2`
+   那一行的 `dirty-files 2` 是当时正在编辑的两份文档，两个源文件的 sha256 与提交版本一致）：
+   构建 90 s + 发现测试壳 24 s + census 38 s + 并发档 68 s + 池 56 s + 尾 37 s = **313 s**，
    `--tests` 617/0 加 example 壳 63 项 = **680 passed / 0 failed**，三个 TSV 逐字节相同
    （4 线程 == 8 线程，SHA 未变），family/ledger/global 三门禁、doctest、clippy `-D warnings`、
-   python ×5 + oracle 全部 exit 0。
+   4 个 python 单测 + oracle 全部 exit 0。
    **基线口径更正（外部审查 P1-3）**：先前写的"旧 `chainFinal2.sh` ≈16 min"不成立——
    ≈16 min 是 **`chainFinal.sh`** 的一次完整运行（`finalZAA`：并行 census 112 s **+ 串行
    census 569 s** + 其余），`chainFinal2.sh` 换掉串行档后**从未写过日志**。所以"16 min →
@@ -201,8 +208,8 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    同日实测：22 个测试二进制的串行墙钟合计只有 **24.1 s**（最慢 10.9 s），所以瓶颈从来不是
    测试，而是**构建**（库改动时 85–90 s，fat LTO + `codegen-units = 1`）与两次 census。
    **未做（如实）**：`Mat3R::inverse`（每个 3×3 逆 9 次 `checked_div`）与 `Lattice::reduce`
-   仍是剩余算术热点；**负载不均未处理**（按记录切分，尾部只剩 2–3 个 worker；profile 见上）；
-   构建参数未动（会动到已钉证据的编译配置）。
+   仍是剩余算术热点；**三段串行尾部（≈7.5 s）尚未并行化**（`check_invariants` 1.52 s +
+   `report()` 1.53 s + `if gate {}` 4.44 s，见上）；构建参数未动（会动到已钉证据的编译配置）。
    **历史（上一轮，保留）**：`audit_irrep_subduction` 已按母群空间群并行（8 线程 121.6 s /
    1 线程 554.7 s，389,151 行 TSV 逐字节相同，SHA `3df39d03…`）；`line_family_coverage`
    已按行并行、单线程按序写 TSV（1 线程 123.08 s / 8 线程 19.29 s，SHA `9683ddef…`）；
@@ -859,6 +866,30 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   （"the sweep read … expected 583776"：旧构建根本不打印这一项，所以少一条 violation）。
   同批更正 m11 23,040 → **23,041**、r2mb 46,059 → **46,060**（同样来自 `19c64343` 的那一次）。
   三项都只有这一条差值，其余 violation 行逐行相同（`diff` 实测）。
+
+* **性能轮复核的复核（第六条独立审核线，针对 `c21a010`）：8/9 项确认修好，3 项新缺陷全部接受
+  （本提交）**。审核方只读复核（不跑 cargo）：P1-1/P1-2/P1-3/P2-1/P2-2/P2-3/P2-4/P2-6 全部确认
+  修好且每个数字都能在它引用的日志里找到（含用 `checks/mutations.py` 对 21 个变异逐条比对三个
+  电池日志）；**P2-5 只算部分修好**（`chainF.sh` 已钉库文件哈希，但 coverage 仍在引未钉的
+  `finalPerf`），已改引 `finalPerf2`。**新缺陷 N1（P1，已接受）**：本提交新写的"负载不均、
+  尾部只剩 2–3 个 worker"**与它自己引的 profile 矛盾**——审核方按"每个时间样本 9 个线程块"
+  重新统计：前 52/90 个样本是 **8 个 worker 全忙、主线程阻塞**，后 37/90 个样本**只剩主线程**
+  在跑 `run` 的串行代码（`check_invariants`、gate 段：叶帧 `child_cocycle_is_a_coboundary`、
+  `little_co_group`、`from_isotropy_subgroup`、`verify_against_grid`），8 个 worker 全在
+  `wait_until_cold`；本方原先把"3 个样本窗口里 3 个线程块在跑"误读成"每样本 3 个在跑"。
+  收到后立即用**临时相位计时器**实测（`run()` 四个计时点，8 / 1 线程各一次）：8 线程 14.73 s =
+  prologue 0.02 + 并行区 8.76 + `check_invariants` 1.52 + `report()` 1.53 + `if gate {}` 4.44，
+  1 线程 66.40 s 的后三项逐项相同 ⇒ **≈7.5 s 纯串行尾**（Amdahl 拟合出的"11% 串行份额"其实就是
+  它），`records_of`/`source_domains` 只占 0.02 s。文档已按实测改写，并把结论从"负载不均"改成
+  **"并行化三段串行尾部"**（下一轮的目标）。**N2（P2，已接受）**：电池分解式少了
+  `discover-examples 24 s`（90+38+68+56+37=289≠313，313 本身对），已补。**N3（P2，已接受）**：
+  coverage 仍在引 `fastB` 的 40 s 与草稿 `5a4cada8` 的 66.5 s / 14.7 s，已按提交源码上的
+  `final-round2` 改为 38 s / 66.29 s / 14.87 s 并改引 `finalPerf2`。**N4（P2×2，已接受）**：
+  `final-round2` 头部的 `dirty-files 2` 未说明是哪两个文件（是当时在编辑的两份文档，两个源文件
+  哈希与提交一致，已在文中注明）；"python ×5 + oracle"重复计数（日志里是 4 个 `py-*` 单测 +
+  oracle），已改。**注**：本轮审核期间主树出现过临时改动（`CENSUS_PHASE_TIMINGS` 计时器），
+  那是本方的测量补丁，测量后已还原（`examples/line_domain_census.rs` 仍是 `2b3a9e65…`），
+  审核方对此的提醒已核销。
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有

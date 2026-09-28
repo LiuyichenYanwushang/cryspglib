@@ -203,7 +203,7 @@ R6.4 之前的域结论来自分母采样（42 个点）。R6.5 把它换成**�
 `cryspglib::irrep::subduction::star::line_domain`（精确 `i128` 有理算术，无浮点、
 无随分母增长的网格；自检失败返回 `DomainCensusInconsistent`）。
 
-**实测（`examples/line_domain_census.rs --gate`，8 线程 14.7 s，exit 0）**：
+**实测（`examples/line_domain_census.rs --gate`，8 线程 14.87 s，exit 0）**：
 
 | 项 | 结果 |
 |---|---|
@@ -639,9 +639,12 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   2 个残余 exit 0；诚实门禁 112 s / 569 s 均 exit 0，三个 TSV SHA 未变，字符条目数钉 **583,776**，
   测试 616/0 + example 23 + clippy exit 0。
   **2026-09-29 性能轮复跑（见 §4c）**：同一份 `2b3a9e65…` 逐字源码加有理快路径后，21 个变异
-  **逐个复现**（exit 码与 violation 数全部相同，逐条比对 `target/logs/finalPerf/summary.txt`），
-  诚实门禁 40 s（8 线程、带 sweep）/ 1 线程 66.5 s（无 sweep）均 exit 0，三个 TSV SHA 未变，
+  **逐个复现**（exit 码与 violation 数全部相同，逐条比对 `target/logs/finalPerf2/summary.txt`，
+  该日志同时钉住库文件 `subduction.rs e4a55688…`），诚实门禁 **38 s**（8 线程、带 sweep）/
+  **66.29 s**（1 线程、无 sweep，无 sweep 的 8 线程为 **14.87 s**）均 exit 0，三个 TSV SHA 未变，
   `583776` 字符条目未变，测试 **617/0**（+1 为本轮新增的有理快路径回归）+ example 23 + clippy exit 0。
+  （原文写的 40 s / 66.5 s 分别来自已撤引的 `fastB` 与未提交草稿 `5a4cada8` 的测量，已按提交源码
+  上的 `target/logs/final-round2/summary.txt` 改写。）
   同轮更正两条历史计数：`2b3a9e65` 自己的电池给 p3 **23,035** / p6 **43,659**（先前的
   23,034 / 43,658 取自上一版源码 `19c64343…`，其构建还不打印 `character_entries` 计数行）。
 
@@ -693,8 +696,14 @@ sha256）：**41 个测试壳**（23 个 `--tests` 二进制加 18 个 example �
 教科书分数相等、表示规范，并另取 2^70 的宽分支见证。**结论不变**：§4b 的覆盖结论、
 边界集与计数都由改动后的构建重新实测，逐字节相同。
 
-并行度没有改变（Amdahl 串行份额仍 ≈11%：8 线程 14.7 s vs 1 线程 66.5 s），剩余热点是
-引擎的 3×3 有理矩阵运算与**串行前导/收尾**；验收电池的重排（`target/chainFast.sh`：
+瓶颈的形状已按阶段量出（临时给 `run()` 装计时器，8 / 1 线程各一次）：8 线程无 sweep 的
+14.73 s = prologue **0.02 s** + 并行区 **8.76 s** + `check_invariants` **1.52 s** +
+`report()` **1.53 s** + `if gate {}` **4.44 s**，1 线程是 66.40 s = 0.02 + 60.46 + 1.51 + 1.51 + 4.41
+⇒ **后三项 ≈7.5 s 是纯串行**（两种线程数下逐项相同），占 8 线程墙钟的一半，是下一步的目标
+（`--domain-sweep` 时并行区 30.36 s、同样 ≈5.95 s 串行尾）。gdb profile 与之一致：尾部只有主线程在跑
+`check_invariants`/gate 代码（`child_cocycle_is_a_coboundary`、`little_co_group`、
+`SubgroupEmbedding::from_isotropy_subgroup`、`verify_against_grid`），8 个 worker 全部停在
+`wait_until_cold`。验收电池的重排（`target/chainFast.sh`：
 8 线程 ground truth → 4 线程 determinism census ‖ 4 线程全局审计 → 测试/门禁的 `nice` 池 →
 doctest/clippy/python）不改动任何源码，只把独立流压到 8 个核上。
 
