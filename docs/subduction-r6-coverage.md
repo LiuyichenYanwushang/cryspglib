@@ -675,7 +675,7 @@ gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子
 | 同一命令，4 / 2 线程 | 60.96 / 99.91 s | 22.08 / 36.57 s |
 | 同一命令，1 线程 | 179.71 s | 66.29 s |
 | 加 `--domain-sweep`，8 线程 | 112 s | 38 s（电池记录）；尾部并行化后的交替 A/B **36.8/37.4 → 32.9/33.1 s** |
-| 全部验收（`target/chainFast.sh`，含构建） | —— | **313 s**（其中构建 90 s） |
+| 全部验收（`target/chainFast.sh`，含构建） | —— | **313 s**（`final-round2`，含构建 90 s）→ **217 s**（`tailpar2`@`f2e7d09`）→ **189 s**（`tailpar3`@`acfc3f1`，增量构建 0 s） |
 
 比值为 2.84× / 2.76× / 2.73× / 2.71×；审核方在各自私有 target 上独立 A/B 得
 2.80× / 2.72× / 2.67× ⇒ 综合 **≈2.7–2.9×**（先前写的"2.9–3.0×"取自未提交草稿的相除，
@@ -684,6 +684,13 @@ gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子
 sha256）：**41 个测试壳**（23 个 `--tests` 二进制加 18 个 example 测试壳；`cargo test --tests`
 **不含** example 的单测，第一版电池因此漏掉 63 项，已修）合计 **680 passed / 0 failed**，
 另有 doctest、clippy `-D warnings`、family/ledger/global 三门禁与 5 个 python 门禁，全部 exit 0。
+**当前基线（`acfc3f1`）**：`target/logs/tailpar3/summary.txt`（日志头 `revision acfc3f1
+dirty-files 0`，两个源文件 sha256 与提交一致）**189 s** = 构建 0 s（增量）+ 发现 1 s +
+census-8 **32 s** +〔census-4 ‖ global-audit〕**65 s** + 池 57 s（44 个作业）+ 尾 34 s，
+41 个测试壳合计 **681 passed / 0 failed**（比 `final-round2` 的 680 多一项：`f2e7d09` 弄丢属性的
+card-6 正对照测试被 `acfc3f1` 恢复），三个 TSV 4 线程 == 8 线程且 SHA 未变，全局审计
+`VERDICT complete scope=global … full_decomposition=complete`。
+
 **基线口径更正**："≈16 min"是 **`chainFinal.sh`** 的一次完整运行（含 569 s 串行 census），
 `chainFinal2.sh` 换掉串行档后从未写过日志；因此新旧对比里有一部分不是调度收益，而是少跑了
 一次串行 census——新电池同样没有串行档，现在验的是 **4 线程 == 8 线程**（1 线程全量比较

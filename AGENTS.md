@@ -207,6 +207,13 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    验收电池（`target/logs/tailpar/summary.txt`，源码 `census.rs fc2c7681…`/`subduction.rs e4a55688…`）
    **193 s**：构建 0 s（只改了 example，增量）+ 发现 1 s + census-8 **32 s** + 并发档 71 s +
    池 56 s + 尾 33 s，680 passed / 0 failed、三门禁与 python/oracle 全 exit 0。
+   **当前基线（`acfc3f1`，`target/logs/tailpar3/summary.txt`，日志头 `dirty-files 0` + 两个源
+   文件 sha256）**：**189 s** = 构建 0 s + 发现 1 s + census-8 **32 s** +〔census-4 ‖ global-audit〕
+   **65 s** + 池 **57 s**（44 个作业）+ 尾 **34 s**，41 个测试壳 **681 passed / 0 failed**
+   （比 `final-round2` 的 680 多一项 = `acfc3f1` 恢复的 card-6 正对照测试）；仍以**单线程串行**
+   跑每个测试壳（`--test-threads=1`），池的长尾是 `line_transport_ledger --batch`（~45 s，
+   单线程）与 `cryspglib` 库壳（444 项 / 28.3 s）；**尾段 34 s 只有 2–3 个核在动**
+   （4 个 python 单测目前**顺序**跑），这是下一轮的调度目标（本轮未改）。
    **验收电池重排（`target/chainFast.sh`，零源码改动）**：把彼此独立的流压到 8 个核上——
    一次 `cargo build` → 8 线程 census（三个 TSV）→ 并发〔4 线程 determinism census
    （`taskset -c 0-3`）‖ 4 线程全局审计（`taskset 4-7`）〕→ 〔**41 个测试壳**（23 个 `--tests`
@@ -1005,8 +1012,16 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   下生效有关，是卡 6 起就有的既有行为（`f2e7d09` 的裸运行逐字相同，非本提交引入）；裸运行不是验收
   命令，验收命令始终带上 `--gate --require-covered --domain-sweep`。
   **本提交的验证**：`cargo test --release -p cryspglib --example line_domain_census` **24 passed /
-  0 failed**、`--list` **24 条不同**、严格 clippy exit 0、`corrected` 覆盖变异使该测试失败；验收电池
-  与 21 个变异在本修订上的复跑见紧随其后的纯文档提交。
+  0 failed**、`--list` **24 条不同**、严格 clippy exit 0、`corrected` 覆盖变异使该测试失败；
+  **验收电池**（`target/logs/tailpar3/summary.txt`，日志头 `revision acfc3f1 dirty-files 0`，
+  两个源文件的 sha256 与提交一致）**189 s** = 构建 0 s（增量）+ 发现 1 s + census-8 **32 s**
+  +〔census-4 ‖ global-audit〕**65 s** + 池 **57 s**（44 个作业）+ 尾 **34 s**，41 个测试壳
+  **681 passed / 0 failed**（`final-round2` 是 680：多出的这一项正是被恢复的 card-6 正对照测试）、
+  三个 TSV 4 线程 == 8 线程且 SHA 未变（`c7b8606e…`/`07dedd42…`/`a14598c1…`）、全局审计
+  `VERDICT complete scope=global … full_decomposition=complete`、doctest/clippy/4 个 python 单测 +
+  oracle 全部 exit 0；**21 个变异**在本修订上逐个复现（`target/logs/finalTailpar3/summary.txt`，
+  与 `finalTailpar2/summary.txt` **逐行相同**，唯一差异是修订 sha256 行：19 个 exit 1 + m2/m2b
+  两个已披露残余 exit 0）。
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有
