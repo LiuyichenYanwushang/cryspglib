@@ -611,7 +611,8 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   dedup——被门禁合成自检当场抓住并修正）与 `interior_record_error` 判定"恰好两个、互不相同"；
   `interior_distinct/interior_repeats` 改由记录值驱动，边界关系循环接入同一入口记录并断言与
   claimed 集等势。变异实测：`&first` → **exit 1**（"recorded the same evaluated parameter 1 time(s)
-  over 2 point(s)"）、46,052 violations。新回归 `the_interior_audit_records_what_it_evaluates`
+  over 2 point(s)"）、**92,100** violations（`36925ed` 那一轮的 46,052 是同一变异在旧代码上的数，
+  见上条卡 7 终审；本条是本次修复后的数）。新回归 `the_interior_audit_records_what_it_evaluates`
   直接以重复实参调用真实记录路径。
   **门禁合成自检**扩到 **18** 个夹具（`BINDING_CASE_PIN = 6 → 18`）：原 6 + 键表诚实/反射/复用 +
   累积映射诚实/反射/复用 + provenance 诚实/两向自比 + 入口记录诚实/重复/缺失。
@@ -651,6 +652,63 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   example **22**（+3）、严格 clippy exit 0；family / ledger / 全局三门禁审计
   （`full_success=366260/366260`，`VERDICT complete scope=global`）与四个 python 门禁测试、
   离线 oracle / other-rows 全部 exit 0。
+* **卡 7 外部复核轮的第二次复核（第五条审核线，针对 `9ceedc2`，私有 worktree + 私有 target）：
+  3×P0/P1 + 3×P2，全部接受并修复（本提交）**。复核方给出**三个自己的单行变异**，各自让门禁
+  exit 0 且报告与全部计数/钉值逐字不变，另复现了上一轮的两个变异（p1、p2a），并指出两处文档
+  与一处计数措辞问题。三项绑定缺口的共同形状是**"校验的不是它实际持有的操作数"**。
+  **P0-1 边界通过程**：把 `t>1/2` 反射成 `1−t` **并把循环变量一起重绑**（记录与守卫一起移动）
+  → `5 requested / 5 answered`、仍打印 `46048 boundary point(s)`，46,048 个参数组合中 **17,268**
+  个从未分解；缺的是"请求键锚定到**调用方的参数表**"（recount 有 `added` 这层锚点，这条路没有）。
+  修法：循环项先存成 `requested_here`，循环结束后把**引擎实际回答的参数**与 `parameters` 本身
+  比较（本对内有引擎失败时跳过——那已是致命违规）。变异 n1 现在 **exit 1 / 5,757**。
+  **P0-2 比较的操作数**：两侧读数都诚实、计数器仍 349,344，但 `let other_targets = targets;`
+  让 174,672 次跨参数比较全变成自比；它甚至**掩盖**了"第二侧全部向量取负"这一总崩溃（诚实
+  操作数下同变异 **exit 1 / 168,413**，加上操作数交换后 exit 0）。修法：provenance 检查与字符
+  匹配合并为一个函数 `compare_readings(&first, &second, …)`，交换只能作为**实参**出现、并被
+  provenance 检查在读任何字符之前拒绝；新回归断言交换被计数且 **`targets == 0`（不比较任何
+  字符）**，诚实对作正对照。变异 n2 / n2b 现在 **exit 1**（168,413）。
+  **P1-3 recount witness**：把 `1/8` 重绑成 `1/9`（守卫随动）→ 两次迭代都走 `1/9` 分支，
+  10038 的合并见证与 10030 的阶 4 见证从未被检，exit 0。修法：循环项存成 `requested_here`，
+  并把**返回参数**锚定到 `witnesses` 列表；两个见证都在场也顺带把"按参数分支"的期望两侧都走到。
+  变异 n3 现在 **exit 1**（4 violations，首条点名 10030 的阶 4 见证）。
+  **P2-6 计数位置**：`character_side_checks` 的文档写"在读取路径内累加"，实际在调用点，于是
+  绕过 `SweepSide` 但保留自增仍让钉值绿。现在自增移进 `SweepSide::read`：绕过读取路径时计数为
+  0、`targets` 钉值（0 vs 174,672）随即触发；变异 n4 现在 **exit 1**（3 violations）。
+  **同类加固**：主探针通过程新增"记录的探针参数 == 调用方 `parameters`"锚点；区间内两条锚点
+  （内点分解、关系审计记录）的期望点改为在锚点处**从 `(left, right)` 重算**，循环内重绑
+  `first`/`second` 无法移动它们；边界通过程的循环项与 witness 通过程的循环项都改为独立命名。
+  **P2-4（文档数字）**：描述**本提交** p2b 的句子写成 46,052（那是 `36925ed` 那一轮旧代码上的数），
+  本提交实测 **92,100**；两处文档已改正并保留两者区别。
+  **P2-5（提交信息）**：`9ceedc2` 的信息里写的源码 sha `673c46f0…` 是编辑过程中的中间版本
+  （那一版上 p3/p4 还 exit 0），实际提交内容是 `238d056a…`；提交信息不可改写，本条与本提交
+  即为更正记录。
+  **P2-7（钉值断言）**：`AGENTS.md` 曾说 `SELF_CHECK_CASE_PIN`/`BINDING_CASE_PIN` 是"两个被测试
+  断言"的钉值，实际只有前者有测试断言（`BINDING_CASE_PIN` 只在门禁里）。现在新增 example 测试
+  `the_binding_self_check_drives_every_fixture`（断言夹具数 == `BINDING_CASE_PIN` 且无 violation），
+  该句话因此成立；example 测试 22 → **23**。
+  **P2-8（负结果，如实记录）**：复核方另试了"两侧各自读对方的操作列表"的变异（其 n5），实测
+  **exit 0 且报告逐字节相同**，但这是一个 **no-op**：`child_little_group` 从参数无关的子群 Hall 帧
+  重建每个 `ExactSeitz`，两侧对齐列表的元素本来就相同，所以它**不构成任何证据**（其 F8）。
+  **本提交的验证**（源码 `examples/line_domain_census.rs` = `d44415b4…`；14 个变异跑在紧邻的上一版上，
+  两版唯一差别是删掉一个未使用的绑定，`git diff` 可核）：**14 个变异全部先做后跑、
+  逐个还原并复核 sha256，14/14 exit 1**——p1（第二侧重读第一侧）**168,413**、p2a（边界调用反射）
+  **23,027**、p2b（内点实参重复）**92,100**、p3（内点分解反射）**23,034**、p4（recount 反射）
+  **7,461**、p5（row 之后注入 recount 失败）**11,010**、p6（seed 臂与 gauge 点不对应）**43,658**、
+  p7（主探针反射）**24,171**、n1（边界反射且请求重绑）**5,757**、n2/n2b（比较操作数交换 / 再加
+  第二侧取负）**168,413**、n3（witness 重绑）**4**、n4（绕过读取路径保留计数）**3**、n6（第二侧
+  取负、操作数诚实）**168,413**；`--gate --require-covered --domain-sweep` 8 线程与 `--sequential`
+  两次 exit 0（wall 119 / 574 s），`probes=42073 stored=33985 constructed=8088
+  unsupported=0 errors=0` 逐字未变，`character readings: 349344 provenance check(s) over 174672
+  matched target pair(s), 0 reading(s) recorded from the wrong side`、`boundary pass parameter
+  binding: 8 requested key(s) / 8 answered key(s), 0 mismatch(es)`、`46048 interval(s) / 0 failed`、
+  `92096 interior point(s)`；三个 TSV 串并**逐字节相同**且 SHA 未变
+  （`c7b8606e…` / `07dedd42…` / `a14598c1…`）；`--tests` 616/0、doctest 27、`--lib line_domain` 20、
+  `--lib catalogue` 13、example **22**、严格 clippy exit 0；family / ledger / 全局三门禁审计
+  （`366260/366260`，VERDICT complete）与 python 门禁、离线 oracle 全部 exit 0。
+  **残余（如实）**：三条新锚点（`parameters` / `witnesses` / 记录到的探针参数）都只由变异证明，
+  没有绝对钉值；绝对钉值本身仍可被删除而不被发现；`recount_witnesses` 的返回参数锚点之外，
+  其"两参数都 < 1/2"使得反射是恒等，未单独做反射变异（n3 用的是 1/8→1/9 重绑）。
+
 * **卡 7（全量重算、独立审核、提交与文档收口）**（原始规格，已由上面的结果条目取代）每张卡先跑对应小范围回归；阶段验收按本文件
   的基线（见下文"当前验证基线"），并明确覆盖：
   `cargo test --release -p cryspglib --lib line_domain`、`--lib catalogue`、

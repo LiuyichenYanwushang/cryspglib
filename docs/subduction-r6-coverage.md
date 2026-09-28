@@ -532,7 +532,8 @@ R6.4 之前的域结论来自分母采样（42 个点）。R6.5 把它换成**�
   （与判定同一绑定），`recorded_parameters` + `interior_record_error` 要求"恰好两个、互不相同"，
   `interior_distinct/interior_repeats` 由记录值驱动；边界关系循环接入同一入口记录并与 claimed 集
   等势。把第二次求值实参换成 `&first` 的变异现在 **exit 1**（"recorded the same evaluated
-  parameter 1 time(s) over 2 point(s)" / 46,052 violations）。新回归
+  parameter 1 time(s) over 2 point(s)" / **92,100** violations，见 `AGENTS.md` §3b；
+  `36925ed` 那一轮的 46,052 是旧代码上的数）。新回归
   `the_interior_audit_records_what_it_evaluates`。门禁合成自检扩到 **18** 个夹具
   （`BINDING_CASE_PIN = 18`）。
   **同类缺口在其余调用点一并关闭（本方变异电池）**：`answered_parameter_error(result, requested)`
@@ -547,6 +548,20 @@ R6.4 之前的域结论来自分母采样（42 个点）。R6.5 把它换成**�
   **残余（如实）**：绝对钉值仍可被删除而不被发现（`CHARACTER_SIDE_PIN` 有结构性等式与自检兜底，
   删钉值＋等式仍不可见）；`--domain-sweep` 报文新增两行打印（TSV 与全部钉值未变）；
   `recount_witnesses` 的守卫未单独变异（其两个 pinned 参数都 < 1/2，反射是恒等）。
+* **第五条审核线（针对 `9ceedc2`）的三个单行逃逸，全部修复（2026-09-26）**：① 边界通过程
+  "反射 `t>1/2→1−t` 且把请求记录一起重绑" → 曾 exit 0（`5 requested / 5 answered`，17,268 个
+  参数组合未分解）；现在循环项独立命名，并在循环后把**返回参数**锚定到调用方的 `parameters` 列表
+  （变异 n1 → exit 1 / 5,757）。② 两侧读数都诚实但 `let other_targets = targets;` 把 174,672 次
+  跨参数比较变成自比，还掩盖了"第二侧全部向量取负"（诚实操作数下 168,413 violations）——现在
+  provenance 检查与字符匹配合并成 `compare_readings(&first, &second, …)`，交换即被拒绝（n2/n2b →
+  exit 1）。③ `recount_witnesses` 里把 `1/8` 重绑成 `1/9` 时两个见证从未被检（n3 → exit 1，
+  返回参数锚定到 `witnesses` 列表）。另：`character_side_checks` 的自增移进 `SweepSide::read`
+  （n4 → exit 1）；主探针通过程与区间两条锚点同样改为"锚定到调用方列表 / 从区间重算期望点"；
+  新增测试断言 `BINDING_CASE_PIN`（Agents 里"两个被测试断言的钉值"这句话现在为真）；
+  "两侧互换操作列表"经核实是 **no-op**（Hall 帧参数无关），不作为证据。文档里 p2b 的 46,052 已
+  改为本提交实测的 **92,100**（46,052 属 `36925ed` 那一轮），并更正了 `9ceedc2` 提交信息中引用的
+  中间版本 sha（实际提交内容为 `238d056a…`，本条即更正记录）。变异 14/14 exit 1，
+  `--gate …` 并行/串行 exit 0（wall 119 / 574 s）、三个 TSV SHA 未变，测试 616/0 + example 23 + clippy exit 0（源码 `d44415b4…`）。
 
 复现：
 

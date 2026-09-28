@@ -3517,9 +3517,20 @@ impl SweepSide<'_> {
 
     /// Read the block's targets' gauge-unified little-group characters over
     /// `operations`, recording the provenance the reading was made with.
-    fn read(&self, operations: &[ExactSeitz]) -> Result<SideReading, String> {
+    ///
+    /// `character_side_checks` is incremented **here**, from the vectors this
+    /// call produced: a counter incremented at the call site stayed at its
+    /// pinned 349,344 while the readings themselves were replaced by something
+    /// else (adversarial review of `9ceedc2`, P2-6), so the count is bound to the
+    /// reading rather than to the loop around it.
+    fn read(
+        &self,
+        operations: &[ExactSeitz],
+        report: &mut GeometryReport,
+    ) -> Result<SideReading, String> {
         let block = self.block()?;
         let targets = gauge_unified_targets(block, &self.point, operations)?;
+        report.character_side_checks += targets.len();
         Ok(SideReading {
             source: ReadSource {
                 // Taken from the verified answer, not from the request: after the
@@ -3532,6 +3543,52 @@ impl SweepSide<'_> {
             },
             targets,
         })
+    }
+}
+
+/// Compare two verified readings' gauge-unified characters and record the
+/// outcome.
+///
+/// The provenance check and the comparison live in **one** function whose
+/// operands are the readings themselves.  With the check at the call site the
+/// comparison's operands could be replaced by one side's own vectors
+/// (`let other_targets = targets;`) while the check still saw two honest
+/// readings: all 174,672 cross-parameter comparisons became comparisons of the
+/// first side with itself, every counter and pin stayed intact, and the gate
+/// stayed green -- negating every second-side vector (which the honest operands
+/// do catch, with 168,413 violations) was hidden by the swap (adversarial review
+/// of `9ceedc2`, P0-2).  Here a swapped argument fails the provenance check
+/// before any character is compared.
+#[allow(clippy::too_many_arguments)]
+fn compare_readings(
+    first: &SideReading,
+    second: &SideReading,
+    first_parameter: &Rat,
+    second_parameter: &Rat,
+    block_key: &str,
+    report: &mut SweepReport,
+    failures: &mut Vec<String>,
+) {
+    if let Some(error) =
+        side_pair_error(&first.source, &second.source, first_parameter, second_parameter)
+    {
+        report.geometry.character_side_mismatches += 1;
+        failures.push(format!("{block_key}: {error}"));
+        return;
+    }
+    match match_targets(&first.targets, &second.targets, block_key) {
+        Ok((pairs, matched_worst)) => {
+            report.worst_score = report.worst_score.min(matched_worst);
+            report.targets += pairs.len();
+        }
+        Err(TargetMismatch::Multiplicity(error)) => {
+            report.multiplicity_mismatches += 1;
+            failures.push(error);
+        }
+        Err(TargetMismatch::Ambiguous(error)) => {
+            report.ambiguities += 1;
+            failures.push(error);
+        }
     }
 }
 
@@ -3914,18 +3971,26 @@ fn sweep_boundary_pass(
     // into a spurious key mismatch.
     let mut requested: Vec<(i128, i128)> = Vec::with_capacity(parameters.len());
     let mut answered: Vec<(i128, i128)> = Vec::with_capacity(parameters.len());
+    let failures_before = report.failures.len();
     for parameter in parameters {
+        // The caller's list entry, kept under its own name: everything this
+        // iteration asks for and records uses the **list item**, so a mutation
+        // that rebinds the loop variable together with the guard it is compared
+        // against no longer moves the record (adversarial review of `9ceedc2`,
+        // P0-1: `t > 1/2 -> 1 - t` with the request rebound gave "5 requested /
+        // 5 answered" and a green gate).
+        let requested_here = *parameter;
         report.boundary_points += 1;
-        match subduce_line_at_parameter(subgroup, embedding, table, *parameter) {
+        match subduce_line_at_parameter(subgroup, embedding, table, requested_here) {
             Ok(result) => {
                 report.boundary_successes += 1;
                 let returned = result.parameter();
-                requested.push(parameter_key(parameter));
+                requested.push(parameter_key(&requested_here));
                 answered.push(parameter_key(returned));
                 *report
                     .geometry
                     .boundary_requested
-                    .entry(parameter_key(parameter))
+                    .entry(parameter_key(&requested_here))
                     .or_insert(0) += 1;
                 *report
                     .geometry
@@ -3937,7 +4002,7 @@ fn sweep_boundary_pass(
                 // invariant under `t -> 1 - t`, so without this the pass could
                 // subdivide its own parameter domain and still report a
                 // byte-identical histogram (external review of `67a95fe`, P2).
-                if let Some(error) = answered_parameter_error(&result, parameter) {
+                if let Some(error) = answered_parameter_error(&result, &requested_here) {
                     report.geometry.boundary_parameter_mismatches += 1;
                     report.failures.push(format!(
                         "ordinal {} {}: {error}",
@@ -3982,6 +4047,28 @@ fn sweep_boundary_pass(
             "ordinal {} {}: {error}",
             context.ordinal, context.label
         ));
+    }
+    // And the anchor that no rebinding inside the loop can move: the parameters
+    // the engine **answered for** have to be the caller's own list.  A mutation
+    // that reflects the request *and* the record of it kept the per-pair
+    // comparison and both maps green (adversarial review of `9ceedc2`, P0-1:
+    // "5 requested key(s) / 5 answered key(s)" with 17,268 of the 46,048
+    // parameter combinations never decomposed); this compares the returned keys
+    // with `parameters`, which is a different object.  A pair with an engine
+    // failure is skipped: it is already a gate violation of its own.
+    if report.failures.len() == failures_before {
+        let mut wanted: Vec<(i128, i128)> = parameters.iter().map(parameter_key).collect();
+        wanted.sort_unstable();
+        let mut got = answered.clone();
+        got.sort_unstable();
+        if got != wanted {
+            report.geometry.boundary_key_mismatches += 1;
+            report.failures.push(format!(
+                "ordinal {} {}: the engine answered for {got:?} but the boundary pass' parameter \
+                 list is {wanted:?}, so the two are not the same parameter set",
+                context.ordinal, context.label
+            ));
+        }
     }
 }
 
@@ -4060,10 +4147,15 @@ fn sweep_interval(
     // that and left the gate at exit 0 (own mutation battery of this revision,
     // M-P3).  The two points come from the interval, so no rebinding of the loop
     // variable can satisfy this.
-    if recorded != [first, second] {
+    // Recomputed from the interval itself, not read back from the loop's
+    // bindings: rebinding `first`/`second` inside `sweep_interval` must not be
+    // able to move the anchor the record is compared against.
+    let (_, expected_first, expected_second) = interior_points(&left, &right)
+        .map_err(|error| format!("{key}: the interval's interior points: {error}"))?;
+    if recorded != [expected_first, expected_second] {
         failures.push(format!(
             "{key}: the interior relation audit recorded {recorded:?} but the interval's interior \
-             points are [{first}, {second}]"
+             points are [{expected_first}, {expected_second}]"
         ));
     }
     let mut results = Vec::with_capacity(2);
@@ -4096,10 +4188,14 @@ fn sweep_interval(
         .iter()
         .map(|(_, result)| *result.parameter())
         .collect();
-    if answered != [first, second] {
+    // The expected points come from the interval, recomputed here rather than
+    // read back from the loop's bindings.
+    let (_, expected_first, expected_second) = interior_points(&left, &right)
+        .map_err(|error| format!("{key}: the interval's interior points: {error}"))?;
+    if answered != [expected_first, expected_second] {
         return Err(format!(
             "{key}: the sweep decomposed {answered:?} but the interval's interior points are \
-             [{first}, {second}]"
+             [{expected_first}, {expected_second}]"
         ));
     }
     let (t1, r1) = &results[0];
@@ -4266,21 +4362,11 @@ fn sweep_interval(
             point: q2,
         };
         let first_reading = first_side
-            .read(&first_operations)
+            .read(&first_operations, &mut report.geometry)
             .map_err(|error| format!("{block_key}: the first parameter's targets: {error}"))?;
         let second_reading = second_side
-            .read(&second_operations)
+            .read(&second_operations, &mut report.geometry)
             .map_err(|error| format!("{block_key}: the second parameter's targets: {error}"))?;
-        report.geometry.character_side_checks +=
-            first_reading.targets.len() + second_reading.targets.len();
-        if let Some(error) =
-            side_pair_error(&first_reading.source, &second_reading.source, t1, t2)
-        {
-            report.geometry.character_side_mismatches += 1;
-            failures.push(format!("{block_key}: {error}"));
-        }
-        let targets = &first_reading.targets;
-        let other_targets = &second_reading.targets;
         // The per-arm identity that makes the little-group reading faithful: the
         // sum over the block's own points of the little-group characters is the
         // induced character the engine's solver and reconstruction use.  A point
@@ -4322,7 +4408,8 @@ fn sweep_interval(
         // whether a multiplicity swap between two distinct targets is observable
         // on them at all: measured rather than assumed, because a mutation that
         // the corpus cannot see must not be reported as caught.
-        let mut shapes: Vec<(u8, u32)> = targets
+        let mut shapes: Vec<(u8, u32)> = first_reading
+            .targets
             .iter()
             .map(|target| (target.dimension, target.multiplicity))
             .collect();
@@ -4330,8 +4417,8 @@ fn sweep_interval(
         if shapes.len() > 1 {
             *report.multi_shapes.entry(shapes.clone()).or_insert(0) += 1;
         }
-        for (slot, target) in targets.iter().enumerate() {
-            if targets[slot + 1..]
+        for (slot, target) in first_reading.targets.iter().enumerate() {
+            if first_reading.targets[slot + 1..]
                 .iter()
                 .any(|other| {
                     other.dimension == target.dimension
@@ -4342,20 +4429,15 @@ fn sweep_interval(
                 break;
             }
         }
-        match match_targets(targets, other_targets, &block_key) {
-            Ok((pairs, matched_worst)) => {
-                report.worst_score = report.worst_score.min(matched_worst);
-                report.targets += pairs.len();
-            }
-            Err(TargetMismatch::Multiplicity(error)) => {
-                report.multiplicity_mismatches += 1;
-                failures.push(error);
-            }
-            Err(TargetMismatch::Ambiguous(error)) => {
-                report.ambiguities += 1;
-                failures.push(error);
-            }
-        }
+        compare_readings(
+            &first_reading,
+            &second_reading,
+            t1,
+            t2,
+            &block_key,
+            report,
+            failures,
+        );
     }
     Ok(())
 }
@@ -4621,9 +4703,13 @@ fn recount_witnesses(
     };
     let eighth = Rat::new(1, 8).expect("1/8");
     let ninth = Rat::new(1, 9).expect("1/9");
-    for parameter in [ninth, eighth] {
+    let witnesses = [ninth, eighth];
+    let mut answered: Vec<Rat> = Vec::with_capacity(witnesses.len());
+    for parameter in witnesses {
+        // The list item under its own name, as in the boundary pass.
+        let requested_here = parameter;
         let result =
-            match subduce_line_at_parameter(&record.subgroup, embedding, table, parameter) {
+            match subduce_line_at_parameter(&record.subgroup, embedding, table, requested_here) {
                 Ok(result) => result,
                 Err(error) => {
                     failures.push(format!(
@@ -4634,7 +4720,8 @@ fn recount_witnesses(
                     continue;
                 }
             };
-        if let Some(error) = answered_parameter_error(&result, &parameter) {
+        answered.push(*result.parameter());
+        if let Some(error) = answered_parameter_error(&result, &requested_here) {
             failures.push(format!("ordinal {} {label}: {error}", record.ordinal));
             continue;
         }
@@ -4709,6 +4796,24 @@ fn recount_witnesses(
                 }
             }
         }
+    }
+    // The anchor, on the **returned** parameters: the two pinned witnesses are
+    // exactly the parameters this loop decomposed.  Rebinding `1/8` to `1/9`
+    // inside the loop moved the guard with it, so both iterations took the `1/9`
+    // branch and the pinned 10038 merge witness and the 10030 order-four witness
+    // were never examined while the gate stayed green (adversarial review of
+    // `9ceedc2`, P1-3); this compares the answers with the `witnesses` list
+    // itself, which no rebinding inside the loop touches.  With both distinct
+    // witnesses present, the per-parameter expectation branches are exercised in
+    // both directions as well.
+    let wanted = sorted_parameters(witnesses.to_vec());
+    let got = sorted_parameters(answered.clone());
+    if got != wanted {
+        failures.push(format!(
+            "ordinal {} {label}: the witness pass decomposed {got:?} but its witness parameters \
+             are {wanted:?}",
+            record.ordinal
+        ));
     }
     failures
 }
@@ -5102,6 +5207,15 @@ fn probe_record(
                 .map(|(entries, zero_arms)| (entries.as_slice(), zero_arms.as_slice())),
             cache,
         };
+        // The caller's parameter list and the range of `out` this loop fills:
+        // the anchor after the loop compares what the recorded probes carry with
+        // the list itself, which nothing inside the loop can rebind.
+        let requested_parameters: Vec<Rat> = parameters
+            .iter()
+            .map(|(parameter, _)| *parameter)
+            .collect();
+        let first_probe = out.len();
+        let probe_failures = failures.len();
         for (parameter, census_order) in parameters {
             // The loop item, kept under its own name: the answer below is checked
             // against **this** binding, so a substitution that rebinds the
@@ -5304,6 +5418,28 @@ fn probe_record(
                 dimensions,
                 partition_arms: partition.as_ref().map(|built| built.arms.len()),
             });
+        }
+        // The probe pass' anchor, on the parameters the **recorded probes**
+        // carry: they have to be the caller's list, so a substitution that moves
+        // the request and its guard together cannot leave the census claiming to
+        // have probed parameters it never asked the engine for (the shape the
+        // adversarial review of `9ceedc2` used against the boundary pass, P0-1,
+        // and the witness pass, P1-3).  A probe lost to a failure is skipped: it
+        // is a gate violation of its own.
+        if failures.len() == probe_failures {
+            let got: Vec<Rat> = out[first_probe..]
+                .iter()
+                .map(|probe| probe.parameter)
+                .collect();
+            if sorted_parameters(got.clone()) != sorted_parameters(requested_parameters.clone()) {
+                failures.push(format!(
+                    "ordinal {} {label}: the probe pass recorded the parameters {:?} but its \
+                     parameter list is {:?}",
+                    record.ordinal,
+                    sorted_parameters(got),
+                    sorted_parameters(requested_parameters)
+                ));
+            }
         }
         // The recount pass: every parameter the card-3 partition adds beyond the
         // reference candidate set, every block of the production answer there.
@@ -8660,12 +8796,24 @@ mod tests {
         };
 
         // The honest pair: two readings, each recording its own provenance, and
-        // the pair's precondition accepts them.
+        // the pair's precondition accepts them.  The counter lives **inside**
+        // `read` (adversarial review of `9ceedc2`, P2-6), so this also checks
+        // that one reading moves it by exactly the vectors it produced.
+        let mut report = SweepReport {
+            worst_score: 1.0,
+            ..SweepReport::default()
+        };
+        let before = report.geometry.character_side_checks;
         let left = side("the first", &first, t1, index, q1)
-            .read(&operations)
+            .read(&operations, &mut report.geometry)
             .expect("the first side's reading");
+        assert_eq!(
+            report.geometry.character_side_checks - before,
+            left.targets.len(),
+            "the reading counts the vectors it produced"
+        );
         let right = side("the second", &second, t2, partner, q2)
-            .read(&other_operations)
+            .read(&other_operations, &mut report.geometry)
             .expect("the second side's reading");
         assert_eq!(
             left.source,
@@ -8682,7 +8830,7 @@ mod tests {
         // and (as in the reported call) operations.  Every structural check the
         // reader can make passes, and the vectors are the first side's.
         let misread = side("the second", &first, t1, index, q1)
-            .read(&other_operations)
+            .read(&other_operations, &mut report.geometry)
             .expect("the left block satisfies every structural check of a reading");
         assert_eq!(
             misread.targets, left.targets,
@@ -8702,11 +8850,15 @@ mod tests {
         // have, an arm of a different block, a point that belongs to the other
         // parameter, and a claimed parameter that is not the answer's.
         let absent = side("the second", &second, t2, second.blocks().len(), q2);
-        let error = absent.read(&other_operations).expect_err("a block outside the answer");
+        let error = absent
+            .read(&other_operations, &mut report.geometry)
+            .expect_err("a block outside the answer");
         assert!(error.contains("does not exist"), "{error}");
         let mut foreign_arm = side("the second", &second, t2, partner, q2);
         foreign_arm.seed_arm = 999;
-        let error = foreign_arm.read(&other_operations).expect_err("an arm of another block");
+        let error = foreign_arm
+            .read(&other_operations, &mut report.geometry)
+            .expect_err("an arm of another block");
         assert!(error.contains("seed arm"), "{error}");
         // The correspondence half: an arm of the **same** block whose own folded
         // point is not the gauge point.  Membership alone would accept it, and
@@ -8720,17 +8872,74 @@ mod tests {
             .find(|arm| *arm != 4)
             .expect("the witness block has more than one arm");
         let error = other_arm
-            .read(&other_operations)
+            .read(&other_operations, &mut report.geometry)
             .expect_err("an arm of the same block that folds elsewhere");
         assert!(error.contains("folds onto"), "{error}");
         let error = side("the second", &second, t2, partner, q1)
-            .read(&other_operations)
+            .read(&other_operations, &mut report.geometry)
             .expect_err("the other parameter's seed point");
         assert!(error.contains("in no point"), "{error}");
         let error = side("the second", &second, t1, partner, q2)
-            .read(&other_operations)
+            .read(&other_operations, &mut report.geometry)
             .expect_err("a claimed parameter that is not the answer's");
         assert!(error.contains("wrong parameter"), "{error}");
+
+        // **Adversarial review of `9ceedc2`, P0-2: the operands of the
+        // comparison are the readings it validated.**  Swapping one side's
+        // vectors for the other's (`let other_targets = targets;`) left the
+        // provenance check, every counter and the pinned 349,344 green while all
+        // 174,672 cross-parameter comparisons became self-comparisons -- and it
+        // hid a mutation the honest operands do catch (negating every
+        // second-side vector exits 1 with 168,413 violations).  Here the check
+        // and the comparison are one call, so the swap has to be an argument:
+        // passing the first reading twice is rejected.  The same call with the
+        // honest readings pairs the targets, which is the positive control.
+        let mut honest = SweepReport {
+            worst_score: 1.0,
+            ..SweepReport::default()
+        };
+        let mut no_failures = Vec::new();
+        compare_readings(
+            &left,
+            &right,
+            &t1,
+            &t2,
+            "the honest control",
+            &mut honest,
+            &mut no_failures,
+        );
+        assert!(no_failures.is_empty(), "{no_failures:?}");
+        assert_eq!(honest.targets, 1, "the honest pair matches its one target");
+        assert_eq!(honest.geometry.character_side_mismatches, 0);
+
+        let mut swapped = SweepReport {
+            worst_score: 1.0,
+            ..SweepReport::default()
+        };
+        let mut swap_failures = Vec::new();
+        compare_readings(
+            &left,
+            &left,
+            &t1,
+            &t2,
+            "the swapped control",
+            &mut swapped,
+            &mut swap_failures,
+        );
+        assert_eq!(
+            swapped.geometry.character_side_mismatches, 1,
+            "reading the same side twice must be a counted mismatch"
+        );
+        assert_eq!(
+            swapped.targets, 0,
+            "no character may be compared when the operands are one reading"
+        );
+        assert!(
+            swap_failures
+                .iter()
+                .any(|failure| failure.contains("second parameter")),
+            "{swap_failures:?}"
+        );
     }
 
     /// **External review of `67a95fe`, P2: the interior audit has to record the
@@ -9128,6 +9337,19 @@ mod tests {
     fn the_arm_geometry_audit_checks_its_own_comparisons() {
         let (cases, violations) = audit_self_check();
         assert_eq!(cases, SELF_CHECK_CASE_PIN);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    /// **The binding self-check, at unit level, so its fixture count is asserted
+    /// by a test as well as by the gate.**  `AGENTS.md` described
+    /// `SELF_CHECK_CASE_PIN`/`BINDING_CASE_PIN` as the two test-asserted pins;
+    /// only the first was (adversarial review of `9ceedc2`, F7).  A self-check
+    /// reduced to its honest fixtures, or one whose decisions stop reporting,
+    /// fails here without the minute-long corpus sweep.
+    #[test]
+    fn the_binding_self_check_drives_every_fixture() {
+        let (cases, violations) = binding_self_check();
+        assert_eq!(cases, BINDING_CASE_PIN);
         assert!(violations.is_empty(), "{violations:?}");
     }
 
