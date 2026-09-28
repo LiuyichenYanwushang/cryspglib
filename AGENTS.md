@@ -736,7 +736,15 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   provenance 与 `origin` 检查都看的是未被改的 `left`/`right`）→ **exit 0、报告逐字不变、23/23 测试绿**，
   并掩盖第二侧整体取负。同类还有"手工伪造读数 + 手工补计数"。这是"**控制看不见自己的删除**"这一类：
   诚实数据通过一切结构检查、按定理跨参数字符本来就相等，输出层无法区分自比与正比；与"绝对钉值可被
-  删除"同族，就此披露、不再声称已闭合。**调用点一侧的所有改写都已闭合**（见下变异清单）。
+  删除"同族，就此披露、不再声称已闭合。**第三次复验（针对 `b79a028`，同一复核方）追加两点**：
+  ① 复核方发现 `compare_operands(left, left, &first.source, &first.source, …)` 这种**把操作数与它被对照的
+  provenance 一起搬动**的两实参调用点改写仍 exit 0（转发的 source 实参使检查自洽）；现在
+  `compare_operands` 改为**只吃两个 `SideReading`**：参数不同（i）、每个操作数对照**它自己**读数的
+  `source`（ii）、匹配两份读数自己的 `targets`（iii），**没有可转发的 source 实参**；复核方的 r2mb/r2mb2
+  现在 exit 1，`AGENTS.md`/coverage 里"调用点一侧的改写全部闭合"这句话在此之前是**不成立**的（复核方
+  指出，已按本段更正）。② P2：`clippy --all-targets` 不 lint example 的 `#[cfg(test)]` 模块，三个测试里
+  `sweep_boundary_pass(...)` 丢弃 `Result` 产生 `unused_must_use` 警告——现在三处都绑定返回值，
+  `the_boundary_pass_binds_its_answers_to_its_requests` 还断言"回答的参数集合 == 传入列表"。
   **⑤ 复核方指出**：上一轮文档里"14 个变异跑在紧邻上一版、`git diff` 可核"一句在本仓库**不可核**
   （`55d1a50…` 不在对象库里），本轮改为列出**在最终源码上**重新跑过的 16 个变异。
   **本轮验证**（源码 `1050c84f…`）：**16 个变异在最终源码上重跑**——14 个 exit 1：p2a **28,783**、
@@ -752,6 +760,27 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   严格 clippy exit 0；family / ledger / 全局三门禁审计（`366260/366260`，VERDICT complete）与
   python 门禁、离线 oracle 全部 exit 0。
 
+  **第三次复验（针对 `b79a028`，同一复核方）追加**：复核方确认 n1 / n3 / n6 / n7 / n5 与诚实门禁、
+  全部计数复现，**m8 → exit 1 / 5,757**、**m11 → exit 1 / 92,098**（两条调用方报文都出现，锚点搬家
+  确实生效）；但它给出 `compare_operands(left, left, &first.source, &first.source, …)`——**把操作数与
+  它被对照的 provenance 一起搬动**（被调函数体一字未动）——仍 **exit 0**、报告逐字不变、23/23 测试绿，
+  并掩盖第二侧整体取负（r2mb/r2mb2）。根因：检查所对照的"期望 source"是**调用方转发进来的实参**。
+  修法（采纳其建议）：`compare_operands` 改为**只吃两个 `SideReading`**——(i) 两条读数的参数必须不同、
+  (ii) 每个操作数对照**它自己**读数的 `source`、(iii) 匹配两份读数自己的 `targets`，**没有可转发的
+  source 实参**；r2mb/r2mb2 现在 **exit 1 / 168,413**。上一轮文档里"调用点一侧的改写全部闭合"一句在
+  `b79a028` 上**不成立**（复核方指出），已按新结构重述、只保留"函数体内刻意改写"这一残余。
+  **P2**：`clippy --all-targets` 不 lint example 的 `#[cfg(test)]` 模块，三处测试调用丢弃 `Result`
+  产生 `unused_must_use` 警告——三处都改为绑定返回值，`sweep_boundary_pass` 现在在**任一参数未回答**
+  时返回 `Err`，`the_boundary_pass_binds_its_answers_to_its_requests` 断言"回答的参数集合 == 传入列表"。
+  **本轮验证**（源码 `6ca98d52…`）：**18 个变异在最终源码上重跑，16 个 exit 1**——p2a 23,027 /
+  p2b 138,148 / p3 23,034 / p4 7,461 / p5 11,010 / p6 43,658 / p7 24,171 / n1 5,757 / n2 168,413 /
+  n3 4 / n4 4 / n6 168,413 / m8 5,757 / m11 23,040 / **r2mb 168,413 / r2mb2 168,413**；**2 个残余**
+  （m2/m2b：函数体内刻意改写匹配实参）；诚实门禁并行 **121 s** / 串行 **567 s** 均 exit 0，
+  三个 TSV 串并**逐字节相同**且 SHA 未变（`c7b8606e…` / `07dedd42…` / `a14598c1…`），
+  `probes=42073 stored=33985 constructed=8088 unsupported=0 errors=0`、`349344/174672/0`、
+  `8/8/0`、`46048/0`、`92096` 逐字未变；`--tests` 616/0、doctest 27、`--lib` 20/13、example **23**、
+  严格 clippy exit 0；family / ledger / 全局三门禁（366,260/366,260）与 python 门禁、离线 oracle
+  全部 exit 0。
 * **卡 7（全量重算、独立审核、提交与文档收口）**（原始规格，已由上面的结果条目取代）每张卡先跑对应小范围回归；阶段验收按本文件
   的基线（见下文"当前验证基线"），并明确覆盖：
   `cargo test --release -p cryspglib --lib line_domain`、`--lib catalogue`、

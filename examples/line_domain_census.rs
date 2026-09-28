@@ -3588,10 +3588,6 @@ fn compare_readings(
     let second = second_side
         .read(second_operations, &mut report.geometry)
         .map_err(|error| format!("{block_key}: the second parameter's targets: {error}"))?;
-    // The operands, under their own names, and the checks run on exactly these
-    // two bindings.
-    let left = &first.targets;
-    let right = &second.targets;
     if let Some(error) = side_pair_error(
         &first.source,
         &second.source,
@@ -3602,7 +3598,7 @@ fn compare_readings(
         failures.push(format!("{block_key}: {error}"));
         return Ok((first, second));
     }
-    match compare_operands(left, right, &first.source, &second.source, block_key) {
+    match compare_operands(&first, &second, block_key) {
         Ok((pairs, matched_worst)) => {
             report.worst_score = report.worst_score.min(matched_worst);
             report.targets += pairs.len();
@@ -3619,28 +3615,55 @@ fn compare_readings(
     Ok((first, second))
 }
 
-/// Match two character operands, checking **first** that they are the vectors the
-/// two readings produced.
+/// Match the two readings' characters, with every operand **inside** the function
+/// that matches them.
 ///
-/// The check and the match take their operands from the same two parameters of
-/// the same function, so a self-comparison cannot be introduced by editing the
-/// line that calls the matcher: with the check at the call site, rewriting
-/// `match_targets(left, right, ..)` as `match_targets(left, left, ..)` left the
-/// check looking at the untouched `left`/`right` bindings and every output
-/// identical (adversarial re-verification of `9d0a7fd`, m2/m2b).  Only rewriting
-/// this function's own body -- a deliberate lie rather than a rebinding -- can
-/// still hide the second operand, which is the disclosed residual class.
+/// There is nothing to forward and nothing to swap: the operands are the two
+/// `SideReading`s' own `targets`, the provenance each operand is checked against
+/// is that same reading's `source`, and the pair itself has to be two different
+/// parameters.  The two shapes that defeated the earlier versions are closed by
+/// construction:
+///
+/// * `compare_operands(left, left, &first.source, &second.source, ..)` -- the
+///   operand moved alone (re-verification of `9d0a7fd`, r2): the right operand's
+///   vectors carry the first reading's origin, so step (ii) rejects it;
+/// * `compare_operands(left, left, &first.source, &first.source, ..)` -- operand
+///   **and** the provenance it is checked against moved together (re-verification
+///   of `b79a028`, r2mb): there is no longer a source argument to move; a caller
+///   that duplicates the reading trips step (i) (`same parameter`), and if it
+///   passes two readings of one parameter their sources agree in step (ii) but
+///   step (i) has already fired.
+///
+/// What remains is rewriting this function's own body -- a deliberate lie rather
+/// than a rebinding or a forwarding mistake -- which is the disclosed residual
+/// class ("a control cannot see its own removal").
 fn compare_operands(
-    left: &[SweepTarget],
-    right: &[SweepTarget],
-    first_source: &ReadSource,
-    second_source: &ReadSource,
+    first: &SideReading,
+    second: &SideReading,
     block_key: &str,
 ) -> Result<(Vec<(usize, usize)>, f64), TargetMismatch> {
-    if let Some(error) = operand_origin_error(left, right, first_source, second_source) {
+    // (i) The comparison is a cross-parameter one, so the two readings have to be
+    // readings of two different parameters.  This is the check that a duplicated
+    // argument trips, and it lives here, next to the match, rather than only in
+    // the caller.
+    if first.source.parameter == second.source.parameter {
+        return Err(TargetMismatch::Ambiguous(format!(
+            "both readings are recorded at t={}, so the cross-parameter comparison would compare \
+             one parameter with itself",
+            first.source.parameter
+        )));
+    }
+    // (ii) Each operand is checked against **its own** reading's provenance.
+    if let Some(error) = operand_origin_error(
+        &first.targets,
+        &second.targets,
+        &first.source,
+        &second.source,
+    ) {
         return Err(TargetMismatch::Ambiguous(error));
     }
-    match_targets(left, right, block_key)
+    // (iii) The readings' own targets are the operands.
+    match_targets(&first.targets, &second.targets, block_key)
 }
 
 /// The operands of the comparison have to be the vectors the two readings
@@ -4192,24 +4215,27 @@ fn sweep_boundary_pass(
     // parameter combinations never decomposed); this compares the returned keys
     // with `parameters`, which is a different object.  A pair with an engine
     // failure is skipped: it is already a gate violation of its own.
-    if report.failures.len() == failures_before {
-        let mut wanted: Vec<(i128, i128)> = parameters.iter().map(parameter_key).collect();
-        wanted.sort_unstable();
-        let mut got = answered.clone();
-        got.sort_unstable();
-        if got != wanted {
-            report.geometry.boundary_key_mismatches += 1;
-            report.failures.push(format!(
-                "ordinal {} {}: the engine answered for {got:?} but the boundary pass' parameter \
-                 list is {wanted:?}, so the two are not the same parameter set",
-                context.ordinal, context.label
-            ));
-            // This anchor lives inside the function that owns the list it checks,
-            // so it can be moved by rebinding `parameters` here; the caller's
-            // anchor below is the binding one (adversarial re-verification of
-            // `9d0a7fd`, m8).
-            return Err(());
-        }
+    if report.failures.len() != failures_before {
+        // A parameter that could not be answered (or an in-function anchor that
+        // fired): the pair is incomplete, and the caller's anchor is skipped
+        // because the failure is a gate violation of its own.
+        return Err(());
+    }
+    let mut wanted: Vec<(i128, i128)> = parameters.iter().map(parameter_key).collect();
+    wanted.sort_unstable();
+    let mut got = answered.clone();
+    got.sort_unstable();
+    if got != wanted {
+        report.geometry.boundary_key_mismatches += 1;
+        report.failures.push(format!(
+            "ordinal {} {}: the engine answered for {got:?} but the boundary pass' parameter list \
+             is {wanted:?}, so the two are not the same parameter set",
+            context.ordinal, context.label
+        ));
+        // This anchor lives inside the function that owns the list it checks, so
+        // it can be moved by rebinding `parameters` here; the caller's anchor is
+        // the binding one (adversarial re-verification of `9d0a7fd`, m8).
+        return Err(());
     }
     Ok(answered_parameters)
 }
@@ -9212,13 +9238,19 @@ mod tests {
             worst_score: 1.0,
             ..SweepReport::default()
         };
-        sweep_boundary_pass(
+        let answered = sweep_boundary_pass(
             &record.subgroup,
             &embedding,
             table,
             &parameters,
             &context,
             &mut report,
+        )
+        .expect("every parameter is answered");
+        assert_eq!(
+            sorted_parameters(answered),
+            sorted_parameters(parameters.clone()),
+            "the pass answers for exactly the parameters it was handed"
         );
         assert!(report.failures.is_empty(), "{:?}", report.failures);
         assert_eq!(report.boundary_successes, parameters.len());
@@ -9853,13 +9885,19 @@ mod tests {
         };
         // The positive control on the very same call: with the record's own
         // embedding every parameter is answered.
-        sweep_boundary_pass(
+        let answered = sweep_boundary_pass(
             &record.subgroup,
             &embedding,
             table,
             &parameters,
             &context,
             &mut report,
+        )
+        .expect("every parameter is answered");
+        assert_eq!(
+            sorted_parameters(answered.clone()),
+            sorted_parameters(parameters.clone()),
+            "the pass answers for exactly the parameters it was handed"
         );
         assert_eq!(report.boundary_successes, parameters.len());
         assert_eq!(report.boundary_failures, 0);
@@ -9869,13 +9907,17 @@ mod tests {
             worst_score: 1.0,
             ..SweepReport::default()
         };
-        sweep_boundary_pass(
+        let answered = sweep_boundary_pass(
             &record.subgroup,
             &wrong_embedding,
             table,
             &parameters,
             &context,
             &mut report,
+        );
+        assert!(
+            answered.is_err(),
+            "a failed parameter has to make the pass report incomplete"
         );
         assert_eq!(report.boundary_points, parameters.len());
         assert_eq!(

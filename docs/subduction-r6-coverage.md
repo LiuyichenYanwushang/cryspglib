@@ -605,7 +605,9 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   三个"锚点仍在函数内部"的新逃逸：① `compare_readings` 体内把 `match_targets(left, right, …)`
   改成 `left, left` → 曾 exit 0 并掩盖第二侧取负；现在函数**接收两侧 `SweepSide`**、内部 `read()`，
   每个向量带 `origin` 出处，并由 `compare_operands` 在**同一函数的同一对参数**上先检查再匹配
-  （调用点一侧的改写全部闭合；函数体内的刻意改写仍列为残余）；② `sweep_boundary_pass` 顶部
+  （**该句在 `b79a028` 上不成立**：复核方的 r2mb 把操作数与它被对照的 source 一起搬动仍 exit 0；现在
+  `compare_operands` 只吃两个 `SideReading`（参数不同 + 每个操作数对照自己读数的 source + 匹配两份读数
+  自己的 targets），没有可转发的 source 实参，r2mb/r2mb2 已 exit 1；仅剩函数体内刻意改写这一种残余）；② `sweep_boundary_pass` 顶部
   反射自己的 `parameters` → 曾 exit 0（17,268/46,048 未分解）；锚点移到 `sweep_label`（列表在那里
   已对分区验证）；③ `sweep_interval` 顶部反射 `(left, right)` → 曾 exit 0；`sweep_interval` 现在
   返回实际分解/记录的参数，锚点在 `sweep_label` 用 `interior_points` 重算。witness 列表同样移进
@@ -614,6 +616,16 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   n4 4 / n6 168,413 / m8 5,757 / m11 23,040），**2 个残余**（m2/m2b：函数体内刻意改写匹配实参，
   以及"手工伪造读数＋补计数"——"控制看不见自己的删除"这一类）；诚实门禁并行 109 s / 串行 565 s
   均 exit 0，三个 TSV SHA 未变，测试 616/0 + example 23 + clippy exit 0。
+
+* **第三次复验（针对 `b79a028`，同一复核方）的收口（2026-09-26）**：复核方确认 n1/n3/n6/n7/n5、
+  m8（5,757）、m11（92,098）与诚实门禁全部生效，但 `compare_operands(left, left, &first.source,
+  &first.source, …)`（操作数与期望 provenance 一起搬动、函数体未动）仍 exit 0 并掩盖第二侧取负；
+  现在 `compare_operands` 只吃两个 `SideReading`（参数不同 + 各自对照自己读数的 source + 匹配各自
+  的 targets），没有可转发的 source 实参：r2mb/r2mb2 → exit 1 / 168,413。上一轮"调用点一侧的改写
+  全部闭合"的措辞已在 `b79a028` 被证伪并更正。P2：example 测试三处 `unused_must_use` 已修
+  （绑定返回值），`sweep_boundary_pass` 在参数未全部回答时返回 `Err`。**最终源码（`6ca98d52…`）
+  18 个变异：16 个 exit 1，2 个残余（m2/m2b 函数体内刻意改写）**；诚实门禁 121 s / 567 s 均 exit 0，
+  三个 TSV SHA 未变，测试 616/0 + example 23 + clippy exit 0。
 
 ## 5. 与 R6.1 验收的关系
 
