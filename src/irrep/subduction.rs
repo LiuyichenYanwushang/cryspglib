@@ -313,9 +313,17 @@ impl Rat {
     pub const ONE: Self = Self { num: 1, den: 1 };
 
     /// Build `num / den`, normalizing the sign and the common divisor.
+    ///
+    /// An integer is already normalized (`den = 1 > 0`, `gcd(num, 1) = 1`), and
+    /// integer entries are common in the rotation and lattice matrices the
+    /// subduction passes multiply: the shortcut skips a gcd and two divisions
+    /// for them.
     pub fn new(num: i128, den: i128) -> Result<Self, SubductionError> {
         if den == 0 {
             return Err(SubductionError::ZeroDenominator);
+        }
+        if den == 1 {
+            return Ok(Self { num, den: 1 });
         }
         let (num, den) = if den < 0 {
             (
@@ -334,8 +342,8 @@ impl Rat {
             operation: "normalize",
         })?;
         Ok(Self {
-            num: num / divisor,
-            den: den / divisor,
+            num: div_exact(num, divisor),
+            den: div_exact(den, divisor),
         })
     }
 
@@ -414,21 +422,34 @@ impl Rat {
     }
 
     /// Checked addition.
+    ///
+    /// Equal denominators are the common case here -- a fixed parameter grid and
+    /// matrix entries over one shared denominator -- and the general path below
+    /// would recompute their gcd (which is the denominator itself) and multiply
+    /// by one twice.  The shortcut computes the same sum and reaches the same
+    /// [`Rat::new`] call, so nothing about the result or its errors changes.
     pub fn checked_add(self, other: Self) -> Result<Self, SubductionError> {
+        if self.den == other.den {
+            let num = self
+                .num
+                .checked_add(other.num)
+                .ok_or(SubductionError::RationalOverflow { operation: "add" })?;
+            return Self::new(num, self.den);
+        }
         let shared = gcd_positive(self.den.unsigned_abs(), other.den.unsigned_abs());
         let shared = i128::try_from(shared)
             .map_err(|_| SubductionError::RationalOverflow { operation: "add" })?;
         let num = self
             .num
-            .checked_mul(other.den / shared)
+            .checked_mul(div_exact(other.den, shared))
             .and_then(|left| {
                 other
                     .num
-                    .checked_mul(self.den / shared)
+                    .checked_mul(div_exact(self.den, shared))
                     .and_then(|right| left.checked_add(right))
             })
             .ok_or(SubductionError::RationalOverflow { operation: "add" })?;
-        let den = (self.den / shared)
+        let den = div_exact(self.den, shared)
             .checked_mul(other.den)
             .ok_or(SubductionError::RationalOverflow { operation: "add" })?;
         Self::new(num, den)
@@ -454,7 +475,30 @@ impl Rat {
 
     /// Checked multiplication, cross-reduced before multiplying so that the
     /// intermediate products stay as small as the result allows.
+    ///
+    /// Two integers need neither cross-reduction nor normalization, so they are
+    /// answered directly; the general path would find three gcds equal to one
+    /// and reach the identical product.
+    ///
+    /// The general path below also skips the normalization gcd at the end.
+    /// Cross-reduction removes `gcd(self.num, other.den)` and
+    /// `gcd(other.num, self.den)`, so `self.num / left` is coprime with
+    /// `other.den / left` and with `self.den / right`, `other.num / right` is
+    /// coprime with the other two, and the `Rat` invariant makes each
+    /// numerator coprime with its own denominator: no prime can divide both
+    /// factors of `num` and both factors of `den`, so the product is already
+    /// normalized.  A zero numerator is the one case that still needs the
+    /// canonical denominator, and it is answered directly.
     pub fn checked_mul(self, other: Self) -> Result<Self, SubductionError> {
+        if self.den == 1 && other.den == 1 {
+            let num = self
+                .num
+                .checked_mul(other.num)
+                .ok_or(SubductionError::RationalOverflow {
+                    operation: "multiply",
+                })?;
+            return Ok(Self { num, den: 1 });
+        }
         let left = gcd_positive(self.num.unsigned_abs(), other.den.unsigned_abs());
         let right = gcd_positive(other.num.unsigned_abs(), self.den.unsigned_abs());
         let left = i128::try_from(left).map_err(|_| SubductionError::RationalOverflow {
@@ -463,17 +507,25 @@ impl Rat {
         let right = i128::try_from(right).map_err(|_| SubductionError::RationalOverflow {
             operation: "multiply",
         })?;
-        let num = (self.num / left).checked_mul(other.num / right).ok_or(
-            SubductionError::RationalOverflow {
+        let num = div_exact(self.num, left)
+            .checked_mul(div_exact(other.num, right))
+            .ok_or(SubductionError::RationalOverflow {
                 operation: "multiply",
-            },
-        )?;
-        let den = (self.den / right).checked_mul(other.den / left).ok_or(
-            SubductionError::RationalOverflow {
+            })?;
+        let den = div_exact(self.den, right)
+            .checked_mul(div_exact(other.den, left))
+            .ok_or(SubductionError::RationalOverflow {
                 operation: "multiply",
-            },
-        )?;
-        Self::new(num, den)
+            })?;
+        if num == 0 {
+            return Ok(Self::ZERO);
+        }
+        debug_assert_eq!(
+            gcd_positive(num.unsigned_abs(), den.unsigned_abs()),
+            1,
+            "cross-reduction must leave the product normalized"
+        );
+        Ok(Self { num, den })
     }
 
     /// Checked division.
@@ -531,7 +583,23 @@ impl std::fmt::Display for Mat3R {
     }
 }
 
+/// Greatest common divisor of two unsigned values, by Euclid.
+///
+/// The narrow fast path matters: every rational operation reduces, and the
+/// census profile puts ~46% of its samples inside the 128-bit division routine
+/// (`__umodti3` / `__divti3` / `compiler_builtins::int::specialized_div_rem`)
+/// that `%` on `u128` expands to.  The exact-rational corpus has small
+/// numerators and denominators, so a `u64` remainder — one hardware `div` — is
+/// the normal case here; the wide branch keeps the old behaviour bit for bit.
 fn gcd_positive(left: u128, right: u128) -> u128 {
+    if let (Ok(mut a), Ok(mut b)) = (u64::try_from(left), u64::try_from(right)) {
+        while b != 0 {
+            let remainder = a % b;
+            a = b;
+            b = remainder;
+        }
+        return u128::from(a);
+    }
     let (mut a, mut b) = (left, right);
     while b != 0 {
         let remainder = a % b;
@@ -539,6 +607,22 @@ fn gcd_positive(left: u128, right: u128) -> u128 {
         b = remainder;
     }
     a
+}
+
+/// Exact quotient `value / divisor` of a positive `divisor` that divides
+/// `value`.
+///
+/// Both branches return the same exact `i128`; only the width of the hardware
+/// division differs.  Callers pass a gcd or a divisor of the numerator, so the
+/// division is always exact — the `debug_assert` states that precondition and
+/// is compiled out of the release build the census runs.
+fn div_exact(value: i128, divisor: i128) -> i128 {
+    debug_assert!(divisor > 0, "div_exact needs a positive divisor");
+    debug_assert!(value % divisor == 0, "div_exact needs an exact division");
+    if let (Ok(value), Ok(divisor)) = (i64::try_from(value), i64::try_from(divisor)) {
+        return i128::from(value / divisor);
+    }
+    value / divisor
 }
 
 /// Convert an integral `f64` within the exactly representable range.
@@ -3001,6 +3085,55 @@ mod tests {
                 value: i128::from(i32::MAX) + 1
             })
         );
+    }
+
+    /// The narrow fast paths must agree with the schoolbook fractions on
+    /// **values**, and the multiplication shortcut relies on cross-reduction
+    /// already leaving the product normalized.  This walks a grid of small
+    /// exact rationals and checks both: the value equals `num/den` built the
+    /// long way, and the stored representation is canonical (`den > 0`,
+    /// `gcd(num, den) = 1`) -- which is what the fast path no longer verifies
+    /// with a gcd of its own.
+    #[test]
+    fn the_rational_fast_paths_agree_with_the_schoolbook_fractions() {
+        let mut checked = 0usize;
+        for a in -6i128..=6 {
+            for b in 1i128..=6 {
+                for c in -6i128..=6 {
+                    for d in 1i128..=6 {
+                        let (left, right) = (rat(a, b), rat(c, d));
+                        for (operation, value, num, den) in [
+                            ("add", left.checked_add(right), a * d + c * b, b * d),
+                            ("sub", left.checked_sub(right), a * d - c * b, b * d),
+                            ("mul", left.checked_mul(right), a * c, b * d),
+                        ] {
+                            let value = value.expect("no overflow on this grid");
+                            assert_eq!(value, rat(num, den), "{a}/{b} {operation} {c}/{d}");
+                            assert!(
+                                value.denominator() > 0,
+                                "{a}/{b} {operation} {c}/{d} has a negative denominator"
+                            );
+                            assert_eq!(
+                                gcd_positive(
+                                    value.numerator().unsigned_abs(),
+                                    value.denominator() as u128
+                                ),
+                                1,
+                                "{a}/{b} {operation} {c}/{d} is not canonical"
+                            );
+                            checked += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked > 5_000, "the grid must be walked, got {checked}");
+        // The grid never leaves the narrow (64-bit) branch of the gcd and the
+        // exact division, so the wide branch needs its own witnesses.
+        let huge = 1i128 << 70;
+        assert_eq!(Rat::new(huge, 2 * huge), Ok(rat(1, 2)));
+        assert_eq!(rat(1, huge).checked_mul(rat(huge, 1)), Ok(Rat::ONE));
+        assert_eq!(rat(3, huge).checked_add(rat(1, huge)), Ok(rat(1, huge / 4)));
     }
 
     #[test]

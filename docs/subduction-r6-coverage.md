@@ -638,6 +638,48 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
   最终源码（`2b3a9e65…`）21 个变异：19 个 exit 1（含 w1 31,875 / w4 7,835 / w5 29,843），
   2 个残余 exit 0；诚实门禁 112 s / 569 s 均 exit 0，三个 TSV SHA 未变，字符条目数钉 **583,776**，
   测试 616/0 + example 23 + clippy exit 0。
+  **2026-09-29 性能轮复跑（见 §4c）**：同一份 `2b3a9e65…` 逐字源码加有理快路径后，21 个变异
+  **逐个复现**（exit 码与 violation 数全部相同，逐条比对 `target/logs/finalPerf/summary.txt`），
+  诚实门禁 40 s（8 线程、带 sweep）/ 1 线程 66.5 s（无 sweep）均 exit 0，三个 TSV SHA 未变，
+  `583776` 字符条目未变，测试 **617/0**（+1 为本轮新增的有理快路径回归）+ example 23 + clippy exit 0。
+  同轮更正两条历史计数：`2b3a9e65` 自己的电池给 p3 **23,035** / p6 **43,659**（先前的
+  23,034 / 43,658 取自上一版源码 `19c64343…`，其构建还不打印 `character_entries` 计数行）。
+
+## 4c. 参数普查的性能与精确有理快路径（2026-09-29）
+
+普查门禁的计算成本几乎全部落在**精确有理算术原语**上。这是一次 gdb 采样 profile 的结论：
+`perf` 在本机不可用（linux-tools 与 `5.15.146.1-microsoft-standard-WSL2` 内核不匹配，
+`perf stat` 直接报缺包），所以用 `target/profile-gdb.sh` 在**一个** gdb 会话里
+attach/bt/detach 采样。单线程 4,008 个线程帧中 **79%** 位于 `Rat::checked_mul`/`checked_add`
+与 128 位除法例程（`__umodti3`/`__divti3`/`specialized_div_rem`）；逐函数归属为
+`reconstruct` 14.5%、`build_block` 12%、`verify_against_grid` 10%、`minimal_parameter_step` 9%、
+`arm_images` 8.4%、`arm_character` 7.4%、`little_co_group` 5.2% —— **每个归属者的叶帧组合
+完全相同**，所以热点是原语本身，不是某一个算法。
+
+`Rat` 的窄宽度快路径（唯一改动文件 `src/irrep/subduction.rs`）：`gcd_positive` 的 `u64`
+分支（语料的分子/分母都小，`u128` 的 `%` 会展开成编译器例程）、新的 `div_exact`（整除时
+走 64 位除法，两条分支返回同一个精确 `i128`）、`Rat::new` 的 `den == 1` 直通、
+`checked_add` 的等分母直通（同值同错误）、`checked_mul` 的整数直通与**去掉末尾的规范化
+gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子单独返回 `ZERO`）。
+
+| 口径（机器空闲，load < 4） | 改前 | 改后 |
+|---|---|---|
+| 门禁 `--gate --require-covered`，8 线程 | 42.27 s | 14.7 s |
+| 同一命令，1 线程 | 179.71 s | 66.5 s |
+| 加 `--domain-sweep`，8 线程 | 112 s | 36.8 s |
+| 全部验收（`target/chainFast.sh`） | ≈16 min | 285 s |
+
+**值没有变**：三个 TSV 与改前逐字节相同（SHA-256 `c7b8606e…` / `07dedd42…` / `a14598c1…`，
+且 4 线程 == 8 线程），门禁报告逐行相同（diff 只剩 cargo 前导），本节 §4b 的全部钉值
+（探针、块、区间、谓词实例、字符读数……）逐字未变；新增模块回归
+`the_rational_fast_paths_agree_with_the_schoolbook_fractions` 在 7×6×7×6 网格上断言值与
+教科书分数相等、表示规范，并另取 2^70 的宽分支见证。**结论不变**：§4b 的覆盖结论、
+边界集与计数都由改动后的构建重新实测，逐字节相同。
+
+并行度没有改变（Amdahl 串行份额仍 ≈11%：8 线程 14.7 s vs 1 线程 66.5 s），剩余热点是
+引擎的 3×3 有理矩阵运算与**串行前导/收尾**；验收电池的重排（`target/chainFast.sh`：
+8 线程 ground truth → 4 线程 determinism census ‖ 4 线程全局审计 → 测试/门禁的 `nice` 池 →
+doctest/clippy/python）不改动任何源码，只把独立流压到 8 个核上。
 
 ## 5. 与 R6.1 验收的关系
 

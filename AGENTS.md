@@ -142,18 +142,44 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    个“源×基矢”对；这是一般字符扭曲的适用性清点，不是沿线位移覆盖。只有 `K=delta*v`
    才能据此称为该源的参数步进。73/73 冻结线的沿线像唯一、完整分解逐目标输运通过。
    任意三维倒格移仍须通过精确相位检验并在冻结表中找到唯一像，不能只因属于倒格就声称有标签输运。
-3. **性能**：本轮已将 `audit_irrep_subduction` 改为按母群空间群并行；全表 8 线程
-   `RAYON_NUM_THREADS=8` 为 121.6 s，`RAYON_NUM_THREADS=1` 为 554.7 s，三道门禁
-   结果一致，389,151 行 / 59,770,080 字节 TSV `cmp` 逐字节相同（SHA-256
-   `3df39d03b5518df950e9d2dd14195a03784a3bf0ab293b833ceae2f28f601406`）。
-   `--progress N` 仍按已完成记录报告；child 缓存跨 worker 共享。无法确定 monodromy
-   image 的行现在按硬失败处理，并以逐行发射计数检查 w-row 报告不丢行。`line_family_coverage`
-   已按行并行计算、按原顺序单线程写 TSV；同一构建实测 1 线程 123.08 s、8 线程
-   19.29 s，`--gate` 两次通过，输出逐字节相同（SHA-256
-   `9683ddef83b367fbc33b730412ac06d1e3d7483352f3d61e0ad00c5895e807fc`）。它的 2 项 example
-   测试通过。`line_monodromy` 集成测试现在按源预计算倒格步与 monodromy 像，再并行比较
-   每条独立记录；8 线程实测 11/11 通过、测试时长 4.67 s（旧实测 26.3 s）。严格
-   all-target clippy 通过。其他测试是否并行化，待新的全量 profile 显示明确热点后再决定。
+3. **✅ 性能（2026-09-29 本轮：profile + 精确有理快路径 + 验收电池重排）**：`perf` 在本机
+   不可用（WSL2 内核 `5.15.146.1-microsoft-standard-WSL2` 与 linux-tools 包不匹配，
+   `perf stat` 直接报缺包），改用 **gdb 采样**（`target/profile-gdb.sh`：**一个** gdb 会话里
+   attach/bt/detach 循环；每次新起 gdb 会让 3 分钟的运行变成 11 分钟——符号加载才是开销）。
+   单线程 4,008 个线程帧的归属：**79% 落在 `Rat::checked_mul`/`checked_add` 与 128 位除法
+   例程**（`__umodti3`/`__divti3`/`specialized_div_rem`）；逐函数归属为 `reconstruct` 14.5%、
+   `build_block` 12%、`verify_against_grid` 10%、`minimal_parameter_step` 9%、`arm_images` 8.4%、
+   `arm_character` 7.4%、`little_co_group` 5.2%、`child_cocycle_is_a_coboundary` 4.6% …… 而
+   **每个归属者的叶帧组合完全相同** ⇒ 热点是精确有理算术原语本身，不是某一个算法。
+   **改动（唯一改动文件 `src/irrep/subduction.rs` 的 `Rat`）**：① `gcd_positive` 加 `u64`
+   快路径（语料的分子/分母都小，`u128` 的 `%` 会展开成编译器例程）；② 新增 `div_exact`
+   （除数整除被除数时走 64 位除法；两条分支返回同一个精确 `i128`）；③ `Rat::new` 的
+   `den == 1` 直通（整数本就规范）；④ `checked_add` 的等分母直通（**同值同错误**）；
+   ⑤ `checked_mul` 的整数直通，并**去掉末尾的规范化 gcd**——交叉约分后乘积已互素
+   （推导写在函数文档里），零分子单独返回 `ZERO`。
+   **实测（机器空闲，load < 4）**：census 门禁（无 sweep）8 线程 **42.27 s → 14.7 s**、
+   1 线程 **179.71 s → 66.5 s**；带 `--domain-sweep` 的 8 线程 **112 s → 36.8 s**（2.9–3.0×）。
+   **三个 TSV 与改前逐字节相同**（SHA 仍 `c7b8606e…`/`07dedd42…`/`a14598c1…`，且 4 线程 ==
+   8 线程），门禁报告逐行相同（diff 只剩 cargo 前导），全部钉值未变——这是"只改速度、
+   不改任何精确值"的语料级证据。新增模块回归
+   `the_rational_fast_paths_agree_with_the_schoolbook_fractions`（7×6×7×6 网格 × 加/减/乘：
+   值 == 教科书分数且**表示规范**；另加 2^70 的宽分支见证）。**并行度没有变**
+   （Amdahl 串行份额仍 ≈11%：8 线程 14.7 s vs 1 线程 66.5 s），所以下一个热点是
+   **串行前导/收尾**（`records()`、`source_domains()`、合并与报告），不是继续压算术。
+   **验收电池重排（`target/chainFast.sh`，零源码改动）**：把彼此独立的流压到 8 个核上——
+   一次 `cargo build` → 8 线程 census（三个 TSV）→ 并发〔4 线程 determinism census
+   （`taskset -c 0-3`）‖ 4 线程全局审计（`taskset -c 4-7`）〕→ 〔23 个测试二进制 + ledger +
+   family 的 8 路 `nice -n 10` 池〕→ 〔doctest ‖ clippy ‖ 5 个 python 门禁〕。实测 **285 s**
+   （旧 `chainFinal2.sh` ≈16 min）跑完全部验收：`--tests` **617 passed / 0 failed**、doctest、
+   clippy `-D warnings`、family/ledger/global 三门禁、python ×5 + oracle 全部 exit 0。
+   同日实测：22 个测试二进制的串行墙钟合计只有 **24.1 s**（最慢 10.9 s），所以瓶颈从来不是
+   测试，而是**构建**（库改动时 85–88 s，fat LTO + `codegen-units = 1`）与两次 census。
+   **未做（如实）**：`Mat3R::inverse`（每个 3×3 逆 9 次 `checked_div`）与 `Lattice::reduce`
+   仍是剩余热点；`records()` 的串行前导未并行化；构建参数未动（会动到已钉证据的编译配置）。
+   **历史（上一轮，保留）**：`audit_irrep_subduction` 已按母群空间群并行（8 线程 121.6 s /
+   1 线程 554.7 s，389,151 行 TSV 逐字节相同，SHA `3df39d03…`）；`line_family_coverage`
+   已按行并行、单线程按序写 TSV（1 线程 123.08 s / 8 线程 19.29 s，SHA `9683ddef…`）；
+   `line_monodromy` 集成测试 8 线程 11/11、4.67 s（旧 26.3 s）。
 4. **✅ `t=0/1/2` 形式值的 API 语义**（= §2 A）：`LineSubduction::parameter_kind()`
    以 `t·(a-v) ∈ L*_parent` 的精确判定标记增强小群点的形式诱导；永久测试覆盖 `t=0,1/2`
    与非退化对照值。完整表 gate 未累计类型标签；类型标记不填补目标字符缺失，也不声称有外部 oracle。
@@ -790,8 +816,8 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   刻意说谎——改写 `compare_readings` 自身函数体、**伪造引擎答案**（伪造整条 `SweepSide` 已被
   `SweepSide::block()` 抓住，故收紧为"伪造引擎答案"）、或手工伪造读数并补计数。
   **本轮验证**（源码 `2b3a9e65…`）：**21 个变异逐个重跑、逐个还原并复核 sha256：19 个 exit 1**——
-  p2a 23,027 / p2b 138,148 / p3 23,034 / p4 7,461 / p5 11,010 / p6 43,658 / p7 24,171 / n1 5,757 /
-  n2 168,413 / n3 4 / n4 4 / n6 168,413 / m8 5,757 / m11 23,040 / r2mb 46,059 / r2mb2 168,413 /
+  p2a 23,027 / p2b 138,148 / p3 **23,035** / p4 7,461 / p5 11,010 / p6 **43,659** / p7 24,171 / n1 5,757 /
+  n2 168,413 / n3 4 / n4 4 / n6 168,413 / m8 5,757 / m11 **23,041** / r2mb **46,060** / r2mb2 168,413 /
   **w1 31,875 / w4 7,835 / w5 29,843**（w5 的首条报文即新检查："the first side is handed 1
   operation(s) but the child little group at its seed point … has …"），**2 个残余 exit 0**
   （m2/m2b：函数体内刻意改写匹配实参）；诚实门禁并行 **112 s** / 串行 **569 s** 均 exit 0，
@@ -799,6 +825,13 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   unsupported=0 errors=0`、`349344/174672/0`、**`583776` 字符条目**、`8/8/0`、`46048/0`、`92096`
   逐字未变；`--tests` 616/0、doctest 27、`--lib` 20/13、example **23**、严格 clippy exit 0；
   family / ledger / 全局三门禁（VERDICT complete）与四个 python 门禁、离线 oracle 全部 exit 0。
+  **数字更正（2026-09-29，本轮重跑发现）**：本条先前的 p3 = 23,034、p6 = 43,658 取自
+  **上一版源码 `19c64343…` 的电池**（见下一条），而 `2b3a9e65` 自己的电池
+  （`target/logs/finalZ/summary.txt`）给的是 **p3 23,035 / p6 43,659**；本轮重跑逐字复现
+  后者。差的这 1 条就是 w5 之后新增的 `character_entries` 计数行
+  （"the sweep read … expected 583776"：旧构建根本不打印这一项，所以少一条 violation）。
+  同批更正 m11 23,040 → **23,041**、r2mb 46,059 → **46,060**（同样来自 `19c64343` 的那一次）。
+  三项都只有这一条差值，其余 violation 行逐行相同（`diff` 实测）。
   **第四次复验（针对 `3b0b0d2`）后的最终验证**（源码 `19c64343…`）：**18 个变异在最终源码上逐个重跑、
   逐个还原并复核 sha256：16 个 exit 1**——p2a 23,027 / p2b 138,148 / p3 23,034 / p4 7,461 / p5 11,010 /
   p6 43,658 / p7 24,171 / n1 5,757 / n2 168,413 / n3 4 / n4 4 / n6 168,413 / m8 5,757 / m11 23,040 /
