@@ -650,28 +650,41 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
 普查门禁的计算成本几乎全部落在**精确有理算术原语**上。这是一次 gdb 采样 profile 的结论：
 `perf` 在本机不可用（linux-tools 与 `5.15.146.1-microsoft-standard-WSL2` 内核不匹配，
 `perf stat` 直接报缺包），所以用 `target/profile-gdb.sh` 在**一个** gdb 会话里
-attach/bt/detach 采样。单线程 4,008 个线程帧中 **79%** 位于 `Rat::checked_mul`/`checked_add`
-与 128 位除法例程（`__umodti3`/`__divti3`/`specialized_div_rem`）；逐函数归属为
-`reconstruct` 14.5%、`build_block` 12%、`verify_against_grid` 10%、`minimal_parameter_step` 9%、
-`arm_images` 8.4%、`arm_character` 7.4%、`little_co_group` 5.2% —— **每个归属者的叶帧组合
-完全相同**，所以热点是原语本身，不是某一个算法。
+attach/bt/detach 采样。单线程 4,008 个线程帧中 **1,582 / 2,004 个非空闲叶帧（78.9%）**
+位于 `Rat::checked_mul`/`checked_add` 与 128 位除法例程（`__umodti3`/`__divti3`/
+`specialized_div_rem`）——这个数由外部审核方独立复算。**逐函数占比依赖归属口径**
+（本轮脚本按"栈中第一个非 rayon/std 帧"给 `reconstruct` 14.5% / `build_block` 12% /
+`verify_against_grid` 10% / `minimal_parameter_step` 9% / `arm_images` 8.4% / `arm_character` 7.4%；
+审核方按"非空闲样本包含该帧"得 21.6 / 26.4 / 10.3 / 9.2 / 8.7 / 7.9%），两者都不作钉值；
+各口径一致的是**每个归属者的叶帧组合相同**（都指向同一批有理算术例程），所以热点在
+原语而非某个算法的结论不随口径变化。
 
 `Rat` 的窄宽度快路径（唯一改动文件 `src/irrep/subduction.rs`）：`gcd_positive` 的 `u64`
 分支（语料的分子/分母都小，`u128` 的 `%` 会展开成编译器例程）、新的 `div_exact`（整除时
 走 64 位除法，两条分支返回同一个精确 `i128`）、`Rat::new` 的 `den == 1` 直通、
 `checked_add` 的等分母直通（同值同错误）、`checked_mul` 的整数直通与**去掉末尾的规范化
-gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子单独返回 `ZERO`）。
+gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子分支是防御性的，审核方实测删掉
+它行为不变）。
 
-| 口径（机器空闲，load < 4） | 改前 | 改后 |
+| 口径（机器空闲，load < 2；改后 = 提交源码 `subduction.rs e4a55688…`） | 改前 | 改后 |
 |---|---|---|
-| 门禁 `--gate --require-covered`，8 线程 | 42.27 s | 14.7 s |
-| 同一命令，1 线程 | 179.71 s | 66.5 s |
-| 加 `--domain-sweep`，8 线程 | 112 s | 36.8 s |
-| 全部验收（`target/chainFast.sh`） | ≈16 min | 285 s（冷构建 88 s）/ 239 s（构建已热） |
+| 门禁 `--gate --require-covered`，8 线程 | 42.27 s | 14.87 s |
+| 同一命令，4 / 2 线程 | 60.96 / 99.91 s | 22.08 / 36.57 s |
+| 同一命令，1 线程 | 179.71 s | 66.29 s |
+| 加 `--domain-sweep`，8 线程 | 112 s | 38 s |
+| 全部验收（`target/chainFast.sh`，含构建） | —— | **313 s**（其中构建 90 s） |
 
-验收电池跑 **41 个测试壳**（23 个 `--tests` 二进制加 18 个 example 测试壳；`cargo test --tests`
+比值为 2.84× / 2.76× / 2.73× / 2.71×；审核方在各自私有 target 上独立 A/B 得
+2.80× / 2.72× / 2.67× ⇒ 综合 **≈2.7–2.9×**（先前写的"2.9–3.0×"取自未提交草稿的相除，
+已按提交源码实测改写）。验收电池的唯一一次全量记录是
+`target/logs/final-round2/battery/summary.txt`（日志头同时钉 commit、脏文件数与两个源文件的
+sha256）：**41 个测试壳**（23 个 `--tests` 二进制加 18 个 example 测试壳；`cargo test --tests`
 **不含** example 的单测，第一版电池因此漏掉 63 项，已修）合计 **680 passed / 0 failed**，
 另有 doctest、clippy `-D warnings`、family/ledger/global 三门禁与 5 个 python 门禁，全部 exit 0。
+**基线口径更正**："≈16 min"是 **`chainFinal.sh`** 的一次完整运行（含 569 s 串行 census），
+`chainFinal2.sh` 换掉串行档后从未写过日志；因此新旧对比里有一部分不是调度收益，而是少跑了
+一次串行 census——新电池同样没有串行档，现在验的是 **4 线程 == 8 线程**（1 线程全量比较
+只在 `finalZAA` 留下过）。
 
 **值没有变**：三个 TSV 与改前逐字节相同（SHA-256 `c7b8606e…` / `07dedd42…` / `a14598c1…`，
 且 4 线程 == 8 线程），门禁报告逐行相同（diff 只剩 cargo 前导），本节 §4b 的全部钉值

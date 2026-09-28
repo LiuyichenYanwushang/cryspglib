@@ -487,8 +487,15 @@ impl Rat {
     /// coprime with the other two, and the `Rat` invariant makes each
     /// numerator coprime with its own denominator: no prime can divide both
     /// factors of `num` and both factors of `den`, so the product is already
-    /// normalized.  A zero numerator is the one case that still needs the
-    /// canonical denominator, and it is answered directly.
+    /// normalized.
+    ///
+    /// The `num == 0` branch is **defensive rather than necessary**: `Rat` is
+    /// canonical, so a zero numerator already has `den == 1`, and the general
+    /// path then finds `left = other.den`, `right = 1`, `num = 0`, `den = 1` by
+    /// itself (deleting the branch is behaviour-neutral, measured by the
+    /// external review of `4159f32`).  It is kept so that a constructor which
+    /// broke the invariant could not leak a non-canonical `0 / den` through a
+    /// product.
     pub fn checked_mul(self, other: Self) -> Result<Self, SubductionError> {
         if self.den == 1 && other.den == 1 {
             let num = self

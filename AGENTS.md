@@ -146,38 +146,63 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    不可用（WSL2 内核 `5.15.146.1-microsoft-standard-WSL2` 与 linux-tools 包不匹配，
    `perf stat` 直接报缺包），改用 **gdb 采样**（`target/profile-gdb.sh`：**一个** gdb 会话里
    attach/bt/detach 循环；每次新起 gdb 会让 3 分钟的运行变成 11 分钟——符号加载才是开销）。
-   单线程 4,008 个线程帧的归属：**79% 落在 `Rat::checked_mul`/`checked_add` 与 128 位除法
-   例程**（`__umodti3`/`__divti3`/`specialized_div_rem`）；逐函数归属为 `reconstruct` 14.5%、
-   `build_block` 12%、`verify_against_grid` 10%、`minimal_parameter_step` 9%、`arm_images` 8.4%、
-   `arm_character` 7.4%、`little_co_group` 5.2%、`child_cocycle_is_a_coboundary` 4.6% …… 而
-   **每个归属者的叶帧组合完全相同** ⇒ 热点是精确有理算术原语本身，不是某一个算法。
+   单线程 4,008 个线程帧里 **1,582 / 2,004 个非空闲叶帧（78.9%）** 落在
+   `Rat::checked_mul`/`checked_add` 与 128 位除法例程（`__umodti3`/`__divti3`/
+   `specialized_div_rem`）——这个数由外部审核方独立复算。**逐函数占比依赖归属口径**：
+   本轮脚本按"采样栈里第一个非 rayon/std 帧"给 reconstruct 14.5% / build_block 12% /
+   verify_against_grid 10% / minimal_parameter_step 9% / arm_images 8.4% / arm_character 7.4%，
+   审核方按"非空闲样本包含该帧"得 21.6% / 26.4% / 10.3% / 9.2% / 8.7% / 7.9% ——
+   两者都不是钉住的数字，各口径都支持的只有"**每个归属者的叶帧组合相同**"（都指向同一批
+   有理算术例程），所以结论（热点在原语、不在某个算法）不随口径变化。
    **改动（唯一改动文件 `src/irrep/subduction.rs` 的 `Rat`）**：① `gcd_positive` 加 `u64`
    快路径（语料的分子/分母都小，`u128` 的 `%` 会展开成编译器例程）；② 新增 `div_exact`
    （除数整除被除数时走 64 位除法；两条分支返回同一个精确 `i128`）；③ `Rat::new` 的
    `den == 1` 直通（整数本就规范）；④ `checked_add` 的等分母直通（**同值同错误**）；
    ⑤ `checked_mul` 的整数直通，并**去掉末尾的规范化 gcd**——交叉约分后乘积已互素
    （推导写在函数文档里），零分子单独返回 `ZERO`。
-   **实测（机器空闲，load < 4）**：census 门禁（无 sweep）8 线程 **42.27 s → 14.7 s**、
-   1 线程 **179.71 s → 66.5 s**；带 `--domain-sweep` 的 8 线程 **112 s → 36.8 s**（2.9–3.0×）。
+   **实测（机器空闲，load < 2；改后 = 提交源码 `subduction.rs e4a55688…`，
+   `target/logs/final-round2/summary.txt`）**：census 门禁（无 sweep）8/4/2/1 线程
+   **14.87 / 22.08 / 36.57 / 66.29 s**，改前同机同法（`target/logs/scale-clean/summary.txt`）
+   42.27 / 60.96 / 99.91 / 179.71 s ⇒ **2.84× / 2.76× / 2.73× / 2.71×**；带 `--domain-sweep`
+   的 8 线程 **112 s → 38 s**。外部审核方用**各自私有 target 的独立 A/B** 复测另一组：
+   41.98→14.97 s、180.57→66.40 s、98.89→37.04 s（2.80× / 2.72× / 2.67×）⇒ 综合
+   **≈2.7–2.9×**。先前写的"2.9–3.0×"只由 42.27/14.7 与 112/36.8 相除得到、且用的是
+   未提交草稿上的数字，已按提交源码上的实测区间改写（外部审查 P2-4/P2-5）。
    **三个 TSV 与改前逐字节相同**（SHA 仍 `c7b8606e…`/`07dedd42…`/`a14598c1…`，且 4 线程 ==
    8 线程），门禁报告逐行相同（diff 只剩 cargo 前导），全部钉值未变——这是"只改速度、
    不改任何精确值"的语料级证据。新增模块回归
    `the_rational_fast_paths_agree_with_the_schoolbook_fractions`（7×6×7×6 网格 × 加/减/乘：
-   值 == 教科书分数且**表示规范**；另加 2^70 的宽分支见证）。**并行度没有变**
-   （Amdahl 串行份额仍 ≈11%：8 线程 14.7 s vs 1 线程 66.5 s），所以下一个热点是
-   **串行前导/收尾**（`records()`、`source_domains()`、合并与报告），不是继续压算术。
+   值 == 教科书分数且**表示规范**；另加 2^70 的宽分支见证）。**并行度没有变，但瓶颈的形状
+   已经量出来**：`target/logs/profile/t8b/`（8 线程、90 个时间样本 × 9 个线程块）显示运行分两段——
+   前 ~58% 的样本每 9 个线程块有 3 个空闲，后 ~42% **每 9 个只有 3 个在跑**（尾部只剩 2–3 个
+   worker，其余停在 rayon 的 `wait_until_cold`），即**负载不均**（少数记录远重于其它记录，
+   `par_iter` 按记录切分），**不是串行前导**：同一份 profile 里 `records_of`/`source_domains`
+   一帧都没采到（Amdahl 拟合出的 ≈11% "串行份额"因此是负载不均的等效值）。下一个热点是
+   **任务粒度/调度**（按 (记录,标号) 切分，或按预估代价降序发牌），不是继续压算术。
    **验收电池重排（`target/chainFast.sh`，零源码改动）**：把彼此独立的流压到 8 个核上——
    一次 `cargo build` → 8 线程 census（三个 TSV）→ 并发〔4 线程 determinism census
-   （`taskset -c 0-3`）‖ 4 线程全局审计（`taskset -c 4-7`）〕→ 〔**41 个测试壳**（23 个 `--tests`
+   （`taskset -c 0-3`）‖ 4 线程全局审计（`taskset 4-7`）〕→ 〔**41 个测试壳**（23 个 `--tests`
    二进制 + 18 个 example 测试壳；`cargo test --tests` **不含** example 的单测，第一版电池因此
    漏掉 63 项，已修）+ ledger + family 的 8 路 `nice -n 10` 池〕→ 〔doctest ‖ clippy ‖
-   5 个 python 门禁〕。实测 **285 s（冷构建 88 s）/ 239 s（构建已热）**跑完全部验收
-   （旧 `chainFinal2.sh` ≈16 min）：`--tests` 617/0 加 example 壳 63 项 = **680 passed / 0 failed**、
-   doctest、clippy `-D warnings`、family/ledger/global 三门禁、python ×5 + oracle 全部 exit 0。
+   5 个 python 门禁〕。**唯一一次全量记录**
+   （`target/logs/final-round2/battery/summary.txt`；日志头现在同时钉 `git rev-parse`、
+   脏文件数与 `subduction.rs`/`census.rs` 的 sha256——外部审查 **P1-1** 指出旧的 fastA/fastB
+   只记 commit，而它们跑的是**未提交**的改动树，所以那两个日志不再作为引用）：
+   构建 90 s + census 38 s + 并发档 68 s + 池 56 s + 尾 37 s = **313 s**，
+   `--tests` 617/0 加 example 壳 63 项 = **680 passed / 0 failed**，三个 TSV 逐字节相同
+   （4 线程 == 8 线程，SHA 未变），family/ledger/global 三门禁、doctest、clippy `-D warnings`、
+   python ×5 + oracle 全部 exit 0。
+   **基线口径更正（外部审查 P1-3）**：先前写的"旧 `chainFinal2.sh` ≈16 min"不成立——
+   ≈16 min 是 **`chainFinal.sh`** 的一次完整运行（`finalZAA`：并行 census 112 s **+ 串行
+   census 569 s** + 其余），`chainFinal2.sh` 换掉串行档后**从未写过日志**。所以"16 min →
+   290 s"里有一部分不是调度收益，而是**少跑了一次串行 census**；新电池同样没有串行档，
+   "1 线程 == 8 线程 逐字节相同"这条自 `chainFinal2` 起就不再逐次验收（现在验的是
+   **4 线程 == 8 线程**，唯一一次 1 线程全量比较留在 `finalZAA`）。
    同日实测：22 个测试二进制的串行墙钟合计只有 **24.1 s**（最慢 10.9 s），所以瓶颈从来不是
-   测试，而是**构建**（库改动时 85–88 s，fat LTO + `codegen-units = 1`）与两次 census。
+   测试，而是**构建**（库改动时 85–90 s，fat LTO + `codegen-units = 1`）与两次 census。
    **未做（如实）**：`Mat3R::inverse`（每个 3×3 逆 9 次 `checked_div`）与 `Lattice::reduce`
-   仍是剩余热点；`records()` 的串行前导未并行化；构建参数未动（会动到已钉证据的编译配置）。
+   仍是剩余算术热点；**负载不均未处理**（按记录切分，尾部只剩 2–3 个 worker；profile 见上）；
+   构建参数未动（会动到已钉证据的编译配置）。
    **历史（上一轮，保留）**：`audit_irrep_subduction` 已按母群空间群并行（8 线程 121.6 s /
    1 线程 554.7 s，389,151 行 TSV 逐字节相同，SHA `3df39d03…`）；`line_family_coverage`
    已按行并行、单线程按序写 TSV（1 线程 123.08 s / 8 线程 19.29 s，SHA `9683ddef…`）；
@@ -819,7 +844,7 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   `SweepSide::block()` 抓住，故收紧为"伪造引擎答案"）、或手工伪造读数并补计数。
   **本轮验证**（源码 `2b3a9e65…`）：**21 个变异逐个重跑、逐个还原并复核 sha256：19 个 exit 1**——
   p2a 23,027 / p2b 138,148 / p3 **23,035** / p4 7,461 / p5 11,010 / p6 **43,659** / p7 24,171 / n1 5,757 /
-  n2 168,413 / n3 4 / n4 4 / n6 168,413 / m8 5,757 / m11 **23,041** / r2mb **46,060** / r2mb2 168,413 /
+  n2 168,413 / n3 4 / n4 **5** / n6 168,413 / m8 5,757 / m11 **23,041** / r2mb **46,060** / r2mb2 168,413 /
   **w1 31,875 / w4 7,835 / w5 29,843**（w5 的首条报文即新检查："the first side is handed 1
   operation(s) but the child little group at its seed point … has …"），**2 个残余 exit 0**
   （m2/m2b：函数体内刻意改写匹配实参）；诚实门禁并行 **112 s** / 串行 **569 s** 均 exit 0，
@@ -834,6 +859,40 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   （"the sweep read … expected 583776"：旧构建根本不打印这一项，所以少一条 violation）。
   同批更正 m11 23,040 → **23,041**、r2mb 46,059 → **46,060**（同样来自 `19c64343` 的那一次）。
   三项都只有这一条差值，其余 violation 行逐行相同（`diff` 实测）。
+
+* **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
+  全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有
+  target 独立复算：**算术没被打破**——它把改动前的 `Rat` 逐字抄成参照实现写差分测试
+  （`review_rat_differential.rs`：17×17 边界值含 `i128::MIN`/`i64::MIN`/`±2^64`/`±2^70`、
+  20,000 组随机全宽对、精确比较 `(numerator, denominator)` 与**错误值本身**），4/4 通过；
+  并用 `p`-adic 赋值法独立证明"交叉约分后乘积互素"；该差分测试本身被 4 个变异验证有检测力
+  （M2 等分母跳过规范化、M3 `u64` gcd 取错、M4 左约分取 `other.num`、M5 整数快路径用 `||`）。
+  它还做了**本方没做的真 A/B**：两个版本各自独立构建，三份 TSV 都与 `finalZAA` 逐字节相同，
+  389,203 行全局审计报告除 `elapsed=` 外逐字节相同；并在提交版本上独立复跑 p3/p6，得到
+  23,035 / 43,659（与 `finalZ`/`finalPerf` 一致）。
+  **P1-1（接受）**：电池日志 `fastA`/`fastB` 的头部只记 `git rev-parse`，而它们跑的是
+  **未提交**的工作树（当时 HEAD 仍是 `e4559b5`），所以"跑的是改后代码"在日志里看不出来。
+  修法：`chainFast.sh` 头部现在同时钉 `dirty-files` 数与 `subduction.rs`/`census.rs` 的
+  sha256；被引用的一次全量记录换成在提交版本上重跑的 `final-round2/battery`（本轮）。
+  **P1-2（接受）**：原先把 `fastB` 的 285 s 与 `fastC` 的 680 项测试写进同一句；两者是不同
+  运行（`fastB` 仍是 23 个 `--tests` 二进制 / 617 项）。已改为只引用 `final-round2` 那一次
+  （313 s、41 壳、680/0）。**P1-3（接受）**："旧 `chainFinal2.sh` ≈16 min"无法归属——16 min
+  是 `chainFinal.sh` 的运行（并行 112 s **+ 串行 569 s**），`chainFinal2` 从未写日志；现已按
+  此改写，并**披露**串行档已不在电池里（现在验 4 线程 == 8 线程）。**P2-1（接受）**：新
+  `2b3a9e65` 清单里的 `n4 4` 是 `19c64343` 时代的数，该版本两个日志都写 5；已改 `n4 5`。
+  **P2-2（接受）**：`quick-ab.sh` 用 `diff -q` 再数 `^[<>]` 行，恒为 0（空转）；已改回
+  `diff`（结论本身由 `perf-ab1/report.diff` 的真实 diff 支持）。**P2-3（接受）**：79% 叶帧
+  占比可由审核方独立复算（1,582/2,004），但**逐函数占比依赖归属口径**，五种口径都不复现原
+  数字；已把口径写明并把百分比标为不可钉（只保留各口径都成立的"叶帧组合相同"）。
+  **P2-4（接受）**：改后倍数由表内三行相除应是 2.70–3.04，审核方实测 2.67–2.80；已改写为
+  **≈2.7–2.9×**。**P2-5（接受）**：原"改后"数字量自两版未提交草稿
+  （`subduction.rs e1caa0c2…` / `5a4cada8…`，仓库里不存在）；已在提交源码
+  （`e4a55688…`）上重测 8/4/2/1 线程并引用该日志；`chainF.sh` 现在也钉库文件的 sha256。
+  **P2-6（接受）**：`checked_mul` 文档里"零分子是仍需规范化分母的那一种情况"说过头了——
+  审核方的推导正确：`Rat` 规范 ⇒ `num == 0` 蕴含 `den == 1`，一般路径自己就给出 `{0,1}`
+  （删掉该分支行为不变，其 M1 变异未被差分测试抓住）。已把注释改写为"防御性、在不变式下
+  不可达"。**本方核验**：M1 的论证复核无误（`num == 0` ⇒ `self == ZERO` ⇒
+  `left = other.den`、`right = 1` ⇒ `den = 1`），故接受而非反驳。
   **第四次复验（针对 `3b0b0d2`）后的最终验证**（源码 `19c64343…`）：**18 个变异在最终源码上逐个重跑、
   逐个还原并复核 sha256：16 个 exit 1**——p2a 23,027 / p2b 138,148 / p3 23,034 / p4 7,461 / p5 11,010 /
   p6 43,658 / p7 24,171 / n1 5,757 / n2 168,413 / n3 4 / n4 4 / n6 168,413 / m8 5,757 / m11 23,040 /
