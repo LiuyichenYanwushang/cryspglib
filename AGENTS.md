@@ -196,7 +196,9 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    probe/block 序算出 `recomputed_classes`，串行循环只做比较（比较逻辑与报文一字未动）。
    **实测（A/B 交替跑，同一台机器空闲；A = 仅 ①，B = ①+②）**：无 sweep 8 线程
    **14.87 s（改前）→ 11.30 s（A，三次中位）→ 10.51 s（B，三次中位）**；4 线程
-   **22.08 → 18.80（A）→ 18.28 s（B）**；带 `--domain-sweep` 8 线程 **36.8 → 32.44 s（B）**；
+   **22.08 → 18.80（A）→ 18.28 s（B）**；带 `--domain-sweep` 8 线程的交替 A/B 见
+   `target/logs/tailpar2/ab-sweep.txt`：**36.75/37.38 s（改前）→ 32.94/33.06 s（改后）**
+   （两边都带 `--output*`，两个版本的三个 TSV 都与钉住值逐字节相同）；
    1 线程 **66.29 → 66.49 s（不变**，尾部本就串行，rayon 单线程无额外代价）。阶段计时（B 之前，
    8 线程无 sweep）：prologue 0.017 + 并行区 8.75 + `report()`+计数 0.008 + `check_invariants` 1.53
    + gate 0.66 ≈ 10.96 s；并行区自身在 8 核上是 60.5 s 的单线程工作量（6.9×），余下的串行部分
@@ -961,8 +963,8 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   单测直接钉住全部八个字段。**P2-3（接受并修）**：gate 段自己产生的 violation 只被计数、从不
   回显（回显循环在 `if gate {` **之前**，canary 实测 exit 1 / 1006 violations / stderr 为空）——
   已把回显移到所有通过程之后，诚实运行输出不变（实测报告与 TSV 逐字节不变）。
-  **P2-4（接受）**：文档里"5,756 条记录"应为 **1,006** 条 `Record`（5,756 是 (记录,标号) 对数），
-  已改。**P2-5（接受为措辞）**："21 个变异复现"不等于"21 个都被抓住"（m2/m2b 本来就是已披露的
+  **P2-4（接受）**：文档原先把这个遍历的记录数写成 5,756，实际是 **1,006** 条 `Record`
+  （5,756 是 (记录,标号) 对的数目），已改。**P2-5（接受为措辞）**："21 个变异复现"不等于"21 个都被抓住"（m2/m2b 本来就是已披露的
   残余，本提交的措辞已明确）。**P2-6（接受）**：A/B 时间数字此前只在交互式输出里，现已写入
   `target/logs/tailpar2/ab-timings.txt`（含复核方独立复现的那一组）。复核方的限制也一并记录：
   单一语料；除它自己的 canary 外没有让 gate 真正失败的输入；未测 panic 路径（`panic=abort`
@@ -975,6 +977,36 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   改动只影响失败路径）；验收电池（`target/logs/tailpar2/summary.txt`）**217 s**、41 个测试壳
   **681 passed / 0 failed**、三门禁 + 4 个 python 单测 + oracle 全 exit 0；21 个变异在本修订上
   逐个复现（`target/logs/finalTailpar2/summary.txt`，与 `finalPerf2` 逐条相同）。
+
+* **`f2e7d09` 的验证审核（第八条独立审核线）：1×P1（**本轮自己引入的回归**）+ 4×P2，全部接受
+  （本提交）**。唯一改动文件仍是 `examples/line_domain_census.rs`（外加两份文档）。
+  ① **P1（回归，已修）**：上一轮把新单测 `the_boundary_gate_merge_keeps_order_and_sums` 插在
+  card-6 的文档注释与 `#[test]` **之间**，于是 `the_arm_geometry_audit_reproduces_the_frozen_partition`
+  丢掉了属性——它变成死代码（`cargo test --tests` 看不见它，lib 侧的 `dead_code` 也不覆盖 example），
+  而新测试被**注册两次**：`cargo test --release -p cryspglib --example line_domain_census -- --list`
+  实测 **24 条注册 / 23 条不同**，电池总数 681 = 680 − 1 + 1 + 1。已把 card-6 的文档注释与属性
+  移回它自己的函数；现在 `--list` = **24 条不同**、`24 passed / 0 failed`（实测 0.14 s），构建该
+  example 只剩既有的 `Cargo.toml` 清单警告、无 `duplicated_attribute`。
+  ② **P2（已修）**：合并单测只钉住 `legacy` 表的"同键求和"，`corrected` 表**只断言长度**——把
+  `corrected` 的合并从 `+=` 改成 `insert`（覆盖）时该测试**仍然通过**。现在夹具在两张表上各给一条
+  **共享键**（同一 `corrected` 键来自两条记录），该变异给出 `left: 1, right: 2` 并使测试失败；
+  同时补上 `corrected` 的 `len()` 断言与"只合并第一个 part 必须可分辨"的对照。
+  ③ **P2（已修）**：回显循环上方的注释写"`if gate {}` 或下面的 recount 块"——full-star recount
+  通过程实际在 gate 块**之上**贡献，注释已按实际顺序改写（gate 块与它下面的 flag 块才是回显之后
+  追加 violation 的两处）。
+  ④ **P2（已修）**：文档里仍有一处把这次遍历的记录数写成 5,756（上一轮 P2-4 的同类残留），已改为
+  **1,006** 条 `Record`；`grep -rn "5,756 条记录"` 现为 **0 命中**（仓库源码与文档）。
+  ⑤ **P2（已修）**：带 sweep 的 A/B 数字（36.8 → 32.44 s）没有日志来源；现已写入并改引
+  `target/logs/tailpar2/ab-sweep.txt`（交替 A/B：**36 745 / 37 380 ms（改前）→ 32 941 / 33 058 ms
+  （改后）**，两边三个 TSV 都与钉住值逐字节相同、改后报告与钉住修订逐行相同）。AGENTS.md 与
+  coverage §4c 两处已统一引用同一份日志。
+  **如实说明（既有行为，未改）**：无门禁 flag 的裸运行会打印三条"依赖 sweep 的计数为 0"的 violation
+  却 **exit 0**——这与 `verdict` 只在 `gate || require_covered || full_star_recount || domain_sweep`
+  下生效有关，是卡 6 起就有的既有行为（`f2e7d09` 的裸运行逐字相同，非本提交引入）；裸运行不是验收
+  命令，验收命令始终带上 `--gate --require-covered --domain-sweep`。
+  **本提交的验证**：`cargo test --release -p cryspglib --example line_domain_census` **24 passed /
+  0 failed**、`--list` **24 条不同**、严格 clippy exit 0、`corrected` 覆盖变异使该测试失败；验收电池
+  与 21 个变异在本修订上的复跑见紧随其后的纯文档提交。
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有

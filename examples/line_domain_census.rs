@@ -1688,9 +1688,10 @@ block_count\tblocks";
     }
 
     // Every violation is echoed **after** all the passes have contributed, so a
-    // failure inside `if gate {}` (or the recount block below) is readable and
-    // not only counted: the echo used to sit before the gate block, which left
-    // gate-level violations as a bare "gate: FAILED (N violation(s))" with an
+    // failure raised inside `if gate {}` is readable and not only counted.  The
+    // recount pass contributes above the gate block, but the gate block (and the
+    // flag block below it) push violations after the point where the echo used to
+    // sit, which left those as a bare "gate: FAILED (N violation(s))" with an
     // empty stderr (external review of `b428a93`, P2-3).
     for violation in &violations {
         eprintln!("census violation: {violation}");
@@ -9639,16 +9640,6 @@ mod tests {
         (embedding, reciprocal)
     }
 
-    /// **Card 6, positive control: the audit is not vacuous, and it reproduces
-    /// the partition on the frozen witness.**
-    ///
-    /// The numbers here are the single-pair form of the corpus totals: the
-    /// relation count is the closed form `n^2 r - n`, the identically-true
-    /// relations are the partition's own `permanent_counts`, the recomputed
-    /// boundary set is the partition's, the two interior points of each of the
-    /// eight intervals hold no relation, and the arm count agrees with the
-    /// orbit–stabiliser count over the parent's rotations.
-    #[test]
     /// The gate's per-record pass is merged afterwards, so the merge is load
     /// bearing: it has to add the two tables entry-wise (a key two records share
     /// must sum, not overwrite), sum the counters and append the violations in
@@ -9663,6 +9654,8 @@ mod tests {
             *gate.legacy.entry((ordinal, true, TargetClass::Stored)).or_insert(0) += count;
             *gate.legacy.entry((7, false, TargetClass::Constructed)).or_insert(0) += 1;
             *gate.corrected.entry((ordinal, BlockSource::Stored)).or_insert(0) += count;
+            // the same *corrected* key from two records must sum as well
+            *gate.corrected.entry((7, BlockSource::Constructed)).or_insert(0) += 1;
             gate.legacy_totals[0] += count;
             gate.corrected_totals[1] += count;
             gate.boundary_probes += probes;
@@ -9681,10 +9674,11 @@ mod tests {
         assert_eq!(total.legacy[&(2, true, TargetClass::Stored)], 5);
         assert_eq!(total.corrected[&(1, BlockSource::Stored)], 2);
         assert_eq!(total.corrected[&(2, BlockSource::Stored)], 5);
-        // ... and the key both records carry **sums** rather than being overwritten
+        // ... and the keys both records carry **sum** rather than being overwritten
         assert_eq!(total.legacy[&(7, false, TargetClass::Constructed)], 2);
+        assert_eq!(total.corrected[&(7, BlockSource::Constructed)], 2);
         assert_eq!(total.legacy.len(), 3);
-        assert_eq!(total.corrected.len(), 2);
+        assert_eq!(total.corrected.len(), 3);
         // every counter is additive, in both convention buckets
         assert_eq!(total.legacy_totals, [7, 0, 0]);
         assert_eq!(total.corrected_totals, [0, 7, 0]);
@@ -9699,10 +9693,21 @@ mod tests {
         let mut dropped = BoundaryGate::default();
         dropped.merge(part(1, 2, 3, 0, 0));
         assert_ne!(dropped.legacy, total.legacy);
+        assert_ne!(dropped.corrected, total.corrected);
         assert_ne!(dropped.boundary_probes, total.boundary_probes);
         assert_ne!(dropped.violations, total.violations);
     }
 
+    /// **Card 6, positive control: the audit is not vacuous, and it reproduces
+    /// the partition on the frozen witness.**
+    ///
+    /// The numbers here are the single-pair form of the corpus totals: the
+    /// relation count is the closed form `n^2 r - n`, the identically-true
+    /// relations are the partition's own `permanent_counts`, the recomputed
+    /// boundary set is the partition's, the two interior points of each of the
+    /// eight intervals hold no relation, and the arm count agrees with the
+    /// orbit–stabiliser count over the parent's rotations.
+    #[test]
     fn the_arm_geometry_audit_reproduces_the_frozen_partition() {
         let record = record_of(196, 10_030);
         let (embedding, partition) = sweep_context_of(&record, "DT1");

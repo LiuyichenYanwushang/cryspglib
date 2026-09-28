@@ -674,7 +674,7 @@ gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子
 | 门禁 `--gate --require-covered`，8 线程 | 42.27 s | 14.87 s |
 | 同一命令，4 / 2 线程 | 60.96 / 99.91 s | 22.08 / 36.57 s |
 | 同一命令，1 线程 | 179.71 s | 66.29 s |
-| 加 `--domain-sweep`，8 线程 | 112 s | 38 s → **32.4 s**（串行尾部并行化后） |
+| 加 `--domain-sweep`，8 线程 | 112 s | 38 s（电池记录）；尾部并行化后的交替 A/B **36.8/37.4 → 32.9/33.1 s** |
 | 全部验收（`target/chainFast.sh`，含构建） | —— | **313 s**（其中构建 90 s） |
 
 比值为 2.84× / 2.76× / 2.73× / 2.71×；审核方在各自私有 target 上独立 A/B 得
@@ -704,7 +704,8 @@ sha256）：**41 个测试壳**（23 个 `--tests` 二进制加 18 个 example �
 `SubgroupEmbedding::from_isotropy_subgroup`、`verify_against_grid`），8 个 worker 全部停在
 `wait_until_cold`。**这两段现已并行化**（gate 的逐记录表改成 `par_iter` 后按记录序合并；
 `check_blocks` 的点类重算改成先并行算好、串行循环只比较），实测无 sweep 8 线程
-**14.87 → 10.51 s**（4 线程 22.08 → 18.28 s，带 sweep 36.8 → 32.4 s，1 线程 66.29 → 66.49 s 不变），
+**14.87 → 10.51 s**（4 线程 22.08 → 18.28 s，带 sweep 的交替 A/B 36.8/37.4 → 32.9/33.1 s
+（`target/logs/tailpar2/ab-sweep.txt`），1 线程 66.29 → 66.49 s 不变），
 **输出逐字节不变**（报告与 `finalZAA` 逐行相同、三个 TSV SHA 未变、8 线程 == 1 线程）；复核方补出的证据缺口（变异电池不覆盖这段新代码）以常驻单测`the_boundary_gate_merge_keeps_order_and_sums` 补齐（example 测试 23 → **24**）。
 验收电池的重排（`target/chainFast.sh`：
 8 线程 ground truth → 4 线程 determinism census ‖ 4 线程全局审计 → 测试/门禁的 `nice` 池 →
