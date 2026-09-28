@@ -783,7 +783,8 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   **恰好**是它——**收窄、截断或重复列表在读任何字符之前失败**；**同旋转集合的替换**（平移清零或平移
   改到格矢上）则通过读前检查、在**读取过程中**被操作成员资格（"operation is not in space group 18
   modulo the parent lattice"）与字符归一化控制（"the aligned little group carries no zero-translation
-  identity"）抓住（第六次复验 x4 20,827 / x9 46,059，且 x9 已计入 284,080 条字符条目）；② 新增 `character_entries` 计数器
+  identity"）抓住（第六次复验 **x4 20,827，已计入 284,080 条字符条目** / **x9 46,059，计入 0 条**——
+  归一化控制在计数器递增前触发；第七次复验更正了这两条的归属）；② 新增 `character_entries` 计数器
   （在 `read` 内按 `targets × operations` 累加），每对的增量与 `(两侧目标数) × aligned.len()` 比较，
   语料总值钉 **583,776**。**残余列表按复核方建议补齐并收紧**：**收窄操作列表已闭合**；剩下的都是
   刻意说谎——改写 `compare_readings` 自身函数体、**伪造引擎答案**（伪造整条 `SweepSide` 已被
