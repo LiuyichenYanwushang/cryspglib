@@ -772,6 +772,29 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   **P2**：`clippy --all-targets` 不 lint example 的 `#[cfg(test)]` 模块，三处测试调用丢弃 `Result`
   产生 `unused_must_use` 警告——三处都改为绑定返回值，`sweep_boundary_pass` 现在在**任一参数未回答**
   时返回 `Err`，`the_boundary_pass_binds_its_answers_to_its_requests` 断言"回答的参数集合 == 传入列表"。
+  **第五次复验（针对 `77bd51e`）与其收口**：复核方确认 w2（重复同一侧）/ w3（伪造整条 `SweepSide`）
+  已 exit 1（报文与数字逐字一致）、诚实运行与全部计数未变；但发现 **w5**：把交给比较的**操作列表**
+  在单目标块上收窄成只剩恒等元 → **exit 0**、报告逐字不变、23/23 测试绿，而 174,672 个目标对中
+  **162,144（93%）** 的"跨参数字符"退化成恒等分量（维数），而维数本来就是 `match_targets` 另行检查的。
+  根因：`first_operations`/`second_operations` 是**调用方传入且无绑定**的实参，计数器数的是目标而不是
+  (目标 × 操作) 条目（更粗的截断之所以失败，只是因为双目标块的歧义检查，不是绑定：w1 → 6,269、
+  w4 → 1,517）。修法（采纳其建议）：① `SweepSide::read` **自己计算**该侧 seed 点的子群小群
+  （`child_little_group(embedding, child_reciprocal, point)`），并要求交进来的操作列表的旋转集合
+  **恰好**是它——收窄、截断或替换列表都在读任何字符之前失败；② 新增 `character_entries` 计数器
+  （在 `read` 内按 `targets × operations` 累加），每对的增量与 `(两侧目标数) × aligned.len()` 比较，
+  语料总值钉 **583,776**。**残余列表按复核方建议补齐并收紧**：**收窄操作列表已闭合**；剩下的都是
+  刻意说谎——改写 `compare_readings` 自身函数体、**伪造引擎答案**（伪造整条 `SweepSide` 已被
+  `SweepSide::block()` 抓住，故收紧为"伪造引擎答案"）、或手工伪造读数并补计数。
+  **本轮验证**（源码 `2b3a9e65…`）：**21 个变异逐个重跑、逐个还原并复核 sha256：19 个 exit 1**——
+  p2a 23,027 / p2b 138,148 / p3 23,034 / p4 7,461 / p5 11,010 / p6 43,658 / p7 24,171 / n1 5,757 /
+  n2 168,413 / n3 4 / n4 4 / n6 168,413 / m8 5,757 / m11 23,040 / r2mb 46,059 / r2mb2 168,413 /
+  **w1 31,875 / w4 7,835 / w5 29,843**（w5 的首条报文即新检查："the first side is handed 1
+  operation(s) but the child little group at its seed point … has …"），**2 个残余 exit 0**
+  （m2/m2b：函数体内刻意改写匹配实参）；诚实门禁并行 **112 s** / 串行 **569 s** 均 exit 0，
+  三个 TSV 串并**逐字节相同**且 SHA 未变，`probes=42073 stored=33985 constructed=8088
+  unsupported=0 errors=0`、`349344/174672/0`、**`583776` 字符条目**、`8/8/0`、`46048/0`、`92096`
+  逐字未变；`--tests` 616/0、doctest 27、`--lib` 20/13、example **23**、严格 clippy exit 0；
+  family / ledger / 全局三门禁（VERDICT complete）与四个 python 门禁、离线 oracle 全部 exit 0。
   **第四次复验（针对 `3b0b0d2`）后的最终验证**（源码 `19c64343…`）：**18 个变异在最终源码上逐个重跑、
   逐个还原并复核 sha256：16 个 exit 1**——p2a 23,027 / p2b 138,148 / p3 23,034 / p4 7,461 / p5 11,010 /
   p6 43,658 / p7 24,171 / n1 5,757 / n2 168,413 / n3 4 / n4 4 / n6 168,413 / m8 5,757 / m11 23,040 /

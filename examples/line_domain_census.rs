@@ -281,6 +281,12 @@ const BINDING_CASE_PIN: usize = 18;
 /// `67a95fe`, P1).
 const CHARACTER_SIDE_PIN: usize = 349_344;
 
+/// Character **entries** the sweep reads: `targets x operations` per reading,
+/// counted inside [`SweepSide::read`].  Each pair's increment is compared with
+/// `2 x targets x aligned.len()`, so this pin is the corpus-level form of the
+/// same statement (fifth re-verification of `77bd51e`, R5-1).
+const CHARACTER_ENTRY_PIN: usize = 583_776;
+
 /// Distinct interior parameters the relation audit evaluates: two per interval
 /// and the intervals are disjoint, so this is `2 x 46,048`.  A repeated point
 /// keeps the structural counters green and moves this one.
@@ -2483,6 +2489,14 @@ struct GeometryReport {
     /// `67a95fe`, P1).
     character_side_checks: usize,
     character_side_mismatches: usize,
+    /// Character **entries** read (targets x operations per reading), counted
+    /// inside [`SweepSide::read`].
+    ///
+    /// `character_side_checks` counts target vectors, so it cannot see a shorter
+    /// operation list; this counter can, and each pair's increment is compared
+    /// with `2 x targets x aligned.len()` from the honest alignment (fifth
+    /// re-verification of `77bd51e`, R5-1).
+    character_entries: usize,
     /// Interior points of the sweep's intervals at which the relation list was
     /// evaluated (two per interval).
     interior_points: usize,
@@ -3429,6 +3443,10 @@ struct SweepSide<'a> {
     /// The child reciprocal lattice of the block's star, for the seed-point
     /// membership and folded-point checks.
     child_reciprocal: &'a Lattice,
+    /// The embedding, so the operation list handed to `read` can be checked
+    /// against the **independently computed** child little group at the seed
+    /// point (see `read`).
+    embedding: &'a SubgroupEmbedding,
     /// The partition's folded directions: arm `a`'s point at `parameter` is
     /// `parameter * arms[a].direction`, which is what ties the recorded seed arm
     /// to the recorded gauge point.
@@ -3543,8 +3561,34 @@ impl SweepSide<'_> {
         report: &mut GeometryReport,
     ) -> Result<SideReading, String> {
         let block = self.block()?;
+        // The operations have to **be** the child little group at this side's seed
+        // point, computed here from the embedding and the child lattice rather
+        // than taken from the caller: the comparison's characters are read over
+        // this list, so a caller that hands a shorter or different list would
+        // otherwise reduce the cross-parameter comparison to whatever it chose
+        // (fifth re-verification of `77bd51e`, w5: identity-only lists for
+        // single-target blocks left the gate, every counter and the report
+        // identical while 93% of the target pairs were compared only through
+        // their identity component).
+        let honest = child_little_group(self.embedding, self.child_reciprocal, &self.point)?;
+        let mut handed: Vec<[i32; 9]> = operations.iter().map(|op| rotation_key(&op.rotation())).collect();
+        handed.sort_unstable();
+        let mut expected: Vec<[i32; 9]> = honest.iter().map(|op| rotation_key(&op.rotation())).collect();
+        expected.sort_unstable();
+        if handed != expected {
+            return Err(format!(
+                "the {} side is handed {} operation(s) but the child little group at its seed point \
+                 {} has {}; the characters of the cross-parameter comparison have to be read over \
+                 the little group itself",
+                self.side,
+                operations.len(),
+                self.point,
+                honest.len()
+            ));
+        }
         let mut targets = gauge_unified_targets(block, &self.point, operations)?;
         report.character_side_checks += targets.len();
+        report.character_entries += targets.len() * operations.len();
         // Taken from the verified answer, not from the request: after the check
         // above the two agree, and if a later change ever broke that agreement
         // the recorded value is what the characters were actually read at.
@@ -3587,16 +3631,35 @@ fn compare_readings(
     first_operations: &[ExactSeitz],
     second_side: &SweepSide,
     second_operations: &[ExactSeitz],
+    aligned_len: usize,
     block_key: &str,
     report: &mut SweepReport,
     failures: &mut Vec<String>,
 ) -> Result<(SideReading, SideReading), String> {
+    let entries_before = report.geometry.character_entries;
     let first = first_side
         .read(first_operations, &mut report.geometry)
         .map_err(|error| format!("{block_key}: the first parameter's targets: {error}"))?;
     let second = second_side
         .read(second_operations, &mut report.geometry)
         .map_err(|error| format!("{block_key}: the second parameter's targets: {error}"))?;
+    // The characters read have to be one per (target, operation) of the honest
+    // alignment: `read` already requires the operation list to be the child little
+    // group at the side's seed point, and this closes the length arithmetic as
+    // well, so neither a shortened list nor a mismatched expectation survives
+    // (fifth re-verification of `77bd51e`, w5/w1/w4).
+    let expected_entries = (first.targets.len() + second.targets.len()) * aligned_len;
+    let read_entries = report.geometry.character_entries - entries_before;
+    if read_entries != expected_entries {
+        report.geometry.character_side_mismatches += 1;
+        failures.push(format!(
+            "{block_key}: the two readings produced {read_entries} character entr(ies) but \
+             {expected_entries} are expected from {} target(s) over the {aligned_len}-operation \
+             little group",
+            first.targets.len() + second.targets.len()
+        ));
+        return Ok((first, second));
+    }
     if let Some(error) = side_pair_error(
         &first.source,
         &second.source,
@@ -3621,6 +3684,8 @@ fn compare_readings(
     // (ii) Each operand is checked against **its own** reading's provenance; both
     // the operand and the provenance come from the readings made above, so there
     // is nothing to substitute at a call site.
+    let entries_before = report.geometry.character_entries;
+    let _ = entries_before;
     if let Some(error) =
         operand_origin_error(&first.targets, &second.targets, &first.source, &second.source)
     {
@@ -4497,6 +4562,7 @@ fn sweep_interval(
             side: "the first",
             result: r1,
             child_reciprocal: context.child_reciprocal,
+            embedding,
             arms: context.arms,
             parameter: *t1,
             block_index: *index,
@@ -4507,6 +4573,7 @@ fn sweep_interval(
             side: "the second",
             result: r2,
             child_reciprocal: context.child_reciprocal,
+            embedding,
             arms: context.arms,
             parameter: *t2,
             block_index: *partner,
@@ -4518,6 +4585,7 @@ fn sweep_interval(
             &first_operations,
             &second_side,
             &second_operations,
+            aligned.len(),
             &block_key,
             report,
             failures,
@@ -5826,6 +5894,7 @@ fn merge_geometry(total: &mut GeometryReport, part: GeometryReport) {
     total.boundary_key_mismatches += part.boundary_key_mismatches;
     total.character_side_checks += part.character_side_checks;
     total.character_side_mismatches += part.character_side_mismatches;
+    total.character_entries += part.character_entries;
     total.disagreements += part.disagreements;
     total.arm_orbit_checks += part.arm_orbit_checks;
     total.arm_orbit_disagreements += part.arm_orbit_disagreements;
@@ -6136,10 +6205,12 @@ fn report(
         );
         println!(
             "  character readings: {} provenance check(s) over {} matched target pair(s), {} \
-             reading(s) recorded from the wrong side",
+             reading(s) recorded from the wrong side; {} character entr(ies) read over the aligned \
+             little groups",
             geometry.character_side_checks,
             sweep.targets,
-            geometry.character_side_mismatches
+            geometry.character_side_mismatches,
+            geometry.character_entries
         );
         println!(
             "  independent arm-geometry audit: {} pair(s), {} relation(s) enumerated (closed form \
@@ -7278,6 +7349,12 @@ fn check_invariants(
                 "the sweep compared {} character reading(s) that were not read from the side they \
                  were compared as",
                 evidence.sweep.geometry.character_side_mismatches
+            ));
+        }
+        if evidence.sweep.geometry.character_entries != CHARACTER_ENTRY_PIN {
+            violations.push(format!(
+                "the sweep read {} character entr(ies), expected {}",
+                evidence.sweep.geometry.character_entries, CHARACTER_ENTRY_PIN
             ));
         }
         if evidence.sweep.geometry.character_side_checks != CHARACTER_SIDE_PIN {
@@ -8926,6 +9003,7 @@ mod tests {
             result: &'a LineSubduction,
             child_reciprocal: &'a Lattice,
             arms: &'a [FoldedArm],
+            embedding: &'a SubgroupEmbedding,
             parameter: Rat,
             block_index: usize,
             point: Vec3R,
@@ -8934,6 +9012,7 @@ mod tests {
                 side: name,
                 result,
                 child_reciprocal,
+                embedding,
                 arms,
                 parameter,
                 block_index,
@@ -8947,6 +9026,7 @@ mod tests {
                 result,
                 &partition.child_reciprocal,
                 &partition.arms,
+                &embedding,
                 parameter,
                 block_index,
                 point,
@@ -9062,6 +9142,7 @@ mod tests {
             &operations,
             &side("the second", &second, t2, partner, q2),
             &other_operations,
+            operations.len(),
             "the honest control",
             &mut honest,
             &mut no_failures,
@@ -9082,6 +9163,7 @@ mod tests {
             &operations,
             &side("the first", &first, t1, index, q1),
             &other_operations,
+            operations.len(),
             "the swapped control",
             &mut swapped,
             &mut swap_failures,
