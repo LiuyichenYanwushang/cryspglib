@@ -600,6 +600,21 @@ CARGO_TARGET_DIR=/home/liuyichen/TB_rs/cryspglib/target \
 **10038 的 `1/8` 臂合并与 6 块→4 块**（`the_line_10038_partition_sees_the_arm_merge_at_one_eighth`，
 含生产几何与生产分解在 `1/9`/`1/7`/`1/8` 上的子项）。
 
+* **复验轮（针对 `9d0a7fd`，同一复核方）的残余与本轮收口（2026-09-26）**：复核方确认上一轮修复
+  全部生效（n1 5,757 / n3 / n6 / n7 对照 / n5 no-op / 文档数字 / 诚实门禁与测试计数），并给出
+  三个"锚点仍在函数内部"的新逃逸：① `compare_readings` 体内把 `match_targets(left, right, …)`
+  改成 `left, left` → 曾 exit 0 并掩盖第二侧取负；现在函数**接收两侧 `SweepSide`**、内部 `read()`，
+  每个向量带 `origin` 出处，并由 `compare_operands` 在**同一函数的同一对参数**上先检查再匹配
+  （调用点一侧的改写全部闭合；函数体内的刻意改写仍列为残余）；② `sweep_boundary_pass` 顶部
+  反射自己的 `parameters` → 曾 exit 0（17,268/46,048 未分解）；锚点移到 `sweep_label`（列表在那里
+  已对分区验证）；③ `sweep_interval` 顶部反射 `(left, right)` → 曾 exit 0；`sweep_interval` 现在
+  返回实际分解/记录的参数，锚点在 `sweep_label` 用 `interior_points` 重算。witness 列表同样移进
+  `probe_record`。**最终源码（`1050c84f…`）16 个变异：14 个 exit 1**（p2a 28,783 / p2b 138,148 /
+  p3 23,034 / p4 7,461 / p5 11,010 / p6 43,658 / p7 24,171 / n1 5,757 / n2 168,413 / n3 4 /
+  n4 4 / n6 168,413 / m8 5,757 / m11 23,040），**2 个残余**（m2/m2b：函数体内刻意改写匹配实参，
+  以及"手工伪造读数＋补计数"——"控制看不见自己的删除"这一类）；诚实门禁并行 109 s / 串行 565 s
+  均 exit 0，三个 TSV SHA 未变，测试 616/0 + example 23 + clippy exit 0。
+
 ## 5. 与 R6.1 验收的关系
 
 R6.1 的审计（三门口禁）现在包含两条与参数族相关的硬失败门禁：

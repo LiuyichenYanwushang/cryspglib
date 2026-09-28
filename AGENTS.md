@@ -709,6 +709,49 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   没有绝对钉值；绝对钉值本身仍可被删除而不被发现；`recount_witnesses` 的返回参数锚点之外，
   其"两参数都 < 1/2"使得反射是恒等，未单独做反射变异（n3 用的是 1/8→1/9 重绑）。
 
+* **第五条审核线的复验（针对 `9d0a7fd`，同一复核方、私有 worktree）：复核方确认上一轮修复全部生效，
+  同时给出**三个新的同类逃逸**与两个残余；本轮按它的建议把锚点移到**持有该操作数的调用方**（本提交）**。
+  复验确认：n1 → exit 1 / 5,757；n3 → exit 1（其形状 2 条，我方形状 4 条，都 exit 1）；n6 / n7 对照
+  exit 1；n5 证实是 **no-op**；文档 92,100 与 `36925ed` 归属正确；诚实门禁、example 23/0、
+  `--tests` 616/0、doctest 27、`--lib` 20/13、clippy `-D warnings` 全部复现。
+  **① P0（等效）`compare_readings` 仍可自比**：把函数体内的 `match_targets(left, right, …)` 写成
+  `match_targets(left, left, …)`（实参都在函数体内，不是调用点的交换）→ exit 0、报告逐字不变、
+  23/23 测试绿，并**掩盖**第二侧整体取负（诚实操作数下 exit 1 / 168,413）。修法（复核方建议，已采纳）：
+  `compare_readings` 改为**接收两侧 `SweepSide` 并在内部 `read()`**——把同一侧传两次会得到两条都记录
+  `t1` 的读数，`side_pair_error` 直接拒绝；另给每个向量打上 `origin: Option<ReadSource>`（**产出它的
+  读数**；未盖章是可见占位符、fail-closed），并对**实际参与比较的两个操作数**跑
+  `operand_origin_error`：把一侧向量当另一侧用、或未盖章的向量，都在比较任何字符之前失败。新回归
+  `the_character_reading_is_bound_to_its_own_side` 覆盖诚实对（1 个目标）、同一侧两次（计数 1、
+  `targets == 0`）、操作数来源不符、未盖章向量四类。
+  **② P1 边界锚点（m8）**：在 `sweep_boundary_pass` 顶部把 `parameters` 反射后重新绑定（**移动函数
+  自己的输入**）→ exit 0、`5 requested / 5 answered`、17,268/46,048 未分解（example 测试能抓，
+  门禁抓不到）。修法：`sweep_boundary_pass` 返回**引擎回答的参数列表**，锚点移到 `sweep_label`
+  （参数列表在那里已对分区验证过）并与 `parameters` 比较；函数内锚点保留为 belt-and-braces。
+  **③ P1 区间锚点（m11）**：在 `sweep_interval` 顶部反射 `(left, right)` → 两条"从区间重算"的锚点
+  一起移动 → exit 0、报告逐字不变、23/23 绿。修法：`sweep_interval` 返回它实际分解与记录的两个参数
+  列表，锚点移到 `sweep_label`（它拥有 `(left, right)`，用 `interior_points` 自己重算期望点）。
+  同理 witness 列表也移进 `probe_record`（调用方），`recount_witnesses` 返回回答参数。
+  **④ P2 残余（如实，本轮实测）**：把 `compare_operands` **函数体内**那一行
+  `match_targets(left, right, …)` 直接改写成 `match_targets(left, left, …)`（m2/m2b：第二侧照旧读、
+  provenance 与 `origin` 检查都看的是未被改的 `left`/`right`）→ **exit 0、报告逐字不变、23/23 测试绿**，
+  并掩盖第二侧整体取负。同类还有"手工伪造读数 + 手工补计数"。这是"**控制看不见自己的删除**"这一类：
+  诚实数据通过一切结构检查、按定理跨参数字符本来就相等，输出层无法区分自比与正比；与"绝对钉值可被
+  删除"同族，就此披露、不再声称已闭合。**调用点一侧的所有改写都已闭合**（见下变异清单）。
+  **⑤ 复核方指出**：上一轮文档里"14 个变异跑在紧邻上一版、`git diff` 可核"一句在本仓库**不可核**
+  （`55d1a50…` 不在对象库里），本轮改为列出**在最终源码上**重新跑过的 16 个变异。
+  **本轮验证**（源码 `1050c84f…`）：**16 个变异在最终源码上重跑**——14 个 exit 1：p2a **28,783**、
+  p2b **138,148**、p3 **23,034**、p4 **7,461**、p5 **11,010**、p6 **43,658**、p7 **24,171**、
+  n1 **5,757**、n2 **168,413**、n3 **4**、n4 **4**、n6 **168,413**、**m8 5,757**、**m11 23,040**
+  （p2a/p2b 的条数比上一轮多，是因为调用方锚点也各报一条；m8/m11 正是本轮新锚点抓到的），
+  2 个是上面④的残余（m2/m2b → exit 0）；`--gate --require-covered --domain-sweep` 8 线程与
+  `--sequential` 两次 exit 0（wall 109 / 565 s），`probes=42073 stored=33985 constructed=8088
+  unsupported=0 errors=0`、`character readings: 349344 / 174672 / 0`、`boundary pass parameter
+  binding: 8 / 8 / 0`、`46048 interval(s) / 0 failed`、`92096 interior point(s)` 逐字未变；
+  三个 TSV 串并**逐字节相同**且 SHA 未变（`c7b8606e…` / `07dedd42…` / `a14598c1…`）；
+  `--tests` 616/0、doctest 27、`--lib line_domain` 20、`--lib catalogue` 13、example **23**、
+  严格 clippy exit 0；family / ledger / 全局三门禁审计（`366260/366260`，VERDICT complete）与
+  python 门禁、离线 oracle 全部 exit 0。
+
 * **卡 7（全量重算、独立审核、提交与文档收口）**（原始规格，已由上面的结果条目取代）每张卡先跑对应小范围回归；阶段验收按本文件
   的基线（见下文"当前验证基线"），并明确覆盖：
   `cargo test --release -p cryspglib --lib line_domain`、`--lib catalogue`、
