@@ -509,6 +509,45 @@ R6.4 之前的域结论来自分母采样（42 个点）。R6.5 把它换成**�
   10038 的四块几何是陪集、单条关系解集含 0）。④ **卡 7 口径**：新增边界按事件种类分类
   `[growth only, merge only, orbit only, several] = [0, 2100, 0, 8909]`（和 = 11,009）并钉住。
 
+* **卡 7 外部复核轮（2026-09-26，针对 `67a95fe`；1×P1 + 2×P2 验收证据绑定缺口，全部修复）**：
+  复核方在原始树上用源码变异复现三处"门禁看不见"的缺口（三处变异都让门禁 exit 0、四份终报
+  逐字节相同；数学论证本身未被推翻）。修法与实测：
+  ① **P1 字符比较退化为自比**：第二侧读取改成重读第一侧（块/点/操作）后，跨参数比较变成
+  "左 vs 左"。现在字符读取经 `SweepSide`（引擎答案 + 本侧参数 + 块下标 + seed 臂 + seed 点）：
+  `block()` 在读任何字符**之前**校验"答案自己的参数 == 本侧参数、块下标存在、seed 臂属于该块、
+  seed 点属于该块"，`read()` 记录的 provenance 取自被校验的答案，`side_pair_error` 要求两侧
+  记录到的参数分别是本区间的两个参数且互不相同；计数 `character_side_checks`（读取路径内，
+  按目标向量）与 `character_side_mismatches`，门禁断言 `mismatches == 0`、
+  `checks == 2 × matched target pairs == 349,344`。同一变异现在 **exit 1**（168,408 条
+  wrong-side reading / 168,411 violations）。新回归
+  `the_character_reading_is_bound_to_its_own_side` 证明误读读数结构上合法、向量与左侧逐位相同
+  （分数 1.0），只有 provenance 检查拒绝。
+  ② **P2 边界直方图未绑定实际参数**：`t > 1/2 → 1 − t` 的反射使每对只问 5 个参数（46,048 个
+  参数组合中 **17,268** 个从未分解），而块几何在反射下不变 ⇒ 直方图与维数和照旧。现在每次成功
+  比对 `result.parameter()` 与请求（`boundary_parameter_mismatches`）、逐对按**返回的**参数键
+  比较多重集（`boundary_key_error`），并累加 requested/answered 两张 `(num,den)` 映射要求
+  **完全相等**（`boundary_parameter_binding_error`，同时覆盖复用答案）。同一变异现在 **exit 1**
+  （`8 requested / 5 answered`、17,268 mismatch、5,756 对键不符 / 23,027 violations）。
+  ③ **P2 内点去重数的是循环变量**：`relation_counts` 现在在**求值入口**把实参记入 `recorded`
+  （与判定同一绑定），`recorded_parameters` + `interior_record_error` 要求"恰好两个、互不相同"，
+  `interior_distinct/interior_repeats` 由记录值驱动；边界关系循环接入同一入口记录并与 claimed 集
+  等势。把第二次求值实参换成 `&first` 的变异现在 **exit 1**（"recorded the same evaluated
+  parameter 1 time(s) over 2 point(s)" / 46,052 violations）。新回归
+  `the_interior_audit_records_what_it_evaluates`。门禁合成自检扩到 **18** 个夹具
+  （`BINDING_CASE_PIN = 18`）。
+  **同类缺口在其余调用点一并关闭（本方变异电池）**：`answered_parameter_error(result, requested)`
+  接到 main probe / recount / recount witness 三个生产调用点（主探针不一致时**不记录该探针**），
+  门禁新增"recount 通过程自身 `failures` 为空"（此前 row 之后记录的失败只打印）。自查变异又发现
+  两处同族缺口并修复：① 内点**分解**反射 `t>1/2 → 1−t`（连同守卫一起重绑）曾 exit 0——现在按
+  **返回参数**要求等于区间自己的两个三分点（`answered == [first, second]`）；② recount 反射曾
+  exit 0（几何反射不变 ⇒ 所有聚合与钉值照旧）——现在要求 recount 的返回参数集等于其 `added`
+  列表。8 个变异（p1 自比读取 168,408/168,411；p2a 边界反射 17,268/23,027；p2b 内点实参重复
+  92,100；p3 内点分解反射 23,034；p4 recount 反射 7,461；p5 行后注入 recount 失败 11,010；
+  p6 seed 臂与 gauge 点不对应 43,658；p7 主探针反射 24,171）**全部 exit 1**。
+  **残余（如实）**：绝对钉值仍可被删除而不被发现（`CHARACTER_SIDE_PIN` 有结构性等式与自检兜底，
+  删钉值＋等式仍不可见）；`--domain-sweep` 报文新增两行打印（TSV 与全部钉值未变）；
+  `recount_witnesses` 的守卫未单独变异（其两个 pinned 参数都 < 1/2，反射是恒等）。
+
 复现：
 
 ```bash

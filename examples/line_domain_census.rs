@@ -270,7 +270,16 @@ const ADDED_BOUNDARY_KIND_PIN: [usize; 4] = [0, 2_100, 0, 8_909];
 /// Fixtures the binding self-check drives (honest, reused-answer and lost-item
 /// boundary; honest, repeated and lost interior).  Pinned so a self-check reduced
 /// to its honest fixture is visible as a moved count.
-const BINDING_CASE_PIN: usize = 6;
+const BINDING_CASE_PIN: usize = 18;
+
+/// Character-reading provenance checks recorded by the sweep: two readings (the
+/// two sides) per matched target pair, **each counted inside the reading path**.
+///
+/// An absolute pin alone cannot see its own deletion, so this one is paired with
+/// the structural equality `checks == 2 x matched target pairs` and with the
+/// self-check fixtures that drive the decision it feeds (external review of
+/// `67a95fe`, P1).
+const CHARACTER_SIDE_PIN: usize = 349_344;
 
 /// Distinct interior parameters the relation audit evaluates: two per interval
 /// and the intervals are disjoint, so this is `2 x 46,048`.  A repeated point
@@ -1261,7 +1270,8 @@ cocycle_trivial\tblock_source\tterms\tcarries_reference\tcarries_gamma";
             }
             if let Some(extra) = written.next() {
                 block_file_failures.push(format!(
-                    "the --output-blocks file has a data row beyond the {rows} collected block(s):                      {:?}",
+                    "the --output-blocks file has a data row beyond the {rows} collected \
+                     block(s): {:?}",
                     &extra[..extra.len().min(60)]
                 ));
             }
@@ -2441,6 +2451,38 @@ struct GeometryReport {
     /// pinned histogram (and its equality with the answered-parameter count)
     /// cannot be reproduced without asking the engine at every parameter.
     boundary_block_shapes: BTreeMap<usize, usize>,
+    /// The boundary pass' **requested** parameters and the parameters the engine
+    /// **answered for**, keyed by the exact `(numerator, denominator)` the engine
+    /// itself reported (see [`parameter_key`]).
+    ///
+    /// The block-count histogram above is a function of the block geometry, and
+    /// the geometry is invariant under the reflection `t -> 1 - t`: a pass that
+    /// substituted `1 - t` for every `t > 1/2` still reproduced the pinned
+    /// histogram exactly, while only five distinct parameters per pair reached
+    /// the engine -- 17,268 of the 46,048 parameter combinations were never
+    /// evaluated (external review of `67a95fe`, P2).  Keying the answers by what
+    /// the engine **returned** and requiring the two maps to be equal binds the
+    /// pass to its own parameter list: a substitution, a duplicate or a reused
+    /// answer all move the answered map, the per-pair key comparison and the
+    /// returned-against-requested check.
+    boundary_requested: BTreeMap<(i128, i128), usize>,
+    boundary_answered: BTreeMap<(i128, i128), usize>,
+    /// Answered parameters whose returned parameter is not the requested one.
+    boundary_parameter_mismatches: usize,
+    /// Pairs whose multiset of **returned** parameter keys is not the multiset of
+    /// requested ones (a duplicate or a missing answer, by returned key).
+    boundary_key_mismatches: usize,
+    /// Character readings checked against their recorded provenance (parameter,
+    /// block index, seed arm), and readings whose provenance did not match the
+    /// side they were read for.
+    ///
+    /// The comparison is a cross-parameter one, so its two readings have to come
+    /// from two different parameters: reading the second side's characters off
+    /// the first block at the first point turns every downstream check into
+    /// `left vs left`, which passes by construction (external review of
+    /// `67a95fe`, P1).
+    character_side_checks: usize,
+    character_side_mismatches: usize,
     /// Interior points of the sweep's intervals at which the relation list was
     /// evaluated (two per interval).
     interior_points: usize,
@@ -2531,11 +2573,19 @@ fn census_relations(
 /// `evaluated` is incremented once per relation **before** the predicate is
 /// decided, so a relation that fails to be decided is still counted as
 /// evaluated.
+///
+/// `recorded` receives the parameter **this call** evaluates, pushed at the entry
+/// point from the same binding the predicates below are decided with.  The
+/// caller's loop variable is not what gets recorded: a call that is handed a
+/// different parameter than the loop iterates records what it actually evaluated
+/// (external review of `67a95fe`, P2).
 fn relation_counts(
     relations: &[CensusRelation],
     parameter: &Rat,
     evaluated: &mut usize,
+    recorded: &mut Vec<Rat>,
 ) -> Result<[usize; 3], String> {
+    recorded.push(*parameter);
     let mut counts = [0usize; 3];
     for relation in relations {
         if relation.permanent {
@@ -2784,10 +2834,18 @@ fn audit_arm_geometry(
     }
     // At every boundary the partition claims, the relations that hold must be
     // exactly the ones it records: the counts are exact on both sides.
+    //
+    // The boundary loop iterates the partition's **deduplicated** boundary set
+    // (`parameter_set` above); the parameters it evaluated are recorded here
+    // through the same entry point as the interior audit, and the distinctness of
+    // that record is checked after the loop, so both relation audits are keyed by
+    // what they evaluated rather than by what they iterated.
+    let mut boundary_recorded: Vec<Rat> = Vec::with_capacity(claimed.len());
     for parameter in &claimed {
         report.geometry.boundaries += 1;
         let mut evaluated = report.geometry.evaluated;
-        let counts = match relation_counts(&relations, parameter, &mut evaluated) {
+        let counts =
+            match relation_counts(&relations, parameter, &mut evaluated, &mut boundary_recorded) {
             Ok(counts) => counts,
             Err(error) => {
                 report.geometry.evaluated = evaluated;
@@ -2810,6 +2868,15 @@ fn audit_arm_geometry(
                 counts[0], counts[1], counts[2], recorded[0], recorded[1], recorded[2]
             ));
         }
+    }
+    let (boundary_distinct, boundary_repeats) = recorded_parameters(&boundary_recorded);
+    if boundary_repeats > 0 || boundary_distinct != claimed.len() {
+        report.geometry.disagreements += 1;
+        report.failures.push(format!(
+            "{key}: the boundary relation audit recorded {boundary_distinct} distinct evaluated \
+             parameter(s) with {boundary_repeats} repeat(s) over {} claimed boundary parameter(s)",
+            claimed.len()
+        ));
     }
     // The arm count by orbit and stabiliser, against the partition's own list.
     // The closed form of the boundary pass' reported parent dimension: every
@@ -3314,6 +3381,198 @@ fn gauge_target_slice(
     Ok(out)
 }
 
+/// Where one side's gauge-unified characters were read.
+///
+/// Carried by [`SideReading`] so the pair's own precondition can be decided on
+/// **what was read** instead of on what the call site intended: the parameter the
+/// engine answer belongs to (taken from the answer itself, after
+/// [`SweepSide::block`] has checked it against the requested one), the block's
+/// index inside that answer, and the seed arm whose folded point is the gauge
+/// reference.  External review of `67a95fe` (P1): the second side's characters
+/// read off the first block at the first point keep every downstream count, match
+/// and pin intact while comparing nothing but the left side with itself.
+#[derive(Debug, Clone, PartialEq)]
+struct ReadSource {
+    parameter: Rat,
+    block: usize,
+    seed_arm: usize,
+}
+
+/// One side's verified reading: its provenance and the vectors.
+#[derive(Debug)]
+struct SideReading {
+    source: ReadSource,
+    targets: Vec<SweepTarget>,
+}
+
+/// One side of an interval comparison: the engine answer the characters are read
+/// from, plus every part of the reading's provenance.
+struct SweepSide<'a> {
+    /// How the side is named in messages.
+    side: &'static str,
+    /// The engine's answer this side reads from.
+    result: &'a LineSubduction,
+    /// The child reciprocal lattice of the block's star, for the seed-point
+    /// membership and folded-point checks.
+    child_reciprocal: &'a Lattice,
+    /// The partition's folded directions: arm `a`'s point at `parameter` is
+    /// `parameter * arms[a].direction`, which is what ties the recorded seed arm
+    /// to the recorded gauge point.
+    arms: &'a [FoldedArm],
+    /// The parameter this side has to be the decomposition of.
+    parameter: Rat,
+    /// Index of the block inside `result.blocks()`.
+    block_index: usize,
+    /// The common seed arm: the block's smallest parent arm index.
+    seed_arm: usize,
+    /// The seed arm's folded point at `parameter`, the gauge reference point.
+    point: Vec3R,
+}
+
+impl SweepSide<'_> {
+    /// The block this side reads, with every part of the provenance checked
+    /// **before** any character is read.
+    ///
+    /// The parameter check is the one the external review of `67a95fe` (P1) asked
+    /// for: a block is not identified by its arm set alone (that is the card-5
+    /// pairing, and it is deliberately parameter-independent), so a reading is
+    /// only this side's reading if it comes from this side's own decomposition,
+    /// out of the block the pairing named and through an arm of that block.
+    fn block(&self) -> Result<&FullStarBlock, String> {
+        if self.result.parameter() != &self.parameter {
+            return Err(format!(
+                "the {} side is read at t={} but the engine answer it reads from is the \
+                 decomposition of t={}, so a character would be read from the wrong parameter",
+                self.side,
+                self.parameter,
+                self.result.parameter()
+            ));
+        }
+        let block = self.result.blocks().get(self.block_index).ok_or_else(|| {
+            format!(
+                "the {} side's answer carries {} block(s), so the block index {} does not exist",
+                self.side,
+                self.result.blocks().len(),
+                self.block_index
+            )
+        })?;
+        if !block.arm_indices().contains(&self.seed_arm) {
+            return Err(format!(
+                "the {} side's seed arm {} is not one of the arms {:?} of the block it reads",
+                self.side,
+                self.seed_arm,
+                block.arm_indices()
+            ));
+        }
+        let mut carries = false;
+        for point in block.points() {
+            carries |= self
+                .child_reciprocal
+                .same_mod(point.q(), &self.point)
+                .map_err(|error| {
+                    format!(
+                        "the {} side's seed-point comparison for {}: {error}",
+                        self.side,
+                        point.q()
+                    )
+                })?;
+        }
+        if !carries {
+            return Err(format!(
+                "the {} side's seed point {} is in no point of the block (arms {:?}) it reads",
+                self.side,
+                self.point,
+                block.arm_indices()
+            ));
+        }
+        // The recorded seed arm and the gauge point have to belong to each
+        // other: the arm's own folded point at this parameter is the point the
+        // gauge is taken at.  Membership alone is not enough -- an arm of the
+        // same block that folds elsewhere would pass every check above while the
+        // provenance claims a gauge point the arm has nothing to do with.  The
+        // comparison is modulo the child reciprocal lattice for the same reason
+        // `SweepBlock::read`'s is: at a boundary the engine reports a class
+        // representative for merged arms.
+        let arm = self.arms.get(self.seed_arm).ok_or_else(|| {
+            format!(
+                "the {} side's seed arm {} is not in the partition's arm table",
+                self.side, self.seed_arm
+            )
+        })?;
+        let folded = scale_point(&arm.direction, &self.parameter)
+            .map_err(|error| format!("the {} side's folded seed point: {error}", self.side))?;
+        if !self
+            .child_reciprocal
+            .same_mod(&folded, &self.point)
+            .map_err(|error| format!("the {} side's folded-point comparison: {error}", self.side))?
+        {
+            return Err(format!(
+                "the {} side records the seed arm {} with the gauge point {}, but that arm folds \
+                 onto {folded} at t={}",
+                self.side, self.seed_arm, self.point, self.parameter
+            ));
+        }
+        Ok(block)
+    }
+
+    /// Read the block's targets' gauge-unified little-group characters over
+    /// `operations`, recording the provenance the reading was made with.
+    fn read(&self, operations: &[ExactSeitz]) -> Result<SideReading, String> {
+        let block = self.block()?;
+        let targets = gauge_unified_targets(block, &self.point, operations)?;
+        Ok(SideReading {
+            source: ReadSource {
+                // Taken from the verified answer, not from the request: after the
+                // check above the two agree, and if a later change ever broke
+                // that agreement the recorded value is what the characters were
+                // actually read at.
+                parameter: *self.result.parameter(),
+                block: self.block_index,
+                seed_arm: self.seed_arm,
+            },
+            targets,
+        })
+    }
+}
+
+/// The comparison's own precondition, decided on the **recorded** provenance of
+/// the two readings.
+///
+/// Extracted so the gate self-check can drive it with fixtures that must and must
+/// not be rejected: the honest pair, a first side read at the second parameter, a
+/// second side read at the first parameter, and both sides read at one parameter.
+fn side_pair_error(
+    first: &ReadSource,
+    second: &ReadSource,
+    first_parameter: &Rat,
+    second_parameter: &Rat,
+) -> Option<String> {
+    if &first.parameter != first_parameter {
+        return Some(format!(
+            "the first side's characters were recorded from the decomposition of t={} but the \
+             first parameter is t={first_parameter}, so the comparison is not reading the side it \
+             names",
+            first.parameter
+        ));
+    }
+    if &second.parameter != second_parameter {
+        return Some(format!(
+            "the second side's characters were recorded from the decomposition of t={} (block {}, \
+             seed arm {}) but the second parameter is t={second_parameter}, so the comparison is \
+             not reading the side it names",
+            second.parameter, second.block, second.seed_arm
+        ));
+    }
+    if first.parameter == second.parameter {
+        return Some(format!(
+            "both sides' characters were recorded from the decomposition of t={}, so the \
+             cross-parameter comparison is a comparison of one parameter against itself",
+            first.parameter
+        ));
+    }
+    None
+}
+
 /// [`exactly_fixes`] with the control's counters incremented from the rotation
 /// that is **actually passed in**.
 ///
@@ -3514,6 +3773,126 @@ fn sweep_label(
     }
 }
 
+/// The exact key of one rational parameter: `(numerator, denominator)` of the
+/// normalized `Rat`.
+///
+/// The census's set representation is a sorted `Vec<Rat>` (the rational type has
+/// no `Ord`), but a counter keyed by a parameter needs a key type; this is the
+/// one the boundary pass and the interior audit use, so the maps they build and
+/// compare are keyed by the value both sides actually carry.
+fn parameter_key(parameter: &Rat) -> (i128, i128) {
+    (parameter.numerator(), parameter.denominator())
+}
+
+/// The engine answer has to be the answer to the request that produced it.
+///
+/// `LineSubduction::parameter()` stores the parameter the decomposition was
+/// actually computed for, so comparing it with the requested one binds every
+/// pass that asks the engine at a parameter to the parameter it records the
+/// answer under.  The sweep's boundary pass needed this against the reported
+/// reflection `t -> 1 - t` (external review of `67a95fe`, P2): the block geometry
+/// is reflection invariant, so the per-parameter histogram, the dimension sums,
+/// the interior comparison and the recount's block-shape histogram are all blind
+/// to it.  The other production call sites (the main probe pass, the full-star
+/// recount and the recount witnesses) carry the same check through this helper,
+/// so the class is closed rather than the one reported instance.
+fn answered_parameter_error(result: &LineSubduction, requested: &Rat) -> Option<String> {
+    if result.parameter() == requested {
+        return None;
+    }
+    Some(format!(
+        "the engine was asked for t={requested} and answered for t={}: the answer is not the \
+         decomposition of the parameter it is recorded under",
+        result.parameter()
+    ))
+}
+
+/// The boundary pass' binding decision, on the **returned** keys: the multiset of
+/// parameters the engine answered for has to be the multiset the pass asked for.
+///
+/// Extracted from [`sweep_boundary_pass`] so the gate self-check can drive it
+/// with an honest answer list, a reflected one (`t > 1/2` mapped to `1 - t`,
+/// which reaches only five of the eight parameters) and a reused one (one answer
+/// counted eight times), instead of only ever exercising the passing direction.
+fn boundary_key_error(requested: &[(i128, i128)], answered: &[(i128, i128)]) -> Option<String> {
+    let mut wanted = requested.to_vec();
+    wanted.sort_unstable();
+    let mut got = answered.to_vec();
+    got.sort_unstable();
+    if wanted == got {
+        return None;
+    }
+    Some(format!(
+        "the engine answered for {got:?} but the pass asked for {wanted:?}: a returned parameter \
+         that is not the requested one leaves that parameter unexamined"
+    ))
+}
+
+/// The boundary pass' **accumulated** binding decision: the parameters the engine
+/// answered for -- keyed by the parameter the engine returned -- have to be
+/// exactly the parameters that were requested, with the same multiplicities.
+///
+/// This is what a per-parameter check cannot see on its own: a pass that reuses
+/// one engine answer for all eight parameters keeps every returned parameter
+/// equal to *some* request while the answered map collapses to one key (final
+/// audit of `36925ed`, P0), and the reflection `t -> 1 - t` keeps every block
+/// count and every dimension sum intact while five keys answer for eight
+/// (external review of `67a95fe`, P2).
+fn boundary_parameter_binding_error(
+    requested: &BTreeMap<(i128, i128), usize>,
+    answered: &BTreeMap<(i128, i128), usize>,
+) -> Option<String> {
+    if requested == answered {
+        return None;
+    }
+    Some(format!(
+        "the boundary pass requested the parameter key(s) {requested:?} but the engine answered \
+         for {answered:?}"
+    ))
+}
+
+/// Distinct parameters and repeats among the parameters a run **recorded at the
+/// evaluation entry point**.
+///
+/// Extracted so both the sweep and the module test count the same thing: the
+/// values recorded by [`relation_counts`] from the binding it evaluates with, not
+/// the loop variable of the caller.
+fn recorded_parameters(recorded: &[Rat]) -> (usize, usize) {
+    // Deliberately **not** `sorted_parameters(..).len()`: that helper sorts but
+    // does not deduplicate, so it counts entries and answers "two distinct
+    // values" for `[t, t]`.  The gate self-check caught exactly that when this
+    // function was first written with it (the repeated fixture was accepted and
+    // the gate reported one violation), which is why the count below is a plain
+    // distinct-insertion count.
+    let mut distinct: Vec<Rat> = Vec::with_capacity(recorded.len());
+    for value in recorded {
+        if !distinct.contains(value) {
+            distinct.push(*value);
+        }
+    }
+    (distinct.len(), recorded.len() - distinct.len())
+}
+
+/// The interior audit's binding decision on what was recorded at the evaluation
+/// entry point: exactly `expected` distinct parameters, none evaluated twice.
+fn interior_record_error(recorded: &[Rat], expected: usize) -> Option<String> {
+    let (distinct, repeats) = recorded_parameters(recorded);
+    if repeats > 0 {
+        return Some(format!(
+            "the interior relation audit recorded the same evaluated parameter {repeats} time(s) \
+             over {expected} point(s) ({recorded:?}), so one of the interval's two points was \
+             never checked"
+        ));
+    }
+    if distinct != expected {
+        return Some(format!(
+            "the interior relation audit recorded {distinct} distinct evaluated parameter(s), \
+             expected {expected} ({recorded:?})"
+        ));
+    }
+    None
+}
+
 /// R6.7 card 6: run the **production** decomposition at every probe parameter of
 /// one `(record, label)`.
 ///
@@ -3529,11 +3908,42 @@ fn sweep_boundary_pass(
     context: &SweepContext,
     report: &mut SweepReport,
 ) {
+    // The requested and the answered parameters of **this** pair, for the
+    // per-pair key comparison below.  Only parameters the engine answered enter
+    // either list, so a failure (which fails the gate on its own) does not turn
+    // into a spurious key mismatch.
+    let mut requested: Vec<(i128, i128)> = Vec::with_capacity(parameters.len());
+    let mut answered: Vec<(i128, i128)> = Vec::with_capacity(parameters.len());
     for parameter in parameters {
         report.boundary_points += 1;
         match subduce_line_at_parameter(subgroup, embedding, table, *parameter) {
             Ok(result) => {
                 report.boundary_successes += 1;
+                let returned = result.parameter();
+                requested.push(parameter_key(parameter));
+                answered.push(parameter_key(returned));
+                *report
+                    .geometry
+                    .boundary_requested
+                    .entry(parameter_key(parameter))
+                    .or_insert(0) += 1;
+                *report
+                    .geometry
+                    .boundary_answered
+                    .entry(parameter_key(returned))
+                    .or_insert(0) += 1;
+                // The answer has to be the answer to **this** request.  The
+                // decomposed blocks are a function of the geometry, which is
+                // invariant under `t -> 1 - t`, so without this the pass could
+                // subdivide its own parameter domain and still report a
+                // byte-identical histogram (external review of `67a95fe`, P2).
+                if let Some(error) = answered_parameter_error(&result, parameter) {
+                    report.geometry.boundary_parameter_mismatches += 1;
+                    report.failures.push(format!(
+                        "ordinal {} {}: {error}",
+                        context.ordinal, context.label
+                    ));
+                }
                 report.boundary_parent_dimension += u64::from(result.parent_dimension());
                 report.boundary_covered_dimension += u64::from(result.covered_dimension());
                 // Engine-derived, parameter-sensitive evidence: one entry per
@@ -3562,6 +3972,16 @@ fn sweep_boundary_pass(
                 ));
             }
         }
+    }
+    // Duplicates and omissions, by the **returned** key: the multiset of
+    // parameters the engine answered for is what was swept, so that is what has
+    // to equal the requested list.
+    if let Some(error) = boundary_key_error(&requested, &answered) {
+        report.geometry.boundary_key_mismatches += 1;
+        report.failures.push(format!(
+            "ordinal {} {}: {error}",
+            context.ordinal, context.label
+        ));
     }
 }
 
@@ -3593,23 +4013,16 @@ fn sweep_interval(
     // the two-per-interval conservation holds even when a relation fails to be
     // decided.
     report.geometry.interior_points += 2;
-    let mut seen: Vec<Rat> = Vec::with_capacity(2);
+    // The parameters the audit **actually evaluated at**, recorded inside
+    // [`relation_counts`] from the binding its own predicates are decided with.
+    // Counting the loop variable instead kept the gate green when the call
+    // passed the first point twice: the loop still iterated two distinct values
+    // while the second evaluation re-checked the first point (external review of
+    // `67a95fe`, P2).
+    let mut recorded: Vec<Rat> = Vec::with_capacity(2);
     for parameter in [first, second] {
-        // Bound per interval from the values actually iterated: a repeated point
-        // is a failure here and moves `interior_repeats`, which the gate requires
-        // to be zero.
-        if seen.contains(&parameter) {
-            report.geometry.interior_repeats += 1;
-            failures.push(format!(
-                "{key}: the interior relation audit evaluated t={parameter} twice, so one of the \
-                 interval's two points was never checked"
-            ));
-        } else {
-            seen.push(parameter);
-            report.geometry.interior_distinct += 1;
-        }
         let mut evaluated = report.geometry.interior_evaluated;
-        let counts = match relation_counts(relations, &parameter, &mut evaluated) {
+        let counts = match relation_counts(relations, &parameter, &mut evaluated, &mut recorded) {
             Ok(counts) => counts,
             Err(error) => {
                 report.geometry.interior_evaluated = evaluated;
@@ -3630,17 +4043,64 @@ fn sweep_interval(
             ));
         }
     }
+    // The binding, on the recorded values: two distinct parameters, each
+    // evaluated once.
+    let (distinct, repeats) = recorded_parameters(&recorded);
+    report.geometry.interior_distinct += distinct;
+    report.geometry.interior_repeats += repeats;
+    if let Some(error) = interior_record_error(&recorded, 2) {
+        failures.push(format!("{key}: {error}"));
+    }
+    // Bound to the **interval**, not to the loop's own binding: the recorded
+    // parameters have to be the two trisection points `interior_points` derived
+    // from `(left, right)`.  A substitution that rebinds the evaluated value
+    // together with the guard it is checked against re-audits points of other
+    // intervals while every count, pin and conservation stays intact -- the
+    // reflection `t > 1/2 -> 1 - t` in the interior decompositions did exactly
+    // that and left the gate at exit 0 (own mutation battery of this revision,
+    // M-P3).  The two points come from the interval, so no rebinding of the loop
+    // variable can satisfy this.
+    if recorded != [first, second] {
+        failures.push(format!(
+            "{key}: the interior relation audit recorded {recorded:?} but the interval's interior \
+             points are [{first}, {second}]"
+        ));
+    }
     let mut results = Vec::with_capacity(2);
     for parameter in [first, second] {
         report.points += 1;
         match subduce_line_at_parameter(subgroup, embedding, table, parameter) {
-            Ok(result) => results.push((parameter, result)),
+            Ok(result) => {
+                if let Some(error) = answered_parameter_error(&result, &parameter) {
+                    return Err(format!("{key}: {error}"));
+                }
+                results.push((parameter, result));
+            }
             Err(error) => {
                 return Err(format!(
                     "{key}: the production decomposition failed at t={parameter}: {error}"
                 ));
             }
         }
+    }
+    // And the decompositions have to be **this interval's** two points, on the
+    // returned parameters: the guard above compares the answer with the binding
+    // that produced the request, so a substitution that rebinds the request
+    // together with the guard (the reflection `t > 1/2 -> 1 - t`, own mutation
+    // battery M-P3) satisfied it while the sweep compared the interior points of
+    // one interval under the name of another -- every count and pin intact,
+    // because the content is constant across intervals.  The comparison below is
+    // against the interval's own trisection points, which no rebinding inside
+    // the loop can move.
+    let answered: Vec<Rat> = results
+        .iter()
+        .map(|(_, result)| *result.parameter())
+        .collect();
+    if answered != [first, second] {
+        return Err(format!(
+            "{key}: the sweep decomposed {answered:?} but the interval's interior points are \
+             [{first}, {second}]"
+        ));
     }
     let (t1, r1) = &results[0];
     let (t2, r2) = &results[1];
@@ -3772,7 +4232,12 @@ fn sweep_interval(
             )),
             Err(error) => failures.push(format!("{key}: the census child order at {q1}: {error}")),
         }
-        // Layer 2: the targets' gauge-unified little-group characters.
+        // Layer 2: the targets' gauge-unified little-group characters, read
+        // through a side object that carries -- and checks -- the provenance of
+        // the reading: the engine answer, the parameter it belongs to, the block
+        // index the pairing named and the seed arm.  Read straight out of "some
+        // block at some point" the comparison is not bound to its two parameters
+        // at all (external review of `67a95fe`, P1).
         let first_operations: Vec<ExactSeitz> =
             aligned.iter().map(|(operation, _)| *operation).collect();
         let second_operations: Vec<ExactSeitz> =
@@ -3780,10 +4245,42 @@ fn sweep_interval(
         // The block's arm set joins the key: a target mismatch has to name the
         // offending block, not only the interval.
         let block_key = format!("{key}: block {index} (arms {:?})", block.arm_indices());
-        let targets = gauge_unified_targets(block, &q1, &first_operations)
+        let first_side = SweepSide {
+            side: "the first",
+            result: r1,
+            child_reciprocal: context.child_reciprocal,
+            arms: context.arms,
+            parameter: *t1,
+            block_index: *index,
+            seed_arm: arm,
+            point: q1,
+        };
+        let second_side = SweepSide {
+            side: "the second",
+            result: r2,
+            child_reciprocal: context.child_reciprocal,
+            arms: context.arms,
+            parameter: *t2,
+            block_index: *partner,
+            seed_arm: arm,
+            point: q2,
+        };
+        let first_reading = first_side
+            .read(&first_operations)
             .map_err(|error| format!("{block_key}: the first parameter's targets: {error}"))?;
-        let other_targets = gauge_unified_targets(other, &q2, &second_operations)
+        let second_reading = second_side
+            .read(&second_operations)
             .map_err(|error| format!("{block_key}: the second parameter's targets: {error}"))?;
+        report.geometry.character_side_checks +=
+            first_reading.targets.len() + second_reading.targets.len();
+        if let Some(error) =
+            side_pair_error(&first_reading.source, &second_reading.source, t1, t2)
+        {
+            report.geometry.character_side_mismatches += 1;
+            failures.push(format!("{block_key}: {error}"));
+        }
+        let targets = &first_reading.targets;
+        let other_targets = &second_reading.targets;
         // The per-arm identity that makes the little-group reading faithful: the
         // sum over the block's own points of the little-group characters is the
         // induced character the engine's solver and reconstruction use.  A point
@@ -3845,7 +4342,7 @@ fn sweep_interval(
                 break;
             }
         }
-        match match_targets(&targets, &other_targets, &block_key) {
+        match match_targets(targets, other_targets, &block_key) {
             Ok((pairs, matched_worst)) => {
                 report.worst_score = report.worst_score.min(matched_worst);
                 report.targets += pairs.len();
@@ -3958,9 +4455,11 @@ fn recount_label(
         .iter()
         .find(|probe| probe.label == table.label && probe.parameter == generic)
         .map(|probe| block_geometry(&probe.blocks));
-    for parameter in added {
+    // The parameters the engine actually answered for, for the binding below.
+    let mut answered: Vec<Rat> = Vec::with_capacity(added.len());
+    for parameter in &added {
         report.probes += 1;
-        let result = match subduce_line_at_parameter(subgroup, embedding, table, parameter) {
+        let result = match subduce_line_at_parameter(subgroup, embedding, table, *parameter) {
             Ok(result) => result,
             Err(error) => {
                 report.failures.push(format!(
@@ -3971,9 +4470,17 @@ fn recount_label(
                 continue;
             }
         };
+        answered.push(*result.parameter());
+        if let Some(error) = answered_parameter_error(&result, parameter) {
+            report.failures.push(format!(
+                "ordinal {} {}: {error}",
+                context.ordinal, table.label
+            ));
+            continue;
+        }
         let mut failures = Vec::new();
         let dimensions = block_dimensions(table, &result, &mut failures);
-        let (blocks, block_failures) = block_stats(context, parameter, &result, &dimensions);
+        let (blocks, block_failures) = block_stats(context, *parameter, &result, &dimensions);
         failures.extend(block_failures);
         if dimensions.covered != dimensions.parent {
             failures.push(format!(
@@ -3991,7 +4498,7 @@ fn recount_label(
             parent_sg: context.parent_sg,
             child_sg: context.child_sg,
             label: table.label.to_string(),
-            parameter,
+            parameter: *parameter,
             blocks: blocks
                 .iter()
                 .map(|block| {
@@ -4016,6 +4523,21 @@ fn recount_label(
             report.changed_pairs.insert((context.ordinal, table.label));
         }
         report.geometries.insert(geometry);
+    }
+    // The binding, on the **returned** parameters: what the pass decomposed has
+    // to be the added boundaries it names.  The geometry is reflection
+    // invariant, so a pass that decomposed `1 - t` instead reproduced every
+    // recount aggregate and pin (own mutation battery of this revision, M-P4);
+    // this comparison is against the `added` list itself, which a rebinding of
+    // the loop variable does not touch.
+    let wanted = sorted_parameters(added.clone());
+    let got = sorted_parameters(answered.clone());
+    if got != wanted {
+        report.failures.push(format!(
+            "ordinal {} {}: the full-star recount decomposed {got:?} but its added boundaries are \
+             {wanted:?}",
+            context.ordinal, table.label
+        ));
     }
 }
 
@@ -4112,6 +4634,10 @@ fn recount_witnesses(
                     continue;
                 }
             };
+        if let Some(error) = answered_parameter_error(&result, &parameter) {
+            failures.push(format!("ordinal {} {label}: {error}", record.ordinal));
+            continue;
+        }
         if result.blocks().len() > WITNESS_BLOCKS {
             failures.push(format!(
                 "ordinal {} {label} t={parameter}: {} blocks, more than the witness bound {}",
@@ -4577,6 +5103,12 @@ fn probe_record(
             cache,
         };
         for (parameter, census_order) in parameters {
+            // The loop item, kept under its own name: the answer below is checked
+            // against **this** binding, so a substitution that rebinds the
+            // request together with the guard it is compared against (the
+            // reflection `t > 1/2 -> 1 - t` that defeated the sweep's first
+            // guard, own mutation battery M-P3) is still caught.
+            let requested = parameter;
             // The reference folded point the engine binding needs, computed with
             // the same helper the statistics use (`scale_point`).
             let reference_point_for_engine = match scale_point(&folded, &parameter) {
@@ -4655,6 +5187,16 @@ fn probe_record(
             let (class, parameter_kind, content, detail, blocks, dimensions, engine_blocks) =
                 match result {
                 Ok(result) => {
+                    if let Some(error) = answered_parameter_error(&result, &requested) {
+                        // The probe is not recorded: the census would otherwise
+                        // key the answer's blocks and content under a parameter
+                        // the engine never decomposed.
+                        failures.push(format!(
+                            "ordinal {} {label} t={requested}: {error}",
+                            record.ordinal
+                        ));
+                        continue;
+                    }
                     let dimensions = block_dimensions(table, &result, &mut failures);
                     let (blocks, block_failures) =
                         block_stats(&block_context, parameter, &result, &dimensions);
@@ -4981,6 +5523,16 @@ fn merge_geometry(total: &mut GeometryReport, part: GeometryReport) {
     for (blocks, count) in part.boundary_block_shapes {
         *total.boundary_block_shapes.entry(blocks).or_insert(0) += count;
     }
+    for (parameter, count) in part.boundary_requested {
+        *total.boundary_requested.entry(parameter).or_insert(0) += count;
+    }
+    for (parameter, count) in part.boundary_answered {
+        *total.boundary_answered.entry(parameter).or_insert(0) += count;
+    }
+    total.boundary_parameter_mismatches += part.boundary_parameter_mismatches;
+    total.boundary_key_mismatches += part.boundary_key_mismatches;
+    total.character_side_checks += part.character_side_checks;
+    total.character_side_mismatches += part.character_side_mismatches;
     total.disagreements += part.disagreements;
     total.arm_orbit_checks += part.arm_orbit_checks;
     total.arm_orbit_disagreements += part.arm_orbit_disagreements;
@@ -5281,6 +5833,22 @@ fn report(
         );
         let geometry = &sweep.geometry;
         println!(
+            "  boundary pass parameter binding: {} requested key(s) / {} answered key(s), {} \
+             returned-against-requested mismatch(es), {} pair(s) whose returned keys are not the \
+             requested ones",
+            geometry.boundary_requested.len(),
+            geometry.boundary_answered.len(),
+            geometry.boundary_parameter_mismatches,
+            geometry.boundary_key_mismatches
+        );
+        println!(
+            "  character readings: {} provenance check(s) over {} matched target pair(s), {} \
+             reading(s) recorded from the wrong side",
+            geometry.character_side_checks,
+            sweep.targets,
+            geometry.character_side_mismatches
+        );
+        println!(
             "  independent arm-geometry audit: {} pair(s), {} relation(s) enumerated (closed form \
              {}), {} permanent (partition records {}), boundary set recomputed {} (partition {}), \
              {} disagreement(s)",
@@ -5481,6 +6049,140 @@ fn binding_self_check() -> (usize, Vec<String>) {
     cases += 1;
     if interior_binding_error(1, 0, 1).is_none() {
         violations.push("the interior binding accepted a lost interior point".to_string());
+    }
+    // The returned-parameter binding (external review of `67a95fe`, P2): the
+    // honest key list, the reflected one (which reaches five of the eight
+    // parameters and is invisible to the block-count histogram) and one answer
+    // counted eight times.
+    let grid: Vec<(i128, i128)> = [
+        (0, 1),
+        (1, 8),
+        (1, 4),
+        (3, 8),
+        (1, 2),
+        (5, 8),
+        (3, 4),
+        (7, 8),
+    ]
+    .into_iter()
+    .collect();
+    cases += 1;
+    if let Some(error) = boundary_key_error(&grid, &grid) {
+        violations.push(format!("the returned-parameter binding rejected the honest keys: {error}"));
+    }
+    let reflected: Vec<(i128, i128)> = [
+        (0, 1),
+        (1, 8),
+        (1, 4),
+        (3, 8),
+        (1, 2),
+        (3, 8),
+        (1, 4),
+        (1, 8),
+    ]
+    .into_iter()
+    .collect();
+    cases += 1;
+    if boundary_key_error(&grid, &reflected).is_none() {
+        violations.push(
+            "the returned-parameter binding accepted the reflection t -> 1 - t, which reaches \
+             only five of the eight parameters"
+                .to_string(),
+        );
+    }
+    let reused_keys: Vec<(i128, i128)> = std::iter::repeat_n((1, 8), grid.len()).collect();
+    cases += 1;
+    if boundary_key_error(&grid, &reused_keys).is_none() {
+        violations.push(
+            "the returned-parameter binding accepted one parameter's answer counted for all \
+             eight"
+                .to_string(),
+        );
+    }
+    // The accumulated maps: the honest ones, the reflected ones (five keys), and
+    // one key answering for all eight requests.
+    let counted = |keys: &[(i128, i128)]| -> BTreeMap<(i128, i128), usize> {
+        let mut map = BTreeMap::new();
+        for key in keys {
+            *map.entry(*key).or_insert(0) += 1;
+        }
+        map
+    };
+    let grid_map = counted(&grid);
+    let reflected_map = counted(&reflected);
+    let reused_map = counted(&reused_keys);
+    cases += 1;
+    if let Some(error) = boundary_parameter_binding_error(&grid_map, &grid_map) {
+        violations.push(format!(
+            "the accumulated parameter binding rejected the honest maps: {error}"
+        ));
+    }
+    cases += 1;
+    if boundary_parameter_binding_error(&grid_map, &reflected_map).is_none() {
+        violations.push(
+            "the accumulated parameter binding accepted the reflection map, whose five keys \
+             answer for the eight requested parameters"
+                .to_string(),
+        );
+    }
+    cases += 1;
+    if boundary_parameter_binding_error(&grid_map, &reused_map).is_none() {
+        violations.push(
+            "the accumulated parameter binding accepted one key answering for all eight \
+             requested parameters"
+                .to_string(),
+        );
+    }
+    // The character-reading provenance binding (external review of `67a95fe`,
+    // P1): the honest pair, the second side read at the first parameter (the
+    // reported mutation) and both sides read at one parameter.
+    let first = Rat::new(1, 6).expect("1/6");
+    let second = Rat::new(5, 24).expect("5/24");
+    let source = |parameter: &Rat, block: usize, seed_arm: usize| ReadSource {
+        parameter: *parameter,
+        block,
+        seed_arm,
+    };
+    let left = source(&first, 3, 4);
+    let right = source(&second, 5, 4);
+    cases += 1;
+    if let Some(error) = side_pair_error(&left, &right, &first, &second) {
+        violations.push(format!("the side binding rejected the honest readings: {error}"));
+    }
+    cases += 1;
+    if side_pair_error(&left, &left, &first, &second).is_none() {
+        violations.push(
+            "the side binding accepted the second side's characters read off the first side"
+                .to_string(),
+        );
+    }
+    cases += 1;
+    if side_pair_error(&right, &right, &first, &second).is_none() {
+        violations.push(
+            "the side binding accepted both sides' characters read off the second side".to_string(),
+        );
+    }
+    // The interior audit's entry-point record (external review of `67a95fe`,
+    // P2): two distinct evaluated parameters, the mutated repeated one, and one
+    // evaluation instead of two.
+    let third = Rat::new(1, 3).expect("1/3");
+    let two_thirds = Rat::new(2, 3).expect("2/3");
+    cases += 1;
+    if let Some(error) = interior_record_error(&[third, two_thirds], 2) {
+        violations.push(format!("the recorded-parameter binding rejected the honest record: {error}"));
+    }
+    cases += 1;
+    if interior_record_error(&[third, third], 2).is_none() {
+        violations.push(
+            "the recorded-parameter binding accepted the same evaluated parameter twice".to_string(),
+        );
+    }
+    cases += 1;
+    if interior_record_error(&[third], 2).is_none() {
+        violations.push(
+            "the recorded-parameter binding accepted one evaluation where two were required"
+                .to_string(),
+        );
     }
     (cases, violations)
 }
@@ -5856,6 +6558,18 @@ fn check_invariants(
         // row count is the pass's own probe count -- not a separately written
         // number that could drift.  The rows are also parsed back and compared
         // field by field (in `run`), so a corrupted row cannot pass on the count.
+        if !evidence.recount.failures.is_empty() {
+            // A `continue` on a hard failure already breaks the row/probe
+            // conservation below, but the failures recorded **after** a row was
+            // emitted (a dimension disagreement, a block statistic) left every
+            // aggregate and every pin intact -- card 7 reported "recount failures
+            // 0" as a measurement, this makes it an assertion.
+            violations.push(format!(
+                "the full-star recount pass reported {} failure(s), first: {}",
+                evidence.recount.failures.len(),
+                evidence.recount.failures.first().map(String::as_str).unwrap_or("")
+            ));
+        }
         if evidence.recount.rows.len() != evidence.recount.probes {
             violations.push(format!(
                 "the recount fingerprint carries {} row(s) for {} probe(s)",
@@ -6206,7 +6920,8 @@ fn check_invariants(
         }
         if evidence.sweep.parent_only_parameters != 0 {
             violations.push(format!(
-                "the domain sweep has {} probe parameter(s) that are not full-star boundaries,                  expected 0",
+                "the domain sweep has {} probe parameter(s) that are not full-star boundaries, \
+                 expected 0",
                 evidence.sweep.parent_only_parameters
             ));
         }
@@ -6236,6 +6951,54 @@ fn check_invariants(
             &expected_block_shapes,
         ) {
             violations.push(format!("the boundary-pass binding: {error}"));
+        }
+        // Bind the boundary pass to its own **parameters** (external review of
+        // `67a95fe`, P2): the returned keys have to be the requested ones, and
+        // the map the gate pins is keyed by what the engine returned.  The block
+        // geometry is invariant under `t -> 1 - t`, so the histogram above cannot
+        // see a pass that subdivides its parameter domain.
+        if evidence.sweep.geometry.boundary_parameter_mismatches > 0 {
+            violations.push(format!(
+                "the boundary pass answered for a parameter it did not ask for {} time(s)",
+                evidence.sweep.geometry.boundary_parameter_mismatches
+            ));
+        }
+        if evidence.sweep.geometry.boundary_key_mismatches > 0 {
+            violations.push(format!(
+                "the boundary pass' returned parameter keys are not the requested ones on {} \
+                 pair(s)",
+                evidence.sweep.geometry.boundary_key_mismatches
+            ));
+        }
+        if let Some(error) = boundary_parameter_binding_error(
+            &evidence.sweep.geometry.boundary_requested,
+            &evidence.sweep.geometry.boundary_answered,
+        ) {
+            violations.push(format!("the boundary-pass parameter binding: {error}"));
+        }
+        // Bind the two character readings to their own sides (external review of
+        // `67a95fe`, P1): both the recorded provenance and the count of readings
+        // that had one are checked, and the count is tied to the matched target
+        // pairs so a reading that stops recording its provenance moves it.
+        if evidence.sweep.geometry.character_side_mismatches > 0 {
+            violations.push(format!(
+                "the sweep compared {} character reading(s) that were not read from the side they \
+                 were compared as",
+                evidence.sweep.geometry.character_side_mismatches
+            ));
+        }
+        if evidence.sweep.geometry.character_side_checks != CHARACTER_SIDE_PIN {
+            violations.push(format!(
+                "the sweep recorded {} character-reading provenance check(s), expected {}",
+                evidence.sweep.geometry.character_side_checks, CHARACTER_SIDE_PIN
+            ));
+        }
+        if evidence.sweep.geometry.character_side_checks != 2 * evidence.sweep.targets {
+            violations.push(format!(
+                "the sweep recorded {} character-reading provenance check(s) for {} matched target \
+                 pair(s), which is not two readings per matched target",
+                evidence.sweep.geometry.character_side_checks, evidence.sweep.targets
+            ));
         }
         let (binding_cases, binding_violations) = binding_self_check();
         if binding_cases != BINDING_CASE_PIN {
@@ -7825,6 +8588,277 @@ mod tests {
             let error = interior_points(&left, &right).expect_err("a non-positive interval");
             assert!(error.contains("not positive"), "{error}");
         }
+    }
+
+    /// **External review of `67a95fe`, P1: the character reading has to carry and
+    /// check the side it was read from.**
+    ///
+    /// The reported mutation replaced the second side's call with the first
+    /// side's block, point and operations.  The comparison then scores the first
+    /// parameter's characters against themselves and every count, match and pin
+    /// downstream stays green, because a reading is structurally valid for **any**
+    /// block of the answer it is taken from.  This test drives that exact call
+    /// path: the misread reading is accepted by the reader, produces the first
+    /// side's vectors bit for bit, and is rejected by the provenance check alone.
+    #[test]
+    fn the_character_reading_is_bound_to_its_own_side() {
+        let record = record_of(196, 10_030);
+        let (embedding, partition) = sweep_context_of(&record, "DT1");
+        let table = line_table(record.parent_sg, "DT1").expect("the frozen table");
+        let t1 = rational(1, 6);
+        let t2 = rational(5, 24);
+        let first = subduce_line_at_parameter(&record.subgroup, &embedding, table, t1)
+            .expect("the decomposition at 1/6");
+        let second = subduce_line_at_parameter(&record.subgroup, &embedding, table, t2)
+            .expect("the decomposition at 5/24");
+        let index = first
+            .blocks()
+            .iter()
+            .position(|block| block.arm_indices() == vec![4, 5])
+            .expect("the witness block at 1/6");
+        let partner = second
+            .blocks()
+            .iter()
+            .position(|block| block.arm_indices() == vec![4, 5])
+            .expect("the witness block at 5/24");
+        let q1 = seed_point(&first.blocks()[index], 4, "the witness").expect("the seed at 1/6");
+        let q2 = seed_point(&second.blocks()[partner], 4, "the witness").expect("the seed at 5/24");
+        let operations = child_little_group(&embedding, &partition.child_reciprocal, &q1)
+            .expect("the little group at 1/6");
+        let other_operations = child_little_group(&embedding, &partition.child_reciprocal, &q2)
+            .expect("the little group at 5/24");
+        fn side<'a>(
+            name: &'static str,
+            result: &'a LineSubduction,
+            child_reciprocal: &'a Lattice,
+            arms: &'a [FoldedArm],
+            parameter: Rat,
+            block_index: usize,
+            point: Vec3R,
+        ) -> SweepSide<'a> {
+            SweepSide {
+                side: name,
+                result,
+                child_reciprocal,
+                arms,
+                parameter,
+                block_index,
+                seed_arm: 4,
+                point,
+            }
+        }
+        let side = |name, result, parameter, block_index, point| {
+            side(
+                name,
+                result,
+                &partition.child_reciprocal,
+                &partition.arms,
+                parameter,
+                block_index,
+                point,
+            )
+        };
+
+        // The honest pair: two readings, each recording its own provenance, and
+        // the pair's precondition accepts them.
+        let left = side("the first", &first, t1, index, q1)
+            .read(&operations)
+            .expect("the first side's reading");
+        let right = side("the second", &second, t2, partner, q2)
+            .read(&other_operations)
+            .expect("the second side's reading");
+        assert_eq!(
+            left.source,
+            ReadSource { parameter: t1, block: index, seed_arm: 4 },
+            "the reading records the parameter of the answer it was taken from"
+        );
+        assert_eq!(
+            right.source,
+            ReadSource { parameter: t2, block: partner, seed_arm: 4 }
+        );
+        assert!(side_pair_error(&left.source, &right.source, &t1, &t2).is_none());
+
+        // The mutation: the second side read off the first side's block, point
+        // and (as in the reported call) operations.  Every structural check the
+        // reader can make passes, and the vectors are the first side's.
+        let misread = side("the second", &first, t1, index, q1)
+            .read(&other_operations)
+            .expect("the left block satisfies every structural check of a reading");
+        assert_eq!(
+            misread.targets, left.targets,
+            "the misread reading is the first side's, vector for vector"
+        );
+        let score = character_score(&misread.targets[0].vector, &left.targets[0].vector);
+        assert!(
+            score >= 1.0 - 1e-12,
+            "the downstream comparison sees a perfect match: {score}"
+        );
+        let error = side_pair_error(&left.source, &misread.source, &t1, &t2)
+            .expect("the provenance check has to reject the misread side");
+        assert!(error.contains("recorded from the decomposition"), "{error}");
+        assert!(error.contains("second parameter"), "{error}");
+
+        // The other halves of the provenance: a block index the answer does not
+        // have, an arm of a different block, a point that belongs to the other
+        // parameter, and a claimed parameter that is not the answer's.
+        let absent = side("the second", &second, t2, second.blocks().len(), q2);
+        let error = absent.read(&other_operations).expect_err("a block outside the answer");
+        assert!(error.contains("does not exist"), "{error}");
+        let mut foreign_arm = side("the second", &second, t2, partner, q2);
+        foreign_arm.seed_arm = 999;
+        let error = foreign_arm.read(&other_operations).expect_err("an arm of another block");
+        assert!(error.contains("seed arm"), "{error}");
+        // The correspondence half: an arm of the **same** block whose own folded
+        // point is not the gauge point.  Membership alone would accept it, and
+        // the reading itself would be unchanged -- only the recorded provenance
+        // would be wrong.
+        let mut other_arm = side("the second", &second, t2, partner, q2);
+        other_arm.seed_arm = second.blocks()[partner]
+            .arm_indices()
+            .iter()
+            .copied()
+            .find(|arm| *arm != 4)
+            .expect("the witness block has more than one arm");
+        let error = other_arm
+            .read(&other_operations)
+            .expect_err("an arm of the same block that folds elsewhere");
+        assert!(error.contains("folds onto"), "{error}");
+        let error = side("the second", &second, t2, partner, q1)
+            .read(&other_operations)
+            .expect_err("the other parameter's seed point");
+        assert!(error.contains("in no point"), "{error}");
+        let error = side("the second", &second, t1, partner, q2)
+            .read(&other_operations)
+            .expect_err("a claimed parameter that is not the answer's");
+        assert!(error.contains("wrong parameter"), "{error}");
+    }
+
+    /// **External review of `67a95fe`, P2: the interior audit has to record the
+    /// parameter it evaluates.**  Counting the loop variable kept the gate green
+    /// when the call was handed the first point twice: the loop still iterated two
+    /// distinct values while the second evaluation re-checked the first point.
+    #[test]
+    fn the_interior_audit_records_what_it_evaluates() {
+        let relations: Vec<CensusRelation> = Vec::new();
+        let first = rational(1, 12);
+        let second = rational(1, 6);
+        let mut evaluated = 0usize;
+        let mut recorded: Vec<Rat> = Vec::new();
+        for parameter in [&first, &second] {
+            relation_counts(&relations, parameter, &mut evaluated, &mut recorded)
+                .expect("the empty relation list is decidable");
+        }
+        assert_eq!(recorded, vec![first, second]);
+        assert_eq!(recorded_parameters(&recorded), (2, 0));
+        assert!(interior_record_error(&recorded, 2).is_none());
+
+        // The mutated call path: the second evaluation is handed the first point,
+        // exactly as `&parameter` replaced by `&first` did at the call site.
+        let mut evaluated = 0usize;
+        let mut misrecorded: Vec<Rat> = Vec::new();
+        for parameter in [&first, &first] {
+            relation_counts(&relations, parameter, &mut evaluated, &mut misrecorded)
+                .expect("the empty relation list is decidable");
+        }
+        assert_eq!(
+            misrecorded,
+            vec![first, first],
+            "the record is the parameter that was evaluated, not the loop variable"
+        );
+        assert_eq!(recorded_parameters(&misrecorded), (1, 1));
+        let error = interior_record_error(&misrecorded, 2)
+            .expect("a repeated evaluated parameter has to be reported");
+        assert!(error.contains("never checked"), "{error}");
+        // One evaluation where two were required is reported as well.
+        assert!(interior_record_error(&[first], 2).is_some());
+    }
+
+    /// **External review of `67a95fe`, P2: the boundary pass has to be bound to
+    /// the parameters it asked for, by the key the engine returned.**
+    ///
+    /// The block-count histogram cannot do it: the geometry is invariant under
+    /// `t -> 1 - t`, so the reported mutation (mapping `t > 1/2` to `1 - t`)
+    /// reached five of the eight parameters per pair -- 17,268 of the 46,048
+    /// parameter combinations never evaluated -- while reproducing the pinned
+    /// histogram exactly.  This test drives the honest pass through the real call
+    /// and the two key decisions with the key multisets that mutation and a
+    /// reused answer produce.
+    #[test]
+    fn the_boundary_pass_binds_its_answers_to_its_requests() {
+        let record = record_of(196, 10_038);
+        let (embedding, partition) = sweep_context_of(&record, "DT1");
+        let table = line_table(record.parent_sg, "DT1").expect("the frozen table");
+        let domains = source_domains().expect("the frozen domains");
+        let domain = domains.get(&(196, "DT1")).expect("the DT1 domain");
+        let parameters = partition.probe_parameters(domain).expect("the probe set");
+        let context = SweepContext {
+            ordinal: record.ordinal,
+            label: "DT1",
+            child_sg: record.child_sg,
+            child_reciprocal: &partition.child_reciprocal,
+            child_rotations: &partition.child_rotations,
+            arms: &partition.arms,
+        };
+        let mut report = SweepReport {
+            worst_score: 1.0,
+            ..SweepReport::default()
+        };
+        sweep_boundary_pass(
+            &record.subgroup,
+            &embedding,
+            table,
+            &parameters,
+            &context,
+            &mut report,
+        );
+        assert!(report.failures.is_empty(), "{:?}", report.failures);
+        assert_eq!(report.boundary_successes, parameters.len());
+        assert_eq!(report.geometry.boundary_parameter_mismatches, 0);
+        assert_eq!(report.geometry.boundary_key_mismatches, 0);
+        assert_eq!(
+            report.geometry.boundary_requested, report.geometry.boundary_answered,
+            "every requested parameter is answered for by itself"
+        );
+        assert_eq!(
+            report.geometry.boundary_answered.len(),
+            8,
+            "the eighth grid of the witness"
+        );
+        assert!(report.geometry.boundary_answered.values().all(|count| *count == 1));
+        assert!(
+            boundary_parameter_binding_error(
+                &report.geometry.boundary_requested,
+                &report.geometry.boundary_answered
+            )
+            .is_none()
+        );
+
+        // The keys the reflection produces: five distinct parameters answering
+        // for the eight, which the per-pair comparison rejects.
+        let keys: Vec<(i128, i128)> = parameters.iter().map(parameter_key).collect();
+        let reflected: Vec<(i128, i128)> = vec![
+            (0, 1),
+            (1, 8),
+            (1, 4),
+            (3, 8),
+            (1, 2),
+            (3, 8),
+            (1, 4),
+            (1, 8),
+        ];
+        assert_eq!(keys.len(), reflected.len());
+        assert!(
+            boundary_key_error(&keys, &reflected).is_some(),
+            "the reflected key list reaches only five parameters"
+        );
+        // And the aggregate: one reused answer for eight requests.
+        let reused: BTreeMap<(i128, i128), usize> = [((1i128, 8i128), keys.len())]
+            .into_iter()
+            .collect();
+        assert!(
+            boundary_parameter_binding_error(&report.geometry.boundary_requested, &reused).is_some(),
+            "one reused answer must not pass as eight"
+        );
     }
 
     /// **Card 5 math review P1-1: the card-1 gauge is derived for constructed
