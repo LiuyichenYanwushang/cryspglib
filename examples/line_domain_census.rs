@@ -1415,16 +1415,21 @@ block_count\tblocks";
         // constructed classes" wrong (witness ordinal 13688).  It stays in the
         // printout, labelled, so its numbers can be compared with the corrected
         // ones on the same run; nothing is pinned to it.
-        let mut legacy: BTreeMap<(usize, bool, TargetClass), usize> = BTreeMap::new();
-        let mut corrected: BTreeMap<(usize, BlockSource), usize> = BTreeMap::new();
-        // Non-trivial-class probes by source, in the two conventions.
-        let mut legacy_totals = [0usize; 3];
-        let mut corrected_totals = [0usize; 3];
-        let mut boundary_probes = 0usize;
-        let mut boundary_errors = 0usize;
-        // A non-trivial probe whose reference point no block carries: the
-        // corrected table would be silently short, so it is a counted failure.
-        let mut missing_reference_blocks = 0usize;
+        /// One record's contribution to the two printed tables.  The pass is per
+        /// record and independent, so it runs in parallel; the tables are
+        /// `BTreeMap`s keyed by their own tuple and the per-record violation
+        /// vectors are concatenated in record order, so the printed report and
+        /// the violation list are identical to the serial loop's.
+        struct BoundaryGate {
+            legacy: BTreeMap<(usize, bool, TargetClass), usize>,
+            corrected: BTreeMap<(usize, BlockSource), usize>,
+            legacy_totals: [usize; 3],
+            corrected_totals: [usize; 3],
+            boundary_probes: usize,
+            boundary_errors: usize,
+            missing_reference_blocks: usize,
+            violations: Vec<String>,
+        }
         let answered: BTreeMap<String, &Probe> = probes
             .iter()
             .map(|probe| {
@@ -1434,14 +1439,25 @@ block_count\tblocks";
                 )
             })
             .collect();
-        for record in &records {
+        let boundary_parts: Vec<BoundaryGate> = records
+            .par_iter()
+            .map(|record| {
+            let mut legacy: BTreeMap<(usize, bool, TargetClass), usize> = BTreeMap::new();
+            let mut corrected: BTreeMap<(usize, BlockSource), usize> = BTreeMap::new();
+            let mut legacy_totals = [0usize; 3];
+            let mut corrected_totals = [0usize; 3];
+            let mut boundary_probes = 0usize;
+            let mut boundary_errors = 0usize;
+            let mut missing_reference_blocks = 0usize;
+            let mut violations: Vec<String> = Vec::new();
+            'record: {
             let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup) else {
                 boundary_errors += 1;
                 violations.push(format!(
                     "ordinal {}: the boundary census cannot build the embedding",
                     record.ordinal
                 ));
-                continue;
+                break 'record;
             };
             let Ok(reciprocal) = reciprocal_lattice(record.child_sg) else {
                 boundary_errors += 1;
@@ -1449,7 +1465,7 @@ block_count\tblocks";
                     "ordinal {}: the boundary census found no reciprocal lattice for child #{}",
                     record.ordinal, record.child_sg
                 ));
-                continue;
+                break 'record;
             };
             let Ok(rotations) = rotation_set(record.child_sg) else {
                 boundary_errors += 1;
@@ -1457,7 +1473,7 @@ block_count\tblocks";
                     "ordinal {}: the boundary census found no rotation set for child #{}",
                     record.ordinal, record.child_sg
                 ));
-                continue;
+                break 'record;
             };
             for (label, _) in &record.labels {
                 let Some(table) = line_table(record.parent_sg, label) else {
@@ -1547,6 +1563,43 @@ block_count\tblocks";
                     }
                 }
             }
+            }
+            BoundaryGate {
+                legacy,
+                corrected,
+                legacy_totals,
+                corrected_totals,
+                boundary_probes,
+                boundary_errors,
+                missing_reference_blocks,
+                violations,
+            }
+            })
+            .collect();
+        let mut legacy: BTreeMap<(usize, bool, TargetClass), usize> = BTreeMap::new();
+        let mut corrected: BTreeMap<(usize, BlockSource), usize> = BTreeMap::new();
+        let mut legacy_totals = [0usize; 3];
+        let mut corrected_totals = [0usize; 3];
+        let mut boundary_probes = 0usize;
+        let mut boundary_errors = 0usize;
+        let mut missing_reference_blocks = 0usize;
+        for part in boundary_parts {
+            for (key, count) in part.legacy {
+                *legacy.entry(key).or_insert(0usize) += count;
+            }
+            for (key, count) in part.corrected {
+                *corrected.entry(key).or_insert(0usize) += count;
+            }
+            for (slot, value) in legacy_totals.iter_mut().zip(part.legacy_totals) {
+                *slot += value;
+            }
+            for (slot, value) in corrected_totals.iter_mut().zip(part.corrected_totals) {
+                *slot += value;
+            }
+            boundary_probes += part.boundary_probes;
+            boundary_errors += part.boundary_errors;
+            missing_reference_blocks += part.missing_reference_blocks;
+            violations.extend(part.violations);
         }
         println!(
             "withdrawn convention -- projective class at the child's exceptional parameters, \
@@ -7708,9 +7761,23 @@ fn check_blocks(probes: &[Probe], evidence: &CensusEvidence, violations: &mut Ve
     // whatever point is passed in, and the comparison could not fail on a wrong
     // point.
     let recompute = PointClassCache::default();
+    // The recomputation below is a pure function of (child space group,
+    // representative point) and is the expensive half of this audit, so it runs
+    // in parallel **in probe/block order**; the serial loop only compares the
+    // values, exactly as it did when it called `classify` itself.
+    let recomputed_classes: Vec<Vec<Result<PointClass, String>>> = probes
+        .par_iter()
+        .map(|probe| {
+            probe
+                .blocks
+                .iter()
+                .map(|block| recompute.classify(probe.child_sg, &block.representative_point))
+                .collect()
+        })
+        .collect();
     let mut block_total = 0usize;
     let mut answered_probes = 0usize;
-    for probe in probes {
+    for (probe_index, probe) in probes.iter().enumerate() {
         let Some(dimensions) = &probe.dimensions else {
             if !probe.blocks.is_empty() {
                 violations.push(format!(
@@ -7971,7 +8038,7 @@ fn check_blocks(probes: &[Probe], evidence: &CensusEvidence, violations: &mut Ve
                     }
                 }
             }
-            match recompute.classify(probe.child_sg, &block.representative_point) {
+            match &recomputed_classes[probe_index][index] {
                 Ok(class)
                     if class.little_co_group == block.little_co_group
                         && class.cocycle_trivial == block.cocycle_trivial => {}

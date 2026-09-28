@@ -175,9 +175,10 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    值 == 教科书分数且**表示规范**；另加 2^70 的宽分支见证）。**并行度没有变，但瓶颈的形状已经
    按阶段量出来**（临时给 `run()` 装四个计时器，8 / 1 线程各跑一次）：8 线程无 sweep 的
    14.73 s = prologue **0.02 s** + 并行区 **8.76 s** + `check_invariants` **1.52 s** +
-   `report()` **1.53 s** + `if gate {}` **4.44 s**；1 线程是 66.40 s = 0.02 + 60.46 + 1.51 + 1.51 + 4.41
+   `report()`+计数 **1.53 s** + `if gate {}` **4.44 s**；1 线程是 66.40 s = 0.02 + 60.46 + 1.51 + 1.51 + 4.41
    ⇒ **后三项 ≈7.5 s 是纯串行**（两种线程数下逐项相同），占 8 线程墙钟的一半；带 `--domain-sweep`
-   时并行区 30.36 s、串行尾仍是 ≈5.95 s。`target/logs/profile/t8b/` 的 gdb 采样与之一致：
+   时并行区 30.36 s、串行尾仍是 ≈5.95 s。（**后续更正**：把计时点摆正后，那 1.53 s 属于
+   `check_invariants`，"`report()` 1.53 s" 是计时区间错位；`report()` 本身只有 **0.008 s**。）`target/logs/profile/t8b/` 的 gdb 采样与之一致：
    前 52/90 个时间样本是 **8 个 worker 全忙、主线程阻塞**，后 37/90 个样本**只剩主线程**在跑
    `check_invariants` 与 gate 代码（叶帧 `child_cocycle_is_a_coboundary`、`little_co_group`、
    `SubgroupEmbedding::from_isotropy_subgroup`、`verify_against_grid`），8 个 worker 全在
@@ -185,6 +186,25 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    **先前的"负载不均、尾部只剩 2–3 个 worker"是误读**（那是 3 个样本窗口里共 3 个线程块在跑，
    即每样本 1 个），外部复核方指出后已按实测改写 ⇒ 下一个热点是**并行化这三段串行尾部**
    （`check_invariants`、`report()`、`if gate {}`），不是调度或算术。
+   **串行尾部并行化（2026-09-29 第二轮；唯一改动文件 `examples/line_domain_census.rs`）**：
+   上面量出的三段串行尾里 `report()` 其实只有 0.008 s，真正的两段是：
+   ① **gate 段的逐记录表**（`if gate {}` 内的 withdrawn/corrected 两表：5,756 条记录 ×
+   `SubgroupEmbedding::from_isotropy_subgroup` + 逐候选参数的 `child_cocycle_is_a_coboundary` /
+   `little_co_group`）→ 改成 `records.par_iter()` 每记录局部累积、再**按记录序**合并：两张表是
+   按各自元组键排序的 `BTreeMap`、violation 向量按记录序拼接，所以打印与报文逐字节不变；
+   ② **`check_blocks` 的逐块点类重算**（80,293 块 × `PointClassCache::classify`）→ 先并行按
+   probe/block 序算出 `recomputed_classes`，串行循环只做比较（比较逻辑与报文一字未动）。
+   **实测（A/B 交替跑，同一台机器空闲；A = 仅 ①，B = ①+②）**：无 sweep 8 线程
+   **14.87 s（改前）→ 11.30 s（A，三次中位）→ 10.51 s（B，三次中位）**；4 线程
+   **22.08 → 18.80（A）→ 18.28 s（B）**；带 `--domain-sweep` 8 线程 **36.8 → 32.44 s（B）**；
+   1 线程 **66.29 → 66.49 s（不变**，尾部本就串行，rayon 单线程无额外代价）。阶段计时（B 之前，
+   8 线程无 sweep）：prologue 0.017 + 并行区 8.75 + `report()`+计数 0.008 + `check_invariants` 1.53
+   + gate 0.66 ≈ 10.96 s；并行区自身在 8 核上是 60.5 s 的单线程工作量（6.9×），余下的串行部分
+   ≈1.3 s。**输出逐字节不变**：门禁报告与钉住的 `finalZAA` 逐行相同（只差 cargo 前导）、三个 TSV
+   SHA 未变、**8 线程与 1 线程输出逐字节相同**、example 23 项测试与严格 clippy 通过。
+   验收电池（`target/logs/tailpar/summary.txt`，源码 `census.rs fc2c7681…`/`subduction.rs e4a55688…`）
+   **193 s**：构建 0 s（只改了 example，增量）+ 发现 1 s + census-8 **32 s** + 并发档 71 s +
+   池 56 s + 尾 33 s，680 passed / 0 failed、三门禁与 python/oracle 全 exit 0。
    **验收电池重排（`target/chainFast.sh`，零源码改动）**：把彼此独立的流压到 8 个核上——
    一次 `cargo build` → 8 线程 census（三个 TSV）→ 并发〔4 线程 determinism census
    （`taskset -c 0-3`）‖ 4 线程全局审计（`taskset 4-7`）〕→ 〔**41 个测试壳**（23 个 `--tests`
@@ -208,8 +228,9 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    同日实测：22 个测试二进制的串行墙钟合计只有 **24.1 s**（最慢 10.9 s），所以瓶颈从来不是
    测试，而是**构建**（库改动时 85–90 s，fat LTO + `codegen-units = 1`）与两次 census。
    **未做（如实）**：`Mat3R::inverse`（每个 3×3 逆 9 次 `checked_div`）与 `Lattice::reduce`
-   仍是剩余算术热点；**三段串行尾部（≈7.5 s）尚未并行化**（`check_invariants` 1.52 s +
-   `report()` 1.53 s + `if gate {}` 4.44 s，见上）；构建参数未动（会动到已钉证据的编译配置）。
+   仍是剩余算术热点；串行尾部已从 ≈5.9 s 压到 **≈1.3 s**（`check_invariants` 的非重算部分 +
+   gate 的串行壳），并行区本身 8.75 s vs 理想的 7.56 s（6.9× / 8×）还有 ~14% 的调度与内存开销；
+   构建参数未动（会动到已钉证据的编译配置）。
    **历史（上一轮，保留）**：`audit_irrep_subduction` 已按母群空间群并行（8 线程 121.6 s /
    1 线程 554.7 s，389,151 行 TSV 逐字节相同，SHA `3df39d03…`）；`line_family_coverage`
    已按行并行、单线程按序写 TSV（1 线程 123.08 s / 8 线程 19.29 s，SHA `9683ddef…`）；
@@ -890,6 +911,27 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   oracle），已改。**注**：本轮审核期间主树出现过临时改动（`CENSUS_PHASE_TIMINGS` 计时器），
   那是本方的测量补丁，测量后已还原（`examples/line_domain_census.rs` 仍是 `2b3a9e65…`），
   审核方对此的提醒已核销。
+
+* **性能轮第三段（串行尾部并行化，2026-09-29）：唯一改动文件 `examples/line_domain_census.rs`
+  （`fc2c7681…`）**。上一轮量出的三段串行尾里 `report()` 实测只有 **0.008 s**（此前记的 1.53 s
+  是计时点错位，已在 §3.3 原地更正），真正剩下的两段：**① gate 段的逐记录表**（`if gate {}` 内
+  withdrawn/corrected 两张表：5,756 条记录 × `SubgroupEmbedding::from_isotropy_subgroup` + 逐候选
+  参数的 `child_cocycle_is_a_coboundary`/`little_co_group`）→ 改成 `records.par_iter()` 每记录局部
+  累积、再**按记录序**合并：两张表是按各自元组键排序的 `BTreeMap`、violation 按记录序拼接，故打印
+  与报文逐字节不变；**② `check_blocks` 的逐块点类重算**（80,293 块 × `PointClassCache::classify`）
+  → 先并行按 probe/block 序算出 `recomputed_classes`，串行循环只做比较（逻辑与报文一字未动）。
+  **实测（A/B 交替跑，同机空闲；A = 仅 ①，B = ①+②）**：无 sweep 8 线程 14.87 → **11.30**（A 三次
+  中位）→ **10.51 s**（B 三次中位）；4 线程 22.08 → 18.80（A）→ **18.28 s**（B）；带 sweep 8 线程
+  36.8 → **32.44 s**；1 线程 66.29 → 66.49 s（**不变**，无单线程回归）。**输出逐字节不变**：门禁报告
+  与钉住的 `finalZAA` 逐行相同（只差 cargo 前导）、三个 TSV SHA 未变（`c7b8606e…`/`07dedd42…`/
+  `a14598c1…`）、**8 线程与 1 线程输出逐字节相同**、example 23 项测试 + 严格 clippy 通过；
+  **21 个变异**逐个复现 exit 码与 violation 数（`target/logs/finalTailpar/summary.txt`，与
+  `finalPerf2` 逐条相同，包括 w5 29,843）。**验收电池**（`target/logs/tailpar/summary.txt`，
+  源码 `census.rs fc2c7681…` / `subduction.rs e4a55688…`）**193 s**：构建 0 s（只改 example，增量）
+  + 发现 1 s + census-8 **32 s** + 并发档 71 s + 池 56 s + 尾 33 s，**680 passed / 0 failed**、
+  family/ledger/global 三门禁 + 4 个 python 单测 + oracle 全 exit 0。**残余（如实）**：并行区本身
+  8.75 s vs 理想 7.56 s（6.9× vs 8×，≈14% 调度/内存开销）；`check_invariants` 的非重算部分与 gate
+  的串行壳 ≈1.3 s 未并行化；`Mat3R::inverse` / `Lattice::reduce` 仍是剩余算术热点。
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有

@@ -674,7 +674,7 @@ gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子
 | 门禁 `--gate --require-covered`，8 线程 | 42.27 s | 14.87 s |
 | 同一命令，4 / 2 线程 | 60.96 / 99.91 s | 22.08 / 36.57 s |
 | 同一命令，1 线程 | 179.71 s | 66.29 s |
-| 加 `--domain-sweep`，8 线程 | 112 s | 38 s |
+| 加 `--domain-sweep`，8 线程 | 112 s | 38 s → **32.4 s**（串行尾部并行化后） |
 | 全部验收（`target/chainFast.sh`，含构建） | —— | **313 s**（其中构建 90 s） |
 
 比值为 2.84× / 2.76× / 2.73× / 2.71×；审核方在各自私有 target 上独立 A/B 得
@@ -698,12 +698,15 @@ sha256）：**41 个测试壳**（23 个 `--tests` 二进制加 18 个 example �
 
 瓶颈的形状已按阶段量出（临时给 `run()` 装计时器，8 / 1 线程各一次）：8 线程无 sweep 的
 14.73 s = prologue **0.02 s** + 并行区 **8.76 s** + `check_invariants` **1.52 s** +
-`report()` **1.53 s** + `if gate {}` **4.44 s**，1 线程是 66.40 s = 0.02 + 60.46 + 1.51 + 1.51 + 4.41
-⇒ **后三项 ≈7.5 s 是纯串行**（两种线程数下逐项相同），占 8 线程墙钟的一半，是下一步的目标
-（`--domain-sweep` 时并行区 30.36 s、同样 ≈5.95 s 串行尾）。gdb profile 与之一致：尾部只有主线程在跑
-`check_invariants`/gate 代码（`child_cocycle_is_a_coboundary`、`little_co_group`、
+`report()`+计数 **1.53 s** + `if gate {}` **4.44 s**，1 线程是 66.40 s = 0.02 + 60.46 + 1.51 + 1.51 + 4.41
+⇒ **后三项 ≈7.5 s 是纯串行**（两种线程数下逐项相同），占 8 线程墙钟的一半。gdb profile 与之一致：
+尾部只有主线程在跑 `check_invariants`/gate 代码（`child_cocycle_is_a_coboundary`、`little_co_group`、
 `SubgroupEmbedding::from_isotropy_subgroup`、`verify_against_grid`），8 个 worker 全部停在
-`wait_until_cold`。验收电池的重排（`target/chainFast.sh`：
+`wait_until_cold`。**这两段现已并行化**（gate 的逐记录表改成 `par_iter` 后按记录序合并；
+`check_blocks` 的点类重算改成先并行算好、串行循环只比较），实测无 sweep 8 线程
+**14.87 → 10.51 s**（4 线程 22.08 → 18.28 s，带 sweep 36.8 → 32.4 s，1 线程 66.29 → 66.49 s 不变），
+**输出逐字节不变**（报告与 `finalZAA` 逐行相同、三个 TSV SHA 未变、8 线程 == 1 线程）。
+验收电池的重排（`target/chainFast.sh`：
 8 线程 ground truth → 4 线程 determinism census ‖ 4 线程全局审计 → 测试/门禁的 `nice` 池 →
 doctest/clippy/python）不改动任何源码，只把独立流压到 8 个核上。
 
