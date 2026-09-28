@@ -70,6 +70,7 @@ use cryspglib::irrep::subduction::{
     ExactSeitz, Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R, strict_sg_hall_ops,
 };
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
+use rayon::prelude::*;
 
 const LEDGER_CHARACTER_COPY_TOLERANCE: f64 = 1e-12;
 
@@ -670,14 +671,24 @@ fn pinned_rows() -> Vec<(usize, &'static str)> {
 /// conjugacy law and report `checked` / `failed`.
 fn batch(parameter: Rat) -> bool {
     let rows = pinned_rows();
+    // The per-row work -- the exact conjugacy law over `|H|^2` element pairs and
+    // the engine call -- only reads the frozen tables and the parameter, so the
+    // rows are independent and run in parallel.  The accumulation below is left
+    // exactly as it was: it walks the rows **in order**, so the counts, the
+    // first-five witness lists and their order are unchanged (verified by
+    // comparing the output with and without this change, byte for byte).
+    let reports: Vec<Option<Report>> = rows
+        .par_iter()
+        .map(|(ordinal, label)| analyse(*ordinal, label, parameter, false))
+        .collect();
     let mut engine_errors = 0usize;
     let mut checked = 0usize;
     let mut failed = 0usize;
     let mut violations: Vec<(usize, &'static str, usize, usize)> = Vec::new();
     let mut passing_hard_failures: Vec<(usize, &'static str, f64, f64, bool)> = Vec::new();
     let mut healthy_with_violations = Vec::new();
-    for (ordinal, label) in &rows {
-        let Some(report) = analyse(*ordinal, label, parameter, false) else {
+    for ((ordinal, label), report) in rows.iter().zip(&reports) {
+        let Some(report) = report.as_ref() else {
             continue;
         };
         let hard_failure = report.engine.starts_with("engine error");

@@ -1107,6 +1107,9 @@ fn run() -> Result<ExitCode, String> {
     // Asking for the artifact asks for the pass that produces it, with the same
     // failure semantics as `--full-star-recount`.
     let recount = gate || full_star_recount || output_recount.is_some();
+    // The artifact flags ask for their passes just as the gate flags do, so the
+    // verdict below has to see them (verification review of `acfc3f1`, F1).
+    let outputs_requested = output.is_some() || output_blocks.is_some() || output_recount.is_some();
 
     let domains = source_domains()?;
     // Card 6: a subgroup record the census cannot read is a counted failure, not
@@ -1696,10 +1699,21 @@ block_count\tblocks";
     for violation in &violations {
         eprintln!("census violation: {violation}");
     }
-    // `--domain-sweep` joins the flags that fail on their own failures: a pass
-    // that runs a check, reports a violation and then exits 0 would be a failure
-    // path that does not fail (the same rule `--full-star-recount` follows).
-    if gate || require_covered || full_star_recount || domain_sweep {
+    // A pass that runs a check, reports a violation and then exits 0 is a failure
+    // path that does not fail, so every flag that asks for a pass joins the
+    // verdict -- the three artifact flags included, because their passes produce
+    // the violations too.  `--output-recount <path>` alone used to run the recount
+    // pass, print all of its violations and exit 0 while the flag's own comment
+    // claimed "the same failure semantics as `--full-star-recount`" (verification
+    // review of `acfc3f1`, F1, measured with the battery's own `mut-p5` injection:
+    // 11,010 violations printed, exit 0, no `gate:` line).
+    if verdict_requested(
+        gate,
+        require_covered,
+        full_star_recount,
+        domain_sweep,
+        outputs_requested,
+    ) {
         if !violations.is_empty() {
             println!("gate: FAILED ({} violation(s))", violations.len());
             return Ok(ExitCode::from(1));
@@ -6754,6 +6768,70 @@ fn audit_self_check() -> (usize, Vec<String>) {
     (cases, violations)
 }
 
+/// The Gamma-reaching counters, asserted instead of only printed.
+///
+/// Split out of [`check_invariants`] so the permanent regression can drive it
+/// with zeroed counters and with the pinned ones (verification review of
+/// `acfc3f1`, F1); the caller decides **when** it applies, and that condition is
+/// "the pass that measures these counters ran".
+fn check_gamma(gamma: &GammaReport, violations: &mut Vec<String>) {
+    if gamma.entries != 23_024 {
+        violations.push(format!(
+            "the Gamma enumeration reports {} (parameter, arms) entr(ies), expected 23024",
+            gamma.entries
+        ));
+    }
+    if gamma.contained != gamma.entries {
+        violations.push(format!(
+            "the Gamma enumeration reports {} contained of {} entr(ies); every entry must be a \
+             full-star boundary",
+            gamma.contained, gamma.entries
+        ));
+    }
+    if gamma.exceptional != 0 {
+        violations.push(format!(
+            "{} Gamma entr(ies) took the exactly-fixed-arm exception, which has no corpus witness",
+            gamma.exceptional
+        ));
+    }
+    if gamma.zero_arms != 0 {
+        violations.push(format!(
+            "{} arm(s) have a zero folded direction and are at Gamma everywhere",
+            gamma.zero_arms
+        ));
+    }
+    let gamma_pairs: usize = gamma.shapes.values().sum();
+    if gamma_pairs != 5_756 {
+        violations.push(format!(
+            "the Gamma parameter-set shapes cover {gamma_pairs} (record, label) pairs, expected 5756"
+        ));
+    }
+    if gamma.shapes.len() != 8 {
+        violations.push(format!(
+            "the Gamma parameter-set shapes number {}, expected 8",
+            gamma.shapes.len()
+        ));
+    }
+}
+
+/// Whether the run's violations must make it exit non-zero.
+///
+/// Every flag that asks for a pass belongs here, the three artifact flags
+/// included: `--output`, `--output-blocks` and `--output-recount` each run a pass
+/// that can find violations, and a pass that reports a violation and then exits 0
+/// is a failure path that does not fail.  `--output-recount <path>` alone used to
+/// do exactly that with 11,010 recount violations (verification review of
+/// `acfc3f1`, F1).
+fn verdict_requested(
+    gate: bool,
+    require_covered: bool,
+    full_star_recount: bool,
+    domain_sweep: bool,
+    outputs_requested: bool,
+) -> bool {
+    gate || require_covered || full_star_recount || domain_sweep || outputs_requested
+}
+
 /// Every invariant the census claims, checked against the probes.
 fn check_invariants(
     domains: &BTreeMap<(u8, &'static str), ParentDomain>,
@@ -6922,42 +7000,16 @@ fn check_invariants(
     // measurements; `contained == entries` is the measured claim that every
     // Gamma-reaching parameter is a full-star boundary (the documented exception
     // has no corpus witness).
-    if evidence.gamma.entries != 23_024 {
-        violations.push(format!(
-            "the Gamma enumeration reports {} (parameter, arms) entr(ies), expected 23024",
-            evidence.gamma.entries
-        ));
-    }
-    if evidence.gamma.contained != evidence.gamma.entries {
-        violations.push(format!(
-            "the Gamma enumeration reports {} contained of {} entr(ies); every entry must be a \
-             full-star boundary",
-            evidence.gamma.contained, evidence.gamma.entries
-        ));
-    }
-    if evidence.gamma.exceptional != 0 {
-        violations.push(format!(
-            "{} Gamma entr(ies) took the exactly-fixed-arm exception, which has no corpus witness",
-            evidence.gamma.exceptional
-        ));
-    }
-    if evidence.gamma.zero_arms != 0 {
-        violations.push(format!(
-            "{} arm(s) have a zero folded direction and are at Gamma everywhere",
-            evidence.gamma.zero_arms
-        ));
-    }
-    let gamma_pairs: usize = evidence.gamma.shapes.values().sum();
-    if gamma_pairs != 5_756 {
-        violations.push(format!(
-            "the Gamma parameter-set shapes cover {gamma_pairs} (record, label) pairs, expected 5756"
-        ));
-    }
-    if evidence.gamma.shapes.len() != 8 {
-        violations.push(format!(
-            "the Gamma parameter-set shapes number {}, expected 8",
-            evidence.gamma.shapes.len()
-        ));
+    //
+    // The counters are collected only when the pass that measures them runs
+    // (`recount || domain_sweep`, i.e. `--gate`, `--full-star-recount`,
+    // `--output-recount` or `--domain-sweep`), so the assertions apply under the
+    // same condition: a run that did not ask for the pass has zero counters, and
+    // asserting zero reported three violations for a pass that never ran -- the
+    // flagless run, `--output <path>` alone, and `--require-covered` alone all
+    // printed them (verification review of `acfc3f1`, F1).
+    if evidence.recount_ran || evidence.sweep_ran {
+        check_gamma(evidence.gamma, violations);
     }
     // The full-star recount pass, when it was requested, must have run and must
     // reproduce its corpus totals -- otherwise a mutation can turn it into a no-op
@@ -9643,10 +9695,14 @@ mod tests {
     /// The gate's per-record pass is merged afterwards, so the merge is load
     /// bearing: it has to add the two tables entry-wise (a key two records share
     /// must sum, not overwrite), sum the counters and append the violations in
-    /// record order.  Five of the eight fields are only printed at gate level, so
-    /// a merge that dropped or reordered a part would show up only on a run whose
-    /// corpus is already wrong -- hence this direct control (external review of
-    /// `b428a93`: none of the mutation batteries touches this code).
+    /// record order.  Three of the eight fields are only printed at gate level
+    /// (`legacy`, `boundary_probes`, `boundary_errors`); the other five feed pins
+    /// or violations.  A merge that dropped or reordered a part would show up only
+    /// on a run whose corpus is already wrong, and no mutation battery touches
+    /// this code (external review of `b428a93`), so every field is asserted here
+    /// directly.  (The earlier wording counted five print-only fields; measured
+    /// against the gate block it is three -- verification review of `acfc3f1`,
+    /// F5.)
     #[test]
     fn the_boundary_gate_merge_keeps_order_and_sums() {
         fn part(ordinal: usize, count: usize, probes: usize, errors: usize, missing: usize) -> BoundaryGate {
@@ -9696,6 +9752,118 @@ mod tests {
         assert_ne!(dropped.corrected, total.corrected);
         assert_ne!(dropped.boundary_probes, total.boundary_probes);
         assert_ne!(dropped.violations, total.violations);
+    }
+
+    /// **Verification review of `acfc3f1`, F1: every flag that asks for a pass
+    /// makes its violations fail the run.**
+    ///
+    /// `--output-recount <path>` alone used to run the recount pass, print all of
+    /// its violations and exit 0, because the verdict condition listed only the
+    /// gate flags (measured with the mutation battery's `mut-p5`: 11,010
+    /// violations, exit 0, no `gate:` line).  Each flag is asserted to trigger the
+    /// verdict on its own and the all-false combination to be the only one that
+    /// does not, so dropping a flag is a test failure.
+    #[test]
+    fn the_verdict_covers_every_requested_pass() {
+        assert!(
+            !verdict_requested(false, false, false, false, false),
+            "a run that asked for no pass has no verdict to fail"
+        );
+        for (flag, verdict) in [
+            ("--gate", verdict_requested(true, false, false, false, false)),
+            (
+                "--require-covered",
+                verdict_requested(false, true, false, false, false),
+            ),
+            (
+                "--full-star-recount",
+                verdict_requested(false, false, true, false, false),
+            ),
+            (
+                "--domain-sweep",
+                verdict_requested(false, false, false, true, false),
+            ),
+            (
+                "--output/--output-blocks/--output-recount",
+                verdict_requested(false, false, false, false, true),
+            ),
+        ] {
+            assert!(verdict, "{flag} must reach the verdict");
+        }
+    }
+
+    /// **Verification review of `acfc3f1`, F1: the Gamma counters are asserted
+    /// only when the pass that measures them ran.**
+    ///
+    /// The counters are zero in a run that did not ask for the recount or the
+    /// sweep, and asserting zero reported three violations for a pass that never
+    /// ran (the flagless run, `--output <path>` alone, `--require-covered`
+    /// alone).  This drives `check_invariants` itself, with the same zeroed
+    /// report, under both settings: silent when the pass did not run, three
+    /// violations when it did.
+    #[test]
+    fn the_gamma_assertions_run_only_when_their_pass_ran() {
+        let domains = source_domains().expect("the frozen domains");
+        let record = record_of(196, 10_030);
+        let report = census_report(196, 10_030, false, false);
+        assert_eq!(
+            (report.gamma.entries, report.gamma.shapes.len()),
+            (0, 0),
+            "the witness must not have measured the Gamma counters"
+        );
+        let gamma_violations = |recount_ran: bool| {
+            let block_rows = report
+                .probes
+                .iter()
+                .map(|probe| probe.blocks.len())
+                .sum::<usize>();
+            let evidence = CensusEvidence {
+                child_grid: report.child_grid,
+                child_algorithms: report.child_algorithms,
+                child_union: &report.child_parameters,
+                algorithm_checks: 0,
+                algorithm_mismatches: 0,
+                block_rows,
+                block_file_rows: None,
+                gamma: &report.gamma,
+                recount: &report.recount,
+                recount_ran,
+                recount_rows_written: 0,
+                recount_file_rows: None,
+                sweep: &report.sweep,
+                sweep_ran: false,
+            };
+            let mut violations = Vec::new();
+            check_invariants(
+                &domains,
+                std::slice::from_ref(&record),
+                &report.probes,
+                &evidence,
+                &mut violations,
+            );
+            violations
+                .into_iter()
+                .filter(|violation| violation.contains("Gamma"))
+                .collect::<Vec<_>>()
+        };
+        assert!(
+            gamma_violations(false).is_empty(),
+            "a run that did not ask for the pass must not report its counters: {:?}",
+            gamma_violations(false)
+        );
+        let reported = gamma_violations(true);
+        assert_eq!(
+            reported.len(),
+            3,
+            "the zeroed counters must be three violations once the pass is claimed to have run: \
+             {reported:?}"
+        );
+        for needle in ["23024", "5756", "expected 8"] {
+            assert!(
+                reported.iter().any(|violation| violation.contains(needle)),
+                "the violations must name {needle}: {reported:?}"
+            );
+        }
     }
 
     /// **Card 6, positive control: the audit is not vacuous, and it reproduces
