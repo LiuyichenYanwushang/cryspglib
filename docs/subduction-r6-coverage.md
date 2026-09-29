@@ -675,7 +675,7 @@ gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子
 | 同一命令，4 / 2 线程 | 60.96 / 99.91 s | 22.08 / 36.57 s |
 | 同一命令，1 线程 | 179.71 s | 66.29 s |
 | 加 `--domain-sweep`，8 线程 | 112 s | 38 s（电池记录）；尾部并行化后的交替 A/B **36.8/37.4 → 32.9/33.1 s** |
-| 全部验收（`target/chainFast.sh`，含构建） | —— | **313 s**（`final-round2`，含构建 90 s）→ **217 s**（`tailpar2`@`f2e7d09`）→ **189 s**（`tailpar3`@`acfc3f1`，增量构建 0 s）→ **193 s**（`tailpar6`@`53c6a3e`，第三版调度；三变体 191/192/193 s） |
+| 全部验收（`target/chainFast2.sh`，含构建） | —— | **313 s**（`final-round2`）→ **217 s**（`tailpar2`@`f2e7d09`）→ **189 s**（`tailpar3`@`acfc3f1`，增量 0 s）→ **190 s**（`tailpar7`@`53c6a3e`，完全增量）→ **316 s**（`cold2`，冷构建；旧脚本同条件 329 s）→ **220 s**（`tailpar8/9`@`7f8b016`，含 example 重建）→ **206 s**（`tailpar10`@`bdb43e3`，`dirty-files 0`） |
 | `line_transport_ledger --batch 1/4`（单作业） | **23.64/23.67/23.97 s**（单核，user == wall） | **3.40/3.52/3.41 s**（`53c6a3e`，逐行 rayon；输出与旧日志逐字节相同；**user 27.1 s，比改前多 ~14% CPU**） |
 
 比值为 2.84× / 2.76× / 2.73× / 2.71×；审核方在各自私有 target 上独立 A/B 得
@@ -685,15 +685,22 @@ gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子
 sha256）：**41 个测试壳**（23 个 `--tests` 二进制加 18 个 example 测试壳；`cargo test --tests`
 **不含** example 的单测，第一版电池因此漏掉 63 项，已修）合计 **680 passed / 0 failed**，
 另有 doctest、clippy `-D warnings`、family/ledger/global 三门禁与 5 个 python 门禁，全部 exit 0。
-**当前基线（`53c6a3e`）**：`target/logs/tailpar7/summary.txt`（日志头 `revision 53c6a3e
+**当前基线（`bdb43e3`）**：`target/logs/tailpar10/summary.txt`（日志头 `revision bdb43e3
+dirty-files 0`，三个源文件 sha256 与提交一致）**206 s** = 构建 14 s + census-8 32 s +
+〔census-4 ‖ global-audit〕71 s + 池 57 s + 尾 32 s、**684 passed / 0 failed**、三个 TSV 4==8
+且 SHA 未变——与 `7f8b016` 的 220 s / `tailpar8`、`tailpar9` 同档（那一档的构建/发现是 example
+改动后的重建，审核方实测 `tailpar9` **不是**热档，13 s + 17 s 正是 example 二进制 + 测试壳的
+重建，因为两次运行之间跑了 21 个变异电池）。
+**历史基线（`53c6a3e`）**：`target/logs/tailpar7/summary.txt`（日志头 `revision 53c6a3e
 dirty-files 2`——那两个文件是当时正在编辑的文档，三个源文件 sha256 与提交一致）**190 s** =
 构建/发现 1 s + census-8 **33 s** +〔census-4 ‖ global-audit〕**66/67 s** + 池 **57 s**
 （44 个作业）+ 尾 **32 s**（5 个 python 门禁与 clippy/doctest 并行，尾由单核 oracle 的 32 s
 决定），41 个测试壳合计 **683 passed / 0 failed**、三个 TSV 4 线程 == 8 线程且 SHA 未变，
 全局审计 `VERDICT complete scope=global … full_decomposition=complete`；冷构建档（`touch`
 全部源文件）**316 s**（`cold2`；旧脚本同条件 329 s = `cold-old`；被否决的"构建与普查重叠"
-变体 375 s = `cold1`，见 AGENTS.md 的 `53c6a3e` 条目）。调度的三个变体实测
-190/191/192/193 s（`tailpar4/5/6/7`），与 `acfc3f1` 的 189 s **没有显著差别**：
+变体 375 s = `cold1`，见 AGENTS.md 的 `53c6a3e` 条目）。调度的四个变体实测
+190/191/192/193 s（`tailpar7`/`tailpar4`/`tailpar5`/`tailpar6`），与 `acfc3f1` 的 189 s
+**没有显著差别**：
 逐项量出电池已吃满 CPU（phase 0–2 的 98 s 两段都近满载；池 +尾的 90–95 s 由 family 扫描
 单跑 39.9 s = 313 core·s 与各测试壳决定），再压调度只能挪几秒。相对 `final-round2` 的 680，
 `f2e7d09`/`acfc3f1` 的 681 与 `53c6a3e` 的 683 都不是 card-6 正对照的贡献（它在 680 里已计过）：

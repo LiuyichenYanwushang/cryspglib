@@ -209,10 +209,12 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    验收电池（`target/logs/tailpar/summary.txt`，源码 `census.rs fc2c7681…`/`subduction.rs e4a55688…`）
    **193 s**：构建 0 s（只改了 example，增量）+ 发现 1 s + census-8 **32 s** + 并发档 71 s +
    池 56 s + 尾 33 s，680 passed / 0 failed、三门禁与 python/oracle 全 exit 0。
-   **当前基线（`7f8b016`）**：`target/logs/tailpar9/summary.txt`（example 改动后需重建的那一档）
-   **220 s** = 构建 13 s + 发现 17 s + census-8 **33 s** +〔census-4 ‖ audit-4〕**68 s** +
-   池 **57 s**（44 个作业）+ 尾 **32 s**，41 个测试壳 **684 passed / 0 failed**；完全增量档
-   **190 s**（`tailpar7`@`53c6a3e`，构建/发现 1 s）；冷构建档（`touch` 全部源文件后同一脚本）
+   **当前基线（`bdb43e3`，`target/logs/tailpar10/summary.txt`，`revision bdb43e3 dirty-files 0`）**：
+   **206 s** = 构建 14 s + census-8 **32 s** +〔census-4 ‖ audit-4〕**71 s** + 池 **57 s**
+   （44 个作业）+ 尾 **32 s**，41 个测试壳 **684 passed / 0 failed**；同一档的 `7f8b016`
+   （`tailpar8`/`tailpar9`）是 220 s（多出的是 example 改动后 13 s 构建 + 17 s 测试壳重建——
+   审核方实测 `tailpar9` **不是**热档，两次运行之间跑了变异电池）；完全增量档 **190 s**
+   （`tailpar7`@`53c6a3e`，构建/发现 1 s）；冷构建档（`touch` 全部源文件后同一脚本）
    **316 s**（`target/logs/cold2`，旧脚本同条件下 329 s = `cold-old`）。**与 `acfc3f1` 的 189 s 没有
    显著差别**：逐项量出的原因是电池**已经吃满 CPU**（phase 0–2 的 99 s 里 census-8 ≈33 s、
    `census-4 ‖ audit-4` ≈66 s 都接近满载），池 57 s 由 family 扫描（单跑 39.9 s = **313 core·s**、
@@ -1142,9 +1144,10 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   `target/logs/ledger-ab.txt`（交替 A/B 各三次：pre **23.64/23.67/23.97 s**、post
   **3.40/3.52/3.41 s**，pre == post 输出逐字节相同、post == `tailpar3/ledger-batch.txt`，
   两个二进制都有 sha256），两份文档据此改写并写明 CPU 代价。审核方另记一条**归因口径**：
-  `tailpar2` 是唯一写着 681 的日志，其头行是 `revision b428a93 dirty-files 1`，但钉的
-  `census.rs` 哈希等于 `f2e7d09` 的提交内容——"@`f2e7d09`"这个标注由**哈希**支持、不由那行
-  revision 支持（现按此措辞）。
+  那份标着 681 的 `tailpar2` 日志头行是 `revision b428a93 dirty-files 1`，但钉的 `census.rs`
+  哈希等于 `f2e7d09` 的提交内容——"@`f2e7d09`"这个标注由**哈希**支持、不由那行 revision 支持
+  （现按此措辞；先前的"`tailpar2` 是唯一写着 681 的日志"是错的，`tailpar3` 也写 681，见下一轮
+  审核 N4）。
   **本提交的验证**（源码 `census.rs da24aefc…`、`ledger.rs a04f26fd…`）：example 测试 **27 项**
   （26 + 新的耦合回归）、`--list` 27 条不同、严格 clippy exit 0；`--gate --require-covered
   --domain-sweep` 的电池（`target/logs/tailpar9`，源改动后需重建 example 上下文）**220 s**
@@ -1152,6 +1155,41 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   **684 passed / 0 failed**、三个 TSV 4==8 且 SHA 未变；完全增量档仍是 **190 s**（`tailpar7`）；
   **21 个变异**在本修订上逐个复现（`target/logs/finalTailpar5/summary.txt`，与 `finalTailpar4`
   逐行相同，唯一差异是修订哈希行：19 个 exit 1 + m2/m2b 两个已披露残余 exit 0）。
+
+* **`7f8b016`（+ `86dee10`）的验证审核（第十条独立审核线）：无 P0，1×P1 + 4×P2，全部接受
+  （本提交 `bdb43e3` + 文档）**。审核方（私有 worktree `target/review-halley/wt`@`86dee10`，
+  报告 `target/review-halley/REPORT.md`）复算：耦合修复对**它所点名的那次变异**成立（A5：
+  `--gate --require-covered --domain-sweep` exit 1 / 2 条报文；诚实路径 exit 0 / 0 violation、
+  报告与 `finalZAA` 88 行逐行相同、三个 TSV 8 与 4 线程都等于钉值）；新测试有牙；第 494 行确为
+  三个字段；coverage 的 `tailpar7` 数字与日志相符；`ledger-ab.txt` 独立复现（审核方自己的 A/B：
+  pre 23.65/23.66 s、post 3.42/3.66 s、user 27.2，且证明 pre 二进制**零** rayon 符号、post 39 个）；
+  `finalTailpar5` 与 `finalTailpar4` 只差修订行；`tailpar8/9` 复算 220 s / 684/0、盘上 TSV == 钉值；
+  clippy exit 0（且用注入的 `clone_on_copy` 证明它真的 lint 该 example）。发现并处理：
+  **① N1（P1）**：新控制**自己的输入**没有绑定——两个"请求"标志是 `check_invariants` 的**新增参数**，
+  在调用点写 `false` 对验收命令和 27 项测试**都不可见**，与清掉证据标志叠加就把被审的缺陷原样恢复
+  （exit 0 / 0 violation）；把两个参数**对调**同样不可见。**已修**：请求标志移进 `CensusEvidence`
+  （与"是否跑过"的标志放在一起），`run()` 再把两件事交叉核对两次——证据里的请求标志 vs 决定通过程的
+  局部变量、局部变量 vs **第二次解析的命令行**；另外"要求了产物却一行都没写"（`--output-recount`
+  只写表头）也是 violation。实测（`target/n1-teeth.sh`，每次变异一次构建）：诚实 exit 0 / 0；
+  `recount_ran := false` → exit 1（耦合报文）；证据里 `recount_requested := false` → exit 1
+  （"…is true where the passes are decided but false in the evidence"）；`let domain_sweep = false`
+  （同时给 `--domain-sweep`）→ exit 1（"…is false … but true on the command line"）；
+  `let recount = false` 且给 `--output-recount` → exit 1（"wrote no row"）。
+  **② N2（P2）**：请求标志就是决定通过程的局部变量，清掉一个会**同时**跳过通过程与检查
+  （`--domain-sweep` 被静默忽略、`--output-recount` 只写表头，两者都 exit 0）——由上面的命令行
+  复核与产物约束覆盖。**③ N3（P2）**：新测试的非空转断言 `!live.is_empty()` 会被**无守卫**的
+  violation 满足，所以把全部守卫关掉它照样通过；**已改**为逐条点名两个被守卫的报文
+  （`Gamma enumeration reports` / `full-star recount probed`），并要求"没请求时这两条**不得**出现"；
+  实测把所有守卫关掉 → 该测试**失败**（此前通过）。**④ N4（P2）**：AGENTS.md 里"`tailpar2` 是唯一
+  写着 681 的日志"是错的（`tailpar3` 也写 681），已按"那份 `@f2e7d09` 的归因由哈希支持、不由
+  revision 行支持"改写。**⑤ N5（P2）**：coverage §4c 的"当前基线"仍写 `53c6a3e`/`tailpar7`，与同一
+  提交的 AGENTS.md 和实际脚本矛盾；已改成 `bdb43e3`/`tailpar10`（206 s、684/0），旧档降为历史基线，
+  并把"三个变体…四个数"改成四个变体。
+  **本提交的验证**（源码 `census.rs 4bb2a1f4…`、`ledger.rs a04f26fd…`）：example 测试 **27 项**
+  （`--list` 27 条不同）、严格 clippy exit 0；电池 `target/logs/tailpar10`（日志头 `revision bdb43e3
+  dirty-files 0`）**206 s**、**684 passed / 0 failed**、三个 TSV 4==8 且 SHA 未变、三门禁/doctest/
+  clippy/oracle 全 exit 0；**21 个变异**逐个复现（`target/logs/finalTailpar6/summary.txt`，与
+  `finalTailpar5` 逐行相同、只差修订行）。
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有
