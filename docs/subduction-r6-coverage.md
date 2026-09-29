@@ -722,8 +722,8 @@ dirty-files 2`——那两个文件是当时正在编辑的文档，三个源文
 **34 s → 8 s**，尾段长杆换成 clippy（`legs.txt`：oracle 8 / doctest 10 / clippy 26 s）。
 ② **`Mat3R` 余子式改写**（`src/irrep/subduction.rs`：常量索引表取代每次 `inverse` 24 次
 `Vec` 分配，运算顺序与错误路径不变）：交替 A/B 各 3 轮
-（`target/logs/mat3r/ab.txt`）**32.90/33.46/33.60 → 29.65/29.96/30.04 s**（中位 33.32 →
-29.88 s，**约 10%**），三个 TSV 与门禁报告逐字节未变；电池 census-8 **33 → 29 s**。
+（`target/logs/mat3r/ab.txt`）**32.90/33.46/33.60 → 29.65/29.96/30.04 s**（三轮**均值** 33.32 →
+29.88 s、**中位** 33.46 → 29.96 s，**约 10%**；审核方独立 A/B 39.15 → 34.24 s，约 12.6%），三个 TSV 与门禁报告逐字节未变；电池 census-8 **33 → 29 s**。
 改后 gdb 采样（`target/logs/profile/matpost/`）把 `Mat3R::inverse` 从最热浅帧挤到第 5，
 叶帧前三是 `Rat::checked_mul` 236 / `Rat::checked_add` 112 / `Rat::new` 66。
 
@@ -731,13 +731,16 @@ dirty-files 2`——那两个文件是当时正在编辑的文档，三个源文
 `par_iter`（gate 段逐记录遍历、`check_blocks` 的逐块重算）当时**没有分支到 `--sequential`**，
 所以"串行对照"实际是多线程跑（复核方实测 4 个 worker）。现在两处都按开关分支，并实测：
 `RAYON_NUM_THREADS=4 --sequential --gate --require-covered` 采样 `/proc/<pid>/task`
-**max=1 线程**（去掉 `--sequential` 为 max=5，证明测量看得见并行），完整单线程 sweep
-（`--sequential --gate --require-covered --domain-sweep`）**223 s** 跑完、**一个线程**，
-三个 TSV 与 8 线程版**逐字节相同**且仍是钉住 SHA。本文档此前的"串行/并行 TSV 逐字节相同"
-因此重新有实测支撑；旧记录里的 465–500 s 串行墙钟是更早的代码与更重的机器负载下的读数，
-不与本次同口径比较。另外 `--output --bogus` 这类"下一项是选项"的写法现在按缺少路径报错
-（exit 3；特殊文件名用 `./--name` 或 `--output=--name`），不再创建一个名为 `--bogus` 的文件
-还 exit 0（同轮 P2-2）。
+**max=1 / mean=1.00 线程**（去掉 `--sequential` 为 max=5 / mean 4.99，证明测量看得见并行），
+完整单线程 sweep（`--sequential --gate --require-covered --domain-sweep`）**max=1**、
+本机重跑 **245.0 s**（同轮早先一次 223 s；复核方独立测得 228.20 s，load 3.1–6.1），
+三个 TSV 与 8 线程版**逐字节相同**且仍是钉住 SHA；三行读数连同采样数落在
+**`target/logs/seq-threads/summary.txt`**（复核方指出先前这一条没有日志，已补）。本文档
+此前的"串行/并行 TSV 逐字节相同"因此重新有实测支撑；旧记录里的 465–500 s 串行墙钟是更早的
+代码与更重的机器负载下的读数，不与本次同口径比较。另外 `--output --bogus` 这类"下一项是选项"
+的写法现在按缺少路径报错（exit 3；特殊文件名用 `./--name` 或 `--output=--name`），不再创建
+一个名为 `--bogus` 的文件还 exit 0（同轮 P2-2）；重复给同一个产物 flag、以及单个 `-`，
+同样报错（`634fd85` 的复核 F7/F8）。
 
 **基线口径更正**："≈16 min"是 **`chainFinal.sh`** 的一次完整运行（含 569 s 串行 census），
 `chainFinal2.sh` 换掉串行档后从未写过日志；因此新旧对比里有一部分不是调度收益，而是少跑了
@@ -746,8 +749,11 @@ dirty-files 2`——那两个文件是当时正在编辑的文档，三个源文
 
 **门禁自身的措辞（`786e026` 审核轮的三条新消息，本文档此前一条都没有引用——N-f）**：
 `786e026` 给命令行交叉核对加了两条 violation，给见证通过程加了一条：
-`--full-star-recount (request) is true where the passes are decided but false in the evidence`、
-`--domain-sweep (request) is true where the passes are decided but false in the evidence`、
+`--full-star-recount (request) is true on the command line but false in the evidence`、
+`--domain-sweep (request) is true on the command line but false in the evidence`（`orion` 轮把这两行
+两侧都改成读**命令行拼写**、并新增见证内容/计数三条：`the recount witness pass answered N pinned
+parameter(s) 1/8, expected 2`、`… 1/9 …`、`the recount witness pass compared N pinned
+expectation(s), expected 4`）、
 `the recount witness pass ran for N of 1006 record(s)`；`786e026` 的审核轮（reviewer `lyra`）
 又加了一条按闭式钉住的
 `the recount witness pass decomposed N witness parameter(s), expected 4`（`2` 条钉住记录 ×
@@ -788,3 +794,19 @@ R6.1 的审计（三门口禁）现在包含两条与参数族相关的硬失败
 的行计入 `comparison_skipped` 并按硬失败处理，同标签读法作见证计数）。共轭参数
 （`-1/4, 3/4, 7/4`）的 content oracle
 在本报告的 example 里记账，字符层的位移检查同样在 example 里（5,756/5,756）。
+
+**门禁的控制强度（`orion` 轮的 P0/P1 与修复，2026-09-29）**：证据耦合行与见证覆盖检查此前读的是
+**可被 rebind 的局部量**（在八行表与证据循环之间插入 `let recount = false;` + 清空两个证据字段
+就能让整个 recount 断言块静默失效、stdout 逐字节不变），见证控制的**常量与内容**同样无人绑定
+（把 `PINNED_WITNESS_PARAMETERS` 改成 `[(1,9),(1,9)]`、把 ordinal 分支改成 `if false`、
+或让调用点返回伪造答案都仍然 exit 0）。现在：① 耦合与覆盖检查读**命令行拼写出来的请求**
+（`spelled_flags()` 的第 8/第 4 项），报文为 `… is true on the command line but false in the
+evidence`；② 门禁用**自己的字面量**核对通过程**返回的**参数（`1/8`、`1/9` 各 2 个），并要求
+通过程报告它**实际比较过的**钉住期望数等于闭式 4（`… compared N pinned expectation(s),
+expected 4`）；③ 请求表由 `Options` 结构经 `RequestedPasses::of(&options)` 生成，新增回归
+`the_request_table_is_read_from_the_parsed_options` 钉住"哪个 flag 对应哪个字段"。
+变异实测（`target/logs/teeth4/summary.txt`）：`n1shadow_ev`、`n1shadow_ev_pin`、`n3const`、
+`n3content`、`n3content_one`、`n3fabricate` 全部 exit 1，交叉接线 `n4of_call` 让 example 测试
+失败 1 项。**仍然超出常驻控制的**（实测记录，不声称已闭合）：改写控制自身的输入表达式、
+把闭式所依赖的常量与被检查对象一起改、返回形状正确的伪造值、把某条内容分支关掉后再手工补计数
+——这几类都要同时改到控制自身，属于已披露的残余。

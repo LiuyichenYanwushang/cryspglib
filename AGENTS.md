@@ -275,8 +275,10 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    分配**，gdb 采样里它是 crate 内最热的浅帧（151/3,926，`target/logs/profile/t8b/`）。改为
    常量索引表 + 私有 `minor()`，**运算顺序与错误路径逐字不变**（同样的 `checked_mul/sub/neg/div`
    序列）。交替 A/B（`target/logs/mat3r/ab.txt`，8 线程、验收参数、各 3 轮，两份二进制都是
-   同一份 example 源）：**32.90/33.46/33.60 s → 29.65/29.96/30.04 s**（中位 33.32 → 29.88 s，
-   **约 10%**），三个 TSV 与门禁报告逐字节未变；电池里 census-8 **33 s → 29 s**。
+   同一份 example 源）：**32.90/33.46/33.60 s → 29.65/29.96/30.04 s**（三轮**均值** 33.32 → 29.88 s，
+   **中位** 33.46 → 29.96 s，**约 10%**；审核方独立交替 A/B 39.15/38.74/40.47 →
+   34.24/34.64/31.96 s，约 12.6%，三个 TSV 同样逐字节相同——`634fd85` 的复核 P2-4
+   指出先前把均值写成了中位数，已更正），三个 TSV 与门禁报告逐字节未变；电池里 census-8 **33 s → 29 s**。
    **改后重新采样**（`target/logs/profile/matpost/`）：`Mat3R::inverse` 从最热浅帧退到第 5
    （129），叶帧前三是 `Rat::checked_mul` 236、`Rat::checked_add` 112、`Rat::new` 66 ⇒ 下一个
    候选是 `Rat` 原语本身（i64 快路径 / 免除法 gcd），**未做、未测量**：`Mat3R::inverse` 的
@@ -1213,7 +1215,7 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   局部变量、局部变量 vs **第二次解析的命令行**；另外"要求了产物却一行都没写"（`--output-recount`
   只写表头）也是 violation。实测（`target/n1-teeth.sh`，每次变异一次构建）：诚实 exit 0 / 0；
   `recount_ran := false` → exit 1（耦合报文）；证据里 `recount_requested := false` → exit 1
-  （"…is true where the passes are decided but false in the evidence"）；`let domain_sweep = false`
+  （当时的报文 "…is true where the passes are decided but false in the evidence"；本轮 P0 修复后改为 "…is true on the command line but false in the evidence"，见下面 `orion` 条目）；`let domain_sweep = false`
   （同时给 `--domain-sweep`）→ exit 1（"…is false … but true on the command line"）；
   `let recount = false` 且给 `--output-recount` → exit 1（"wrote no row"）。
   **② N2（P2）**：请求标志就是决定通过程的局部变量，清掉一个会**同时**跳过通过程与检查
@@ -1278,7 +1280,7 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   断言块**（11,009 / 27,507 / 28 / 1,692 等钉值、added-kind 拆分、行/文件守恒）不可达，而
   `run` 里每个比较仍然诚实——决定性控制：**故意写错的 recount 钉值**（`11_009`→`11_010`，
   单独就 exit 1）与它叠加后 exit 0。**已修**：证据侧循环**恢复**，上述两种编辑现在都 exit 1
-  （`--full-star-recount (request) is true where the passes are decided but false in the evidence`）。
+  （当时的报文 `--full-star-recount (request) is true where the passes are decided but false in the evidence`；`orion` 轮已把两侧都改成读命令行，报文随之改为 `… is true on the command line but false in the evidence`）。
   **② N3（P2）**：card-4 的 `1/9`,`1/8` 见证通过程挂在它自己的 `if recount` 后面，
   把守卫剪成 `if false` 曾完全不可见；**已修**：`probe_record` 现在报告"该通过程为多少条记录跑过"，
   门禁把它与记录数比对 ⇒ 剪掉守卫得到 `the recount witness pass ran for 0 of 1006 record(s)` 并 exit 1。
@@ -1363,6 +1365,85 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   4 个负例（`--bogus`/`--gate`/`-x`/`--`）+ 3 个正例（`./--bogus`、`=--bogus`、`-`）。
   复核确认的其余各点（诚实路径、31+3 项测试、完整 sweep 门禁、三个 TSV SHA、三处绑定缺口）
   与本轮记录一致；**复核期间主检出保持干净**。
+
+* **`f909a36`/`a9a5bb5`/`9fd3662`/`c7354e3` 的验证审核（reviewer `orion`，`target/review-orion/REPORT.md`）：
+  P0 ×1 + P1 ×1 + P2 ×7，全部接受并修复（本提交）**。复核方在私有 worktree（gold `census.rs afd4fdd4…`、
+  `subduction.rs aaf03ce4…`，每次变异后还原复核）上独立复算：诚实路径未动、两个"删行"变异确实
+  `E0308`、四个命名 N3 逃逸确实闭合、Mat3R 的 **7 个**单点变异（本方 3 个 + 复核方 4 个）都让新回归
+  失败、电池日志的分解逐项复核（278 s = 86+0+25+30+59+51+27、689/0；282 s、688/0；`tailpar9` 与
+  `tailpar8` 只差修订行）。**P0（证据耦合的输入未绑定）**：在八行表与证据循环之间插入
+  `let recount = false;`，再把两个证据字段清掉（数组一字未动）→ **exit 0 / 0 violation /
+  `gate: ok` / stdout 与诚实运行逐字节相同**；再叠加故意写错的钉值（`RECOUNT_PROBES_PIN`
+  `11_009`→`11_010`，单独就 exit 1）**仍然 exit 0** ⇒ lyra 的 C1h/C1i 状态复活。**已修**：
+  耦合行与见证覆盖检查改成读**命令行拼写出来的请求**（`spelled_recount = spelled[7]`、
+  `spelled_sweep = spelled[3]`，均取自 `spelled_flags()` 的进程 argv 读取），不再读任何可被
+  rebind 的局部量；报文随之改为"… is true on the command line but false in the evidence"。
+  实测（`target/logs/teeth4/summary.txt`）：`n1shadow_ev` / `n1shadow_ev_pin` 都 **exit 1**
+  并点名该报文。**P1（见证控制的常量与内容未绑定）**：把 `PINNED_WITNESS_PARAMETERS` 改成
+  `[(1,9),(1,9)]`（请求、闭式与通过程自检都读同一个常量）→ exit 0 且 31/31；`n3fabricate`
+  （调用点返回伪造三元组）、`n3content`/`n3content_one`（把 ordinal 分支改成 `if false`）
+  同样 exit 0。**已修**：① 门禁用**自己的字面量** `1/8`、`1/9` 检查通过程**返回的**参数
+  （各应为 2 个）；② 通过程报告它**实际比较过的**钉住期望数（计数器放在每个比较处，沿用
+  fixity 计数的先例），门禁按闭式 4 断言。实测：`n3const` → exit 1（`answered 0 pinned
+  parameter(s) 1/8, expected 2`）、`n3content`/`n3content_one` → exit 1（`compared 2 pinned
+  expectation(s), expected 4`）、`n3fabricate` → exit 1（`decomposed 2012 witness parameter(s),
+  expected 4`——伪造的返回值对**每条记录**都生效，总数立刻偏离）。**P2 全部处理**：
+  **P2-5**（手工在调用点拼请求表 ⇒ 交叉接线在验收命令与 31 项测试下都不可见）：新增
+  `Options` 结构 + `Options::parse` + `RequestedPasses::of(&options)`，并新增回归
+  `the_request_table_is_read_from_the_parsed_options`；同一变异（`output:` 接到 `output_blocks`）
+  现在 **example 测试失败 1 项（31/32）**。**P2-1**（`oracle-ab` 日志里"tracked"与"patched"
+  两个 sha 相同、"serial" 两臂其实是打补丁后的 8 job 运行 ⇒ 日志没有改前参照）：脚本改为
+  接收**改前脚本**并同时钉两份 sha，重跑 `target/logs/oracle-ab2/summary.txt`：改前
+  `389d829a…` **31.93/31.79 s** vs 改后 1 job **32.07/31.73 s**（无额外开销）、4 jobs
+  **9.08/9.04 s**、8 jobs **5.13/5.15 s**，八份 stdout 全部逐字节相同（`960f4fac…`）。
+  **P2-2**（构造输入下失败路径不同：改前"0 次会话 + FAILURES: 2"，改后先跑了 2 次会话再
+  `RuntimeError`）：工作线程现在**照抄串行控制流**（无 machine records 的 case 一次会话都不跑；
+  行数已不符的 case 不查方向矢量），`target/oracle-parity.py` 三个场景 3/3 一致。
+  **P2-3**（`teeth3/summary.txt` 只剩 `--only` 那次的三条）：脚本改为**追加**并写运行头，
+  被截断的旧日志保留为 `summary-partial-only-run.txt`，22 个变异 + 2 个正对照的完整日志重跑落盘。
+  **P2-4**（Mat3R A/B 把**均值**写成"中位"）：文档改为均值 33.32 → 29.88 s、中位 33.46 → 29.96 s，
+  并记录复核方自己的交替 A/B（39.15/38.74/40.47 → 34.24/34.64/31.96 s，约 12.6%）。
+  **P2-6**（`--output --gate` 被当成路径）在 `634fd85` 已修（`is_path_like`），复核方也复测过。
+  **P2-7**：三处 `requested_flags` 的 rustdoc 链接改指 `RequestedPasses::rows`。
+  **过程说明**：复核方记录到主检出在它复核期间变脏、HEAD 前移（那是本方在并发提交，不是它的写入）；
+  它据此只用自己的 worktree 做测量——这一点本方在下一轮把"变异电池运行期间不得改源文件"写成
+  硬约束（本轮实际发生过一次并发编辑，已中止并重跑，见 `teeth4`/`teeth3` 的重跑记录）。
+  **本提交的验证**（源码 `census.rs 9e181556…`；`target/logs/fix5battery2/summary.txt`，
+  `revision b9d8d9e dirty-files 4`）：**169 s** = 构建 14 + 发现 0 + example 发现 0 +
+  census-8 **30** +〔census-4 ‖ audit-4〕**63** + 池 **54** + 尾 **8**，**690 passed / 0 failed**
+  （689 + 新增的 `the_request_table_is_read_from_the_parsed_options`），三个 TSV 4==8 且 SHA 未变，
+  三门禁/doctest/clippy/oracle 全 exit 0；example 测试 **32 项**、严格 clippy exit 0；
+  22 个变异 + 2 个正对照在**最终源码**上重跑（`target/logs/teeth3/summary.txt`，脚本已改为追加），
+  每条都记 exit code；`n1a/n1b/n1c/n1d`、`n3cut/n3lie/n3call/n3sumlie/n3list`、`n4a2/n4b2/n4c2`
+  等仍逐个复现，`n1h/n1e/n3count` 仍是 `E0308`/`E0425`，`n4d/n4e` 仍让 example 测试失败 1 项，
+  `eqform` exit 0 且三个 TSV 是钉住 SHA，`typo`/单 token 过滤器 exit 3。
+
+
+* **`634fd85` 的验证审核（reviewer `mira`，`target/review-mira/REPORT.md`）：两条 P2 都确认修好，
+  无 P0/P1；复核方另给 3 条 P2 残余与 1 条说明，全部接受（本提交）**。复核方用自己的
+  `/proc/<pid>/task` 采样独立复测：`--sequential` 全程 **max=1 / mean 1.00**（1,974 个样本；
+  去掉 flag 为 max=5 / mean 4.99；完整单线程 sweep **228.20 s、max=1**、6,161 个样本），
+  并做了**正对照**（把 gate 那处改回无条件 `par_iter` → 同一命令 max=5，随后还原、重建二进制
+  逐位相同、产物逐字节复现），确认"这个测量看得见这一类 bug"；串并行 stdout 与三个 TSV
+  逐字节相同；`--output --bogus/--gate/-x/--` 与 `--output=`（三个 flag 各自）都 exit 3、
+  不落文件，正例 `./--dashname` / `=--eqname` / `-` / `sub/--deep` 正常。**残余与修正**：
+  **① F7（真缺口，已修）**：重复的产物 flag 只在**第一次出现**处解析——`--output a.tsv
+  --output --bogus` 当时 exit 0 并写出 `a.tsv`、无任何诊断。现在 `artifact_path` 遍历**全部**
+  出现：任一出现缺路径即报错，且**重复给同一个 flag** 本身报 `was given more than once`
+  （不再"第一次赢"）。**② F8（已修）**：USAGE 说"以 `-` 开头的路径要用显式写法"，但单个 `-`
+  当时被接受（并写进单测正例）。现在 `is_path_like` 拒绝**一切**以 `-` 开头的 token（含 `-`），
+  单测把 `-` 移入负例。**③ F9（已修）**：文档/提交信息说"单测走单线程分支"，但 `check_blocks`
+  的那处单测调用传的是 `false`（并行分支）——已改成 `true`，声明现在为真。**④ F10（说明）**：
+  `--output --help` 会先打印用法并 exit 0（`--help` 在任何参数解析之前短路）——行为保留，
+  写进 USAGE。**⑤ 日志**：复核方指出 coverage 里"串行 sweep 223 s"在仓库里**没有日志**；
+  已修 `target/seq-threads.sh`（它当时忘了建目录/落盘）并重跑三项，`summary.txt` 现在
+  逐行在案（含复核方独立测得的 228.20 s 一并记录）。**本提交的验证**：example 测试 **31 项**、
+  严格 clippy exit 0；验收命令逐字 exit 0 / 0 violation、报告与 `finalZAA` 从 `sources=` 起
+  88 行逐字节相同、三个 TSV 仍是钉住 SHA；电池（`target/logs/fix5battery/summary.txt`）
+  689 passed / 0 failed 且三个 TSV 4==8。**复核方未做**（如实）：它没有重跑完整电池、也没有
+  看到外部复核方修复前"4 个 worker"的原始日志；完整单线程 sweep 它自己的读数是 228.20 s
+  （load 3.1–6.1），与本方重跑的数一并记录、并注明与文档里更早的 465–500 s 不同口径。
+
 
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
