@@ -803,9 +803,12 @@ R6.1 的审计（三门口禁）现在包含两条与参数族相关的硬失败
 （`spelled_flags()` 的第 8/第 4 项），报文为 `… is true on the command line but false in the
 evidence`；② 门禁用**自己的字面量**核对通过程**返回的**参数（`1/8`、`1/9` 各 2 个），并要求
 通过程报告它**实际比较过的**钉住期望数等于闭式 4（`… compared N pinned expectation(s),
-expected 4`）——计数**在比较函数内部**自增（`counted_mismatch` / `pinned_class_mismatch`），
-所以把比较改成 `false` 会同时丢掉调用、闭式立刻变短（第二轮复核 P2-a 实测的逃逸已闭合，
-`n3compare_10038`/`n3compare_10030` 都 exit 1）；③ 请求表由 `Options` 结构经
+expected 4`）——计数**与报告都在 helper 内部**（`check_arm_counts` / `check_pinned_class`：
+计数自增、`failures.push` 与比较同一函数体），所以把比较改成 `false` 或整段调用替换掉都会让闭式
+立刻变短（第二轮 P2-a 与第三轮 H4 实测的逃逸都已闭合：`n3compare_10038`/`n3compare_10030` 都
+exit 1）；**仍然逃逸的是"改 helper 自身"（把 push 换成丢弃）与"把 failures 换成一次性 sink"**
+——两类都是改控制自己的正文/接线，已实测记录（`n3discard_result`/`n3redirect_sink` exit 0），
+这一族每轮只能把逃逸往外推一层，不可能被钉值消灭；③ 请求表由 `Options` 结构经
 `RequestedPasses::of(&options)` 生成，新增回归
 `the_request_table_is_read_from_the_parsed_options` 钉住"哪个 flag 对应哪个字段"；
 ④ 两行证据耦合行搬进 `evidence_rows(...)` 并新增回归钉住配对，验收电池新增

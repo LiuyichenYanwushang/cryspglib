@@ -1456,6 +1456,34 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   严格 clippy exit 0；`target/logs/teeth4/summary.txt` 的 11 个变异全部按预期（10 个 exit 1、
   交叉接线让 example 测试失败 1 项）。
 
+* **`ea5b542` 的验证审核（reviewer `mira` 第三轮，`target/review-mira/REPORT-3.md`）：两条 P2 修复
+  确认有效、出处可复现、其余未动；无新 P0/P1，1×P2 残余（本提交处理）**。复核方自己重建了
+  `n3compare_10038`（比较 → `false`，现在会丢掉 `counted_mismatch` 调用）与 `n3compare_10030`
+  （丢掉类期望调用）——都 exit 1 且报文 `compared 2 pinned expectation(s), expected 4`；
+  `n3content_one`、`n3const2`（只缩 `PINNED_WITNESS_RECORDS`）仍 exit 1；P2-b 的行互换在
+  gate-only 下 exit 1（验收命令 exit 0，属已记录的不对称），在 `evidence_rows` **内部**交叉接线
+  同时让新回归失败（32 passed / 1 failed）且 gate-only exit 1；`census-gate-only` 控制存在且其
+  stdout 与它自己的诚实 gate-only 运行逐字节相同；`target/oracle-pre.sh` 重生成 `389d829a…`
+  与 A/B 日志一致、可运行且输出 `960f4fac…`；验收/报告/TSV/33 项测试/clippy/`fix6battery` 全部复现。
+  **P2（H4，已修）**：计数器只证明**比较跑过**，不证明**结果被用**——它自己的逃逸
+  `let _mismatch = counted_mismatch(…)` / `let _late = pinned_class_mismatch(…)`（保住调用、
+  丢掉返回值）exit 0 且 stdout 逐字节不变；文档那句"关掉分支再补计数"又一次把逃逸描述得比实际
+  费力。**修法（采纳复核方建议）**：两个 helper 改为**自己负责报告**——
+  `check_arm_counts(actual, expected, facts, failures, describe)` 与
+  `check_pinned_class(ordinal, label, parameter, ninth, non_trivial, facts, failures)`，计数与
+  `failures.push` 在同一函数体内，返回值是 `()` ⇒ "保住调用、丢掉结果"不再是可写的逃逸
+  （想拿到判决必须自己写 push，即改控制自身）。**实测**（`target/logs/teeth4/summary.txt`）：
+  `n3compare_10038`（整段调用被替换成 `let _ = (…)`）**exit 1**（`compared 2 pinned
+  expectation(s), expected 4`）；**下一层残余如实测量并记录**：改 helper 自身（`failures.push`
+  → `let _ = describe();`，`n3discard_result`）与**把 failures 换成一次性 sink**
+  （`n3redirect_sink`）都仍 exit 0 —— 这两类都是"改控制自己的正文/接线"，即文档一直披露的残余；
+  每一轮把**自然写法**的逃逸往外推一层，但这一族不可能被钉值消灭，本轮把这句话写进文档。
+  **本提交的验证**（源码 `census.rs feafe7b9…`；`target/logs/fix7battery/summary.txt`）：
+  验收命令 exit 0 / 0 violation、报告与 `finalZAA` 从 `sources=` 起 88 行逐字节相同、三个 TSV
+  仍是钉住 SHA；example 测试 **33 项**、严格 clippy exit 0；电池 **691 passed / 0 failed**、
+  含 `census-gate-only` exit 0、三个 TSV 4==8。
+
+
 
 
 * **`634fd85` 的验证审核（reviewer `mira`，`target/review-mira/REPORT.md`）：两条 P2 都确认修好，
