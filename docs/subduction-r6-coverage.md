@@ -718,6 +718,20 @@ dirty-files 2`——那两个文件是当时正在编辑的文档，三个源文
 一次串行 census——新电池同样没有串行档，现在验的是 **4 线程 == 8 线程**（1 线程全量比较
 只在 `finalZAA` 留下过）。
 
+**门禁自身的措辞（`786e026` 审核轮的三条新消息，本文档此前一条都没有引用——N-f）**：
+`786e026` 给命令行交叉核对加了两条 violation，给见证通过程加了一条：
+`--full-star-recount (request) is true where the passes are decided but false in the evidence`、
+`--domain-sweep (request) is true where the passes are decided but false in the evidence`、
+`the recount witness pass ran for N of 1006 record(s)`；`786e026` 的审核轮（reviewer `lyra`）
+又加了一条按闭式钉住的
+`the recount witness pass decomposed N witness parameter(s), expected 4`（`2` 条钉住记录 ×
+`2` 个钉住参数），以及见证通过程对自己请求的检查
+`the witness request … does not contain the pinned parameter 1/8`。同轮还改掉了
+`--output=路径` 这一拼写被静默忽略（现在解析器与核对两侧都认这种写法；未知参数直接报错，
+不再"退出 0 但没有产物"）与"violation 报文里的钉值写成字面量"（现在报文引用它所比较的常量，
+`RECOUNT_*_PIN`）。逐条测量与日志见 AGENTS.md 的 `786e026`/`lyra` 条目与
+`target/logs/teeth3/summary.txt`。
+
 **值没有变**：三个 TSV 与改前逐字节相同（SHA-256 `c7b8606e…` / `07dedd42…` / `a14598c1…`，
 且 4 线程 == 8 线程），门禁报告逐行相同（diff 只剩 cargo 前导），本节 §4b 的全部钉值
 （探针、块、区间、谓词实例、字符读数……）逐字未变；新增模块回归

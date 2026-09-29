@@ -211,8 +211,11 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    池 56 s + 尾 33 s，680 passed / 0 failed、三门禁与 python/oracle 全 exit 0。
    **当前基线（`786e026`，`target/logs/tailpar12/summary.txt`，`revision 786e026 dirty-files 2`——
    那两个文件是当时正在编辑的两份文档，三个源文件 sha256 与提交一致）**：**219 s** =
-   构建 14 s + 发现测试壳 **16 s** + census-8 **33 s** +〔census-4 ‖ audit-4〕**65 s** +
-   池 **58 s**（44 个作业）+ 尾 **32 s**（14+16+33+65+58+32 = 218 ≈ 219 ✓），41 个测试壳
+   构建 14 s + 发现测试壳 0 s + 发现 example 测试壳 **17 s** + census-8 **33 s** +
+   〔census-4 ‖ audit-4〕**65 s** + 池 **58 s**（44 个作业）+ 尾 **32 s**
+   （14+0+17+33+65+58+32 = 219 ✓；**先前写成"发现测试壳 16 s"是错的**——16 s 是 `tailpar11`
+   的 `discover-examples`，`tailpar12` 的是 17 s 且 `discover` 为 0 s，`786e026` 审核轮 N-f 更正），
+   41 个测试壳
    **684 passed / 0 failed**；上一档 `311d06d`（`tailpar11`）**226 s** = 14+16+35+72+57+32
    （审核方指出先前那句漏了发现测试壳的 16 s，已补）；上一档 `bdb43e3`（`tailpar10`）
    **206 s**、`7f8b016`（`tailpar8`/`tailpar9`）220 s（多出的是 example 改动后 13 s 构建 +
@@ -1259,6 +1262,49 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   （`revision 786e026 dirty-files 2`）**219 s**、**684 passed / 0 failed**、三个 TSV 4==8 且
   SHA 未变、三门禁/doctest/clippy/oracle 全 exit 0；**21 个变异**逐个复现
   （`target/logs/finalTailpar8/summary.txt`，与 `finalTailpar7` 逐行相同、只差修订行）。
+
+* **`786e026` 的验证审核（第十三条独立审核线，reviewer `lyra`，`target/review-lyra/REPORT.md`）：
+  P0 ×1 + P1 ×1 + P2 ×5，全部接受（本提交）**。审核方逐字用验收命令、私有 worktree 与私有
+  target 复算：诚实路径未动（报告与 `finalZAA` 从 `sources=` 起 88/88 行、三个 TSV 8 与 4 线程
+  都在钉住 SHA、27 项测试 27/0、严格 clippy exit 0）；**P0**：`786e026` 新加的**证据侧核对循环
+  是裸数组字面量**（旁邻的 `flag_checks` 有 `[(&str,bool,bool); 8]`），删掉一行照旧编译 ⇒
+  该行 + 清两个证据字段（+ 故意写错的钉值 `11_009`→`11_010`）后**验收命令 exit 0 / 0 violation /
+  `gate: ok` / stdout 与诚实运行逐字节相同**，整个 recount 断言块不可达——N1 缺陷原样复活；
+  扫掠侧两到四个编辑同理。**P1**：N3 的计数器**数的是守卫不是通过程**（`witness_records = 1`
+  写在调用之前），把它提到被剪掉的守卫之外、或把调用换成 `(Vec::new(), Vec::new())`、
+  `+= 1`、把见证清单的 `1/8` 挪到 `1/9`，四种都 exit 0 且 27/27 测试全绿。**P2**：
+  `--output=路径` 这种拼写解析器与核对两侧都不认 ⇒ **三个产物被静默丢弃且 exit 0**；
+  N2 残余**描述不全**（`let argv = arguments.clone();` 一行、不动任何行，8 行全部空转化）；
+  文档的 `tailpar12` 分解写成 16 s 而日志是 17 s（同一个 N6 类错误）；coverage 文档一条新报文
+  都没引；`target/logs/nx-*` **没有 exit code**。
+  **修复（本提交，唯一源文件仍是 `examples/line_domain_census.rs`）**：① 证据侧循环改为
+  `let evidence_checks: [(&str, bool, bool); 2]`（删行 = `E0308`）；② 把命令行核对的两侧都抽成
+  可测的纯函数——`RequestedPasses`（struct + `rows() -> [(&str,bool); 8]`）与
+  `spelled_flags()`，配 4 个新回归，**逐行钉住"哪个 flag 对应哪个 local"**；③ 第二次 argv 读取
+  搬进 `on_command_line`（`run` 里不再有可被一行改指向的局部量），并新增 `spells_flag`（裸写法与
+  `--flag=value` 都认，`--output-blocks=` 不误配 `--output=`）；④ 见证计数器改为**通过程的返回值**
+  （`witness_verified = witness_answered.len()`），门禁按闭式 `PINNED_WITNESS_RECORDS ×
+  PINNED_WITNESS_PARAMETERS = 4` 断言总数与**钉住记录**上的小计，且通过程**自检自己的请求**必须含
+  两个钉住参数；⑤ `artifact_path` 认两种拼写，`reject_unknown_arguments` 让未知参数**报错**
+  （exit 3）而不是被忽略；⑥ 报文引用它所比较的常量（`RECOUNT_PROBES_PIN` 等）。
+  **本提交的验证**（源码 `census.rs afd4fdd4…`；`target/logs/teeth3/summary.txt` 逐条带 exit code，
+  这正是上一轮缺的）：**22 个变异 + 2 个正对照**——`n1a/n1b/n1c/n1d` exit 1 且报文点名；
+  **`n1h`/`n1e` 现在 BUILD-EXIT=101 `E0308`**（P0 闭合）；`n3cut` exit 1（ran for 0 of 1006）、
+  `n3lie`/`n3call`/`n3sumlie` exit 1（`decomposed 0 witness parameter(s), expected 4`）、
+  `n3list` exit 1（`does not contain the pinned parameter 1/8`）；单 token 过滤器 `n4a/b/c`
+  exit 3（把它的值留成了位置参数，被严格参数检查抓住），**把 flag 与值一起滤掉的
+  `n4a2/n4b2/n4c2` exit 1 且各自点名**；`n4d/n4e`（把 `--output` 行接到 `output_blocks`）
+  验收命令看不见（该命令行八个 flag 都在），**example 测试失败 1 项**——这是新回归的牙齿；
+  `z1` exit 1（报文 `expected 11010`，引用常量）；`z5` exit 1（2 violation）；
+  **`eqform`（`--output=…` 三种拼写）exit 0 且三个 TSV 仍是钉住 SHA**；`typo` exit 3
+  （`unrecognized argument`）。example 测试 **31 项**、严格 clippy exit 0；电池
+  `target/logs/fix3battery/summary.txt`（`revision 7fee570 dirty-files 3`）**282 s** =
+  构建 15 + 发现 0 + example 发现 19 + census-8 **40** +〔census-4 ‖ audit-4〕**101** + 池 **73**
+  + 尾 **34**，**688 passed / 0 failed**（684 + 4 项新回归）、三个 TSV 4==8 且 SHA 未变、
+  三门禁/doctest/clippy/oracle 全 exit 0——**该档墙钟偏大是机器负载所致**（紧接 22 个变异的
+  电池跑完，start load 3.6），逐项数字不与 219 s 基线同口径比较；该轮的**逐腿墙钟**已落盘
+  （`legs.txt`：oracle **34 s**、doctest 7 s、clippy 1 s、python 各 ≤2 s）⇒ "尾段由**单核 oracle**
+  决定"这一条现在有日志，而不是假设。
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有
