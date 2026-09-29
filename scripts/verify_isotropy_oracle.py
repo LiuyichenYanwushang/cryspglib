@@ -47,10 +47,12 @@ Usage::
     python3 scripts/verify_isotropy_oracle.py
 """
 
+import concurrent.futures
 import os
 import re
 import subprocess
 import sys
+import tempfile
 from fractions import Fraction
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -229,6 +231,33 @@ def machine_records():
     return records
 
 
+def run_iso_session(binary, commands):
+    """Run one `iso` session and return its stdout.
+
+    `iso` writes its session transcript to ``./iso.log`` in the *current*
+    directory (traced with ``strace``: ``openat("./iso.log", O_RDWR|O_CREAT)``),
+    so the serial gate used to write into ``isotropy_subgroup/`` and concurrent
+    invocations would interleave into that one file.  Every session therefore
+    gets a private directory, removed with the call.  The working directory does
+    not otherwise matter: the data files are found through the absolute
+    ``ISODATA`` below, and the same session under either directory prints
+    byte-identical stdout.
+    """
+    with tempfile.TemporaryDirectory(prefix="iso-session-") as cwd:
+        result = subprocess.run(
+            [binary],
+            input="\n".join(commands) + "\n",
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            env=dict(os.environ, ISODATA=ISO_DIR + os.sep),
+            timeout=300,
+        )
+    if result.returncode != 0:
+        raise RuntimeError(f"iso exited with {result.returncode}: {result.stderr}")
+    return result.stdout
+
+
 def run_oracle(sg, ml):
     """Run `iso` for one (space group, irrep) and return its printed rows."""
     binary = os.path.join(ISO_DIR, "iso")
@@ -255,20 +284,9 @@ def run_oracle(sg, ml):
         "DISPLAY ISOTROPY",
         "QUIT",
     ]
-    env = dict(os.environ, ISODATA=ISO_DIR + os.sep)
-    result = subprocess.run(
-        [binary],
-        input="\n".join(commands) + "\n",
-        capture_output=True,
-        text=True,
-        cwd=ISO_DIR,
-        env=env,
-        timeout=300,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"iso exited with {result.returncode}: {result.stderr}")
+    stdout = run_iso_session(binary, commands)
     rows = []
-    for line in result.stdout.splitlines():
+    for line in stdout.splitlines():
         line = line.strip().rstrip("*").strip()
         m = re.match(r"^(\d+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)$", line)
         if not m:
@@ -309,19 +327,9 @@ def run_oracle_direction_vectors(sg, ml):
         "DISPLAY ISOTROPY",
         "QUIT",
     ]
-    result = subprocess.run(
-        [binary],
-        input="\n".join(commands) + "\n",
-        capture_output=True,
-        text=True,
-        cwd=ISO_DIR,
-        env=dict(os.environ, ISODATA=ISO_DIR + os.sep),
-        timeout=300,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"iso exited with {result.returncode}: {result.stderr}")
+    stdout = run_iso_session(binary, commands)
     vectors = {}
-    for line in result.stdout.splitlines():
+    for line in stdout.splitlines():
         line = line.strip().rstrip("*").strip()
         m = re.match(r"^(\d+)\s+(\S+)\s+(\S+)\s+(\(.*\))$", line)
         if m:
@@ -399,6 +407,39 @@ def primitive_of_conventional_cell(cell, centring):
     ]
 
 
+def oracle_jobs():
+    """How many `iso` sessions to run at once.
+
+    `ORACLE_JOBS` overrides; the default is one per core up to eight.  Every
+    session is independent, CPU-bound and shares no state (`iso.log` is private
+    to each call), so the parallel run is a pure scheduling change.
+    """
+    raw = os.environ.get("ORACLE_JOBS")
+    if raw is not None:
+        jobs = int(raw)
+        if jobs < 1:
+            raise ValueError(f"ORACLE_JOBS must be positive, got {raw!r}")
+        return jobs
+    return max(1, min(8, os.cpu_count() or 1))
+
+
+def run_case_sessions(case):
+    """Both `iso` sessions of one case, in the serial order (geometry, vectors)."""
+    sg, ml = case
+    return run_oracle(sg, ml), run_oracle_direction_vectors(sg, ml)
+
+
+def prefetch_case_sessions(cases, jobs):
+    """Every case's sessions, concurrently, keyed by case.
+
+    The futures are collected in `cases` order, so the first exception is the
+    one the serial loop would have raised first.
+    """
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+        futures = {case: pool.submit(run_case_sessions, case) for case in cases}
+        return {case: futures[case].result() for case in cases}
+
+
 def main():
     records = machine_records()
     checked_rows = 0
@@ -407,12 +448,14 @@ def main():
     lattice_origins = 0
     failures = []
 
+    sessions = prefetch_case_sessions(CASES, oracle_jobs())
+
     for sg, ml in CASES:
         expected = records.get((sg, ml))
         if not expected:
             failures.append(f"SG {sg} {ml}: no machine records")
             continue
-        rows = run_oracle(sg, ml)
+        rows = sessions[(sg, ml)][0]
         if len(rows) != len(expected):
             failures.append(
                 f"SG {sg} {ml}: oracle printed {len(rows)} rows, "
@@ -421,7 +464,7 @@ def main():
             continue
         # The component strings the user actually types must be the program's:
         # comparing only `P1`/`C1` labels would miss a wrong `(a,a,0)` mapping.
-        vectors = run_oracle_direction_vectors(sg, ml)
+        vectors = sessions[(sg, ml)][1]
         # Rows are matched by ISOTROPY direction label: neither the oracle nor
         # the data file guarantees the same row order.
         by_label = {row["label"]: row for row in rows}

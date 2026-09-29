@@ -823,18 +823,30 @@ impl Mat3R {
         Self(out)
     }
 
+    /// The unsigned 2x2 minor `M(row, column)`: the determinant of `self` with
+    /// `row` and `column` removed.
+    ///
+    /// The two index lists are constant tables rather than `Vec`s built by
+    /// filtering `0..3`.  The gdb samples of the census put
+    /// [`Self::inverse`] -- which called the filtering closure twelve times and
+    /// therefore allocated 24 two-element vectors per inverse -- at the top of
+    /// the crate-side shallow frames, ahead of every arithmetic primitive.  The
+    /// exact operations below are the same ones in the same order, so the value
+    /// and every error path are unchanged; only the allocation is gone.
+    fn minor(&self, row: usize, column: usize) -> Result<Rat, SubductionError> {
+        /// The two indices other than the row/column index, in increasing order.
+        const OTHER: [[usize; 2]; 3] = [[1, 2], [0, 2], [0, 1]];
+        let (rows, columns) = (OTHER[row], OTHER[column]);
+        let first = self.0[rows[0]][columns[0]].checked_mul(self.0[rows[1]][columns[1]])?;
+        let second = self.0[rows[0]][columns[1]].checked_mul(self.0[rows[1]][columns[0]])?;
+        first.checked_sub(second)
+    }
+
     /// Exact determinant.
     pub fn determinant(&self) -> Result<Rat, SubductionError> {
-        let minor = |row: usize, column: usize| -> Result<Rat, SubductionError> {
-            let rows: Vec<usize> = (0..3).filter(|index| *index != row).collect();
-            let columns: Vec<usize> = (0..3).filter(|index| *index != column).collect();
-            let first = self.0[rows[0]][columns[0]].checked_mul(self.0[rows[1]][columns[1]])?;
-            let second = self.0[rows[0]][columns[1]].checked_mul(self.0[rows[1]][columns[0]])?;
-            first.checked_sub(second)
-        };
-        let first = self.0[0][0].checked_mul(minor(0, 0)?)?;
-        let second = self.0[0][1].checked_mul(minor(0, 1)?)?;
-        let third = self.0[0][2].checked_mul(minor(0, 2)?)?;
+        let first = self.0[0][0].checked_mul(self.minor(0, 0)?)?;
+        let second = self.0[0][1].checked_mul(self.minor(0, 1)?)?;
+        let third = self.0[0][2].checked_mul(self.minor(0, 2)?)?;
         first.checked_sub(second)?.checked_add(third)
     }
 
@@ -848,12 +860,7 @@ impl Mat3R {
         for (row, out_row) in out.iter_mut().enumerate() {
             for (column, cell) in out_row.iter_mut().enumerate() {
                 // Cofactor (row, column) of the transpose, i.e. the adjugate.
-                let rows: Vec<usize> = (0..3).filter(|index| *index != column).collect();
-                let columns: Vec<usize> = (0..3).filter(|index| *index != row).collect();
-                let first = self.0[rows[0]][columns[0]].checked_mul(self.0[rows[1]][columns[1]])?;
-                let second =
-                    self.0[rows[0]][columns[1]].checked_mul(self.0[rows[1]][columns[0]])?;
-                let cofactor = first.checked_sub(second)?;
+                let cofactor = self.minor(column, row)?;
                 let sign = if (row + column) % 2 == 0 { 1 } else { -1 };
                 let cofactor = if sign < 0 {
                     cofactor.checked_neg()?
@@ -3141,6 +3148,119 @@ mod tests {
         assert_eq!(Rat::new(huge, 2 * huge), Ok(rat(1, 2)));
         assert_eq!(rat(1, huge).checked_mul(rat(huge, 1)), Ok(Rat::ONE));
         assert_eq!(rat(3, huge).checked_add(rat(1, huge)), Ok(rat(1, huge / 4)));
+    }
+
+    /// **Verification of the `Mat3R::minor` rewrite (review of `786e026`).**
+    ///
+    /// [`Mat3R::determinant`] and [`Mat3R::inverse`] now share one private
+    /// `minor` helper built on constant index tables instead of building index
+    /// vectors (24 allocations per inverse).  The corpus pins -- the three TSVs
+    /// and the gate report byte for byte -- already show that no measured value
+    /// moved, and this checks the algebra itself: the determinant against the
+    /// six-term Leibniz expansion, written in a different shape from the cofactor
+    /// expansion the implementation uses, and the inverse against **both**
+    /// products being the exact identity.  The grid is `3^9 = 19,683` matrices
+    /// with signs and denominators, and the singular ones must report
+    /// `SingularMatrix`.
+    #[test]
+    fn the_minor_rewrite_agrees_with_the_schoolbook_inverse() {
+        let values = [-1i128, 0, 2];
+        let dens = [1i128, 2, 3];
+        let mut checked = 0usize;
+        let mut singular = 0usize;
+        for a in values {
+            for b in values {
+                for c in values {
+                    for d in values {
+                        for e in values {
+                            for f in values {
+                                for g in values {
+                                    for h in values {
+                                        for i in values {
+                                            let m = Mat3R::new([
+                                                [rat(a, dens[0]), rat(b, dens[0]), rat(c, dens[1])],
+                                                [rat(d, dens[1]), rat(e, dens[2]), rat(f, dens[2])],
+                                                [rat(g, dens[2]), rat(h, dens[0]), rat(i, dens[1])],
+                                            ]);
+                                            let entry =
+                                                |row: usize, column: usize| m.rows()[row][column];
+                                            let mul = |left: Rat, right: Rat| {
+                                                left.checked_mul(right).expect("small entries")
+                                            };
+                                            let add = |left: Rat, right: Rat| {
+                                                left.checked_add(right).expect("small entries")
+                                            };
+                                            let sub = |left: Rat, right: Rat| {
+                                                left.checked_sub(right).expect("small entries")
+                                            };
+                                            // The Leibniz expansion: the three even
+                                            // permutations minus the three odd ones.
+                                            let positive = add(
+                                                add(
+                                                    mul(mul(entry(0, 0), entry(1, 1)), entry(2, 2)),
+                                                    mul(mul(entry(0, 1), entry(1, 2)), entry(2, 0)),
+                                                ),
+                                                mul(mul(entry(0, 2), entry(1, 0)), entry(2, 1)),
+                                            );
+                                            let negative = add(
+                                                add(
+                                                    mul(mul(entry(0, 2), entry(1, 1)), entry(2, 0)),
+                                                    mul(mul(entry(0, 0), entry(1, 2)), entry(2, 1)),
+                                                ),
+                                                mul(mul(entry(0, 1), entry(1, 0)), entry(2, 2)),
+                                            );
+                                            let leibniz = sub(positive, negative);
+                                            assert_eq!(
+                                                m.determinant().expect("small entries"),
+                                                leibniz,
+                                                "determinant of {m}"
+                                            );
+                                            match m.inverse() {
+                                                Ok(inverse) => {
+                                                    checked += 1;
+                                                    assert_eq!(
+                                                        m.checked_mul(&inverse)
+                                                            .expect("small entries"),
+                                                        Mat3R::identity(),
+                                                        "{m} times its inverse"
+                                                    );
+                                                    assert_eq!(
+                                                        inverse.checked_mul(&m)
+                                                            .expect("small entries"),
+                                                        Mat3R::identity(),
+                                                        "the inverse of {m} times {m}"
+                                                    );
+                                                }
+                                                Err(SubductionError::SingularMatrix) => {
+                                                    assert!(
+                                                        leibniz.is_zero(),
+                                                        "{m} is singular but its determinant is \
+                                                         {leibniz}"
+                                                    );
+                                                    singular += 1;
+                                                }
+                                                Err(other) => {
+                                                    panic!("{m}: unexpected error {other:?}")
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            checked + singular,
+            19_683,
+            "the 3^9 grid must be walked ({checked} non-singular, {singular} singular)"
+        );
+        assert!(
+            checked > 0 && singular > 0,
+            "the grid must contain both cases: {checked} non-singular, {singular} singular"
+        );
     }
 
     #[test]
