@@ -1440,54 +1440,48 @@ block_count\tblocks";
     violations.extend(sweep_report.failures.iter().cloned());
     check_invariants(&domains, &records, &probes, &evidence, &mut violations);
 
-    // The pass/evidence coupling, with the command line parsed a **second** time.
-    // `recount_ran`/`sweep_ran` switch the Gamma assertions and the recount pins
-    // on, and the request flags are the same locals that turn the passes on, so a
-    // mutation that clears one of them skips the pass *and* the check with nothing
-    // to notice: measured on `53c6a3e` (verification review F1) and again on
-    // `7f8b016` (review N1/N2), clearing a flag left the acceptance command at
-    // exit 0 / 0 violations and the whole example suite green.  The comparison is
-    // between two independent reads of `arguments`, not between a flag and
-    // itself.
-    for (name, local, from_argv) in [
-        (
-            "--gate",
-            gate,
-            arguments.iter().any(|argument| argument == "--gate"),
-        ),
+    // The pass/evidence coupling, cross-checked against the **process** command
+    // line.  `recount_ran`/`sweep_ran` switch the Gamma assertions and the recount
+    // pins on, and the request flags are the same locals that turn the passes on,
+    // so clearing one would skip the pass *and* its checks with nothing to notice:
+    // measured on `53c6a3e` and again on `7f8b016` (verification reviews F1, N1/N2),
+    // and `bdb43e3` left the *derived* recount request unbound -- `let recount =
+    // false;` was green under the shipped acceptance command because
+    // `--domain-sweep` fills the recount rows anyway (review of `bdb43e3`, V1/V3).
+    //
+    // The table is a fixed-size array so that dropping an entry is a compile error
+    // rather than a silent loss of the check (V4), the flags are read from
+    // `std::env::args` a second time so that a filter slipped into `arguments`
+    // cannot clear a local and its re-read together (V2), and the **derived**
+    // recount request is in the table because it is what turns that pass on.
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let on_command_line = |flag: &str| argv.iter().any(|argument| argument == flag);
+    let recount_from_argv = on_command_line("--gate")
+        || on_command_line("--full-star-recount")
+        || output_recount.is_some();
+    let flag_checks: [(&str, bool, bool); 5] = [
+        ("--gate", gate, on_command_line("--gate")),
         (
             "--require-covered",
             require_covered,
-            arguments.iter().any(|argument| argument == "--require-covered"),
+            on_command_line("--require-covered"),
         ),
         (
             "--full-star-recount",
             full_star_recount,
-            arguments.iter().any(|argument| argument == "--full-star-recount"),
+            on_command_line("--full-star-recount"),
         ),
+        ("--domain-sweep", domain_sweep, on_command_line("--domain-sweep")),
         (
-            "--domain-sweep",
-            domain_sweep,
-            arguments.iter().any(|argument| argument == "--domain-sweep"),
+            "the recount request (--gate or --full-star-recount or --output-recount)",
+            recount,
+            recount_from_argv,
         ),
-    ] {
+    ];
+    for (name, local, from_argv) in flag_checks {
         if local != from_argv {
             violations.push(format!(
                 "{name} is {local} where the passes are decided but {from_argv} on the command line"
-            ));
-        }
-    }
-    // The evidence has to agree with the flags the passes were decided on, and
-    // those flags with the command line: the coupling check below reads the
-    // evidence's copy, so a mutation that clears either copy is a violation
-    // (verification review of `7f8b016`, N1).
-    for (name, local, from_evidence) in [
-        ("--full-star-recount (request)", recount, evidence.recount_requested),
-        ("--domain-sweep (request)", domain_sweep, evidence.sweep_requested),
-    ] {
-        if local != from_evidence {
-            violations.push(format!(
-                "{name} is {local} where the passes are decided but {from_evidence} in the evidence"
             ));
         }
     }
