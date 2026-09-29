@@ -1341,6 +1341,30 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   （`legs.txt`：oracle **34 s**、doctest 7 s、clippy 1 s、python 各 ≤2 s）⇒ "尾段由**单核 oracle**
   决定"这一条现在有日志，而不是假设。
 
+* **`67a95fe..c7354e3` 的外部定向复核（第十四条审核线）：无 P0/P1，2×P2，全部接受（本提交）**。
+  复核方独立比较了 `Rat` 新旧实现（**18 万组输入**，数值与错误返回全部一致）、矩阵逆的余子式
+  符号/转置/运算顺序（19,683 个矩阵回归通过）、oracle 串并 stdout 逐字节相同，并确认三处证据绑定
+  缺口已修；本轮是**定向**复核，未重跑全部 689 项测试。两条 P2：
+  **① P2-1 `--sequential` 不再真正单线程**：`b428a93` 新增的两处 `par_iter`（gate 段逐记录遍历、
+  `check_blocks` 的逐块重算）**没有分支到开关**，复核方用 `RAYON_NUM_THREADS=4 … --sequential
+  --gate` 实测到 4 个 worker 参与 ⇒ 单线程对照的口径被破坏（数值不受影响）。**已修**：两处都改成
+  "局部闭包 + `if sequential { iter() } else { par_iter() }`"（与既有的主探针遍历同一写法），
+  `check_invariants`/`check_blocks` 增加 `sequential` 参数并由 `run` 传入，单测走单线程分支。
+  **实测**（`target/logs/seq-threads/summary.txt`，采样 `/proc/<pid>/task`）：
+  `RAYON_NUM_THREADS=4 --sequential --gate --require-covered` → **max=1 / mean 1.00 线程**
+  （修复前复核方实测 4 个 worker），同一命令去掉 `--sequential` → max=5 / mean 4.98（证明这个
+  测量看得见并行）；两条命令的 stdout **逐字节相同**（`391fe4f2…`）；完整单线程 sweep
+  （`--sequential --gate --require-covered --domain-sweep`）同样 max=1，三个 TSV 与 8 线程版
+  **逐字节相同**、SHA 仍是钉住值。
+  **② P2-2 路径缺失未封住**：`--output` 取任意非空后继，所以 `--output --bogus` **创建名为
+  `--bogus` 的文件、打印 `gate: ok`、exit 0**（`--output --gate` 同理）。**已修**：新增
+  `is_path_like`——"看起来像选项"的 token（以 `-` 开头且长度 > 1）按**缺少路径**报错（exit 3），
+  同时保留两个显式写法（`--output ./--name`、`--output=--name`，USAGE 已写明）；单测扩到
+  4 个负例（`--bogus`/`--gate`/`-x`/`--`）+ 3 个正例（`./--bogus`、`=--bogus`、`-`）。
+  复核确认的其余各点（诚实路径、31+3 项测试、完整 sweep 门禁、三个 TSV SHA、三处绑定缺口）
+  与本轮记录一致；**复核期间主检出保持干净**。
+
+
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有
   target 独立复算：**算术没被打破**——它把改动前的 `Rat` 逐字抄成参照实现写差分测试

@@ -727,6 +727,18 @@ dirty-files 2`——那两个文件是当时正在编辑的文档，三个源文
 改后 gdb 采样（`target/logs/profile/matpost/`）把 `Mat3R::inverse` 从最热浅帧挤到第 5，
 叶帧前三是 `Rat::checked_mul` 236 / `Rat::checked_add` 112 / `Rat::new` 66。
 
+**单线程对照的口径（外部定向复核 `67a95fe..c7354e3` 的 P2-1，已修）**：`b428a93` 新增的两处
+`par_iter`（gate 段逐记录遍历、`check_blocks` 的逐块重算）当时**没有分支到 `--sequential`**，
+所以"串行对照"实际是多线程跑（复核方实测 4 个 worker）。现在两处都按开关分支，并实测：
+`RAYON_NUM_THREADS=4 --sequential --gate --require-covered` 采样 `/proc/<pid>/task`
+**max=1 线程**（去掉 `--sequential` 为 max=5，证明测量看得见并行），完整单线程 sweep
+（`--sequential --gate --require-covered --domain-sweep`）**223 s** 跑完、**一个线程**，
+三个 TSV 与 8 线程版**逐字节相同**且仍是钉住 SHA。本文档此前的"串行/并行 TSV 逐字节相同"
+因此重新有实测支撑；旧记录里的 465–500 s 串行墙钟是更早的代码与更重的机器负载下的读数，
+不与本次同口径比较。另外 `--output --bogus` 这类"下一项是选项"的写法现在按缺少路径报错
+（exit 3；特殊文件名用 `./--name` 或 `--output=--name`），不再创建一个名为 `--bogus` 的文件
+还 exit 0（同轮 P2-2）。
+
 **基线口径更正**："≈16 min"是 **`chainFinal.sh`** 的一次完整运行（含 569 s 串行 census），
 `chainFinal2.sh` 换掉串行档后从未写过日志；因此新旧对比里有一部分不是调度收益，而是少跑了
 一次串行 census——新电池同样没有串行档，现在验的是 **4 线程 == 8 线程**（1 线程全量比较
