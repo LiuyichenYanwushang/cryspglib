@@ -209,10 +209,12 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    验收电池（`target/logs/tailpar/summary.txt`，源码 `census.rs fc2c7681…`/`subduction.rs e4a55688…`）
    **193 s**：构建 0 s（只改了 example，增量）+ 发现 1 s + census-8 **32 s** + 并发档 71 s +
    池 56 s + 尾 33 s，680 passed / 0 failed、三门禁与 python/oracle 全 exit 0。
-   **当前基线（`311d06d`，`target/logs/tailpar11/summary.txt`，`revision 311d06d dirty-files 1`——
-   那个文件是当时正在编辑的 coverage 文档，三个源文件 sha256 与提交一致）**：**226 s** =
-   构建 14 s + census-8 **35 s** +〔census-4 ‖ audit-4〕**72 s** + 池 **57 s**（44 个作业）
-   + 尾 **32 s**，41 个测试壳 **684 passed / 0 failed**；上一档 `bdb43e3`（`tailpar10`）
+   **当前基线（`786e026`，`target/logs/tailpar12/summary.txt`，`revision 786e026 dirty-files 2`——
+   那两个文件是当时正在编辑的两份文档，三个源文件 sha256 与提交一致）**：**219 s** =
+   构建 14 s + 发现测试壳 **16 s** + census-8 **33 s** +〔census-4 ‖ audit-4〕**65 s** +
+   池 **58 s**（44 个作业）+ 尾 **32 s**（14+16+33+65+58+32 = 218 ≈ 219 ✓），41 个测试壳
+   **684 passed / 0 failed**；上一档 `311d06d`（`tailpar11`）**226 s** = 14+16+35+72+57+32
+   （审核方指出先前那句漏了发现测试壳的 16 s，已补）；上一档 `bdb43e3`（`tailpar10`）
    **206 s**、`7f8b016`（`tailpar8`/`tailpar9`）220 s（多出的是 example 改动后 13 s 构建 +
    17 s 测试壳重建——审核方实测 `tailpar9` **不是**热档，两次运行之间跑了变异电池）；完全增量档 **190 s**
    （`tailpar7`@`53c6a3e`，构建/发现 1 s）；冷构建档（`touch` 全部源文件后同一脚本）
@@ -1223,6 +1225,40 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   **226 s**、**684 passed / 0 failed**、三个 TSV 4==8 且 SHA 未变、三门禁/doctest/clippy/oracle
   全 exit 0；**21 个变异**逐个复现（`target/logs/finalTailpar7/summary.txt`，与 `finalTailpar6`
   逐行相同、只差修订行）。
+
+* **`311d06d`（+ `debe373`）的验证审核（第十二条独立审核线）：无 P0，1×P1 + 5×P2，全部接受
+  （本提交 `786e026` + 文档）**。审核方（私有 worktree `target/review-vega/wt`@`debe373` +
+  基线 worktree @`bdb43e3`，报告 `target/review-vega/REPORT.md`）**逐字使用验收命令**做了
+  A–F 六批变异，复算并确认：V1/V2/V4 的答案**真的闭合**（在 `bdb43e3` 上它自己复现了 V1、V2
+  的缺陷，在本修订上都 exit 1）、V5 真的改了、钉值与诚实路径未动（报告与 `finalZAA` 从
+  `sources=` 起 88/88 行、三个 TSV 8 与 4 线程都在钉住 SHA、27 条不同测试 27/0、严格 clippy
+  exit 0、**十一个**诚实 flag 组合全部 0 violation）。发现并处理：
+  **① N1（P1，本轮自己引入的回归）**：`311d06d` 在重写交叉核对段时**整段替换**，把
+  `bdb43e3` 加的**证据侧**核对循环删掉了，于是证据里的请求标志又不被任何东西绑定：
+  `recount_requested := false`（一行）在验收命令下 exit 0 / 0 violation / `gate: ok`、产物仍是
+  钉住值；审核方的两行编辑（`recount_ran: false` + `recount_requested: false`）让**整个 recount
+  断言块**（11,009 / 27,507 / 28 / 1,692 等钉值、added-kind 拆分、行/文件守恒）不可达，而
+  `run` 里每个比较仍然诚实——决定性控制：**故意写错的 recount 钉值**（`11_009`→`11_010`，
+  单独就 exit 1）与它叠加后 exit 0。**已修**：证据侧循环**恢复**，上述两种编辑现在都 exit 1
+  （`--full-star-recount (request) is true where the passes are decided but false in the evidence`）。
+  **② N3（P2）**：card-4 的 `1/9`,`1/8` 见证通过程挂在它自己的 `if recount` 后面，
+  把守卫剪成 `if false` 曾完全不可见；**已修**：`probe_record` 现在报告"该通过程为多少条记录跑过"，
+  门禁把它与记录数比对 ⇒ 剪掉守卫得到 `the recount witness pass ran for 0 of 1006 record(s)` 并 exit 1。
+  **③ N4（P2）**：命令行复核只覆盖四个布尔 flag，`--output`/`--output-blocks`/`--output-recount`
+  仍从被解析的向量读，过滤掉 `--output-recount` 会在 exit 0 下**静默不写产物**；**已修**：
+  三个产物 flag 也进核对表（表变 8 项），同一过滤现在 exit 1。**④ N2（P2）**：V4 只绑定了表的
+  **元数**、没绑定**内容**（把派生行改成自比较再叠加 `let recount = false` 仍 exit 0）——如实记录为
+  **残余**：任何"把检查行本身改成自比较/删掉"的编辑都超出常驻控制的范围（这是本系列每一轮都在
+  同一族里打转的根因），能挡的是**单点、看起来无害**的那类编辑；本轮把这类编辑的覆盖面又推进了
+  三格（证据副本、见证守卫、产物 flag 存在性）。**⑤ N5/N6（P2）**：coverage 的"当前基线"与
+  AGENTS.md 不一致（已改为指向 AGENTS.md 的同一行）；`tailpar11` 的分解漏了 `discover-examples`
+  的 16 s（14+16+35+72+57+32 = 226 ✓，已补）。
+  **本提交的验证**（源码 `census.rs d3e04720…`）：example 测试 **27 项**、严格 clippy exit 0；
+  验收命令（逐字）诚实 exit 0 / 0 violation；四个变异（N1a、N1b、N3、N4）各自 exit 1 且报文点名
+  （`target/nfix-teeth.sh`、日志 `target/logs/nx-*`）；电池 `target/logs/tailpar12`
+  （`revision 786e026 dirty-files 2`）**219 s**、**684 passed / 0 failed**、三个 TSV 4==8 且
+  SHA 未变、三门禁/doctest/clippy/oracle 全 exit 0；**21 个变异**逐个复现
+  （`target/logs/finalTailpar8/summary.txt`，与 `finalTailpar7` 逐行相同、只差修订行）。
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有

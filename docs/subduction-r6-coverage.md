@@ -685,7 +685,8 @@ gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子
 sha256）：**41 个测试壳**（23 个 `--tests` 二进制加 18 个 example 测试壳；`cargo test --tests`
 **不含** example 的单测，第一版电池因此漏掉 63 项，已修）合计 **680 passed / 0 failed**，
 另有 doctest、clippy `-D warnings`、family/ledger/global 三门禁与 5 个 python 门禁，全部 exit 0。
-**当前基线（`bdb43e3`）**：`target/logs/tailpar10/summary.txt`（日志头 `revision bdb43e3
+**当前基线（`debe373`/`311d06d` 之后的本轮提交）**：见 AGENTS.md §3.3 的"当前基线"一行，
+两份文档以同一行为准；`target/logs/tailpar10/summary.txt`（日志头 `revision bdb43e3
 dirty-files 0`，三个源文件 sha256 与提交一致）**206 s** = 构建 14 s + census-8 32 s +
 〔census-4 ‖ global-audit〕71 s + 池 57 s + 尾 32 s、**684 passed / 0 failed**、三个 TSV 4==8
 且 SHA 未变——与 `7f8b016` 的 220 s / `tailpar8`、`tailpar9` 同档（那一档的构建/发现是 example
