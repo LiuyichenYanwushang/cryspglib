@@ -1044,6 +1044,11 @@ struct RecordReport {
     recount: RecountReport,
     /// The R6.7 card-5 interval sweep of this record.
     sweep: SweepReport,
+    /// 1 when the card-4 `1/9`,`1/8` witness pass ran for this record, else 0.
+    /// The guard is one `if recount` away from being cut, and a cut guard leaves
+    /// every honest comparison in `run` intact, so the number of records it ran
+    /// for is asserted there (verification review of `311d06d`, N3).
+    witness_records: usize,
     failures: Vec<String>,
 }
 
@@ -1164,7 +1169,9 @@ fn run() -> Result<ExitCode, String> {
         worst_score: 1.0,
         ..SweepReport::default()
     };
+    let mut witness_pass_records = 0usize;
     for (record, report) in records.iter().zip(per_record) {
+        witness_pass_records += report.witness_records;
         if report.probes.is_empty() {
             probe_errors.push(format!("ordinal {} produced no probe", record.ordinal));
         }
@@ -1459,7 +1466,7 @@ block_count\tblocks";
     let recount_from_argv = on_command_line("--gate")
         || on_command_line("--full-star-recount")
         || output_recount.is_some();
-    let flag_checks: [(&str, bool, bool); 5] = [
+    let flag_checks: [(&str, bool, bool); 8] = [
         ("--gate", gate, on_command_line("--gate")),
         (
             "--require-covered",
@@ -1472,6 +1479,21 @@ block_count\tblocks";
             on_command_line("--full-star-recount"),
         ),
         ("--domain-sweep", domain_sweep, on_command_line("--domain-sweep")),
+        // The artifact flags are read from the parsed vector too, so a filter
+        // there would silently drop a requested artifact (review of `311d06d`,
+        // N4); their presence is checked against the process command line as
+        // well.
+        ("--output", output.is_some(), on_command_line("--output")),
+        (
+            "--output-blocks",
+            output_blocks.is_some(),
+            on_command_line("--output-blocks"),
+        ),
+        (
+            "--output-recount",
+            output_recount.is_some(),
+            on_command_line("--output-recount"),
+        ),
         (
             "the recount request (--gate or --full-star-recount or --output-recount)",
             recount,
@@ -1484,6 +1506,39 @@ block_count\tblocks";
                 "{name} is {local} where the passes are decided but {from_argv} on the command line"
             ));
         }
+    }
+    // The evidence's copies of the request flags, against the locals that decided
+    // the passes: without this, clearing them *there* makes the coupling check
+    // below unreachable while every comparison above stays honest, and the whole
+    // recount assertion block silently stops running (verification review of
+    // `311d06d`, N1 -- a regression against `bdb43e3`, which had exactly this
+    // loop).
+    for (name, local, from_evidence) in [
+        (
+            "--full-star-recount (request)",
+            recount,
+            evidence.recount_requested,
+        ),
+        (
+            "--domain-sweep (request)",
+            domain_sweep,
+            evidence.sweep_requested,
+        ),
+    ] {
+        if local != from_evidence {
+            violations.push(format!(
+                "{name} is {local} where the passes are decided but {from_evidence} in the evidence"
+            ));
+        }
+    }
+    // The card-4 witness pass is behind its own `if recount`; cutting that guard
+    // leaves everything else honest, so the number of records it ran for is
+    // asserted (review of `311d06d`, N3).
+    if recount && witness_pass_records != records.len() {
+        violations.push(format!(
+            "the recount witness pass ran for {witness_pass_records} of {} record(s)",
+            records.len()
+        ));
     }
     // Asking for the artifact is asking for the pass that fills it: a header-only
     // file is a silent skip too (review of `7f8b016`, N2).
@@ -5215,6 +5270,8 @@ fn probe_record(
             gamma,
             recount: recount_report,
             sweep: sweep_report,
+            // The child frame failed, so the witness pass below never ran.
+            witness_records: 0,
             failures,
         };
     };
@@ -5837,7 +5894,9 @@ fn probe_record(
             }
         }
     }
+    let mut witness_records = 0usize;
     if recount {
+        witness_records = 1;
         // The witness list lives **here**, in the caller: the in-function anchor
         // could be moved by rebinding it inside `recount_witnesses`, the same
         // shape as the boundary pass' m8 (adversarial re-verification of
@@ -5871,6 +5930,7 @@ fn probe_record(
         gamma,
         recount: recount_report,
         sweep: sweep_report,
+        witness_records,
         failures,
     }
 }
