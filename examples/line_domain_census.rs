@@ -1412,6 +1412,8 @@ block_count\tblocks";
         gamma: &gamma,
         recount: &recount_report,
         recount_ran: recount,
+        recount_requested: recount,
+        sweep_requested: domain_sweep,
         recount_rows_written,
         recount_file_rows,
         sweep: &sweep_report,
@@ -1436,15 +1438,64 @@ block_count\tblocks";
     violations.extend(recount_file_failures.iter().cloned());
     violations.extend(recount_report.failures.iter().cloned());
     violations.extend(sweep_report.failures.iter().cloned());
-    check_invariants(
-        &domains,
-        &records,
-        &probes,
-        &evidence,
-        recount,
-        domain_sweep,
-        &mut violations,
-    );
+    check_invariants(&domains, &records, &probes, &evidence, &mut violations);
+
+    // The pass/evidence coupling, with the command line parsed a **second** time.
+    // `recount_ran`/`sweep_ran` switch the Gamma assertions and the recount pins
+    // on, and the request flags are the same locals that turn the passes on, so a
+    // mutation that clears one of them skips the pass *and* the check with nothing
+    // to notice: measured on `53c6a3e` (verification review F1) and again on
+    // `7f8b016` (review N1/N2), clearing a flag left the acceptance command at
+    // exit 0 / 0 violations and the whole example suite green.  The comparison is
+    // between two independent reads of `arguments`, not between a flag and
+    // itself.
+    for (name, local, from_argv) in [
+        (
+            "--gate",
+            gate,
+            arguments.iter().any(|argument| argument == "--gate"),
+        ),
+        (
+            "--require-covered",
+            require_covered,
+            arguments.iter().any(|argument| argument == "--require-covered"),
+        ),
+        (
+            "--full-star-recount",
+            full_star_recount,
+            arguments.iter().any(|argument| argument == "--full-star-recount"),
+        ),
+        (
+            "--domain-sweep",
+            domain_sweep,
+            arguments.iter().any(|argument| argument == "--domain-sweep"),
+        ),
+    ] {
+        if local != from_argv {
+            violations.push(format!(
+                "{name} is {local} where the passes are decided but {from_argv} on the command line"
+            ));
+        }
+    }
+    // The evidence has to agree with the flags the passes were decided on, and
+    // those flags with the command line: the coupling check below reads the
+    // evidence's copy, so a mutation that clears either copy is a violation
+    // (verification review of `7f8b016`, N1).
+    for (name, local, from_evidence) in [
+        ("--full-star-recount (request)", recount, evidence.recount_requested),
+        ("--domain-sweep (request)", domain_sweep, evidence.sweep_requested),
+    ] {
+        if local != from_evidence {
+            violations.push(format!(
+                "{name} is {local} where the passes are decided but {from_evidence} in the evidence"
+            ));
+        }
+    }
+    // Asking for the artifact is asking for the pass that fills it: a header-only
+    // file is a silent skip too (review of `7f8b016`, N2).
+    if output_recount.is_some() && recount_rows_written == 0 {
+        violations.push("--output-recount was given but the recount pass wrote no row".to_string());
+    }
 
     let unsupported = probes
         .iter()
@@ -5860,6 +5911,13 @@ struct CensusEvidence<'a> {
     /// green while it printed `full-star recount: not run` (verification review F6).
     recount: &'a RecountReport,
     recount_ran: bool,
+    /// Whether the run **asked** for the recount pass, and the same for the sweep.
+    /// The coupling between these two and the "did it run" flags above is what
+    /// keeps the guarded assertions on: they live here, next to the flags that
+    /// decide the passes, rather than as extra arguments that a caller could fill
+    /// with a literal (verification review of `7f8b016`, N1).
+    recount_requested: bool,
+    sweep_requested: bool,
     /// Data rows the `--output-recount` emission loop produced, and the rows read
     /// back from the written file (parsed and compared, not only counted).
     recount_rows_written: usize,
@@ -6849,24 +6907,25 @@ fn check_invariants(
     records: &[Record],
     probes: &[Probe],
     evidence: &CensusEvidence,
-    recount_requested: bool,
-    sweep_requested: bool,
     violations: &mut Vec<String>,
 ) {
     // A pass that was asked for must be the pass whose counters the assertions
     // below read.  `recount_ran`/`sweep_ran` are the switch that turns the Gamma
     // assertions and the recount pins on, so clearing them would switch those
-    // checks off silently: measured on `53c6a3e` (verification review, F1), the
-    // one-line mutation `recount_ran: recount` -> `false` (and the same for the
-    // sweep) left the acceptance command at exit 0 / 0 violations *and* the whole
-    // example suite at 26 passed.  Binding the request to the evidence closes it.
-    if recount_requested && !evidence.recount_ran {
+    // checks off silently -- measured on `53c6a3e`, the one-line mutation
+    // `recount_ran: recount` -> `false` (and the same for the sweep) left the
+    // acceptance command at exit 0 / 0 violations and the example suite green.
+    // `run` additionally cross-checks these two request flags against the locals
+    // that decided the passes and against the command line, so neither copy can
+    // be cleared without a violation (verification reviews of `53c6a3e` F1 and
+    // `7f8b016` N1/N2).
+    if evidence.recount_requested && !evidence.recount_ran {
         violations.push(
             "the full-star recount pass was requested but the evidence says it did not run"
                 .to_string(),
         );
     }
-    if sweep_requested && !evidence.sweep_ran {
+    if evidence.sweep_requested && !evidence.sweep_ran {
         violations.push(
             "the domain sweep was requested but the evidence says it did not run".to_string(),
         );
@@ -9727,7 +9786,9 @@ mod tests {
     /// the caller's control.
     fn evidence_of<'a>(
         report: &'a RecordReport,
+        recount_requested: bool,
         recount_ran: bool,
+        sweep_requested: bool,
         sweep_ran: bool,
     ) -> CensusEvidence<'a> {
         let block_rows = report
@@ -9746,6 +9807,8 @@ mod tests {
             gamma: &report.gamma,
             recount: &report.recount,
             recount_ran,
+            recount_requested,
+            sweep_requested,
             recount_rows_written: 0,
             recount_file_rows: None,
             sweep: &report.sweep,
@@ -9873,15 +9936,13 @@ mod tests {
             "the witness must not have measured the Gamma counters"
         );
         let gamma_violations = |recount_ran: bool| {
-            let evidence = evidence_of(&report, recount_ran, false);
+            let evidence = evidence_of(&report, recount_ran, recount_ran, false, false);
             let mut violations = Vec::new();
             check_invariants(
                 &domains,
                 std::slice::from_ref(&record),
                 &report.probes,
                 &evidence,
-                false,
-                false,
                 &mut violations,
             );
             violations
@@ -9929,15 +9990,13 @@ mod tests {
                        recount_ran: bool,
                        sweep_requested: bool,
                        sweep_ran: bool| {
-            let evidence = evidence_of(&report, recount_ran, sweep_ran);
+            let evidence = evidence_of(&report, recount_requested, recount_ran, sweep_requested, sweep_ran);
             let mut violations = Vec::new();
             check_invariants(
                 &domains,
                 std::slice::from_ref(&record),
                 &report.probes,
                 &evidence,
-                recount_requested,
-                sweep_requested,
                 &mut violations,
             );
             violations
@@ -9979,13 +10038,33 @@ mod tests {
             "request and evidence together must be clean: {:?}",
             coupling(&live)
         );
-        // Non-vacuity: one record's counters are not the corpus pins, so the
-        // assertions this switch guards must still fire here.  Without this the
-        // test above could pass on a `check_invariants` that checks nothing.
-        assert!(
-            !live.is_empty(),
-            "the guarded corpus assertions must be live for this report"
-        );
+        // Non-vacuity, named rather than counted: one record's counters are not
+        // the corpus pins, so the two assertions this switch guards must fire
+        // here, each with its own message.  A plain `!live.is_empty()` would be
+        // satisfied by unrelated violations and would survive switching every
+        // guarded block off (verification review of `7f8b016`, N3).
+        for (needle, what) in [
+            (
+                "Gamma enumeration reports",
+                "the guarded Gamma counter assertion",
+            ),
+            ("full-star recount probed", "the guarded recount pin"),
+        ] {
+            assert!(
+                live.iter().any(|violation| violation.contains(needle)),
+                "{what} must be live for this report: {live:?}"
+            );
+        }
+        // ... and with both passes *not* requested, those same messages must be
+        // absent: the fixture's unguarded violations still fire, which is exactly
+        // why the check above names the guarded ones.
+        let unrequested = checked(false, false, false, false);
+        for needle in ["Gamma enumeration reports", "full-star recount probed"] {
+            assert!(
+                !unrequested.iter().any(|violation| violation.contains(needle)),
+                "an unrequested pass must not be asserted about: {unrequested:?}"
+            );
+        }
     }
 
     /// **Card 6, positive control: the audit is not vacuous, and it reproduces
@@ -10318,6 +10397,8 @@ mod tests {
             gamma: &report.gamma,
             recount: &report.recount,
             recount_ran: false,
+            recount_requested: false,
+            sweep_requested: false,
             recount_rows_written: 0,
             recount_file_rows: None,
             sweep: &report.sweep,
