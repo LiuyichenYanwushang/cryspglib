@@ -428,6 +428,14 @@ impl Rat {
     /// would recompute their gcd (which is the denominator itself) and multiply
     /// by one twice.  The shortcut computes the same sum and reaches the same
     /// [`Rat::new`] call, so nothing about the result or its errors changes.
+    ///
+    /// The next most common case is measured to be **one integer addend**
+    /// (258,591,212 of the 268,552,491 general-path additions,
+    /// `target/logs/perf-rat/ab2/summary.txt`), where the shared factor is one:
+    /// `a/1 + c/d = (a*d + c) / d`.  The general path would compute
+    /// `gcd(1, d) = 1` and then divide by one twice, so the shortcut drops a gcd
+    /// and two divisions and keeps the same two products, the same sum, the same
+    /// [`Rat::new`] normalization and the same errors.
     pub fn checked_add(self, other: Self) -> Result<Self, SubductionError> {
         if self.den == other.den {
             let num = self
@@ -435,6 +443,26 @@ impl Rat {
                 .checked_add(other.num)
                 .ok_or(SubductionError::RationalOverflow { operation: "add" })?;
             return Self::new(num, self.den);
+        }
+        if self.den == 1 || other.den == 1 {
+            let (num, den) = if self.den == 1 {
+                (
+                    self.num
+                        .checked_mul(other.den)
+                        .and_then(|left| left.checked_add(other.num)),
+                    other.den,
+                )
+            } else {
+                (
+                    other
+                        .num
+                        .checked_mul(self.den)
+                        .and_then(|left| left.checked_add(self.num)),
+                    self.den,
+                )
+            };
+            let num = num.ok_or(SubductionError::RationalOverflow { operation: "add" })?;
+            return Self::new(num, den);
         }
         let shared = gcd_positive(self.den.unsigned_abs(), other.den.unsigned_abs());
         let shared = i128::try_from(shared)
@@ -505,6 +533,58 @@ impl Rat {
                     operation: "multiply",
                 })?;
             return Ok(Self { num, den: 1 });
+        }
+        if self.den == 1 || other.den == 1 {
+            // One side is an integer, which the census measures as the **normal
+            // case** for this path: of the 385,076,851 products that reach the
+            // general path below -- 6,623,978 with equal denominators other than
+            // one, 358,616,612 with exactly one denominator of one, and 19,836,261
+            // with two different non-integer denominators
+            // (`target/logs/perf-rat/ab2/summary.txt`, one-thread counting pass) --
+            // 358,616,612 have exactly one denominator of one.
+            //
+            // Of the two cross-reductions the general path performs,
+            // `left = gcd(a, d)` and `right = gcd(c, b)`, one is therefore
+            // `gcd(x, 1) = 1`, and two of its four exact divisions divide by one.
+            // What remains is the same single factor removal the general path
+            // performs, so the product is normalized for the same reason: the
+            // removed factor `gcd(a, d)` leaves `gcd(a/left, d/left) = 1`, and any
+            // other common prime would divide both numerator and denominator of one
+            // of the two canonical inputs.  The multiplications -- and so the
+            // overflow behaviour -- are the same two products in the same order.
+            let (num, den) = if self.den == 1 {
+                // `a/1 * c/d = (a / gcd(a, d)) * c / (d / gcd(a, d))`.
+                let left = gcd_positive(self.num.unsigned_abs(), other.den.unsigned_abs());
+                let left = i128::try_from(left).map_err(|_| SubductionError::RationalOverflow {
+                    operation: "multiply",
+                })?;
+                (
+                    div_exact(self.num, left).checked_mul(other.num),
+                    div_exact(other.den, left),
+                )
+            } else {
+                // `a/b * c/1 = a * (c / gcd(c, b)) / (b / gcd(c, b))`.
+                let right = gcd_positive(other.num.unsigned_abs(), self.den.unsigned_abs());
+                let right = i128::try_from(right).map_err(|_| SubductionError::RationalOverflow {
+                    operation: "multiply",
+                })?;
+                (
+                    self.num.checked_mul(div_exact(other.num, right)),
+                    div_exact(self.den, right),
+                )
+            };
+            let num = num.ok_or(SubductionError::RationalOverflow {
+                operation: "multiply",
+            })?;
+            if num == 0 {
+                return Ok(Self::ZERO);
+            }
+            debug_assert_eq!(
+                gcd_positive(num.unsigned_abs(), den.unsigned_abs()),
+                1,
+                "one cross-reduction leaves the product normalized"
+            );
+            return Ok(Self { num, den });
         }
         let left = gcd_positive(self.num.unsigned_abs(), other.den.unsigned_abs());
         let right = gcd_positive(other.num.unsigned_abs(), self.den.unsigned_abs());
@@ -851,11 +931,24 @@ impl Mat3R {
     }
 
     /// Exact inverse, or [`SubductionError::SingularMatrix`].
+    ///
+    /// A determinant of `±1` answers the nine cofactor quotients without any
+    /// division: `x / 1` is `x` and `x / -1` is `-x`.  That is the common case
+    /// here, because the inverse is taken of the integer rotation matrices of the
+    /// Seitz operations: 27,323,380 of 28,748,476 calls have a unit determinant,
+    /// and the nine divisions they would otherwise perform (each a gcd plus two
+    /// exact divisions inside [`Rat::new`]) are 245,910,420 of the run's
+    /// divisions by `±1` (`target/logs/perf-rat/ab2/summary.txt`, one-thread
+    /// counting pass).  A cofactor of `i128::MIN` keeps the slow path, whose
+    /// `RationalOverflow` names `normalize` rather than `negate`, so the errors
+    /// are unchanged as well.
     pub fn inverse(&self) -> Result<Self, SubductionError> {
         let determinant = self.determinant()?;
         if determinant.is_zero() {
             return Err(SubductionError::SingularMatrix);
         }
+        let unit = determinant.denominator() == 1 && determinant.numerator().unsigned_abs() == 1;
+        let negative_unit = unit && determinant.numerator() < 0;
         let mut out = [[Rat::ZERO; 3]; 3];
         for (row, out_row) in out.iter_mut().enumerate() {
             for (column, cell) in out_row.iter_mut().enumerate() {
@@ -867,7 +960,17 @@ impl Mat3R {
                 } else {
                     cofactor
                 };
-                *cell = cofactor.checked_div(determinant)?;
+                *cell = if !unit {
+                    cofactor.checked_div(determinant)?
+                } else if !negative_unit {
+                    // `x / 1` is `x`.
+                    cofactor
+                } else if cofactor.numerator() == i128::MIN {
+                    cofactor.checked_div(determinant)?
+                } else {
+                    // `x / -1` is `-x`.
+                    cofactor.checked_neg()?
+                };
             }
         }
         Ok(Self(out))
@@ -3150,6 +3253,60 @@ mod tests {
         assert_eq!(rat(3, huge).checked_add(rat(1, huge)), Ok(rat(1, huge / 4)));
     }
 
+    /// **Performance round of `9c8b12b`: the one-integer shortcuts.**
+    ///
+    /// [`Rat::checked_mul`] and [`Rat::checked_add`] now answer the shape in which
+    /// exactly one denominator is one -- measured as 358,616,612 of 385,076,851
+    /// products and 258,591,212 of 268,552,491 sums that reach the general paths
+    /// (`target/logs/perf-rat/ab2/summary.txt`) -- without the gcd and the
+    /// divisions by one the general path performs.  The grid above already walks
+    /// such pairs, so this adds what the grid cannot: literal expectations for the
+    /// reduction the shortcut itself performs (`2/3 * 6 = 4`, not `12/3`), the zero
+    /// numerator on either side, and the overflow cases.  The shortcut computes the
+    /// same two products in the same order, so it must report the same
+    /// [`SubductionError::RationalOverflow`] as the general path.
+    #[test]
+    fn the_one_integer_shortcuts_agree_and_keep_their_errors() {
+        let cases = [
+            (rat(3, 4), rat(5, 1), rat(15, 4), rat(23, 4)),
+            (rat(-3, 4), rat(5, 1), rat(-15, 4), rat(17, 4)),
+            (rat(3, 4), rat(-5, 1), rat(-15, 4), rat(-17, 4)),
+            (rat(2, 3), rat(6, 1), rat(4, 1), rat(20, 3)),
+            (rat(2, 3), rat(1, 1), rat(2, 3), rat(5, 3)),
+        ];
+        for (fraction, integer, product, sum) in cases {
+            for (left, right) in [(fraction, integer), (integer, fraction)] {
+                assert_eq!(left.checked_mul(right), Ok(product), "{left} * {right}");
+                assert_eq!(left.checked_add(right), Ok(sum), "{left} + {right}");
+            }
+        }
+        assert_eq!(rat(0, 1).checked_mul(rat(3, 4)), Ok(Rat::ZERO));
+        assert_eq!(rat(3, 4).checked_mul(rat(0, 1)), Ok(Rat::ZERO));
+        assert_eq!(rat(0, 1).checked_add(rat(3, 4)), Ok(rat(3, 4)));
+        assert_eq!(rat(3, 4).checked_add(rat(0, 1)), Ok(rat(3, 4)));
+        let big = Rat::new(i128::MAX, 3).expect("a canonical fraction");
+        assert_eq!(
+            big.checked_mul(Rat::from_integer(4)),
+            Err(SubductionError::RationalOverflow {
+                operation: "multiply"
+            })
+        );
+        assert_eq!(
+            big.checked_mul(Rat::from_integer(-4)),
+            Err(SubductionError::RationalOverflow {
+                operation: "multiply"
+            })
+        );
+        assert_eq!(
+            big.checked_add(Rat::from_integer(i128::MAX)),
+            Err(SubductionError::RationalOverflow { operation: "add" })
+        );
+        assert_eq!(
+            Rat::from_integer(i128::MAX).checked_add(big),
+            Err(SubductionError::RationalOverflow { operation: "add" })
+        );
+    }
+
     /// **Verification of the `Mat3R::minor` rewrite (review of `786e026`).**
     ///
     /// [`Mat3R::determinant`] and [`Mat3R::inverse`] now share one private
@@ -3261,6 +3418,82 @@ mod tests {
             checked > 0 && singular > 0,
             "the grid must contain both cases: {checked} non-singular, {singular} singular"
         );
+    }
+
+    /// **Performance round of `9c8b12b`: the unit-determinant inverse.**
+    ///
+    /// [`Mat3R::inverse`] now answers a determinant of `±1` without dividing
+    /// (27,323,380 of 28,748,476 calls in the corpus, and 245,910,420 divisions by
+    /// `±1` removed -- `target/logs/perf-rat/ab2/summary.txt`).  The `3^9` grid
+    /// above reaches unit determinants only incidentally, if at all, so this fixes
+    /// literal inverses for **both** signs of the shortcut -- an upper
+    /// unitriangular matrix (`det = +1`) and a transposition matrix (`det = -1`,
+    /// whose inverse is itself and whose entries the shortcut negates) -- and the
+    /// two shapes that must keep the division: an integer determinant that is not a
+    /// unit and a fractional one, plus the singular matrix that must still fail.
+    #[test]
+    fn the_unit_determinant_inverse_is_exact_in_both_signs() {
+        let upper = Mat3R::new([
+            [rat(1, 1), rat(2, 1), rat(3, 1)],
+            [rat(0, 1), rat(1, 1), rat(4, 1)],
+            [rat(0, 1), rat(0, 1), rat(1, 1)],
+        ]);
+        assert_eq!(upper.determinant(), Ok(Rat::ONE));
+        assert_eq!(
+            upper.inverse(),
+            Ok(Mat3R::new([
+                [rat(1, 1), rat(-2, 1), rat(5, 1)],
+                [rat(0, 1), rat(1, 1), rat(-4, 1)],
+                [rat(0, 1), rat(0, 1), rat(1, 1)],
+            ]))
+        );
+        let swap = Mat3R::new([
+            [rat(0, 1), rat(1, 1), rat(0, 1)],
+            [rat(1, 1), rat(0, 1), rat(0, 1)],
+            [rat(0, 1), rat(0, 1), rat(1, 1)],
+        ]);
+        assert_eq!(swap.determinant(), Ok(rat(-1, 1)));
+        assert_eq!(swap.inverse(), Ok(swap));
+        for matrix in [upper, swap] {
+            let inverse = matrix.inverse().expect("invertible");
+            assert_eq!(matrix.checked_mul(&inverse), Ok(Mat3R::identity()));
+            assert_eq!(inverse.checked_mul(&matrix), Ok(Mat3R::identity()));
+        }
+        let doubled = Mat3R::new([
+            [rat(2, 1), rat(0, 1), rat(0, 1)],
+            [rat(0, 1), rat(1, 1), rat(0, 1)],
+            [rat(0, 1), rat(0, 1), rat(1, 1)],
+        ]);
+        assert_eq!(doubled.determinant(), Ok(rat(2, 1)));
+        assert_eq!(
+            doubled.inverse(),
+            Ok(Mat3R::new([
+                [rat(1, 2), rat(0, 1), rat(0, 1)],
+                [rat(0, 1), rat(1, 1), rat(0, 1)],
+                [rat(0, 1), rat(0, 1), rat(1, 1)],
+            ]))
+        );
+        let halved = Mat3R::new([
+            [rat(1, 2), rat(0, 1), rat(0, 1)],
+            [rat(0, 1), rat(1, 2), rat(0, 1)],
+            [rat(0, 1), rat(0, 1), rat(1, 2)],
+        ]);
+        assert_eq!(halved.determinant(), Ok(rat(1, 8)));
+        assert_eq!(
+            halved.inverse(),
+            Ok(Mat3R::new([
+                [rat(2, 1), rat(0, 1), rat(0, 1)],
+                [rat(0, 1), rat(2, 1), rat(0, 1)],
+                [rat(0, 1), rat(0, 1), rat(2, 1)],
+            ]))
+        );
+        let singular = Mat3R::new([
+            [rat(1, 1), rat(0, 1), rat(0, 1)],
+            [rat(0, 1), rat(1, 1), rat(0, 1)],
+            [rat(0, 1), rat(0, 1), rat(0, 1)],
+        ]);
+        assert_eq!(singular.determinant(), Ok(Rat::ZERO));
+        assert_eq!(singular.inverse(), Err(SubductionError::SingularMatrix));
     }
 
     #[test]
