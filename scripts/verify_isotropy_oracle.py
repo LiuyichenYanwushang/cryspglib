@@ -423,20 +423,35 @@ def oracle_jobs():
     return max(1, min(8, os.cpu_count() or 1))
 
 
-def run_case_sessions(case):
-    """Both `iso` sessions of one case, in the serial order (geometry, vectors)."""
+def run_case_sessions(case, records):
+    """One case's `iso` sessions, with the serial loop's own short-circuits.
+
+    `None` when the case has no machine records (the serial loop appends a
+    failure and runs nothing), and `(rows, None)` when the oracle's row count
+    already disagrees (the serial loop reports that and never asks for the
+    direction vectors).  Matching the serial control flow matters on failing
+    inputs: prefetching unconditionally ran `iso` for cases the serial gate
+    never touched, so a broken oracle raised instead of reporting (verification
+    review of `9fd3662`, orion P2-2).
+    """
     sg, ml = case
-    return run_oracle(sg, ml), run_oracle_direction_vectors(sg, ml)
+    expected = records.get((sg, ml))
+    if not expected:
+        return None
+    rows = run_oracle(sg, ml)
+    if len(rows) != len(expected):
+        return (rows, None)
+    return (rows, run_oracle_direction_vectors(sg, ml))
 
 
-def prefetch_case_sessions(cases, jobs):
+def prefetch_case_sessions(cases, records, jobs):
     """Every case's sessions, concurrently, keyed by case.
 
     The futures are collected in `cases` order, so the first exception is the
     one the serial loop would have raised first.
     """
     with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
-        futures = {case: pool.submit(run_case_sessions, case) for case in cases}
+        futures = {case: pool.submit(run_case_sessions, case, records) for case in cases}
         return {case: futures[case].result() for case in cases}
 
 
@@ -448,14 +463,20 @@ def main():
     lattice_origins = 0
     failures = []
 
-    sessions = prefetch_case_sessions(CASES, oracle_jobs())
+    sessions = prefetch_case_sessions(CASES, records, oracle_jobs())
 
     for sg, ml in CASES:
         expected = records.get((sg, ml))
         if not expected:
             failures.append(f"SG {sg} {ml}: no machine records")
             continue
-        rows = sessions[(sg, ml)][0]
+        session = sessions[(sg, ml)]
+        if session is None:
+            # The worker and this loop test the same predicate; a `None` here
+            # would mean `records` changed between them, which nothing does.
+            failures.append(f"SG {sg} {ml}: no machine records")
+            continue
+        rows, vectors = session
         if len(rows) != len(expected):
             failures.append(
                 f"SG {sg} {ml}: oracle printed {len(rows)} rows, "
@@ -464,7 +485,7 @@ def main():
             continue
         # The component strings the user actually types must be the program's:
         # comparing only `P1`/`C1` labels would miss a wrong `(a,a,0)` mapping.
-        vectors = sessions[(sg, ml)][1]
+        vectors = vectors if vectors is not None else run_oracle_direction_vectors(sg, ml)
         # Rows are matched by ISOTROPY direction label: neither the oracle nor
         # the data file guarantees the same row order.
         by_label = {row["label"]: row for row in rows}

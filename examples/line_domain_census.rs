@@ -183,8 +183,10 @@ line_domain_census [--gate] [--require-covered] [--full-star-recount] [--domain-
 
 The three artifact flags also accept the `--output=<path>` spelling, and a path
 that begins with a dash must use one of the two explicit forms (`--output
-./--name` or `--output=--name`): a token that looks like an option is reported as
-a missing path rather than taken as one.  Every other argument must be one of the
+./--name` or `--output=--name`): a token that begins with a dash is reported as a
+missing path rather than taken as one, and giving an artifact flag twice is an
+error.  `--help`/`-h` prints this text and exits 0 before any other argument is
+read.  Every other argument must be one of the
 flags above: an unknown token is an error, not a silent skip (a misspelt
 `--output` used to run the census without writing the artifact and still exit 0).
 ";
@@ -1074,6 +1076,18 @@ struct RecordReport {
     /// `786e026`, C2b/C2c).  `run` asserts this total against the closed form
     /// `PINNED_WITNESS_RECORDS × PINNED_WITNESS_PARAMETERS`.
     witness_verified: usize,
+    /// The pinned expectations the pass actually **compared** for this record,
+    /// counted at each comparison inside [`recount_witnesses`].  The gate asserts
+    /// the total against the same closed form, so an expectation branch switched
+    /// off is visible even though the answered parameters still look right
+    /// (verification review of `634fd85`, orion P1).
+    witness_facts: usize,
+    /// The parameters the pass decomposed, as it returned them.  The gate checks
+    /// the content against **its own** literals (`1/8` and `1/9`), so editing the
+    /// pass's request constant can no longer move the expectation with it
+    /// (verification review of `634fd85`, orion P1: `PINNED_WITNESS_PARAMETERS`
+    /// set to `[(1,9),(1,9)]` kept request, closed form and self-check in step).
+    witness_answered: Vec<Rat>,
     failures: Vec<String>,
 }
 
@@ -1096,7 +1110,7 @@ fn main() -> ExitCode {
 /// P2-2).  A file whose name really starts with a dash has two explicit
 /// spellings: `--output ./--bogus` and `--output=--bogus`.
 fn is_path_like(value: &str) -> bool {
-    !value.is_empty() && !(value.starts_with('-') && value.len() > 1)
+    !value.is_empty() && !value.starts_with('-')
 }
 
 /// The path of an artifact flag, in either spelling (`--output <path>` or
@@ -1109,22 +1123,33 @@ fn is_path_like(value: &str) -> bool {
 /// process order, so a repeated flag keeps taking its first occurrence.
 fn artifact_path(arguments: &[String], flag: &str) -> Result<Option<String>, String> {
     let prefix = format!("{flag}=");
+    let mut found: Option<String> = None;
+    // **Every** occurrence is checked, not only the first one: returning at the
+    // first match let a second, malformed occurrence through silently
+    // (`--output a.tsv --output --bogus` wrote `a.tsv` and exited 0; external
+    // review of `634fd85`, F7).  A repeated artifact flag is a mistake, so it is
+    // an error rather than a silent "the first one wins".
     for (index, argument) in arguments.iter().enumerate() {
-        if argument == flag {
-            let value = arguments
+        let value = if argument == flag {
+            arguments
                 .get(index + 1)
                 .filter(|value| is_path_like(value))
-                .ok_or_else(|| format!("{flag} needs a path"))?;
-            return Ok(Some(value.clone()));
-        }
-        if let Some(value) = argument.strip_prefix(&prefix) {
+                .ok_or_else(|| format!("{flag} needs a path"))?
+                .clone()
+        } else if let Some(value) = argument.strip_prefix(&prefix) {
             if value.is_empty() {
                 return Err(format!("{flag} needs a path"));
             }
-            return Ok(Some(value.to_string()));
+            value.to_string()
+        } else {
+            continue;
+        };
+        if found.is_some() {
+            return Err(format!("{flag} was given more than once"));
         }
+        found = Some(value);
     }
-    Ok(None)
+    Ok(found)
 }
 
 /// Reject every argument that is not one of the documented flags.
@@ -1202,15 +1227,62 @@ fn on_command_line(flag: &str) -> bool {
         .any(|argument| spells_flag(&argument, flag))
 }
 
+/// The parsed command line: one field per flag the run knows.
+///
+/// Parsing is separated from the decisions so that the decisions can be read back
+/// from the struct in a test: a table rebuilt by hand at the call site kept the
+/// acceptance command green when a field was cross-wired (`--output` keyed on
+/// `output_blocks`; reviews of `786e026` N2/C4e and of `634fd85` P2-5), and the
+/// derived recount request itself used to be a rebindable local (`bdb43e3` V3).
+#[derive(Clone, Debug, Default)]
+struct Options {
+    gate: bool,
+    require_covered: bool,
+    full_star_recount: bool,
+    domain_sweep: bool,
+    sequential: bool,
+    output: Option<String>,
+    output_blocks: Option<String>,
+    output_recount: Option<String>,
+}
+
+impl Options {
+    /// Parse the process arguments (the caller has already handled `--help`).
+    fn parse(arguments: &[String]) -> Result<Self, String> {
+        reject_unknown_arguments(arguments)?;
+        let switch = |flag: &str| arguments.iter().any(|argument| argument == flag);
+        Ok(Self {
+            gate: switch("--gate"),
+            require_covered: switch("--require-covered"),
+            full_star_recount: switch("--full-star-recount"),
+            domain_sweep: switch("--domain-sweep"),
+            sequential: switch("--sequential"),
+            output: artifact_path(arguments, "--output")?,
+            output_blocks: artifact_path(arguments, "--output-blocks")?,
+            output_recount: artifact_path(arguments, "--output-recount")?,
+        })
+    }
+
+    /// Asking for the artifact asks for the pass that produces it, with the same
+    /// failure semantics as `--full-star-recount`.
+    fn recount_requested(&self) -> bool {
+        self.gate || self.full_star_recount || self.output_recount.is_some()
+    }
+
+    /// The artifact flags ask for their passes just as the gate flags do, so the
+    /// verdict has to see them (verification review of `acfc3f1`, F1).
+    fn outputs_requested(&self) -> bool {
+        self.output.is_some() || self.output_blocks.is_some() || self.output_recount.is_some()
+    }
+}
+
 /// What the run decided to do, as the command-line cross-check needs it: one
 /// field per flag the check covers.
 ///
-/// A struct rather than eight positional arguments, so that the pairing of a name
-/// with the local that decides it is explicit at the call site and reachable from
-/// a test: a cross-wired row keeps every run of the shipped acceptance command
-/// green, because that command names all eight flags and both sides then read
-/// `true` (verification review of `786e026`, N2/C4e measured `--output` keyed on
-/// `output_blocks`).
+/// Built from [`Options`] in one place, so that the pairing of a name with the
+/// decision is reachable from a test: a cross-wired row keeps every run of the
+/// shipped acceptance command green, because that command names all eight flags
+/// and both sides then read `true`.
 struct RequestedPasses {
     gate: bool,
     require_covered: bool,
@@ -1223,6 +1295,20 @@ struct RequestedPasses {
 }
 
 impl RequestedPasses {
+    /// The request table as the run decided it, read from the parsed options.
+    fn of(options: &Options) -> Self {
+        Self {
+            gate: options.gate,
+            require_covered: options.require_covered,
+            full_star_recount: options.full_star_recount,
+            domain_sweep: options.domain_sweep,
+            output: options.output.is_some(),
+            output_blocks: options.output_blocks.is_some(),
+            output_recount: options.output_recount.is_some(),
+            recount: options.recount_requested(),
+        }
+    }
+
     /// The eight rows of the cross-check, in order, as `(name, decided)`.
     ///
     /// A fixed-size array: dropping a row is a compile error rather than a silent
@@ -1248,7 +1334,7 @@ impl RequestedPasses {
     }
 }
 
-/// What the process command line spells, in the order of [`requested_flags`].
+/// What the process command line spells, in the order of [`RequestedPasses::rows`].
 ///
 /// The last entry is the **derived** recount request, and it is derived from the
 /// spelled flags alone: the run decides `recount` from the parsed vector, and the
@@ -1278,30 +1364,24 @@ fn run() -> Result<ExitCode, String> {
     // An argument the run does not know is an error rather than a silent skip: a
     // misspelt artifact flag used to leave the artifact unwritten and the run at
     // exit 0 with no diagnostic at all (verification review of `786e026`, N-e).
-    reject_unknown_arguments(&arguments)?;
-    let output = artifact_path(&arguments, "--output")?;
-    let output_blocks = artifact_path(&arguments, "--output-blocks")?;
-    let output_recount = artifact_path(&arguments, "--output-recount")?;
-    let gate = arguments.iter().any(|argument| argument == "--gate");
-    let require_covered = arguments.iter().any(|argument| argument == "--require-covered");
-    // The full-star recount pass is a gate pass: `--gate` runs it, and
-    // `--full-star-recount` runs it (and its assertions) on its own, with the
-    // same failure semantics -- a flag that runs a check and then exits 0 on its
-    // failures would be a failure path that does not fail.
-    let full_star_recount = arguments.iter().any(|argument| argument == "--full-star-recount");
-    // R6.7 card 5: the sweep is its own pass.  `--gate` alone does not run it
-    // (the acceptance command names both flags), but when it runs its failures
-    // are gate violations and exit 1 under `--gate` -- and under the flag alone,
-    // like `--full-star-recount`, because a check that reports and then exits 0
-    // would be a failure path that does not fail.
-    let domain_sweep = arguments.iter().any(|argument| argument == "--domain-sweep");
-    let sequential = arguments.iter().any(|argument| argument == "--sequential");
+    let options = Options::parse(&arguments)?;
+    // The flags the run decided on, destructured once.  `recount_requested` and
+    // `outputs_requested` are read from `options` rather than derived from these
+    // locals, which are the ones the passes below are guarded by.
+    let Options {
+        gate,
+        require_covered,
+        full_star_recount,
+        domain_sweep,
+        sequential,
+        ref output,
+        ref output_blocks,
+        ref output_recount,
+    } = options;
     // Asking for the artifact asks for the pass that produces it, with the same
     // failure semantics as `--full-star-recount`.
-    let recount = gate || full_star_recount || output_recount.is_some();
-    // The artifact flags ask for their passes just as the gate flags do, so the
-    // verdict below has to see them (verification review of `acfc3f1`, F1).
-    let outputs_requested = output.is_some() || output_blocks.is_some() || output_recount.is_some();
+    let recount = options.recount_requested();
+    let outputs_requested = options.outputs_requested();
 
     let domains = source_domains()?;
     // Card 6: a subgroup record the census cannot read is a counted failure, not
@@ -1356,9 +1436,25 @@ fn run() -> Result<ExitCode, String> {
     let mut witness_pass_records = 0usize;
     let mut witness_verified_total = 0usize;
     let mut witness_verified_pinned = 0usize;
+    let mut witness_facts_total = 0usize;
+    let mut witness_answered_at_eighth = 0usize;
+    let mut witness_answered_at_ninth = 0usize;
+    // The pinned parameters as **this** function spells them: independent of the
+    // pass's own list, which is what a constant edit moves.
+    let pinned_eighth = Rat::new(1, 8).expect("1/8");
+    let pinned_ninth = Rat::new(1, 9).expect("1/9");
     for (record, report) in records.iter().zip(per_record) {
         witness_pass_records += report.witness_records;
         witness_verified_total += report.witness_verified;
+        witness_facts_total += report.witness_facts;
+        for parameter in &report.witness_answered {
+            if *parameter == pinned_eighth {
+                witness_answered_at_eighth += 1;
+            }
+            if *parameter == pinned_ninth {
+                witness_answered_at_ninth += 1;
+            }
+        }
         if PINNED_WITNESS_RECORDS.contains(&record.ordinal) {
             witness_verified_pinned += report.witness_verified;
         }
@@ -1653,27 +1749,31 @@ block_count\tblocks";
     // slipped into `arguments` cannot clear a local and its re-read together (V2),
     // and the **derived** recount request is in the table because it is what turns
     // that pass on.  The pairing of names with decisions lives in
-    // [`requested_flags`], which a test pins row by row: on the acceptance line
-    // every flag is present, so a cross-wired row (measured: `--output` keyed on
-    // `output_blocks`) is invisible to every run of the shipped command.
-    let requested = RequestedPasses {
-        gate,
-        require_covered,
-        full_star_recount,
-        domain_sweep,
-        output: output.is_some(),
-        output_blocks: output_blocks.is_some(),
-        output_recount: output_recount.is_some(),
-        recount,
-    };
+    // [`RequestedPasses::of`], which a test pins row by row: on the acceptance
+    // line every flag is present, so a cross-wired row (measured: `--output` keyed
+    // on `output_blocks`) is invisible to every run of the shipped command.  The
+    // table is built from the parsed `Options`, not from the locals, so rebinding
+    // a local between the table and the checks below cannot move it.
+    let requested = RequestedPasses::of(&options);
     let rows = requested.rows();
-    for ((name, requested), spelled) in rows.iter().zip(spelled_flags()) {
+    let spelled = spelled_flags();
+    for ((name, requested), spelled) in rows.iter().zip(spelled) {
         if *requested != spelled {
             violations.push(format!(
                 "{name} is {requested} where the passes are decided but {spelled} on the command line"
             ));
         }
     }
+    // What the **process command line** asks for, kept for the checks below.  The
+    // eight rows above bound the locals only at the moment they were built, so a
+    // rebinding between that point and here moved the evidence fields and their
+    // comparison together: `let recount = false;` plus `recount_ran: false` and
+    // `recount_requested: false` left the whole recount assertion block dead with
+    // the acceptance command green and the stdout byte-identical (review of
+    // `634fd85`, orion P0 -- the same state lyra's C1h/C1i named).  These two read
+    // no local, so that shape now fires.
+    let spelled_recount = spelled[7];
+    let spelled_sweep = spelled[3];
     // The evidence's copies of the request flags, against the locals that decided
     // the passes: without this, clearing them *there* makes the coupling check
     // below unreachable while every comparison above stays honest, and the whole
@@ -1687,26 +1787,26 @@ block_count\tblocks";
     let evidence_checks: [(&str, bool, bool); 2] = [
         (
             "--full-star-recount (request)",
-            recount,
+            spelled_recount,
             evidence.recount_requested,
         ),
         (
             "--domain-sweep (request)",
-            domain_sweep,
+            spelled_sweep,
             evidence.sweep_requested,
         ),
     ];
-    for (name, local, from_evidence) in evidence_checks {
-        if local != from_evidence {
+    for (name, asked, in_evidence) in evidence_checks {
+        if asked != in_evidence {
             violations.push(format!(
-                "{name} is {local} where the passes are decided but {from_evidence} in the evidence"
+                "{name} is {asked} on the command line but {in_evidence} in the evidence"
             ));
         }
     }
     // The card-4 witness pass is behind its own `if recount`; cutting that guard
     // leaves everything else honest, so the number of records it ran for is
     // asserted (review of `311d06d`, N3).
-    if recount && witness_pass_records != records.len() {
+    if spelled_recount && witness_pass_records != records.len() {
         violations.push(format!(
             "the recount witness pass ran for {witness_pass_records} of {} record(s)",
             records.len()
@@ -1720,16 +1820,38 @@ block_count\tblocks";
     // the same shape as the fixity control's `2 * sum(...)`.
     let expected_witness_checks =
         PINNED_WITNESS_RECORDS.len() * PINNED_WITNESS_PARAMETERS.len();
-    if recount && witness_verified_total != expected_witness_checks {
+    if spelled_recount && witness_verified_total != expected_witness_checks {
         violations.push(format!(
             "the recount witness pass decomposed {witness_verified_total} witness parameter(s), \
              expected {expected_witness_checks}"
         ));
     }
-    if recount && witness_verified_pinned != expected_witness_checks {
+    if spelled_recount && witness_verified_pinned != expected_witness_checks {
         violations.push(format!(
             "the recount witness pass decomposed {witness_verified_pinned} witness parameter(s) \
              of the pinned records, expected {expected_witness_checks}"
+        ));
+    }
+    // ... and the *content*: the answered parameters are compared with the
+    // literals this function spells, not with the pass's constant, and the number
+    // of pinned expectations the pass compared is asserted as well.
+    let expected_pinned_answers = PINNED_WITNESS_RECORDS.len();
+    if spelled_recount && witness_answered_at_eighth != expected_pinned_answers {
+        violations.push(format!(
+            "the recount witness pass answered {witness_answered_at_eighth} pinned \
+             parameter(s) 1/8, expected {expected_pinned_answers}"
+        ));
+    }
+    if spelled_recount && witness_answered_at_ninth != expected_pinned_answers {
+        violations.push(format!(
+            "the recount witness pass answered {witness_answered_at_ninth} pinned \
+             parameter(s) 1/9, expected {expected_pinned_answers}"
+        ));
+    }
+    if spelled_recount && witness_facts_total != expected_witness_checks {
+        violations.push(format!(
+            "the recount witness pass compared {witness_facts_total} pinned expectation(s), \
+             expected {expected_witness_checks}"
         ));
     }
     // Asking for the artifact is asking for the pass that fills it: a header-only
@@ -5277,13 +5399,20 @@ fn recount_witnesses(
     embedding: &SubgroupEmbedding,
     cache: &PointClassCache,
     witnesses: [Rat; 2],
-) -> (Vec<String>, Vec<Rat>) {
+) -> (Vec<String>, Vec<Rat>, usize) {
     let pinned = match record.ordinal {
         10_038 => (196, "DT1", 1),
         10_030 => (196, "DT1", 18),
-        _ => return (Vec::new(), Vec::new()),
+        _ => return (Vec::new(), Vec::new(), 0),
     };
     let mut failures = Vec::new();
+    // How many pinned expectations this call actually compared.  The gate asserts
+    // the total against its closed form, so an expectation branch that is turned
+    // off (`if false`) or a call replaced by a fabricated answer of the right
+    // length is visible even though every count above stays right (review of
+    // `634fd85`, orion P1; the counter is incremented at the comparison, the way
+    // the fixity counter had to be).
+    let mut facts = 0usize;
     // The pinned facts live at these two parameters, and the request itself lives
     // in the caller so that a rebinding inside this function cannot move the
     // anchor.  That also means a caller-side list can ask for the wrong
@@ -5309,12 +5438,12 @@ fn recount_witnesses(
             record.parent_sg,
             record.labels.iter().map(|(label, _)| *label).collect::<Vec<_>>()
         ));
-        return (failures, Vec::new());
+        return (failures, Vec::new(), 0);
     }
     let label = pinned.1;
     let Some(table) = line_table(record.parent_sg, label) else {
         failures.push(format!("ordinal {}: no frozen table for {label}", record.ordinal));
-        return (failures, Vec::new());
+        return (failures, Vec::new(), 0);
     };
     if record.child_sg != pinned.2 {
         failures.push(format!(
@@ -5324,15 +5453,15 @@ fn recount_witnesses(
     }
     let Ok(child_reciprocal) = reciprocal_lattice(record.child_sg) else {
         failures.push(format!("ordinal {}: no child reciprocal lattice", record.ordinal));
-        return (failures, Vec::new());
+        return (failures, Vec::new(), 0);
     };
     let Some(direction) = line_direction(table) else {
         failures.push(format!("ordinal {}: no parsable direction for {label}", record.ordinal));
-        return (failures, Vec::new());
+        return (failures, Vec::new(), 0);
     };
     let Ok(reference_direction) = fold_wave_vector(embedding.transform(), &direction) else {
         failures.push(format!("ordinal {}: folding the direction failed", record.ordinal));
-        return (failures, Vec::new());
+        return (failures, Vec::new(), 0);
     };
     let context = BlockContext {
         ordinal: record.ordinal,
@@ -5397,6 +5526,7 @@ fn recount_witnesses(
             arms.sort_unstable();
             let mut actual = arms.clone();
             actual.resize(expected.len(), 0);
+            facts += 1;
             if actual != expected.to_vec() {
                 failures.push(format!(
                     "ordinal {} {label} t={parameter}: the witness expects block arm counts {:?} \
@@ -5416,6 +5546,7 @@ fn recount_witnesses(
                 .filter(|block| !block.cocycle_trivial)
                 .map(|block| (block.little_co_group, block.cocycle_trivial, block.source))
                 .collect();
+            facts += 1;
             if parameter == ninth {
                 if !non_trivial.is_empty() {
                     failures.push(format!(
@@ -5451,7 +5582,7 @@ fn recount_witnesses(
     // itself, which no rebinding inside the loop touches.  With both distinct
     // witnesses present, the per-parameter expectation branches are exercised in
     // both directions as well.
-    (failures, answered)
+    (failures, answered, facts)
 }
 /// Probe one record at every parameter of its partition.
 ///
@@ -5496,6 +5627,8 @@ fn probe_record(
             // The child frame failed, so the witness pass below never ran.
             witness_records: 0,
             witness_verified: 0,
+            witness_facts: 0,
+            witness_answered: Vec::new(),
             failures,
         };
     };
@@ -6120,6 +6253,8 @@ fn probe_record(
     }
     let mut witness_records = 0usize;
     let mut witness_verified = 0usize;
+    let mut witness_facts = 0usize;
+    let mut witness_answered: Vec<Rat> = Vec::new();
     if recount {
         witness_records = 1;
         // The witness list lives **here**, in the caller: the in-function anchor
@@ -6132,12 +6267,14 @@ fn probe_record(
             Rat::new(PINNED_WITNESS_PARAMETERS[1].0, PINNED_WITNESS_PARAMETERS[1].1)
                 .expect("1/8"),
         ];
-        let (witness_failures, witness_answered) =
+        let (witness_failures, answered, facts) =
             recount_witnesses(record, &embedding, cache, witnesses);
         // What the pass really did: the coverage counter above is set by the
-        // guard, this one by the pass' own answer (review of `786e026`,
-        // C2b/C2c).
+        // guard, these three by the pass' own answer (reviews of `786e026`
+        // C2b/C2c and of `634fd85` P1).
+        witness_answered = answered;
         witness_verified = witness_answered.len();
+        witness_facts = facts;
         failures.extend(witness_failures);
         if witness_answered.len() == witnesses.len()
             && sorted_parameters(witness_answered.clone())
@@ -6146,7 +6283,7 @@ fn probe_record(
             failures.push(format!(
                 "ordinal {}: the witness pass decomposed {:?} but its witness parameters are {:?}",
                 record.ordinal,
-                sorted_parameters(witness_answered),
+                sorted_parameters(witness_answered.clone()),
                 sorted_parameters(witnesses.to_vec())
             ));
         }
@@ -6163,6 +6300,8 @@ fn probe_record(
         sweep: sweep_report,
         witness_records,
         witness_verified,
+        witness_facts,
+        witness_answered,
         failures,
     }
 }
@@ -10218,7 +10357,7 @@ mod tests {
     /// line all eight flags are present, so both sides read `true` and a
     /// cross-wired row is invisible: the review measured `--output` keyed on
     /// `output_blocks` with the acceptance command green.  The table lives in
-    /// [`requested_flags`], so this test can pin it row by row.
+    /// [`RequestedPasses::rows`], so this test can pin it row by row.
     #[test]
     fn the_cross_check_pairs_every_flag_with_its_own_decision() {
         /// The names, in the order of [`RequestedPasses::rows`], written out here
@@ -10303,6 +10442,64 @@ mod tests {
         );
     }
 
+    /// **Verification review of `634fd85`, P2-5: the request table is read from
+    /// the parsed options, and this pins that mapping.**
+    ///
+    /// Building the table by hand at the call site let a cross-wired field through
+    /// with the acceptance command green *and* the whole example suite passing
+    /// (measured: `output:` handed `output_blocks`), because the command names all
+    /// eight flags and both sides then read `true`.
+    #[test]
+    fn the_request_table_is_read_from_the_parsed_options() {
+        let options = Options {
+            gate: true,
+            require_covered: false,
+            full_star_recount: false,
+            domain_sweep: true,
+            sequential: false,
+            output: Some("probe.tsv".to_string()),
+            output_blocks: None,
+            output_recount: Some("recount.tsv".to_string()),
+        };
+        let decided: Vec<(&str, bool)> = RequestedPasses::of(&options).rows().iter().copied().collect();
+        assert_eq!(
+            decided,
+            vec![
+                ("--gate", true),
+                ("--require-covered", false),
+                ("--full-star-recount", false),
+                ("--domain-sweep", true),
+                ("--output", true),
+                ("--output-blocks", false),
+                ("--output-recount", true),
+                (
+                    "the recount request (--gate or --full-star-recount or --output-recount)",
+                    true
+                ),
+            ],
+            "every row must be read from its own option field"
+        );
+        for (gate, full_star_recount, output_recount, expected) in [
+            (true, false, None, true),
+            (false, true, None, true),
+            (false, false, Some("recount.tsv".to_string()), true),
+            (false, false, None, false),
+        ] {
+            let options = Options {
+                gate,
+                full_star_recount,
+                output_recount,
+                ..Options::default()
+            };
+            assert_eq!(options.recount_requested(), expected, "{options:?}");
+            assert_eq!(
+                RequestedPasses::of(&options).rows()[7].1,
+                expected,
+                "the derived row must follow the options: {options:?}"
+            );
+        }
+    }
+
     /// **Verification review of `786e026`, C3d/N-e: both spellings of an artifact
     /// flag, read by the parser and by the cross-check.**
     ///
@@ -10375,11 +10572,27 @@ mod tests {
             "an empty path is an error, not an absent artifact"
         );
         // A token that looks like an option is not a path (external review of
-        // `c7354e3`, P2-2): `--output --bogus` used to create `--bogus`.
-        for option in ["--bogus", "--gate", "-x", "--"] {
+        // `c7354e3`, P2-2): `--output --bogus` used to create `--bogus`.  A lone
+        // `-` is not a path either (external review of `634fd85`, F8): the run
+        // writes files, it has no stdout mode.
+        for option in ["--bogus", "--gate", "-x", "--", "-"] {
             assert!(
                 parse(&["--output", option], "--output").is_err(),
                 "{option} must be reported as a missing path"
+            );
+        }
+        // Every occurrence is checked, and a repeat is an error rather than a
+        // silent "first one wins" (external review of `634fd85`, F7).
+        for repeated in [
+            vec!["--output", "a.tsv", "--output", "--bogus"],
+            vec!["--output", "a.tsv", "--output="],
+            vec!["--output", "a.tsv", "--output", "b.tsv"],
+            vec!["--output=a.tsv", "--output=b.tsv"],
+        ] {
+            let error = parse(&repeated, "--output").expect_err("must be rejected");
+            assert!(
+                error.contains("needs a path") || error.contains("more than once"),
+                "{repeated:?} must be reported, got {error:?}"
             );
         }
         // ... and the two explicit spellings still reach such a file.
@@ -10391,22 +10604,19 @@ mod tests {
             parse(&["--output=--bogus"], "--output").expect("a path"),
             Some("--bogus".to_string())
         );
+        // A single occurrence still wins in either spelling, and process order
+        // decides which `--flag` occurrence is read when both spellings appear.
         assert_eq!(
-            parse(&["--output", "-"], "--output").expect("a path"),
-            Some("-".to_string())
-        );
-        // The first occurrence in process order wins, in either spelling.
-        assert_eq!(
-            parse(&["--output=a", "--output=b"], "--output").expect("a path"),
+            parse(&["--output=a", "--gate"], "--output").expect("a path"),
             Some("a".to_string())
         );
         assert_eq!(
-            parse(&["--output=b", "--output=a"], "--output").expect("a path"),
-            Some("b".to_string())
+            parse(&["--gate", "--output=b.tsv"], "--output").expect("a path"),
+            Some("b.tsv".to_string())
         );
         assert_eq!(
-            parse(&["--output=a", "--output=b.tsv"], "--output").expect("a path"),
-            Some("a".to_string())
+            parse(&["--output", "a.tsv", "--gate"], "--output").expect("a path"),
+            Some("a.tsv".to_string())
         );
     }
 
@@ -10958,7 +11168,7 @@ mod tests {
             sweep_ran: false,
         };
         let mut violations = Vec::new();
-        check_blocks(&report.probes, &evidence, false, &mut violations);
+        check_blocks(&report.probes, &evidence, true, &mut violations);
         assert!(
             violations
                 .iter()
