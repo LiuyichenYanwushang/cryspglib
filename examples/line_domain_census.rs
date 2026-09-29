@@ -1227,6 +1227,30 @@ fn on_command_line(flag: &str) -> bool {
         .any(|argument| spells_flag(&argument, flag))
 }
 
+/// The two evidence-coupling rows, as `(name, asked on the command line, in the
+/// evidence)`.
+///
+/// A builder rather than a literal at the call site, with a test that pins which
+/// side each row reads: swapping the two rows' spelled inputs is invisible to the
+/// shipped acceptance command, which spells both requests, but a `--gate`-only
+/// run sees it -- and the acceptance battery runs one (verification review of
+/// `e225485`, mira P2-b).
+fn evidence_rows(
+    spelled_recount: bool,
+    spelled_sweep: bool,
+    evidence_recount: bool,
+    evidence_sweep: bool,
+) -> [(&'static str, bool, bool); 2] {
+    [
+        (
+            "--full-star-recount (request)",
+            spelled_recount,
+            evidence_recount,
+        ),
+        ("--domain-sweep (request)", spelled_sweep, evidence_sweep),
+    ]
+}
+
 /// The parsed command line: one field per flag the run knows.
 ///
 /// Parsing is separated from the decisions so that the decisions can be read back
@@ -1784,19 +1808,12 @@ block_count\tblocks";
     // N1 state back with the acceptance command green and the stdout
     // byte-identical to the honest run (verification review of `786e026`,
     // C1h/C1i).
-    let evidence_checks: [(&str, bool, bool); 2] = [
-        (
-            "--full-star-recount (request)",
-            spelled_recount,
-            evidence.recount_requested,
-        ),
-        (
-            "--domain-sweep (request)",
-            spelled_sweep,
-            evidence.sweep_requested,
-        ),
-    ];
-    for (name, asked, in_evidence) in evidence_checks {
+    for (name, asked, in_evidence) in evidence_rows(
+        spelled_recount,
+        spelled_sweep,
+        evidence.recount_requested,
+        evidence.sweep_requested,
+    ) {
         if asked != in_evidence {
             violations.push(format!(
                 "{name} is {asked} on the command line but {in_evidence} in the evidence"
@@ -5379,6 +5396,54 @@ const PINNED_WITNESS_RECORDS: [usize; 2] = [10_030, 10_038];
 /// denominator)`: `1/9` (the generic neighbour) and `1/8` (the change point).
 const PINNED_WITNESS_PARAMETERS: [(i128, i128); 2] = [(1, 9), (1, 8)];
 
+/// Whether one pinned expectation was compared and did **not** hold.
+///
+/// The counter is incremented **inside** this function, at the place the
+/// comparison happens.  With the increment as a separate statement before the
+/// comparison, replacing the comparison by `false` left the count right and the
+/// expectation unchecked (verification review of `e225485`, mira P2-a); now such
+/// an edit drops the call and the gate's closed form sees it.
+fn counted_mismatch<T: PartialEq>(actual: &[T], expected: &[T], facts: &mut usize) -> bool {
+    *facts += 1;
+    actual != expected
+}
+
+/// The pinned class expectation of one parameter, counted where it is evaluated.
+///
+/// `None` when the expectation holds, otherwise the violation message.  The
+/// counter lives here for the same reason as in [`counted_mismatch`].
+fn pinned_class_mismatch(
+    ordinal: usize,
+    label: &str,
+    parameter: Rat,
+    ninth: Rat,
+    non_trivial: &[(usize, bool, BlockSource)],
+    facts: &mut usize,
+) -> Option<String> {
+    *facts += 1;
+    if parameter == ninth {
+        if non_trivial.is_empty() {
+            return None;
+        }
+        return Some(format!(
+            "ordinal {ordinal} {label} t={parameter}: the generic control already carries a \
+             non-trivial block class: {non_trivial:?}"
+        ));
+    }
+    match non_trivial.iter().find(|(order, _, _)| *order == 4) {
+        Some((_, _, source)) if *source != BlockSource::Stored => Some(format!(
+            "ordinal {ordinal} {label} t={parameter}: the order-four non-trivial block is {}, \
+             not stored",
+            source.label()
+        )),
+        Some(_) => None,
+        None => Some(format!(
+            "ordinal {ordinal} {label} t={parameter}: no block has a non-trivial cocycle of \
+             order four (non-trivial blocks: {non_trivial:?})"
+        )),
+    }
+}
+
 /// The two card-3 witnesses, asserted through the card-4 per-block statistics.
 ///
 /// Both are properties of the **engine's own block structure**, measured on the
@@ -5526,8 +5591,7 @@ fn recount_witnesses(
             arms.sort_unstable();
             let mut actual = arms.clone();
             actual.resize(expected.len(), 0);
-            facts += 1;
-            if actual != expected.to_vec() {
+            if counted_mismatch(&actual, &expected, &mut facts) {
                 failures.push(format!(
                     "ordinal {} {label} t={parameter}: the witness expects block arm counts {:?} \
                      but the engine reports {:?} ({} block(s))",
@@ -5546,30 +5610,15 @@ fn recount_witnesses(
                 .filter(|block| !block.cocycle_trivial)
                 .map(|block| (block.little_co_group, block.cocycle_trivial, block.source))
                 .collect();
-            facts += 1;
-            if parameter == ninth {
-                if !non_trivial.is_empty() {
-                    failures.push(format!(
-                        "ordinal {} {label} t={parameter}: the generic control already carries a \
-                         non-trivial block class: {non_trivial:?}",
-                        record.ordinal
-                    ));
-                }
-            } else {
-                match non_trivial.iter().find(|(order, _, _)| *order == 4) {
-                    Some((_, _, source)) if *source != BlockSource::Stored => failures.push(format!(
-                        "ordinal {} {label} t={parameter}: the order-four non-trivial block is {}, \
-                         not stored",
-                        record.ordinal,
-                        source.label()
-                    )),
-                    Some(_) => {}
-                    None => failures.push(format!(
-                        "ordinal {} {label} t={parameter}: no block has a non-trivial cocycle of \
-                         order four (non-trivial blocks: {non_trivial:?})",
-                        record.ordinal
-                    )),
-                }
+            if let Some(message) = pinned_class_mismatch(
+                record.ordinal,
+                label,
+                parameter,
+                ninth,
+                &non_trivial,
+                &mut facts,
+            ) {
+                failures.push(message);
             }
         }
     }
@@ -10439,6 +10488,38 @@ mod tests {
             none.rows().iter().all(|(_, decided)| !decided),
             "nothing set must decide nothing: {:?}",
             none.rows()
+        );
+    }
+
+    /// **Verification review of `e225485`, mira P2-b: every evidence row pairs
+    /// the request with the evidence field that belongs to it.**
+    ///
+    /// The shipped acceptance command spells both requests and reports both
+    /// evidence fields true, so swapping the two rows was invisible there; this
+    /// pins the pairing, and the battery's `--gate`-only run is the runtime
+    /// control that sees the swap.
+    #[test]
+    fn the_evidence_rows_pair_each_request_with_its_own_field() {
+        assert_eq!(
+            evidence_rows(true, false, false, true),
+            [
+                ("--full-star-recount (request)", true, false),
+                ("--domain-sweep (request)", false, true),
+            ]
+        );
+        assert_eq!(
+            evidence_rows(false, true, true, false),
+            [
+                ("--full-star-recount (request)", false, true),
+                ("--domain-sweep (request)", true, false),
+            ]
+        );
+        assert_eq!(
+            evidence_rows(true, true, true, true),
+            [
+                ("--full-star-recount (request)", true, true),
+                ("--domain-sweep (request)", true, true),
+            ]
         );
     }
 
