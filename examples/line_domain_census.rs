@@ -181,10 +181,12 @@ line_domain_census [--gate] [--require-covered] [--full-star-recount] [--domain-
                        write the per-recount-probe geometry fingerprint as TSV
                        (implies the recount pass; its row count is asserted)
 
-The three artifact flags also accept the `--output=<path>` spelling.  Every
-other argument must be one of the flags above: an unknown token is an error, not
-a silent skip (a misspelt `--output` used to run the census without writing the
-artifact and still exit 0).
+The three artifact flags also accept the `--output=<path>` spelling, and a path
+that begins with a dash must use one of the two explicit forms (`--output
+./--name` or `--output=--name`): a token that looks like an option is reported as
+a missing path rather than taken as one.  Every other argument must be one of the
+flags above: an unknown token is an error, not a silent skip (a misspelt
+`--output` used to run the census without writing the artifact and still exit 0).
 ";
 
 /// The `--output-recount` header, written and re-read independently so a changed
@@ -1085,6 +1087,18 @@ fn main() -> ExitCode {
     }
 }
 
+/// Whether a token can be the path of an artifact flag.
+///
+/// A token that looks like an option is **not** a path.  The bare spelling used
+/// to take whatever followed it, so `--output --bogus` created a file literally
+/// named `--bogus` and the run still exited 0 with `gate: ok`, and
+/// `--output --gate` wrote the flag's own name (external review of `c7354e3`,
+/// P2-2).  A file whose name really starts with a dash has two explicit
+/// spellings: `--output ./--bogus` and `--output=--bogus`.
+fn is_path_like(value: &str) -> bool {
+    !value.is_empty() && !(value.starts_with('-') && value.len() > 1)
+}
+
 /// The path of an artifact flag, in either spelling (`--output <path>` or
 /// `--output=<path>`).
 ///
@@ -1099,7 +1113,7 @@ fn artifact_path(arguments: &[String], flag: &str) -> Result<Option<String>, Str
         if argument == flag {
             let value = arguments
                 .get(index + 1)
-                .filter(|value| !value.is_empty())
+                .filter(|value| is_path_like(value))
                 .ok_or_else(|| format!("{flag} needs a path"))?;
             return Ok(Some(value.clone()));
         }
@@ -1621,7 +1635,7 @@ block_count\tblocks";
     violations.extend(recount_file_failures.iter().cloned());
     violations.extend(recount_report.failures.iter().cloned());
     violations.extend(sweep_report.failures.iter().cloned());
-    check_invariants(&domains, &records, &probes, &evidence, &mut violations);
+    check_invariants(&domains, &records, &probes, &evidence, sequential, &mut violations);
 
     // The pass/evidence coupling, cross-checked against the **process** command
     // line.  `recount_ran`/`sweep_ran` switch the Gamma assertions and the recount
@@ -1763,9 +1777,11 @@ block_count\tblocks";
                 )
             })
             .collect();
-        let boundary_parts: Vec<BoundaryGate> = records
-            .par_iter()
-            .map(|record| {
+        // The body is a local closure so that the two traversals can share it
+        // verbatim: `--sequential` promises one thread (the USAGE line says so),
+        // and a `par_iter` that ignores the switch makes the single-thread
+        // control a multi-thread run (external review of `c7354e3`, P2-1).
+        let boundary_gate_of = |record: &Record| -> BoundaryGate {
             let mut legacy: BTreeMap<(usize, bool, TargetClass), usize> = BTreeMap::new();
             let mut corrected: BTreeMap<(usize, BlockSource), usize> = BTreeMap::new();
             let mut legacy_totals = [0usize; 3];
@@ -1898,8 +1914,12 @@ block_count\tblocks";
                 missing_reference_blocks,
                 violations,
             }
-            })
-            .collect();
+        };
+        let boundary_parts: Vec<BoundaryGate> = if sequential {
+            records.iter().map(boundary_gate_of).collect()
+        } else {
+            records.par_iter().map(boundary_gate_of).collect()
+        };
         let mut boundary_gate = BoundaryGate::default();
         for part in boundary_parts {
             boundary_gate.merge(part);
@@ -7173,6 +7193,7 @@ fn check_invariants(
     records: &[Record],
     probes: &[Probe],
     evidence: &CensusEvidence,
+    sequential: bool,
     violations: &mut Vec<String>,
 ) {
     // A pass that was asked for must be the pass whose counters the assertions
@@ -8181,7 +8202,7 @@ fn check_invariants(
             }
         }
     }
-    check_blocks(probes, evidence, violations);
+    check_blocks(probes, evidence, sequential, violations);
 }
 
 /// R6.7 card 4: every per-block statistic, asserted on the **stored** data.
@@ -8195,7 +8216,12 @@ fn check_invariants(
 /// error inside `point_little_co_group_order` /
 /// `point_cocycle_is_a_coboundary` itself -- those are pinned by the
 /// `line_domain` unit tests, and no check here can see into them.
-fn check_blocks(probes: &[Probe], evidence: &CensusEvidence, violations: &mut Vec<String>) {
+fn check_blocks(
+    probes: &[Probe],
+    evidence: &CensusEvidence,
+    sequential: bool,
+    violations: &mut Vec<String>,
+) {
     // A **fresh** memo for the second reading: the recorded value came from the
     // run's shared memo, so reusing it here would answer with the same entry
     // whatever point is passed in, and the comparison could not fail on a wrong
@@ -8205,16 +8231,18 @@ fn check_blocks(probes: &[Probe], evidence: &CensusEvidence, violations: &mut Ve
     // representative point) and is the expensive half of this audit, so it runs
     // in parallel **in probe/block order**; the serial loop only compares the
     // values, exactly as it did when it called `classify` itself.
-    let recomputed_classes: Vec<Vec<Result<PointClass, String>>> = probes
-        .par_iter()
-        .map(|probe| {
-            probe
-                .blocks
-                .iter()
-                .map(|block| recompute.classify(probe.child_sg, &block.representative_point))
-                .collect()
-        })
-        .collect();
+    let recompute_probe = |probe: &Probe| -> Vec<Result<PointClass, String>> {
+        probe
+            .blocks
+            .iter()
+            .map(|block| recompute.classify(probe.child_sg, &block.representative_point))
+            .collect()
+    };
+    let recomputed_classes: Vec<Vec<Result<PointClass, String>>> = if sequential {
+        probes.iter().map(recompute_probe).collect()
+    } else {
+        probes.par_iter().map(recompute_probe).collect()
+    };
     let mut block_total = 0usize;
     let mut answered_probes = 0usize;
     for (probe_index, probe) in probes.iter().enumerate() {
@@ -10346,6 +10374,27 @@ mod tests {
             parse(&["--output="], "--output").is_err(),
             "an empty path is an error, not an absent artifact"
         );
+        // A token that looks like an option is not a path (external review of
+        // `c7354e3`, P2-2): `--output --bogus` used to create `--bogus`.
+        for option in ["--bogus", "--gate", "-x", "--"] {
+            assert!(
+                parse(&["--output", option], "--output").is_err(),
+                "{option} must be reported as a missing path"
+            );
+        }
+        // ... and the two explicit spellings still reach such a file.
+        assert_eq!(
+            parse(&["--output", "./--bogus"], "--output").expect("a path"),
+            Some("./--bogus".to_string())
+        );
+        assert_eq!(
+            parse(&["--output=--bogus"], "--output").expect("a path"),
+            Some("--bogus".to_string())
+        );
+        assert_eq!(
+            parse(&["--output", "-"], "--output").expect("a path"),
+            Some("-".to_string())
+        );
         // The first occurrence in process order wins, in either spelling.
         assert_eq!(
             parse(&["--output=a", "--output=b"], "--output").expect("a path"),
@@ -10439,6 +10488,10 @@ mod tests {
                 std::slice::from_ref(&record),
                 &report.probes,
                 &evidence,
+                // The unit tests take the single-threaded traversal: the two
+                // branches must agree, and the acceptance command is what
+                // exercises the parallel one.
+                true,
                 &mut violations,
             );
             violations
@@ -10493,6 +10546,10 @@ mod tests {
                 std::slice::from_ref(&record),
                 &report.probes,
                 &evidence,
+                // The unit tests take the single-threaded traversal: the two
+                // branches must agree, and the acceptance command is what
+                // exercises the parallel one.
+                true,
                 &mut violations,
             );
             violations
@@ -10901,7 +10958,7 @@ mod tests {
             sweep_ran: false,
         };
         let mut violations = Vec::new();
-        check_blocks(&report.probes, &evidence, &mut violations);
+        check_blocks(&report.probes, &evidence, false, &mut violations);
         assert!(
             violations
                 .iter()
