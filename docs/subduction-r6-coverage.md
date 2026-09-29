@@ -675,7 +675,7 @@ gcd**（交叉约分后乘积已互素，推导写在函数文档里；零分子
 | 同一命令，4 / 2 线程 | 60.96 / 99.91 s | 22.08 / 36.57 s |
 | 同一命令，1 线程 | 179.71 s | 66.29 s |
 | 加 `--domain-sweep`，8 线程 | 112 s | 38 s（电池记录）；尾部并行化后的交替 A/B **36.8/37.4 → 32.9/33.1 s** |
-| 全部验收（`target/chainFast2.sh`，含构建） | —— | **313 s**（`final-round2`）→ **217 s**（`tailpar2`@`f2e7d09`）→ **189 s**（`tailpar3`@`acfc3f1`，增量 0 s）→ **190 s**（`tailpar7`@`53c6a3e`，完全增量）→ **316 s**（`cold2`，冷构建；旧脚本同条件 329 s）→ **220 s**（`tailpar8/9`@`7f8b016`，含 example 重建）→ **206 s**（`tailpar10`@`bdb43e3`，`dirty-files 0`） |
+| 全部验收（含构建；`final-round2`/`tailpar2`/`tailpar3`/`cold-old` 用 `target/chainFast.sh`，`tailpar7` 起用 `target/chainFast2.sh`） | —— | **313 s**（`final-round2`）→ **217 s**（`tailpar2`@`f2e7d09`）→ **189 s**（`tailpar3`@`acfc3f1`，增量 0 s）→ **190 s**（`tailpar7`@`53c6a3e`，完全增量）→ **316 s**（`cold2`，冷构建；旧脚本同条件 329 s）→ **220 s**（`tailpar8/9`@`7f8b016`，含 example 重建）→ **206 s**（`tailpar10`@`bdb43e3`，`dirty-files 0`） |
 | `line_transport_ledger --batch 1/4`（单作业） | **23.64/23.67/23.97 s**（单核，user == wall） | **3.40/3.52/3.41 s**（`53c6a3e`，逐行 rayon；输出与旧日志逐字节相同；**user 27.1 s，比改前多 ~14% CPU**） |
 
 比值为 2.84× / 2.76× / 2.73× / 2.71×；审核方在各自私有 target 上独立 A/B 得

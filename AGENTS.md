@@ -209,11 +209,12 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    验收电池（`target/logs/tailpar/summary.txt`，源码 `census.rs fc2c7681…`/`subduction.rs e4a55688…`）
    **193 s**：构建 0 s（只改了 example，增量）+ 发现 1 s + census-8 **32 s** + 并发档 71 s +
    池 56 s + 尾 33 s，680 passed / 0 failed、三门禁与 python/oracle 全 exit 0。
-   **当前基线（`bdb43e3`，`target/logs/tailpar10/summary.txt`，`revision bdb43e3 dirty-files 0`）**：
-   **206 s** = 构建 14 s + census-8 **32 s** +〔census-4 ‖ audit-4〕**71 s** + 池 **57 s**
-   （44 个作业）+ 尾 **32 s**，41 个测试壳 **684 passed / 0 failed**；同一档的 `7f8b016`
-   （`tailpar8`/`tailpar9`）是 220 s（多出的是 example 改动后 13 s 构建 + 17 s 测试壳重建——
-   审核方实测 `tailpar9` **不是**热档，两次运行之间跑了变异电池）；完全增量档 **190 s**
+   **当前基线（`311d06d`，`target/logs/tailpar11/summary.txt`，`revision 311d06d dirty-files 1`——
+   那个文件是当时正在编辑的 coverage 文档，三个源文件 sha256 与提交一致）**：**226 s** =
+   构建 14 s + census-8 **35 s** +〔census-4 ‖ audit-4〕**72 s** + 池 **57 s**（44 个作业）
+   + 尾 **32 s**，41 个测试壳 **684 passed / 0 failed**；上一档 `bdb43e3`（`tailpar10`）
+   **206 s**、`7f8b016`（`tailpar8`/`tailpar9`）220 s（多出的是 example 改动后 13 s 构建 +
+   17 s 测试壳重建——审核方实测 `tailpar9` **不是**热档，两次运行之间跑了变异电池）；完全增量档 **190 s**
    （`tailpar7`@`53c6a3e`，构建/发现 1 s）；冷构建档（`touch` 全部源文件后同一脚本）
    **316 s**（`target/logs/cold2`，旧脚本同条件下 329 s = `cold-old`）。**与 `acfc3f1` 的 189 s 没有
    显著差别**：逐项量出的原因是电池**已经吃满 CPU**（phase 0–2 的 99 s 里 census-8 ≈33 s、
@@ -1190,6 +1191,38 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   dirty-files 0`）**206 s**、**684 passed / 0 failed**、三个 TSV 4==8 且 SHA 未变、三门禁/doctest/
   clippy/oracle 全 exit 0；**21 个变异**逐个复现（`target/logs/finalTailpar6/summary.txt`，与
   `finalTailpar5` 逐行相同、只差修订行）。
+
+* **`bdb43e3`（+ `2852437`）的验证审核（第十一条独立审核线）：无 P0，1×P1 + 4×P2，全部接受
+  （本提交 `311d06d` + 文档）**。审核方（私有 worktree `target/review-arden/wt`@`2852437`，
+  报告 `target/review-arden/REPORT.md`）复算：钉值全在（报告与 `finalZAA` 从 `sources=` 起 88 行
+  逐行相同、三个 TSV 8 与 4 线程都等于 SHA、十个诚实 flag 组合 0 violation、27 条不同测试、
+  严格 clippy 真的 lint 该 example）；N1 的四个变异各自被点名报文抓住；**N3 真的修好了**
+  （G0 变异与"把 `check_invariants` 掏空"都使新测试失败）；N4/N5 确已更正。发现并处理：
+  **① V1（P1，N2 的答案不完整）**：`let recount = false;`（即被审 N2 的 R1 见证）在**验收命令**
+  （`--gate --require-covered --domain-sweep --output*`）下**仍然 exit 0 / 0 violation / `gate: ok`**，
+  三个产物与钉住值逐字节相同——因为 `probe_record` 在 `recount || domain_sweep` 下都建分区、填
+  recount 行，所以"写了 0 行"这条约束永远不响，而 recount 钉值块与 `1/9,1/8` 见证通过程被静默关掉
+  （审核方的决定性控制：该变异 **叠加**一个故意写错的 recount 钉值仍 exit 0，而单独写错钉值 exit 1）。
+  本方上一轮的 teeth 脚本用的是**没有** `--domain-sweep` 的命令，所以矩阵里显示 exit 1——这是本轮
+  的教训：**控制的实验命令必须与验收命令逐字相同**。**② V2（P2）**："第二次解析"读的是**同一个**
+  `arguments` 向量：在构造处加一个 `.filter(|a| a != "--domain-sweep")` 会同时清掉局部变量与它的重读
+  （验收命令 exit 0、`--domain-sweep` 被静默忽略）。**③ V3（P2）**：派生的请求局部变量只与它自己的
+  副本比较；`let recount = gate;` 让 `--full-star-recount` 变成静默 no-op。**④ V4（P2）**：新的交叉
+  核对表没有正向控制（没有任何测试调用 `run()`），把四条缩成一条对验收命令、电池与 27 项测试**全
+  不可见**，叠加 V2 的变异即可恢复 N2 缺陷。**已修（`311d06d`）**：交叉核对改为读
+  `std::env::args()`（**第二次真正的进程参数读取**），核对表是**定长数组**（删条目直接编译失败
+  E0308），并把**派生的** recount 请求也放进表里。实测（`target/vfix-teeth.sh`，命令与验收命令
+  逐字相同）：诚实 exit 0 / 0；`let recount = false` → exit 1（点名"the recount request (…) is
+  false where the passes are decided but true on the command line"）；`let recount = gate` +
+  `--full-star-recount` → exit 1；`arguments` 里过滤掉 `--domain-sweep` → exit 1（`std::env::args`
+  仍看得见）；删表条目 → **编译失败**。**⑤ V5（P2）**：coverage 的表行把 `chainFast2.sh` 写成了
+  所有档的脚本，而前四档其实是 `chainFast.sh` 跑的——行首已分别标注脚本，AGENTS.md 同名条目
+  一并对齐。
+  **本提交的验证**（源码 `census.rs 756b2d4e…`、`ledger.rs a04f26fd…`）：example 测试 **27 项**、
+  严格 clippy exit 0；电池 `target/logs/tailpar11`（日志头 `revision 311d06d dirty-files 1`）
+  **226 s**、**684 passed / 0 failed**、三个 TSV 4==8 且 SHA 未变、三门禁/doctest/clippy/oracle
+  全 exit 0；**21 个变异**逐个复现（`target/logs/finalTailpar7/summary.txt`，与 `finalTailpar6`
+  逐行相同、只差修订行）。
 
 * **性能轮外部审查（第五条独立审核线，针对 `4159f32` + `7a96649`）：无 P0，3×P1 + 6×P2，
   全部接受（本提交）**。审核方用私有 worktree（`wt`@`7a96649`、`wt-pre`@`e4559b5`）+ 私有
