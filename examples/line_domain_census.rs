@@ -10539,6 +10539,122 @@ mod tests {
         );
     }
 
+    /// **Verification review of `8613504`, mira P2 (round 5): the two witness
+    /// helpers' mismatch paths -- and the `describe` closure they call -- are
+    /// executed, not just compiled.**
+    ///
+    /// mira measured that the round-4 observation ("the closure is only called on
+    /// a mismatch, so its text never runs") was **not** closed by
+    /// `the_witness_request_is_checked_against_the_pinned_parameters`: that test
+    /// asserts the request-loop message inside [`recount_witnesses`], and both
+    /// helper mutations it proposed (reword the report, or count without
+    /// reporting) left the suite green.  The corpus is honest, so a mismatch
+    /// cannot be produced from the production path; this test drives the helper
+    /// itself in both directions instead, and the closure is a counter rather
+    /// than a literal, so "called exactly once, on the mismatch, and its return
+    /// value is what lands in the report" is what is asserted.
+    ///
+    /// What stays unexecuted: the **call-site** closure in `recount_witnesses`
+    /// still only runs if the 10038 arm-count expectation ever mismatches, which
+    /// the accepted corpus cannot make happen (mira's J2/J3 mutations are
+    /// therefore still invisible to this suite; the gate's closed form is what
+    /// sees a dropped call).
+    #[test]
+    fn the_arm_count_helper_reports_through_its_closure_only_on_a_mismatch() {
+        let calls = std::cell::Cell::new(0usize);
+        let describe = || {
+            calls.set(calls.get() + 1);
+            format!("closure call {}", calls.get())
+        };
+        let mut facts = 0usize;
+        let mut failures = Vec::new();
+        check_arm_counts(&[1, 1, 2, 2, 0, 0], &[1, 1, 2, 2, 0, 0], &mut facts, &mut failures, describe);
+        assert_eq!(facts, 1, "an agreement is still a compared expectation");
+        assert_eq!(calls.get(), 0, "an agreement must not describe a violation");
+        assert!(
+            failures.is_empty(),
+            "an agreement must not report: {failures:?}"
+        );
+
+        let calls = std::cell::Cell::new(0usize);
+        let describe = || {
+            calls.set(calls.get() + 1);
+            format!("closure call {}", calls.get())
+        };
+        let mut facts = 0usize;
+        let mut failures = Vec::new();
+        check_arm_counts(&[1, 1, 1, 1, 1, 1], &[1, 1, 2, 2, 0, 0], &mut facts, &mut failures, describe);
+        assert_eq!(facts, 1, "a disagreement is a compared expectation too");
+        assert_eq!(calls.get(), 1, "the closure is called once, on the mismatch");
+        assert_eq!(
+            failures,
+            vec!["closure call 1".to_string()],
+            "the closure's own text is what gets reported"
+        );
+    }
+
+    /// **Verification review of `8613504`, mira P2 (round 5): every way
+    /// [`check_pinned_class`] can disagree reports, and the honest shapes do
+    /// not.**
+    ///
+    /// Three of the four shapes below are unreachable from the corpus (it has no
+    /// non-trivial class at the generic parameter, no constructed order-four
+    /// block at the change point, and no missing order-four block), so before
+    /// this test their messages existed only under mutation.  Each direction
+    /// asserts the counter, the number of reports and the branch's own wording.
+    #[test]
+    fn the_pinned_class_helper_reports_each_way_it_can_disagree() {
+        let ninth = rational(1, 9);
+        let eighth = rational(1, 8);
+        let stored_order_four = [(4usize, false, BlockSource::Stored)];
+        let constructed_order_four = [(4usize, false, BlockSource::Constructed)];
+        let report = |parameter: Rat, non_trivial: &[(usize, bool, BlockSource)]| {
+            let mut facts = 0usize;
+            let mut failures = Vec::new();
+            check_pinned_class(
+                10_030,
+                "DT1",
+                parameter,
+                ninth,
+                non_trivial,
+                &mut facts,
+                &mut failures,
+            );
+            assert_eq!(facts, 1, "every shape is one compared expectation");
+            failures
+        };
+
+        assert!(
+            report(ninth, &[]).is_empty(),
+            "the generic parameter carries nothing non-trivial"
+        );
+        assert!(
+            report(eighth, &stored_order_four).is_empty(),
+            "the change point carries a stored order-four class"
+        );
+
+        let generic = report(ninth, &stored_order_four);
+        assert_eq!(generic.len(), 1, "one report per disagreement: {generic:?}");
+        assert!(
+            generic[0].contains("the generic control already carries a non-trivial block class"),
+            "the generic-parameter branch must say what it found: {generic:?}"
+        );
+
+        let constructed = report(eighth, &constructed_order_four);
+        assert_eq!(constructed.len(), 1, "one report per disagreement");
+        assert!(
+            constructed[0].contains("the order-four non-trivial block is constructed, not stored"),
+            "the source branch must name the source it found: {constructed:?}"
+        );
+
+        let missing = report(eighth, &[(2, false, BlockSource::Stored)]);
+        assert_eq!(missing.len(), 1, "one report per disagreement");
+        assert!(
+            missing[0].contains("no block has a non-trivial cocycle of order four"),
+            "the missing-class branch must say what it looked for: {missing:?}"
+        );
+    }
+
     /// **Verification review of `e225485`, mira P2-b: every evidence row pairs
     /// the request with the evidence field that belongs to it.**
     ///

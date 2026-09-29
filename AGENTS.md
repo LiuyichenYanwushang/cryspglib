@@ -1495,11 +1495,28 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   自身,属已披露类;它同意这一族到此为止。其余全部复现(验收/88 行报告/三个 TSV/33 项测试/clippy/
   `fix7battery` 196 s、`census-gate-only` exit 0、691 passed / 0 failed、4==8)。
   它另记一条**观察(非 P2)**:`describe` 闭包只在**不匹配**时被调用,所以期望报文的正文在语料上
-  不被执行(只在变异下出现)。**本提交补上**:新增回归
+  不被执行(只在变异下出现)。本提交新增回归
   `the_witness_request_is_checked_against_the_pinned_parameters`——用生产入口直接驱动两个方向:
   钉住请求 `[1/9, 1/8]` 必须**无**失败且 `facts == 2`、`answered.len() == 2`,把 `1/8` 换成
   `1/9` 必须出现**点名 1/8 的那条报文**(`does not contain the pinned parameter 1/8`)。
   example 测试因此 **34 项**;电池 `target/logs/fix8battery/summary.txt` 复核 692 passed / 0 failed。
+* **`8613504` 的验证审核（reviewer `mira` 第五轮，`target/review-mira/REPORT-5.md`）：新回归确实
+  绑定它断言的报文、不是空转、`test+docs` 之外没动任何东西；无新 P0/P1，**一条 P2（文档措辞）
+  已接受**。它的实测：改**请求循环**里那句报文 → suite **101**（正是新测试失败，报文点名
+  `is missing the pinned parameter 1/8`）；改 `check_pinned_class` 里的报文 → suite **0**（不可见）；
+  让该 helper 计数但不报告（`*facts += 1;` 后插 `return;`）→ suite **0**——即新测试断言的那句话
+  来自 `recount_witnesses` 的请求循环（~5502 行），**不是**来自两个 helper，而 helper 的
+  `describe` 闭包在任何测试里都仍未被调用；`facts` 不加/`+2` → **101**（`left: 0/4 right: 2`），
+  `answered` 少一条 → **101**（`left: 1 right: 2`），`1/8`→`1/7` → 新测试单独失败 + 门禁 exit 1，
+  换 `check_arm_counts` 的计数 → suite 全绿而**门禁** exit 1（`compared 2 …, expected 4`）；
+  交换常量两项 → suite 与门禁都 exit 0（该顺序语义上是空的，非缺陷）。**P2（接受）**：本轮把
+  "本提交补上了那条观察" 的说法写过头了——补的只是**请求报文**，不是 helper 的 `describe`。
+  **本提交的修法**：① 新增两条回归直接驱动两个 helper 的**不匹配**分支（语料是诚实的，生产路径
+  造不出不匹配），`check_arm_counts` 的闭包用计数器闭包证明"恰好调用一次、返回什么就报什么"，
+  `check_pinned_class` 的三种分歧各断言计数、条数与各自措辞，诚实形状断言不报告——所以那三条
+  报文不再只在变异下才被执行；② 文档按精确措辞改写。**仍未闭合（如实）**：`recount_witnesses`
+  里的**调用点闭包**只在 10038 的臂数期望真的不匹配时才运行，诚实语料做不到，所以 mira 的
+  J2/J3 两条变异对本套件仍不可见——看得见"丢掉调用"的是门禁的闭合式。
 
 
 
