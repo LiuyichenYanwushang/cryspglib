@@ -803,8 +803,14 @@ R6.1 的审计（三门口禁）现在包含两条与参数族相关的硬失败
 （`spelled_flags()` 的第 8/第 4 项），报文为 `… is true on the command line but false in the
 evidence`；② 门禁用**自己的字面量**核对通过程**返回的**参数（`1/8`、`1/9` 各 2 个），并要求
 通过程报告它**实际比较过的**钉住期望数等于闭式 4（`… compared N pinned expectation(s),
-expected 4`）；③ 请求表由 `Options` 结构经 `RequestedPasses::of(&options)` 生成，新增回归
-`the_request_table_is_read_from_the_parsed_options` 钉住"哪个 flag 对应哪个字段"。
+expected 4`）——计数**在比较函数内部**自增（`counted_mismatch` / `pinned_class_mismatch`），
+所以把比较改成 `false` 会同时丢掉调用、闭式立刻变短（第二轮复核 P2-a 实测的逃逸已闭合，
+`n3compare_10038`/`n3compare_10030` 都 exit 1）；③ 请求表由 `Options` 结构经
+`RequestedPasses::of(&options)` 生成，新增回归
+`the_request_table_is_read_from_the_parsed_options` 钉住"哪个 flag 对应哪个字段"；
+④ 两行证据耦合行搬进 `evidence_rows(...)` 并新增回归钉住配对，验收电池新增
+**`census-gate-only`**（`--gate --require-covered`，无 sweep，约 10 s）作为"行互换"这类
+**验收命令看不见**的变异的运行期控制（`n1rowswap` 在它下面 exit 1）。
 变异实测（`target/logs/teeth4/summary.txt`）：`n1shadow_ev`、`n1shadow_ev_pin`、`n3const`、
 `n3content`、`n3content_one`、`n3fabricate` 全部 exit 1，交叉接线 `n4of_call` 让 example 测试
 失败 1 项。**仍然超出常驻控制的**（实测记录，不声称已闭合）：改写控制自身的输入表达式、

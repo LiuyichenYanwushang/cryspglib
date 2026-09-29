@@ -1418,6 +1418,45 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   等仍逐个复现，`n1h/n1e/n3count` 仍是 `E0308`/`E0425`，`n4d/n4e` 仍让 example 测试失败 1 项，
   `eqform` exit 0 且三个 TSV 是钉住 SHA，`typo`/单 token 过滤器 exit 3。
 
+* **`e225485` 的验证审核（reviewer `mira` 第二轮，`target/review-mira/REPORT-2.md`）：P0 与 P1
+  确认闭合、无新 P0/P1；2×P2 + 1 条出处说明，全部接受并修复（本提交）**。复核方在重新同步到
+  `3ad3566` 的私有 worktree 上自己重建了全部变异：P0 的 `n1shadow_ev`/`n1shadow_ev_pin` exit 1
+  且报文与声明逐字一致；另测"只清 `sweep_requested`"、"只清 `recount_ran`"、"把 `options` 整体
+  shadow 成默认值"（表先报错）、"强制 `spelled_flags()` 为 false"、"把 `--output-blocks` 拼成
+  `--output`"全部 exit 1；P1 的 `n3const`/`n3content_10038`/`n3fabricate` exit 1，且它自己
+  "把 `PINNED_WITNESS_RECORDS` 缩成 1 条"的尝试被通过程里独立的 ordinal 字面量抓住
+  （`decomposed 4 …, expected 2`）;P2-5、F7–F10、oracle parity 3/3 与字节一致全部复现；
+  验收命令 exit 0、88 行报告与 `finalZAA` 逐字节相同、三个 TSV 在钉住 SHA、example 32/0、
+  `--tests` 618/0、clippy exit 0，`teeth3` 24 条结果里只有刻意的 `eqform` 正对照是绿的。
+  **P2-a（措辞 + 一个真逃逸）**：文档写的"计数器放在每个比较处"不精确——`facts += 1` 当时是
+  **比较语句之前**的独立语句，所以**只把比较表达式改成 `false`**（不动计数）仍然 exit 0 且
+  stdout 逐字节不变。**已修**：比较与计数一起搬进两个小函数
+  （`counted_mismatch(&actual, &expected, &mut facts)`、
+  `pinned_class_mismatch(..., &mut facts) -> Option<String>`），计数在函数体内、比较发生的那一处
+  自增 ⇒ 丢掉比较就丢掉调用，闭式立刻变短。**实测**（`target/logs/teeth4/summary.txt`）：
+  `n3compare_10038` 与 `n3compare_10030`（分别把两个比较改成 `false` / 删掉整段调用）都
+  **exit 1**（`compared 2 pinned expectation(s), expected 4`）——这正是复核方给出的逃逸。
+  **P2-b（验收命令看不见证据行互换）**：把 `evidence_checks` 两行的 spelled 输入互换，在
+  `--gate --require-covered --domain-sweep` 下 exit 0（两个请求都被拼写），只有 gate-only 运行
+  才看得见。**已修**：两行搬进 `evidence_rows(spelled_recount, spelled_sweep, evidence_recount,
+  evidence_sweep)` 并新增回归 `the_evidence_rows_pair_each_request_with_its_own_field`；
+  验收电池（`target/chainFast3.sh`）新增 **phase 1b `census-gate-only`**（`--gate
+  --require-covered`，无 sweep，约 10 s），它就是这个家族的常驻运行期控制。**实测**：
+  `n1rowswap` 在 gate-only 运行下 **exit 1**（`--full-star-recount (request) is false on the
+  command line but true in the evidence`），而验收命令确实看不见它（如实记录在变异条目里）。
+  **出处说明（已修）**：`target/oracle-pre/verify_isotropy_oracle.py`（`389d829a…`）此前不对应任何
+  提交——它是 `a9a5bb5:scripts/verify_isotropy_oracle.py`（blob `5b4c71d5…`）只改了两行路径常量。
+  现在新增 **`target/oracle-pre.sh`**（`git show <commit>:scripts/…` + 固定两行路径常量），
+  重生成后 sha 仍是 `389d829a…`，所以改前参照可以随时从 git 复现。
+  **本提交的验证**（源码 `census.rs ee334157…`；`target/logs/fix6battery/summary.txt`，
+  `revision 3ad3566 dirty-files 1`）：**205 s** = 构建 15 + 发现 0 + example 发现 18 +
+  census-8 **33** + **census-gate-only 10** +〔census-4 ‖ audit-4〕**66** + 池 **54** + 尾 **9**，
+  **691 passed / 0 failed**（690 + 新的 `the_evidence_rows_pair_each_request_with_its_own_field`），
+  三个 TSV 4==8 且 SHA 未变，三门禁/doctest/clippy/oracle 全 exit 0；example 测试 **33 项**、
+  严格 clippy exit 0；`target/logs/teeth4/summary.txt` 的 11 个变异全部按预期（10 个 exit 1、
+  交叉接线让 example 测试失败 1 项）。
+
+
 
 * **`634fd85` 的验证审核（reviewer `mira`，`target/review-mira/REPORT.md`）：两条 P2 都确认修好，
   无 P0/P1；复核方另给 3 条 P2 残余与 1 条说明，全部接受（本提交）**。复核方用自己的
