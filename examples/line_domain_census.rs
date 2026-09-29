@@ -10501,6 +10501,44 @@ mod tests {
         );
     }
 
+    /// **Verification review of `aa1c4a7`, mira's message-coverage note: the
+    /// witness pass checks its own request, and the failure message it reports is
+    /// exercised.**
+    ///
+    /// The corpus never asks for a wrong witness list, so the pass's own
+    /// expectation messages only appear under mutation (`n3list` in the battery);
+    /// this drives both directions through the function itself: the pinned list
+    /// produces no complaint about the pinned parameters, and a list without
+    /// `1/8` produces the message that names it.
+    #[test]
+    fn the_witness_request_is_checked_against_the_pinned_parameters() {
+        let record = record_of(196, 10_030);
+        let embedding =
+            SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup).expect("embedding");
+        let cache = PointClassCache::default();
+        let ninth = rational(1, 9);
+        let eighth = rational(1, 8);
+        let failures_of = |witnesses: [Rat; 2]| {
+            let (failures, answered, facts) =
+                recount_witnesses(&record, &embedding, &cache, witnesses);
+            assert_eq!(answered.len(), 2, "both witness parameters are decomposed");
+            assert_eq!(facts, 2, "both pinned expectations are compared");
+            failures
+        };
+        let honest = failures_of([ninth, eighth]);
+        assert!(
+            honest.is_empty(),
+            "the pinned request must be accepted: {honest:?}"
+        );
+        let wrong = failures_of([ninth, ninth]);
+        assert!(
+            wrong
+                .iter()
+                .any(|failure| failure.contains("does not contain the pinned parameter 1/8")),
+            "a request without 1/8 must say so: {wrong:?}"
+        );
+    }
+
     /// **Verification review of `e225485`, mira P2-b: every evidence row pairs
     /// the request with the evidence field that belongs to it.**
     ///
