@@ -256,6 +256,41 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    仍是剩余算术热点；串行尾部已从 ≈5.9 s 压到 **≈1.3 s**（`check_invariants` 的非重算部分 +
    gate 的串行壳），并行区本身 8.75 s vs 理想的 7.56 s（6.9× / 8×）还有 ~14% 的调度与内存开销；
    构建参数未动（会动到已钉证据的编译配置）。
+   **验收尾段的单核 oracle 并行化（2026-09-29 第四轮；改动文件 `scripts/verify_isotropy_oracle.py`）**：
+   尾段的 32 s 全部是 `verify_isotropy_oracle.py`——23 个 case × 2 次 `iso` 会话**串行**跑，
+   单次实测 0.72 s **纯 CPU**（user 0.72 / sys 0.00、RSS 18.7 MB），46 次约 33 core·s，
+   8 个核里 7 个闲着。改动：① 23 个 case 的两次会话用线程池**并发预取**（`ORACLE_JOBS`，
+   默认 `min(8, 核数)`），**按 case 顺序**取 future 并累加，所以失败列表、计数与打印逐字节不变；
+   ② 每次会话给一个**私有 cwd**——`strace` 实测 `iso` 在 cwd 写 `./iso.log`（串行版写进
+   `isotropy_subgroup/`，并发版会互相踩）。实测（`target/logs/oracle-ab/summary.txt`，各两轮）：
+   1 job **31.80/31.80 s**（串行等价；改前电池腿记 `wall=34s`）、4 jobs **9.08/9.11 s**、
+   8 jobs（默认）**5.13/5.07 s** ⇒ **6.2×**；四种 job 数的 stdout 与串行**逐字节相同**
+   （参考输出 sha256 `960f4fac…`）、`scripts/test_verify_isotropy_oracle.py` 9 项通过。
+   电池（`target/logs/perf-oracle-mat3r/`）里该腿 **34 s → 8 s**，长杆因此换人：`legs.txt`
+   实测 oracle **8 s** / doctest **10 s** / clippy **26 s**（库改动后的一次冷 clippy）⇒
+   尾段现在由 **clippy** 决定（26 s），不再是单核 oracle。（`oracle-ab.sh` 结尾那句
+   `OUTPUT DIFFERS: summary.txt` 是脚本把自己的汇总文件也拿去比了，与产物无关，已改掉。）
+   **`Mat3R` 的 2×2 余子式改写（同轮；改动文件 `src/irrep/subduction.rs`）**：`determinant` /
+   `inverse` 用 `(0..3).filter(..).collect::<Vec<usize>>()` 造索引，每次 `inverse` **24 次堆
+   分配**，gdb 采样里它是 crate 内最热的浅帧（151/3,926，`target/logs/profile/t8b/`）。改为
+   常量索引表 + 私有 `minor()`，**运算顺序与错误路径逐字不变**（同样的 `checked_mul/sub/neg/div`
+   序列）。交替 A/B（`target/logs/mat3r/ab.txt`，8 线程、验收参数、各 3 轮，两份二进制都是
+   同一份 example 源）：**32.90/33.46/33.60 s → 29.65/29.96/30.04 s**（中位 33.32 → 29.88 s，
+   **约 10%**），三个 TSV 与门禁报告逐字节未变；电池里 census-8 **33 s → 29 s**。
+   **改后重新采样**（`target/logs/profile/matpost/`）：`Mat3R::inverse` 从最热浅帧退到第 5
+   （129），叶帧前三是 `Rat::checked_mul` 236、`Rat::checked_add` 112、`Rat::new` 66 ⇒ 下一个
+   候选是 `Rat` 原语本身（i64 快路径 / 免除法 gcd），**未做、未测量**：`Mat3R::inverse` 的
+   `det = ±1` 整数邻接矩阵快路径、`Lattice::reduce` 的整数缩放（浅帧 207 / 叶帧 18）。
+   新增库回归 `the_minor_rewrite_agrees_with_the_schoolbook_inverse`：3^9 = 19,683 个带符号与
+   分母的 3×3 矩阵，逐个断言 `determinant` == **六项 Leibniz 展开**（与实现所用的余子式展开
+   形状不同）、`A·A^{-1}` 与 `A^{-1}·A` 恰为单位阵，奇异矩阵必须报 `SingularMatrix`；
+   **三个单点变异**（`minor` 的符号、伴随的转置下标、`determinant` 首项）都让该测试 FAILED /
+   exit 101（`target/logs/mat3r-teeth/summary.txt`，honest EXIT=0）。**最终源码**（含该测试）
+   的电池 `target/logs/perf-final/summary.txt`（`revision a9a5bb5 dirty-files 4`，
+   `subduction.rs aaf03ce4…`）：**278 s** = 构建 86 + 发现 0 + example 发现 25 + census-8 **30**
+   +〔census-4 ‖ audit-4〕**59** + 池 **51** + 尾 **27**，**689 passed / 0 failed**
+   （688 + 1 项新回归）、三个 TSV 4==8 且 SHA 未变、三门禁/doctest/clippy/oracle 全 exit 0。
+   （A/B 用的两份二进制早于这条**只在 `#[cfg(test)]` 里**的新增，交付物本身不变。）
    **历史（上一轮，保留）**：`audit_irrep_subduction` 已按母群空间群并行（8 线程 121.6 s /
    1 线程 554.7 s，389,151 行 TSV 逐字节相同，SHA `3df39d03…`）；`line_family_coverage`
    已按行并行、单线程按序写 TSV（1 线程 123.08 s / 8 线程 19.29 s，SHA `9683ddef…`）；

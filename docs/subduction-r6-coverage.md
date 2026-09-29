@@ -713,6 +713,20 @@ dirty-files 2`——那两个文件是当时正在编辑的文档，三个源文
 输出逐字节相同，post == `tailpar3/ledger-batch.txt`；**改后 user 27.1 s 对改前 23.8 s**，
 墙钟 6.9× 的代价是 ~14% 的额外 CPU——电池本来就是 CPU 饱和的，这一点如实记录）。
 
+**第四轮的两项改动（2026-09-29，详见 AGENTS.md §3.3 的同名两段）**：
+① **验收尾段的 oracle 并行化**（`scripts/verify_isotropy_oracle.py`）：23 个 case 的 46 次
+`iso` 会话原本串行（每次 0.72 s 纯 CPU、RSS 18.7 MB），现在按 case 用线程池并发预取、
+每次会话给私有 cwd（`iso` 会在 cwd 写 `./iso.log`）。交替实测
+（`target/logs/oracle-ab/summary.txt`）：1 job **31.80/31.80 s**、4 jobs **9.08/9.11 s**、
+8 jobs **5.13/5.07 s** ⇒ **6.2×**，四种 job 数的 stdout 与串行**逐字节相同**；电池里该腿
+**34 s → 8 s**，尾段长杆换成 clippy（`legs.txt`：oracle 8 / doctest 10 / clippy 26 s）。
+② **`Mat3R` 余子式改写**（`src/irrep/subduction.rs`：常量索引表取代每次 `inverse` 24 次
+`Vec` 分配，运算顺序与错误路径不变）：交替 A/B 各 3 轮
+（`target/logs/mat3r/ab.txt`）**32.90/33.46/33.60 → 29.65/29.96/30.04 s**（中位 33.32 →
+29.88 s，**约 10%**），三个 TSV 与门禁报告逐字节未变；电池 census-8 **33 → 29 s**。
+改后 gdb 采样（`target/logs/profile/matpost/`）把 `Mat3R::inverse` 从最热浅帧挤到第 5，
+叶帧前三是 `Rat::checked_mul` 236 / `Rat::checked_add` 112 / `Rat::new` 66。
+
 **基线口径更正**："≈16 min"是 **`chainFinal.sh`** 的一次完整运行（含 569 s 串行 census），
 `chainFinal2.sh` 换掉串行档后从未写过日志；因此新旧对比里有一部分不是调度收益，而是少跑了
 一次串行 census——新电池同样没有串行档，现在验的是 **4 线程 == 8 线程**（1 线程全量比较
