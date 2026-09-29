@@ -5396,48 +5396,59 @@ const PINNED_WITNESS_RECORDS: [usize; 2] = [10_030, 10_038];
 /// denominator)`: `1/9` (the generic neighbour) and `1/8` (the change point).
 const PINNED_WITNESS_PARAMETERS: [(i128, i128); 2] = [(1, 9), (1, 8)];
 
-/// Whether one pinned expectation was compared and did **not** hold.
+/// Compare one pinned expectation, counting and **reporting** it here.
 ///
-/// The counter is incremented **inside** this function, at the place the
-/// comparison happens.  With the increment as a separate statement before the
-/// comparison, replacing the comparison by `false` left the count right and the
-/// expectation unchecked (verification review of `e225485`, mira P2-a); now such
-/// an edit drops the call and the gate's closed form sees it.
-fn counted_mismatch<T: PartialEq>(actual: &[T], expected: &[T], facts: &mut usize) -> bool {
+/// The counter is incremented at the place the comparison happens, and the
+/// violation is pushed by the same function: an earlier shape returned the
+/// verdict, so a caller could keep the count right and drop the result
+/// (`let _mismatch = counted_mismatch(..)`, review of `af3dcf9`, mira H4).
+/// Disabling the comparison now means dropping this call, which the gate's
+/// closed form sees.  What remains outside the control is editing this body or
+/// redirecting the `failures` sink it writes to -- the disclosed class.
+fn check_arm_counts(
+    actual: &[usize],
+    expected: &[usize],
+    facts: &mut usize,
+    failures: &mut Vec<String>,
+    describe: impl FnOnce() -> String,
+) {
     *facts += 1;
-    actual != expected
+    if actual != expected {
+        failures.push(describe());
+    }
 }
 
-/// The pinned class expectation of one parameter, counted where it is evaluated.
+/// The pinned class expectation of one parameter, counted and reported here.
 ///
-/// `None` when the expectation holds, otherwise the violation message.  The
-/// counter lives here for the same reason as in [`counted_mismatch`].
-fn pinned_class_mismatch(
+/// The counter and the report live in the same function for the same reason as
+/// in [`check_arm_counts`].
+fn check_pinned_class(
     ordinal: usize,
     label: &str,
     parameter: Rat,
     ninth: Rat,
     non_trivial: &[(usize, bool, BlockSource)],
     facts: &mut usize,
-) -> Option<String> {
+    failures: &mut Vec<String>,
+) {
     *facts += 1;
     if parameter == ninth {
-        if non_trivial.is_empty() {
-            return None;
+        if !non_trivial.is_empty() {
+            failures.push(format!(
+                "ordinal {ordinal} {label} t={parameter}: the generic control already carries a \
+                 non-trivial block class: {non_trivial:?}"
+            ));
         }
-        return Some(format!(
-            "ordinal {ordinal} {label} t={parameter}: the generic control already carries a \
-             non-trivial block class: {non_trivial:?}"
-        ));
+        return;
     }
     match non_trivial.iter().find(|(order, _, _)| *order == 4) {
-        Some((_, _, source)) if *source != BlockSource::Stored => Some(format!(
+        Some((_, _, source)) if *source != BlockSource::Stored => failures.push(format!(
             "ordinal {ordinal} {label} t={parameter}: the order-four non-trivial block is {}, \
              not stored",
             source.label()
         )),
-        Some(_) => None,
-        None => Some(format!(
+        Some(_) => {}
+        None => failures.push(format!(
             "ordinal {ordinal} {label} t={parameter}: no block has a non-trivial cocycle of \
              order four (non-trivial blocks: {non_trivial:?})"
         )),
@@ -5591,16 +5602,16 @@ fn recount_witnesses(
             arms.sort_unstable();
             let mut actual = arms.clone();
             actual.resize(expected.len(), 0);
-            if counted_mismatch(&actual, &expected, &mut facts) {
-                failures.push(format!(
+            check_arm_counts(&actual, &expected, &mut facts, &mut failures, || {
+                format!(
                     "ordinal {} {label} t={parameter}: the witness expects block arm counts {:?} \
                      but the engine reports {:?} ({} block(s))",
                     record.ordinal,
                     expected,
                     arms,
                     blocks.len()
-                ));
-            }
+                )
+            });
         }
         if record.ordinal == 10_030 {
             // The class change is the witness here: order four and non-trivial
@@ -5610,16 +5621,15 @@ fn recount_witnesses(
                 .filter(|block| !block.cocycle_trivial)
                 .map(|block| (block.little_co_group, block.cocycle_trivial, block.source))
                 .collect();
-            if let Some(message) = pinned_class_mismatch(
+            check_pinned_class(
                 record.ordinal,
                 label,
                 parameter,
                 ninth,
                 &non_trivial,
                 &mut facts,
-            ) {
-                failures.push(message);
-            }
+                &mut failures,
+            );
         }
     }
     // The anchor, on the **returned** parameters: the two pinned witnesses are
