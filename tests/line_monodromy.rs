@@ -847,13 +847,28 @@ fn the_engine_transports_every_primitive_line_reciprocal_step() {
 /// **before** reducing it modulo one, and at `t = 10^9 + 1/4` one ulp of that
 /// angle is ~1.2e-7 of a turn -- enough to turn the 1e-12 character comparison
 /// into a `CharacterMismatch` (external review of `af51b04`, witness ordinal
-/// 10030, SG 196 `DT1`).
+/// 10030, SG 196 `DT1`; measured pre-fix at that parameter: **612 of the 5,756
+/// rows failed, the same 612 at `t = -10^9 + 1/4`, all of them loud errors**
+/// -- 510 `character reconstruction failed at operation N` plus 102
+/// non-integral multiplicities, never a silently different decomposition;
+/// `target/logs/phasefix/prefix-family.txt`).
+///
+/// The shifts below reach far beyond that: `10^15` and `10^18` keep the same
+/// contract while every remaining "convert an unreduced angle to `f64`" site
+/// would be off by a whole turn, so a regression that reintroduced the defect
+/// anywhere on this path fails here (probed first at
+/// `target/logs/phasefix/far-shift.txt`: 0 of 5,756 rows failed).
 #[test]
 fn the_engine_answers_a_far_translated_parameter() {
     let official = official_line_parameter().expect("the official parameter is valid");
     let rows = pinned_rows();
     assert_eq!(rows.len(), 5_756, "the pinned line corpus has 5,756 rows");
-    for shift in [1_000_000_000i128, -1_000_000_000] {
+    for shift in [
+        1_000_000_000i128,
+        -1_000_000_000,
+        1_000_000_000_000_000,
+        1_000_000_000_000_000_000,
+    ] {
         let parameter = Rat::from_integer(shift)
             .checked_add(official)
             .expect("shifted parameter");

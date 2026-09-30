@@ -1645,8 +1645,16 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   `t -> t + N` 是同一个 k 点，所以分解必须逐块相同；但 `t = 10^9 + 1/4` 时相位角量级 `10^9`，`f64` 在该量级的
   一个 ulp 约 `1.2e-7` 圈，`1e-12` 的字符比较因此失败：
   `character reconstruction failed at operation N: 0+0i != 7.61e-7+0i`。**外部审核给出 ordinal 10030 的见证；
-  本方独立复现后发现缺口比单个见证更宽**：修前该测试在 `t = 10^9 + 1/4` 上多条记录失败（首条 ordinal 13701
-  `SM4`，误差 `1.52e-6`；13726 DT1–DT5 等同量级），而 `t = 1/4`、`5/4` 正常。
+  本方独立复现后发现缺口比单个见证更宽**：修前（`af51b04` 源码 + 该测试 + 一个**按语料序列出全部失败**的
+  诊断版，私有 worktree `target/phasefix-prefix/wt`，未提交）实测 **`t = 10^9 + 1/4` 有 612/5,756 行失败、
+  `t = -10^9 + 1/4` 同样 612 行（163 个不同 ordinal）**，**首条恰是审核方的见证 ordinal 10030 `DT1`**
+  （operation 3，偏差 `7.606389e-7`；`1.521277e-6` 是它的 4 倍，也是列表里的最大档），全部 612 条都是
+  **显式报错**（510 条 `character reconstruction failed at operation N` + 102 条
+  `multiplicity of Z1 is … (not a non-negative integer)`），**没有静默错答**（块多重集从未不同），
+  `t = 1/4` 参考侧与嵌入构造各 0 失败；`t = 1/4`、`5/4` 正常。日志
+  `target/logs/phasefix/prefix-family.txt`。**更正**：本条先前与提交信息 `5746538` 写的"首条 ordinal 13701
+  `SM4`，误差 `1.52e-6`；13726 DT1–DT5"是**错的**——13701/13726 确实在失败列表里（各 15 行）但不是首条，
+  那句是按偏差大小看的印象；此处按实测改写，提交信息不动（已推送的历史不改写）。
   **修法**：新增 `Rat::principal_angle()`（精确取模到 **`(-1/2, 1/2]`**），`bloch_phase` 先按 `Rat` 精确求和、
   取主值、最后才转 `f64`。区间取**对称**是有意的：语料现有角度本来就落在其中，所以对它们是恒等变换、
   已记录的值不可能移动；且 `chi(-q) = conj(chi(q))` 在数值上仍精确。**`[0,1)` 的第一版被电池当场否掉**——
@@ -1655,8 +1663,9 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   不是审美选择。**原始 k 不动**（函数只读 `wave_vector`），monodromy 约定未受影响。
   **回归**：库侧 `the_bloch_phase_reduces_the_exact_angle_before_the_float_step`（主值表 + 整数相位平移下相位不变）；
   集成侧 `tests/line_monodromy.rs::the_engine_answers_a_far_translated_parameter`（**全部 5,756 行 ×
-  `t = 1/4 ± 10^9`**，逐块**多重集**比较——块序不是平移不变量，这一点由该测试实测，与卡 5 "按臂集合配对"
-  的口径一致）。**证据**：三个 TSV 与改前**逐字节相同**（`c7b8606e…`/`07dedd42…`/`a14598c1…`，4 == 8），
+  `t = 1/4 ± 10^9` 与 `1/4 + 10^15`、`1/4 + 10^18`**，逐块**多重集**比较——块序不是平移不变量，这一点由该测试
+  实测，与卡 5 "按臂集合配对"的口径一致；后两个大位移先在私有探针里测得 **0/5,756 失败**
+  （`target/logs/phasefix/far-shift.txt`），把"别处还有未约化角度转 f64"这一整类回归也钉住，作为常驻断言）。**证据**：三个 TSV 与改前**逐字节相同**（`c7b8606e…`/`07dedd42…`/`a14598c1…`，4 == 8），
   门禁报告与 `finalZAA` 从 `sources=` 起逐行相同、`VERDICT complete`；电池
   `target/logs/phasefix/battery2/summary.txt` **698 passed / 0 failed**（696 + 两条新回归）、
   `census-gate-only` exit 0、clippy/doctest/oracle/python 全 exit 0。
