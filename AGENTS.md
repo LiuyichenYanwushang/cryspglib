@@ -1785,8 +1785,7 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   新增 7 项集成验收（221 `GM4+` P1 的 provenance 往返、221 `GM3+`、213 CDML `X2` == BC `X1`、真实 BC 重名拒绝、
   未知 label/direction/descriptor、参数化线的两种拼法与 `AmbiguousLineSource`、spinor 拒绝）与 2 项模块单测；
   分支 `feat/r8-api`（worktree `target/r8/wt`）上 lib 450/0、doctest 28/0、集成 631/0、clippy exit 0，主树 cherry-pick 后同源。
-  **未做（R8 剩余，如实）**：整表 wrapper；里程碑要求的"新补的缺口例"验收项；把官方 descriptor 作为**对外承诺的输入**
-  仍等 R7 的数据取证；磁/自旋分导不在 R8 范围内。
+  **未做（R8 剩余，如实）**：把官方 descriptor 作为**对外承诺的输入**仍等 R7 的数据取证；磁/自旋分导不在 R8 范围内。
 
 * **第 15d 轮审核（R8 对抗性复核，独立审核方，报告 `target/review-r8/REPORT.md`）：无 P0；
   F1(P1)/F2(P2)/F3–F6 全部接受并处理（本提交）**。**它自己复现的干净面**：适配器忠实——
@@ -1820,6 +1819,13 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   （`revision 35e3a68 dirty-files 0`）**710 passed / 0 failed**、42 个测试壳、三个 TSV 仍钉在
   `c7b8606e…`/`07dedd42…`/`a14598c1…`（4 == 8）、`VERDICT complete`、clippy/doctest/oracle/python 全 exit 0；
   `subduction_api` 集成测试 **10 项**（含 F1 的两个见证与 F2 的报文见证）、clippy `-D warnings` exit 0。
+  **R8 验收清单（里程碑原文，逐条常驻）**：221 `GM4+` P1、probe `GM3+`、213 的 CDML `X2` / BC `X1`
+  选到同一上下文且是**`C23` 方向的 #146 几何**（`subgroup_sg == 146`；先前那条测试用的是 `P1`，虽
+  合法但没验到里程碑点名的几何，已改）、**新补的缺口例**（旧的 Γ-only `subduce_irrep` 对 k 非 Γ 的
+  SG 213 `X2` 直接 `ProbeNotAtGamma`，新入口给出完整分解；参数化请求在 R8 前根本没有公开入口）、
+  标签歧义（BC 重名 + 多源方向）与未知 label/direction/descriptor 负例；整表 wrapper 亦有测试。
+  干净树电池 `target/logs/r8e/summary.txt`（`revision b009579 dirty-files 0`）**711 passed / 0 failed**、
+  三个 TSV 仍钉住、4 == 8、`VERDICT complete`、clippy/doctest/oracle/python 全 exit 0。
 
 
 
