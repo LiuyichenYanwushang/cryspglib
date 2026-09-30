@@ -136,8 +136,9 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   不能推导成"仓库缺全部 grey 数据"。只覆盖 73 个冻结直线源（= pinned w 表的全部，但不等于
   "230 个空间群所有线上的所有参数化 k"）；非恒等成分的验证可用独立算法加强（例如离线对照
   spgrep 的表示构造接口，前提是统一帧、相位与表示身份），不必只等官方完整分导表。
-  `irrep::subduction` 与 `irrep::line_monodromy` 仍是 `#[doc(hidden)]`，转正由 task 12 决定；
-  原始目标（`docs/subduction-next-milestones.md` 的"目标与完成口径"）还包含普通/磁完整分导、
+  **`irrep::subduction` 与 `irrep::line_monodromy` 自 R8 起已转正**（`#[doc(hidden)]` 去掉），
+  受支持的普通分导入口是新增的 `irrep::subduction_api`（见下面的 R8 条目）；`w_little_characters_data`
+  仍隐藏。原始目标（`docs/subduction-next-milestones.md` 的"目标与完成口径"）还包含普通/磁完整分导、
   官方方向 descriptor、显式 CDML/BC 输入与双标签输出，**R6/R7/R8/R9–R11 与 spinor 都不在**
   那个 366,260 分母里——该文件本身也写着"当前不应给整个目标编造一个总百分比"。
 
@@ -349,7 +350,9 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    `line_monodromy` 集成测试 8 线程 11/11、4.67 s（旧 26.3 s）。
 4. **✅ `t=0/1/2` 形式值的 API 语义**（= §2 A）：`LineSubduction::parameter_kind()`
    以 `t·(a-v) ∈ L*_parent` 的精确判定标记增强小群点的形式诱导；永久测试覆盖 `t=0,1/2`
-   与非退化对照值。完整表 gate 未累计类型标签；类型标记不填补目标字符缺失，也不声称有外部 oracle。
+   与非退化对照值。**R8 起它对外的读数是 `SubductionReport::parameter_kind()`**
+   （`irrep::subduction_api`，参数化请求）。完整表 gate 仍未累计整表的类型标签分布；
+   类型标记不填补目标字符缺失，也不声称有外部 oracle。
 
 ### 3b. 当前执行计划：R6.7 full-star 参数分区与逐块审计（7 张任务卡，先读）
 
@@ -1759,6 +1762,28 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   **对本轮审核方的一处更正**：它说 `2.824642654339076e-6` 不在本方任何产物里；实际该值在本方
   `target/logs/phasefix/prefix-family.txt` 里出现 **102** 次，只是写成 `0.000002824642654339076`
   （按 `2.82…` 直接 grep 自然是 0 次）——本方已核对。
+
+* **R8 第一增量（正式 API；提交 `fa31dcf`）：`irrep::subduction_api` 已交付，引擎未动、三个 TSV 钉值不变**。
+  新公开面：`SubductionRequest`（父群 + 凝聚名 + **显式** `LabelConvention` + `IsotropyDirection` + 可选精确 `Rat` 参数）、
+  单一入口 `subduce`（`subduction_for_direction` 是它的薄拼写）、`SubductionReport`（凝聚身份 CDML/BC/Kovalev/维数/spinor/存储 k；
+  方向 provenance：label/descriptor/**逐 irrep 下标**/子群号与符号/基/origin/domains/arms/全局 ordinal；参数与
+  `ParameterKind`；逐块 `BlockView`（stored_k、star、臂数、**臂集合**、两个维数）与逐目标 `TargetView`（CDML/BC/`row_ml`/
+  维数/重数/irnumber/component））。失败即错误、**不降级成恒等-only**：`CondensingNotFound`、
+  `AmbiguousCondensing`（BC 重名给出候选表，不 first-hit）、`AmbiguousLineSource`（SG 196 `W1` `4D1` 同时承载
+  `DT1`/`DT2`/`SM1`）、`NotAParameterizedLine`、spinor 显式拒绝；恒等重数仍走它自己的独立接口。
+  `irrep::subduction` 与 `irrep::line_monodromy` 去掉 `#[doc(hidden)]`（`w_little_characters_data` 仍隐藏）。
+  **两个被测试逼出来的 API 事实（已写进代码注释）**：① 生成表的 `ordinal` 是**全局**的（SG 196 的记录在 9992–10050 一档），
+  而 `IsotropyDirection::Index` 要的是**逐 irrep 位置**，所以按 `isotropy_subgroups` 的位置算，原先误用全局 ordinal 被
+  `SubgroupIndexOutOfRange` 当场抓住；② 冻结线源用的是**源标号**（`DT1`），**不是**凝聚 irrep 的 CDML 标号（`W1`），
+  所以名字先按 irrep 标号解析、失败再按线源标号解析；先验断言"196 的凝聚 irrep 叫 DT1"是错的（196 的记录是
+  GM*/L*/X*/W1），这条也已写进测试注释。
+  **证据**：电池 `target/logs/r8/summary.txt`（`revision fa31dcf dirty-files 0`）**707 passed / 0 failed**、42 个测试壳、
+  三个 TSV 仍钉在 `c7b8606e…`/`07dedd42…`/`a14598c1…`（4 == 8）、`VERDICT complete`、clippy/doctest/oracle/python 全 exit 0；
+  新增 7 项集成验收（221 `GM4+` P1 的 provenance 往返、221 `GM3+`、213 CDML `X2` == BC `X1`、真实 BC 重名拒绝、
+  未知 label/direction/descriptor、参数化线的两种拼法与 `AmbiguousLineSource`、spinor 拒绝）与 2 项模块单测；
+  分支 `feat/r8-api`（worktree `target/r8/wt`）上 lib 450/0、doctest 28/0、集成 631/0、clippy exit 0，主树 cherry-pick 后同源。
+  **未做（R8 剩余，如实）**：整表 wrapper；里程碑要求的"新补的缺口例"验收项；把官方 descriptor 作为**对外承诺的输入**
+  仍等 R7 的数据取证；磁/自旋分导不在 R8 范围内。
 
 
 
