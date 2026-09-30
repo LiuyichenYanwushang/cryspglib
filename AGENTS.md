@@ -1929,7 +1929,10 @@ SG194 `GM6+` `(a,0)`、复杂分隔符（SG177 `L1` `(a;b;c)` 单向量用 `;`�
   所以 `status: "empty"` 只能表示"程序没有打印方向行"。现在冻结脚本**拒绝**键集与
   `machine_records()` 不一致的 JSON（负对照：塞入 `1|NOPE` → exit 1），采集脚本文档写明这一
   限制与 `failed` 的确切含义——于是 `empty` 在本语料里确实等于"真实记录的空表"。
-  **P3-3（已改）**：见上面 rustdoc 告警数的更正（10 而非 9）。
+  **P3-3（已改）**：见上面 rustdoc 告警数的更正（10 而非 9）。 **干净树电池**：`target/logs/r8i/summary.txt`
+  （`revision 401a986 dirty-files 0`）**721 passed / 0 failed**、43 个测试壳、三 TSV 仍钉住（4 == 8）、
+  `VERDICT complete`、clippy/doctest/oracle/python（含 `descriptors --check`）全 exit 0；`subduction_api`
+  集成测试 **13 项**（新增 P3-1 见证）。
 
 
 
