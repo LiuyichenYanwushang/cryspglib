@@ -380,7 +380,9 @@ timerev"（集合不变）；两者都只能靠 `verify_against_database` 抓住
 构造**母群帧**嵌入、磁闭包/逆元/单位子群/反幺正陪集在母群里的**包含**校验、setting 校验，
 以及 Type-I/III/IV 固定例与全 16,721 记录的覆盖统计。
 **测试**：`tests/magnetic_embedding.rs` 4 项（全语料普查 + 数据库锚定、纯幺正与带反幺正见证、
-四类变异（单点翻转 / 整体翻转 / 平移改写 / 顺序交换）、磁乘法与 `T²` 类身份）。
+四类变异（单点翻转 / 整体翻转 / 平移改写 / 顺序交换）、磁乘法与 `T²` 类身份）。 **干净树电池**：`target/logs/r9a/summary.txt`
+（`revision 34352e3 dirty-files 0`）**725 passed / 0 failed**、**44** 个测试壳、三 TSV 仍钉住（4 == 8）、
+`VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
 ### 3c. R7 官方方向 descriptor（进行中，先读这一条）
 
