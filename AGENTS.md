@@ -1816,7 +1816,10 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   另修一处文档口径：`covered_dimension` 的注释写"块维数 × 重数"，实际是 **Σ 块维数**（与引擎一致）。
   **同轮落地的整表 wrapper**：`subduce_table(&SubductionRequest)` 按方向**标号**逐条回答（写它时
   发现：用局部 `Index` 会在不同 irrep 间错位），参数化扫描对每条给出"能答"或"为何不能答"；
-  `AmbiguousLineSource` 的提示也改为"命名源标号；若该标号本身对应多个子群，再用 `ordinal` 指定"。
+  `AmbiguousLineSource` 的提示也改为"命名源标号；若该标号本身对应多个子群，再用 `ordinal` 指定"。 **证据（干净树）**：电池 `target/logs/r8c/summary.txt`
+  （`revision 35e3a68 dirty-files 0`）**710 passed / 0 failed**、42 个测试壳、三个 TSV 仍钉在
+  `c7b8606e…`/`07dedd42…`/`a14598c1…`（4 == 8）、`VERDICT complete`、clippy/doctest/oracle/python 全 exit 0；
+  `subduction_api` 集成测试 **10 项**（含 F1 的两个见证与 F2 的报文见证）、clippy `-D warnings` exit 0。
 
 
 
