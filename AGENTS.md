@@ -1878,7 +1878,10 @@ Label/Index 入口；`Descriptor` 继续表示内部串并写清与官方串的�
   4 条：`super::decompose::LineSubduction::parameter_kind`/`minimal_parameter_step_via_coordinates`/
   `child_exceptional_parameters`/`full_star_partition`）；rustdoc 对这几条**不打印 `-->` 位置行**，
   我上次只按 `-->` 计数才漏掉。现已全部去链接化（18 处），`cargo doc` 剩 **9** 条且全部在
-  `api.rs`/`corep.rs`/`generated_data.rs`/`wigner.rs`/`lib.rs`（转正前既存）。
+  `api.rs`/`corep.rs`/`generated_data.rs`/`wigner.rs`/`lib.rs`（转正前既存）。 **干净树证据**：电池 `target/logs/r8g/summary.txt`
+（`revision 97c3c73 dirty-files 0`）**712 passed / 0 failed**、42 个壳、三 TSV 仍钉住（4 == 8）、
+`VERDICT complete`、clippy/doctest/oracle/python 全 exit 0；`subduction_api` 集成测试 **12 项**
+（新增语料级"每个条目只答被扫记录"回归，去掉钉法的变异让其中 2 项失败、语料扫描报 80 条错）。
 
 
 
