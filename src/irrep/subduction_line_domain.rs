@@ -7,7 +7,7 @@
 //! fix `k(t)` as well, the little group is strictly larger there, and the frozen
 //! table describes an induced value rather than the actual line irrep (the
 //! engine labels those parameters `ParameterKind::Formal`, see
-//! [`super::decompose::LineSubduction::parameter_kind`]).
+//! `super::decompose::LineSubduction::parameter_kind`).
 //!
 //! This module answers **where** those parameters are, exactly, instead of
 //! sampling denominators: for one operation `R` the condition is
@@ -36,7 +36,7 @@
 //! finite scan must be a multiple of the smallest one, otherwise the solution
 //! set would not be a subgroup and the module reports
 //! [`SubductionError::DomainCensusInconsistent`] instead of a wrong domain.
-//! Externally, [`minimal_parameter_step_via_coordinates`] recomputes the same
+//! Externally, `minimal_parameter_step_via_coordinates` recomputes the same
 //! step through the lattice's own coordinate map, an algorithm that shares no
 //! arithmetic with the centring scan; the corpus gate compares the two on every
 //! `(source, rotation)` pair.
@@ -109,7 +109,7 @@
 //! representative parameter per domain suffices".  That is **withdrawn**
 //! (external review, 2026-09-26, accepted): the partition it referred to is
 //! generated from the **reference** folded direction only
-//! ([`child_exceptional_parameters`]), while the reported decomposition depends
+//! (`child_exceptional_parameters`), while the reported decomposition depends
 //! on the whole star — every folded arm's own little co-group and every pairwise
 //! arm identification.  Corpus witnesses, both now permanent regressions: ordinal
 //! 10030 (SG 196 `DT1` to #18) has reference candidates `{0, 1/4, 1/2, 3/4}` yet
@@ -121,7 +121,7 @@
 //!
 //! # The full-star partition
 //!
-//! [`full_star_partition`] replaces the reference-only reading: the predicates
+//! `full_star_partition` replaces the reference-only reading: the predicates
 //! `t (R_H^{-T} v_i - v_i) in L*_H` for every folded arm and
 //! `t (R_H^{-T} v_i - v_j) in L*_H` for every ordered arm pair and every child
 //! rotation, all solved with the same exact step solver, with a zero difference
@@ -566,7 +566,7 @@ pub struct GridCheck {
 /// with the enumeration, so it cannot detect a wrong step; and a grid whose
 /// denominator is not a multiple of a step misses that step's parameters
 /// entirely, which is why the corpus gate uses denominators that cover the
-/// measured grid and why [`minimal_parameter_step_via_coordinates`] exists as a
+/// measured grid and why `minimal_parameter_step_via_coordinates` exists as a
 /// second, arithmetic-independent step.  A coarse grid can only weaken the check;
 /// while the enumeration is correct it can never produce a mismatch.
 pub fn verify_against_grid(
@@ -626,7 +626,7 @@ pub fn rotation_set(sg: u8) -> Result<Vec<Mat3I>, SubductionError> {
 /// **Internal.**  The residue representation is only valid when `direction` is a
 /// lattice vector of `lattice`; this function cannot check that (it has no space
 /// group for the error text), so the public entry points [`parent_domain`] and
-/// [`child_exceptional_parameters`] call [`require_reciprocal_direction`] first
+/// `child_exceptional_parameters` call [`require_reciprocal_direction`] first
 /// and are the only supported way to obtain a domain.
 fn exceptional_parameters(
     lattice: &Lattice,
@@ -723,7 +723,7 @@ pub fn parent_domain(table: &LittleCharacterTable) -> Result<ParentDomain, Subdu
 /// landing on another).  It is kept because the census's historical probes and
 /// the R6.5/R6.6 numbers were built on it, and as the "reference" side of the
 /// card-3 regression; new code that needs the partition of the whole star must
-/// use [`full_star_partition`].  Measured: 2,273 of the 5,756 corpus pairs have a
+/// use `full_star_partition`.  Measured: 2,273 of the 5,756 corpus pairs have a
 /// strictly larger full-star partition.
 ///
 /// The folded wave vector is `q(t) = t . T^T v`, so the same exact computation
@@ -751,7 +751,7 @@ pub fn child_exceptional_parameters(
 
 /// The candidate parameters of one **folded** direction in the child frame.
 ///
-/// Split out of [`child_exceptional_parameters`] so the degenerate case is
+/// Split out of `child_exceptional_parameters` so the degenerate case is
 /// testable without fabricating an embedding: `folded = 0` means the line folds
 /// onto the child Gamma point, which every child rotation fixes at every
 /// parameter, so the little co-group never changes and the candidate set is
@@ -804,7 +804,7 @@ pub fn little_co_group_order(
 /// `decompose::line_arms` for the measurement).
 ///
 /// **Internal**: the list is a function of the parent group, its lattice and the
-/// direction; the public entry point is [`full_star_partition`].
+/// direction; the public entry point is `full_star_partition`.
 ///
 /// The list is never empty for a valid space group number — the group always
 /// contains the identity, and `Lattice::deduplicate` preserves non-emptiness —
@@ -1139,7 +1139,7 @@ fn sort_by_parameter<T>(values: Vec<(Rat, T)>) -> Result<Vec<(Rat, T)>, Subducti
 
 /// The complete full-star parameter partition of one isotropy record's line.
 ///
-/// The reference-direction census ([`child_exceptional_parameters`]) partitions
+/// The reference-direction census (`child_exceptional_parameters`) partitions
 /// by the folded direction of the frozen source alone.  That is **not** enough:
 /// the reported decomposition depends on the whole star, so this entry point
 /// enumerates every relation that can change the folded geometry, over all

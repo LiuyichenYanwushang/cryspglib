@@ -101,7 +101,9 @@ pub enum SubductionApiError {
     LineSourceNotInDirection {
         sg: u8,
         source: &'static str,
-        subgroup_sg: u8,
+        /// A subgroup **elsewhere** in the parent that does run along the
+        /// source, for orientation only: the requested direction has none.
+        elsewhere_subgroup_sg: u8,
     },
     /// The named frozen line source runs through **several subgroups** at this
     /// direction with different decompositions, so the source label alone does
@@ -169,11 +171,12 @@ impl std::fmt::Display for SubductionApiError {
             Self::LineSourceNotInDirection {
                 sg,
                 source,
-                subgroup_sg,
+                elsewhere_subgroup_sg,
             } => write!(
                 f,
                 "space group {sg}: the frozen line source {source} does not run along the \
-                 selected direction (subgroup {subgroup_sg})"
+                 selected direction (it does run in subgroup {elsewhere_subgroup_sg} at some \
+                 other direction)"
             ),
             Self::AmbiguousLineContext {
                 sg,
@@ -710,7 +713,7 @@ pub fn subduce(request: &SubductionRequest<'_>) -> Result<SubductionReport, Subd
                             Err(SubductionApiError::LineSourceNotInDirection {
                                 sg: request.parent_sg,
                                 source: table.label,
-                                subgroup_sg: elsewhere.record.sg as u8,
+                                elsewhere_subgroup_sg: elsewhere.record.sg as u8,
                             })
                         }
                         None => Err(SubductionApiError::CondensingNotFound {
@@ -843,18 +846,16 @@ pub fn subduce_table(request: &SubductionRequest<'_>) -> Result<Vec<TableEntry>,
     let list = isotropy::isotropy_subgroups(request.parent_sg, record.ml, LabelConvention::Cdml)?;
     let mut entries = Vec::with_capacity(list.len());
     for (index, subgroup) in list.iter().enumerate() {
-        // Each direction is asked with the **original** name and no ordinal:
-        // the ordinal only selected the owning irrep, and pinning it per
-        // direction would fail on every direction that ordinal does not belong
-        // to.  A source that runs through two subgroups at a direction is
-        // reported as ambiguous for that entry, which is the honest survey.
-        // The direction is passed as a **label**, not as a local index: an
-        // index is interpreted inside each record's own list, and different
-        // irreps order their directions differently, so an index would sweep
-        // different directions for different candidate records.
+        // Every entry is pinned to **this record's own subgroup** at that
+        // direction by its isotropy ordinal.  Passing the source label without
+        // a context would let the entry resolve to *another* irrep's subgroup
+        // at the same direction (round-15e finding), and passing the request's
+        // single ordinal would fail on every other direction; the local ordinal
+        // is exactly the context this entry is about.
         let mut direction_request =
             SubductionRequest::new(request.parent_sg, request.condensing, request.convention)
-                .direction(IsotropyDirection::Label(subgroup.record.direction_label));
+                .direction(IsotropyDirection::Index(index))
+                .ordinal(subgroup.ordinal);
         if let Some(parameter) = request.parameter {
             direction_request = direction_request.parameter(parameter);
         }

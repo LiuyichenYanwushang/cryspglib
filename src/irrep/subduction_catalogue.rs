@@ -20,10 +20,10 @@
 //! This module computes, with exact rational arithmetic and without any
 //! character table:
 //!
-//! * [`little_co_group`]: one child operation per distinct rotation that fixes
+//! * `little_co_group`: one child operation per distinct rotation that fixes
 //!   `q` modulo the child primitive reciprocal lattice (centring extinctions
 //!   included), with its factor system as rational turns;
-//! * [`one_dimensional_characters`]: every one-dimensional projective character
+//! * `one_dimensional_characters`: every one-dimensional projective character
 //!   `psi` of `P_q`, i.e. every exact solution of
 //!   `psi_i + psi_j - psi_k == omega_ij (mod 1)`.
 //!
@@ -35,7 +35,7 @@
 //! representation of `P_q` is one-dimensional.  A co-group whose cocycle is not
 //! a coboundary, and a non-abelian co-group, return fewer solutions; the small
 //! higher-dimensional families those cover are built separately by
-//! [`projective_targets`], each behind its own finite structural gates.  A
+//! `projective_targets`, each behind its own finite structural gates.  A
 //! co-group outside both paths returns an empty catalogue: this module never
 //! guesses one.
 //!
@@ -61,7 +61,7 @@ const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 /// also needs it for the six-element `D_3` family, where it supplies the gauge
 /// (its two solutions are `Hom(D_3, U(1))`) rather than a catalogue.  This batch
 /// adds the eight-element `D4` family: the solver enumerates its four gauges and
-/// [`projective_targets`] turns them into the four gauge-twisted one-dimensional
+/// `projective_targets` turns them into the four gauge-twisted one-dimensional
 /// characters plus the gauge-twisted ordinary two-dimensional character.
 /// Raising this bound also lets the generic all-one-dimensional path handle
 /// order-eight abelian co-groups whenever their cocycle is a coboundary.
@@ -281,7 +281,7 @@ impl LittleCoGroup {
     /// `psi_i + psi_j - psi_k == turns[i][j] (mod 1)` has a solution.
     ///
     /// This is the order-independent version of what
-    /// [`one_dimensional_characters`] decides for `|P_q| <= MAX_ORDER` (its
+    /// `one_dimensional_characters` decides for `|P_q| <= MAX_ORDER` (its
     /// solution set is empty exactly when the cocycle is not a coboundary).  The
     /// order bound matters for the census: 1,980 of its probes have child little
     /// co-groups of order 12 to 48, where the one-dimensional solver returns an
@@ -817,7 +817,7 @@ fn constants_of(
     Ok(out)
 }
 
-/// The one-class, four-element abelian family (see [`projective_targets`]).
+/// The one-class, four-element abelian family (see `projective_targets`).
 fn abelian_four_targets(
     co_group: &LittleCoGroup,
     identity: usize,
@@ -862,7 +862,7 @@ fn abelian_four_targets(
     }])
 }
 
-/// The six-element dihedral family (see [`projective_targets`]).
+/// The six-element dihedral family (see `projective_targets`).
 fn dihedral_six_targets(
     co_group: &LittleCoGroup,
     identity: usize,
@@ -1036,7 +1036,7 @@ fn d4_central_involution(
     Ok(Some(central))
 }
 
-/// The eight-element dihedral family (see [`projective_targets`]).
+/// The eight-element dihedral family (see `projective_targets`).
 ///
 /// **Finite proof gates**, all on the multiplication table:
 ///

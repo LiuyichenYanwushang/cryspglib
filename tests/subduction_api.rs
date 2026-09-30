@@ -11,7 +11,7 @@ use cryspglib::irrep::subduction_api::{
     SubductionApiError, SubductionRequest, subduce, subduce_table, subduction_for_direction,
 };
 use cryspglib::irrep::{
-    LabelConvention, isotropy, isotropy::IsotropyDirection, query, subduce_irrep,
+    LabelConvention, isotropy, isotropy::IsotropyDirection, line_monodromy, query, subduce_irrep,
 };
 
 /// The milestone's golden case: SG 221 `GM4+` along `P1`.
@@ -333,16 +333,19 @@ fn the_whole_table_wrapper_covers_every_direction() {
     for entry in &sweep {
         match &entry.result {
             Ok(report) => {
-                // The DT1 line is answered wherever exactly one context owns
-                // it; that context can be W2 even inside W1's direction list.
-                assert!(
-                    report.condensing().cdml == "W1" || report.condensing().cdml == "W2",
-                    "the answer must name the owning irrep, got {}",
+                // The sweep was pinned to ordinal 10038, i.e. to SG 196 `W1`:
+                // every answered entry must be that record's own subgroup at
+                // that direction.  Round-15e found the opposite (entries
+                // reporting `W2` with a foreign `index_in_irrep`) when the
+                // sweep re-resolved the source label per direction.
+                assert_eq!(
+                    report.condensing().cdml,
+                    "W1",
+                    "entry {} answered with {}",
+                    entry.index,
                     report.condensing().cdml
                 );
-                // The answering context may be another irrep, whose own list
-                // orders the direction differently -- the label is what the
-                // sweep asked for.
+                assert_eq!(report.direction().index_in_irrep, entry.index);
                 assert_eq!(report.direction().label, entry.label);
             }
             Err(error) => {
@@ -469,4 +472,74 @@ fn the_old_gamma_only_entry_refused_what_the_new_entry_answers() {
     )
     .expect("the frozen line answers at its official parameter");
     assert_eq!(line.parameter_kind(), Some(ParameterKind::LineIrrep));
+}
+
+/// Round-15e: a sweep pinned by a frozen **source** label must answer only the
+/// resolved record's own subgroups.  Without the per-entry ordinal, a direction
+/// whose own subgroup does not carry the source re-resolved the name and
+/// answered with **another irrep's** context (SG 196 `DT1` `.ordinal(10038)`
+/// reported `W2` for five directions), which is the worst kind of wrong answer:
+/// a complete decomposition of the wrong subgroup.
+#[test]
+fn a_source_pinned_sweep_never_answers_with_another_record() {
+    let mut checked = 0usize;
+    let mut wrong: Vec<String> = Vec::new();
+    let mut sources = 0usize;
+    for parent in line_monodromy::line_parents() {
+        for source in line_monodromy::line_sources(parent) {
+            // The first context (record + row) whose rows carry this source.
+            let mut found = None;
+            'scan: for record in query::irreps_of(parent) {
+                if record.spinor || record.subgroups().is_empty() {
+                    continue;
+                }
+                let Ok(list) =
+                    isotropy::isotropy_subgroups(parent, record.ml, LabelConvention::Cdml)
+                else {
+                    continue;
+                };
+                for subgroup in list {
+                    let Ok(rows) = subgroup.other_wave_vector_subduction() else {
+                        continue;
+                    };
+                    if rows.iter().any(|row| row.parent_ml == source.label) {
+                        found = Some((record.ml, subgroup.ordinal));
+                        break 'scan;
+                    }
+                }
+            }
+            let Some((owning, ordinal)) = found else {
+                continue;
+            };
+            sources += 1;
+            let entries = subduce_table(
+                &SubductionRequest::new(parent, source.label, LabelConvention::Cdml)
+                    .ordinal(ordinal),
+            )
+            .unwrap_or_else(|error| {
+                panic!("sg {parent} {} ordinal {ordinal}: {error}", source.label)
+            });
+            for entry in &entries {
+                let Ok(report) = &entry.result else {
+                    continue;
+                };
+                checked += 1;
+                if report.condensing().cdml != owning
+                    || report.direction().index_in_irrep != entry.index
+                {
+                    wrong.push(format!(
+                        "sg {parent} {} ordinal {ordinal}: entry {} ({}) answered {} index {}",
+                        source.label,
+                        entry.index,
+                        entry.label,
+                        report.condensing().cdml,
+                        report.direction().index_in_irrep
+                    ));
+                }
+            }
+        }
+    }
+    assert!(sources > 0, "the frozen sources must be reachable");
+    assert_eq!(wrong, Vec::<String>::new(), "{} wrong entries", wrong.len());
+    assert!(checked > 0, "the sweep must answer something");
 }
