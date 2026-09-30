@@ -948,25 +948,30 @@ fn the_engine_answers_a_far_translated_parameter() {
                 );
                 // The pairing by arm set is only a bijection while no result has
                 // two blocks with the same arm set; that is measured on this
-                // corpus (0 of 5,756 rows at every shift) and asserted here so a
-                // future engine that merges arms cannot make the pairing
-                // ambiguous in silence.
-                let mut arm_sets: Vec<&Vec<usize>> =
-                    shifted_blocks.iter().map(|(arms, _)| arms).collect();
-                arm_sets.sort();
-                let distinct = {
-                    let mut unique = arm_sets.clone();
-                    unique.dedup();
-                    unique.len()
-                };
-                assert_eq!(
-                    distinct,
-                    arm_sets.len(),
-                    "ordinal {} {}: two blocks at t={parameter} share an arm set, so pairing \
-                     them by arms would be ambiguous",
-                    subgroup.ordinal,
-                    row.parent_ml
-                );
+                // corpus (0 of 5,756 rows at every shift, on both sides -- the
+                // round-15c verifier checked both) and asserted here so a future
+                // engine that merges arms cannot make the pairing ambiguous in
+                // silence.  Both sides are checked: the argument is symmetric,
+                // and an independent verifier flagged that checking only the
+                // shifted side was thinner than the claim.
+                for (side, blocks) in [("t=1/4", &reference_blocks), ("shifted", &shifted_blocks)] {
+                    let mut arm_sets: Vec<&Vec<usize>> =
+                        blocks.iter().map(|(arms, _)| arms).collect();
+                    arm_sets.sort();
+                    let distinct = {
+                        let mut unique = arm_sets.clone();
+                        unique.dedup();
+                        unique.len()
+                    };
+                    assert_eq!(
+                        distinct,
+                        arm_sets.len(),
+                        "ordinal {} {}: two blocks on the {side} side (shift {shift}) share an \
+                         arm set, so pairing them by arms would be ambiguous",
+                        subgroup.ordinal,
+                        row.parent_ml
+                    );
+                }
                 let order_differs = shifted_blocks
                     .iter()
                     .map(|(_, key)| key)
