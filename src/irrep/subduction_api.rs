@@ -117,6 +117,19 @@ pub enum SubductionApiError {
     /// An explicit isotropy ordinal was requested that does not belong to the
     /// resolved condensing irrep and direction.
     UnknownContext { sg: u8, ordinal: usize },
+    /// The pinned isotropy context is a real subgroup at the requested
+    /// direction, but its rows do not name the requested frozen line source.
+    ///
+    /// Round-15f: without this variant the whole-table sweep reported the
+    /// 29,253 non-carrying entries as [`SubductionApiError::UnknownContext`],
+    /// whose documented meaning ("the ordinal does not belong here") is the
+    /// opposite of what happened -- the ordinal is exactly this entry's own
+    /// row.  Fail-closed either way, but the reason has to be the real one.
+    LineSourceNotInContext {
+        sg: u8,
+        source: String,
+        ordinal: usize,
+    },
     /// A parameter was requested through a condensing irrep and direction
     /// whose subgroup carries several frozen line sources, so the request does
     /// not name one line.  Name the source label (and, if that label itself
@@ -198,6 +211,15 @@ impl std::fmt::Display for SubductionApiError {
                 f,
                 "space group {sg}: isotropy ordinal {ordinal} does not belong to the resolved \
                  condensing irrep and direction"
+            ),
+            Self::LineSourceNotInContext {
+                sg,
+                source,
+                ordinal,
+            } => write!(
+                f,
+                "space group {sg}: isotropy ordinal {ordinal} is a real subgroup at this \
+                 direction, but the frozen line source {source} does not run through it"
             ),
             Self::AmbiguousLineSource {
                 sg,
@@ -565,6 +587,24 @@ fn resolve_line_sources(
     out
 }
 
+/// Whether `ordinal` is the ordinal of some subgroup at this direction of some
+/// irrep of the parent -- i.e. a real context here, whether or not it carries a
+/// given frozen source.
+fn ordinal_is_a_context_at(parent_sg: u8, direction: IsotropyDirection<'_>, ordinal: usize) -> bool {
+    query::irreps_of(parent_sg).iter().any(|record| {
+        !record.spinor
+            && !record.subgroups().is_empty()
+            && isotropy::isotropy_subgroup_for_direction(
+                parent_sg,
+                record.ml,
+                LabelConvention::Cdml,
+                direction,
+            )
+            .map(|subgroup| subgroup.ordinal == ordinal)
+            .unwrap_or(false)
+    })
+}
+
 /// Apply the request's explicit ordinal selector to the resolved candidates.
 fn select_context(
     request: &SubductionRequest<'_>,
@@ -577,10 +617,23 @@ fn select_context(
             .position(|(_, subgroup)| subgroup.ordinal == ordinal)
         {
             Some(position) => Ok(matches.swap_remove(position)),
-            None => Err(SubductionApiError::UnknownContext {
-                sg: request.parent_sg,
-                ordinal,
-            }),
+            None => {
+                // Two different misses: the ordinal is a real subgroup at this
+                // direction that simply does not carry the source (the sweep's
+                // normal per-entry case), or it is not a context here at all.
+                if ordinal_is_a_context_at(request.parent_sg, request.direction, ordinal) {
+                    Err(SubductionApiError::LineSourceNotInContext {
+                        sg: request.parent_sg,
+                        source: source.unwrap_or(request.condensing).to_string(),
+                        ordinal,
+                    })
+                } else {
+                    Err(SubductionApiError::UnknownContext {
+                        sg: request.parent_sg,
+                        ordinal,
+                    })
+                }
+            }
         };
     }
     match matches.len() {

@@ -22,6 +22,17 @@ Usage::
 
 The cache defaults to ``target/direction-descriptors/cache.jsonl`` and the JSON
 to ``scripts/data/direction_descriptors_v1.json``.
+
+One honest limit (round-15f finding 5): ``iso`` prints exactly the same empty
+output for a real record whose direction table is empty and for an irrep label it
+does not know, so ``status: "empty"`` means "the program printed no direction
+rows" and **not** "this record has an empty table" on its own.  The record
+universe here comes from the pinned data tables (``machine_records()``), and
+``freeze_direction_descriptors.py`` refuses to freeze a JSON whose key set
+differs from that universe, which is what turns ``empty`` into the former
+reading; an unknown label cannot enter the corpus in the first place.
+``status: "failed"`` is reserved for the oracle call itself raising (non-zero
+exit, timeout, parse error).
 """
 
 from __future__ import annotations

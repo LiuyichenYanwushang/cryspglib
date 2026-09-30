@@ -543,3 +543,78 @@ fn a_source_pinned_sweep_never_answers_with_another_record() {
     assert_eq!(wrong, Vec::<String>::new(), "{} wrong entries", wrong.len());
     assert!(checked > 0, "the sweep must answer something");
 }
+
+/// Round-15f finding 1: an entry whose own subgroup does **not** carry the
+/// requested frozen source must say so.  Before this variant those entries were
+/// reported as `UnknownContext` ("the ordinal does not belong here"), which is
+/// the opposite of the truth -- the ordinal is exactly that entry's own row.
+#[test]
+fn a_non_carrying_entry_names_its_real_reason() {
+    let owning = "W1";
+    let list = isotropy::isotropy_subgroups(202, owning, LabelConvention::Cdml)
+        .expect("SG 202 W1 has an isotropy table");
+    // A context whose own rows really carry the source.
+    let context = list
+        .iter()
+        .find(|subgroup| {
+            subgroup
+                .other_wave_vector_subduction()
+                .map(|rows| rows.iter().any(|row| row.parent_ml == "DT1"))
+                .unwrap_or(false)
+        })
+        .expect("SG 202 W1 has a DT1 direction")
+        .ordinal;
+    let entries = subduce_table(
+        &SubductionRequest::new(202, "DT1", LabelConvention::Cdml).ordinal(context),
+    )
+    .expect("SG 202 DT1 resolves");
+    let mut reported = Vec::new();
+    for entry in &entries {
+        match &entry.result {
+            Ok(_) => {}
+            Err(SubductionApiError::LineSourceNotInContext {
+                sg: 202,
+                source,
+                ordinal,
+            }) => {
+                assert_eq!(source, "DT1");
+                assert_eq!(*ordinal, list[entry.index].ordinal, "entry {}", entry.index);
+                reported.push(entry.index);
+            }
+            Err(error) => assert!(
+                matches!(error, SubductionApiError::LineSourceNotInDirection { .. }),
+                "entry {}: {error}",
+                entry.index
+            ),
+        }
+    }
+    assert!(
+        !reported.is_empty(),
+        "the sweep must report non-carrying contexts with their real reason"
+    );
+
+    // An ordinal that is a context of *another* direction still says
+    // UnknownContext: the carrier direction has candidates, but none of them is
+    // this ordinal, and this ordinal is not a context of this direction.
+    let carrier_direction = list
+        .iter()
+        .find(|subgroup| subgroup.ordinal == context)
+        .expect("the carrier is in the list")
+        .record
+        .direction_label;
+    let other = list
+        .iter()
+        .find(|subgroup| subgroup.record.direction_label != carrier_direction)
+        .expect("W1 has more than one direction");
+    match subduce(
+        &SubductionRequest::new(202, "DT1", LabelConvention::Cdml)
+            .direction(IsotropyDirection::Label(carrier_direction))
+            .ordinal(other.ordinal),
+    )
+    .expect_err("that ordinal belongs to another direction") {
+        SubductionApiError::UnknownContext { sg: 202, ordinal } => {
+            assert_eq!(ordinal, other.ordinal);
+        }
+        other_error => panic!("expected UnknownContext, got {other_error}"),
+    }
+}

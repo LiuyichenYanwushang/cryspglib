@@ -105,10 +105,41 @@ def quote(text: str) -> str:
     return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def validate_universe(records: dict) -> None:
+    """The JSON must cover exactly the machine tables, internal strings included.
+
+    This is what makes `status: "empty"` mean "the program prints no direction
+    rows for this **real** record": `iso` prints the same empty output for a
+    label it does not know, so the record universe has to be checked against the
+    data tables rather than inferred from the oracle's output.
+    """
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import verify_isotropy_oracle as oracle  # noqa: PLC0415
+
+    machine = oracle.machine_records()
+    machine_keys = {f"{sg}|{ml}" for (sg, ml) in machine}
+    json_keys = set(records)
+    if machine_keys != json_keys:
+        missing = sorted(machine_keys - json_keys)[:5]
+        extra = sorted(json_keys - machine_keys)[:5]
+        raise SystemExit(
+            f"record universe mismatch: missing {missing}, extra {extra} "
+            f"(machine {len(machine_keys)}, json {len(json_keys)})"
+        )
+    for key, entry in records.items():
+        sg_text, ml = key.split("|", 1)
+        expected = {
+            row["label"]: row["direction"] for row in machine[(int(sg_text), ml)]
+        }
+        if entry["internal"] != expected:
+            raise SystemExit(f"{key}: internal strings differ from the data tables")
+
+
 def render(json_path: str) -> str:
     payload = json.load(open(json_path, encoding="utf-8"))
     sources = payload["sources"]
     records = payload["records"]
+    validate_universe(records)
     body = []
     empty_rows = []
     directions = 0

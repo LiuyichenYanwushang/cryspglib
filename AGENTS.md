@@ -1896,11 +1896,40 @@ SG194 `GM6+` `(a,0)`、复杂分隔符（SG177 `L1` `(a;b;c)` 单向量用 `;`�
   `little_co_group`/`one_dimensional_characters`/`projective_targets`；`subduction_line_domain.rs`
   4 条：`super::decompose::LineSubduction::parameter_kind`/`minimal_parameter_step_via_coordinates`/
   `child_exceptional_parameters`/`full_star_partition`）；rustdoc 对这几条**不打印 `-->` 位置行**，
-  我上次只按 `-->` 计数才漏掉。现已全部去链接化（18 处），`cargo doc` 剩 **9** 条且全部在
-  `api.rs`/`corep.rs`/`generated_data.rs`/`wigner.rs`/`lib.rs`（转正前既存）。 **干净树证据**：电池 `target/logs/r8g/summary.txt`
+  我上次只按 `-->` 计数才漏掉。现已全部去链接化（18 处），`cargo doc` 剩 **10** 条且全部在
+  `api.rs`/`corep.rs`/`generated_data.rs`/`wigner.rs`/`lib.rs`（转正前既存）。
+  **更正（15f）**：先前写"9 条"是算错（17 − 7 = **10**，多出的一条是 `wigner.rs:4137` 的
+  unclosed HTML tag）；实质结论不变——没有任何一条告警的文本或位置指向转正模块。 **干净树证据**：电池 `target/logs/r8g/summary.txt`
 （`revision 97c3c73 dirty-files 0`）**712 passed / 0 failed**、42 个壳、三 TSV 仍钉住（4 == 8）、
 `VERDICT complete`、clippy/doctest/oracle/python 全 exit 0；`subduction_api` 集成测试 **12 项**
 （新增语料级"每个条目只答被扫记录"回归，去掉钉法的变异让其中 2 项失败、语料扫描报 80 条错）。
+
+* **第 15f 轮审核（复核 15e 修复与 R7 采集数据；审核方中途挂掉，但按约定增量落盘了
+  `target/review-r8/REPORT-15f.md`，463 行、STATUS 仍 in progress——结论已可读取，三条 P3 全部处理）**。
+  **它复核通过的**：修复后**错标 0 / 416,866**（15e 时 4,116），离散请求与 `t=1/4` 参数化请求
+  都一样；`ok_on_noncarrier = 0`，每条 `Ok` 都落在自己记录的上下文里。普通 irrep 扫描
+  （全部 230 个 SG 的 **4,777** 个记录 / **15,239** 个条目）**0 错误**、顺序/标号/下标全对、
+  "请求里的 direction 不改变扫描结果"成立。`scripts/data/direction_descriptors_v1.json` 诚实：
+  manifest sha256 与文件一致、三个来源哈希一致、声明计数与载荷一致、记录全集与
+  `machine_records()` **0 缺 0 多**、15,239 条内部串逐条与数据表相同；112 个"空表"里抽
+  **12 个**用它自己的 `iso` 会话复跑确认真的没有方向行（并有同母群的对照会话打印出正常行）；
+  5 个验收记录在**新鲜 oracle 运行**下逐方向一致；单个记录内官方串**无重复**（0/4,665）。
+  采集脚本的**逐记录隔离**（注入一条会抛错的记录：被隔离、错误文本落缓存、进程 exit 1、
+  其它记录不受影响）与**断点续采**（缓存命中时 0 次新会话）都实测通过。本方 15e 修复的
+  **变异数字 80 被精确复现**（修复前形态：867 条答案里 80 条错标，且另有 1,117 条从
+  `AmbiguousLineContext` 恢复成真实答案），账本数字（712/0、42 壳、三 TSV 4==8、12 项 API 测试）
+  也逐条复算通过。
+  **P3-1（已修）**：整表扫描里 **29,253** 条非承载条目原先报 `UnknownContext`（"这个 ordinal
+  不属于这里"）——而那个 ordinal 恰恰是**它自己那一行**。新错误 **`LineSourceNotInContext
+  { sg, source, ordinal }`** 区分"该上下文不承载该源"与"外来 ordinal"（后者仍是
+  `UnknownContext`）；常驻测试用 SG 202 `DT1` 的承载上下文扫全表、逐条断言非承载条目报新错误
+  且 ordinal 等于 `list[entry.index].ordinal`，并用另一个方向的 ordinal 钉住 `UnknownContext`
+  仍在。
+  **P3-2（已修）**：`iso` 对"真实但空表"与"不认识的 irrep 标号"打印**完全相同**的空输出，
+  所以 `status: "empty"` 只能表示"程序没有打印方向行"。现在冻结脚本**拒绝**键集与
+  `machine_records()` 不一致的 JSON（负对照：塞入 `1|NOPE` → exit 1），采集脚本文档写明这一
+  限制与 `failed` 的确切含义——于是 `empty` 在本语料里确实等于"真实记录的空表"。
+  **P3-3（已改）**：见上面 rustdoc 告警数的更正（10 而非 9）。
 
 
 
