@@ -182,12 +182,56 @@ def render(json_path: str) -> str:
     )
 
 
+def verify_empty_tables(json_path: str, jobs: int) -> int:
+    """Re-ask the oracle about every `status: "empty"` record (round-15g limit).
+
+    `validate_universe` proves such a key is a real data-table record, but not
+    that the program's direction table for it is empty: the JSON could have been
+    written from a stale cache.  This re-runs `SHOW DIRECTION VECTOR` for those
+    records only and fails when any of them prints rows.
+    """
+    import concurrent.futures  # noqa: PLC0415
+
+    payload = json.load(open(json_path, encoding="utf-8"))
+    empty = sorted(
+        key for key, entry in payload["records"].items() if entry["status"] == "empty"
+    )
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import verify_isotropy_oracle as oracle  # noqa: PLC0415
+
+    def check(key: str) -> tuple[str, int]:
+        sg_text, ml = key.split("|", 1)
+        rows = oracle.run_oracle_direction_vectors(int(sg_text), ml)
+        return key, len(rows)
+
+    findings = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+        for key, count in pool.map(check, empty):
+            if count:
+                findings.append(f"{key}: {count} direction row(s) printed")
+    if findings:
+        for finding in findings:
+            print(f"NOT EMPTY  {finding}", file=sys.stderr)
+        return 1
+    print(f"{len(empty)} empty program tables re-confirmed against the oracle")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--json", default="scripts/data/direction_descriptors_v1.json")
     parser.add_argument("--output", default="src/irrep/direction_descriptors_data.rs")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument(
+        "--verify-empty",
+        action="store_true",
+        help="re-ask the oracle about every empty-table record (needs the iso binary)",
+    )
+    parser.add_argument("--jobs", type=int, default=0, help="0 = min(8, cores)")
     args = parser.parse_args()
+
+    if args.verify_empty:
+        return verify_empty_tables(args.json, args.jobs or min(8, os.cpu_count() or 1))
 
     rendered = render(args.json)
     if args.check:

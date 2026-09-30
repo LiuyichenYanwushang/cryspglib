@@ -1920,7 +1920,8 @@ SG194 `GM6+` `(a,0)`、复杂分隔符（SG177 `L1` `(a;b;c)` 单向量用 `;`�
   `AmbiguousLineContext` 恢复成真实答案），账本数字（712/0、42 壳、三 TSV 4==8、12 项 API 测试）
   也逐条复算通过。
   **P3-1（已修）**：整表扫描里 **29,253** 条非承载条目原先报 `UnknownContext`（"这个 ordinal
-  不属于这里"）——而那个 ordinal 恰恰是**它自己那一行**。新错误 **`LineSourceNotInContext
+  不属于这里"）——而那个 ordinal 恰恰是**它自己那一行**（另外 **92,961** 条是"该方向上没有任何
+  子群承载该源"，本来就报 `LineSourceNotInDirection`，见下面的 15g 精度说明）。新错误 **`LineSourceNotInContext
   { sg, source, ordinal }`** 区分"该上下文不承载该源"与"外来 ordinal"（后者仍是
   `UnknownContext`）；常驻测试用 SG 202 `DT1` 的承载上下文扫全表、逐条断言非承载条目报新错误
   且 ordinal 等于 `list[entry.index].ordinal`，并用另一个方向的 ordinal 钉住 `UnknownContext`
@@ -1929,7 +1930,25 @@ SG194 `GM6+` `(a,0)`、复杂分隔符（SG177 `L1` `(a;b;c)` 单向量用 `;`�
   所以 `status: "empty"` 只能表示"程序没有打印方向行"。现在冻结脚本**拒绝**键集与
   `machine_records()` 不一致的 JSON（负对照：塞入 `1|NOPE` → exit 1），采集脚本文档写明这一
   限制与 `failed` 的确切含义——于是 `empty` 在本语料里确实等于"真实记录的空表"。
-  **P3-3（已改）**：见上面 rustdoc 告警数的更正（10 而非 9）。 **干净树电池**：`target/logs/r8i/summary.txt`
+  **P3-3（已改）**：见上面 rustdoc 告警数的更正（10 而非 9）。
+* **第 15g 轮审核（复核 `401a986` 的三条修复，独立审核方，`target/review-r8/REPORT-15g.md`）：
+  三项全 PASS、无 P1/P2 级反例**。它自己重新扫了 11 个母群 / 73 个源 / **5,756** 个（源, 承载上下文）
+  对、共 **416,866** 条条目（离散与 `t=1/4` 两次）：`Ok=294,652`（对应记录/ordinal/下标/标号/子群号
+  **0 错**）、**`LineSourceNotInContext=29,253`**（恰好是 15f 的 `UnknownContext` 总体，每一条都报
+  **它自己那一行**的 ordinal）、`LineSourceNotInDirection=92,961` 不变、`UnknownContext=0`、
+  其它错误 0；外来 ordinal（146 个巨大值 + 288,896 个"拿别的方向的承载行 ordinal"探针）全部仍是
+  `UnknownContext`。**精度说明（已写进本条）**："每个非承载条目都报 `LineSourceNotInContext`"只对
+  那 29,253 条成立；其余 92,961 条报 `LineSourceNotInDirection`（同样为真：该方向上**没有**任何
+  子群承载该源，只是不带条目自己的 ordinal）。universe gate：`--check` 在提交文件上 exit 0，
+  对私有副本改名键 / 改内部串 / 删内部标号分别 exit 1 且**不写输出文件**；采集脚本文档与代码一致。
+  账本数字逐项复算：`revision 401a986 dirty-files 0`、**721/0**（对它自己的 43 个 `pool/*.log`
+  求和）、43 壳、三 TSV 4==8（它自己 8/4 线程重跑 census 复现三个钉住哈希与行数）、
+  `VERDICT complete`（它自己的审计运行除计时行外逐字节相同）、`subduction_api` **13** 项、
+  rustdoc **10** 条且日志里没有任何转正模块名。
+  **它点出的残余已关掉**：universe gate 只证明那个键是真实数据表记录，不证明"程序对它的方向表
+  真的为空"（可能来自过期缓存）。新增 `python3 scripts/freeze_direction_descriptors.py
+  --verify-empty --jobs 8`：对这 **112** 个空表记录**逐个重跑** `SHOW DIRECTION VECTOR`，任何一个
+  打印出行即 exit 1；实测 **112/112 重确认、11 s（8 路）**，并已接入电池尾段。 **干净树电池**：`target/logs/r8i/summary.txt`
   （`revision 401a986 dirty-files 0`）**721 passed / 0 failed**、43 个测试壳、三 TSV 仍钉住（4 == 8）、
   `VERDICT complete`、clippy/doctest/oracle/python（含 `descriptors --check`）全 exit 0；`subduction_api`
   集成测试 **13 项**（新增 P3-1 见证）。
