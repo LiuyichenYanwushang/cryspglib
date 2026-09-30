@@ -18,12 +18,19 @@
 //!   pure translations of the set) and [`canonical_translation`] reduces any
 //!   translation modulo it, so every structural claim below is a claim about
 //!   classes, which is what the data means.
-//! * [`verify_group`] **proves** the set is a group: it closes a small
-//!   generating set breadth-first (composition followed by
-//!   [`canonical_translation`]) and requires the closure to cover every
-//!   operation class, so identity, closure and inverses all follow without a
-//!   quadratic scan.  It additionally proves that the unitary operations form a
-//!   subgroup and that the antiunitary operations form a single coset of it.
+//! * [`canonical_translation`] reduces a translation modulo the lattice by
+//!   walking the **whole coset** (breadth-first over the generators, in the
+//!   finite torus of the common denominator), so the representative depends
+//!   only on the class and no coefficient range has to be guessed.
+//! * [`verify_group`] **proves** the set is a group with a direct check: every
+//!   pair product must land back in the class set, the identity class must be
+//!   present and every class must reach the identity by repeated multiplication
+//!   (which also produces its inverse).  It additionally proves that the unitary
+//!   operations form a subgroup and that the antiunitary operations form a
+//!   single coset of it, and that the translation lattice is **rotation
+//!   invariant** -- without that last check the quotient would not be a group
+//!   even when the pairwise products happen to close (round-r9a finding: the
+//!   generation argument silently assumed it).
 //!
 //! The database lists a **centred** group both ways: UNI 20 contains `(E | 0)`
 //! and `(E | 1/2,1/2,0)`, which are the same element modulo that group's
@@ -37,6 +44,19 @@
 //! operations in the parent's frame through the isotropy record's `basis` and
 //! `origin`.  Building the embedding before the frame convention is pinned
 //! against an independent anchor would be exactly the guessing R9 forbids.
+//!
+//! # What the group axioms cannot see (round r9a)
+//!
+//! A **self-consistent rescaling** of the ambient lattice -- editing a pure
+//! translation so that every representative moves with it -- yields a different
+//! but equally consistent magnetic group, and no axiom can reject it; a
+//! *non*-consistent edit is caught ([`MagneticContractError::MetadataMismatch`]).
+//! A group-wide flip of every time-reversal flag is likewise invisible for some
+//! groups (the reviewer measured 517 of the 1,421 referenced UNIs passing it
+//! once the bookkeeping is refreshed; the only literal `{E, T·E}` set in the
+//! database is UNI 2, which the isotropy tables do not reference).  Both are why
+//! [`verify_against_database`] exists and why R9's acceptance is "align the
+//! operation set item by item with an independent source".
 
 use std::collections::HashMap;
 
@@ -46,12 +66,6 @@ use crate::irrep::subduction::{Mat3I, Mat3R, Rat, Vec3R};
 /// Largest denominator [`magnetic_operations`] accepts when it converts the
 /// database's floating-point translations to exact fractions.
 const MAX_TRANSLATION_DENOMINATOR: i128 = 96;
-
-/// Lattice coefficients tried when a translation is reduced to its canonical
-/// class representative.  The database's pure translations have components at
-/// most 1, so `-2..=2` covers every reduction needed for a translation in
-/// `[0, 1)`.
-const REDUCTION_RANGE: i32 = 2;
 
 /// One magnetic symmetry operation in the setting of its UNI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,6 +161,10 @@ pub enum MagneticContractError {
     },
     /// No operation at all (empty set).
     Empty { uni: usize },
+    /// The translation lattice is not invariant under the set's rotations, so
+    /// the quotient cannot be a group (a conjugating rotation would leave the
+    /// lattice, and with it the set).
+    LatticeNotRotationInvariant { uni: usize },
     /// The set does not match a fresh read of the database it came from.
     DatabaseMismatch {
         uni: usize,
@@ -207,6 +225,10 @@ impl std::fmt::Display for MagneticContractError {
                  antiunitary operations exist"
             ),
             Self::Empty { uni } => write!(f, "UNI {uni} has no operations"),
+            Self::LatticeNotRotationInvariant { uni } => write!(
+                f,
+                "UNI {uni}: the translation lattice is not invariant under the group's rotations"
+            ),
             Self::DatabaseMismatch { uni, index, field } => write!(
                 f,
                 "UNI {uni}: operation {index} differs from the database in {field}"
@@ -342,79 +364,77 @@ pub fn translation_lattice(set: &MagneticOperationSet) -> Vec<[Rat; 3]> {
     lattice
 }
 
-/// Component in `[0, 1)`: the fractional part of an exact rational.
-fn fractional(value: Rat) -> Rat {
-    let floor = value.numerator().div_euclid(value.denominator());
-    Rat::new(
-        value.numerator() - floor * value.denominator(),
-        value.denominator(),
-    )
-    .expect("a non-zero denominator stays non-zero")
-}
-
-fn less(left: &[Rat; 3], right: &[Rat; 3]) -> bool {
-    for axis in 0..3 {
-        let a = left[axis];
-        let b = right[axis];
-        let lhs = a.numerator() * b.denominator();
-        let rhs = b.numerator() * a.denominator();
-        if lhs != rhs {
-            return lhs < rhs;
-        }
+/// Greatest common divisor.
+fn gcd(mut left: i128, mut right: i128) -> i128 {
+    while right != 0 {
+        let remainder = left % right;
+        left = right;
+        right = remainder;
     }
-    false
+    left.abs()
 }
 
 /// The canonical class representative of a translation modulo `lattice`, in
 /// `[0, 1)` per component.
 ///
-/// Every combination of the lattice generators with coefficients in
-/// `-2..=2` is tried, reduced into `[0, 1)^3` and the exact lexicographic
-/// minimum is returned, so the result depends only on the class.
+/// The coset `translation + lattice` is walked **exhaustively** in the finite
+/// torus of the common denominator of all entries (breadth-first over the
+/// lattice generators and their negatives), and the exact lexicographic minimum
+/// is returned.  No coefficient range has to be chosen: round r9a showed that a
+/// fixed range can miss the canonical representative (e.g. `1/2` modulo `1/6`
+/// needs coefficient three), so the reduction is range-free by construction.
 pub fn canonical_translation(translation: [Rat; 3], lattice: &[[Rat; 3]]) -> [Rat; 3] {
-    let mut best = [
-        fractional(translation[0]),
-        fractional(translation[1]),
-        fractional(translation[2]),
+    let mut denominator = 1i128;
+    for value in translation.iter().chain(lattice.iter().flatten()) {
+        denominator = denominator / gcd(denominator, value.denominator()) * value.denominator();
+    }
+    let scale = |value: Rat| -> i128 {
+        value.numerator() * (denominator / value.denominator())
+    };
+    let reduce = |value: i128| -> i128 { value.rem_euclid(denominator) };
+    let start = [
+        reduce(scale(translation[0])),
+        reduce(scale(translation[1])),
+        reduce(scale(translation[2])),
     ];
-    if lattice.is_empty() {
-        return best;
-    }
-    let mut coefficients = vec![0i32; lattice.len()];
-    loop {
-        let mut candidate = translation;
-        for (generator, coefficient) in lattice.iter().zip(coefficients.iter()) {
-            for axis in 0..3 {
-                let shift = generator[axis]
-                    .checked_mul(Rat::from_integer(i128::from(*coefficient)))
-                    .expect("small exact product");
-                candidate[axis] = candidate[axis]
-                    .checked_sub(shift)
-                    .expect("small exact sum");
-            }
+    let generators: Vec<[i128; 3]> = lattice
+        .iter()
+        .map(|generator| {
+            [
+                reduce(scale(generator[0])),
+                reduce(scale(generator[1])),
+                reduce(scale(generator[2])),
+            ]
+        })
+        .filter(|generator| *generator != [0, 0, 0])
+        .collect();
+
+    let mut best = start;
+    let mut seen: std::collections::HashSet<[i128; 3]> = std::collections::HashSet::new();
+    let mut queue: Vec<[i128; 3]> = vec![start];
+    seen.insert(start);
+    while let Some(current) = queue.pop() {
+        if current < best {
+            best = current;
         }
-        let candidate = [
-            fractional(candidate[0]),
-            fractional(candidate[1]),
-            fractional(candidate[2]),
-        ];
-        if less(&candidate, &best) {
-            best = candidate;
-        }
-        // Odometer over -REDUCTION_RANGE..=REDUCTION_RANGE.
-        let mut position = 0;
-        loop {
-            if position == coefficients.len() {
-                return best;
+        for generator in &generators {
+            for sign in [1i128, -1] {
+                let candidate = [
+                    reduce(current[0] + sign * generator[0]),
+                    reduce(current[1] + sign * generator[1]),
+                    reduce(current[2] + sign * generator[2]),
+                ];
+                if seen.insert(candidate) {
+                    queue.push(candidate);
+                }
             }
-            coefficients[position] += 1;
-            if coefficients[position] <= REDUCTION_RANGE {
-                break;
-            }
-            coefficients[position] = -REDUCTION_RANGE;
-            position += 1;
         }
     }
+    [
+        Rat::new(best[0], denominator).expect("non-zero denominator"),
+        Rat::new(best[1], denominator).expect("non-zero denominator"),
+        Rat::new(best[2], denominator).expect("non-zero denominator"),
+    ]
 }
 
 /// Group product `left * right` in the magnetic convention: rotations multiply,
@@ -467,81 +487,29 @@ impl MagneticKey {
     }
 }
 
-/// Breadth-first closure of `seed` inside `universe` (all keys modulo
-/// `lattice`); returns the number of distinct classes reached, or `None` when a
-/// product leaves `universe`.
-fn closure_size(
-    universe: &HashMap<MagneticKey, usize>,
-    lattice: &[[Rat; 3]],
-    seed: &[MagneticOperation],
-) -> Option<usize> {
-    let mut seen: HashMap<MagneticKey, ()> = HashMap::new();
-    let mut frontier: Vec<MagneticOperation> = Vec::new();
-    for operation in seed {
-        let key = MagneticKey::of(operation, lattice);
-        if !universe.contains_key(&key) {
-            return None;
-        }
-        if seen.insert(key, ()).is_none() {
-            frontier.push(*operation);
-        }
-    }
-    while let Some(current) = frontier.pop() {
-        for other in seed {
-            for (left, right) in [(current, *other), (*other, current)] {
-                let product = compose(&left, &right).ok()?;
-                let key = MagneticKey::of(&product, lattice);
-                if !universe.contains_key(&key) {
-                    return None;
-                }
-                if seen.insert(key, ()).is_none() {
-                    frontier.push(product);
-                }
-            }
-        }
-    }
-    Some(seen.len())
-}
-
-/// Greedily generate `universe` from `candidates`, returning how many classes
-/// were reached; closure under the chosen seeds is what "is a group" means here.
-fn generate(
-    universe: &HashMap<MagneticKey, usize>,
-    lattice: &[[Rat; 3]],
-    candidates: &[MagneticOperation],
-) -> Result<usize, MagneticContractError> {
-    let mut seeds: Vec<MagneticOperation> = Vec::new();
-    let mut reached = 0usize;
-    for operation in candidates {
-        let key = MagneticKey::of(operation, lattice);
-        if seeds
-            .iter()
-            .any(|seed| MagneticKey::of(seed, lattice) == key)
-        {
-            continue;
-        }
-        seeds.push(*operation);
-        reached =
-            closure_size(universe, lattice, &seeds).ok_or(MagneticContractError::NotAGroup {
-                uni: 0,
-                generated: seeds.len(),
-                total: universe.len(),
-            })?;
-        if reached == universe.len() {
-            break;
-        }
-    }
-    Ok(reached)
+/// Whether `vector` lies in the lattice (mod the integer translations), judged
+/// by whether its canonical class representative is the zero class.
+fn in_lattice(vector: [Rat; 3], lattice: &[[Rat; 3]]) -> bool {
+    canonical_translation(vector, lattice)
+        .iter()
+        .all(|value| value.is_zero())
 }
 
 /// Prove that `set` is a group (modulo its translation lattice), that its
 /// unitary part is a subgroup and that its antiunitary part is one coset of that
 /// subgroup.
+///
+/// The group claim is a direct check, not a generation shortcut: every pair of
+/// classes must multiply into the class set, the identity class must be present,
+/// and every class must return to the identity under repeated multiplication
+/// (which exhibits its inverse).  The translation lattice must additionally be
+/// invariant under every rotation in the set -- otherwise conjugating a
+/// translation by that rotation leaves the lattice and the quotient is not a
+/// group even if the products of the listed representatives happen to close.
 pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractError> {
     // Re-derive everything from `operations` first: a set whose bookkeeping was
     // edited after construction must not be verified through the stale copy.
     let lattice = translation_lattice(set);
-    let mut checks: [(&'static str, usize, usize); 5] = [("", 0, 0); 5];
     let derived_classes = classify(set);
     let derived_unitary = set
         .operations
@@ -552,23 +520,25 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
         .iter()
         .filter(|operation| !operation.time_reversal)
         .count();
-    checks[0] = ("class count", set.class_count(), derived_classes.len());
-    checks[1] = ("unitary operations", set.unitary_count, derived_unitary);
-    checks[2] = (
-        "antiunitary operations",
-        set.antiunitary_count,
-        set.operations.len() - derived_unitary,
-    );
-    checks[3] = (
-        "unitary classes",
-        set.unitary_classes,
-        derived_unitary_classes,
-    );
-    checks[4] = (
-        "antiunitary classes",
-        set.antiunitary_classes,
-        derived_classes.len() - derived_unitary_classes,
-    );
+    let checks: [(&'static str, usize, usize); 5] = [
+        ("class count", set.class_count(), derived_classes.len()),
+        ("unitary operations", set.unitary_count, derived_unitary),
+        (
+            "antiunitary operations",
+            set.antiunitary_count,
+            set.operations.len() - derived_unitary,
+        ),
+        (
+            "unitary classes",
+            set.unitary_classes,
+            derived_unitary_classes,
+        ),
+        (
+            "antiunitary classes",
+            set.antiunitary_classes,
+            derived_classes.len() - derived_unitary_classes,
+        ),
+    ];
     for (field, recorded, derived) in checks {
         if recorded != derived {
             return Err(MagneticContractError::MetadataMismatch {
@@ -580,7 +550,6 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
         }
     }
     let classes = derived_classes;
-
     let universe: HashMap<MagneticKey, usize> = classes
         .iter()
         .enumerate()
@@ -594,13 +563,67 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
         });
     }
 
-    let reached = generate(&universe, &lattice, &classes)?;
-    if reached != classes.len() {
+    // The lattice must be invariant under every rotation of the set.
+    for operation in &classes {
+        let rotation = Mat3R::from_ints(operation.rotation);
+        for generator in &lattice {
+            let image = rotation
+                .checked_mul_vector(&Vec3R::new(*generator))
+                .map_err(|_| MagneticContractError::Arithmetic)?;
+            if !in_lattice(*image.as_array(), &lattice) {
+                return Err(MagneticContractError::LatticeNotRotationInvariant { uni: set.uni });
+            }
+        }
+    }
+
+    // Full pairwise closure: every product of classes lands in the class set.
+    for left in &classes {
+        for right in &classes {
+            let product = compose(left, right)?;
+            if !universe.contains_key(&MagneticKey::of(&product, &lattice)) {
+                return Err(MagneticContractError::NotAGroup {
+                    uni: set.uni,
+                    generated: 0,
+                    total: classes.len(),
+                });
+            }
+        }
+    }
+
+    // The identity class is present, and every class reaches it by repeated
+    // multiplication (so every class has an inverse).
+    let identity: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let is_identity = |operation: &MagneticOperation| {
+        operation.rotation == identity
+            && !operation.time_reversal
+            && canonical_translation(operation.translation, &lattice)
+                .iter()
+                .all(|value| value.is_zero())
+    };
+    if !classes.iter().any(is_identity) {
         return Err(MagneticContractError::NotAGroup {
             uni: set.uni,
-            generated: reached,
+            generated: 0,
             total: classes.len(),
         });
+    }
+    for operation in &classes {
+        let mut power = *operation;
+        let mut reached = false;
+        for _ in 0..classes.len() {
+            if is_identity(&power) {
+                reached = true;
+                break;
+            }
+            power = compose(&power, operation)?;
+        }
+        if !reached {
+            return Err(MagneticContractError::NotAGroup {
+                uni: set.uni,
+                generated: 0,
+                total: classes.len(),
+            });
+        }
     }
 
     // The unitary classes are a subgroup on their own.
@@ -628,19 +651,17 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
             unitary: unitary.len(),
         });
     }
-    let reached = generate(&unitary_keys, &lattice, &unitary).map_err(|_| {
-        MagneticContractError::UnitaryNotClosed {
-            uni: set.uni,
-            generated: 0,
-            unitary: unitary.len(),
+    for left in &unitary {
+        for right in &unitary {
+            let product = compose(left, right)?;
+            if !unitary_keys.contains_key(&MagneticKey::of(&product, &lattice)) {
+                return Err(MagneticContractError::UnitaryNotClosed {
+                    uni: set.uni,
+                    generated: 0,
+                    unitary: unitary.len(),
+                });
+            }
         }
-    })?;
-    if reached != unitary.len() {
-        return Err(MagneticContractError::UnitaryNotClosed {
-            uni: set.uni,
-            generated: reached,
-            unitary: unitary.len(),
-        });
     }
 
     // The antiunitary classes are a single coset `a * H`.
