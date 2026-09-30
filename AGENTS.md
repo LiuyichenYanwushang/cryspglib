@@ -393,7 +393,9 @@ oracle/独立数据库来源对齐"的原因。**未做（stage 2）**：经 `ba
 以及 Type-I/III/IV 固定例与全 16,721 记录的覆盖统计。
 **测试**：`tests/magnetic_embedding.rs` **6** 项（全语料普查 + 数据库锚定、纯幺正与带反幺正见证、
 四类变异（单点翻转 / 整体翻转 / 平移改写 / 顺序交换）、磁乘法与 `T²` 类身份、**归约范围无关**
-（含 `1/2` 模 `1/6` 反例与 ±4 平移不变性）、**格旋转不变性**合成见证）。 **干净树电池**：`target/logs/r9a/summary.txt`
+（含 `1/2` 模 `1/6` 反例与 ±4 平移不变性）、**格旋转不变性**合成见证）。 **干净树电池**：`target/logs/r9b/summary.txt`
+（`revision 9987263 dirty-files 0`）**727 passed / 0 failed**、44 个测试壳、三 TSV 仍钉住（4 == 8）、
+`VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。 **干净树电池**：`target/logs/r9a/summary.txt`
 （`revision 34352e3 dirty-files 0`）**725 passed / 0 failed**、**44** 个测试壳、三 TSV 仍钉住（4 == 8）、
 `VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
