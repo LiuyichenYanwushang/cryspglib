@@ -390,6 +390,10 @@ Label/Index 照旧永远可用）。旧 `Descriptor` 继续表示内部串，文
 SG194 `GM6+` `(a,0)`、复杂分隔符（SG177 `L1` `(a;b;c)` 单向量用 `;`；SG100 `R1` `(a,b;c,d)` 两个
 向量之间用 `,`）、**全部 15,044 条官方串逐条选回自己那一行**（语料级扫描）、磁方向负例
 （磁记录的程序表不存在：磁选择器对 `OfficialDescriptor` 报 `NoOfficialDescriptor`，`Label` 仍可用）。
+**干净树电池**：`target/logs/r8h/summary.txt`（`revision ffb20c1 dirty-files 0`）
+**720 passed / 0 failed**、**43** 个测试壳（比上一档多出 `direction_descriptors`）、三 TSV 仍钉住（4 == 8）、
+`VERDICT complete`、clippy/doctest/oracle/python 全 exit 0；电池尾段现在多跑一条
+`python3 scripts/freeze_direction_descriptors.py --check`（Rust 表必须与采集 JSON 同步）。
 **如实记下的缺口 / 防御分支**：112 个记录的程序方向表为空，它们的 **195** 个内部标号因此都是
 `TableEmpty`（**不是** `LabelNotInTable`；内部串没有被冒充成官方串）；`LabelNotInTable` 在本语料
 **0/15,044** 无见证，是防御分支，由 `classify_official` 的单测覆盖；磁记录的官方串**没有采集**
