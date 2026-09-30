@@ -15,7 +15,7 @@
 //! * the full-star character is the induced one: an arm that the operation
 //!   moves to another arm contributes **zero**, a fixed arm contributes
 //!   `chi_seed(g_i^-1 h g_i)`.  The conjugated Seitz operation is evaluated
-//!   with the **seed** wave vector through [`super::character_of`], so the
+//!   with the **seed** wave vector through `super::character_of`, so the
 //!   Bloch phase of every stored representative survives.
 //!
 //! [`decompose`] restricts the ordinary full star to an embedded subgroup and

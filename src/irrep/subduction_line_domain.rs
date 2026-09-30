@@ -256,7 +256,7 @@ fn reduce_modulo_one(value: Rat) -> Rat {
 /// frame the frozen `direction` fields live in.
 ///
 /// Fails only for an out-of-range number.  The lattice is the one of the **stored
-/// Hall setting** of that space group number ([`exact_primitive_basis`] switches
+/// Hall setting** of that space group number (`exact_primitive_basis` switches
 /// on the centring of `SG_DATA_HALL[sg]`), which is what the frozen directions
 /// and the census use; 27 space group numbers have Hall settings with a different
 /// centring, so "the reciprocal lattice of SG `n`" is shorthand for that setting.
@@ -423,7 +423,7 @@ pub fn child_cocycles_are_cohomologous(
 ///
 /// **Precondition:** for `w` different from zero, `lattice` must be contained in
 /// `Z^3` in the frame of `w`, and the quotient `Z^3 / lattice` must have exponent
-/// at most [`CENTRING_SCAN`].  Both hold for the reciprocal lattice of the stored
+/// at most `CENTRING_SCAN`.  Both hold for the reciprocal lattice of the stored
 /// Hall setting of every space group number (index at most four, exponent at most
 /// three; asserted by
 /// `every_space_group_reciprocal_lattice_is_integral_with_small_exponent`).  The
@@ -435,7 +435,7 @@ pub fn child_cocycles_are_cohomologous(
 /// in every lattice, so the answer is `Ok(None)` for any lattice, before the
 /// check.  The second hypothesis is sufficient rather than necessary -- the scan
 /// errors exactly when the least admissible centring multiple exceeds the bound,
-/// which an exponent above [`CENTRING_SCAN`] implies but does not exhaust (a
+/// which an exponent above `CENTRING_SCAN` implies but does not exhaust (a
 /// lattice like `diag(4, 3, 1)` still answers many `w` correctly).
 pub fn minimal_parameter_step(
     lattice: &Lattice,
@@ -902,7 +902,7 @@ pub struct StarEvent {
 /// `counts` are **exact** (how many `(arm, image, rotation)` triples hold exactly
 /// at this parameter); `witnesses` are bounded -- one per `(kind, arm)` pair --
 /// so a boundary such as `t = 0`, where every relation holds at once, cannot blow
-/// the partition up.  The geometry itself is recomputed from [`FoldArm`]s by the
+/// the partition up.  The geometry itself is recomputed from `FoldArm`s by the
 /// consumer (R6.7 card 6 checks it against the production grouping); the witness
 /// list is for the audit trail, not for the decision.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1531,7 +1531,7 @@ mod tests {
     /// pure translations in its stored Hall setting, identity first.
     ///
     /// This reads the group's **own operations**, not the `Centering` table entry
-    /// that [`exact_primitive_basis`] switches on, so it is the second route the
+    /// that `exact_primitive_basis` switches on, so it is the second route the
     /// per-space-group assertion below compares [`reciprocal_lattice`] with.  The
     /// pure translations of a conventional cell are the centring coset
     /// representatives, so their number is the index of the direct lattice in
@@ -1565,7 +1565,7 @@ mod tests {
     /// every control because the census compares it only with itself.  Second, the
     /// quotient `Z^3 / L*` has exponent at most three, so the smallest admissible
     /// centring multiple is never larger than that and the scan bound
-    /// ([`CENTRING_SCAN`] = 6) always finds it.  Third, the F-centred groups are
+    /// (`CENTRING_SCAN` = 6) always finds it.  Third, the F-centred groups are
     /// pinned by number, so the claim in the previous sentence is about *those*
     /// lattices and not only about a histogram.
     ///

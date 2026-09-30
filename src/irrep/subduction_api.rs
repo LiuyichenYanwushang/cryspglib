@@ -90,9 +90,22 @@ pub enum SubductionApiError {
         source: &'static str,
         subgroup_sg: u8,
     },
+    /// The named frozen line source runs through **several subgroups** at this
+    /// direction with different decompositions, so the source label alone does
+    /// not name one answer.  Select one of the listed isotropy ordinals with
+    /// [`SubductionRequest::ordinal`].
+    AmbiguousLineContext {
+        sg: u8,
+        source: String,
+        candidates: Vec<usize>,
+    },
+    /// An explicit isotropy ordinal was requested that does not belong to the
+    /// resolved condensing irrep and direction.
+    UnknownContext { sg: u8, ordinal: usize },
     /// A parameter was requested through a condensing irrep and direction
     /// whose subgroup carries several frozen line sources, so the request does
-    /// not name one line.  Name the source label instead.
+    /// not name one line.  Name the source label (and, if that label itself
+    /// matches several subgroups, the isotropy ordinal) to select one.
     AmbiguousLineSource {
         sg: u8,
         cdml: &'static str,
@@ -149,6 +162,27 @@ impl std::fmt::Display for SubductionApiError {
                 "space group {sg}: the frozen line source {source} does not run along the \
                  selected direction (subgroup {subgroup_sg})"
             ),
+            Self::AmbiguousLineContext {
+                sg,
+                source,
+                candidates,
+            } => write!(
+                f,
+                "space group {sg}: the frozen line source {source} runs through {} subgroups at \
+                 this direction with different decompositions (isotropy ordinals {}); select one \
+                 with `.ordinal(..)`",
+                candidates.len(),
+                candidates
+                    .iter()
+                    .map(|ordinal| ordinal.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            Self::UnknownContext { sg, ordinal } => write!(
+                f,
+                "space group {sg}: isotropy ordinal {ordinal} does not belong to the resolved \
+                 condensing irrep and direction"
+            ),
             Self::AmbiguousLineSource {
                 sg,
                 cdml,
@@ -200,6 +234,7 @@ pub struct SubductionRequest<'a> {
     convention: LabelConvention,
     direction: IsotropyDirection<'a>,
     parameter: Option<Rat>,
+    ordinal: Option<usize>,
 }
 
 impl<'a> SubductionRequest<'a> {
@@ -212,6 +247,7 @@ impl<'a> SubductionRequest<'a> {
             convention,
             direction: IsotropyDirection::Index(0),
             parameter: None,
+            ordinal: None,
         }
     }
 
@@ -225,6 +261,17 @@ impl<'a> SubductionRequest<'a> {
     /// Ask for the exact parameter `t` on this direction's frozen line.
     pub fn parameter(mut self, parameter: Rat) -> Self {
         self.parameter = Some(parameter);
+        self
+    }
+
+    /// Pin the isotropy context by its generated-table ordinal.
+    ///
+    /// This is the selector for a frozen line source that runs through several
+    /// subgroups at the same direction: the source label alone is then
+    /// ambiguous and [`subduce`] returns
+    /// [`SubductionApiError::AmbiguousLineContext`] listing the ordinals.
+    pub fn ordinal(mut self, ordinal: usize) -> Self {
+        self.ordinal = Some(ordinal);
         self
     }
 
@@ -251,6 +298,11 @@ impl<'a> SubductionRequest<'a> {
     /// The requested exact parameter, if any.
     pub fn requested_parameter(&self) -> Option<Rat> {
         self.parameter
+    }
+
+    /// The requested isotropy ordinal, if any.
+    pub fn requested_ordinal(&self) -> Option<usize> {
+        self.ordinal
     }
 }
 
@@ -384,8 +436,8 @@ impl SubductionReport {
         &self.blocks
     }
 
-    /// Dimension covered by the decomposition (sum over blocks of the block
-    /// dimension times its multiplicity).
+    /// Dimension covered by the decomposition: the sum of the blocks' own
+    /// `dimension` (the engine's parent dimension for the resolved context).
     pub fn covered_dimension(&self) -> u32 {
         self.covered_dimension
     }
@@ -442,24 +494,30 @@ fn index_in_irrep(subgroup: &IsotropySubgroup) -> Result<usize, SubductionApiErr
         }))
 }
 
-/// Find the context of a frozen parametric-k line source.
+/// Every context of a frozen parametric-k line source.
 ///
 /// The frozen sources are labelled by their own source label (`"DT1"`), which
 /// is not necessarily the CDML label of the condensing irrep: the rows of a
 /// subgroup carry the frozen label, while the subgroup itself is built from
 /// the irrep record.  The scan walks the parent's irreps (never the other way
-/// round) and keeps the first subgroup whose rows name this source.
-fn resolve_line_source(
+/// round) and returns **every** matching subgroup, in table order, because one
+/// source along one direction can run through several subgroups with different
+/// decompositions (SG 196 `DT1` `4D2` runs through `W1` and `W2`) -- this
+/// function never picks a winner.
+///
+/// With `direction` the scan is restricted to that direction of each irrep;
+/// without it every direction is considered (used to locate the owning irrep
+/// for a whole-table sweep).
+fn resolve_line_sources(
     parent_sg: u8,
     label: &str,
     direction: Option<IsotropyDirection<'_>>,
-) -> Result<(&'static IrrepRecord, IsotropySubgroup), SubductionApiError> {
+) -> Vec<(&'static IrrepRecord, IsotropySubgroup)> {
+    let mut out = Vec::new();
     for record in query::irreps_of(parent_sg) {
         if record.spinor || record.subgroups().is_empty() {
             continue;
         }
-        // With a requested direction, ask only for that one; without one (the
-        // whole-table sweep), walk the irrep's own list.
         let candidates = match direction {
             Some(direction) => match isotropy::isotropy_subgroup_for_direction(
                 parent_sg,
@@ -480,16 +538,55 @@ fn resolve_line_source(
             let Ok(rows) = subgroup.other_wave_vector_subduction() else {
                 continue;
             };
-            if rows.iter().any(|row| row.parent_ml == label) {
-                return Ok((record, subgroup));
+            if rows
+                .iter()
+                .any(|row| row.parent_ml == label && line_table(parent_sg, row.parent_ml).is_some())
+            {
+                out.push((record, subgroup));
             }
         }
     }
-    Err(SubductionApiError::CondensingNotFound {
-        sg: parent_sg,
-        label: label.to_string(),
-        convention: LabelConvention::Cdml,
-    })
+    out
+}
+
+/// Apply the request's explicit ordinal selector to the resolved candidates.
+fn select_context(
+    request: &SubductionRequest<'_>,
+    mut matches: Vec<(&'static IrrepRecord, IsotropySubgroup)>,
+    source: Option<&'static str>,
+) -> Result<(&'static IrrepRecord, IsotropySubgroup), SubductionApiError> {
+    if let Some(ordinal) = request.ordinal {
+        return match matches
+            .iter()
+            .position(|(_, subgroup)| subgroup.ordinal == ordinal)
+        {
+            Some(position) => Ok(matches.swap_remove(position)),
+            None => Err(SubductionApiError::UnknownContext {
+                sg: request.parent_sg,
+                ordinal,
+            }),
+        };
+    }
+    match matches.len() {
+        1 => Ok(matches.pop().expect("exactly one candidate")),
+        0 => Err(SubductionApiError::CondensingNotFound {
+            sg: request.parent_sg,
+            label: request.condensing.to_string(),
+            convention: request.convention,
+        }),
+        _ => {
+            let mut candidates: Vec<usize> = matches
+                .iter()
+                .map(|(_, subgroup)| subgroup.ordinal)
+                .collect();
+            candidates.sort_unstable();
+            Err(SubductionApiError::AmbiguousLineContext {
+                sg: request.parent_sg,
+                source: source.unwrap_or(request.condensing).to_string(),
+                candidates,
+            })
+        }
+    }
 }
 
 fn direction_identity(
@@ -555,7 +652,8 @@ fn block_view(block: &FullStarBlock) -> BlockView {
 pub fn subduce(request: &SubductionRequest<'_>) -> Result<SubductionReport, SubductionApiError> {
     // A name is first read as an irrep label; if that fails, as a frozen
     // parametric-k **line source** label, whose spelling (`"DT1"`) need not be
-    // the CDML label of the condensing irrep it belongs to.
+    // the CDML label of the condensing irrep it belongs to.  The source-label
+    // path never picks between several matching subgroups.
     let (record, subgroup, line_source) =
         match resolve_condensing(request.parent_sg, request.condensing, request.convention) {
             Ok(record) => {
@@ -565,34 +663,54 @@ pub fn subduce(request: &SubductionRequest<'_>) -> Result<SubductionReport, Subd
                     LabelConvention::Cdml,
                     request.direction,
                 )?;
+                if let Some(ordinal) = request.ordinal
+                    && subgroup.ordinal != ordinal
+                {
+                    return Err(SubductionApiError::UnknownContext {
+                        sg: request.parent_sg,
+                        ordinal,
+                    });
+                }
                 (record, subgroup, line_table(request.parent_sg, record.ml))
             }
             Err(SubductionApiError::CondensingNotFound { .. }) => {
-                match resolve_line_source(
+                let matches = resolve_line_sources(
                     request.parent_sg,
                     request.condensing,
                     Some(request.direction),
-                ) {
-                    Ok((record, subgroup)) => {
-                        let table = line_table(request.parent_sg, request.condensing);
-                        (record, subgroup, table)
-                    }
-                    Err(not_found) => {
-                        // Distinguish "no such name at all" from "that frozen
-                        // source exists, but not along this direction": the
-                        // latter is a request error with a clear answer.
-                        let Some(table) = line_table(request.parent_sg, request.condensing) else {
-                            return Err(not_found);
-                        };
-                        let (_, elsewhere) =
-                            resolve_line_source(request.parent_sg, request.condensing, None)?;
-                        return Err(SubductionApiError::LineSourceNotInDirection {
+                );
+                if matches.is_empty() {
+                    // Distinguish "no such name at all" from "that frozen
+                    // source exists, but not along this direction": the latter
+                    // is a request error with a clear answer.
+                    let Some(table) = line_table(request.parent_sg, request.condensing) else {
+                        return Err(SubductionApiError::CondensingNotFound {
                             sg: request.parent_sg,
-                            source: table.label,
-                            subgroup_sg: elsewhere.record.sg as u8,
+                            label: request.condensing.to_string(),
+                            convention: request.convention,
                         });
-                    }
+                    };
+                    let anywhere =
+                        resolve_line_sources(request.parent_sg, request.condensing, None);
+                    return match anywhere.first() {
+                        Some((_, elsewhere)) => {
+                            Err(SubductionApiError::LineSourceNotInDirection {
+                                sg: request.parent_sg,
+                                source: table.label,
+                                subgroup_sg: elsewhere.record.sg as u8,
+                            })
+                        }
+                        None => Err(SubductionApiError::CondensingNotFound {
+                            sg: request.parent_sg,
+                            label: request.condensing.to_string(),
+                            convention: request.convention,
+                        }),
+                    };
                 }
+                let table = line_table(request.parent_sg, request.condensing);
+                let source = table.map(|table| table.label);
+                let (record, subgroup) = select_context(request, matches, source)?;
+                (record, subgroup, table)
             }
             Err(other) => return Err(other),
         };
@@ -690,34 +808,47 @@ pub struct TableEntry {
 /// subgroup does not carry that frozen line) is reported per entry instead of
 /// failing the whole table or being silently dropped.  Every entry goes through
 /// [`subduce`], so there is exactly one computation path.
-pub fn subduce_table(
-    parent_sg: u8,
-    condensing: &str,
-    convention: LabelConvention,
-    parameter: Option<Rat>,
-) -> Result<Vec<TableEntry>, SubductionApiError> {
-    // Resolve once to learn the direction list, then answer each direction
-    // through the same entry point (which resolves again -- resolution is cheap
-    // next to a decomposition).
-    let record = match resolve_condensing(parent_sg, condensing, convention) {
+pub fn subduce_table(request: &SubductionRequest<'_>) -> Result<Vec<TableEntry>, SubductionApiError> {
+    // Resolve the owning irrep once (the request's own direction is ignored:
+    // the sweep covers every direction), then answer each direction through the
+    // same entry point.  A frozen source that runs through several subgroups is
+    // refused here too unless the request pins one by ordinal.
+    let record = match resolve_condensing(
+        request.parent_sg,
+        request.condensing,
+        request.convention,
+    ) {
         Ok(record) => record,
         Err(SubductionApiError::CondensingNotFound { .. }) => {
-            resolve_line_source(parent_sg, condensing, None)?.0
+            let matches = resolve_line_sources(request.parent_sg, request.condensing, None);
+            let table = line_table(request.parent_sg, request.condensing);
+            let source = table.map(|table| table.label);
+            select_context(request, matches, source)?.0
         }
         Err(other) => return Err(other),
     };
-    let list = isotropy::isotropy_subgroups(parent_sg, record.ml, LabelConvention::Cdml)?;
+    let list = isotropy::isotropy_subgroups(request.parent_sg, record.ml, LabelConvention::Cdml)?;
     let mut entries = Vec::with_capacity(list.len());
     for (index, subgroup) in list.iter().enumerate() {
-        let mut request = SubductionRequest::new(parent_sg, condensing, convention)
-            .direction(IsotropyDirection::Index(index));
-        if let Some(parameter) = parameter {
-            request = request.parameter(parameter);
+        // Each direction is asked with the **original** name and no ordinal:
+        // the ordinal only selected the owning irrep, and pinning it per
+        // direction would fail on every direction that ordinal does not belong
+        // to.  A source that runs through two subgroups at a direction is
+        // reported as ambiguous for that entry, which is the honest survey.
+        // The direction is passed as a **label**, not as a local index: an
+        // index is interpreted inside each record's own list, and different
+        // irreps order their directions differently, so an index would sweep
+        // different directions for different candidate records.
+        let mut direction_request =
+            SubductionRequest::new(request.parent_sg, request.condensing, request.convention)
+                .direction(IsotropyDirection::Label(subgroup.record.direction_label));
+        if let Some(parameter) = request.parameter {
+            direction_request = direction_request.parameter(parameter);
         }
         entries.push(TableEntry {
             index,
             label: subgroup.record.direction_label,
-            result: subduce(&request),
+            result: subduce(&direction_request),
         });
     }
     Ok(entries)

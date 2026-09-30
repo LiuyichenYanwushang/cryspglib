@@ -24,7 +24,7 @@
 //! the assembled dimension is checked against `IrrepRecord::dim`.
 //!
 //! The folded geometry is shared with `OrdinaryStar` through
-//! [`fold_arms`](super::fold_arms): it takes one annotated arm per (component,
+//! `fold_arms`: it takes one annotated arm per (component,
 //! arm) pair, so two components that fold onto one `q` keep their identities,
 //! and it requires the frozen equality of the component dimensions (pinned for
 //! every compound record by the full-table census).
@@ -290,7 +290,7 @@ impl ComponentStar {
 ///
 /// This is the multi-arm counterpart of [`ComponentStar`] for a target with no
 /// pinned row: the little-group representation is a
-/// [`ConstructedLittleRep`] built at an exact folded point, and the star is the
+/// `ConstructedLittleRep` built at an exact folded point, and the star is the
 /// orbit of that point under the **child** group's own data-Hall operations,
 /// collected and checked exactly like a stored component's star.
 ///
@@ -884,7 +884,7 @@ impl ScalarStar {
     /// Fold every component arm into the child frame and partition the folded
     /// points into child stars.
     ///
-    /// The geometry itself is [`fold_arms`](super::fold_arms); the annotations
+    /// The geometry itself is `fold_arms`; the annotations
     /// keep the component identity of every arm, so duplicate arms that merge
     /// on one `q` survive the merge.
     pub fn folded_stars(

@@ -2,8 +2,10 @@
 //!
 //! Staging area for tasks 3-12 of `docs/full-irrep-subduction-plan.md`; the
 //! conventions implemented here are pinned in `docs/subduction-conventions.md`.
-//! The module is deliberately `#[doc(hidden)]` until task 12 gives it a
-//! supported public surface.
+//! Promoted by milestone R8: the supported entry point for ordinary
+//! subduction is [`crate::irrep::subduction_api`], which resolves a request
+//! into one of these contexts; the engine documented here is the layer below
+//! it.
 //!
 //! Why not reuse the existing algebra:
 //!
@@ -355,7 +357,7 @@ impl Rat {
     /// Snap a floating value to the `1 / denominator` grid.
     ///
     /// This is the only float entry point: the value must be finite and
-    /// integral *on the grid* within [`GRID_SNAP_TOLERANCE`], otherwise the
+    /// integral *on the grid* within `GRID_SNAP_TOLERANCE`, otherwise the
     /// conversion reports [`SubductionError::OffGridValue`].  There is no
     /// truncation and no implicit denominator.
     pub fn from_grid(value: f64, denominator: i128) -> Result<Self, SubductionError> {
@@ -2301,7 +2303,7 @@ fn validate_subduction_context(
     Ok(())
 }
 
-/// The probe-free half of [`validate_subduction_context`].
+/// The probe-free half of `validate_subduction_context`.
 ///
 /// Checks that `subgroup` still carries the *stored* record (a mutated basis,
 /// origin, subgroup number or irrep context is a `StaleIsotropyRecord`) and that
@@ -2376,7 +2378,7 @@ pub(crate) fn validate_record_and_embedding(
 ///
 /// Reuse is only sound while `subgroup`, `embedding` and `probe` still name one
 /// context, so every call revalidates the cheap identities first (see
-/// [`validate_subduction_context`]): the public `IsotropySubgroup` fields are
+/// `validate_subduction_context`): the public `IsotropySubgroup` fields are
 /// rechecked against the generated table, the cached embedding must have been
 /// built from that exact record, and the probe must be the parent's own table
 /// record.  A stale record, a foreign probe or a mismatched embedding is an

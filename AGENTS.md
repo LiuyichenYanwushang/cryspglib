@@ -52,8 +52,10 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   等价检查区分 `ParameterKind::LineIrrep` 与 `ParameterKind::Formal`。若两个不同的冻结
   方向臂 `a` 满足 `t·(a-v) ∈ L*_parent`，后者表示从冻结线小群得到的形式诱导，不能当作增强小群的
   实际线 irrep 分导。永久测试钉住 SG 196 `DT1` 的 `t=0,1/2` 为 Formal、官方 `1/4`
-  与 `1/6,1/3` 为 LineIrrep。部分记录在 `t=1/2` 仍因缺少子群目标字符而显式失败；无
-  oracle 的边界不变。当前完整表 gate 尚未汇总所有行的 `ParameterKind` 分布；永久类型断言
+  与 `1/6,1/3` 为 LineIrrep。**更正（R8 审核 F6，2026-09-30）**：本条先前写"部分记录在 `t=1/2`
+  仍因缺少子群目标字符而显式失败"，**该说法不可复现**——审核方对整份 pinned 语料 × 8 个参数
+  （含 `0` 与 `1/2`）跑了 **46,048 次引擎调用，失败 0**（本方自己的 census 另有 42,073 个探针、
+  `errors=0` 的独立证据）；原句保留为已撤销。无 oracle 的边界本身不变。当前完整表 gate 尚未汇总所有行的 `ParameterKind` 分布；永久类型断言
   是上述 SG 196 见证。
 * **B（2026-09-26 R6.5 更新；域内覆盖的结论见 2026-09-29 卡 6/7）参数域已有精确划分，域内覆盖**在"固定语料的分区与规定验收"意义上已闭合（冻结语料：46,048 边界点逐点 + 92,096 内点全部跑生产分解、
   0 失败；"闭合"的口径见 §3b 卡 7——重数恒定是连续性 + 整值性定理，两点控制与"无 stored／约化墙
@@ -1772,7 +1774,8 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   `AmbiguousCondensing`（BC 重名给出候选表，不 first-hit）、`AmbiguousLineSource`（SG 196 `W1` `4D1` 同时承载
   `DT1`/`DT2`/`SM1`）、`NotAParameterizedLine`、spinor 显式拒绝；恒等重数仍走它自己的独立接口。
   `irrep::subduction` 与 `irrep::line_monodromy` 去掉 `#[doc(hidden)]`（`w_little_characters_data` 仍隐藏）。
-  **两个被测试逼出来的 API 事实（已写进代码注释）**：① 生成表的 `ordinal` 是**全局**的（SG 196 的记录在 9992–10050 一档），
+  **两个被测试逼出来的 API 事实（已写进代码注释）**：① 生成表的 `ordinal` 是**全局**的（SG 196 的记录在 **9992–10074** 一档：W1 到 10050、W2 10051–10074；先前写"…10050"是错的，
+  第 15d 轮审核 F3 实测），
   而 `IsotropyDirection::Index` 要的是**逐 irrep 位置**，所以按 `isotropy_subgroups` 的位置算，原先误用全局 ordinal 被
   `SubgroupIndexOutOfRange` 当场抓住；② 冻结线源用的是**源标号**（`DT1`），**不是**凝聚 irrep 的 CDML 标号（`W1`），
   所以名字先按 irrep 标号解析、失败再按线源标号解析；先验断言"196 的凝聚 irrep 叫 DT1"是错的（196 的记录是
@@ -1784,6 +1787,36 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   分支 `feat/r8-api`（worktree `target/r8/wt`）上 lib 450/0、doctest 28/0、集成 631/0、clippy exit 0，主树 cherry-pick 后同源。
   **未做（R8 剩余，如实）**：整表 wrapper；里程碑要求的"新补的缺口例"验收项；把官方 descriptor 作为**对外承诺的输入**
   仍等 R7 的数据取证；磁/自旋分导不在 R8 范围内。
+
+* **第 15d 轮审核（R8 对抗性复核，独立审核方，报告 `target/review-r8/REPORT.md`）：无 P0；
+  F1(P1)/F2(P2)/F3–F6 全部接受并处理（本提交）**。**它自己复现的干净面**：适配器忠实——
+  **15,239** 个非自旋子群（230 个 SG 全部）与所有可达线请求上，报告与直接引擎调用逐块一致
+  （无丢弃/重排/改标，`covered_dimension` == 引擎维数，0 空报告）；`index_in_irrep` 往返
+  **15,239/15,239** 且确认是逐 irrep 位置（变异被抓住）；73/73 冻结源标号可达；**1,006/1,006**
+  多源子群被精确拒绝；3 个 BC 重名全部精确；所有拒绝都是带类型的错误。
+  **F1（P1，已修）**：源标号路径**静默取首个**匹配——一个（父群, 源, 方向）三元组可以对应多个
+  子群且分解不同（实测 502 个三元组，461 个至少有一个候选**不可达**）。见证 SG 196 `DT1` `4D2`
+  @ `t=1/4`：W1/10049（子群 3）vs W2/10072（子群 4）；而"命名 W2"会被 `AmbiguousLineSource`
+  拒绝并提示"改用源标号"，源标号却选 W1 ⇒ **10072 完全不可达**。修法：解析改为返回**全部**候选；
+  无显式上下文且候选不止一个时返回新错误 **`AmbiguousLineContext { sg, source, candidates }`**，
+  并新增 **`SubductionRequest::ordinal(..)`** 显式选择（`UnknownContext` 负例同测）。两个见证
+  （10038/10062、10049/10072）都有常驻测试，10072 现在可达且测试断言它与 W1 的 `blocks()` **不同**。
+  **F2（P2，已修）**：源存在于父群但不沿所选方向时，原先报 `CondensingNotFound`（说"没有 DT1 这个
+  标号"，与事实相反）；现在报 **`LineSourceNotInDirection { sg, source, subgroup_sg }`**，常驻测试
+  用 196 `DT1` `P1`（该方向上无任何子群携带 DT1）钉住报文。
+  **F3（数字）**：SG 196 的 ordinal 范围是 **9992–10074**（W1 到 10050、W2 10051–10074）——账本已改。
+  **F4（文档）**：`src/irrep/subduction.rs` 模块文档仍写"deliberately `#[doc(hidden)]` until task 12"，
+  已改写为 R8 转正说明。
+  **F5（文档构建）**：`cargo doc` 的告警中，转正暴露的私有项链接（`GRID_SNAP_TOLERANCE`、
+  `exact_primitive_basis`、`CENTRING_SCAN`、`fold_arms`、`line_wave_vector`、`super::character_of`、
+  `ConstructedLittleRep`、`validate_subduction_context`）已全部改为非链接引用；**转正模块现在零 doc
+  告警**（剩余 16 条都在 `api.rs`/`corep.rs`/`generated_data.rs`/`wigner.rs`/`lib.rs`，属转正前既存）。
+  **F6（撤销一条旧断言）**：§2 A 的"部分记录在 `t=1/2` 因缺少子群目标字符而显式失败"**不可复现**——
+  审核方对整份 pinned 语料 × 8 个参数（含 `0`、`1/2`）跑 **46,048 次调用、失败 0**；已原地撤销。
+  另修一处文档口径：`covered_dimension` 的注释写"块维数 × 重数"，实际是 **Σ 块维数**（与引擎一致）。
+  **同轮落地的整表 wrapper**：`subduce_table(&SubductionRequest)` 按方向**标号**逐条回答（写它时
+  发现：用局部 `Index` 会在不同 irrep 间错位），参数化扫描对每条给出"能答"或"为何不能答"；
+  `AmbiguousLineSource` 的提示也改为"命名源标号；若该标号本身对应多个子群，再用 `ordinal` 指定"。
 
 
 

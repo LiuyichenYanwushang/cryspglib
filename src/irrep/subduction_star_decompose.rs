@@ -1102,7 +1102,7 @@ pub fn line_trivial_content_with_embedding(
 ///
 /// The direction comes from the frozen little-character table (the frame the
 /// official program prints it in); the same vector is what the parameter
-/// multiplies in [`line_wave_vector`], so arms, characters and folding all speak
+/// multiplies in `line_wave_vector`, so arms, characters and folding all speak
 /// one frame.
 ///
 /// The enumeration itself lives in
@@ -1244,7 +1244,7 @@ fn line_folded_arms(
     // to the fold **unreduced**: the parent's Bloch phases and the child's are
     // read at wave vectors that differ by (K, T^T K) together, and reducing only
     // one of the two halves would pair the frozen table with a wave vector it
-    // does not describe (see [`line_wave_vector`]).
+    // does not describe (see `line_wave_vector`).
     let mut folded = Vec::with_capacity(arms.len());
     for (_, rotation) in arms {
         let action = Mat3R::from_ints(*rotation).inverse()?.transpose();
@@ -1281,7 +1281,7 @@ pub fn line_star_geometry(
 /// The same frequency computed through `build_block` instead of the hand-written
 /// per-arm sum.
 ///
-/// Folds the line's arms into the child's zone with the shared [`fold_arms`], reads
+/// Folds the line's arms into the child's zone with the shared `fold_arms`, reads
 /// the child Gamma block through the same `build_block` stage the discrete probes
 /// use, and extracts the child's trivial row exactly as
 /// [`trivial_content_with_embedding`] does.  It is kept as the R5 route so the
@@ -1505,7 +1505,7 @@ impl LineSubduction {
     }
 
     /// The raw `t . direction` in the frozen table's own frame, **unreduced**
-    /// (see [`line_wave_vector`]).
+    /// (see `line_wave_vector`).
     ///
     /// Two parameters one step apart report wave vectors differing by exactly the
     /// frozen direction, which is a parent reciprocal lattice vector: the same

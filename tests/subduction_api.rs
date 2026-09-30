@@ -192,16 +192,40 @@ fn a_parameter_is_only_accepted_on_the_frozen_lines() {
     // The frozen source label and the condensing irrep label are two different
     // spellings of the same request: `DT1` is the source, `W1` the irrep whose
     // subgroup carries it.
-    let by_source = subduce(
+    // The source label alone is ambiguous: SG 196 `DT1` runs through two
+    // subgroups at `4D1` (W1 and W2), so the request is refused with the
+    // candidate ordinals and one of them must be pinned.
+    let ambiguous = subduce(
         &SubductionRequest::new(196, "DT1", LabelConvention::Cdml)
             .direction(IsotropyDirection::Label("4D1"))
             .parameter(official),
+    )
+    .expect_err("a source through two subgroups must be refused");
+    let candidates = match ambiguous {
+        SubductionApiError::AmbiguousLineContext {
+            sg: 196,
+            source,
+            candidates,
+        } => {
+            assert_eq!(source, "DT1");
+            candidates
+        }
+        other => panic!("expected AmbiguousLineContext, got {other}"),
+    };
+    assert_eq!(candidates, vec![10038, 10062]);
+
+    let by_source = subduce(
+        &SubductionRequest::new(196, "DT1", LabelConvention::Cdml)
+            .direction(IsotropyDirection::Label("4D1"))
+            .parameter(official)
+            .ordinal(10038),
     )
     .expect("SG 196 DT1 is a frozen line source");
     assert_eq!(by_source.parameter(), Some(official));
     assert_eq!(by_source.parameter_kind(), Some(ParameterKind::LineIrrep));
     assert_eq!(by_source.condensing().cdml, "W1");
     assert_eq!(by_source.direction().subgroup_sg, 1);
+    assert_eq!(by_source.direction().ordinal, 10038);
 
     // Naming the irrep is *not* enough here: three frozen lines (DT1, DT2,
     // SM1) pass through SG 196 W1 4D1, so the request is refused as ambiguous
@@ -263,7 +287,7 @@ fn a_spinor_condensing_irrep_is_refused_not_downgraded() {
 /// parameterized sweep reports per entry which directions carry that line.
 #[test]
 fn the_whole_table_wrapper_covers_every_direction() {
-    let entries = subduce_table(221, "GM4+", LabelConvention::Cdml, None)
+    let entries = subduce_table(&SubductionRequest::new(221, "GM4+", LabelConvention::Cdml))
         .expect("SG 221 GM4+ has an isotropy table");
     assert_eq!(entries.len(), 4, "GM4+ has four isotropy directions");
     for (position, entry) in entries.iter().enumerate() {
@@ -284,8 +308,12 @@ fn the_whole_table_wrapper_covers_every_direction() {
     // answer, the others say why, and nothing is dropped silently.
     let official = cryspglib::irrep::subduction::star::decompose::official_line_parameter()
         .expect("the official parameter parses");
-    let sweep = subduce_table(196, "DT1", LabelConvention::Cdml, Some(official))
-        .expect("the W1 table resolves through the source label");
+    let sweep = subduce_table(
+        &SubductionRequest::new(196, "DT1", LabelConvention::Cdml)
+            .parameter(official)
+            .ordinal(10038),
+    )
+    .expect("the W1 table resolves through the source label and a pinned context");
     assert!(!sweep.is_empty());
     let answered = sweep.iter().filter(|entry| entry.result.is_ok()).count();
     assert!(
@@ -298,7 +326,19 @@ fn the_whole_table_wrapper_covers_every_direction() {
     );
     for entry in &sweep {
         match &entry.result {
-            Ok(report) => assert_eq!(report.condensing().cdml, "W1"),
+            Ok(report) => {
+                // The DT1 line is answered wherever exactly one context owns
+                // it; that context can be W2 even inside W1's direction list.
+                assert!(
+                    report.condensing().cdml == "W1" || report.condensing().cdml == "W2",
+                    "the answer must name the owning irrep, got {}",
+                    report.condensing().cdml
+                );
+                // The answering context may be another irrep, whose own list
+                // orders the direction differently -- the label is what the
+                // sweep asked for.
+                assert_eq!(report.direction().label, entry.label);
+            }
             Err(error) => {
                 let message = error.to_string();
                 assert!(
@@ -310,4 +350,68 @@ fn the_whole_table_wrapper_covers_every_direction() {
             }
         }
     }
+}
+
+/// The R8 review's F1 witness: one source along one direction can run through
+/// two subgroups with **different** decompositions.  The source label is then
+/// ambiguous (never a first hit), and both contexts are reachable by ordinal --
+/// including the one the first version could not reach at all.
+#[test]
+fn a_source_through_two_subgroups_is_ambiguous_and_both_are_reachable() {
+    let official = cryspglib::irrep::subduction::star::decompose::official_line_parameter()
+        .expect("the official parameter parses");
+    let request = SubductionRequest::new(196, "DT1", LabelConvention::Cdml)
+        .direction(IsotropyDirection::Label("4D2"))
+        .parameter(official);
+
+    let candidates = match subduce(&request).expect_err("two contexts must be refused") {
+        SubductionApiError::AmbiguousLineContext {
+            sg: 196, candidates, ..
+        } => candidates,
+        other => panic!("expected AmbiguousLineContext, got {other}"),
+    };
+    assert_eq!(candidates, vec![10049, 10072]);
+
+    let first = subduce(&request.ordinal(10049)).expect("the W1 context answers");
+    let second = subduce(&request.ordinal(10072)).expect("the W2 context answers");
+    assert_eq!(first.condensing().cdml, "W1");
+    assert_eq!(second.condensing().cdml, "W2");
+    assert_eq!(first.direction().ordinal, 10049);
+    assert_eq!(second.direction().ordinal, 10072);
+    assert_ne!(
+        first.direction().subgroup_sg, second.direction().subgroup_sg,
+        "the two contexts are different subgroups"
+    );
+    assert_ne!(
+        first.blocks(),
+        second.blocks(),
+        "the two contexts decompose differently, which is why the first hit was wrong"
+    );
+
+    // An ordinal that belongs to neither context is an error, not a fallback.
+    match subduce(&request.ordinal(1)).expect_err("an unrelated ordinal is an error") {
+        SubductionApiError::UnknownContext { sg: 196, ordinal: 1 } => {}
+        other => panic!("expected UnknownContext, got {other}"),
+    }
+}
+
+/// F2: a frozen source that exists in the parent but not along the selected
+/// direction says exactly that, instead of claiming the label does not exist.
+#[test]
+fn a_source_missing_from_the_direction_says_so() {
+    let official = cryspglib::irrep::subduction::star::decompose::official_line_parameter()
+        .expect("the official parameter parses");
+    // `P1` is a direction of SG 196's irreps along which no subgroup carries
+    // the DT1 source (the source exists in this parent, just not here).
+    let error = subduce(
+        &SubductionRequest::new(196, "DT1", LabelConvention::Cdml)
+            .direction(IsotropyDirection::Label("P1"))
+            .parameter(official),
+    )
+    .expect_err("no SG 196 subgroup carries DT1 along P1");
+    let message = error.to_string();
+    assert!(
+        message.contains("does not run along"),
+        "the refusal must name the real reason, got {message:?}"
+    );
 }
