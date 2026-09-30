@@ -1,0 +1,17 @@
+{
+ "counts": {
+  "directions": 15044,
+  "empty": 112,
+  "failed": 0,
+  "ok": 4665,
+  "records": 4777
+ },
+ "output": "direction_descriptors_v1.json",
+ "schema": "direction-descriptors-v1",
+ "sha256": "f637643d2d6850513bf4030c2811bce30890edd729900816dc5374c7f6fdd86c",
+ "sources": {
+  "data_irreps.txt": "80395779402c579e206f84b1dfb59a2216c2eba5f925d30ecec923bd41679263",
+  "data_isotropy.txt": "65512dabbbf0934690aaaa25448d59b4d8b4f5bdda5c5c5ec1834f50f6ed016a",
+  "iso": "242b2c6ef93b00007d580eef27a4540018d94467e52e9a0cb81c4c835b37ddc8"
+ }
+}

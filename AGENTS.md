@@ -356,6 +356,30 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
    （`irrep::subduction_api`，参数化请求）。完整表 gate 仍未累计整表的类型标签分布；
    类型标记不填补目标字符缺失，也不声称有外部 oracle。
 
+### 3c. R7 官方方向 descriptor（进行中，先读这一条）
+
+**第 1 步（采集，已完成，见本提交）**：`scripts/collect_direction_descriptors.py` 逐
+（父群, Miller-Love irrep）记录调 `iso` 的 `SHOW DIRECTION VECTOR`，把**程序自己的**方向串
+（"官方串"）与我们表里的内部串并列落盘，带来源 sha256、JSONL 缓存与断点续采、
+**逐记录故障隔离**（单条失败不影响整轮）：实测 **4,777** 个记录、**15,044** 个方向、
+**4,665 ok / 112 empty / 0 failed**，来源哈希 `iso 242b2c6e…`、`data_irreps.txt 80395779…`、
+`data_isotropy.txt 65512dab…`；产物 `scripts/data/direction_descriptors_v1.json`（1.07 MB）
++ `.manifest.json`。**空表记录 112 个**（SG 23/24/82/121/… 等），另有 **195** 个内部标号
+在程序的方向向量表里没有对应行——这两条都要按"报告数量 + 给可替代 selector"处理，不许
+用内部串冒充官方覆盖。
+**官方串与内部串差异的量化（去空格后仍不同 9,706/15,044）**，差异形状已实测：
+① 分隔符——官方用 `;` 分隔**同一向量内**分量、`,` 分隔**独立向量**（`(a;0;0)`、
+`(a,b;c,d)`），我们内部两者都用 `,`；② `dim=2` 的官方串依赖 irrep 复/实（内部 `(a,0)` → 官方
+`(a;a)`，内部 `(a,a)` → 官方 `(a;0)`，内部 `(0,a)` → 官方 `(a,0.577a)`）；③ `dim≥4` 官方逐
+irrep 打印分量表（内部 `4D1(4)/4D` → 官方 `(a,b,c,d)` 或 `(a,b;c,d)`）。这些都直接对应
+里程碑点名的"复杂分量分隔符"验收项。
+**第 2 步（待做）**：把 JSON 冻结成 Rust 侧只读表（独立生成的
+`direction_descriptors_data.rs`，按 `(sg, ml, label)` 排序二分；不改 `generated_data.rs`），
+新增**官方串选择器**（与 legacy 内部串分别标识；别名冲突报歧义，不 first-hit），保留
+Label/Index 入口；`Descriptor` 继续表示内部串并写清与官方串的区别；磁表没有记录时报告
+数量与可替代 selector。验收：221 `GM4+` 三个轴向、SG5 `L1`、SG91 `A1`、SG194 `GM6+`、
+复杂分隔符、磁方向负例逐条可选回同一记录；所有声明支持的官方串逐条往返。
+
 ### 3b. 当前执行计划：R6.7 full-star 参数分区与逐块审计（7 张任务卡，先读）
 
 > 目标：**建立完整的 full-star 参数分区，在正确的分区内验证分解重数恒定，并让审计中的
@@ -1826,6 +1850,35 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   标签歧义（BC 重名 + 多源方向）与未知 label/direction/descriptor 负例；整表 wrapper 亦有测试。
   干净树电池 `target/logs/r8e/summary.txt`（`revision b009579 dirty-files 0`）**711 passed / 0 failed**、
   三个 TSV 仍钉住、4 == 8、`VERDICT complete`、clippy/doctest/oracle/python 全 exit 0。
+
+* **第 15e 轮审核（针对 F1/F2 修复与缺口例，独立审核方，报告 `target/review-r8/REPORT-15e.md`）：
+  确认 F1 修复成立、缺口例与 #146 成立，但抓到 **一个真 P1**（已修，本提交）**。
+  **它复核通过的**：独立扫描全部 73 个源，**1,285** 个（父群, 源, 方向）三元组匹配 ≥2 个子群，
+  **全部**被 `AmbiguousLineContext` 拒绝且候选表完整有序（0 漏、0 外来、0 静默 Ok）；其中
+  **502** 个在 `t=1/4` 分解**不同**（精确复现 15d 的 502；另外 783 个只是"同一分解被哪个子群承载"
+  不同）；**3,202** 个候选 ordinal **全部**可用 `.ordinal(..)` 取回（离散与带参数两种），
+  1,285 个外来 ordinal 全部 `UnknownContext`；0 个源标号/CDML 标号碰撞，0 个方向标号重复（15,239 子群）。
+  缺口例：`subduce_irrep` 对 213 `X2` `C23` 确实报 `ProbeNotAtGamma`，新入口给 #146、
+  `covered_dimension` 6 == 引擎 == 凝聚维数；BC `X1` 同上下文。
+  **P1（真错，已修）**：`subduce_table` 在**源标号 + `.ordinal(..)`** 时把 ordinal 丢给每个方向，
+  于是"被扫 irrep 在该方向不承载该源"的条目会**解析成另一个 irrep 的上下文**——SG 196 `DT1`
+  `.ordinal(10038)`（W1）有 **5** 个条目报 `condensing W2` 且 `index_in_irrep` 是 6/15/14/20/19
+  而 `entry.index` 是 5/12/13/17/18；全语料 **4,116 / 416,866** 条被标错（sg 196 320、202 640、
+  209 152、225 416、226 508、227 2080）。这是"给出错误子群的完整分解"——比拒绝更糟。
+  修法：每个条目用**它自己那一行的** ordinal 钉住（`.direction(Index(i)).ordinal(subgroup.ordinal)`），
+  于是条目永远只答被扫记录的同方向子群；新回归
+  `a_source_pinned_sweep_never_answers_with_another_record` 扫**全部 73 个源**（各自第一个上下文）
+  并逐条比对 `condensing().cdml` 与 `index_in_irrep()`；把该钉法去掉的变异现在让两条测试失败
+  （语料扫描 **80 条错**、`the_whole_table_wrapper_covers_every_direction` 失败）。
+  **P3（诊断字段名，已改）**：`LineSourceNotInDirection.subgroup_sg` 是"别处第一个承载该源的
+  上下文"，名字却像"所选方向的子群"——改名 `elsewhere_subgroup_sg` 并在报文里写明"某个其它方向"。
+  **账本更正（我的错）**：先前写"转正模块零 rustdoc 告警、其余 16 条在外"，**是错的**——
+  `cargo doc` 共 **17** 条，其中 **7** 条属转正模块（`subduction_catalogue.rs` 3 条：
+  `little_co_group`/`one_dimensional_characters`/`projective_targets`；`subduction_line_domain.rs`
+  4 条：`super::decompose::LineSubduction::parameter_kind`/`minimal_parameter_step_via_coordinates`/
+  `child_exceptional_parameters`/`full_star_partition`）；rustdoc 对这几条**不打印 `-->` 位置行**，
+  我上次只按 `-->` 计数才漏掉。现已全部去链接化（18 处），`cargo doc` 剩 **9** 条且全部在
+  `api.rs`/`corep.rs`/`generated_data.rs`/`wigner.rs`/`lib.rs`（转正前既存）。
 
 
 
