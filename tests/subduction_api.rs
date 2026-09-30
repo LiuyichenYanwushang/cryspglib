@@ -5,11 +5,14 @@
 //! for every input, an explicit parameter semantics, and errors instead of a
 //! silent identity-only answer.
 
+use cryspglib::irrep::subduction::SubductionError;
 use cryspglib::irrep::subduction::star::decompose::ParameterKind;
 use cryspglib::irrep::subduction_api::{
     SubductionApiError, SubductionRequest, subduce, subduce_table, subduction_for_direction,
 };
-use cryspglib::irrep::{LabelConvention, isotropy::IsotropyDirection, query};
+use cryspglib::irrep::{
+    LabelConvention, isotropy, isotropy::IsotropyDirection, query, subduce_irrep,
+};
 
 /// The milestone's golden case: SG 221 `GM4+` along `P1`.
 #[test]
@@ -76,19 +79,22 @@ fn the_probe_gm3_plus_case_works() {
 }
 
 /// The milestone's cross-convention case: SG 213 CDML `X2` and BC `X1` are the
-/// same record, so the two requests must select the same context.
+/// same record and must select the same context **and the `#146` geometry**
+/// (child space group 146, which is the `C23` direction of this irrep).
 #[test]
 fn cdml_x2_and_bc_x1_select_the_same_context() {
     let cdml = subduce(
         &SubductionRequest::new(213, "X2", LabelConvention::Cdml)
-            .direction(IsotropyDirection::Label("P1")),
+            .direction(IsotropyDirection::Label("C23")),
     )
     .expect("CDML X2 resolves");
     let bc = subduce(
         &SubductionRequest::new(213, "X1", LabelConvention::Bc)
-            .direction(IsotropyDirection::Label("P1")),
+            .direction(IsotropyDirection::Label("C23")),
     )
     .expect("BC X1 resolves");
+    assert_eq!(cdml.direction().subgroup_sg, 146, "the #146 geometry");
+    assert_eq!(bc.direction().subgroup_sg, 146);
     assert_eq!(cdml.condensing().cdml, bc.condensing().cdml);
     assert_eq!(cdml.direction(), bc.direction());
     assert_eq!(cdml.covered_dimension(), bc.covered_dimension());
@@ -414,4 +420,53 @@ fn a_source_missing_from_the_direction_says_so() {
         message.contains("does not run along"),
         "the refusal must name the real reason, got {message:?}"
     );
+}
+
+/// The milestone's "newly added gap case": a request the **old** public entry
+/// could not answer at all.
+///
+/// `subduce_irrep` is the Γ-only convenience surface: it refuses any condensing
+/// irrep away from Γ before attempting a decomposition.  SG 213 `X2` sits at
+/// k = (0,1,0)/2, so the old entry refuses the very context the new one
+/// answers -- with the full star, both label spellings and the `#146` geometry.
+#[test]
+fn the_old_gamma_only_entry_refused_what_the_new_entry_answers() {
+    let subgroups = isotropy::isotropy_subgroups(213, "X2", LabelConvention::Cdml)
+        .expect("SG 213 X2 has an isotropy table");
+    let subgroup = subgroups
+        .iter()
+        .find(|subgroup| subgroup.record.direction_label == "C23")
+        .expect("X2 has the C23 direction");
+    assert_eq!(subgroup.record.sg, 146);
+
+    // The old surface: refused, because the irrep is not at Γ.
+    let old = subduce_irrep(subgroup, "X2");
+    assert!(
+        matches!(old, Err(SubductionError::ProbeNotAtGamma { .. })),
+        "the Γ-only entry must refuse a non-Γ irrep, got {old:?}"
+    );
+
+    // The supported entry: answered, with the full decomposition.
+    let report = subduce(
+        &SubductionRequest::new(213, "X2", LabelConvention::Cdml)
+            .direction(IsotropyDirection::Label("C23")),
+    )
+    .expect("the supported entry answers a non-Γ irrep");
+    assert_eq!(report.condensing().cdml, "X2");
+    assert_eq!(report.condensing().k, [[0, 1, 0], [2, 2, 2]]);
+    assert_eq!(report.covered_dimension(), u32::from(report.condensing().dimension));
+    assert!(!report.blocks().is_empty());
+
+    // The parameterized facet had no public entry at all before R8: the frozen
+    // line is answered with its parameter kind.
+    let official = cryspglib::irrep::subduction::star::decompose::official_line_parameter()
+        .expect("the official parameter parses");
+    let line = subduce(
+        &SubductionRequest::new(196, "DT1", LabelConvention::Cdml)
+            .direction(IsotropyDirection::Label("4D1"))
+            .parameter(official)
+            .ordinal(10038),
+    )
+    .expect("the frozen line answers at its official parameter");
+    assert_eq!(line.parameter_kind(), Some(ParameterKind::LineIrrep));
 }

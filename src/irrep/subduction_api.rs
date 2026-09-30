@@ -24,6 +24,19 @@
 //!   the frozen line sources, and the report says whether the result is a line
 //!   irrep or a formal induction ([`ParameterKind`]).
 //!
+//! ## Migrating from the Γ-only entry points
+//!
+//! [`crate::irrep::subduce_irrep`] and
+//! [`crate::irrep::subduce_irrep_with_embedding`] predate this module and are
+//! **Γ-only**: they refuse a condensing irrep whose k vector is not Γ with
+//! [`SubductionError::ProbeNotAtGamma`] before attempting anything, and they
+//! report the condensate's identity multiplicity rather than the full star.
+//! SG 213 `X2` at k = (0,1,0)/2 is a case they refuse and [`subduce`] answers
+//! (`tests/subduction_api.rs::the_old_gamma_only_entry_refused_what_the_new_entry_answers`).
+//! 恒等 multiplicity keeps its own entry points
+//! ([`crate::irrep::subduction::star::decompose::trivial_content_with_embedding`]
+//! and its line counterpart); it is not part of [`SubductionReport`].
+//!
 //! ```
 //! use cryspglib::irrep::subduction_api::{SubductionRequest, subduce};
 //! use cryspglib::irrep::{LabelConvention, isotropy::IsotropyDirection};
