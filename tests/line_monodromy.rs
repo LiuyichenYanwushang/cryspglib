@@ -751,6 +751,26 @@ fn key(result: &LineSubduction) -> Vec<String> {
         .collect()
 }
 
+/// The per-block keys of [`key`], each paired with the **arm set** of its block.
+///
+/// A bare multiset of key strings cannot tell which star carries which payload:
+/// an adversarial verifier exchanged the payloads of the two blocks of ordinal
+/// 10030 `SM1` at `t = 1/4` and the sorted-multiset comparison accepted it,
+/// while this pairing rejects it (`target/review-phasefix/REPORT-15b.md`,
+/// finding A(a)/A(d)).  The pairing is well defined on this corpus because no
+/// result has two blocks with the same arm set (asserted by the caller), and
+/// `FullStarBlock::arm_indices` is documented as the block's stable identity
+/// across parameters.
+fn keyed_blocks(result: &LineSubduction) -> Vec<(Vec<usize>, String)> {
+    let keys = key(result);
+    result
+        .blocks()
+        .iter()
+        .zip(keys)
+        .map(|(block, key)| (block.arm_indices(), key))
+        .collect()
+}
+
 /// The engine transport contract, on every pinned parametric-k row, for the
 /// primitive reciprocal-lattice step along that row's line.
 ///
@@ -847,27 +867,50 @@ fn the_engine_transports_every_primitive_line_reciprocal_step() {
 /// **before** reducing it modulo one, and at `t = 10^9 + 1/4` one ulp of that
 /// angle is ~1.2e-7 of a turn -- enough to turn the 1e-12 character comparison
 /// into a `CharacterMismatch` (external review of `af51b04`, witness ordinal
-/// 10030, SG 196 `DT1`; measured pre-fix at that parameter: **612 of the 5,756
-/// rows failed, the same 612 at `t = -10^9 + 1/4`, all of them loud errors**
-/// -- 510 `character reconstruction failed at operation N` plus 102
-/// non-integral multiplicities, never a silently different decomposition;
-/// `target/logs/phasefix/prefix-family.txt`).
+/// 10030, SG 196 `DT1`).
+///
+/// Measured pre-fix at that parameter (**612 of the 5,756 rows fail, the same
+/// 612 at `t = -10^9 + 1/4`**, 163 distinct ordinals, all of them loud errors:
+/// 510 `character reconstruction failed at operation N` plus 102 non-integral
+/// multiplicities, never a silently different decomposition; first in corpus
+/// order ordinal 10030 `DT1`, operation 3, deviation 7.606386089590623e-7).
+/// Two independent verifiers rebuilt the pre-fix body and measured those same
+/// two row sets; the author's own collector log
+/// `target/logs/phasefix/prefix-family.txt` is **short two entries at `+10^9`**
+/// (the panicking sibling test interleaved into the collector's stdout, so it
+/// lists 610 of the 612 ordinals and pins no source hash) and is kept only as
+/// the original lead.
 ///
 /// The shifts below reach far beyond that: `10^15` and `10^18` keep the same
 /// contract while every remaining "convert an unreduced angle to `f64`" site
 /// would be off by a whole turn, so a regression that reintroduced the defect
-/// anywhere on this path fails here (probed first at
+/// anywhere on this path fails here (first probed at
 /// `target/logs/phasefix/far-shift.txt`: 0 of 5,756 rows failed).
+///
+/// **What this test cannot see**: both sides are produced by the same engine, so
+/// a defect that perturbs *both* calls identically is invisible here.  That is
+/// not hypothetical -- under the rejected `[0,1)` reduction of
+/// `Rat::principal_angle` this test passes while the literal-valued lib pin
+/// `constructed_bloch_phase_pins_the_positive_sign_convention` fails (both
+/// verifiers reproduced it).  The literal pins carry that half; this test
+/// carries the translation half.
 #[test]
 fn the_engine_answers_a_far_translated_parameter() {
     let official = official_line_parameter().expect("the official parameter is valid");
     let rows = pinned_rows();
     assert_eq!(rows.len(), 5_756, "the pinned line corpus has 5,756 rows");
-    for shift in [
-        1_000_000_000i128,
-        -1_000_000_000,
-        1_000_000_000_000_000,
-        1_000_000_000_000_000_000,
+    // Block *order* is not a translation invariant, which is why the blocks are
+    // paired by arm set below rather than by index.  These are the measured
+    // counts of rows whose positional block order differs from `t = 1/4`; the
+    // negative shift is the one that actually reorders, so the sort is
+    // load-bearing and not decoration (an adversarial verifier measured the
+    // same 2,192, witness ordinal 10030 `DT1`:
+    // `target/review-phasefix/REPORT-15b.md` A(c)).
+    for (shift, expected_order_differences) in [
+        (1_000_000_000i128, 0usize),
+        (-1_000_000_000, 2_192),
+        (1_000_000_000_000_000, 0),
+        (1_000_000_000_000_000_000, 0),
     ] {
         let parameter = Rat::from_integer(shift)
             .checked_add(official)
@@ -894,28 +937,70 @@ fn the_engine_answers_a_far_translated_parameter() {
                             subgroup.ordinal, row.parent_ml
                         )
                     });
-                // Block *order* is not a translation invariant (the sweep pairs
-                // blocks by arm set, not by index, for exactly this reason), so
-                // the contract compared here is the multiset of blocks.
-                let mut shifted_keys = key(&shifted);
-                let mut reference_keys = key(&reference);
-                shifted_keys.sort();
-                reference_keys.sort();
+                let mut shifted_blocks = keyed_blocks(&shifted);
+                let mut reference_blocks = keyed_blocks(&reference);
                 assert_eq!(
-                    shifted_keys,
-                    reference_keys,
+                    shifted_blocks.len(),
+                    reference_blocks.len(),
+                    "ordinal {} {}: block count at t={parameter}",
+                    subgroup.ordinal,
+                    row.parent_ml
+                );
+                // The pairing by arm set is only a bijection while no result has
+                // two blocks with the same arm set; that is measured on this
+                // corpus (0 of 5,756 rows at every shift) and asserted here so a
+                // future engine that merges arms cannot make the pairing
+                // ambiguous in silence.
+                let mut arm_sets: Vec<&Vec<usize>> =
+                    shifted_blocks.iter().map(|(arms, _)| arms).collect();
+                arm_sets.sort();
+                let distinct = {
+                    let mut unique = arm_sets.clone();
+                    unique.dedup();
+                    unique.len()
+                };
+                assert_eq!(
+                    distinct,
+                    arm_sets.len(),
+                    "ordinal {} {}: two blocks at t={parameter} share an arm set, so pairing \
+                     them by arms would be ambiguous",
+                    subgroup.ordinal,
+                    row.parent_ml
+                );
+                let order_differs = shifted_blocks
+                    .iter()
+                    .map(|(_, key)| key)
+                    .ne(reference_blocks.iter().map(|(_, key)| key));
+                shifted_blocks.sort();
+                reference_blocks.sort();
+                assert_eq!(
+                    shifted_blocks,
+                    reference_blocks,
                     "ordinal {} {}: the decomposition at t={parameter} must be the one at \
                      t=1/4, which is the same k point modulo the parent lattice",
                     subgroup.ordinal,
                     row.parent_ml
                 );
-                Some(())
+                assert_eq!(
+                    shifted.parameter_kind(),
+                    reference.parameter_kind(),
+                    "ordinal {} {}: an integer translation may not change the parameter kind",
+                    subgroup.ordinal,
+                    row.parent_ml
+                );
+                Some(order_differs)
             })
             .collect::<Vec<_>>();
         assert_eq!(
             compared.iter().filter(|entry| entry.is_some()).count(),
             5_756,
             "every pinned row must be compared at t={parameter}"
+        );
+        assert_eq!(
+            compared.iter().filter(|entry| **entry == Some(true)).count(),
+            expected_order_differences,
+            "block order at t={parameter}: if this moved, either the engine changed its \
+             enumeration or the two parameters stopped being the same k point"
         );
     }
 }
