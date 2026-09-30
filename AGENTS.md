@@ -1747,7 +1747,10 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
   落在钉住 SHA、4==8、`VERDICT complete`。
   **三条 caveat（已处理）**：① 臂集合唯一性断言先前只查位移侧 ⇒ 现在**两侧都断言**；
   ② 当时引用的 `phasefix3/summary.txt` 头部是 `revision f8c4288`（跑电池时还没提交）⇒ 本次提交后
-  **重跑**电池并改引新日志；③ "字面值那一半由库回归承担"**过宽** ⇒ 已按上一条改成"两条各管一半"，
+  **重跑**电池并改引新日志（**`target/logs/phasefix4/summary.txt`**，头两行是
+  `revision a1f58bd dirty-files 0` ⇒ 干净树的运行，**698 passed / 0 failed**、三个 TSV 仍钉在
+  `c7b8606e…`/`07dedd42…`/`a14598c1…`、4 == 8、`VERDICT complete`、clippy/doctest/oracle/python 全 exit 0）；
+  ③ "字面值那一半由库回归承担"**过宽** ⇒ 已按上一条改成"两条各管一半"，
   因为**浮点求和**变异下库侧字面值断言**通过**、只有集成测试抓住（`[0,1)` 变体则相反）。
   **两条控制比看起来薄（如实记录）**：把比较**两侧都取 `t = 1/4`** 时只被 `-10⁹` 的钉值 `2,192`
   抓住，三个钉 0 的位移上不可见（新配对本身不绑定"两侧来自不同参数"）；把载荷互换**同时**施加到
