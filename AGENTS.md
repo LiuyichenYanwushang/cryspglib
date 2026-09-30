@@ -373,12 +373,27 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 `(a;a)`，内部 `(a,a)` → 官方 `(a;0)`，内部 `(0,a)` → 官方 `(a,0.577a)`）；③ `dim≥4` 官方逐
 irrep 打印分量表（内部 `4D1(4)/4D` → 官方 `(a,b,c,d)` 或 `(a,b;c,d)`）。这些都直接对应
 里程碑点名的"复杂分量分隔符"验收项。
-**第 2 步（待做）**：把 JSON 冻结成 Rust 侧只读表（独立生成的
-`direction_descriptors_data.rs`，按 `(sg, ml, label)` 排序二分；不改 `generated_data.rs`），
-新增**官方串选择器**（与 legacy 内部串分别标识；别名冲突报歧义，不 first-hit），保留
-Label/Index 入口；`Descriptor` 继续表示内部串并写清与官方串的区别；磁表没有记录时报告
-数量与可替代 selector。验收：221 `GM4+` 三个轴向、SG5 `L1`、SG91 `A1`、SG194 `GM6+`、
-复杂分隔符、磁方向负例逐条可选回同一记录；所有声明支持的官方串逐条往返。
+**第 2 步（已交付，见本提交）**：`scripts/freeze_direction_descriptors.py` 把 JSON 冻结成
+`src/irrep/direction_descriptors_data.rs`（4,665 个记录 / **15,044** 条方向串 / 112 个空表记录；
+按 `(sg, ml)` 与 label 排序二分，`--check` 在电池里保证 Rust 表与 JSON 同步），公开查询
+`isotropy::official_direction_descriptor(sg, ml, label) -> OfficialDescriptor`
+（`Official(string)` / `TableEmpty` / `LabelNotInTable` / `RecordUnknown`，四路**分别**可测），
+以及新选择器 **`IsotropyDirection::OfficialDescriptor(&str)`**（去空白、**保留**程序的分隔符；
+Label/Index 照旧永远可用）。旧 `Descriptor` 继续表示内部串，文档写明两者**不是拼写关系**。
+**实测（这就是为什么要分开）**：15,044 条官方串里，只有 **7,214** 条规范化后等于自己那一行的
+内部串；**7,158** 条规范化后**没有任何**内部串与之相等（旧选择器直接拒绝）；**672** 条会落到
+**别的行**——最干净的见证是 SG 101 `X1`：`P1` 的官方串 `(a;a)` 正是 `P3` 的内部串、`P3` 的
+`(a;0)` 正是 `P1` 的内部串，旧选择器把两者**互换**（测试钉住：`Descriptor("(a;a)")` 选中 `P3`，
+`OfficialDescriptor("(a;a)")` 选中 `P1`）。
+**验收清单逐条常驻**（`tests/direction_descriptors.rs`，6 项集成 + `isotropy` 内 2 项单测）：
+221 `GM4+` 三个轴向 `(a,0,0)/(a,a,0)/(a,a,a)`、SG5 `L1` `(a;a)`、SG91 `A1` `(a,0)`、
+SG194 `GM6+` `(a,0)`、复杂分隔符（SG177 `L1` `(a;b;c)` 单向量用 `;`；SG100 `R1` `(a,b;c,d)` 两个
+向量之间用 `,`）、**全部 15,044 条官方串逐条选回自己那一行**（语料级扫描）、磁方向负例
+（磁记录的程序表不存在：磁选择器对 `OfficialDescriptor` 报 `NoOfficialDescriptor`，`Label` 仍可用）。
+**如实记下的缺口 / 防御分支**：112 个记录的程序方向表为空，它们的 **195** 个内部标号因此都是
+`TableEmpty`（**不是** `LabelNotInTable`；内部串没有被冒充成官方串）；`LabelNotInTable` 在本语料
+**0/15,044** 无见证，是防御分支，由 `classify_official` 的单测覆盖；磁记录的官方串**没有采集**
+（程序不打印），查询对磁记录会拿同 `(sg, ml)` 的**普通**记录作答，文档与测试都写明这一范围。
 
 ### 3b. 当前执行计划：R6.7 full-star 参数分区与逐块审计（7 张任务卡，先读）
 

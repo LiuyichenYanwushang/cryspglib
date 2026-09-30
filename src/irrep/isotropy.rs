@@ -102,6 +102,20 @@ pub enum IsotropyError {
         ml: String,
         direction: String,
     },
+    /// The requested direction was spelled as the program's own component
+    /// string, but no such string was collected for this record.
+    ///
+    /// Three cases, told apart by [`official_direction_descriptor`]: the
+    /// program prints **no** direction-vector table for the record (112 of the
+    /// 4,665 ordinary records), the record's table has no row with this label,
+    /// or the record is outside the collected set — magnetic records have no
+    /// direction-vector output at all.  `IsotropyDirection::Label` and
+    /// `Index` work in all three.
+    NoOfficialDescriptor {
+        sg: u8,
+        ml: String,
+        direction: String,
+    },
     /// The direction matches more than one isotropy subgroup.
     ///
     /// Defensive: the pinned tables contain no duplicate direction label and no
@@ -172,6 +186,17 @@ impl std::fmt::Display for IsotropyError {
                 f,
                 "irrep {ml} of space group {sg} is double-valued; \
                  isotropy subgroups are defined for single-valued irreps only"
+            ),
+            Self::NoOfficialDescriptor {
+                sg,
+                ml,
+                direction,
+            } => write!(
+                f,
+                "irrep {ml} of space group {sg} has no collected official direction string \
+                 {direction}; query official_direction_descriptor for the reason \
+                 (empty program table, absent label, or record not collected), or use \
+                 IsotropyDirection::Label / Index"
             ),
             Self::DirectionNotFound { sg, ml, direction } => write!(
                 f,
@@ -253,6 +278,27 @@ pub enum IsotropyDirection<'a> {
     /// column of the program's `DISPLAY ISOTROPY` table and the only selector
     /// that works for both ordinary and magnetic records.
     Label(&'a str),
+    /// The **program's own** order-parameter component string, as printed by
+    /// `SHOW DIRECTION VECTOR`, e.g. `"(a;0;0)"` or `"(a,b;c,d)"`.
+    ///
+    /// This is a different selector from [`IsotropyDirection::Descriptor`],
+    /// not a spelling of it: the program separates components of one vector
+    /// with `;` and independent vectors with `,`, while the bundled tables use
+    /// `,` for both, and for `dim = 2` / `dim >= 4` the two strings genuinely
+    /// differ.  Measured on the collected table: of 15,044 official strings,
+    /// only 7,214 normalize to their own stored descriptor; 7,158 normalize to
+    /// no stored descriptor (the legacy selector refuses them) and **672
+    /// normalize to a different row** -- SG 101 `X1` is the clean witness, where
+    /// the official strings of `P1` and `P3` are each other's internal
+    /// descriptors.
+    ///
+    /// Whitespace is ignored when matching; everything else is compared as
+    /// printed.  Records whose program table is empty, labels absent from it
+    /// and records outside the collected set (magnetic records have no
+    /// direction-vector output) are refused with
+    /// [`IsotropyError::NoOfficialDescriptor`]; query
+    /// [`official_direction_descriptor`] for which of the three it is.
+    OfficialDescriptor(&'a str),
     /// Position in this irrep's isotropy subgroup list (0-based, table order).
     Index(usize),
 }
@@ -499,6 +545,59 @@ pub fn isotropy_subgroups_at_k(
         .collect())
 }
 
+/// What the ISOTROPY program itself prints for one direction (milestone R7).
+///
+/// The program's `SHOW DIRECTION VECTOR` output is the string users copy out of
+/// the ISOTROPY suite; the bundled tables' internal notation differs from it for
+/// `dim = 2`, for `dim >= 4` and in its separators.  This is the honest answer
+/// to "do we have the official string for this row?", without pretending the
+/// internal notation is it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfficialDescriptor {
+    /// The program prints this string for the direction.
+    Official(&'static str),
+    /// The program prints **no** direction-vector table for this record at all
+    /// (112 of the 4,665 ordinary records); the internal notation is not a
+    /// substitute for a string the program never printed.
+    TableEmpty,
+    /// The record has a program table, but no row carries this direction label
+    /// (195 of the 15,239 ordinary direction labels).
+    LabelNotInTable,
+    /// The record is outside the collected set: the table covers the ordinary
+    /// ISOTROPY records; magnetic records print no direction-vector table.
+    RecordUnknown,
+}
+
+/// The program's own component string for one direction of one ordinary record.
+///
+/// Combines the two questions a caller has to keep apart: whether the record was
+/// collected at all and whether the row exists.  [`IsotropyDirection::Label`]
+/// and [`IsotropyDirection::Index`] remain the selectors that always work.
+pub fn official_direction_descriptor(sg: u8, ml: &str, label: &str) -> OfficialDescriptor {
+    use crate::irrep::direction_descriptors_data as data;
+    if data::table_is_empty(sg, ml) {
+        // An empty program table is a collected fact, not a missing record.
+        return OfficialDescriptor::TableEmpty;
+    }
+    let record_known = data::record(sg, ml).is_some();
+    classify_official(record_known, data::official_of(sg, ml, label))
+}
+
+/// The collected table's classification, split out so all four outcomes are
+/// unit-tested (the corpus reaches three of them: 0 of 15,044 official rows sit
+/// in a non-empty record that lacks the label, so `LabelNotInTable` is
+/// defensive).
+fn classify_official(
+    record_known: bool,
+    official: Option<&'static str>,
+) -> OfficialDescriptor {
+    match (record_known, official) {
+        (false, _) => OfficialDescriptor::RecordUnknown,
+        (true, Some(text)) => OfficialDescriptor::Official(text),
+        (true, None) => OfficialDescriptor::LabelNotInTable,
+    }
+}
+
 /// Select one isotropy subgroup using a CDML or BC irrep label.
 pub fn isotropy_subgroup_for_direction(
     sg: u8,
@@ -570,6 +669,13 @@ pub fn magnetic_isotropy_subgroup_for_direction(
             sg,
             ml,
         )?,
+        IsotropyDirection::OfficialDescriptor(text) => {
+            return Err(IsotropyError::NoOfficialDescriptor {
+                sg,
+                ml: ml.to_string(),
+                direction: text.to_string(),
+            });
+        }
     };
     Ok(wrap_magnetic(irrep, local, records[local]))
 }
@@ -851,7 +957,52 @@ fn select_local_index(
             irrep.sg,
             ml,
         ),
+        IsotropyDirection::OfficialDescriptor(text) => {
+            select_official(records, text, irrep.sg, ml, |record| label_of(record))
+        }
     }
+}
+
+/// Select a row by the program's own component string.
+///
+/// The official strings are keyed by the direction **label**, so the lookup goes
+/// through the generated table; `label_of` supplies the label this selection
+/// path uses (identical to `record.direction_label` for both ordinary and
+/// magnetic records).
+fn select_official<T: Copy>(
+    records: &[T],
+    text: &str,
+    sg: u8,
+    ml: &str,
+    label_of: impl Fn(&T) -> &'static str,
+) -> Result<usize, IsotropyError> {
+    if crate::irrep::direction_descriptors_data::record(sg, ml).is_none() {
+        return Err(IsotropyError::NoOfficialDescriptor {
+            sg,
+            ml: ml.to_string(),
+            direction: text.to_string(),
+        });
+    }
+    let query = normalize_official(text);
+    select_unique(
+        records,
+        &query,
+        |record| {
+            crate::irrep::direction_descriptors_data::official_of(sg, ml, label_of(record))
+                .map(normalize_official)
+                .unwrap_or_default()
+        },
+        sg,
+        ml,
+    )
+}
+
+/// The program's own string comparison: whitespace is insignificant, the
+/// separators are part of the string (`;` inside a vector, `,` between them).
+fn normalize_official(text: &str) -> String {
+    text.chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
 }
 
 fn select_unique<T: Copy>(
@@ -1188,6 +1339,64 @@ fn format_origin(origin: [f64; 3]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The four outcomes of the official-descriptor query.  The corpus reaches
+    /// three of them (`Official`, `TableEmpty`, `RecordUnknown`); a non-empty
+    /// record that lacks the label does not occur (0 of 15,044 rows), so
+    /// `LabelNotInTable` is covered here instead.
+    #[test]
+    fn the_official_descriptor_query_distinguishes_all_four_cases() {
+        assert_eq!(
+            classify_official(false, None),
+            OfficialDescriptor::RecordUnknown
+        );
+        assert_eq!(
+            classify_official(false, Some("(a)")),
+            OfficialDescriptor::RecordUnknown
+        );
+        assert_eq!(
+            classify_official(true, Some("(a;0;0)")),
+            OfficialDescriptor::Official("(a;0;0)")
+        );
+        assert_eq!(
+            classify_official(true, None),
+            OfficialDescriptor::LabelNotInTable
+        );
+    }
+
+    /// The official selector ignores whitespace but keeps the program's
+    /// separators, so an internal-style spelling is *not* silently accepted.
+    #[test]
+    fn the_official_selector_keeps_the_program_separators() {
+        let rows = crate::irrep::direction_descriptors_data::record(177, "L1")
+            .expect("SG 177 L1 is collected");
+        assert!(!rows.directions.is_empty());
+        let (label, text) = rows.directions[0];
+        assert!(text.contains(';'), "program string: {text}");
+        // Whitespace-insensitive...
+        assert_eq!(
+            isotropy_subgroup_for_direction(
+                177,
+                "L1",
+                LabelConvention::Cdml,
+                IsotropyDirection::OfficialDescriptor(&format!(" {text} ")),
+            )
+            .expect("spaced spelling still matches")
+            .record
+            .direction_label,
+            label
+        );
+        // ... but the internal separator is a different string.
+        let internal_style = text.replace(';', ",");
+        let error = isotropy_subgroup_for_direction(
+            177,
+            "L1",
+            LabelConvention::Cdml,
+            IsotropyDirection::OfficialDescriptor(&internal_style),
+        )
+        .expect_err("the internal spelling is not an official string");
+        assert!(matches!(error, IsotropyError::DirectionNotFound { .. }));
+    }
 
     #[test]
     fn pm3m_gm3plus_along_a0_gives_p4mmm() {
