@@ -421,6 +421,50 @@ impl Rat {
         self.num as f64 / self.den as f64
     }
 
+    /// The same angle reduced into `(-1/2, 1/2]`, exactly.
+    ///
+    /// A phase angle `k . delta` is a rational that can be enormous: at
+    /// `t = 10^9 + 1/4` -- the *same* k point as `1/4` -- the angle is of order
+    /// `10^9`, and `f64` has one ulp of `~1.2e-7` there, so converting first and
+    /// reducing afterwards loses the phase and turns the `1e-12` character
+    /// comparison into a `CharacterMismatch` (external review of `af51b04`,
+    /// witness ordinal 10030).  Reducing exactly first keeps the float argument
+    /// inside `(-1/2, 1/2]`, where `exp(2 pi i .)` is accurate to an ulp of the
+    /// *fraction*, not of the angle.
+    ///
+    /// The interval is **symmetric on purpose**: every angle the recorded corpus
+    /// produces already lies in it, so the reduction is the identity there and no
+    /// measured value can move, and the conjugation identity `chi(-q) =
+    /// conj(chi(q))` stays numerically exact.  (Reducing to `[0, 1)` instead moved
+    /// `-1/4` to `3/4` and changed the real part of `exp(-i pi/2)` by ~2.4e-16,
+    /// which `constructed_bloch_phase_pins_the_positive_sign_convention` caught.)
+    ///
+    /// The remainder is already canonical: `gcd(num mod den, den) = gcd(num, den)
+    /// = 1` for a normalized `Rat`, and subtracting `den` preserves that, so no
+    /// gcd is recomputed.
+    pub fn principal_angle(self) -> Self {
+        if self.den == 1 {
+            return Self::ZERO;
+        }
+        let remainder = self.num.rem_euclid(self.den);
+        // `2 * remainder > den`, written without the doubling that could overflow
+        // for a denominator above `i128::MAX / 2`.
+        if remainder > self.den - remainder {
+            return Self {
+                num: remainder - self.den,
+                den: self.den,
+            };
+        }
+        if remainder == 0 {
+            Self::ZERO
+        } else {
+            Self {
+                num: remainder,
+                den: self.den,
+            }
+        }
+    }
+
     /// Checked addition.
     ///
     /// Equal denominators are the common case here -- a fixed parameter grid and
@@ -2977,11 +3021,22 @@ fn is_gamma(record: &IrrepRecord) -> bool {
 /// `chi(t + L) = chi(t) * exp(+2 pi i k . L)`.  The phase is evaluated with
 /// `f64` trigonometry from exact rational angles; the pairing itself stays
 /// exact.
+///
+/// The exact angle is summed as a [`Rat`] and reduced **into `(-1/2, 1/2]` before** the
+/// `f64` conversion.  Converting first used to be enough for the parameters the
+/// corpus enumerated (small `t`), but the domain is closed under integer
+/// translation: at `t = 10^9 + 1/4` -- the same k point as `1/4` -- the angle is
+/// of order `10^9`, one `f64` ulp there is `~1.2e-7` of a turn, and the
+/// `1e-12` character comparison failed with `CharacterMismatch` (external review
+/// of `af51b04`; the permanent regression is
+/// `tests/line_monodromy.rs::the_engine_answers_a_far_translated_parameter`).
+/// The stored wave vector is untouched: only its *evaluation* changed.
 pub fn bloch_phase(wave_vector: &Vec3R, delta: &Vec3R) -> Result<Complex64, SubductionError> {
-    let mut angle = 0.0f64;
+    let mut angle = Rat::ZERO;
     for axis in 0..3 {
-        angle += wave_vector.get(axis).checked_mul(delta.get(axis))?.to_f64();
+        angle = angle.checked_add(wave_vector.get(axis).checked_mul(delta.get(axis))?)?;
     }
+    let angle = angle.principal_angle().to_f64();
     Ok(Complex64::from_polar(1.0, std::f64::consts::TAU * angle))
 }
 
@@ -3305,6 +3360,66 @@ mod tests {
             Rat::from_integer(i128::MAX).checked_add(big),
             Err(SubductionError::RationalOverflow { operation: "add" })
         );
+    }
+
+    /// **Phase precision (external review of `af51b04`): the Bloch phase reduces
+    /// the exact angle into `(-1/2, 1/2]` before the `f64` step.**
+    ///
+    /// `bloch_phase` used to convert each exact product to `f64` and sum the
+    /// floats, so an angle of order `10^9` -- which is what a far translation of
+    /// the same k point produces -- lost its fractional part (one `f64` ulp
+    /// there is `~1.2e-7` of a turn) and the `1e-12` character comparison failed
+    /// with `CharacterMismatch`.  The corpus regression is
+    /// `tests/line_monodromy.rs::the_engine_answers_a_far_translated_parameter`;
+    /// this one binds the primitive.
+    #[test]
+    fn the_bloch_phase_reduces_the_exact_angle_before_the_float_step() {
+        // Fractional part, exactly: integers vanish, negatives wrap into [0, 1).
+        assert_eq!(Rat::from_integer(7).principal_angle(), Rat::ZERO);
+        assert_eq!(Rat::ZERO.principal_angle(), Rat::ZERO);
+        assert_eq!(rat(5, 4).principal_angle(), rat(1, 4));
+        assert_eq!(rat(-1, 4).principal_angle(), rat(-1, 4));
+        assert_eq!(rat(-9, 4).principal_angle(), rat(-1, 4));
+        assert_eq!(rat(1, 2).principal_angle(), rat(1, 2));
+        assert_eq!(rat(3, 2).principal_angle(), rat(1, 2), "the interval is (-1/2, 1/2]");
+        assert_eq!(
+            Rat::new(4_000_000_001, 4).expect("canonical").principal_angle(),
+            rat(1, 4)
+        );
+
+        // A lattice translation whose exact phase with `v` is an integer leaves
+        // the phase alone; adding `N v` to `q` may not move it either, however
+        // large `N` is.
+        let v = Vec3R::from_ints([1, 2, 3]);
+        let tau = Vec3R::new([rat(1, 1), rat(-1, 2), Rat::ZERO]);
+        let mut dot = Rat::ZERO;
+        for axis in 0..3 {
+            dot = dot
+                .checked_add(v.get(axis).checked_mul(tau.get(axis)).expect("product"))
+                .expect("sum");
+        }
+        assert!(dot.is_integer(), "the fixture needs an integer phase: {dot}");
+        let q = Vec3R::new([rat(1, 4), rat(-3, 8), rat(5, 16)]);
+        let reference = bloch_phase(&q, &tau).expect("small angle");
+        for steps in [1i128, 1_000_000_000, -1_000_000_000] {
+            let shifted = Vec3R::new([
+                q.get(0)
+                    .checked_add(v.get(0).checked_mul(Rat::from_integer(steps)).expect("scaled"))
+                    .expect("sum"),
+                q.get(1)
+                    .checked_add(v.get(1).checked_mul(Rat::from_integer(steps)).expect("scaled"))
+                    .expect("sum"),
+                q.get(2)
+                    .checked_add(v.get(2).checked_mul(Rat::from_integer(steps)).expect("scaled"))
+                    .expect("sum"),
+            ]);
+            let moved = bloch_phase(&shifted, &tau).expect("large angle");
+            assert!(
+                (moved - reference).norm() < 1e-15,
+                "steps {steps}: the phase moved by {}",
+                (moved - reference).norm()
+            );
+        }
     }
 
     /// **Verification of the `Mat3R::minor` rewrite (review of `786e026`).**

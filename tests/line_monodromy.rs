@@ -836,6 +836,75 @@ fn the_engine_transports_every_primitive_line_reciprocal_step() {
     );
 }
 
+/// **A far integer translation is the same k point, so the decomposition may not
+/// move.**
+///
+/// `t` and `t + N` describe the same wave vector modulo the parent lattice for
+/// an integer `N` (the scope fence already requires the direction to be a
+/// reciprocal vector, so `N v` is in the parent reciprocal lattice), and the
+/// frozen table is the same.  This is where a floating-point phase breaks
+/// first: `bloch_phase` converted the exact rational angle `k . delta` to `f64`
+/// **before** reducing it modulo one, and at `t = 10^9 + 1/4` one ulp of that
+/// angle is ~1.2e-7 of a turn -- enough to turn the 1e-12 character comparison
+/// into a `CharacterMismatch` (external review of `af51b04`, witness ordinal
+/// 10030, SG 196 `DT1`).
+#[test]
+fn the_engine_answers_a_far_translated_parameter() {
+    let official = official_line_parameter().expect("the official parameter is valid");
+    let rows = pinned_rows();
+    assert_eq!(rows.len(), 5_756, "the pinned line corpus has 5,756 rows");
+    for shift in [1_000_000_000i128, -1_000_000_000] {
+        let parameter = Rat::from_integer(shift)
+            .checked_add(official)
+            .expect("shifted parameter");
+        let compared = rows
+            .par_iter()
+            .map(|(subgroup, row)| {
+                let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(subgroup) else {
+                    return None;
+                };
+                let table =
+                    line_table(subgroup.parent_sg, row.parent_ml).expect("the frozen source exists");
+                let reference = subduce_line_at_parameter(subgroup, &embedding, table, official)
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "ordinal {} {} at t=1/4: {error}",
+                            subgroup.ordinal, row.parent_ml
+                        )
+                    });
+                let shifted = subduce_line_at_parameter(subgroup, &embedding, table, parameter)
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "ordinal {} {} at t={parameter}: {error}",
+                            subgroup.ordinal, row.parent_ml
+                        )
+                    });
+                // Block *order* is not a translation invariant (the sweep pairs
+                // blocks by arm set, not by index, for exactly this reason), so
+                // the contract compared here is the multiset of blocks.
+                let mut shifted_keys = key(&shifted);
+                let mut reference_keys = key(&reference);
+                shifted_keys.sort();
+                reference_keys.sort();
+                assert_eq!(
+                    shifted_keys,
+                    reference_keys,
+                    "ordinal {} {}: the decomposition at t={parameter} must be the one at \
+                     t=1/4, which is the same k point modulo the parent lattice",
+                    subgroup.ordinal,
+                    row.parent_ml
+                );
+                Some(())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            compared.iter().filter(|entry| entry.is_some()).count(),
+            5_756,
+            "every pinned row must be compared at t={parameter}"
+        );
+    }
+}
+
 /// The revoked reading, kept as a named counterexample: the engine must **not**
 /// return the same decomposition for the same label one parameter step later
 /// whenever the monodromy is non-trivial.
