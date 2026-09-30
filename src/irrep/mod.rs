@@ -107,11 +107,10 @@ pub mod preamble;
 pub mod query;
 pub mod wigner;
 
-// Exact rational affine/lattice layer and the first complete Gamma
-// decomposition of the full-subduction engine
-// (docs/full-irrep-subduction-plan.md, tasks 3-12).  Hidden because no
-// supported surface is frozen yet; task 12 decides it.
-#[doc(hidden)]
+// Exact rational affine/lattice layer, the concrete star decomposition and the
+// parametric-k line engine (docs/full-irrep-subduction-plan.md, tasks 3-12).
+// Promoted by milestone R8: the supported entry point is `subduction_api`, and
+// the types its signatures use are public here.
 pub mod subduction;
 
 // Staged entry point: `subduce_irrep(&subgroup, probe_ml)` decomposes a parent
@@ -134,8 +133,16 @@ pub mod w_little_characters_data;
 // label map `M_K` computed from character fingerprints (never from label
 // names), the contract `(k + K, alpha) ~ (k, M_K(alpha))` it encodes, and the
 // conjugation map it commutes with.  See `docs/subduction-conventions.md` §16.
-#[doc(hidden)]
+// Promoted by milestone R8 (the parametric-k entry point reports its kind).
 pub mod line_monodromy;
+
+// The supported ordinary-subduction entry point (milestone R8): one request
+// type, one computation entry, and a report carrying its own provenance.
+pub mod subduction_api;
+pub use subduction_api::{
+    BlockView, CondensingIdentity, DirectionIdentity, SubductionApiError, SubductionReport,
+    SubductionRequest, TargetView, subduce, subduction_for_direction,
+};
 
 pub mod cubic;
 pub mod hexagonal;
