@@ -7,7 +7,7 @@
 
 use cryspglib::irrep::subduction::star::decompose::ParameterKind;
 use cryspglib::irrep::subduction_api::{
-    SubductionApiError, SubductionRequest, subduce, subduction_for_direction,
+    SubductionApiError, SubductionRequest, subduce, subduce_table, subduction_for_direction,
 };
 use cryspglib::irrep::{LabelConvention, isotropy::IsotropyDirection, query};
 
@@ -257,4 +257,57 @@ fn a_spinor_condensing_irrep_is_refused_not_downgraded() {
         message.contains("double-valued"),
         "the refusal must name the reason, got {message:?}"
     );
+}
+
+/// The whole-table wrapper answers every direction in table order, and a
+/// parameterized sweep reports per entry which directions carry that line.
+#[test]
+fn the_whole_table_wrapper_covers_every_direction() {
+    let entries = subduce_table(221, "GM4+", LabelConvention::Cdml, None)
+        .expect("SG 221 GM4+ has an isotropy table");
+    assert_eq!(entries.len(), 4, "GM4+ has four isotropy directions");
+    for (position, entry) in entries.iter().enumerate() {
+        assert_eq!(entry.index, position, "entries are in table order");
+        assert!(
+            !entry.label.is_empty(),
+            "every entry carries its direction label"
+        );
+        let report = entry
+            .result
+            .as_ref()
+            .unwrap_or_else(|error| panic!("direction {} ({}) failed: {error}", entry.index, entry.label));
+        assert_eq!(report.direction().index_in_irrep, entry.index);
+        assert_eq!(report.direction().label, entry.label);
+    }
+
+    // A parameterized sweep: only the directions that carry the frozen line
+    // answer, the others say why, and nothing is dropped silently.
+    let official = cryspglib::irrep::subduction::star::decompose::official_line_parameter()
+        .expect("the official parameter parses");
+    let sweep = subduce_table(196, "DT1", LabelConvention::Cdml, Some(official))
+        .expect("the W1 table resolves through the source label");
+    assert!(!sweep.is_empty());
+    let answered = sweep.iter().filter(|entry| entry.result.is_ok()).count();
+    assert!(
+        answered > 0,
+        "at least one direction of W1 carries the DT1 line"
+    );
+    assert!(
+        answered < sweep.len(),
+        "the DT1 line does not run along every direction of W1"
+    );
+    for entry in &sweep {
+        match &entry.result {
+            Ok(report) => assert_eq!(report.condensing().cdml, "W1"),
+            Err(error) => {
+                let message = error.to_string();
+                assert!(
+                    message.contains("frozen line source")
+                        || message.contains("frozen line")
+                        || message.contains("ambiguous"),
+                    "an unanswered direction must say why, got {message:?}"
+                );
+            }
+        }
+    }
 }

@@ -82,6 +82,14 @@ pub enum SubductionApiError {
         sg: u8,
         cdml: &'static str,
     },
+    /// The named frozen line source exists in this parent, but the selected
+    /// isotropy direction's subgroup does not carry it, so there is no such
+    /// parameterized decomposition.
+    LineSourceNotInDirection {
+        sg: u8,
+        source: &'static str,
+        subgroup_sg: u8,
+    },
     /// A parameter was requested through a condensing irrep and direction
     /// whose subgroup carries several frozen line sources, so the request does
     /// not name one line.  Name the source label instead.
@@ -131,6 +139,15 @@ impl std::fmt::Display for SubductionApiError {
                 f,
                 "space group {sg} {cdml} is not one of the frozen parametric-k line sources, \
                  so it takes no parameter"
+            ),
+            Self::LineSourceNotInDirection {
+                sg,
+                source,
+                subgroup_sg,
+            } => write!(
+                f,
+                "space group {sg}: the frozen line source {source} does not run along the \
+                 selected direction (subgroup {subgroup_sg})"
             ),
             Self::AmbiguousLineSource {
                 sg,
@@ -435,22 +452,37 @@ fn index_in_irrep(subgroup: &IsotropySubgroup) -> Result<usize, SubductionApiErr
 fn resolve_line_source(
     parent_sg: u8,
     label: &str,
-    direction: IsotropyDirection<'_>,
+    direction: Option<IsotropyDirection<'_>>,
 ) -> Result<(&'static IrrepRecord, IsotropySubgroup), SubductionApiError> {
     for record in query::irreps_of(parent_sg) {
         if record.spinor || record.subgroups().is_empty() {
             continue;
         }
-        let Ok(subgroup) =
-            isotropy::isotropy_subgroup_for_direction(parent_sg, record.ml, LabelConvention::Cdml, direction)
-        else {
-            continue;
+        // With a requested direction, ask only for that one; without one (the
+        // whole-table sweep), walk the irrep's own list.
+        let candidates = match direction {
+            Some(direction) => match isotropy::isotropy_subgroup_for_direction(
+                parent_sg,
+                record.ml,
+                LabelConvention::Cdml,
+                direction,
+            ) {
+                Ok(subgroup) => vec![subgroup],
+                Err(_) => continue,
+            },
+            None => match isotropy::isotropy_subgroups(parent_sg, record.ml, LabelConvention::Cdml)
+            {
+                Ok(subgroups) => subgroups,
+                Err(_) => continue,
+            },
         };
-        let Ok(rows) = subgroup.other_wave_vector_subduction() else {
-            continue;
-        };
-        if rows.iter().any(|row| row.parent_ml == label) {
-            return Ok((record, subgroup));
+        for subgroup in candidates {
+            let Ok(rows) = subgroup.other_wave_vector_subduction() else {
+                continue;
+            };
+            if rows.iter().any(|row| row.parent_ml == label) {
+                return Ok((record, subgroup));
+            }
         }
     }
     Err(SubductionApiError::CondensingNotFound {
@@ -536,13 +568,31 @@ pub fn subduce(request: &SubductionRequest<'_>) -> Result<SubductionReport, Subd
                 (record, subgroup, line_table(request.parent_sg, record.ml))
             }
             Err(SubductionApiError::CondensingNotFound { .. }) => {
-                let (record, subgroup) = resolve_line_source(
+                match resolve_line_source(
                     request.parent_sg,
                     request.condensing,
-                    request.direction,
-                )?;
-                let table = line_table(request.parent_sg, request.condensing);
-                (record, subgroup, table)
+                    Some(request.direction),
+                ) {
+                    Ok((record, subgroup)) => {
+                        let table = line_table(request.parent_sg, request.condensing);
+                        (record, subgroup, table)
+                    }
+                    Err(not_found) => {
+                        // Distinguish "no such name at all" from "that frozen
+                        // source exists, but not along this direction": the
+                        // latter is a request error with a clear answer.
+                        let Some(table) = line_table(request.parent_sg, request.condensing) else {
+                            return Err(not_found);
+                        };
+                        let (_, elsewhere) =
+                            resolve_line_source(request.parent_sg, request.condensing, None)?;
+                        return Err(SubductionApiError::LineSourceNotInDirection {
+                            sg: request.parent_sg,
+                            source: table.label,
+                            subgroup_sg: elsewhere.record.sg as u8,
+                        });
+                    }
+                }
             }
             Err(other) => return Err(other),
         };
@@ -618,6 +668,59 @@ pub fn subduce(request: &SubductionRequest<'_>) -> Result<SubductionReport, Subd
         }
     }
     Ok(report)
+}
+
+/// One entry of a whole-table sweep: the direction's position in the parent
+/// irrep's isotropy list, its label, and the answer for that direction.
+#[derive(Debug, Clone)]
+pub struct TableEntry {
+    /// Position in the irrep's isotropy list, the value
+    /// [`IsotropyDirection::Index`] takes.
+    pub index: usize,
+    /// The isotropy direction label.
+    pub label: &'static str,
+    /// The decomposition, or the error that stopped it.
+    pub result: Result<SubductionReport, SubductionApiError>,
+}
+
+/// Answer **every** isotropy direction of one condensing irrep.
+///
+/// The entries are in table order and each carries its own result: a direction
+/// the engine cannot answer (or, for a parameterized request, a direction whose
+/// subgroup does not carry that frozen line) is reported per entry instead of
+/// failing the whole table or being silently dropped.  Every entry goes through
+/// [`subduce`], so there is exactly one computation path.
+pub fn subduce_table(
+    parent_sg: u8,
+    condensing: &str,
+    convention: LabelConvention,
+    parameter: Option<Rat>,
+) -> Result<Vec<TableEntry>, SubductionApiError> {
+    // Resolve once to learn the direction list, then answer each direction
+    // through the same entry point (which resolves again -- resolution is cheap
+    // next to a decomposition).
+    let record = match resolve_condensing(parent_sg, condensing, convention) {
+        Ok(record) => record,
+        Err(SubductionApiError::CondensingNotFound { .. }) => {
+            resolve_line_source(parent_sg, condensing, None)?.0
+        }
+        Err(other) => return Err(other),
+    };
+    let list = isotropy::isotropy_subgroups(parent_sg, record.ml, LabelConvention::Cdml)?;
+    let mut entries = Vec::with_capacity(list.len());
+    for (index, subgroup) in list.iter().enumerate() {
+        let mut request = SubductionRequest::new(parent_sg, condensing, convention)
+            .direction(IsotropyDirection::Index(index));
+        if let Some(parameter) = parameter {
+            request = request.parameter(parameter);
+        }
+        entries.push(TableEntry {
+            index,
+            label: subgroup.record.direction_label,
+            result: subduce(&request),
+        });
+    }
+    Ok(entries)
 }
 
 /// Shorthand for `subduce(&SubductionRequest::new(sg, condensing, convention)
