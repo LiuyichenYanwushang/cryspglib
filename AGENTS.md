@@ -1948,7 +1948,10 @@ SG194 `GM6+` `(a,0)`、复杂分隔符（SG177 `L1` `(a;b;c)` 单向量用 `;`�
   **它点出的残余已关掉**：universe gate 只证明那个键是真实数据表记录，不证明"程序对它的方向表
   真的为空"（可能来自过期缓存）。新增 `python3 scripts/freeze_direction_descriptors.py
   --verify-empty --jobs 8`：对这 **112** 个空表记录**逐个重跑** `SHOW DIRECTION VECTOR`，任何一个
-  打印出行即 exit 1；实测 **112/112 重确认、11 s（8 路）**，并已接入电池尾段。 **干净树电池**：`target/logs/r8i/summary.txt`
+  打印出行即 exit 1；实测 **112/112 重确认、11 s（8 路）**，并已接入电池尾段。 **干净树电池**：`target/logs/r8j/summary.txt`
+  （`revision 6befeb1 dirty-files 0`）**721 passed / 0 failed**、43 个测试壳、三 TSV 仍钉住（4 == 8）、
+  `VERDICT complete`，尾段 `descriptors EXIT=0` 与 **`descriptors-empty EXIT=0`**、
+  clippy/doctest/oracle/其余 python 门禁全 exit 0。 **干净树电池**：`target/logs/r8i/summary.txt`
   （`revision 401a986 dirty-files 0`）**721 passed / 0 failed**、43 个测试壳、三 TSV 仍钉住（4 == 8）、
   `VERDICT complete`、clippy/doctest/oracle/python（含 `descriptors --check`）全 exit 0；`subduction_api`
   集成测试 **13 项**（新增 P3-1 见证）。
