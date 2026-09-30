@@ -137,6 +137,13 @@ pub mod w_little_characters_data;
 // `IsotropyDirection::OfficialDescriptor`.  Milestone R7.
 pub mod direction_descriptors_data;
 
+// R9 stage 1: the magnetic input contract.  One magnetic space group (UNI)
+// turned into exact operations with the time-reversal flag preserved, and a
+// proof that the set really is a group whose unitary part is a subgroup and
+// whose antiunitary part is one coset of it.  See
+// `docs/subduction-next-milestones.md` R9.
+pub mod magnetic_embedding;
+
 // Monodromy of those frozen line sources under a parent reciprocal shift: the
 // label map `M_K` computed from character fingerprints (never from label
 // names), the contract `(k + K, alpha) ~ (k, M_K(alpha))` it encodes, and the
