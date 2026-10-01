@@ -448,6 +448,21 @@ oracle/独立数据库来源对齐"的原因。**未做（stage 2）**：经 `ba
 `magnetic_geometry`）、三 TSV 仍钉住（4 == 8）、`VERDICT complete`、
 clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
+**R9 stage 2b 尝试（未收敛，如实记录，先读这条再动手）**：新 API `search_parent_setting` +
+`SettingSearchReport`（候选族 = **48 个有符号置换 × 磁群自身的带心矩阵 C**，C 从该 UNI 自己的
+纯平移读出，不猜 Bravais 型；判据 = 映射后旋转为整 + 单位类落在母群内（mod 母群格）+ 反幺正
+旋转在母群旋转集内）。**实测（16,721 行）**：存活直方图
+`{0: 10308, 2: 96, 3: 2, 4: 221, 6: 5, 8: 1433, 16: 1898, 24: 33, 32: 62, 48: 2663}`
+——**没有任何一条记录唯一存活**（众数 48 = 全存活），另有 **10,308 条 0 存活**。⇒ 这个候选族
+**不能**当判定程序，**stage 2b 未完成**，账本与代码文档都写明"不得据此声称父子包含已验证"；
+该 API 只作为**诊断仪器**并钉住直方图（`tests/magnetic_geometry.rs` 第 7 项）。两个失败模式各有
+常驻见证：**SG 3 UNI 24**（0 存活，且朴素映射已经缺类）与 **SG 1**（48 全存活——P1 母群没有任何
+鉴别力）。**下一步（不许再猜候选族）**：改用**独立的 setting 表**——`scripts/data/spglib_magnetic_provenance_v1.json`
+已含 spglib 的 `msg.alternative_transformations[uni][18][7]`（1652×18×7；Rust 侧**尚未**使用，
+`scripts/extract_spglib_magnetic_provenance.py` 只冻结了它），先把这 7 个整数的布局从提取脚本
+与上游语义钉住，再从数据里取出"磁群标准设置 ↔ 记录 basis/origin"的变换并用包含关系验证；若该
+布局不足以还原 (P, p)，则退回用"普通 isotropy 表同方向记录 + 磁群单位部"做交叉锚定，仍不许猜。
+
 ### 3c. R7 官方方向 descriptor（进行中，先读这一条）
 
 **第 1 步（采集，已完成，见本提交）**：`scripts/collect_direction_descriptors.py` 逐

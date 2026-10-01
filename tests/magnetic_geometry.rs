@@ -12,7 +12,8 @@
 
 use cryspglib::irrep::magnetic_embedding::{
     GeometryAgreement, GeometryError, compare_with_ordinary_geometry, embedded_translation_lattice,
-    geometry_of, magnetic_operations, measure_parent_containment, translation_lattice,
+    geometry_of, magnetic_operations, measure_parent_containment, search_parent_setting,
+    translation_lattice,
 };
 use cryspglib::irrep::query;
 use cryspglib::irrep::magnetic_embedding::canonical_translation;
@@ -224,6 +225,68 @@ fn the_setting_free_test_agrees_with_lattice_membership() {
         }
     }
     assert_eq!(checked, 15_239, "labelled pairs compared");
+}
+
+/// R9 stage 2b measurement (round 15j): the candidate-setting search is an
+/// instrument, not a decision procedure.  Pinning the histogram keeps the
+/// negative result from being quietly upgraded into a containment claim.
+#[test]
+fn the_setting_search_family_is_not_a_decision_procedure() {
+    let mut histogram: std::collections::BTreeMap<usize, usize> =
+        std::collections::BTreeMap::new();
+    let mut unique = 0usize;
+    for sg in 1..=230u8 {
+        for row in query::magnetic_isotropy_subgroups_of(sg) {
+            let record = row.subgroup;
+            let geometry = geometry_of(sg, &record).expect("geometry");
+            let set = magnetic_operations(record.mag_sg).expect("operations");
+            let report = search_parent_setting(&geometry, &set).expect("search");
+            assert_eq!(report.candidates, 48);
+            assert_eq!(report.naive.classes, set.class_count());
+            *histogram.entry(report.survivors).or_insert(0) += 1;
+            if report.survivors == 1 {
+                unique += 1;
+            }
+        }
+    }
+    assert_eq!(
+        histogram,
+        std::collections::BTreeMap::from([
+            (0, 10_308),
+            (2, 96),
+            (3, 2),
+            (4, 221),
+            (6, 5),
+            (8, 1_433),
+            (16, 1_898),
+            (24, 33),
+            (32, 62),
+            (48, 2_663),
+        ]),
+        "survivor histogram of the signed-permutation family"
+    );
+    assert_eq!(unique, 0, "no record has a unique survivor");
+
+    // Two witnesses of the two failure modes.
+    let failing = query::magnetic_isotropy_subgroups_of(3)
+        .into_iter()
+        .map(|row| row.subgroup)
+        .find(|record| record.mag_sg == 24)
+        .expect("SG 3 row for UNI 24");
+    let geometry = geometry_of(3, &failing).expect("geometry");
+    let set = magnetic_operations(24).expect("operations");
+    let report = search_parent_setting(&geometry, &set).expect("search");
+    assert_eq!(report.survivors, 0, "SG 3 UNI 24: no candidate contains");
+    assert!(
+        report.naive.unitary_in_parent < report.naive.unitary_classes,
+        "and the naive map already misses a class"
+    );
+
+    let permissive = first_record(1);
+    let geometry = geometry_of(1, &permissive).expect("geometry");
+    let set = magnetic_operations(permissive.mag_sg).expect("operations");
+    let report = search_parent_setting(&geometry, &set).expect("search");
+    assert_eq!(report.survivors, 48, "P1 parent: every candidate contains");
 }
 
 #[test]
