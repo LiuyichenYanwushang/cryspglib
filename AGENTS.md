@@ -399,6 +399,28 @@ oracle/独立数据库来源对齐"的原因。**未做（stage 2）**：经 `ba
 （`revision 34352e3 dirty-files 0`）**725 passed / 0 failed**、**44** 个测试壳、三 TSV 仍钉住（4 == 8）、
 `VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
+**R9 stage 2a（记录几何 + 跨表锚点 + 母群包含度"测量"）**：新增 `MagneticGeometry`（精确
+`basis`/`origin` 与格指数 `|det|`）、`geometry_of`、`compare_with_ordinary_geometry`
+（Agree / BasisDiffers / OriginDiffers / BothDiffer / NoOrdinaryRow / NoOrdinaryIrrep）、
+`MagneticGeometry::spans_same_lattice_as`（**setting 无关**的"同一格"判定：双向换基皆整）、
+`measure_parent_containment`、`embedded_translation_lattice` 与 `GeometryError`。
+**实测（16,721 行）**：格指数分布 `{1:2064, 2:4859, 3:667, 4:5483, 6:496, 8:2146, 16:413, 32:593}`
+（最大 **32**）；origin 分母 `{1:7849, 2:4691, 3:297, 4:2969, 6:133, 8:687, 12:95}`；
+与**普通 isotropy 表**按方向标号比对：有标号普通行 **15,239** 行，其中 **12,893** 行两表
+**描述同一格**（setting 无关口径），逐项比较则是 agree 8,287 / basis_differs 3,852 /
+origin_differs 600 / both_differ 2,500 / 无普通行 1,482（差值是**合法 setting 选择**，见证
+SG 1 `GM1` `P1` UNI 1：普通行取恒等基，磁行取单模旋转基，指数同为 1）。
+**这一轮最重要的实测结论（决定了 stage 2b 的形态）**：两个数据库的操作**都在常规（含心）
+设置**里（实测纯平移列含心矢：SG 88/142 有 `(1/2,1/2,1/2)`、SG 227 有三个面心矢），而记录的
+`basis`/`origin` 是母群**初基**帧。于是朴素的 `M = basis^T` 映射**不能**普遍落回母群：
+初基母群 9,726 行里 **33,894/48,618** 个单位类在母群内，含心母群 6,995 行里 **13,918/35,471**，
+**224 个母群**至少有一个单位类不在母群里（首个见证 SG 3：**18/31**）。所以 stage 2a 只把
+包含度当**测量**暴露（`ParentContainment` 的四个计数），不做断言；真正要"校验父子包含"必须
+先按**候选 setting** 搜索把磁群的表格设置与记录格对齐（普通分导的 `SubgroupEmbedding` 已在做
+同样的事），这是 **stage 2b**，尚未做。**测试**：`tests/magnetic_geometry.rs` 5 项（几何普查 +
+两表锚点、格判定解释逐项差异的见证、四类篡改被抓（改 origin / 改 basis / 奇异基 / 坏分母 /
+坏父群）、包含度测量钉值、嵌入格恰为像格）。
+
 ### 3c. R7 官方方向 descriptor（进行中，先读这一条）
 
 **第 1 步（采集，已完成，见本提交）**：`scripts/collect_direction_descriptors.py` 逐

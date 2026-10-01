@@ -249,6 +249,17 @@ impl std::fmt::Display for MagneticContractError {
 
 impl std::error::Error for MagneticContractError {}
 
+/// Exact conversion of one floating-point fraction with a small denominator.
+fn exact_fraction(value: f64) -> Option<Rat> {
+    for denominator in 1..=MAX_TRANSLATION_DENOMINATOR {
+        let scaled = value * denominator as f64;
+        if (scaled - scaled.round()).abs() < 1e-9 {
+            return Rat::new(scaled.round() as i128, denominator).ok();
+        }
+    }
+    None
+}
+
 /// Exact conversion of one database translation component.
 fn exact_component(
     uni: usize,
@@ -256,20 +267,7 @@ fn exact_component(
     component: usize,
     value: f64,
 ) -> Result<Rat, MagneticContractError> {
-    for denominator in 1..=MAX_TRANSLATION_DENOMINATOR {
-        let scaled = value * denominator as f64;
-        if (scaled - scaled.round()).abs() < 1e-9 {
-            return Rat::new(scaled.round() as i128, denominator).map_err(|_| {
-                MagneticContractError::TranslationOffGrid {
-                    uni,
-                    index,
-                    component,
-                    value: format!("{value}"),
-                }
-            });
-        }
-    }
-    Err(MagneticContractError::TranslationOffGrid {
+    exact_fraction(value).ok_or(MagneticContractError::TranslationOffGrid {
         uni,
         index,
         component,
@@ -348,9 +346,14 @@ fn classify(set: &MagneticOperationSet) -> Vec<MagneticOperation> {
 /// a magnetic group's pure translations are always unitary (an antiunitary pure
 /// translation would flip every spin without moving anything).
 pub fn translation_lattice(set: &MagneticOperationSet) -> Vec<[Rat; 3]> {
+    lattice_of_operations(&set.operations)
+}
+
+/// The non-zero pure translations of an operation list, exact.
+pub fn lattice_of_operations(operations: &[MagneticOperation]) -> Vec<[Rat; 3]> {
     let identity: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
     let mut lattice: Vec<[Rat; 3]> = Vec::new();
-    for operation in &set.operations {
+    for operation in operations {
         if operation.rotation != identity || operation.time_reversal {
             continue;
         }
@@ -744,4 +747,403 @@ pub fn verify_against_database(set: &MagneticOperationSet) -> Result<(), Magneti
         }
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// R9 stage 2a: the record's geometry, exactly, and how far it embeds.
+// ---------------------------------------------------------------------------
+
+/// Exact geometry of one magnetic isotropy record.
+///
+/// The stored `basis` and `origin` are integers in the parent's **primitive**
+/// frame (see [`crate::irrep::types::MagneticIsotropyRecord`]); this type keeps
+/// them exactly, together with the lattice index `|det(basis)|`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MagneticGeometry {
+    /// Parent space-group number (1–230).
+    pub parent_sg: u8,
+    /// Magnetic space group UNI number.
+    pub uni: usize,
+    /// Subgroup lattice vectors in the parent's primitive frame (rows), exact.
+    pub basis: [[Rat; 3]; 3],
+    /// Origin shift in the parent's primitive frame, exact.
+    pub origin: [Rat; 3],
+    /// Absolute determinant of the basis, i.e. the lattice index.
+    pub index: i128,
+}
+
+impl MagneticGeometry {
+    /// The coordinate map from the subgroup's primitive frame into the parent's
+    /// primitive frame: `M = basis^T` (the rows of `basis` are lattice vectors).
+    pub fn map_matrix(&self) -> Mat3R {
+        let mut out = [[Rat::ZERO; 3]; 3];
+        for (row, values) in out.iter_mut().enumerate() {
+            for (column, value) in values.iter_mut().enumerate() {
+                *value = self.basis[column][row];
+            }
+        }
+        Mat3R::new(out)
+    }
+
+    /// Whether another integer basis spans the lattice this geometry describes.
+    ///
+    /// Both directions of the change of basis must be integral (equivalently,
+    /// the change is unimodular), which is the setting-free statement of "the
+    /// two rows describe the same subgroup lattice".  This is the stronger
+    /// cross-table comparison: the magnetic and ordinary tables often keep the
+    /// same lattice in different settings, which an entry-by-entry comparison
+    /// reports as a difference.
+    pub fn spans_same_lattice_as(&self, other: [[i32; 3]; 3]) -> bool {
+        let mut other_matrix = [[Rat::ZERO; 3]; 3];
+        for (row, values) in other.iter().enumerate() {
+            for (column, value) in values.iter().enumerate() {
+                other_matrix[row][column] = Rat::from_integer(i128::from(*value));
+            }
+        }
+        let self_matrix = Mat3R::new(self.basis);
+        let other_matrix = Mat3R::new(other_matrix);
+        let Ok(self_inverse) = self_matrix.inverse() else {
+            return false;
+        };
+        let Ok(other_inverse) = other_matrix.inverse() else {
+            return false;
+        };
+        let forward = self_inverse.checked_mul(&other_matrix);
+        let backward = other_inverse.checked_mul(&self_matrix);
+        matches!(forward, Ok(matrix) if matrix.is_integral())
+            && matches!(backward, Ok(matrix) if matrix.is_integral())
+    }
+
+    /// Whether the record keeps the parent's basis and origin.
+    pub fn is_identity(&self) -> bool {
+        self.basis == [[Rat::ONE, Rat::ZERO, Rat::ZERO], [Rat::ZERO, Rat::ONE, Rat::ZERO], [Rat::ZERO, Rat::ZERO, Rat::ONE]]
+            && self.origin.iter().all(|value| value.is_zero())
+    }
+}
+
+/// Why a record's geometry could not be read or does not embed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GeometryError {
+    /// The parent space-group number is outside 1–230.
+    UnknownParentSpaceGroup { sg: u8 },
+    /// The origin encoding `[x, y, z, d]` has a non-positive denominator.
+    BadOriginEncoding { uni: usize, denominator: i32 },
+    /// The basis is singular, so it does not describe a lattice.
+    DegenerateBasis { uni: usize },
+    /// The parent's operation table could not be read.
+    UnreadableParent { sg: u8 },
+    /// The parent's translations are not on the small exact grid.
+    ParentTranslationOffGrid { sg: u8 },
+}
+
+impl std::fmt::Display for GeometryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownParentSpaceGroup { sg } => write!(f, "parent space group {sg} is unknown"),
+            Self::BadOriginEncoding { uni, denominator } => write!(
+                f,
+                "UNI {uni}: origin denominator {denominator} is not positive"
+            ),
+            Self::DegenerateBasis { uni } => {
+                write!(f, "UNI {uni}: the subgroup basis is singular")
+            }
+            Self::UnreadableParent { sg } => {
+                write!(f, "the operations of parent space group {sg} are unavailable")
+            }
+            Self::ParentTranslationOffGrid { sg } => write!(
+                f,
+                "parent space group {sg} has a translation off the exact grid"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for GeometryError {}
+
+/// Read one magnetic isotropy record's geometry exactly.
+pub fn geometry_of(
+    parent_sg: u8,
+    record: &crate::irrep::types::MagneticIsotropyRecord,
+) -> Result<MagneticGeometry, GeometryError> {
+    if parent_sg == 0 || parent_sg > 230 {
+        return Err(GeometryError::UnknownParentSpaceGroup { sg: parent_sg });
+    }
+    let denominator = i128::from(record.origin[3]);
+    if denominator <= 0 {
+        return Err(GeometryError::BadOriginEncoding {
+            uni: record.mag_sg,
+            denominator: record.origin[3],
+        });
+    }
+    let mut basis = [[Rat::ZERO; 3]; 3];
+    for (row, values) in record.basis.iter().enumerate() {
+        for (column, value) in values.iter().enumerate() {
+            basis[row][column] = Rat::from_integer(i128::from(*value));
+        }
+    }
+    let determinant = Mat3R::new(basis)
+        .determinant()
+        .map_err(|_| GeometryError::DegenerateBasis { uni: record.mag_sg })?;
+    let index = determinant
+        .to_integer()
+        .map_err(|_| GeometryError::DegenerateBasis { uni: record.mag_sg })?
+        .abs();
+    if index == 0 {
+        return Err(GeometryError::DegenerateBasis { uni: record.mag_sg });
+    }
+    let origin = [
+        Rat::new(i128::from(record.origin[0]), denominator).expect("positive denominator"),
+        Rat::new(i128::from(record.origin[1]), denominator).expect("positive denominator"),
+        Rat::new(i128::from(record.origin[2]), denominator).expect("positive denominator"),
+    ];
+    Ok(MagneticGeometry {
+        parent_sg,
+        uni: record.mag_sg,
+        basis,
+        origin,
+        index,
+    })
+}
+
+/// How a record's geometry compares with the ordinary isotropy table's row for
+/// the same parent irrep and direction label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeometryAgreement {
+    /// The ordinary row has the same basis and origin.
+    Agree,
+    /// The ordinary row differs in the basis only.
+    BasisDiffers,
+    /// The ordinary row differs in the origin only.
+    OriginDiffers,
+    /// The ordinary row differs in both.
+    BothDiffer,
+    /// The ordinary table has no row with this direction label.
+    NoOrdinaryRow,
+    /// The parent irrep or its isotropy table is unknown.
+    NoOrdinaryIrrep,
+}
+
+/// Compare a magnetic record's geometry with the ordinary isotropy table.
+///
+/// Both tables are generated from the same program but by different code paths,
+/// so agreement is a cross-source check of the stored geometry (and a tampered
+/// basis or origin breaks it).  Disagreement is *not* an error: the two tables
+/// legitimately pick different representatives for the same direction (measured:
+/// 15,239 of 16,721 rows have a labelled ordinary row, 8,287 of those agree in
+/// both basis and origin).
+pub fn compare_with_ordinary_geometry(
+    parent_sg: u8,
+    ml: &str,
+    direction_label: &str,
+    geometry: &MagneticGeometry,
+) -> GeometryAgreement {
+    let Some(irrep) = crate::irrep::query::irreps_of(parent_sg)
+        .iter()
+        .find(|irrep| irrep.ml == ml)
+    else {
+        return GeometryAgreement::NoOrdinaryIrrep;
+    };
+    let mut saw_row = false;
+    let mut basis_differs = false;
+    let mut origin_differs = false;
+    for ordinary in irrep.subgroups() {
+        if ordinary.direction_label != direction_label {
+            continue;
+        }
+        saw_row = true;
+        let mut basis_same = true;
+        for row in 0..3 {
+            for column in 0..3 {
+                if geometry.basis[row][column]
+                    != Rat::from_integer(i128::from(ordinary.basis[row][column]))
+                {
+                    basis_same = false;
+                }
+            }
+        }
+        if ordinary.origin[3] <= 0 {
+            origin_differs = true;
+            continue;
+        }
+        let origin_same = (0..3).all(|axis| {
+            geometry.origin[axis]
+                == Rat::new(
+                    i128::from(ordinary.origin[axis]),
+                    i128::from(ordinary.origin[3]),
+                )
+                .expect("positive denominator")
+        });
+        if basis_same && origin_same {
+            return GeometryAgreement::Agree;
+        }
+        if !basis_same {
+            basis_differs = true;
+        }
+        if !origin_same {
+            origin_differs = true;
+        }
+    }
+    if !saw_row {
+        return GeometryAgreement::NoOrdinaryRow;
+    }
+    match (basis_differs, origin_differs) {
+        (true, true) => GeometryAgreement::BothDiffer,
+        (true, false) => GeometryAgreement::BasisDiffers,
+        (false, true) => GeometryAgreement::OriginDiffers,
+        (false, false) => GeometryAgreement::Agree,
+    }
+}
+
+/// How far one record's operation set embeds into its parent space group.
+///
+/// Every count is measured, never assumed.  `unitary_in_parent` counts the
+/// unitary classes whose image (through [`MagneticGeometry::map_matrix`], in the
+/// parent's primitive frame) is an operation of the parent space group modulo
+/// the parent lattice; `antiunitary_rotations_in_parent` counts antiunitary
+/// classes whose image rotation appears among the parent's rotations (so the
+/// magnetic group sits inside the parent's grey group).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParentContainment {
+    /// Classes of the magnetic operation set.
+    pub classes: usize,
+    /// Unitary classes of the magnetic operation set.
+    pub unitary_classes: usize,
+    /// Images whose rotation stayed integral.
+    pub integral_rotations: usize,
+    /// Unitary classes that are parent operations.
+    pub unitary_in_parent: usize,
+    /// Antiunitary classes whose rotation is a parent rotation.
+    pub antiunitary_rotations_in_parent: usize,
+}
+
+/// Measure the parent-frame image of one record's operations.
+///
+/// The map used here is the record's own `basis`/`origin` in the parent's
+/// **primitive** frame.  For a primitive parent that is the whole story; for a
+/// centred parent the magnetic group's tabulated setting still has to be aligned
+/// with the record's lattice, which is why this function reports counts instead
+/// of asserting containment (see the R9 ledger entry).
+pub fn measure_parent_containment(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+) -> Result<ParentContainment, GeometryError> {
+    let parent = crate::irrep::query::symmetry_operations_of(geometry.parent_sg)
+        .map_err(|_| GeometryError::UnreadableParent {
+            sg: geometry.parent_sg,
+        })?;
+    let mut parent_operations = Vec::with_capacity(parent.operations.len());
+    for operation in parent.operations.iter() {
+        let translation = [
+            exact_fraction(operation.translation[0]),
+            exact_fraction(operation.translation[1]),
+            exact_fraction(operation.translation[2]),
+        ];
+        let (Some(x), Some(y), Some(z)) = (translation[0], translation[1], translation[2]) else {
+            return Err(GeometryError::ParentTranslationOffGrid {
+                sg: geometry.parent_sg,
+            });
+        };
+        parent_operations.push(MagneticOperation {
+            rotation: operation.rotation,
+            translation: [x, y, z],
+            time_reversal: false,
+        });
+    }
+    let parent_lattice = lattice_of_operations(&parent_operations);
+    let parent_rotations: Vec<Mat3I> = parent_operations
+        .iter()
+        .map(|operation| operation.rotation)
+        .collect();
+
+    let map = geometry.map_matrix();
+    let inverse = map.inverse().expect("non-singular basis");
+
+    let mut result = ParentContainment {
+        classes: set.class_count(),
+        unitary_classes: set.unitary_classes,
+        integral_rotations: 0,
+        unitary_in_parent: 0,
+        antiunitary_rotations_in_parent: 0,
+    };
+    for operation in &set.classes {
+        let rotation = Mat3R::from_ints(operation.rotation);
+        let conjugated = map
+            .checked_mul(&rotation)
+            .and_then(|product| product.checked_mul(&inverse))
+            .expect("exact product");
+        let Ok(mapped_rotation) = conjugated.to_int_matrix() else {
+            continue;
+        };
+        result.integral_rotations += 1;
+        // (I - R_p) * origin, with R_p integral.
+        let mut shift = [Rat::ZERO; 3];
+        for (row, cell) in shift.iter_mut().enumerate() {
+            let mut sum = Rat::ZERO;
+            for (column, value) in geometry.origin.iter().enumerate() {
+                let entry = i128::from(if row == column { 1 } else { 0 })
+                    - i128::from(mapped_rotation[row][column]);
+                sum = sum
+                    .checked_add(
+                        value
+                            .checked_mul(Rat::from_integer(entry))
+                            .expect("exact product"),
+                    )
+                    .expect("exact sum");
+            }
+            *cell = sum;
+        }
+        let moved = map
+            .checked_mul_vector(&Vec3R::new(operation.translation))
+            .expect("exact product");
+        let mut mapped_translation = [Rat::ZERO; 3];
+        for axis in 0..3 {
+            mapped_translation[axis] = moved
+                .get(axis)
+                .checked_add(shift[axis])
+                .expect("exact sum");
+        }
+        if operation.time_reversal {
+            if parent_rotations.contains(&mapped_rotation) {
+                result.antiunitary_rotations_in_parent += 1;
+            }
+            continue;
+        }
+        let found = parent_operations.iter().any(|candidate| {
+            if candidate.rotation != mapped_rotation {
+                return false;
+            }
+            let mut difference = [Rat::ZERO; 3];
+            for axis in 0..3 {
+                difference[axis] = mapped_translation[axis]
+                    .checked_sub(candidate.translation[axis])
+                    .expect("exact difference");
+            }
+            canonical_translation(difference, &parent_lattice)
+                .iter()
+                .all(|value| value.is_zero())
+        });
+        if found {
+            result.unitary_in_parent += 1;
+        }
+    }
+    Ok(result)
+}
+
+/// The image of the set's translation lattice under the record's map.
+pub fn embedded_translation_lattice(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+) -> Vec<[Rat; 3]> {
+    let map = geometry.map_matrix();
+    let mut image: Vec<[Rat; 3]> = Vec::new();
+    for generator in &translation_lattice(set) {
+        let moved = map
+            .checked_mul_vector(&Vec3R::new(*generator))
+            .expect("exact product");
+        let values = *moved.as_array();
+        if !image.contains(&values) {
+            image.push(values);
+        }
+    }
+    image
 }
