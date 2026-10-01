@@ -808,8 +808,13 @@ impl MagneticGeometry {
         let Ok(other_inverse) = other_matrix.inverse() else {
             return false;
         };
-        let forward = self_inverse.checked_mul(&other_matrix);
-        let backward = other_inverse.checked_mul(&self_matrix);
+        // `basis` rows are the lattice vectors, so the change of basis acts on
+        // the RIGHT: `other = M * self` with `M = other * self^{-1}`.  Writing
+        // this the other way round tests the column lattices and is wrong
+        // whenever |det| > 1 (round r9b, item 1: 2,346 rows were rejected that
+        // do span the same lattice).
+        let forward = other_matrix.checked_mul(&self_inverse);
+        let backward = self_matrix.checked_mul(&other_inverse);
         matches!(forward, Ok(matrix) if matrix.is_integral())
             && matches!(backward, Ok(matrix) if matrix.is_integral())
     }

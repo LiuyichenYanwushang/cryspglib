@@ -16,6 +16,7 @@ use cryspglib::irrep::magnetic_embedding::{
 };
 use cryspglib::irrep::query;
 use cryspglib::irrep::magnetic_embedding::canonical_translation;
+use cryspglib::irrep::subduction::Rat;
 
 fn first_record(sg: u8) -> cryspglib::irrep::types::MagneticIsotropyRecord {
     query::magnetic_isotropy_subgroups_of(sg)
@@ -117,7 +118,10 @@ fn every_magnetic_record_has_exact_readable_geometry() {
     // Setting-free comparison: the two tables keep the same lattice far more
     // often than they keep the same representative.
     assert_eq!(labelled, 15_239, "rows with a labelled ordinary row");
-    assert_eq!(same_lattice, 12_893, "rows whose ordinary row spans the same lattice");
+    // Round r9b, item 1: with the change of basis on the correct side every
+    // labelled pair spans the same lattice; the earlier 12,893 was the column
+    // -lattice count, i.e. 2,346 false negatives and 0 false positives.
+    assert_eq!(same_lattice, 15_239, "rows whose ordinary row spans the same lattice");
 }
 
 #[test]
@@ -135,6 +139,20 @@ fn the_lattice_comparison_explains_the_entry_level_differences() {
         compare_with_ordinary_geometry(1, "GM1", "P1", &geometry),
         GeometryAgreement::BasisDiffers
     );
+    // A counterexample from the review: SG 1 X1 P1 keeps 2Z x Z x Z in two
+    // different representatives, so the setting-free test must accept it.
+    let repeated = query::magnetic_isotropy_subgroups_of(1)
+        .into_iter()
+        .find(|row| row.ml_label == "X1" && row.subgroup.direction == "P1")
+        .expect("SG 1 X1 P1 row");
+    let repeated_geometry = geometry_of(1, &repeated.subgroup).expect("geometry");
+    assert_eq!(repeated.subgroup.mag_sg, 3);
+    assert_eq!(repeated_geometry.index, 2);
+    assert!(repeated_geometry.spans_same_lattice_as([[2, 0, 0], [0, 1, 0], [0, 0, 1]]));
+    // Negative control: a genuine lattice change is refused.
+    assert!(!repeated_geometry.spans_same_lattice_as([[1, 0, 0], [0, 1, 0], [0, 0, 1]]));
+    assert!(!repeated_geometry.spans_same_lattice_as([[1, 0, 0], [0, 1, 0], [0, 0, 2]]));
+
     // A row where both tables agree outright: SG 14 GM1+ P1 (UNI 82).
     let agreed = query::magnetic_isotropy_subgroups_of(14)
         .into_iter()
@@ -147,6 +165,65 @@ fn the_lattice_comparison_explains_the_entry_level_differences() {
         GeometryAgreement::Agree
     );
     assert!(agreed_geometry.spans_same_lattice_as([[1, 0, 0], [0, 1, 0], [0, 0, 1]]));
+}
+
+/// The setting-free test agrees with an independent membership computation:
+/// same lattice iff every row of one basis lies in the other's lattice, judged
+/// by `canonical_translation` (a different code path from the matrix inverse).
+#[test]
+fn the_setting_free_test_agrees_with_lattice_membership() {
+    let mut checked = 0usize;
+    for sg in 1..=230u8 {
+        let irreps = query::irreps_of(sg);
+        for row in query::magnetic_isotropy_subgroups_of(sg) {
+            let record = row.subgroup;
+            let geometry = geometry_of(sg, &record).expect("geometry");
+            let Some(irrep) = irreps.iter().find(|irrep| irrep.ml == row.ml_label) else {
+                continue;
+            };
+            for ordinary in irrep
+                .subgroups()
+                .iter()
+                .filter(|ordinary| ordinary.direction_label == record.direction)
+            {
+                checked += 1;
+                let magnetic_lattice: Vec<[Rat; 3]> = geometry.basis.to_vec();
+                let ordinary_lattice: Vec<[Rat; 3]> = ordinary
+                    .basis
+                    .iter()
+                    .map(|values| values.map(|value| Rat::from_integer(i128::from(value))))
+                    .collect();
+                let contains = |lattice: &[[Rat; 3]], row: [i32; 3]| {
+                    let vector = row.map(|value| Rat::from_integer(i128::from(value)));
+                    canonical_translation(vector, lattice)
+                        .iter()
+                        .all(|value| value.is_zero())
+                };
+                let to_ints = |row: &[Rat; 3]| {
+                    let mut out = [0i32; 3];
+                    for (axis, value) in row.iter().enumerate() {
+                        out[axis] = value.to_i32().expect("integer basis");
+                    }
+                    out
+                };
+                // Row lattices are equal iff each basis lies in the other's.
+                let forward = ordinary.basis.iter().all(|row| contains(&magnetic_lattice, *row));
+                let backward = geometry
+                    .basis
+                    .iter()
+                    .all(|row| contains(&ordinary_lattice, to_ints(row)));
+                let expected = forward && backward;
+                assert_eq!(
+                    geometry.spans_same_lattice_as(ordinary.basis),
+                    expected,
+                    "sg {sg} UNI {} direction {}: membership says {expected}",
+                    record.mag_sg,
+                    record.direction
+                );
+            }
+        }
+    }
+    assert_eq!(checked, 15_239, "labelled pairs compared");
 }
 
 #[test]
