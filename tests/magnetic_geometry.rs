@@ -249,23 +249,74 @@ fn the_setting_search_family_is_not_a_decision_procedure() {
             }
         }
     }
+    // Round 15k: this histogram was wrong while the candidate base multiplied
+    // by the group's centring matrix; the identity map already contains
+    // UNI 1221/1333, so "zero survivors" was an artefact, not containment
+    // evidence.  The pinned numbers below are from the fixed base (the record's
+    // own basis).
     assert_eq!(
         histogram,
         std::collections::BTreeMap::from([
-            (0, 10_308),
+            (0, 10_151),
             (2, 96),
             (3, 2),
-            (4, 221),
-            (6, 5),
-            (8, 1_433),
-            (16, 1_898),
-            (24, 33),
+            (4, 247),
+            (6, 16),
+            (8, 1_429),
+            (16, 1_875),
+            (24, 55),
             (32, 62),
-            (48, 2_663),
+            (48, 2_788),
         ]),
         "survivor histogram of the signed-permutation family"
     );
     assert_eq!(unique, 0, "no record has a unique survivor");
+
+    // The invariant that would have caught the round-15k bug: whenever the
+    // naive map already contains the record completely, the search must find at
+    // least the identity candidate, so a zero survivor count is impossible.
+    let mut contained_but_zero = 0usize;
+    let mut permissive = 0usize;
+    for sg in 1..=230u8 {
+        for row in query::magnetic_isotropy_subgroups_of(sg) {
+            let record = row.subgroup;
+            let geometry = geometry_of(sg, &record).expect("geometry");
+            let set = magnetic_operations(record.mag_sg).expect("operations");
+            let report = search_parent_setting(&geometry, &set).expect("search");
+            let full = report.naive.unitary_in_parent == report.naive.unitary_classes
+                && report.naive.antiunitary_rotations_in_parent == set.antiunitary_classes;
+            if full {
+                permissive += 1;
+                if report.survivors == 0 {
+                    contained_but_zero += 1;
+                }
+            }
+        }
+    }
+    // Fully contained = every unitary class AND every antiunitary rotation lands
+    // in the parent; the earlier probe's 6,375 counted the unitary part alone.
+    assert_eq!(permissive, 5_972, "records the naive map already contains");
+    assert_eq!(
+        contained_but_zero, 0,
+        "a contained record must have at least one surviving candidate"
+    );
+
+    // The identity-map witnesses the reviewer used to refute the old claim.
+    for (parent_sg, uni, survivors) in [(167u8, 1333usize, 4usize), (142, 1221, 8)] {
+        let record = query::magnetic_isotropy_subgroups_of(parent_sg)
+            .into_iter()
+            .find(|row| row.subgroup.mag_sg == uni)
+            .map(|row| row.subgroup)
+            .expect("record");
+        let geometry = geometry_of(parent_sg, &record).expect("geometry");
+        let set = magnetic_operations(uni).expect("operations");
+        let report = search_parent_setting(&geometry, &set).expect("search");
+        assert_eq!(report.survivors, survivors, "SG {parent_sg} UNI {uni}");
+        assert_eq!(
+            report.naive.unitary_in_parent, report.naive.unitary_classes,
+            "SG {parent_sg} UNI {uni} is fully contained by the naive map"
+        );
+    }
 
     // Two witnesses of the two failure modes.
     let failing = query::magnetic_isotropy_subgroups_of(3)
