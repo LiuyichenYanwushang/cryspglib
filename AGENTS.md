@@ -545,7 +545,30 @@ A-map，且首解依赖枚举顺序）——**这些数字不再引用**，只�
 （`isotropy::basis_in_parent_conventional` / `SubgroupEmbedding::from_isotropy_subgroup` 的同款
 约定），再跑约束搜索。**因此 stage 2b 的下一步固定为**：把"记录 basis → 母群常规帧"的转换
 **落进模块**（含单元测试：与 `basis_in_parent_conventional` 逐项一致、奇异/非整必须报错），
-然后才重跑 (A, δ) 约束搜索与全语料覆盖统计；在此之前**仍不得**声称父子包含已验证。 **干净树电池**：`target/logs/r9f/summary.txt`
+然后才重跑 (A, δ) 约束搜索与全语料覆盖统计；在此之前**仍不得**声称父子包含已验证。
+
+**第 17 轮（本轮交付：常规帧转换进模块 + 测试；约束搜索仍未收敛）**：
+① **已交付**（`src/irrep/magnetic_embedding.rs` + `tests/magnetic_geometry.rs`）：新增
+`basis_in_parent_conventional` / `origin_in_parent_conventional`（**精确**把记录的
+`basis`/`origin` 从母群**初基**帧换到**常规**帧，复用 `isotropy::parent_primitive_basis`
+的约定，离网格即报 `ParentBasisOffGrid`、母群不可读报 `ParentPrimitiveBasisUnavailable`）与
+`conventional_lattice_index`（返回 **`Rat`**：带心母群的常规格比初基格大，所以这个"指数"是
+有理数，例如 SG 167/R 心的记录是 `1/3`）。**实测**：全 16,721 行与 f64 助手
+`isotropy::basis_in_parent_conventional` / `origin_shift_in_parent_conventional` 逐项一致
+（<1e-12，作为常驻测试）；常规帧指数直方图
+`{1:3204, 1/2:707, 1/3:41, 1/4:262, 2:5575, 2/3:66, 3:667, 4:4223, 4/3:108, 6:496, 8:1333, 8/3:39}`
+（钉住）；见证：UNI 1333 → `1/3`、UNI 1221 → `1/2`、UNI 741 → `1/2`、UNI 1630 → `1/4`、
+UNI 24 → `2`、UNI 1 → `1`，与各自的带心类型相符。② **约束搜索仍未收敛（如实）**：
+用 `A = S·(W_conv)ᵀ`（S 跑 48 个有符号置换）+ **精确解出的 δ** 跑全语料，得直方图
+`{0:8965, 2:2, 4:364, 6:4, 8:1364, 10:1, 12:36, 14:2, 16:1776, 18:10, 20:3, 24:136, 28:1,
+30:1, 32:60, 36:40, 40:3, 42:4, 48:3949}`、唯一存活 0；**但 5 个见证全是 0**，而审核方已
+**证明** UNI 1333/1221 用**恒等映射**（`A = I`, `δ = 0`）就包含全部列出操作 ⇒ 这批记录的
+表格操作**本来就在母群帧里**，所以候选族必须同时含**恒等映射**（以及普通有符号置换），
+只按"记录 basis 的转置"造族会整批漏掉它们。⇒ **下一步**：把候选族定义为
+`{I} ∪ {S} ∪ {S·W_primᵀ} ∪ {S·W_convᵀ}`（S 为 48 个有符号置换），统一用
+"旋转映进母群旋转集 + 单位类落在母群格 + 反幺正旋转在母群旋转集内 **+ 记录格被实现**"
+验证，再谈唯一性与覆盖统计；**本轮两次探针式改动都不作为结论**（一次族构造写坏、
+一次超时前未收敛），已在代码里只保留**通过测试**的那部分。 **干净树电池**：`target/logs/r9f/summary.txt`
 （`revision e253731 dirty-files 0`）**734 passed / 0 failed**、45 个测试壳、三 TSV 仍钉住（4 == 8）、
 `VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 

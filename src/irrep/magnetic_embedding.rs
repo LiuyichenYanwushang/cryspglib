@@ -181,6 +181,12 @@ pub enum MagneticContractError {
     },
     /// Exact arithmetic failed (overflow or a non-integral rotation product).
     Arithmetic,
+    /// The parent's primitive basis could not be read.
+    ParentPrimitiveBasisUnavailable { sg: u8 },
+    /// The parent's primitive basis is not on the exact small grid.
+    ParentBasisOffGrid { sg: u8 },
+    /// The record's basis is singular in the parent's conventional frame.
+    SingularConventionalBasis { uni: usize },
 }
 
 impl std::fmt::Display for MagneticContractError {
@@ -243,6 +249,17 @@ impl std::fmt::Display for MagneticContractError {
                 "UNI {uni}: {field} is recorded as {recorded} but the operations give {derived}"
             ),
             Self::Arithmetic => write!(f, "exact arithmetic failed while composing operations"),
+            Self::ParentPrimitiveBasisUnavailable { sg } => {
+                write!(f, "the primitive basis of parent space group {sg} is unavailable")
+            }
+            Self::ParentBasisOffGrid { sg } => write!(
+                f,
+                "the primitive basis of parent space group {sg} is off the exact grid"
+            ),
+            Self::SingularConventionalBasis { uni } => write!(
+                f,
+                "UNI {uni}: the record's basis is singular in the parent's conventional frame"
+            ),
         }
     }
 }
@@ -839,6 +856,14 @@ pub enum GeometryError {
     UnreadableParent { sg: u8 },
     /// The parent's translations are not on the small exact grid.
     ParentTranslationOffGrid { sg: u8 },
+    /// Exact arithmetic failed while converting frames.
+    Arithmetic,
+    /// The record's basis is singular in the parent's conventional frame.
+    SingularConventionalBasis { uni: usize },
+    /// The parent's primitive basis could not be read.
+    ParentPrimitiveBasisUnavailable { sg: u8 },
+    /// The parent's primitive basis is not on the exact small grid.
+    ParentBasisOffGrid { sg: u8 },
 }
 
 impl std::fmt::Display for GeometryError {
@@ -858,6 +883,18 @@ impl std::fmt::Display for GeometryError {
             Self::ParentTranslationOffGrid { sg } => write!(
                 f,
                 "parent space group {sg} has a translation off the exact grid"
+            ),
+            Self::Arithmetic => write!(f, "exact arithmetic failed while converting frames"),
+            Self::SingularConventionalBasis { uni } => write!(
+                f,
+                "UNI {uni}: the record's basis is singular in the parent's conventional frame"
+            ),
+            Self::ParentPrimitiveBasisUnavailable { sg } => {
+                write!(f, "the primitive basis of parent space group {sg} is unavailable")
+            }
+            Self::ParentBasisOffGrid { sg } => write!(
+                f,
+                "the primitive basis of parent space group {sg} is off the exact grid"
             ),
         }
     }
@@ -1312,6 +1349,89 @@ pub fn search_parent_setting(
         survivors,
         naive: measure_parent_containment(geometry, set)?,
     })
+}
+
+/// The record's basis expressed in the parent's **conventional** frame.
+///
+/// The stored basis is given in the parent's *primitive* frame (see
+/// [`crate::irrep::types::MagneticIsotropyRecord`]), while the tabulated
+/// operations live in the conventional frame.  Any comparison with those
+/// operations must therefore go through this conversion, which is the same one
+/// [`crate::irrep::isotropy::basis_in_parent_conventional`] performs -- exact
+/// here, and refusing an off-grid parent basis instead of rounding.
+pub fn basis_in_parent_conventional(
+    geometry: &MagneticGeometry,
+) -> Result<[[Rat; 3]; 3], GeometryError> {
+    let primitive = parent_primitive_basis_exact(geometry.parent_sg)?;
+    let mut converted = [[Rat::ZERO; 3]; 3];
+    for (row, values) in converted.iter_mut().enumerate() {
+        for (column, value) in values.iter_mut().enumerate() {
+            let mut sum = Rat::ZERO;
+            for (inner, generator) in primitive.iter().enumerate() {
+                sum = sum
+                    .checked_add(
+                        geometry.basis[row][inner]
+                            .checked_mul(generator[column])
+                            .map_err(|_| GeometryError::Arithmetic)?,
+                    )
+                    .map_err(|_| GeometryError::Arithmetic)?;
+            }
+            *value = sum;
+        }
+    }
+    Ok(converted)
+}
+
+/// The record's origin expressed in the parent's conventional frame.
+pub fn origin_in_parent_conventional(geometry: &MagneticGeometry) -> Result<[Rat; 3], GeometryError> {
+    let primitive = parent_primitive_basis_exact(geometry.parent_sg)?;
+    let mut converted = [Rat::ZERO; 3];
+    for (column, value) in converted.iter_mut().enumerate() {
+        let mut sum = Rat::ZERO;
+        for (inner, generator) in primitive.iter().enumerate() {
+            sum = sum
+                .checked_add(
+                    geometry.origin[inner]
+                        .checked_mul(generator[column])
+                        .map_err(|_| GeometryError::Arithmetic)?,
+                )
+                .map_err(|_| GeometryError::Arithmetic)?;
+        }
+        *value = sum;
+    }
+    Ok(converted)
+}
+
+/// `|det|` of the record's basis in the parent's conventional frame.
+///
+/// This is the covolume ratio between the subgroup lattice and the parent's
+/// conventional cell, so it is a **rational** number: for a centred parent the
+/// conventional cell is larger than the primitive one the basis is stored in
+/// (`|det| = |det(basis)| / index(parent centring)`).
+pub fn conventional_lattice_index(geometry: &MagneticGeometry) -> Result<Rat, GeometryError> {
+    let converted = basis_in_parent_conventional(geometry)?;
+    let determinant = Mat3R::new(converted)
+        .determinant()
+        .map_err(|_| GeometryError::SingularConventionalBasis { uni: geometry.uni })?;
+    Ok(if determinant.numerator() < 0 {
+        determinant.checked_neg().map_err(|_| GeometryError::Arithmetic)?
+    } else {
+        determinant
+    })
+}
+
+/// The parent's primitive basis in its conventional frame, exactly.
+fn parent_primitive_basis_exact(sg: u8) -> Result<[[Rat; 3]; 3], GeometryError> {
+    let primitive = crate::irrep::isotropy::parent_primitive_basis(sg)
+        .map_err(|_| GeometryError::ParentPrimitiveBasisUnavailable { sg })?;
+    let mut exact = [[Rat::ZERO; 3]; 3];
+    for (row, values) in primitive.iter().enumerate() {
+        for (column, value) in values.iter().enumerate() {
+            exact[row][column] = exact_fraction(*value)
+                .ok_or(GeometryError::ParentBasisOffGrid { sg })?;
+        }
+    }
+    Ok(exact)
 }
 
 /// The image of the set's translation lattice under the record's map.

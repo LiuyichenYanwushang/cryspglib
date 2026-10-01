@@ -11,8 +11,9 @@
 //! with the record's lattice.
 
 use cryspglib::irrep::magnetic_embedding::{
-    GeometryAgreement, GeometryError, compare_with_ordinary_geometry, embedded_translation_lattice,
-    geometry_of, magnetic_operations, measure_parent_containment, search_parent_setting,
+    GeometryAgreement, GeometryError, basis_in_parent_conventional, compare_with_ordinary_geometry,
+    conventional_lattice_index, embedded_translation_lattice, geometry_of, magnetic_operations,
+    measure_parent_containment, origin_in_parent_conventional, search_parent_setting,
     translation_lattice,
 };
 use cryspglib::irrep::query;
@@ -338,6 +339,92 @@ fn the_setting_search_family_is_not_a_decision_procedure() {
     let set = magnetic_operations(permissive.mag_sg).expect("operations");
     let report = search_parent_setting(&geometry, &set).expect("search");
     assert_eq!(report.survivors, 48, "P1 parent: every candidate contains");
+}
+
+/// The exact conversion to the parent's conventional frame must agree with the
+/// isotropy helper that performs the same conversion in floating point, and the
+/// conventional lattice index must be the pinned census.
+#[test]
+fn the_conventional_frame_conversion_matches_the_isotropy_helper() {
+    let mut histogram: std::collections::BTreeMap<(i128, i128), usize> =
+        std::collections::BTreeMap::new();
+    let mut rows = 0usize;
+    for sg in 1..=230u8 {
+        for row in query::magnetic_isotropy_subgroups_of(sg) {
+            rows += 1;
+            let record = row.subgroup;
+            let geometry = geometry_of(sg, &record).expect("geometry");
+            let exact = basis_in_parent_conventional(&geometry).expect("conversion");
+            let helper = cryspglib::irrep::isotropy::basis_in_parent_conventional(sg, record.basis)
+                .expect("helper");
+            for axis in 0..3 {
+                for column in 0..3 {
+                    let value = exact[axis][column].to_f64();
+                    assert!(
+                        (value - helper[axis][column]).abs() < 1e-12,
+                        "sg {sg} UNI {}: basis[{axis}][{column}] {value} vs {}",
+                        record.mag_sg,
+                        helper[axis][column]
+                    );
+                }
+            }
+            let exact_origin = origin_in_parent_conventional(&geometry).expect("origin");
+            let helper_origin =
+                cryspglib::irrep::isotropy::origin_shift_in_parent_conventional(sg, record.origin)
+                    .expect("helper origin");
+            for axis in 0..3 {
+                assert!(
+                    (exact_origin[axis].to_f64() - helper_origin[axis]).abs() < 1e-12,
+                    "sg {sg} UNI {}: origin[{axis}]",
+                    record.mag_sg
+                );
+            }
+            let index = conventional_lattice_index(&geometry).expect("index");
+            assert!(index.numerator() > 0, "the index is positive");
+            *histogram
+                .entry((index.numerator(), index.denominator()))
+                .or_insert(0) += 1;
+        }
+    }
+    assert_eq!(rows, 16_721);
+    assert_eq!(
+        histogram,
+        std::collections::BTreeMap::from([
+            ((1, 1), 3_204),
+            ((1, 2), 707),
+            ((1, 3), 41),
+            ((1, 4), 262),
+            ((2, 1), 5_575),
+            ((2, 3), 66),
+            ((3, 1), 667),
+            ((4, 1), 4_223),
+            ((4, 3), 108),
+            ((6, 1), 496),
+            ((8, 1), 1_333),
+            ((8, 3), 39),
+        ]),
+        "conventional-frame index |det(W * P)| histogram"
+    );
+}
+
+#[test]
+fn the_conversion_refuses_an_unknown_parent() {
+    let record = first_record(14);
+    let geometry = geometry_of(14, &record).expect("geometry");
+    let mut unknown = geometry.clone();
+    unknown.parent_sg = 0;
+    assert_eq!(
+        basis_in_parent_conventional(&unknown),
+        Err(GeometryError::ParentPrimitiveBasisUnavailable { sg: 0 })
+    );
+    assert_eq!(
+        origin_in_parent_conventional(&unknown),
+        Err(GeometryError::ParentPrimitiveBasisUnavailable { sg: 0 })
+    );
+    assert_eq!(
+        conventional_lattice_index(&unknown),
+        Err(GeometryError::ParentPrimitiveBasisUnavailable { sg: 0 })
+    );
 }
 
 #[test]
