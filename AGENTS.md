@@ -511,7 +511,23 @@ UNI 24 → 0、SG 1 → 48。**账本更正**：① 存活计数**不是**包含
 A-map，且首解依赖枚举顺序）——**这些数字不再引用**，只保留可复现的存活计数与不变量；
 ③ 审核方的口径里"每个列出操作都要映"与库的"每类一个代表元 mod 自身平移格"在 **39/16,612**
 行上不同（全是带心群），已作为**约定差异**记录；④ 审核方**未跑**的：一次性全语料搜索、
-被排除的 109 行、路线 (b)（用 spglib Hall 设置当母群操作源）、`U ∈ GL₃(Z)` 超出 {−1,0,1} 的部分。 **干净树电池**：`target/logs/r9f/summary.txt`
+被排除的 109 行、路线 (b)（用 spglib Hall 设置当母群操作源）、`U ∈ GL₃(Z)` 超出 {−1,0,1} 的部分。 **干净树电池（15k 修复后）**：`target/logs/r9g/summary.txt`
+（`revision b1b0699 dirty-files 0`）**734 passed / 0 failed**、45 个测试壳、三 TSV 仍钉住（4 == 8）、
+`VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0
+（上面引用的 r9f 只覆盖修复**之前**的 `e253731`，15k 的改动由 r9g 承载）。
+
+**第 15l 轮补遗（r9c 审核者的 ADDENDUM，已接受）**：它在**第二个 worktree** 上独立复跑了 15k 的
+改动——新直方图 `{0: 10151, …, 48: 2788}` **逐记录完全复现**（16,721 行 **0 差异**、仍 0 唯一存活），
+新回归 `the_setting_search_family_is_not_a_decision_procedure` 通过（含 `permissive == 5972`、
+`contained_but_zero == 0`）、恒等映射见证 UNI 1333 → 4 / UNI 1221 → 8 全部复现；它**先在旧基上
+跑新代码时在 919 行上不一致**，从而从**两侧**把"直方图变化来自基的改动"钉死。**遗留待钉项（重要）**：
+`search_parent_setting` 与 `measure_parent_containment` 的包含判据是
+`canonical_translation(diff, parents_pure_translations) == 0`；在**我们抽取的格**（母群纯平移生成）
+下这等价于该格的成员资格，但审核方用**另一套**成员资格复算旧族得到
+`{0: 9614, 8: 1336, 16: 1916, 32: 33, 48: 3822}`，与库的 `{0: 10308, …}` 不同 ⇒ **两者的"母群格"
+必有一个不对**（我方抽取的纯平移是否恰好生成母群在**该设置**下的完整格，尚未独立钉住）。
+这条连同 **SG 3 UNI 24 的 0 解**、以及审核方未跑的路线 (b)（用 spglib Hall 设置当母群操作源）
+一并作为 stage 2b 的**下一步待办**；在此之前**仍不得**声称父子包含已验证。 **干净树电池**：`target/logs/r9f/summary.txt`
 （`revision e253731 dirty-files 0`）**734 passed / 0 failed**、45 个测试壳、三 TSV 仍钉住（4 == 8）、
 `VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
