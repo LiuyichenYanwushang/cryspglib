@@ -459,9 +459,16 @@ clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 常驻见证：**SG 3 UNI 24**（0 存活，且朴素映射已经缺类）与 **SG 1**（48 全存活——P1 母群没有任何
 鉴别力）。**下一步（不许再猜候选族）**：改用**独立的 setting 表**——`scripts/data/spglib_magnetic_provenance_v1.json`
 已含 spglib 的 `msg.alternative_transformations[uni][18][7]`（1652×18×7；Rust 侧**尚未**使用，
-`scripts/extract_spglib_magnetic_provenance.py` 只冻结了它），先把这 7 个整数的布局从提取脚本
-与上游语义钉住，再从数据里取出"磁群标准设置 ↔ 记录 basis/origin"的变换并用包含关系验证；若该
-布局不足以还原 (P, p)，则退回用"普通 isotropy 表同方向记录 + 磁群单位部"做交叉锚定，仍不许猜。 **干净树电池**：`target/logs/r9f/summary.txt`
+`scripts/extract_spglib_magnetic_provenance.py` 只冻结了它）。**布局已在同仓库的 loader 里钉住**
+（本轮实测，更正"布局未知"的旧说法）：`scripts/spglib_magnetic_provenance.py` 的
+`_validate_alternatives` 要求每个槽的 7 个整数是**以 0 终止的操作编码**（非零项须满足
+`0 < code < SPACE_OPERATION_SCALE`，尾部必须为 0），`MsgProvenance.std_transformations(uni, hall)`
+把它们解码成 `(identity,) + tuple(_decode_operation(code))`，即**Seitz 操作序列**（`ExactSeitzOperation`
+带 `rotation` 与 `translation_numerator/12`）；实测 1652 个 UNI 里 **122 个**有非零替代变换、
+共 **43** 种不同的非零槽值（例如 UNI 3 的 `[30, 90, 111, 810, 2301, 6831, 0]` 是 6 个操作编码）。
+所以 stage 2b 的候选族应当**来自这份数据**（逐 (uni, hall) 的替代设置操作 + 必要的残余
+orientation），用包含关系筛选，而不是靠猜；若该数据仍不足以唯一确定，则退回用"普通 isotropy 表
+同方向记录 + 磁群单位部"做交叉锚定，仍不许猜。 **干净树电池**：`target/logs/r9f/summary.txt`
 （`revision e253731 dirty-files 0`）**734 passed / 0 failed**、45 个测试壳、三 TSV 仍钉住（4 == 8）、
 `VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
