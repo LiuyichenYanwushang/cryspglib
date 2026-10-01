@@ -440,7 +440,10 @@ oracle/独立数据库来源对齐"的原因。**未做（stage 2）**：经 `ba
 被抓、2,943 个零 origin 行正确地不受影响。**测试**：`tests/magnetic_geometry.rs` **6** 项（几何普查 +
 两表锚点、格判定解释逐项差异的见证 + 第 15i 轮的反例与负对照、四类篡改被抓（改 origin /
 改 basis / 奇异基 / 坏分母 / 坏父群）、包含度测量钉值、嵌入格恰为像格、**setting 无关判定
-与独立 membership 口径在全部 15,239 个有标号对上逐行一致**）。 **干净树电池**：`target/logs/r9c/summary.txt`
+与独立 membership 口径在全部 15,239 个有标号对上逐行一致**）。 **干净树电池**：`target/logs/r9d/summary.txt`
+（`revision 5272ff0 dirty-files 0`，即 15i 的 P1 修复后）**733 passed / 0 failed**、45 个测试壳、
+三 TSV 仍钉住（4 == 8）、`VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty`
+全 exit 0；修复前那一档是 `target/logs/r9c/summary.txt`
 （`revision 7b3e555 dirty-files 0`）**732 passed / 0 failed**、**45** 个测试壳（新增
 `magnetic_geometry`）、三 TSV 仍钉住（4 == 8）、`VERDICT complete`、
 clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
