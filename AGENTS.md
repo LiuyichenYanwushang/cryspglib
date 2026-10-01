@@ -461,7 +461,9 @@ clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 已含 spglib 的 `msg.alternative_transformations[uni][18][7]`（1652×18×7；Rust 侧**尚未**使用，
 `scripts/extract_spglib_magnetic_provenance.py` 只冻结了它），先把这 7 个整数的布局从提取脚本
 与上游语义钉住，再从数据里取出"磁群标准设置 ↔ 记录 basis/origin"的变换并用包含关系验证；若该
-布局不足以还原 (P, p)，则退回用"普通 isotropy 表同方向记录 + 磁群单位部"做交叉锚定，仍不许猜。
+布局不足以还原 (P, p)，则退回用"普通 isotropy 表同方向记录 + 磁群单位部"做交叉锚定，仍不许猜。 **干净树电池**：`target/logs/r9f/summary.txt`
+（`revision e253731 dirty-files 0`）**734 passed / 0 failed**、45 个测试壳、三 TSV 仍钉住（4 == 8）、
+`VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
 ### 3c. R7 官方方向 descriptor（进行中，先读这一条）
 
