@@ -419,7 +419,10 @@ SG 1 `GM1` `P1` UNI 1：普通行取恒等基，磁行取单模旋转基，指�
 先按**候选 setting** 搜索把磁群的表格设置与记录格对齐（普通分导的 `SubgroupEmbedding` 已在做
 同样的事），这是 **stage 2b**，尚未做。**测试**：`tests/magnetic_geometry.rs` 5 项（几何普查 +
 两表锚点、格判定解释逐项差异的见证、四类篡改被抓（改 origin / 改 basis / 奇异基 / 坏分母 /
-坏父群）、包含度测量钉值、嵌入格恰为像格）。
+坏父群）、包含度测量钉值、嵌入格恰为像格）。 **干净树电池**：`target/logs/r9c/summary.txt`
+（`revision 7b3e555 dirty-files 0`）**732 passed / 0 failed**、**45** 个测试壳（新增
+`magnetic_geometry`）、三 TSV 仍钉住（4 == 8）、`VERDICT complete`、
+clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
 ### 3c. R7 官方方向 descriptor（进行中，先读这一条）
 
