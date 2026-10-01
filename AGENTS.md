@@ -468,7 +468,23 @@ clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 共 **43** 种不同的非零槽值（例如 UNI 3 的 `[30, 90, 111, 810, 2301, 6831, 0]` 是 6 个操作编码）。
 所以 stage 2b 的候选族应当**来自这份数据**（逐 (uni, hall) 的替代设置操作 + 必要的残余
 orientation），用包含关系筛选，而不是靠猜；若该数据仍不足以唯一确定，则退回用"普通 isotropy 表
-同方向记录 + 磁群单位部"做交叉锚定，仍不许猜。 **干净树电池**：`target/logs/r9f/summary.txt`
+同方向记录 + 磁群单位部"做交叉锚定，仍不许猜。
+
+**第 15j 轮（第二批判定，未收敛，先读）**：① **数据源的替代设置对失败见证为空**——实测
+`std_transformations(uni, hall)` 在 UNI 24/741/1221/1630/1 的全部 hall 上**只有恒等**（10 行输出
+全是 index 0），即这批失败见证在该数据里没有可用的替代设置；② **把候选族扩到"记录晶格的全部
+小幺模基"仍不收敛**——候选 = `A=(W·C·U)^T`，U 跑遍元素 ∈ {-1,0,1} 且 det=±1 的**6,960 个**幺模
+矩阵，再乘上 10 种变体（映射取 A 或 A⁻¹ × origin 取 `o / −A o / −o / A o / 0`，比较改为 mod
+**母群格**而非 mod Z³），实测 12 个见证里 **SG 3 UNI 24、SG 88 UNI 741、SG 142 UNI 1221、
+SG 227 UNI 1630、SG 167 UNI 1333 仍是 0 存活**（而宽容的母群如 SG 1/SG 2 是 6,960 全存活、
+SG 14/194 是 24、SG 221 是 48）。⇒ **障碍是结构性的**：在"记录 basis/origin = 母群初基帧、
+`x_parent = A x + o`"这个模型下，这些磁群**根本无法**被映进 `query::symmetry_operations_of(parent)`
+的操作集，换基与换 origin 符号都救不回来。下一步**不许再扩搜索族**，改为两条**构造式**判定：
+(a) 对每个失败记录，从**前几个非恒等类**的匹配方程 `A τ + (I − R_p) δ ≡ τ_p` 精确解出所需的
+origin 位移 δ（而不是从 5 个候选里挑），若解存在而 ≠ 记录 origin，就说明"记录 origin 之外的
+额外平移"才是缺口； (b) 逐 SG 复核母群操作来源帧——把 `symmetry_operations_of(sg)` 与
+ISO 表自身给出的母群设置（`isotropy_subgroup/data_space.txt` / `data_isotropy.txt` 的母群部分）
+对齐，确认它到底在常规、初基还是 ISO 标准设置里；两条都做完再谈 stage 2b 的搜索族。 **干净树电池**：`target/logs/r9f/summary.txt`
 （`revision e253731 dirty-files 0`）**734 passed / 0 failed**、45 个测试壳、三 TSV 仍钉住（4 == 8）、
 `VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
