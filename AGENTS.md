@@ -568,9 +568,11 @@ UNI 24 → `2`、UNI 1 → `1`，与各自的带心类型相符。② **约束�
 `{I} ∪ {S} ∪ {S·W_primᵀ} ∪ {S·W_convᵀ}`（S 为 48 个有符号置换），统一用
 "旋转映进母群旋转集 + 单位类落在母群格 + 反幺正旋转在母群旋转集内 **+ 记录格被实现**"
 验证，再谈唯一性与覆盖统计；**本轮两次探针式改动都不作为结论**（一次族构造写坏、
-一次超时前未收敛），已在代码里只保留**通过测试**的那部分。 **干净树电池**：`target/logs/r9f/summary.txt`
-（`revision e253731 dirty-files 0`）**734 passed / 0 failed**、45 个测试壳、三 TSV 仍钉住（4 == 8）、
+一次超时前未收敛），已在代码里只保留**通过测试**的那部分。 **干净树电池（第 17 轮交付）**：`target/logs/r9h/summary.txt`
+（`revision e1d1826 dirty-files 0`）**736 passed / 0 failed**（比上一档 734 多出**两条**新测试：
+常规帧转换与 isotropy 助手逐项一致 + 未知母群必须报错）、45 个测试壳、三 TSV 仍钉住（4 == 8）、
 `VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
+（同一轮的 r9f/r9g 只覆盖修复**之前**的修订。）
 
 ### 3c. R7 官方方向 descriptor（进行中，先读这一条）
 
