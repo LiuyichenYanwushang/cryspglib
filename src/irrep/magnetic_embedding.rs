@@ -1049,8 +1049,10 @@ pub fn compare_with_ordinary_geometry(
 /// unitary classes whose image (through [`MagneticGeometry::map_matrix`], in the
 /// parent's primitive frame) is an operation of the parent space group modulo
 /// the parent lattice; `antiunitary_rotations_in_parent` counts antiunitary
-/// classes whose image rotation appears among the parent's rotations (so the
-/// magnetic group sits inside the parent's grey group).
+/// classes whose image **rotation** appears among the parent's rotations --
+/// that alone does **not** place the class in the parent, so it is not evidence
+/// that the group sits inside the parent's grey group; read
+/// `antiunitary_classes_in_parent` for that (round 15p, L1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParentContainment {
     /// Classes of the magnetic operation set.
@@ -1219,8 +1221,10 @@ fn signed_permutations() -> Vec<Mat3I> {
 /// the 48 signed permutations of the record's own basis, and no record has a
 /// unique survivor, so a "the setting is pinned" claim cannot be made from it.
 /// The survivor count is also **not** containment evidence: round 15k showed
-/// that 436 records with zero survivors are already fully contained by the
-/// naive map, and that UNI 1221/1333 contain under the identity map.  Read
+/// that records with zero survivors can already be fully contained by the naive
+/// map (413 of them under the strict all-classes reading in force since round
+/// 15p; 436 under that round's weaker, rotation-only reading for the primed
+/// classes), and that UNI 1221/1333 contain under the identity map.  Read
 /// [`measure_parent_containment`] for containment; read this only for how much
 /// the setting family discriminates.
 #[derive(Debug, Clone, PartialEq, Eq)]
