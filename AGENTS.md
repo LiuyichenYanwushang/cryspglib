@@ -609,10 +609,13 @@ SG 142 UNI 1221 的 **+6** 对 —— 修复后正是 **32** 与 **96**；1333 �
 `map` 确为 `S·B`、`shift` 确是所在 coset 的字典序最小代表。**仍未变**：族依然**不是**判定程序
 （唯一实现记录格的解 = 0），SG 3 UNI 24 仍 0 解。
 
-**干净树电池（第 18 轮交付）**：`target/logs/r9i/summary.txt`
-（`revision f4596f2 dirty-files 0`）**739 passed / 0 failed**（比第 17 轮 736 多出三条：
-恒等见证搜索、未解见证诊断、分层子集普查钉值）、**47** 个测试壳、三 TSV 仍钉住（4 == 8）、
+**干净树电池（第 18 轮交付时的修订）**：`target/logs/r9i/summary.txt`
+（`revision f4596f2 dirty-files 0`）**739 passed / 0 failed**、47 个测试壳、三 TSV 仍钉住（4 == 8）、
 `VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
+**干净树电池（15m 四条修复之后，应以此为准）**：`target/logs/r9j/summary.txt`
+（`revision dac63df dirty-files 0`）**739 passed / 0 failed**（测试条数不变：修复的是既有测试所钉的
+语义，不是新增测试）、47 个测试壳、三 TSV 仍钉住（4 == 8）、`VERDICT complete`、
+clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
 ### 3c. R7 官方方向 descriptor（进行中，先读这一条）
 
