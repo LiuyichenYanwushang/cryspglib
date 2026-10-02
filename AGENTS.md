@@ -661,6 +661,10 @@ UNI 与出问题的旋转），把搜索内部用的判据对外暴露，任何�
 sha256 在 8 与 4 线程副本上相同（4==8），私有复跑两个磁性测试壳 18 项 0 失败；主检出在它检查时
 干净（`0fff9ca`）。
 
+**干净树电池（第 15n 反幺正修复之后，应以此为准）**：`target/logs/r9m/summary.txt`
+（`revision cdbba2d dirty-files 0`）**741 passed / 0 failed**（比上档 740 多出 F1 那条回归）、
+47 个测试壳、三 TSV 仍钉住（4 == 8）、`VERDICT complete`、
+clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 **干净树电池（第 19 轮交付）**：`target/logs/r9l/summary.txt`
 （`revision 0d39ea4 dirty-files 0`）**740 passed / 0 failed**（比上档 739 多出这条见证回归）、
 47 个测试壳、三 TSV 仍钉住（4 == 8）、`VERDICT complete`、
