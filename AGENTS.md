@@ -633,7 +633,10 @@ UNI 与出问题的旋转），把搜索内部用的判据对外暴露，任何�
 ① `embed_in_parent_conventional` 返回**空**（族不含它）；② 审核方给出的**小显式嵌入**
 `A=[[0,0,-2],[0,-2,0],[-2,0,-2]]`、δ=0 **通过** `verify_embedding`；③ **恒等映射被拒绝**
 （负对照：母群 2 重轴平移为 0，而记录的 2 重类带 `(1/2,1/2,0)`）。这条把"族限制、不是'记录不是
-子群'"从措辞变成**可复现的对象**。
+子群'"从措辞变成**可复现的对象**。 **干净树电池（第 19 轮交付）**：`target/logs/r9l/summary.txt`
+（`revision 0d39ea4 dirty-files 0`）**740 passed / 0 failed**（比上档 739 多出这条见证回归）、
+47 个测试壳、三 TSV 仍钉住（4 == 8）、`VERDICT complete`、
+clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
 **干净树电池（第 18 轮交付时的修订）**：`target/logs/r9i/summary.txt`
 （`revision f4596f2 dirty-files 0`）**739 passed / 0 failed**、47 个测试壳、三 TSV 仍钉住（4 == 8）、
