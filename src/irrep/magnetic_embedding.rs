@@ -1434,6 +1434,390 @@ fn parent_primitive_basis_exact(sg: u8) -> Result<[[Rat; 3]; 3], GeometryError> 
     Ok(exact)
 }
 
+/// How a candidate map was built.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EmbeddingKind {
+    /// A signed permutation of the tabulated coordinates, no basis conversion.
+    Plain,
+    /// A signed permutation composed with the record's primitive-frame basis.
+    PrimitiveBasis,
+    /// A signed permutation composed with the record's conventional-frame basis.
+    ConventionalBasis,
+    /// A signed permutation composed with the inverse-transpose of the
+    /// primitive-frame basis (the dual basis).
+    PrimitiveDual,
+    /// A signed permutation composed with the inverse-transpose of the
+    /// conventional-frame basis.
+    ConventionalDual,
+}
+
+/// One way to place the tabulated magnetic group inside the parent.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParentEmbedding {
+    /// The map applied to the magnetic group's coordinates.
+    ///
+    /// Rational in general: the dual bases carry denominators (the record's
+    /// conventional basis has index 1/3 for a rhombohedral parent, say).
+    pub map: Mat3R,
+    /// The exact origin shift, in the parent's conventional coordinates.
+    pub shift: [Rat; 3],
+    /// How the map was built.
+    pub kind: EmbeddingKind,
+    /// Whether the image of the group's own translation lattice lies inside the
+    /// record's lattice -- i.e. whether the record's `basis` is realised.
+    pub realises_record_lattice: bool,
+}
+
+/// Solve for every map in the candidate family that embeds the tabulated group
+/// into the parent, with the origin shift **solved exactly** rather than taken
+/// from the record.
+///
+/// The family is `{S . B}` for the 48 signed permutations `S` and the three
+/// bases `B` in `{I, W_prim^T, W_conv^T}`.  The identity is included (it is the
+/// `S = I`, `B = I` member), because round 17 measured that some records are
+/// tabulated directly in the parent's frame and a family built only from the
+/// record's basis misses them entirely.
+///
+/// An empty result means "no candidate in this family embeds the group"; it is
+/// **not** a proof that the record is not a subgroup, and callers must not treat
+/// it as one.  The `realises_record_lattice` flag separates the two readings.
+pub fn embed_in_parent_conventional(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+) -> Result<Vec<ParentEmbedding>, GeometryError> {
+    let parent = crate::irrep::query::symmetry_operations_of(geometry.parent_sg)
+        .map_err(|_| GeometryError::UnreadableParent { sg: geometry.parent_sg })?;
+    let mut parent_operations: Vec<(Mat3I, [Rat; 3])> = Vec::new();
+    let mut parent_rotations: Vec<Mat3I> = Vec::new();
+    let mut parent_lattice: Vec<[Rat; 3]> = Vec::new();
+    for operation in &parent.operations {
+        let translation = [
+            exact_fraction(operation.translation[0]).ok_or(GeometryError::ParentTranslationOffGrid {
+                sg: geometry.parent_sg,
+            })?,
+            exact_fraction(operation.translation[1]).ok_or(GeometryError::ParentTranslationOffGrid {
+                sg: geometry.parent_sg,
+            })?,
+            exact_fraction(operation.translation[2]).ok_or(GeometryError::ParentTranslationOffGrid {
+                sg: geometry.parent_sg,
+            })?,
+        ];
+        if !parent_rotations.contains(&operation.rotation) {
+            parent_rotations.push(operation.rotation);
+        }
+        if operation.rotation == IDENTITY_ROTATION
+            && translation.iter().any(|value| !value.is_zero())
+            && !parent_lattice.contains(&translation)
+        {
+            parent_lattice.push(translation);
+        }
+        parent_operations.push((operation.rotation, translation));
+    }
+    // The magnetic group's own lattice: Z^3 plus its tabulated pure translations.
+    let mut magnetic_lattice: Vec<[Rat; 3]> = vec![
+        [Rat::ONE, Rat::ZERO, Rat::ZERO],
+        [Rat::ZERO, Rat::ONE, Rat::ZERO],
+        [Rat::ZERO, Rat::ZERO, Rat::ONE],
+    ];
+    for generator in translation_lattice(set) {
+        if !magnetic_lattice.contains(&generator) {
+            magnetic_lattice.push(generator);
+        }
+    }
+    let record_lattice = basis_in_parent_conventional(geometry)?;
+    let record_inverse = Mat3R::new(record_lattice)
+        .inverse()
+        .map_err(|_| GeometryError::SingularConventionalBasis { uni: geometry.uni })?;
+    let in_record_lattice = |vector: [Rat; 3]| -> bool {
+        record_inverse
+            .checked_mul_vector(&Vec3R::new(vector))
+            .map(|image| image.as_array().iter().all(|value| value.is_integer()))
+            .unwrap_or(false)
+    };
+
+    let mut bases: Vec<(EmbeddingKind, Mat3R)> = Vec::new();
+    bases.push((EmbeddingKind::Plain, Mat3R::identity()));
+    let transpose_of = |matrix: &Mat3R| -> Mat3R {
+        let mut columns = [[Rat::ZERO; 3]; 3];
+        for (row, values) in columns.iter_mut().enumerate() {
+            for (column, value) in values.iter_mut().enumerate() {
+                *value = matrix.row(column)[row];
+            }
+        }
+        Mat3R::new(columns)
+    };
+    bases.push((
+        EmbeddingKind::PrimitiveBasis,
+        transpose_of(&Mat3R::new(geometry.basis)),
+    ));
+    bases.push((
+        EmbeddingKind::ConventionalBasis,
+        transpose_of(&Mat3R::new(record_lattice)),
+    ));
+    // The dual bases: a map may realise the record through the basis or
+    // through its inverse-transpose (the two are different whenever
+    // |det(basis)| != 1).
+    let mut duals: Vec<(EmbeddingKind, Mat3R)> = Vec::new();
+    for (kind, base) in &bases {
+        if *kind == EmbeddingKind::Plain {
+            continue;
+        }
+        let Ok(inverse) = base.inverse() else { continue };
+        let dual = transpose_of(&inverse);
+        let dual_kind = match kind {
+            EmbeddingKind::PrimitiveBasis => EmbeddingKind::PrimitiveDual,
+            EmbeddingKind::ConventionalBasis => EmbeddingKind::ConventionalDual,
+            EmbeddingKind::Plain => continue,
+            EmbeddingKind::PrimitiveDual | EmbeddingKind::ConventionalDual => continue,
+        };
+        duals.push((dual_kind, dual));
+    }
+    bases.extend(duals);
+
+    let mut found: Vec<ParentEmbedding> = Vec::new();
+    for (kind, base) in &bases {
+        for permutation in signed_permutations() {
+            let Ok(map) = Mat3R::from_ints(permutation).checked_mul(base) else {
+                continue;
+            };
+            let Ok(inverse) = map.inverse() else { continue };
+            // Rotations must land in the parent's rotation set.
+            let mut mapped_rotations = Vec::with_capacity(set.classes.len());
+            let mut rotations_ok = true;
+            for operation in &set.classes {
+                let rotation = Mat3R::from_ints(operation.rotation);
+                let Ok(conjugated) = map
+                    .checked_mul(&rotation)
+                    .and_then(|product| product.checked_mul(&inverse))
+                else {
+                    rotations_ok = false;
+                    break;
+                };
+                let Ok(mapped) = conjugated.to_int_matrix() else {
+                    rotations_ok = false;
+                    break;
+                };
+                if !parent_rotations.contains(&mapped) {
+                    rotations_ok = false;
+                    break;
+                }
+                mapped_rotations.push(mapped);
+            }
+            if !rotations_ok {
+                continue;
+            }
+            for (index, anchor) in set.classes.iter().enumerate() {
+                if anchor.time_reversal {
+                    continue;
+                }
+                let rotation = mapped_rotations[index];
+                let Ok(moved) = map.checked_mul_vector(&Vec3R::new(anchor.translation)) else {
+                    continue;
+                };
+                let moved = *moved.as_array();
+                for (parent_rotation, parent_translation) in &parent_operations {
+                    if *parent_rotation != rotation {
+                        continue;
+                    }
+                    let mut system = [[Rat::ZERO; 4]; 3];
+                    for row in 0..3 {
+                        for column in 0..3 {
+                            let identity = i128::from(if row == column { 1 } else { 0 });
+                            system[row][column] =
+                                Rat::from_integer(identity - i128::from(rotation[row][column]));
+                        }
+                        system[row][3] = parent_translation[row]
+                            .checked_sub(moved[row])
+                            .map_err(|_| GeometryError::Arithmetic)?;
+                    }
+                    let Some((particular, kernel)) = solve_linear_system(system) else {
+                        continue;
+                    };
+                    let mut shifts = vec![particular];
+                    for direction in &kernel {
+                        let mut extended = Vec::new();
+                        for base_shift in &shifts {
+                            for coefficient in -2i32..=2 {
+                                let mut candidate = *base_shift;
+                                for axis in 0..3 {
+                                    let term = direction[axis]
+                                        .checked_mul(Rat::from_integer(i128::from(coefficient)))
+                                        .map_err(|_| GeometryError::Arithmetic)?;
+                                    candidate[axis] = candidate[axis]
+                                        .checked_add(term)
+                                        .map_err(|_| GeometryError::Arithmetic)?;
+                                }
+                                extended.push(candidate);
+                            }
+                        }
+                        shifts = extended;
+                    }
+                    for shift in shifts {
+                        if !embedding_is_consistent(
+                            &map,
+                            &shift,
+                            set,
+                            &mapped_rotations,
+                            &parent_operations,
+                            &parent_lattice,
+                        ) {
+                            continue;
+                        }
+                        let canonical = canonical_shift(&shift, &parent_lattice);
+                        let realises = magnetic_lattice
+                            .iter()
+                            .all(|generator| match map.checked_mul_vector(&Vec3R::new(*generator)) {
+                                Ok(image) => in_record_lattice(*image.as_array()),
+                                Err(_) => false,
+                            });
+                        let entry = ParentEmbedding {
+                            map,
+                            shift: canonical,
+                            kind: *kind,
+                            realises_record_lattice: realises,
+                        };
+                        if !found.contains(&entry) {
+                            found.push(entry);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// Reduce a shift modulo the parent lattice (its pure translations).
+fn canonical_shift(shift: &[Rat; 3], parent_lattice: &[[Rat; 3]]) -> [Rat; 3] {
+    let canonical = canonical_translation(*shift, parent_lattice);
+    let mut out = [Rat::ZERO; 3];
+    for (index, value) in canonical.iter().enumerate() {
+        out[index] = *value;
+    }
+    out
+}
+
+/// Check every class of the set under one `(map, shift)` pair.
+fn embedding_is_consistent(
+    map: &Mat3R,
+    shift: &[Rat; 3],
+    set: &MagneticOperationSet,
+    mapped_rotations: &[Mat3I],
+    parent_operations: &[(Mat3I, [Rat; 3])],
+    parent_lattice: &[[Rat; 3]],
+) -> bool {
+    for (index, operation) in set.classes.iter().enumerate() {
+        let rotation = mapped_rotations[index];
+        if operation.time_reversal {
+            continue;
+        }
+        let mut shifted = [Rat::ZERO; 3];
+        for row in 0..3 {
+            let mut sum = Rat::ZERO;
+            for column in 0..3 {
+                let identity = i128::from(if row == column { 1 } else { 0 });
+                let entry = identity - i128::from(rotation[row][column]);
+                let Ok(term) = shift[column].checked_mul(Rat::from_integer(entry)) else {
+                    return false;
+                };
+                let Ok(next) = sum.checked_add(term) else {
+                    return false;
+                };
+                sum = next;
+            }
+            shifted[row] = sum;
+        }
+        let Ok(moved) = map.checked_mul_vector(&Vec3R::new(operation.translation)) else {
+            return false;
+        };
+        let mut target = [Rat::ZERO; 3];
+        for axis in 0..3 {
+            let Ok(next) = moved.get(axis).checked_add(shifted[axis]) else {
+                return false;
+            };
+            target[axis] = next;
+        }
+        let hit = parent_operations.iter().any(|(parent_rotation, parent_translation)| {
+            if *parent_rotation != rotation {
+                return false;
+            }
+            let mut difference = [Rat::ZERO; 3];
+            for axis in 0..3 {
+                let Ok(next) = target[axis].checked_sub(parent_translation[axis]) else {
+                    return false;
+                };
+                difference[axis] = next;
+            }
+            canonical_translation(difference, parent_lattice)
+                .iter()
+                .all(|value| value.is_zero())
+        });
+        if !hit {
+            return false;
+        }
+    }
+    true
+}
+
+/// Exact Gaussian elimination on a 3x4 augmented system; `None` when
+/// inconsistent, otherwise a particular solution and a kernel basis.
+fn solve_linear_system(mut system: [[Rat; 4]; 3]) -> Option<([Rat; 3], Vec<[Rat; 3]>)> {
+    let mut pivots: Vec<usize> = Vec::new();
+    let mut row = 0usize;
+    for column in 0..3 {
+        let mut found = None;
+        for (candidate, values) in system.iter().enumerate().skip(row) {
+            if !values[column].is_zero() {
+                found = Some(candidate);
+                break;
+            }
+        }
+        let Some(found) = found else { continue };
+        system.swap(row, found);
+        let pivot = system[row][column];
+        for entry in system[row].iter_mut() {
+            *entry = entry.checked_div(pivot).ok()?;
+        }
+        let pivot_row = system[row];
+        for (other, values) in system.iter_mut().enumerate() {
+            if other == row || values[column].is_zero() {
+                continue;
+            }
+            let factor = values[column];
+            for (entry, value) in values.iter_mut().enumerate() {
+                let term = pivot_row[entry].checked_mul(factor).ok()?;
+                *value = value.checked_sub(term).ok()?;
+            }
+        }
+        pivots.push(column);
+        row += 1;
+    }
+    for values in system.iter().skip(row) {
+        if !values[3].is_zero() {
+            return None;
+        }
+    }
+    let mut particular = [Rat::ZERO; 3];
+    for (index, column) in pivots.iter().enumerate() {
+        particular[*column] = system[index][3];
+    }
+    let mut kernel = Vec::new();
+    for column in 0..3 {
+        if pivots.contains(&column) {
+            continue;
+        }
+        let mut vector = [Rat::ZERO; 3];
+        vector[column] = Rat::ONE;
+        for (index, pivot) in pivots.iter().enumerate() {
+            vector[*pivot] = system[index][column].checked_neg().ok()?;
+        }
+        kernel.push(vector);
+    }
+    Some((particular, kernel))
+}
+
+const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+
 /// The image of the set's translation lattice under the record's map.
 pub fn embedded_translation_lattice(
     geometry: &MagneticGeometry,

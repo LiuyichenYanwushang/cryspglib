@@ -11,10 +11,10 @@
 //! with the record's lattice.
 
 use cryspglib::irrep::magnetic_embedding::{
-    GeometryAgreement, GeometryError, basis_in_parent_conventional, compare_with_ordinary_geometry,
-    conventional_lattice_index, embedded_translation_lattice, geometry_of, magnetic_operations,
-    measure_parent_containment, origin_in_parent_conventional, search_parent_setting,
-    translation_lattice,
+    EmbeddingKind, GeometryAgreement, GeometryError, basis_in_parent_conventional,
+    compare_with_ordinary_geometry, conventional_lattice_index, embedded_translation_lattice,
+    embed_in_parent_conventional, geometry_of, magnetic_operations, measure_parent_containment,
+    origin_in_parent_conventional, search_parent_setting, translation_lattice,
 };
 use cryspglib::irrep::query;
 use cryspglib::irrep::magnetic_embedding::canonical_translation;
@@ -404,6 +404,145 @@ fn the_conventional_frame_conversion_matches_the_isotropy_helper() {
             ((8, 3), 39),
         ]),
         "conventional-frame index |det(W * P)| histogram"
+    );
+}
+
+/// The round-17 witnesses: records that a family built only from the record's
+/// basis could not embed, but which the identity map embeds trivially (the
+/// tabulated operations are already parent operations).  The search must find
+/// the identity, and the embedding must also realise the record's lattice.
+#[test]
+fn the_parent_embedding_search_finds_the_identity_witnesses() {
+    for (parent_sg, uni) in [(88u8, 741usize), (142, 1221), (227, 1630)] {
+        let record = query::magnetic_isotropy_subgroups_of(parent_sg)
+            .into_iter()
+            .find(|row| row.subgroup.mag_sg == uni)
+            .map(|row| row.subgroup)
+            .expect("record");
+        let geometry = geometry_of(parent_sg, &record).expect("geometry");
+        let set = magnetic_operations(uni).expect("operations");
+        let embeddings = embed_in_parent_conventional(&geometry, &set).expect("search");
+        assert!(
+            !embeddings.is_empty(),
+            "SG {parent_sg} UNI {uni} must embed"
+        );
+        let identity = embeddings
+            .iter()
+            .find(|entry| {
+                entry.map == cryspglib::irrep::subduction::Mat3R::identity()
+            })
+            .unwrap_or_else(|| panic!("SG {parent_sg} UNI {uni}: identity map missing"));
+        assert_eq!(identity.kind, EmbeddingKind::Plain);
+        assert!(
+            identity.shift.iter().all(|value| value.is_zero()),
+            "SG {parent_sg} UNI {uni}: the identity map needs no shift"
+        );
+        assert!(
+            identity.realises_record_lattice,
+            "SG {parent_sg} UNI {uni}: the identity map realises the record lattice"
+        );
+    }
+}
+
+/// SG 3 UNI 24 is the one witness this family still does not resolve.  The
+/// parent (P 1 2 1) has only the identity and one twofold axis, both with zero
+/// translation, while the record's twofold class carries the centring shift
+/// (1/2,1/2,0): any map has to absorb it.  This is a limitation of the family
+/// -- round 16 measured 320 maps with entries in -2..=2 and a free shift -- and
+/// **not** a proof that the record is not a subgroup.
+#[test]
+fn the_unresolved_witness_is_reported_as_unresolved() {
+    let record = query::magnetic_isotropy_subgroups_of(3)
+        .into_iter()
+        .find(|row| row.subgroup.mag_sg == 24)
+        .map(|row| row.subgroup)
+        .expect("record");
+    let geometry = geometry_of(3, &record).expect("geometry");
+    let set = magnetic_operations(24).expect("operations");
+    let embeddings = embed_in_parent_conventional(&geometry, &set).expect("search");
+    assert_eq!(
+        embeddings,
+        Vec::new(),
+        "the family does not resolve SG 3 UNI 24"
+    );
+    // The parent really has no translation to absorb the centring shift.
+    let parent = query::symmetry_operations_of(3).expect("parent");
+    assert_eq!(parent.operations.len(), 2);
+    for operation in &parent.operations {
+        assert!(
+            operation.translation.iter().all(|value| *value == 0.0),
+            "the parent has a non-zero translation"
+        );
+    }
+}
+
+/// The pinned census of the corrected embedding search on a deterministic
+/// stratified subset: every 20th record of each parent plus the witnesses.
+///
+/// Two facts matter and both are pinned here: the family resolves the four
+/// witnesses a basis-only family missed (through the identity map), and it is
+/// still **not** a decision procedure -- no record in the sample has a unique
+/// embedding that realises the record's lattice, and 260 of 851 records have no
+/// embedding at all in this family.
+#[test]
+fn the_embedding_census_on_the_stratified_subset_is_pinned() {
+    let witnesses: [(u8, usize); 6] = [
+        (167, 1333),
+        (142, 1221),
+        (88, 741),
+        (227, 1630),
+        (3, 24),
+        (1, 1),
+    ];
+    let mut histogram: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+    let mut realising: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
+    let mut unique_realising = 0usize;
+    let mut rows = 0usize;
+    let mut witness_counts: std::collections::BTreeMap<(u8, usize), (usize, usize)> =
+        std::collections::BTreeMap::new();
+    for sg in 1..=230u8 {
+        for (index, row) in query::magnetic_isotropy_subgroups_of(sg).into_iter().enumerate() {
+            let record = row.subgroup;
+            let is_witness = witnesses
+                .iter()
+                .any(|(wsg, wuni)| *wsg == sg && *wuni == record.mag_sg);
+            if !is_witness && (usize::from(sg) + index) % 20 != 0 {
+                continue;
+            }
+            rows += 1;
+            let geometry = geometry_of(sg, &record).expect("geometry");
+            let set = magnetic_operations(record.mag_sg).expect("operations");
+            let embeddings = embed_in_parent_conventional(&geometry, &set).expect("search");
+            *histogram.entry(embeddings.len()).or_insert(0) += 1;
+            let good = embeddings.iter().filter(|entry| entry.realises_record_lattice).count();
+            *realising.entry(good).or_insert(0) += 1;
+            if good == 1 {
+                unique_realising += 1;
+            }
+            if is_witness {
+                // Keep the FIRST occurrence: a witness may appear in several
+                // rows (different direction labels) with different bases.
+                witness_counts
+                    .entry((sg, record.mag_sg))
+                    .or_insert((embeddings.len(), good));
+            }
+        }
+    }
+    assert_eq!(rows, 851);
+    assert_eq!(histogram.get(&0), Some(&260), "records with no embedding");
+    assert_eq!(realising.get(&0), Some(&503), "records with no realising embedding");
+    assert_eq!(unique_realising, 0, "no record has a unique realising embedding");
+    assert_eq!(
+        witness_counts,
+        std::collections::BTreeMap::from([
+            ((1u8, 1usize), (240usize, 240usize)),
+            ((3, 24), (0, 0)),
+            ((88, 741), (28, 28)),
+            ((142, 1221), (90, 90)),
+            ((167, 1333), (24, 0)),
+            ((227, 1630), (288, 288)),
+        ]),
+        "witness embedding counts (total, realising the record lattice)"
     );
 }
 
