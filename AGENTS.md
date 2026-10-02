@@ -706,7 +706,11 @@ L4 15n ⑤ 说"记录格映进母群格对 SG 3 是空条件"**是错的** —�
 ⑤ **证据 PASS**：`r9o` 头部/48 壳/741-0（从 48 个 pool 日志重聚合）/`VERDICT complete`/两门禁
 exit 0；主检出干净；在**未打补丁**的私有树上重跑两个磁性壳 = **20 项 0 失败**；三 TSV sha256
 两种线程副本一致；`r9n`（`dirty-files 1`）**明确不引用**，§3d 引用的每个电池都是 `dirty-files 0`。
-它另独立复现 SG 3 UNI 24：{−2..2}⁹ 的 1,953,125 个映射里恰好 **320** 个通过严格安置。
+它另独立复现 SG 3 UNI 24：{−2..2}⁹ 的 1,953,125 个映射里恰好 **320** 个通过严格安置。 **干净树电池（15p 的 5 处措辞修正之后，当前最新）**：
+`target/logs/r9p/summary.txt`（`revision 581cdb7 dirty-files 0`）**741 passed / 0 failed**、
+48 个测试壳、三 TSV 仍钉住（4 == 8）、`VERDICT complete`、
+clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0（本条引用本身是纯文档提交，
+不再单独跑电池）。
 
 **仍未做（审核方未测，如实）**：全 16,721 行语料未跑（一切是子集级）；`delta` 超出其网格、
 映射分量超出 {−2..2}；带心见证的比 1/4 更细网格；路线 (b)（spglib/Hall 设置）。 **干净树电池（第 15o 修复之后，当前最新）**：`target/logs/r9o/summary.txt`
