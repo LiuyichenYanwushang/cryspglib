@@ -1727,11 +1727,12 @@ pub fn embed_in_parent_conventional(
                     let Some((particular, kernel)) = solve_linear_system(system) else {
                         continue;
                     };
-                    // Complete enumeration of the affine set
-                    // `particular + ker(I - R_p)` modulo the parent lattice:
-                    // walk to closure in the finite torus instead of truncating
-                    // a coefficient range (round 15m showed the truncation
-                    // dropped valid pairs).
+                    // Walk the affine set `particular + ker(I - R_p)` modulo
+                    // the parent lattice with the step set {+-1, +-1/2}
+                    // instead of truncating a coefficient range (round 15m
+                    // showed the truncation dropped valid pairs).  See
+                    // `shift_coset` for what this sample does and does not
+                    // guarantee.
                     let shifts = shift_coset(particular, &kernel, &parent_lattice);
                     for shift in shifts {
                         if !embedding_is_consistent(
@@ -1773,13 +1774,17 @@ pub fn embed_in_parent_conventional(
     Ok(found)
 }
 
-/// Every representative of the affine set `particular + <kernel>` modulo the
-/// parent lattice.
+/// A **finite sample** of the affine set `particular + <kernel>` modulo the
+/// parent lattice, using the step set `{+-1, +-1/2}` on each kernel direction.
 ///
-/// The walk runs to closure in the finite torus `R^3 / L_parent`, so it is
-/// complete: no coefficient range is truncated.  Half-integer steps are
-/// included because a kernel basis from Gaussian elimination can carry
-/// denominators.
+/// This is not an enumeration of the whole solution set: `ker(I - R_p)` is
+/// non-zero for every three-dimensional rotation, so whenever the kernel is
+/// non-trivial the affine set is a continuum and no finite walk can exhaust it.
+/// What the sample does guarantee is measured in round 15n: for the witnesses
+/// it contains no shift that a finer `1/4` grid would have found, and every
+/// extra grid point of the degenerate case (SG 1) leads to an image set that is
+/// already realised.  Half steps are included because a kernel basis from
+/// Gaussian elimination can carry denominators.
 fn shift_coset(
     particular: [Rat; 3],
     kernel: &[[Rat; 3]],
@@ -1833,7 +1838,12 @@ fn canonical_shift(shift: &[Rat; 3], parent_lattice: &[[Rat; 3]]) -> [Rat; 3] {
     out
 }
 
-/// Check every class of the set under one `(map, shift)` pair.
+/// Check every class of the set under one `(map, shift)` pair -- the
+/// **antiunitary** classes included: time reversal does not change the
+/// translation equation, so a primed class `(R|tau)T` needs a parent operation
+/// with rotation `A R A^-1` and matching translation, exactly like a unitary
+/// one.  Round 15n measured that skipping them let 46% of the returned pairs
+/// through.
 fn embedding_is_consistent(
     map: &Mat3R,
     shift: &[Rat; 3],
@@ -1844,9 +1854,6 @@ fn embedding_is_consistent(
 ) -> bool {
     for (index, operation) in set.classes.iter().enumerate() {
         let rotation = mapped_rotations[index];
-        if operation.time_reversal {
-            continue;
-        }
         let mut shifted = [Rat::ZERO; 3];
         for row in 0..3 {
             let mut sum = Rat::ZERO;

@@ -483,8 +483,13 @@ fn the_unresolved_witness_is_reported_as_unresolved() {
 /// Two facts matter and both are pinned here: the family resolves the witnesses
 /// a basis-only family missed (through the identity map), and it is still
 /// **not** a decision procedure -- no record in the sample has a unique
-/// embedding that realises the record's lattice, and 259 of 851 records have no
+/// embedding that realises the record's lattice, and 402 of 851 records have no
 /// embedding at all in this family.
+///
+/// Round 15n then found that the consistency check placed only the **unitary**
+/// classes (46% of the entries failed a checker that also places the
+/// antiunitary ones); with that gap closed the counts are 402 / 416 and the
+/// witness tuples are unchanged.
 ///
 /// Round 15m corrected three things behind these numbers: the
 /// `realises_record_lattice` flag tested the record's *column* lattice, the
@@ -538,10 +543,10 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
         }
     }
     assert_eq!(rows, 851);
-    assert_eq!(histogram.get(&0), Some(&259), "records with no embedding");
+    assert_eq!(histogram.get(&0), Some(&402), "records with no embedding");
     assert_eq!(
         realising.get(&0),
-        Some(&347),
+        Some(&416),
         "records with no realising embedding"
     );
     assert_eq!(unique_realising, 0, "no record has a unique realising embedding");
@@ -563,6 +568,47 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
 /// but a small explicit embedding does exist -- `A = [[0,0,-2],[0,-2,0],
 /// [-2,0,-2]]` with a zero shift.  Both facts are pinned here, using the public
 /// verifier for the map found by the independent sweep.
+/// Round 15n's F1: the consistency check must place the **antiunitary** classes
+/// too.  SG 6 UNI 29 with the identity map and a zero shift is the minimal
+/// counterexample the reviewer gave -- its primed class `(m|(0,1/2,0), T)`
+/// maps to `(m|(0,1/2,0))`, which is not a parent operation.
+#[test]
+fn the_antiunitary_classes_are_checked_too() {
+    let record = query::magnetic_isotropy_subgroups_of(6)
+        .into_iter()
+        .find(|row| row.subgroup.mag_sg == 29)
+        .map(|row| row.subgroup)
+        .expect("record");
+    let geometry = geometry_of(6, &record).expect("geometry");
+    let set = magnetic_operations(29).expect("operations");
+    assert!(
+        set.classes.iter().any(|operation| operation.time_reversal),
+        "the witness has an antiunitary class"
+    );
+    assert!(
+        verify_embedding(
+            &geometry,
+            &set,
+            Mat3R::identity(),
+            [Rat::ZERO, Rat::ZERO, Rat::ZERO]
+        )
+        .is_err(),
+        "the identity map must not place the antiunitary class"
+    );
+    let embeddings = embed_in_parent_conventional(&geometry, &set).expect("search");
+    assert!(
+        !embeddings.iter().any(|entry| {
+            entry.map == Mat3R::identity() && entry.shift.iter().all(|value| value.is_zero())
+        }),
+        "a pair that fails the antiunitary check must not be returned"
+    );
+    // Every returned pair must pass the public verifier, antiunitary included.
+    for entry in &embeddings {
+        verify_embedding(&geometry, &set, entry.map, entry.shift)
+            .expect("every returned pair is a full embedding");
+    }
+}
+
 #[test]
 fn the_unresolved_witness_does_have_a_small_embedding() {
     let record = query::magnetic_isotropy_subgroups_of(3)
