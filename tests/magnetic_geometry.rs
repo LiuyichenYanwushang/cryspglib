@@ -479,11 +479,19 @@ fn the_unresolved_witness_is_reported_as_unresolved() {
 /// The pinned census of the corrected embedding search on a deterministic
 /// stratified subset: every 20th record of each parent plus the witnesses.
 ///
-/// Two facts matter and both are pinned here: the family resolves the four
-/// witnesses a basis-only family missed (through the identity map), and it is
-/// still **not** a decision procedure -- no record in the sample has a unique
-/// embedding that realises the record's lattice, and 260 of 851 records have no
+/// Two facts matter and both are pinned here: the family resolves the witnesses
+/// a basis-only family missed (through the identity map), and it is still
+/// **not** a decision procedure -- no record in the sample has a unique
+/// embedding that realises the record's lattice, and 259 of 851 records have no
 /// embedding at all in this family.
+///
+/// Round 15m corrected three things behind these numbers: the
+/// `realises_record_lattice` flag tested the record's *column* lattice, the
+/// magnetic lattice wrongly included the tabulated cell's unit vectors (so a
+/// centred group could never realise), and the shift enumeration truncated a
+/// coefficient range instead of walking the affine set to closure.  With all
+/// three fixed the witnesses land on (24,24), 32 and 96 -- exactly what the
+/// reviewer predicted independently.
 #[test]
 fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     let witnesses: [(u8, usize); 6] = [
@@ -529,17 +537,21 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
         }
     }
     assert_eq!(rows, 851);
-    assert_eq!(histogram.get(&0), Some(&260), "records with no embedding");
-    assert_eq!(realising.get(&0), Some(&503), "records with no realising embedding");
+    assert_eq!(histogram.get(&0), Some(&259), "records with no embedding");
+    assert_eq!(
+        realising.get(&0),
+        Some(&347),
+        "records with no realising embedding"
+    );
     assert_eq!(unique_realising, 0, "no record has a unique realising embedding");
     assert_eq!(
         witness_counts,
         std::collections::BTreeMap::from([
-            ((1u8, 1usize), (240usize, 240usize)),
+            ((1u8, 1usize), (1_920usize, 1_920usize)),
             ((3, 24), (0, 0)),
-            ((88, 741), (28, 28)),
-            ((142, 1221), (90, 90)),
-            ((167, 1333), (24, 0)),
+            ((88, 741), (32, 32)),
+            ((142, 1221), (96, 96)),
+            ((167, 1333), (24, 24)),
             ((227, 1630), (288, 288)),
         ]),
         "witness embedding counts (total, realising the record lattice)"
