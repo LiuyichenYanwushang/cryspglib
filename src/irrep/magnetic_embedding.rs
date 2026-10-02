@@ -1261,11 +1261,6 @@ pub fn search_parent_setting(
         });
     }
     let parent_lattice = lattice_of_operations(&parent_operations);
-    let parent_rotations: Vec<Mat3I> = parent_operations
-        .iter()
-        .map(|operation| operation.rotation)
-        .collect();
-
     // NOTE (round 15k): the base map is the record's own basis, transposed.
     // Multiplying by the group's centring matrix here (as an earlier revision
     // did) is wrong: for UNI 1221 and UNI 1333 the *identity* map already maps
