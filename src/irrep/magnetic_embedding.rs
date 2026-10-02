@@ -1061,8 +1061,14 @@ pub struct ParentContainment {
     pub integral_rotations: usize,
     /// Unitary classes that are parent operations.
     pub unitary_in_parent: usize,
-    /// Antiunitary classes whose rotation is a parent rotation.
+    /// Antiunitary classes whose conjugated rotation is a parent rotation
+    /// **only** -- the weaker reading, kept for continuity; it does not place
+    /// the class in the parent (round 15o).
     pub antiunitary_rotations_in_parent: usize,
+    /// Antiunitary classes fully placed in the parent: rotation is a parent
+    /// rotation **and** the translation equation holds.  This is the notion the
+    /// search and `verify_embedding` use.
+    pub antiunitary_classes_in_parent: usize,
 }
 
 /// Measure the parent-frame image of one record's operations.
@@ -1113,6 +1119,7 @@ pub fn measure_parent_containment(
         integral_rotations: 0,
         unitary_in_parent: 0,
         antiunitary_rotations_in_parent: 0,
+        antiunitary_classes_in_parent: 0,
     };
     for operation in &set.classes {
         let rotation = Mat3R::from_ints(operation.rotation);
@@ -1151,12 +1158,6 @@ pub fn measure_parent_containment(
                 .checked_add(shift[axis])
                 .expect("exact sum");
         }
-        if operation.time_reversal {
-            if parent_rotations.contains(&mapped_rotation) {
-                result.antiunitary_rotations_in_parent += 1;
-            }
-            continue;
-        }
         let found = parent_operations.iter().any(|candidate| {
             if candidate.rotation != mapped_rotation {
                 return false;
@@ -1171,6 +1172,15 @@ pub fn measure_parent_containment(
                 .iter()
                 .all(|value| value.is_zero())
         });
+        if operation.time_reversal {
+            if parent_rotations.contains(&mapped_rotation) {
+                result.antiunitary_rotations_in_parent += 1;
+            }
+            if found {
+                result.antiunitary_classes_in_parent += 1;
+            }
+            continue;
+        }
         if found {
             result.unitary_in_parent += 1;
         }
@@ -1295,13 +1305,9 @@ pub fn search_parent_setting(
                 accepted = false;
                 break;
             };
-            if operation.time_reversal {
-                if !parent_rotations.contains(&mapped_rotation) {
-                    accepted = false;
-                    break;
-                }
-                continue;
-            }
+            // Round 15o: the antiunitary classes get the same treatment as the
+            // unitary ones -- time reversal does not change the translation
+            // equation, so a rotation-only check would under-count.
             let mut shift = [Rat::ZERO; 3];
             for (index, cell) in shift.iter_mut().enumerate() {
                 let mut sum = Rat::ZERO;

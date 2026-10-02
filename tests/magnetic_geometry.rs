@@ -251,6 +251,11 @@ fn the_setting_search_family_is_not_a_decision_procedure() {
             }
         }
     }
+    // Round 15o: the antiunitary classes now get the same translation equation
+    // as the unitary ones (before, only their rotations were checked), so the
+    // histogram moved and 115 rows that the naive map placed completely used to
+    // report zero survivors.
+    //
     // Round 15k: this histogram was wrong while the candidate base multiplied
     // by the group's centring matrix; the identity map already contains
     // UNI 1221/1333, so "zero survivors" was an artefact, not containment
@@ -259,16 +264,16 @@ fn the_setting_search_family_is_not_a_decision_procedure() {
     assert_eq!(
         histogram,
         std::collections::BTreeMap::from([
-            (0, 10_151),
-            (2, 96),
-            (3, 2),
-            (4, 247),
-            (6, 16),
-            (8, 1_429),
-            (16, 1_875),
-            (24, 55),
-            (32, 62),
-            (48, 2_788),
+            (0, 10_524),
+            (2, 120),
+            (3, 4),
+            (4, 237),
+            (6, 14),
+            (8, 1_414),
+            (16, 1_623),
+            (24, 54),
+            (32, 47),
+            (48, 2_684),
         ]),
         "survivor histogram of the signed-permutation family"
     );
@@ -286,7 +291,7 @@ fn the_setting_search_family_is_not_a_decision_procedure() {
             let set = magnetic_operations(record.mag_sg).expect("operations");
             let report = search_parent_setting(&geometry, &set).expect("search");
             let full = report.naive.unitary_in_parent == report.naive.unitary_classes
-                && report.naive.antiunitary_rotations_in_parent == set.antiunitary_classes;
+                && report.naive.antiunitary_classes_in_parent == set.antiunitary_classes;
             if full {
                 permissive += 1;
                 if report.survivors == 0 {
@@ -295,9 +300,11 @@ fn the_setting_search_family_is_not_a_decision_procedure() {
             }
         }
     }
-    // Fully contained = every unitary class AND every antiunitary rotation lands
-    // in the parent; the earlier probe's 6,375 counted the unitary part alone.
-    assert_eq!(permissive, 5_972, "records the naive map already contains");
+    // Fully contained = every unitary class AND every antiunitary class lands in
+    // the parent (round 15o extended the measurement to place the primed
+    // classes, not just their rotations); the earlier probe's 6,375 counted the
+    // unitary part alone.
+    assert_eq!(permissive, 5_818, "records the naive map already contains");
     assert_eq!(
         contained_but_zero, 0,
         "a contained record must have at least one surviving candidate"
