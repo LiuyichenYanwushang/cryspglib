@@ -633,6 +633,9 @@ SG 142 UNI 1221 的 **+6** 对 —— 修复后正是 **32** 与 **96**；1333 �
 （`revision dac63df dirty-files 0`）**739 passed / 0 failed**（测试条数不变：修复的是既有测试所钉的
 语义，不是新增测试）、47 个测试壳、三 TSV 仍钉住（4 == 8）、`VERDICT complete`、
 clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
+**干净树电池（15m 最终补充的文档修正之后，当前最新）**：`target/logs/r9k/summary.txt`
+（`revision 429c50b dirty-files 0`）**739 passed / 0 failed**、47 个测试壳、三 TSV 仍钉住（4 == 8）、
+`VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 
 ### 3c. R7 官方方向 descriptor（进行中，先读这一条）
 
