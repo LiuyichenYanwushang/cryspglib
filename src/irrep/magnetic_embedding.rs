@@ -861,6 +861,8 @@ pub enum GeometryError {
     /// The record's basis is singular in the parent's conventional frame.
     SingularConventionalBasis { uni: usize },
     /// The parent's primitive basis could not be read.
+    /// A claimed embedding does not land in the parent's operation set.
+    NotInParent { uni: usize, rotation: Mat3I },
     ParentPrimitiveBasisUnavailable { sg: u8 },
     /// The parent's primitive basis is not on the exact small grid.
     ParentBasisOffGrid { sg: u8 },
@@ -888,6 +890,11 @@ impl std::fmt::Display for GeometryError {
             Self::SingularConventionalBasis { uni } => write!(
                 f,
                 "UNI {uni}: the record's basis is singular in the parent's conventional frame"
+            ),
+            Self::NotInParent { uni, rotation } => write!(
+                f,
+                "UNI {uni}: the claimed embedding does not map the class with rotation \
+                 {rotation:?} into the parent"
             ),
             Self::ParentPrimitiveBasisUnavailable { sg } => {
                 write!(f, "the primitive basis of parent space group {sg} is unavailable")
@@ -1432,6 +1439,82 @@ fn parent_primitive_basis_exact(sg: u8) -> Result<[[Rat; 3]; 3], GeometryError> 
         }
     }
     Ok(exact)
+}
+
+/// Check one claimed embedding `(map, shift)` against the parent's operations.
+///
+/// This is the same condition the search uses, exposed so that a caller can
+/// verify a map it obtained elsewhere -- for example a small explicit embedding
+/// found by an independent search, which the family above may not contain.
+pub fn verify_embedding(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+    map: Mat3R,
+    shift: [Rat; 3],
+) -> Result<(), GeometryError> {
+    let parent = crate::irrep::query::symmetry_operations_of(geometry.parent_sg)
+        .map_err(|_| GeometryError::UnreadableParent { sg: geometry.parent_sg })?;
+    let mut parent_operations: Vec<(Mat3I, [Rat; 3])> = Vec::new();
+    let mut parent_rotations: Vec<Mat3I> = Vec::new();
+    let mut parent_lattice: Vec<[Rat; 3]> = Vec::new();
+    for operation in &parent.operations {
+        let translation = [
+            exact_fraction(operation.translation[0]).ok_or(GeometryError::ParentTranslationOffGrid {
+                sg: geometry.parent_sg,
+            })?,
+            exact_fraction(operation.translation[1]).ok_or(GeometryError::ParentTranslationOffGrid {
+                sg: geometry.parent_sg,
+            })?,
+            exact_fraction(operation.translation[2]).ok_or(GeometryError::ParentTranslationOffGrid {
+                sg: geometry.parent_sg,
+            })?,
+        ];
+        if !parent_rotations.contains(&operation.rotation) {
+            parent_rotations.push(operation.rotation);
+        }
+        if operation.rotation == IDENTITY_ROTATION
+            && translation.iter().any(|value| !value.is_zero())
+            && !parent_lattice.contains(&translation)
+        {
+            parent_lattice.push(translation);
+        }
+        parent_operations.push((operation.rotation, translation));
+    }
+    let inverse = map
+        .inverse()
+        .map_err(|_| GeometryError::SingularConventionalBasis { uni: geometry.uni })?;
+    let mut mapped_rotations = Vec::with_capacity(set.classes.len());
+    for operation in &set.classes {
+        let rotation = Mat3R::from_ints(operation.rotation);
+        let conjugated = map
+            .checked_mul(&rotation)
+            .and_then(|product| product.checked_mul(&inverse))
+            .map_err(|_| GeometryError::Arithmetic)?;
+        let mapped = conjugated
+            .to_int_matrix()
+            .map_err(|_| GeometryError::Arithmetic)?;
+        if !parent_rotations.contains(&mapped) {
+            return Err(GeometryError::NotInParent {
+                uni: geometry.uni,
+                rotation: operation.rotation,
+            });
+        }
+        mapped_rotations.push(mapped);
+    }
+    if !embedding_is_consistent(
+        &map,
+        &shift,
+        set,
+        &mapped_rotations,
+        &parent_operations,
+        &parent_lattice,
+    ) {
+        return Err(GeometryError::NotInParent {
+            uni: geometry.uni,
+            rotation: IDENTITY_ROTATION,
+        });
+    }
+    Ok(())
 }
 
 /// How a candidate map was built.

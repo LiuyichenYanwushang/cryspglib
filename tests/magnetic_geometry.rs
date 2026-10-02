@@ -15,10 +15,11 @@ use cryspglib::irrep::magnetic_embedding::{
     compare_with_ordinary_geometry, conventional_lattice_index, embedded_translation_lattice,
     embed_in_parent_conventional, geometry_of, magnetic_operations, measure_parent_containment,
     origin_in_parent_conventional, search_parent_setting, translation_lattice,
+    verify_embedding,
 };
 use cryspglib::irrep::query;
 use cryspglib::irrep::magnetic_embedding::canonical_translation;
-use cryspglib::irrep::subduction::Rat;
+use cryspglib::irrep::subduction::{Mat3R, Rat};
 
 fn first_record(sg: u8) -> cryspglib::irrep::types::MagneticIsotropyRecord {
     query::magnetic_isotropy_subgroups_of(sg)
@@ -555,6 +556,43 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
             ((227, 1630), (288, 288)),
         ]),
         "witness embedding counts (total, realising the record lattice)"
+    );
+}
+
+/// The round-15m witness: SG 3 UNI 24 has **no** member of the search family,
+/// but a small explicit embedding does exist -- `A = [[0,0,-2],[0,-2,0],
+/// [-2,0,-2]]` with a zero shift.  Both facts are pinned here, using the public
+/// verifier for the map found by the independent sweep.
+#[test]
+fn the_unresolved_witness_does_have_a_small_embedding() {
+    let record = query::magnetic_isotropy_subgroups_of(3)
+        .into_iter()
+        .find(|row| row.subgroup.mag_sg == 24)
+        .map(|row| row.subgroup)
+        .expect("record");
+    let geometry = geometry_of(3, &record).expect("geometry");
+    let set = magnetic_operations(24).expect("operations");
+    assert!(
+        embed_in_parent_conventional(&geometry, &set)
+            .expect("search")
+            .is_empty(),
+        "the family does not contain this witness"
+    );
+    let map = Mat3R::from_ints([[0, 0, -2], [0, -2, 0], [-2, 0, -2]]);
+    verify_embedding(&geometry, &set, map, [Rat::ZERO, Rat::ZERO, Rat::ZERO])
+        .expect("the small explicit embedding is valid");
+    // A map that is deliberately wrong must be rejected by the same verifier:
+    // the identity does not work here, because the parent's twofold axis has a
+    // zero translation while the record's twofold class carries (1/2,1/2,0).
+    assert!(
+        verify_embedding(
+            &geometry,
+            &set,
+            Mat3R::identity(),
+            [Rat::ZERO, Rat::ZERO, Rat::ZERO]
+        )
+        .is_err(),
+        "the identity map must not verify for this record"
     );
 }
 

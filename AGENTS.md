@@ -626,6 +626,15 @@ SG 142 UNI 1221 的 **+6** 对 —— 修复后正是 **32** 与 **96**；1333 �
 并指出我先前给的理由（"否则带心群永不可能实现"）**不是它测到的现象**——排除 Z³ 的真正理由是
 "Z³ 是该设置的规范（gauge）产物、不是对称平移"。代码文档注释已按此改写。
 
+**第 19 轮（本轮交付：公开校验器 + 显式嵌入见证）**：新增
+`verify_embedding(geometry, set, map, shift) -> Result<(), GeometryError>`（`NotInParent` 携带
+UNI 与出问题的旋转），把搜索内部用的判据对外暴露，任何来源的 (map, shift) 都能被验证或否证。
+**常驻回归**（`tests/magnetic_geometry.rs` 第 13 项）：SG 3 UNI 24 上同时钉住三件事 ——
+① `embed_in_parent_conventional` 返回**空**（族不含它）；② 审核方给出的**小显式嵌入**
+`A=[[0,0,-2],[0,-2,0],[-2,0,-2]]`、δ=0 **通过** `verify_embedding`；③ **恒等映射被拒绝**
+（负对照：母群 2 重轴平移为 0，而记录的 2 重类带 `(1/2,1/2,0)`）。这条把"族限制、不是'记录不是
+子群'"从措辞变成**可复现的对象**。
+
 **干净树电池（第 18 轮交付时的修订）**：`target/logs/r9i/summary.txt`
 （`revision f4596f2 dirty-files 0`）**739 passed / 0 failed**、47 个测试壳、三 TSV 仍钉住（4 == 8）、
 `VERDICT complete`、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
