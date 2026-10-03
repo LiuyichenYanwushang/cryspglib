@@ -14,6 +14,7 @@ use cryspglib::irrep::magnetic_embedding::{
     EmbeddingKind, GeometryAgreement, GeometryError, MagneticGeometry,
     basis_in_parent_conventional, compare_with_ordinary_geometry, conventional_lattice_index,
     embedded_translation_lattice, embed_in_parent_conventional, full_translation_lattice,
+    parent_embedding_verdict,
     geometry_of, magnetic_operations, measure_parent_containment, origin_in_parent_conventional,
     search_parent_setting, translation_lattice, verify_embedding,
 };
@@ -497,12 +498,24 @@ fn the_unresolved_witness_is_reported_as_unresolved() {
         .expect("record");
     let geometry = geometry_of(3, &record).expect("geometry");
     let set = magnetic_operations(24).expect("operations");
-    let embeddings = embed_in_parent_conventional(&geometry, &set).expect("search");
+    let verdict = parent_embedding_verdict(&geometry, &set).expect("search");
     assert_eq!(
-        embeddings,
+        verdict.embeddings,
         Vec::new(),
         "the family does not resolve SG 3 UNI 24"
     );
+    // Round 22 upgrade: this is no longer "the walk found nothing" but a proof.
+    // The record's 2-fold class sits at `(1/2, 1/2, 0)` while the parent's own
+    // rotations all carry **zero** translation, so the anchor congruence
+    // `(I - R_p) d = tau_p - A tau` needs `(1/2) e_2` in the image of `I - R_p`
+    // plus `Z^3`; that image is the plane `y = 0` and `(1/2) e_2` is not in it.
+    // The exact test refutes every candidate, so the absence is certified.
+    assert!(
+        verdict.absence_is_certified,
+        "the absence of SG 3 UNI 24 must be certified, feasible_candidates={}",
+        verdict.feasible_candidates
+    );
+    assert_eq!(verdict.feasible_candidates, 0);
     // The parent really has no translation to absorb the centring shift.
     let parent = query::symmetry_operations_of(3).expect("parent");
     assert_eq!(parent.operations.len(), 2);
@@ -513,6 +526,11 @@ fn the_unresolved_witness_is_reported_as_unresolved() {
         );
     }
 }
+
+/// Round 22 pinned count: of the 406 rows in the stratified subset with no
+/// candidate, this many are refuted exactly (the rest stay open because some
+/// candidate's anchor congruence is feasible yet the walk found no witness).
+const CERTIFIED_ABSENCE_ON_THE_SUBSET: usize = 276;
 
 /// The pinned census of the corrected embedding search on a deterministic
 /// stratified subset: every 20th record of each parent plus the witnesses.
@@ -544,6 +562,16 @@ fn the_unresolved_witness_is_reported_as_unresolved() {
 /// keep entries but none that realises the record, and the six witness tuples
 /// are unchanged.  Every returned entry is re-checked through the public
 /// verifier below, so the gate and the search cannot drift apart silently.
+///
+/// Round 22 made the empty result decidable through the **anchor congruence**:
+/// a candidate whose congruence `(I - R_p) d = tau_p - A tau` is unsolvable
+/// modulo the parent lattice can never embed, and that test is exact.  On this
+/// subset **276** of the 406 zero rows are settled that way (and 5,649 of the
+/// full corpus's 8,294, the same 68%); the rest stay open because some candidate
+/// is feasible yet the walk found no witness.  The counts are pinned, and every
+/// row with embeddings asserts that the verdict did **not** certify an absence.
+/// SG 3 UNI 24 is the headline: the witness the ledger calls unresolved is now a
+/// certified absence, not a failed search.
 #[test]
 fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     let witnesses: [(u8, usize); 6] = [
@@ -557,6 +585,10 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     let mut histogram: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
     let mut realising: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
     let mut unique_realising = 0usize;
+    // Round 22: of the rows with no candidate, how many the exact refutation
+    // settles and how many stay open.
+    let mut certified_absence = 0usize;
+    let mut unsettled_absence = 0usize;
     let mut rows = 0usize;
     let mut entries = 0usize;
     // Map rows as a hashable key; the type alias keeps clippy's complexity lint
@@ -580,7 +612,20 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
             rows += 1;
             let geometry = geometry_of(sg, &record).expect("geometry");
             let set = magnetic_operations(record.mag_sg).expect("operations");
-            let embeddings = embed_in_parent_conventional(&geometry, &set).expect("search");
+            let verdict = parent_embedding_verdict(&geometry, &set).expect("search");
+            if verdict.embeddings.is_empty() {
+                if verdict.absence_is_certified {
+                    certified_absence += 1;
+                } else {
+                    unsettled_absence += 1;
+                }
+            } else if verdict.absence_is_certified {
+                panic!(
+                    "sg {sg} UNI {}: a row with embeddings cannot certify their absence",
+                    record.mag_sg
+                );
+            }
+            let embeddings = verdict.embeddings;
             entries += embeddings.len();
             *histogram.entry(embeddings.len()).or_insert(0) += 1;
             let good = embeddings.iter().filter(|entry| entry.realises_record_lattice).count();
@@ -666,7 +711,8 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     // success): the numbers a re-pin needs, in one place.
     println!(
         "census rows={rows} entries={entries} pairs={} maps={} zero={:?} realising_zero={:?} \
-         unique_realising={unique_realising} witnesses={witness_counts:?}",
+         unique_realising={unique_realising} certified={certified_absence} \
+         unsettled={unsettled_absence} witnesses={witness_counts:?}",
         distinct_pairs.len(),
         distinct_maps.len(),
         histogram.get(&0),
@@ -689,6 +735,17 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
         "records with no realising embedding"
     );
     assert_eq!(unique_realising, 0, "no record has a unique realising embedding");
+    // Round 22: the refutation test must partition the zero rows, and every row
+    // that has embeddings must have refused to certify (checked in the loop).
+    assert_eq!(
+        certified_absence + unsettled_absence,
+        histogram.get(&0).copied().unwrap_or(0),
+        "certified and unsettled zero rows must partition the zero rows"
+    );
+    assert_eq!(
+        certified_absence, CERTIFIED_ABSENCE_ON_THE_SUBSET,
+        "zero rows settled by the exact refutation"
+    );
     assert_eq!(
         witness_counts,
         std::collections::BTreeMap::from([

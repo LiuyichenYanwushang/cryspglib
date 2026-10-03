@@ -1,11 +1,13 @@
-//! Full-corpus census of the R9 magnetic embedding search (round 21).
+//! Full-corpus census of the R9 magnetic embedding search (rounds 21-22).
 //!
 //! `tests/magnetic_geometry.rs` pins the search on a deterministic 851-row
 //! stratified subset.  The R9 acceptance text asks for the whole corpus
 //! ("首批 Type-I/III/IV 固定例通过后，再扫描全部 16,721 条记录，单独统计覆盖"),
 //! and this example is that pass: it runs the production search
-//! ([`embed_in_parent_conventional`]) on every magnetic isotropy record and
-//! re-checks every returned pair.
+//! ([`parent_embedding_verdict`]) on every magnetic isotropy record and
+//! re-checks every returned pair.  Round 22 also reports how many of the rows
+//! with **no** candidate are settled by the exact refutation test rather than
+//! merely unfound.
 //!
 //! What the re-check adds over a plain re-run:
 //!
@@ -33,7 +35,7 @@
 //! `RAYON_NUM_THREADS` limits the parallelism (one record per task).
 
 use cryspglib::irrep::magnetic_embedding::{
-    MagneticOperation, basis_in_parent_conventional, embed_in_parent_conventional,
+    MagneticOperation, basis_in_parent_conventional, parent_embedding_verdict,
     full_translation_lattice, geometry_of, lattice_of_operations, magnetic_operations,
     translation_lattice, verify_embedding,
 };
@@ -61,6 +63,10 @@ struct RecordStat {
     realising_maps: usize,
     distinct_pairs: usize,
     distinct_maps: usize,
+    /// Round 22: an empty `embeddings` list was refuted exactly.
+    certified_absence: bool,
+    /// Round 22: candidates the exact refutation could not settle.
+    feasible_candidates: usize,
     /// Returned pairs whose image of `L_M` leaves the parent lattice: must be 0.
     containment_violations: usize,
     /// Returned pairs whose flag disagrees with the recomputed equality: must be 0.
@@ -194,10 +200,13 @@ fn census(row: &Row, parent_lattice: &ResidueLattice) -> RecordStat {
         stat.errors += 1;
         return stat;
     };
-    let Ok(embeddings) = embed_in_parent_conventional(&geometry, &set) else {
+    let Ok(verdict) = parent_embedding_verdict(&geometry, &set) else {
         stat.errors += 1;
         return stat;
     };
+    stat.certified_absence = verdict.absence_is_certified;
+    stat.feasible_candidates = verdict.feasible_candidates;
+    let embeddings = verdict.embeddings;
     stat.entries = embeddings.len();
 
     let source_generators = full_translation_lattice(&set);
@@ -294,6 +303,9 @@ const PINNED_DISTINCT_MAPS: usize = 333_500;
 const PINNED_WITHOUT_EMBEDDING: usize = 8_294;
 const PINNED_WITHOUT_REALISING: usize = 8_946;
 const PINNED_WITHOUT_REALISING_MAPS: usize = 8_946;
+/// Round 22: of the 8,294 rows with no candidate, this many are **refuted**
+/// exactly by the anchor-congruence test rather than merely unfound.
+const PINNED_WITHOUT_EMBEDDING_CERTIFIED: usize = 5_649;
 const PINNED_SINGLE_REALISING: usize = 0;
 const PINNED_SINGLE_REALISING_MAPS: usize = 0;
 
@@ -317,6 +329,9 @@ fn main() -> ExitCode {
     let mut distinct_pairs = 0usize;
     let mut distinct_maps = 0usize;
     let mut no_embedding = 0usize;
+    let mut no_embedding_certified = 0usize;
+    let mut no_embedding_unsettled = 0usize;
+    let mut feasible_candidates = 0usize;
     let mut no_realising = 0usize;
     let mut no_realising_maps = 0usize;
     let mut unique_realising = 0usize;
@@ -334,6 +349,14 @@ fn main() -> ExitCode {
         distinct_maps += stat.distinct_maps;
         if stat.entries == 0 {
             no_embedding += 1;
+            if stat.certified_absence {
+                no_embedding_certified += 1;
+            } else {
+                no_embedding_unsettled += 1;
+            }
+            // Only the zero rows matter for the residual: a row that does embed
+            // has feasible candidates by construction.
+            feasible_candidates += stat.feasible_candidates;
         }
         if stat.realising == 0 {
             no_realising += 1;
@@ -362,6 +385,9 @@ fn main() -> ExitCode {
     println!("distinct_record_map_shift {distinct_pairs}");
     println!("distinct_record_map {distinct_maps}");
     println!("rows_without_embedding {no_embedding}");
+    println!("rows_without_embedding_certified {no_embedding_certified}");
+    println!("rows_without_embedding_unsettled {no_embedding_unsettled}");
+    println!("feasible_candidates_in_zero_rows {feasible_candidates}");
     println!("rows_without_realising_entry {no_realising}");
     println!("rows_without_realising_map {no_realising_maps}");
     println!("rows_with_realising {with_realising}");
@@ -408,6 +434,15 @@ fn main() -> ExitCode {
         }
         if errors != 0 {
             violations.push(format!("record errors {errors}"));
+        }
+        if no_embedding_certified + no_embedding_unsettled != no_embedding {
+            violations.push("certified and unsettled zero rows do not add up".to_string());
+        }
+        if no_embedding_certified != PINNED_WITHOUT_EMBEDDING_CERTIFIED {
+            violations.push(format!(
+                "rows without embedding, certified: {no_embedding_certified} != \
+                 {PINNED_WITHOUT_EMBEDDING_CERTIFIED}"
+            ));
         }
         if no_realising < no_embedding {
             violations.push("a row with no embedding cannot have a realising one".to_string());

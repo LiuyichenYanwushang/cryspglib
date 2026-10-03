@@ -455,7 +455,7 @@ clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0。
 `{0: 10308, 2: 96, 3: 2, 4: 221, 6: 5, 8: 1433, 16: 1898, 24: 33, 32: 62, 48: 2663}`
 ——**没有任何一条记录唯一存活**（众数 48 = 全存活），另有 **10,308 条 0 存活**。⇒ 这个候选族
 **不能**当判定程序，**stage 2b 未完成**，账本与代码文档都写明"不得据此声称父子包含已验证"；
-该 API 只作为**诊断仪器**并钉住直方图（`tests/magnetic_geometry.rs` 第 7 项）。两个失败模式各有
+该 API 只作为**诊断仪器**并钉住直方图（`tests/magnetic_geometry.rs` 第 7 项）；**第 22 轮更新**：判定改由 `parent_embedding_verdict` 给出，见本节末尾的第 22 轮条目。两个失败模式各有
 常驻见证：**SG 3 UNI 24**（0 存活，且朴素映射已经缺类）与 **SG 1**（48 全存活——P1 母群没有任何
 鉴别力）。**下一步（不许再猜候选族）**：改用**独立的 setting 表**——`scripts/data/spglib_magnetic_provenance_v1.json`
 已含 spglib 的 `msg.alternative_transformations[uni][18][7]`（1652×18×7；Rust 侧**尚未**使用，
@@ -845,6 +845,38 @@ example 的枚举、生产 BFS **三方逐一致**（0 分歧），并确认上�
  全局审计）、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0，**216 s**。**它未测（如实）**：上一轮那台坏版本 147,672 的数字（代码已
 不在树里）、851 行子集的数字、`verify_embedding` 内部语义、超出其范围的分母与 i128 溢出、以及除本
 节外的其他电池腿。
+**第 22 轮（stage 2b 收口：族内"无解"从"没找到"变成"可判定"）**：
+① **新 API**（`src/irrep/magnetic_embedding.rs`）：`parent_embedding_verdict(geometry, set) ->
+ParentSettingVerdict { embeddings, absence_is_certified, feasible_candidates }`；
+`embed_in_parent_conventional` 改成它的**薄包装**（只返回 `embeddings`），既有调用与全部钉值不变。
+② **判定依据（精确）**：候选 `(map, 类, 母群操作)` 的**锚点同余**
+`(I − R_p) δ ≡ τ_p − A τ (mod L_parent)` 有解 **iff** 对 `ker Mᵀ` 的每个基向量 `n` 都有
+`n·b ∈ n·L_parent`（右端由 `n·e_i` 与母群纯平移的 `n·g` 生成，是一维整数格，用精确有理数
+判成员资格）。无解 ⇒ 该候选**永不**能嵌入（任何嵌入都得安置该类）⇒ 这个 map 被证伪——
+这是**证明**而不是"走查没找到"。**`Z³` 必须显式算进去**：`parent_lattice` 只列**非零**纯平移，
+漏掉隐式 `Z³` 会把整数目标全判死（写这条测试时抓到的实现 bug，已修）；现在由手写样例
+（二重轴 + `(1/2)e_2` 不可解、C 心把它变可解、`M = 0` 时整数目标可解、镜面 rank-1 需要**两个**
+法向量、可逆 `M` 恒可解）与**暴力网格对照**（8 矩阵 × 6 目标 × 4 分子 × 2 分数 × 3 格 =
+**1,152 例**，在 `1/24` 网格上穷举 δ 并用 `canonical_translation` 判 `Mδ − b ∈ L_parent`，
+与"法向量 + 整数格"算法**完全不同**的代码路径）钉住；**单点变异**（删掉隐式 `Z³` 那一项）
+让两条测试同时 FAILED（`0 passed; 2 failed`），修复后 2/2 通过。
+③ **全语料（16,721 行，`target/logs/corpus-verdict.txt`，墙钟 66 s / 内部 75.2 s）**：
+`rows_without_embedding` **8,294** 中 **5,649 行（68.1%）被精确证伪**——对这些行
+"该候选族内无解"是**结论**；**2,645 行仍未决**（有候选的锚点同余可解，但有限走查没找到 δ）。
+这些未决行里共有 **963,176** 个"同余可解但无见证"的候选 = stage 2b 目前的**残余不完备**，
+作为数字钉住而不是藏起来。分层子集（851 行）同口径：**276 / 406**（68.0%）已认证、
+`target/logs/...` 中的 `CERTIFIED_ABSENCE_ON_THE_SUBSET = 276` 常驻钉住，并断言
+"已认证 + 未决 = 0 解行"且**有解的行绝不许**报认证（循环内 panic 断言）。
+④ **其余钉值一个没动**（与第 21 轮逐项相同）：entries 2,668,100、pairs 1,432,672、
+maps 333,500、无实现解 8,946、有实现解 7,775、**唯一实现解 0**、containment/flag/verifier
+violation 全 0——证伪测试只**跳过**被证伪的候选，不改变任何已找到的 (A, δ)。
+⑤ **见证升级**：**SG 3 UNI 24**（账本自第 15j 轮起写"仍未解"的那个）现在是**已认证的无解**：
+`absence_is_certified == true`、`feasible_candidates == 0`；理由是记录的二重类带
+`(1/2,1/2,0)` 而母群 P 1 2 1 的两个操作平移全为 0，`(I − R_p)` 的像是不含 `(1/2)e_2` 的平面。
+⑥ **口径（不许越界）**：`absence_is_certified == true` 只对**这个候选族**成立，**不是**
+"该记录不是子群"的证明；2,645 个未决行也**不是**"能嵌入"的证据。剩余工作按代价排序：
+(a) 未决行的 δ 需要"格平移后的右端"（`b + λ`）与 `M⁻¹(L_parent)` 的商枚举，属于新的精确线性代数；
+(b) 候选族仍可扩（spglib 替代设置对 122/1652 个 UNI 非恒等）；(c) 反幺正类的角色已覆盖但未单独统计。
 
 **仍未做（审核方未测，如实）**：**新嵌入路径**（`embed_in_parent_conventional` / `verify_embedding`）只在 851 行分层子集上做过独立复核（第 20 轮起该子集的每一条返回项都由测试自行重推 flag），未跑全 16,721 行；旧 `search_parent_setting` 诊断路径的全语料复核见 15p 条目，两者不可互相顶替；`delta` 超出其网格、
 映射分量超出 {−2..2}；带心见证的比 1/4 更细网格；路线 (b)（spglib/Hall 设置）。 **干净树电池（第 15o 修复之后，当前最新）**：`target/logs/r9o/summary.txt`
