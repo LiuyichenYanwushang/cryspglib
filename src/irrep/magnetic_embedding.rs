@@ -359,19 +359,20 @@ fn classify(set: &MagneticOperationSet) -> Vec<MagneticOperation> {
 /// The non-zero pure translations `(E | τ, unprimed)` the set lists, exact.
 ///
 /// These are the generators the database writes down; they are **not** the whole
-/// translation lattice.  Two things are missing from this list and are supplied
-/// by [`full_translation_lattice`]: the cell translations `Z^3` (the operations
-/// are tabulated modulo the group's translation lattice, and
-/// [`canonical_translation`] always reduces each component modulo one) and, for
-/// a Type-IV group, the antiunitary pure translations `(E | τ, T)`, whose
-/// product with itself returns a unitary lattice translation.
+/// translation lattice.  The missing part is the cell translations `Z^3` (the
+/// operations are tabulated modulo the group's translation lattice, and
+/// [`canonical_translation`] always reduces each component modulo one), which is
+/// what [`full_translation_lattice`] adds.
 ///
-/// Round 20: an antiunitary pure translation **does** exist in the corpus, so
-/// the earlier doc claim that it "would flip every spin without moving
-/// anything" was wrong.  `verify_group` passes on all 1,421 referenced groups,
-/// which is what makes this generator list sufficient: a listed primed
-/// translation squares into a class the group must already contain, so its
-/// double is in `Z^3 +` this list.
+/// Antiunitary pure translations `(E | τ, T)` need **no** extra generator, and
+/// `full_translation_lattice` deliberately does not add one: such an operation
+/// squares to the unitary lattice translation `(E | 2τ)`, which the quotient
+/// already forces into `Z^3 +` this list.  Round 20 measured that directly (all
+/// 1,651 UNIs, referenced and unreferenced): every product of listed operations
+/// that is a pure translation, and every doubled antiunitary translation, lands
+/// in `Z^3 +` this list -- 0 escapes.  The earlier doc claim that an antiunitary
+/// pure translation "would flip every spin without moving anything" was wrong:
+/// the corpus has them (788 with `τ ≠ 0` plus 230 with `τ = 0`).
 pub fn translation_lattice(set: &MagneticOperationSet) -> Vec<[Rat; 3]> {
     lattice_of_operations(&set.operations)
 }
@@ -1722,9 +1723,11 @@ pub struct ParentEmbedding {
     /// back through `A^-1` into `L_M`.  Round 20: the earlier test looked only
     /// at the listed generators in the forward direction, so it was vacuously
     /// true for a set that lists no pure translation -- SG 1 `Z1/P1` UNI 3 was
-    /// reported as realising its lattice while `A e_1 = e_3` is not even in it,
-    /// and a `Z^3`-shrinking map was reported as failing although the whole
-    /// group was contained.
+    /// reported as realising its lattice while `A e_1 = e_3` is not even in it.
+    /// The forward-only test was also wrong in the other direction: a map whose
+    /// image lattice is a proper sublattice of the record's (synthetic SG 5
+    /// UNI 20 with a record lattice doubled, `W = 2I`, `A = I`) was reported as
+    /// failing to realise it although the whole group is contained.
     ///
     /// The flag is deliberately weaker than [`verify_embedding`]: a map can
     /// place the group in the parent (containment holds) without realising the
@@ -1964,11 +1967,14 @@ pub fn embed_in_parent_conventional(
 /// parent lattice, using the step set `{+-1, +-1/2}` on each kernel direction.
 ///
 /// This is not an enumeration of the whole solution set.  `ker(I - R_p)` is
-/// non-zero for every **proper** rotation (it contains the rotation axis), but
-/// not for an improper one: for `R_p = -I` (an inversion) the kernel is `ker 2I`
-/// and the solution set of `(I - R_p) delta = b` is a single point, so this
-/// sample is exact there.  Whenever the kernel is non-trivial the affine set is
-/// a continuum and no finite walk can exhaust it.
+/// non-zero exactly when `R_p` has eigenvalue one -- which covers every proper
+/// rotation (the rotation axis) **and** the improper rotations that fix a plane,
+/// e.g. a mirror `diag(1, 1, -1)` with kernel `span(e_1, e_2)`.  It is trivial
+/// for the improper rotations without eigenvalue one, such as `R_p = -I`
+/// (an inversion) or the rotoreflections `-3`, `-4`, `-6`: there `(I - R_p)` is
+/// invertible and the solution set of `(I - R_p) delta = b` is a single point,
+/// so this sample is exact.  Whenever the kernel is non-trivial the affine set
+/// is a continuum and no finite walk can exhaust it.
 ///
 /// What the sample says (round 15n, restated precisely): it contains the
 /// particular solution, and every sampled point is verified before it is
@@ -2246,6 +2252,11 @@ mod tests {
     /// lattice `{(2a, a+b, c)}` (`2a = 1` has no integer solution), while the
     /// column test `M^-1 v` accepts it; the shear
     /// `A = [[1,0,0],[1,1,0],[0,0,1]]` sends `e_1` exactly there.
+    ///
+    /// Scope (round-20 review, F4): this pins the helper given the already
+    /// transposed matrix.  The production call site that builds
+    /// `record_inverse_transposed` is pinned by the census re-derivation in
+    /// `the_embedding_census_on_the_stratified_subset_is_pinned`, not here.
     #[test]
     fn the_record_membership_uses_the_row_lattice() {
         let generators = unit_generators();

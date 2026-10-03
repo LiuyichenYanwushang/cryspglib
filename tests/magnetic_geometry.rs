@@ -588,11 +588,15 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
             if good == 1 {
                 unique_realising += 1;
             }
-            // Independent re-derivation of the flag from public API only
-            // (round 20): forward inclusion of the full source lattice into the
-            // record's row lattice, plus the reverse inclusion of the record's
-            // rows into the source lattice.  This is what gives the census teeth
-            // for the row/column convention and for a forward-only regression.
+            // Re-derivation of the flag through the public API (round 20):
+            // forward inclusion of the full source lattice into the record's row
+            // lattice via the matrix inverse, plus the reverse inclusion of the
+            // record's rows into the source lattice.  The reverse half uses
+            // `canonical_translation`, the same primitive the production
+            // `in_lattice` wraps -- it is an independent re-derivation of the
+            // expression, not of the membership primitive.  This is what gives
+            // the census teeth for the row/column convention of the production
+            // call site and for a forward-only regression.
             let record_lattice = basis_in_parent_conventional(&geometry).expect("record lattice");
             let record_inverse_transposed = Mat3R::new(record_lattice)
                 .inverse()
@@ -1087,6 +1091,14 @@ fn the_full_source_lattice_gate_rejects_the_round_20_counterexamples() {
 /// `realises_record_lattice` is lattice **equality** `A L_M = L_record`: the
 /// forward inclusion alone was vacuous for a set with no listed pure
 /// translation, and the reverse inclusion was never tested (round 20).
+///
+/// Teeth map (round-20 review, F3): this test pins the gate's error variant, the
+/// `Z^3` + listed composition and the contained-but-not-equal corpus and
+/// synthetic cases.  It does **not** discriminate the reverse inclusion or the
+/// row/column convention -- those are pinned by
+/// `irrep::magnetic_embedding::tests::the_lattice_realisation_needs_both_inclusions`
+/// and by the census re-derivation in `the_embedding_census_on_the_stratified_subset_is_pinned`
+/// respectively.
 #[test]
 fn the_record_lattice_flag_is_equality() {
     let zero = [Rat::ZERO; 3];
