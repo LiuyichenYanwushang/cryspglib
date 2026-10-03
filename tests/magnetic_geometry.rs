@@ -11,15 +11,15 @@
 //! with the record's lattice.
 
 use cryspglib::irrep::magnetic_embedding::{
-    EmbeddingKind, GeometryAgreement, GeometryError, basis_in_parent_conventional,
-    compare_with_ordinary_geometry, conventional_lattice_index, embedded_translation_lattice,
-    embed_in_parent_conventional, geometry_of, magnetic_operations, measure_parent_containment,
-    origin_in_parent_conventional, search_parent_setting, translation_lattice,
-    verify_embedding,
+    EmbeddingKind, GeometryAgreement, GeometryError, MagneticGeometry,
+    basis_in_parent_conventional, compare_with_ordinary_geometry, conventional_lattice_index,
+    embedded_translation_lattice, embed_in_parent_conventional, full_translation_lattice,
+    geometry_of, magnetic_operations, measure_parent_containment, origin_in_parent_conventional,
+    search_parent_setting, translation_lattice, verify_embedding,
 };
 use cryspglib::irrep::query;
 use cryspglib::irrep::magnetic_embedding::canonical_translation;
-use cryspglib::irrep::subduction::{Mat3R, Rat};
+use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, Vec3R};
 
 fn first_record(sg: u8) -> cryspglib::irrep::types::MagneticIsotropyRecord {
     query::magnetic_isotropy_subgroups_of(sg)
@@ -172,9 +172,32 @@ fn the_lattice_comparison_explains_the_entry_level_differences() {
 
 /// The setting-free test agrees with an independent membership computation:
 /// same lattice iff every row of one basis lies in the other's lattice, judged
-/// by `canonical_translation` (a different code path from the matrix inverse).
+/// by [`Lattice::coordinates`] (an independent, separately audited code path).
+///
+/// Round 20: the previous version of this test asked `canonical_translation`
+/// whether an **integer** row lies in the other lattice.  That function reduces
+/// every component modulo one, so every integer vector is "in" every lattice
+/// and the comparison was vacuously true -- `e_1` passed for `2Z x Z x Z`.  The
+/// negative control below pins that the replacement rejects it.
 #[test]
 fn the_setting_free_test_agrees_with_lattice_membership() {
+    // Negative control: the real membership test must reject a proper sublattice.
+    let sublattice = Lattice::new(Mat3R::new([
+        [Rat::from_integer(2), Rat::ZERO, Rat::ZERO],
+        [Rat::ZERO, Rat::ONE, Rat::ZERO],
+        [Rat::ZERO, Rat::ZERO, Rat::ONE],
+    ]))
+    .expect("non-singular");
+    assert!(
+        !sublattice
+            .coordinates(&Vec3R::new([Rat::ONE, Rat::ZERO, Rat::ZERO]))
+            .expect("coordinates")
+            .as_array()
+            .iter()
+            .all(|value| value.is_integer()),
+        "e_1 is not in 2Z x Z x Z"
+    );
+
     let mut checked = 0usize;
     for sg in 1..=230u8 {
         let irreps = query::irreps_of(sg);
@@ -190,31 +213,31 @@ fn the_setting_free_test_agrees_with_lattice_membership() {
                 .filter(|ordinary| ordinary.direction_label == record.direction)
             {
                 checked += 1;
-                let magnetic_lattice: Vec<[Rat; 3]> = geometry.basis.to_vec();
-                let ordinary_lattice: Vec<[Rat; 3]> = ordinary
-                    .basis
-                    .iter()
-                    .map(|values| values.map(|value| Rat::from_integer(i128::from(value))))
-                    .collect();
-                let contains = |lattice: &[[Rat; 3]], row: [i32; 3]| {
-                    let vector = row.map(|value| Rat::from_integer(i128::from(value)));
-                    canonical_translation(vector, lattice)
-                        .iter()
-                        .all(|value| value.is_zero())
-                };
-                let to_ints = |row: &[Rat; 3]| {
-                    let mut out = [0i32; 3];
-                    for (axis, value) in row.iter().enumerate() {
-                        out[axis] = value.to_i32().expect("integer basis");
+                let magnetic_lattice =
+                    Lattice::new(Mat3R::new(geometry.basis)).expect("non-singular basis");
+                let mut ordinary_rows = [[Rat::ZERO; 3]; 3];
+                for (row_index, values) in ordinary.basis.iter().enumerate() {
+                    for (column, value) in values.iter().enumerate() {
+                        ordinary_rows[row_index][column] =
+                            Rat::from_integer(i128::from(*value));
                     }
-                    out
+                }
+                let ordinary_lattice =
+                    Lattice::new(Mat3R::new(ordinary_rows)).expect("non-singular basis");
+                let contains = |lattice: &Lattice, row: [Rat; 3]| {
+                    lattice
+                        .coordinates(&Vec3R::new(row))
+                        .expect("coordinates")
+                        .as_array()
+                        .iter()
+                        .all(|value| value.is_integer())
                 };
                 // Row lattices are equal iff each basis lies in the other's.
-                let forward = ordinary.basis.iter().all(|row| contains(&magnetic_lattice, *row));
-                let backward = geometry
+                let forward = ordinary
                     .basis
                     .iter()
-                    .all(|row| contains(&ordinary_lattice, to_ints(row)));
+                    .all(|row| contains(&magnetic_lattice, row.map(|v| Rat::from_integer(i128::from(v)))));
+                let backward = geometry.basis.iter().all(|row| contains(&ordinary_lattice, *row));
                 let expected = forward && backward;
                 assert_eq!(
                     geometry.spans_same_lattice_as(ordinary.basis),
@@ -232,6 +255,11 @@ fn the_setting_free_test_agrees_with_lattice_membership() {
 /// R9 stage 2b measurement (round 15j): the candidate-setting search is an
 /// instrument, not a decision procedure.  Pinning the histogram keeps the
 /// negative result from being quietly upgraded into a containment claim.
+///
+/// Round 20 note: this instrument keeps its **class-level** acceptance criterion
+/// (and its raw, unconverted frames), so its histogram is deliberately unchanged
+/// by the containment gate.  A survivor here is not a containment proof; use
+/// `verify_embedding` for a verdict.
 #[test]
 fn the_setting_search_family_is_not_a_decision_procedure() {
     let mut histogram: std::collections::BTreeMap<usize, usize> =
@@ -253,11 +281,13 @@ fn the_setting_search_family_is_not_a_decision_procedure() {
     }
     // Round 15o: the antiunitary classes now get the same translation equation
     // as the unitary ones (before, only their rotations were checked), so the
-    // histogram moved and 115 rows that the naive map placed completely used to
-    // report zero survivors.
+    // histogram moved.  The intermediate state -- search strict, naive criterion
+    // still rotation-only -- reported 115 rows as contained-but-zero; the code
+    // before that fix reported 0, because the identity candidate also satisfied
+    // the weak check then (round 15p, L3).
     //
     // Round 15k: this histogram was wrong while the candidate base multiplied
-    // by the group's centring matrix; the identity map already contains
+    // by the group's centring matrix; the identity map already places
     // UNI 1221/1333, so "zero survivors" was an artefact, not containment
     // evidence.  The pinned numbers below are from the fixed base (the record's
     // own basis).
@@ -490,21 +520,30 @@ fn the_unresolved_witness_is_reported_as_unresolved() {
 /// Two facts matter and both are pinned here: the family resolves the witnesses
 /// a basis-only family missed (through the identity map), and it is still
 /// **not** a decision procedure -- no record in the sample has a unique
-/// embedding that realises the record's lattice, and 402 of 851 records have no
-/// embedding at all in this family.
+/// embedding that realises the record's lattice.
 ///
 /// Round 15n then found that the consistency check placed only the **unitary**
 /// classes (46% of the entries failed a checker that also places the
-/// antiunitary ones); with that gap closed the counts are 402 / 416 and the
-/// witness tuples are unchanged.
+/// antiunitary ones); with that gap closed the counts were 402 / 416 and the
+/// witness tuples were unchanged.
 ///
-/// Round 15m corrected three things behind these numbers: the
+/// Round 15m corrected three things behind those numbers: the
 /// `realises_record_lattice` flag tested the record's *column* lattice, the
 /// magnetic lattice wrongly included the tabulated cell's unit vectors (so a
 /// centred group could never realise), and the shift enumeration truncated a
-/// coefficient range instead of walking the affine set to closure.  With all
-/// three fixed the witnesses land on (24,24), 32 and 96 -- exactly what the
-/// reviewer predicted independently.
+/// coefficient range.  The replacement walks the affine set with the step set
+/// `{+-1, +-1/2}`, which is a **finite sample** of a continuum whenever the
+/// kernel is non-trivial -- not a closure proof.  With those fixes the witnesses
+/// land on (24,24), 32 and 96 -- exactly what the reviewer predicted
+/// independently.
+///
+/// Round 20 added the missing containment gate (the image of the full source
+/// translation lattice) and turned the flag into lattice **equality**.  Numbers
+/// move to **406** rows with no embedding and **446** with no realising one (was
+/// 402 / 416), the returned entries drop from 150,003 to **137,875**, 40 rows
+/// keep entries but none that realises the record, and the six witness tuples
+/// are unchanged.  Every returned entry is re-checked through the public
+/// verifier below, so the gate and the search cannot drift apart silently.
 #[test]
 fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     let witnesses: [(u8, usize); 6] = [
@@ -519,6 +558,14 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     let mut realising: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
     let mut unique_realising = 0usize;
     let mut rows = 0usize;
+    let mut entries = 0usize;
+    // Map rows as a hashable key; the type alias keeps clippy's complexity lint
+    // quiet (the tuple itself is exactly the map's three rows).
+    type MapRows = ([Rat; 3], [Rat; 3], [Rat; 3]);
+    let mut distinct_pairs: std::collections::HashSet<(u8, usize, MapRows, [Rat; 3])> =
+        std::collections::HashSet::new();
+    let mut distinct_maps: std::collections::HashSet<(u8, usize, MapRows)> =
+        std::collections::HashSet::new();
     let mut witness_counts: std::collections::BTreeMap<(u8, usize), (usize, usize)> =
         std::collections::BTreeMap::new();
     for sg in 1..=230u8 {
@@ -534,11 +581,73 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
             let geometry = geometry_of(sg, &record).expect("geometry");
             let set = magnetic_operations(record.mag_sg).expect("operations");
             let embeddings = embed_in_parent_conventional(&geometry, &set).expect("search");
+            entries += embeddings.len();
             *histogram.entry(embeddings.len()).or_insert(0) += 1;
             let good = embeddings.iter().filter(|entry| entry.realises_record_lattice).count();
             *realising.entry(good).or_insert(0) += 1;
             if good == 1 {
                 unique_realising += 1;
+            }
+            // Independent re-derivation of the flag from public API only
+            // (round 20): forward inclusion of the full source lattice into the
+            // record's row lattice, plus the reverse inclusion of the record's
+            // rows into the source lattice.  This is what gives the census teeth
+            // for the row/column convention and for a forward-only regression.
+            let record_lattice = basis_in_parent_conventional(&geometry).expect("record lattice");
+            let record_inverse_transposed = Mat3R::new(record_lattice)
+                .inverse()
+                .expect("non-singular record lattice")
+                .transpose();
+            let source_generators = full_translation_lattice(&set);
+            let source_lattice = translation_lattice(&set);
+            let row_membership = |vector: [Rat; 3]| {
+                record_inverse_transposed
+                    .checked_mul_vector(&Vec3R::new(vector))
+                    .map(|image| image.as_array().iter().all(|value| value.is_integer()))
+                    .unwrap_or(false)
+            };
+            // Round 20: the search and the public verifier must agree on every
+            // returned pair -- the containment gate lives in both.
+            for entry in &embeddings {
+                let map_key = (*entry.map.row(0), *entry.map.row(1), *entry.map.row(2));
+                distinct_pairs.insert((sg, index, map_key, entry.shift));
+                distinct_maps.insert((sg, index, map_key));
+                verify_embedding(&geometry, &set, entry.map, entry.shift).unwrap_or_else(|error| {
+                    panic!(
+                        "sg {sg} UNI {}: returned map {:?} fails the public verifier: {error}",
+                        record.mag_sg, entry.map
+                    )
+                });
+                let forward = source_generators.iter().all(|generator| {
+                    entry
+                        .map
+                        .checked_mul_vector(&Vec3R::new(*generator))
+                        .map(|image| row_membership(*image.as_array()))
+                        .unwrap_or(false)
+                });
+                let reverse = entry
+                    .map
+                    .inverse()
+                    .map(|inverse| {
+                        record_lattice.iter().all(|row| {
+                            inverse
+                                .checked_mul_vector(&Vec3R::new(*row))
+                                .map(|pullback| {
+                                    canonical_translation(*pullback.as_array(), &source_lattice)
+                                        .iter()
+                                        .all(|value| value.is_zero())
+                                })
+                                .unwrap_or(false)
+                        })
+                    })
+                    .unwrap_or(false);
+                assert_eq!(
+                    entry.realises_record_lattice,
+                    forward && reverse,
+                    "sg {sg} UNI {} map {:?}: the flag must be lattice equality",
+                    record.mag_sg,
+                    entry.map
+                );
             }
             if is_witness {
                 // Keep the FIRST occurrence: a witness may appear in several
@@ -549,11 +658,30 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
             }
         }
     }
+    // Printed only when an assertion below fails (cargo captures stdout on
+    // success): the numbers a re-pin needs, in one place.
+    println!(
+        "census rows={rows} entries={entries} pairs={} maps={} zero={:?} realising_zero={:?} \
+         unique_realising={unique_realising} witnesses={witness_counts:?}",
+        distinct_pairs.len(),
+        distinct_maps.len(),
+        histogram.get(&0),
+        realising.get(&0),
+    );
     assert_eq!(rows, 851);
-    assert_eq!(histogram.get(&0), Some(&402), "records with no embedding");
+    assert_eq!(entries, 137_875, "returned entries after the round-20 gate");
+    // The same map can be reached through several `kind`s, so the entry count is
+    // not a pair count.  Both are pinned: 137,875 entries, 76,291 distinct
+    // `(record, map, shift)`, 17,517 distinct `(record, map)`.  (The older
+    // reviewer aggregation keyed on `(parent_sg, UNI, map, shift, kind)` and
+    // merged distinct records, which is why its 3,696 duplicates were neither
+    // the entry count nor the pair count.)
+    assert_eq!(distinct_pairs.len(), 76_291, "distinct (record, map, shift)");
+    assert_eq!(distinct_maps.len(), 17_517, "distinct (record, map)");
+    assert_eq!(histogram.get(&0), Some(&406), "records with no embedding");
     assert_eq!(
         realising.get(&0),
-        Some(&416),
+        Some(&446),
         "records with no realising embedding"
     );
     assert_eq!(unique_realising, 0, "no record has a unique realising embedding");
@@ -794,8 +922,12 @@ fn the_embedded_lattice_is_the_image_of_the_records_lattice() {
     let (sg, record) = chosen.expect("a record referencing UNI 20");
     let geometry = geometry_of(sg, &record).expect("geometry");
     let set = magnetic_operations(20).expect("operations");
-    let source = translation_lattice(&set);
-    assert!(!source.is_empty(), "UNI 20 lists a centring translation");
+    // Round 20: the full lattice is `Z^3` plus the listed pure translations, and
+    // the image is taken over exactly those generators.
+    let listed = translation_lattice(&set);
+    let source = full_translation_lattice(&set);
+    assert!(!listed.is_empty(), "UNI 20 lists a centring translation");
+    assert_eq!(source.len(), 3 + listed.len(), "Z^3 plus the listed generators");
     let image = embedded_translation_lattice(&geometry, &set);
     assert_eq!(image.len(), source.len(), "one image per generator");
     // Every image is a lattice vector of the image lattice, and each generator's
@@ -832,6 +964,218 @@ fn the_embedded_lattice_is_the_image_of_the_records_lattice() {
     .expect("operations");
     assert_eq!(
         embedded_translation_lattice(&identity, &identity_set),
-        translation_lattice(&identity_set)
+        full_translation_lattice(&identity_set)
     );
+}
+
+/// The full source lattice is `Z^3` plus the listed pure translations, and the
+/// doc claim that an antiunitary pure translation cannot exist is checked
+/// against the corpus rather than assumed (round 20).
+#[test]
+fn the_full_translation_lattice_contains_the_cell_translations() {
+    let first = first_record(1);
+    let set = magnetic_operations(first.mag_sg).expect("operations");
+    assert!(
+        translation_lattice(&set).is_empty(),
+        "UNI 1 lists no pure translation"
+    );
+    let full = full_translation_lattice(&set);
+    assert_eq!(
+        full,
+        vec![
+            [Rat::ONE, Rat::ZERO, Rat::ZERO],
+            [Rat::ZERO, Rat::ONE, Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, Rat::ONE],
+        ],
+        "the cell translations are part of the lattice even when nothing is listed"
+    );
+
+    let centred = magnetic_operations(20).expect("UNI 20");
+    let full = full_translation_lattice(&centred);
+    assert_eq!(full.len(), 4, "Z^3 plus the one centring translation");
+    assert!(
+        full[3..].iter().all(|vector| vector
+            .iter()
+            .any(|value| !value.is_zero() && !value.is_integer())),
+        "the fourth generator is the non-integral centring translation"
+    );
+
+    // Every referenced UNI is scanned: a set with an antiunitary pure
+    // translation `(E | tau, T)` is the reason `translation_lattice` alone is
+    // not the full lattice (its square is a unitary lattice translation).
+    let mut referenced = std::collections::BTreeSet::new();
+    for sg in 1..=230u8 {
+        for row in query::magnetic_isotropy_subgroups_of(sg) {
+            referenced.insert(row.subgroup.mag_sg);
+        }
+    }
+    let mut antiunitary_translations = 0usize;
+    for uni in referenced {
+        let set = magnetic_operations(uni).expect("operations");
+        antiunitary_translations += set
+            .operations
+            .iter()
+            .filter(|operation| {
+                operation.time_reversal
+                    && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+            })
+            .count();
+    }
+    assert!(
+        antiunitary_translations > 0,
+        "the corpus does contain antiunitary pure translations"
+    );
+}
+
+/// Round 20's containment counterexamples.  The per-class equations are
+/// satisfied in both cases; the image of the full translation lattice is not.
+#[test]
+fn the_full_source_lattice_gate_rejects_the_round_20_counterexamples() {
+    // (a) SG 1 UNI 1 has a single class, so every invertible map passes the
+    //     class equation -- but `A = I/2` sends e_1 to (1/2, 0, 0), which is not
+    //     a translation of the parent.
+    let record = first_record(1);
+    assert_eq!(record.mag_sg, 1);
+    let geometry = geometry_of(1, &record).expect("geometry");
+    let set = magnetic_operations(record.mag_sg).expect("operations");
+    assert_eq!(set.classes.len(), 1, "the witness has a single class");
+    let half = Rat::new(1, 2).expect("1/2");
+    let half_identity = Mat3R::new([
+        [half, Rat::ZERO, Rat::ZERO],
+        [Rat::ZERO, half, Rat::ZERO],
+        [Rat::ZERO, Rat::ZERO, half],
+    ]);
+    assert_eq!(
+        verify_embedding(&geometry, &set, half_identity, [Rat::ZERO; 3]),
+        Err(GeometryError::SourceLatticeNotInParent { uni: record.mag_sg })
+    );
+    // Positive control: the identity still verifies, so the gate is not a
+    // blanket rejection.
+    verify_embedding(&geometry, &set, Mat3R::identity(), [Rat::ZERO; 3])
+        .expect("the identity embeds");
+
+    // (b) SG 143 M1/S1 UNI 1: the family used to return the rational dual map
+    //     `A = W^-1` with `realises_record_lattice = true`.
+    let record = query::magnetic_isotropy_subgroups_of(143)
+        .into_iter()
+        .find(|row| {
+            row.subgroup.mag_sg == 1 && row.subgroup.basis == [[0, 0, 1], [0, 2, 0], [-2, 0, 0]]
+        })
+        .map(|row| row.subgroup)
+        .expect("the round-20 record");
+    let geometry = geometry_of(143, &record).expect("geometry");
+    let set = magnetic_operations(1).expect("UNI 1");
+    let culprit = Mat3R::new(geometry.basis).inverse().expect("invertible basis");
+    assert_eq!(
+        verify_embedding(&geometry, &set, culprit, [Rat::ZERO; 3]),
+        Err(GeometryError::SourceLatticeNotInParent { uni: 1 })
+    );
+    let image = culprit
+        .checked_mul_vector(&Vec3R::new([Rat::ZERO, Rat::ONE, Rat::ZERO]))
+        .expect("product");
+    assert!(
+        image.as_array().iter().any(|value| !value.is_integer()),
+        "A e_2 leaves the parent's Z^3"
+    );
+    let embeddings = embed_in_parent_conventional(&geometry, &set).expect("search");
+    assert!(
+        !embeddings.iter().any(|entry| entry.map == culprit),
+        "the search must not return a map whose source lattice leaves the parent"
+    );
+}
+
+/// `realises_record_lattice` is lattice **equality** `A L_M = L_record`: the
+/// forward inclusion alone was vacuous for a set with no listed pure
+/// translation, and the reverse inclusion was never tested (round 20).
+#[test]
+fn the_record_lattice_flag_is_equality() {
+    let zero = [Rat::ZERO; 3];
+    let synthetic = |parent_sg: u8, uni: usize, basis: [[i32; 3]; 3], index: i128| {
+        let mut exact = [[Rat::ZERO; 3]; 3];
+        for (row, values) in basis.iter().enumerate() {
+            for (column, value) in values.iter().enumerate() {
+                exact[row][column] = Rat::from_integer(i128::from(*value));
+            }
+        }
+        MagneticGeometry {
+            parent_sg,
+            uni,
+            basis: exact,
+            origin: zero,
+            index,
+        }
+    };
+    let entry_for = |geometry: &MagneticGeometry, map: &Mat3R| {
+        let set = magnetic_operations(geometry.uni).expect("operations");
+        let embeddings = embed_in_parent_conventional(geometry, &set).expect("search");
+        let entry = embeddings
+            .iter()
+            .find(|entry| entry.map == *map && entry.shift == zero)
+            .unwrap_or_else(|| panic!("map {map:?} is not returned"));
+        (entry.realises_record_lattice, entry.kind)
+    };
+
+    // The identity on a primitive record realises `Z^3` exactly.
+    let cell = synthetic(1, 1, [[1, 0, 0], [0, 1, 0], [0, 0, 1]], 1);
+    assert_eq!(entry_for(&cell, &Mat3R::identity()), (true, EmbeddingKind::Plain));
+
+    // The same group with a doubled record lattice: containment still holds
+    // (`Z^3` is mapped into `Z^3`), but `A L_M = Z^3 != 2Z^3`, so the flag is
+    // false -- the case where "contained" and "realises the record" differ.
+    let doubled = synthetic(1, 1, [[2, 0, 0], [0, 2, 0], [0, 0, 2]], 8);
+    assert_eq!(entry_for(&doubled, &Mat3R::identity()), (false, EmbeddingKind::Plain));
+    let set = magnetic_operations(1).expect("operations");
+    verify_embedding(&doubled, &set, Mat3R::identity(), zero)
+        .expect("the doubled record is still contained in the parent");
+
+    // A centred source: the identity realises `L_C` when the record keeps the
+    // parent's lattice, and fails when the record lattice is a proper sublattice
+    // of it, although the whole group is contained either way.
+    let centred_cell = synthetic(5, 20, [[1, 0, 0], [0, 1, 0], [0, 0, 1]], 1);
+    assert_eq!(
+        entry_for(&centred_cell, &Mat3R::identity()),
+        (true, EmbeddingKind::Plain)
+    );
+    let centred_doubled = synthetic(5, 20, [[2, 0, 0], [0, 2, 0], [0, 0, 2]], 8);
+    assert_eq!(
+        entry_for(&centred_doubled, &Mat3R::identity()),
+        (false, EmbeddingKind::Plain)
+    );
+    let c2 = magnetic_operations(20).expect("UNI 20");
+    verify_embedding(&centred_doubled, &c2, Mat3R::identity(), zero)
+        .expect("the whole C2 group is contained despite the false flag");
+
+    // The **listed** half of the source lattice is checked too, not just `Z^3`:
+    // an integer shear keeps the cell translations inside the parent but sends
+    // the C centring `(1/2,1/2,0)` to `(1,1/2,0)`, which is not a C lattice
+    // vector.
+    let shear = Mat3R::from_ints([[1, 1, 0], [0, 1, 0], [0, 0, 1]]);
+    assert_eq!(
+        verify_embedding(&centred_cell, &c2, shear, zero),
+        Err(GeometryError::SourceLatticeNotInParent { uni: 20 })
+    );
+
+    // Corpus witness: SG 1 Z1/P1 UNI 3.  The integer map is contained (it maps
+    // the classes onto P1 operations) but its image lattice `Z e_1 + 2Z e_2 +
+    // Z e_3` is neither contained in nor containing the record lattice
+    // `Z e_1 + Z e_2 + 2Z e_3` -- same index, different lattice, flag false.  The
+    // old listed-translation-only test called it true.
+    let record = query::magnetic_isotropy_subgroups_of(1)
+        .into_iter()
+        .find(|row| row.subgroup.mag_sg == 3 && row.subgroup.basis == [[0, 1, 0], [-1, 0, 0], [0, 0, 2]])
+        .map(|row| row.subgroup)
+        .expect("the Z1/P1 record");
+    let geometry = geometry_of(1, &record).expect("geometry");
+    let set = magnetic_operations(3).expect("UNI 3");
+    let map = Mat3R::from_ints([[0, -1, 0], [0, 0, 2], [1, 0, 0]]);
+    let entry = embed_in_parent_conventional(&geometry, &set)
+        .expect("search")
+        .into_iter()
+        .find(|entry| entry.map == map && entry.shift == zero)
+        .expect("the integer map is returned");
+    assert!(
+        !entry.realises_record_lattice,
+        "A e_1 = e_3 is not in the record lattice, so the flag cannot be true"
+    );
+    verify_embedding(&geometry, &set, map, zero).expect("the map is still a containment");
 }

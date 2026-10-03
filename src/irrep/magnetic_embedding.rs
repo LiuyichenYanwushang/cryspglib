@@ -356,14 +356,47 @@ fn classify(set: &MagneticOperationSet) -> Vec<MagneticOperation> {
     representatives
 }
 
-/// The translation lattice of a set: the non-zero pure translations
-/// `(E | τ, unprimed)` it contains, exact.
+/// The non-zero pure translations `(E | τ, unprimed)` the set lists, exact.
 ///
-/// These generate the lattice modulo which the database's operations are given;
-/// a magnetic group's pure translations are always unitary (an antiunitary pure
-/// translation would flip every spin without moving anything).
+/// These are the generators the database writes down; they are **not** the whole
+/// translation lattice.  Two things are missing from this list and are supplied
+/// by [`full_translation_lattice`]: the cell translations `Z^3` (the operations
+/// are tabulated modulo the group's translation lattice, and
+/// [`canonical_translation`] always reduces each component modulo one) and, for
+/// a Type-IV group, the antiunitary pure translations `(E | τ, T)`, whose
+/// product with itself returns a unitary lattice translation.
+///
+/// Round 20: an antiunitary pure translation **does** exist in the corpus, so
+/// the earlier doc claim that it "would flip every spin without moving
+/// anything" was wrong.  `verify_group` passes on all 1,421 referenced groups,
+/// which is what makes this generator list sufficient: a listed primed
+/// translation squares into a class the group must already contain, so its
+/// double is in `Z^3 +` this list.
 pub fn translation_lattice(set: &MagneticOperationSet) -> Vec<[Rat; 3]> {
     lattice_of_operations(&set.operations)
+}
+
+/// Generators of the **full** translation lattice `L_M` of a set, exact.
+///
+/// `L_M = Z^3 + span_Z(listed non-zero unprimed pure translations)`, in the
+/// frame the operations are tabulated in.  This is the lattice a containment
+/// test has to push through the map: checking one representative per class says
+/// nothing about it.  Round 20's counterexample is SG 143 `M1/S1` UNI 1, whose
+/// rational dual map sends `e_2` to `(0, 1/2, 0)`: the class check passes (the
+/// group has a single class) but the image of `Z^3` leaves the parent lattice.
+pub fn full_translation_lattice(set: &MagneticOperationSet) -> Vec<[Rat; 3]> {
+    let mut generators: Vec<[Rat; 3]> = Vec::new();
+    for axis in 0..3 {
+        let mut unit = [Rat::ZERO; 3];
+        unit[axis] = Rat::ONE;
+        generators.push(unit);
+    }
+    for generator in translation_lattice(set) {
+        if !generators.contains(&generator) {
+            generators.push(generator);
+        }
+    }
+    generators
 }
 
 /// The non-zero pure translations of an operation list, exact.
@@ -860,12 +893,18 @@ pub enum GeometryError {
     Arithmetic,
     /// The record's basis is singular in the parent's conventional frame.
     SingularConventionalBasis { uni: usize },
-    /// The parent's primitive basis could not be read.
-    /// A claimed embedding does not land in the parent's operation set.
+    /// A claimed embedding does not land in the parent's operation set: the
+    /// class with this rotation has no parent operation at its image.
     NotInParent { uni: usize, rotation: Mat3I },
+    /// The parent's primitive basis could not be read.
     ParentPrimitiveBasisUnavailable { sg: u8 },
     /// The parent's primitive basis is not on the exact small grid.
     ParentBasisOffGrid { sg: u8 },
+    /// The image of the group's full translation lattice leaves the parent's
+    /// lattice.  The per-class checks cannot see this, because they only place
+    /// one representative per class and [`canonical_translation`] reduces
+    /// modulo the cell translations.
+    SourceLatticeNotInParent { uni: usize },
 }
 
 impl std::fmt::Display for GeometryError {
@@ -902,6 +941,11 @@ impl std::fmt::Display for GeometryError {
             Self::ParentBasisOffGrid { sg } => write!(
                 f,
                 "the primitive basis of parent space group {sg} is off the exact grid"
+            ),
+            Self::SourceLatticeNotInParent { uni } => write!(
+                f,
+                "UNI {uni}: the image of the group's full translation lattice leaves the \
+                 parent's lattice"
             ),
         }
     }
@@ -1045,14 +1089,23 @@ pub fn compare_with_ordinary_geometry(
 
 /// How far one record's operation set embeds into its parent space group.
 ///
-/// Every count is measured, never assumed.  `unitary_in_parent` counts the
-/// unitary classes whose image (through [`MagneticGeometry::map_matrix`], in the
-/// parent's primitive frame) is an operation of the parent space group modulo
-/// the parent lattice; `antiunitary_rotations_in_parent` counts antiunitary
-/// classes whose image **rotation** appears among the parent's rotations --
-/// that alone does **not** place the class in the parent, so it is not evidence
-/// that the group sits inside the parent's grey group; read
-/// `antiunitary_classes_in_parent` for that (round 15p, L1).
+/// Every count is measured, never assumed.  These are **diagnostic counts of the
+/// naive raw map**, not a containment verdict: [`measure_parent_containment`]
+/// applies `geometry.map_matrix()` -- the record's `basis` transposed, stored in
+/// the parent's **primitive** frame -- to the parent's operations, which are
+/// tabulated in the parent's **conventional** frame, without converting between
+/// the two.  The counts reproduce that arithmetic exactly (an independent
+/// checker rebuilt it on all 16,721 rows), which is what makes them a useful
+/// instrument; it does not turn them into a physical embedding statement.
+///
+/// `unitary_in_parent` counts the unitary classes whose image is an operation of
+/// the parent space group modulo the parent lattice;
+/// `antiunitary_rotations_in_parent` counts antiunitary classes whose image
+/// **rotation** appears among the parent's rotations -- that alone does **not**
+/// place the class in the parent, so it is not evidence that the group sits
+/// inside the parent's grey group; read `antiunitary_classes_in_parent` for that
+/// (round 15p, L1).  Neither count checks the image of the full source
+/// translation lattice (round 20); [`verify_embedding`] does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParentContainment {
     /// Classes of the magnetic operation set.
@@ -1068,18 +1121,29 @@ pub struct ParentContainment {
     /// the class in the parent (round 15o).
     pub antiunitary_rotations_in_parent: usize,
     /// Antiunitary classes fully placed in the parent: rotation is a parent
-    /// rotation **and** the translation equation holds.  This is the notion the
-    /// search and `verify_embedding` use.
+    /// rotation **and** the translation equation holds.  This is the class-level
+    /// notion the older search uses; since round 20 [`verify_embedding`] adds the
+    /// full-translation-lattice gate on top of it.
     pub antiunitary_classes_in_parent: usize,
 }
 
-/// Measure the parent-frame image of one record's operations.
+/// Measure the naive map's class-level placement for one record.
 ///
-/// The map used here is the record's own `basis`/`origin` in the parent's
-/// **primitive** frame.  For a primitive parent that is the whole story; for a
-/// centred parent the magnetic group's tabulated setting still has to be aligned
-/// with the record's lattice, which is why this function reports counts instead
-/// of asserting containment (see the R9 ledger entry).
+/// The map is the record's own `basis` transposed with its `origin`, both stored
+/// in the parent's **primitive** frame, while the parent operations come from
+/// `symmetry_operations_of` in the parent's **conventional** frame.  This
+/// function intentionally reproduces that raw arithmetic -- an independent
+/// checker can and did rebuild it row by row -- so read the counts as a
+/// diagnostic instrument, not as a frame-anchored embedding:
+///
+/// * it places one representative per class, so it says nothing about the image
+///   of the group's full translation lattice (round 20; use
+///   [`verify_embedding`] for that);
+/// * it never converts primitive to conventional, so for a centred parent the
+///   counts mix two frames.
+///
+/// [`basis_in_parent_conventional`] and [`origin_in_parent_conventional`] do the
+/// conversion for callers that want the parent's conventional frame.
 pub fn measure_parent_containment(
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
@@ -1220,13 +1284,19 @@ fn signed_permutations() -> Vec<Mat3I> {
 /// This is an **instrument, not a decision procedure**: the candidate family is
 /// the 48 signed permutations of the record's own basis, and no record has a
 /// unique survivor, so a "the setting is pinned" claim cannot be made from it.
+/// Its acceptance criterion is the **class-level** one (rotation integral plus
+/// the translation equation for one representative per class); it does not check
+/// the image of the full source translation lattice and does not convert frames
+/// (round 20), so a survivor is not a containment proof.
+///
 /// The survivor count is also **not** containment evidence: round 15k showed
-/// that records with zero survivors can already be fully contained by the naive
-/// map (413 of them under the strict all-classes reading in force since round
-/// 15p; 436 under that round's weaker, rotation-only reading for the primed
-/// classes), and that UNI 1221/1333 contain under the identity map.  Read
-/// [`measure_parent_containment`] for containment; read this only for how much
-/// the setting family discriminates.
+/// that records with zero survivors can already be fully placed by the naive map
+/// (413 of them under the strict all-classes diagnostic reading in force since
+/// round 15p; 436 under that round's weaker, rotation-only reading for the
+/// primed classes), and that UNI 1221/1333 place under the identity map.
+/// For a verdict read [`verify_embedding`]; for the naive diagnostic read
+/// [`measure_parent_containment`]; read this only for how much the setting
+/// family discriminates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingSearchReport {
     /// How many candidates were tried.
@@ -1446,11 +1516,85 @@ fn parent_primitive_basis_exact(sg: u8) -> Result<[[Rat; 3]; 3], GeometryError> 
     Ok(exact)
 }
 
+/// Whether the image of the set's **full** translation lattice lies in the
+/// parent's lattice -- the containment condition the per-class checks cannot
+/// see, shared by [`verify_embedding`] and [`embed_in_parent_conventional`].
+///
+/// Round 20: without it a rational map whose image of `Z^3` leaves the parent
+/// lattice was returned and accepted (SG 143 `M1/S1` UNI 1).  The check is a
+/// function of the map, so the search runs it once per candidate, not once per
+/// shift.
+fn source_lattice_lands_in_parent(
+    map: &Mat3R,
+    set: &MagneticOperationSet,
+    parent_lattice: &[[Rat; 3]],
+) -> bool {
+    full_translation_lattice(set).iter().all(|generator| {
+        match map.checked_mul_vector(&Vec3R::new(*generator)) {
+            Ok(image) => in_lattice(*image.as_array(), parent_lattice),
+            Err(_) => false,
+        }
+    })
+}
+
+/// Whether the map realises the record's lattice **exactly**: `A L_M = L_record`.
+///
+/// Both inclusions are needed.  Forward: every generator of the full source
+/// lattice ([`full_translation_lattice`]) maps into the record's row lattice
+/// (`(M^-1)^T v` integral, the row convention).  Reverse: every row of the
+/// record's lattice pulls back through `A^-1` into `L_M` (membership modulo the
+/// cell translations, via [`in_lattice`]).  Round 20 replaced the earlier test,
+/// which looked only at the listed generators in the forward direction and was
+/// therefore vacuously true whenever the set lists no pure translation.
+fn realises_record_lattice(
+    map: &Mat3R,
+    source_generators: &[[Rat; 3]],
+    source_lattice: &[[Rat; 3]],
+    record_lattice: &[[Rat; 3]; 3],
+    record_inverse_transposed: &Mat3R,
+) -> bool {
+    let in_record_lattice = |vector: [Rat; 3]| -> bool {
+        record_inverse_transposed
+            .checked_mul_vector(&Vec3R::new(vector))
+            .map(|image| image.as_array().iter().all(|value| value.is_integer()))
+            .unwrap_or(false)
+    };
+    let forward = source_generators.iter().all(|generator| {
+        match map.checked_mul_vector(&Vec3R::new(*generator)) {
+            Ok(image) => in_record_lattice(*image.as_array()),
+            Err(_) => false,
+        }
+    });
+    if !forward {
+        return false;
+    }
+    let Ok(inverse) = map.inverse() else {
+        return false;
+    };
+    record_lattice.iter().all(|row| {
+        match inverse.checked_mul_vector(&Vec3R::new(*row)) {
+            Ok(pullback) => in_lattice(*pullback.as_array(), source_lattice),
+            Err(_) => false,
+        }
+    })
+}
+
 /// Check one claimed embedding `(map, shift)` against the parent's operations.
 ///
 /// This is the same condition the search uses, exposed so that a caller can
 /// verify a map it obtained elsewhere -- for example a small explicit embedding
 /// found by an independent search, which the family above may not contain.
+///
+/// The check has two halves, and both are needed:
+///
+/// * the image of the group's **full** translation lattice `L_M`
+///   ([`full_translation_lattice`]) must lie in the parent's lattice.  Per-class
+///   placement does not imply this, and round 20 measured the gap;
+/// * every class representative (antiunitary ones included) must land on a
+///   parent operation.
+///
+/// Success therefore means the tabulated group maps into the parent's grey
+/// group, not merely that its representatives do.
 pub fn verify_embedding(
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
@@ -1484,6 +1628,13 @@ pub fn verify_embedding(
             parent_lattice.push(translation);
         }
         parent_operations.push((operation.rotation, translation));
+    }
+    // Complete containment first: the source lattice is a property of the map
+    // alone, and no per-class equation below can replace this gate.
+    if !source_lattice_lands_in_parent(&map, set, &parent_lattice) {
+        return Err(GeometryError::SourceLatticeNotInParent {
+            uni: geometry.uni,
+        });
     }
     let inverse = map
         .inverse()
@@ -1523,19 +1674,28 @@ pub fn verify_embedding(
 }
 
 /// How a candidate map was built.
+///
+/// The names below state the matrix the family actually multiplies by, which
+/// round 20 found was not what the older docs said: the "dual" variants are the
+/// **inverse** of the frame basis, because the doubles are taken from
+/// `B = W^T` as `(B^T)^-T = B^-1`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EmbeddingKind {
-    /// A signed permutation of the tabulated coordinates, no basis conversion.
+    /// A signed permutation of the tabulated coordinates, no basis conversion:
+    /// `S . I`.
     Plain,
-    /// A signed permutation composed with the record's primitive-frame basis.
+    /// A signed permutation composed with the transpose of the record's
+    /// primitive-frame basis: `S . W_prim^T`.
     PrimitiveBasis,
-    /// A signed permutation composed with the record's conventional-frame basis.
+    /// A signed permutation composed with the transpose of the record's
+    /// conventional-frame basis: `S . W_conv^T`.
     ConventionalBasis,
-    /// A signed permutation composed with the inverse-transpose of the
-    /// primitive-frame basis (the dual basis).
+    /// A signed permutation composed with the **inverse** of the primitive-frame
+    /// basis: `S . W_prim^-1` (the variant name is historical; see the enum
+    /// doc, and note the pinned counts belong to this matrix).
     PrimitiveDual,
-    /// A signed permutation composed with the inverse-transpose of the
-    /// conventional-frame basis.
+    /// A signed permutation composed with the **inverse** of the
+    /// conventional-frame basis: `S . W_conv^-1`.
     ConventionalDual,
 }
 
@@ -1551,18 +1711,25 @@ pub struct ParentEmbedding {
     pub shift: [Rat; 3],
     /// How the map was built.
     pub kind: EmbeddingKind,
-    /// Whether the record's `basis` is realised: the image of the group's
-    /// **pure translations** (its actual symmetry translations, read from the
-    /// tabulated operation set) must lie in the record's lattice, tested in the
-    /// parent's conventional frame with the row convention
-    /// (`(M^-1)^T v` integral).
+    /// Whether the map realises the record's lattice **exactly**:
+    /// `A . L_M = L_record`, where `L_M` is the group's full translation lattice
+    /// ([`full_translation_lattice`]: the cell translations `Z^3` plus the
+    /// listed non-zero unprimed pure translations) and `L_record` is the
+    /// record's `basis` in the parent's conventional frame.
     ///
-    /// The tabulated cell's coordinate lattice `Z^3` is deliberately **not**
-    /// part of this test: it is a gauge artifact of the setting, not a symmetry
-    /// translation, and including it would ask the unit vectors to land in a
-    /// lattice that may be a proper sublattice of `Z^3` (round 15m measured
-    /// 347 rows with no realising map under this definition versus 422 under
-    /// the `Z^3`-included one).
+    /// Both inclusions are tested: the source generators map into the record's
+    /// row lattice (`(M^-1)^T v` integral), and the record's lattice rows pull
+    /// back through `A^-1` into `L_M`.  Round 20: the earlier test looked only
+    /// at the listed generators in the forward direction, so it was vacuously
+    /// true for a set that lists no pure translation -- SG 1 `Z1/P1` UNI 3 was
+    /// reported as realising its lattice while `A e_1 = e_3` is not even in it,
+    /// and a `Z^3`-shrinking map was reported as failing although the whole
+    /// group was contained.
+    ///
+    /// The flag is deliberately weaker than [`verify_embedding`]: a map can
+    /// place the group in the parent (containment holds) without realising the
+    /// record's lattice, and the search reports both readings instead of
+    /// collapsing them.
     pub realises_record_lattice: bool,
 }
 
@@ -1570,15 +1737,24 @@ pub struct ParentEmbedding {
 /// into the parent, with the origin shift **solved exactly** rather than taken
 /// from the record.
 ///
-/// The family is `{S . B}` for the 48 signed permutations `S` and the three
-/// bases `B` in `{I, W_prim^T, W_conv^T}`.  The identity is included (it is the
+/// The family is `{S . B}` for the 48 signed permutations `S` and the five bases
+/// `B` in `{I, W_prim^T, W_conv^T, W_prim^-1, W_conv^-1}` (the last two are the
+/// `EmbeddingKind` "dual" variants; see the enum doc for why they are inverses
+/// and not inverse-transposes).  The identity is included (it is the
 /// `S = I`, `B = I` member), because round 17 measured that some records are
 /// tabulated directly in the parent's frame and a family built only from the
 /// record's basis misses them entirely.
 ///
+/// Acceptance is the same two-part condition [`verify_embedding`] uses: the
+/// image of the **full** source translation lattice must lie in the parent's
+/// lattice (round 20), and every class representative must land on a parent
+/// operation with the solved shift.  Round 20's counterexample -- SG 143
+/// `M1/S1` UNI 1 with `A = W^-1` -- is no longer returned.
+///
 /// An empty result means "no candidate in this family embeds the group"; it is
 /// **not** a proof that the record is not a subgroup, and callers must not treat
-/// it as one.  The `realises_record_lattice` flag separates the two readings.
+/// it as one.  The `realises_record_lattice` flag separates "contained" from
+/// "the record's lattice is realised exactly".
 pub fn embed_in_parent_conventional(
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
@@ -1611,13 +1787,15 @@ pub fn embed_in_parent_conventional(
         }
         parent_operations.push((operation.rotation, translation));
     }
-    // The lattice whose image decides `realises_record_lattice`: the group's
-    // pure translations (its actual symmetry translations).  The unit vectors
-    // are NOT added -- `Z^3` is the tabulated cell's coordinate lattice, a gauge
-    // artifact of the setting, not a symmetry translation.  Round 15m measured
-    // the two readings over the census subset: 347 rows with no realising map
-    // under this one, 422 under the `Z^3`-included one (witnesses unaffected).
-    let magnetic_lattice: Vec<[Rat; 3]> = translation_lattice(set);
+    // `realises_record_lattice` asks for **equality** `A L_M = L_record` (round
+    // 20).  The forward half maps the full source translation lattice
+    // (`Z^3` + the listed pure translations); the backward half pulls the
+    // record's lattice rows back through `A^-1` and asks for membership in
+    // `L_M`.  The earlier version tested only the listed generators in the
+    // forward direction, which is vacuously true whenever the set lists none,
+    // and never tested the reverse.
+    let source_generators: Vec<[Rat; 3]> = full_translation_lattice(set);
+    let source_lattice: Vec<[Rat; 3]> = translation_lattice(set);
     let record_lattice = basis_in_parent_conventional(geometry)?;
     // The record's `basis` rows are the lattice vectors, so membership is
     // `(M^-1)^T v` integral -- NOT `M^-1 v`, which tests the column lattice
@@ -1627,12 +1805,6 @@ pub fn embed_in_parent_conventional(
         .inverse()
         .map_err(|_| GeometryError::SingularConventionalBasis { uni: geometry.uni })?
         .transpose();
-    let in_record_lattice = |vector: [Rat; 3]| -> bool {
-        record_inverse_transposed
-            .checked_mul_vector(&Vec3R::new(vector))
-            .map(|image| image.as_array().iter().all(|value| value.is_integer()))
-            .unwrap_or(false)
-    };
 
     let mut bases: Vec<(EmbeddingKind, Mat3R)> = Vec::new();
     bases.push((EmbeddingKind::Plain, Mat3R::identity()));
@@ -1653,9 +1825,11 @@ pub fn embed_in_parent_conventional(
         EmbeddingKind::ConventionalBasis,
         transpose_of(&Mat3R::new(record_lattice)),
     ));
-    // The dual bases: a map may realise the record through the basis or
-    // through its inverse-transpose (the two are different whenever
-    // |det(basis)| != 1).
+    // The "dual" members: `base` is already `W^T`, so `transpose(inverse(base))`
+    // is `(W^T)^-T = W^-1`, i.e. the **inverse** of the frame basis.  The variant
+    // names and the older docs called this the inverse-transpose (round 20
+    // flagged the mismatch); the pinned counts belong to the matrix this code
+    // actually builds, so the doc was corrected rather than the family.
     let mut duals: Vec<(EmbeddingKind, Mat3R)> = Vec::new();
     for (kind, base) in &bases {
         if *kind == EmbeddingKind::Plain {
@@ -1680,6 +1854,13 @@ pub fn embed_in_parent_conventional(
                 continue;
             };
             let Ok(inverse) = map.inverse() else { continue };
+            // Complete containment (round 20): the image of the full source
+            // translation lattice must lie in the parent's lattice.  The class
+            // loop below cannot see this, and the condition depends on the map
+            // only, so it runs once here rather than once per shift.
+            if !source_lattice_lands_in_parent(&map, set, &parent_lattice) {
+                continue;
+            }
             // Rotations must land in the parent's rotation set.
             let mut mapped_rotations = Vec::with_capacity(set.classes.len());
             let mut rotations_ok = true;
@@ -1756,17 +1937,17 @@ pub fn embed_in_parent_conventional(
                         // expressed in the parent's conventional frame, so the
                         // record's conventional-frame lattice is the target for
                         // every kind.
-                        let realises = magnetic_lattice.iter().all(|generator| {
-                            match map.checked_mul_vector(&Vec3R::new(*generator)) {
-                                Ok(image) => in_record_lattice(*image.as_array()),
-                                Err(_) => false,
-                            }
-                        });
                         let entry = ParentEmbedding {
                             map,
                             shift: canonical,
                             kind: *kind,
-                            realises_record_lattice: realises,
+                            realises_record_lattice: realises_record_lattice(
+                                &map,
+                                &source_generators,
+                                &source_lattice,
+                                &record_lattice,
+                                &record_inverse_transposed,
+                            ),
                         };
                         if !found.contains(&entry) {
                             found.push(entry);
@@ -1782,14 +1963,22 @@ pub fn embed_in_parent_conventional(
 /// A **finite sample** of the affine set `particular + <kernel>` modulo the
 /// parent lattice, using the step set `{+-1, +-1/2}` on each kernel direction.
 ///
-/// This is not an enumeration of the whole solution set: `ker(I - R_p)` is
-/// non-zero for every three-dimensional rotation, so whenever the kernel is
-/// non-trivial the affine set is a continuum and no finite walk can exhaust it.
-/// What the sample does guarantee is measured in round 15n: for the witnesses
-/// it contains no shift that a finer `1/4` grid would have found, and every
-/// extra grid point of the degenerate case (SG 1) leads to an image set that is
-/// already realised.  Half steps are included because a kernel basis from
-/// Gaussian elimination can carry denominators.
+/// This is not an enumeration of the whole solution set.  `ker(I - R_p)` is
+/// non-zero for every **proper** rotation (it contains the rotation axis), but
+/// not for an improper one: for `R_p = -I` (an inversion) the kernel is `ker 2I`
+/// and the solution set of `(I - R_p) delta = b` is a single point, so this
+/// sample is exact there.  Whenever the kernel is non-trivial the affine set is
+/// a continuum and no finite walk can exhaust it.
+///
+/// What the sample says (round 15n, restated precisely): it contains the
+/// particular solution, and every sampled point is verified before it is
+/// returned.  For the six witnesses it contains no shift that a finer `1/4`
+/// grid would have found, and every extra grid point of the degenerate case
+/// (SG 1) leads to an image set that is already realised.  That is a measurement
+/// on those records, **not** a guarantee that no valid shift is missed in
+/// general; an empty result stays "this family and this sample found nothing".
+/// Half steps are included because a kernel basis from Gaussian elimination can
+/// carry denominators.
 fn shift_coset(
     particular: [Rat; 3],
     kernel: &[[Rat; 3]],
@@ -1966,14 +2155,20 @@ fn solve_linear_system(mut system: [[Rat; 4]; 3]) -> Option<([Rat; 3], Vec<[Rat;
 
 const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 
-/// The image of the set's translation lattice under the record's map.
+/// The image of the set's **full** translation lattice under the record's map.
+///
+/// The generators are [`full_translation_lattice`]: the cell translations `Z^3`
+/// plus the listed non-zero unprimed pure translations.  Round 20: the earlier
+/// version mapped only the listed ones, so for a primitive group it returned an
+/// empty image although the lattice is `Z^3` -- the name promised the lattice,
+/// the body returned a subset of its generators.
 pub fn embedded_translation_lattice(
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
 ) -> Vec<[Rat; 3]> {
     let map = geometry.map_matrix();
     let mut image: Vec<[Rat; 3]> = Vec::new();
-    for generator in &translation_lattice(set) {
+    for generator in &full_translation_lattice(set) {
         let moved = map
             .checked_mul_vector(&Vec3R::new(*generator))
             .expect("exact product");
@@ -1983,4 +2178,110 @@ pub fn embedded_translation_lattice(
         }
     }
     image
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn matrix(rows: [[i32; 3]; 3]) -> Mat3R {
+        let mut exact = [[Rat::ZERO; 3]; 3];
+        for (row, values) in rows.iter().enumerate() {
+            for (column, value) in values.iter().enumerate() {
+                exact[row][column] = Rat::from_integer(i128::from(*value));
+            }
+        }
+        Mat3R::new(exact)
+    }
+
+    fn unit_generators() -> Vec<[Rat; 3]> {
+        let mut generators = Vec::new();
+        for axis in 0..3 {
+            let mut unit = [Rat::ZERO; 3];
+            unit[axis] = Rat::ONE;
+            generators.push(unit);
+        }
+        generators
+    }
+
+    fn cell_rows() -> [[Rat; 3]; 3] {
+        let mut rows = [[Rat::ZERO; 3]; 3];
+        for (axis, row) in rows.iter_mut().enumerate() {
+            row[axis] = Rat::ONE;
+        }
+        rows
+    }
+
+    /// `A = 2I` maps `Z^3` into `Z^3` (forward holds) but `A^-1 Z^3 = (1/2)Z^3`
+    /// is not inside `Z^3`, so it does **not** realise the cell lattice.  A
+    /// forward-only test would call it a realisation.
+    #[test]
+    fn the_lattice_realisation_needs_both_inclusions() {
+        let generators = unit_generators();
+        let rows = cell_rows();
+        let identity = Mat3R::identity();
+        assert!(realises_record_lattice(
+            &identity,
+            &generators,
+            &[],
+            &rows,
+            &identity
+        ));
+        let doubled = matrix([[2, 0, 0], [0, 2, 0], [0, 0, 2]]);
+        // Sanity: the forward half alone is satisfied.
+        assert!(generators.iter().all(|generator| {
+            doubled
+                .checked_mul_vector(&Vec3R::new(*generator))
+                .map(|image| image.as_array().iter().all(|value| value.is_integer()))
+                .unwrap_or(false)
+        }));
+        assert!(
+            !realises_record_lattice(&doubled, &generators, &[], &rows, &identity),
+            "A = 2I does not realise the cell lattice"
+        );
+    }
+
+    /// The record's membership test uses the **row** lattice.  With
+    /// `M = [[2,1,0],[0,1,0],[0,0,1]]` the point `(1,1,0)` is not in the row
+    /// lattice `{(2a, a+b, c)}` (`2a = 1` has no integer solution), while the
+    /// column test `M^-1 v` accepts it; the shear
+    /// `A = [[1,0,0],[1,1,0],[0,0,1]]` sends `e_1` exactly there.
+    #[test]
+    fn the_record_membership_uses_the_row_lattice() {
+        let generators = unit_generators();
+        let rows = {
+            let mut rows = cell_rows();
+            rows[0][0] = Rat::from_integer(2);
+            rows[0][1] = Rat::ONE;
+            rows
+        };
+        let inverse_transposed = Mat3R::new(rows).inverse().expect("non-singular").transpose();
+        let inverse = Mat3R::new(rows).inverse().expect("non-singular");
+        let shear = matrix([[1, 0, 0], [1, 1, 0], [0, 0, 1]]);
+        let image = shear
+            .checked_mul_vector(&Vec3R::new([Rat::ONE, Rat::ZERO, Rat::ZERO]))
+            .expect("product");
+        let row_coordinates = inverse_transposed
+            .checked_mul_vector(&image)
+            .expect("product");
+        let column_coordinates = inverse.checked_mul_vector(&image).expect("product");
+        assert!(
+            !row_coordinates.as_array().iter().all(|value| value.is_integer()),
+            "the row convention must reject (1,1,0)"
+        );
+        assert!(
+            column_coordinates
+                .as_array()
+                .iter()
+                .all(|value| value.is_integer()),
+            "the column convention is the wrong test and accepts it"
+        );
+        assert!(!realises_record_lattice(
+            &shear,
+            &generators,
+            &[],
+            &rows,
+            &inverse_transposed
+        ));
+    }
 }
