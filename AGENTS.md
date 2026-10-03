@@ -808,6 +808,12 @@ Type-I/III/IV 固定例通过后，再扫描全部 16,721 条记录，单独统�
 ⑤ **接线**：本 example 已加入验收池（`target/chainFast.sh` 的 `magnetic-census` 作业，
 `--gate`），与 ledger / family 并列。
 
+ **干净树电池（第 21 轮交付）**：`target/logs/r21/summary.txt`（`revision 3e29cfd dirty-files 0`）
+ **749 passed / 0 failed**（第 20 轮的 746 + 新 example 的 **3** 条单测）、**49** 个测试壳、
+ **53** 个池作业（新增 `magnetic-census`，`--gate` **exit 0**，输出 `target/logs/r21/magnetic-census.txt`）、
+ 三 TSV 仍钉住（4 == 8，SHA 未变）、`VERDICT complete`（普通分导全局审计，与磁嵌入无关）、
+ clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0，**290 s**。
+
 **仍未做（审核方未测，如实）**：**新嵌入路径**（`embed_in_parent_conventional` / `verify_embedding`）只在 851 行分层子集上做过独立复核（第 20 轮起该子集的每一条返回项都由测试自行重推 flag），未跑全 16,721 行；旧 `search_parent_setting` 诊断路径的全语料复核见 15p 条目，两者不可互相顶替；`delta` 超出其网格、
 映射分量超出 {−2..2}；带心见证的比 1/4 更细网格；路线 (b)（spglib/Hall 设置）。 **干净树电池（第 15o 修复之后，当前最新）**：`target/logs/r9o/summary.txt`
 （`revision 81364a5 dirty-files 0`，含 `fd0c0f3` 的旧路径修复 + 其 clippy 清理）**741 passed / 0 failed**、
