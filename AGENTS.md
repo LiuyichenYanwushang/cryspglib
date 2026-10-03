@@ -578,7 +578,7 @@ UNI 24 → `2`、UNI 1 → `1`，与各自的带心类型相符。② **约束�
 `embed_in_parent_conventional(geometry, set) -> Vec<ParentEmbedding>`（`ParentEmbedding` =
 `map`（**实际合成的映射**，`Mat3R`：对偶基带分母，`Mat3I` 装不下）、`shift`（**精确解出**并已
 模母群格归约）、`kind`、`realises_record_lattice`）。候选族 = `S·B`，S 跑 48 个有符号置换，
-B ∈ {`I`（**恒等在内**）、`W_primᵀ`、`W_convᵀ`、`W_prim⁻ᵀ`、`W_conv⁻ᵀ`}；判据 = 逐类旋转映进
+B ∈ {`I`（**恒等在内**）、`W_primᵀ`、`W_convᵀ`、`W_prim⁻¹`、`W_conv⁻¹`}；判据 = 逐类旋转映进
 母群旋转集 + 逐类平移满足 `A τ + (I − R_p) δ ≡ τ_p (mod L_parent)`（δ 由锚点类精确高斯消元求出、
 核空间枚举后逐个验证）；**不含**任何带心因子。**实测（分层子集 = 每个母群每 20 条 + 6 个见证，
 851 行，常驻测试钉住）**：见证 `(总解数, 实现记录格的解数)` =
