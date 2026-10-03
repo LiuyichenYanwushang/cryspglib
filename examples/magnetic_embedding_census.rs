@@ -53,7 +53,12 @@ type MapRows = ([Rat; 3], [Rat; 3], [Rat; 3]);
 #[derive(Default, Clone)]
 struct RecordStat {
     entries: usize,
+    /// Returned entries (not maps) whose map realises the record's lattice.
     realising: usize,
+    /// Distinct maps (not entries) that realise the record's lattice.  One map
+    /// can be returned with several shifts or through several `kind`s, so this
+    /// is the map-level reading of the same question.
+    realising_maps: usize,
     distinct_pairs: usize,
     distinct_maps: usize,
     /// Returned pairs whose image of `L_M` leaves the parent lattice: must be 0.
@@ -214,6 +219,7 @@ fn census(row: &Row, parent_lattice: &ResidueLattice) -> RecordStat {
 
     let mut pairs: HashSet<(MapRows, [Rat; 3])> = HashSet::new();
     let mut maps: HashSet<MapRows> = HashSet::new();
+    let mut realising_map_keys: HashSet<MapRows> = HashSet::new();
     for entry in &embeddings {
         let image = |generator: [Rat; 3]| -> Option<[Rat; 3]> {
             entry
@@ -250,18 +256,20 @@ fn census(row: &Row, parent_lattice: &ResidueLattice) -> RecordStat {
         if entry.realises_record_lattice != (forward && reverse) {
             stat.flag_mismatches += 1;
         }
+        let map_key = (*entry.map.row(0), *entry.map.row(1), *entry.map.row(2));
         if entry.realises_record_lattice {
             stat.realising += 1;
+            realising_map_keys.insert(map_key);
         }
         if verify_embedding(&geometry, &set, entry.map, entry.shift).is_err() {
             stat.verifier_failures += 1;
         }
-        let map_key = (*entry.map.row(0), *entry.map.row(1), *entry.map.row(2));
         pairs.insert((map_key, entry.shift));
         maps.insert(map_key);
     }
     stat.distinct_pairs = pairs.len();
     stat.distinct_maps = maps.len();
+    stat.realising_maps = realising_map_keys.len();
     stat
 }
 
@@ -285,7 +293,9 @@ const PINNED_DISTINCT_PAIRS: usize = 1_432_672;
 const PINNED_DISTINCT_MAPS: usize = 333_500;
 const PINNED_WITHOUT_EMBEDDING: usize = 8_294;
 const PINNED_WITHOUT_REALISING: usize = 8_946;
+const PINNED_WITHOUT_REALISING_MAPS: usize = 8_946;
 const PINNED_SINGLE_REALISING: usize = 0;
+const PINNED_SINGLE_REALISING_MAPS: usize = 0;
 
 fn main() -> ExitCode {
     let gate = std::env::args().any(|argument| argument == "--gate");
@@ -308,7 +318,9 @@ fn main() -> ExitCode {
     let mut distinct_maps = 0usize;
     let mut no_embedding = 0usize;
     let mut no_realising = 0usize;
+    let mut no_realising_maps = 0usize;
     let mut unique_realising = 0usize;
+    let mut unique_realising_maps = 0usize;
     let mut with_realising = 0usize;
     let mut entries_histogram: BTreeMap<usize, usize> = BTreeMap::new();
     let mut realising_histogram: BTreeMap<usize, usize> = BTreeMap::new();
@@ -328,8 +340,14 @@ fn main() -> ExitCode {
         } else {
             with_realising += 1;
         }
+        if stat.realising_maps == 0 {
+            no_realising_maps += 1;
+        }
         if stat.realising == 1 {
             unique_realising += 1;
+        }
+        if stat.realising_maps == 1 {
+            unique_realising_maps += 1;
         }
         *entries_histogram.entry(stat.entries).or_insert(0) += 1;
         *realising_histogram.entry(stat.realising).or_insert(0) += 1;
@@ -344,9 +362,11 @@ fn main() -> ExitCode {
     println!("distinct_record_map_shift {distinct_pairs}");
     println!("distinct_record_map {distinct_maps}");
     println!("rows_without_embedding {no_embedding}");
-    println!("rows_without_realising {no_realising}");
+    println!("rows_without_realising_entry {no_realising}");
+    println!("rows_without_realising_map {no_realising_maps}");
     println!("rows_with_realising {with_realising}");
-    println!("rows_with_single_realising {unique_realising}");
+    println!("rows_with_single_realising_entry {unique_realising}");
+    println!("rows_with_single_realising_map {unique_realising_maps}");
     println!("containment_violations {containment_violations}");
     println!("flag_mismatches {flag_mismatches}");
     println!("verifier_failures {verifier_failures}");
@@ -357,14 +377,20 @@ fn main() -> ExitCode {
 
     if gate {
         let mut violations = Vec::new();
-        let pinned: [(&str, usize, usize); 7] = [
+        let pinned: [(&str, usize, usize); 9] = [
             ("rows", rows.len(), PINNED_ROWS),
             ("entries", entries, PINNED_ENTRIES),
             ("distinct (record, map, shift)", distinct_pairs, PINNED_DISTINCT_PAIRS),
             ("distinct (record, map)", distinct_maps, PINNED_DISTINCT_MAPS),
             ("rows without embedding", no_embedding, PINNED_WITHOUT_EMBEDDING),
-            ("rows without realising", no_realising, PINNED_WITHOUT_REALISING),
-            ("rows with a single realising map", unique_realising, PINNED_SINGLE_REALISING),
+            ("rows without a realising entry", no_realising, PINNED_WITHOUT_REALISING),
+            ("rows without a realising map", no_realising_maps, PINNED_WITHOUT_REALISING_MAPS),
+            ("rows with a single realising entry", unique_realising, PINNED_SINGLE_REALISING),
+            (
+                "rows with a single realising map",
+                unique_realising_maps,
+                PINNED_SINGLE_REALISING_MAPS,
+            ),
         ];
         for (label, actual, expected) in pinned {
             if actual != expected {
