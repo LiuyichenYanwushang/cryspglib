@@ -889,6 +889,11 @@ RREF 基 `(−1/2,1,0)` 使测试误判"无解"，而 `λ=(−1,0,0)` 就是解�
 未排除的 map）、隐式 `Z³` 与 `canonical_translation` 一致、第 21 轮全部钉值逐字节不变、
 ⑥ 的范围围栏准确。
 
+ **干净树电池（第 22/22b 轮交付）**：`target/logs/r22b/summary.txt`（`revision ee5148d dirty-files 0`）
+ **749 passed / 0 failed**（751 减去随联合判据一起撤回的两条锚点测试）、49 个测试壳、53 个池作业
+ （`magnetic-census` **exit 0**）、三 TSV 仍钉住（4 == 8，SHA 未变）、`VERDICT complete`（普通分导
+ 全局审计）、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0，**360 s**。
+
 **第 21 轮审核（独立审核方，r21，进程中止、部分结论可用）**：审核进程在两处未完成即中止（没有
 写出 REPORT.md），但它留下的中间产物可以引用：① 它**自己的**独立复核脚本复现了**全部钉值**
 （2,668,100 / 1,432,672 / 333,500 / 8,294 / 8,946 / 7,775 / 唯一实现 **0** / violation 全 0，
