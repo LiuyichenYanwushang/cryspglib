@@ -65,8 +65,11 @@ struct RecordStat {
     distinct_maps: usize,
     /// Round 22: an empty `embeddings` list was refuted exactly.
     certified_absence: bool,
-    /// Round 22: candidates the exact refutation could not settle.
-    feasible_candidates: usize,
+    /// Round 22: candidate maps the exact exclusions could not settle.
+    candidates_without_witness: usize,
+    /// How the candidate maps were excluded, by exact necessary condition.
+    excluded_by_source_lattice: usize,
+    excluded_by_rotation: usize,
     /// Returned pairs whose image of `L_M` leaves the parent lattice: must be 0.
     containment_violations: usize,
     /// Returned pairs whose flag disagrees with the recomputed equality: must be 0.
@@ -205,7 +208,9 @@ fn census(row: &Row, parent_lattice: &ResidueLattice) -> RecordStat {
         return stat;
     };
     stat.certified_absence = verdict.absence_is_certified;
-    stat.feasible_candidates = verdict.feasible_candidates;
+    stat.candidates_without_witness = verdict.candidates_without_witness;
+    stat.excluded_by_source_lattice = verdict.excluded_by_source_lattice;
+    stat.excluded_by_rotation = verdict.excluded_by_rotation;
     let embeddings = verdict.embeddings;
     stat.entries = embeddings.len();
 
@@ -306,6 +311,10 @@ const PINNED_WITHOUT_REALISING_MAPS: usize = 8_946;
 /// Round 22: of the 8,294 rows with no candidate, this many are **refuted**
 /// exactly by the anchor-congruence test rather than merely unfound.
 const PINNED_WITHOUT_EMBEDDING_CERTIFIED: usize = 5_649;
+/// Round 22b: of the maps in those rows, this many survive both exact necessary
+/// conditions and still produce no verified `(A, delta)` -- the measured residual
+/// of the finite shift walk.
+const PINNED_CANDIDATES_WITHOUT_WITNESS: usize = 148_764;
 const PINNED_SINGLE_REALISING: usize = 0;
 const PINNED_SINGLE_REALISING_MAPS: usize = 0;
 
@@ -331,7 +340,9 @@ fn main() -> ExitCode {
     let mut no_embedding = 0usize;
     let mut no_embedding_certified = 0usize;
     let mut no_embedding_unsettled = 0usize;
-    let mut feasible_candidates = 0usize;
+    let mut candidates_without_witness = 0usize;
+    let mut excluded_by_source_lattice = 0usize;
+    let mut excluded_by_rotation = 0usize;
     let mut no_realising = 0usize;
     let mut no_realising_maps = 0usize;
     let mut unique_realising = 0usize;
@@ -356,8 +367,10 @@ fn main() -> ExitCode {
             }
             // Only the zero rows matter for the residual: a row that does embed
             // has feasible candidates by construction.
-            feasible_candidates += stat.feasible_candidates;
+            candidates_without_witness += stat.candidates_without_witness;
         }
+        excluded_by_source_lattice += stat.excluded_by_source_lattice;
+        excluded_by_rotation += stat.excluded_by_rotation;
         if stat.realising == 0 {
             no_realising += 1;
         } else {
@@ -387,7 +400,9 @@ fn main() -> ExitCode {
     println!("rows_without_embedding {no_embedding}");
     println!("rows_without_embedding_certified {no_embedding_certified}");
     println!("rows_without_embedding_unsettled {no_embedding_unsettled}");
-    println!("feasible_candidates_in_zero_rows {feasible_candidates}");
+    println!("candidates_without_witness_in_zero_rows {candidates_without_witness}");
+    println!("excluded_by_source_lattice {excluded_by_source_lattice}");
+    println!("excluded_by_rotation {excluded_by_rotation}");
     println!("rows_without_realising_entry {no_realising}");
     println!("rows_without_realising_map {no_realising_maps}");
     println!("rows_with_realising {with_realising}");
@@ -437,6 +452,12 @@ fn main() -> ExitCode {
         }
         if no_embedding_certified + no_embedding_unsettled != no_embedding {
             violations.push("certified and unsettled zero rows do not add up".to_string());
+        }
+        if candidates_without_witness != PINNED_CANDIDATES_WITHOUT_WITNESS {
+            violations.push(format!(
+                "candidates without a witness in zero rows: {candidates_without_witness} != \
+                 {PINNED_CANDIDATES_WITHOUT_WITNESS}"
+            ));
         }
         if no_embedding_certified != PINNED_WITHOUT_EMBEDDING_CERTIFIED {
             violations.push(format!(

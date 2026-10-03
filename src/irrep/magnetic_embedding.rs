@@ -1746,23 +1746,42 @@ pub struct ParentEmbedding {
 pub struct ParentSettingVerdict {
     /// Every verified embedding of the tabulated group into the parent.
     pub embeddings: Vec<ParentEmbedding>,
-    /// `true` when `embeddings` is empty **and** every candidate map was refuted
-    /// exactly.  The refutation is the anchor congruence: for each class and each
-    /// parent operation with the mapped rotation, `(I - R_p) d = tau_p - A tau`
-    /// has no solution modulo the parent lattice, which
-    /// [`anchor_congruence_is_feasible`] decides with exact arithmetic.  An
-    /// embedding must place every class, so a refuted class refutes the map.
+    /// `true` when `embeddings` is empty **and** every candidate map was excluded
+    /// by an exact necessary condition of an embedding -- see the two counters
+    /// below.  Both are consequences of what an embedding is:
     ///
-    /// The scope is still the candidate **family**: `false` does not mean "it
-    /// embeds", it means "this search did not settle it"; `true` means "no member
-    /// of this family embeds the group", which is exactly the stage-2b
-    /// acceptance criterion.
+    /// * the image of the full source translation lattice must lie in the
+    ///   parent's lattice (round 20's gate);
+    /// * every class rotation must be a parent rotation.
+    ///
+    /// So `true` means "**no member of this candidate family embeds the group**",
+    /// which is exactly the stage-2b acceptance criterion, and what is left over
+    /// is `candidates_without_witness`: maps that survive both conditions and
+    /// still yield no verified `(A, delta)`.
+    ///
+    /// Scope fences, both measured:
+    ///
+    /// * the candidate family is still a family (`{S . B}` plus a finite shift
+    ///   walk), so `false` means "not settled here", never "it embeds";
+    /// * round 22's first version also refuted maps through the *anchor
+    ///   congruence* `(I - R_p) d = tau_p - A tau (mod L_parent)`.  The round-22
+    ///   review showed that (a) every certified row on the corpus was in fact
+    ///   excluded by the two conditions above -- that test had never run for it --
+    ///   and (b) the test as shipped was an over-strong *per-normal* test rather
+    ///   than the joint congruence, so it was not the proof it claimed.  It is
+    ///   removed rather than patched: a correct joint test needs exact
+    ///   integer-lattice membership, and the review measured that it would lift
+    ///   the corpus from 5,649 to 8,106 certified rows.  That is the next
+    ///   increment, not a claim.
     pub absence_is_certified: bool,
-    /// Candidate `(map, class, parent operation)` triples whose anchor congruence
-    /// *is* feasible yet produced no verified shift.  This is the residual
-    /// incompleteness of the shift walk, measured instead of hidden: `> 0` is why
-    /// `absence_is_certified` is false.
-    pub feasible_candidates: usize,
+    /// Maps whose image of the full source translation lattice leaves the
+    /// parent's lattice (round 20's gate) -- impossible for an embedding.
+    pub excluded_by_source_lattice: usize,
+    /// Maps that conjugate some class rotation out of the parent's rotation set.
+    pub excluded_by_rotation: usize,
+    /// Maps that passed both exact conditions and still produced no verified
+    /// embedding: the measured residual of the finite shift walk.
+    pub candidates_without_witness: usize,
 }
 
 /// Solve for every map in the candidate family that embeds the tabulated group
@@ -1902,12 +1921,13 @@ fn search_embeddings(
     bases.extend(duals);
 
     let mut found: Vec<ParentEmbedding> = Vec::new();
-    // Round 22: an empty result is a proof only when every candidate was refuted
-    // exactly -- see `ParentSettingVerdict`.  `refuted` stays true while that
-    // holds, and `feasible_candidates` counts the candidates that were feasible
-    // yet produced no verified shift (the residual, measured).
-    let mut refuted = true;
-    let mut feasible_candidates = 0usize;
+    // Round 22/22b: an empty result is a proof when **every** candidate map was
+    // excluded by an exact necessary condition.  The three exclusions are counted
+    // separately because the round-22 review found that the first version
+    // credited the anchor congruence for proofs that the screens had made.
+    let mut excluded_by_source_lattice = 0usize;
+    let mut excluded_by_rotation = 0usize;
+    let mut candidates_without_witness = 0usize;
     for (kind, base) in &bases {
         for permutation in signed_permutations() {
             let Ok(map) = Mat3R::from_ints(permutation).checked_mul(base) else {
@@ -1919,6 +1939,7 @@ fn search_embeddings(
             // loop below cannot see this, and the condition depends on the map
             // only, so it runs once here rather than once per shift.
             if !source_lattice_lands_in_parent(&map, set, &parent_lattice) {
+                excluded_by_source_lattice += 1;
                 continue;
             }
             // Rotations must land in the parent's rotation set.
@@ -1944,8 +1965,10 @@ fn search_embeddings(
                 mapped_rotations.push(mapped);
             }
             if !rotations_ok {
+                excluded_by_rotation += 1;
                 continue;
             }
+            let mut witnessed = false;
             for (index, anchor) in set.classes.iter().enumerate() {
                 if anchor.time_reversal {
                     continue;
@@ -1970,31 +1993,18 @@ fn search_embeddings(
                             .checked_sub(moved[row])
                             .map_err(|_| GeometryError::Arithmetic)?;
                     }
-                    // Exact refutation first (round 22): if the anchor
-                    // congruence has no solution modulo the parent lattice, this
-                    // candidate cannot produce an embedding at all, and that is a
-                    // proof rather than a failed walk.
-                    let mut matrix = [[0i128; 3]; 3];
-                    for row in 0..3 {
-                        for column in 0..3 {
-                            let identity = i128::from(if row == column { 1 } else { 0 });
-                            matrix[row][column] = identity - i128::from(rotation[row][column]);
-                        }
-                    }
-                    let target = [
-                        system[0][3],
-                        system[1][3],
-                        system[2][3],
-                    ];
-                    if !anchor_congruence_is_feasible(&matrix, &target, &parent_lattice) {
-                        continue;
-                    }
-                    // Feasible: the walk below has to find a witness, otherwise
-                    // this candidate is the residual incompleteness.
-                    refuted = false;
-                    feasible_candidates += 1;
+                    // **Do not** filter here on the anchor congruence: the loop
+                    // only *generates* candidate shifts, and
+                    // `embedding_is_consistent` below lets every class -- the
+                    // anchor included -- land on **any** parent operation with
+                    // the matching rotation.  A pair whose own equation is
+                    // infeasible can therefore still generate a shift that
+                    // verifies through a different operation of the same
+                    // rotation, and filtering it drops real embeddings (round
+                    // 22b measured 1,800 lost entries when it did).  The
+                    // refutation lives in the per-map pre-pass above.
                     let Some((particular, kernel)) = solve_linear_system(system) else {
-                        // Feasible modulo the parent lattice but the exact system
+                        // Placeable modulo the parent lattice but the exact system
                         // is not: the witness would need the lattice-shifted
                         // right-hand side `b + lambda`, which this walk does not
                         // construct.  Named gap, not a refutation.
@@ -2039,135 +2049,22 @@ fn search_embeddings(
                         if !found.contains(&entry) {
                             found.push(entry);
                         }
+                        witnessed = true;
                     }
                 }
+            }
+            if !witnessed {
+                candidates_without_witness += 1;
             }
         }
     }
     Ok(ParentSettingVerdict {
-        absence_is_certified: refuted && found.is_empty(),
-        feasible_candidates,
+        absence_is_certified: candidates_without_witness == 0 && found.is_empty(),
+        excluded_by_source_lattice,
+        excluded_by_rotation,
+        candidates_without_witness,
         embeddings: found,
     })
-}
-
-/// Exact basis of the nullspace of a rational matrix given by its rows.
-fn nullspace(rows: &[[Rat; 3]]) -> Vec<[Rat; 3]> {
-    let mut matrix: Vec<[Rat; 3]> = rows.to_vec();
-    let mut pivots: Vec<(usize, usize)> = Vec::new();
-    for column in 0..3 {
-        let Some(found) = (pivots.len()..matrix.len()).find(|row| !matrix[*row][column].is_zero())
-        else {
-            continue;
-        };
-        matrix.swap(pivots.len(), found);
-        let pivot_row = pivots.len();
-        let pivot = matrix[pivot_row][column];
-        for value in matrix[pivot_row].iter_mut() {
-            *value = value.checked_div(pivot).expect("non-zero pivot");
-        }
-        for row in 0..matrix.len() {
-            if row == pivot_row || matrix[row][column].is_zero() {
-                continue;
-            }
-            let factor = matrix[row][column];
-            let pivot_values = matrix[pivot_row];
-            for (value, pivot_value) in matrix[row].iter_mut().zip(pivot_values) {
-                let term = factor.checked_mul(pivot_value).expect("exact product");
-                *value = value.checked_sub(term).expect("exact difference");
-            }
-        }
-        pivots.push((column, pivot_row));
-    }
-    let pivot_columns: Vec<usize> = pivots.iter().map(|(column, _)| *column).collect();
-    let mut basis = Vec::new();
-    for free in (0..3).filter(|column| !pivot_columns.contains(column)) {
-        let mut vector = [Rat::ZERO; 3];
-        vector[free] = Rat::ONE;
-        for (column, row) in &pivots {
-            vector[*column] = matrix[*row][free].checked_neg().expect("exact negation");
-        }
-        basis.push(vector);
-    }
-    basis
-}
-
-/// Whether the anchor congruence `matrix * d = target (mod L_parent)` has a
-/// solution -- the exact refutation behind
-/// [`ParentSettingVerdict::absence_is_certified`].
-///
-/// With `M = I - R_p`, the congruence is solvable over the reals iff `target`
-/// lies in the image of `M`; modulo the parent lattice it relaxes to `target` in
-/// `im M + L_parent`.  Both are the same statement about the left nullspace:
-/// `n . target` must lie in the group `{n . lambda : lambda in L_parent}` for
-/// every `n` in a basis of `ker M^T`.  That group is generated by the components
-/// `n . e_i = n_i` of `Z^3` (part of every parent lattice, and *not* listed in
-/// `parent_lattice`, which holds only the parent's non-zero pure translations)
-/// together with the `n . g` over those listed generators, and the membership
-/// test below is exact rational arithmetic.  The check is also **sufficient**: a
-/// solution of the congruence can be constructed from the lattice shift, which is
-/// why an infeasible candidate is refuted rather than merely unsolved.
-fn anchor_congruence_is_feasible(
-    matrix: &[[i128; 3]; 3],
-    target: &[Rat; 3],
-    parent_lattice: &[[Rat; 3]],
-) -> bool {
-    for normal in left_nullspace(matrix) {
-        let mut generators: Vec<Rat> = normal.to_vec();
-        generators.reserve(parent_lattice.len());
-        for generator in parent_lattice {
-            generators.push(dot_rational(&normal, generator));
-        }
-        if !lies_in_integer_span(&dot_rational(&normal, target), &generators) {
-            return false;
-        }
-    }
-    true
-}
-
-/// Basis of `ker M^T`, the left nullspace of an integer matrix.
-fn left_nullspace(matrix: &[[i128; 3]; 3]) -> Vec<[Rat; 3]> {
-    let rows: Vec<[Rat; 3]> = (0..3)
-        .map(|column| [matrix[0][column], matrix[1][column], matrix[2][column]].map(Rat::from_integer))
-        .collect();
-    nullspace(&rows)
-}
-
-fn dot_rational(left: &[Rat; 3], right: &[Rat; 3]) -> Rat {
-    let mut sum = Rat::ZERO;
-    for axis in 0..3 {
-        sum = left[axis]
-            .checked_mul(right[axis])
-            .and_then(|term| sum.checked_add(term))
-            .expect("exact dot product");
-    }
-    sum
-}
-
-/// Membership in the `Z`-span of rational generators: scale by a common
-/// denominator and test divisibility by the gcd of the scaled generators.
-fn lies_in_integer_span(value: &Rat, generators: &[Rat]) -> bool {
-    let mut denominator = value.denominator();
-    for generator in generators {
-        denominator = lcm(denominator, generator.denominator());
-    }
-    let mut step = 0i128;
-    for generator in generators {
-        let scaled = generator.numerator() * (denominator / generator.denominator());
-        step = gcd(step, scaled);
-    }
-    if step == 0 {
-        return value.is_zero();
-    }
-    let scaled = value.numerator() * (denominator / value.denominator());
-    scaled % step == 0
-}
-
-fn lcm(left: i128, right: i128) -> i128 {
-    if left == 0 || right == 0 {
-        return 0;
-    }
-    (left / gcd(left, right)) * right
 }
 
 /// A finite walk of the affine set `particular + <kernel>` modulo the parent
@@ -2185,10 +2082,9 @@ fn lcm(left: i128, right: i128) -> i128 {
 /// point is verified before it is returned.  For the six witnesses it contains no
 /// shift a finer `1/4` grid would have found, and every extra grid point of the
 /// degenerate case (SG 1) leads to an image set that is already realised.  An
-/// empty walk is therefore **not** by itself a proof -- round 22 added the exact
-/// refutation test [`anchor_congruence_is_feasible`] for that, and reports the
-/// candidates this walk leaves unsettled as
-/// [`ParentSettingVerdict::feasible_candidates`].
+/// empty walk is therefore **not** by itself a proof: the proof comes from the
+/// two necessary conditions counted in [`ParentSettingVerdict`], and the maps
+/// this walk leaves unsettled are its `candidates_without_witness`.
 /// Half steps are included because a kernel basis from Gaussian elimination can
 /// carry denominators.
 fn shift_coset(
@@ -2502,145 +2398,4 @@ mod tests {
         ));
     }
 
-    /// Round 22: the refutation behind
-    /// `ParentSettingVerdict::absence_is_certified`.  A wrong answer here either
-    /// drops a real embedding (too eager) or certifies an absence that is not one
-    /// (too lax), so the interesting cases are pinned by hand first.
-    #[test]
-    fn the_anchor_congruence_test_handles_the_hand_cases() {
-        let z3: Vec<[Rat; 3]> = Vec::new();
-        let centred = vec![[Rat::new(1, 2).expect("1/2"), Rat::new(1, 2).expect("1/2"), Rat::ZERO]];
-        let half_y = [Rat::ZERO, Rat::new(1, 2).expect("1/2"), Rat::ZERO];
-        // A twofold about `y`: `I - R = diag(2, 0, 2)`, image `{y = 0}`.
-        let twofold = [[2, 0, 0], [0, 0, 0], [0, 0, 2]];
-        assert!(!anchor_congruence_is_feasible(&twofold, &half_y, &z3));
-        assert!(anchor_congruence_is_feasible(&twofold, &[Rat::ZERO; 3], &z3));
-        // The C centring reaches the missing half: `(1/2) e_2` IS in `L_parent`.
-        assert!(anchor_congruence_is_feasible(&twofold, &half_y, &centred));
-        // The identity rotation gives `M = 0`, so the class is placeable exactly
-        // when its target is a parent lattice vector.  `Z^3` is part of that
-        // lattice even though `parent_lattice` lists no generator: forgetting it
-        // refuted every integer target (caught while writing this test).
-        let zero = [[0; 3]; 3];
-        assert!(anchor_congruence_is_feasible(&zero, &[Rat::ONE, Rat::ZERO, Rat::ZERO], &z3));
-        assert!(!anchor_congruence_is_feasible(
-            &zero,
-            &[Rat::new(1, 2).expect("1/2"), Rat::ZERO, Rat::ZERO],
-            &z3
-        ));
-        // A mirror `diag(1, 1, -1)` fixes the plane `z = 0`: `I - R = diag(0, 0, 2)`
-        // has rank one, so `ker M^T` needs **two** normals and both must pass.
-        let mirror = [[0, 0, 0], [0, 0, 0], [0, 0, 2]];
-        assert!(anchor_congruence_is_feasible(
-            &mirror,
-            &[Rat::ONE, Rat::ZERO, Rat::ONE],
-            &z3
-        ));
-        assert!(!anchor_congruence_is_feasible(&mirror, &half_y, &z3));
-        // An invertible `M` is always feasible.
-        let inversion = [[2, 0, 0], [0, 2, 0], [0, 0, 2]];
-        assert!(anchor_congruence_is_feasible(
-            &inversion,
-            &[Rat::new(1, 3).expect("1/3"), Rat::ZERO, Rat::ZERO],
-            &z3
-        ));
-    }
-
-    /// The hand cases above are single points; this one compares the test against
-    /// an **independent** brute force on a grid: a candidate is feasible exactly
-    /// when some `delta` on the `1/24` grid satisfies `M delta - target` in
-    /// `L_parent` (a solution, if any, has small denominators here because the
-    /// matrices are `I - R` of small rotations and the targets are quarters).
-    #[test]
-    fn the_anchor_congruence_test_agrees_with_a_brute_force_grid() {
-        const GRID: i128 = 24;
-        let lattices: [Vec<[Rat; 3]>; 3] = [
-            Vec::new(),
-            vec![[Rat::new(1, 2).expect("1/2"), Rat::new(1, 2).expect("1/2"), Rat::ZERO]],
-            vec![[Rat::new(1, 2).expect("1/2"), Rat::new(1, 2).expect("1/2"), Rat::new(1, 2).expect("1/2")]],
-        ];
-        let matrices: [[[i128; 3]; 3]; 8] = [
-            [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
-            [[2, 0, 0], [0, 0, 0], [0, 0, 2]],
-            [[0, 0, 0], [0, 2, 0], [0, 0, 2]],
-            [[0, 0, 0], [0, 0, 0], [0, 0, 2]],
-            [[1, 0, 1], [0, 0, 0], [0, 0, 1]],
-            [[2, 0, 0], [0, 2, 0], [0, 0, 2]],
-            [[1, 1, 0], [0, 1, 0], [0, 0, 0]],
-            [[0, -1, 0], [1, -1, 0], [0, 0, 0]],
-        ];
-        let targets: [[i128; 3]; 6] = [
-            [0, 0, 0],
-            [1, 0, 0],
-            [0, 1, 0],
-            [0, 0, 1],
-            [1, 1, 1],
-            [-1, 2, 0],
-        ];
-        let quarters = [0i128, 1, 2, 3];
-        let mut checked = 0usize;
-        let mut feasible = 0usize;
-        for matrix in &matrices {
-            for target in &targets {
-                for numerator in &quarters {
-                    for fraction in [0i128, 1] {
-                        let mut rational_target = [Rat::ZERO; 3];
-                        for axis in 0..3 {
-                            rational_target[axis] = if fraction == 0 {
-                                Rat::from_integer(target[axis])
-                            } else {
-                                Rat::new(target[axis] * 4 + numerator, 4).expect("quarter")
-                            };
-                        }
-                        for lattice in &lattices {
-                            let decided =
-                                anchor_congruence_is_feasible(matrix, &rational_target, lattice);
-                            let mut brute = false;
-                            'delta: for a in 0..GRID {
-                                for b in 0..GRID {
-                                    for c in 0..GRID {
-                                        let delta = [
-                                            Rat::new(a, GRID).expect("grid value"),
-                                            Rat::new(b, GRID).expect("grid value"),
-                                            Rat::new(c, GRID).expect("grid value"),
-                                        ];
-                                        let mut difference = [Rat::ZERO; 3];
-                                        for row in 0..3 {
-                                            let mut sum = Rat::ZERO;
-                                            for column in 0..3 {
-                                                sum = Rat::from_integer(matrix[row][column])
-                                                    .checked_mul(delta[column])
-                                                    .and_then(|term| sum.checked_add(term))
-                                                    .expect("exact product");
-                                            }
-                                            difference[row] = sum
-                                                .checked_sub(rational_target[row])
-                                                .expect("exact difference");
-                                        }
-                                        if canonical_translation(difference, lattice)
-                                            .iter()
-                                            .all(|value| value.is_zero())
-                                        {
-                                            brute = true;
-                                            break 'delta;
-                                        }
-                                    }
-                                }
-                            }
-                            assert_eq!(
-                                decided, brute,
-                                "matrix {matrix:?} target {rational_target:?} lattice {lattice:?}"
-                            );
-                            checked += 1;
-                            if decided {
-                                feasible += 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        assert!(checked > 500, "cases compared: {checked}");
-        assert!(feasible > 50 && feasible < checked, "both verdicts: {feasible}");
-    }
 }

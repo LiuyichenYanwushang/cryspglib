@@ -505,17 +505,32 @@ fn the_unresolved_witness_is_reported_as_unresolved() {
         "the family does not resolve SG 3 UNI 24"
     );
     // Round 22 upgrade: this is no longer "the walk found nothing" but a proof.
-    // The record's 2-fold class sits at `(1/2, 1/2, 0)` while the parent's own
-    // rotations all carry **zero** translation, so the anchor congruence
-    // `(I - R_p) d = tau_p - A tau` needs `(1/2) e_2` in the image of `I - R_p`
-    // plus `Z^3`; that image is the plane `y = 0` and `(1/2) e_2` is not in it.
-    // The exact test refutes every candidate, so the absence is certified.
+    // **Round 22b correction**: the proof comes from the two exact necessary
+    // conditions, not from an anchor-congruence test (the round-22 review showed
+    // that test never ran for this record, and that the version shipped was not
+    // the joint congruence).  The record's source translation lattice contains
+    // the pure translation `(1/2, 1/2, 0)` while the parent is `P 1 2 1` with
+    // lattice `Z^3`, so `A (1/2, 1/2, 0)` lands outside the parent lattice for
+    // every candidate; the maps that survive that screen conjugate the 2-fold
+    // out of `{identity, 2-fold}`.  The split is what the review measured.
     assert!(
         verdict.absence_is_certified,
-        "the absence of SG 3 UNI 24 must be certified, feasible_candidates={}",
-        verdict.feasible_candidates
+        "the absence of SG 3 UNI 24 must be certified, candidates_without_witness={}",
+        verdict.candidates_without_witness
     );
-    assert_eq!(verdict.feasible_candidates, 0);
+    assert_eq!(verdict.candidates_without_witness, 0);
+    assert_eq!(
+        verdict.excluded_by_source_lattice + verdict.excluded_by_rotation,
+        240,
+        "every candidate map is excluded by an exact necessary condition"
+    );
+    assert_eq!(
+        (verdict.excluded_by_rotation, verdict.excluded_by_source_lattice),
+        (0, 240),
+        "the split depends on the order of the two screens: this search tests the \
+         source lattice first, so all 240 maps are attributed to it (the round-22 \
+         review, which tested rotations first, measured 224 rotation + 16 source)"
+    );
     // The parent really has no translation to absorb the centring shift.
     let parent = query::symmetry_operations_of(3).expect("parent");
     assert_eq!(parent.operations.len(), 2);
