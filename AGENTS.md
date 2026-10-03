@@ -878,6 +878,13 @@ violation 全 0——证伪测试只**跳过**被证伪的候选，不改变任�
 (a) 未决行的 δ 需要"格平移后的右端"（`b + λ`）与 `M⁻¹(L_parent)` 的商枚举，属于新的精确线性代数；
 (b) 候选族仍可扩（spglib 替代设置对 122/1652 个 UNI 非恒等）；(c) 反幺正类的角色已覆盖但未单独统计。
 
+ **干净树电池（第 22 轮交付）**：`target/logs/r22/summary.txt`（`revision 43d1d25 dirty-files 0`）
+ **751 passed / 0 failed**（第 21 轮的 749 + 两条新回归 `the_anchor_congruence_test_handles_the_hand_cases`
+ 与 `..._agrees_with_a_brute_force_grid`）、49 个测试壳、53 个池作业（`magnetic-census` **exit 0**，
+ 输出里 `rows_without_embedding_certified 5649`）、三 TSV 仍钉住（4 == 8，SHA 未变）、
+ `VERDICT complete`（普通分导全局审计）、clippy/doctest/oracle/`descriptors`/`descriptors-empty`
+ 全 exit 0，**343 s**。
+
 **仍未做（审核方未测，如实）**：**新嵌入路径**（`embed_in_parent_conventional` / `verify_embedding`）只在 851 行分层子集上做过独立复核（第 20 轮起该子集的每一条返回项都由测试自行重推 flag），未跑全 16,721 行；旧 `search_parent_setting` 诊断路径的全语料复核见 15p 条目，两者不可互相顶替；`delta` 超出其网格、
 映射分量超出 {−2..2}；带心见证的比 1/4 更细网格；路线 (b)（spglib/Hall 设置）。 **干净树电池（第 15o 修复之后，当前最新）**：`target/logs/r9o/summary.txt`
 （`revision 81364a5 dirty-files 0`，含 `fd0c0f3` 的旧路径修复 + 其 clippy 清理）**741 passed / 0 failed**、
