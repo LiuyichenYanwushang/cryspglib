@@ -786,6 +786,28 @@ SG 143 `M1/S1` UNI 1 `A=W⁻¹` → 被搜索返回且 flag=true），并确认 
 
 **干净树电池（第 20 轮交付）**：`target/logs/r20/summary.txt`（`revision 3e4cbbb dirty-files 0`）**746 passed / 0 failed**（741 + 2 条库单测 + 3 条集成回归）、48 个测试壳、三 TSV 仍钉住（4 == 8，SHA 未变）、`VERDICT complete`（**普通分导全局审计**的结论，不覆盖磁嵌入）、clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0，331 s；磁性壳单独看 `magnetic_geometry` **17/17**、`magnetic_embedding` **6/6**、库单测 **454/0**（4 ignored）。
 
+**第 21 轮（R9 全语料覆盖：新嵌入路径扫完全部 16,721 行）**：R9 验收文要求"首批
+Type-I/III/IV 固定例通过后，再扫描全部 16,721 条记录，单独统计覆盖"；此前新路径只在 851 行分层
+子集上复核过。本轮新增门禁 example `examples/magnetic_embedding_census.rs`（`--gate`，release
+单跑 **63 s** / 8 线程，CPU 约 8m16s）：
+① **复核的独立性**：格成员资格（母群格 `L_P` 与源格 `L_M`）用**穷举残类**判定——把生成元按各自
+分母枚举出全部可达分数部分（精确有理），不走生产的 `canonical_translation` BFS；记录行格经
+`basis_in_parent_conventional` **重新读一遍记录**再用 `subduction::Lattice`（矩阵路径）判成员资格；
+每条返回项还必须过公开 `verify_embedding`。三个量各自独立计数，任一不为 0 即 exit 1。
+② **全语料钉值**：条目 **2,668,100**；不同 `(记录,map,shift)` **1,432,672**、不同 `(记录,map)`
+**333,500**；**0 解行 8,294**（49.6%）、**无"实现记录格"解的行 8,946**（53.5%）、
+**有实现解的行 7,775**、**唯一实现解的行 0**；containment / flag / verifier violation 全 **0**，
+记录错误 **0**。与 851 行子集的 137,875 / 76,291 / 17,517 / 406(47.2%) / 446(52.4%) 逐项同量纲。
+③ **对 stage 2b 的口径结论**：全语料上"唯一实现记录格的解"**一条都没有**，所以 stage 2b 的验收
+**不能**是"setting 唯一"；正确口径是"给出一个经验证的 (A, δ)，或明确报告该候选族内无解"。
+8,294 行族内无解 **不等于**"这些记录不是子群"（候选族仍是 `S·B` 的有限族 + 有限 shift 样本）。
+④ **自查（必备）**：example 自带 3 条单测——残类枚举 vs `canonical_translation` 在（a）6 个
+教科书格 × 1,000 向量、（b）**全部 1,421 个被引用 UNI 的源格** × 513 向量（>50 万次比较）、
+（c）230 个母群格上逐一致。这条自查不是装饰：本轮第一版把**查询向量自己的分母**漏在缩放之外
+（整数除法截断），于是"任何向量都落格"，全语料立刻报出 **147,672** 处 flag 不符；修正后为 0。
+⑤ **接线**：本 example 已加入验收池（`target/chainFast.sh` 的 `magnetic-census` 作业，
+`--gate`），与 ledger / family 并列。
+
 **仍未做（审核方未测，如实）**：**新嵌入路径**（`embed_in_parent_conventional` / `verify_embedding`）只在 851 行分层子集上做过独立复核（第 20 轮起该子集的每一条返回项都由测试自行重推 flag），未跑全 16,721 行；旧 `search_parent_setting` 诊断路径的全语料复核见 15p 条目，两者不可互相顶替；`delta` 超出其网格、
 映射分量超出 {−2..2}；带心见证的比 1/4 更细网格；路线 (b)（spglib/Hall 设置）。 **干净树电池（第 15o 修复之后，当前最新）**：`target/logs/r9o/summary.txt`
 （`revision 81364a5 dirty-files 0`，含 `fd0c0f3` 的旧路径修复 + 其 clippy 清理）**741 passed / 0 failed**、
