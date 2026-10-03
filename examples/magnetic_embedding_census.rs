@@ -431,6 +431,16 @@ mod tests {
                 [Rat::ZERO, Rat::ZERO, rational(1, 6)],
             ],
             vec![[rational(1, 4), rational(1, 4), Rat::ZERO]],
+            // Denominators outside the corpus's range, from the round-21 review's
+            // adversarial set (its expectation oracle called these "in the
+            // lattice"; four independent implementations, including the
+            // production BFS, agree they are not).
+            vec![[rational(1, 5), Rat::ZERO, Rat::ZERO]],
+            vec![[rational(1, 7), rational(2, 11), rational(3, 13)]],
+            vec![
+                [rational(1, 2), Rat::ZERO, Rat::ZERO],
+                [Rat::ZERO, rational(1, 3), Rat::ZERO],
+            ],
         ];
         let values = [
             rational(-5, 6),
@@ -438,8 +448,10 @@ mod tests {
             rational(-1, 2),
             rational(-1, 4),
             Rat::ZERO,
+            rational(1, 5),
             rational(1, 4),
             rational(1, 3),
+            rational(3, 14),
             rational(1, 2),
             rational(2, 3),
             Rat::ONE,
@@ -464,7 +476,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(checked, 6 * 1_000, "vectors compared");
+        assert_eq!(checked, 9 * 12 * 12 * 12, "vectors compared");
     }
 
     /// The parent lattices of the corpus are read exactly: every listed centring

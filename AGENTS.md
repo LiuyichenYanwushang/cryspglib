@@ -814,6 +814,19 @@ Type-I/III/IV 固定例通过后，再扫描全部 16,721 条记录，单独统�
  三 TSV 仍钉住（4 == 8，SHA 未变）、`VERDICT complete`（普通分导全局审计，与磁嵌入无关）、
  clippy/doctest/oracle/`descriptors`/`descriptors-empty` 全 exit 0，**290 s**。
 
+**第 21 轮审核（独立审核方，r21，进程中止、部分结论可用）**：审核进程在两处未完成即中止（没有
+写出 REPORT.md），但它留下的中间产物可以引用：① 它**自己的**独立复核脚本复现了**全部钉值**
+（2,668,100 / 1,432,672 / 333,500 / 8,294 / 8,946 / 7,775 / 唯一实现 **0** / violation 全 0，
+见 `target/review-r21/recount.out` 与 `census-mine.txt`），并多报三个量：
+`(sg,UNI,direction,iso_label)` 去重 **11,276**、`(sg,UNI)` 去重 **7,501**、
+"实现记录格"的**条目**总数 **1,688,242**（16,721 行里 7,775 行有实现解）；
+② 它报的 3 例 "ADVERSARIAL FAIL"（如 `gens=[[1/5,0,0]]`、`v=(1/2,0,0)`）是**它自己的期望值写错**，
+不是枚举错：`1/2 ∉ (1/5)Z = {k/5}`，它的 HNF、它的穷举、本 example 的枚举、以及生产
+`canonical_translation` **四者一致判 false**——四者一致正是要的点，故**未发现反例**。
+这 3 组格与向量已并入常驻回归 `the_residue_lattice_agrees_with_the_production_membership`
+（分母扩到 5/7/11/13/14，9 个格 × 12³ = **15,552** 次对照）。
+③ 审核进程中止属于工具侧失败，不是结论；本轮已**重开**一次独立审核，上面的数字只作佐证。
+
 **仍未做（审核方未测，如实）**：**新嵌入路径**（`embed_in_parent_conventional` / `verify_embedding`）只在 851 行分层子集上做过独立复核（第 20 轮起该子集的每一条返回项都由测试自行重推 flag），未跑全 16,721 行；旧 `search_parent_setting` 诊断路径的全语料复核见 15p 条目，两者不可互相顶替；`delta` 超出其网格、
 映射分量超出 {−2..2}；带心见证的比 1/4 更细网格；路线 (b)（spglib/Hall 设置）。 **干净树电池（第 15o 修复之后，当前最新）**：`target/logs/r9o/summary.txt`
 （`revision 81364a5 dirty-files 0`，含 `fd0c0f3` 的旧路径修复 + 其 clippy 清理）**741 passed / 0 failed**、
