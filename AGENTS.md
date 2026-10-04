@@ -6861,3 +6861,88 @@ API 测试（不动引擎）→ 用 monodromy 映射重写 `w_parameter_shift` �
   `line_monodromy` 11/11、模块内 Gaussian phase 单元测试 1/1、`w_line_frequency` 8/8（其 `a_conjugate_parameter_carries_the_
   reciprocal_gauge_factor` 按新读法**有意重写**：`χ(3/4) = conj(χ(1/4))·Φ_v` 逐代表元，
   并钉住两档实测的负因子数 4/8 与 0/8，对应"位移非恒等"与"该行位移等于自身"两种情形）。
+
+---
+
+## 第 23 轮（R9 stage 2b 收口：精确锚点同余判定把"族内无解"推到 8,106 / 8,294）
+
+**目标**：第 22 轮独立审核测得，正确的**联合判据**可把认证行数从 5,649 提到 ≥8,106；本轮落地。
+
+**交付**（`src/irrep/magnetic_embedding.rs`，+871/−24）：
+同余 `M δ ≡ target (mod L_parent)`（`M = I − R_p`）的**精确且完备**判定，三层全部整数/有理精确：
+① `Y` = 整核 `ker_Z(Mᵀ)` 的**饱和** Z-基（秩 0/1/2/3 分情形解析；平面分支用 Bézout 构造保证饱和）；
+② `K = D·L_parent` 化成显式整数格（**隐式 `Z³` 作为生成元写进去**）→ 三角基 `B`；
+③ 同余化为整数系统 `A z = b`（`A = Y Bᵀ`、`b = −D(Y·target)`），由有理特解 `z₀` + 饱和判据
+`∀y ∈ Z³ ∩ span_Q(A): y·z₀ ∈ Z` 判定存在性。
+用法：在两条既有筛（源格包含、旋转集）之后、shift 走查之前，对**每个 map 逐类（含反幺正类）**
+检查「该类在**所有**同旋转母群操作下同余皆不可解 ⇒ 永久证伪」。**没有**把它放进 anchor 循环做内层
+过滤（第 22b 轮实测那样会丢 1,800 条真条目）。计数器扩为
+`absence_is_certified / excluded_by_source_lattice / excluded_by_rotation / excluded_by_anchor_congruence /
+candidates_without_witness`；`parent_embedding_verdict` 与 `embed_in_parent_conventional` 签名不变。
+
+**全语料实测（16,721 行）**：
+
+| 量 | 第 22b 轮 | 第 23 轮 |
+|---|---|---|
+| `rows_without_embedding_certified` | 5,649 | **8,106**（97.7% of 8,294） |
+| `rows_without_embedding_unsettled` | 2,645 | **188** |
+| `candidates_without_witness_in_zero_rows` | 148,764 | **17,000** |
+| `excluded_by_anchor_congruence` | 0（未实现） | **377,496** |
+| `excluded_by_source_lattice` / `excluded_by_rotation` | 2,139,608 / 877,884 | **逐位相同** |
+| entries / pairs / maps / 无实现解 / 有实现解 / 唯一实现解 / violations | 2,668,100 / 1,432,672 / 333,500 / 8,946 / 7,775 / 0 / 0 | **全不变** |
+| 851 行子集 certified | 276 / 406 | **399 / 406**（unsettled 7） |
+
+**三方独立核实（全部逐行）**：① 审核方 B 自建**两套**结构不同的完备判定器（伴随/HNF 原始路线 +
+商路线 `ψ(t) ∈ ψ(L)`）+ 定义式 1/24 网格 oracle，13,000 随机系统 0 失败、5/5 变异被抓；对生产
+**逐行**复算 16,721 行 / 4,013,040 个候选：源格筛、旋转筛、认证数**全部 0 不一致**；200 行
+拒绝审计 48,000 候选 0 失败；2,500 组合成控制 0 不一致；**2,668,100/2,668,100** 个生产 `(map,shift)`
+见证用自有算术复核 0 违规。② 审核方 A（deepseek）独立路线重判 **10,089,924** 个同余三元组
+**0 分歧**，45,768 个 dump 用例带证书复算 0 分歧，40,000 随机系统 0 分歧，并确认 D2 判别例与
+SG 178/UNI 112 非本原基见证在生产入口都给出正确结论。③ Lead 自跑 `cargo test --lib` 456/0、
+clippy 干净、census 与基线**逐字段**比对（14 个"不许变"字段全同）、`--gate` exit 0。
+
+**发现（如实记录，不改口径）**：
+* **F1（HIGH，开放）**：`rows_without_embedding = 8,294` 是**有限 shift 走查**的性质，不是无嵌入行数。
+  走查从单个特解出发、步长集 `{±1, ±1/2}`，**够不到四分之一分母的移位**；Lead 用生产公开 API
+  直接复现两例族内见证（`verify_embedding` 通过而 verdict 返回 0）：
+  SG 56 UNI 119 `map=diag(1,1,2)`、`shift=(−1/4,−1/4,−1/4)`；SG 89 UNI 111
+  `map=[[1,0,1],[1,0,−1],[0,1,0]]`、`shift=(−1/4,−1/4,0)`。**认证 8,106 不受影响**
+  （它们只依赖必要条件）；两方审核测得的受影响行数分别为 **178** 与 **13**，**量级未收敛、不作为钉值**。
+  下一张卡 = **完整 shift 枚举**（用本轮判定器把锚点同余的整个解集 mod `L_P` 枚举出来），届时
+  `rows_without_embedding` 与 `entries` 会一起修正。example 的 `PINNED_WITHOUT_EMBEDDING` 已加注释
+  说明它测的是"走查留空"，不是"无嵌入"。
+  （附带更正：审核方 A 报的 SG 214 UNI 22 反例经 Lead 实测 `in_family=false` —— 那个 map 不在候选族内，
+  所以该行 `certified=true` **不是**假认证；它的 `map #56` 编号来自审核方自己的族枚举。）
+* **F2（已修）**：`solve_linear_system` 原先用 `None` 同时表示"无解"和"算术溢出"，而判定器把两者
+  都读成"不可解"——溢出会变成**假证伪**。现在改为 `Ok(None)` = 无解、`Err(Arithmetic)` = 算术极限，
+  判定器对后者**不证伪**（保守）。全语料数字不变。
+* **F3（措辞）**：第 23a 注释把"核基必须饱和"当成承重点；审核方实测联合路线对**核行缩放**不敏感，
+  真正必须饱和的是 `saturated_row_basis` 生成的格基。
+
+**测试**：`the_anchor_congruence_handles_the_hand_cases`（`M=0`、rank-1 镜面两法向量、C 心 D2 判别例、
+C 心把 `(1/2,1/2,0)` 变可解、可逆 M、饱和的行/平面两分支、SG 178/UNI 112 实测见证）与
+`the_anchor_congruence_agrees_with_a_brute_force_grid`（1,368 组；1/24 网格 + `canonical_translation`，
+与判定器完全不同的代码路径；双向断言）。**三个单点变异**（丢隐式 `Z³`、用原始行代替其饱和、
+平面法向量不做本原化）各自让两条测试同时 FAILED。
+
+**口径（不许越界）**：`absence_is_certified == true` 只对**这个候选族**成立，不是"该记录不是子群"
+的证明；188 个未决行 / 17,000 个残余候选**不是**可嵌入的证据。
+
+**过程说明**：本轮的三个改动文件分别由实现方（`src/irrep/magnetic_embedding.rs`）、钉值方
+（`examples/magnetic_embedding_census.rs`、`tests/magnetic_geometry.rs`）与 Lead（F2 加固 + 措辞）
+完成，两条独立审核并行进行；审核方 A 的会话是**先于本轮存在**的未跟踪 WIP
+`src/irrep/magnetic_embedding/joint_congruence.rs`（60,841 B，mtime 14:28，自带 5 条测试失败）
+**不属于**本轮交付——它在本轮之前就存在，A 只从自己的文件里删掉了指向它的 `mod` 声明以便编译；
+该文件保持原样未动，电池的 `dirty-files` 因此为 1（唯一脏项就是它）。
+
+**干净树电池（第 23 轮交付）**：`target/logs/r23b/summary.txt`（`revision 7f3d49d dirty-files 2`；
+2 = 当时未提交的账本 + **先于本轮存在**的未跟踪 WIP `joint_congruence.rs`，日志里两个源文件
+sha256 与提交版本一致）**751 passed / 0 failed**、49 个测试壳、53 个池作业（`magnetic-census`
+exit 0）、三 TSV 仍钉住（4 == 8，SHA 未变）、`VERDICT complete`、clippy/doctest/oracle/
+`descriptors`/`descriptors-empty` 全 exit 0，**335 s**。
+
+**电池抓到的最后一条缺陷（记录在案）**：第一次电池（`target/logs/r23/summary.txt`，
+`revision 6cb56ee`）里 **doctest EXIT=101** —— A 在 `integer_system_is_solvable` 文档里的缩进公式
+（`z_0 in Z^3 + W iff y . z_0 in Z ...`）被 rustdoc 当成 Rust 代码块去编译。已改成显式 text 代码块
+（`7f3d49d`），doctest 恢复 28/0。这正是"每一轮都以干净树电池收口"的价值：模块测试与 clippy
+当时全绿，只有 doctest 腿能发现它。
