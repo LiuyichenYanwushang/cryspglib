@@ -2566,7 +2566,9 @@ fn saturated_row_basis(rows: &[[i128; 3]]) -> Result<Vec<[i128; 3]>, GeometryErr
 /// [`saturated_row_basis`], and characters separate points on the compact torus
 /// `R^3/(Z^3 + W)`, so
 ///
-///     z_0 in Z^3 + W   iff   y . z_0 in Z for every y in that saturation.
+/// ```text
+/// z_0 in Z^3 + W   iff   y . z_0 in Z for every y in that saturation.
+/// ```
 ///
 /// The set of `y` that pass is a subgroup, so a basis is enough, and any rational
 /// particular solution gives the same verdict: two of them differ by an element
