@@ -1741,45 +1741,57 @@ pub struct ParentEmbedding {
     pub realises_record_lattice: bool,
 }
 
-/// What the embedding search decided for one record (round 22).
+/// What the embedding search decided for one record (round 22, extended in round
+/// 23a).
 #[derive(Clone, Debug)]
 pub struct ParentSettingVerdict {
     /// Every verified embedding of the tabulated group into the parent.
     pub embeddings: Vec<ParentEmbedding>,
     /// `true` when `embeddings` is empty **and** every candidate map was excluded
-    /// by an exact necessary condition of an embedding -- see the two counters
-    /// below.  Both are consequences of what an embedding is:
+    /// by an exact necessary condition of an embedding -- see the three counters
+    /// below.  All three are consequences of what an embedding is:
     ///
     /// * the image of the full source translation lattice must lie in the
     ///   parent's lattice (round 20's gate);
-    /// * every class rotation must be a parent rotation.
+    /// * every class rotation must be a parent rotation;
+    /// * every class must be **placeable**: it must land on *some* parent
+    ///   operation with the mapped rotation, so the anchor congruence
+    ///   `(I - R_p) delta == tau_p - A tau (mod L_parent)` has to be solvable for
+    ///   one of them (round 23a's exact joint test, antiunitary classes
+    ///   included).
     ///
     /// So `true` means "**no member of this candidate family embeds the group**",
     /// which is exactly the stage-2b acceptance criterion, and what is left over
-    /// is `candidates_without_witness`: maps that survive both conditions and
-    /// still yield no verified `(A, delta)`.
+    /// is `candidates_without_witness`: maps that survive all three conditions
+    /// and still yield no verified `(A, delta)`.
     ///
     /// Scope fences, both measured:
     ///
     /// * the candidate family is still a family (`{S . B}` plus a finite shift
     ///   walk), so `false` means "not settled here", never "it embeds";
-    /// * round 22's first version also refuted maps through the *anchor
-    ///   congruence* `(I - R_p) d = tau_p - A tau (mod L_parent)`.  The round-22
-    ///   review showed that (a) every certified row on the corpus was in fact
-    ///   excluded by the two conditions above -- that test had never run for it --
-    ///   and (b) the test as shipped was an over-strong *per-normal* test rather
-    ///   than the joint congruence, so it was not the proof it claimed.  It is
-    ///   removed rather than patched: a correct joint test needs exact
-    ///   integer-lattice membership, and the review measured that it would lift
-    ///   the corpus from 5,649 to 8,106 certified rows.  That is the next
-    ///   increment, not a claim.
+    /// * the third condition is per class, not joint over the classes: a map that
+    ///   can place every class *somewhere* may still have no **single** shift that
+    ///   places them all at once, which is why `candidates_without_witness` stays
+    ///   exposed instead of being folded into this flag.
+    ///
+    /// Round 22's withdrawn attempt is history: it read the anchor congruence per
+    /// normal vector -- a necessary condition only -- and, worse, never ran on its
+    /// certified rows.  The replacement is the joint congruence: the round-22
+    /// review measured that it lifts the certified zero rows from 5,649 of 8,294
+    /// to at least 8,106, and the round-23a corpus run reports the exact number.
     pub absence_is_certified: bool,
     /// Maps whose image of the full source translation lattice leaves the
     /// parent's lattice (round 20's gate) -- impossible for an embedding.
     pub excluded_by_source_lattice: usize,
     /// Maps that conjugate some class rotation out of the parent's rotation set.
     pub excluded_by_rotation: usize,
-    /// Maps that passed both exact conditions and still produced no verified
+    /// Maps refuted by per-class placeability (round 23a): some class cannot be
+    /// placed on any parent operation with its mapped rotation, because the exact
+    /// joint congruence has no solution there.  Counting is exclusive in the
+    /// order the three conditions are checked, so this counts only maps that
+    /// passed both screens above.
+    pub excluded_by_anchor_congruence: usize,
+    /// Maps that passed all three exact conditions and still produced no verified
     /// embedding: the measured residual of the finite shift walk.
     pub candidates_without_witness: usize,
 }
@@ -1796,15 +1808,19 @@ pub struct ParentSettingVerdict {
 /// tabulated directly in the parent's frame and a family built only from the
 /// record's basis misses them entirely.
 ///
-/// Acceptance is the same two-part condition [`verify_embedding`] uses: the
-/// image of the **full** source translation lattice must lie in the parent's
-/// lattice (round 20), and every class representative must land on a parent
-/// operation with the solved shift.  Round 20's counterexample -- SG 143
-/// `M1/S1` UNI 1 with `A = W^-1` -- is no longer returned.
+/// Acceptance is the same condition [`verify_embedding`] uses: the image of the
+/// **full** source translation lattice must lie in the parent's lattice (round
+/// 20), and every class representative must land on a parent operation with the
+/// solved shift.  Round 20's counterexample -- SG 143 `M1/S1` UNI 1 with
+/// `A = W^-1` -- is no longer returned.  Before the walk, every candidate map is
+/// also screened for per-class placeability (round 23a).
 ///
 /// Round 22 turned the empty result from "this walk found nothing" into a
-/// decidable statement for the family; see [`ParentSettingVerdict`].  Use
-/// [`embed_in_parent_conventional`] when only the witnesses are wanted.
+/// decidable statement for the family; round 23a added the third exact
+/// exclusion -- per-class placeability, decided by the joint congruence rather
+/// than by round 22's withdrawn per-normal test -- so that a certified empty
+/// result no longer depends on the walk at all; see [`ParentSettingVerdict`].
+/// Use [`embed_in_parent_conventional`] when only the witnesses are wanted.
 pub fn parent_embedding_verdict(
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
@@ -1927,6 +1943,7 @@ fn search_embeddings(
     // credited the anchor congruence for proofs that the screens had made.
     let mut excluded_by_source_lattice = 0usize;
     let mut excluded_by_rotation = 0usize;
+    let mut excluded_by_anchor_congruence = 0usize;
     let mut candidates_without_witness = 0usize;
     for (kind, base) in &bases {
         for permutation in signed_permutations() {
@@ -1968,6 +1985,81 @@ fn search_embeddings(
                 excluded_by_rotation += 1;
                 continue;
             }
+            // Round 23a: per-class placeability, refuted **before** the walk.  An
+            // embedding has to place every class -- antiunitary classes included,
+            // whose translation equation is the same one -- on *some* parent
+            // operation with the mapped rotation, so a class that fits on none of
+            // them refutes this map for good.  `anchor_congruence_is_feasible`
+            // decides each of those equations exactly; this is the joint
+            // congruence, not round 22's per-normal necessary condition.
+            //
+            // It is deliberately **not** used as a filter inside the anchor loop
+            // below: that loop only *generates* candidate shifts, and
+            // `embedding_is_consistent` lets every class land on any parent
+            // operation with the matching rotation, so the anchor's own equation
+            // need not be the one that holds.  Round 22b measured 1,800 lost
+            // entries when the filter was applied there.
+            let mut placeable = true;
+            for (index, anchor) in set.classes.iter().enumerate() {
+                let rotation = mapped_rotations[index];
+                let Ok(moved) = map.checked_mul_vector(&Vec3R::new(anchor.translation)) else {
+                    // An arithmetic failure is not a refutation: leave the class
+                    // to the walk, which fails the same way and reports no witness.
+                    continue;
+                };
+                let moved = *moved.as_array();
+                let mut difference = [[0i32; 3]; 3];
+                for row in 0..3 {
+                    for column in 0..3 {
+                        let identity = if row == column { 1 } else { 0 };
+                        difference[row][column] = identity - rotation[row][column];
+                    }
+                }
+                let mut any = false;
+                for (parent_rotation, parent_translation) in &parent_operations {
+                    if *parent_rotation != rotation {
+                        continue;
+                    }
+                    let mut target = [Rat::ZERO; 3];
+                    let mut exact = true;
+                    for axis in 0..3 {
+                        match parent_translation[axis].checked_sub(moved[axis]) {
+                            Ok(value) => target[axis] = value,
+                            Err(_) => {
+                                exact = false;
+                                break;
+                            }
+                        }
+                    }
+                    if !exact {
+                        continue;
+                    }
+                    // An arithmetic limit inside the decider is **not** a
+                    // refutation (round-23 review F2): treat the class as
+                    // placeable and let the shift walk decide, exactly as the
+                    // `moved` failure above does.  Only an exact `Ok(false)`
+                    // refutes the map.
+                    match anchor_congruence_is_feasible(&difference, &target, &parent_lattice) {
+                        Ok(true) => {
+                            any = true;
+                            break;
+                        }
+                        Ok(false) => {}
+                        Err(_) => {
+                            any = true;
+                            break;
+                        }
+                    }
+                }
+                if !any {
+                    placeable = false;
+                    break;
+                }
+            }
+            if !placeable {
+                excluded_by_anchor_congruence += 1;
+                continue;
+            }
             let mut witnessed = false;
             for (index, anchor) in set.classes.iter().enumerate() {
                 if anchor.time_reversal {
@@ -2003,7 +2095,7 @@ fn search_embeddings(
                     // rotation, and filtering it drops real embeddings (round
                     // 22b measured 1,800 lost entries when it did).  The
                     // refutation lives in the per-map pre-pass above.
-                    let Some((particular, kernel)) = solve_linear_system(system) else {
+                    let Ok(Some((particular, kernel))) = solve_linear_system(system) else {
                         // Placeable modulo the parent lattice but the exact system
                         // is not: the witness would need the lattice-shifted
                         // right-hand side `b + lambda`, which this walk does not
@@ -2062,6 +2154,7 @@ fn search_embeddings(
         absence_is_certified: candidates_without_witness == 0 && found.is_empty(),
         excluded_by_source_lattice,
         excluded_by_rotation,
+        excluded_by_anchor_congruence,
         candidates_without_witness,
         embeddings: found,
     })
@@ -2206,7 +2299,18 @@ fn embedding_is_consistent(
 
 /// Exact Gaussian elimination on a 3x4 augmented system; `None` when
 /// inconsistent, otherwise a particular solution and a kernel basis.
-fn solve_linear_system(mut system: [[Rat; 4]; 3]) -> Option<([Rat; 3], Vec<[Rat; 3]>)> {
+/// Solve `system` over the rationals.
+///
+/// `Ok(None)` means **inconsistent** (no solution); `Err(Arithmetic)` means the
+/// elimination hit an arithmetic limit and the system was *not* decided.  The
+/// two must not be conflated: the anchor-congruence refutation treats the first
+/// as a proof and must treat the second as undecided (round-23 review F2).
+/// A particular solution plus a basis of the kernel.
+type LinearSolution = ([Rat; 3], Vec<[Rat; 3]>);
+
+fn solve_linear_system(
+    mut system: [[Rat; 4]; 3],
+) -> Result<Option<LinearSolution>, GeometryError> {
     let mut pivots: Vec<usize> = Vec::new();
     let mut row = 0usize;
     for column in 0..3 {
@@ -2221,7 +2325,7 @@ fn solve_linear_system(mut system: [[Rat; 4]; 3]) -> Option<([Rat; 3], Vec<[Rat;
         system.swap(row, found);
         let pivot = system[row][column];
         for entry in system[row].iter_mut() {
-            *entry = entry.checked_div(pivot).ok()?;
+            *entry = entry.checked_div(pivot).map_err(|_| GeometryError::Arithmetic)?;
         }
         let pivot_row = system[row];
         for (other, values) in system.iter_mut().enumerate() {
@@ -2230,8 +2334,10 @@ fn solve_linear_system(mut system: [[Rat; 4]; 3]) -> Option<([Rat; 3], Vec<[Rat;
             }
             let factor = values[column];
             for (entry, value) in values.iter_mut().enumerate() {
-                let term = pivot_row[entry].checked_mul(factor).ok()?;
-                *value = value.checked_sub(term).ok()?;
+                let term = pivot_row[entry]
+                    .checked_mul(factor)
+                    .map_err(|_| GeometryError::Arithmetic)?;
+                *value = value.checked_sub(term).map_err(|_| GeometryError::Arithmetic)?;
             }
         }
         pivots.push(column);
@@ -2239,7 +2345,7 @@ fn solve_linear_system(mut system: [[Rat; 4]; 3]) -> Option<([Rat; 3], Vec<[Rat;
     }
     for values in system.iter().skip(row) {
         if !values[3].is_zero() {
-            return None;
+            return Ok(None);
         }
     }
     let mut particular = [Rat::ZERO; 3];
@@ -2254,11 +2360,439 @@ fn solve_linear_system(mut system: [[Rat; 4]; 3]) -> Option<([Rat; 3], Vec<[Rat;
         let mut vector = [Rat::ZERO; 3];
         vector[column] = Rat::ONE;
         for (index, pivot) in pivots.iter().enumerate() {
-            vector[*pivot] = system[index][column].checked_neg().ok()?;
+            vector[*pivot] = system[index][column]
+                .checked_neg()
+                .map_err(|_| GeometryError::Arithmetic)?;
         }
         kernel.push(vector);
     }
-    Some((particular, kernel))
+    Ok(Some((particular, kernel)))
+}
+
+// ---------------------------------------------------------------------------
+// Round 23a: the exact joint congruence behind one class equation.
+//
+// `search_embeddings` places a class by solving the anchor equation
+//
+//     (I - R_p) delta  ==  tau_p - A tau        (mod L_P)                (*)
+//
+// for the origin shift `delta`, where `R_p` is the parent operation the class
+// lands on, `L_P = Z^3 + span_Z(parent's listed pure translations)` is the
+// parent's translation lattice, `A` the candidate map and `tau` the class
+// translation.  Round 22 refuted candidate maps through a **per-normal** reading
+// of (*), which is only a necessary condition; round 22b withdrew it and measured
+// that the correct joint reading lifts the certified zero rows from 5,649 to at
+// least 8,106 of 8,294.  The functions below are that joint reading.
+//
+// With `M = I - R_p` (integer) and `t = tau_p - A tau` (rational), (*) has a
+// solution `delta in R^3` exactly when
+//
+//     t  in  im_Q(M) + L_P.                                            (**)
+//
+// Three exact facts turn (**) into a finite integer computation:
+//
+// * `im_Q(M) = (ker_Q(M^T))^perp`, so (**) holds iff `Y (t + lambda) = 0` for
+//   some `lambda in L_P`, where the rows of `Y` are a `Z`-basis of the
+//   **integer** kernel `{y in Z^3 : M^T y = 0}`.  The integer kernel is not
+//   optional: it is a *saturated* sublattice of `Z^3`, and a rational basis --
+//   for instance one row-reduced RREF vector -- does not generate it.  Round 22
+//   measured what a test built on such a basis answers on SG 178 / UNI 112.
+// * With `D` the common denominator of the parent's pure translations, `K = D
+//   L_P` is an integer lattice, so every `lambda in L_P` is `B^T z / D` for a
+//   unique `z in Z^3` and a `Z`-basis `B` of `K`.  Substituting turns (*) into
+//   the plain integer system
+//
+//       A z = b,   A = Y B^T  (integer 3x3),   b = -D (Y t).            (***)
+//
+// * `A z = b` over `z in Z^3` is decided by [`integer_system_is_solvable`],
+//   which never truncates a coefficient range and whose completeness argument is
+//   written at the function.
+//
+// `Z^3` is implicit in `L_P` throughout, as in [`canonical_translation`] and
+// [`in_lattice`]: the parent's operation table lists only the **non-zero** pure
+// translations, and forgetting the cell translations makes every integer target
+// unplaceable (round 22's first version had exactly that bug).
+// ---------------------------------------------------------------------------
+
+/// Dot product of two integer vectors.
+fn dot_product(left: [i128; 3], right: [i128; 3]) -> i128 {
+    left[0] * right[0] + left[1] * right[1] + left[2] * right[2]
+}
+
+/// Cross product of two integer vectors.
+fn cross_product(left: [i128; 3], right: [i128; 3]) -> [i128; 3] {
+    [
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    ]
+}
+
+/// `vector / gcd(vector)` for a non-zero integer vector, `None` for the zero one.
+fn primitive_vector(vector: [i128; 3]) -> Option<[i128; 3]> {
+    let divisor = gcd(gcd(vector[0], vector[1]), vector[2]);
+    if divisor == 0 {
+        return None;
+    }
+    Some([
+        vector[0] / divisor,
+        vector[1] / divisor,
+        vector[2] / divisor,
+    ])
+}
+
+/// `(g, s, t)` with `g = gcd(left, right) >= 0` and `s left + t right = g`.
+fn extended_gcd(left: i128, right: i128) -> (i128, i128, i128) {
+    let (mut old_remainder, mut remainder) = (left, right);
+    let (mut old_left, mut left_coefficient) = (1i128, 0i128);
+    let (mut old_right, mut right_coefficient) = (0i128, 1i128);
+    while remainder != 0 {
+        let quotient = old_remainder / remainder;
+        let next = old_remainder - quotient * remainder;
+        old_remainder = remainder;
+        remainder = next;
+        let next = old_left - quotient * left_coefficient;
+        old_left = left_coefficient;
+        left_coefficient = next;
+        let next = old_right - quotient * right_coefficient;
+        old_right = right_coefficient;
+        right_coefficient = next;
+    }
+    if old_remainder < 0 {
+        (-old_remainder, -old_left, -old_right)
+    } else {
+        (old_remainder, old_left, old_right)
+    }
+}
+
+/// A `Z`-basis `{u, w}` with `u x w = +-normal` of the saturated plane
+/// `{y in Z^3 : y . normal = 0}` for a **primitive** non-zero `normal`.
+///
+/// `u` is `(0, -c/d, b/d)` and `w` is `(d, -a s, -a t)` with `d = gcd(b, c)` and
+/// Bézout coefficients `s b + t c = d`.  Both are orthogonal to `normal`, and
+/// `u x w = normal`, so the pair generates the whole plane: a rank-two sublattice
+/// of `Z^3` is saturated exactly when its two generators have a primitive cross
+/// product.  A rational basis of the same plane does not have that property,
+/// which is why round 22's RREF vector is not usable here.
+fn plane_basis(normal: [i128; 3]) -> Result<[[i128; 3]; 2], GeometryError> {
+    let [a, b, c] = normal;
+    if b == 0 && c == 0 {
+        // `normal` is primitive, so it is `+-e_1` and the plane is `y_1 = 0`.
+        return Ok([[0, 1, 0], [0, 0, 1]]);
+    }
+    let (divisor, s, t) = extended_gcd(b, c);
+    if divisor == 0 {
+        return Err(GeometryError::Arithmetic);
+    }
+    Ok([
+        [0, -c / divisor, b / divisor],
+        [divisor, -a * s, -a * t],
+    ])
+}
+
+/// A `Z`-basis of the integer left kernel `{y in Z^3 : M^T y = 0}` of a 3x3
+/// integer matrix -- the orthogonal complement of its column space inside `Z^3`.
+///
+/// The kernel of an integral matrix is saturated, so its rank determines it
+/// completely in dimension three: no non-zero column means `M = 0` and the kernel
+/// is all of `Z^3`; one independent column `v` means the plane `v^perp`
+/// ([`plane_basis`] of the primitive `v`); two independent columns `v, w` mean
+/// the line spanned by the primitive `v x w`; three independent columns mean the
+/// kernel is `{0}`.
+fn integer_left_kernel(matrix: &Mat3I) -> Result<Vec<[i128; 3]>, GeometryError> {
+    let column = |index: usize| -> [i128; 3] {
+        [
+            i128::from(matrix[0][index]),
+            i128::from(matrix[1][index]),
+            i128::from(matrix[2][index]),
+        ]
+    };
+    let columns = [column(0), column(1), column(2)];
+    let Some(first) = columns.iter().copied().find(|value| *value != [0, 0, 0]) else {
+        return Ok(vec![[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+    };
+    let independent = columns
+        .iter()
+        .copied()
+        .find(|value| cross_product(first, *value) != [0, 0, 0]);
+    let Some(second) = independent else {
+        let generator = primitive_vector(first).ok_or(GeometryError::Arithmetic)?;
+        return Ok(plane_basis(generator)?.to_vec());
+    };
+    let normal =
+        primitive_vector(cross_product(first, second)).ok_or(GeometryError::Arithmetic)?;
+    for value in &columns {
+        if dot_product(*value, normal) != 0 {
+            return Ok(Vec::new());
+        }
+    }
+    Ok(vec![normal])
+}
+
+/// A `Z`-basis of `Z^3 ∩ span_Q(rows)` -- the saturation of the row lattice.
+///
+/// [`integer_system_is_solvable`] quantifies over exactly this lattice: it is the
+/// annihilator of `Z^3 + ker_Q(A)` inside `R^3`, and it is a subgroup, so a basis
+/// is a complete test set.  As in [`integer_left_kernel`] the rank decides the
+/// answer in dimension three.
+fn saturated_row_basis(rows: &[[i128; 3]]) -> Result<Vec<[i128; 3]>, GeometryError> {
+    let Some(first) = rows.iter().copied().find(|row| *row != [0, 0, 0]) else {
+        return Ok(Vec::new());
+    };
+    let independent = rows
+        .iter()
+        .copied()
+        .find(|row| cross_product(first, *row) != [0, 0, 0]);
+    let Some(second) = independent else {
+        return Ok(vec![primitive_vector(first).ok_or(GeometryError::Arithmetic)?]);
+    };
+    let normal =
+        primitive_vector(cross_product(first, second)).ok_or(GeometryError::Arithmetic)?;
+    for row in rows {
+        if dot_product(*row, normal) != 0 {
+            return Ok(vec![[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+        }
+    }
+    Ok(plane_basis(normal)?.to_vec())
+}
+
+/// Decide `A z = b` for `z in Z^3` exactly, with `rows <= 3` equations.
+///
+/// Let `W = ker_Q(A)` and let `z_0` be a rational particular solution (exact
+/// Gaussian elimination; no solution over `Q` means none over `Z`).  The rational
+/// solutions are `z_0 + W`, so an integer solution exists exactly when `z_0` lies
+/// in the closed subgroup `Z^3 + W` of `R^3`.  That subgroup's annihilator is
+/// `(Z^3)^perp ∩ W^perp = Z^3 ∩ span_Q(rows of A)`, the saturation returned by
+/// [`saturated_row_basis`], and characters separate points on the compact torus
+/// `R^3/(Z^3 + W)`, so
+///
+///     z_0 in Z^3 + W   iff   y . z_0 in Z for every y in that saturation.
+///
+/// The set of `y` that pass is a subgroup, so a basis is enough, and any rational
+/// particular solution gives the same verdict: two of them differ by an element
+/// of `W`, which every `y in W^perp` annihilates.
+///
+/// The saturation is what makes this complete rather than merely consistent: with
+/// `A = [[2, 0, 0]]` and `b = 1` the rational solution is `z_0 = (1/2, 0, 0)`,
+/// and only the primitive `y = (1, 0, 0)` rejects it -- the row `(2, 0, 0)`
+/// itself would accept it.
+fn integer_system_is_solvable(
+    a: &[[i128; 3]; 3],
+    b: &[Rat; 3],
+    rows: usize,
+) -> Result<bool, GeometryError> {
+    let mut system = [[Rat::ZERO; 4]; 3];
+    for row in 0..rows {
+        for column in 0..3 {
+            system[row][column] = Rat::from_integer(a[row][column]);
+        }
+        system[row][3] = b[row];
+    }
+    let particular = match solve_linear_system(system) {
+        Ok(Some((particular, _kernel))) => particular,
+        // Inconsistent: no integer (or real) solution exists.  A proof.
+        Ok(None) => return Ok(false),
+        // An arithmetic limit is *not* a refutation: report it as "undecided"
+        // and let the caller refuse to refute this map (round-23 review F2).
+        Err(error) => return Err(error),
+    };
+    for y in saturated_row_basis(&a[..rows])? {
+        let mut value = Rat::ZERO;
+        for axis in 0..3 {
+            let term = particular[axis]
+                .checked_mul(Rat::from_integer(y[axis]))
+                .map_err(|_| GeometryError::Arithmetic)?;
+            value = value
+                .checked_add(term)
+                .map_err(|_| GeometryError::Arithmetic)?;
+        }
+        if !value.is_integer() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// A `Z`-basis of the lattice generated by `rows`, in elimination form.
+///
+/// Only row swaps and `row_i -= q row_j` with `q in Z` are used, so the row
+/// lattice is preserved exactly.  The elimination is the integer Euclid loop: as
+/// long as the current column still has a non-zero entry at or below the pivot
+/// row, the row with the smallest absolute value is swapped up and the multiples
+/// of the pivot are subtracted from the rows below, which strictly lowers the
+/// smallest non-zero absolute value in that column -- so the loop terminates with
+/// the column clear below the pivot, and the three pivot rows are a basis.
+///
+/// `Err(GeometryError::Arithmetic)` when the rows span less than `Z^3`.  In
+/// production they never do: [`parent_lattice_basis`] always feeds the cell
+/// translations `D e_i`, so the lattice is full rank, and a caller that dropped
+/// them is told instead of silently deciding on a smaller lattice.
+fn hermite_basis(rows: &[[i128; 3]]) -> Result<[[i128; 3]; 3], GeometryError> {
+    let mut reduced: Vec<[i128; 3]> = rows
+        .iter()
+        .copied()
+        .filter(|row| *row != [0, 0, 0])
+        .collect();
+    let mut pivot_row = 0usize;
+    for column in 0..3 {
+        if pivot_row >= reduced.len() {
+            break;
+        }
+        loop {
+            let mut chosen: Option<usize> = None;
+            for index in pivot_row..reduced.len() {
+                let value = reduced[index][column];
+                if value == 0 {
+                    continue;
+                }
+                if chosen.is_none_or(|best| value.abs() < reduced[best][column].abs()) {
+                    chosen = Some(index);
+                }
+            }
+            let Some(chosen) = chosen else { break };
+            reduced.swap(pivot_row, chosen);
+            let pivot = reduced[pivot_row][column];
+            let pivot_values = reduced[pivot_row];
+            let mut changed = false;
+            for row in reduced.iter_mut().skip(pivot_row + 1) {
+                let value = row[column];
+                if value == 0 {
+                    continue;
+                }
+                let quotient = value / pivot;
+                for (entry, pivot_entry) in row.iter_mut().zip(pivot_values.iter()) {
+                    *entry -= quotient * pivot_entry;
+                }
+                changed = true;
+            }
+            if !changed {
+                break;
+            }
+        }
+        if reduced[pivot_row][column] != 0 {
+            pivot_row += 1;
+        }
+    }
+    if pivot_row != 3 {
+        return Err(GeometryError::Arithmetic);
+    }
+    Ok([reduced[0], reduced[1], reduced[2]])
+}
+
+/// A basis of the parent's translation lattice, scaled to integers.
+///
+/// Returns `(D, B)` with `D` a common denominator of the listed generators and
+/// the rows of `B` a `Z`-basis of `K = D L_P = D Z^3 + span_Z(D g)`, where
+/// `L_P = Z^3 + span_Z(g)` is the parent's lattice.  The cell translations
+/// `D e_i` are part of the generator list on purpose: the parent's operation
+/// table lists only the non-zero pure translations, and the implicit `Z^3` is
+/// what makes an integer target placeable at all.  Scaling by `D` keeps `K`
+/// inside `Z^3`, so all later arithmetic is integer arithmetic.
+fn parent_lattice_basis(
+    generators: &[[Rat; 3]],
+) -> Result<(i128, [[i128; 3]; 3]), GeometryError> {
+    let mut denominator = 1i128;
+    for value in generators.iter().flatten() {
+        denominator = denominator / gcd(denominator, value.denominator()) * value.denominator();
+    }
+    let mut rows: Vec<[i128; 3]> = Vec::new();
+    for axis in 0..3 {
+        let mut unit = [0i128; 3];
+        unit[axis] = denominator;
+        rows.push(unit);
+    }
+    for generator in generators {
+        let mut scaled = [0i128; 3];
+        for axis in 0..3 {
+            scaled[axis] =
+                generator[axis].numerator() * (denominator / generator[axis].denominator());
+        }
+        if !rows.contains(&scaled) {
+            rows.push(scaled);
+        }
+    }
+    Ok((denominator, hermite_basis(&rows)?))
+}
+
+/// The `(M, L_P)`-dependent part of the anchor congruence, built once per mapped
+/// rotation: the saturated integer kernel of `M^T` and the scaled coefficient
+/// matrix `A = Y B^T` of `(***)`.
+///
+/// `AnchorSolver::new` returns `None` when `M` is invertible over `Q`: the kernel
+/// is trivial and the congruence is solvable for **every** target.
+struct AnchorSolver {
+    /// Rows `y_j` of a `Z`-basis of `{y in Z^3 : M^T y = 0}`.
+    kernel: Vec<[i128; 3]>,
+    /// `A[j][i] = y_j . B_i`, the integer system of `(***)`.
+    scaled: [[i128; 3]; 3],
+    /// `D`, the denominator that makes the parent lattice integral.
+    denominator: i128,
+}
+
+impl AnchorSolver {
+    fn new(
+        matrix: &Mat3I,
+        denominator: i128,
+        basis: &[[i128; 3]; 3],
+    ) -> Result<Option<Self>, GeometryError> {
+        let kernel = integer_left_kernel(matrix)?;
+        if kernel.is_empty() {
+            return Ok(None);
+        }
+        let mut scaled = [[0i128; 3]; 3];
+        for (index, y) in kernel.iter().enumerate() {
+            for column in 0..3 {
+                scaled[index][column] = dot_product(*y, basis[column]);
+            }
+        }
+        Ok(Some(Self {
+            kernel,
+            scaled,
+            denominator,
+        }))
+    }
+
+    /// Is `M delta == target (mod L_P)` solvable?  `false` is a proof.
+    fn is_feasible(&self, target: &[Rat; 3]) -> Result<bool, GeometryError> {
+        let rows = self.kernel.len();
+        let mut b = [Rat::ZERO; 3];
+        for (index, y) in self.kernel.iter().enumerate() {
+            let mut value = Rat::ZERO;
+            for axis in 0..3 {
+                let term = target[axis]
+                    .checked_mul(Rat::from_integer(y[axis]))
+                    .map_err(|_| GeometryError::Arithmetic)?;
+                value = value
+                    .checked_add(term)
+                    .map_err(|_| GeometryError::Arithmetic)?;
+            }
+            b[index] = value
+                .checked_mul(Rat::from_integer(-self.denominator))
+                .map_err(|_| GeometryError::Arithmetic)?;
+        }
+        integer_system_is_solvable(&self.scaled, &b, rows)
+    }
+}
+
+/// Exact decision of the anchor congruence `M delta == target (mod L_parent)`.
+///
+/// `parent_generators` lists the parent's non-zero pure translations; the cell
+/// translations `Z^3` are implicit, exactly as in [`canonical_translation`] and
+/// [`in_lattice`].  `Ok(false)` is a proof that no `delta in R^3` solves the
+/// congruence, so a class whose every matching parent operation returns `false`
+/// can never be placed -- that is the refutation [`search_embeddings`] runs
+/// before its shift walk.  See the block comment above for the two exact readings
+/// of `target in im_Q(M) + L_parent` this is built from.
+fn anchor_congruence_is_feasible(
+    matrix: &Mat3I,
+    target: &[Rat; 3],
+    parent_generators: &[[Rat; 3]],
+) -> Result<bool, GeometryError> {
+    let (denominator, basis) = parent_lattice_basis(parent_generators)?;
+    match AnchorSolver::new(matrix, denominator, &basis)? {
+        Some(solver) => solver.is_feasible(target),
+        None => Ok(true),
+    }
 }
 
 const IDENTITY_ROTATION: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
@@ -2396,6 +2930,351 @@ mod tests {
             &rows,
             &inverse_transposed
         ));
+    }
+
+    /// Membership in the one-dimensional subgroup of `R` generated by `values`,
+    /// i.e. in `y . (Z^3 + span_Z(pure translations))` for a normal vector `y`
+    /// (the cell translations contribute `y_i`).  This is the per-normal reading
+    /// round 22 shipped; the hand cases use it to show what that reading answers
+    /// where the joint congruence is the decision.
+    fn one_dimensional_membership(value: Rat, values: &[Rat]) -> bool {
+        let mut denominator = 1i128;
+        for entry in values {
+            denominator = denominator / gcd(denominator, entry.denominator()) * entry.denominator();
+        }
+        let mut divisor = 0i128;
+        for entry in values {
+            divisor = gcd(
+                divisor,
+                entry.numerator() * (denominator / entry.denominator()),
+            );
+        }
+        divisor != 0 && value.numerator() * (denominator / value.denominator()) % divisor == 0
+    }
+
+    /// Round 23a: the exact joint congruence `M delta == target (mod L)` on
+    /// hand-written cases.  Every `false` below is a proof that no `delta in R^3`
+    /// solves the congruence, and each case pins one piece of the argument:
+    ///
+    /// * `M = 0` (the parent rotation is the identity) reads `0 == target (mod L)`,
+    ///   so the target has to be a lattice vector -- and the implicit `Z^3` is
+    ///   what makes an integer target one when the parent lists no pure
+    ///   translation at all;
+    /// * the mirror `M = diag(0, 0, 2)` has a two-dimensional kernel.  On the
+    ///   C-centred D2 case of the round-23 card the per-normal test over the
+    ///   kernel basis `e_1, e_2` passes on **both** normals while the joint
+    ///   congruence has no solution -- the reason a per-normal test cannot
+    ///   certify;
+    /// * the same target becomes solvable as soon as the parent carries the
+    ///   C-centring `(1/2, 1/2, 0)`: the lattice, not the normals, decides;
+    /// * an invertible `M` is solvable for every target (the kernel is empty);
+    /// * the saturation of the *coefficient* system matters: with the two-fold
+    ///   `M = diag(0, 2, 2)` and the parent lattice `Z^3 + (0, 0, 1/2)` the scaled
+    ///   row is `(2, 0, 0)`, and only its primitive `(1, 0, 0)` rejects
+    ///   `target = (1/2, 0, 0)`;
+    /// * the measured SG 178 / UNI 112 witness of round 22 stays solvable: the
+    ///   mapped rotation there gives `M = [[2,0,0],[1,0,0],[0,0,2]]` and
+    ///   `target = (-1, -1, 1/6)` with `L = Z^3`, whose integer kernel is the line
+    ///   spanned by the primitive `(1, -2, 0)` -- a rational RREF vector is not a
+    ///   generator of that lattice.
+    #[test]
+    fn the_anchor_congruence_handles_the_hand_cases() {
+        let half = |value: i128| Rat::new(value, 2).expect("a half has a non-zero denominator");
+        let fraction =
+            |value: i128, denominator: i128| Rat::new(value, denominator).expect("non-zero");
+
+        // (1) `M = 0`: the target must be a lattice vector, and the lattice is
+        // `Z^3` plus the listed pure translations.
+        let zero = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+        assert!(anchor_congruence_is_feasible(&zero, &[Rat::ZERO; 3], &[]).expect("exact"));
+        assert!(
+            anchor_congruence_is_feasible(&zero, &[Rat::ONE, Rat::ZERO, Rat::ZERO], &[])
+                .expect("exact"),
+            "an integer target is placeable through the implicit Z^3"
+        );
+        assert!(
+            !anchor_congruence_is_feasible(&zero, &[half(1), Rat::ZERO, Rat::ZERO], &[])
+                .expect("exact"),
+            "a half-integer target is not a cell translation"
+        );
+        assert!(
+            anchor_congruence_is_feasible(
+                &zero,
+                &[half(1), Rat::ZERO, Rat::ZERO],
+                &[[half(1), Rat::ZERO, Rat::ZERO]]
+            )
+            .expect("exact"),
+            "the listed pure translation places the half-integer target"
+        );
+
+        // (2) the mirror, the C-centred D2 counterexample and its per-normal
+        // shadow (the kernel basis `e_1, e_2` generates the kernel lattice, and
+        // `e_1 . L = (1/2)Z`, `e_2 . L = (1/2)Z` both accept their own value).
+        let mirror = [[0, 0, 0], [0, 0, 0], [0, 0, 2]];
+        let centered = [[half(1), half(1), Rat::ZERO]];
+        let d2 = [half(1), Rat::ZERO, Rat::ZERO];
+        assert!(
+            !anchor_congruence_is_feasible(&mirror, &d2, &centered).expect("exact"),
+            "the joint congruence is unsolvable although both normals pass"
+        );
+        assert!(
+            one_dimensional_membership(half(1), &[Rat::ONE, Rat::ZERO, Rat::ZERO, half(1)]),
+            "e_1 . target lies in e_1 . L"
+        );
+        assert!(
+            one_dimensional_membership(Rat::ZERO, &[Rat::ZERO, Rat::ONE, Rat::ZERO, half(1)]),
+            "e_2 . target lies in e_2 . L"
+        );
+
+        // (3) the C-centring turns the other half-integer target solvable.
+        let centered_target = [half(1), half(1), Rat::ZERO];
+        assert!(
+            !anchor_congruence_is_feasible(&mirror, &centered_target, &[]).expect("exact"),
+            "without the centring the first coordinate is pinned to Z"
+        );
+        assert!(
+            anchor_congruence_is_feasible(&mirror, &centered_target, &centered).expect("exact"),
+            "the C-centring places (1/2, 1/2, 0)"
+        );
+
+        // (4) an invertible `M` is solvable for every target.
+        let invertible = [[2, 0, 0], [0, 1, 0], [0, 0, 1]];
+        assert!(
+            anchor_congruence_is_feasible(
+                &invertible,
+                &[half(1), fraction(1, 3), fraction(1, 6)],
+                &[]
+            )
+            .expect("exact")
+        );
+        let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+        assert!(anchor_congruence_is_feasible(
+            &identity,
+            &[fraction(5, 7), Rat::ZERO, Rat::ZERO],
+            &[]
+        )
+        .expect("exact"));
+
+        // (5) the saturation of the coefficient system: the two-fold about `e_1`
+        // with the parent lattice `Z^3 + (0, 0, 1/2)` gives the non-primitive row
+        // `(2, 0, 0)`, and `1/2` can never be placed in the first coordinate.
+        let twofold = [[0, 0, 0], [0, 2, 0], [0, 0, 2]];
+        let c_glide = [[Rat::ZERO, Rat::ZERO, half(1)]];
+        assert!(
+            !anchor_congruence_is_feasible(&twofold, &[half(1), Rat::ZERO, Rat::ZERO], &c_glide)
+                .expect("exact"),
+            "the first coordinate of M delta is always 0 and Z^3 + (0,0,1/2) is integral there"
+        );
+        assert!(
+            anchor_congruence_is_feasible(&twofold, &[Rat::ONE, Rat::ZERO, Rat::ZERO], &c_glide)
+                .expect("exact"),
+            "an integer target in the first coordinate is placeable"
+        );
+
+        // (6) the measured SG 178 / UNI 112 witness: `lambda = (-1, 0, 0)` solves
+        // it, with the integer kernel spanned by the primitive `(1, -2, 0)`.
+        let mapped = [[-1, 0, 0], [-1, 1, 0], [0, 0, -1]];
+        let mut difference = [[0i32; 3]; 3];
+        for row in 0..3 {
+            for column in 0..3 {
+                difference[row][column] =
+                    (if row == column { 1 } else { 0 }) - mapped[row][column];
+            }
+        }
+        assert_eq!(difference, [[2, 0, 0], [1, 0, 0], [0, 0, 2]]);
+        assert!(
+            anchor_congruence_is_feasible(
+                &difference,
+                &[Rat::from_integer(-1), Rat::from_integer(-1), fraction(1, 6)],
+                &[]
+            )
+            .expect("exact"),
+            "round 22 measured this witness as solvable"
+        );
+
+        // (7) the same saturation on the *plane* branch of the coefficient
+        // system: the rows `(-1, -2, 0)` and `(1, 0, 0)` have the non-primitive
+        // cross product `(0, 0, 2)`, and the rational solution has
+        // `z_0 = (1/2, 0, 0, ...)` -- only the primitive normal `(0, 0, 1)` (i.e.
+        // the plane `z = 0`) rejects `target = (-1/4, -1/4, 0)`.
+        assert!(
+            !anchor_congruence_is_feasible(
+                &mirror,
+                &[fraction(-1, 4), fraction(-1, 4), Rat::ZERO],
+                &centered
+            )
+            .expect("exact"),
+            "(-1/4, -1/4, 0) is not placeable modulo Z^3 + (1/2, 1/2, 0)"
+        );
+    }
+
+    /// Round 23a: the exact congruence against a **different** code path.
+    ///
+    /// Every (matrix, target, lattice) case enumerates `delta` on the `1/24` grid
+    /// and asks the production lattice membership ([`in_lattice`], i.e. the
+    /// audited `canonical_translation` BFS, which shares no code with the integer
+    /// system above) whether `M delta - target` is a parent lattice vector.  The
+    /// two directions are asserted where they are conclusive:
+    ///
+    /// * a grid hit must be accepted by the decider.  A `false` from the decider
+    ///   claims that **no** `delta in R^3` works, so this half is the soundness
+    ///   direction (no false refutations) and it is conclusive whatever the grid
+    ///   misses;
+    /// * a `true` from the decider must have a grid hit.  The grid alone cannot
+    ///   prove infeasibility, so this half is only as strong as the case choice:
+    ///   the targets have denominators dividing `12`, the lattices dividing `6`,
+    ///   and the matrices have determinant `0`, `+-1` or `2`, so every solvable
+    ///   case has a solution on the `1/24` grid (halving a `1/24` component is a
+    ///   `1/48` component, which is why the determinants stay at `2`).  A case
+    ///   the grid cannot decide fails here instead of passing silently.
+    ///
+    /// The enumeration is memoised on the exact difference vector and stops at the
+    /// first hit: for a singular `M` only a few dozen difference values occur, so
+    /// the expensive membership call runs once per distinct value rather than once
+    /// per grid point.  The D2 counterexample of the round-23 card is one of the
+    /// cases and is asserted separately, together with both answer classes.
+    #[test]
+    fn the_anchor_congruence_agrees_with_a_brute_force_grid() {
+        let grid = 24i128;
+        let half = |value: i128| Rat::new(value, 2).expect("a half has a non-zero denominator");
+        let fraction =
+            |value: i128, denominator: i128| Rat::new(value, denominator).expect("non-zero");
+        let matrices: [[[i32; 3]; 3]; 12] = [
+            [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+            [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            [[2, 0, 0], [0, 1, 0], [0, 0, 1]],
+            [[0, 0, 0], [0, 0, 0], [0, 0, 2]],
+            [[0, 0, 0], [0, 2, 0], [0, 0, 2]],
+            [[2, 0, 0], [1, 0, 0], [0, 0, 2]],
+            [[1, -1, 0], [0, 1, 0], [0, 0, 0]],
+            [[1, 1, 0], [0, 1, 1], [0, 0, 1]],
+            [[0, 1, 0], [-1, 0, 0], [0, 0, 1]],
+            [[1, 0, 0], [0, 1, 0], [0, 0, 2]],
+            [[2, 0, 0], [0, 0, 0], [0, 0, 0]],
+            [[0, 1, 0], [1, 0, 0], [0, 0, 1]],
+        ];
+        // The first lattice is the plain cell lattice (no listed pure
+        // translation); the rest cover the centrings and half translations the
+        // corpus has.
+        let lattices: Vec<Vec<[Rat; 3]>> = vec![
+            vec![],
+            vec![[half(1), half(1), Rat::ZERO]],
+            vec![[half(1), Rat::ZERO, Rat::ZERO]],
+            vec![[Rat::ZERO, Rat::ZERO, half(1)]],
+            vec![[fraction(1, 3), fraction(1, 3), fraction(1, 3)]],
+            vec![[half(1), half(1), half(1)]],
+        ];
+        let targets: Vec<[Rat; 3]> = vec![
+            [Rat::ZERO, Rat::ZERO, Rat::ZERO],
+            [Rat::ONE, Rat::ZERO, Rat::ZERO],
+            [half(1), Rat::ZERO, Rat::ZERO],
+            [Rat::ZERO, half(1), Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, half(1)],
+            [half(1), half(1), Rat::ZERO],
+            [half(1), half(1), half(1)],
+            [fraction(1, 3), fraction(1, 3), fraction(1, 3)],
+            [fraction(1, 4), Rat::ZERO, Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, fraction(1, 4)],
+            [fraction(1, 12), Rat::ZERO, Rat::ZERO],
+            [Rat::ZERO, fraction(1, 12), Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, fraction(1, 12)],
+            [half(1), fraction(1, 3), fraction(1, 6)],
+            [fraction(1, 6), fraction(-1, 6), Rat::ZERO],
+            [fraction(-1, 4), fraction(-1, 4), Rat::ZERO],
+            [fraction(1, 3), Rat::ZERO, fraction(1, 3)],
+            [fraction(3, 4), half(1), Rat::ZERO],
+            [fraction(5, 6), fraction(1, 4), fraction(1, 12)],
+        ];
+
+        let mut cases = 0usize;
+        let mut solvable = 0usize;
+        let mut unsolvable = 0usize;
+        for matrix in &matrices {
+            for lattice in &lattices {
+                for target in &targets {
+                    cases += 1;
+                    let decided = anchor_congruence_is_feasible(matrix, target, lattice)
+                        .expect("the congruence is decided exactly");
+                    // `24 * target` is integral: every target denominator divides
+                    // the grid.
+                    let mut base = [0i128; 3];
+                    for axis in 0..3 {
+                        base[axis] =
+                            target[axis].numerator() * (grid / target[axis].denominator());
+                    }
+                    let mut seen: std::collections::HashSet<[i128; 3]> =
+                        std::collections::HashSet::new();
+                    let mut witness: Option<[i128; 3]> = None;
+                    'grid: for first in 0..grid {
+                        for second in 0..grid {
+                            for third in 0..grid {
+                                let point = [first, second, third];
+                                let mut scaled = [0i128; 3];
+                                for row in 0..3 {
+                                    let mut sum = 0i128;
+                                    for column in 0..3 {
+                                        sum += i128::from(matrix[row][column]) * point[column];
+                                    }
+                                    scaled[row] = sum - base[row];
+                                }
+                                if !seen.insert(scaled) {
+                                    continue;
+                                }
+                                let mut difference = [Rat::ZERO; 3];
+                                for axis in 0..3 {
+                                    difference[axis] = Rat::new(scaled[axis], grid)
+                                        .expect("the grid denominator is non-zero");
+                                }
+                                if in_lattice(difference, lattice) {
+                                    witness = Some(point);
+                                    break 'grid;
+                                }
+                            }
+                        }
+                    }
+                    assert!(
+                        decided || witness.is_none(),
+                        "the decider refuted a solvable case: M = {matrix:?}, L = {lattice:?}, \
+                         target = {target:?} is solved at delta = {witness:?}/{grid}"
+                    );
+                    assert!(
+                        !decided || witness.is_some(),
+                        "the decider accepted a case the {grid}-grid does not solve: \
+                         M = {matrix:?}, L = {lattice:?}, target = {target:?}"
+                    );
+                    if decided {
+                        solvable += 1;
+                    } else {
+                        unsolvable += 1;
+                    }
+                }
+            }
+        }
+        assert!(
+            cases >= 1_000,
+            "the grid oracle must cover at least 1,000 cases, got {cases}"
+        );
+        assert!(
+            solvable > 0 && unsolvable > 0,
+            "both answers must occur: {solvable} solvable, {unsolvable} unsolvable"
+        );
+
+        // The D2 counterexample of the round-23 card, asserted on its own.
+        let mirror = [[0, 0, 0], [0, 0, 0], [0, 0, 2]];
+        let centered = vec![[half(1), half(1), Rat::ZERO]];
+        let d2 = [half(1), Rat::ZERO, Rat::ZERO];
+        assert!(!anchor_congruence_is_feasible(&mirror, &d2, &centered).expect("exact"));
+        assert!(
+            one_dimensional_membership(half(1), &[Rat::ONE, Rat::ZERO, Rat::ZERO, half(1)]),
+            "the first normal passes the per-normal test"
+        );
+        assert!(
+            one_dimensional_membership(Rat::ZERO, &[Rat::ZERO, Rat::ONE, Rat::ZERO, half(1)]),
+            "the second normal passes the per-normal test"
+        );
+        println!(
+            "anchor congruence grid: {cases} cases, {solvable} solvable, {unsolvable} unsolvable"
+        );
     }
 
 }

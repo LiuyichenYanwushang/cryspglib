@@ -1,13 +1,13 @@
-//! Full-corpus census of the R9 magnetic embedding search (rounds 21-22).
+//! Full-corpus census of the R9 magnetic embedding search (round 23).
 //!
 //! `tests/magnetic_geometry.rs` pins the search on a deterministic 851-row
 //! stratified subset.  The R9 acceptance text asks for the whole corpus
 //! ("首批 Type-I/III/IV 固定例通过后，再扫描全部 16,721 条记录，单独统计覆盖"),
 //! and this example is that pass: it runs the production search
 //! ([`parent_embedding_verdict`]) on every magnetic isotropy record and
-//! re-checks every returned pair.  Round 22 also reports how many of the rows
-//! with **no** candidate are settled by the exact refutation test rather than
-//! merely unfound.
+//! re-checks every returned pair.  Round 23 also reports how many of the rows
+//! with **no** candidate are settled by the three exact necessary conditions
+//! rather than merely unfound, and how the candidate maps split over them.
 //!
 //! What the re-check adds over a plain re-run:
 //!
@@ -24,6 +24,16 @@
 //! `A L_M = L_record`.  The census reports how many records have 0 / 1 / many of
 //! each; `--gate` turns every invariant -- including the pinned coverage numbers
 //! -- into an exit code.
+//!
+//! An empty result is **certified** when every candidate map is refuted by one
+//! of the three exact necessary conditions of an embedding: the image of the
+//! full source translation lattice leaves the parent lattice; a conjugated class
+//! rotation leaves the parent's rotation set; or a class cannot be placed on any
+//! parent operation with its mapped rotation (round 23's exact joint anchor
+//! congruence).  The census prints the three exclusion totals separately,
+//! because the attribution depends on the order the production search screens
+//! them in.  Maps that pass all three and still yield no verified shift are the
+//! measured residual of the finite walk.
 //!
 //! Usage:
 //!
@@ -63,13 +73,19 @@ struct RecordStat {
     realising_maps: usize,
     distinct_pairs: usize,
     distinct_maps: usize,
-    /// Round 22: an empty `embeddings` list was refuted exactly.
+    /// Round 23: an empty `embeddings` list was refuted exactly, by the three
+    /// necessary conditions counted below.
     certified_absence: bool,
-    /// Round 22: candidate maps the exact exclusions could not settle.
+    /// Round 23: candidate maps that survived all three exact conditions and
+    /// still produced no verified shift -- the measured residual of the walk.
     candidates_without_witness: usize,
     /// How the candidate maps were excluded, by exact necessary condition.
+    /// The three counters are exclusive in this screening order: source
+    /// lattice, then rotation set, then per-class placeability (the anchor
+    /// congruence).
     excluded_by_source_lattice: usize,
     excluded_by_rotation: usize,
+    excluded_by_anchor_congruence: usize,
     /// Returned pairs whose image of `L_M` leaves the parent lattice: must be 0.
     containment_violations: usize,
     /// Returned pairs whose flag disagrees with the recomputed equality: must be 0.
@@ -211,6 +227,7 @@ fn census(row: &Row, parent_lattice: &ResidueLattice) -> RecordStat {
     stat.candidates_without_witness = verdict.candidates_without_witness;
     stat.excluded_by_source_lattice = verdict.excluded_by_source_lattice;
     stat.excluded_by_rotation = verdict.excluded_by_rotation;
+    stat.excluded_by_anchor_congruence = verdict.excluded_by_anchor_congruence;
     let embeddings = verdict.embeddings;
     stat.entries = embeddings.len();
 
@@ -298,23 +315,41 @@ fn rows() -> Vec<Row> {
     rows
 }
 
-/// Pinned coverage of the full corpus (round 21, HEAD with the round-20
-/// containment gate and the equality flag).  `--gate` fails when any of these
-/// moves, so the numbers in the ledger cannot drift away from the code.
+/// Pinned coverage of the full corpus (round 23: the round-20 containment gate,
+/// the equality flag and the round-23a exact placeability screen).  `--gate`
+/// fails when any of these moves, so the numbers in the ledger cannot drift away
+/// from the code.
 const PINNED_ROWS: usize = 16_721;
 const PINNED_ENTRIES: usize = 2_668_100;
 const PINNED_DISTINCT_PAIRS: usize = 1_432_672;
 const PINNED_DISTINCT_MAPS: usize = 333_500;
+/// Rows the **shift walk** returns no embedding for.  This is a property of the
+/// finite walk, not a count of embedding-free rows: the round-23 review found
+/// in-family `(map, shift)` pairs that the production `verify_embedding` accepts
+/// while the walk returns nothing (Lead reproduced SG 56 UNI 119 and SG 89
+/// UNI 111 directly; the two reviewers measured the affected-row count as 178
+/// and 13 respectively, so the magnitude is **not** pinned -- the next card is a
+/// complete shift enumeration).  `rows_without_embedding_certified` is the part
+/// that is a proof.
 const PINNED_WITHOUT_EMBEDDING: usize = 8_294;
 const PINNED_WITHOUT_REALISING: usize = 8_946;
 const PINNED_WITHOUT_REALISING_MAPS: usize = 8_946;
-/// Round 22: of the 8,294 rows with no candidate, this many are **refuted**
-/// exactly by the anchor-congruence test rather than merely unfound.
-const PINNED_WITHOUT_EMBEDDING_CERTIFIED: usize = 5_649;
-/// Round 22b: of the maps in those rows, this many survive both exact necessary
-/// conditions and still produce no verified `(A, delta)` -- the measured residual
-/// of the finite shift walk.
-const PINNED_CANDIDATES_WITHOUT_WITNESS: usize = 148_764;
+/// Round 23: of the 8,294 rows with no candidate, this many are **refuted**
+/// exactly by one of the three necessary conditions of an embedding (source
+/// lattice, rotation set, per-class placeability) rather than merely unfound.
+/// Round 22's per-normal anchor test certified 5,649; that test was withdrawn in
+/// round 22b and replaced by the exact joint congruence in round 23a.
+const PINNED_WITHOUT_EMBEDDING_CERTIFIED: usize = 8_106;
+/// Round 23: of the maps in those rows, this many survive all three exact
+/// necessary conditions and still produce no verified `(A, delta)` -- the
+/// measured residual of the finite shift walk (round 22b pinned 148,764).
+const PINNED_CANDIDATES_WITHOUT_WITNESS: usize = 17_000;
+/// Round 23: candidate maps excluded by per-class placeability, i.e. by the
+/// exact joint anchor congruence `(I - R_p) d = tau_p - A tau (mod L_parent)`
+/// being unsolvable for **every** parent operation with the mapped rotation.
+/// Counted only after the two screens above, so this is the third exclusive
+/// attribute in the production screening order.
+const PINNED_EXCLUDED_BY_ANCHOR_CONGRUENCE: usize = 377_496;
 const PINNED_SINGLE_REALISING: usize = 0;
 const PINNED_SINGLE_REALISING_MAPS: usize = 0;
 
@@ -343,6 +378,7 @@ fn main() -> ExitCode {
     let mut candidates_without_witness = 0usize;
     let mut excluded_by_source_lattice = 0usize;
     let mut excluded_by_rotation = 0usize;
+    let mut excluded_by_anchor_congruence = 0usize;
     let mut no_realising = 0usize;
     let mut no_realising_maps = 0usize;
     let mut unique_realising = 0usize;
@@ -371,6 +407,7 @@ fn main() -> ExitCode {
         }
         excluded_by_source_lattice += stat.excluded_by_source_lattice;
         excluded_by_rotation += stat.excluded_by_rotation;
+        excluded_by_anchor_congruence += stat.excluded_by_anchor_congruence;
         if stat.realising == 0 {
             no_realising += 1;
         } else {
@@ -403,6 +440,7 @@ fn main() -> ExitCode {
     println!("candidates_without_witness_in_zero_rows {candidates_without_witness}");
     println!("excluded_by_source_lattice {excluded_by_source_lattice}");
     println!("excluded_by_rotation {excluded_by_rotation}");
+    println!("excluded_by_anchor_congruence {excluded_by_anchor_congruence}");
     println!("rows_without_realising_entry {no_realising}");
     println!("rows_without_realising_map {no_realising_maps}");
     println!("rows_with_realising {with_realising}");
@@ -463,6 +501,12 @@ fn main() -> ExitCode {
             violations.push(format!(
                 "rows without embedding, certified: {no_embedding_certified} != \
                  {PINNED_WITHOUT_EMBEDDING_CERTIFIED}"
+            ));
+        }
+        if excluded_by_anchor_congruence != PINNED_EXCLUDED_BY_ANCHOR_CONGRUENCE {
+            violations.push(format!(
+                "candidates excluded by the anchor congruence: {excluded_by_anchor_congruence} != \
+                 {PINNED_EXCLUDED_BY_ANCHOR_CONGRUENCE}"
             ));
         }
         if no_realising < no_embedding {

@@ -483,12 +483,16 @@ fn the_parent_embedding_search_finds_the_identity_witnesses() {
     }
 }
 
-/// SG 3 UNI 24 is the one witness this family still does not resolve.  The
-/// parent (P 1 2 1) has only the identity and one twofold axis, both with zero
-/// translation, while the record's twofold class carries the centring shift
-/// (1/2,1/2,0): any map has to absorb it.  This is a limitation of the family
-/// -- round 16 measured 320 maps with entries in -2..=2 and a free shift -- and
-/// **not** a proof that the record is not a subgroup.
+/// SG 3 UNI 24: the family returns nothing, and round 23 certifies that as a
+/// property of the family.  The parent (P 1 2 1) has only the identity and one
+/// twofold axis, both with zero translation, while the record's source
+/// translation lattice contains the centring shift (1/2,1/2,0) and its twofold
+/// class carries it.  Every one of the family's 240 candidate maps is refuted by
+/// an exact necessary condition, so the empty result is a proof about the
+/// family.  It is **not** a proof that the record is not a subgroup: the
+/// companion test below exhibits a map outside the family -- the search returns
+/// nothing for this record, while the public verifier accepts that map -- and so
+/// the record does embed.
 #[test]
 fn the_unresolved_witness_is_reported_as_unresolved() {
     let record = query::magnetic_isotropy_subgroups_of(3)
@@ -504,15 +508,24 @@ fn the_unresolved_witness_is_reported_as_unresolved() {
         Vec::new(),
         "the family does not resolve SG 3 UNI 24"
     );
-    // Round 22 upgrade: this is no longer "the walk found nothing" but a proof.
-    // **Round 22b correction**: the proof comes from the two exact necessary
-    // conditions, not from an anchor-congruence test (the round-22 review showed
-    // that test never ran for this record, and that the version shipped was not
-    // the joint congruence).  The record's source translation lattice contains
-    // the pure translation `(1/2, 1/2, 0)` while the parent is `P 1 2 1` with
-    // lattice `Z^3`, so `A (1/2, 1/2, 0)` lands outside the parent lattice for
-    // every candidate; the maps that survive that screen conjugate the 2-fold
-    // out of `{identity, 2-fold}`.  The split is what the review measured.
+    // Round 23: this is no longer "the walk found nothing" but a proof about the
+    // candidate family.  Every one of its 240 maps is refuted by one of the three
+    // exact necessary conditions of an embedding: the image of the full source
+    // translation lattice must lie in the parent's lattice; a conjugated class
+    // rotation must stay in the parent's rotation set; and every class must be
+    // placeable -- the joint anchor congruence `(I - R_p) delta = tau_p - A tau`
+    // must be solvable modulo the parent lattice for some parent operation with
+    // the mapped rotation.  The counters are exclusive in the order the
+    // production search screens them, so the split below is that order.  Round
+    // 22's per-normal anchor test was withdrawn (round 22b): it never ran for
+    // this record, and the version shipped was not the joint congruence.
+    println!(
+        "SG 3 UNI 24: source={} rotation={} anchor={} residual={}",
+        verdict.excluded_by_source_lattice,
+        verdict.excluded_by_rotation,
+        verdict.excluded_by_anchor_congruence,
+        verdict.candidates_without_witness,
+    );
     assert!(
         verdict.absence_is_certified,
         "the absence of SG 3 UNI 24 must be certified, candidates_without_witness={}",
@@ -520,16 +533,23 @@ fn the_unresolved_witness_is_reported_as_unresolved() {
     );
     assert_eq!(verdict.candidates_without_witness, 0);
     assert_eq!(
-        verdict.excluded_by_source_lattice + verdict.excluded_by_rotation,
+        verdict.excluded_by_source_lattice
+            + verdict.excluded_by_rotation
+            + verdict.excluded_by_anchor_congruence,
         240,
         "every candidate map is excluded by an exact necessary condition"
     );
     assert_eq!(
-        (verdict.excluded_by_rotation, verdict.excluded_by_source_lattice),
-        (0, 240),
-        "the split depends on the order of the two screens: this search tests the \
-         source lattice first, so all 240 maps are attributed to it (the round-22 \
-         review, which tested rotations first, measured 224 rotation + 16 source)"
+        (
+            verdict.excluded_by_rotation,
+            verdict.excluded_by_source_lattice,
+            verdict.excluded_by_anchor_congruence,
+        ),
+        (0, 240, 0),
+        "the split depends on the order of the three screens: source lattice, then \
+         rotation set, then per-class placeability.  This search tests the source \
+         lattice first, so all 240 maps are attributed to it (the round-22 review, \
+         which tested rotations first, measured 224 rotation + 16 source)"
     );
     // The parent really has no translation to absorb the centring shift.
     let parent = query::symmetry_operations_of(3).expect("parent");
@@ -542,10 +562,12 @@ fn the_unresolved_witness_is_reported_as_unresolved() {
     }
 }
 
-/// Round 22 pinned count: of the 406 rows in the stratified subset with no
-/// candidate, this many are refuted exactly (the rest stay open because some
-/// candidate's anchor congruence is feasible yet the walk found no witness).
-const CERTIFIED_ABSENCE_ON_THE_SUBSET: usize = 276;
+/// Round 23 pinned count: of the 406 rows in the stratified subset with no
+/// candidate, this many are refuted exactly by one of the three necessary
+/// conditions of an embedding (the rest stay open because some candidate passes
+/// all three yet the finite shift walk finds no witness).  Round 22's withdrawn
+/// per-normal anchor test pinned 276.
+const CERTIFIED_ABSENCE_ON_THE_SUBSET: usize = 399;
 
 /// The pinned census of the corrected embedding search on a deterministic
 /// stratified subset: every 20th record of each parent plus the witnesses.
@@ -578,15 +600,25 @@ const CERTIFIED_ABSENCE_ON_THE_SUBSET: usize = 276;
 /// are unchanged.  Every returned entry is re-checked through the public
 /// verifier below, so the gate and the search cannot drift apart silently.
 ///
-/// Round 22 made the empty result decidable through the **anchor congruence**:
-/// a candidate whose congruence `(I - R_p) d = tau_p - A tau` is unsolvable
-/// modulo the parent lattice can never embed, and that test is exact.  On this
-/// subset **276** of the 406 zero rows are settled that way (and 5,649 of the
-/// full corpus's 8,294, the same 68%); the rest stay open because some candidate
-/// is feasible yet the walk found no witness.  The counts are pinned, and every
-/// row with embeddings asserts that the verdict did **not** certify an absence.
-/// SG 3 UNI 24 is the headline: the witness the ledger calls unresolved is now a
-/// certified absence, not a failed search.
+/// Round 23 made the empty result decidable through **three** exact necessary
+/// conditions of an embedding: the image of the full source translation lattice
+/// must lie in the parent's lattice; every class rotation must stay in the
+/// parent's rotation set; and every class must be **placeable**, i.e. the joint
+/// congruence `(I - R_p) delta = tau_p - A tau` must be solvable modulo the
+/// parent lattice for some parent operation with the mapped rotation.  Any
+/// candidate refuted by one of them can never embed, so a row is certified when
+/// every one of its candidates is refuted.  On this subset **399** of the 406
+/// zero rows are settled that way (and 8,106 of the full corpus's 8,294); the
+/// remaining 7 (188 in the corpus) stay open because some candidate passes all
+/// three yet the finite shift walk finds no witness, and that residual is pinned
+/// as well.  Round 22's per-normal anchor test was withdrawn in round 22b -- it
+/// never ran on its certified rows and was not the joint congruence; the
+/// replacement (round 23a) counts antiunitary classes too.  The counts are
+/// pinned, and every row with embeddings asserts that the verdict did **not**
+/// certify an absence.  SG 3 UNI 24 is the headline: all 240 members of the
+/// family are refuted exactly, so the family's empty result is certified -- and
+/// the companion test below still exhibits a non-family map that embeds the
+/// record, so this is not a proof that the record is not a subgroup.
 #[test]
 fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     let witnesses: [(u8, usize); 6] = [
@@ -600,8 +632,8 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     let mut histogram: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
     let mut realising: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
     let mut unique_realising = 0usize;
-    // Round 22: of the rows with no candidate, how many the exact refutation
-    // settles and how many stay open.
+    // Round 23: of the rows with no candidate, how many the three exact
+    // necessary conditions settle and how many stay open.
     let mut certified_absence = 0usize;
     let mut unsettled_absence = 0usize;
     let mut rows = 0usize;
@@ -750,8 +782,9 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
         "records with no realising embedding"
     );
     assert_eq!(unique_realising, 0, "no record has a unique realising embedding");
-    // Round 22: the refutation test must partition the zero rows, and every row
-    // that has embeddings must have refused to certify (checked in the loop).
+    // Round 23: the three-condition refutation must partition the zero rows, and
+    // every row that has embeddings must have refused to certify (checked in the
+    // loop).
     assert_eq!(
         certified_absence + unsettled_absence,
         histogram.get(&0).copied().unwrap_or(0),
