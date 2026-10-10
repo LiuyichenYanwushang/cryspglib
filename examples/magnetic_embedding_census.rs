@@ -1,4 +1,4 @@
-//! Full-corpus census of the R9 magnetic embedding search (round 23).
+//! Full-corpus census of the R9 magnetic embedding search (round 24).
 //!
 //! `tests/magnetic_geometry.rs` pins the search on a deterministic 851-row
 //! stratified subset.  The R9 acceptance text asks for the whole corpus
@@ -26,14 +26,24 @@
 //! -- into an exit code.
 //!
 //! An empty result is **certified** when every candidate map is refuted by one
-//! of the three exact necessary conditions of an embedding: the image of the
-//! full source translation lattice leaves the parent lattice; a conjugated class
-//! rotation leaves the parent's rotation set; or a class cannot be placed on any
-//! parent operation with its mapped rotation (round 23's exact joint anchor
-//! congruence).  The census prints the three exclusion totals separately,
-//! because the attribution depends on the order the production search screens
-//! them in.  Maps that pass all three and still yield no verified shift are the
-//! measured residual of the finite walk.
+//! of the four exact conditions of an embedding: the image of the full source
+//! translation lattice leaves the parent lattice; a conjugated class rotation
+//! leaves the parent's rotation set; a class cannot be placed on any parent
+//! operation with its mapped rotation (round 23's exact joint anchor
+//! congruence); or the class congruences are **jointly** inconsistent (round
+//! 24's complete shift solution set).  The census prints the four exclusion
+//! totals separately, because the attribution depends on the order the
+//! production search screens them in.  Round 24 replaced the finite
+//! `{+-1, +-1/2}` shift walk with the complete solution set, so the residual --
+//! maps that pass all four and still yield no verified shift -- is now the
+//! *undecided* count (an arithmetic limit or the component cap) and is 0.
+//!
+//! Round 24's counting contract changed with it: `entries` is the number of
+//! `(map, discrete shift component)` pairs.  A map's solution set is a finite
+//! union of cosets of the common continuous kernel; shifts that differ by an
+//! element of that kernel give the same image operation set and are represented
+//! **once**, instead of being sampled at whatever points the walk reached.  The
+//! component totals are therefore normative; the old sampled totals were not.
 //!
 //! Usage:
 //!
@@ -73,19 +83,21 @@ struct RecordStat {
     realising_maps: usize,
     distinct_pairs: usize,
     distinct_maps: usize,
-    /// Round 23: an empty `embeddings` list was refuted exactly, by the three
-    /// necessary conditions counted below.
+    /// Round 23: an empty `embeddings` list was refuted exactly, by the
+    /// conditions counted below.
     certified_absence: bool,
-    /// Round 23: candidate maps that survived all three exact conditions and
-    /// still produced no verified shift -- the measured residual of the walk.
+    /// Round 24: candidate maps whose complete shift solution set could not be
+    /// decided (arithmetic limit or component cap).  This is the *undecided*
+    /// residual, never a refutation and never a witness; 0 on the corpus.
     candidates_without_witness: usize,
-    /// How the candidate maps were excluded, by exact necessary condition.
-    /// The three counters are exclusive in this screening order: source
-    /// lattice, then rotation set, then per-class placeability (the anchor
-    /// congruence).
+    /// How the candidate maps were excluded, by exact condition.  The four
+    /// counters are exclusive in this screening order: source lattice, then
+    /// rotation set, then per-class placeability (the anchor congruence), then
+    /// the joint consistency of all class congruences (round 24).
     excluded_by_source_lattice: usize,
     excluded_by_rotation: usize,
     excluded_by_anchor_congruence: usize,
+    excluded_by_joint_congruence: usize,
     /// Returned pairs whose image of `L_M` leaves the parent lattice: must be 0.
     containment_violations: usize,
     /// Returned pairs whose flag disagrees with the recomputed equality: must be 0.
@@ -228,6 +240,7 @@ fn census(row: &Row, parent_lattice: &ResidueLattice) -> RecordStat {
     stat.excluded_by_source_lattice = verdict.excluded_by_source_lattice;
     stat.excluded_by_rotation = verdict.excluded_by_rotation;
     stat.excluded_by_anchor_congruence = verdict.excluded_by_anchor_congruence;
+    stat.excluded_by_joint_congruence = verdict.excluded_by_joint_congruence;
     let embeddings = verdict.embeddings;
     stat.entries = embeddings.len();
 
@@ -320,36 +333,42 @@ fn rows() -> Vec<Row> {
 /// fails when any of these moves, so the numbers in the ledger cannot drift away
 /// from the code.
 const PINNED_ROWS: usize = 16_721;
-const PINNED_ENTRIES: usize = 2_668_100;
-const PINNED_DISTINCT_PAIRS: usize = 1_432_672;
-const PINNED_DISTINCT_MAPS: usize = 333_500;
-/// Rows the **shift walk** returns no embedding for.  This is a property of the
-/// finite walk, not a count of embedding-free rows: the round-23 review found
-/// in-family `(map, shift)` pairs that the production `verify_embedding` accepts
-/// while the walk returns nothing (Lead reproduced SG 56 UNI 119 and SG 89
-/// UNI 111 directly; the two reviewers measured the affected-row count as 178
-/// and 13 respectively, so the magnitude is **not** pinned -- the next card is a
-/// complete shift enumeration).  `rows_without_embedding_certified` is the part
-/// that is a proof.
-const PINNED_WITHOUT_EMBEDDING: usize = 8_294;
-const PINNED_WITHOUT_REALISING: usize = 8_946;
-const PINNED_WITHOUT_REALISING_MAPS: usize = 8_946;
-/// Round 23: of the 8,294 rows with no candidate, this many are **refuted**
-/// exactly by one of the three necessary conditions of an embedding (source
-/// lattice, rotation set, per-class placeability) rather than merely unfound.
-/// Round 22's per-normal anchor test certified 5,649; that test was withdrawn in
-/// round 22b and replaced by the exact joint congruence in round 23a.
-const PINNED_WITHOUT_EMBEDDING_CERTIFIED: usize = 8_106;
-/// Round 23: of the maps in those rows, this many survive all three exact
-/// necessary conditions and still produce no verified `(A, delta)` -- the
-/// measured residual of the finite shift walk (round 22b pinned 148,764).
-const PINNED_CANDIDATES_WITHOUT_WITNESS: usize = 17_000;
+const PINNED_ENTRIES: usize = 2_490_592;
+const PINNED_DISTINCT_PAIRS: usize = 1_364_728;
+const PINNED_DISTINCT_MAPS: usize = 351_420;
+/// Rows the search returns no embedding for.  Round 24's complete shift
+/// solution set makes this the **decided** count for the candidate family: the
+/// round-23 review's in-family witnesses (SG 56 UNI 119 and SG 89 UNI 111) are
+/// returned now, and the recovered-row count is **178**, the number the first
+/// reviewer measured (the second reviewer's 13 is superseded by the exact
+/// count).  `rows_without_embedding_certified` is every one of them, and the
+/// undecided residual is 0.
+const PINNED_WITHOUT_EMBEDDING: usize = 8_116;
+const PINNED_WITHOUT_REALISING: usize = 8_751;
+const PINNED_WITHOUT_REALISING_MAPS: usize = 8_751;
+/// Round 23/24: of the rows with no candidate, this many are **refuted**
+/// exactly by one of the four conditions of an embedding (source lattice,
+/// rotation set, per-class placeability, joint consistency) rather than merely
+/// unfound.  Round 22's per-normal anchor test certified 5,649; that test was
+/// withdrawn in round 22b and replaced by the exact joint congruence in round
+/// 23a.  Round 24's complete solver decides every remaining candidate, so this
+/// equals the row count above and the undecided residual is 0.
+const PINNED_WITHOUT_EMBEDDING_CERTIFIED: usize = 8_116;
+/// Round 24: maps that pass all four exact conditions and still produce no
+/// verified `(A, delta)` -- an arithmetic limit or the component cap of the
+/// complete solver, i.e. the *undecided* residual (round 23 pinned 17,000 as
+/// the residual of the withdrawn shift walk).
+const PINNED_CANDIDATES_WITHOUT_WITNESS: usize = 0;
 /// Round 23: candidate maps excluded by per-class placeability, i.e. by the
 /// exact joint anchor congruence `(I - R_p) d = tau_p - A tau (mod L_parent)`
 /// being unsolvable for **every** parent operation with the mapped rotation.
 /// Counted only after the two screens above, so this is the third exclusive
 /// attribute in the production screening order.
 const PINNED_EXCLUDED_BY_ANCHOR_CONGRUENCE: usize = 377_496;
+/// Round 24: candidate maps excluded by the **joint** consistency of all class
+/// congruences -- they pass the three screens above, but no single shift places
+/// every class.  Fourth and last exclusive attribute in the screening order.
+const PINNED_EXCLUDED_BY_JOINT_CONGRUENCE: usize = 528;
 const PINNED_SINGLE_REALISING: usize = 0;
 const PINNED_SINGLE_REALISING_MAPS: usize = 0;
 
@@ -379,6 +398,7 @@ fn main() -> ExitCode {
     let mut excluded_by_source_lattice = 0usize;
     let mut excluded_by_rotation = 0usize;
     let mut excluded_by_anchor_congruence = 0usize;
+    let mut excluded_by_joint_congruence = 0usize;
     let mut no_realising = 0usize;
     let mut no_realising_maps = 0usize;
     let mut unique_realising = 0usize;
@@ -408,6 +428,7 @@ fn main() -> ExitCode {
         excluded_by_source_lattice += stat.excluded_by_source_lattice;
         excluded_by_rotation += stat.excluded_by_rotation;
         excluded_by_anchor_congruence += stat.excluded_by_anchor_congruence;
+        excluded_by_joint_congruence += stat.excluded_by_joint_congruence;
         if stat.realising == 0 {
             no_realising += 1;
         } else {
@@ -441,6 +462,7 @@ fn main() -> ExitCode {
     println!("excluded_by_source_lattice {excluded_by_source_lattice}");
     println!("excluded_by_rotation {excluded_by_rotation}");
     println!("excluded_by_anchor_congruence {excluded_by_anchor_congruence}");
+    println!("excluded_by_joint_congruence {excluded_by_joint_congruence}");
     println!("rows_without_realising_entry {no_realising}");
     println!("rows_without_realising_map {no_realising_maps}");
     println!("rows_with_realising {with_realising}");
@@ -495,6 +517,12 @@ fn main() -> ExitCode {
             violations.push(format!(
                 "candidates without a witness in zero rows: {candidates_without_witness} != \
                  {PINNED_CANDIDATES_WITHOUT_WITNESS}"
+            ));
+        }
+        if excluded_by_joint_congruence != PINNED_EXCLUDED_BY_JOINT_CONGRUENCE {
+            violations.push(format!(
+                "candidates excluded by the joint congruence: {excluded_by_joint_congruence} != \
+                 {PINNED_EXCLUDED_BY_JOINT_CONGRUENCE}"
             ));
         }
         if no_embedding_certified != PINNED_WITHOUT_EMBEDDING_CERTIFIED {

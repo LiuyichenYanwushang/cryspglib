@@ -11,9 +11,11 @@
 //! with the record's lattice.
 
 use cryspglib::irrep::magnetic_embedding::{
-    EmbeddingKind, GeometryAgreement, GeometryError, MagneticGeometry,
+    EmbeddingKind, GeometryAgreement, GeometryError, MagneticGeometry, MagneticOperation,
+    MagneticOperationSet,
     basis_in_parent_conventional, compare_with_ordinary_geometry, conventional_lattice_index,
-    embedded_translation_lattice, embed_in_parent_conventional, full_translation_lattice,
+    embedded_translation_lattice, embed_in_parent_conventional, embedding_shift_components,
+    full_translation_lattice,
     parent_embedding_verdict,
     geometry_of, magnetic_operations, measure_parent_containment, origin_in_parent_conventional,
     search_parent_setting, translation_lattice, verify_embedding,
@@ -562,20 +564,22 @@ fn the_unresolved_witness_is_reported_as_unresolved() {
     }
 }
 
-/// Round 23 pinned count: of the 406 rows in the stratified subset with no
-/// candidate, this many are refuted exactly by one of the three necessary
-/// conditions of an embedding (the rest stay open because some candidate passes
-/// all three yet the finite shift walk finds no witness).  Round 22's withdrawn
-/// per-normal anchor test pinned 276.
+/// Round 24 pinned count: of the 399 rows in the stratified subset with no
+/// candidate, this many are refuted exactly by one of the four conditions of an
+/// embedding.  The complete shift solution set decides every candidate, so this
+/// now equals the whole zero-row count and the undecided residual is 0 (round
+/// 23 pinned 399 of 406, with 7 left open by the finite walk; round 22's
+/// withdrawn per-normal anchor test pinned 276).
 const CERTIFIED_ABSENCE_ON_THE_SUBSET: usize = 399;
 
 /// The pinned census of the corrected embedding search on a deterministic
 /// stratified subset: every 20th record of each parent plus the witnesses.
 ///
 /// Two facts matter and both are pinned here: the family resolves the witnesses
-/// a basis-only family missed (through the identity map), and it is still
-/// **not** a decision procedure -- no record in the sample has a unique
-/// embedding that realises the record's lattice.
+/// a basis-only family missed (through the identity map), and no record in the
+/// sample has a unique embedding that realises the record's lattice -- the
+/// candidate family is not a decision procedure for subgrouphood, even though
+/// (round 24) membership *in the family* is now decided exactly.
 ///
 /// Round 15n then found that the consistency check placed only the **unitary**
 /// classes (46% of the entries failed a checker that also places the
@@ -586,18 +590,19 @@ const CERTIFIED_ABSENCE_ON_THE_SUBSET: usize = 399;
 /// `realises_record_lattice` flag tested the record's *column* lattice, the
 /// magnetic lattice wrongly included the tabulated cell's unit vectors (so a
 /// centred group could never realise), and the shift enumeration truncated a
-/// coefficient range.  The replacement walks the affine set with the step set
-/// `{+-1, +-1/2}`, which is a **finite sample** of a continuum whenever the
-/// kernel is non-trivial -- not a closure proof.  With those fixes the witnesses
+/// coefficient range.  The replacement walked the affine set with the step set
+/// `{+-1, +-1/2}`, which was a **finite sample** of a continuum whenever the
+/// kernel is non-trivial -- not a closure proof; round 24 then replaced that
+/// walk with the exact complete solution set.  With those fixes the witnesses
 /// land on (24,24), 32 and 96 -- exactly what the reviewer predicted
 /// independently.
 ///
 /// Round 20 added the missing containment gate (the image of the full source
 /// translation lattice) and turned the flag into lattice **equality**.  Numbers
-/// move to **406** rows with no embedding and **446** with no realising one (was
-/// 402 / 416), the returned entries drop from 150,003 to **137,875**, 40 rows
-/// keep entries but none that realises the record, and the six witness tuples
-/// are unchanged.  Every returned entry is re-checked through the public
+/// moved to **406** rows with no embedding and **446** with no realising one (was
+/// 402 / 416), the returned entries dropped from 150,003 to **137,875**, 40 rows
+/// kept entries but none that realised the record, and the six witness tuples
+/// were unchanged.  Every returned entry is re-checked through the public
 /// verifier below, so the gate and the search cannot drift apart silently.
 ///
 /// Round 23 made the empty result decidable through **three** exact necessary
@@ -607,18 +612,27 @@ const CERTIFIED_ABSENCE_ON_THE_SUBSET: usize = 399;
 /// congruence `(I - R_p) delta = tau_p - A tau` must be solvable modulo the
 /// parent lattice for some parent operation with the mapped rotation.  Any
 /// candidate refuted by one of them can never embed, so a row is certified when
-/// every one of its candidates is refuted.  On this subset **399** of the 406
-/// zero rows are settled that way (and 8,106 of the full corpus's 8,294); the
-/// remaining 7 (188 in the corpus) stay open because some candidate passes all
-/// three yet the finite shift walk finds no witness, and that residual is pinned
-/// as well.  Round 22's per-normal anchor test was withdrawn in round 22b -- it
-/// never ran on its certified rows and was not the joint congruence; the
-/// replacement (round 23a) counts antiunitary classes too.  The counts are
-/// pinned, and every row with embeddings asserts that the verdict did **not**
-/// certify an absence.  SG 3 UNI 24 is the headline: all 240 members of the
-/// family are refuted exactly, so the family's empty result is certified -- and
-/// the companion test below still exhibits a non-family map that embeds the
-/// record, so this is not a proof that the record is not a subgroup.
+/// every one of its candidates is refuted.  Round 22's per-normal anchor test
+/// was withdrawn in round 22b -- it never ran on its certified rows and was not
+/// the joint congruence; the replacement (round 23a) counts antiunitary classes
+/// too.
+///
+/// Round 24 replaced the finite `{+-1, +-1/2}` shift walk with the **complete**
+/// solution set of each surviving candidate (a finite union of cosets of the
+/// common continuous kernel), which adds the fourth exact condition -- the class
+/// congruences must be jointly consistent -- and removes the residual
+/// altogether: on this subset **399** of 399 zero rows are certified (8,116 of
+/// 8,116 in the full corpus) and the undecided count is 0, so an empty result is
+/// now a decision for the family.  The counting contract changed with it:
+/// `entries` counts `(map, discrete component)` pairs (one representative per
+/// coset of the kernel) instead of the walk's arbitrary sample points, so the
+/// entry and pair totals moved even though the witness tuples did not.
+///
+/// The counts are pinned, and every row with embeddings asserts that the verdict
+/// did **not** certify an absence.  SG 3 UNI 24 is the headline: all 240 members
+/// of the family are refuted exactly, so the family's empty result is certified
+/// -- and the companion test below still exhibits a non-family map that embeds
+/// the record, so this is not a proof that the record is not a subgroup.
 #[test]
 fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     let witnesses: [(u8, usize); 6] = [
@@ -766,19 +780,22 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
         realising.get(&0),
     );
     assert_eq!(rows, 851);
-    assert_eq!(entries, 137_875, "returned entries after the round-20 gate");
+    assert_eq!(
+        entries, 131_116,
+        "returned entries: round 24 counts one per (map, discrete component)"
+    );
     // The same map can be reached through several `kind`s, so the entry count is
     // not a pair count.  Both are pinned: 137,875 entries, 76,291 distinct
     // `(record, map, shift)`, 17,517 distinct `(record, map)`.  (The older
     // reviewer aggregation keyed on `(parent_sg, UNI, map, shift, kind)` and
     // merged distinct records, which is why its 3,696 duplicates were neither
     // the entry count nor the pair count.)
-    assert_eq!(distinct_pairs.len(), 76_291, "distinct (record, map, shift)");
-    assert_eq!(distinct_maps.len(), 17_517, "distinct (record, map)");
-    assert_eq!(histogram.get(&0), Some(&406), "records with no embedding");
+    assert_eq!(distinct_pairs.len(), 73_432, "distinct (record, map, shift)");
+    assert_eq!(distinct_maps.len(), 18_684, "distinct (record, map)");
+    assert_eq!(histogram.get(&0), Some(&399), "records with no embedding");
     assert_eq!(
         realising.get(&0),
-        Some(&446),
+        Some(&437),
         "records with no realising embedding"
     );
     assert_eq!(unique_realising, 0, "no record has a unique realising embedding");
@@ -795,9 +812,13 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
         "zero rows settled by the exact refutation"
     );
     assert_eq!(
+        unsettled_absence, 0,
+        "round 24's complete solution set decides every candidate, so no row stays open"
+    );
+    assert_eq!(
         witness_counts,
         std::collections::BTreeMap::from([
-            ((1u8, 1usize), (1_920usize, 1_920usize)),
+            ((1u8, 1usize), (240usize, 240usize)),
             ((3, 24), (0, 0)),
             ((88, 741), (32, 32)),
             ((142, 1221), (96, 96)),
@@ -1295,4 +1316,366 @@ fn the_record_lattice_flag_is_equality() {
         "A e_1 = e_3 is not in the record lattice, so the flag cannot be true"
     );
     verify_embedding(&geometry, &set, map, zero).expect("the map is still a containment");
+}
+
+/// Round 24's continuous boundary on real corpus data: for SG 1 UNI 1 (`P1`)
+/// the identity map places the single identity class for **every** shift, so the
+/// solution set is the whole torus -- one component whose kernel is three
+/// dimensional.  The API must say exactly that instead of sampling the
+/// continuum: one representative (the zero shift) plus a three-vector kernel.
+///
+/// This is the shape the withdrawn `{+-1, +-1/2}` walk reported as 1,920 sampled
+/// points (the census pins 240 entries for this witness now: one per
+/// `(map, component, kind)`).
+#[test]
+fn the_continuous_kernel_is_reported_not_sampled() {
+    let record = first_record(1);
+    assert_eq!(record.mag_sg, 1, "the SG 1 witness is UNI 1");
+    let geometry = geometry_of(1, &record).expect("geometry");
+    let set = magnetic_operations(1).expect("operations");
+    let solution =
+        embedding_shift_components(&geometry, &set, Mat3R::identity()).expect("components");
+    assert_eq!(
+        solution.representatives,
+        vec![[Rat::ZERO, Rat::ZERO, Rat::ZERO]],
+        "the whole torus is one component, represented once"
+    );
+    assert_eq!(solution.kernel.len(), 3, "the kernel is three dimensional");
+    // The identity map is returned by the search, and every entry it returns for
+    // it is the zero shift (one per kind that builds the identity map).
+    let embeddings = embed_in_parent_conventional(&geometry, &set).expect("search");
+    let identity: Vec<_> = embeddings
+        .iter()
+        .filter(|entry| entry.map == Mat3R::identity())
+        .collect();
+    assert!(!identity.is_empty(), "the identity map embeds SG 1 UNI 1");
+    for entry in identity {
+        assert_eq!(entry.shift, [Rat::ZERO; 3]);
+        verify_embedding(&geometry, &set, entry.map, entry.shift).expect("verified");
+    }
+}
+
+/// Round 23's review (F1) found two in-family `(map, shift)` pairs that the
+/// public `verify_embedding` accepts while the shipped `{+-1, +-1/2}` shift walk
+/// returned nothing: SG 56 UNI 119 with `map = diag(1,1,2)` and shift
+/// `(-1/4,-1/4,-1/4)`, and SG 89 UNI 111 with
+/// `map = [[1,0,1],[1,0,-1],[0,1,0]]` and shift `(-1/4,-1/4,0)`.  The walk could
+/// not reach a lattice-shifted branch (the first) or a quarter-denominator
+/// component (both).
+///
+/// Round 24's complete solver must return both maps, with the claimed shift in
+/// one returned component, and every returned entry must pass the public
+/// verifier.  The component counts are pinned: 8 and 4.  For these two records
+/// the parent lattice is `Z^3` and the shift solution set is discrete, so "the
+/// claimed shift is in the returned set" is exactly "it differs from a
+/// representative by an integer vector" -- both facts are asserted, not assumed.
+#[test]
+fn the_public_api_captures_the_missed_quarter_shifts() {
+    for (parent_sg, uni, rows, shift, components) in [
+        (
+            56u8,
+            119usize,
+            [[1, 0, 0], [0, 1, 0], [0, 0, 2]],
+            [-1i128, -1, -1],
+            8usize,
+        ),
+        (89, 111, [[1, 0, 1], [1, 0, -1], [0, 1, 0]], [-1, -1, 0], 4),
+    ] {
+        let record = query::magnetic_isotropy_subgroups_of(parent_sg)
+            .into_iter()
+            .find(|row| row.subgroup.mag_sg == uni)
+            .map(|row| row.subgroup)
+            .expect("record");
+        let geometry = geometry_of(parent_sg, &record).expect("geometry");
+        let set = magnetic_operations(uni).expect("operations");
+        let map = Mat3R::from_ints(rows);
+        let claimed = [
+            Rat::new(shift[0], 4).expect("quarter"),
+            Rat::new(shift[1], 4).expect("quarter"),
+            Rat::new(shift[2], 4).expect("quarter"),
+        ];
+        // The claimed pair is a genuine embedding, independently of the search:
+        // this is the evidence the round-23 review produced through the same
+        // public verifier.
+        verify_embedding(&geometry, &set, map, claimed)
+            .unwrap_or_else(|error| panic!("SG {parent_sg} UNI {uni}: {error}"));
+
+        // Round 24's complete solution set of the same map.
+        let solution = embedding_shift_components(&geometry, &set, map).expect("components");
+        assert_eq!(
+            solution.representatives.len(),
+            components,
+            "SG {parent_sg} UNI {uni}: the discrete component count"
+        );
+        assert!(
+            solution.kernel.is_empty(),
+            "SG {parent_sg} UNI {uni}: this witness's shift set is discrete"
+        );
+        assert!(
+            solution.representatives.iter().any(|representative| {
+                (0..3).all(|axis| (claimed[axis].checked_sub(representative[axis]).expect("exact"))
+                    .is_integer())
+            }),
+            "SG {parent_sg} UNI {uni}: the missed shift is not in any returned component"
+        );
+
+        // The search must return the map, one entry per component per `kind`
+        // that builds the same map; both witnesses are reached through the
+        // record's primitive and conventional bases, which coincide here.
+        let embeddings = embed_in_parent_conventional(&geometry, &set).expect("search");
+        let same_map: Vec<_> = embeddings
+            .iter()
+            .filter(|entry| entry.map == map)
+            .collect();
+        assert_eq!(
+            same_map.len(),
+            2 * components,
+            "SG {parent_sg} UNI {uni}: entries with the missed map"
+        );
+        for entry in &same_map {
+            verify_embedding(&geometry, &set, entry.map, entry.shift).unwrap_or_else(|error| {
+                panic!("SG {parent_sg} UNI {uni}: a returned entry fails the verifier: {error}")
+            });
+        }
+        let distinct: std::collections::BTreeSet<[(i128, i128); 3]> = same_map
+            .iter()
+            .map(|entry| entry.shift.map(|value| (value.numerator(), value.denominator())))
+            .collect();
+        assert_eq!(
+            distinct.len(),
+            components,
+            "SG {parent_sg} UNI {uni}: the returned shifts are the components"
+        );
+    }
+}
+
+/// Round 24's arithmetic boundary at the public door, in both directions.
+///
+/// The door's empty solution set is documented as a **proof** that no shift
+/// makes the map an embedding, so an exact-arithmetic limit must never be folded
+/// into it: the huge-rational map below passes the map-only containment gate
+/// (its entries are integers) and then overflows while inverting, and the answer
+/// must be an explicit error.  A singular map, by contrast, is refuted for good
+/// -- no shift can make it a change of basis -- and that empty set is genuine.
+#[test]
+fn the_public_door_distinguishes_limits_from_refutations() {
+    let record = first_record(1);
+    let geometry = geometry_of(1, &record).expect("geometry");
+    let set = magnetic_operations(1).expect("operations");
+
+    let huge = Rat::from_integer(i128::MAX / 2);
+    let enormous = Mat3R::new([
+        [huge, Rat::ZERO, Rat::ZERO],
+        [Rat::ZERO, huge, Rat::ZERO],
+        [Rat::ZERO, Rat::ZERO, Rat::ONE],
+    ]);
+    match embedding_shift_components(&geometry, &set, enormous) {
+        Err(GeometryError::Arithmetic)
+        | Err(GeometryError::ShiftEnumerationUnavailable { .. }) => {}
+        other => panic!(
+            "an exact-arithmetic limit must be unknown, not an empty solution set: {other:?}"
+        ),
+    }
+
+    let singular = Mat3R::new([
+        [Rat::ONE, Rat::ZERO, Rat::ZERO],
+        [Rat::ZERO, Rat::ONE, Rat::ZERO],
+        [Rat::ZERO, Rat::ZERO, Rat::ZERO],
+    ]);
+    let components = embedding_shift_components(&geometry, &set, singular).expect("decided");
+    assert!(
+        components.representatives.is_empty() && components.kernel.is_empty(),
+        "a singular map cannot be a change of basis, so its solution set is empty"
+    );
+    assert!(
+        verify_embedding(&geometry, &set, singular, [Rat::ZERO; 3]).is_err(),
+        "the public verifier agrees that the singular map is not an embedding"
+    );
+}
+
+/// The round-24 invariant at the **production** verdict
+/// ([`parent_embedding_verdict`]): an exact-arithmetic limit leaves candidates
+/// undecided, so a row can never be certified on a system that was not actually
+/// decided.  The two controls below are genuine refutations -- a source-lattice
+/// image that cannot land in the parent lattice, and a rotation that is not a
+/// parent rotation -- and must still be counted as exclusions, not as undecided.
+#[test]
+fn the_verdict_never_certifies_a_row_with_an_arithmetic_limit() {
+    let unit_rotation = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    let identity_operation = MagneticOperation {
+        rotation: unit_rotation,
+        translation: [Rat::ZERO; 3],
+        time_reversal: false,
+    };
+    let integer_geometry = MagneticGeometry {
+        parent_sg: 1,
+        uni: 999,
+        basis: [
+            [Rat::ONE, Rat::ZERO, Rat::ZERO],
+            [Rat::ZERO, Rat::ONE, Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, Rat::ONE],
+        ],
+        origin: [Rat::ZERO; 3],
+        index: 1,
+    };
+    let real_set = magnetic_operations(1).expect("operations");
+
+    // Synthetic geometry, `parent_sg = 1` so the frame conversion is the
+    // identity and the only source of failure is arithmetic on the record's own
+    // basis: `diag(huge, huge, 1)` has a determinant whose square overflows.
+    let huge = Rat::from_integer(i128::MAX / 2);
+    let overflowing = MagneticGeometry {
+        parent_sg: 1,
+        uni: 1,
+        basis: [
+            [huge, Rat::ZERO, Rat::ZERO],
+            [Rat::ZERO, huge, Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, Rat::ONE],
+        ],
+        origin: [Rat::ZERO; 3],
+        index: 1,
+    };
+    match parent_embedding_verdict(&overflowing, &real_set) {
+        // Either the prologue reports the limit directly, or the search carries
+        // on and books the undecided candidates: both are "unknown".  What is
+        // forbidden is a verdict that certifies the row.
+        Err(GeometryError::Arithmetic) => {}
+        Err(other) => panic!("an arithmetic limit must be reported as one: {other}"),
+        Ok(verdict) => {
+            assert!(
+                !verdict.absence_is_certified,
+                "an arithmetic limit must never certify a row"
+            );
+            assert!(
+                verdict.candidates_without_witness > 0,
+                "the limit has to show up as the undecided residual"
+            );
+        }
+    }
+
+    // Control 1: a genuine source-lattice refutation that also kills the `Plain`
+    // (identity) base.  The synthetic set is C centred: its full source lattice
+    // is `Z^3 + (1/2,1/2,0)Z`, and for the `P1` parent (`L_P = Z^3`) a signed
+    // permutation sends that centring vector to `(+-1/2,+-1/2,0)`, never into
+    // `Z^3`.  Every candidate is refuted by the containment gate, so the row is
+    // certified with no undecided residual.
+    let centred = MagneticOperationSet {
+        uni: 998,
+        operations: vec![
+            identity_operation,
+            MagneticOperation {
+                rotation: unit_rotation,
+                translation: [
+                    Rat::new(1, 2).expect("half"),
+                    Rat::new(1, 2).expect("half"),
+                    Rat::ZERO,
+                ],
+                time_reversal: false,
+            },
+        ],
+        classes: vec![identity_operation],
+        unitary_count: 2,
+        antiunitary_count: 0,
+        unitary_classes: 1,
+        antiunitary_classes: 0,
+    };
+    let verdict = parent_embedding_verdict(&integer_geometry, &centred).expect("decided");
+    assert!(
+        verdict.embeddings.is_empty(),
+        "the centring vector cannot be pushed into Z^3 by a signed permutation"
+    );
+    assert_eq!(verdict.candidates_without_witness, 0, "no arithmetic limit here");
+    assert!(
+        verdict.excluded_by_source_lattice > 0,
+        "the centring is refuted by the containment gate"
+    );
+    assert!(verdict.absence_is_certified);
+
+    // Control 2: a genuine rotation refutation.  `P1` has only the identity
+    // rotation, and `A (-I) A^-1 = -I` for every map, so a set with an inversion
+    // class is refuted by the rotation screen for every candidate.
+    let inversion = MagneticOperation {
+        rotation: [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
+        translation: [Rat::ZERO; 3],
+        time_reversal: false,
+    };
+    let inverting = MagneticOperationSet {
+        uni: 997,
+        operations: vec![identity_operation, inversion],
+        classes: vec![identity_operation, inversion],
+        unitary_count: 2,
+        antiunitary_count: 0,
+        unitary_classes: 2,
+        antiunitary_classes: 0,
+    };
+    let verdict = parent_embedding_verdict(&integer_geometry, &inverting).expect("decided");
+    assert_eq!(verdict.embeddings, Vec::new());
+    assert_eq!(verdict.candidates_without_witness, 0, "no arithmetic limit here");
+    assert!(
+        verdict.excluded_by_rotation > 0,
+        "the inversion is refuted by the rotation screen"
+    );
+    assert!(verdict.absence_is_certified);
+}
+
+/// The per-class placeability **pre-screen** must not read an exact-arithmetic
+/// failure in its right-hand side `tau_p - A tau` as "this class is
+/// unplaceable": that control flow used to fall through every matching parent
+/// operation, leave `any == false`, and book the map in
+/// `excluded_by_anchor_congruence` -- a refutation manufactured from a
+/// computation that never finished (round-24 review 696f4ec6).
+///
+/// The synthetic class below carries `tau = (0,0,-i128::MAX)` under the twofold
+/// rotation of `P2_1` (SG 4), whose listed operation has translation
+/// `(0,0,1/2)`: `1/2 - (-MAX)` overflows, while the map passes both map screens
+/// (the source lattice is `Z^3` because the huge translation belongs to a
+/// non-identity rotation, and `A R A^-1 = R`).  The verdict may report the limit
+/// directly or leave a positive residual; it must never certify the row from
+/// that failed subtraction.
+#[test]
+fn the_placeability_screen_never_reads_an_arithmetic_limit_as_a_refutation() {
+    let huge = Rat::from_integer(-i128::MAX);
+    let operations = vec![MagneticOperation {
+        rotation: [[-1, 0, 0], [0, -1, 0], [0, 0, 1]],
+        translation: [Rat::ZERO, Rat::ZERO, huge],
+        time_reversal: false,
+    }];
+    let set = MagneticOperationSet {
+        uni: 996,
+        operations: operations.clone(),
+        classes: operations,
+        unitary_count: 1,
+        antiunitary_count: 0,
+        unitary_classes: 1,
+        antiunitary_classes: 0,
+    };
+    let geometry = MagneticGeometry {
+        parent_sg: 4,
+        uni: 996,
+        basis: [
+            [Rat::ONE, Rat::ZERO, Rat::ZERO],
+            [Rat::ZERO, Rat::ONE, Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, Rat::ONE],
+        ],
+        origin: [Rat::ZERO; 3],
+        index: 1,
+    };
+    match parent_embedding_verdict(&geometry, &set) {
+        Err(GeometryError::Arithmetic) => {}
+        Err(other) => panic!("an arithmetic limit must be reported as one: {other}"),
+        Ok(verdict) => {
+            assert!(
+                !verdict.absence_is_certified,
+                "a failed right-hand side must not certify the row"
+            );
+            assert!(
+                verdict.candidates_without_witness > 0,
+                "the limit has to show up as the undecided residual"
+            );
+            assert_eq!(
+                verdict.excluded_by_anchor_congruence, 0,
+                "no map may be refuted by a subtraction that overflowed"
+            );
+        }
+    }
 }

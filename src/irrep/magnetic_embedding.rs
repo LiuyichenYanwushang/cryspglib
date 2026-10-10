@@ -61,7 +61,47 @@
 use std::collections::HashMap;
 
 use crate::irrep::corep;
-use crate::irrep::subduction::{Mat3I, Mat3R, Rat, Vec3R};
+use crate::irrep::subduction::{Mat3I, Mat3R, Rat, SubductionError, Vec3R};
+
+/// Round 24 (R9 stage 2b, F1): the exact **complete** shift solution set of one
+/// fixed candidate map.  Kept in its own file because the elimination there is
+/// independent of the embedding conventions here; see its module docs for the
+/// contract and the completeness argument.
+mod complete_shift;
+
+/// The complete set of origin shifts that make one fixed candidate map an
+/// embedding -- round 24's replacement for the finite `{+-1, +-1/2}` walk.
+///
+/// The solution set of a fixed map is a finite union of cosets of the common
+/// real kernel
+///
+/// ```text
+/// V = { v : (I - R_p) v = 0 for every class whose mapped rotation is R_p },
+/// ```
+///
+/// so `representatives` lists **one** exact point per discrete component and
+/// `kernel` describes the continuous directions instead of sampling them: every
+/// shift that works is `representative + v + lambda` for some listed
+/// representative, some `v` in `span_R(kernel)` and some `lambda` in the
+/// parent's translation lattice.  Two shifts that differ by an element of `V`
+/// produce the *same* image operation set, which is why the representatives --
+/// not all rational points of the coset -- are the canonical finite answer.
+///
+/// An empty `representatives` list is a **proof** that no shift makes this map
+/// an embedding: either a map-only gate fails (the image of the source
+/// translation lattice leaves the parent's lattice, or a conjugated class
+/// rotation is not a parent rotation) or the class congruences are jointly
+/// inconsistent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShiftComponents {
+    /// One representative per discrete component, canonical modulo the parent's
+    /// translation lattice and sorted deterministically.  Empty means there is
+    /// no solution.
+    pub representatives: Vec<[Rat; 3]>,
+    /// Basis of the common continuous kernel, in the parent's frame.  Empty when
+    /// the shift coset is a single point modulo the lattice.
+    pub kernel: Vec<[Rat; 3]>,
+}
 
 /// Largest denominator [`magnetic_operations`] accepts when it converts the
 /// database's floating-point translations to exact fractions.
@@ -906,6 +946,11 @@ pub enum GeometryError {
     /// one representative per class and [`canonical_translation`] reduces
     /// modulo the cell translations.
     SourceLatticeNotInParent { uni: usize },
+    /// Round 24: the complete shift solution set could not be computed -- an
+    /// exact-arithmetic limit or the documented component cap.  This is an
+    /// *unknown* answer, never "no shift": a caller must not turn it into a
+    /// refutation.
+    ShiftEnumerationUnavailable { uni: usize },
 }
 
 impl std::fmt::Display for GeometryError {
@@ -947,6 +992,11 @@ impl std::fmt::Display for GeometryError {
                 f,
                 "UNI {uni}: the image of the group's full translation lattice leaves the \
                  parent's lattice"
+            ),
+            Self::ShiftEnumerationUnavailable { uni } => write!(
+                f,
+                "UNI {uni}: the complete shift solution set could not be computed \
+                 (exact-arithmetic limit or component cap); the answer is unknown"
             ),
         }
     }
@@ -1530,17 +1580,29 @@ fn parent_primitive_basis_exact(sg: u8) -> Result<[[Rat; 3]; 3], GeometryError> 
 /// lattice was returned and accepted (SG 143 `M1/S1` UNI 1).  The check is a
 /// function of the map, so the search runs it once per candidate, not once per
 /// shift.
-fn source_lattice_lands_in_parent(
+/// The round-20 containment gate in checked form: `Ok(false)` is a proof that
+/// the map cannot embed (the image of the full source translation lattice leaves
+/// the parent lattice), `Err` an exact-arithmetic limit -- an **unknown** answer,
+/// not a refutation.
+///
+/// Round 24: both users of this gate (the search's `excluded_by_source_lattice`
+/// screen and [`verify_embedding`]) take the checked form, so an arithmetic limit
+/// can never be counted as a refutation nor reported as
+/// [`GeometryError::SourceLatticeNotInParent`].
+fn source_lattice_lands_in_parent_checked(
     map: &Mat3R,
     set: &MagneticOperationSet,
     parent_lattice: &[[Rat; 3]],
-) -> bool {
-    full_translation_lattice(set).iter().all(|generator| {
-        match map.checked_mul_vector(&Vec3R::new(*generator)) {
-            Ok(image) => in_lattice(*image.as_array(), parent_lattice),
-            Err(_) => false,
+) -> Result<bool, GeometryError> {
+    for generator in full_translation_lattice(set) {
+        let image = map
+            .checked_mul_vector(&Vec3R::new(generator))
+            .map_err(|_| GeometryError::Arithmetic)?;
+        if !in_lattice(*image.as_array(), parent_lattice) {
+            return Ok(false);
         }
-    })
+    }
+    Ok(true)
 }
 
 /// Whether the map realises the record's lattice **exactly**: `A L_M = L_record`.
@@ -1582,6 +1644,200 @@ fn realises_record_lattice(
             Ok(pullback) => in_lattice(*pullback.as_array(), source_lattice),
             Err(_) => false,
         }
+    })
+}
+
+/// The parent's operations, rotation set and translation-lattice generators,
+/// all exact -- the shared prologue of every embedding query.
+///
+/// The parent's operation table lists only the **non-zero** pure translations;
+/// the cell translations `Z^3` stay implicit everywhere, exactly as in
+/// [`canonical_translation`] and [`in_lattice`].
+struct ParentFrame {
+    /// `(rotation, translation)` in database order.
+    operations: Vec<(Mat3I, [Rat; 3])>,
+    /// The distinct rotations, in first-seen order.
+    rotations: Vec<Mat3I>,
+    /// The non-zero pure translations (generators of `L_P` over `Z^3`).
+    lattice: Vec<[Rat; 3]>,
+}
+
+fn parent_frame(sg: u8) -> Result<ParentFrame, GeometryError> {
+    let parent = crate::irrep::query::symmetry_operations_of(sg)
+        .map_err(|_| GeometryError::UnreadableParent { sg })?;
+    let mut operations: Vec<(Mat3I, [Rat; 3])> = Vec::with_capacity(parent.operations.len());
+    let mut rotations: Vec<Mat3I> = Vec::new();
+    let mut lattice: Vec<[Rat; 3]> = Vec::new();
+    for operation in &parent.operations {
+        let translation = [
+            exact_fraction(operation.translation[0])
+                .ok_or(GeometryError::ParentTranslationOffGrid { sg })?,
+            exact_fraction(operation.translation[1])
+                .ok_or(GeometryError::ParentTranslationOffGrid { sg })?,
+            exact_fraction(operation.translation[2])
+                .ok_or(GeometryError::ParentTranslationOffGrid { sg })?,
+        ];
+        if !rotations.contains(&operation.rotation) {
+            rotations.push(operation.rotation);
+        }
+        if operation.rotation == IDENTITY_ROTATION
+            && translation.iter().any(|value| !value.is_zero())
+            && !lattice.contains(&translation)
+        {
+            lattice.push(translation);
+        }
+        operations.push((operation.rotation, translation));
+    }
+    Ok(ParentFrame {
+        operations,
+        rotations,
+        lattice,
+    })
+}
+
+/// The conjugated rotation of every class, or `None` when the map is refuted
+/// for a map-only reason: a conjugated rotation that is not integral, or not a
+/// parent rotation, can never be placed by any shift.
+///
+/// All parent operations with a given rotation differ by a lattice vector --
+/// `(R|t_1)(R|t_2)^-1 = (E | t_1 - t_2)` -- so one representative per rotation
+/// is the whole coset modulo `L_P`.
+/// The rotation screen in checked form.
+///
+/// Three answers: `Ok(Some(..))` when every conjugated rotation is integral and
+/// a parent rotation; `Ok(None)` when some conjugated rotation is **not
+/// integral** (a proof: no shift can change a rotation) or lies outside the
+/// parent's rotation set (the same proof); `Err` when the exact arithmetic
+/// cannot decide it -- an unknown answer that must not be read as a refutation.
+fn mapped_class_rotations_checked(
+    map: &Mat3R,
+    inverse: &Mat3R,
+    set: &MagneticOperationSet,
+    parent_rotations: &[Mat3I],
+) -> Result<Option<Vec<Mat3I>>, GeometryError> {
+    let mut mapped = Vec::with_capacity(set.classes.len());
+    for operation in &set.classes {
+        let rotation = Mat3R::from_ints(operation.rotation);
+        let product = map
+            .checked_mul(&rotation)
+            .and_then(|product| product.checked_mul(inverse))
+            .map_err(|_| GeometryError::Arithmetic)?;
+        let integer = match product.to_int_matrix() {
+            Ok(integer) => integer,
+            // Not an integer matrix: no shift can make `A R A^-1` a parent
+            // rotation, so this is a proof, not an arithmetic limit.
+            Err(SubductionError::NotAnInteger { .. }) => return Ok(None),
+            Err(_) => return Err(GeometryError::Arithmetic),
+        };
+        if !parent_rotations.contains(&integer) {
+            return Ok(None);
+        }
+        mapped.push(integer);
+    }
+    Ok(Some(mapped))
+}
+
+/// The class equations of one map: `(I - R_p(c)) delta == tau_p(c) - A tau_c`,
+/// one pair per class, antiunitary classes included (time reversal does not
+/// change the translation equation).
+fn class_equations(
+    map: &Mat3R,
+    set: &MagneticOperationSet,
+    mapped_rotations: &[Mat3I],
+    parent_operations: &[(Mat3I, [Rat; 3])],
+) -> Result<Vec<(Mat3I, [Rat; 3])>, GeometryError> {
+    let mut equations = Vec::with_capacity(set.classes.len());
+    for (index, operation) in set.classes.iter().enumerate() {
+        let rotation = mapped_rotations[index];
+        let Some((_, parent_translation)) =
+            parent_operations.iter().find(|(candidate, _)| *candidate == rotation)
+        else {
+            // Unreachable: the rotation screen accepted every mapped rotation.
+            return Err(GeometryError::Arithmetic);
+        };
+        let moved = map
+            .checked_mul_vector(&Vec3R::new(operation.translation))
+            .map_err(|_| GeometryError::Arithmetic)?;
+        let mut matrix = [[0i32; 3]; 3];
+        let mut target = [Rat::ZERO; 3];
+        for row in 0..3 {
+            for column in 0..3 {
+                let identity = if row == column { 1 } else { 0 };
+                matrix[row][column] = identity - rotation[row][column];
+            }
+            target[row] = parent_translation[row]
+                .checked_sub(moved.get(row))
+                .map_err(|_| GeometryError::Arithmetic)?;
+        }
+        equations.push((matrix, target));
+    }
+    Ok(equations)
+}
+
+/// The complete shift solution set of one fixed candidate map (round 24).
+///
+/// For a fixed map the set of shifts that place **every** class on a parent
+/// operation is a finite union of cosets of the common continuous kernel; this
+/// returns one exact representative per component plus a basis of that kernel,
+/// instead of the finite `{+-1, +-1/2}` walk the search used to run.  The
+/// returned shift set is exactly the set of shifts for which
+/// [`verify_embedding`] accepts `(map, shift)`:
+///
+/// * a map whose source translation lattice does not land in the parent's
+///   lattice, whose conjugated class rotation is not a parent rotation or is not
+///   integral, or whose matrix is singular, has an **empty** solution set -- a
+///   proof, because no shift can change any of those;
+/// * otherwise the class congruences are decided exactly, and an empty result
+///   means they are jointly inconsistent (which can happen even when every
+///   class is placeable on its own);
+/// * otherwise every listed representative is a genuine solution, and every
+///   solution is `representative + v + lambda` with `v` in the span of `kernel`
+///   and `lambda` in the parent's translation lattice.
+///
+/// `Err(GeometryError::ShiftEnumerationUnavailable)` and
+/// `Err(GeometryError::Arithmetic)` are **unknown** answers (exact-arithmetic
+/// limits or the component cap), never "no shift": every checked step of the
+/// prologue distinguishes a proof from an arithmetic limit instead of folding
+/// the latter into the empty set.
+pub fn embedding_shift_components(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+    map: Mat3R,
+) -> Result<ShiftComponents, GeometryError> {
+    let parent = parent_frame(geometry.parent_sg)?;
+    let empty = ShiftComponents {
+        representatives: Vec::new(),
+        kernel: Vec::new(),
+    };
+    // Every step below distinguishes a **proof** (the map is refuted) from an
+    // arithmetic **limit** (the answer is unknown): an empty `ShiftComponents`
+    // is documented as "no shift makes this map an embedding", so it must never
+    // absorb an unknown answer.  The search uses the `bool` wrappers for the same
+    // conditions because its screen counters are pinned measurements; this door
+    // is the conservative reading.
+    if !source_lattice_lands_in_parent_checked(&map, set, &parent.lattice)? {
+        return Ok(empty);
+    }
+    let inverse = match map.inverse() {
+        Ok(inverse) => inverse,
+        // A singular map is not a change of basis: no shift can make it an
+        // embedding.  Any other failure is an arithmetic limit.
+        Err(SubductionError::SingularMatrix) => return Ok(empty),
+        Err(_) => return Err(GeometryError::Arithmetic),
+    };
+    let Some(mapped_rotations) =
+        mapped_class_rotations_checked(&map, &inverse, set, &parent.rotations)?
+    else {
+        return Ok(empty);
+    };
+    let equations = class_equations(&map, set, &mapped_rotations, &parent.operations)?;
+    let solution = complete_shift::solve_shift_components(&equations, &parent.lattice)
+        .map_err(|_| GeometryError::ShiftEnumerationUnavailable {
+            uni: geometry.uni,
+        })?;
+    Ok(ShiftComponents {
+        representatives: solution.representatives,
+        kernel: solution.kernel,
     })
 }
 
@@ -1637,7 +1893,7 @@ pub fn verify_embedding(
     }
     // Complete containment first: the source lattice is a property of the map
     // alone, and no per-class equation below can replace this gate.
-    if !source_lattice_lands_in_parent(&map, set, &parent_lattice) {
+    if !source_lattice_lands_in_parent_checked(&map, set, &parent_lattice)? {
         return Err(GeometryError::SourceLatticeNotInParent {
             uni: geometry.uni,
         });
@@ -1713,7 +1969,16 @@ pub struct ParentEmbedding {
     /// Rational in general: the dual bases carry denominators (the record's
     /// conventional basis has index 1/3 for a rhombohedral parent, say).
     pub map: Mat3R,
-    /// The exact origin shift, in the parent's conventional coordinates.
+    /// The exact origin shift, in the parent's conventional coordinates,
+    /// reduced modulo the parent's translation lattice.
+    ///
+    /// Round 24: this is the representative of one **discrete component** of the
+    /// map's complete solution set ([`embedding_shift_components`]): shifting it
+    /// by any element of the component's common kernel `V` gives the same image
+    /// operation set, and by any parent lattice vector the same class.  The
+    /// components are the finitely many cosets of `V + L_P`, so the entry list is
+    /// finite and normative; the walk it replaced sampled arbitrary points of the
+    /// same cosets instead.
     pub shift: [Rat; 3],
     /// How the map was built.
     pub kind: EmbeddingKind,
@@ -1742,14 +2007,23 @@ pub struct ParentEmbedding {
 }
 
 /// What the embedding search decided for one record (round 22, extended in round
-/// 23a).
+/// 23a and round 24).
 #[derive(Clone, Debug)]
 pub struct ParentSettingVerdict {
-    /// Every verified embedding of the tabulated group into the parent.
+    /// Every verified embedding of the tabulated group into the parent: one
+    /// entry per `(kind, map, discrete shift component)` triple.  Round 24
+    /// replaced the `{+-1, +-1/2}` shift walk with the **complete** solution set
+    /// of each map ([`embedding_shift_components`]), so the entry count is the
+    /// number of components -- shifts that differ by an element of the common
+    /// continuous kernel produce the same image operation set and are represented
+    /// once, instead of being sampled at whatever points the walk happened to
+    /// reach.  The same `(map, component)` reached through several bases of the
+    /// family counts once per `kind`; `distinct_record_map_shift` in the census
+    /// is the key-collapsed reading.
     pub embeddings: Vec<ParentEmbedding>,
     /// `true` when `embeddings` is empty **and** every candidate map was excluded
-    /// by an exact necessary condition of an embedding -- see the three counters
-    /// below.  All three are consequences of what an embedding is:
+    /// by an exact condition of an embedding -- see the counters below.  All of
+    /// them are consequences of what an embedding is:
     ///
     /// * the image of the full source translation lattice must lie in the
     ///   parent's lattice (round 20's gate);
@@ -1758,27 +2032,45 @@ pub struct ParentSettingVerdict {
     ///   operation with the mapped rotation, so the anchor congruence
     ///   `(I - R_p) delta == tau_p - A tau (mod L_parent)` has to be solvable for
     ///   one of them (round 23a's exact joint test, antiunitary classes
-    ///   included).
+    ///   included);
+    /// * the class congruences must be **jointly** consistent (round 24): a map
+    ///   that can place every class on its own can still have no single shift
+    ///   that places them all at once, and the complete solution set decides
+    ///   exactly that.
     ///
     /// So `true` means "**no member of this candidate family embeds the group**",
-    /// which is exactly the stage-2b acceptance criterion, and what is left over
-    /// is `candidates_without_witness`: maps that survive all three conditions
-    /// and still yield no verified `(A, delta)`.
+    /// which is exactly the stage-2b acceptance criterion.  The residual is
+    /// `candidates_without_witness`: maps whose solution set could not be decided
+    /// (an arithmetic limit or the component cap of the complete solver), or
+    /// whose constructed representative failed the consistency check.  Round 24's
+    /// complete solver makes that residual **0 in production** -- every other
+    /// map is refuted by one of the four exact conditions or yields at least one
+    /// verified entry -- so an empty result **with `candidates_without_witness
+    /// == 0`** (which is what this flag asserts) is a decision for the family
+    /// rather than a statement about a finite walk.  Round 24 extended that rule
+    /// to the screens themselves: an arithmetic limit in the source-lattice or
+    /// rotation gate leaves a candidate undecided and increments the residual,
+    /// instead of being credited as a refutation.
     ///
-    /// Scope fences, both measured:
+    /// Maps that could not even be built (an arithmetic limit while inverting a
+    /// family basis, or while multiplying a signed permutation by it) count in
+    /// the residual as well.  A **singular** candidate map is the one skip that
+    /// is genuinely refuted -- no shift makes a singular map a change of basis,
+    /// and [`verify_embedding`] rejects it -- so it contributes to no counter and
+    /// does not make this flag unsound.
     ///
-    /// * the candidate family is still a family (`{S . B}` plus a finite shift
-    ///   walk), so `false` means "not settled here", never "it embeds";
-    /// * the third condition is per class, not joint over the classes: a map that
-    ///   can place every class *somewhere* may still have no **single** shift that
-    ///   places them all at once, which is why `candidates_without_witness` stays
-    ///   exposed instead of being folded into this flag.
-    ///
+    /// Scope fences.  The candidate family is still a family (`{S . B}`), so
+    /// `true` never claims that the record is not a subgroup of the parent --
+    /// only that no member of this family embeds it, while some map *outside* the
+    /// family may still embed it (SG 3 UNI 24 is the standing witness).  `false`
+    /// means "not settled here": either there is a witness, or some candidate is
+    /// undecided (`candidates_without_witness`); it never means "no member
+    /// embeds".
     /// Round 22's withdrawn attempt is history: it read the anchor congruence per
     /// normal vector -- a necessary condition only -- and, worse, never ran on its
     /// certified rows.  The replacement is the joint congruence: the round-22
     /// review measured that it lifts the certified zero rows from 5,649 of 8,294
-    /// to at least 8,106, and the round-23a corpus run reports the exact number.
+    /// to at least 8,106, and round 24 lifts the residual to the whole corpus.
     pub absence_is_certified: bool,
     /// Maps whose image of the full source translation lattice leaves the
     /// parent's lattice (round 20's gate) -- impossible for an embedding.
@@ -1788,11 +2080,21 @@ pub struct ParentSettingVerdict {
     /// Maps refuted by per-class placeability (round 23a): some class cannot be
     /// placed on any parent operation with its mapped rotation, because the exact
     /// joint congruence has no solution there.  Counting is exclusive in the
-    /// order the three conditions are checked, so this counts only maps that
+    /// order the conditions are checked, so this counts only maps that
     /// passed both screens above.
     pub excluded_by_anchor_congruence: usize,
-    /// Maps that passed all three exact conditions and still produced no verified
-    /// embedding: the measured residual of the finite shift walk.
+    /// Maps refuted by the **joint** congruence (round 24): they pass the three
+    /// screens above, but the complete solution set of all class equations at
+    /// once is empty.  Counting is exclusive, so this counts only maps that
+    /// passed the three screens.  (The per-class screen is necessary, not
+    /// sufficient: a class can be placeable only through a lattice-shifted
+    /// right-hand side while no single shift places all of them.)
+    pub excluded_by_joint_congruence: usize,
+    /// Maps that passed all four exact conditions above and still produced no
+    /// verified embedding.  Round 24: this is the *undecided* residual -- an
+    /// arithmetic limit or component cap inside the complete solver, or a
+    /// constructed representative that failed the consistency check -- and it is
+    /// 0 on the production corpus.  It is never a refutation and never a witness.
     pub candidates_without_witness: usize,
 }
 
@@ -1812,15 +2114,20 @@ pub struct ParentSettingVerdict {
 /// **full** source translation lattice must lie in the parent's lattice (round
 /// 20), and every class representative must land on a parent operation with the
 /// solved shift.  Round 20's counterexample -- SG 143 `M1/S1` UNI 1 with
-/// `A = W^-1` -- is no longer returned.  Before the walk, every candidate map is
-/// also screened for per-class placeability (round 23a).
+/// `A = W^-1` -- is no longer returned.  Before the complete solution set, every
+/// candidate map is also screened for per-class placeability (round 23a).
 ///
 /// Round 22 turned the empty result from "this walk found nothing" into a
 /// decidable statement for the family; round 23a added the third exact
 /// exclusion -- per-class placeability, decided by the joint congruence rather
-/// than by round 22's withdrawn per-normal test -- so that a certified empty
-/// result no longer depends on the walk at all; see [`ParentSettingVerdict`].
-/// Use [`embed_in_parent_conventional`] when only the witnesses are wanted.
+/// than by round 22's withdrawn per-normal test.  Round 24 removed the finite
+/// `{+-1, +-1/2}` shift walk altogether: each surviving map gets its **complete**
+/// shift solution set ([`embedding_shift_components`]), so a map that passes the
+/// three screens and has no single shift is now refuted exactly
+/// (`excluded_by_joint_congruence`) instead of leaving an unsettled residual.
+/// An empty result therefore no longer depends on a walk at all; see
+/// [`ParentSettingVerdict`].  Use [`embed_in_parent_conventional`] when only the
+/// witnesses are wanted.
 pub fn parent_embedding_verdict(
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
@@ -1829,10 +2136,22 @@ pub fn parent_embedding_verdict(
 }
 
 /// The verified embeddings of `set` in the parent, in the order the family
-/// generates them.  An empty result means "no candidate in this family embeds
-/// the group **through this shift walk**"; it is **not** a proof that the record
-/// is not a subgroup, and callers must not treat it as one -- use
-/// [`parent_embedding_verdict`] for the certified reading.
+/// generates them: one entry per `(kind, map, discrete shift component)` triple,
+/// so the same `(map, component)` reached through several bases of the family
+/// appears once per `kind` (the `distinct_record_map_shift` census key collapses
+/// those).  The components come from the **complete** solution set of each map
+/// (round 24, [`embedding_shift_components`]), not from a finite shift walk;
+/// shifts that differ by an element of a map's common continuous kernel give the
+/// same image operation set and are represented once.
+///
+/// An empty result is **not by itself a proof**: read
+/// [`ParentSettingVerdict::absence_is_certified`] on the verdict instead.  Empty
+/// plus `candidates_without_witness == 0` (equivalently
+/// `absence_is_certified`) means every candidate of the family was refuted by an
+/// exact condition; an arithmetic limit or the component cap inside the complete
+/// solver leaves a candidate undecided, and then the empty list is "not settled
+/// here".  Either way it is not a proof that the record is not a subgroup of the
+/// parent: the candidate family is `{S . B}`.
 ///
 /// The `realises_record_lattice` flag separates "contained" from "the record's
 /// lattice is realised exactly".
@@ -1848,34 +2167,10 @@ fn search_embeddings(
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
 ) -> Result<ParentSettingVerdict, GeometryError> {
-    let parent = crate::irrep::query::symmetry_operations_of(geometry.parent_sg)
-        .map_err(|_| GeometryError::UnreadableParent { sg: geometry.parent_sg })?;
-    let mut parent_operations: Vec<(Mat3I, [Rat; 3])> = Vec::new();
-    let mut parent_rotations: Vec<Mat3I> = Vec::new();
-    let mut parent_lattice: Vec<[Rat; 3]> = Vec::new();
-    for operation in &parent.operations {
-        let translation = [
-            exact_fraction(operation.translation[0]).ok_or(GeometryError::ParentTranslationOffGrid {
-                sg: geometry.parent_sg,
-            })?,
-            exact_fraction(operation.translation[1]).ok_or(GeometryError::ParentTranslationOffGrid {
-                sg: geometry.parent_sg,
-            })?,
-            exact_fraction(operation.translation[2]).ok_or(GeometryError::ParentTranslationOffGrid {
-                sg: geometry.parent_sg,
-            })?,
-        ];
-        if !parent_rotations.contains(&operation.rotation) {
-            parent_rotations.push(operation.rotation);
-        }
-        if operation.rotation == IDENTITY_ROTATION
-            && translation.iter().any(|value| !value.is_zero())
-            && !parent_lattice.contains(&translation)
-        {
-            parent_lattice.push(translation);
-        }
-        parent_operations.push((operation.rotation, translation));
-    }
+    let parent = parent_frame(geometry.parent_sg)?;
+    let parent_operations: &[(Mat3I, [Rat; 3])] = &parent.operations;
+    let parent_rotations: &[Mat3I] = &parent.rotations;
+    let parent_lattice: &[[Rat; 3]] = &parent.lattice;
     // `realises_record_lattice` asks for **equality** `A L_M = L_record` (round
     // 20).  The forward half maps the full source translation lattice
     // (`Z^3` + the listed pure translations); the backward half pulls the
@@ -1890,10 +2185,15 @@ fn search_embeddings(
     // `(M^-1)^T v` integral -- NOT `M^-1 v`, which tests the column lattice
     // (round 15i fixed exactly this confusion in `spans_same_lattice_as`, and
     // round 15m caught it again here).
-    let record_inverse_transposed = Mat3R::new(record_lattice)
-        .inverse()
-        .map_err(|_| GeometryError::SingularConventionalBasis { uni: geometry.uni })?
-        .transpose();
+    let record_inverse_transposed = match Mat3R::new(record_lattice).inverse() {
+        Ok(inverse) => inverse.transpose(),
+        // A singular conventional basis is a property of the record; anything
+        // else is an exact-arithmetic limit and must not be reported as one.
+        Err(SubductionError::SingularMatrix) => {
+            return Err(GeometryError::SingularConventionalBasis { uni: geometry.uni });
+        }
+        Err(_) => return Err(GeometryError::Arithmetic),
+    };
 
     let mut bases: Vec<(EmbeddingKind, Mat3R)> = Vec::new();
     bases.push((EmbeddingKind::Plain, Mat3R::identity()));
@@ -1919,12 +2219,18 @@ fn search_embeddings(
     // names and the older docs called this the inverse-transpose (round 20
     // flagged the mismatch); the pinned counts belong to the matrix this code
     // actually builds, so the doc was corrected rather than the family.
+    // A family member that cannot even be built is an **undecided** candidate,
+    // never a silent omission: the family is part of the claim (round 24).
+    let mut unbuilt_family_members = 0usize;
     let mut duals: Vec<(EmbeddingKind, Mat3R)> = Vec::new();
     for (kind, base) in &bases {
         if *kind == EmbeddingKind::Plain {
             continue;
         }
-        let Ok(inverse) = base.inverse() else { continue };
+        let Ok(inverse) = base.inverse() else {
+            unbuilt_family_members += 1;
+            continue;
+        };
         let dual = transpose_of(&inverse);
         let dual_kind = match kind {
             EmbeddingKind::PrimitiveBasis => EmbeddingKind::PrimitiveDual,
@@ -1938,73 +2244,104 @@ fn search_embeddings(
 
     let mut found: Vec<ParentEmbedding> = Vec::new();
     // Round 22/22b: an empty result is a proof when **every** candidate map was
-    // excluded by an exact necessary condition.  The three exclusions are counted
+    // excluded by an exact necessary condition.  The exclusions are counted
     // separately because the round-22 review found that the first version
     // credited the anchor congruence for proofs that the screens had made.
+    //
+    // Round 24 (F1): the fourth counter is the **joint** refutation.  The
+    // `{+-1, +-1/2}` shift walk is gone; each surviving map is handed to
+    // [`embedding_shift_components`], which decides its whole shift solution set
+    // exactly.  An empty solution set can only mean the class congruences are
+    // jointly inconsistent -- which can happen even when every class is
+    // placeable on its own -- and that is a proof for this map, so it is
+    // counted.  `candidates_without_witness` therefore stops meaning "the walk
+    // found nothing" and becomes the honest residual: maps whose solution set
+    // could not be decided (arithmetic limit or component cap) or whose
+    // constructed representatives failed the consistency check.  In production
+    // it is 0, and `absence_is_certified` is then a decision for the family.
     let mut excluded_by_source_lattice = 0usize;
     let mut excluded_by_rotation = 0usize;
     let mut excluded_by_anchor_congruence = 0usize;
-    let mut candidates_without_witness = 0usize;
+    let mut excluded_by_joint_congruence = 0usize;
+    // The residual starts with the family members that could not be built (an
+    // arithmetic limit while inverting a basis is not a refutation of anything).
+    let mut candidates_without_witness = unbuilt_family_members;
     for (kind, base) in &bases {
         for permutation in signed_permutations() {
             let Ok(map) = Mat3R::from_ints(permutation).checked_mul(base) else {
+                // The map could not be built: an arithmetic limit, not a
+                // refutation (round 24: an unbuilt candidate must not vanish, or
+                // a row could be certified on an incomplete family).
+                candidates_without_witness += 1;
                 continue;
             };
-            let Ok(inverse) = map.inverse() else { continue };
+            let inverse = match map.inverse() {
+                Ok(inverse) => inverse,
+                // A singular map is not a change of basis, and the public
+                // verifier rejects it, so no shift can make it an embedding:
+                // refuted, not undecided.
+                Err(SubductionError::SingularMatrix) => continue,
+                // Anything else is an exact-arithmetic limit.
+                Err(_) => {
+                    candidates_without_witness += 1;
+                    continue;
+                }
+            };
             // Complete containment (round 20): the image of the full source
             // translation lattice must lie in the parent's lattice.  The class
             // loop below cannot see this, and the condition depends on the map
             // only, so it runs once here rather than once per shift.
-            if !source_lattice_lands_in_parent(&map, set, &parent_lattice) {
-                excluded_by_source_lattice += 1;
-                continue;
+            match source_lattice_lands_in_parent_checked(&map, set, parent_lattice) {
+                // A proof: the image leaves the parent lattice.
+                Ok(false) => {
+                    excluded_by_source_lattice += 1;
+                    continue;
+                }
+                // An arithmetic limit is **unknown**, never a refutation
+                // (round 24: the invariant "arithmetic failure is not no
+                // solution" applies to this production verdict too).
+                Err(_) => {
+                    candidates_without_witness += 1;
+                    continue;
+                }
+                Ok(true) => {}
             }
             // Rotations must land in the parent's rotation set.
-            let mut mapped_rotations = Vec::with_capacity(set.classes.len());
-            let mut rotations_ok = true;
-            for operation in &set.classes {
-                let rotation = Mat3R::from_ints(operation.rotation);
-                let Ok(conjugated) = map
-                    .checked_mul(&rotation)
-                    .and_then(|product| product.checked_mul(&inverse))
-                else {
-                    rotations_ok = false;
-                    break;
+            let mapped_rotations =
+                match mapped_class_rotations_checked(&map, &inverse, set, parent_rotations) {
+                    // A proof: a conjugated rotation that is not integral or not
+                    // a parent rotation can never be placed by any shift.
+                    Ok(None) => {
+                        excluded_by_rotation += 1;
+                        continue;
+                    }
+                    Err(_) => {
+                        candidates_without_witness += 1;
+                        continue;
+                    }
+                    Ok(Some(mapped_rotations)) => mapped_rotations,
                 };
-                let Ok(mapped) = conjugated.to_int_matrix() else {
-                    rotations_ok = false;
-                    break;
-                };
-                if !parent_rotations.contains(&mapped) {
-                    rotations_ok = false;
-                    break;
-                }
-                mapped_rotations.push(mapped);
-            }
-            if !rotations_ok {
-                excluded_by_rotation += 1;
-                continue;
-            }
-            // Round 23a: per-class placeability, refuted **before** the walk.  An
-            // embedding has to place every class -- antiunitary classes included,
-            // whose translation equation is the same one -- on *some* parent
-            // operation with the mapped rotation, so a class that fits on none of
-            // them refutes this map for good.  `anchor_congruence_is_feasible`
-            // decides each of those equations exactly; this is the joint
-            // congruence, not round 22's per-normal necessary condition.
+            // Round 23a: per-class placeability, refuted **before** the shift
+            // solution is computed.  An embedding has to place every class --
+            // antiunitary classes included, whose translation equation is the
+            // same one -- on *some* parent operation with the mapped rotation, so
+            // a class that fits on none of them refutes this map for good.
+            // `anchor_congruence_is_feasible` decides each of those equations
+            // exactly; this is the joint congruence, not round 22's per-normal
+            // necessary condition.
             //
-            // It is deliberately **not** used as a filter inside the anchor loop
-            // below: that loop only *generates* candidate shifts, and
-            // `embedding_is_consistent` lets every class land on any parent
-            // operation with the matching rotation, so the anchor's own equation
-            // need not be the one that holds.  Round 22b measured 1,800 lost
-            // entries when the filter was applied there.
+            // It is deliberately **not** used to filter the complete solver
+            // below: a class can be placeable only through a **lattice-shifted**
+            // right-hand side, and the per-class screen is only a necessary
+            // condition.  The screen is kept because it is an independent exact
+            // refutation with its own pinned counter.
             let mut placeable = true;
             for (index, anchor) in set.classes.iter().enumerate() {
                 let rotation = mapped_rotations[index];
                 let Ok(moved) = map.checked_mul_vector(&Vec3R::new(anchor.translation)) else {
                     // An arithmetic failure is not a refutation: leave the class
-                    // to the walk, which fails the same way and reports no witness.
+                    // to the complete solver, which fails the same way and
+                    // reports no witness.
                     continue;
                 };
                 let moved = *moved.as_array();
@@ -2016,7 +2353,7 @@ fn search_embeddings(
                     }
                 }
                 let mut any = false;
-                for (parent_rotation, parent_translation) in &parent_operations {
+                for (parent_rotation, parent_translation) in parent_operations {
                     if *parent_rotation != rotation {
                         continue;
                     }
@@ -2032,14 +2369,24 @@ fn search_embeddings(
                         }
                     }
                     if !exact {
-                        continue;
+                        // Round 24: an arithmetic limit while forming this
+                        // right-hand side is **not** a refutation of the map.
+                        // Treat the class as placeable and let
+                        // `class_equations` report the limit (or the complete
+                        // solver book it as undecided), exactly as the `moved`
+                        // failure above does.  Continuing to the next matching
+                        // parent operation instead would leave `any == false`
+                        // and credit `excluded_by_anchor_congruence` for a
+                        // computation that never finished.
+                        any = true;
+                        break;
                     }
                     // An arithmetic limit inside the decider is **not** a
                     // refutation (round-23 review F2): treat the class as
-                    // placeable and let the shift walk decide, exactly as the
-                    // `moved` failure above does.  Only an exact `Ok(false)`
-                    // refutes the map.
-                    match anchor_congruence_is_feasible(&difference, &target, &parent_lattice) {
+                    // placeable and let the complete solver decide, exactly as
+                    // the `moved` failure above does.  Only an exact
+                    // `Ok(false)` refutes the map.
+                    match anchor_congruence_is_feasible(&difference, &target, parent_lattice) {
                         Ok(true) => {
                             any = true;
                             break;
@@ -2060,67 +2407,43 @@ fn search_embeddings(
                 excluded_by_anchor_congruence += 1;
                 continue;
             }
-            let mut witnessed = false;
-            for (index, anchor) in set.classes.iter().enumerate() {
-                if anchor.time_reversal {
-                    continue;
+            // Round 24 (F1): the **complete** shift solution set of this map.
+            // Every class equation is decided at once -- the walk that sampled
+            // one anchor's affine set with the step set `{+-1, +-1/2}` could not
+            // reach a lattice-shifted branch (SG 56 UNI 119) or a quarter-denominator
+            // component (SG 89 UNI 111).
+            //
+            // The solution set is a finite union of cosets of the common kernel,
+            // so one entry per component is the canonical finite answer; the
+            // continuous directions are described by the kernel, never sampled.
+            // Each representative is re-checked through `embedding_is_consistent`
+            // -- the same condition the public verifier applies -- so a returned
+            // entry can never be a claim the verifier rejects.
+            let equations = class_equations(&map, set, &mapped_rotations, parent_operations)?;
+            match complete_shift::solve_shift_components(&equations, parent_lattice) {
+                // An arithmetic limit or the component cap: the answer is
+                // **unknown**, so the map is unsettled, never refuted (round-23
+                // review F2).
+                Err(_) => candidates_without_witness += 1,
+                // Passing all three screens and still having no single shift is a
+                // proof for this map: the class congruences are jointly
+                // inconsistent.
+                Ok(solution) if solution.representatives.is_empty() => {
+                    excluded_by_joint_congruence += 1;
                 }
-                let rotation = mapped_rotations[index];
-                let Ok(moved) = map.checked_mul_vector(&Vec3R::new(anchor.translation)) else {
-                    continue;
-                };
-                let moved = *moved.as_array();
-                for (parent_rotation, parent_translation) in &parent_operations {
-                    if *parent_rotation != rotation {
-                        continue;
-                    }
-                    let mut system = [[Rat::ZERO; 4]; 3];
-                    for row in 0..3 {
-                        for column in 0..3 {
-                            let identity = i128::from(if row == column { 1 } else { 0 });
-                            system[row][column] =
-                                Rat::from_integer(identity - i128::from(rotation[row][column]));
-                        }
-                        system[row][3] = parent_translation[row]
-                            .checked_sub(moved[row])
-                            .map_err(|_| GeometryError::Arithmetic)?;
-                    }
-                    // **Do not** filter here on the anchor congruence: the loop
-                    // only *generates* candidate shifts, and
-                    // `embedding_is_consistent` below lets every class -- the
-                    // anchor included -- land on **any** parent operation with
-                    // the matching rotation.  A pair whose own equation is
-                    // infeasible can therefore still generate a shift that
-                    // verifies through a different operation of the same
-                    // rotation, and filtering it drops real embeddings (round
-                    // 22b measured 1,800 lost entries when it did).  The
-                    // refutation lives in the per-map pre-pass above.
-                    let Ok(Some((particular, kernel))) = solve_linear_system(system) else {
-                        // Placeable modulo the parent lattice but the exact system
-                        // is not: the witness would need the lattice-shifted
-                        // right-hand side `b + lambda`, which this walk does not
-                        // construct.  Named gap, not a refutation.
-                        continue;
-                    };
-                    // Walk the affine set `particular + ker(I - R_p)` modulo
-                    // the parent lattice with the step set {+-1, +-1/2}
-                    // instead of truncating a coefficient range (round 15m
-                    // showed the truncation dropped valid pairs).  See
-                    // `shift_coset` for what this walk does and does not
-                    // guarantee.
-                    let shifts = shift_coset(particular, &kernel, &parent_lattice);
-                    for shift in shifts {
+                Ok(solution) => {
+                    let mut witnessed = false;
+                    for shift in solution.representatives {
                         if !embedding_is_consistent(
                             &map,
                             &shift,
                             set,
                             &mapped_rotations,
-                            &parent_operations,
-                            &parent_lattice,
+                            parent_operations,
+                            parent_lattice,
                         ) {
                             continue;
                         }
-                        let canonical = canonical_shift(&shift, &parent_lattice);
                         // The flag is a function of the MAP (and the record),
                         // not of the candidate's provenance: the map is always
                         // expressed in the parent's conventional frame, so the
@@ -2128,7 +2451,7 @@ fn search_embeddings(
                         // every kind.
                         let entry = ParentEmbedding {
                             map,
-                            shift: canonical,
+                            shift,
                             kind: *kind,
                             realises_record_lattice: realises_record_lattice(
                                 &map,
@@ -2143,10 +2466,10 @@ fn search_embeddings(
                         }
                         witnessed = true;
                     }
+                    if !witnessed {
+                        candidates_without_witness += 1;
+                    }
                 }
-            }
-            if !witnessed {
-                candidates_without_witness += 1;
             }
         }
     }
@@ -2155,83 +2478,34 @@ fn search_embeddings(
         excluded_by_source_lattice,
         excluded_by_rotation,
         excluded_by_anchor_congruence,
+        excluded_by_joint_congruence,
         candidates_without_witness,
         embeddings: found,
     })
 }
 
-/// A finite walk of the affine set `particular + <kernel>` modulo the parent
-/// lattice, using the step set `{+-1, +-1/2}` on each kernel direction.
-///
-/// `ker(I - R_p)` is non-zero exactly when `R_p` has eigenvalue one -- which
-/// covers every proper rotation (the rotation axis) **and** the improper
-/// rotations that fix a plane, e.g. a mirror `diag(1, 1, -1)` with kernel
-/// `span(e_1, e_2)`.  It is trivial for the improper rotations without eigenvalue
-/// one, such as `R_p = -I` (an inversion) or the rotoreflections `-3`, `-4`,
-/// `-6`: there `(I - R_p)` is invertible and the solution set of
-/// `(I - R_p) delta = b` is a single point, so this walk is exact.
-///
-/// What the walk claims: it contains the particular solution, and every walk
-/// point is verified before it is returned.  For the six witnesses it contains no
-/// shift a finer `1/4` grid would have found, and every extra grid point of the
-/// degenerate case (SG 1) leads to an image set that is already realised.  An
-/// empty walk is therefore **not** by itself a proof: the proof comes from the
-/// two necessary conditions counted in [`ParentSettingVerdict`], and the maps
-/// this walk leaves unsettled are its `candidates_without_witness`.
-/// Half steps are included because a kernel basis from Gaussian elimination can
-/// carry denominators.
-fn shift_coset(
-    particular: [Rat; 3],
-    kernel: &[[Rat; 3]],
-    parent_lattice: &[[Rat; 3]],
-) -> Vec<[Rat; 3]> {
-    let mut seen = vec![canonical_shift(&particular, parent_lattice)];
-    let mut queue = seen.clone();
-    while let Some(current) = queue.pop() {
-        for direction in kernel {
-            for coefficient in [
-                Rat::new(-1, 1).expect("-1"),
-                Rat::new(-1, 2).expect("-1/2"),
-                Rat::new(1, 2).expect("1/2"),
-                Rat::ONE,
-            ] {
-                let mut candidate = current;
-                let mut ok = true;
-                for axis in 0..3 {
-                    match direction[axis]
-                        .checked_mul(coefficient)
-                        .and_then(|term| candidate[axis].checked_add(term))
-                    {
-                        Ok(value) => candidate[axis] = value,
-                        Err(_) => {
-                            ok = false;
-                            break;
-                        }
-                    }
-                }
-                if !ok {
-                    continue;
-                }
-                let canonical = canonical_shift(&candidate, parent_lattice);
-                if !seen.contains(&canonical) {
-                    seen.push(canonical);
-                    queue.push(canonical);
-                }
-            }
-        }
-    }
-    seen
-}
-
-/// Reduce a shift modulo the parent lattice (its pure translations).
-fn canonical_shift(shift: &[Rat; 3], parent_lattice: &[[Rat; 3]]) -> [Rat; 3] {
-    let canonical = canonical_translation(*shift, parent_lattice);
-    let mut out = [Rat::ZERO; 3];
-    for (index, value) in canonical.iter().enumerate() {
-        out[index] = *value;
-    }
-    out
-}
+// ---------------------------------------------------------------------------
+// Round 24 (F1): the `{+-1, +-1/2}` shift walk is **withdrawn**.
+//
+// `shift_coset(particular, kernel, parent_lattice)` used to walk the affine set
+// `particular + ker(I - R_p)` of **one** anchor class with the step set
+// `{+-1, +-1/2}`, and the search kept the points the consistency check
+// accepted.  Round 23's review (F1) measured what that cannot do, on the public
+// API: the walk cannot reach a solution that differs from the anchor's exact
+// particular solution by a lattice-shifted branch (SG 56 UNI 119 needs
+// `delta_1 = 3/4` where `2 delta_1 == -1/2` is solved exactly by `1/4`), and the
+// step set cannot close a component with a quarter denominator (SG 89 UNI 111).
+// Both witnesses pass `verify_embedding` while the walk returned nothing, so the
+// walk under-reported real embeddings -- and, being a finite sample of a
+// continuum, it could never prove that no shift was missed.
+//
+// The replacement is [`complete_shift::solve_shift_components`]: the stacked
+// class congruences are decided by exact integer elimination, the solution set
+// is returned as one representative per discrete component plus a basis of the
+// common real kernel, and no step grid exists.  `canonical_shift` (the
+// one-component reduction the walk used) is gone with it; the
+// `embedding_shift_components` door and the search both use the complete set.
+// ---------------------------------------------------------------------------
 
 /// Check every class of the set under one `(map, shift)` pair -- the
 /// **antiunitary** classes included: time reversal does not change the
