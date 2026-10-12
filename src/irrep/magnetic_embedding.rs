@@ -1605,6 +1605,68 @@ fn source_lattice_lands_in_parent_checked(
     Ok(true)
 }
 
+/// Whether the map realises the record's lattice **exactly**: `A L_M = L_record`,
+/// with an exact-arithmetic limit reported as an error instead of as `false`.
+///
+/// Both inclusions are needed.  Forward: every generator of the full source
+/// lattice ([`full_translation_lattice`]) maps into the record's row lattice
+/// (`(M^-1)^T v` integral, the row convention).  Reverse: every row of the
+/// record's lattice pulls back through `A^-1` into `L_M` (membership modulo the
+/// cell translations, via [`in_lattice`]).  Round 20 replaced the earlier test,
+/// which looked only at the listed generators in the forward direction and was
+/// therefore vacuously true whenever the set lists no pure translation.
+///
+/// This is the predicate behind [`ParentEmbedding::realises_record_lattice`],
+/// exposed so that a caller who selected an embedding elsewhere can recompute the
+/// flag instead of trusting it.  It derives the record's conventional-frame
+/// lattice and the `(M^-1)^T` membership matrix once, in one place, because two
+/// earlier versions of this test had the transpose or the frame wrong.
+///
+/// `Err` is an exact-arithmetic limit or a singular record basis; a singular
+/// **map** is `Ok(false)`, because no shift makes a singular map a change of
+/// basis.
+pub fn realises_record_lattice_checked(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+    map: &Mat3R,
+) -> Result<bool, GeometryError> {
+    let record_lattice = basis_in_parent_conventional(geometry)?;
+    let record_membership = match Mat3R::new(record_lattice).inverse() {
+        Ok(inverse) => inverse.transpose(),
+        // A singular conventional basis is a property of the record; anything
+        // else is an exact-arithmetic limit and must not be reported as one.
+        Err(SubductionError::SingularMatrix) => {
+            return Err(GeometryError::SingularConventionalBasis { uni: geometry.uni });
+        }
+        Err(_) => return Err(GeometryError::Arithmetic),
+    };
+    for generator in full_translation_lattice(set) {
+        let image = map
+            .checked_mul_vector(&Vec3R::new(generator))
+            .map_err(|_| GeometryError::Arithmetic)?;
+        let in_record = record_membership
+            .checked_mul_vector(&image)
+            .map_err(|_| GeometryError::Arithmetic)?;
+        if !in_record.as_array().iter().all(|value| value.is_integer()) {
+            return Ok(false);
+        }
+    }
+    let map_inverse = match map.inverse() {
+        Ok(inverse) => inverse,
+        Err(SubductionError::SingularMatrix) => return Ok(false),
+        Err(_) => return Err(GeometryError::Arithmetic),
+    };
+    for row in &record_lattice {
+        let pullback = map_inverse
+            .checked_mul_vector(&Vec3R::new(*row))
+            .map_err(|_| GeometryError::Arithmetic)?;
+        if !in_lattice(*pullback.as_array(), &translation_lattice(set)) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Whether the map realises the record's lattice **exactly**: `A L_M = L_record`.
 ///
 /// Both inclusions are needed.  Forward: every generator of the full source

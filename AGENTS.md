@@ -22,7 +22,7 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
-### 最新磁嵌入增量（2026-10-10，第 24 轮；基线 `a45ec36` 上的未提交改动）
+### 最新磁嵌入增量（2026-10-10，第 24 轮；已提交 `9ef75f7`）
 
 第 23 轮 F1 的有限 shift 走查已替换为**联立全部类的精确同余解集**：
 `embedding_shift_components` 返回每个离散连通分支的一个代表元及共同连续核的基，不采样连续方向。
@@ -35,7 +35,74 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 本轮没有声称解决该旧原语边界。旧未跟踪 `joint_congruence.rs` **原样保留且未接入生产**，未移动/忽略。
 实现日志见 `target/logs/r24-f1/`；导师冻结源码电池 `target/logs/r24-accepted/summary.txt`
 **763 passed / 0 failed**、53/53 池作业与全部尾段 exit 0、三 TSV 哈希不变、248 s，源码及旧 WIP 哈希前后相同。
-本轮未开展 R10、未提交或推送。
+第 24 轮已按用户要求提交并推送到 `origin/main`：`9ef75f727ffd88d2caf9117333ee61ecd117fa80`。
+
+### 最新 Γ 磁输入契约（2026-10-12，第 25 轮卡 1；基线 `9ef75f7` 上的未提交改动）
+
+已交付 `irrep::magnetic_input::verify_scalar_gamma_input`，**仅输入契约，不是磁分导算法**。
+源表示与凝聚记录分别用自己的 CDML/BC 约定解析；输出身份统一为可重新解析的 CDML 标签。
+从所选记录派生 geometry/操作集，再验证数据库、群结构与调用者明确提供的 `(map, shift)`。
+`ContainmentOnly` 要求已验证的 grey 母群包含；`RequireExact` 另外要求 `A·L_M = L_record`。
+新 `realises_record_lattice_checked -> Result<bool, GeometryError>` 重算格判定，不信任外部 flag。
+固定实一维、非 spinor、Γ、字符 `±1` 的域：普通母群 `P` 的 grey 扩张为 `P×{1,Θ}`，
+调用者选择 `η=±1`，定义 `ρ(p,Θ^t)=χ(p)η^tK^t`，模型记录其在已验证 `φ(M)` 上的限制。
+`M` 可 Type I/III/IV，**不要求含纯 Θ**；两种 η 均合法，翻 η 只翻反幺正类。
+全对检验 `A(g)[conj(A(h)) if t(g) else A(h)] = A(gh)`；`time_reversal_square()` 是
+**母群纯 Θ**的平方：给出 η 时为 `Some(+1)`（Type I 也如此），未给出时为 `None`。
+模型字段私有、无外部 action/square 构造入口；保留实际 map/shift、两种身份、格策略及重算判定。
+
+导师独立回归钉住 BC 输出身份往返，以及 **SG 1 的 X1 凝聚记录 / UNI 3 + GM1 源**、
+`map=2I` 的 Type IV 见证：两 η 都成功，ContainmentOnly 的 exact flag 为 false，RequireExact 拒绝。
+定向回归 11+2 项；最终冻结电池 `target/logs/r25-accepted-v2/summary.txt`：
+**776 passed / 0 failed**、51 个测试壳、55/55 池作业、16 条腿全部 exit 0，241 s；
+三个普通 TSV 的钉住 SHA 不变且 4==8 线程，219 个冻结输入哈希前后相同。
+导师检查 `a9dfe1e6` 与最终报告 `e5b2f5da`，A/B/C 已接受（`02ee7079`）。
+`v1` 虽 776/0，但运行中改过注释，不当作最终冻结证据；本账本更新在 v2 哈希检查之后。
+旧未跟踪 `joint_congruence.rs` 原样、未接入；SHA 仍
+`d61d4eb78a8630b8157fbe032905183745ca54fae6f2b336764515552dcd3c16`。
+
+**边界**：SG 48 GM1+ 的字符行/母群操作表设置未对齐，具名 `CharacterRowSettingMismatch` 拒绝，
+没有搜索或否证对齐变换；历史 828/980 仅操作表匹配测量，**不是本接口成功覆盖率**。
+不支持 complex scalar、non-Γ、spinor、高维源；没有 full-star、磁分导重数或 setting 自动选择。
+旧极端 i128 格原语 panic 边界仍在，不声称新契约修复全部原语。
+本轮未提交或推送。R25 模型仍仅输入契约；后续首个受限 Γ 分导已由下面的 R26 增量交付。
+
+### 最新受限 Γ 磁分导（2026-10-12，第 26 轮卡 1；基线 `9ef75f7` 上的未提交改动）
+
+已交付 `irrep::magnetic_subduction::subduce_scalar_gamma(&ScalarGammaModel)`，限定实 `±1`、
+非 spinor、一维 Γ 源；目标为 Type I 普通表示或一维 Wigner Type A 共表示。
+目标身份独立取自磁子群 `H` 的 Γ PIR/corep 数据，不回显源标签；例如 SG 3 `GM2` → UNI 10
+得到 `H=P1` 的 `GM1`。逐操作以 rotation/timerev/translation 模 **M 自己的格**对应模型类；
+不把目标直接拿去比母群帧、不猜 setting。由独立 unitary 字符与 M 的实际乘法构造 `cK`，
+检验平方、共轭相容和全部有序对 law，再求非零复 intertwiner，逐类重建 unitary/anti 作用。
+不读取 Type A 摘要的 anti trace，不把 `None` 当无目标；重数由一维等价证明及维数比推出。
+结果私有并借用原模型，保留其 source/record/embedding/格策略 provenance，η 两号不重复目标。
+
+定向公开回归 **8** 项，模块单测 **6** 项；导师独立公开回归 **3** 项：
+SG 10 `GM1+` 源 / `GM2+` 记录 UNI 53 的两 anti 重复约束（M 四类，H 两 unitary 类）；
+SG 2 `GM1-` 源 / `GM1+` 记录 UNI 4 与普通 `subduce_irrep` 的非平凡结果一致；
+SG 10 UNI 53 合法复 gauge 的全部 operator products/复杂向量重建与固定错误 U 负例。
+SG 1 UNI 3/map `2I` 的 Type IV 两 η、SG 2 UNI 6 的 Type III 两 η、SG 3 UNI 10 的独立目标身份、
+SG 12 UNI 56 四 anti 类且 H 字符非平凡也常驻。合法复 gauge/a0 变化保持等价，非自洽单类篡改拒绝。
+
+**修正历史**：初稿 nullspace 一致性判据误用 determinant（平行）而非 dot（正交），
+重复约束被误作矛盾；调用者又 `None → U=1`，独立检查 `596d0e27` 钉住 UNI 53 重建失败。
+现已去掉 fallback、修正判据并在成功出口逐类重验；初稿变异“5/5”正确性推论撤回。
+单类篡改测试是 square/conjugation/law/solver 拒绝的**析取**，不声称每具名 variant 已执行；
+`UnresolvedTargetData` 尚无动态见证。移除某个冗余安全检查等变异未被当前真实数据鉴别，勿当全覆盖。
+
+最终冻结电池 [summary](target/logs/r26-accepted-v2/summary.txt)：**793 passed / 0 failed**，
+53 个测试壳、57/57 池作业、16 条腿全部 exit 0、三个普通 TSV 钉值不变且 4==8 线程、190 s。
+223 冻结输入哈希前后相同；导师核验 `92bf2a0e`，最终报告 `904efe43`，A/B/C 接受 `2aa06ee2`。
+首轮虽 793/0，但期间修过文档 M/H 一句，只作历史；本账本更新在 v2 哈希核验及接受之后。
+模块 SHA `b95584c041b327a90088f8b706008fe829a3ac0ee743e342c03f0f9a177a29ff`；
+R25 输入仍 `c1801edf…`，旧未跟踪 WIP 仍 `d61d4eb7…`、未接入，普通 API/依赖/types 未改。
+
+**范围边界**：UNI 22/59 的 M 对应未建立，具名拒绝；SG 1–12 的 29 UNI 走查只是选见证，
+不是成功覆盖率或设置对齐不存在的证明。没有一般 setting solver、B/C、高维、complex 源、
+non-Γ/full-star/spinor 分导；grey 记录不在此输入来源范围，但不能推导成仓库没有 grey 数据。
+旧极端 i128 格原语 panic 边界仍在。本轮未 commit/push。接口与详细见证见
+[受限 Γ 磁分导说明](docs/magnetic-gamma-subduction.md)。
 
 ### 1. 参数化 k 族的完成度（四层，全部可复现）
 

@@ -144,6 +144,25 @@ pub mod direction_descriptors_data;
 // `docs/subduction-next-milestones.md` R9.
 pub mod magnetic_embedding;
 
+// R25 card 1: the input contract of a scalar Gamma magnetic subduction.  One
+// verified embedding plus one explicit antiunitary sign are turned into the
+// parent irrep's real +-1 corepresentation, with the group law checked on the
+// operation set's classes and the parent's tabulated unitary character.  It is a
+// separate entry point from `subduction_api` on purpose: no subduction happens
+// here, and the ordinary path is untouched.  See
+// `docs/magnetic-gamma-input.md`.
+pub mod magnetic_input;
+
+// R26 card 1: the first restricted scalar Gamma magnetic subduction.  It consumes
+// the verified R25 `ScalarGammaModel`, takes its target identity independently
+// from the magnetic corep summary at Gamma, reconstructs the one-dimensional
+// Wigner type-A target's operators (including the antiunitary ones, which the
+// summary leaves pending) from the target's own unitary characters and the actual
+// multiplication of the magnetic group, and exhibits the complex intertwiner
+// between the model's restriction and that target.  One entry point, private
+// result fields, no matrix framework.  See `docs/magnetic-gamma-subduction.md`.
+pub mod magnetic_subduction;
+
 // Monodromy of those frozen line sources under a parent reciprocal shift: the
 // label map `M_K` computed from character fingerprints (never from label
 // names), the contract `(k + K, alpha) ~ (k, M_K(alpha))` it encodes, and the
