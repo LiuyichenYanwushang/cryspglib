@@ -163,6 +163,27 @@ pub mod magnetic_input;
 // result fields, no matrix framework.  See `docs/magnetic-gamma-subduction.md`.
 pub mod magnetic_subduction;
 
+// R29 card 1: the two-dimensional real Gamma magnetic **matrix** subduction.
+// It certifies the source's stored operation-aware matrices (orthogonality,
+// character agreement with two storage surfaces, the complete group law and
+// real irreducibility), binds every magnetic class to its unique stored
+// operation, verifies the parent grey corepresentation law for either eta,
+// decomposes the restriction into the summary's type-A real Gamma coreps with
+// independently constructed antiunitary extensions, and exhibits normalized
+// matrix intertwiners that cover the whole source space with a complex-vector
+// reconstruction.  See `docs/magnetic-matrix-gamma-subduction.md`.
+pub mod magnetic_matrix_subduction;
+
+// R30: the supported high-level entry point for Gamma magnetic subduction.  It
+// resolves a source irrep and a condensing magnetic record (by an existing
+// direction or a UNI number, each with its own label convention), dispatches on
+// the source dimension to the verified R25/R26 scalar or R29 matrix entry point
+// unchanged, and reports the source, condensing, magnetic-record and target
+// identities together.  The magnetic corep display label and the target's
+// ordinary H-irrep CDML/BC labels are kept separate; no magnetic BC name is
+// fabricated.  The ordinary `subduction_api` is not modified.
+pub mod magnetic_subduction_api;
+
 // Monodromy of those frozen line sources under a parent reciprocal shift: the
 // label map `M_K` computed from character fingerprints (never from label
 // names), the contract `(k + K, alpha) ~ (k, M_K(alpha))` it encodes, and the

@@ -868,7 +868,7 @@ fn combine(left: RealSign, right: RealSign) -> RealSign {
 }
 
 /// The index of the class an operation denotes, or `None` if it is not a class.
-fn find_class(
+pub(crate) fn find_class(
     set: &MagneticOperationSet,
     operation: &MagneticOperation,
     lattice: &[[Rat; 3]],
@@ -963,13 +963,16 @@ fn exact_fraction(value: f64) -> Option<Rat> {
 ///
 /// Same conventions as the embedding layer: the operation table lists only the
 /// non-zero pure translations, so `Z^3` stays implicit in the lattice.
-struct ParentFrame {
-    operations: Vec<(Mat3I, [Rat; 3])>,
-    lattice: Vec<[Rat; 3]>,
+///
+/// Crate-visible so the R29 matrix entry point can map magnetic classes into the
+/// same parent frame this scalar contract uses instead of re-deriving it.
+pub(crate) struct ParentFrame {
+    pub(crate) operations: Vec<(Mat3I, [Rat; 3])>,
+    pub(crate) lattice: Vec<[Rat; 3]>,
 }
 
 impl ParentFrame {
-    fn of(sg: u8) -> Result<Self, MagneticInputError> {
+    pub(crate) fn of(sg: u8) -> Result<Self, MagneticInputError> {
         let parent = crate::irrep::query::symmetry_operations_of(sg)
             .map_err(|error| MagneticInputError::DatabaseMismatch(error.to_string()))?;
         let mut operations = Vec::with_capacity(parent.operations.len());
@@ -1000,7 +1003,7 @@ impl ParentFrame {
 
     /// Whether some parent operation has this rotation and lands in this
     /// translation's class modulo the parent's lattice.
-    fn has_operation(&self, rotation: Mat3I, translation: [Rat; 3]) -> bool {
+    pub(crate) fn has_operation(&self, rotation: Mat3I, translation: [Rat; 3]) -> bool {
         self.operations.iter().any(|(candidate, parent)| {
             *candidate == rotation && differs_by_lattice(&translation, parent, &self.lattice)
         })
@@ -1008,7 +1011,7 @@ impl ParentFrame {
 }
 
 /// Whether two exact points differ by a lattice vector.
-fn differs_by_lattice(left: &[Rat; 3], right: &[Rat; 3], lattice: &[[Rat; 3]]) -> bool {
+pub(crate) fn differs_by_lattice(left: &[Rat; 3], right: &[Rat; 3], lattice: &[[Rat; 3]]) -> bool {
     let mut difference = [Rat::ZERO; 3];
     for axis in 0..3 {
         let Ok(value) = left[axis].checked_sub(right[axis]) else {
@@ -1026,11 +1029,11 @@ fn differs_by_lattice(left: &[Rat; 3], right: &[Rat; 3], lattice: &[[Rat; 3]]) -
 // ---------------------------------------------------------------------------
 
 /// One class of the magnetic group, mapped into the parent's frame.
-struct MappedClass {
+pub(crate) struct MappedClass {
     /// The `(rotation, translation)` the class lands on.
-    operation: (Mat3I, [Rat; 3]),
+    pub(crate) operation: (Mat3I, [Rat; 3]),
     /// The time-reversal flag, which a spatial map does not change.
-    time_reversal: bool,
+    pub(crate) time_reversal: bool,
 }
 
 /// Map every class into the parent with the caller's `(map, shift)`.
@@ -1040,7 +1043,7 @@ struct MappedClass {
 /// `A τ + (I − R_p) δ` with `R_p = A R A^{-1}`.  A class that hits no parent
 /// operation is reported: for a verified embedding it cannot happen, and if it
 /// does the caller must not be told a plausible table.
-fn mapped_classes(
+pub(crate) fn mapped_classes(
     set: &MagneticOperationSet,
     evidence: &EmbeddingEvidence,
     parent: &ParentFrame,

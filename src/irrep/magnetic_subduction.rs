@@ -20,13 +20,27 @@
 //!
 //! # What is computed
 //!
-//! For the summary's Γ k-point (the little group of Γ is all of `M`), every listed
-//! operation is mapped to a class of the model *by rotation, time-reversal flag and
-//! translation modulo the model's own translation lattice*; a class that no listed
-//! operation covers, or an operation that no class covers, is a named
+//! For the summary's Γ k-point the little group is all of `M`, and every summary
+//! column carries the index of the raw first-Hall operation it came from.  That
+//! index — not the column's displayed `rotation`/`translation`, which are in the
+//! **H data-Hall frame** and are not comparable with `M`'s own frame — is the
+//! provenance: it is resolved into the exact first-Hall list
+//! ([`crate::irrep::magnetic_embedding::magnetic_operations`]) after proving that
+//! list is element-wise identical to the [`crate::SymmetryOps`] list the summary was
+//! computed from, and the resulting raw operation is then mapped to a class of the
+//! model *by rotation, time-reversal flag and translation modulo the model's own
+//! translation lattice*.  Length, index range and permutation, column range and
+//! permutation, the index's time-reversal flag, and the **position association** are
+//! all checked: the summary enumerates its Γ columns over the little group in
+//! increasing raw order and Γ's little group is the whole group, so position `i` must
+//! carry character column `i` and raw operation `i` — a swap of two legal, unique
+//! values (same time-reversal flag or not) is a named refusal, not an equally valid
+//! correspondence.  A class that no listed operation covers, or an index that names
+//! an operation with no class, is a named
 //! [`MagneticSubductionError::TargetOperationUnmatched`] /
 //! [`MagneticSubductionError::TargetClassUncovered`] refusal — the correspondence
-//! is **not** guessed by a setting search.
+//! is **not** guessed by a setting search and there is no fallback to the displayed
+//! frame.
 //!
 //! For each candidate — a Γ corep of dimension one with exactly one unitary,
 //! non-spinor, one-dimensional source irrep `K` — the canonical one-dimensional
@@ -83,8 +97,11 @@
 
 use num_complex::Complex64;
 
+use crate::SymmetryOps;
 use crate::irrep::corep::CorepType;
-use crate::irrep::magnetic_embedding::{MagneticOperation, canonical_translation, compose};
+use crate::irrep::magnetic_embedding::{
+    MagneticOperation, canonical_translation, compose, magnetic_operations,
+};
 use crate::irrep::magnetic_input::ScalarGammaModel;
 use crate::irrep::magnetic_summary::{self, MagneticCorepSummary, MagneticKPointSummary};
 use crate::irrep::query;
@@ -124,10 +141,77 @@ pub enum MagneticSubductionError {
         minimum_dimension: Option<usize>,
         reason: String,
     },
-    /// A summary Γ operation has no class in the model's magnetic group under the
-    /// exact correspondence (rotation, time-reversal flag, translation modulo the
-    /// model's translation lattice).  The two tables are generated in their own
-    /// settings; this round has not established an alignment between them, so the
+    /// The exact first-Hall operation list of the model's magnetic group could not
+    /// be rebuilt from the database, so the summary's operation indices have no
+    /// verifiable target.
+    TargetRawOperationsUnavailable { uni: usize, reason: String },
+    /// The two raw first-Hall operation surfaces disagree: the exact list
+    /// [`crate::irrep::magnetic_embedding::magnetic_operations`] builds and the
+    /// [`crate::SymmetryOps`] list the summary was computed from differ in length,
+    /// order, rotation, translation or time-reversal flag.  The provenance of the
+    /// summary's `magnetic_operation_index` is not established and the request is
+    /// refused instead of being indexed into an unverified list.
+    TargetRawOperationsDiffer {
+        uni: usize,
+        index: usize,
+        field: &'static str,
+    },
+    /// The summary's Γ operation count differs from the raw first-Hall list's, so
+    /// the index list cannot be a permutation of the operations the group is made
+    /// of.
+    TargetOperationCountMismatch {
+        uni: usize,
+        summary: usize,
+        raw: usize,
+    },
+    /// A summary operation's `magnetic_operation_index` is outside the raw list.
+    TargetOperationIndexOutOfRange {
+        uni: usize,
+        column: usize,
+        index: usize,
+        raw: usize,
+    },
+    /// Two summary operations name the same raw operation.
+    TargetOperationIndexRepeated { uni: usize, index: usize },
+    /// A summary operation's displayed time-reversal flag disagrees with the raw
+    /// operation its index selects, so the index does not name that operation.
+    TargetTimeReversalMismatch {
+        uni: usize,
+        column: usize,
+        index: usize,
+    },
+    /// A summary operation's character-table column is outside the summary's own
+    /// column range.
+    TargetColumnOutOfRange {
+        uni: usize,
+        column: usize,
+        columns: usize,
+    },
+    /// Two summary operations share a character-table column.
+    TargetColumnRepeated { uni: usize, column: usize },
+    /// A summary operation's character-table column is a legal, unique column but is
+    /// not the column its position in the summary has.  The summary enumerates its Γ
+    /// columns in order, so a swapped column is a mis-associated character.
+    TargetColumnMisassociated {
+        uni: usize,
+        column: usize,
+        position: usize,
+    },
+    /// A summary operation's `magnetic_operation_index` is a legal, unique index but
+    /// does not name the raw operation at its position.  The Γ little group is the
+    /// whole group and the summary enumerates it in increasing raw order, so the index
+    /// at position `i` must be `i`; a same-flag swap of two indices is exactly this
+    /// mis-association and is refused here.
+    TargetOperationIndexMisassociated {
+        uni: usize,
+        column: usize,
+        index: usize,
+        position: usize,
+    },
+    /// The raw first-Hall operation named by a summary index has no class in the
+    /// model's magnetic group under the exact correspondence (rotation,
+    /// time-reversal flag, translation modulo the model's translation lattice).
+    /// The index names an operation outside the group the model was verified on; the
     /// request is refused instead of being paired by a guessed transform.  The
     /// message claims no more than that: it does not claim no alignment exists.
     TargetOperationUnmatched { uni: usize, rotation: Mat3I, time_reversal: bool },
@@ -135,6 +219,8 @@ pub enum MagneticSubductionError {
     /// operation list.
     TargetClassUncovered { uni: usize, class: usize },
     /// A summary Γ translation is outside the exact grid this contract represents.
+    /// The displayed translation is not the provenance link (the operation index is),
+    /// so this is a data-integrity refusal, not a frame comparison.
     TargetTranslationOffGrid { uni: usize, column: usize, value: [f64; 3] },
     /// A unitary Γ column has no character value, so the candidate cannot be
     /// examined and is not silently dropped.
@@ -203,13 +289,83 @@ impl std::fmt::Display for MagneticSubductionError {
                 "UNI {uni}: the Gamma corep of source {source:?} is unresolved \
                  (minimum dimension {minimum_dimension:?}): {reason}"
             ),
+            Self::TargetRawOperationsUnavailable { uni, reason } => write!(
+                f,
+                "UNI {uni}: the exact first-Hall operation list could not be rebuilt: {reason}"
+            ),
+            Self::TargetRawOperationsDiffer { uni, index, field } => write!(
+                f,
+                "UNI {uni}: the two raw first-Hall operation surfaces differ at index {index} \
+                 in {field}, so the summary's operation index does not name a verified operation"
+            ),
+            Self::TargetOperationCountMismatch { uni, summary, raw } => write!(
+                f,
+                "UNI {uni}: the summary lists {summary} Gamma operations but the raw first-Hall \
+                 list has {raw}"
+            ),
+            Self::TargetOperationIndexOutOfRange {
+                uni,
+                column,
+                index,
+                raw,
+            } => write!(
+                f,
+                "UNI {uni}: column {column} names raw operation {index}, outside the {raw} \
+                 listed operations"
+            ),
+            Self::TargetOperationIndexRepeated { uni, index } => write!(
+                f,
+                "UNI {uni}: raw operation {index} is named by more than one summary column"
+            ),
+            Self::TargetTimeReversalMismatch {
+                uni,
+                column,
+                index,
+            } => write!(
+                f,
+                "UNI {uni}: column {column} displays a time-reversal flag that disagrees with \
+                 raw operation {index}, so the index does not name that operation"
+            ),
+            Self::TargetColumnOutOfRange {
+                uni,
+                column,
+                columns,
+            } => write!(
+                f,
+                "UNI {uni}: column {column} is outside the summary's {columns} character columns"
+            ),
+            Self::TargetColumnRepeated { uni, column } => write!(
+                f,
+                "UNI {uni}: character column {column} is occupied by more than one summary \
+                 operation"
+            ),
+            Self::TargetColumnMisassociated {
+                uni,
+                column,
+                position,
+            } => write!(
+                f,
+                "UNI {uni}: summary position {position} carries character column {column}, so \
+                 the column is not the one the summary enumerated at that position"
+            ),
+            Self::TargetOperationIndexMisassociated {
+                uni,
+                column,
+                index,
+                position,
+            } => write!(
+                f,
+                "UNI {uni}: summary position {position} (column {column}) names raw operation \
+                 {index}, so the index is not the raw operation the summary enumerated at that \
+                 position"
+            ),
             Self::TargetOperationUnmatched {
                 uni,
                 rotation,
                 time_reversal,
             } => write!(
                 f,
-                "UNI {uni}: the summary's Gamma operation with rotation {rotation:?} and \
+                "UNI {uni}: the raw first-Hall operation with rotation {rotation:?} and \
                  time reversal {time_reversal} has no class in the magnetic group; the table \
                  correspondence is not established and was not searched for"
             ),
@@ -475,7 +631,8 @@ pub fn subduce_scalar_gamma(
 
     let classes = model.classes();
     let lattice = model.translation_lattice();
-    let class_columns = map_operations(gamma, classes, lattice, uni)?;
+    let raw = raw_first_hall_operations(uni)?;
+    let class_columns = map_operations(gamma, classes, lattice, &raw, uni)?;
     let first_anti = classes.iter().position(|class| class.time_reversal);
     let source_actions: Vec<SourceAction> = model
         .actions()
@@ -613,51 +770,195 @@ fn is_one_dimensional_single_source(corep: &MagneticCorepSummary) -> bool {
         && !corep.source_irreps[0].spinor
 }
 
-/// Map every summary Γ operation to a class of the model, exactly.
+/// The exact first-Hall operation list of `uni`, with the provenance of the list the
+/// summary's `magnetic_operation_index` refers to **proved** rather than assumed.
+///
+/// [`magnetic_operations`] is the exact entry point the model's own class list comes
+/// from; [`SymmetryOps::from_magnetic_database`] is the list the magnetic summary is
+/// computed from.  They are required to agree element by element — same length, same
+/// order, same rotation, same exact translation, same time-reversal flag — before any
+/// index is resolved through them.  The check is dynamic for the requested `uni`, so a
+/// database or API divergence is a named refusal, never a silent mis-indexing.
+fn raw_first_hall_operations(
+    uni: usize,
+) -> Result<Vec<MagneticOperation>, MagneticSubductionError> {
+    let set = magnetic_operations(uni).map_err(|error| {
+        MagneticSubductionError::TargetRawOperationsUnavailable {
+            uni,
+            reason: error.to_string(),
+        }
+    })?;
+    let api = SymmetryOps::from_magnetic_database(uni).map_err(|error| {
+        MagneticSubductionError::TargetRawOperationsUnavailable {
+            uni,
+            reason: format!("{error:?}"),
+        }
+    })?;
+    if api.operations.len() != set.operations.len() {
+        return Err(MagneticSubductionError::TargetRawOperationsDiffer {
+            uni,
+            index: api.operations.len().min(set.operations.len()),
+            field: "length",
+        });
+    }
+    for (index, (api_operation, exact_operation)) in
+        api.operations.iter().zip(&set.operations).enumerate()
+    {
+        if api_operation.rotation != exact_operation.rotation {
+            return Err(MagneticSubductionError::TargetRawOperationsDiffer {
+                uni,
+                index,
+                field: "rotation",
+            });
+        }
+        if api_operation.time_reversal != exact_operation.time_reversal {
+            return Err(MagneticSubductionError::TargetRawOperationsDiffer {
+                uni,
+                index,
+                field: "time_reversal",
+            });
+        }
+        let translation = [
+            exact_fraction(api_operation.translation[0]).ok_or(
+                MagneticSubductionError::TargetRawOperationsDiffer {
+                    uni,
+                    index,
+                    field: "translation_off_grid",
+                },
+            )?,
+            exact_fraction(api_operation.translation[1]).ok_or(
+                MagneticSubductionError::TargetRawOperationsDiffer {
+                    uni,
+                    index,
+                    field: "translation_off_grid",
+                },
+            )?,
+            exact_fraction(api_operation.translation[2]).ok_or(
+                MagneticSubductionError::TargetRawOperationsDiffer {
+                    uni,
+                    index,
+                    field: "translation_off_grid",
+                },
+            )?,
+        ];
+        if translation != exact_operation.translation {
+            return Err(MagneticSubductionError::TargetRawOperationsDiffer {
+                uni,
+                index,
+                field: "translation",
+            });
+        }
+    }
+    Ok(set.operations)
+}
+
+/// Map every summary Γ operation to a class of the model, through the raw first-Hall
+/// operation its index names.
+///
+/// The displayed `rotation`/`translation` of a summary column are in the H data-Hall
+/// frame and are deliberately **not** compared with the model's frame; only the index
+/// is a provenance link.  Every structural failure — a length that is not the
+/// raw list's, an index outside the list or repeated, a column outside the summary's
+/// own column range or repeated, a column or index that is legal and unique but not
+/// the one at that position, a displayed time-reversal flag that disagrees with the
+/// indexed raw operation, a displayed translation off the exact grid — is a named
+/// refusal, and no failure falls back to the displayed frame.
+///
+/// The position association is exact, not merely a permutation: the summary builds
+/// its Γ columns by enumerating the little group in increasing order and the Γ little
+/// group is the whole group, so at position `i` the character column is `i` and the
+/// raw operation index is `i`.  A permutation of legal, unique values is therefore a
+/// **detectable** mis-association (including a swap between two operations of the same
+/// time-reversal flag), and it is refused by
+/// [`MagneticSubductionError::TargetColumnMisassociated`] /
+/// [`MagneticSubductionError::TargetOperationIndexMisassociated`] instead of being
+/// accepted as an equally valid correspondence.
 fn map_operations(
     gamma: &MagneticKPointSummary,
     classes: &[MagneticOperation],
     lattice: &[[Rat; 3]],
+    raw: &[MagneticOperation],
     uni: usize,
 ) -> Result<Vec<Vec<usize>>, MagneticSubductionError> {
+    if gamma.operations.len() != raw.len() {
+        return Err(MagneticSubductionError::TargetOperationCountMismatch {
+            uni,
+            summary: gamma.operations.len(),
+            raw: raw.len(),
+        });
+    }
+    let mut seen_index = vec![false; raw.len()];
+    let mut seen_column = vec![false; gamma.operations.len()];
     let mut class_columns = vec![Vec::new(); classes.len()];
-    for operation in &gamma.operations {
-        let translation = [
-            exact_fraction(operation.translation[0]).ok_or(
-                MagneticSubductionError::TargetTranslationOffGrid {
+    for (position, operation) in gamma.operations.iter().enumerate() {
+        // The displayed translation is not the provenance and is never compared with
+        // the model's frame, but an off-grid value would mean the summary table is
+        // outside the exact contract this module represents: that stays a named
+        // refusal rather than a silently ignored column.
+        for component in operation.translation {
+            if exact_fraction(component).is_none() {
+                return Err(MagneticSubductionError::TargetTranslationOffGrid {
                     uni,
                     column: operation.column,
                     value: operation.translation,
-                },
-            )?,
-            exact_fraction(operation.translation[1]).ok_or(
-                MagneticSubductionError::TargetTranslationOffGrid {
-                    uni,
-                    column: operation.column,
-                    value: operation.translation,
-                },
-            )?,
-            exact_fraction(operation.translation[2]).ok_or(
-                MagneticSubductionError::TargetTranslationOffGrid {
-                    uni,
-                    column: operation.column,
-                    value: operation.translation,
-                },
-            )?,
-        ];
-        let mapped = MagneticOperation {
-            rotation: operation.rotation,
-            translation,
-            time_reversal: operation.time_reversal,
+                });
+            }
+        }
+        if operation.column >= gamma.operations.len() {
+            return Err(MagneticSubductionError::TargetColumnOutOfRange {
+                uni,
+                column: operation.column,
+                columns: gamma.operations.len(),
+            });
+        }
+        if std::mem::replace(&mut seen_column[operation.column], true) {
+            return Err(MagneticSubductionError::TargetColumnRepeated {
+                uni,
+                column: operation.column,
+            });
+        }
+        if operation.column != position {
+            return Err(MagneticSubductionError::TargetColumnMisassociated {
+                uni,
+                column: operation.column,
+                position,
+            });
+        }
+        let index = operation.magnetic_operation_index;
+        let Some(raw_operation) = raw.get(index) else {
+            return Err(MagneticSubductionError::TargetOperationIndexOutOfRange {
+                uni,
+                column: operation.column,
+                index,
+                raw: raw.len(),
+            });
         };
-        let index = class_of(&mapped, classes, lattice).ok_or(
+        if raw_operation.time_reversal != operation.time_reversal {
+            return Err(MagneticSubductionError::TargetTimeReversalMismatch {
+                uni,
+                column: operation.column,
+                index,
+            });
+        }
+        if std::mem::replace(&mut seen_index[index], true) {
+            return Err(MagneticSubductionError::TargetOperationIndexRepeated { uni, index });
+        }
+        if index != position {
+            return Err(MagneticSubductionError::TargetOperationIndexMisassociated {
+                uni,
+                column: operation.column,
+                index,
+                position,
+            });
+        }
+        let class = class_of(raw_operation, classes, lattice).ok_or(
             MagneticSubductionError::TargetOperationUnmatched {
                 uni,
-                rotation: operation.rotation,
-                time_reversal: operation.time_reversal,
+                rotation: raw_operation.rotation,
+                time_reversal: raw_operation.time_reversal,
             },
         )?;
-        class_columns[index].push(operation.column);
+        class_columns[class].push(operation.column);
     }
     for (index, columns) in class_columns.iter().enumerate() {
         if columns.is_empty() {
@@ -665,6 +966,23 @@ fn map_operations(
         }
     }
     Ok(class_columns)
+}
+
+/// The R27 operation provenance of one magnetic Γ little group, exposed
+/// crate-visibly.
+///
+/// The R29 matrix entry point resolves the same summary columns through the same
+/// raw first-Hall proof and the same position/association rules instead of
+/// duplicating them: the returned vector maps every class of `classes` to the
+/// summary columns that denote it, in the model's class order.
+pub(crate) fn proven_gamma_class_columns(
+    uni: usize,
+    gamma: &MagneticKPointSummary,
+    classes: &[MagneticOperation],
+    lattice: &[[Rat; 3]],
+) -> Result<Vec<Vec<usize>>, MagneticSubductionError> {
+    let raw = raw_first_hall_operations(uni)?;
+    map_operations(gamma, classes, lattice, &raw, uni)
 }
 
 /// The sign of every unitary class, or `None` when a character is not the real
@@ -1141,7 +1459,8 @@ mod tests {
             .unwrap();
         let classes = model.classes();
         let lattice = model.translation_lattice();
-        let columns = map_operations(gamma, classes, lattice, uni).unwrap();
+        let raw = raw_first_hall_operations(uni).unwrap();
+        let columns = map_operations(gamma, classes, lattice, &raw, uni).unwrap();
         for corep in &gamma.coreps {
             if !is_one_dimensional_single_source(corep) {
                 continue;
@@ -1314,6 +1633,308 @@ mod tests {
                 || check_law(&corep, classes, lattice, &broken, uni).is_err()
                 || solve_intertwiner(&broken, &source).is_none();
             assert!(refused, "changing class {index} must not stay a valid target");
+        }
+    }
+
+    // ── R27 provenance guards ────────────────────────────────────────────────
+    //
+    // The witnesses of this block are the two UNIs whose summary Γ table is
+    // displayed in the H data-Hall frame (UNI 22 and UNI 59); the summary objects
+    // here are the real ones, with one field at a time tampered.  Each test names
+    // the exact refusal variant it triggers.  The association is exact rather than a
+    // permutation: the summary enumerates its Γ columns in increasing raw order and
+    // Γ's little group is the whole group, so position `i` carries character column
+    // `i` and raw operation `i`.  A swap of two legal, unique values — including two
+    // operations of the same time-reversal flag — is therefore a detectable
+    // mis-association and is refused by name.
+
+    /// The UNI 22 witness and its real Γ summary.
+    fn provenance_witness() -> (ScalarGammaModel, MagneticKPointSummary) {
+        let rows =
+            crate::irrep::isotropy::magnetic_isotropy_subgroups(5, "GM2", LabelConvention::Cdml)
+                .unwrap();
+        let index = rows
+            .iter()
+            .position(|row| row.record.mag_sg == 22)
+            .expect("the pinned UNI 22 magnetic row");
+        let model = witness_model(5, "GM1", "GM2", index, RealSign::Minus);
+        assert_eq!(model.uni(), 22);
+        let gamma = magnetic_summary::magnetic_irrep_summary_by_uni_partial(22)
+            .unwrap()
+            .summary
+            .kpoints
+            .iter()
+            .find(|kpoint| kpoint.coords == GAMMA)
+            .unwrap()
+            .clone();
+        (model, gamma)
+    }
+
+    fn map_with(
+        model: &ScalarGammaModel,
+        gamma: &MagneticKPointSummary,
+        raw: &[MagneticOperation],
+    ) -> Result<Vec<Vec<usize>>, MagneticSubductionError> {
+        map_operations(
+            gamma,
+            model.classes(),
+            model.translation_lattice(),
+            raw,
+            model.uni(),
+        )
+    }
+
+    #[test]
+    fn the_exact_raw_list_is_the_list_the_summary_uses() {
+        let raw = raw_first_hall_operations(22).unwrap();
+        let set = magnetic_operations(22).unwrap();
+        assert_eq!(raw, set.operations, "the provenance guard must return that list");
+        // The guard really compares the two surfaces: the length, rotation,
+        // translation and flag of every entry.  A list that differs anywhere is the
+        // documented `TargetRawOperationsDiffer` refusal; here the honest list is
+        // accepted and is exactly the class source.
+        let (model, gamma) = provenance_witness();
+        assert_eq!(model.classes(), set.classes.as_slice());
+        assert!(map_with(&model, &gamma, &raw).is_ok());
+    }
+
+    #[test]
+    fn a_shortened_summary_list_is_refused_by_name() {
+        let (model, mut gamma) = provenance_witness();
+        let raw = raw_first_hall_operations(22).unwrap();
+        let removed = gamma.operations.pop().unwrap();
+        match map_with(&model, &gamma, &raw) {
+            Err(MagneticSubductionError::TargetOperationCountMismatch {
+                uni,
+                summary,
+                raw: raw_len,
+            }) => {
+                assert_eq!((uni, summary, raw_len), (22, gamma.operations.len(), raw.len()));
+            }
+            other => panic!("expected a count refusal after removing {removed:?}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_raw_list_of_the_wrong_length_is_refused_by_name() {
+        let (model, gamma) = provenance_witness();
+        let mut raw = raw_first_hall_operations(22).unwrap();
+        let removed = raw.pop().unwrap();
+        match map_with(&model, &gamma, &raw) {
+            Err(MagneticSubductionError::TargetOperationCountMismatch {
+                uni,
+                summary,
+                raw: raw_len,
+            }) => {
+                assert_eq!((uni, summary, raw_len), (22, gamma.operations.len(), raw.len()));
+            }
+            other => panic!("expected a count refusal after removing {removed:?}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_out_of_range_operation_index_is_refused_by_name() {
+        let (model, gamma) = provenance_witness();
+        let raw = raw_first_hall_operations(22).unwrap();
+        let mut gamma = gamma;
+        gamma.operations[0].magnetic_operation_index = raw.len();
+        match map_with(&model, &gamma, &raw) {
+            Err(MagneticSubductionError::TargetOperationIndexOutOfRange {
+                uni,
+                column,
+                index,
+                raw: raw_len,
+            }) => assert_eq!((uni, column, index, raw_len), (22, 0, raw.len(), raw.len())),
+            other => panic!("expected an index-range refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_repeated_operation_index_is_refused_by_name() {
+        let (model, gamma) = provenance_witness();
+        let raw = raw_first_hall_operations(22).unwrap();
+        let mut gamma = gamma;
+        // Two columns of the same time-reversal flag: the repeat survives the flag
+        // cross-check and must be caught by the permutation check itself.
+        let first = gamma.operations[0].magnetic_operation_index;
+        let partner = gamma
+            .operations
+            .iter()
+            .position(|operation| {
+                !operation.time_reversal
+                    && operation.magnetic_operation_index != first
+                    && raw[operation.magnetic_operation_index].time_reversal
+                        == raw[first].time_reversal
+            })
+            .expect("a second column of the same flag");
+        gamma.operations[partner].magnetic_operation_index = first;
+        match map_with(&model, &gamma, &raw) {
+            Err(MagneticSubductionError::TargetOperationIndexRepeated { uni, index }) => {
+                assert_eq!((uni, index), (22, first));
+            }
+            other => panic!("expected a repeated-index refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_time_reversal_flag_that_disagrees_with_the_index_is_refused_by_name() {
+        let (model, gamma) = provenance_witness();
+        let raw = raw_first_hall_operations(22).unwrap();
+        let mut gamma = gamma;
+        gamma.operations[0].time_reversal = !gamma.operations[0].time_reversal;
+        match map_with(&model, &gamma, &raw) {
+            Err(MagneticSubductionError::TargetTimeReversalMismatch { uni, column, index }) => {
+                assert_eq!((uni, column), (22, 0));
+                assert_eq!(index, gamma.operations[0].magnetic_operation_index);
+            }
+            other => panic!("expected a time-reversal mismatch refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_reordered_or_relabelled_raw_list_is_refused_by_name() {
+        let (model, gamma) = provenance_witness();
+        let mut raw = raw_first_hall_operations(22).unwrap();
+        // Swapping a unitary and an antiunitary operation changes which operation
+        // each index names; the displayed flag of column 0 no longer matches.
+        let anti = raw
+            .iter()
+            .position(|operation| operation.time_reversal)
+            .expect("an antiunitary raw operation");
+        raw.swap(0, anti);
+        match map_with(&model, &gamma, &raw) {
+            Err(MagneticSubductionError::TargetTimeReversalMismatch { uni, column, index }) => {
+                assert_eq!((uni, column, index), (22, 0, 0));
+            }
+            other => panic!("expected a time-reversal mismatch after reordering, got {other:?}"),
+        }
+
+        // Flipping the flag of one raw operation breaks the same link without
+        // touching the order.
+        let mut relabelled = raw_first_hall_operations(22).unwrap();
+        relabelled[0].time_reversal = !relabelled[0].time_reversal;
+        match map_with(&model, &gamma, &relabelled) {
+            Err(MagneticSubductionError::TargetTimeReversalMismatch { uni, column, index }) => {
+                assert_eq!((uni, column, index), (22, 0, 0));
+            }
+            other => panic!("expected a time-reversal mismatch after relabelling, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_rewritten_raw_rotation_or_translation_is_refused_by_name() {
+        let (model, gamma) = provenance_witness();
+
+        let mut rotated = raw_first_hall_operations(22).unwrap();
+        rotated[0].rotation = [[0, 1, 0], [1, 0, 0], [0, 0, 1]];
+        match map_with(&model, &gamma, &rotated) {
+            Err(MagneticSubductionError::TargetOperationUnmatched {
+                uni,
+                rotation,
+                time_reversal,
+            }) => {
+                assert_eq!(uni, 22);
+                assert_eq!(rotation, [[0, 1, 0], [1, 0, 0], [0, 0, 1]]);
+                assert!(!time_reversal);
+            }
+            other => panic!("expected an unmatched-operation refusal, got {other:?}"),
+        }
+
+        let mut shifted = raw_first_hall_operations(22).unwrap();
+        shifted[0].translation = [Rat::new(1, 7).unwrap(), Rat::ZERO, Rat::ZERO];
+        match map_with(&model, &gamma, &shifted) {
+            Err(MagneticSubductionError::TargetOperationUnmatched {
+                uni,
+                rotation,
+                time_reversal,
+            }) => {
+                assert_eq!(uni, 22);
+                assert_eq!(rotation, [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+                assert!(!time_reversal);
+            }
+            other => panic!("expected an unmatched-operation refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_same_flag_index_swap_is_refused_by_name() {
+        let (model, gamma) = provenance_witness();
+        let raw = raw_first_hall_operations(22).unwrap();
+        let mut gamma = gamma;
+        let first = gamma.operations[0].magnetic_operation_index;
+        let partner = gamma
+            .operations
+            .iter()
+            .position(|operation| {
+                operation.magnetic_operation_index != first
+                    && operation.time_reversal == gamma.operations[0].time_reversal
+            })
+            .expect("a second column of the same time-reversal flag");
+        let second = gamma.operations[partner].magnetic_operation_index;
+        // Both indices stay in range, stay unique and still agree with the raw
+        // operation's time-reversal flag; only the association is wrong.
+        gamma.operations[0].magnetic_operation_index = second;
+        gamma.operations[partner].magnetic_operation_index = first;
+        assert_eq!(raw[second].time_reversal, raw[first].time_reversal);
+        match map_with(&model, &gamma, &raw) {
+            Err(MagneticSubductionError::TargetOperationIndexMisassociated {
+                uni,
+                column,
+                index,
+                position,
+            }) => assert_eq!((uni, column, index, position), (22, 0, second, 0)),
+            other => panic!("expected an index mis-association refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_column_swap_is_refused_by_name() {
+        let (model, gamma) = provenance_witness();
+        let raw = raw_first_hall_operations(22).unwrap();
+        let mut gamma = gamma;
+        let first = gamma.operations[0].column;
+        let second = gamma.operations[1].column;
+        assert_ne!(first, second);
+        gamma.operations[0].column = second;
+        gamma.operations[1].column = first;
+        match map_with(&model, &gamma, &raw) {
+            Err(MagneticSubductionError::TargetColumnMisassociated {
+                uni,
+                column,
+                position,
+            }) => assert_eq!((uni, column, position), (22, second, 0)),
+            other => panic!("expected a column mis-association refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_repeated_or_out_of_range_character_column_is_refused_by_name() {
+        let (model, gamma) = provenance_witness();
+        let raw = raw_first_hall_operations(22).unwrap();
+
+        let mut repeated = gamma.clone();
+        repeated.operations[1].column = repeated.operations[0].column;
+        match map_with(&model, &repeated, &raw) {
+            Err(MagneticSubductionError::TargetColumnRepeated { uni, column }) => {
+                assert_eq!((uni, column), (22, 0));
+            }
+            other => panic!("expected a repeated-column refusal, got {other:?}"),
+        }
+
+        let mut out_of_range = gamma;
+        out_of_range.operations[0].column = out_of_range.operations.len();
+        match map_with(&model, &out_of_range, &raw) {
+            Err(MagneticSubductionError::TargetColumnOutOfRange {
+                uni,
+                column,
+                columns,
+            }) => {
+                assert_eq!(
+                    (uni, column, columns),
+                    (22, out_of_range.operations.len(), out_of_range.operations.len())
+                );
+            }
+            other => panic!("expected a column-range refusal, got {other:?}"),
         }
     }
 }

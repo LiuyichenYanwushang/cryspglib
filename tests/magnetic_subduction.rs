@@ -1,10 +1,10 @@
-//! R26 regressions: the restricted scalar Γ magnetic subduction.
+//! R26/R27 regressions: the restricted scalar Γ magnetic subduction.
 //!
-//! Every test here re-derives its claim from the public API: the operator table is
-//! re-checked against the actual multiplication of the magnetic group, the
-//! intertwiner contract is re-applied class by class, and the target identity is
-//! re-read from the magnetic corep summary.  The module's own checks are not taken
-//! on faith.
+//! Every test here re-derives its claim from the public API: the raw first-Hall
+//! provenance of the summary's operation indices, the operator table against the
+//! actual multiplication of the magnetic group, the intertwiner contract class by
+//! class, and the target identity including its unitary characters from the magnetic
+//! corep summary.  The module's own checks are not taken on faith.
 use cryspglib::irrep::isotropy::IsotropyDirection;
 use cryspglib::irrep::magnetic_embedding::MagneticOperation;
 use cryspglib::irrep::magnetic_embedding::{canonical_translation, compose};
@@ -13,7 +13,7 @@ use cryspglib::irrep::magnetic_input::{
     SourceIdentity, verify_scalar_gamma_input,
 };
 use cryspglib::irrep::magnetic_subduction::{
-    MagneticSubduction, MagneticSubductionError, subduce_scalar_gamma,
+    MagneticSubduction, subduce_scalar_gamma,
 };
 use cryspglib::irrep::subduction::{Mat3R, Rat};
 use cryspglib::irrep::subduction_api::{SubductionRequest, subduce};
@@ -139,39 +139,141 @@ fn verify_reconstruction(model: &ScalarGammaModel, report: &MagneticSubduction<'
     assert_eq!(report.covered_dimension(), report.source_dimension());
 }
 
-/// Cross-check the reconstructed unitary columns against the summary's own
-/// characters of the reported target label.
-fn verify_against_summary(report: &MagneticSubduction<'_>) {
-    let uni = report.model().uni();
-    let partial = magnetic_summary::magnetic_irrep_summary_by_uni_partial(uni).unwrap();
-    let gamma = partial
+/// The Γ k-point summary of one UNI, cloned so a test can also tamper with it.
+fn gamma_kpoint(uni: usize) -> magnetic_summary::MagneticKPointSummary {
+    magnetic_summary::magnetic_irrep_summary_by_uni_partial(uni)
+        .unwrap()
         .summary
         .kpoints
         .iter()
         .find(|kpoint| kpoint.coords == (0, 0, 0, 1))
-        .expect("a Gamma k-point");
+        .cloned()
+        .expect("a Gamma k-point")
+}
+
+/// Re-derive the raw first-Hall provenance of a summary Γ table.
+///
+/// Checks that the two public raw surfaces are the same list element by element,
+/// that the summary lists every raw operation exactly once (the Γ little group is the
+/// whole group, so the index list is a permutation), that each column's displayed
+/// time-reversal flag is the indexed raw operation's, and returns the class every
+/// column maps to.
+fn verify_raw_provenance(
+    uni: usize,
+    gamma: &magnetic_summary::MagneticKPointSummary,
+    classes: &[MagneticOperation],
+    lattice: &[[Rat; 3]],
+) -> Vec<usize> {
+    use cryspglib::irrep::magnetic_embedding::magnetic_operations;
+    let raw = magnetic_operations(uni).unwrap();
+    let api = cryspglib::SymmetryOps::from_magnetic_database(uni).unwrap();
+    assert_eq!(api.operations.len(), raw.operations.len(), "UNI {uni}");
+    for (index, (api_operation, exact_operation)) in
+        api.operations.iter().zip(&raw.operations).enumerate()
+    {
+        assert_eq!(api_operation.rotation, exact_operation.rotation, "UNI {uni} index {index}");
+        assert_eq!(
+            api_operation.time_reversal, exact_operation.time_reversal,
+            "UNI {uni} index {index}"
+        );
+        assert_eq!(
+            [
+                exact(api_operation.translation[0]),
+                exact(api_operation.translation[1]),
+                exact(api_operation.translation[2]),
+            ],
+            exact_operation.translation,
+            "UNI {uni} index {index}"
+        );
+    }
+    assert_eq!(
+        gamma.operations.len(),
+        raw.operations.len(),
+        "UNI {uni}: the Γ little group is the whole group"
+    );
+    let mut seen = vec![false; raw.operations.len()];
+    let mut mapped = Vec::with_capacity(gamma.operations.len());
+    for (position, operation) in gamma.operations.iter().enumerate() {
+        assert_eq!(operation.column, position, "UNI {uni}: the columns are the positions");
+        assert_eq!(
+            operation.magnetic_operation_index, position,
+            "UNI {uni}: the summary enumerates the raw list in order"
+        );
+        let raw_operation = raw.operations[operation.magnetic_operation_index];
+        assert_eq!(
+            raw_operation.time_reversal, operation.time_reversal,
+            "UNI {uni} column {position}: the index no longer names this operation"
+        );
+        assert!(
+            !seen[operation.magnetic_operation_index],
+            "UNI {uni}: raw operation {} is indexed twice",
+            operation.magnetic_operation_index
+        );
+        seen[operation.magnetic_operation_index] = true;
+        mapped.push(class_of(&raw_operation, classes, lattice));
+    }
+    assert!(
+        seen.iter().all(|seen| *seen),
+        "UNI {uni}: every raw operation must be a column"
+    );
+    mapped
+}
+
+/// Cross-check the reconstructed operators against the summary's own characters.
+///
+/// The target identity is read from the summary, not echoed from the source: the
+/// corep's own source row belongs to the summary's unitary subgroup `H`, is
+/// one-dimensional and non-spinor, and the label is H's own Γ scalar irrep re-read
+/// from the irrep database.  Every unitary column's character must equal the
+/// reconstructed operator of the class its **operation index** names.
+fn verify_against_summary(report: &MagneticSubduction<'_>) {
+    let uni = report.model().uni();
+    let partial = magnetic_summary::magnetic_irrep_summary_by_uni_partial(uni).unwrap();
+    let gamma = gamma_kpoint(uni);
     let corep = gamma
         .coreps
         .iter()
         .find(|corep| corep.label == report.target_label())
         .expect("the reported target label must be a summary label");
     assert_eq!(corep.dim, report.target_dimension() as usize);
+    assert_eq!(corep.source_irreps.len(), 1);
+    assert_eq!(corep.source_irreps[0].sg, report.target_unitary_sg());
+    assert_eq!(corep.source_irreps[0].ml, report.target_source_label());
+    assert_eq!(corep.source_irreps[0].dim, 1);
+    assert!(!corep.source_irreps[0].spinor);
+    assert_eq!(partial.summary.unitary_sg, report.target_unitary_sg());
+    // Independent identity anchor: H itself must have exactly one scalar, non-spinor,
+    // one-dimensional Γ irrep under the reported label.
+    let candidates = cryspglib::irrep::query::find_irreps(
+        report.target_unitary_sg(),
+        report.target_source_label(),
+        LabelConvention::Cdml,
+    );
+    let matches: Vec<_> = candidates
+        .iter()
+        .filter(|irrep| {
+            irrep.dim == 1
+                && !irrep.spinor
+                && irrep.k_vector().numerators == [0, 0, 0]
+                && irrep.k_vector().denominator == 1
+        })
+        .collect();
+    assert_eq!(
+        matches.len(),
+        1,
+        "the target's label must be H's own scalar Γ irrep"
+    );
+
     let classes = report.classes();
     let lattice = report.translation_lattice();
+    let raw = cryspglib::irrep::magnetic_embedding::magnetic_operations(uni).unwrap();
     for (column, operation) in gamma.operations.iter().enumerate() {
+        let raw_operation = raw.operations[operation.magnetic_operation_index];
+        assert_eq!(raw_operation.time_reversal, operation.time_reversal);
         if operation.time_reversal {
             continue;
         }
-        let mapped = MagneticOperation {
-            rotation: operation.rotation,
-            translation: [
-                exact(operation.translation[0]),
-                exact(operation.translation[1]),
-                exact(operation.translation[2]),
-            ],
-            time_reversal: operation.time_reversal,
-        };
-        let index = class_of(&mapped, classes, lattice);
+        let index = class_of(&raw_operation, classes, lattice);
         let character = corep.characters[column].expect("a unitary column has a character");
         assert!(
             (character - report.operators()[index].value()).norm() < 1e-12,
@@ -361,54 +463,6 @@ fn the_target_identity_is_read_independently_of_the_source_label() {
 }
 
 #[test]
-fn a_frame_whose_correspondence_is_not_established_is_refused_by_name() {
-    // SG 5 GM1 with the GM2 record and the identity embedding builds the pinned
-    // R25 model for UNI 22, but the summary's Γ operations for that UNI are given
-    // in a setting whose rotations do not match the magnetic database's classes
-    // (its antiunitary rotation is [[0,-1,0],[-1,0,0],[0,0,-1]] where the class has
-    // [[-1,0,0],[0,1,0],[0,0,-1]]).  The correspondence is refused, not guessed, and
-    // the refusal is not "the target does not exist".
-    let index = magnetic_row(5, "GM2", 22);
-    let model = gamma_model(
-        5,
-        "GM1",
-        "GM2",
-        index,
-        Some(RealSign::Minus),
-        Mat3R::identity(),
-    );
-    assert_eq!(model.uni(), 22);
-    match subduce_scalar_gamma(&model) {
-        Err(MagneticSubductionError::TargetOperationUnmatched {
-            uni,
-            time_reversal,
-            ..
-        }) => {
-            assert_eq!(uni, 22);
-            assert!(time_reversal, "the antiunitary column is the unmatched one");
-        }
-        other => panic!("expected a named frame refusal, got {other:?}"),
-    }
-
-    // SG 11 GM1+ with the GM2- record is UNI 59: there the rotations do match and
-    // the translation-level mismatch is refused instead.
-    let index = magnetic_row(11, "GM2-", 59);
-    let model = gamma_model(
-        11,
-        "GM1+",
-        "GM2-",
-        index,
-        Some(RealSign::Minus),
-        Mat3R::identity(),
-    );
-    assert_eq!(model.uni(), 59);
-    match subduce_scalar_gamma(&model) {
-        Err(MagneticSubductionError::TargetOperationUnmatched { uni, .. }) => assert_eq!(uni, 59),
-        other => panic!("expected a named frame refusal, got {other:?}"),
-    }
-}
-
-#[test]
 fn the_operators_are_the_actual_corepresentation_of_the_magnetic_classes() {
     // A direct operator-level statement on the antiunitary witness: composing the
     // reconstructed operators reproduces the group product on every ordered pair,
@@ -438,6 +492,161 @@ fn the_operators_are_the_actual_corepresentation_of_the_magnetic_classes() {
         assert!(
             (every.apply(z).norm() - z.norm()).abs() < 1e-12,
             "an operator preserves the norm"
+        );
+    }
+}
+
+/// The Γ position association the module relies on, re-derived from the public API.
+///
+/// The summary builds its Γ columns by enumerating the little-group indices of the
+/// operation list in increasing order, and the Γ little group is the whole group:
+/// `filter_little_group_with_transform` returns `0..len` in order for every UNI (k = 0
+/// is preserved by every operation, independently of the frame and of the pure
+/// translations, since the reciprocal shift is zero).  So at position `i` the
+/// character column must be `i` and the raw operation index must be `i` — on a real
+/// summary too, which these pinned witnesses check.
+#[test]
+fn the_gamma_little_group_is_the_raw_list_in_order() {
+    use cryspglib::irrep::wigner::filter_little_group_with_transform;
+    let mut checked = 0usize;
+    for uni in 1..=1651usize {
+        let ops = cryspglib::SymmetryOps::from_magnetic_database(uni).unwrap();
+        let little = filter_little_group_with_transform(0, 0, 0, 1, &ops, None, None);
+        assert_eq!(
+            little,
+            (0..ops.operations.len()).collect::<Vec<_>>(),
+            "UNI {uni}: the Γ little group is not the raw list in order"
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 1651, "every UNI was checked");
+    for uni in [3usize, 4, 6, 10, 22, 53, 56, 59] {
+        let gamma = gamma_kpoint(uni);
+        assert!(!gamma.operations.is_empty());
+        for (position, operation) in gamma.operations.iter().enumerate() {
+            assert_eq!(operation.column, position, "UNI {uni} position {position}");
+            assert_eq!(
+                operation.magnetic_operation_index, position,
+                "UNI {uni} position {position}"
+            );
+        }
+    }
+}
+
+/// The raw first-Hall operation list is the same list on both public surfaces.
+///
+/// The summary's `magnetic_operation_index` is only a provenance link if the exact
+/// list the classes are built from
+/// ([`magnetic_embedding::magnetic_operations`]) is the very list the summary was
+/// computed from ([`cryspglib::SymmetryOps::from_magnetic_database`]).  This re-checks
+/// that claim for every UNI, element by element, instead of assuming it.
+#[test]
+fn the_two_raw_operation_surfaces_agree_for_every_uni() {
+    use cryspglib::irrep::magnetic_embedding::magnetic_operations;
+    let mut checked = 0usize;
+    for uni in 1..=1651usize {
+        let set = magnetic_operations(uni).unwrap_or_else(|error| panic!("UNI {uni}: {error}"));
+        let api = cryspglib::SymmetryOps::from_magnetic_database(uni)
+            .unwrap_or_else(|error| panic!("UNI {uni}: {error:?}"));
+        assert_eq!(
+            api.operations.len(),
+            set.operations.len(),
+            "UNI {uni}: the two raw lists differ in length"
+        );
+        for (index, (api_operation, exact_operation)) in
+            api.operations.iter().zip(&set.operations).enumerate()
+        {
+            assert_eq!(
+                api_operation.rotation, exact_operation.rotation,
+                "UNI {uni} index {index}: rotation"
+            );
+            assert_eq!(
+                api_operation.time_reversal, exact_operation.time_reversal,
+                "UNI {uni} index {index}: time reversal"
+            );
+            assert_eq!(
+                [
+                    exact(api_operation.translation[0]),
+                    exact(api_operation.translation[1]),
+                    exact(api_operation.translation[2]),
+                ],
+                exact_operation.translation,
+                "UNI {uni} index {index}: translation"
+            );
+        }
+        checked += 1;
+    }
+    assert_eq!(checked, 1651, "every UNI was compared");
+}
+
+/// The index-resolved witnesses of the first restricted frame pair.
+///
+/// SG 5 `GM1` with the `GM2` record row 0 is UNI 22 and SG 11 `GM1+` with the `GM2-`
+/// record row 0 is UNI 59.  Their summary Γ tables are displayed in a data-Hall frame
+/// whose rotations/translations are **not** the magnetic classes' own frame, so the
+/// correspondence is established through the operation index, and every claim is
+/// re-derived here from the public API: the raw surface identity, the index
+/// permutation, the unitary characters of the independently read target, the full
+/// corepresentation law and the non-zero complex intertwiner.  Both `η` signs give the
+/// same target table and differ only by the intertwiner.
+#[test]
+fn the_indexed_frame_provenance_yields_independent_character_targets() {
+    for (sg, source, condensing, uni, unitary_sg) in [
+        (5u8, "GM1", "GM2", 22usize, 1u8),
+        (11, "GM1+", "GM2-", 59, 6),
+    ] {
+        let index = magnetic_row(sg, condensing, uni);
+        let mut answers = Vec::new();
+        let model = gamma_model(sg, source, condensing, index, Some(RealSign::Plus), Mat3R::identity());
+        let gamma = gamma_kpoint(uni);
+        let provenance = verify_raw_provenance(uni, &gamma, model.classes(), model.translation_lattice());
+        assert!(
+            provenance.iter().all(|class| *class < model.classes().len()),
+            "UNI {uni}: every column maps to a class"
+        );
+        assert!(
+            (0..model.classes().len()).all(|class| provenance.contains(&class)),
+            "UNI {uni}: every class is covered by a column"
+        );
+        let antiunitary_columns = gamma
+            .operations
+            .iter()
+            .filter(|operation| operation.time_reversal)
+            .count();
+        assert!(antiunitary_columns > 0);
+        for (eta, intertwiner) in [
+            (RealSign::Plus, Complex64::new(1.0, 0.0)),
+            (RealSign::Minus, Complex64::new(0.0, 1.0)),
+        ] {
+            let model =
+                gamma_model(sg, source, condensing, index, Some(eta), Mat3R::identity());
+            assert_eq!(model.uni(), uni);
+            let report = subduce_scalar_gamma(&model)
+                .unwrap_or_else(|error| panic!("UNI {uni} eta {eta:?}: {error}"));
+            assert_eq!(report.target_label(), "GM1");
+            assert_eq!(report.target_source_label(), "GM1");
+            assert_eq!(
+                report.target_unitary_sg(),
+                unitary_sg,
+                "UNI {uni}: the target's space group is read from H, not echoed from SG {sg}"
+            );
+            assert_ne!(report.target_unitary_sg(), sg);
+            assert_eq!(report.target_dimension(), 1);
+            assert_eq!(report.multiplicity(), 1);
+            assert_eq!(report.source_dimension(), 1);
+            assert_eq!(report.covered_dimension(), 1);
+            assert_eq!(report.intertwiner(), intertwiner);
+            assert!(report
+                .operators()
+                .iter()
+                .any(|operator| operator.is_antiunitary()));
+            verify_reconstruction(&model, &report);
+            verify_against_summary(&report);
+            answers.push(report.operators().to_vec());
+        }
+        assert_eq!(
+            answers[0], answers[1],
+            "UNI {uni}: η is a gauge of the antiunitary coset, not a different target"
         );
     }
 }

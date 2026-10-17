@@ -104,6 +104,44 @@ non-Γ/full-star/spinor 分导；grey 记录不在此输入来源范围，但不
 旧极端 i128 格原语 panic 边界仍在。本轮未 commit/push。接口与详细见证见
 [受限 Γ 磁分导说明](docs/magnetic-gamma-subduction.md)。
 
+### 最新受限 Γ 磁分导的 raw provenance（2026-10-12，第 27 轮卡 1；基线 `ec1a530` 上的未提交改动）
+
+已交付 [magnetic_subduction](src/irrep/magnetic_subduction.rs) 的 raw provenance：
+`MagneticLittleGroupOperation.magnetic_operation_index` 索引**两 firstHall 源 API 的原始列表**。
+`SymmetryOps::from_magnetic_database(uni)` 与 [magnetic_embedding](src/irrep/magnetic_embedding.rs)
+的 `magnetic_operations(uni).operations` 的长度/顺序/rotation/timerev/网格契约
+`Rat` translation **逐元素完全一致**（[tests/magnetic_subduction.rs](tests/magnetic_subduction.rs) 逐 UNI 钉住 1651/1651，0 例外）。
+Γ 操作**全保序**，`column == index == position`，具名拒绝 wrong length / reorder / relabel / repeated index /
+out of range / rewritten rotation-translation / same-flag index swap / repeated or out-of-range column /
+column swap，不 fallback。index → raw M op → Mclass 的对应**不比较** H data-Hall 的展示帧
+rotation/translation，无回退路径。
+
+见证：UNI 22（SG 5，`GM1` 源 / `GM2` 记录）与 UNI 59（SG 11，`GM1+` 源 / `GM2-` 记录）两 η 成功，
+独立取得 `H=SG1`/`SG6` 的目标 `GM1`，完整 operator law 与非零复 `U` 重建（`U` 取 `1`/`i`）。
+[导师独立 contract](tests/magnetic_subduction_provenance_contract.rs) 另含 SG 11 `GM1-` **非平凡源**、
+raw index 而非 data-Hall 坐标、两 η 各自重建；R26 的 [contract](tests/magnetic_subduction_contract.rs) 与
+η/gauge/solver 见证保持。
+
+定向回归：模块 **17** 项（R26 的 6 + 本轮 11），
+[tests/magnetic_subduction.rs](tests/magnetic_subduction.rs) **10** 项（旧 8 + 新增 raw list 保序与两 raw
+操作面逐 UNI 对照）；导师 contract 3 项。raw/filter 对照对 **1651** 个 UNI 全部通过，**不**是全分导覆盖率。
+
+最终冻结电池 [summary](target/logs/r27-accepted-v2/summary.txt)：**809 passed / 0 failed**、
+54 个测试壳、58/58 池作业、16 条腿全部 exit 0、三个普通 TSV 钉值不变且 4==8 线程（42,074/80,294/11,010 行）、
+224 个冻结输入哈希前后相同、189 s；导师核验 `fb280464`。首轮 v1 同为 809/0，但运行中改过文档措辞，只作历史。
+rev-parse `ec1a530`、dirty-files 5；模块 `3ffcde55f3607d9d506ea10d3345d3269de4b24d2853b4c73d97af690a86f215`、
+[tests/magnetic_subduction.rs](tests/magnetic_subduction.rs) `9ac1b634…`、
+[docs/magnetic-gamma-subduction.md](docs/magnetic-gamma-subduction.md) `ef72df74…`
+（以 [inputs.json](target/logs/r27-accepted-v2/inputs.json) 为准；[接口与详细见证](docs/magnetic-gamma-subduction.md)）。
+R25 输入/corep/summary/wigner/API/deps 与旧 WIP `d61` 不变，WIP 未跟踪、未接入。
+增加 error variant 后下游穷尽 `match` 需更新。本账本在 v2 哈希核验与 implementation 接受 `65e8f440`
+**之后**记录；R25/R26 已推送至 `ec1a530`，R27 未 commit/push。
+
+**范围边界**：不扩到 real `±1` nonspinor 1D Γ 的 Type I ordinary / 1D Type A 之外；UNI 41/46/69
+本轮未重测；`RawOpsDiffer`/`Unavailable`/`ClassUncovered`/`OffGrid`、字符与 `Unresolved` 各错误分支
+**未动态见证**，R26 的析取见证不证特定 reach。无 R27 mutation/cost、无 setting 逆/搜索/高维、无 B/C、
+无 non-Γ/full-star。旧 i128 边界仍在。r27 未 commit/push（R25/R26 已由用户授权提交推送）。
+
 ### 1. 参数化 k 族的完成度（四层，全部可复现）
 
 | 层 | 状态 | 证据 / 复现 |
