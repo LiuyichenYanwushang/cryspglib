@@ -121,7 +121,7 @@ use crate::irrep::magnetic_embedding::{
     self, GeometryError, MagneticOperation, MagneticOperationSet, verify_embedding,
 };
 use crate::irrep::subduction::{Mat3I, Mat3R, Rat, Vec3R};
-use crate::irrep::types::{CharacterRow, IrrepRecord, SeitzOperation};
+use crate::irrep::types::{CharacterRow, IrrepRecord};
 
 /// Denominators a parent value is snapped to.
 ///
@@ -378,19 +378,13 @@ pub enum MagneticInputError {
     },
     /// The identity class's character is not `+1`.
     IdentityCharacterNotOne { sg: u8, value: f64 },
-    /// A mapped class has no entry in the source's character row, i.e. the row
-    /// and the parent's operation table describe different settings.
-    ///
-    /// The parent table ([`crate::irrep::query::symmetry_operations_of`]) and the
-    /// source row (the PIR operation storage behind
-    /// [`crate::irrep::types::IrrepRecord::ordinary_scalar_selected_arm_block_trace`])
-    /// are generated in their own settings.  They agree operation by operation
-    /// modulo the parent's lattice for 828 of the 980 scalar Γ rows; for the
-    /// other 152 (24 space groups, e.g. SG 48 and SG 227) they do not, while
-    /// their **rotation sets are equal** in all 980 rows.  This round has not
-    /// established how to align the two tables, so such a row is refused instead
-    /// of being read through a guessed pairing; the message claims no more than
-    /// that, and in particular does not claim that no alignment exists.
+    /// No verified origin-only correspondence connects the typed source row,
+    /// its data-Hall operation table and the parent's operation table. The
+    /// lattices and complete rotation coverage must agree, and one joint shift
+    /// must place all Seitz operations. A changed basis is not searched here.
+    /// The rotation is diagnostic context; a joint inconsistency may use identity.
+    /// Arithmetic/capacity limits are reported separately as Arithmetic, never
+    /// as a proof that no alignment exists.
     CharacterRowSettingMismatch { sg: u8, rotation: Mat3I, uni: usize },
     /// The caller's `(map, shift)` does not embed the group, or the exact check
     /// hit an arithmetic limit.
@@ -511,9 +505,7 @@ impl std::fmt::Display for MagneticInputError {
             ),
             Self::CharacterRowSettingMismatch { sg, rotation, uni } => write!(
                 f,
-                "SG {sg} (UNI {uni}): the source character row and the parent operation table do \
-                 not describe the same setting (rotation {rotation:?} has no row entry modulo the \
-                 parent lattice); the setting transform is not part of this contract"
+                "SG {sg}, UNI {uni}: no verified origin-only alignment of the source character row and parent operations (rotation context {rotation:?}); no change of basis was searched"
             ),
             Self::EmbeddingRejected(error) => {
                 write!(f, "the selected (map, shift) is not an embedding: {error}")
@@ -574,6 +566,7 @@ pub struct ScalarGammaModel {
     uni: usize,
     map: Mat3R,
     shift: [Rat; 3],
+    source_origin_shift: [Rat; 3],
     lattice_policy: LatticePolicy,
     realises_record_lattice: bool,
     time_reversal: Option<RealSign>,
@@ -646,6 +639,15 @@ impl ScalarGammaModel {
     /// The verified origin shift of the embedding.
     pub fn shift(&self) -> &[Rat; 3] {
         &self.shift
+    }
+
+    /// One verified origin-only alignment of the typed source row to the parent.
+    /// Coordinates obey x_parent = x_source + delta. This is distinct from the
+    /// magnetic embedding's shift. All source operations, both lattices and the
+    /// complete rotation coverage are checked; no basis is guessed. At Gamma,
+    /// different valid origins give the same character (translations act as +1).
+    pub fn source_origin_shift(&self) -> &[Rat; 3] {
+        &self.source_origin_shift
     }
 
     /// The lattice policy the model was checked against.
@@ -814,7 +816,7 @@ pub fn verify_scalar_gamma_input(
         .map_err(|error| MagneticInputError::DatabaseMismatch(error.to_string()))?;
     let parent = ParentFrame::of(parent_sg)?;
     let mapped = mapped_classes(&set, &evidence, &parent)?;
-    let character = read_character(parent_sg, &row, &set, &mapped, &parent)?;
+    let (character, source_origin_shift) = read_character(parent_sg, &row, &set, &mapped, &parent)?;
 
     let actions: Vec<ClassAction> = set
         .classes
@@ -840,6 +842,7 @@ pub fn verify_scalar_gamma_input(
 
     Ok(ScalarGammaModel {
         parent_sg,
+        source_origin_shift,
         source_label: source_irrep.ml,
         record_label: condensing.ml,
         input_convention: source_identity.convention,
@@ -974,9 +977,13 @@ impl ParentFrame {
     pub(crate) fn of(sg: u8) -> Result<Self, MagneticInputError> {
         let parent = crate::irrep::query::symmetry_operations_of(sg)
             .map_err(|error| MagneticInputError::DatabaseMismatch(error.to_string()))?;
-        let mut operations = Vec::with_capacity(parent.operations.len());
+        Self::from_operations(sg, &parent.operations)
+    }
+
+    fn from_operations(sg: u8, source: &[crate::SymmetryOp]) -> Result<Self, MagneticInputError> {
+        let mut operations = Vec::with_capacity(source.len());
         let mut lattice: Vec<[Rat; 3]> = Vec::new();
-        for operation in &parent.operations {
+        for operation in source {
             let mut translation = [Rat::ZERO; 3];
             for (axis, value) in operation.translation.iter().enumerate() {
                 translation[axis] =
@@ -998,6 +1005,94 @@ impl ParentFrame {
             operations,
             lattice,
         })
+    }
+
+    /// Align the full data-Hall group, not just the operations used by M.
+    fn source_origin(
+        &self,
+        sg: u8,
+        uni: usize,
+        row: &[(Mat3I, [Rat; 3])],
+    ) -> Result<[Rat; 3], MagneticInputError> {
+        let mismatch =
+            |rotation| MagneticInputError::CharacterRowSettingMismatch { sg, rotation, uni };
+        let hall = crate::irrep::generated_data::SG_DATA_HALL[usize::from(sg)];
+        let database = crate::SymmetryOps::from_database(usize::from(hall))
+            .map_err(|error| MagneticInputError::DatabaseMismatch(error.to_string()))?;
+        let source = Self::from_operations(sg, &database.operations)?;
+        // An origin shift does not change the lattice. Check both directions,
+        // including centring translations absent from a PIR representative row.
+        if !source
+            .lattice
+            .iter()
+            .all(|v| differs_by_lattice(v, &[Rat::ZERO; 3], &self.lattice))
+            || !self
+                .lattice
+                .iter()
+                .all(|v| differs_by_lattice(v, &[Rat::ZERO; 3], &source.lattice))
+        {
+            return Err(mismatch(IDENTITY_ROTATION));
+        }
+        for &(rotation, translation) in row {
+            if !source.has_operation(rotation, translation) {
+                return Err(mismatch(rotation));
+            }
+        }
+        for &(rotation, _) in &self.operations {
+            if !row.iter().any(|(r, _)| *r == rotation) {
+                return Err(mismatch(rotation));
+            }
+        }
+        if source
+            .operations
+            .iter()
+            .all(|&(r, t)| self.has_operation(r, t))
+        {
+            return Ok([Rat::ZERO; 3]);
+        }
+        let mut equations = Vec::with_capacity(source.operations.len());
+        for &(rotation, translation) in &source.operations {
+            let target = self
+                .operations
+                .iter()
+                .find(|(r, _)| *r == rotation)
+                .ok_or_else(|| mismatch(rotation))?
+                .1;
+            let mut matrix = IDENTITY_ROTATION;
+            let mut rhs = [Rat::ZERO; 3];
+            for i in 0..3 {
+                rhs[i] = target[i]
+                    .checked_sub(translation[i])
+                    .map_err(|error| MagneticInputError::Arithmetic(error.to_string()))?;
+                for j in 0..3 {
+                    matrix[i][j] = matrix[i][j].checked_sub(rotation[i][j]).ok_or_else(|| {
+                        MagneticInputError::Arithmetic(
+                            "forming source-origin equations".to_string(),
+                        )
+                    })?;
+                }
+            }
+            equations.push((matrix, rhs));
+        }
+        // Reuse the exact, complete R24 joint-congruence solver. Its limits mean
+        // unknown, never no alignment. We do not search any change of basis.
+        let solution =
+            magnetic_embedding::complete_shift::solve_shift_components(&equations, &self.lattice)
+                .map_err(|error| {
+                MagneticInputError::Arithmetic(format!("source-origin equations: {error:?}"))
+            })?;
+        let shift = solution
+            .representatives
+            .first()
+            .copied()
+            .ok_or_else(|| mismatch(IDENTITY_ROTATION))?;
+        for &(rotation, translation) in &source.operations {
+            let moved = origin_shifted_translation(rotation, translation, shift)?;
+            if !self.has_operation(rotation, moved) {
+                return Err(mismatch(rotation));
+            }
+        }
+        Ok(shift)
     }
 
     /// Whether some parent operation has this rotation and lands in this
@@ -1115,35 +1210,35 @@ fn read_character(
     set: &MagneticOperationSet,
     mapped: &[MappedClass],
     parent: &ParentFrame,
-) -> Result<Vec<RealSign>, MagneticInputError> {
+) -> Result<(Vec<RealSign>, [Rat; 3]), MagneticInputError> {
+    let mut operations = Vec::with_capacity(row.operations().len());
+    for operation in row.operations() {
+        let rotation = flatten_rotation(&operation.rotation);
+        let mut translation = [Rat::ZERO; 3];
+        for (axis, cell) in translation.iter_mut().enumerate() {
+            let value = operation.translation[axis];
+            *cell = exact_fraction(value).ok_or(MagneticInputError::ParentTranslationOffGrid {
+                sg,
+                rotation,
+                value,
+            })?;
+        }
+        operations.push((rotation, translation));
+    }
+    let source_origin_shift = parent.source_origin(sg, set.uni, &operations)?;
+    for (rotation, translation) in &mut operations {
+        *translation = origin_shifted_translation(*rotation, *translation, source_origin_shift)?;
+    }
     let negative_one = Rat::ONE.checked_neg().expect("one is representable");
     let mut out = Vec::with_capacity(mapped.len());
     for (index, class) in mapped.iter().enumerate() {
         let (rotation, translation) = &class.operation;
         let mut entry = None;
-        for (operation, value) in row.operations().iter().zip(row.values()) {
-            if flatten_rotation(&operation.rotation) != *rotation {
-                continue;
-            }
-            match row_translation_differs_by_lattice(operation, translation, &parent.lattice) {
-                Some(true) => entry = Some(*value),
-                Some(false) => continue,
-                // A row translation off the exact grid makes the row unusable
-                // here, and reporting "no entry" would be a different (and
-                // false) statement, so it has its own error.
-                None => {
-                    let offending = operation
-                        .translation
-                        .iter()
-                        .find(|value| exact_fraction(**value).is_none())
-                        .copied()
-                        .unwrap_or(0.0);
-                    return Err(MagneticInputError::ParentTranslationOffGrid {
-                        sg,
-                        rotation: *rotation,
-                        value: offending,
-                    });
-                }
+        for ((row_rotation, row_translation), value) in operations.iter().zip(row.values()) {
+            if row_rotation == rotation
+                && differs_by_lattice(translation, row_translation, &parent.lattice)
+            {
+                entry = Some(*value);
             }
         }
         let value = entry.ok_or(MagneticInputError::CharacterRowSettingMismatch {
@@ -1184,7 +1279,7 @@ fn read_character(
             RealSign::Minus
         });
     }
-    Ok(out)
+    Ok((out, source_origin_shift))
 }
 
 /// The character row stores rotations row-major in a flat array of nine.
@@ -1196,18 +1291,23 @@ fn flatten_rotation(rotation: &[i32; 9]) -> Mat3I {
     ]
 }
 
-/// Whether a row operation's translation lands in the mapped translation's
-/// class; `None` when the row translation is not on the exact grid.
-fn row_translation_differs_by_lattice(
-    operation: &SeitzOperation,
-    translation: &[Rat; 3],
-    lattice: &[[Rat; 3]],
-) -> Option<bool> {
-    let mut row_translation = [Rat::ZERO; 3];
-    for (axis, value) in operation.translation.iter().enumerate() {
-        row_translation[axis] = exact_fraction(*value)?;
+/// Apply a single origin shift without discarding the Seitz translation.
+fn origin_shifted_translation(
+    rotation: Mat3I,
+    translation: [Rat; 3],
+    shift: [Rat; 3],
+) -> Result<[Rat; 3], MagneticInputError> {
+    let rotated = Mat3R::from_ints(rotation)
+        .checked_mul_vector(&Vec3R::new(shift))
+        .map_err(|error| MagneticInputError::Arithmetic(error.to_string()))?;
+    let mut moved = [Rat::ZERO; 3];
+    for i in 0..3 {
+        moved[i] = translation[i]
+            .checked_add(shift[i])
+            .and_then(|v| v.checked_sub(rotated.get(i)))
+            .map_err(|error| MagneticInputError::Arithmetic(error.to_string()))?;
     }
-    Some(differs_by_lattice(translation, &row_translation, lattice))
+    Ok(moved)
 }
 
 // ---------------------------------------------------------------------------
@@ -1259,4 +1359,119 @@ fn check_corepresentation_law(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod origin_tests {
+    use super::*;
+
+    fn row_operations(sg: u8, label: &str) -> Vec<(Mat3I, [Rat; 3])> {
+        let source = crate::irrep::query::irreps_of(sg)
+            .iter()
+            .find(|r| r.ml == label)
+            .unwrap();
+        source
+            .ordinary_scalar_selected_arm_block_trace()
+            .unwrap()
+            .operations()
+            .iter()
+            .map(|op| {
+                (
+                    flatten_rotation(&op.rotation),
+                    op.translation.map(|v| exact_fraction(v).unwrap()),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn all_real_scalar_gamma_source_rows_have_verified_origin_alignments() {
+        let (mut rows, mut shifted) = (0, 0);
+        let mut groups = std::collections::BTreeSet::new();
+        for sg in 1..=230 {
+            let parent = ParentFrame::of(sg).unwrap();
+            for irrep in crate::irrep::query::irreps_of(sg) {
+                if irrep.spinor || irrep.dim != 1 || irrep.k_vector().numerators != [0; 3] {
+                    continue;
+                }
+                let operations = row_operations(sg, irrep.ml);
+                let shift = parent
+                    .source_origin(sg, 0, &operations)
+                    .unwrap_or_else(|error| panic!("SG {sg} {}: {error}", irrep.ml));
+                for &(rotation, translation) in &operations {
+                    assert!(parent.has_operation(
+                        rotation,
+                        origin_shifted_translation(rotation, translation, shift).unwrap()
+                    ));
+                }
+                rows += 1;
+                if shift != [Rat::ZERO; 3] {
+                    shifted += 1;
+                    groups.insert(sg);
+                }
+            }
+        }
+        println!("origin alignment: rows={rows} shifted={shifted} groups={groups:?}");
+        assert_eq!((rows, shifted, groups.len()), (980, 152, 24));
+    }
+
+    #[test]
+    fn an_inconsistent_seitz_translation_cannot_be_repaired_per_operation() {
+        let mut parent = ParentFrame::of(48).unwrap();
+        let (_, translation) = parent
+            .operations
+            .iter_mut()
+            .find(|(r, _)| *r == [[-1, 0, 0], [0, -1, 0], [0, 0, 1]])
+            .unwrap();
+        // C2z and inversion constrain the same 2*delta_x modulo one. Changing
+        // only C2z's x translation makes them disagree by 1/4. Each operation
+        // remains placeable on its own; one common origin cannot place them all.
+        translation[0] = translation[0].checked_add(Rat::new(1, 4).unwrap()).unwrap();
+        for (rotation, translation) in row_operations(48, "GM1+") {
+            assert!((0..8).any(|x| (0..8).any(|y| (0..8).any(|z| {
+                let shift = [x, y, z].map(|v| Rat::new(v, 8).unwrap());
+                parent.has_operation(
+                    rotation,
+                    origin_shifted_translation(rotation, translation, shift).unwrap(),
+                )
+            }))));
+        }
+        assert!(matches!(
+            parent.source_origin(48, 355, &row_operations(48, "GM1+")),
+            Err(MagneticInputError::CharacterRowSettingMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn a_row_must_retain_its_data_hall_seitz_provenance() {
+        let parent = ParentFrame::of(48).unwrap();
+        let mut row = row_operations(48, "GM1+");
+        row[1].1[0] = row[1].1[0].checked_add(Rat::new(1, 7).unwrap()).unwrap();
+        assert!(matches!(
+            parent.source_origin(48, 355, &row),
+            Err(MagneticInputError::CharacterRowSettingMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn checking_only_the_restricted_classes_cannot_hide_missing_source_rotations() {
+        let parent = ParentFrame::of(48).unwrap();
+        let mut row = row_operations(48, "GM1+");
+        row.retain(|(r, _)| *r == IDENTITY_ROTATION);
+        assert!(matches!(
+            parent.source_origin(48, 355, &row),
+            Err(MagneticInputError::CharacterRowSettingMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn an_origin_shift_cannot_change_a_centring_lattice() {
+        let mut parent = ParentFrame::of(227).unwrap();
+        assert!(!parent.lattice.is_empty());
+        parent.lattice.clear();
+        assert!(matches!(
+            parent.source_origin(227, 0, &row_operations(227, "GM1+")),
+            Err(MagneticInputError::CharacterRowSettingMismatch { .. })
+        ));
+    }
 }

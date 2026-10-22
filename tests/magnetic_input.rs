@@ -798,37 +798,24 @@ fn a_tampered_selection_or_an_unsatisfied_lattice_policy_is_refused() {
 }
 
 #[test]
-fn a_row_whose_two_tables_are_in_different_settings_is_refused_by_name() {
-    // SG 48 `GM1+` is the pinned witness of the one boundary this round does not
-    // bridge: the parent operation table and the source character row are
-    // generated in different settings.  Their **rotation sets agree** (measured
-    // over all 980 scalar Γ rows), and the *translations* differ — the parent has
-    // `(1bar | (1/2,1/2,1/2))` where the row has `(1bar | (1/2,1/2,0))`.  The
-    // module must say so instead of pairing them by guesswork, and must not claim
-    // that no transform exists: it reports that this round has no proven one.
+fn a_different_origin_is_aligned_without_discarding_seitz_translations() {
+    // R35 replaces the old SG48 refusal with a joint, verified origin witness.
     let witness = witnesses(usize::MAX, false)
         .into_iter()
         .find(|witness| witness.sg == 48 && witness.source == "GM1+")
-        .expect("SG 48 GM1+ is a scalar Gamma row");
-    let error =
+        .unwrap();
+    let model =
         verify_scalar_gamma_input(&witness.request(Some(RealSign::Plus), witness.identity()))
-            .expect_err("an unaligned row is not silently paired");
-    assert!(
-        matches!(
-            error,
-            MagneticInputError::CharacterRowSettingMismatch { sg: 48, .. }
-        ),
-        "unexpected error {error}"
-    );
-    // The refusal is about the tables, not about the group: the embedding itself
-    // is verified through the public verifier.
+            .unwrap();
+    assert_eq!(*model.source_origin_shift(), [Rat::new(1, 4).unwrap(); 3]);
+    assert_eq!(*model.shift(), [Rat::ZERO; 3]);
     verify_embedding(
         &witness.geometry(),
         &witness.set,
         witness.identity().map,
         witness.identity().shift,
     )
-    .expect("the embedding is proven for this row too");
+    .unwrap();
 
     // The rotation sets agree while the operation sets do not: that is the
     // measured shape of the boundary, restated here on one row.

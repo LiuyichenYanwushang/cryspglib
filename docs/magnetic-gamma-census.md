@@ -1,5 +1,10 @@
 # R28 受限 Γ 磁分导覆盖诊断（census）
 
+> **历史统计边界（R35）**：以下是 R28 运行记录，不是当前拒绝计数。生产输入契约已加入
+> [精确原点对齐](magnetic-gamma-input.md#verified-origin-only-source-alignment-r35)，
+> 980 条合格 Γ 源行全部通过源帧校验（152 条使用非零原点）。这不等于全分导成功率；
+> 新版完整 census 的结果单独记入[当前账本](../AGENTS.md)，不能沿用下文 13,264 的旧拒绝数。
+
 本文件是**只读诊断**的记录，不含生产算法改动。程序
 [examples/magnetic_gamma_subduction_census.rs](../examples/magnetic_gamma_subduction_census.rs)
 把已接受的三个入口指向全语料：

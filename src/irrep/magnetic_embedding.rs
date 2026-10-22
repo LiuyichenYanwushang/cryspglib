@@ -67,7 +67,7 @@ use crate::irrep::subduction::{Mat3I, Mat3R, Rat, SubductionError, Vec3R};
 /// fixed candidate map.  Kept in its own file because the elimination there is
 /// independent of the embedding conventions here; see its module docs for the
 /// contract and the completeness argument.
-mod complete_shift;
+pub(crate) mod complete_shift;
 
 /// The complete set of origin shifts that make one fixed candidate map an
 /// embedding -- round 24's replacement for the finite `{+-1, +-1/2}` walk.
@@ -484,7 +484,7 @@ fn gcd(mut left: i128, mut right: i128) -> i128 {
 /// `[0, 1)` per component.
 ///
 /// The coset `translation + lattice` is walked **exhaustively** in the finite
-/// torus of the common denominator of all entries (breadth-first over the
+/// product of the three per-coordinate denominator grids (breadth-first over the
 /// lattice generators and their negatives), and the exact lexicographic minimum
 /// is returned.  No coefficient range has to be chosen: round r9a showed that a
 /// fixed range can miss the canonical representative (e.g. `1/2` modulo `1/6`

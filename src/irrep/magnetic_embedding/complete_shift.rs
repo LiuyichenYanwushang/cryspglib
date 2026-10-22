@@ -53,7 +53,7 @@
 //!   production reduction always satisfies the precondition -- see
 //!   [`solve_joint_congruence`].
 //! * The component *set* is canonical.  The representative of a component is the
-//!   elimination's own point, reduced modulo `L_P` by [`canonical_translation`]
+//!   elimination's own point, reduced modulo `L_P` by [`canonical_translation_checked`]
 //!   (the range-free lexicographic minimum); its class modulo `V + L_P` is what
 //!   the mathematics pins, and the list is sorted so the output is a
 //!   deterministic function of the input.
@@ -78,7 +78,7 @@ const MAX_STEPS: u64 = 1_000_000;
 /// Why the complete shift solution could not be computed.  Infeasibility is
 /// **not** reported here: it is `Ok` with no representatives.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum ShiftEnumerationError {
+pub(crate) enum ShiftEnumerationError {
     /// An `i128` product or sum left the representable range.
     Arithmetic,
     /// [`MAX_COMPONENTS`] or [`MAX_STEPS`] was exceeded.
@@ -116,7 +116,7 @@ struct JointSolution {
 /// parent's non-zero pure translations; the cell translations `Z^3` are implicit
 /// and are added by [`parent_lattice_basis`], exactly as in
 /// [`super::canonical_translation`].
-pub(super) fn solve_shift_components(
+pub(crate) fn solve_shift_components(
     equations: &[(Mat3I, [Rat; 3])],
     parent_lattice: &[[Rat; 3]],
 ) -> Result<ShiftComponents, ShiftEnumerationError> {

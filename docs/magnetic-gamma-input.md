@@ -103,8 +103,9 @@ so the only path to one is `verify_scalar_gamma_input`; it carries the verified
 `map`/`shift`, both identities, the policy and the action table.
 
 A Type I (purely unitary) magnetic subgroup needs no `η` — its restriction never
-uses one — but a stated `η` is preserved as the parent action's datum, and
-`time_reversal_square()` is `None` because there is no antiunitary class to square.
+uses one. A stated `η` is preserved as the parent action's datum and reports
+`time_reversal_square() = Some(+1)`, even for Type I. It is `None` only when `η`
+was omitted, not merely because the subgroup has no antiunitary class.
 
 ## Scope fences
 
@@ -117,25 +118,47 @@ uses one — but a stated `η` is preserved as the parent action's datum, and
   legitimate; the caller selects one, it is checked, and the model records it.  The
   action table is a function of `χ` and the mapped classes; the tests pin that two
   embeddings of the same witness agree, and do not claim it as a general theorem.
-* **No subduction, no matrix machinery, no dependency.**  The ordinary entry
-  points are untouched.
+* **Input verification only.** Subduction remains a separate module. No new
+  dependency or representation-matrix machinery is introduced here; the ordinary
+  entry points are untouched.
 
-## The one measured boundary: table alignment not established
+## Verified origin-only source alignment (R35)
 
-The parent's operation table (`query::symmetry_operations_of`) and the source
-character row (the PIR operation storage behind
-`ordinary_scalar_selected_arm_block_trace`) are generated in their own settings.
-A historical measurement (round 25, before this module existed) compared them
-operation by operation modulo the parent's lattice and found them equal for 828 of
-the 980 scalar Γ magnetic isotropy rows and different for the remaining rows — for
-example SG 48 `GM1+`, whose parent table has `(1̄|(1/2,1/2,1/2))` where the row has
-`(1̄|(1/2,1/2,0))`.  The rotation sets are equal in all 980 rows.  That number is a
-measurement of the two tables' agreement, not a coverage or success rate of this
-interface.
+The typed source row uses the generated `SG_DATA_HALL` frame; the parent and
+magnetic embedding use the ordinary canonical operation frame. They need not have
+identical Seitz translations. The contract now proves an origin-only change
+`x_parent = x_source + delta`, without changing any rotation or guessing a basis:
 
-This round has **not established** how to align the two tables, so a row whose
-mapped operations are not in the source row is refused by name
-(`MagneticInputError::CharacterRowSettingMismatch`) rather than paired by
-guesswork.  No alignment transform was searched for and none was refuted: the
-refusal says what this contract does, not what is impossible.  SG 48 `GM1+` is
-pinned as the regression for that refusal.
+1. Read the data-Hall group without a fallback, and anchor every typed row
+   operation to it modulo its lattice.
+2. Verify equality of both full translation lattices (including centring) in both
+   directions and complete source/parent rotation coverage.
+3. Solve **all** `(I - R) delta = tau_parent - tau_source (mod L_parent)` equations
+   together using the existing exact joint-congruence solver. One common origin
+   must work for the whole group, not one origin per operation or per subgroup.
+4. Recheck the witness against the full data-Hall operation set, then transform
+   the row translations and retain the original Seitz-plus-lattice character lookup.
+
+At Γ every lattice translation acts as `+1`, and a pure origin change contributes
+no Bloch phase. Different valid origins therefore give the same character for
+each unchanged rotation and the same grey-parent action. The witness is exposed
+as `ScalarGammaModel::source_origin_shift()`, also available through a high-level
+report’s `scalar_model()`. It is **not** the magnetic embedding’s `shift()`.
+
+For SG 48 the witness is `(1/4, 1/4, 1/4)`, while the tested magnetic embedding
+still has identity map and zero shift. An independent eighth-grid enumeration
+finds the eight valid origins; all eight source labels, both source/record label
+conventions, two condensing records and both η signs are tested end to end.
+SG 227 supplies a centred cubic control with nontrivial characters.
+
+The source-frame census now verifies **980/980 real non-spinor 1D Γ source rows**:
+828 retain the zero origin, and 152 rows in 24 space groups require a nonzero
+origin. This is **not** a count of isotropy records or complete subductions.
+The independent record × source × η census retains its separate denominator and
+its unchanged embedding policy.
+
+An incompatible row, lattice, rotation coverage or joint origin system still
+reports `CharacterRowSettingMismatch`; arithmetic/capacity failures remain
+`Arithmetic` (unknown), not a proof that no alignment exists. No change of basis,
+non-Γ phase transport, spinor, complex source or higher-dimensional source support
+is implied. The matrix-source contract is unchanged.
