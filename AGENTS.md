@@ -22,6 +22,52 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 最新精确磁嵌入桥接（R36，2026-10-23；基线 `7a735d5`）
+
+已将现成的普通 H 嵌入与 M→H data-Hall 线性变换组合为候选 **A = T Q**，交付公开
+[`embed_via_unitary_subgroup`](src/irrep/magnetic_embedding.rs)。浮点 Q 只提供候选，不作证明：
+检查 UNI/母群/H 身份、磁数据库 provenance 与群公理，再精确检查完整格双向相等，复用
+R24 联立同余求解器重算全部磁类的共同原点，逐个原点分支重验完整包含。
+不复用普通/浮点原点，不改 R24 求解器或五种候选 map 族，不增加数据表、依赖或新求解器。
+新增 `EmbeddingKind::UnitarySubgroup` 与 `GeometryError::UnitaryBridgeUnavailable`，
+下游穷尽 match 需补分支；空列表只拒绝此派生 map，计算失败仍为错误，不证伪其它设置。
+[接口、证据与边界](docs/magnetic-unitary-bridge.md)明确：不证明特定 OP 向量的 stabilizer、
+不保证唯一 setting，不增加任何表示/相位输运的适用域。
+
+[受限 Γ census](examples/magnetic_gamma_subduction_census.rs)完整保留先前选出的每个 R24
+exact 见证，只在缺口上尝试同凝聚 irrep/方向的普通 H 桥接；选择不读取源、η 或分导结果。
+**16,721 条记录的 fixed exact 见证从 7,970 增至 14,650，新增 6,680**：其中 6,300 原为
+R24 族内无成员，380 原只有非 exact 包含。R24 族内认证本身没有被推翻，更不扩大为一般无解。
+桥接单独的常驻全表回归为：12,906 条有见证，2,317 条派生 map 未通过，1,482 条无同名普通
+方向，16 条 H 身份不同；**12,906 不是新增记录数**。有些旧见证不能由此桥接得到，故不替换旧路线。
+
+新增 [公开回归](tests/magnetic_unitary_bridge.rs) **9 项**，census 回归 **2 项**：SG3 E1/P1
+UNI24 的族外见证；SG17 的非交换组合顺序；SG48/227 的非零原点与含心格；错身份、原始操作换序、
+错格、算术超限；SG1 X1 中 H 与格均成立但反幺正平移无法放置的反例；空桥接仍有其它合法 map
+的控制。SG3 两个 Γ 源 × 两 η × 两种标签的 8 个高层调用，逐类检验非平凡字符及复向量重建。
+
+最终冻结 [summary](target/logs/r36-accepted/battery/summary.txt)：**906 passed / 0 failed**
+（895 + 9 + 2），65 个测试壳、69/69 池作业、16/16 条腿 exit 0；三个普通 TSV 的
+42,074 / 80,294 / 11,010 行与既有钉住 SHA 不变，4==8。**242 个输入哈希前后完全相同**；
+账本只在核验之后更新。定向 debug 9/0、census example 11/0、严格 debug/release clippy、
+格式与 diff 检查均通过。电池 713 s（构建 276 + example 发现 70 s），不作性能 A/B。
+
+同一冻结树的完整 230 SG Γ census：
+[8 线程](target/logs/r36-accepted/gamma-8.txt) 84.8 s /
+[4 线程](target/logs/r36-accepted/gamma-4.txt) 110.5 s，均 gate exit 0；
+**67,132 个合格 fixed pair × 两 η = 134,264 探针全部成功**，输入/分导/重建失败与 anchor
+violation 均 0。两份 TSV 的 151,068 数据行逐字节相同，SHA
+`4292caa9186f509d006f2f51a13c1938f0d35b86c0f625f41bb04b494b7367c2`。
+与 R35 冻结 TSV 的[逐行比较](target/logs/r36-accepted/compare-r35.txt)：**70,374 个旧成功行
+每一字段完全相同**，仅将 63,890 个旧未执行行变为成功。不是拿两次新结果冒充旧版 A/B。
+
+**仍未完成**：2,071 条记录没有 fixed exact 见证（1,816 为 R24 族内无成员，255 为该族有
+包含但不 exact；另一路也未给见证），对应 16,804 个保留的未执行 TSV 行；未决/记录错误 0。
+这不是一般嵌入不存在的证明。Γ 源域外仍有 333 个高维与 746 个 spinor 源行；一般 B/C、
+复源/高维、非 Γ/full-star/spinor、一般 setting 与完整 OP stabilizer 契约仍未完成。
+下一步继续从现成几何/primitive-lattice/普通 H 记录的 provenance 分析剩余缺口，不靠猜矩阵扩族。
+未删除任何项目、未 push；旧 WIP 未接入。以下 R35/R28 的覆盖数字是各自历史版本。
+
 ### 最新实一维 Γ 源帧对齐（R35，2026-10-23；基线 `14e9594`）
 
 已亲自复现 SG 48 / `GM1+` / UNI 355 的 `CharacterRowSettingMismatch`，并解决其

@@ -4,6 +4,9 @@
 > [精确原点对齐](magnetic-gamma-input.md#verified-origin-only-source-alignment-r35)，
 > 980 条合格 Γ 源行全部通过源帧校验（152 条使用非零原点）。这不等于全分导成功率；
 > 新版完整 census 的结果单独记入[当前账本](../AGENTS.md)，不能沿用下文 13,264 的旧拒绝数。
+> **R36** 又增加了[经幺正子群的精确桥接](magnetic-unitary-bridge.md)：保留原先的固定见证，
+> 只对缺口使用普通 H 嵌入与 M→H frame 构造额外候选并完整回验。因此以下 7,970/8,751
+> 也是旧版记录数，不能作为新版覆盖率；R24 自身的候选族及其认证口径没有改动。
 
 本文件是**只读诊断**的记录，不含生产算法改动。程序
 [examples/magnetic_gamma_subduction_census.rs](../examples/magnetic_gamma_subduction_census.rs)

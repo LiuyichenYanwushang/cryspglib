@@ -999,6 +999,10 @@ pub enum GeometryError {
     /// *unknown* answer, never "no shift": a caller must not turn it into a
     /// refutation.
     ShiftEnumerationUnavailable { uni: usize },
+    /// The supplied ordinary embedding cannot supply the unitary-subgroup
+    /// bridge (mismatched identity, invalid magnetic data, or unavailable frame).
+    /// This is not a proof that no magnetic embedding exists.
+    UnitaryBridgeUnavailable { uni: usize, reason: String },
 }
 
 impl std::fmt::Display for GeometryError {
@@ -1050,6 +1054,12 @@ impl std::fmt::Display for GeometryError {
                 "UNI {uni}: the image of the group's full translation lattice leaves the \
                  parent's lattice"
             ),
+            Self::UnitaryBridgeUnavailable { uni, reason } => {
+                write!(
+                    f,
+                    "UNI {uni}: unitary-subgroup bridge unavailable: {reason}"
+                )
+            }
             Self::ShiftEnumerationUnavailable { uni } => write!(
                 f,
                 "UNI {uni}: the complete shift solution set could not be computed \
@@ -2095,6 +2105,9 @@ pub enum EmbeddingKind {
     /// A signed permutation composed with the **inverse** of the
     /// conventional-frame basis: `S . W_conv^-1`.
     ConventionalDual,
+    /// The ordinary H-to-parent map composed with the identified M-to-H frame.
+    /// Produced only by [`embed_via_unitary_subgroup`], not the R24 map family.
+    UnitarySubgroup,
 }
 
 /// One way to place the tabulated magnetic group inside the parent.
@@ -2135,11 +2148,93 @@ pub struct ParentEmbedding {
     /// UNI 20 with a record lattice doubled, `W = 2I`, `A = I`) was reported as
     /// failing to realise it although the whole group is contained.
     ///
-    /// The flag is deliberately weaker than [`verify_embedding`]: a map can
+    /// This flag is separate from [`verify_embedding`]: a map can
     /// place the group in the parent (containment holds) without realising the
     /// record's lattice, and the search reports both readings instead of
     /// collapsing them.
     pub realises_record_lattice: bool,
+}
+
+/// Propose an exact magnetic embedding through an existing ordinary embedding of H.
+///
+/// If `T` maps the identified unitary subgroup H into the parent and `Q` is
+/// the M-to-H data-Hall frame, the candidate linear map is `A = T Q`.
+/// The floating-point frame is only a *proposal*: its entries must lie on the
+/// existing small rational grid, and every returned map is checked with exact
+/// arithmetic against the magnetic group's complete operation set and lattice.
+///
+/// The ordinary embedding must have the same parent and the identified H space
+/// group. The caller selects it (for isotropy records, normally by the same
+/// condensing irrep and direction label); this function does not assert that the
+/// two order-parameter directions are identical. It certifies grey-parent
+/// containment and `A L_M = L_record`, not an order-parameter stabilizer.
+///
+/// Origins are solved anew, simultaneously for **all** magnetic classes using
+/// [`embedding_shift_components`]. In particular, neither an ordinary origin
+/// nor a floating-point frame shift is blindly reused. The returned list has one
+/// verified witness per discrete origin component; no basis uniqueness is claimed.
+///
+/// An empty list only rejects this one derived map. An error means the bridge
+/// was unavailable or verification was undecided; neither disproves other maps.
+/// This does not change [`parent_embedding_verdict`] or its restricted family
+/// absence certificates. No representation or non-Γ phase transport is performed.
+pub fn embed_via_unitary_subgroup(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+    unitary_embedding: &crate::irrep::subduction::SubgroupEmbedding,
+) -> Result<Vec<ParentEmbedding>, GeometryError> {
+    let unavailable = |reason: String| GeometryError::UnitaryBridgeUnavailable {
+        uni: geometry.uni,
+        reason,
+    };
+    if geometry.uni != set.uni || geometry.parent_sg != unitary_embedding.parent_sg() {
+        return Err(unavailable(
+            "magnetic UNI or parent identity differs".into(),
+        ));
+    }
+    verify_against_database(set)
+        .and_then(|()| verify_group(set))
+        .map_err(|error| unavailable(format!("invalid magnetic operation set: {error}")))?;
+    let h = crate::irrep::corep::cached_unitary_subgroup_with_hall(set.uni)
+        .ok_or_else(|| unavailable("unitary subgroup identification unavailable".into()))?;
+    if h.sg != usize::from(unitary_embedding.subgroup_sg()) {
+        return Err(unavailable(format!(
+            "identified H is SG {}, supplied ordinary subgroup is SG {}",
+            h.sg,
+            unitary_embedding.subgroup_sg()
+        )));
+    }
+    let frame = h
+        .msg_to_data
+        .as_ref()
+        .ok_or_else(|| unavailable("M-to-H data-Hall frame unavailable".into()))?;
+    let mut q = [[Rat::ZERO; 3]; 3];
+    for (row, values) in q.iter_mut().enumerate() {
+        for (column, value) in values.iter_mut().enumerate() {
+            *value = exact_fraction(frame.basis[row][column])
+                .ok_or_else(|| unavailable("M-to-H linear frame off the rational grid".into()))?;
+        }
+    }
+    let map = unitary_embedding
+        .transform()
+        .matrix()
+        .checked_mul(&Mat3R::new(q))
+        .map_err(|_| GeometryError::Arithmetic)?;
+    if !realises_record_lattice_checked(geometry, set, &map)? {
+        return Ok(Vec::new());
+    }
+    let components = embedding_shift_components(geometry, set, map)?;
+    let mut out = Vec::with_capacity(components.representatives.len());
+    for shift in components.representatives {
+        verify_embedding(geometry, set, map, shift)?;
+        out.push(ParentEmbedding {
+            map,
+            shift,
+            kind: EmbeddingKind::UnitarySubgroup,
+            realises_record_lattice: true,
+        });
+    }
+    Ok(out)
 }
 
 /// What the embedding search decided for one record (round 22, extended in round
@@ -2372,7 +2467,9 @@ fn search_embeddings(
             EmbeddingKind::PrimitiveBasis => EmbeddingKind::PrimitiveDual,
             EmbeddingKind::ConventionalBasis => EmbeddingKind::ConventionalDual,
             EmbeddingKind::Plain => continue,
-            EmbeddingKind::PrimitiveDual | EmbeddingKind::ConventionalDual => continue,
+            EmbeddingKind::PrimitiveDual
+            | EmbeddingKind::ConventionalDual
+            | EmbeddingKind::UnitarySubgroup => continue,
         };
         duals.push((dual_kind, dual));
     }
