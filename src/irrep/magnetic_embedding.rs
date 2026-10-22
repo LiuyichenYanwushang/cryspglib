@@ -1003,6 +1003,9 @@ pub enum GeometryError {
     /// bridge (mismatched identity, invalid magnetic data, or unavailable frame).
     /// This is not a proof that no magnetic embedding exists.
     UnitaryBridgeUnavailable { uni: usize, reason: String },
+    /// Magnetic data or the reference-cell primitive lattice could not be
+    /// verified. This does not disprove other embeddings.
+    PrimitiveBridgeUnavailable { uni: usize, reason: String },
 }
 
 impl std::fmt::Display for GeometryError {
@@ -1054,6 +1057,12 @@ impl std::fmt::Display for GeometryError {
                 "UNI {uni}: the image of the group's full translation lattice leaves the \
                  parent's lattice"
             ),
+            Self::PrimitiveBridgeUnavailable { uni, reason } => {
+                write!(
+                    f,
+                    "UNI {uni}: primitive-lattice bridge unavailable: {reason}"
+                )
+            }
             Self::UnitaryBridgeUnavailable { uni, reason } => {
                 write!(
                     f,
@@ -2108,6 +2117,9 @@ pub enum EmbeddingKind {
     /// The ordinary H-to-parent map composed with the identified M-to-H frame.
     /// Produced only by [`embed_via_unitary_subgroup`], not the R24 map family.
     UnitarySubgroup,
+    /// The record's primitive basis mapped from the magnetic reference cell's
+    /// verified full translation lattice; see [`embed_via_primitive_lattices`].
+    PrimitiveLattice,
 }
 
 /// One way to place the tabulated magnetic group inside the parent.
@@ -2220,6 +2232,83 @@ pub fn embed_via_unitary_subgroup(
         .matrix()
         .checked_mul(&Mat3R::new(q))
         .map_err(|_| GeometryError::Arithmetic)?;
+    exact_embeddings_for_map(geometry, set, map, EmbeddingKind::UnitarySubgroup)
+}
+
+/// Propose a magnetic embedding by identifying two explicit primitive bases.
+///
+/// Let `B` contain the record's primitive vectors as columns in the parent
+/// conventional frame, and `C` contain the magnetic reference cell's primitive
+/// vectors. The candidate is `A = B C^-1`, not `B` alone: magnetic operations
+/// use conventional coordinates even when their translation lattice is centred.
+///
+/// The reference SG comes from the magnetic database. Its primitive convention
+/// is checked against **all** source translations, in both directions, rather
+/// than inferred from its symbol or presumed to be H's standard cell. Both the
+/// raw magnetic data and group axioms are checked before constructing the map.
+/// The same exact-lattice, joint-origin and full-operation checks as
+/// [`embed_via_unitary_subgroup`] certify every returned entry.
+///
+/// This route needs no ordinary isotropy row. It uses this particular ordering
+/// of the two bases; it neither searches all lattice isomorphisms nor certifies
+/// an order-parameter stabilizer. An empty list rejects only this map. Errors
+/// (including arithmetic/capacity limits) must not be interpreted as no solution.
+/// The R24 candidate family and its absence certificates are unchanged.
+pub fn embed_via_primitive_lattices(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+) -> Result<Vec<ParentEmbedding>, GeometryError> {
+    let unavailable = |reason: String| GeometryError::PrimitiveBridgeUnavailable {
+        uni: geometry.uni,
+        reason,
+    };
+    if geometry.uni != set.uni {
+        return Err(unavailable("magnetic UNI differs".into()));
+    }
+    verify_against_database(set)
+        .and_then(|()| verify_group(set))
+        .map_err(|error| {
+            unavailable(format!(
+                "magnetic operation set could not be verified: {error}"
+            ))
+        })?;
+    let reference_sg =
+        u8::try_from(crate::msg_database::get_magnetic_spacegroup_type(set.uni).number)
+            .map_err(|_| unavailable("reference space-group number is unavailable".into()))?;
+    // An auxiliary lattice, not a fabricated isotropy record: its conventional
+    // frame is the database reference cell, so identity tests L_M = C Z^3.
+    let source_lattice = MagneticGeometry {
+        parent_sg: reference_sg,
+        uni: set.uni,
+        basis: [
+            [Rat::ONE, Rat::ZERO, Rat::ZERO],
+            [Rat::ZERO, Rat::ONE, Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, Rat::ONE],
+        ],
+        origin: [Rat::ZERO; 3],
+        index: 1,
+    };
+    if !realises_record_lattice_checked(&source_lattice, set, &Mat3R::identity())? {
+        return Err(unavailable(
+            "reference primitive basis differs from the full source lattice".into(),
+        ));
+    }
+    let source = Mat3R::new(basis_in_parent_conventional(&source_lattice)?).transpose();
+    let target = Mat3R::new(basis_in_parent_conventional(geometry)?).transpose();
+    let map = target
+        .checked_mul(&source.inverse().map_err(|_| GeometryError::Arithmetic)?)
+        .map_err(|_| GeometryError::Arithmetic)?;
+    exact_embeddings_for_map(geometry, set, map, EmbeddingKind::PrimitiveLattice)
+}
+
+/// Both bridge constructors validate the source, then share the entire exact
+/// acceptance path. In particular, a lattice match alone never certifies M.
+fn exact_embeddings_for_map(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+    map: Mat3R,
+    kind: EmbeddingKind,
+) -> Result<Vec<ParentEmbedding>, GeometryError> {
     if !realises_record_lattice_checked(geometry, set, &map)? {
         return Ok(Vec::new());
     }
@@ -2230,7 +2319,7 @@ pub fn embed_via_unitary_subgroup(
         out.push(ParentEmbedding {
             map,
             shift,
-            kind: EmbeddingKind::UnitarySubgroup,
+            kind,
             realises_record_lattice: true,
         });
     }
@@ -2469,7 +2558,8 @@ fn search_embeddings(
             EmbeddingKind::Plain => continue,
             EmbeddingKind::PrimitiveDual
             | EmbeddingKind::ConventionalDual
-            | EmbeddingKind::UnitarySubgroup => continue,
+            | EmbeddingKind::UnitarySubgroup
+            | EmbeddingKind::PrimitiveLattice => continue,
         };
         duals.push((dual_kind, dual));
     }

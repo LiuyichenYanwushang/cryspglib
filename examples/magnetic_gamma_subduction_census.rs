@@ -1,4 +1,4 @@
-//! Restricted scalar-Γ magnetic-subduction census (R28, extended in R35/R36).
+//! Restricted scalar-Γ magnetic-subduction census (R28, extended in R35–R37).
 //!
 //! This example is a census, not a new algorithm: it points the accepted R25
 //! input contract ([`verify_scalar_gamma_input`]) and the accepted R26/R27
@@ -23,8 +23,12 @@
 //!   every old choice. Only when none exists does R36 compose a same-label
 //!   ordinary H embedding with the identified M-to-H frame, solve its origins,
 //!   and verify the entire magnetic group and exact lattice. This is a separate
-//!   provenance-derived route, not an expansion of the R24 map family. Neither
-//!   route reads the source, η, or subduction outcome. A record with no witness is
+//!   provenance-derived route, not an expansion of the R24 map family. R37 then
+//!   tries primitive-lattice normalization, followed by other ordinary directions
+//!   of the same condensing irrep with identical H and record lattice. All old
+//!   choices are preserved; no route reads the source, η, or subduction outcome.
+//!   These are geometric witnesses, not proofs of an OP stabilizer. A record
+//!   with no witness is
 //!   reported as such and not probed; whether that absence is *certified*, a
 //!   plain "no realising candidate among the contained ones", or an
 //!   *undecided arithmetic residual* is kept apart, because an undecided answer
@@ -86,8 +90,9 @@
 //! real support failure is reported as a number and a named variant.
 
 use cryspglib::irrep::magnetic_embedding::{
-    MagneticGeometry, MagneticOperationSet, ParentEmbedding, embed_via_unitary_subgroup,
-    geometry_of, magnetic_operations, parent_embedding_verdict,
+    EmbeddingKind, MagneticGeometry, MagneticOperationSet, ParentEmbedding,
+    embed_via_primitive_lattices, embed_via_unitary_subgroup, geometry_of, magnetic_operations,
+    parent_embedding_verdict,
 };
 use cryspglib::irrep::magnetic_input::{
     EmbeddingEvidence, LatticePolicy, MagneticInputError, RealSign, RecordIdentity,
@@ -314,7 +319,7 @@ fn character_view_variant(error: &CharacterViewError) -> &'static str {
 struct FixedCandidate {
     map: Mat3R,
     shift: [Rat; 3],
-    via_unitary_bridge: bool,
+    kind: EmbeddingKind,
 }
 
 /// The record's fixed embedding, or why there is none.
@@ -322,9 +327,9 @@ enum FixedEmbedding {
     /// The first realising candidate under the total key, with `RequireExact`.
     Fixed(Box<FixedCandidate>),
     /// The R24 search returned contained but non-realising entries, and the
-    /// additional unitary route supplied no exact witness.
+    /// additional geometry routes supplied no exact witness.
     NoRealising,
-    /// Every R24 candidate was refuted; the unitary route supplied no witness.
+    /// Every R24 candidate was refuted; the additional routes supplied no witness.
     /// The certificate still applies ONLY to the R24 family.
     CertifiedAbsence,
     /// The search returned nothing and some candidate is **undecided**
@@ -412,13 +417,29 @@ fn fixed_embedding(sg: u8, record: &RecordRow) -> FixedEmbedding {
                 return FixedEmbedding::Fixed(Box::new(FixedCandidate {
                     map: chosen.map,
                     shift: chosen.shift,
-                    via_unitary_bridge: true,
+                    kind: chosen.kind,
                 }));
             }
             Ok(None) => {}
             Err(detail) => {
                 return FixedEmbedding::Error {
                     variant: "unitary_bridge",
+                    detail: sanitize(&detail),
+                };
+            }
+        }
+        match additional_bridge_candidate(sg, record, &geometry, &set) {
+            Ok(Some(chosen)) => {
+                return FixedEmbedding::Fixed(Box::new(FixedCandidate {
+                    map: chosen.map,
+                    shift: chosen.shift,
+                    kind: chosen.kind,
+                }));
+            }
+            Ok(None) => {}
+            Err(detail) => {
+                return FixedEmbedding::Error {
+                    variant: "additional_bridge",
                     detail: sanitize(&detail),
                 };
             }
@@ -436,7 +457,7 @@ fn fixed_embedding(sg: u8, record: &RecordRow) -> FixedEmbedding {
     FixedEmbedding::Fixed(Box::new(FixedCandidate {
         map: chosen.map,
         shift: chosen.shift,
-        via_unitary_bridge: false,
+        kind: chosen.kind,
     }))
 }
 
@@ -472,6 +493,55 @@ fn unitary_bridge_candidate(
     let entries =
         embed_via_unitary_subgroup(geometry, set, &ordinary).map_err(|error| error.to_string())?;
     Ok(entries.into_iter().min_by_key(embedding_key))
+}
+
+/// These routes run only after BOTH old choices have failed. Primitive-basis
+/// normalization comes first; then other ordinary directions of the same irrep
+/// may supply H embeddings, but only with the same H identity and record lattice.
+/// Neither label coincidence nor lattice equality proves an OP stabilizer.
+fn additional_bridge_candidate(
+    sg: u8,
+    record: &RecordRow,
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+) -> Result<Option<ParentEmbedding>, String> {
+    let primitive = embed_via_primitive_lattices(geometry, set).map_err(|e| e.to_string())?;
+    if let Some(entry) = primitive.into_iter().min_by_key(embedding_key) {
+        return Ok(Some(entry));
+    }
+    let magnetic = record_of(sg, record);
+    let h = cryspglib::irrep::corep::identify_unitary_subgroup(set.uni)
+        .ok_or("unitary subgroup identification unavailable")?;
+    let rows = isotropy::isotropy_subgroups(sg, record.condensing, LabelConvention::Cdml)
+        .map_err(|e| e.to_string())?;
+    let mut entries = Vec::new();
+    for row in rows
+        .iter()
+        .filter(|r| r.record.sg == h && r.record.direction_label != magnetic.direction)
+    {
+        if !same_primitive_lattice(
+            Mat3R::new(geometry.basis),
+            Mat3R::from_ints(row.record.basis),
+        )
+        .map_err(|e| e.to_string())?
+        {
+            continue;
+        }
+        let ordinary = SubgroupEmbedding::from_isotropy_subgroup(row).map_err(|e| e.to_string())?;
+        entries.extend(
+            embed_via_unitary_subgroup(geometry, set, &ordinary).map_err(|e| e.to_string())?,
+        );
+    }
+    Ok(entries.into_iter().min_by_key(embedding_key))
+}
+
+/// Rows are generators; mutual integral coordinates compare the whole lattice,
+/// not determinants or literal matrices. Arithmetic failures remain errors.
+fn same_primitive_lattice(
+    a: Mat3R,
+    b: Mat3R,
+) -> Result<bool, cryspglib::irrep::subduction::SubductionError> {
+    Ok(a.checked_mul(&b.inverse()?)?.is_integral() && b.checked_mul(&a.inverse()?)?.is_integral())
 }
 
 /// The record the inventory row points at, read back from the database.
@@ -753,6 +823,7 @@ struct Counters {
     records_fixed: usize,
     /// Newly fixed by the unitary bridge after the R24 family had no exact witness.
     records_fixed_unitary_bridge: usize,
+    records_fixed_primitive_lattice: usize,
     /// Of the fixed embeddings, those whose map is exactly the identity (the
     /// tabulated frame); the shift may still be a solved non-zero representative.
     records_fixed_identity_map: usize,
@@ -802,6 +873,7 @@ impl Counters {
             records_total,
             records_fixed,
             records_fixed_unitary_bridge,
+            records_fixed_primitive_lattice,
             records_fixed_identity_map,
             records_fixed_identity_zero_shift,
             records_no_fixed,
@@ -915,7 +987,10 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
                 let map = candidate.map;
                 let shift = candidate.shift;
                 counters.records_fixed += 1;
-                counters.records_fixed_unitary_bridge += usize::from(candidate.via_unitary_bridge);
+                counters.records_fixed_unitary_bridge +=
+                    usize::from(candidate.kind == EmbeddingKind::UnitarySubgroup);
+                counters.records_fixed_primitive_lattice +=
+                    usize::from(candidate.kind == EmbeddingKind::PrimitiveLattice);
                 if map == Mat3R::identity() {
                     counters.records_fixed_identity_map += 1;
                     if shift.iter().all(|value| value.is_zero()) {
@@ -1188,7 +1263,8 @@ const STAGES: [&str; 5] = [
 ];
 
 /// The named reasons a record may have no fixed embedding.
-const NO_FIXED_REASONS: [&str; 7] = [
+const NO_FIXED_REASONS: [&str; 8] = [
+    "additional_bridge",
     "no_realising_candidate",
     "certified_absence",
     "undecided_residual",
@@ -2164,6 +2240,10 @@ fn main() -> ExitCode {
         counters.records_fixed_unitary_bridge
     );
     println!(
+        "records_fixed_via_primitive_lattice {}",
+        counters.records_fixed_primitive_lattice
+    );
+    println!(
         "records_fixed_with_identity_map {}",
         counters.records_fixed_identity_map
     );
@@ -2402,7 +2482,6 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cryspglib::irrep::magnetic_embedding::EmbeddingKind;
 
     fn rational(numerator: i128, denominator: i128) -> Rat {
         Rat::new(numerator, denominator).expect("fraction")
@@ -2727,8 +2806,6 @@ mod tests {
         imaginary.is_zero() && (real == Rat::ONE || real == negative_one)
     }
 
-    /// The record inventory must agree with the independent query and must add
-    /// up to the corpus the R24 census pinned.
     #[test]
     fn a_legacy_choice_is_preserved_even_when_the_bridge_also_succeeds() {
         let inventory = inventory_of(1);
@@ -2747,7 +2824,7 @@ mod tests {
         let FixedEmbedding::Fixed(chosen) = fixed_embedding(1, row) else {
             panic!("missing legacy witness")
         };
-        assert!(!chosen.via_unitary_bridge);
+        assert_eq!(chosen.kind, EmbeddingKind::Plain);
         assert_eq!(chosen.map, Mat3R::identity());
         assert_eq!(chosen.shift, [Rat::ZERO; 3]);
     }
@@ -2763,7 +2840,7 @@ mod tests {
         let FixedEmbedding::Fixed(chosen) = fixed_embedding(3, row) else {
             panic!("missing bridge witness")
         };
-        assert!(chosen.via_unitary_bridge);
+        assert_eq!(chosen.kind, EmbeddingKind::UnitarySubgroup);
         assert_eq!(
             chosen.map,
             Mat3R::from_ints([[0, 0, 1], [0, 2, 0], [-2, 0, 1]])
@@ -2775,6 +2852,82 @@ mod tests {
         assert_eq!(total.records_fixed_unitary_bridge, 2);
     }
 
+    #[test]
+    fn remaining_gaps_use_the_normalized_lattice_before_other_h_directions() {
+        for (sg, label, direction, kind) in [
+            (21, "T1", "P1", EmbeddingKind::PrimitiveLattice),
+            (177, "GM5", "P2", EmbeddingKind::PrimitiveLattice),
+            (19, "Y1", "P3", EmbeddingKind::UnitarySubgroup),
+            (92, "X1", "P1", EmbeddingKind::UnitarySubgroup),
+        ] {
+            let inventory = inventory_of(sg);
+            let row = inventory
+                .records
+                .iter()
+                .find(|r| r.condensing == label && record_of(sg, r).direction == direction)
+                .unwrap();
+            let geometry = geometry_of(sg, &record_of(sg, row)).unwrap();
+            let set = magnetic_operations(row.uni).unwrap();
+            let old = parent_embedding_verdict(&geometry, &set).unwrap();
+            assert!(old.embeddings.iter().all(|e| !e.realises_record_lattice));
+            assert!(
+                unitary_bridge_candidate(sg, row, &geometry, &set)
+                    .unwrap()
+                    .is_none()
+            );
+            let FixedEmbedding::Fixed(chosen) = fixed_embedding(sg, row) else {
+                panic!("missing additional witness")
+            };
+            assert_eq!(chosen.kind, kind);
+            cryspglib::irrep::magnetic_embedding::verify_embedding(
+                &geometry,
+                &set,
+                chosen.map,
+                chosen.shift,
+            )
+            .unwrap();
+            assert!(
+                cryspglib::irrep::magnetic_embedding::realises_record_lattice_checked(
+                    &geometry,
+                    &set,
+                    &chosen.map
+                )
+                .unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn primitive_route_accounting_counts_selected_records_not_source_probes() {
+        let inventory = inventory_of(21);
+        let expected=inventory.records.iter().filter(|r|matches!(fixed_embedding(21,r),FixedEmbedding::Fixed(e) if e.kind==EmbeddingKind::PrimitiveLattice)).count();
+        assert!(expected >= 4);
+        let report = census_sg(&inventory);
+        assert_eq!(report.counters.records_fixed_primitive_lattice, expected);
+        let mut total = Counters::default();
+        total.merge(&report.counters);
+        assert_eq!(total.records_fixed_primitive_lattice, expected);
+    }
+
+    #[test]
+    fn alternative_record_lattices_need_both_inclusions_not_just_equal_volume() {
+        let a = Mat3R::from_ints([[2, 0, 0], [0, 1, 0], [0, 0, 1]]);
+        assert!(
+            same_primitive_lattice(a, Mat3R::from_ints([[2, 1, 0], [0, 1, 0], [0, 0, 1]])).unwrap()
+        );
+        assert!(
+            !same_primitive_lattice(a, Mat3R::from_ints([[1, 0, 0], [0, 2, 0], [0, 0, 1]]))
+                .unwrap()
+        );
+        assert!(
+            !same_primitive_lattice(a, Mat3R::from_ints([[4, 0, 0], [0, 1, 0], [0, 0, 1]]))
+                .unwrap()
+        );
+        assert!(same_primitive_lattice(a, Mat3R::from_ints([[0; 3]; 3])).is_err());
+    }
+
+    /// The record inventory must agree with the independent query and must add
+    /// up to the corpus the R24 census pinned.
     #[test]
     fn the_record_inventory_matches_the_independent_query() {
         let mut total = 0usize;

@@ -7,6 +7,8 @@
 > **R36** 又增加了[经幺正子群的精确桥接](magnetic-unitary-bridge.md)：保留原先的固定见证，
 > 只对缺口使用普通 H 嵌入与 M→H frame 构造额外候选并完整回验。因此以下 7,970/8,751
 > 也是旧版记录数，不能作为新版覆盖率；R24 自身的候选族及其认证口径没有改动。
+> **R37** 在保留这些选择之后，再尝试完整源格的 primitive 归一化与同格的其它普通 H
+> 记录。它们只提供经验证的几何见证，不声称证明 OP stabilizer；新统计仍见当前账本。
 
 本文件是**只读诊断**的记录，不含生产算法改动。程序
 [examples/magnetic_gamma_subduction_census.rs](../examples/magnetic_gamma_subduction_census.rs)

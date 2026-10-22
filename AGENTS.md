@@ -22,6 +22,54 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 最新完整源格归一化（R37，2026-10-23；基线 `114fc90`）
+
+已交付 [`embed_via_primitive_lattices`](src/irrep/magnetic_embedding.rs)：以记录 primitive
+基矢的列矩阵 B 和磁参考胞 primitive 列矩阵 C 构造 **A = B C⁻¹**，修正不能把磁群
+conventional 坐标直接当成 primitive 坐标的问题。先重验数据库/群公理与 **L_M = C Z³**
+双向相等，再复用与 R36 共用的 exact 格、完整联立原点与全磁操作回验路径。源参考格约定
+对 **1,651/1,651 UNI** 全部成立；不把这个数冒充嵌入覆盖。新增 `PrimitiveLattice` 和
+`PrimitiveBridgeUnavailable` 两个 enum variant，需更新穷尽 match；错误不转为空集。
+不改 R24 候选族、求解器或数据，不枚举新的小矩阵族，不接入旧 WIP。
+
+[普查](examples/magnetic_gamma_subduction_census.rs)完整保留 R24 与 R36 已选见证；
+其后先尝试 primitive 归一化，再尝试同母群/凝聚 irrep 的其它普通方向，只接纳 H 号相同、
+记录 primitive 格双向相等的候选并完整回验。选择不读取源、η 或分导结果；方向标签不同
+不代表 OP 向量等价。[接口边界](docs/magnetic-unitary-bridge.md)仍只保证 grey 母群包含
+与记录格相等，不保证 OP stabilizer、唯一 setting 或一般嵌入分类。
+
+**fixed 记录 14,650 → 15,587，新增 937**：587 条选 primitive 路线，350 条选其它 H
+方向；原 H 路线合计计数 6,680 → 7,030。按旧失败原因分为 **852 条族内无成员 + 85 条
+非 exact**。primitive 路线单独全表有 **11,766/16,721** 条见证，不是新增数；R36 同名
+H 路线的 [16,721, 1,482, 16, 2,317, 12,906] 钉值未变。新增
+[公开回归](tests/magnetic_primitive_bridge.rs) **9 项**与 census 回归 **3 项**：含心源格、
+必要非零原点、空结果不否证其它 map、身份/数据/元数据、缩放、算术上限；16 个高层
+Γ 源/η/标签调用逐类检验非平凡作用和复向量重建。其它方向的同格判断另有同体积但异格、
+单向包含、奇异矩阵控制；两条旧路线与新路线的优先级及计数合并均有回归。
+
+最终冻结 [summary](target/logs/r37-accepted/battery/summary.txt)：**918 passed / 0 failed**
+（906 + 9 + 3）、66 个测试壳、70/70 池作业、16/16 条腿全部 exit 0；三份 ordinary TSV 的
+42,074 / 80,294 / 11,010 行、既有 SHA 与 4==8 均不变。**243 个工作区输入哈希前后相同**；
+账本在核验后更新。定向 debug 的 9+9+14 项、严格 debug/release clippy、格式与 diff 均通过。
+电池 690 s（构建 249 + example 发现 75 s），不作性能 A/B。
+
+同一冻结树的完整 230 SG Γ census：[8 线程](target/logs/r37-accepted/gamma-8.txt)
+**103.5 s** / [4 线程](target/logs/r37-accepted/gamma-4.txt) **115.2 s**，gate 均 exit 0；
+**70,467 个合格 fixed pair × 两 η = 140,934 次全部成功**，输入/分导/重建失败与 anchor
+violation 全 0。151,068 数据行逐字节相同，SHA
+`45aaacfc04621b5138e90c409c374fde6a785edd7c4e8b4857856992b903e92c`。
+[与 R36 比较](target/logs/r37-accepted/compare-r36.txt)：**134,264 个旧成功行每字段完全
+相同，新增成功 6,670 行**；首次探索输出也与冻结输出一致。
+
+**仍未完成**：1,134 条记录无 fixed exact 见证（964 族内无成员 + 170 非 exact），保留
+10,134 个未执行 TSV 行；未决/记录错误 0，不是一般无解证明。源域外仍有 333 高维与
+746 spinor Γ 源；一般 B/C、复源/高维、非 Γ/full-star/spinor 与 OP stabilizer 契约未完成。
+[后续元数据对照](target/logs/r37-gap/remaining-metadata.txt)：剩余记录为 944 Type IV、190
+Type III，H 点群阶 1/2/4 分别为 123/687/324；全部有同 irrep 的 H 号匹配普通行，1,110
+条有同格候选，余 24 条在母群旋转下有同格候选。**这只是候选元数据，不是新增嵌入见证**；
+下一步检查实际 H 周期、反幺正扩张与可复用的识别/坐标变换。未删除项目、未 push。
+以下 R36/R35 的覆盖数字保留为历史。
+
 ### 最新精确磁嵌入桥接（R36，2026-10-23；基线 `7a735d5`）
 
 已将现成的普通 H 嵌入与 M→H data-Hall 线性变换组合为候选 **A = T Q**，交付公开
