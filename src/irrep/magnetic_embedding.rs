@@ -69,6 +69,11 @@ use crate::irrep::subduction::{Mat3I, Mat3R, Rat, SubductionError, Vec3R};
 /// contract and the completeness argument.
 pub(crate) mod complete_shift;
 
+mod point_extension;
+pub use point_extension::{
+    PointExtensionProposalFailure, PointExtensionSearch, embed_via_point_extensions,
+};
+
 mod antitranslation;
 pub use antitranslation::{
     AntitranslationProposalFailure, AntitranslationSearch, embed_via_antitranslations,
@@ -1015,6 +1020,9 @@ pub enum GeometryError {
     /// a nonexistence certificate; individual identifier failures are reported
     /// separately by `AntitranslationSearch::unresolved`.
     AntitranslationBridgeUnavailable { uni: usize, reason: String },
+    /// The point-extension route could not be prepared or verified. Individual
+    /// floating identifier failures remain in `PointExtensionSearch::unresolved`.
+    PointExtensionUnavailable { uni: usize, reason: String },
 }
 
 impl std::fmt::Display for GeometryError {
@@ -1066,6 +1074,9 @@ impl std::fmt::Display for GeometryError {
                 "UNI {uni}: the image of the group's full translation lattice leaves the \
                  parent's lattice"
             ),
+            Self::PointExtensionUnavailable { uni, reason } => {
+                write!(f, "UNI {uni}: point extension unavailable: {reason}")
+            }
             Self::AntitranslationBridgeUnavailable { uni, reason } => {
                 write!(f, "UNI {uni}: antitranslation bridge unavailable: {reason}")
             }
@@ -2135,6 +2146,9 @@ pub enum EmbeddingKind {
     /// Paired auxiliary point-group/antitranslation frames, followed by exact
     /// verification of the original group; see [`embed_via_antitranslations`].
     Antitranslation,
+    /// A graded point extension, verified with the original magnetic source;
+    /// see [`embed_via_point_extensions`].
+    PointExtension,
 }
 
 /// One way to place the tabulated magnetic group inside the parent.
@@ -2694,7 +2708,8 @@ fn search_embeddings(
             | EmbeddingKind::ConventionalDual
             | EmbeddingKind::UnitarySubgroup
             | EmbeddingKind::PrimitiveLattice
-            | EmbeddingKind::Antitranslation => continue,
+            | EmbeddingKind::Antitranslation
+            | EmbeddingKind::PointExtension => continue,
         };
         duals.push((dual_kind, dual));
     }

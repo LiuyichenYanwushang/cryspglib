@@ -91,8 +91,9 @@
 
 use cryspglib::irrep::magnetic_embedding::{
     EmbeddingKind, MagneticGeometry, MagneticOperationSet, ParentEmbedding,
-    embed_via_antitranslations, embed_via_primitive_lattices, embed_via_unitary_subgroup,
-    geometry_of, magnetic_operations, parent_embedding_verdict, record_lattice_obstruction,
+    embed_via_antitranslations, embed_via_point_extensions, embed_via_primitive_lattices,
+    embed_via_unitary_subgroup, geometry_of, magnetic_operations, parent_embedding_verdict,
+    record_lattice_obstruction,
 };
 use cryspglib::irrep::magnetic_input::{
     EmbeddingEvidence, LatticePolicy, MagneticInputError, RealSign, RecordIdentity,
@@ -378,7 +379,12 @@ fn value_of(matrix: Mat3R, row: usize, column: usize) -> (i128, i128) {
 }
 
 /// Pick the record's fixed embedding.  The choice reads only the record.
-fn fixed_embedding(sg: u8, record: &RecordRow, unresolved: &mut Vec<String>) -> FixedEmbedding {
+fn fixed_embedding(
+    sg: u8,
+    record: &RecordRow,
+    unresolved: &mut Vec<String>,
+    point_unresolved: &mut Vec<String>,
+) -> FixedEmbedding {
     let geometry = match geometry_of(sg, &record_of(sg, record)) {
         Ok(geometry) => geometry,
         Err(error) => {
@@ -456,6 +462,22 @@ fn fixed_embedding(sg: u8, record: &RecordRow, unresolved: &mut Vec<String>) -> 
             Err(detail) => {
                 return FixedEmbedding::Error {
                     variant: "antitranslation_bridge",
+                    detail: sanitize(&detail),
+                };
+            }
+        }
+        match point_extension_bridge_candidate(sg, record, &geometry, &set, point_unresolved) {
+            Ok(Some(chosen)) => {
+                return FixedEmbedding::Fixed(Box::new(FixedCandidate {
+                    map: chosen.map,
+                    shift: chosen.shift,
+                    kind: chosen.kind,
+                }));
+            }
+            Ok(None) => {}
+            Err(detail) => {
+                return FixedEmbedding::Error {
+                    variant: "point_extension_bridge",
                     detail: sanitize(&detail),
                 };
             }
@@ -551,15 +573,63 @@ fn additional_bridge_candidate(
     Ok(entries.into_iter().min_by_key(embedding_key))
 }
 
-/// Last resort: use only ordinary H rotations, not its calibrated period. All
-/// previous choices remain authoritative. Identifier failures remain observable
-/// even when another proposal succeeds; they do not change R24's own certificate.
+/// Keep the Type-IV route before the new Type-III route. Both use only H
+/// rotations, not its calibrated period; unresolved proposals stay visible.
 fn antitranslation_bridge_candidate(
     sg: u8,
     record: &RecordRow,
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
     unresolved: &mut Vec<String>,
+) -> Result<Option<ParentEmbedding>, String> {
+    ordinary_point_candidates(sg, record, set, |ordinary| {
+        let report =
+            embed_via_antitranslations(geometry, set, ordinary).map_err(|e| e.to_string())?;
+        for failure in report.unresolved {
+            unresolved.push(format!(
+                "SG{sg} {} index={} UNI{} alpha={:?}: {:?}",
+                record.condensing,
+                record.direction_index,
+                record.uni,
+                failure.translation,
+                failure.error
+            ));
+        }
+        Ok(report.embeddings)
+    })
+}
+
+fn point_extension_bridge_candidate(
+    sg: u8,
+    record: &RecordRow,
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+    unresolved: &mut Vec<String>,
+) -> Result<Option<ParentEmbedding>, String> {
+    ordinary_point_candidates(sg, record, set, |ordinary| {
+        let report =
+            embed_via_point_extensions(geometry, set, ordinary).map_err(|e| e.to_string())?;
+        for failure in report.unresolved {
+            unresolved.push(format!(
+                "SG{sg} {} index={} UNI{} anti_rotation={:?}: {:?}",
+                record.condensing,
+                record.direction_index,
+                record.uni,
+                failure.anti_rotation,
+                failure.error
+            ));
+        }
+        Ok(report.embeddings)
+    })
+}
+
+/// Same irrep and H identity, distinct ordinary point subgroups, and the same
+/// record-only total order for both routes. No source, eta or subduction lookup.
+fn ordinary_point_candidates(
+    sg: u8,
+    record: &RecordRow,
+    set: &MagneticOperationSet,
+    mut search: impl FnMut(&SubgroupEmbedding) -> Result<Vec<ParentEmbedding>, String>,
 ) -> Result<Option<ParentEmbedding>, String> {
     let h = cryspglib::irrep::corep::identify_unitary_subgroup(set.uni)
         .ok_or("unitary subgroup identification unavailable")?;
@@ -574,19 +644,7 @@ fn antitranslation_bridge_candidate(
         if !seen.insert(rotations) {
             continue;
         }
-        let report =
-            embed_via_antitranslations(geometry, set, &ordinary).map_err(|e| e.to_string())?;
-        for failure in report.unresolved {
-            unresolved.push(format!(
-                "SG{sg} {} index={} UNI{} alpha={:?}: {:?}",
-                record.condensing,
-                record.direction_index,
-                record.uni,
-                failure.translation,
-                failure.error
-            ));
-        }
-        entries.extend(report.embeddings);
+        entries.extend(search(&ordinary)?);
     }
     Ok(entries.into_iter().min_by_key(embedding_key))
 }
@@ -881,6 +939,7 @@ struct Counters {
     records_fixed_unitary_bridge: usize,
     records_fixed_primitive_lattice: usize,
     records_fixed_antitranslation: usize,
+    records_fixed_point_extension: usize,
     records_literal_lattice_obstructed: usize,
     /// Of the fixed embeddings, those whose map is exactly the identity (the
     /// tabulated frame); the shift may still be a solved non-zero representative.
@@ -933,6 +992,7 @@ impl Counters {
             records_fixed_unitary_bridge,
             records_fixed_primitive_lattice,
             records_fixed_antitranslation,
+            records_fixed_point_extension,
             records_literal_lattice_obstructed,
             records_fixed_identity_map,
             records_fixed_identity_zero_shift,
@@ -1001,6 +1061,7 @@ struct SgReport {
     tsv: String,
     lattice_errors: Vec<String>,
     antitranslation_unresolved: Vec<String>,
+    point_extension_unresolved: Vec<String>,
 }
 
 /// Independent audit, never a selector. A proof cannot contradict an existing
@@ -1025,6 +1086,7 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
     let mut tsv = String::new();
     let mut lattice_errors = Vec::new();
     let mut antitranslation_unresolved = Vec::new();
+    let mut point_extension_unresolved = Vec::new();
     let eligible: Vec<&SourceRow> = inventory
         .sources
         .iter()
@@ -1060,7 +1122,12 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
     // carry the same (record, source, η) shape as a probe, with a named reason.
     let mut no_fixed: Vec<(RecordRow, &'static str, String)> = Vec::new();
     for record in &inventory.records {
-        let fixed = fixed_embedding(sg, record, &mut antitranslation_unresolved);
+        let fixed = fixed_embedding(
+            sg,
+            record,
+            &mut antitranslation_unresolved,
+            &mut point_extension_unresolved,
+        );
         match audit_record_lattice(sg, record, matches!(&fixed, FixedEmbedding::Fixed(_))) {
             Ok(obstructed) => {
                 counters.records_literal_lattice_obstructed += usize::from(obstructed)
@@ -1075,6 +1142,8 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
                 let map = candidate.map;
                 let shift = candidate.shift;
                 counters.records_fixed += 1;
+                counters.records_fixed_point_extension +=
+                    usize::from(candidate.kind == EmbeddingKind::PointExtension);
                 counters.records_fixed_antitranslation +=
                     usize::from(candidate.kind == EmbeddingKind::Antitranslation);
                 counters.records_fixed_unitary_bridge +=
@@ -1152,6 +1221,7 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
         tsv,
         lattice_errors,
         antitranslation_unresolved,
+        point_extension_unresolved,
     }
 }
 
@@ -2341,6 +2411,20 @@ fn main() -> ExitCode {
     );
     println!("lattice_obstruction_errors {}", lattice_errors.len());
     println!(
+        "records_fixed_via_point_extension {}",
+        counters.records_fixed_point_extension
+    );
+    println!(
+        "point_extension_unresolved_proposals {}",
+        reports
+            .iter()
+            .map(|r| r.point_extension_unresolved.len())
+            .sum::<usize>()
+    );
+    for detail in reports.iter().flat_map(|r| &r.point_extension_unresolved) {
+        println!("point_extension_unresolved {detail}");
+    }
+    println!(
         "records_fixed_via_antitranslation {}",
         counters.records_fixed_antitranslation
     );
@@ -2946,7 +3030,9 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-        let FixedEmbedding::Fixed(chosen) = fixed_embedding(1, row, &mut Vec::new()) else {
+        let FixedEmbedding::Fixed(chosen) =
+            fixed_embedding(1, row, &mut Vec::new(), &mut Vec::new())
+        else {
             panic!("missing legacy witness")
         };
         assert_eq!(chosen.kind, EmbeddingKind::Plain);
@@ -2962,7 +3048,9 @@ mod tests {
             .iter()
             .find(|r| r.condensing == "E1" && record_of(3, r).direction == "P1")
             .unwrap();
-        let FixedEmbedding::Fixed(chosen) = fixed_embedding(3, row, &mut Vec::new()) else {
+        let FixedEmbedding::Fixed(chosen) =
+            fixed_embedding(3, row, &mut Vec::new(), &mut Vec::new())
+        else {
             panic!("missing bridge witness")
         };
         assert_eq!(chosen.kind, EmbeddingKind::UnitarySubgroup);
@@ -3000,7 +3088,9 @@ mod tests {
                     .unwrap()
                     .is_none()
             );
-            let FixedEmbedding::Fixed(chosen) = fixed_embedding(sg, row, &mut Vec::new()) else {
+            let FixedEmbedding::Fixed(chosen) =
+                fixed_embedding(sg, row, &mut Vec::new(), &mut Vec::new())
+            else {
                 panic!("missing additional witness")
             };
             assert_eq!(chosen.kind, kind);
@@ -3025,7 +3115,7 @@ mod tests {
     #[test]
     fn primitive_route_accounting_counts_selected_records_not_source_probes() {
         let inventory = inventory_of(21);
-        let expected=inventory.records.iter().filter(|r|matches!(fixed_embedding(21,r,&mut Vec::new()),FixedEmbedding::Fixed(e) if e.kind==EmbeddingKind::PrimitiveLattice)).count();
+        let expected=inventory.records.iter().filter(|r|matches!(fixed_embedding(21,r,&mut Vec::new(), &mut Vec::new()),FixedEmbedding::Fixed(e) if e.kind==EmbeddingKind::PrimitiveLattice)).count();
         assert!(expected >= 4);
         let report = census_sg(&inventory);
         assert_eq!(report.counters.records_fixed_primitive_lattice, expected);
@@ -3060,7 +3150,9 @@ mod tests {
             .find(|r| r.condensing == "T1" && r.direction_index == 0)
             .unwrap();
         let mut unresolved = Vec::new();
-        let FixedEmbedding::Fixed(chosen) = fixed_embedding(20, record, &mut unresolved) else {
+        let FixedEmbedding::Fixed(chosen) =
+            fixed_embedding(20, record, &mut unresolved, &mut Vec::new())
+        else {
             panic!("missing alternative H witness")
         };
         assert_eq!(chosen.kind, EmbeddingKind::Antitranslation);
@@ -3069,6 +3161,44 @@ mod tests {
                 .iter()
                 .any(|d| d.contains("MagneticReferenceGroupFailed"))
         );
+    }
+
+    #[test]
+    fn point_extension_is_last_priority_and_its_counter_merges() {
+        let inventory = inventory_of(79);
+        let record = inventory
+            .records
+            .iter()
+            .find(|r| r.condensing == "GM3GM4" && r.direction_index == 0)
+            .unwrap();
+        let geometry = geometry_of(79, &record_of(79, record)).unwrap();
+        let set = magnetic_operations(record.uni).unwrap();
+        assert!(
+            unitary_bridge_candidate(79, record, &geometry, &set)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            additional_bridge_candidate(79, record, &geometry, &set)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            antitranslation_bridge_candidate(79, record, &geometry, &set, &mut Vec::new())
+                .unwrap()
+                .is_none()
+        );
+        let FixedEmbedding::Fixed(chosen) =
+            fixed_embedding(79, record, &mut Vec::new(), &mut Vec::new())
+        else {
+            panic!("missing point extension")
+        };
+        assert_eq!(chosen.kind, EmbeddingKind::PointExtension);
+        let report = census_sg(&inventory);
+        assert_eq!(report.counters.records_fixed_point_extension, 1);
+        let mut counters = Counters::default();
+        counters.merge(&report.counters);
+        assert_eq!(counters.records_fixed_point_extension, 1);
     }
 
     #[test]
@@ -3091,7 +3221,9 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
-        let FixedEmbedding::Fixed(chosen) = fixed_embedding(3, record, &mut Vec::new()) else {
+        let FixedEmbedding::Fixed(chosen) =
+            fixed_embedding(3, record, &mut Vec::new(), &mut Vec::new())
+        else {
             panic!("missing new witness")
         };
         assert_eq!(chosen.kind, EmbeddingKind::Antitranslation);

@@ -1,4 +1,4 @@
-# 精确磁嵌入的几何桥接与记录格障碍（R36–R39）
+# 精确磁嵌入的几何桥接与记录格障碍（R36–R40）
 
 [公开入口](../src/irrep/magnetic_embedding.rs)是
 `embed_via_unitary_subgroup(geometry, magnetic_set, ordinary_embedding)`。
@@ -128,13 +128,45 @@ R37 的 1,134 条缺口据此细分为 56 条字面格障碍与 **1,078 条仍�
 12 条无对应 H 行；准备失败 0、候选未决 150。**11,524 不是新增覆盖数**，也不是所有 H
 方向的穷尽结果。普查只在全部旧路线失败后使用，新增数与最新冻结验收见账本。
 
+## 分级点扩张（R40）
+
+[`embed_via_point_extensions(geometry, set, ordinary_embedding)`](<../src/irrep/magnetic_embedding/point_extension.rs>)
+处理 Type III，仍验证 UNI/母群/H 身份、原始数据和完整源格 C。
+Type I/II/IV 不在此路线内；非母格内周期或 H 不保记录格也返回空搜索。
+
+在记录 primitive 基 B 中枚举**所有保格母群旋转** a。对于给定普通 H 的点子群，
+只接纳 a∉H、a²∈H 且 aH=Ha 的情形：这正是 H∪aH 成为分级点群的条件。
+按完整 aH 去重，不是枚举任意小矩阵；四阶反幺正生成元也允许，平方只须属于 H。
+源与目标辅助群都去掉平移但保留分级；识别度量使用**整个分级点群**的旋转，
+而非仅 H。复用现成群验证、无 Hall 限制的识别、有限有理帧与
+**A=B D_t⁻¹ D_s C⁻¹**。随后重验**原始 M**的全格、全部共同原点分支和所有操作，
+不以 symmorphic 辅助群替代实际螺旋/滑移。
+
+返回 `PointExtensionSearch`：exact 见证的 kind 为 `PointExtension`，
+`unresolved` 保存每个未识别陪集的代表旋转（记录 primitive 坐标）与 `SymError`；
+其它候选成功不会抹掉这些项。准备错误为 `PointExtensionUnavailable`，精确算术错误
+仍传播；新增 enum variant 需更新穷尽 match。没有穷尽识别器的 normalizer，空结果不证无解。
+
+[公开回归](<../tests/magnetic_point_extension_bridge.rs>)覆盖 SG79/87/88 含心记录、
+SG88 必需非零原点、SG4 的原始反幺正 screw、身份/算术/范围控制，以及 16 个
+source/η/标签高层调用的逐操作复向量重建。模块另以独立的有色乘法表直接检查陪集条件。
+全 16,721 条记录各取**首个 H 号匹配普通行**，得到 2,872 条有见证、13,837 条空结果、
+12 条无 H 行，准备错误/候选未决均 0。**2,872 不是新增覆盖数**。
+
+**识别器边界有实证，而不是假设其重选基完备**：SG79 GM3GM4 的一个已验证 map 在
+全部 168 种二进制 unimodular 重选基后仍逐一通过 exact 检查；重新运行此提议器则
+132 种成功、36 种保留 `MagneticUniMatchFailed`，没有静默空结果。比如
+U=[[1,1,1],[0,1,0],[1,0,0]] 下反幺正旋转为 [[0,1,0],[1,0,0],[-2,-2,-1]]。
+不能把这些识别失败误报成不存在，也不以“每个重选基都重新找到见证”为本路线承诺。
+该识别器限制仍待修复；此处没有猜测 fallback 矩阵。
+
 ## 普查接入与边界
 
 [受限 Γ 普查](../examples/magnetic_gamma_subduction_census.rs)按以下顺序选择，并保留
 每一旧路线已经选出的见证：R24 exact → 同方向的 H 桥接 → primitive 格归一化 →
-同母群/凝聚 irrep 的其它普通方向 → R39 成对辅助群。R37 的其它方向桥接要求 H 号相同、primitive 记录格双向相等，
+同母群/凝聚 irrep 的其它普通方向 → R39 反幺正平移 → R40 分级点扩张。R37 的其它方向桥接要求 H 号相同、primitive 记录格双向相等，
 再调用公开 H 桥接逐一验证；按既有精确全序选一个代表，不能用同体积代替同格。
-R39 则只取同 irrep、H 号匹配的旋转子群（按旋转集合去重），不复用该普通行的格；
+R39/R40 则只取同 irrep、H 号匹配的旋转子群（按旋转集合去重），不复用该普通行的格；
 所有候选仍按同一全序选择。普通/磁方向标签不是同一编号系统，也不因找到其它方向的 H
 就宣称两个 OP 向量等价。
 
@@ -144,7 +176,9 @@ R36 路线的准备/算术错误仍是 `unitary_bridge`，新增路线错误是 
 均保留诊断，而不归入无见证。R39 的准备/精确算术错误为 `antitranslation_bridge`；
 新增见证计入 `records_fixed_via_antitranslation`。候选识别未决单列为
 `antitranslation_unresolved_proposals`，逐项打印，不假装候选不存在；旧 R24 族内证书
-不因此扩张。已有成功不会因为其它浮点提议失败而被撤销。
+不因此扩张。已有成功不会因为其它浮点提议失败而被撤销。R40 的对应计数为
+`records_fixed_via_point_extension` 与 `point_extension_unresolved_proposals`，准备错误为
+`point_extension_bridge`；两条路线共用普通 H 点子群去重与原有的确定性选择序。
 `certified_absence` 仍只指 R24 的有限族，绝不扩写为所有设置的无解证明。
 R38 的独立格审计在选取见证之后运行，不改变选择或 TSV。证书计数单列为
 `records_literal_lattice_obstructed`；`lattice_obstruction_errors` 包含计算失败和证书/正见证

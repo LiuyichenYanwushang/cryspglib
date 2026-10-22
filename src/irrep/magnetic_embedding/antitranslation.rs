@@ -185,7 +185,7 @@ pub fn embed_via_antitranslations(
     Ok(out)
 }
 
-fn rational_frame(matrix: [[f64; 3]; 3]) -> Option<Mat3R> {
+pub(super) fn rational_frame(matrix: [[f64; 3]; 3]) -> Option<Mat3R> {
     let mut out = [[Rat::ZERO; 3]; 3];
     for (row, values) in out.iter_mut().enumerate() {
         for (column, value) in values.iter_mut().enumerate() {
@@ -206,15 +206,24 @@ fn virtual_group(rotations: &[Mat3I], alpha: [Rat; 3]) -> Result<MagneticSymmetr
             });
         }
     }
-    let n = rotations.len();
+    verified_auxiliary_group(ops)
+}
+
+// Shared by the translation and point-extension proposals. Preserve operation
+// order, and never treat a failed group/arithmetic check as a rejected setting.
+pub(super) fn verified_auxiliary_group(
+    ops: Vec<MagneticOperation>,
+) -> Result<MagneticSymmetry, String> {
+    let n = ops.iter().filter(|o| !o.time_reversal).count();
+    let a = ops.len() - n;
     verify_group(&MagneticOperationSet {
         uni: 0,
         operations: ops.clone(),
         classes: ops.clone(),
         unitary_count: n,
-        antiunitary_count: n,
+        antiunitary_count: a,
         unitary_classes: n,
-        antiunitary_classes: n,
+        antiunitary_classes: a,
     })
     .map_err(|e| e.to_string())?;
     let mut symmetry = MagneticSymmetry::with_capacity(ops.len());
@@ -232,7 +241,7 @@ fn virtual_group(rotations: &[Mat3I], alpha: [Rat; 3]) -> Result<MagneticSymmetr
 // positive and invariant. Cholesky G=L L^T gives lattice L^T. No geometric
 // acceptance uses this floating metric. Also used independently by the coverage
 // tests' metric constructor; multiplying as f64 avoids intermediate i32 overflow.
-fn invariant_lattice(rotations: &[Mat3I]) -> Option<[[f64; 3]; 3]> {
+pub(super) fn invariant_lattice(rotations: &[Mat3I]) -> Option<[[f64; 3]; 3]> {
     if rotations.is_empty() {
         return None;
     }

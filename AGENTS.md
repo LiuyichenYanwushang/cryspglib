@@ -22,6 +22,66 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 最新分级点扩张（R40，2026-10-23；基线 `62d167d`）
+
+已交付 [`embed_via_point_extensions`](<src/irrep/magnetic_embedding/point_extension.rs>)：
+在记录 primitive 坐标内枚举**全部保格母群旋转** a，以 a∉H、a²∈H、aH=Ha 精确筛出
+Type-III 分级点扩张 H∪aH，按陪集去重；不是猜测小矩阵。源/目标都置零平移但保留
+分级，度量使用**整个**分级点群。复用 R39 的辅助群验证、度量与有理帧，再用原始 M
+重验 **A=B D_t⁻¹ D_s C⁻¹** 的全格、全部共同原点分支和所有原始平移。
+`PointExtensionSearch` 分开保存 exact 见证与含原始错误的 `unresolved`；准备错误
+`PointExtensionUnavailable` 和新 kind `PointExtension` 需更新下游穷尽 match。
+[接口边界](<docs/magnetic-unitary-bridge.md>)不承诺完整 normalizer/setting 或 OP stabilizer。
+
+普查仅在全部旧路线（含 R39）失败后使用。**fixed 16,414 → 16,581，新增 167**，
+按旧原因是 84 条 R24 族内无成员 +83 条非 exact；新增 **1,178** 个成功源/η 行。
+剩余 **140**（126 族内无成员 +14 非 exact），为 117 Type IV +23 Type III；
+56 条字面格障碍不变，另 84 条无该证书。原 H/primitive/反平移计数仍为
+7,030 /587 /827。新路线候选未决 0，但 R39 的 **39 次候选未决仍完整保留**。
+
+新增[公开回归](<tests/magnetic_point_extension_bridge.rs>) **8 项**、模块 **1 项**、census
+**1 项**：SG79/87/88 含心正例、SG88 非零原点、SG4 原始 anti screw 不可被辅助群替代、
+身份/元数据/算术/不适用域、16 个 source/η/标签的逐操作复向量重建，以及完整有色乘法表
+对照陪集条件（含四阶 anti 生成元）。单独全表各取**首个 H 号匹配普通行**得到
+[16,721,12,13,837,2,872,0,0]，依次为总数/无 H/空/有见证/准备失败/候选未决；
+**2,872 不是新增数**。两条公开 extension debug 套件 **9/0 +8/0**、新模块 1/0、census
+20/0 与严格 debug clippy 均通过。
+
+**更正初稿测试假设**：高层方向应从记录读取，不能硬编码 P1。SG79 的 168 种 binary
+unimodular 重选基并非全部能重新识别；实测 **132 成功 +36 个具名未决**，静默空结果 0。
+同一个原始 exact map 在**全部 168 种**下都重新通过全格和原始操作检查，所以这些未决
+不是无解。常驻回归保存 `MagneticUniMatchFailed` 和陪集旋转；不是删除失败样本。
+[首次失败日志](<target/logs/r40-exploration/bridge-debug.txt>)与[独立重选基走查](<target/logs/r40-exploration/rebase-diagnostic.txt>)保留，
+不作为全绿证据；最终 debug 证据为 [extensions-debug-final](<target/logs/r40-exploration/extensions-debug-final.txt>)。
+
+冻结[电池](<target/logs/r40-accepted/battery/summary.txt>) **955 passed /0 failed**（945+10），
+69 个测试壳、73/73 池作业、16/16 条腿 exit 0；[独立审计](<target/logs/r40-accepted/battery-audit.json>)
+逐项核验退出码、测试数、三份 ordinary TSV 的行数/钉住 SHA/4==8，全部不变。
+**248 个输入哈希在全部验收前后相同**；本账本在核验后才更新。格式与 diff 检查通过。
+电池 786 s（构建 324 + example 发现 72 s）；与 Γ 及只写 target 的定心诊断并发，
+**不是性能 A/B**。
+
+同一冻结树 Γ [8 线程](<target/logs/r40-accepted/gamma-8.txt>) **360.5 s**、
+[4 线程](<target/logs/r40-accepted/gamma-4.txt>) **390.3 s**（低优先级，与电池重叠）：
+**149,956/149,956** 探针成功，输入/分导/重建/anchor/格审计错误均 0。
+151,068 数据行逐字节相同，1,112 行未执行，SHA
+`d69e01caee2d5e1ee7cba27f5ce1974c2de8a0d5e07bbe9c27449eb35fa2c8ca`；
+[旧版逐行比较](<target/logs/r40-accepted/compare-r39.txt>)证明 **148,778 个旧成功行每字段不变**，
+仅 1,178 行从未固定变为成功；首次探索输出也与冻结输出完全相同。
+
+**下一步已定位真实定心缺陷，尚未修复**：[最小复现](<target/r41-centering-probe.rs>)
+在合法的 invariant 度量下，普通识别把 C2 错认成 SG3，磁识别返回上述未决；经显式
+unimodular 变换 V=[[1,0,0],[0,1,0],[1,1,1]] 后同一群却得到 **SG5 /UNI22**。
+[输出](<target/logs/r40-exploration/next-centering.txt>)的 primitive→conventional 矩阵
+T=[[0,−1,1],[0,−1,−1],[1,2,0]]，det=2；T(0,½,½) 为整矢，所以应为 A 心。
+共享 [`get_base_center`](<src/spacegroup.rs#L753>) 仅找单位坐标行的旧启发式漏掉它，
+并退回 Primitive；普通和磁 fallback 都受影响。可用 det=2 时唯一非零模二核确定心矢，
+无需新求解器。[独立有理逆走查](<target/logs/r40-exploration/next-centering-parity.txt>)核对
+全部 3,792 个条目在 {−1,0,1}、det=±2 的矩阵：模二法全部等于真实格商，旧启发式漏掉
+1,728 个。**这些只是 target 诊断，不计生产修复**；下一轮从共享根因修复并全量复验。
+一般 B/C、复源/高维、非 Γ/full-star、spinor、140 条几何缺口与 setting/OP 契约仍未完成。
+未删除任何项目、未 push。以下 R39 等数字保留为历史。
+
 ### 最新反幺正平移桥接（R39，2026-10-23；基线 `a67c26e`）
 
 已交付 [`embed_via_antitranslations`](<src/irrep/magnetic_embedding/antitranslation.rs>)。
