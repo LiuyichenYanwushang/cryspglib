@@ -9,8 +9,8 @@
 //! caught.  The parent-frame embedding (through `basis`/`origin`) is stage 2.
 
 use cryspglib::irrep::magnetic_embedding::{
-    MagneticContractError, MagneticOperation, MagneticOperationSet, canonical_translation,
-    compose, magnetic_operations, translation_lattice, verify_against_database, verify_group,
+    MagneticContractError, MagneticOperation, MagneticOperationSet, canonical_translation, compose,
+    magnetic_operations, translation_lattice, verify_against_database, verify_group,
 };
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::Rat;
@@ -77,9 +77,15 @@ fn every_referenced_uni_is_an_exact_verified_group() {
             }
         }
     }
-    assert_eq!(operations, 29_457, "listed operations across the referenced UNIs");
+    assert_eq!(
+        operations, 29_457,
+        "listed operations across the referenced UNIs"
+    );
     assert_eq!(classes, 19_815, "classes modulo the translation lattices");
-    assert_eq!(centred, 402, "UNIs that list centred representatives redundantly");
+    assert_eq!(
+        centred, 402,
+        "UNIs that list centred representatives redundantly"
+    );
     assert_eq!(max_len, 384);
     assert_eq!(max_classes, 96);
     assert_eq!(
@@ -125,7 +131,10 @@ fn the_reduction_is_range_free() {
     // search range of two would leave 1/6 as the answer.
     let half = Rat::new(1, 2).expect("1/2");
     let sixth = Rat::new(1, 6).expect("1/6");
-    let canonical = canonical_translation([half, Rat::ZERO, Rat::ZERO], &[[sixth, Rat::ZERO, Rat::ZERO]]);
+    let canonical = canonical_translation(
+        [half, Rat::ZERO, Rat::ZERO],
+        &[[sixth, Rat::ZERO, Rat::ZERO]],
+    );
     assert!(
         canonical.iter().all(|value| value.is_zero()),
         "1/2 is a lattice vector, so its class is the zero class: {canonical:?}"
@@ -138,11 +147,8 @@ fn the_reduction_is_range_free() {
         for generator in &lattice {
             for coefficient in [-4i128, -3, -1, 1, 3, 4] {
                 let shift = Rat::from_integer(coefficient);
-                let scaled = |value: Rat| -> Rat {
-                    value
-                        .checked_mul(shift)
-                        .expect("small exact product")
-                };
+                let scaled =
+                    |value: Rat| -> Rat { value.checked_mul(shift).expect("small exact product") };
                 let shifted = [
                     class.translation[0]
                         .checked_add(scaled(generator[0]))
@@ -280,7 +286,10 @@ fn mutations_of_the_contract_are_refused() {
     ));
     let mut swapped = magnetic_operations(20).expect("UNI 20");
     swapped.operations.swap(0, 2);
-    assert!(verify_against_database(&swapped).is_err(), "a swapped pair differs");
+    assert!(
+        verify_against_database(&swapped).is_err(),
+        "a swapped pair differs"
+    );
 
     // The untouched sets match their database entries.
     for uni in [1usize, 2, 3, 4, 20, 21, 24] {
@@ -319,7 +328,10 @@ fn the_composition_law_is_the_magnetic_one() {
     // order two.
     let set = magnetic_operations(20).expect("UNI 20");
     let lattice = translation_lattice(&set);
-    assert!(set.class_count() < set.len(), "UNI 20 lists centred redundantly");
+    assert!(
+        set.class_count() < set.len(),
+        "UNI 20 lists centred redundantly"
+    );
     let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
     let non_trivial = set
         .classes
@@ -341,8 +353,11 @@ fn the_composition_law_is_the_magnetic_one() {
                 .unwrap_or(false)
         })
         .expect("an inverse in the set");
-    let product = compose(&compose(non_trivial, inverse).expect("compose"), non_trivial)
-        .expect("compose");
+    let product = compose(
+        &compose(non_trivial, inverse).expect("compose"),
+        non_trivial,
+    )
+    .expect("compose");
     assert!(!product.time_reversal);
     let _ = MagneticOperationSet::len(&set);
 }

@@ -185,11 +185,11 @@ use crate::irrep::isotropy::IsotropySubgroup;
 use crate::irrep::line_monodromy::line_direction;
 use crate::irrep::w_little_characters_data::LittleCharacterTable;
 
+use super::decompose::FullStarError;
 use super::{
     Lattice, Mat3I, Mat3R, Rat, StarError, SubductionError, SubgroupEmbedding, Vec3R,
     exact_primitive_basis, fold_wave_vector, strict_sg_hall_ops,
 };
-use super::decompose::FullStarError;
 
 /// Scan bound for the congruence on `j`; it only has to cover the possible
 /// exponents of a reciprocal lattice over `Z^3` (1 for P, 2 for A/B/C/I/F,
@@ -376,10 +376,7 @@ pub fn point_cocycle_is_a_coboundary(child_sg: u8, point: &Vec3R) -> Result<bool
 ///
 /// Point-based companion of [`little_co_group_order`], for a consumer that holds a
 /// folded point of a block instead of a direction and a parameter.
-pub fn point_little_co_group_order(
-    child_sg: u8,
-    point: &Vec3R,
-) -> Result<usize, SubductionError> {
+pub fn point_little_co_group_order(child_sg: u8, point: &Vec3R) -> Result<usize, SubductionError> {
     let child_reciprocal = reciprocal_lattice(child_sg)?;
     let rotations = rotation_set(child_sg)?;
     little_co_group_order(&child_reciprocal, point, &rotations, Rat::ONE)
@@ -1094,11 +1091,7 @@ impl FullStarPartition {
 /// The counts are exact; the witness list keeps one relation per `(kind, arm)`
 /// so a boundary where every relation holds at once stays bounded while every
 /// arm taking part is still represented.
-fn record_star_event(
-    counts: &mut [usize; 3],
-    witnesses: &mut Vec<StarEvent>,
-    event: StarEvent,
-) {
+fn record_star_event(counts: &mut [usize; 3], witnesses: &mut Vec<StarEvent>, event: StarEvent) {
     counts[event.kind.index()] += 1;
     if witnesses
         .iter()
@@ -1200,15 +1193,16 @@ pub fn full_star_partition(
         label: table.label,
     })?;
     let child_sg = embedding.subgroup_sg();
-    let arms: Vec<FoldedArm> = arm_images(subgroup.parent_sg, embedding.parent_lattice(), &direction)?
-        .into_iter()
-        .map(|(arm, parent_rotation)| {
-            Ok(FoldedArm {
-                direction: fold_wave_vector(embedding.transform(), &arm)?,
-                parent_rotation,
+    let arms: Vec<FoldedArm> =
+        arm_images(subgroup.parent_sg, embedding.parent_lattice(), &direction)?
+            .into_iter()
+            .map(|(arm, parent_rotation)| {
+                Ok(FoldedArm {
+                    direction: fold_wave_vector(embedding.transform(), &arm)?,
+                    parent_rotation,
+                })
             })
-        })
-        .collect::<Result<_, SubductionError>>()?;
+            .collect::<Result<_, SubductionError>>()?;
     let child_cell = Lattice::new(exact_primitive_basis(child_sg)?)?;
     let child_reciprocal = child_cell.reciprocal()?;
     // The periodicity premise, per **arm** and not only for the reference
@@ -1351,9 +1345,7 @@ mod tests {
     fn line_table_of(sg: u8, label: &str) -> &'static LittleCharacterTable {
         W_LITTLE_CHARACTERS
             .iter()
-            .find(|table| {
-                usize::from(table.space_group) == usize::from(sg) && table.label == label
-            })
+            .find(|table| usize::from(table.space_group) == usize::from(sg) && table.label == label)
             .unwrap_or_else(|| panic!("SG {sg} has no frozen line source {label}"))
     }
 
@@ -1507,7 +1499,10 @@ mod tests {
             );
             let at_zero = domain.exceptional[0].order;
             let at_half = domain.exceptional[1].order;
-            assert_eq!(at_zero, domain.parent_rotations, "t = 0 is the whole point group");
+            assert_eq!(
+                at_zero, domain.parent_rotations,
+                "t = 0 is the whole point group"
+            );
             assert_eq!(
                 at_half * 3,
                 domain.parent_rotations,
@@ -1522,7 +1517,14 @@ mod tests {
         seen.dedup();
         assert_eq!(
             seen,
-            vec![(12, 1, 4), (12, 2, 4), (24, 2, 8), (24, 4, 8), (48, 4, 16), (48, 8, 16)],
+            vec![
+                (12, 1, 4),
+                (12, 2, 4),
+                (24, 2, 8),
+                (24, 4, 8),
+                (48, 4, 16),
+                (48, 8, 16)
+            ],
             "the six parent shapes of the frozen corpus"
         );
     }
@@ -1652,7 +1654,9 @@ mod tests {
         );
         assert_eq!(
             index_four,
-            vec![22, 42, 43, 69, 70, 196, 202, 203, 209, 210, 216, 219, 225, 226, 227, 228],
+            vec![
+                22, 42, 43, 69, 70, 196, 202, 203, 209, 210, 216, 219, 225, 226, 227, 228
+            ],
             "the index-four lattices are exactly the F-centred space groups"
         );
         assert_eq!(
@@ -1799,9 +1803,9 @@ mod tests {
     /// rows live.
     #[test]
     fn the_child_partition_of_a_witness_is_the_quarter_grid() {
+        use crate::irrep::LabelConvention;
         use crate::irrep::isotropy;
         use crate::irrep::query;
-        use crate::irrep::LabelConvention;
 
         let table = W_LITTLE_CHARACTERS
             .iter()
@@ -1825,12 +1829,7 @@ mod tests {
                 let values: Vec<Rat> = parameters.iter().map(|(value, _)| *value).collect();
                 assert_eq!(
                     values,
-                    vec![
-                        Rat::ZERO,
-                        rational(1, 4),
-                        rational(1, 2),
-                        rational(3, 4)
-                    ],
+                    vec![Rat::ZERO, rational(1, 4), rational(1, 2), rational(3, 4)],
                     "ordinal {}",
                     subgroup.ordinal
                 );
@@ -1936,7 +1935,10 @@ mod tests {
         // ordering is deliberate; moving the check above it would make the two
         // routes disagree here.
         let zero = Vec3R::zero();
-        assert_eq!(minimal_parameter_step(&lattice, &zero).expect("zero w"), None);
+        assert_eq!(
+            minimal_parameter_step(&lattice, &zero).expect("zero w"),
+            None
+        );
         assert_eq!(
             minimal_parameter_step_via_coordinates(&lattice, &zero).expect("zero w"),
             None
@@ -1997,7 +1999,10 @@ mod tests {
         }
         // 341 frozen little-group operations in total; the same sum appears
         // independently in the census as `682 = 2 x sum of generic orders`.
-        assert_eq!(checked, 341, "every frozen little-group operation is checked");
+        assert_eq!(
+            checked, 341,
+            "every frozen little-group operation is checked"
+        );
     }
 
     /// The **other** reachable `DomainCensusInconsistent` reason: a lattice whose
@@ -2298,12 +2303,11 @@ mod tests {
                         for (slot, count) in partition.permanent_counts.iter().enumerate() {
                             census.permanent[slot] += count;
                         }
-                        let reference: Vec<Rat> =
-                            child_exceptional_parameters(&embedding, table)
-                                .expect("reference candidates")
-                                .into_iter()
-                                .map(|(parameter, _)| parameter)
-                                .collect();
+                        let reference: Vec<Rat> = child_exceptional_parameters(&embedding, table)
+                            .expect("reference candidates")
+                            .into_iter()
+                            .map(|(parameter, _)| parameter)
+                            .collect();
                         census.reference_parameters += reference.len();
                         for parameter in &reference {
                             assert!(
@@ -2329,7 +2333,10 @@ mod tests {
         // The pinned counter is printed, not only asserted: an audit must be able
         // to read the measured numbers out of a plain `--nocapture` run.
         println!("{census:?}");
-        assert_eq!(census.records, 1_006, "ordinary records with a parametric-k row");
+        assert_eq!(
+            census.records, 1_006,
+            "ordinary records with a parametric-k row"
+        );
         assert_eq!(census.pairs, 5_756, "(record, label) pairs");
         assert_eq!(census.arms, 50_226, "folded arms over the corpus");
         assert_eq!(
@@ -2360,7 +2367,10 @@ mod tests {
             census.pairs_with_extra, 2_273,
             "pairs whose full-star partition is strictly larger than the reference one"
         );
-        assert_eq!(census.extra_boundaries, 11_009, "boundaries the reference one missed");
+        assert_eq!(
+            census.extra_boundaries, 11_009,
+            "boundaries the reference one missed"
+        );
     }
 
     /// **Card 3 review round (F3).**  The accessors the corpus cannot exercise:
@@ -2422,7 +2432,10 @@ mod tests {
         // Boundary membership and lookup reduce modulo one.
         let one = partition(vec![boundary(rational(1, 4))]);
         for parameter in [rational(1, 4), rational(-3, 4), rational(5, 4)] {
-            assert!(one.is_boundary(&parameter), "t={parameter} is 1/4 modulo one");
+            assert!(
+                one.is_boundary(&parameter),
+                "t={parameter} is 1/4 modulo one"
+            );
         }
         assert!(!one.is_boundary(&rational(1, 3)));
         assert!(one.boundary(&rational(9, 4)).is_some());
@@ -2537,19 +2550,17 @@ mod tests {
             .collect();
         assert_eq!(
             reference,
-            vec![
-                Rat::ZERO,
-                rational(1, 4),
-                rational(1, 2),
-                rational(3, 4)
-            ],
+            vec![Rat::ZERO, rational(1, 4), rational(1, 2), rational(3, 4)],
             "the reference-only partition of ordinal 10030"
         );
         let eighth = rational(1, 8);
         // `reference` is pinned to `{0, 1/4, 1/2, 3/4}` three lines above, so
         // asserting `!reference.contains(&1/8)` again would be implied text; the
         // property that matters is the full-star boundary below.
-        assert!(partition.is_boundary(&eighth), "the full-star partition must cut at 1/8");
+        assert!(
+            partition.is_boundary(&eighth),
+            "the full-star partition must cut at 1/8"
+        );
         let boundary = partition.boundary(&eighth).expect("boundary at 1/8");
         assert!(
             boundary.counts[StarEventKind::LittleCoGroupGrowth.index()] > 0,
@@ -2574,11 +2585,13 @@ mod tests {
                 eighth,
             )
             .expect("order at 1/8");
-            let trivial =
-                child_cocycle_is_a_coboundary(partition.child_sg, &arm.direction, eighth)
-                    .expect("class at 1/8");
+            let trivial = child_cocycle_is_a_coboundary(partition.child_sg, &arm.direction, eighth)
+                .expect("class at 1/8");
             if !trivial {
-                assert_eq!(order, 4, "a non-trivial class needs the order-four co-group");
+                assert_eq!(
+                    order, 4,
+                    "a non-trivial class needs the order-four co-group"
+                );
                 nontrivial.push(arm.direction);
             }
             assert!(
@@ -2653,7 +2666,10 @@ mod tests {
             "with a trivial child point group the reference direction is fixed exactly"
         );
         let eighth = rational(1, 8);
-        assert!(partition.is_boundary(&eighth), "the full-star partition must cut at 1/8");
+        assert!(
+            partition.is_boundary(&eighth),
+            "the full-star partition must cut at 1/8"
+        );
         let boundary = partition.boundary(&eighth).expect("boundary at 1/8");
         assert_eq!(
             boundary.counts,
@@ -2675,17 +2691,20 @@ mod tests {
         // finding 3).  What is asserted instead is the reason the reference-only
         // partition is blind here: the child frame has one rotation, and the
         // reference candidates below are `{0}` alone.
-        assert_eq!(partition.child_rotations.len(), 1, "child P1 has one rotation");
+        assert_eq!(
+            partition.child_rotations.len(),
+            1,
+            "child P1 has one rotation"
+        );
         assert_eq!(partition.child_rotations, vec![IDENTITY_ROTATION]);
 
         // The geometry the partition cuts: points and child stars.
-        for (parameter, points) in [
-            (rational(1, 9), 6usize),
-            (rational(1, 7), 6),
-            (eighth, 4),
-        ] {
+        for (parameter, points) in [(rational(1, 9), 6usize), (rational(1, 7), 6), (eighth, 4)] {
             assert_eq!(
-                partition.folded_points(&parameter).expect("folded points").len(),
+                partition
+                    .folded_points(&parameter)
+                    .expect("folded points")
+                    .len(),
                 points,
                 "folded points at {parameter}"
             );
@@ -2704,14 +2723,20 @@ mod tests {
                 .all(|star| star.star_size() == 1 && star.arm_count() == 1),
             "six separate arms at 1/9"
         );
-        let merged = crate::irrep::subduction::star::decompose::line_star_geometry(&subgroup, &embedding, table, eighth)
-            .expect("geometry at 1/8");
+        let merged = crate::irrep::subduction::star::decompose::line_star_geometry(
+            &subgroup, &embedding, table, eighth,
+        )
+        .expect("geometry at 1/8");
         let mut arms: Vec<usize> = merged.iter().map(|star| star.arm_count()).collect();
         arms.sort_unstable();
         assert_eq!(arms, vec![1, 1, 2, 2], "four child stars at 1/8");
         let mut dimensions: Vec<u32> = merged.iter().map(|star| star.block_dimension()).collect();
         dimensions.sort_unstable();
-        assert_eq!(dimensions, vec![1, 1, 2, 2], "the merged blocks carry two arms");
+        assert_eq!(
+            dimensions,
+            vec![1, 1, 2, 2],
+            "the merged blocks carry two arms"
+        );
 
         // The engine's own answer changes at 1/8 although no class does: six
         // blocks of dimension one at 1/9, four blocks 2 + 1 + 1 + 2 at 1/8.

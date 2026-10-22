@@ -214,17 +214,29 @@ pub enum MagneticSubductionError {
     /// The index names an operation outside the group the model was verified on; the
     /// request is refused instead of being paired by a guessed transform.  The
     /// message claims no more than that: it does not claim no alignment exists.
-    TargetOperationUnmatched { uni: usize, rotation: Mat3I, time_reversal: bool },
+    TargetOperationUnmatched {
+        uni: usize,
+        rotation: Mat3I,
+        time_reversal: bool,
+    },
     /// A class of the model's magnetic group is not covered by the summary's Γ
     /// operation list.
     TargetClassUncovered { uni: usize, class: usize },
     /// A summary Γ translation is outside the exact grid this contract represents.
     /// The displayed translation is not the provenance link (the operation index is),
     /// so this is a data-integrity refusal, not a frame comparison.
-    TargetTranslationOffGrid { uni: usize, column: usize, value: [f64; 3] },
+    TargetTranslationOffGrid {
+        uni: usize,
+        column: usize,
+        value: [f64; 3],
+    },
     /// A unitary Γ column has no character value, so the candidate cannot be
     /// examined and is not silently dropped.
-    TargetCharacterUnavailable { uni: usize, label: String, column: usize },
+    TargetCharacterUnavailable {
+        uni: usize,
+        label: String,
+        column: usize,
+    },
     /// Two columns of one unitary class disagree on the character.
     TargetCharacterNotAClassFunction { uni: usize, class: usize },
     /// The candidate's own square is incompatible with a one-dimensional
@@ -234,7 +246,11 @@ pub enum MagneticSubductionError {
     /// classes through the canonical `a₀`.
     TargetCosetInconsistent { uni: usize, label: String },
     /// Conjugation compatibility failed for one unitary class.
-    TargetConjugationInconsistent { uni: usize, label: String, class: usize },
+    TargetConjugationInconsistent {
+        uni: usize,
+        label: String,
+        class: usize,
+    },
     /// The reconstructed operator table is not a corepresentation for one ordered
     /// pair of classes.
     TargetLawViolated {
@@ -277,7 +293,10 @@ impl std::fmt::Display for MagneticSubductionError {
                 write!(f, "UNI {uni}: the magnetic corep summary failed: {reason}")
             }
             Self::NoGammaKPoint { uni } => {
-                write!(f, "UNI {uni}: the magnetic corep summary has no Gamma k-point")
+                write!(
+                    f,
+                    "UNI {uni}: the magnetic corep summary has no Gamma k-point"
+                )
             }
             Self::UnresolvedTargetData {
                 uni,
@@ -317,11 +336,7 @@ impl std::fmt::Display for MagneticSubductionError {
                 f,
                 "UNI {uni}: raw operation {index} is named by more than one summary column"
             ),
-            Self::TargetTimeReversalMismatch {
-                uni,
-                column,
-                index,
-            } => write!(
+            Self::TargetTimeReversalMismatch { uni, column, index } => write!(
                 f,
                 "UNI {uni}: column {column} displays a time-reversal flag that disagrees with \
                  raw operation {index}, so the index does not name that operation"
@@ -600,10 +615,12 @@ pub fn subduce_scalar_gamma(
     let parent_sg = model.parent_sg();
     let source = resolve_source(model)?;
     let uni = model.uni();
-    let partial = magnetic_summary::magnetic_irrep_summary_by_uni_partial(uni)
-        .map_err(|error| MagneticSubductionError::SummaryFailed {
-            uni,
-            reason: format!("{error:?}"),
+    let partial =
+        magnetic_summary::magnetic_irrep_summary_by_uni_partial(uni).map_err(|error| {
+            MagneticSubductionError::SummaryFailed {
+                uni,
+                reason: format!("{error:?}"),
+            }
         })?;
     let gamma = partial
         .summary
@@ -706,9 +723,11 @@ pub fn subduce_scalar_gamma(
 
     let target_dimension = target.dimension;
     let source_dimension = u32::from(source.dim);
-    let multiplicity = source_dimension.checked_div(target_dimension).filter(|multiplicity| {
-        *multiplicity > 0 && multiplicity * target_dimension == source_dimension
-    });
+    let multiplicity = source_dimension
+        .checked_div(target_dimension)
+        .filter(|multiplicity| {
+            *multiplicity > 0 && multiplicity * target_dimension == source_dimension
+        });
     let Some(multiplicity) = multiplicity else {
         return Err(MagneticSubductionError::DimensionNotConserved {
             source: source_dimension,
@@ -742,7 +761,9 @@ struct Candidate {
 
 /// The source identity, re-resolved from the database: exactly one scalar,
 /// non-spinor, one-dimensional Γ irrep must carry the model's canonical label.
-fn resolve_source(model: &ScalarGammaModel) -> Result<&'static IrrepRecord, MagneticSubductionError> {
+fn resolve_source(
+    model: &ScalarGammaModel,
+) -> Result<&'static IrrepRecord, MagneticSubductionError> {
     let label = model.source_label();
     let matches = query::find_irreps(model.parent_sg(), label, model.source_convention());
     match matches.as_slice() {
@@ -1000,16 +1021,13 @@ fn unitary_signs(
         }
         let mut value = None;
         for &column in &class_columns[index] {
-            let character = corep
-                .characters
-                .get(column)
-                .copied()
-                .flatten()
-                .ok_or(MagneticSubductionError::TargetCharacterUnavailable {
+            let character = corep.characters.get(column).copied().flatten().ok_or(
+                MagneticSubductionError::TargetCharacterUnavailable {
                     uni,
                     label: corep.label.clone(),
                     column,
-                })?;
+                },
+            )?;
             match value {
                 None => value = Some(character),
                 Some(previous) if previous == character => {}
@@ -1017,7 +1035,7 @@ fn unitary_signs(
                     return Err(MagneticSubductionError::TargetCharacterNotAClassFunction {
                         uni,
                         class: index,
-                    })
+                    });
                 }
             }
         }
@@ -1052,9 +1070,11 @@ fn real_sign(value: Complex64) -> Option<i32> {
 /// Whether the target's unitary signs equal the model's restriction on every
 /// unitary class.
 fn unitary_part_matches(signs: &[i32], model: &ScalarGammaModel) -> bool {
-    model.actions().iter().enumerate().all(|(index, action)| {
-        action.class.time_reversal || action.value.value() == signs[index]
-    })
+    model
+        .actions()
+        .iter()
+        .enumerate()
+        .all(|(index, action)| action.class.time_reversal || action.value.value() == signs[index])
 }
 
 /// Build the canonical one-dimensional target table from the unitary signs and the
@@ -1120,12 +1140,13 @@ fn build_target(
         if class.time_reversal {
             continue;
         }
-        let image = product_class(&classes[first_anti], class, classes, lattice).ok_or_else(|| {
-            MagneticSubductionError::TargetCosetInconsistent {
-                uni,
-                label: corep.label.clone(),
-            }
-        })?;
+        let image =
+            product_class(&classes[first_anti], class, classes, lattice).ok_or_else(|| {
+                MagneticSubductionError::TargetCosetInconsistent {
+                    uni,
+                    label: corep.label.clone(),
+                }
+            })?;
         if !classes[image].time_reversal {
             return Err(MagneticSubductionError::TargetCosetInconsistent {
                 uni,
@@ -1137,11 +1158,9 @@ fn build_target(
             antiunitary: true,
         };
     }
-    if operators
-        .iter()
-        .enumerate()
-        .any(|(index, operator)| classes[index].time_reversal && operator.value == Complex64::new(0.0, 0.0))
-    {
+    if operators.iter().enumerate().any(|(index, operator)| {
+        classes[index].time_reversal && operator.value == Complex64::new(0.0, 0.0)
+    }) {
         return Err(MagneticSubductionError::TargetCosetInconsistent {
             uni,
             label: corep.label.clone(),
@@ -1193,18 +1212,20 @@ fn check_conjugation(
         if class.time_reversal {
             continue;
         }
-        let left = product_class(class, &classes[first_anti], classes, lattice).ok_or_else(|| {
-            MagneticSubductionError::TargetCosetInconsistent {
-                uni,
-                label: corep.label.clone(),
-            }
-        })?;
-        let right = product_class(&classes[first_anti], class, classes, lattice).ok_or_else(|| {
-            MagneticSubductionError::TargetCosetInconsistent {
-                uni,
-                label: corep.label.clone(),
-            }
-        })?;
+        let left =
+            product_class(class, &classes[first_anti], classes, lattice).ok_or_else(|| {
+                MagneticSubductionError::TargetCosetInconsistent {
+                    uni,
+                    label: corep.label.clone(),
+                }
+            })?;
+        let right =
+            product_class(&classes[first_anti], class, classes, lattice).ok_or_else(|| {
+                MagneticSubductionError::TargetCosetInconsistent {
+                    uni,
+                    label: corep.label.clone(),
+                }
+            })?;
         if operators[index].compose(&operators[first_anti]) != operators[left]
             || operators[first_anti].compose(&operators[index]) != operators[right]
         {
@@ -1228,12 +1249,13 @@ fn check_law(
 ) -> Result<(), MagneticSubductionError> {
     for (left, left_class) in classes.iter().enumerate() {
         for (right, right_class) in classes.iter().enumerate() {
-            let product = product_class(left_class, right_class, classes, lattice).ok_or_else(|| {
-                MagneticSubductionError::TargetCosetInconsistent {
-                    uni,
-                    label: corep.label.clone(),
-                }
-            })?;
+            let product =
+                product_class(left_class, right_class, classes, lattice).ok_or_else(|| {
+                    MagneticSubductionError::TargetCosetInconsistent {
+                        uni,
+                        label: corep.label.clone(),
+                    }
+                })?;
             let expected = operators[product];
             let found = operators[left].compose(&operators[right]);
             if expected != found {
@@ -1493,9 +1515,14 @@ mod tests {
     fn repeated_identical_antiunitary_constraints_keep_the_direction() {
         // Two antiunitary classes repeat A = -1 against a target acting as +1: the
         // repeated, consistent constraint must keep the imaginary direction.
-        let target = [operator(1.0, false), operator(1.0, true), operator(1.0, true)];
+        let target = [
+            operator(1.0, false),
+            operator(1.0, true),
+            operator(1.0, true),
+        ];
         let source = [(1, false), (-1, true), (-1, true)];
-        let u = solve_intertwiner(&target, &source).expect("a repeated constraint is not a contradiction");
+        let u = solve_intertwiner(&target, &source)
+            .expect("a repeated constraint is not a contradiction");
         assert_eq!(u, Complex64::new(0.0, 1.0));
         check_vector_contract(&target, &source, u);
     }
@@ -1504,7 +1531,11 @@ mod tests {
     fn contradictory_antiunitary_constraints_have_no_solution() {
         // U would have to be real on one antiunitary class and imaginary on the
         // other at once.
-        let target = [operator(1.0, false), operator(1.0, true), operator(1.0, true)];
+        let target = [
+            operator(1.0, false),
+            operator(1.0, true),
+            operator(1.0, true),
+        ];
         let source = [(1, false), (1, true), (-1, true)];
         assert_eq!(solve_intertwiner(&target, &source), None);
     }
@@ -1529,8 +1560,7 @@ mod tests {
         let lattice = model.translation_lattice();
         let uni = model.uni();
         let first_anti = classes.iter().position(|class| class.time_reversal);
-        let canonical =
-            build_target(&corep, classes, lattice, &unitary, first_anti, uni).unwrap();
+        let canonical = build_target(&corep, classes, lattice, &unitary, first_anti, uni).unwrap();
         let source = source_actions(&model);
         let canonical_u = solve_intertwiner(&canonical, &source).expect("the canonical target");
         check_vector_contract(&canonical, &source, canonical_u);
@@ -1549,7 +1579,8 @@ mod tests {
         check_square(&corep, classes, lattice, &gauged, &unitary, uni).unwrap();
         check_conjugation(&corep, classes, lattice, &gauged, uni).unwrap();
         check_law(&corep, classes, lattice, &gauged, uni).unwrap();
-        let gauged_u = solve_intertwiner(&gauged, &source).expect("a legal gauge is still equivalent");
+        let gauged_u =
+            solve_intertwiner(&gauged, &source).expect("a legal gauge is still equivalent");
         check_vector_contract(&gauged, &source, gauged_u);
     }
 
@@ -1572,16 +1603,29 @@ mod tests {
             .map(|(index, _)| index)
             .collect();
         assert!(antiunitary.len() >= 2);
-        let canonical =
-            build_target(&corep, classes, lattice, &unitary, Some(antiunitary[0]), uni).unwrap();
+        let canonical = build_target(
+            &corep,
+            classes,
+            lattice,
+            &unitary,
+            Some(antiunitary[0]),
+            uni,
+        )
+        .unwrap();
         let canonical_u = solve_intertwiner(&canonical, &source).expect("the canonical target");
         check_vector_contract(&canonical, &source, canonical_u);
 
         let mut saw_a_flipped_coset = false;
         for &representative in &antiunitary[1..] {
-            let alternative =
-                build_target(&corep, classes, lattice, &unitary, Some(representative), uni)
-                    .unwrap();
+            let alternative = build_target(
+                &corep,
+                classes,
+                lattice,
+                &unitary,
+                Some(representative),
+                uni,
+            )
+            .unwrap();
             for (index, class) in classes.iter().enumerate() {
                 if !class.time_reversal {
                     assert_eq!(alternative[index], canonical[index]);
@@ -1623,8 +1667,7 @@ mod tests {
         let uni = model.uni();
         let source = source_actions(&model);
         let first_anti = classes.iter().position(|class| class.time_reversal);
-        let canonical =
-            build_target(&corep, classes, lattice, &unitary, first_anti, uni).unwrap();
+        let canonical = build_target(&corep, classes, lattice, &unitary, first_anti, uni).unwrap();
         for index in 0..classes.len() {
             let mut broken = canonical.clone();
             broken[index].value = -broken[index].value;
@@ -1632,7 +1675,10 @@ mod tests {
                 || check_conjugation(&corep, classes, lattice, &broken, uni).is_err()
                 || check_law(&corep, classes, lattice, &broken, uni).is_err()
                 || solve_intertwiner(&broken, &source).is_none();
-            assert!(refused, "changing class {index} must not stay a valid target");
+            assert!(
+                refused,
+                "changing class {index} must not stay a valid target"
+            );
         }
     }
 
@@ -1688,7 +1734,10 @@ mod tests {
     fn the_exact_raw_list_is_the_list_the_summary_uses() {
         let raw = raw_first_hall_operations(22).unwrap();
         let set = magnetic_operations(22).unwrap();
-        assert_eq!(raw, set.operations, "the provenance guard must return that list");
+        assert_eq!(
+            raw, set.operations,
+            "the provenance guard must return that list"
+        );
         // The guard really compares the two surfaces: the length, rotation,
         // translation and flag of every entry.  A list that differs anywhere is the
         // documented `TargetRawOperationsDiffer` refusal; here the honest list is
@@ -1709,7 +1758,10 @@ mod tests {
                 summary,
                 raw: raw_len,
             }) => {
-                assert_eq!((uni, summary, raw_len), (22, gamma.operations.len(), raw.len()));
+                assert_eq!(
+                    (uni, summary, raw_len),
+                    (22, gamma.operations.len(), raw.len())
+                );
             }
             other => panic!("expected a count refusal after removing {removed:?}, got {other:?}"),
         }
@@ -1726,7 +1778,10 @@ mod tests {
                 summary,
                 raw: raw_len,
             }) => {
-                assert_eq!((uni, summary, raw_len), (22, gamma.operations.len(), raw.len()));
+                assert_eq!(
+                    (uni, summary, raw_len),
+                    (22, gamma.operations.len(), raw.len())
+                );
             }
             other => panic!("expected a count refusal after removing {removed:?}, got {other:?}"),
         }
@@ -1931,7 +1986,11 @@ mod tests {
             }) => {
                 assert_eq!(
                     (uni, column, columns),
-                    (22, out_of_range.operations.len(), out_of_range.operations.len())
+                    (
+                        22,
+                        out_of_range.operations.len(),
+                        out_of_range.operations.len()
+                    )
                 );
             }
             other => panic!("expected a column-range refusal, got {other:?}"),

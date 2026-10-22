@@ -40,14 +40,20 @@ fn real_characters(table: &LittleCharacterTable) -> Vec<i32> {
         .operations
         .iter()
         .map(|op| {
-            assert_eq!(op.character[1], 0, "SG {} {}", table.space_group, table.label);
+            assert_eq!(
+                op.character[1], 0,
+                "SG {} {}",
+                table.space_group, table.label
+            );
             op.character[0]
         })
         .collect()
 }
 
 /// Rotation part of a frozen operation, row major, as the record stores it.
-fn flat_rotation(operation: &cryspglib::irrep::w_little_characters_data::LittleOperation) -> [i32; 9] {
+fn flat_rotation(
+    operation: &cryspglib::irrep::w_little_characters_data::LittleOperation,
+) -> [i32; 9] {
     let mut flat = [0i32; 9];
     for row in 0..3 {
         for column in 0..3 {
@@ -138,8 +144,18 @@ fn sg196_dt_and_sm_characters_are_pinned() {
 fn cubic_parents_carry_their_expected_label_sets() {
     for (space_group, expected) in [
         (196u8, vec!["DT1", "DT2", "SM1"]),
-        (225, vec!["DT1", "DT2", "DT3", "DT4", "DT5", "SM1", "SM2", "SM3", "SM4"]),
-        (227, vec!["DT1", "DT2", "DT3", "DT4", "DT5", "SM1", "SM2", "SM3", "SM4"]),
+        (
+            225,
+            vec![
+                "DT1", "DT2", "DT3", "DT4", "DT5", "SM1", "SM2", "SM3", "SM4",
+            ],
+        ),
+        (
+            227,
+            vec![
+                "DT1", "DT2", "DT3", "DT4", "DT5", "SM1", "SM2", "SM3", "SM4",
+            ],
+        ),
         (202, vec!["DT1", "DT2", "DT3", "DT4", "SM1", "SM2"]),
         (203, vec!["DT1", "DT2", "DT3", "DT4", "SM1", "SM2"]),
         (209, vec!["DT1", "DT2", "DT3", "DT4", "SM1", "SM2"]),
@@ -183,8 +199,7 @@ fn the_cubic_dt_pair_is_the_standard_cogroup_pairing() {
         for row in 0..3 {
             for column in 0..3 {
                 for inner in 0..3 {
-                    product[3 * row + column] +=
-                        left[3 * row + inner] * right[3 * inner + column];
+                    product[3 * row + column] += left[3 * row + inner] * right[3 * inner + column];
                 }
             }
         }
@@ -201,13 +216,23 @@ fn the_cubic_dt_pair_is_the_standard_cogroup_pairing() {
             assert_eq!(table.dimension, 1, "SG {space_group} {}", table.label);
             assert_eq!(table.k_label, "DT");
             assert_eq!(table.direction, ["0", "2", "0"]);
-            assert_eq!(table.operations.len(), 4, "SG {space_group} {}", table.label);
+            assert_eq!(
+                table.operations.len(),
+                4,
+                "SG {space_group} {}",
+                table.label
+            );
             let rotations: Vec<[i32; 9]> = table.operations.iter().map(flat_rotation).collect();
             assert_eq!(rotations[0], ONE, "SG {space_group} {}", table.label);
             // One-dimensional characters of an abelian cogroup of order four:
             // three non-identity operations, closed under the product rule of
             // either C2v (three involutions) or C4 (one generator of order 4).
-            assert_eq!(square(rotations[1]), ONE, "SG {space_group} {}", table.label);
+            assert_eq!(
+                square(rotations[1]),
+                ONE,
+                "SG {space_group} {}",
+                table.label
+            );
             let c2v = square(rotations[2]) == ONE
                 && square(rotations[3]) == ONE
                 && multiply(rotations[2], rotations[3]) == rotations[1];
@@ -220,8 +245,16 @@ fn the_cubic_dt_pair_is_the_standard_cogroup_pairing() {
                 table.label
             );
         }
-        assert_eq!(real_characters(dt1), vec![1, 1, 1, 1], "SG {space_group} DT1");
-        assert_eq!(real_characters(dt2), vec![1, 1, -1, -1], "SG {space_group} DT2");
+        assert_eq!(
+            real_characters(dt1),
+            vec![1, 1, 1, 1],
+            "SG {space_group} DT1"
+        );
+        assert_eq!(
+            real_characters(dt2),
+            vec![1, 1, -1, -1],
+            "SG {space_group} DT2"
+        );
         // `C2v`: all three non-identity operations are involutions.  `C4`: only
         // the two-fold square is, the other two generate the order-four class.
         let involutions = (1..4)
@@ -259,7 +292,11 @@ fn the_cubic_dt_pair_is_the_standard_cogroup_pairing() {
             .zip(characters(dt4))
             .map(|(left, right)| [left[0] + right[0], left[1] + right[1]])
             .collect();
-        assert_eq!(sum, vec![[2, 0], [-2, 0], [0, 0], [0, 0]], "SG {space_group} DT3 + DT4");
+        assert_eq!(
+            sum,
+            vec![[2, 0], [-2, 0], [0, 0], [0, 0]],
+            "SG {space_group} DT3 + DT4"
+        );
     }
 }
 
@@ -306,7 +343,9 @@ fn archived_cir_characters_confirm_the_sg202_dt_pairing() {
             };
             // Only the operations that fix the line direction belong to the
             // line's little group; the rest are other star arms.
-            if operation.rotation[1] != 0 || operation.rotation[4] != 1 || operation.rotation[7] != 0
+            if operation.rotation[1] != 0
+                || operation.rotation[4] != 1
+                || operation.rotation[7] != 0
             {
                 continue;
             }

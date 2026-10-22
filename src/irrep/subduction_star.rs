@@ -32,13 +32,13 @@
 /// the co-group is one-dimensional; see the module documentation.
 #[path = "subduction_catalogue.rs"]
 pub mod catalogue;
+#[path = "subduction_star_decompose.rs"]
+pub mod decompose;
 /// Exact parameter-domain census of the frozen line sources: where the little
 /// group of `k(t) = t . v` is strictly enhanced, and which child target
 /// catalogue answers the folded stars there.
 #[path = "subduction_line_domain.rs"]
 pub mod line_domain;
-#[path = "subduction_star_decompose.rs"]
-pub mod decompose;
 #[path = "subduction_scalar_star.rs"]
 pub mod scalar_star;
 
@@ -611,10 +611,7 @@ impl OrdinaryStar {
         };
         let mut total = Complex64::new(0.0, 0.0);
         for (index, arm) in self.arms.iter().enumerate() {
-            if !self
-                .parent_reciprocal
-                .same_mod(arm.wave_vector(), point)?
-            {
+            if !self.parent_reciprocal.same_mod(arm.wave_vector(), point)? {
                 continue;
             }
             total += arm_character(
@@ -989,7 +986,9 @@ fn induced_component_character(
 ) -> Result<Complex64, StarError> {
     let mut total = Complex64::new(0.0, 0.0);
     for (index, arm) in arms.iter().enumerate() {
-        total += arm_character(arm, character, lattice, reciprocal, conjugate, index, operation)?;
+        total += arm_character(
+            arm, character, lattice, reciprocal, conjugate, index, operation,
+        )?;
     }
     Ok(total)
 }
@@ -1140,14 +1139,13 @@ mod tests {
     }
 
     fn embedding(parent: u8, ml: &str, direction: &str) -> SubgroupEmbedding {
-        let subgroup =
-            isotropy_subgroup_for_direction(
-                parent,
-                ml,
-                LabelConvention::Cdml,
-                IsotropyDirection::Label(direction),
-            )
-                .unwrap_or_else(|error| panic!("SG {parent} {ml} {direction}: {error}"));
+        let subgroup = isotropy_subgroup_for_direction(
+            parent,
+            ml,
+            LabelConvention::Cdml,
+            IsotropyDirection::Label(direction),
+        )
+        .unwrap_or_else(|error| panic!("SG {parent} {ml} {direction}: {error}"));
         SubgroupEmbedding::from_isotropy_subgroup(&subgroup)
             .unwrap_or_else(|error| panic!("SG {parent} {ml} {direction} embedding: {error}"))
     }

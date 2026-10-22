@@ -42,8 +42,8 @@ use super::super::{
     strict_sg_hall_ops,
 };
 use super::{
-    ConstructedLittleRep, FoldArm, FoldedStar, LittleCharacter, StarArm, StarError,
-    arm_character, arm_wave_vector, collect_arms, fold_arms, induced_component_character,
+    ConstructedLittleRep, FoldArm, FoldedStar, LittleCharacter, StarArm, StarError, arm_character,
+    arm_wave_vector, collect_arms, fold_arms, induced_component_character,
 };
 
 // ── One complex component ────────────────────────────────────────────────────

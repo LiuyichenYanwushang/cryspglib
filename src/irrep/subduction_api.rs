@@ -55,8 +55,8 @@ use crate::irrep::labels::LabelConvention;
 use crate::irrep::line_monodromy::line_table;
 use crate::irrep::query;
 use crate::irrep::subduction::star::decompose::{
-    FullStarBlock, FullStarError, FullStarSubduction, FullStarTarget, LineSubduction, ParameterKind,
-    subduce_full_star_with_embedding, subduce_line_at_parameter,
+    FullStarBlock, FullStarError, FullStarSubduction, FullStarTarget, LineSubduction,
+    ParameterKind, subduce_full_star_with_embedding, subduce_line_at_parameter,
 };
 use crate::irrep::subduction::{Rat, SubductionComponent, SubductionError, SubgroupEmbedding};
 use crate::irrep::types::IrrepRecord;
@@ -91,10 +91,7 @@ pub enum SubductionApiError {
     },
     /// A parameter was requested for a parent irrep that is not one of the
     /// frozen parametric-k line sources.
-    NotAParameterizedLine {
-        sg: u8,
-        cdml: &'static str,
-    },
+    NotAParameterizedLine { sg: u8, cdml: &'static str },
     /// The named frozen line source exists in this parent, but the selected
     /// isotropy direction's subgroup does not carry it, so there is no such
     /// parameterized decomposition.
@@ -160,10 +157,7 @@ impl std::fmt::Display for SubductionApiError {
                 sg,
                 label,
                 convention,
-            } => write!(
-                f,
-                "space group {sg} has no {convention:?} label {label:?}"
-            ),
+            } => write!(f, "space group {sg} has no {convention:?} label {label:?}"),
             Self::AmbiguousCondensing {
                 sg,
                 label,
@@ -517,19 +511,18 @@ fn resolve_condensing(
 /// what [`IsotropyDirection::Index`] takes (the generated table's `ordinal` is
 /// global and much larger).
 fn index_in_irrep(subgroup: &IsotropySubgroup) -> Result<usize, SubductionApiError> {
-    let list = isotropy::isotropy_subgroups(
-        subgroup.parent_sg,
-        subgroup.irrep_ml,
-        LabelConvention::Cdml,
-    )?;
+    let list =
+        isotropy::isotropy_subgroups(subgroup.parent_sg, subgroup.irrep_ml, LabelConvention::Cdml)?;
     list.iter()
         .position(|candidate| candidate.ordinal == subgroup.ordinal)
-        .ok_or(SubductionApiError::Isotropy(IsotropyError::SubgroupIndexOutOfRange {
-            sg: subgroup.parent_sg,
-            ml: subgroup.irrep_ml.to_string(),
-            index: subgroup.ordinal,
-            len: list.len(),
-        }))
+        .ok_or(SubductionApiError::Isotropy(
+            IsotropyError::SubgroupIndexOutOfRange {
+                sg: subgroup.parent_sg,
+                ml: subgroup.irrep_ml.to_string(),
+                index: subgroup.ordinal,
+                len: list.len(),
+            },
+        ))
 }
 
 /// Every context of a frozen parametric-k line source.
@@ -590,7 +583,11 @@ fn resolve_line_sources(
 /// Whether `ordinal` is the ordinal of some subgroup at this direction of some
 /// irrep of the parent -- i.e. a real context here, whether or not it carries a
 /// given frozen source.
-fn ordinal_is_a_context_at(parent_sg: u8, direction: IsotropyDirection<'_>, ordinal: usize) -> bool {
+fn ordinal_is_a_context_at(
+    parent_sg: u8,
+    direction: IsotropyDirection<'_>,
+    ordinal: usize,
+) -> bool {
     query::irreps_of(parent_sg).iter().any(|record| {
         !record.spinor
             && !record.subgroups().is_empty()
@@ -762,13 +759,11 @@ pub fn subduce(request: &SubductionRequest<'_>) -> Result<SubductionReport, Subd
                     let anywhere =
                         resolve_line_sources(request.parent_sg, request.condensing, None);
                     return match anywhere.first() {
-                        Some((_, elsewhere)) => {
-                            Err(SubductionApiError::LineSourceNotInDirection {
-                                sg: request.parent_sg,
-                                source: table.label,
-                                elsewhere_subgroup_sg: elsewhere.record.sg as u8,
-                            })
-                        }
+                        Some((_, elsewhere)) => Err(SubductionApiError::LineSourceNotInDirection {
+                            sg: request.parent_sg,
+                            source: table.label,
+                            elsewhere_subgroup_sg: elsewhere.record.sg as u8,
+                        }),
                         None => Err(SubductionApiError::CondensingNotFound {
                             sg: request.parent_sg,
                             label: request.condensing.to_string(),
@@ -833,7 +828,7 @@ pub fn subduce(request: &SubductionRequest<'_>) -> Result<SubductionReport, Subd
                             return Err(SubductionApiError::NotAParameterizedLine {
                                 sg: request.parent_sg,
                                 cdml: record.ml,
-                            })
+                            });
                         }
                         1 => line_table(request.parent_sg, candidates[0])
                             .expect("the candidate came from the table"),
@@ -842,7 +837,7 @@ pub fn subduce(request: &SubductionRequest<'_>) -> Result<SubductionReport, Subd
                                 sg: request.parent_sg,
                                 cdml: record.ml,
                                 candidates,
-                            })
+                            });
                         }
                     }
                 }
@@ -877,16 +872,15 @@ pub struct TableEntry {
 /// subgroup does not carry that frozen line) is reported per entry instead of
 /// failing the whole table or being silently dropped.  Every entry goes through
 /// [`subduce`], so there is exactly one computation path.
-pub fn subduce_table(request: &SubductionRequest<'_>) -> Result<Vec<TableEntry>, SubductionApiError> {
+pub fn subduce_table(
+    request: &SubductionRequest<'_>,
+) -> Result<Vec<TableEntry>, SubductionApiError> {
     // Resolve the owning irrep once (the request's own direction is ignored:
     // the sweep covers every direction), then answer each direction through the
     // same entry point.  A frozen source that runs through several subgroups is
     // refused here too unless the request pins one by ordinal.
-    let record = match resolve_condensing(
-        request.parent_sg,
-        request.condensing,
-        request.convention,
-    ) {
+    let record = match resolve_condensing(request.parent_sg, request.condensing, request.convention)
+    {
         Ok(record) => record,
         Err(SubductionApiError::CondensingNotFound { .. }) => {
             let matches = resolve_line_sources(request.parent_sg, request.condensing, None);

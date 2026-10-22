@@ -611,9 +611,10 @@ impl Rat {
             } else {
                 // `a/b * c/1 = a * (c / gcd(c, b)) / (b / gcd(c, b))`.
                 let right = gcd_positive(other.num.unsigned_abs(), self.den.unsigned_abs());
-                let right = i128::try_from(right).map_err(|_| SubductionError::RationalOverflow {
-                    operation: "multiply",
-                })?;
+                let right =
+                    i128::try_from(right).map_err(|_| SubductionError::RationalOverflow {
+                        operation: "multiply",
+                    })?;
                 (
                     self.num.checked_mul(div_exact(other.num, right)),
                     div_exact(self.den, right),
@@ -1754,7 +1755,15 @@ impl SubgroupEmbedding {
                     1 => {
                         let (setting, transform, lattice, operations, representatives) =
                             accepted.remove(0);
-                        (setting, 1, transform, lattice, operations, representatives, 1)
+                        (
+                            setting,
+                            1,
+                            transform,
+                            lattice,
+                            operations,
+                            representatives,
+                            1,
+                        )
                     }
                     count => {
                         return Err(SubductionError::AmbiguousEmbedding {
@@ -2100,10 +2109,10 @@ impl SubductionTarget {
     pub fn display_name(&self) -> String {
         match (self.ml, &self.component) {
             (Some(ml), _) => ml.to_string(),
-            (
-                None,
-                SubductionComponent::Constructed { q, index },
-            ) => format!("constructed(q=({}, {}, {}), index={index})", q[0], q[1], q[2]),
+            (None, SubductionComponent::Constructed { q, index }) => format!(
+                "constructed(q=({}, {}, {}), index={index})",
+                q[0], q[1], q[2]
+            ),
             (None, _) => "constructed(unidentified)".to_string(),
         }
     }
@@ -2832,7 +2841,10 @@ impl ComplexTarget {
         match (self.ml, &self.component) {
             (Some(ml), _) => ml.to_string(),
             (None, SubductionComponent::Constructed { q, index }) => {
-                format!("constructed(q=({}, {}, {}), index={index})", q[0], q[1], q[2])
+                format!(
+                    "constructed(q=({}, {}, {}), index={index})",
+                    q[0], q[1], q[2]
+                )
             }
             (None, _) => "constructed(unidentified)".to_string(),
         }
@@ -3383,9 +3395,15 @@ mod tests {
         assert_eq!(rat(-1, 4).principal_angle(), rat(-1, 4));
         assert_eq!(rat(-9, 4).principal_angle(), rat(-1, 4));
         assert_eq!(rat(1, 2).principal_angle(), rat(1, 2));
-        assert_eq!(rat(3, 2).principal_angle(), rat(1, 2), "the interval is (-1/2, 1/2]");
         assert_eq!(
-            Rat::new(4_000_000_001, 4).expect("canonical").principal_angle(),
+            rat(3, 2).principal_angle(),
+            rat(1, 2),
+            "the interval is (-1/2, 1/2]"
+        );
+        assert_eq!(
+            Rat::new(4_000_000_001, 4)
+                .expect("canonical")
+                .principal_angle(),
             rat(1, 4)
         );
 
@@ -3400,19 +3418,34 @@ mod tests {
                 .checked_add(v.get(axis).checked_mul(tau.get(axis)).expect("product"))
                 .expect("sum");
         }
-        assert!(dot.is_integer(), "the fixture needs an integer phase: {dot}");
+        assert!(
+            dot.is_integer(),
+            "the fixture needs an integer phase: {dot}"
+        );
         let q = Vec3R::new([rat(1, 4), rat(-3, 8), rat(5, 16)]);
         let reference = bloch_phase(&q, &tau).expect("small angle");
         for steps in [1i128, 1_000_000_000, -1_000_000_000] {
             let shifted = Vec3R::new([
                 q.get(0)
-                    .checked_add(v.get(0).checked_mul(Rat::from_integer(steps)).expect("scaled"))
+                    .checked_add(
+                        v.get(0)
+                            .checked_mul(Rat::from_integer(steps))
+                            .expect("scaled"),
+                    )
                     .expect("sum"),
                 q.get(1)
-                    .checked_add(v.get(1).checked_mul(Rat::from_integer(steps)).expect("scaled"))
+                    .checked_add(
+                        v.get(1)
+                            .checked_mul(Rat::from_integer(steps))
+                            .expect("scaled"),
+                    )
                     .expect("sum"),
                 q.get(2)
-                    .checked_add(v.get(2).checked_mul(Rat::from_integer(steps)).expect("scaled"))
+                    .checked_add(
+                        v.get(2)
+                            .checked_mul(Rat::from_integer(steps))
+                            .expect("scaled"),
+                    )
                     .expect("sum"),
             ]);
             let moved = bloch_phase(&shifted, &tau).expect("large angle");
@@ -3499,7 +3532,8 @@ mod tests {
                                                         "{m} times its inverse"
                                                     );
                                                     assert_eq!(
-                                                        inverse.checked_mul(&m)
+                                                        inverse
+                                                            .checked_mul(&m)
                                                             .expect("small entries"),
                                                         Mat3R::identity(),
                                                         "the inverse of {m} times {m}"
@@ -4036,8 +4070,13 @@ mod tests {
         // 16 R1 -> #22 F222 is a 2x2x2 supercell, so the parent's X point folds
         // to a non-Gamma block of the subgroup and the parent's zone corners
         // fold onto subgroup points equivalent modulo the F reciprocal lattice.
-        let subgroup = isotropy_subgroup_for_direction(16, "R1", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
-            .expect("R1 record");
+        let subgroup = isotropy_subgroup_for_direction(
+            16,
+            "R1",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("R1 record");
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
         let probe = query::irreps_of(16)
             .iter()
@@ -4082,8 +4121,13 @@ mod tests {
     fn gamma_subduction_golden_case() {
         use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
-        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
-            .expect("golden record");
+        let subgroup = isotropy_subgroup_for_direction(
+            221,
+            "GM4+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("golden record");
         let result = subduce_irrep(&subgroup, "GM3+").expect("golden decomposition");
 
         assert_eq!(result.parent_sg(), 221);
@@ -4216,8 +4260,13 @@ mod tests {
     fn subduction_is_character_driven_not_hard_coded() {
         use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
-        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
-            .expect("golden record");
+        let subgroup = isotropy_subgroup_for_direction(
+            221,
+            "GM4+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("golden record");
         let mut probes = 0;
         for record in crate::irrep::query::irreps_of(221) {
             if record.spinor || !is_gamma(record) {
@@ -4268,8 +4317,13 @@ mod tests {
         use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         use crate::irrep::types::CompoundSelectedArmCharacter;
-        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
-            .expect("golden record");
+        let subgroup = isotropy_subgroup_for_direction(
+            221,
+            "GM4+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("golden record");
         // 221 GM4+ is a 3-dimensional ordinary irrep; #83 realises its A_u part
         // as an ordinary row and its E_u part only as a compound row, so this
         // case fails unless the compound row is expanded by its metadata.
@@ -4467,10 +4521,20 @@ mod tests {
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
         // The same parent irrep on a different condensing direction and
         // subgroup: the decomposition must follow the embedding, not the label.
-        let first = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
-            .expect("P1 record");
-        let second = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P2"))
-            .expect("P2 record");
+        let first = isotropy_subgroup_for_direction(
+            221,
+            "GM4+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("P1 record");
+        let second = isotropy_subgroup_for_direction(
+            221,
+            "GM4+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P2"),
+        )
+        .expect("P2 record");
         let one = subduce_irrep(&first, "GM3+").expect("decomposition on #83");
         let two = subduce_irrep(&second, "GM3+").expect("decomposition on #12");
         assert_eq!(one.subgroup_sg(), 83);
@@ -4505,8 +4569,13 @@ mod tests {
     fn subduction_rejects_unsupported_probes_and_contexts() {
         use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
-        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
-            .expect("golden record");
+        let subgroup = isotropy_subgroup_for_direction(
+            221,
+            "GM4+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("golden record");
         assert!(matches!(
             subduce_irrep(&subgroup, "NOPE"),
             Err(SubductionError::ProbeIrrepNotFound { .. })
@@ -4533,9 +4602,9 @@ mod tests {
         // A condensing irrep away from Gamma is out of scope here (task 7).
         let away_subgroup =
             crate::irrep::isotropy::isotropy_subgroups(221, away.ml, LabelConvention::Cdml)
-            .expect("subgroups")
-            .into_iter()
-            .next();
+                .expect("subgroups")
+                .into_iter()
+                .next();
         if let Some(away_subgroup) = away_subgroup {
             assert!(matches!(
                 subduce_irrep(&away_subgroup, "GM3+"),
@@ -4561,8 +4630,13 @@ mod tests {
             (139, "M1-", "P1"),
         ];
         for (sg, ml, label) in cases {
-            let subgroup = isotropy_subgroup_for_direction(sg, ml, LabelConvention::Cdml, IsotropyDirection::Label(label))
-                .unwrap_or_else(|error| panic!("SG {sg} {ml} {label}: {error}"));
+            let subgroup = isotropy_subgroup_for_direction(
+                sg,
+                ml,
+                LabelConvention::Cdml,
+                IsotropyDirection::Label(label),
+            )
+            .unwrap_or_else(|error| panic!("SG {sg} {ml} {label}: {error}"));
             let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup)
                 .unwrap_or_else(|error| panic!("SG {sg} {ml} {label}: {error}"));
             println!(
@@ -4622,10 +4696,7 @@ mod tests {
             let [x, y, z, denominator] = child_shift;
             assert!(denominator > 0, "ordinal {ordinal}");
             let divisor = gcd_positive(
-                gcd_positive(
-                    i128::from(x).unsigned_abs(),
-                    i128::from(y).unsigned_abs(),
-                ),
+                gcd_positive(i128::from(x).unsigned_abs(), i128::from(y).unsigned_abs()),
                 gcd_positive(
                     i128::from(z).unsigned_abs(),
                     i128::from(denominator).unsigned_abs(),
@@ -4684,8 +4755,13 @@ mod tests {
     fn forged_isotropy_records_are_rejected() {
         use crate::irrep::LabelConvention;
         use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
-        let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
-            .expect("golden record");
+        let subgroup = isotropy_subgroup_for_direction(
+            221,
+            "GM4+",
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .expect("golden record");
         assert!(SubgroupEmbedding::from_isotropy_subgroup(&subgroup).is_ok());
 
         let mut moved = subgroup;

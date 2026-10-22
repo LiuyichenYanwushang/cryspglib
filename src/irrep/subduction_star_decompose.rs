@@ -50,19 +50,18 @@ use num_complex::Complex64;
 
 use crate::irrep::isotropy::IsotropySubgroup;
 use crate::irrep::query;
-use crate::irrep::w_little_characters_data::LittleCharacterTable;
 use crate::irrep::types::{
     CharacterRow, CompoundCharacterSemantics, CompoundSelectedArmCharacter, IrrepRecord,
     IrrepSourceIdentity,
 };
+use crate::irrep::w_little_characters_data::LittleCharacterTable;
 use crate::mathfunc::Mat3I;
 
 use super::super::{
     ComplexTarget, ExactSeitz, Lattice, Mat3R, Rat, SUBDUCTION_TOLERANCE, SubductionComponent,
     SubductionError, SubductionTarget, SubgroupEmbedding, Vec3R, bloch_phase, character_of,
-    exact_primitive_basis, inline_k_vector, shift_operations,
-    solve_prepared_character_block, validate_record_and_embedding,
-    strict_sg_hall_ops, validate_subduction_context,
+    exact_primitive_basis, inline_k_vector, shift_operations, solve_prepared_character_block,
+    strict_sg_hall_ops, validate_record_and_embedding, validate_subduction_context,
 };
 use super::scalar_star::{ComponentStar, ConstructedStar, ScalarStar};
 use super::{
@@ -126,7 +125,9 @@ pub enum FullStarError {
     },
     /// A frozen line source carries a direction or a rotation the little group
     /// of the parent's operation list does not reproduce.
-    #[error("frozen line source {label} of space group {sg} is inconsistent with the parent's little group")]
+    #[error(
+        "frozen line source {label} of space group {sg} is inconsistent with the parent's little group"
+    )]
     MissingLineRotation {
         /// Parent space group number.
         sg: u8,
@@ -389,7 +390,6 @@ pub struct FullStarBlock {
     representative: usize,
 }
 
-
 impl FullStarBlock {
     /// The representative folded point whose class matched stored child data.
     ///
@@ -514,13 +514,13 @@ impl FullStarBlock {
         term: usize,
         operation: &ExactSeitz,
     ) -> Result<Complex64, FullStarError> {
-        let evaluator =
-            self.evaluators
-                .get(term)
-                .ok_or(FullStarError::UnknownTargetTerm {
-                    term,
-                    targets: self.targets.len(),
-                })?;
+        let evaluator = self
+            .evaluators
+            .get(term)
+            .ok_or(FullStarError::UnknownTargetTerm {
+                term,
+                targets: self.targets.len(),
+            })?;
         evaluator.character(operation)
     }
 
@@ -585,13 +585,13 @@ impl FullStarBlock {
         point: &Vec3R,
         operation: &ExactSeitz,
     ) -> Result<Complex64, FullStarError> {
-        let evaluator =
-            self.evaluators
-                .get(term)
-                .ok_or(FullStarError::UnknownTargetTerm {
-                    term,
-                    targets: self.targets.len(),
-                })?;
+        let evaluator = self
+            .evaluators
+            .get(term)
+            .ok_or(FullStarError::UnknownTargetTerm {
+                term,
+                targets: self.targets.len(),
+            })?;
         evaluator.point_character(point, operation)
     }
 
@@ -1046,28 +1046,28 @@ fn line_direction(table: &LittleCharacterTable) -> Result<Vec3R, FullStarError> 
             Some((numerator, denominator)) => (numerator, denominator),
             None => (text, "1"),
         };
-        let numerator = numerator
-            .parse::<i128>()
-            .map_err(|_| FullStarError::InvalidLineDirection {
-                sg: table.space_group,
-                label: table.label,
-            })?;
-        let denominator = denominator
-            .parse::<i128>()
-            .map_err(|_| FullStarError::InvalidLineDirection {
-                sg: table.space_group,
-                label: table.label,
-            })?;
-        values[axis] = Rat::new(numerator, denominator)
-            .map_err(|_| FullStarError::InvalidLineDirection {
+        let numerator =
+            numerator
+                .parse::<i128>()
+                .map_err(|_| FullStarError::InvalidLineDirection {
+                    sg: table.space_group,
+                    label: table.label,
+                })?;
+        let denominator =
+            denominator
+                .parse::<i128>()
+                .map_err(|_| FullStarError::InvalidLineDirection {
+                    sg: table.space_group,
+                    label: table.label,
+                })?;
+        values[axis] =
+            Rat::new(numerator, denominator).map_err(|_| FullStarError::InvalidLineDirection {
                 sg: table.space_group,
                 label: table.label,
             })?;
     }
     Ok(Vec3R::new(values))
 }
-
-
 
 /// Multiplicity of the subgroup's **trivial** representation in the subduction
 /// of one parametric-k parent source (`other_wave_vector_subduction`).
@@ -1115,11 +1115,8 @@ fn line_arms(
     table: &'static LittleCharacterTable,
     direction: &Vec3R,
 ) -> Result<Vec<(Vec3R, Mat3I)>, FullStarError> {
-    let arms = super::line_domain::arm_images(
-        subgroup.parent_sg,
-        embedding.parent_lattice(),
-        direction,
-    )?;
+    let arms =
+        super::line_domain::arm_images(subgroup.parent_sg, embedding.parent_lattice(), direction)?;
     if arms.is_empty() {
         return Err(FullStarError::MissingLineRotation {
             sg: table.space_group,
@@ -1398,17 +1395,14 @@ pub fn subduce_line_at_parameter(
     // The parent full-star dimension of a line irrep is `little dim x arms`: the
     // frozen table's `dimension` is the little dimension and the arms are the
     // star of the line.
-    let arm_count = u32::try_from(arms.len()).map_err(|_| {
-        SubductionError::RationalOverflow {
-            operation: "line arm count",
-        }
+    let arm_count = u32::try_from(arms.len()).map_err(|_| SubductionError::RationalOverflow {
+        operation: "line arm count",
     })?;
-    let parent_dimension =
-        u32::from(table.dimension)
-            .checked_mul(arm_count)
-            .ok_or(SubductionError::RationalOverflow {
-                operation: "line full-star dimension",
-            })?;
+    let parent_dimension = u32::from(table.dimension).checked_mul(arm_count).ok_or(
+        SubductionError::RationalOverflow {
+            operation: "line full-star dimension",
+        },
+    )?;
 
     let source = ArmCharacterSource::Line(&source);
     let mut blocks = Vec::with_capacity(stars.len());
@@ -1590,12 +1584,17 @@ impl LineSubduction {
     /// [`FullStarError::MissingChildTrivialIrrep`], and two readings that
     /// disagree are a [`FullStarError::TargetSourceMismatch`].
     pub fn trivial_content(&self) -> Result<u32, FullStarError> {
-        let trivial = trivial_child_record(self.subgroup_sg)
-            .ok_or(FullStarError::MissingChildTrivialIrrep { sg: self.subgroup_sg })?;
+        let trivial = trivial_child_record(self.subgroup_sg).ok_or(
+            FullStarError::MissingChildTrivialIrrep {
+                sg: self.subgroup_sg,
+            },
+        )?;
         let cir = match trivial.source_identity() {
             IrrepSourceIdentity::OrdinaryScalar { cir_irnumber } => cir_irnumber,
             IrrepSourceIdentity::Compound { .. } | IrrepSourceIdentity::Spin { .. } => {
-                return Err(FullStarError::MissingChildTrivialIrrep { sg: self.subgroup_sg });
+                return Err(FullStarError::MissingChildTrivialIrrep {
+                    sg: self.subgroup_sg,
+                });
             }
         };
         let mut total = 0u32;
@@ -1768,14 +1767,16 @@ enum ComponentCharacters {
 impl ChildComponent {
     /// Stable identity used to keep one occurrence of one component per orbit.
     fn key(&self) -> (Option<u16>, SubductionComponent) {
-        (self.record.map(|record| record.id().index()), self.component)
+        (
+            self.record.map(|record| record.id().index()),
+            self.component,
+        )
     }
 
     /// The physical row behind this component, when it has one.
     fn row_ml(&self) -> Option<&'static str> {
         self.record.map(|record| record.ml)
     }
-
 }
 
 /// The representative point of one folded child star and every complex child
@@ -2112,7 +2113,10 @@ fn constructed_projective_components(
                 exact,
                 index,
                 1,
-                ConstructedLittleRep::Projective { q: exact, constants },
+                ConstructedLittleRep::Projective {
+                    q: exact,
+                    constants,
+                },
             )?);
         }
         return Ok(components);
@@ -2627,11 +2631,15 @@ fn build_evaluator(
 ) -> Result<ChildStarEvaluator, FullStarError> {
     match (&component.component, &component.characters) {
         (SubductionComponent::Ordinary, ComponentCharacters::Stored(_)) => {
-            let record = component.record.ok_or(FullStarError::TargetSourceMismatch {
-                sg: child_sg,
-                ml: "stored ordinary component without a row",
-            })?;
-            Ok(ChildStarEvaluator::Ordinary(Box::new(OrdinaryStar::new(record)?)))
+            let record = component
+                .record
+                .ok_or(FullStarError::TargetSourceMismatch {
+                    sg: child_sg,
+                    ml: "stored ordinary component without a row",
+                })?;
+            Ok(ChildStarEvaluator::Ordinary(Box::new(OrdinaryStar::new(
+                record,
+            )?)))
         }
         (
             SubductionComponent::Constituent { .. }
@@ -2713,10 +2721,10 @@ fn reconstruct(
 mod tests {
     use super::*;
     use crate::irrep::LabelConvention;
-    use crate::irrep::line_monodromy;
-    use crate::irrep::subduction::star::FoldedPoint;
     use crate::irrep::isotropy::{IsotropyDirection, isotropy_subgroup_for_direction};
+    use crate::irrep::line_monodromy;
     use crate::irrep::subduce_irrep;
+    use crate::irrep::subduction::star::FoldedPoint;
     use crate::irrep::subduction::subduce_irrep_with_embedding;
 
     fn probe(sg: u8, ml: &str) -> &'static IrrepRecord {
@@ -2761,10 +2769,7 @@ mod tests {
         let subgroup = subgroup_of(221, "GM4+", "P1");
         let built = embedding(221, "GM4+", "P1");
         let trivial = trivial_child_record(built.subgroup_sg()).unwrap();
-        for record in query::irreps_of(221)
-            .iter()
-            .filter(|record| !record.spinor)
-        {
+        for record in query::irreps_of(221).iter().filter(|record| !record.spinor) {
             let content = trivial_content_with_embedding(&subgroup, &built, record)
                 .unwrap_or_else(|error| panic!("SG 221 GM4+ P1 {}: {error}", record.ml));
             let full = subduce_full_star_with_embedding(&subgroup, &built, record).unwrap();
@@ -2775,7 +2780,10 @@ mod tests {
                 .sum();
             assert_eq!(content.total, full_total, "probe {}", record.ml);
             assert_eq!(content.total, content.by_label, "probe {}", record.ml);
-            let folded = ScalarStar::new(record).unwrap().folded_stars(&built).unwrap();
+            let folded = ScalarStar::new(record)
+                .unwrap()
+                .folded_stars(&built)
+                .unwrap();
             assert_eq!(
                 content.gamma_stars + content.skipped_stars,
                 folded.len(),
@@ -2793,7 +2801,12 @@ mod tests {
             .expect("the one-dimensional catalogue answers these stars");
         let content = trivial_content_with_embedding(&subgroup, &built, probe(196, "W1")).unwrap();
         assert_eq!(
-            (content.total, content.by_label, content.gamma_stars, content.skipped_stars),
+            (
+                content.total,
+                content.by_label,
+                content.gamma_stars,
+                content.skipped_stars
+            ),
             (1, 1, 1, 2)
         );
         let full_total: u32 = full
@@ -2874,9 +2887,15 @@ mod tests {
             SubductionComponent::Ordinary => {
                 let record = query::irreps_of(child_sg)
                     .iter()
-                    .find(|record| record.ml == target.ml.expect("stored target ML label") && record.compound_metadata().is_none())
+                    .find(|record| {
+                        record.ml == target.ml.expect("stored target ML label")
+                            && record.compound_metadata().is_none()
+                    })
                     .unwrap_or_else(|| {
-                        panic!("SG {child_sg} has no ordinary {ml}", ml = target.ml.expect("stored target ML label"))
+                        panic!(
+                            "SG {child_sg} has no ordinary {ml}",
+                            ml = target.ml.expect("stored target ML label")
+                        )
                     });
                 assert!(matches!(
                     record.source_identity(),
@@ -2887,17 +2906,28 @@ mod tests {
                     .ordinary_scalar_selected_arm_block_trace()
                     .expect("ordinary row");
                 assert_eq!(u32::from(target.dimension), row.dimension() as u32);
-                assert_eq!(target.ml.expect("stored target ML label"), target.row_ml.expect("stored target row"));
+                assert_eq!(
+                    target.ml.expect("stored target ML label"),
+                    target.row_ml.expect("stored target row")
+                );
             }
             SubductionComponent::Constituent { index, irnumber } => {
                 assert_eq!(target.irnumber.expect("stored target CIR number"), irnumber);
                 let record = query::irreps_of(child_sg)
                     .iter()
                     .find(|record| record.ml == target.row_ml.expect("stored target row"))
-                    .unwrap_or_else(|| panic!("SG {child_sg} has no {ml}", ml = target.row_ml.expect("stored target row")));
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "SG {child_sg} has no {ml}",
+                            ml = target.row_ml.expect("stored target row")
+                        )
+                    });
                 let metadata = record.compound_metadata().expect("compound metadata");
                 assert_eq!(metadata.cir_irnumbers[usize::from(index)], irnumber);
-                assert_eq!(metadata.cir_labels[usize::from(index)], target.ml.expect("stored target ML label"));
+                assert_eq!(
+                    metadata.cir_labels[usize::from(index)],
+                    target.ml.expect("stored target ML label")
+                );
                 assert_eq!(
                     u32::from(metadata.cir_dimensions[usize::from(index)]),
                     u32::from(target.dimension)
@@ -2905,7 +2935,10 @@ mod tests {
                 let view = record.compound_selected_arm_view().expect("compound view");
                 let CompoundSelectedArmCharacter::DistinctComponentSum { first, second, .. } = view
                 else {
-                    panic!("{ml} is not a distinct component sum", ml = target.row_ml.expect("stored target row"));
+                    panic!(
+                        "{ml} is not a distinct component sum",
+                        ml = target.row_ml.expect("stored target row")
+                    );
                 };
                 let stored = if index == 0 { first } else { second };
                 assert_eq!(stored.irnumber, irnumber);
@@ -2921,21 +2954,32 @@ mod tests {
                 let record = query::irreps_of(child_sg)
                     .iter()
                     .find(|record| record.ml == target.row_ml.expect("stored target row"))
-                    .unwrap_or_else(|| panic!("SG {child_sg} has no {ml}", ml = target.row_ml.expect("stored target row")));
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "SG {child_sg} has no {ml}",
+                            ml = target.row_ml.expect("stored target row")
+                        )
+                    });
                 let metadata = record.compound_metadata().expect("compound metadata");
                 assert_eq!(
                     metadata.semantics,
                     CompoundCharacterSemantics::ConjugateRealification
                 );
                 assert_eq!(metadata.cir_irnumbers[0], irnumber);
-                assert_eq!(metadata.cir_labels[0], target.ml.expect("stored target ML label"));
+                assert_eq!(
+                    metadata.cir_labels[0],
+                    target.ml.expect("stored target ML label")
+                );
                 assert_eq!(
                     u32::from(metadata.cir_dimensions[0]),
                     u32::from(target.dimension)
                 );
                 let view = record.compound_selected_arm_view().expect("compound view");
                 let CompoundSelectedArmCharacter::ConjugateRealification { seed, .. } = view else {
-                    panic!("{ml} is not a realification", ml = target.row_ml.expect("stored target row"));
+                    panic!(
+                        "{ml} is not a realification",
+                        ml = target.row_ml.expect("stored target row")
+                    );
                 };
                 assert_eq!(seed.irnumber, irnumber);
                 assert_eq!(seed.label, target.ml.expect("stored target ML label"));
@@ -3887,8 +3931,9 @@ mod tests {
         // pinned by `constructed_targets_have_their_own_identity_and_no_borrowed_labels`.
         let two_dimensional = subgroup_of(109, "GM3", "P1");
         let built_43 = embedding(109, "GM3", "P1");
-        assert!(subduce_full_star_with_embedding(&two_dimensional, &built_43, probe(109, "P1"))
-            .is_ok());
+        assert!(
+            subduce_full_star_with_embedding(&two_dimensional, &built_43, probe(109, "P1")).is_ok()
+        );
     }
 
     /// The nine fixed contexts scanned probe by probe: the five embedding
@@ -4226,8 +4271,7 @@ mod tests {
                 Vec3R::new(translation.map(|value| rat(i128::from(value), 1))),
             );
             let found = rep.character(&operation).expect("translation character");
-            let expected =
-                Complex64::from_polar(1.0, std::f64::consts::TAU * expected_turns);
+            let expected = Complex64::from_polar(1.0, std::f64::consts::TAU * expected_turns);
             assert!(
                 (found - expected).norm() < SUBDUCTION_TOLERANCE,
                 "translation {translation:?}: {found} != {expected}"
@@ -4307,9 +4351,11 @@ mod tests {
                 if record.spinor || record.subgroups().is_empty() {
                     continue;
                 }
-                let Ok(records) =
-                    crate::irrep::isotropy::isotropy_subgroups(sg, record.ml, LabelConvention::Cdml)
-                else {
+                let Ok(records) = crate::irrep::isotropy::isotropy_subgroups(
+                    sg,
+                    record.ml,
+                    LabelConvention::Cdml,
+                ) else {
                     continue;
                 };
                 for subgroup in records {
@@ -4385,12 +4431,14 @@ mod tests {
             .blocks()
             .iter()
             .flat_map(|block| {
-                block
-                    .targets()
-                    .iter()
-                    .map(|target| {
-                        (target.multiplicity, target.dimension, target.ml, target.irnumber)
-                    })
+                block.targets().iter().map(|target| {
+                    (
+                        target.multiplicity,
+                        target.dimension,
+                        target.ml,
+                        target.irnumber,
+                    )
+                })
             })
             .collect()
     }
@@ -4484,13 +4532,10 @@ mod tests {
         // the block count still equals the number of folded points here.
         assert_eq!(result.blocks().len(), 6, "one block per child orbit");
         assert!(
-            result
-                .blocks()
+            result.blocks().iter().all(|block| block
+                .targets()
                 .iter()
-                .all(|block| block.targets().iter().all(|target| matches!(
-                    target.component,
-                    SubductionComponent::Constructed { .. }
-                ))),
+                .all(|target| matches!(target.component, SubductionComponent::Constructed { .. }))),
             "a generic point has no stored child row"
         );
         let hand = arms_folding_to_child_gamma(&subgroup, &embedding, table, &parameter);
@@ -4559,9 +4604,8 @@ mod tests {
 
         for (numerator, denominator) in [(1i128, 6i128), (1, 3)] {
             let parameter = Rat::new(numerator, denominator).unwrap();
-            let result =
-                subduce_line_at_parameter(&subgroup, &embedding, table, parameter)
-                    .expect("both sides of the special value decompose");
+            let result = subduce_line_at_parameter(&subgroup, &embedding, table, parameter)
+                .expect("both sides of the special value decompose");
             assert_line_invariants(&result);
             let hand = arms_folding_to_child_gamma(&subgroup, &embedding, table, &parameter);
             assert_eq!(hand, 0, "t = {parameter} is generic");
@@ -4582,13 +4626,8 @@ mod tests {
         let subgroup = subgroup_of(196, "W1", "4D1");
         let embedding = embedding(196, "W1", "4D1");
         let table = line_table(196, "DT1");
-        let reference = subduce_line_at_parameter(
-            &subgroup,
-            &embedding,
-            table,
-            official(),
-        )
-        .expect("t = 1/4");
+        let reference =
+            subduce_line_at_parameter(&subgroup, &embedding, table, official()).expect("t = 1/4");
         for (numerator, denominator) in [(3i128, 4i128), (5, 4)] {
             let result = subduce_line_at_parameter(
                 &subgroup,
@@ -4615,12 +4654,7 @@ mod tests {
         let embedding = embedding(196, "W1", "4D1");
         let foreign = line_table(202, "DT1");
         assert!(matches!(
-            subduce_line_at_parameter(
-                &subgroup,
-                &embedding,
-                foreign,
-                official()
-            ),
+            subduce_line_at_parameter(&subgroup, &embedding, foreign, official()),
             Err(FullStarError::LineSourceMismatch { .. })
         ));
 
@@ -4635,13 +4669,9 @@ mod tests {
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
         assert_eq!(embedding.subgroup_sg(), 136);
         let table = line_table(subgroup.parent_sg, "DT5");
-        let result = subduce_line_at_parameter(
-            subgroup,
-            &embedding,
-            table,
-            Rat::new(1, 7).unwrap(),
-        )
-        .expect("the D4 projective catalogue resolves the formerly missing child star");
+        let result =
+            subduce_line_at_parameter(subgroup, &embedding, table, Rat::new(1, 7).unwrap())
+                .expect("the D4 projective catalogue resolves the formerly missing child star");
         assert_line_invariants(&result);
         assert_eq!(result.trivial_content().unwrap(), 0);
         assert!(result.blocks().iter().any(|block| {
@@ -4653,13 +4683,8 @@ mod tests {
         }));
         // The same source at the official parameter does have the data, so the
         // pinned row remains a separate externally anchored branch.
-        let official = subduce_line_at_parameter(
-            subgroup,
-            &embedding,
-            table,
-            official(),
-        )
-        .expect("the official parameter is covered");
+        let official = subduce_line_at_parameter(subgroup, &embedding, table, official())
+            .expect("the official parameter is covered");
         assert_line_invariants(&official);
     }
 
@@ -4718,8 +4743,9 @@ mod tests {
                                 .target_little_character(term, point.q(), &child)
                                 .expect("the little-group character");
                         }
-                        let induced =
-                            block.target_character(term, &child).expect("the induced character");
+                        let induced = block
+                            .target_character(term, &child)
+                            .expect("the induced character");
                         assert!(
                             (total - induced).norm() <= SUBDUCTION_TOLERANCE,
                             "the per-arm characters of term {term} sum to {total} but the induced \
@@ -4744,14 +4770,18 @@ mod tests {
                     assert!(
                         matches!(
                             block.target_character(term, &foreign),
-                            Err(FullStarError::Star(StarError::OperationNotInParentGroup { .. }))
+                            Err(FullStarError::Star(
+                                StarError::OperationNotInParentGroup { .. }
+                            ))
                         ),
                         "the induced accessor must reject a foreign operation"
                     );
                     assert!(
                         matches!(
                             block.target_little_character(term, block.q(), &foreign),
-                            Err(FullStarError::Star(StarError::OperationNotInParentGroup { .. }))
+                            Err(FullStarError::Star(
+                                StarError::OperationNotInParentGroup { .. }
+                            ))
                         ),
                         "the little-group accessor must reject a foreign operation"
                     );
@@ -4804,7 +4834,9 @@ mod tests {
                 assert!(
                     matches!(
                         block.target_little_character(term, block.q(), &foreign),
-                        Err(FullStarError::Star(StarError::OperationNotInParentGroup { .. }))
+                        Err(FullStarError::Star(
+                            StarError::OperationNotInParentGroup { .. }
+                        ))
                     ),
                     "the Component star must reject a foreign operation"
                 );
@@ -4878,7 +4910,9 @@ mod tests {
                             "ordinal {ordinal} at t={parameter_label}: missing constructed D4 2D target"
                         )
                     });
-                if parameter == q_one_seventh && let Some(expected_q) = expected_q {
+                if parameter == q_one_seventh
+                    && let Some(expected_q) = expected_q
+                {
                     assert!(
                         matches!(dimension_two.component, SubductionComponent::Constructed { q, .. } if q == expected_q),
                         "ordinal {ordinal}: expected the D4 target at {expected_q:?}, got {:?}",
@@ -4926,7 +4960,11 @@ mod tests {
             result
                 .blocks()
                 .iter()
-                .map(|block| (block.star_size(), block.arm_count(), block.block_dimension()))
+                .map(|block| (
+                    block.star_size(),
+                    block.arm_count(),
+                    block.block_dimension()
+                ))
                 .collect::<Vec<_>>()
         );
         assert_eq!(result.parent_dimension(), 6);
@@ -4959,7 +4997,11 @@ mod tests {
         )
         .expect("the generic point decomposes");
         assert_line_invariants(&result);
-        let mut stars: Vec<usize> = result.blocks().iter().map(FullStarBlock::star_size).collect();
+        let mut stars: Vec<usize> = result
+            .blocks()
+            .iter()
+            .map(FullStarBlock::star_size)
+            .collect();
         stars.sort_unstable();
         assert_eq!(stars, vec![4, 8], "multi-point orbits");
     }
@@ -5027,8 +5069,7 @@ mod tests {
             let Some(subgroup) = contexts.get(&ordinal) else {
                 continue;
             };
-            let embedding =
-                SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
+            let embedding = SubgroupEmbedding::from_isotropy_subgroup(subgroup).expect("embedding");
             let table = line_table(subgroup.parent_sg, label);
             let direction = line_direction(table).expect("the frozen direction parses");
             let map = line_monodromy::monodromy(subgroup.parent_sg, &direction)
@@ -5039,22 +5080,20 @@ mod tests {
                     .unwrap_or_else(|| panic!("ordinal {ordinal} {label}: orbit {steps}"));
                 let image = orbit[steps];
                 let image_table = line_table(subgroup.parent_sg, image);
-                let reference = subduce_line_at_parameter(
-                    subgroup,
-                    &embedding,
-                    image_table,
-                    official(),
-                )
-                .unwrap_or_else(|error| {
-                    panic!("ordinal {ordinal} {label} image {image} t=1/4: {error}")
-                });
+                let reference =
+                    subduce_line_at_parameter(subgroup, &embedding, image_table, official())
+                        .unwrap_or_else(|error| {
+                            panic!("ordinal {ordinal} {label} image {image} t=1/4: {error}")
+                        });
                 let shifted = subduce_line_at_parameter(
                     subgroup,
                     &embedding,
                     table,
                     Rat::new(numerator, 4).unwrap(),
                 )
-                .unwrap_or_else(|error| panic!("ordinal {ordinal} {label} t={numerator}/4: {error}"));
+                .unwrap_or_else(|error| {
+                    panic!("ordinal {ordinal} {label} t={numerator}/4: {error}")
+                });
                 // The premise of the contract: the two parameters differ by an
                 // integer multiple of the frozen direction, i.e. by a parent
                 // reciprocal lattice vector.
@@ -5085,19 +5124,30 @@ mod tests {
                     shifted
                         .blocks()
                         .iter()
-                        .map(|block| (block.star_size(), block.arm_count(), block.block_dimension()))
+                        .map(|block| (
+                            block.star_size(),
+                            block.arm_count(),
+                            block.block_dimension()
+                        ))
                         .collect::<Vec<_>>(),
                     reference
                         .blocks()
                         .iter()
-                        .map(|block| (block.star_size(), block.arm_count(), block.block_dimension()))
+                        .map(|block| (
+                            block.star_size(),
+                            block.arm_count(),
+                            block.block_dimension()
+                        ))
                         .collect::<Vec<_>>(),
                     "ordinal {ordinal} {label} t={numerator}/4 block geometry"
                 );
             }
             checked += 1;
         }
-        assert_eq!(checked, 40, "every gauge-regression context must be present");
+        assert_eq!(
+            checked, 40,
+            "every gauge-regression context must be present"
+        );
     }
 
     /// A constructed star reports the little dimension of its own
@@ -5276,8 +5326,9 @@ mod tests {
         // projective irreps are one-dimensional: child #45's Gamma point has a
         // four-element abelian co-group with a coboundary cocycle, so the
         // catalogue is complete there.
-        let gamma = constructed_child_components_at(45, &Vec3R::new([rat(0, 1); 3]), &reciprocal_45)
-            .expect("gamma lookup");
+        let gamma =
+            constructed_child_components_at(45, &Vec3R::new([rat(0, 1); 3]), &reciprocal_45)
+                .expect("gamma lookup");
         assert_eq!(gamma.len(), 4, "four one-dimensional characters");
         assert!(gamma.iter().all(|component| component.dimension == 1
             && matches!(component.component, SubductionComponent::Constructed { .. })));

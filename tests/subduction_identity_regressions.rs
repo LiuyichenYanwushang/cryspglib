@@ -1,11 +1,11 @@
 //! Stored identity frequencies check the embeddings independently of reconstruction.
 
 use cryspglib::irrep::LabelConvention;
+use cryspglib::irrep::isotropy::IsotropySubgroup;
 use cryspglib::irrep::isotropy::{
     IsotropyDirection, isotropy_subgroup_for_direction, isotropy_subgroups,
 };
 use cryspglib::irrep::query;
-use cryspglib::irrep::isotropy::IsotropySubgroup;
 use cryspglib::irrep::subduction::star::decompose::{
     FullStarError, subduce_full_star_with_embedding, trivial_content_with_embedding,
 };
@@ -19,8 +19,13 @@ fn gamma(record: &IrrepRecord) -> bool {
 
 #[test]
 fn non_gamma_pullback_keeps_the_phase_of_removed_child_translations() {
-    let subgroup =
-        isotropy_subgroup_for_direction(16, "R2", LabelConvention::Cdml, IsotropyDirection::Label("P1")).unwrap();
+    let subgroup = isotropy_subgroup_for_direction(
+        16,
+        "R2",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("P1"),
+    )
+    .unwrap();
     let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
     let probe = query::irreps_of(16)
         .iter()
@@ -312,7 +317,10 @@ fn stored_frequency(subgroup: &IsotropySubgroup, ml: &str) -> u32 {
 fn identity_only_content_answers_probes_without_full_child_data() {
     // SG 196 W1 -> #24 (I2_12_12_1), direction P2, Size 4.
     let (subgroup, embedding) = sg196_record(10027);
-    assert_eq!((subgroup.record.sg, subgroup.record.direction_label), (24, "P2"));
+    assert_eq!(
+        (subgroup.record.sg, subgroup.record.direction_label),
+        (24, "P2")
+    );
     let probe = |ml: &str| {
         query::irreps_of(196)
             .iter()
@@ -328,7 +336,12 @@ fn identity_only_content_answers_probes_without_full_child_data() {
         .expect("the constructed catalogue answers the missing stars");
     let content = trivial_content_with_embedding(&subgroup, &embedding, w1).unwrap();
     assert_eq!(
-        (content.total, content.by_label, content.gamma_stars, content.skipped_stars),
+        (
+            content.total,
+            content.by_label,
+            content.gamma_stars,
+            content.skipped_stars
+        ),
         (1, 1, 1, 2)
     );
     assert_eq!(content.total, stored_frequency(&subgroup, "W1"));
@@ -347,14 +360,20 @@ fn identity_only_content_answers_probes_without_full_child_data() {
     let full = subduce_full_star_with_embedding(&subgroup, &embedding, w2)
         .expect("the constructed catalogue answers the missing stars");
     let content = trivial_content_with_embedding(&subgroup, &embedding, w2).unwrap();
-    assert_eq!((content.total, content.gamma_stars, content.skipped_stars), (0, 1, 2));
+    assert_eq!(
+        (content.total, content.gamma_stars, content.skipped_stars),
+        (0, 1, 2)
+    );
     assert_eq!(stored_frequency(&subgroup, "W2"), 0);
     let full_total: u32 = full
         .blocks()
         .iter()
         .map(|block| block.multiplicity(trivial_record_of(24).ml))
         .sum();
-    assert_eq!(full_total, content.total, "w2 has no trivial term either way");
+    assert_eq!(
+        full_total, content.total,
+        "w2 has no trivial term either way"
+    );
 
     // L1 folds onto no Gamma star at all, and its blocks do have child data, so
     // the two entry points must agree on the zero.
@@ -368,7 +387,10 @@ fn identity_only_content_answers_probes_without_full_child_data() {
         .sum();
     let content = trivial_content_with_embedding(&subgroup, &embedding, l1).unwrap();
     assert_eq!((content.total, content.gamma_stars, full_total), (0, 0, 0));
-    let folded = ScalarStar::new(l1).unwrap().folded_stars(&embedding).unwrap();
+    let folded = ScalarStar::new(l1)
+        .unwrap()
+        .folded_stars(&embedding)
+        .unwrap();
     assert_eq!(
         content.gamma_stars + content.skipped_stars,
         folded.len(),

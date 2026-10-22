@@ -187,11 +187,7 @@ impl std::fmt::Display for IsotropyError {
                 "irrep {ml} of space group {sg} is double-valued; \
                  isotropy subgroups are defined for single-valued irreps only"
             ),
-            Self::NoOfficialDescriptor {
-                sg,
-                ml,
-                direction,
-            } => write!(
+            Self::NoOfficialDescriptor { sg, ml, direction } => write!(
                 f,
                 "irrep {ml} of space group {sg} has no collected official direction string \
                  {direction}; query official_direction_descriptor for the reason \
@@ -587,10 +583,7 @@ pub fn official_direction_descriptor(sg: u8, ml: &str, label: &str) -> OfficialD
 /// unit-tested (the corpus reaches three of them: 0 of 15,044 official rows sit
 /// in a non-empty record that lacks the label, so `LabelNotInTable` is
 /// defensive).
-fn classify_official(
-    record_known: bool,
-    official: Option<&'static str>,
-) -> OfficialDescriptor {
+fn classify_official(record_known: bool, official: Option<&'static str>) -> OfficialDescriptor {
     match (record_known, official) {
         (false, _) => OfficialDescriptor::RecordUnknown,
         (true, Some(text)) => OfficialDescriptor::Official(text),

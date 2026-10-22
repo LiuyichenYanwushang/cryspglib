@@ -43,10 +43,7 @@ fn main() {
                 );
                 for index in 0..row.len() {
                     if let Some((value, operation)) = row.entry(index) {
-                        println!(
-                            "  {operation:?} char {:.6} {:+.6}i",
-                            value.re, value.im
-                        );
+                        println!("  {operation:?} char {:.6} {:+.6}i", value.re, value.im);
                     }
                 }
             }

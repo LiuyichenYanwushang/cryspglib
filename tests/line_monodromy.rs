@@ -921,8 +921,8 @@ fn the_engine_answers_a_far_translated_parameter() {
                 let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(subgroup) else {
                     return None;
                 };
-                let table =
-                    line_table(subgroup.parent_sg, row.parent_ml).expect("the frozen source exists");
+                let table = line_table(subgroup.parent_sg, row.parent_ml)
+                    .expect("the frozen source exists");
                 let reference = subduce_line_at_parameter(subgroup, &embedding, table, official)
                     .unwrap_or_else(|error| {
                         panic!(
@@ -979,12 +979,10 @@ fn the_engine_answers_a_far_translated_parameter() {
                 shifted_blocks.sort();
                 reference_blocks.sort();
                 assert_eq!(
-                    shifted_blocks,
-                    reference_blocks,
+                    shifted_blocks, reference_blocks,
                     "ordinal {} {}: the decomposition at t={parameter} must be the one at \
                      t=1/4, which is the same k point modulo the parent lattice",
-                    subgroup.ordinal,
-                    row.parent_ml
+                    subgroup.ordinal, row.parent_ml
                 );
                 assert_eq!(
                     shifted.parameter_kind(),
@@ -1002,7 +1000,10 @@ fn the_engine_answers_a_far_translated_parameter() {
             "every pinned row must be compared at t={parameter}"
         );
         assert_eq!(
-            compared.iter().filter(|entry| **entry == Some(true)).count(),
+            compared
+                .iter()
+                .filter(|entry| **entry == Some(true))
+                .count(),
             expected_order_differences,
             "block order at t={parameter}: if this moved, either the engine changed its \
              enumeration or the two parameters stopped being the same k point"

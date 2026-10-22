@@ -55,7 +55,9 @@ struct AuditScan {
 /// renamed or misspelled marker (`identity-only;`), which is the drift this
 /// tool must not read as "no gaps left".
 fn is_identity_only(detail: &str) -> bool {
-    detail.split_whitespace().any(|token| token == "identity_only")
+    detail
+        .split_whitespace()
+        .any(|token| token == "identity_only")
 }
 
 fn read_requests(input: impl BufRead) -> Result<AuditScan> {
@@ -267,9 +269,8 @@ fn main() -> Result<()> {
             other => return Err(format!("unexpected argument {other}").into()),
         }
     }
-    let path = path.ok_or(
-        "usage: census_subduction_gaps <audit.tsv> [--require-empty] > gaps.tsv",
-    )?;
+    let path =
+        path.ok_or("usage: census_subduction_gaps <audit.tsv> [--require-empty] > gaps.tsv")?;
     let scan = read_requests(std::io::BufReader::new(std::fs::File::open(&path)?))?;
     check_scan(&scan, require_empty)?;
     let requests = scan.requests;
@@ -467,10 +468,7 @@ mod tests {
     fn the_replay_rejections_are_all_reachable() {
         let cases: Vec<(&str, String)> = vec![
             ("header", "wrong\theader\n".to_owned()),
-            (
-                "field count",
-                format!("{AUDIT_HEADER}identity\t1\t2\t1\n"),
-            ),
+            ("field count", format!("{AUDIT_HEADER}identity\t1\t2\t1\n")),
             (
                 "kind",
                 format!(
@@ -534,10 +532,7 @@ mod tests {
         }
         let total = star.dimension();
         assert_eq!(
-            folded
-                .iter()
-                .map(FoldedStar::block_dimension)
-                .sum::<u32>(),
+            folded.iter().map(FoldedStar::block_dimension).sum::<u32>(),
             total
         );
         (reachable, constructed, missing)

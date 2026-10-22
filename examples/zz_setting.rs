@@ -1,4 +1,6 @@
-use cryspglib::irrep::magnetic_embedding::{geometry_of, magnetic_operations, search_parent_setting};
+use cryspglib::irrep::magnetic_embedding::{
+    geometry_of, magnetic_operations, search_parent_setting,
+};
 use cryspglib::irrep::query;
 
 fn main() {
@@ -28,11 +30,20 @@ fn main() {
             }
         }
     }
-    println!("rows {rows} unique {unique} permissive {permissive} contained_but_zero {contained_but_zero}");
+    println!(
+        "rows {rows} unique {unique} permissive {permissive} contained_but_zero {contained_but_zero}"
+    );
     let mut pairs: Vec<(usize, usize)> = histogram.into_iter().collect();
     pairs.sort();
     println!("histogram {pairs:?}");
-    for (sg, uni) in [(167u8, 1333usize), (142, 1221), (88, 741), (227, 1630), (3, 24), (1, 1)] {
+    for (sg, uni) in [
+        (167u8, 1333usize),
+        (142, 1221),
+        (88, 741),
+        (227, 1630),
+        (3, 24),
+        (1, 1),
+    ] {
         if let Some(record) = query::magnetic_isotropy_subgroups_of(sg)
             .into_iter()
             .find(|row| row.subgroup.mag_sg == uni)

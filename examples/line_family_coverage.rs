@@ -35,9 +35,7 @@ use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup};
 use cryspglib::irrep::line_monodromy::{line_table, monodromy, operation_translation};
 use cryspglib::irrep::query;
-use cryspglib::irrep::subduction::star::decompose::{
-    FullStarError, subduce_line_at_parameter,
-};
+use cryspglib::irrep::subduction::star::decompose::{FullStarError, subduce_line_at_parameter};
 use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R};
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::{HallNumber, SymmetryOps};
@@ -949,9 +947,18 @@ mod tests {
         }
         assert_eq!(expected.len(), 42);
         assert_eq!(actual.len(), expected.len());
-        let actual_set = actual.iter().copied().collect::<std::collections::HashSet<_>>();
-        let expected_set = expected.into_iter().collect::<std::collections::HashSet<_>>();
-        assert_eq!(actual_set.len(), actual.len(), "sample values must be unique");
+        let actual_set = actual
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        let expected_set = expected
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            actual_set.len(),
+            actual.len(),
+            "sample values must be unique"
+        );
         assert_eq!(actual_set, expected_set);
     }
 

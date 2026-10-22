@@ -20,9 +20,9 @@
 
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup};
 use cryspglib::irrep::query;
-use cryspglib::irrep::subduction::{Rat, Vec3R, bloch_phase};
 use cryspglib::irrep::subduction::SubgroupEmbedding;
 use cryspglib::irrep::subduction::star::decompose::subduce_full_star_with_embedding;
+use cryspglib::irrep::subduction::{Rat, Vec3R, bloch_phase};
 use cryspglib::irrep::{LabelConvention, types::IrrepRecord};
 
 fn find_subgroup(ordinal: usize) -> Result<IsotropySubgroup, String> {
@@ -59,12 +59,21 @@ fn main() -> Result<(), String> {
         .map_err(|error| format!("embedding: {error}"))?;
     let lattice = *embedding.parent_lattice();
     let wave_vector = Vec3R::new([
-        Rat::new(i128::from(probe.k_vector().numerators[0]), i128::from(probe.k_vector().denominator))
-            .map_err(|e| e.to_string())?,
-        Rat::new(i128::from(probe.k_vector().numerators[1]), i128::from(probe.k_vector().denominator))
-            .map_err(|e| e.to_string())?,
-        Rat::new(i128::from(probe.k_vector().numerators[2]), i128::from(probe.k_vector().denominator))
-            .map_err(|e| e.to_string())?,
+        Rat::new(
+            i128::from(probe.k_vector().numerators[0]),
+            i128::from(probe.k_vector().denominator),
+        )
+        .map_err(|e| e.to_string())?,
+        Rat::new(
+            i128::from(probe.k_vector().numerators[1]),
+            i128::from(probe.k_vector().denominator),
+        )
+        .map_err(|e| e.to_string())?,
+        Rat::new(
+            i128::from(probe.k_vector().numerators[2]),
+            i128::from(probe.k_vector().denominator),
+        )
+        .map_err(|e| e.to_string())?,
     ]);
     let row = probe
         .ordinary_scalar_selected_arm_block_trace()
@@ -123,11 +132,7 @@ fn main() -> Result<(), String> {
     for entry in &stored {
         println!(
             "   {} k = {:?} frequency {} domain {} direction {}",
-            entry.parent_ml,
-            entry.parent_k,
-            entry.frequency,
-            entry.domain,
-            entry.direction_label,
+            entry.parent_ml, entry.parent_k, entry.frequency, entry.domain, entry.direction_label,
         );
     }
     let result = subduce_full_star_with_embedding(&subgroup, &embedding, probe)

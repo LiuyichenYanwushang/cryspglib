@@ -33,8 +33,13 @@ fn rat(num: i128, den: i128) -> Rat {
 }
 
 fn subgroup(sg: u8, ml: &str, direction: &str) -> IsotropySubgroup {
-    isotropy_subgroup_for_direction(sg, ml, LabelConvention::Cdml, IsotropyDirection::Label(direction))
-        .unwrap_or_else(|error| panic!("SG {sg} {ml} {direction}: {error}"))
+    isotropy_subgroup_for_direction(
+        sg,
+        ml,
+        LabelConvention::Cdml,
+        IsotropyDirection::Label(direction),
+    )
+    .unwrap_or_else(|error| panic!("SG {sg} {ml} {direction}: {error}"))
 }
 
 /// A scalar record of the parent's own table, exactly as the API hands it out.

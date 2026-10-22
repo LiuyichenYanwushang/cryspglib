@@ -53,8 +53,7 @@ fn append_string(payload: &mut Vec<u8>, value: &str, label: &str) -> Result<()> 
     if value.as_bytes().contains(&0) {
         return error(format!("{label} contains NUL"));
     }
-    let length = u32::try_from(value.len())
-        .map_err(|_| format!("{label} is too long for u32"))?;
+    let length = u32::try_from(value.len()).map_err(|_| format!("{label} is too long for u32"))?;
     append_u32(payload, length);
     payload.extend_from_slice(value.as_bytes());
     Ok(())
@@ -99,8 +98,8 @@ fn append_rotation(payload: &mut Vec<u8>, rotation: [[i32; 3]; 3], label: &str) 
                     "{label} rotation[{row_index}][{column_index}] is outside -1..1"
                 ));
             }
-            let value = i8::try_from(value)
-                .map_err(|_| format!("{label} rotation does not fit i8"))?;
+            let value =
+                i8::try_from(value).map_err(|_| format!("{label} rotation does not fit i8"))?;
             payload.push(value as u8);
         }
     }
@@ -115,7 +114,10 @@ fn append_spg_operation(
 ) -> Result<()> {
     append_rotation(payload, rotation, label)?;
     for (index, value) in translation.into_iter().enumerate() {
-        append_u8(payload, exact_translation(value, &format!("{label} translation[{index}]"))?);
+        append_u8(
+            payload,
+            exact_translation(value, &format!("{label} translation[{index}]"))?,
+        );
     }
     Ok(())
 }
@@ -132,8 +134,14 @@ fn append_magnetic_operation(
     Ok(())
 }
 
-fn append_section(frame: &mut Vec<u8>, tag: &[u8; 4], count: usize, payload: Vec<u8>) -> Result<()> {
-    let count = u64::try_from(count).map_err(|_| format!("{} count overflow", String::from_utf8_lossy(tag)))?;
+fn append_section(
+    frame: &mut Vec<u8>,
+    tag: &[u8; 4],
+    count: usize,
+    payload: Vec<u8>,
+) -> Result<()> {
+    let count = u64::try_from(count)
+        .map_err(|_| format!("{} count overflow", String::from_utf8_lossy(tag)))?;
     let payload_length = u64::try_from(payload.len())
         .map_err(|_| format!("{} payload length overflow", String::from_utf8_lossy(tag)))?;
     frame.extend_from_slice(tag);
@@ -151,7 +159,10 @@ fn build_sgno() -> Result<Vec<u8>> {
         if raw != api {
             return error(format!("SGNO Hall {hall} raw/API mismatch"));
         }
-        append_i32(&mut payload, i32::try_from(raw).map_err(|_| format!("SGNO[{hall}] out of i32"))?);
+        append_i32(
+            &mut payload,
+            i32::try_from(raw).map_err(|_| format!("SGNO[{hall}] out of i32"))?,
+        );
     }
     Ok(payload)
 }
@@ -245,7 +256,10 @@ fn build_muni() -> Result<Vec<u8>> {
         return error("MUNI census mismatch");
     }
     let mut payload = Vec::new();
-    for (uni, raw) in msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING.iter().enumerate() {
+    for (uni, raw) in msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING
+        .iter()
+        .enumerate()
+    {
         let count = raw[0];
         let first = raw[1];
         if count < 0 || first < 0 {
@@ -274,7 +288,10 @@ fn build_mhll() -> Result<Vec<u8>> {
         return error("MHLL census mismatch");
     }
     let mut payload = Vec::new();
-    for (hall, raw) in msg_database::MAGNETIC_SPACEGROUP_HALL_MAPPING.iter().enumerate() {
+    for (hall, raw) in msg_database::MAGNETIC_SPACEGROUP_HALL_MAPPING
+        .iter()
+        .enumerate()
+    {
         let api = msg_database::get_uni_candidates(hall)
             .ok_or_else(|| format!("MHLL Hall {hall} has no API mapping"))?;
         if raw[0] < 0 || raw[1] < 0 || [raw[0] as usize, raw[1] as usize] != api {
@@ -298,7 +315,10 @@ fn build_midx() -> Result<Vec<u8>> {
         return error("MIDX UNI census mismatch");
     }
     let mut payload = Vec::new();
-    for (uni, row) in msg_database::MAGNETIC_SPACEGROUP_OPERATION_INDEX.iter().enumerate() {
+    for (uni, row) in msg_database::MAGNETIC_SPACEGROUP_OPERATION_INDEX
+        .iter()
+        .enumerate()
+    {
         let active_count = if uni == 0 {
             0
         } else {
@@ -331,7 +351,10 @@ fn build_mraw() -> Result<Vec<u8>> {
         return error("MRAW census or sentinel mismatch");
     }
     let mut payload = Vec::with_capacity(MSG_OPERATION_COUNT * 4);
-    for (index, &code) in msg_database::MAGNETIC_SYMMETRY_OPERATIONS.iter().enumerate() {
+    for (index, &code) in msg_database::MAGNETIC_SYMMETRY_OPERATIONS
+        .iter()
+        .enumerate()
+    {
         if index > 0 && !(0..(2 * SPACE_OPERATION_SCALE)).contains(&code) {
             return error(format!("MRAW[{index}] encoding out of range"));
         }
@@ -359,8 +382,8 @@ fn build_malt() -> Result<Vec<u8>> {
                     return error(format!("MALT[{uni}][{slot}] inactive tail nonzero"));
                 }
             } else {
-                let first_zero = first_zero
-                    .ok_or_else(|| format!("MALT[{uni}][{slot}] lacks terminator"))?;
+                let first_zero =
+                    first_zero.ok_or_else(|| format!("MALT[{uni}][{slot}] lacks terminator"))?;
                 if first_zero > 6 || values[first_zero..].iter().any(|&value| value != 0) {
                     return error(format!("MALT[{uni}][{slot}] terminator/tail invalid"));
                 }
@@ -377,7 +400,9 @@ fn build_malt() -> Result<Vec<u8>> {
         }
     }
     if occurrences != ALT_VALUE_COUNT {
-        return error(format!("MALT occurrence census {occurrences} != {ALT_VALUE_COUNT}"));
+        return error(format!(
+            "MALT occurrence census {occurrences} != {ALT_VALUE_COUNT}"
+        ));
     }
     Ok(payload)
 }
@@ -390,9 +415,17 @@ fn build_sdec() -> Result<Vec<u8>> {
             return error(format!("SDEC[{index}] encoding invalid"));
         }
         let (rotation, translation) = spg_database::decode_symmetry(encoded);
-        append_u32(&mut payload, checked_u32(index, &format!("SDEC[{index}] index"))?);
+        append_u32(
+            &mut payload,
+            checked_u32(index, &format!("SDEC[{index}] index"))?,
+        );
         append_i32(&mut payload, encoded);
-        append_spg_operation(&mut payload, rotation, translation, &format!("SDEC[{index}]"))?;
+        append_spg_operation(
+            &mut payload,
+            rotation,
+            translation,
+            &format!("SDEC[{index}]"),
+        )?;
     }
     Ok(payload)
 }
@@ -406,20 +439,30 @@ fn build_sapi() -> Result<Vec<u8>> {
         if operations.len() != raw[0] as usize {
             return error(format!("SAPI Hall {hall} span/API order mismatch"));
         }
-        if operations.rot.len() != operations.trans.len()
-            || operations.rot.len() != raw[0] as usize
+        if operations.rot.len() != operations.trans.len() || operations.rot.len() != raw[0] as usize
         {
             return error(format!("SAPI Hall {hall} runtime vector lengths mismatch"));
         }
-        append_u16(&mut payload, checked_u16(hall, &format!("SAPI[{hall}] Hall"))?);
-        append_u16(&mut payload, checked_u16(operations.len(), &format!("SAPI[{hall}] count"))?);
+        append_u16(
+            &mut payload,
+            checked_u16(hall, &format!("SAPI[{hall}] Hall"))?,
+        );
+        append_u16(
+            &mut payload,
+            checked_u16(operations.len(), &format!("SAPI[{hall}] count"))?,
+        );
         for (index, (&rotation, &translation)) in operations
             .rot
             .iter()
             .zip(operations.trans.iter())
             .enumerate()
         {
-            append_spg_operation(&mut payload, rotation, translation, &format!("SAPI[{hall}][{index}]"))?;
+            append_spg_operation(
+                &mut payload,
+                rotation,
+                translation,
+                &format!("SAPI[{hall}][{index}]"),
+            )?;
         }
     }
     Ok(payload)
@@ -563,8 +606,10 @@ fn build_mapi() -> Result<Vec<u8>> {
     let mut span_count = 0usize;
     for uni in 1..MSG_UNI_COUNT {
         let mapping = msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING[uni];
-        let count = usize::try_from(mapping[0]).map_err(|_| format!("MAPI UNI {uni} count negative"))?;
-        let first = usize::try_from(mapping[1]).map_err(|_| format!("MAPI UNI {uni} first negative"))?;
+        let count =
+            usize::try_from(mapping[0]).map_err(|_| format!("MAPI UNI {uni} count negative"))?;
+        let first =
+            usize::try_from(mapping[1]).map_err(|_| format!("MAPI UNI {uni} first negative"))?;
         validate_uni_zero_alias(uni, first)?;
         for slot in 0..count {
             let hall = first + slot;
@@ -572,17 +617,14 @@ fn build_mapi() -> Result<Vec<u8>> {
                 return error(format!("MAPI UNI {uni} Hall {hall} out of range"));
             }
             let raw_span = msg_database::MAGNETIC_SPACEGROUP_OPERATION_INDEX[uni][slot];
-            let order = usize::try_from(raw_span[0]).map_err(|_| format!("MAPI {uni}/{hall} order negative"))?;
-            let offset = usize::try_from(raw_span[1]).map_err(|_| format!("MAPI {uni}/{hall} offset negative"))?;
+            let order = usize::try_from(raw_span[0])
+                .map_err(|_| format!("MAPI {uni}/{hall} order negative"))?;
+            let offset = usize::try_from(raw_span[1])
+                .map_err(|_| format!("MAPI {uni}/{hall} offset negative"))?;
             if order == 0 || offset == 0 || offset + order > MSG_OPERATION_COUNT {
                 return error(format!("MAPI {uni}/{hall} span invalid"));
             }
-            for (index, was_visited) in visited
-                .iter_mut()
-                .enumerate()
-                .skip(offset)
-                .take(order)
-            {
+            for (index, was_visited) in visited.iter_mut().enumerate().skip(offset).take(order) {
                 if *was_visited {
                     return error(format!("MAPI raw index {index} visited twice"));
                 }
@@ -598,8 +640,14 @@ fn build_mapi() -> Result<Vec<u8>> {
                 return error(format!("MAPI {uni}/{hall} span/API order mismatch"));
             }
             append_u16(&mut payload, checked_u16(uni, &format!("MAPI {uni} UNI"))?);
-            append_u16(&mut payload, checked_u16(hall, &format!("MAPI {uni}/{hall} Hall"))?);
-            append_u16(&mut payload, checked_u16(order, &format!("MAPI {uni}/{hall} count"))?);
+            append_u16(
+                &mut payload,
+                checked_u16(hall, &format!("MAPI {uni}/{hall} Hall"))?,
+            );
+            append_u16(
+                &mut payload,
+                checked_u16(order, &format!("MAPI {uni}/{hall} count"))?,
+            );
             for (index, ((&rotation, &translation), &time_reversal)) in operations
                 .rot
                 .iter()
@@ -628,13 +676,19 @@ fn build_mapi() -> Result<Vec<u8>> {
         }
     }
     if span_count != MSG_ACTIVE_SPAN_COUNT {
-        return error(format!("MAPI span census {span_count} != {MSG_ACTIVE_SPAN_COUNT}"));
+        return error(format!(
+            "MAPI span census {span_count} != {MSG_ACTIVE_SPAN_COUNT}"
+        ));
     }
     let visited_count = visited.iter().skip(1).filter(|&&value| value).count();
-    if visited[0] || visited_count != MSG_OPERATION_COUNT - 1
+    if visited[0]
+        || visited_count != MSG_OPERATION_COUNT - 1
         || visited.iter().skip(1).any(|&value| !value)
     {
-        return error(format!("MAPI visited raw indices {visited_count}, expected {}", MSG_OPERATION_COUNT - 1));
+        return error(format!(
+            "MAPI visited raw indices {visited_count}, expected {}",
+            MSG_OPERATION_COUNT - 1
+        ));
     }
     Ok(payload)
 }
@@ -657,8 +711,10 @@ fn build_tapi() -> Result<Vec<u8>> {
     let mut record_count = 0usize;
     for uni in 1..MSG_UNI_COUNT {
         let mapping = msg_database::MAGNETIC_SPACEGROUP_UNI_MAPPING[uni];
-        let count = usize::try_from(mapping[0]).map_err(|_| format!("TAPI UNI {uni} count negative"))?;
-        let first = usize::try_from(mapping[1]).map_err(|_| format!("TAPI UNI {uni} first negative"))?;
+        let count =
+            usize::try_from(mapping[0]).map_err(|_| format!("TAPI UNI {uni} count negative"))?;
+        let first =
+            usize::try_from(mapping[1]).map_err(|_| format!("TAPI UNI {uni} first negative"))?;
         for slot in 0..count {
             let hall = first + slot;
             let raw_values = msg_database::ALTERNATIVE_TRANSFORMATIONS[uni][slot];
@@ -681,38 +737,68 @@ fn build_tapi() -> Result<Vec<u8>> {
             }
             let (identity_rotation, identity_translation) =
                 (transformations.rot[0], transformations.trans[0]);
-            check_identity(identity_rotation, identity_translation, &format!("TAPI {uni}/{hall}[0]"))?;
+            check_identity(
+                identity_rotation,
+                identity_translation,
+                &format!("TAPI {uni}/{hall}[0]"),
+            )?;
             append_u16(&mut payload, checked_u16(uni, &format!("TAPI {uni} UNI"))?);
-            append_u16(&mut payload, checked_u16(hall, &format!("TAPI {uni}/{hall} Hall"))?);
-            append_u16(&mut payload, checked_u16(transformations.len(), &format!("TAPI {uni}/{hall} count"))?);
+            append_u16(
+                &mut payload,
+                checked_u16(hall, &format!("TAPI {uni}/{hall} Hall"))?,
+            );
+            append_u16(
+                &mut payload,
+                checked_u16(transformations.len(), &format!("TAPI {uni}/{hall} count"))?,
+            );
             for index in 0..transformations.len() {
                 let rotation = transformations.rot[index];
                 let translation = transformations.trans[index];
                 if index > 0 {
                     let encoded = raw_values[index - 1];
-                    let (expected_rotation, expected_translation) = spg_database::decode_symmetry(encoded);
+                    let (expected_rotation, expected_translation) =
+                        spg_database::decode_symmetry(encoded);
                     if rotation != expected_rotation {
                         return error(format!("TAPI {uni}/{hall}[{index}] rotation mismatch"));
                     }
                     for component in 0..3 {
-                        let actual = exact_translation(translation[component], &format!("TAPI {uni}/{hall}[{index}] translation[{component}]"))?;
-                        let expected = exact_translation(expected_translation[component], &format!("TAPI {uni}/{hall}[{index}] expected translation[{component}]"))?;
+                        let actual = exact_translation(
+                            translation[component],
+                            &format!("TAPI {uni}/{hall}[{index}] translation[{component}]"),
+                        )?;
+                        let expected = exact_translation(
+                            expected_translation[component],
+                            &format!(
+                                "TAPI {uni}/{hall}[{index}] expected translation[{component}]"
+                            ),
+                        )?;
                         if actual != expected {
-                            return error(format!("TAPI {uni}/{hall}[{index}] translation mismatch"));
+                            return error(format!(
+                                "TAPI {uni}/{hall}[{index}] translation mismatch"
+                            ));
                         }
                     }
                 }
-                append_spg_operation(&mut payload, rotation, translation, &format!("TAPI {uni}/{hall}[{index}]"))?;
+                append_spg_operation(
+                    &mut payload,
+                    rotation,
+                    translation,
+                    &format!("TAPI {uni}/{hall}[{index}]"),
+                )?;
             }
             occurrences += first_zero;
             record_count += 1;
         }
     }
     if record_count != MSG_ACTIVE_SPAN_COUNT {
-        return error(format!("TAPI record census {record_count} != {MSG_ACTIVE_SPAN_COUNT}"));
+        return error(format!(
+            "TAPI record census {record_count} != {MSG_ACTIVE_SPAN_COUNT}"
+        ));
     }
     if occurrences != ALT_VALUE_COUNT {
-        return error(format!("TAPI raw occurrence census {occurrences} != {ALT_VALUE_COUNT}"));
+        return error(format!(
+            "TAPI raw occurrence census {occurrences} != {ALT_VALUE_COUNT}"
+        ));
     }
     Ok(payload)
 }
@@ -769,8 +855,12 @@ fn run() -> Result<()> {
     let frame = build_frame()?;
     let stdout = io::stdout();
     let mut output = io::BufWriter::new(stdout.lock());
-    output.write_all(&frame).map_err(|error| format!("write frame: {error}"))?;
-    output.flush().map_err(|error| format!("flush frame: {error}"))?;
+    output
+        .write_all(&frame)
+        .map_err(|error| format!("write frame: {error}"))?;
+    output
+        .flush()
+        .map_err(|error| format!("flush frame: {error}"))?;
     Ok(())
 }
 

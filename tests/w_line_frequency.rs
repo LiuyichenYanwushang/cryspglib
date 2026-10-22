@@ -10,16 +10,16 @@
 //! `DT3`/`DT4` frequencies differ, which is what pins the frozen ordering of
 //! that pair.
 
+use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup};
+use cryspglib::irrep::line_monodromy::{line_direction, monodromy};
 use cryspglib::irrep::query;
-use cryspglib::irrep::subduction::{Rat, SubgroupEmbedding, Vec3R};
 use cryspglib::irrep::subduction::star::decompose::{
     line_trivial_content_via_blocks, line_trivial_content_with_embedding, official_line_parameter,
     subduce_line_at_parameter,
 };
-use cryspglib::irrep::line_monodromy::{line_direction, monodromy};
+use cryspglib::irrep::subduction::{Rat, SubgroupEmbedding, Vec3R};
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
-use cryspglib::irrep::LabelConvention;
 
 /// Every isotropy record of one parent space group, as the audit enumerates it.
 fn subgroups_of(sg: u8) -> Vec<IsotropySubgroup> {
@@ -300,13 +300,9 @@ fn a_conjugate_parameter_carries_the_reciprocal_gauge_factor() {
             official_line_parameter().unwrap(),
         )
         .unwrap_or_else(|error| panic!("ordinal {ordinal} {label} t=1/4: {error}"));
-        let three = subduce_line_at_parameter(
-            &subgroup,
-            &embedding,
-            table,
-            Rat::new(3, 4).unwrap(),
-        )
-        .unwrap_or_else(|error| panic!("ordinal {ordinal} {label} t=3/4: {error}"));
+        let three =
+            subduce_line_at_parameter(&subgroup, &embedding, table, Rat::new(3, 4).unwrap())
+                .unwrap_or_else(|error| panic!("ordinal {ordinal} {label} t=3/4: {error}"));
 
         assert_eq!(
             quarter.trivial_content().unwrap(),
@@ -339,10 +335,10 @@ fn a_conjugate_parameter_carries_the_reciprocal_gauge_factor() {
                 negative_factors += 1;
             }
             // conj(chi(1/4)) * factor
-            let expected_re = quarter_characters[index].re * factor.0
-                + quarter_characters[index].im * factor.1;
-            let expected_im = quarter_characters[index].re * factor.1
-                - quarter_characters[index].im * factor.0;
+            let expected_re =
+                quarter_characters[index].re * factor.0 + quarter_characters[index].im * factor.1;
+            let expected_im =
+                quarter_characters[index].re * factor.1 - quarter_characters[index].im * factor.0;
             let deviation = ((three_characters[index].re - expected_re).powi(2)
                 + (three_characters[index].im - expected_im).powi(2))
             .sqrt();

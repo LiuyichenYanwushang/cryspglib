@@ -6,8 +6,7 @@
 
 use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{
-    IsotropyDirection, isotropy_subgroup_for_direction, isotropy_subgroups,
-    parent_primitive_basis,
+    IsotropyDirection, isotropy_subgroup_for_direction, isotropy_subgroups, parent_primitive_basis,
 };
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::SubductionComponent;
@@ -370,10 +369,7 @@ fn child_p1_records_decompose_every_scalar_probe_without_pinned_data() {
                     }
                     for block in result.blocks() {
                         for target in block.targets() {
-                            if matches!(
-                                target.component,
-                                SubductionComponent::Constructed { .. }
-                            ) {
+                            if matches!(target.component, SubductionComponent::Constructed { .. }) {
                                 assert!(
                                     target.ml.is_none()
                                         && target.row_ml.is_none()

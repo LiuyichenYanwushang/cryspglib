@@ -26,18 +26,21 @@
 //! with the pinned `isotropy_subduce_*` frequency, which is the only quantity the
 //! frozen table constrains.
 
+use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{IsotropySubgroup, isotropy_subgroups};
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::star::decompose::{
     subduce_full_star_with_embedding, trivial_content_with_embedding,
 };
-use cryspglib::irrep::subduction::{SubgroupEmbedding, SubductionComponent};
+use cryspglib::irrep::subduction::{SubductionComponent, SubgroupEmbedding};
 use cryspglib::irrep::types::{IrrepRecord, IrrepSourceIdentity};
-use cryspglib::irrep::LabelConvention;
 
 /// The isotropy record with this ordinal, with its validated embedding.
 fn ordinal_context(parent: u8, ordinal: usize) -> (IsotropySubgroup, SubgroupEmbedding) {
-    for record in query::irreps_of(parent).iter().filter(|record| !record.spinor) {
+    for record in query::irreps_of(parent)
+        .iter()
+        .filter(|record| !record.spinor)
+    {
         for subgroup in
             isotropy_subgroups(parent, record.ml, LabelConvention::Cdml).unwrap_or_else(|error| {
                 panic!("SG {parent} {}: isotropy subgroups: {error}", record.ml)
@@ -91,9 +94,7 @@ fn a_trivial_co_group_context_is_answered_completely() {
     let trivial = query::irreps_of(8)
         .iter()
         .find(|record| {
-            !record.spinor
-                && record.k_vector().numerators == [0, 0, 0]
-                && record.dim == 1
+            !record.spinor && record.k_vector().numerators == [0, 0, 0] && record.dim == 1
         })
         .expect("#8 has a trivial Gamma row");
 
@@ -119,15 +120,15 @@ fn a_trivial_co_group_context_is_answered_completely() {
         );
         for block in result.blocks() {
             for target in block.targets() {
-                if matches!(
-                    target.component,
-                    SubductionComponent::Constructed { .. }
-                ) {
+                if matches!(target.component, SubductionComponent::Constructed { .. }) {
                     assert!(
                         target.ml.is_none() && target.row_ml.is_none() && target.irnumber.is_none(),
                         "a constructed target must not borrow a stored identity"
                     );
-                    assert_eq!(target.dimension, 1, "a trivial co-group target is one-dimensional");
+                    assert_eq!(
+                        target.dimension, 1,
+                        "a trivial co-group target is one-dimensional"
+                    );
                     assert_eq!(
                         block.constructed_multiplicity(target.component),
                         target.multiplicity
@@ -270,7 +271,9 @@ fn a_star_with_a_stored_row_never_also_constructs() {
             let constructed = block
                 .targets()
                 .iter()
-                .filter(|target| matches!(target.component, SubductionComponent::Constructed { .. }))
+                .filter(|target| {
+                    matches!(target.component, SubductionComponent::Constructed { .. })
+                })
                 .count();
             if constructed > 0 {
                 assert_eq!(
@@ -287,7 +290,10 @@ fn a_star_with_a_stored_row_never_also_constructs() {
             }
         }
     }
-    assert!(stored_targets > 0, "stored rows must still answer their stars");
+    assert!(
+        stored_targets > 0,
+        "stored rows must still answer their stars"
+    );
     assert!(
         constructed_targets > 0,
         "the all-analytic stars of this context are constructed"

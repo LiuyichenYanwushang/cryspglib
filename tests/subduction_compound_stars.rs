@@ -262,9 +262,13 @@ fn compound_restrictions_have_independently_pinned_complex_terms() {
     ];
     let mut operations_checked = 0;
     for &(sg, condensate, ml, child, terms) in cases {
-        let subgroup =
-            isotropy_subgroup_for_direction(sg, condensate, LabelConvention::Cdml, IsotropyDirection::Label("P1"))
-                .unwrap();
+        let subgroup = isotropy_subgroup_for_direction(
+            sg,
+            condensate,
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .unwrap();
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
         let probe = query::irreps_of(sg).iter().find(|r| r.ml == ml).unwrap();
         let result = subduce_full_star_with_embedding(&subgroup, &embedding, probe)
@@ -342,9 +346,13 @@ fn compound_restrictions_have_independently_pinned_complex_terms() {
 fn self_restriction_preserves_every_complex_source_in_the_four_frozen_groups() {
     let mut census = Vec::new();
     for (sg, condensate) in [(19, "GM1"), (23, "GM1"), (45, "GM1"), (83, "GM1+")] {
-        let subgroup =
-            isotropy_subgroup_for_direction(sg, condensate, LabelConvention::Cdml, IsotropyDirection::Label("P1"))
-                .unwrap();
+        let subgroup = isotropy_subgroup_for_direction(
+            sg,
+            condensate,
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .unwrap();
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
         let cell = lattice(sg);
         let reciprocal = cell.reciprocal().unwrap();

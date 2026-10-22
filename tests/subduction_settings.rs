@@ -10,8 +10,13 @@ use cryspglib::irrep::subduction::{Mat3R, SeitzTransform, SubgroupEmbedding, Vec
 
 #[test]
 fn swapping_child_axes_preserves_the_group_but_changes_irrep_labels() {
-    let subgroup =
-        isotropy_subgroup_for_direction(43, "GM1", LabelConvention::Cdml, IsotropyDirection::Label("P1")).unwrap();
+    let subgroup = isotropy_subgroup_for_direction(
+        43,
+        "GM1",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("P1"),
+    )
+    .unwrap();
     let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
     let swap = SeitzTransform::new(
         Mat3R::from_ints([[0, 1, 0], [1, 0, 0], [0, 0, 1]]),
@@ -52,9 +57,13 @@ fn official_axes_pin_nontrivial_labels_from_two_cubic_condensates() {
     // parent, where the raw GM2+ trace is +1.  The diagonal mirror has trace
     // -1, selecting GM3 (and excluding the swapped-axis GM4 convention).
     for condensing in ["GM4-", "GM5-"] {
-        let subgroup =
-            isotropy_subgroup_for_direction(230, condensing, LabelConvention::Cdml, IsotropyDirection::Label("P2"))
-                .unwrap();
+        let subgroup = isotropy_subgroup_for_direction(
+            230,
+            condensing,
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P2"),
+        )
+        .unwrap();
         let result = subduce_irrep(&subgroup, "GM2+").unwrap();
         assert_eq!(result.multiplicity("GM3"), 1, "{condensing}");
         assert_eq!(result.multiplicity("GM4"), 0, "{condensing}");
@@ -69,8 +78,13 @@ fn oracle_settings_include_genuine_shears() {
         (64, "GM2+", 14, [[2, 0, 1], [-1, 0, -1], [0, 1, 0]]),
         (67, "GM2+", 13, [[2, 0, 1], [-1, 0, -1], [0, 1, 0]]),
     ] {
-        let subgroup =
-            isotropy_subgroup_for_direction(sg, ml, LabelConvention::Cdml, IsotropyDirection::Label("P1")).unwrap();
+        let subgroup = isotropy_subgroup_for_direction(
+            sg,
+            ml,
+            LabelConvention::Cdml,
+            IsotropyDirection::Label("P1"),
+        )
+        .unwrap();
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
         assert_eq!(embedding.subgroup_sg(), child);
         assert_eq!(embedding.setting(), setting);
@@ -90,8 +104,13 @@ fn every_new_record_probe_is_computed_or_matches_the_exact_missing_set() {
         (230, "GM4-", "P2"),
         (230, "GM5-", "P2"),
     ] {
-        let subgroup =
-            isotropy_subgroup_for_direction(sg, ml, LabelConvention::Cdml, IsotropyDirection::Label(direction)).unwrap();
+        let subgroup = isotropy_subgroup_for_direction(
+            sg,
+            ml,
+            LabelConvention::Cdml,
+            IsotropyDirection::Label(direction),
+        )
+        .unwrap();
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).unwrap();
         let trivial = if matches!(embedding.subgroup_sg(), 13 | 14) {
             "GM1+"
@@ -128,5 +147,8 @@ fn every_new_record_probe_is_computed_or_matches_the_exact_missing_set() {
     // little co-group whose cocycle is a coboundary, so the exact
     // one-dimensional catalogue answers them and the missing set is empty.
     assert_eq!((complete, positive), (120, 18));
-    assert!(missing.is_empty(), "no probe needs child data here: {missing:?}");
+    assert!(
+        missing.is_empty(),
+        "no probe needs child data here: {missing:?}"
+    );
 }

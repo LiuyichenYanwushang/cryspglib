@@ -114,10 +114,7 @@ fn a_duplicated_bc_label_is_refused_as_ambiguous() {
             };
             match groups.iter_mut().find(|(label, _)| *label == bc) {
                 Some((_, members)) => members.push(record.ml),
-                None => groups.push((
-                    Box::leak(bc.into_boxed_str()),
-                    vec![record.ml],
-                )),
+                None => groups.push((Box::leak(bc.into_boxed_str()), vec![record.ml])),
             }
         }
         groups
@@ -173,10 +170,7 @@ fn unknown_labels_and_directions_are_errors() {
             .direction(IsotropyDirection::Label("NOPE1")),
     )
     .expect_err("an unknown direction is an error");
-    assert!(matches!(
-        unknown_direction,
-        SubductionApiError::Isotropy(_)
-    ));
+    assert!(matches!(unknown_direction, SubductionApiError::Isotropy(_)));
 
     let unknown_descriptor = subduce(
         &SubductionRequest::new(221, "GM4+", LabelConvention::Cdml)
@@ -302,10 +296,12 @@ fn the_whole_table_wrapper_covers_every_direction() {
             !entry.label.is_empty(),
             "every entry carries its direction label"
         );
-        let report = entry
-            .result
-            .as_ref()
-            .unwrap_or_else(|error| panic!("direction {} ({}) failed: {error}", entry.index, entry.label));
+        let report = entry.result.as_ref().unwrap_or_else(|error| {
+            panic!(
+                "direction {} ({}) failed: {error}",
+                entry.index, entry.label
+            )
+        });
         assert_eq!(report.direction().index_in_irrep, entry.index);
         assert_eq!(report.direction().label, entry.label);
     }
@@ -375,7 +371,9 @@ fn a_source_through_two_subgroups_is_ambiguous_and_both_are_reachable() {
 
     let candidates = match subduce(&request).expect_err("two contexts must be refused") {
         SubductionApiError::AmbiguousLineContext {
-            sg: 196, candidates, ..
+            sg: 196,
+            candidates,
+            ..
         } => candidates,
         other => panic!("expected AmbiguousLineContext, got {other}"),
     };
@@ -388,7 +386,8 @@ fn a_source_through_two_subgroups_is_ambiguous_and_both_are_reachable() {
     assert_eq!(first.direction().ordinal, 10049);
     assert_eq!(second.direction().ordinal, 10072);
     assert_ne!(
-        first.direction().subgroup_sg, second.direction().subgroup_sg,
+        first.direction().subgroup_sg,
+        second.direction().subgroup_sg,
         "the two contexts are different subgroups"
     );
     assert_ne!(
@@ -399,7 +398,10 @@ fn a_source_through_two_subgroups_is_ambiguous_and_both_are_reachable() {
 
     // An ordinal that belongs to neither context is an error, not a fallback.
     match subduce(&request.ordinal(1)).expect_err("an unrelated ordinal is an error") {
-        SubductionApiError::UnknownContext { sg: 196, ordinal: 1 } => {}
+        SubductionApiError::UnknownContext {
+            sg: 196,
+            ordinal: 1,
+        } => {}
         other => panic!("expected UnknownContext, got {other}"),
     }
 }
@@ -457,7 +459,10 @@ fn the_old_gamma_only_entry_refused_what_the_new_entry_answers() {
     .expect("the supported entry answers a non-Γ irrep");
     assert_eq!(report.condensing().cdml, "X2");
     assert_eq!(report.condensing().k, [[0, 1, 0], [2, 2, 2]]);
-    assert_eq!(report.covered_dimension(), u32::from(report.condensing().dimension));
+    assert_eq!(
+        report.covered_dimension(),
+        u32::from(report.condensing().dimension)
+    );
     assert!(!report.blocks().is_empty());
 
     // The parameterized facet had no public entry at all before R8: the frozen
@@ -564,10 +569,9 @@ fn a_non_carrying_entry_names_its_real_reason() {
         })
         .expect("SG 202 W1 has a DT1 direction")
         .ordinal;
-    let entries = subduce_table(
-        &SubductionRequest::new(202, "DT1", LabelConvention::Cdml).ordinal(context),
-    )
-    .expect("SG 202 DT1 resolves");
+    let entries =
+        subduce_table(&SubductionRequest::new(202, "DT1", LabelConvention::Cdml).ordinal(context))
+            .expect("SG 202 DT1 resolves");
     let mut reported = Vec::new();
     for entry in &entries {
         match &entry.result {
@@ -611,7 +615,8 @@ fn a_non_carrying_entry_names_its_real_reason() {
             .direction(IsotropyDirection::Label(carrier_direction))
             .ordinal(other.ordinal),
     )
-    .expect_err("that ordinal belongs to another direction") {
+    .expect_err("that ordinal belongs to another direction")
+    {
         SubductionApiError::UnknownContext { sg: 202, ordinal } => {
             assert_eq!(ordinal, other.ordinal);
         }

@@ -180,7 +180,10 @@ fn parse_candidate(line: &str, line_number: usize) -> Result<Option<Candidate>, 
             .map_err(|_| format!("line {line_number}: {field:?} is not an integer"))?;
     }
     if values[0] < 0 {
-        return Err(format!("line {line_number}: negative ordinal {}", values[0]));
+        return Err(format!(
+            "line {line_number}: negative ordinal {}",
+            values[0]
+        ));
     }
     let mut setting = [[0i32; 3]; 3];
     for row in 0..3 {
@@ -294,8 +297,7 @@ fn main() -> Result<(), String> {
                 }
             }
             Err(error) => {
-                writeln!(out, "{} ERR {error}", candidate.id)
-                    .map_err(|error| error.to_string())?;
+                writeln!(out, "{} ERR {error}", candidate.id).map_err(|error| error.to_string())?;
                 rejected += 1;
             }
         }

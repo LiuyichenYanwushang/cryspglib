@@ -55,9 +55,9 @@
 //! `RAYON_NUM_THREADS` limits the parallelism (one record per task).
 
 use cryspglib::irrep::magnetic_embedding::{
-    MagneticOperation, basis_in_parent_conventional, parent_embedding_verdict,
-    full_translation_lattice, geometry_of, lattice_of_operations, magnetic_operations,
-    translation_lattice, verify_embedding,
+    MagneticOperation, basis_in_parent_conventional, full_translation_lattice, geometry_of,
+    lattice_of_operations, magnetic_operations, parent_embedding_verdict, translation_lattice,
+    verify_embedding,
 };
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, Vec3R};
@@ -193,9 +193,8 @@ fn enumerate_fractions(
             let term = generator[axis]
                 .checked_mul(Rat::from_integer(coefficient))
                 .expect("exact product");
-            next[axis] = fractional_part_value(
-                accumulator[axis].checked_add(term).expect("exact sum"),
-            );
+            next[axis] =
+                fractional_part_value(accumulator[axis].checked_add(term).expect("exact sum"));
         }
         enumerate_fractions(generators, index + 1, next, visit);
     }
@@ -257,7 +256,12 @@ fn census(row: &Row, parent_lattice: &ResidueLattice) -> RecordStat {
     let in_record = |vector: [Rat; 3]| -> bool {
         record_lattice
             .coordinates(&Vec3R::new(vector))
-            .map(|coordinates| coordinates.as_array().iter().all(|value| value.is_integer()))
+            .map(|coordinates| {
+                coordinates
+                    .as_array()
+                    .iter()
+                    .all(|value| value.is_integer())
+            })
             .unwrap_or(false)
     };
 
@@ -481,12 +485,36 @@ fn main() -> ExitCode {
         let pinned: [(&str, usize, usize); 9] = [
             ("rows", rows.len(), PINNED_ROWS),
             ("entries", entries, PINNED_ENTRIES),
-            ("distinct (record, map, shift)", distinct_pairs, PINNED_DISTINCT_PAIRS),
-            ("distinct (record, map)", distinct_maps, PINNED_DISTINCT_MAPS),
-            ("rows without embedding", no_embedding, PINNED_WITHOUT_EMBEDDING),
-            ("rows without a realising entry", no_realising, PINNED_WITHOUT_REALISING),
-            ("rows without a realising map", no_realising_maps, PINNED_WITHOUT_REALISING_MAPS),
-            ("rows with a single realising entry", unique_realising, PINNED_SINGLE_REALISING),
+            (
+                "distinct (record, map, shift)",
+                distinct_pairs,
+                PINNED_DISTINCT_PAIRS,
+            ),
+            (
+                "distinct (record, map)",
+                distinct_maps,
+                PINNED_DISTINCT_MAPS,
+            ),
+            (
+                "rows without embedding",
+                no_embedding,
+                PINNED_WITHOUT_EMBEDDING,
+            ),
+            (
+                "rows without a realising entry",
+                no_realising,
+                PINNED_WITHOUT_REALISING,
+            ),
+            (
+                "rows without a realising map",
+                no_realising_maps,
+                PINNED_WITHOUT_REALISING_MAPS,
+            ),
+            (
+                "rows with a single realising entry",
+                unique_realising,
+                PINNED_SINGLE_REALISING,
+            ),
             (
                 "rows with a single realising map",
                 unique_realising_maps,
@@ -571,8 +599,8 @@ mod tests {
     #[test]
     fn the_residue_lattice_agrees_with_the_production_membership() {
         let lattices: Vec<Vec<[Rat; 3]>> = vec![
-            Vec::new(),                                          // Z^3
-            vec![[rational(1, 2), rational(1, 2), Rat::ZERO]],   // C centring
+            Vec::new(),                                             // Z^3
+            vec![[rational(1, 2), rational(1, 2), Rat::ZERO]],      // C centring
             vec![[rational(1, 2), rational(1, 2), rational(1, 2)]], // I centring
             vec![
                 // R centring (both conventional vectors)

@@ -50,7 +50,8 @@ fn trace_folded(
     probe: &'static IrrepRecord,
     child_sg: usize,
 ) -> Result<(), String> {
-    let child_sg = u8::try_from(child_sg).map_err(|_| format!("child {child_sg} is not a space group"))?;
+    let child_sg =
+        u8::try_from(child_sg).map_err(|_| format!("child {child_sg} is not a space group"))?;
     let star = ScalarStar::new(probe).map_err(|error| error.to_string())?;
     let folded = star
         .folded_stars(embedding)
@@ -85,7 +86,11 @@ fn trace_folded(
         .collect();
     stored.sort();
     stored.dedup();
-    println!("stored child k points ({}): {}", stored.len(), stored.join(", "));
+    println!(
+        "stored child k points ({}): {}",
+        stored.len(),
+        stored.join(", ")
+    );
     Ok(())
 }
 
@@ -175,11 +180,7 @@ fn main() -> Result<(), String> {
         for target in block.targets() {
             println!(
                 "      target {:?} (row {:?}) dim {} multiplicity {} irnumber {:?}",
-                target.ml,
-                target.row_ml,
-                target.dimension,
-                target.multiplicity,
-                target.irnumber,
+                target.ml, target.row_ml, target.dimension, target.multiplicity, target.irnumber,
             );
         }
     }
@@ -210,9 +211,12 @@ fn main() -> Result<(), String> {
         .map(|target| usize::from(target.dimension).pow(2) * target.multiplicity as usize)
         .sum();
     println!("character norm = {norm:.6} | sum of target dim^2 = {squared}");
-    println!("characters: {:?}", parent_characters
-        .iter()
-        .map(|value| (value.re * 1000.0).round() / 1000.0)
-        .collect::<Vec<_>>());
+    println!(
+        "characters: {:?}",
+        parent_characters
+            .iter()
+            .map(|value| (value.re * 1000.0).round() / 1000.0)
+            .collect::<Vec<_>>()
+    );
     Ok(())
 }

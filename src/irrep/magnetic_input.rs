@@ -474,11 +474,14 @@ impl std::fmt::Display for MagneticInputError {
                 write!(f, "the database read or comparison failed: {detail}")
             }
             Self::GroupProof(detail) => write!(f, "the operation set is not a group: {detail}"),
-            Self::ClassListInconsistent { classes, recorded } => write!(
-                f,
-                "the set lists {classes} classes but records {recorded}"
-            ),
-            Self::OffGrid { sg, rotation, value } => write!(
+            Self::ClassListInconsistent { classes, recorded } => {
+                write!(f, "the set lists {classes} classes but records {recorded}")
+            }
+            Self::OffGrid {
+                sg,
+                rotation,
+                value,
+            } => write!(
                 f,
                 "SG {sg} value at rotation {rotation:?} is {value}, which is not on the exact grid \
                  the contract represents"
@@ -506,11 +509,7 @@ impl std::fmt::Display for MagneticInputError {
                 f,
                 "SG {sg} character at the identity class is {value}, not one"
             ),
-            Self::CharacterRowSettingMismatch {
-                sg,
-                rotation,
-                uni,
-            } => write!(
+            Self::CharacterRowSettingMismatch { sg, rotation, uni } => write!(
                 f,
                 "SG {sg} (UNI {uni}): the source character row and the parent operation table do \
                  not describe the same setting (rotation {rotation:?} has no row entry modulo the \
@@ -792,11 +791,8 @@ pub fn verify_scalar_gamma_input(
     // The exact verdict is always recomputed and carried; the policy only decides
     // whether a `false` is a refusal.  A `true` under `ContainmentOnly` is the
     // same proved embedding, not a weaker geometry.
-    let realises_record_lattice = magnetic_embedding::realises_record_lattice_checked(
-        &geometry,
-        &set,
-        &evidence.map,
-    )?;
+    let realises_record_lattice =
+        magnetic_embedding::realises_record_lattice_checked(&geometry, &set, &evidence.map)?;
     if evidence.lattice_policy == LatticePolicy::RequireExact && !realises_record_lattice {
         return Err(MagneticInputError::LatticePolicyUnsatisfied {
             policy: evidence.lattice_policy,
@@ -829,7 +825,10 @@ pub fn verify_scalar_gamma_input(
         .map(|((class, chi), mapped_class)| ClassAction {
             class,
             value: if mapped_class.time_reversal {
-                combine(chi, time_reversal.expect("an antiunitary class implies eta"))
+                combine(
+                    chi,
+                    time_reversal.expect("an antiunitary class implies eta"),
+                )
             } else {
                 chi
             },

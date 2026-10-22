@@ -119,6 +119,7 @@
 //! multiplicity swap between them is a no-op on this corpus (measured, and
 //! reported as `same_dimension_swaps = 0`).
 
+use cryspglib::irrep::generated_data::SG_DATA_HALL;
 use cryspglib::irrep::line_monodromy::{line_direction, line_table};
 use cryspglib::irrep::subduction::star::decompose::{
     FullStarBlock, FullStarError, FullStarTarget, LineSubduction, ParameterKind,
@@ -128,18 +129,17 @@ use cryspglib::irrep::subduction::star::line_domain::{
     FoldedArm, FullStarPartition, GammaParameters, ParentDomain, StarBoundary, StarEventKind,
     child_cocycle_is_a_coboundary, child_exceptional_parameters, full_star_partition,
     little_co_group_order, minimal_parameter_step, minimal_parameter_step_via_coordinates,
-    parent_domain, point_cocycle_is_a_coboundary, point_little_co_group_order,
-    reciprocal_lattice, require_reciprocal_direction, rotation_set, verify_against_grid,
+    parent_domain, point_cocycle_is_a_coboundary, point_little_co_group_order, reciprocal_lattice,
+    require_reciprocal_direction, rotation_set, verify_against_grid,
 };
-use cryspglib::irrep::generated_data::SG_DATA_HALL;
 use cryspglib::irrep::subduction::{
     ExactSeitz, Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R, bloch_phase, fold_wave_vector,
 };
-use num_complex::Complex64;
 use cryspglib::irrep::w_little_characters_data::{LittleCharacterTable, W_LITTLE_CHARACTERS};
 use cryspglib::irrep::{LabelConvention, isotropy, query};
 use cryspglib::mathfunc::Mat3I;
 use cryspglib::{HallNumber, SymmetryOps};
+use num_complex::Complex64;
 use rayon::prelude::*;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::{BufWriter, Write as _};
@@ -316,13 +316,8 @@ const INTERIOR_PARAMETER_PIN: usize = 92_096;
 /// parameters, as `(blocks, parameters)` pairs, pinned from a measured run (the
 /// gate prints it first).  The count changes at the cuts, so a pass that asks the
 /// engine once per `(record, label)` and reuses the answer cannot reproduce it.
-const BOUNDARY_BLOCK_SHAPE_PIN: [(usize, usize); 5] = [
-    (1, 21_872),
-    (2, 10_752),
-    (3, 12_356),
-    (4, 628),
-    (5, 440),
-];
+const BOUNDARY_BLOCK_SHAPE_PIN: [(usize, usize); 5] =
+    [(1, 21_872), (2, 10_752), (3, 12_356), (4, 628), (5, 440)];
 
 /// `Σ partition.arms.len()`: the arm count the orbit–stabiliser route predicts
 /// from the parent's rotation group alone (73 sources, 5,756 pairs).
@@ -406,7 +401,10 @@ impl BlockSource {
 /// reading rather than a claim about data that does not exist.
 fn classify_block(targets: &[FullStarTarget]) -> BlockSource {
     classify_counts(
-        targets.iter().filter(|target| target.irnumber.is_some()).count(),
+        targets
+            .iter()
+            .filter(|target| target.irnumber.is_some())
+            .count(),
         targets.len(),
     )
 }
@@ -749,8 +747,8 @@ impl RecountRow {
         let child_sg = fields[2]
             .parse::<u8>()
             .map_err(|error| format!("{row}: child space group {}: {error}", fields[2]))?;
-        let parameter = parse_parameter(fields[4])
-            .map_err(|error| format!("{row}: parameter: {error}"))?;
+        let parameter =
+            parse_parameter(fields[4]).map_err(|error| format!("{row}: parameter: {error}"))?;
         let block_count = fields[5]
             .parse::<usize>()
             .map_err(|error| format!("{row}: block count {}: {error}", fields[5]))?;
@@ -759,7 +757,10 @@ impl RecountRow {
             for entry in fields[6].split(';') {
                 let parts: Vec<&str> = entry.split('|').collect();
                 if parts.len() != 4 {
-                    return Err(format!("{row}: block {entry:?} has {} field(s)", parts.len()));
+                    return Err(format!(
+                        "{row}: block {entry:?} has {} field(s)",
+                        parts.len()
+                    ));
                 }
                 let arms = if parts[0].is_empty() {
                     Vec::new()
@@ -1381,7 +1382,10 @@ fn spelled_flags() -> [bool; 8] {
 
 fn run() -> Result<ExitCode, String> {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
-    if arguments.iter().any(|argument| argument == "--help" || argument == "-h") {
+    if arguments
+        .iter()
+        .any(|argument| argument == "--help" || argument == "-h")
+    {
         print!("{USAGE}");
         return Ok(ExitCode::SUCCESS);
     }
@@ -1504,7 +1508,8 @@ fn run() -> Result<ExitCode, String> {
 
     if let Some(path) = &output {
         let mut writer = BufWriter::new(
-            std::fs::File::create(path).map_err(|error| format!("cannot create {path}: {error}"))?,
+            std::fs::File::create(path)
+                .map_err(|error| format!("cannot create {path}: {error}"))?,
         );
         writeln!(
             writer,
@@ -1578,7 +1583,11 @@ fn run() -> Result<ExitCode, String> {
                             .join(","),
                         block.block_dimension,
                         block.little_co_group,
-                        if block.cocycle_trivial { "trivial" } else { "non-trivial" },
+                        if block.cocycle_trivial {
+                            "trivial"
+                        } else {
+                            "non-trivial"
+                        },
                         block.source.label(),
                         block
                             .terms
@@ -1707,9 +1716,8 @@ block_count\tblocks";
                             recount_report.rows.len()
                         )),
                     },
-                    Err(error) => {
-                        recount_file_failures.push(format!("the --output-recount row {rows}: {error}"))
-                    }
+                    Err(error) => recount_file_failures
+                        .push(format!("the --output-recount row {rows}: {error}")),
                 }
             }
             Some(rows)
@@ -1755,7 +1763,14 @@ block_count\tblocks";
     violations.extend(recount_file_failures.iter().cloned());
     violations.extend(recount_report.failures.iter().cloned());
     violations.extend(sweep_report.failures.iter().cloned());
-    check_invariants(&domains, &records, &probes, &evidence, sequential, &mut violations);
+    check_invariants(
+        &domains,
+        &records,
+        &probes,
+        &evidence,
+        sequential,
+        &mut violations,
+    );
 
     // The pass/evidence coupling, cross-checked against the **process** command
     // line.  `recount_ran`/`sweep_ran` switch the Gamma assertions and the recount
@@ -1835,8 +1850,7 @@ block_count\tblocks";
     // pinned records each decompose their pinned parameters, so the answers are
     // counted **from the pass' return value** and compared with that closed form,
     // the same shape as the fixity control's `2 * sum(...)`.
-    let expected_witness_checks =
-        PINNED_WITNESS_RECORDS.len() * PINNED_WITNESS_PARAMETERS.len();
+    let expected_witness_checks = PINNED_WITNESS_RECORDS.len() * PINNED_WITNESS_PARAMETERS.len();
     if spelled_recount && witness_verified_total != expected_witness_checks {
         violations.push(format!(
             "the recount witness pass decomposed {witness_verified_total} witness parameter(s), \
@@ -1881,12 +1895,21 @@ block_count\tblocks";
         .iter()
         .filter(|probe| probe.class == TargetClass::Unsupported)
         .count();
-    let errors = probes.iter().filter(|probe| probe.class == TargetClass::Error).count();
+    let errors = probes
+        .iter()
+        .filter(|probe| probe.class == TargetClass::Error)
+        .count();
     println!(
         "probes={} stored={} constructed={} unsupported={} errors={}",
         probes.len(),
-        probes.iter().filter(|p| p.class == TargetClass::Stored).count(),
-        probes.iter().filter(|p| p.class == TargetClass::Constructed).count(),
+        probes
+            .iter()
+            .filter(|p| p.class == TargetClass::Stored)
+            .count(),
+        probes
+            .iter()
+            .filter(|p| p.class == TargetClass::Constructed)
+            .count(),
         unsupported,
         errors
     );
@@ -1930,118 +1953,119 @@ block_count\tblocks";
             let mut missing_reference_blocks = 0usize;
             let mut violations: Vec<String> = Vec::new();
             'record: {
-            let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup) else {
-                boundary_errors += 1;
-                violations.push(format!(
-                    "ordinal {}: the boundary census cannot build the embedding",
-                    record.ordinal
-                ));
-                break 'record;
-            };
-            let Ok(reciprocal) = reciprocal_lattice(record.child_sg) else {
-                boundary_errors += 1;
-                violations.push(format!(
-                    "ordinal {}: the boundary census found no reciprocal lattice for child #{}",
-                    record.ordinal, record.child_sg
-                ));
-                break 'record;
-            };
-            let Ok(rotations) = rotation_set(record.child_sg) else {
-                boundary_errors += 1;
-                violations.push(format!(
-                    "ordinal {}: the boundary census found no rotation set for child #{}",
-                    record.ordinal, record.child_sg
-                ));
-                break 'record;
-            };
-            for (label, _) in &record.labels {
-                let Some(table) = line_table(record.parent_sg, label) else {
+                let Ok(embedding) = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup)
+                else {
                     boundary_errors += 1;
                     violations.push(format!(
+                        "ordinal {}: the boundary census cannot build the embedding",
+                        record.ordinal
+                    ));
+                    break 'record;
+                };
+                let Ok(reciprocal) = reciprocal_lattice(record.child_sg) else {
+                    boundary_errors += 1;
+                    violations.push(format!(
+                        "ordinal {}: the boundary census found no reciprocal lattice for child #{}",
+                        record.ordinal, record.child_sg
+                    ));
+                    break 'record;
+                };
+                let Ok(rotations) = rotation_set(record.child_sg) else {
+                    boundary_errors += 1;
+                    violations.push(format!(
+                        "ordinal {}: the boundary census found no rotation set for child #{}",
+                        record.ordinal, record.child_sg
+                    ));
+                    break 'record;
+                };
+                for (label, _) in &record.labels {
+                    let Some(table) = line_table(record.parent_sg, label) else {
+                        boundary_errors += 1;
+                        violations.push(format!(
                         "ordinal {}: the boundary census found no frozen table for SG {} {label}",
                         record.ordinal, record.parent_sg
                     ));
-                    continue;
-                };
-                let Ok(candidates) = child_exceptional_parameters(&embedding, table) else {
-                    boundary_errors += 1;
-                    violations.push(format!(
-                        "ordinal {} {label}: the boundary census cannot enumerate the child's \
+                        continue;
+                    };
+                    let Ok(candidates) = child_exceptional_parameters(&embedding, table) else {
+                        boundary_errors += 1;
+                        violations.push(format!(
+                            "ordinal {} {label}: the boundary census cannot enumerate the child's \
                          exceptional parameters",
-                        record.ordinal
-                    ));
-                    continue;
-                };
-                let Some(direction) = line_direction(table) else {
-                    boundary_errors += 1;
-                    violations.push(format!(
+                            record.ordinal
+                        ));
+                        continue;
+                    };
+                    let Some(direction) = line_direction(table) else {
+                        boundary_errors += 1;
+                        violations.push(format!(
                         "ordinal {} {label}: the boundary census cannot parse the frozen direction",
                         record.ordinal
                     ));
-                    continue;
-                };
-                let Ok(folded) = fold_wave_vector(embedding.transform(), &direction) else {
-                    boundary_errors += 1;
-                    violations.push(format!(
-                        "ordinal {} {label}: the boundary census cannot fold the direction",
-                        record.ordinal
-                    ));
-                    continue;
-                };
-                for (parameter, _) in &candidates {
-                    let Ok(order) =
-                        little_co_group_order(&reciprocal, &folded, &rotations, *parameter)
-                    else {
-                        boundary_errors += 1;
                         continue;
                     };
-                    boundary_probes += 1;
-                    let key = format!("{}|{}|{}", record.ordinal, label, parameter);
-                    let probe = answered.get(&key).copied();
-                    if probe.is_none() {
+                    let Ok(folded) = fold_wave_vector(embedding.transform(), &direction) else {
                         boundary_errors += 1;
                         violations.push(format!(
+                            "ordinal {} {label}: the boundary census cannot fold the direction",
+                            record.ordinal
+                        ));
+                        continue;
+                    };
+                    for (parameter, _) in &candidates {
+                        let Ok(order) =
+                            little_co_group_order(&reciprocal, &folded, &rotations, *parameter)
+                        else {
+                            boundary_errors += 1;
+                            continue;
+                        };
+                        boundary_probes += 1;
+                        let key = format!("{}|{}|{}", record.ordinal, label, parameter);
+                        let probe = answered.get(&key).copied();
+                        if probe.is_none() {
+                            boundary_errors += 1;
+                            violations.push(format!(
                             "ordinal {} {label} t={parameter}: the boundary census has no probe for \
                              a child-exceptional parameter",
                             record.ordinal
                         ));
-                    }
-                    let class = probe.map_or(TargetClass::Error, |probe| probe.class);
-                    match child_cocycle_is_a_coboundary(record.child_sg, &folded, *parameter) {
-                        Ok(trivial) => {
-                            *legacy.entry((order, trivial, class)).or_insert(0usize) += 1;
-                            if trivial {
+                        }
+                        let class = probe.map_or(TargetClass::Error, |probe| probe.class);
+                        match child_cocycle_is_a_coboundary(record.child_sg, &folded, *parameter) {
+                            Ok(trivial) => {
+                                *legacy.entry((order, trivial, class)).or_insert(0usize) += 1;
+                                if trivial {
+                                    continue;
+                                }
+                            }
+                            Err(error) => {
+                                boundary_errors += 1;
+                                violations.push(format!(
+                                    "ordinal {} {label} t={parameter}: the boundary census cannot \
+                                 decide the class: {error}",
+                                    record.ordinal
+                                ));
                                 continue;
                             }
                         }
-                        Err(error) => {
-                            boundary_errors += 1;
-                            violations.push(format!(
-                                "ordinal {} {label} t={parameter}: the boundary census cannot \
-                                 decide the class: {error}",
-                                record.ordinal
-                            ));
-                            continue;
+                        legacy_totals[match class {
+                            TargetClass::Stored => 0,
+                            TargetClass::Constructed => 1,
+                            TargetClass::Unsupported | TargetClass::Error => 2,
+                        }] += 1;
+                        match probe.and_then(|probe| {
+                            probe.blocks.iter().find(|block| block.carries_reference)
+                        }) {
+                            Some(block) => {
+                                corrected_totals[block.source.index()] += 1;
+                                *corrected
+                                    .entry((block.little_co_group, block.source))
+                                    .or_insert(0usize) += 1;
+                            }
+                            None => missing_reference_blocks += 1,
                         }
-                    }
-                    legacy_totals[match class {
-                        TargetClass::Stored => 0,
-                        TargetClass::Constructed => 1,
-                        TargetClass::Unsupported | TargetClass::Error => 2,
-                    }] += 1;
-                    match probe.and_then(|probe| {
-                        probe.blocks.iter().find(|block| block.carries_reference)
-                    }) {
-                        Some(block) => {
-                            corrected_totals[block.source.index()] += 1;
-                            *corrected
-                                .entry((block.little_co_group, block.source))
-                                .or_insert(0usize) += 1;
-                        }
-                        None => missing_reference_blocks += 1,
                     }
                 }
-            }
             }
             BoundaryGate {
                 legacy,
@@ -2081,7 +2105,11 @@ block_count\tblocks";
         for ((order, trivial, class), count) in &legacy {
             println!(
                 "    child order {order} {} engine {class:?}: {count}",
-                if *trivial { "trivial     " } else { "NON-TRIVIAL " }
+                if *trivial {
+                    "trivial     "
+                } else {
+                    "NON-TRIVIAL "
+                }
             );
         }
         let non_trivial = legacy_totals.iter().sum::<usize>();
@@ -2121,7 +2149,11 @@ block_count\tblocks";
                 corrected_totals[0], corrected_totals[1], corrected_totals[2]
             ));
         }
-        for (order, expected) in [(4usize, [3_068usize, 192, 0]), (8, [936, 0, 0]), (16, [134, 0, 0])] {
+        for (order, expected) in [
+            (4usize, [3_068usize, 192, 0]),
+            (8, [936, 0, 0]),
+            (16, [134, 0, 0]),
+        ] {
             let mut found = [0usize; 3];
             for ((found_order, source), count) in &corrected {
                 if *found_order == order {
@@ -2180,7 +2212,10 @@ fn source_domains() -> Result<BTreeMap<(u8, &'static str), ParentDomain>, String
     let mut domains = BTreeMap::new();
     for table in W_LITTLE_CHARACTERS {
         let domain = parent_domain(table).map_err(|error| {
-            format!("SG {} {}: parameter domain: {error}", table.space_group, table.label)
+            format!(
+                "SG {} {}: parameter domain: {error}",
+                table.space_group, table.label
+            )
         })?;
         if domain.generic_order != table.operations.len() {
             return Err(format!(
@@ -2330,11 +2365,12 @@ fn record_parameters(
     let embedding = SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup)
         .map_err(|error| format!("ordinal {}: {error}", record.ordinal))?;
     let mut parameters: Vec<(Rat, usize)> = Vec::new();
-    let push = |parameter: Rat, order: usize, parameters: &mut Vec<(Rat, usize)>| {
-        match parameters.iter_mut().find(|(value, _)| *value == parameter) {
-            Some((_, slot)) => *slot = (*slot).max(order),
-            None => parameters.push((parameter, order)),
-        }
+    let push = |parameter: Rat, order: usize, parameters: &mut Vec<(Rat, usize)>| match parameters
+        .iter_mut()
+        .find(|(value, _)| *value == parameter)
+    {
+        Some((_, slot)) => *slot = (*slot).max(order),
+        None => parameters.push((parameter, order)),
     };
     for entry in &domain.exceptional {
         push(entry.parameter, 0, &mut parameters);
@@ -2387,7 +2423,10 @@ fn probe_frame(
     let embedding = match SubgroupEmbedding::from_isotropy_subgroup(&record.subgroup) {
         Ok(embedding) => embedding,
         Err(error) => {
-            failures.push(format!("ordinal {}: embedding rejected: {error}", record.ordinal));
+            failures.push(format!(
+                "ordinal {}: embedding rejected: {error}",
+                record.ordinal
+            ));
             return None;
         }
     };
@@ -2477,7 +2516,14 @@ fn block_stats(
         }
     };
     for (index, block) in result.blocks().iter().enumerate() {
-        let stat = block_stat(context, &reference_point, parameter, index, block, &mut failures);
+        let stat = block_stat(
+            context,
+            &reference_point,
+            parameter,
+            index,
+            block,
+            &mut failures,
+        );
         stats.push(stat);
     }
     // The reference point must be carried by exactly one block, and the arms of
@@ -2489,8 +2535,7 @@ fn block_stats(
         failures.push(format!(
             "ordinal {} {} t={parameter}: {reference_blocks} blocks carry the reference folded \
              point",
-            context.ordinal,
-            context.label
+            context.ordinal, context.label
         ));
     }
     let mut arm_seen = vec![0usize; dimensions.arm_total];
@@ -2501,10 +2546,7 @@ fn block_stats(
                 None => failures.push(format!(
                     "ordinal {} {} t={parameter}: block {} carries arm {arm} outside the \
                      {}-arm list",
-                    context.ordinal,
-                    context.label,
-                    stat.index,
-                    dimensions.arm_total
+                    context.ordinal, context.label, stat.index, dimensions.arm_total
                 )),
             }
         }
@@ -2514,8 +2556,7 @@ fn block_stats(
             failures.push(format!(
                 "ordinal {} {} t={parameter}: arm {arm} appears in {count} blocks, not exactly \
                  one",
-                context.ordinal,
-                context.label
+                context.ordinal, context.label
             ));
         }
     }
@@ -2649,11 +2690,7 @@ fn block_stat(
 
 /// The arms at Gamma at one parameter: the partition's entries for it plus the
 /// arms whose folded direction is exactly zero (at Gamma at every parameter).
-fn gamma_arms(
-    entries: &[(Rat, Vec<usize>)],
-    zero_arms: &[usize],
-    parameter: &Rat,
-) -> Vec<usize> {
+fn gamma_arms(entries: &[(Rat, Vec<usize>)], zero_arms: &[usize], parameter: &Rat) -> Vec<usize> {
     let mut arms = zero_arms.to_vec();
     if let Some((_, listed)) = entries.iter().find(|(value, _)| value == parameter) {
         arms.extend(listed.iter().copied());
@@ -2880,7 +2917,9 @@ fn probe_intervals(parameters: &[Rat]) -> Result<Vec<(Rat, Rat)>, String> {
     for (index, start) in parameters.iter().enumerate() {
         let end = match parameters.get(index + 1) {
             Some(next) => *next,
-            None => first.checked_add(Rat::ONE).map_err(|error| error.to_string())?,
+            None => first
+                .checked_add(Rat::ONE)
+                .map_err(|error| error.to_string())?,
         };
         out.push((*start, end));
     }
@@ -2894,15 +2933,19 @@ fn probe_intervals(parameters: &[Rat]) -> Result<Vec<(Rat, Rat)>, String> {
 /// the interval comparable, and a zero-length interval would compare a
 /// decomposition with itself while still counting as a checked interval.
 fn interior_points(left: &Rat, right: &Rat) -> Result<(Rat, Rat, Rat), String> {
-    let span = right.checked_sub(*left).map_err(|error| error.to_string())?;
+    let span = right
+        .checked_sub(*left)
+        .map_err(|error| error.to_string())?;
     // `Rat` is normalized with a positive denominator, so the sign is the
     // numerator's.
     if span.numerator() <= 0 {
         return Err(format!("the interval ({left}, {right}) is not positive"));
     }
-    let fraction = Rat::new(INTERIOR_FRACTION.0, INTERIOR_FRACTION.1)
+    let fraction =
+        Rat::new(INTERIOR_FRACTION.0, INTERIOR_FRACTION.1).map_err(|error| error.to_string())?;
+    let step = span
+        .checked_mul(fraction)
         .map_err(|error| error.to_string())?;
-    let step = span.checked_mul(fraction).map_err(|error| error.to_string())?;
     let first = left.checked_add(step).map_err(|error| error.to_string())?;
     let second = first.checked_add(step).map_err(|error| error.to_string())?;
     Ok((step, first, second))
@@ -3273,13 +3316,14 @@ fn relation_residues(relation: &CensusRelation) -> Result<Vec<Rat>, String> {
 /// operations `arm_images` enumerates -- and the stabiliser is counted by exact
 /// vector equality of the images.
 fn arm_orbit_count(parent_sg: u8, direction: &Vec3R) -> Result<usize, String> {
-    let rotations =
-        rotation_set(parent_sg).map_err(|error| format!("SG {parent_sg}: {error}"))?;
+    let rotations = rotation_set(parent_sg).map_err(|error| format!("SG {parent_sg}: {error}"))?;
     let mut stabiliser = 0usize;
     for rotation in &rotations {
         let image = Mat3R::from_ints(*rotation)
             .inverse()
-            .map_err(|error| format!("SG {parent_sg}: the rotation {rotation:?} is singular: {error}"))?
+            .map_err(|error| {
+                format!("SG {parent_sg}: the rotation {rotation:?} is singular: {error}")
+            })?
             .transpose()
             .checked_mul_vector(direction)
             .map_err(|error| format!("SG {parent_sg}: the rotation image: {error}"))?;
@@ -3314,9 +3358,9 @@ fn audit_arm_geometry(
         Ok(relations) => relations,
         Err(error) => {
             report.geometry.disagreements += 1;
-            report
-                .failures
-                .push(format!("{key}: the independent relation enumeration failed: {error}"));
+            report.failures.push(format!(
+                "{key}: the independent relation enumeration failed: {error}"
+            ));
             return Vec::new();
         }
     };
@@ -3364,9 +3408,9 @@ fn audit_arm_geometry(
             Ok(residues) => recomputed.extend(residues),
             Err(error) => {
                 report.geometry.disagreements += 1;
-                report
-                    .failures
-                    .push(format!("{key}: the independent residue computation: {error}"));
+                report.failures.push(format!(
+                    "{key}: the independent residue computation: {error}"
+                ));
             }
         }
     }
@@ -3404,8 +3448,12 @@ fn audit_arm_geometry(
     for parameter in &claimed {
         report.geometry.boundaries += 1;
         let mut evaluated = report.geometry.evaluated;
-        let counts =
-            match relation_counts(&relations, parameter, &mut evaluated, &mut boundary_recorded) {
+        let counts = match relation_counts(
+            &relations,
+            parameter,
+            &mut evaluated,
+            &mut boundary_recorded,
+        ) {
             Ok(counts) => counts,
             Err(error) => {
                 report.geometry.evaluated = evaluated;
@@ -3442,9 +3490,8 @@ fn audit_arm_geometry(
     // The closed form of the boundary pass' reported parent dimension: every
     // probe parameter contributes `frozen little dimension x arms`, and the
     // engine's own `parent_dimension()` is what the pass accumulated.
-    report.geometry.predicted_boundary_dimension += (probe_parameters as u64)
-        * u64::from(table.dimension)
-        * (partition.arms.len() as u64);
+    report.geometry.predicted_boundary_dimension +=
+        (probe_parameters as u64) * u64::from(table.dimension) * (partition.arms.len() as u64);
     report.geometry.arm_orbit_checks += 1;
     report.geometry.arms += partition.arms.len();
     match line_direction(table) {
@@ -3460,7 +3507,9 @@ fn audit_arm_geometry(
             }
             Err(error) => {
                 report.geometry.arm_orbit_disagreements += 1;
-                report.failures.push(format!("{key}: the orbit–stabiliser arm count: {error}"));
+                report
+                    .failures
+                    .push(format!("{key}: the orbit–stabiliser arm count: {error}"));
             }
         },
         None => {
@@ -3568,11 +3617,7 @@ impl SweepBlock {
     /// parameter's decomposition — `M5` in the card-5 report — left the gate at
     /// exit 0 with 46,048 "comparisons" and no failure).  With this binding the
     /// same mutation fails on the first interval, before any matching.
-    fn read(
-        context: &SweepContext,
-        parameter: Rat,
-        block: &FullStarBlock,
-    ) -> Result<Self, String> {
+    fn read(context: &SweepContext, parameter: Rat, block: &FullStarBlock) -> Result<Self, String> {
         for point in block.points() {
             for arm in point.arm_indices() {
                 let folded = context.arms.get(*arm).ok_or_else(|| {
@@ -3811,7 +3856,11 @@ fn match_targets(
                      partner at the second parameter",
                     target.dimension,
                     target.multiplicity,
-                    if target.stored { "stored" } else { "constructed" }
+                    if target.stored {
+                        "stored"
+                    } else {
+                        "constructed"
+                    }
                 )));
             }
             many => {
@@ -4117,9 +4166,15 @@ impl SweepSide<'_> {
         // identical while 93% of the target pairs were compared only through
         // their identity component).
         let honest = child_little_group(self.embedding, self.child_reciprocal, &self.point)?;
-        let mut handed: Vec<[i32; 9]> = operations.iter().map(|op| rotation_key(&op.rotation())).collect();
+        let mut handed: Vec<[i32; 9]> = operations
+            .iter()
+            .map(|op| rotation_key(&op.rotation()))
+            .collect();
         handed.sort_unstable();
-        let mut expected: Vec<[i32; 9]> = honest.iter().map(|op| rotation_key(&op.rotation())).collect();
+        let mut expected: Vec<[i32; 9]> = honest
+            .iter()
+            .map(|op| rotation_key(&op.rotation()))
+            .collect();
         expected.sort_unstable();
         if handed != expected {
             return Err(format!(
@@ -4232,9 +4287,12 @@ fn compare_readings(
     // is nothing to substitute at a call site.
     let entries_before = report.geometry.character_entries;
     let _ = entries_before;
-    if let Some(error) =
-        operand_origin_error(&first.targets, &second.targets, &first.source, &second.source)
-    {
+    if let Some(error) = operand_origin_error(
+        &first.targets,
+        &second.targets,
+        &first.source,
+        &second.source,
+    ) {
         report.geometry.character_side_mismatches += 1;
         failures.push(format!("{block_key}: {error}"));
         return Ok((first, second));
@@ -4277,8 +4335,12 @@ fn operand_origin_error(
                 Some(origin) => {
                     return Some(format!(
                         "the {side} operand's target {slot} was read at t={} (block {}, seed arm                          {}), but the {side} reading records t={} (block {}, seed arm {}), so the                          comparison would not compare the reading it validated",
-                        origin.parameter, origin.block, origin.seed_arm,
-                        source.parameter, source.block, source.seed_arm
+                        origin.parameter,
+                        origin.block,
+                        origin.seed_arm,
+                        source.parameter,
+                        source.block,
+                        source.seed_arm
                     ));
                 }
                 None => {
@@ -4506,7 +4568,8 @@ fn sweep_label(
     // violation of its own (adversarial re-verification of `9d0a7fd`, m8: the
     // in-function anchor moved with a shadowed `parameters` and the gate stayed
     // green while 17,268 of the 46,048 combinations were never decomposed).
-    if let Ok(answered) = sweep_boundary_pass(subgroup, embedding, table, &parameters, context, report)
+    if let Ok(answered) =
+        sweep_boundary_pass(subgroup, embedding, table, &parameters, context, report)
         && sorted_parameters(answered.clone()) != sorted_parameters(parameters.clone())
     {
         report.geometry.boundary_key_mismatches += 1;
@@ -4849,8 +4912,8 @@ fn sweep_interval(
         "ordinal {} {} interval ({left}, {right})",
         context.ordinal, context.label
     );
-    let (_, first, second) =
-        interior_points(&left, &right).map_err(|error| format!("{key}: interior points: {error}"))?;
+    let (_, first, second) = interior_points(&left, &right)
+        .map_err(|error| format!("{key}: interior points: {error}"))?;
     // R6.7 card 6, part 3: the interior half of the arm-geometry audit.  The
     // partition's exactness says that no relation with a nonzero difference
     // vector holds strictly inside an interval; here that is checked by
@@ -4983,7 +5046,10 @@ fn sweep_interval(
         for target in block.targets() {
             report.sources[usize::from(target.irnumber.is_none())] += 1;
         }
-        *report.target_counts.entry(block.targets().len()).or_insert(0) += 1;
+        *report
+            .target_counts
+            .entry(block.targets().len())
+            .or_insert(0) += 1;
         // The seed arm is the smallest arm of the (identical) arm sets; each
         // block's own folded point for it is that side's gauge reference point.
         let Some(arm) = block.arm_indices().first().copied() else {
@@ -5068,8 +5134,9 @@ fn sweep_interval(
                              reciprocal lattice, so the card-1 gauge is not exact there"
                         ));
                     }
-                    Err(error) => failures
-                        .push(format!("{key}: the exact-fixity control at t={parameter}: {error}")),
+                    Err(error) => failures.push(format!(
+                        "{key}: the exact-fixity control at t={parameter}: {error}"
+                    )),
                 }
             }
         }
@@ -5099,8 +5166,10 @@ fn sweep_interval(
         // at all (external review of `67a95fe`, P1).
         let first_operations: Vec<ExactSeitz> =
             aligned.iter().map(|(operation, _)| *operation).collect();
-        let second_operations: Vec<ExactSeitz> =
-            aligned.iter().map(|(_, counterpart)| *counterpart).collect();
+        let second_operations: Vec<ExactSeitz> = aligned
+            .iter()
+            .map(|(_, counterpart)| *counterpart)
+            .collect();
         // The block's arm set joins the key: a target mismatch has to name the
         // offending block, not only the interval.
         let block_key = format!("{key}: block {index} (arms {:?})", block.arm_indices());
@@ -5187,13 +5256,9 @@ fn sweep_interval(
             *report.multi_shapes.entry(shapes.clone()).or_insert(0) += 1;
         }
         for (slot, target) in first_reading.targets.iter().enumerate() {
-            if first_reading.targets[slot + 1..]
-                .iter()
-                .any(|other| {
-                    other.dimension == target.dimension
-                        && other.multiplicity != target.multiplicity
-                })
-            {
+            if first_reading.targets[slot + 1..].iter().any(|other| {
+                other.dimension == target.dimension && other.multiplicity != target.multiplicity
+            }) {
                 report.same_dimension_swaps += 1;
                 break;
             }
@@ -5357,11 +5422,17 @@ fn recount_label(
             report.sources[block.source.index()] += 1;
             if !block.cocycle_trivial {
                 report.non_trivial[block.source.index()] += 1;
-                *report.non_trivial_orders.entry(block.little_co_group).or_insert(0) += 1;
+                *report
+                    .non_trivial_orders
+                    .entry(block.little_co_group)
+                    .or_insert(0) += 1;
             }
         }
         let geometry = block_geometry(&blocks);
-        if generic_geometry.as_ref().is_some_and(|generic| *generic != geometry) {
+        if generic_geometry
+            .as_ref()
+            .is_some_and(|generic| *generic != geometry)
+        {
             report.changed_pairs.insert((context.ordinal, table.label));
         }
         report.geometries.insert(geometry);
@@ -5512,13 +5583,20 @@ fn recount_witnesses(
             pinned.0,
             pinned.1,
             record.parent_sg,
-            record.labels.iter().map(|(label, _)| *label).collect::<Vec<_>>()
+            record
+                .labels
+                .iter()
+                .map(|(label, _)| *label)
+                .collect::<Vec<_>>()
         ));
         return (failures, Vec::new(), 0);
     }
     let label = pinned.1;
     let Some(table) = line_table(record.parent_sg, label) else {
-        failures.push(format!("ordinal {}: no frozen table for {label}", record.ordinal));
+        failures.push(format!(
+            "ordinal {}: no frozen table for {label}",
+            record.ordinal
+        ));
         return (failures, Vec::new(), 0);
     };
     if record.child_sg != pinned.2 {
@@ -5528,15 +5606,24 @@ fn recount_witnesses(
         ));
     }
     let Ok(child_reciprocal) = reciprocal_lattice(record.child_sg) else {
-        failures.push(format!("ordinal {}: no child reciprocal lattice", record.ordinal));
+        failures.push(format!(
+            "ordinal {}: no child reciprocal lattice",
+            record.ordinal
+        ));
         return (failures, Vec::new(), 0);
     };
     let Some(direction) = line_direction(table) else {
-        failures.push(format!("ordinal {}: no parsable direction for {label}", record.ordinal));
+        failures.push(format!(
+            "ordinal {}: no parsable direction for {label}",
+            record.ordinal
+        ));
         return (failures, Vec::new(), 0);
     };
     let Ok(reference_direction) = fold_wave_vector(embedding.transform(), &direction) else {
-        failures.push(format!("ordinal {}: folding the direction failed", record.ordinal));
+        failures.push(format!(
+            "ordinal {}: folding the direction failed",
+            record.ordinal
+        ));
         return (failures, Vec::new(), 0);
     };
     let context = BlockContext {
@@ -5785,13 +5872,18 @@ fn probe_record(
         )),
     }
     for rotation in &child_rotations {
-        let Ok(action) = cryspglib::irrep::subduction::Mat3R::from_ints(*rotation).inverse()
-        else {
-            failures.push(format!("ordinal {}: child rotation is singular", record.ordinal));
+        let Ok(action) = cryspglib::irrep::subduction::Mat3R::from_ints(*rotation).inverse() else {
+            failures.push(format!(
+                "ordinal {}: child rotation is singular",
+                record.ordinal
+            ));
             continue;
         };
         let Ok(action) = action.transpose().inverse() else {
-            failures.push(format!("ordinal {}: child rotation is singular", record.ordinal));
+            failures.push(format!(
+                "ordinal {}: child rotation is singular",
+                record.ordinal
+            ));
             continue;
         };
         for row in 0..3 {
@@ -6041,10 +6133,8 @@ fn probe_record(
         // The caller's parameter list and the range of `out` this loop fills:
         // the anchor after the loop compares what the recorded probes carry with
         // the list itself, which nothing inside the loop can rebind.
-        let requested_parameters: Vec<Rat> = parameters
-            .iter()
-            .map(|(parameter, _)| *parameter)
-            .collect();
+        let requested_parameters: Vec<Rat> =
+            parameters.iter().map(|(parameter, _)| *parameter).collect();
         let first_probe = out.len();
         let probe_failures = failures.len();
         for (parameter, census_order) in parameters {
@@ -6123,34 +6213,30 @@ fn probe_record(
                 .exceptional
                 .iter()
                 .find(|entry| entry.parameter == parameter);
-            let result = subduce_line_at_parameter(
-                &record.subgroup,
-                &embedding,
-                table,
-                parameter,
-            );
+            let result = subduce_line_at_parameter(&record.subgroup, &embedding, table, parameter);
             let (class, parameter_kind, content, detail, blocks, dimensions, engine_blocks) =
                 match result {
-                Ok(result) => {
-                    if let Some(error) = answered_parameter_error(&result, &requested) {
-                        // The probe is not recorded: the census would otherwise
-                        // key the answer's blocks and content under a parameter
-                        // the engine never decomposed.
-                        failures.push(format!(
-                            "ordinal {} {label} t={requested}: {error}",
-                            record.ordinal
-                        ));
-                        continue;
-                    }
-                    let dimensions = block_dimensions(table, &result, &mut failures);
-                    let (blocks, block_failures) =
-                        block_stats(&block_context, parameter, &result, &dimensions);
-                    failures.extend(block_failures);
-                    // The engine's own reading of the same blocks, kept so the
-                    // gate can bind every recorded statistic to it.
-                    let mut engine_blocks: Vec<EngineBlock> = Vec::with_capacity(result.blocks().len());
-                    for block in result.blocks() {
-                        match engine_block(
+                    Ok(result) => {
+                        if let Some(error) = answered_parameter_error(&result, &requested) {
+                            // The probe is not recorded: the census would otherwise
+                            // key the answer's blocks and content under a parameter
+                            // the engine never decomposed.
+                            failures.push(format!(
+                                "ordinal {} {label} t={requested}: {error}",
+                                record.ordinal
+                            ));
+                            continue;
+                        }
+                        let dimensions = block_dimensions(table, &result, &mut failures);
+                        let (blocks, block_failures) =
+                            block_stats(&block_context, parameter, &result, &dimensions);
+                        failures.extend(block_failures);
+                        // The engine's own reading of the same blocks, kept so the
+                        // gate can bind every recorded statistic to it.
+                        let mut engine_blocks: Vec<EngineBlock> =
+                            Vec::with_capacity(result.blocks().len());
+                        for block in result.blocks() {
+                            match engine_block(
                             block,
                             &reference_point_for_engine,
                             block_context.child_reciprocal,
@@ -6162,64 +6248,68 @@ fn probe_record(
                                 record.ordinal
                             )),
                         }
+                        }
+                        let targets: Vec<_> = result
+                            .blocks()
+                            .iter()
+                            .flat_map(|block| block.targets())
+                            .collect();
+                        // The **withdrawn** probe-level rule, measured alongside the
+                        // per-block sources so the two readings can be compared on
+                        // the same run (`--output-blocks` carries the block one).
+                        let stored = classify_probe(&targets) == BlockSource::Stored;
+                        let content = result.trivial_content().map_err(|error| error.to_string());
+                        // `content.as_ref().ok()` is not a swallowed error: the
+                        // `Err` arm is written into `detail` just below, and
+                        // `check_invariants` turns an answered probe without a
+                        // trivial content into a violation (guard 5), so a content
+                        // failure cannot pass as a missing number.
+                        (
+                            if stored {
+                                TargetClass::Stored
+                            } else {
+                                TargetClass::Constructed
+                            },
+                            Some(result.parameter_kind()),
+                            content.as_ref().ok().copied(),
+                            format!(
+                                "blocks={} targets={} {}",
+                                result.blocks().len(),
+                                targets.len(),
+                                match &content {
+                                    Ok(value) => format!("content={value}"),
+                                    Err(error) => format!("content error: {error}"),
+                                }
+                            ),
+                            blocks,
+                            Some(dimensions),
+                            engine_blocks,
+                        )
                     }
-                    let targets: Vec<_> = result
-                        .blocks()
-                        .iter()
-                        .flat_map(|block| block.targets())
-                        .collect();
-                    // The **withdrawn** probe-level rule, measured alongside the
-                    // per-block sources so the two readings can be compared on
-                    // the same run (`--output-blocks` carries the block one).
-                    let stored = classify_probe(&targets) == BlockSource::Stored;
-                    let content = result.trivial_content().map_err(|error| error.to_string());
-                    // `content.as_ref().ok()` is not a swallowed error: the
-                    // `Err` arm is written into `detail` just below, and
-                    // `check_invariants` turns an answered probe without a
-                    // trivial content into a violation (guard 5), so a content
-                    // failure cannot pass as a missing number.
-                    (
-                        if stored { TargetClass::Stored } else { TargetClass::Constructed },
-                        Some(result.parameter_kind()),
-                        content.as_ref().ok().copied(),
-                        format!(
-                            "blocks={} targets={} {}",
-                            result.blocks().len(),
-                            targets.len(),
-                            match &content {
-                                Ok(value) => format!("content={value}"),
-                                Err(error) => format!("content error: {error}"),
-                            }
-                        ),
-                        blocks,
-                        Some(dimensions),
-                        engine_blocks,
-                    )
-                }
-                Err(FullStarError::MissingChildStarData { sg, points, .. }) => (
-                    TargetClass::Unsupported,
-                    None,
-                    None,
-                    format!("missing child data: sg={sg} points={points}"),
-                    Vec::new(),
-                    None,
-                    Vec::new(),
-                ),
-                Err(error) => (
-                    TargetClass::Error,
-                    None,
-                    None,
-                    error.to_string(),
-                    Vec::new(),
-                    None,
-                    Vec::new(),
-                ),
-            };
+                    Err(FullStarError::MissingChildStarData { sg, points, .. }) => (
+                        TargetClass::Unsupported,
+                        None,
+                        None,
+                        format!("missing child data: sg={sg} points={points}"),
+                        Vec::new(),
+                        None,
+                        Vec::new(),
+                    ),
+                    Err(error) => (
+                        TargetClass::Error,
+                        None,
+                        None,
+                        error.to_string(),
+                        Vec::new(),
+                        None,
+                        Vec::new(),
+                    ),
+                };
             let anchor_mismatch = if parameter == official {
                 match (content, *pinned) {
-                    (Some(value), expected) if value != u32::from(expected) => Some(format!(
-                        "anchor content {value} != pinned {expected}"
-                    )),
+                    (Some(value), expected) if value != u32::from(expected) => {
+                        Some(format!("anchor content {value} != pinned {expected}"))
+                    }
                     (None, _) if class != TargetClass::Error => {
                         Some("anchor has no trivial content".to_string())
                     }
@@ -6321,10 +6411,16 @@ fn probe_record(
         // shape as the boundary pass' m8 (adversarial re-verification of
         // `9d0a7fd`).
         let witnesses = [
-            Rat::new(PINNED_WITNESS_PARAMETERS[0].0, PINNED_WITNESS_PARAMETERS[0].1)
-                .expect("1/9"),
-            Rat::new(PINNED_WITNESS_PARAMETERS[1].0, PINNED_WITNESS_PARAMETERS[1].1)
-                .expect("1/8"),
+            Rat::new(
+                PINNED_WITNESS_PARAMETERS[0].0,
+                PINNED_WITNESS_PARAMETERS[0].1,
+            )
+            .expect("1/9"),
+            Rat::new(
+                PINNED_WITNESS_PARAMETERS[1].0,
+                PINNED_WITNESS_PARAMETERS[1].1,
+            )
+            .expect("1/8"),
         ];
         let (witness_failures, answered, facts) =
             recount_witnesses(record, &embedding, cache, witnesses);
@@ -6336,8 +6432,7 @@ fn probe_record(
         witness_facts = facts;
         failures.extend(witness_failures);
         if witness_answered.len() == witnesses.len()
-            && sorted_parameters(witness_answered.clone())
-                != sorted_parameters(witnesses.to_vec())
+            && sorted_parameters(witness_answered.clone()) != sorted_parameters(witnesses.to_vec())
         {
             failures.push(format!(
                 "ordinal {}: the witness pass decomposed {:?} but its witness parameters are {:?}",
@@ -6633,7 +6728,9 @@ fn report(
     }
     let mut per_source: BTreeMap<(&'static str, u8), Vec<Rat>> = BTreeMap::new();
     for probe in probes {
-        let entry = per_source.entry((probe.label, probe.parent_sg)).or_default();
+        let entry = per_source
+            .entry((probe.label, probe.parent_sg))
+            .or_default();
         if !entry.contains(&probe.parameter) {
             entry.push(probe.parameter);
         }
@@ -6670,7 +6767,9 @@ fn report(
     if !unsupported.is_empty() {
         let mut by_child: BTreeMap<(u8, usize), usize> = BTreeMap::new();
         for probe in &unsupported {
-            *by_child.entry((probe.child_sg, probe.child_order)).or_insert(0) += 1;
+            *by_child
+                .entry((probe.child_sg, probe.child_order))
+                .or_insert(0) += 1;
         }
         println!("unsupported probes by (child space group, child co-group order):");
         for ((child, order), count) in &by_child {
@@ -6748,7 +6847,11 @@ fn report(
             recount.added_kinds,
             recount.blocks,
             recount.geometries.len(),
-            if recount.geometries.len() == 1 { "y" } else { "ies" }
+            if recount.geometries.len() == 1 {
+                "y"
+            } else {
+                "ies"
+            }
         );
         println!(
             "  block source: stored={} constructed={} mixed={}",
@@ -6780,7 +6883,10 @@ fn report(
                     .iter()
                     .map(|(parameter, arms)| format!(
                         "t={parameter} arms[{}]",
-                        arms.iter().map(usize::to_string).collect::<Vec<_>>().join(",")
+                        arms.iter()
+                            .map(usize::to_string)
+                            .collect::<Vec<_>>()
+                            .join(",")
                     ))
                     .collect::<Vec<_>>()
                     .join(", ")
@@ -7031,7 +7137,9 @@ fn binding_self_check() -> (usize, Vec<String>) {
     let pinned = honest.clone();
     cases += 1;
     if let Some(error) = boundary_binding_error(&honest, honest_total, &pinned) {
-        violations.push(format!("the binding self-check rejected the honest histogram: {error}"));
+        violations.push(format!(
+            "the binding self-check rejected the honest histogram: {error}"
+        ));
     }
     // A histogram that could come from one engine call per pair: every parameter
     // reporting the same block count.
@@ -7055,7 +7163,9 @@ fn binding_self_check() -> (usize, Vec<String>) {
     }
     cases += 1;
     if let Some(error) = interior_binding_error(2, 0, 1) {
-        violations.push(format!("the interior binding rejected the honest counts: {error}"));
+        violations.push(format!(
+            "the interior binding rejected the honest counts: {error}"
+        ));
     }
     cases += 1;
     if interior_binding_error(1, 1, 1).is_none() {
@@ -7083,7 +7193,9 @@ fn binding_self_check() -> (usize, Vec<String>) {
     .collect();
     cases += 1;
     if let Some(error) = boundary_key_error(&grid, &grid) {
-        violations.push(format!("the returned-parameter binding rejected the honest keys: {error}"));
+        violations.push(format!(
+            "the returned-parameter binding rejected the honest keys: {error}"
+        ));
     }
     let reflected: Vec<(i128, i128)> = [
         (0, 1),
@@ -7162,7 +7274,9 @@ fn binding_self_check() -> (usize, Vec<String>) {
     let right = source(&second, 5, 4);
     cases += 1;
     if let Some(error) = side_pair_error(&left, &right, &first, &second) {
-        violations.push(format!("the side binding rejected the honest readings: {error}"));
+        violations.push(format!(
+            "the side binding rejected the honest readings: {error}"
+        ));
     }
     cases += 1;
     if side_pair_error(&left, &left, &first, &second).is_none() {
@@ -7184,12 +7298,15 @@ fn binding_self_check() -> (usize, Vec<String>) {
     let two_thirds = Rat::new(2, 3).expect("2/3");
     cases += 1;
     if let Some(error) = interior_record_error(&[third, two_thirds], 2) {
-        violations.push(format!("the recorded-parameter binding rejected the honest record: {error}"));
+        violations.push(format!(
+            "the recorded-parameter binding rejected the honest record: {error}"
+        ));
     }
     cases += 1;
     if interior_record_error(&[third, third], 2).is_none() {
         violations.push(
-            "the recorded-parameter binding accepted the same evaluated parameter twice".to_string(),
+            "the recorded-parameter binding accepted the same evaluated parameter twice"
+                .to_string(),
         );
     }
     cases += 1;
@@ -7216,7 +7333,9 @@ fn boundary_binding_error(
         ));
     }
     if shapes != pinned {
-        return Some(format!("the per-parameter block-count histogram is {shapes:?}"));
+        return Some(format!(
+            "the per-parameter block-count histogram is {shapes:?}"
+        ));
     }
     None
 }
@@ -7285,10 +7404,7 @@ fn audit_self_check() -> (usize, Vec<String>) {
     };
     // The honest fixture: two arm-merge relations holding at 0 and 1/2.
     let mut honest = base.clone();
-    honest.boundaries = vec![
-        boundary(zero, [0, 2, 0]),
-        boundary(half, [0, 2, 0]),
-    ];
+    honest.boundaries = vec![boundary(zero, [0, 2, 0]), boundary(half, [0, 2, 0])];
     let failures = audit(&honest);
     for needle in ["boundary set is not the partition's", "the audit finds"] {
         if reports(&failures, needle) {
@@ -7523,7 +7639,10 @@ fn check_invariants(
     }
     // 3b. An engine error is a hard failure of the census run, under every flag:
     //     `errors` is not allowed to be a pure diagnostic counter.
-    for probe in probes.iter().filter(|probe| probe.class == TargetClass::Error) {
+    for probe in probes
+        .iter()
+        .filter(|probe| probe.class == TargetClass::Error)
+    {
         violations.push(format!(
             "ordinal {} {} t={}: engine error: {}",
             probe.ordinal, probe.label, probe.parameter, probe.detail
@@ -7643,7 +7762,12 @@ fn check_invariants(
             violations.push(format!(
                 "the full-star recount pass reported {} failure(s), first: {}",
                 evidence.recount.failures.len(),
-                evidence.recount.failures.first().map(String::as_str).unwrap_or("")
+                evidence
+                    .recount
+                    .failures
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("")
             ));
         }
         if evidence.recount.rows.len() != evidence.recount.probes {
@@ -7723,13 +7847,21 @@ fn check_invariants(
             ("comparison(s)", evidence.sweep.comparisons, 46_048),
             ("matched block pair(s)", evidence.sweep.blocks, 168_408),
             ("matched target pair(s)", evidence.sweep.targets, 174_672),
-            ("boundary point(s)", evidence.sweep.boundary_points, BOUNDARY_POINT_PIN),
+            (
+                "boundary point(s)",
+                evidence.sweep.boundary_points,
+                BOUNDARY_POINT_PIN,
+            ),
             (
                 "answered boundary point(s)",
                 evidence.sweep.boundary_successes,
                 BOUNDARY_POINT_PIN,
             ),
-            ("failed boundary point(s)", evidence.sweep.boundary_failures, 0),
+            (
+                "failed boundary point(s)",
+                evidence.sweep.boundary_failures,
+                0,
+            ),
         ] {
             if found != expected {
                 violations.push(format!(
@@ -7967,14 +8099,10 @@ fn check_invariants(
                 evidence.sweep.target_counts, expected_target_counts
             ));
         }
-        let expected_orders: BTreeMap<usize, usize> = [
-            (1usize, 91_984usize),
-            (2, 62_408),
-            (4, 13_584),
-            (8, 432),
-        ]
-        .into_iter()
-        .collect();
+        let expected_orders: BTreeMap<usize, usize> =
+            [(1usize, 91_984usize), (2, 62_408), (4, 13_584), (8, 432)]
+                .into_iter()
+                .collect();
         if evidence.sweep.orders != expected_orders {
             violations.push(format!(
                 "the domain sweep's seed-point little co-group orders are {:?}, expected {:?}",
@@ -7987,7 +8115,9 @@ fn check_invariants(
         // the eighth grid on this corpus; the set equality above is what keeps
         // this from hiding a moved child boundary).
         let expected_shapes: BTreeMap<Vec<(u8, u32)>, usize> =
-            [(vec![(1u8, 1u32), (1, 1)], 6_264usize)].into_iter().collect();
+            [(vec![(1u8, 1u32), (1, 1)], 6_264usize)]
+                .into_iter()
+                .collect();
         if evidence.sweep.multi_shapes != expected_shapes {
             violations.push(format!(
                 "the domain sweep's multi-target block shapes are {:?}, expected {:?}",
@@ -8175,7 +8305,11 @@ fn check_invariants(
                 Vec3R::new([half, half, Rat::ZERO]),
                 false,
             ),
-            ("a point on the axis", Vec3R::new([Rat::ZERO, Rat::ZERO, third]), true),
+            (
+                "a point on the axis",
+                Vec3R::new([Rat::ZERO, Rat::ZERO, third]),
+                true,
+            ),
         ] {
             // The input is bound independently of the answer: it must be fixed
             // modulo `L*` (the little group's own predicate), otherwise this pair
@@ -8573,10 +8707,7 @@ fn check_blocks(
                 violations.push(format!(
                     "ordinal {} {} t={}: block {index} has {} conjugate-point disagreement(s): its \
                      reported co-group and class describe one point of the star only",
-                    probe.ordinal,
-                    probe.label,
-                    probe.parameter,
-                    block.point_disagreements
+                    probe.ordinal, probe.label, probe.parameter, block.point_disagreements
                 ));
             }
             if block.terms.len() != block.target_count {
@@ -8698,7 +8829,10 @@ fn check_blocks(
                         violations.push(format!(
                             "ordinal {} {} t={}: block {index} has star size {} but the engine's \
                              representative is {}",
-                            probe.ordinal, probe.label, probe.parameter, block.star_size,
+                            probe.ordinal,
+                            probe.label,
+                            probe.parameter,
+                            block.star_size,
                             engine.representative
                         ));
                     }
@@ -8863,7 +8997,10 @@ mod tests {
     fn record_of(parent_sg: u8, ordinal: usize) -> Record {
         let mut failures = Vec::new();
         let records = records_of(parent_sg, &mut failures).expect("the parent's records");
-        assert!(failures.is_empty(), "the witness walk must be clean: {failures:?}");
+        assert!(
+            failures.is_empty(),
+            "the witness walk must be clean: {failures:?}"
+        );
         records
             .into_iter()
             .find(|record| record.ordinal == ordinal)
@@ -8913,7 +9050,10 @@ mod tests {
             component: if irnumber.is_some() {
                 SubductionComponent::Ordinary
             } else {
-                SubductionComponent::Constructed { q: [Rat::ZERO; 3], index: 0 }
+                SubductionComponent::Constructed {
+                    q: [Rat::ZERO; 3],
+                    index: 0,
+                }
             },
             dimension: 1,
             multiplicity: 1,
@@ -8998,7 +9138,10 @@ mod tests {
             BlockSource::Stored,
             "the non-trivial block is entirely stored and must not inherit the probe's label"
         );
-        assert!(clean.carries_reference, "the reference block is the order-16 one");
+        assert!(
+            clean.carries_reference,
+            "the reference block is the order-16 one"
+        );
         assert_eq!(
             clean.little_co_group, probe.child_order,
             "the reference-carrying block's own co-group is the census's order at the reference point"
@@ -9073,7 +9216,10 @@ mod tests {
             &mut report,
             &mut failures,
         );
-        assert!(failures.is_empty(), "the explained exception is not a failure: {failures:?}");
+        assert!(
+            failures.is_empty(),
+            "the explained exception is not a failure: {failures:?}"
+        );
         assert!(zero_arms.is_empty(), "the arm does not fold to zero");
         assert_eq!(entries.len(), 2, "t = 0 and t = 1/2 both reach Gamma");
         assert_eq!(report.entries, 2);
@@ -9086,10 +9232,19 @@ mod tests {
         // must fail instead of quietly counting it.
         let mut report = GammaReport::default();
         let mut failures = Vec::new();
-        let (entries, _) = report_gamma(&partition(vec![quarter_turn]), 196, &mut report, &mut failures);
+        let (entries, _) = report_gamma(
+            &partition(vec![quarter_turn]),
+            196,
+            &mut report,
+            &mut failures,
+        );
         assert_eq!(entries.len(), 2);
         assert_eq!(report.exceptional, 0, "a moved arm is not an exception");
-        assert_eq!(failures.len(), 1, "the unexplained interior parameter is a failure");
+        assert_eq!(
+            failures.len(),
+            1,
+            "the unexplained interior parameter is a failure"
+        );
         assert!(
             failures[0].contains("no reaching arm is fixed exactly"),
             "the failure names the missing premise: {failures:?}"
@@ -9116,7 +9271,11 @@ mod tests {
         ] {
             let geometry = line_star_geometry(&record.subgroup, &embedding, table, parameter)
                 .expect("the production geometry");
-            assert_eq!(geometry.len(), expected.len(), "child stars at t={parameter}");
+            assert_eq!(
+                geometry.len(),
+                expected.len(),
+                "child stars at t={parameter}"
+            );
             let mut arms: Vec<usize> = geometry.iter().map(|star| star.arm_count()).collect();
             arms.sort_unstable();
             assert_eq!(arms, expected, "arm counts at t={parameter}");
@@ -9135,11 +9294,13 @@ mod tests {
             (rational(1, 7), vec![1, 1, 1, 1, 1, 1]),
             (rational(1, 8), vec![1, 1, 2, 2]),
         ] {
-            let result =
-                subduce_line_at_parameter(&record.subgroup, &embedding, table, parameter)
-                    .expect("the production decomposition");
-            let mut counts: Vec<usize> =
-                result.blocks().iter().map(|block| block.arm_count()).collect();
+            let result = subduce_line_at_parameter(&record.subgroup, &embedding, table, parameter)
+                .expect("the production decomposition");
+            let mut counts: Vec<usize> = result
+                .blocks()
+                .iter()
+                .map(|block| block.arm_count())
+                .collect();
             counts.sort_unstable();
             assert_eq!(counts, expected, "the engine's blocks at t={parameter}");
             // The reported terms are pinned too, so the census test does not defer
@@ -9242,7 +9403,10 @@ mod tests {
         let (pairs, worst) =
             match_targets(&left, &reordered, "the reordered control").expect("the control matches");
         assert_eq!(pairs, vec![(0, 1), (1, 0)], "the pairing is by character");
-        assert!(worst >= 1.0 - SWEEP_TOLERANCE, "the matched score is 1, got {worst}");
+        assert!(
+            worst >= 1.0 - SWEEP_TOLERANCE,
+            "the matched score is 1, got {worst}"
+        );
 
         // Two targets with the same character are not distinguishable: an
         // explicit error, never a silent pick.
@@ -9252,7 +9416,10 @@ mod tests {
         ];
         match match_targets(&left, &duplicated, "the ambiguity witness") {
             Err(TargetMismatch::Ambiguous(message)) => {
-                assert!(message.contains("partners"), "the tie must be named: {message}");
+                assert!(
+                    message.contains("partners"),
+                    "the tie must be named: {message}"
+                );
             }
             other => panic!("a character tie must be an explicit error, got {other:?}"),
         }
@@ -9303,7 +9470,10 @@ mod tests {
         ];
         match match_targets(&left, &wrong_dimension, "the dimension witness") {
             Err(TargetMismatch::Ambiguous(message)) => {
-                assert!(message.contains("dimension 1 at the first parameter and 2"), "{message}");
+                assert!(
+                    message.contains("dimension 1 at the first parameter and 2"),
+                    "{message}"
+                );
             }
             other => panic!("a dimension change must be an explicit error, got {other:?}"),
         }
@@ -9356,11 +9526,19 @@ mod tests {
         // The star's internal grouping moves too: the same arms and the same
         // star size, folded onto different points.
         let wide_left = [
-            sweep_block(vec![1, 2, 3, 4], vec![vec![1, 2], vec![3, 4]], vec![identity]),
+            sweep_block(
+                vec![1, 2, 3, 4],
+                vec![vec![1, 2], vec![3, 4]],
+                vec![identity],
+            ),
             sweep_block(vec![5], vec![vec![5]], vec![identity]),
         ];
         let regrouped = [
-            sweep_block(vec![1, 2, 3, 4], vec![vec![1, 3], vec![2, 4]], vec![identity]),
+            sweep_block(
+                vec![1, 2, 3, 4],
+                vec![vec![1, 3], vec![2, 4]],
+                vec![identity],
+            ),
             sweep_block(vec![5], vec![vec![5]], vec![identity]),
         ];
         let error = match_block_geometry(&wide_left, &regrouped, "the regrouped witness")
@@ -9384,7 +9562,11 @@ mod tests {
         assert!(error.contains("little co-group order"), "{error}");
 
         // A different block count is named before any pairing.
-        let short = [sweep_block(vec![1, 2], vec![vec![1], vec![2]], vec![identity])];
+        let short = [sweep_block(
+            vec![1, 2],
+            vec![vec![1], vec![2]],
+            vec![identity],
+        )];
         let error = match_block_geometry(&left, &short, "the count witness")
             .expect_err("a different block count is a mismatch");
         assert!(error.contains("2 block(s)"), "{error}");
@@ -9402,7 +9584,10 @@ mod tests {
             "the star-size witness",
         )
         .expect_err("a different star size is a mismatch");
-        assert!(error.contains("star size 2 at the first parameter and 3"), "{error}");
+        assert!(
+            error.contains("star size 2 at the first parameter and 3"),
+            "{error}"
+        );
         let mut heavier = base.clone();
         heavier.arm_count += 1;
         let error = match_block_geometry(
@@ -9411,7 +9596,10 @@ mod tests {
             "the arm-count witness",
         )
         .expect_err("a different arm count is a mismatch");
-        assert!(error.contains("arm count 2 at the first parameter and 3"), "{error}");
+        assert!(
+            error.contains("arm count 2 at the first parameter and 3"),
+            "{error}"
+        );
         let mut fatter = base.clone();
         fatter.block_dimension += 1;
         let error = match_block_geometry(
@@ -9472,13 +9660,20 @@ mod tests {
             .expect("the witness block at 5/24");
         let q1 = seed_point(block, 4, "the witness").expect("the seed point at 1/6");
         let q2 = seed_point(other, 4, "the witness").expect("the seed point at 5/24");
-        assert_ne!(q1, q2, "the constructed point must move between the two parameters");
+        assert_ne!(
+            q1, q2,
+            "the constructed point must move between the two parameters"
+        );
         assert_eq!(q1, Vec3R::new([rational(-2, 3), Rat::ZERO, Rat::ZERO]));
         assert_eq!(q2, Vec3R::new([rational(-5, 6), Rat::ZERO, Rat::ZERO]));
 
         let operations = child_little_group(&embedding, &partition.child_reciprocal, &q1)
             .expect("the little group at 1/6");
-        assert_eq!(operations.len(), 2, "the witness little co-group has order two");
+        assert_eq!(
+            operations.len(),
+            2,
+            "the witness little co-group has order two"
+        );
         let other_operations = child_little_group(&embedding, &partition.child_reciprocal, &q2)
             .expect("the little group at 5/24");
         assert_eq!(
@@ -9517,8 +9712,8 @@ mod tests {
             score >= 1.0 - 1e-12,
             "the gauge-unified characters must agree, score {score}"
         );
-        let (pairs, worst) = match_targets(&targets, &other_targets, "the witness")
-            .expect("the pair must match");
+        let (pairs, worst) =
+            match_targets(&targets, &other_targets, "the witness").expect("the pair must match");
         assert_eq!(pairs, vec![(0, 0)]);
         assert!(worst >= 1.0 - 1e-12);
         // The move is not a no-op: the ungauged per-arm values differ.
@@ -9637,7 +9832,10 @@ mod tests {
         assert_eq!(report.sweep.points, 2 * report.sweep.intervals);
         assert_eq!(report.sweep.comparisons, report.sweep.intervals);
         assert_eq!(report.sweep.failed_intervals, 0);
-        assert_eq!(report.sweep.sources[0], 0, "this child has no stored interior target");
+        assert_eq!(
+            report.sweep.sources[0], 0,
+            "this child has no stored interior target"
+        );
     }
 
     /// **Card 5: every block is bound to the parameter whose decomposition
@@ -9681,7 +9879,10 @@ mod tests {
         assert_eq!(step, rational(1, 12));
         assert_eq!(low, rational(1, 12));
         assert_eq!(high, rational(1, 6));
-        assert_ne!(low, high, "the two interior points must be different parameters");
+        assert_ne!(
+            low, high,
+            "the two interior points must be different parameters"
+        );
 
         // A zero-length or reversed interval is a typed error, never a
         // self-comparison counted as a checked interval.
@@ -9788,12 +9989,20 @@ mod tests {
             .expect("the second side's reading");
         assert_eq!(
             left.source,
-            ReadSource { parameter: t1, block: index, seed_arm: 4 },
+            ReadSource {
+                parameter: t1,
+                block: index,
+                seed_arm: 4
+            },
             "the reading records the parameter of the answer it was taken from"
         );
         assert_eq!(
             right.source,
-            ReadSource { parameter: t2, block: partner, seed_arm: 4 }
+            ReadSource {
+                parameter: t2,
+                block: partner,
+                seed_arm: 4
+            }
         );
         assert!(side_pair_error(&left.source, &right.source, &t1, &t2).is_none());
 
@@ -9954,13 +10163,15 @@ mod tests {
         )
         .expect("a vector no reading produced must be rejected");
         assert!(error.contains("no reading provenance"), "{error}");
-        assert!(operand_origin_error(
-            &honest_first.targets,
-            &honest_second.targets,
-            &honest_first.source,
-            &honest_second.source
-        )
-        .is_none());
+        assert!(
+            operand_origin_error(
+                &honest_first.targets,
+                &honest_second.targets,
+                &honest_first.source,
+                &honest_second.source
+            )
+            .is_none()
+        );
     }
 
     /// **External review of `67a95fe`, P2: the interior audit has to record the
@@ -10060,7 +10271,13 @@ mod tests {
             8,
             "the eighth grid of the witness"
         );
-        assert!(report.geometry.boundary_answered.values().all(|count| *count == 1));
+        assert!(
+            report
+                .geometry
+                .boundary_answered
+                .values()
+                .all(|count| *count == 1)
+        );
         assert!(
             boundary_parameter_binding_error(
                 &report.geometry.boundary_requested,
@@ -10088,11 +10305,11 @@ mod tests {
             "the reflected key list reaches only five parameters"
         );
         // And the aggregate: one reused answer for eight requests.
-        let reused: BTreeMap<(i128, i128), usize> = [((1i128, 8i128), keys.len())]
-            .into_iter()
-            .collect();
+        let reused: BTreeMap<(i128, i128), usize> =
+            [((1i128, 8i128), keys.len())].into_iter().collect();
         assert!(
-            boundary_parameter_binding_error(&report.geometry.boundary_requested, &reused).is_some(),
+            boundary_parameter_binding_error(&report.geometry.boundary_requested, &reused)
+                .is_some(),
             "one reused answer must not pass as eight"
         );
     }
@@ -10241,7 +10458,12 @@ mod tests {
         let domains = source_domains().expect("the frozen domains");
         let domain = domains
             .get(&(record.parent_sg, table.label))
-            .unwrap_or_else(|| panic!("no frozen domain for SG {} {}", record.parent_sg, table.label));
+            .unwrap_or_else(|| {
+                panic!(
+                    "no frozen domain for SG {} {}",
+                    record.parent_sg, table.label
+                )
+            });
         let context = SweepContext {
             ordinal: record.ordinal,
             label: table.label,
@@ -10322,13 +10544,31 @@ mod tests {
     /// F5.)
     #[test]
     fn the_boundary_gate_merge_keeps_order_and_sums() {
-        fn part(ordinal: usize, count: usize, probes: usize, errors: usize, missing: usize) -> BoundaryGate {
+        fn part(
+            ordinal: usize,
+            count: usize,
+            probes: usize,
+            errors: usize,
+            missing: usize,
+        ) -> BoundaryGate {
             let mut gate = BoundaryGate::default();
-            *gate.legacy.entry((ordinal, true, TargetClass::Stored)).or_insert(0) += count;
-            *gate.legacy.entry((7, false, TargetClass::Constructed)).or_insert(0) += 1;
-            *gate.corrected.entry((ordinal, BlockSource::Stored)).or_insert(0) += count;
+            *gate
+                .legacy
+                .entry((ordinal, true, TargetClass::Stored))
+                .or_insert(0) += count;
+            *gate
+                .legacy
+                .entry((7, false, TargetClass::Constructed))
+                .or_insert(0) += 1;
+            *gate
+                .corrected
+                .entry((ordinal, BlockSource::Stored))
+                .or_insert(0) += count;
             // the same *corrected* key from two records must sum as well
-            *gate.corrected.entry((7, BlockSource::Constructed)).or_insert(0) += 1;
+            *gate
+                .corrected
+                .entry((7, BlockSource::Constructed))
+                .or_insert(0) += 1;
             gate.legacy_totals[0] += count;
             gate.corrected_totals[1] += count;
             gate.boundary_probes += probes;
@@ -10387,7 +10627,10 @@ mod tests {
             "a run that asked for no pass has no verdict to fail"
         );
         for (flag, verdict) in [
-            ("--gate", verdict_requested(true, false, false, false, false)),
+            (
+                "--gate",
+                verdict_requested(true, false, false, false, false),
+            ),
             (
                 "--require-covered",
                 verdict_requested(false, true, false, false, false),
@@ -10464,9 +10707,11 @@ mod tests {
             }
         }
         // The derived row is the disjunction of the three recount flags.
-        for (gate, full_star_recount, output_recount) in
-            [(true, false, false), (false, true, false), (false, false, true)]
-        {
+        for (gate, full_star_recount, output_recount) in [
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
             let rows = RequestedPasses {
                 gate,
                 require_covered: false,
@@ -10568,7 +10813,13 @@ mod tests {
         };
         let mut facts = 0usize;
         let mut failures = Vec::new();
-        check_arm_counts(&[1, 1, 2, 2, 0, 0], &[1, 1, 2, 2, 0, 0], &mut facts, &mut failures, describe);
+        check_arm_counts(
+            &[1, 1, 2, 2, 0, 0],
+            &[1, 1, 2, 2, 0, 0],
+            &mut facts,
+            &mut failures,
+            describe,
+        );
         assert_eq!(facts, 1, "an agreement is still a compared expectation");
         assert_eq!(calls.get(), 0, "an agreement must not describe a violation");
         assert!(
@@ -10583,9 +10834,19 @@ mod tests {
         };
         let mut facts = 0usize;
         let mut failures = Vec::new();
-        check_arm_counts(&[1, 1, 1, 1, 1, 1], &[1, 1, 2, 2, 0, 0], &mut facts, &mut failures, describe);
+        check_arm_counts(
+            &[1, 1, 1, 1, 1, 1],
+            &[1, 1, 2, 2, 0, 0],
+            &mut facts,
+            &mut failures,
+            describe,
+        );
         assert_eq!(facts, 1, "a disagreement is a compared expectation too");
-        assert_eq!(calls.get(), 1, "the closure is called once, on the mismatch");
+        assert_eq!(
+            calls.get(),
+            1,
+            "the closure is called once, on the mismatch"
+        );
         assert_eq!(
             failures,
             vec!["closure call 1".to_string()],
@@ -10706,7 +10967,11 @@ mod tests {
             output_blocks: None,
             output_recount: Some("recount.tsv".to_string()),
         };
-        let decided: Vec<(&str, bool)> = RequestedPasses::of(&options).rows().iter().copied().collect();
+        let decided: Vec<(&str, bool)> = RequestedPasses::of(&options)
+            .rows()
+            .iter()
+            .copied()
+            .collect();
         assert_eq!(
             decided,
             vec![
@@ -10795,8 +11060,10 @@ mod tests {
     #[test]
     fn the_artifact_paths_are_read_in_both_spellings() {
         let parse = |arguments: &[&str], flag: &str| {
-            let arguments: Vec<String> =
-                arguments.iter().map(|argument| argument.to_string()).collect();
+            let arguments: Vec<String> = arguments
+                .iter()
+                .map(|argument| argument.to_string())
+                .collect();
             artifact_path(&arguments, flag)
         };
         assert_eq!(
@@ -10871,13 +11138,21 @@ mod tests {
     #[test]
     fn unknown_arguments_are_rejected_instead_of_ignored() {
         let check = |arguments: &[&str]| {
-            let arguments: Vec<String> =
-                arguments.iter().map(|argument| argument.to_string()).collect();
+            let arguments: Vec<String> = arguments
+                .iter()
+                .map(|argument| argument.to_string())
+                .collect();
             reject_unknown_arguments(&arguments)
         };
         for accepted in [
             vec!["--gate", "--require-covered", "--domain-sweep"],
-            vec!["--gate", "--output", "probe.tsv", "--output-blocks", "blocks.tsv"],
+            vec![
+                "--gate",
+                "--output",
+                "probe.tsv",
+                "--output-blocks",
+                "blocks.tsv",
+            ],
             vec!["--output=probe.tsv", "--output-recount=recount.tsv"],
             vec!["--sequential", "--full-star-recount"],
             vec!["--help"],
@@ -10990,25 +11265,29 @@ mod tests {
         let domains = source_domains().expect("the frozen domains");
         let record = record_of(196, 10_030);
         let report = census_report(196, 10_030, true, false);
-        let checked = |recount_requested: bool,
-                       recount_ran: bool,
-                       sweep_requested: bool,
-                       sweep_ran: bool| {
-            let evidence = evidence_of(&report, recount_requested, recount_ran, sweep_requested, sweep_ran);
-            let mut violations = Vec::new();
-            check_invariants(
-                &domains,
-                std::slice::from_ref(&record),
-                &report.probes,
-                &evidence,
-                // The unit tests take the single-threaded traversal: the two
-                // branches must agree, and the acceptance command is what
-                // exercises the parallel one.
-                true,
-                &mut violations,
-            );
-            violations
-        };
+        let checked =
+            |recount_requested: bool, recount_ran: bool, sweep_requested: bool, sweep_ran: bool| {
+                let evidence = evidence_of(
+                    &report,
+                    recount_requested,
+                    recount_ran,
+                    sweep_requested,
+                    sweep_ran,
+                );
+                let mut violations = Vec::new();
+                check_invariants(
+                    &domains,
+                    std::slice::from_ref(&record),
+                    &report.probes,
+                    &evidence,
+                    // The unit tests take the single-threaded traversal: the two
+                    // branches must agree, and the acceptance command is what
+                    // exercises the parallel one.
+                    true,
+                    &mut violations,
+                );
+                violations
+            };
         let coupling = |violations: &[String]| {
             violations
                 .iter()
@@ -11069,7 +11348,9 @@ mod tests {
         let unrequested = checked(false, false, false, false);
         for needle in ["Gamma enumeration reports", "full-star recount probed"] {
             assert!(
-                !unrequested.iter().any(|violation| violation.contains(needle)),
+                !unrequested
+                    .iter()
+                    .any(|violation| violation.contains(needle)),
                 "an unrequested pass must not be asserted about: {unrequested:?}"
             );
         }
@@ -11109,7 +11390,10 @@ mod tests {
             geometry.permanent,
             partition.permanent_counts.iter().sum::<usize>()
         );
-        assert!(geometry.permanent > 0, "the witness has identically-true relations");
+        assert!(
+            geometry.permanent > 0,
+            "the witness has identically-true relations"
+        );
         assert_eq!(geometry.boundaries, partition.boundary_parameters().len());
         assert!(geometry.boundaries > 0, "the witness has boundaries");
         assert_eq!(geometry.recomputed_boundaries, geometry.boundaries);
@@ -11151,7 +11435,8 @@ mod tests {
             (report.boundary_points as u64) * u64::from(table.dimension) * (arms as u64)
         );
         assert_eq!(
-            report.geometry.predicted_boundary_dimension, report.boundary_parent_dimension
+            report.geometry.predicted_boundary_dimension,
+            report.boundary_parent_dimension
         );
     }
 
@@ -11324,9 +11609,8 @@ mod tests {
             arms: &mutated.arms,
         };
         let read = |parameter: Rat| -> Vec<SweepBlock> {
-            let result =
-                subduce_line_at_parameter(&record.subgroup, &embedding, table, parameter)
-                    .expect("the production decomposition");
+            let result = subduce_line_at_parameter(&record.subgroup, &embedding, table, parameter)
+                .expect("the production decomposition");
             result
                 .blocks()
                 .iter()
@@ -11428,8 +11712,9 @@ mod tests {
             "the engine's own reading must reject it too: {violations:?}"
         );
         assert!(
-            violations.iter().any(|violation| violation.contains("block")
-                && violation.contains("1/8")),
+            violations
+                .iter()
+                .any(|violation| violation.contains("block") && violation.contains("1/8")),
             "the failure must name the probe: {violations:?}"
         );
     }
@@ -11460,14 +11745,10 @@ mod tests {
         assert_eq!(parameters.len(), 8, "the eighth grid of the witness");
         // The engine error this mutation produces, read from the engine itself
         // rather than described: the failure message has to carry it.
-        let engine_error = subduce_line_at_parameter(
-            &record.subgroup,
-            &wrong_embedding,
-            table,
-            parameters[0],
-        )
-        .expect_err("the mismatched embedding must be rejected")
-        .to_string();
+        let engine_error =
+            subduce_line_at_parameter(&record.subgroup, &wrong_embedding, table, parameters[0])
+                .expect_err("the mismatched embedding must be rejected")
+                .to_string();
         let context = SweepContext {
             ordinal: record.ordinal,
             label: "DT1",

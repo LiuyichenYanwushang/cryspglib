@@ -51,8 +51,7 @@ fn main() -> Result<(), String> {
                     errors += 1;
                     continue;
                 };
-                let Ok(result) =
-                    subduce_full_star_with_embedding(&subgroup, &embedding, probe)
+                let Ok(result) = subduce_full_star_with_embedding(&subgroup, &embedding, probe)
                 else {
                     errors += 1;
                     continue;
@@ -78,7 +77,8 @@ fn main() -> Result<(), String> {
                         let row = query::irreps_of(target.sg)
                             .iter()
                             .find(|record| record.ml == target.row_ml.expect("stored target row"));
-                        if row.map(|record| record.compound_metadata().is_some())
+                        if row
+                            .map(|record| record.compound_metadata().is_some())
                             .unwrap_or(true)
                         {
                             return 0;
@@ -90,7 +90,14 @@ fn main() -> Result<(), String> {
                     .sum();
                 checked += 1;
                 if (norm - squared as f64).abs() > tolerance {
-                    violations.push((subgroup.ordinal, sg, probe.ml, subgroup.record.sg, norm, squared));
+                    violations.push((
+                        subgroup.ordinal,
+                        sg,
+                        probe.ml,
+                        subgroup.record.sg,
+                        norm,
+                        squared,
+                    ));
                 }
             }
         }

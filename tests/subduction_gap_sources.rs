@@ -137,7 +137,11 @@ fn a_non_symmetric_setting_maps_every_child_operation_into_the_engine_frame() {
             .expect("reduce");
         mapped.push(child);
     }
-    assert_eq!(mapped.len(), 2, "child #3 has two operations in this record");
+    assert_eq!(
+        mapped.len(),
+        2,
+        "child #3 has two operations in this record"
+    );
     for operation in &mapped {
         assert!(
             archive.iter().any(|candidate| candidate == operation),
@@ -161,7 +165,11 @@ fn a_non_symmetric_setting_maps_every_child_operation_into_the_engine_frame() {
     let little = little_group_at(&mapped, &q, &reciprocal).expect("little group");
     assert_eq!(little.len(), 2);
     let turns = factor_system_turns(&little, &q, &lattice).expect("factor system");
-    assert_eq!(turns.len(), 4, "two representatives give four ordered pairs");
+    assert_eq!(
+        turns.len(),
+        4,
+        "two representatives give four ordered pairs"
+    );
     assert!(
         turns.iter().all(|value| *value == Rat::ZERO),
         "SG 3 is symmorphic: every phase must be zero, found {turns:?}"

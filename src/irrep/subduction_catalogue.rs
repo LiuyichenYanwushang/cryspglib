@@ -144,12 +144,11 @@ impl AffineForm {
     fn checked_add(&self, other: &Self) -> Result<Self, SubductionError> {
         let mut coefficients = Vec::with_capacity(self.coefficients.len());
         for (left, right) in self.coefficients.iter().zip(&other.coefficients) {
-            coefficients.push(
-                left.checked_add(*right)
-                    .ok_or(SubductionError::RationalOverflow {
-                        operation: "coboundary coefficient",
-                    })?,
-            );
+            coefficients.push(left.checked_add(*right).ok_or(
+                SubductionError::RationalOverflow {
+                    operation: "coboundary coefficient",
+                },
+            )?);
         }
         Ok(Self {
             coefficients,
@@ -168,13 +167,19 @@ fn bezout(left: i128, right: i128) -> Result<(i128, i128, i128), SubductionError
     let (mut old_t, mut t) = (0i128, 1i128);
     while r != 0 {
         let quotient = old_r.checked_div(r).ok_or_else(overflow)?;
-        let next_r = old_r.checked_sub(quotient.checked_mul(r).ok_or_else(overflow)?).ok_or_else(overflow)?;
+        let next_r = old_r
+            .checked_sub(quotient.checked_mul(r).ok_or_else(overflow)?)
+            .ok_or_else(overflow)?;
         old_r = r;
         r = next_r;
-        let next_s = old_s.checked_sub(quotient.checked_mul(s).ok_or_else(overflow)?).ok_or_else(overflow)?;
+        let next_s = old_s
+            .checked_sub(quotient.checked_mul(s).ok_or_else(overflow)?)
+            .ok_or_else(overflow)?;
         old_s = s;
         s = next_s;
-        let next_t = old_t.checked_sub(quotient.checked_mul(t).ok_or_else(overflow)?).ok_or_else(overflow)?;
+        let next_t = old_t
+            .checked_sub(quotient.checked_mul(t).ok_or_else(overflow)?)
+            .ok_or_else(overflow)?;
         old_t = t;
         t = next_t;
     }
@@ -235,7 +240,11 @@ fn syzygy_basis(rows: &[Vec<i128>]) -> Result<Vec<Vec<i128>>, SubductionError> {
                 let row_entry = work[row][entry];
                 let new_pivot = left
                     .checked_mul(pivot_entry)
-                    .and_then(|value| right.checked_mul(row_entry).and_then(|other| value.checked_add(other)))
+                    .and_then(|value| {
+                        right
+                            .checked_mul(row_entry)
+                            .and_then(|other| value.checked_add(other))
+                    })
                     .ok_or_else(overflow)?;
                 let new_row = cancel_left
                     .checked_mul(pivot_entry)
@@ -366,9 +375,8 @@ impl LittleCoGroup {
                 if *coefficient == 0 {
                     continue;
                 }
-                sum = sum.checked_add(
-                    right_hand[index].checked_mul(Rat::from_integer(*coefficient))?,
-                )?;
+                sum = sum
+                    .checked_add(right_hand[index].checked_mul(Rat::from_integer(*coefficient))?)?;
             }
             if !sum.is_integer() {
                 return Ok(false);
@@ -421,8 +429,7 @@ impl LittleCoGroup {
             let mut row = Vec::with_capacity(order);
             for j in 0..order {
                 row.push(fractional(
-                    self.turns[i][j]
-                        .checked_sub(other.turns[permutation[i]][permutation[j]])?,
+                    self.turns[i][j].checked_sub(other.turns[permutation[i]][permutation[j]])?,
                 )?);
             }
             turns.push(row);
@@ -578,11 +585,7 @@ impl LittleCoGroup {
     /// `e, g, ..., g^(m-1)` multiplied by `g` gives
     /// `m * psi(g) = sum_r omega(g^r, g) (mod 1)`. Thus there are exactly `m`
     /// candidate roots, independent of the cocycle denominator.
-    fn generator_values(
-        &self,
-        generator: usize,
-        identity: usize,
-    ) -> Result<Vec<Rat>, StarError> {
+    fn generator_values(&self, generator: usize, identity: usize) -> Result<Vec<Rat>, StarError> {
         let mut power = identity;
         let mut order = 0usize;
         let mut phase = Rat::ZERO;
@@ -688,9 +691,15 @@ impl LittleCoGroup {
                     let k = self.product_position(i, j)?;
                     let (left, right, target) = (psi[i], psi[j], psi[k]);
                     let filled = match (left, right, target) {
-                        (Some(a), Some(b), None) => Some((k, a.checked_add(b)?.checked_sub(self.turns[i][j])?)),
-                        (Some(a), None, Some(c)) => Some((j, c.checked_add(self.turns[i][j])?.checked_sub(a)?)),
-                        (None, Some(b), Some(c)) => Some((i, c.checked_add(self.turns[i][j])?.checked_sub(b)?)),
+                        (Some(a), Some(b), None) => {
+                            Some((k, a.checked_add(b)?.checked_sub(self.turns[i][j])?))
+                        }
+                        (Some(a), None, Some(c)) => {
+                            Some((j, c.checked_add(self.turns[i][j])?.checked_sub(a)?))
+                        }
+                        (None, Some(b), Some(c)) => {
+                            Some((i, c.checked_add(self.turns[i][j])?.checked_sub(b)?))
+                        }
                         _ => None,
                     };
                     if let Some((slot, value)) = filled {
@@ -1190,10 +1199,7 @@ pub(super) fn character_value(
         })?;
     let mut turns = constant;
     for axis in 0..3 {
-        turns = turns.checked_add(
-            q.get(axis)
-                .checked_mul(operation.translation().get(axis))?,
-        )?;
+        turns = turns.checked_add(q.get(axis).checked_mul(operation.translation().get(axis))?)?;
     }
     Ok(num_complex::Complex64::from_polar(
         1.0,
@@ -1231,9 +1237,9 @@ pub(super) fn fractional(value: Rat) -> Result<Rat, SubductionError> {
 mod tests {
     use super::*;
     use crate::irrep::line_monodromy::line_direction;
-    use crate::irrep::w_little_characters_data::W_LITTLE_CHARACTERS;
     use crate::irrep::query;
     use crate::irrep::subduction::{SUBDUCTION_TOLERANCE, character_of, inline_k_vector};
+    use crate::irrep::w_little_characters_data::W_LITTLE_CHARACTERS;
     use num_complex::Complex64;
 
     /// A cyclic co-group of order two with a prescribed generator cocycle.
@@ -1258,16 +1264,14 @@ mod tests {
         assert!(characters.contains(&vec![Rat::ZERO, Rat::new(1, 2).unwrap()]));
 
         // A half-turn cocycle moves them to the two imaginary characters.
-        let characters =
-            one_dimensional_characters(&cyclic_two(Rat::new(1, 2).unwrap())).unwrap();
+        let characters = one_dimensional_characters(&cyclic_two(Rat::new(1, 2).unwrap())).unwrap();
         assert_eq!(characters.len(), 2);
         assert!(characters.contains(&vec![Rat::ZERO, Rat::new(1, 4).unwrap()]));
         assert!(characters.contains(&vec![Rat::ZERO, Rat::new(3, 4).unwrap()]));
 
         // A one-third turn is gauged by a sixth: the grid must be finer than the
         // cocycle itself, or the character would be missed.
-        let characters =
-            one_dimensional_characters(&cyclic_two(Rat::new(1, 3).unwrap())).unwrap();
+        let characters = one_dimensional_characters(&cyclic_two(Rat::new(1, 3).unwrap())).unwrap();
         assert_eq!(characters.len(), 2);
         assert!(characters.contains(&vec![Rat::ZERO, Rat::new(1, 6).unwrap()]));
         assert!(characters.contains(&vec![Rat::ZERO, Rat::new(2, 3).unwrap()]));
@@ -1362,9 +1366,16 @@ mod tests {
         let zero = Complex64::new(0.0, 0.0);
         let two = Complex64::new(2.0, 0.0);
         assert_eq!(rows.len(), 3);
-        assert!(close(&rows[0].1, &[one, one, one, one, one, one]), "{:?}", rows[0]);
         assert!(
-            close(&rows[1].1, &[one, one, one, minus_one, minus_one, minus_one]),
+            close(&rows[0].1, &[one, one, one, one, one, one]),
+            "{:?}",
+            rows[0]
+        );
+        assert!(
+            close(
+                &rows[1].1,
+                &[one, one, one, minus_one, minus_one, minus_one]
+            ),
             "{:?}",
             rows[1]
         );
@@ -1373,7 +1384,10 @@ mod tests {
             "{:?}",
             rows[2]
         );
-        assert_eq!(rows.iter().map(|row| row.0).collect::<Vec<_>>(), vec![1, 1, 2]);
+        assert_eq!(
+            rows.iter().map(|row| row.0).collect::<Vec<_>>(),
+            vec![1, 1, 2]
+        );
 
         // Out of scope: a cubic Gamma point (order 48) has no table.
         let cell = Lattice::new(exact_primitive_basis(221).unwrap()).unwrap();
@@ -1506,8 +1520,7 @@ mod tests {
     #[test]
     fn an_abelian_order_eight_cogroup_has_eight_scalar_characters() {
         let zero = Vec3R::zero();
-        let quarter_turn =
-            ExactSeitz::new([[0, -1, 0], [1, 0, 0], [0, 0, 1]], zero);
+        let quarter_turn = ExactSeitz::new([[0, -1, 0], [1, 0, 0], [0, 0, 1]], zero);
         let inversion = ExactSeitz::new([[-1, 0, 0], [0, -1, 0], [0, 0, -1]], zero);
         let mut representatives = Vec::with_capacity(8);
         let mut power = ExactSeitz::identity();
@@ -1641,7 +1654,11 @@ mod tests {
         let table = trivial.multiplication_table().unwrap();
         let psi: Vec<Rat> = (0..order)
             .map(|position| {
-                Rat::new(i128::try_from(position).unwrap(), i128::try_from(order).unwrap()).unwrap()
+                Rat::new(
+                    i128::try_from(position).unwrap(),
+                    i128::try_from(order).unwrap(),
+                )
+                .unwrap()
             })
             .collect();
         let mut gauge = trivial.clone();
@@ -1649,7 +1666,11 @@ mod tests {
             for j in 0..order {
                 let k = table[i][j];
                 gauge.turns[i][j] = fractional(
-                    psi[i].checked_add(psi[j]).unwrap().checked_sub(psi[k]).unwrap(),
+                    psi[i]
+                        .checked_add(psi[j])
+                        .unwrap()
+                        .checked_sub(psi[k])
+                        .unwrap(),
                 )
                 .unwrap();
             }
@@ -2151,12 +2172,9 @@ mod tests {
                         operations.iter().enumerate().all(|(index, operation)| {
                             let pinned =
                                 character_of(&row, record.ml, operation, &cell, &k, index).unwrap();
-                            let expected = table_character_value(
-                                &target.constants,
-                                &co_group.q,
-                                operation,
-                            )
-                            .unwrap();
+                            let expected =
+                                table_character_value(&target.constants, &co_group.q, operation)
+                                    .unwrap();
                             (pinned - expected).norm() <= SUBDUCTION_TOLERANCE
                         })
                     });

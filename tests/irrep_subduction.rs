@@ -434,8 +434,13 @@ fn swapping_the_two_cm_directions_is_detected() {
 
 #[test]
 fn embeddings_refuse_records_that_do_not_validate() {
-    let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
-        .expect("golden record");
+    let subgroup = isotropy_subgroup_for_direction(
+        221,
+        "GM4+",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("P1"),
+    )
+    .expect("golden record");
     assert!(SubgroupEmbedding::from_isotropy_subgroup(&subgroup).is_ok());
 
     // A hand-built record that agrees with the table cannot be distinguished,
@@ -464,8 +469,13 @@ fn embeddings_refuse_records_that_do_not_validate() {
 fn gamma_subduction_of_the_golden_case_is_complete() {
     // The end-to-end deliverable of task 5: 221 GM4+ condenses along P1 into
     // #83 P4/m, and the parent's GM3+ subduces to GM1+ + GM2+.
-    let subgroup = isotropy_subgroup_for_direction(221, "GM4+", LabelConvention::Cdml, IsotropyDirection::Label("P1"))
-        .expect("condensing record");
+    let subgroup = isotropy_subgroup_for_direction(
+        221,
+        "GM4+",
+        LabelConvention::Cdml,
+        IsotropyDirection::Label("P1"),
+    )
+    .expect("condensing record");
     assert_eq!(subgroup.ordinal, 12400);
     assert_eq!(subgroup.record.sg, 83);
     let decomposition = subduce_irrep(&subgroup, "GM3+").expect("decomposition");
@@ -682,10 +692,13 @@ fn frobenius_reciprocity_matches_the_stored_identity_subduction() {
                     // its row value divided by the constituent count -- the
                     // documented `k_G` folding (without it, 3543 Gamma rows
                     // would be counted twice).
-                    let constituents = if candidate.compound_metadata().is_some() { 2 } else { 1 };
-                    frobenius_sum +=
-                        i64::from(result.parent_dimension()) * i64::from(multiplicity)
-                            / constituents;
+                    let constituents = if candidate.compound_metadata().is_some() {
+                        2
+                    } else {
+                        1
+                    };
+                    frobenius_sum += i64::from(result.parent_dimension()) * i64::from(multiplicity)
+                        / constituents;
                 }
 
                 for (ml, frequency) in &stored_frequencies {
@@ -850,8 +863,13 @@ fn non_gamma_probes_decompose_their_folded_block() {
         ),
     ];
     for (sg, ml, direction, probe_ml, folded, targets) in cases {
-        let subgroup = isotropy_subgroup_for_direction(sg, ml, LabelConvention::Cdml, IsotropyDirection::Label(direction))
-            .expect("condensing record");
+        let subgroup = isotropy_subgroup_for_direction(
+            sg,
+            ml,
+            LabelConvention::Cdml,
+            IsotropyDirection::Label(direction),
+        )
+        .expect("condensing record");
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
         let probe = query::irreps_of(sg)
             .iter()
@@ -936,8 +954,13 @@ fn non_gamma_coverage_is_counted_not_assumed() {
         (221, "GM4+", "P2"),
         (139, "M1-", "P1"),
     ] {
-        let subgroup = isotropy_subgroup_for_direction(sg, ml, LabelConvention::Cdml, IsotropyDirection::Label(direction))
-            .expect("record");
+        let subgroup = isotropy_subgroup_for_direction(
+            sg,
+            ml,
+            LabelConvention::Cdml,
+            IsotropyDirection::Label(direction),
+        )
+        .expect("record");
         let embedding = SubgroupEmbedding::from_isotropy_subgroup(&subgroup).expect("embedding");
         for probe in query::irreps_of(sg) {
             if probe.spinor {
@@ -968,7 +991,13 @@ fn non_gamma_coverage_is_counted_not_assumed() {
 }
 
 /// `(component, ML label, CIR number, dimension, multiplicity)` of one target.
-type TargetTerm = (SubductionComponent, Option<&'static str>, Option<u32>, u8, u32);
+type TargetTerm = (
+    SubductionComponent,
+    Option<&'static str>,
+    Option<u32>,
+    u8,
+    u32,
+);
 
 /// The Gamma entry and the full-star entry must report the **same** source
 /// identity for the same target.  The Gamma path used to fill in a placeholder
@@ -998,34 +1027,33 @@ fn gamma_and_full_star_entries_agree_on_every_target_identity() {
             .unwrap_or_else(|error| panic!("Gamma probe {} must succeed: {error}", probe.ml));
         let full = subduce_full_star_with_embedding(&subgroup, &embedding, probe)
             .unwrap_or_else(|error| panic!("{}: {error}", probe.ml));
-        let mut gamma_terms: Vec<TargetTerm> =
-            gamma
-                .targets()
-                .iter()
-                .map(|target| {
-                    (
-                        target.component,
-                        target.ml,
-                        target.irnumber,
-                        target.dimension,
-                        target.multiplicity,
-                    )
-                })
-                .collect();
-        let mut full_terms: Vec<TargetTerm> =
-            full.blocks()
-                .iter()
-                .flat_map(|block| block.targets())
-                .map(|target| {
-                    (
-                        target.component,
-                        target.ml,
-                        target.irnumber,
-                        target.dimension,
-                        target.multiplicity,
-                    )
-                })
-                .collect();
+        let mut gamma_terms: Vec<TargetTerm> = gamma
+            .targets()
+            .iter()
+            .map(|target| {
+                (
+                    target.component,
+                    target.ml,
+                    target.irnumber,
+                    target.dimension,
+                    target.multiplicity,
+                )
+            })
+            .collect();
+        let mut full_terms: Vec<TargetTerm> = full
+            .blocks()
+            .iter()
+            .flat_map(|block| block.targets())
+            .map(|target| {
+                (
+                    target.component,
+                    target.ml,
+                    target.irnumber,
+                    target.dimension,
+                    target.multiplicity,
+                )
+            })
+            .collect();
         gamma_terms.sort_by_key(|term| format!("{term:?}"));
         full_terms.sort_by_key(|term| format!("{term:?}"));
         assert_eq!(gamma_terms, full_terms, "probe {}", probe.ml);

@@ -118,8 +118,8 @@ pub mod subduction;
 // for now; the compound, k-folding and magnetic stages are tasks 6-11.
 #[doc(hidden)]
 pub use subduction::{
-    subduce_irrep, subduce_irrep_with_embedding, IrrepSubduction, SubductionComponent,
-    SubductionError, SubductionTarget, SubgroupEmbedding,
+    IrrepSubduction, SubductionComponent, SubductionError, SubductionTarget, SubgroupEmbedding,
+    subduce_irrep, subduce_irrep_with_embedding,
 };
 
 // Frozen little-group character tables of the parametric-k irreps behind the

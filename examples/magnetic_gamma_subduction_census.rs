@@ -328,7 +328,10 @@ enum FixedEmbedding {
     /// (arithmetic limit or component cap): not a proof of absence.
     UndecidedResidual,
     /// The record could not even be prepared; the reason is named.
-    Error { variant: &'static str, detail: String },
+    Error {
+        variant: &'static str,
+        detail: String,
+    },
 }
 
 /// The exact entries of a candidate map, as `(numerator, denominator)` pairs.
@@ -432,9 +435,15 @@ fn record_of(sg: u8, record: &RecordRow) -> cryspglib::irrep::types::MagneticIso
 #[derive(Clone)]
 enum Probe {
     /// The R25 input contract refused it.
-    VerifyInput { variant: &'static str, detail: String },
+    VerifyInput {
+        variant: &'static str,
+        detail: String,
+    },
     /// The R26 subduction refused a model the contract accepted.
-    Subduce { variant: &'static str, detail: String },
+    Subduce {
+        variant: &'static str,
+        detail: String,
+    },
     /// Both answered, but the reconstruction did not hold.  Must never happen.
     SuccessCheck { variant: String, detail: String },
     /// Contract, subduction and class-by-class reconstruction all hold.
@@ -819,7 +828,10 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
     counters.sources_eligible = eligible.len();
     for source in &inventory.sources {
         if let Some(exclusion) = &source.exclusion {
-            *counters.exclusion_variants.entry(exclusion.clone()).or_insert(0) += 1;
+            *counters
+                .exclusion_variants
+                .entry(exclusion.clone())
+                .or_insert(0) += 1;
             if exclusion == "spinor_source" {
                 counters.sources_spinor += 1;
             } else if exclusion == "dimension_gt_one" {
@@ -860,7 +872,14 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
                     count_probe(&mut counters, &minus);
                     compare_eta(&mut counters, &plus, &minus);
                     push_row(
-                        &mut tsv, sg, record, source.label, RealSign::Plus, &plus, map, shift,
+                        &mut tsv,
+                        sg,
+                        record,
+                        source.label,
+                        RealSign::Plus,
+                        &plus,
+                        map,
+                        shift,
                     );
                     push_row(
                         &mut tsv,
@@ -904,11 +923,7 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
     counters.tsv_rows = counters.pairs_probed * 2 + counters.pairs_record_without_fixed * 2;
     counters.tsv_rows_record_without_fixed = counters.pairs_record_without_fixed * 2;
 
-    SgReport {
-        sg,
-        counters,
-        tsv,
-    }
+    SgReport { sg, counters, tsv }
 }
 
 /// Attribute one probe to its single stage.
@@ -918,7 +933,10 @@ fn count_probe(counters: &mut Counters, outcome: &Probe) {
         Probe::Success { .. } => counters.success += 1,
         Probe::VerifyInput { variant, .. } => {
             counters.verify_input_failures += 1;
-            *counters.verify_variants.entry((*variant).to_string()).or_insert(0) += 1;
+            *counters
+                .verify_variants
+                .entry((*variant).to_string())
+                .or_insert(0) += 1;
         }
         Probe::Subduce { variant, .. } => {
             counters.subduce_failures += 1;
@@ -1164,7 +1182,10 @@ fn parse_tsv(text: &str) -> (Vec<ParsedRow>, Vec<String>) {
             fields[2].parse::<usize>(),
             fields[3].parse::<usize>(),
         ) else {
-            errors.push(format!("line {}: unreadable numeric fields", line_number + 1));
+            errors.push(format!(
+                "line {}: unreadable numeric fields",
+                line_number + 1
+            ));
             continue;
         };
         let eta = match fields[5] {
@@ -1561,10 +1582,7 @@ fn run_anchors() -> Vec<String> {
                 continue;
             }
         };
-        let Some(index) = rows
-            .iter()
-            .position(|row| row.record.mag_sg == anchor.uni)
-        else {
+        let Some(index) = rows.iter().position(|row| row.record.mag_sg == anchor.uni) else {
             violations.push(format!(
                 "{}: UNI {} is not a magnetic isotropy row of SG {} {}",
                 anchor.name, anchor.uni, anchor.sg, anchor.condensing
@@ -1817,7 +1835,9 @@ fn boundary_gamma_target_dimensions(sg: u8, kind: &'static str) -> Vec<String> {
     let mut notes = Vec::new();
     let rows = query::magnetic_isotropy_subgroups_of(sg);
     if rows.is_empty() {
-        notes.push(format!("{kind}_target sg {sg}: no magnetic isotropy row to read"));
+        notes.push(format!(
+            "{kind}_target sg {sg}: no magnetic isotropy row to read"
+        ));
         return notes;
     }
     let mut unis: Vec<usize> = rows.iter().map(|entry| entry.subgroup.mag_sg).collect();
@@ -1882,8 +1902,14 @@ fn parse_scope(spec: &str) -> Result<Vec<u8>, String> {
             continue;
         }
         if let Some((start, end)) = part.split_once('-') {
-            let start: u8 = start.trim().parse().map_err(|_| format!("bad range {part}"))?;
-            let end: u8 = end.trim().parse().map_err(|_| format!("bad range {part}"))?;
+            let start: u8 = start
+                .trim()
+                .parse()
+                .map_err(|_| format!("bad range {part}"))?;
+            let end: u8 = end
+                .trim()
+                .parse()
+                .map_err(|_| format!("bad range {part}"))?;
             if start == 0 || end > 230 || start > end {
                 return Err(format!("out-of-range {part}"));
             }
@@ -2082,8 +2108,14 @@ fn main() -> ExitCode {
         "records_fixed_with_identity_zero_shift {}",
         counters.records_fixed_identity_zero_shift
     );
-    println!("records_without_fixed_embedding {}", counters.records_no_fixed);
-    println!("records_no_realising_candidate {}", counters.records_no_realising);
+    println!(
+        "records_without_fixed_embedding {}",
+        counters.records_no_fixed
+    );
+    println!(
+        "records_no_realising_candidate {}",
+        counters.records_no_realising
+    );
     println!(
         "records_certified_absence {}",
         counters.records_certified_absence
@@ -2120,12 +2152,18 @@ fn main() -> ExitCode {
         counters.tsv_rows_record_without_fixed
     );
     println!("eta_status_mismatches {}", counters.eta_status_mismatches);
-    println!("eta_target_label_differs {}", counters.eta_target_label_differs);
+    println!(
+        "eta_target_label_differs {}",
+        counters.eta_target_label_differs
+    );
     println!(
         "eta_operator_table_differs {}",
         counters.eta_operator_table_differs
     );
-    println!("eta_intertwiner_differs {}", counters.eta_intertwiner_differs);
+    println!(
+        "eta_intertwiner_differs {}",
+        counters.eta_intertwiner_differs
+    );
     println!("verify_variants {:?}", counters.verify_variants);
     println!("subduce_variants {:?}", counters.subduce_variants);
     println!("no_fixed_variants {:?}", counters.no_fixed_variants);
@@ -2202,10 +2240,11 @@ fn main() -> ExitCode {
             {
                 violations.push(format!("SG {sg}: the pair partition does not close"));
             }
-            if c.records_total * c.sources_eligible
-                != c.pairs_probed + c.pairs_record_without_fixed
+            if c.records_total * c.sources_eligible != c.pairs_probed + c.pairs_record_without_fixed
             {
-                violations.push(format!("SG {sg}: eligible pairs are not records x eligible"));
+                violations.push(format!(
+                    "SG {sg}: eligible pairs are not records x eligible"
+                ));
             }
             if c.probes != c.pairs_probed * 2 {
                 violations.push(format!(
@@ -2221,7 +2260,9 @@ fn main() -> ExitCode {
                 violations.push(format!("SG {sg}: the probes do not partition into stages"));
             }
             if c.tsv_rows != (c.pairs_probed + c.pairs_record_without_fixed) * 2 {
-                violations.push(format!("SG {sg}: the TSV row count does not match the pairs"));
+                violations.push(format!(
+                    "SG {sg}: the TSV row count does not match the pairs"
+                ));
             }
         }
         // The aggregate probe identities are sums of the per-parent ones; they
@@ -2276,10 +2317,9 @@ fn main() -> ExitCode {
         }
         for source in &boundary_sources {
             let prefix = format!("{} sg {} {}", source.kind, source.sg, source.label);
-            if !boundary_notes
-                .iter()
-                .any(|note| note.starts_with(&prefix) && note.contains("refused as NotScalarSource"))
-            {
+            if !boundary_notes.iter().any(|note| {
+                note.starts_with(&prefix) && note.contains("refused as NotScalarSource")
+            }) {
                 violations.push(format!(
                     "the {prefix} boundary source was not refused as NotScalarSource"
                 ));
@@ -2291,9 +2331,7 @@ fn main() -> ExitCode {
             }
             return ExitCode::from(1);
         }
-        println!(
-            "VERDICT complete scope=restricted-scalar-gamma-subduction-census gate=--gate"
-        );
+        println!("VERDICT complete scope=restricted-scalar-gamma-subduction-census gate=--gate");
     }
     ExitCode::SUCCESS
 }
@@ -2492,9 +2530,7 @@ mod tests {
         wrong_counters.success = 1;
         let violations = validate_tsv(&inventory, &tsv, &wrong_counters);
         assert!(
-            violations
-                .iter()
-                .any(|v| v.contains("rows staged success")),
+            violations.iter().any(|v| v.contains("rows staged success")),
             "a counter must not survive the text: {violations:?}"
         );
     }
@@ -2556,8 +2592,16 @@ mod tests {
         let negated = Mat3R::from_ints([[-1, 0, 0], [0, -1, 0], [0, 0, -1]]);
         let two = Mat3R::from_ints([[2, 0, 0], [0, 2, 0], [0, 0, 2]]);
         let a = entry(identity, [Rat::ZERO; 3], EmbeddingKind::Plain);
-        let b = entry(two, [rational(1, 2), Rat::ZERO, Rat::ZERO], EmbeddingKind::PrimitiveBasis);
-        let c = entry(identity, [rational(1, 3), Rat::ZERO, Rat::ZERO], EmbeddingKind::ConventionalBasis);
+        let b = entry(
+            two,
+            [rational(1, 2), Rat::ZERO, Rat::ZERO],
+            EmbeddingKind::PrimitiveBasis,
+        );
+        let c = entry(
+            identity,
+            [rational(1, 3), Rat::ZERO, Rat::ZERO],
+            EmbeddingKind::ConventionalBasis,
+        );
         let mut forward = vec![&a, &b, &c];
         let mut backward = vec![&c, &b, &a];
         forward.sort_by_key(|entry| embedding_key(entry));
@@ -2592,7 +2636,10 @@ mod tests {
         assert_eq!(exact_fraction(0.0), Some(Rat::ZERO));
         assert_eq!(exact_fraction(1.0), Some(Rat::ONE));
         assert_eq!(exact_fraction(-1.0), Some(Rat::ONE.checked_neg().unwrap()));
-        assert_eq!(exact_fraction(-1.0 + 1e-10), Some(Rat::ONE.checked_neg().unwrap()));
+        assert_eq!(
+            exact_fraction(-1.0 + 1e-10),
+            Some(Rat::ONE.checked_neg().unwrap())
+        );
         assert_eq!(exact_fraction(0.5), Some(rational(1, 2)));
         assert_eq!(exact_fraction(1.0 / 3.0), Some(rational(1, 3)));
         assert_eq!(exact_fraction(0.05), None, "1/20 is off the exact grid");

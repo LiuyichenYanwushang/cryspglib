@@ -62,12 +62,9 @@ impl Witness {
     }
 
     fn geometry(&self) -> magnetic_embedding::MagneticGeometry {
-        let row = isotropy::magnetic_isotropy_subgroups(
-            self.sg,
-            self.source,
-            LabelConvention::Cdml,
-        )
-        .expect("the label resolves")[self.direction];
+        let row =
+            isotropy::magnetic_isotropy_subgroups(self.sg, self.source, LabelConvention::Cdml)
+                .expect("the label resolves")[self.direction];
         magnetic_embedding::geometry_of(self.sg, &row.record).expect("geometry")
     }
 
@@ -205,9 +202,7 @@ fn mapped_operation(
         .expect("integral");
     let moved = evidence
         .map
-        .checked_mul_vector(&cryspglib::irrep::subduction::Vec3R::new(
-            class.translation,
-        ))
+        .checked_mul_vector(&cryspglib::irrep::subduction::Vec3R::new(class.translation))
         .expect("a mapped translation");
     let mut translation = [Rat::ZERO; 3];
     for row in 0..3 {
@@ -284,7 +279,9 @@ fn a_type_one_input_is_accepted_without_claiming_a_time_reversal() {
     // square is claimed; the parent `eta` is still a datum and is preserved when
     // the caller states it.
     let plain = verify_scalar_gamma_input(&witness.request(None, witness.identity()))
-        .unwrap_or_else(|error| panic!("SG {} {} without eta: {error}", witness.sg, witness.source));
+        .unwrap_or_else(|error| {
+            panic!("SG {} {} without eta: {error}", witness.sg, witness.source)
+        });
     assert_eq!(plain.time_reversal(), None);
     assert_eq!(plain.time_parity(), None);
     assert_eq!(plain.time_reversal_square(), None);
@@ -293,11 +290,21 @@ fn a_type_one_input_is_accepted_without_claiming_a_time_reversal() {
 
     for eta in [RealSign::Plus, RealSign::Minus] {
         let model = verify_scalar_gamma_input(&witness.request(Some(eta), witness.identity()))
-            .unwrap_or_else(|error| panic!("SG {} {} eta {eta:?}: {error}", witness.sg, witness.source));
-        assert_eq!(model.time_reversal(), Some(eta), "the parent eta is preserved");
+            .unwrap_or_else(|error| {
+                panic!("SG {} {} eta {eta:?}: {error}", witness.sg, witness.source)
+            });
+        assert_eq!(
+            model.time_reversal(),
+            Some(eta),
+            "the parent eta is preserved"
+        );
         assert_eq!(
             model.time_parity(),
-            Some(if eta == RealSign::Plus { TimeParity::Even } else { TimeParity::Odd })
+            Some(if eta == RealSign::Plus {
+                TimeParity::Even
+            } else {
+                TimeParity::Odd
+            })
         );
         // The square is a property of the parent action's `Theta`, so a stated
         // `eta` reports `+1` even for a Type I subgroup; only the parity of the
@@ -518,7 +525,9 @@ fn the_bc_and_cdml_spellings_of_one_record_give_the_same_data() {
         }
     }
     let (sg, cdml, bc, uni) = found.expect("a row with two usable label spellings");
-    let eta = match magnetic_embedding::magnetic_operations(uni).expect("operations").unitary_index()
+    let eta = match magnetic_embedding::magnetic_operations(uni)
+        .expect("operations")
+        .unitary_index()
     {
         2 => Some(RealSign::Minus),
         _ => None,
@@ -613,7 +622,10 @@ fn input_identity_errors_are_specific() {
         None,
     ))
     .expect_err("no such label");
-    assert!(matches!(error, MagneticInputError::LabelNotFound { .. }), "{error}");
+    assert!(
+        matches!(error, MagneticInputError::LabelNotFound { .. }),
+        "{error}"
+    );
 
     let (spinor_sg, spinor_label) = first_irrep(|irrep| irrep.spinor);
     let error = verify_scalar_gamma_input(&ScalarGammaRequest::new(
@@ -622,7 +634,10 @@ fn input_identity_errors_are_specific() {
         None,
     ))
     .expect_err("spinor source");
-    assert!(matches!(error, MagneticInputError::SpinorSource { .. }), "{error}");
+    assert!(
+        matches!(error, MagneticInputError::SpinorSource { .. }),
+        "{error}"
+    );
 
     let (big_sg, big_label) = first_irrep(|irrep| !irrep.spinor && irrep.dim > 1);
     let error = verify_scalar_gamma_input(&ScalarGammaRequest::new(
@@ -631,7 +646,10 @@ fn input_identity_errors_are_specific() {
         None,
     ))
     .expect_err("non-scalar source");
-    assert!(matches!(error, MagneticInputError::NotScalarSource { .. }), "{error}");
+    assert!(
+        matches!(error, MagneticInputError::NotScalarSource { .. }),
+        "{error}"
+    );
 
     let (k_sg, k_label) = first_irrep(|irrep| {
         !irrep.spinor && irrep.dim == 1 && irrep.k_vector().numerators != [0, 0, 0]
@@ -642,12 +660,15 @@ fn input_identity_errors_are_specific() {
         None,
     ))
     .expect_err("source not at Gamma");
-    assert!(matches!(error, MagneticInputError::SourceNotGamma { .. }), "{error}");
+    assert!(
+        matches!(error, MagneticInputError::SourceNotGamma { .. }),
+        "{error}"
+    );
 
     // A record index one past the table.
     let witness = a_type_three_witness();
-    let rows = isotropy::magnetic_isotropy_subgroups(witness.sg, witness.source, cdml)
-        .unwrap_or_default();
+    let rows =
+        isotropy::magnetic_isotropy_subgroups(witness.sg, witness.source, cdml).unwrap_or_default();
     let error = verify_scalar_gamma_input(&ScalarGammaRequest::new(
         source(witness.sg, witness.source, cdml),
         record(witness.sg, witness.source, cdml, rows.len()),
@@ -669,10 +690,15 @@ fn input_identity_errors_are_specific() {
         Some(RealSign::Plus),
     ))
     .expect_err("parent mismatch");
-    assert!(matches!(error, MagneticInputError::ParentMismatch { .. }), "{error}");
+    assert!(
+        matches!(error, MagneticInputError::ParentMismatch { .. }),
+        "{error}"
+    );
 }
 
-fn first_irrep(predicate: impl Fn(&cryspglib::irrep::types::IrrepRecord) -> bool) -> (u8, &'static str) {
+fn first_irrep(
+    predicate: impl Fn(&cryspglib::irrep::types::IrrepRecord) -> bool,
+) -> (u8, &'static str) {
     for sg in 1..=230u8 {
         for irrep in query::irreps_of(sg) {
             if predicate(irrep) {
@@ -688,7 +714,10 @@ fn a_coset_without_eta_is_refused_and_a_type_one_does_not_need_one() {
     let witness = a_type_three_witness();
     let error = verify_scalar_gamma_input(&witness.request(None, witness.identity()))
         .expect_err("an antiunitary coset needs eta");
-    assert!(matches!(error, MagneticInputError::MissingTimeReversal { .. }), "{error}");
+    assert!(
+        matches!(error, MagneticInputError::MissingTimeReversal { .. }),
+        "{error}"
+    );
 
     let type_one = a_type_one_witness();
     verify_scalar_gamma_input(&type_one.request(None, type_one.identity()))
@@ -743,12 +772,9 @@ fn a_tampered_selection_or_an_unsatisfied_lattice_policy_is_refused() {
         shift: [Rat::ZERO; 3],
         lattice_policy: LatticePolicy::ContainmentOnly,
     };
-    let exact = magnetic_embedding::realises_record_lattice_checked(
-        &geometry,
-        &witness.set,
-        &scaled.map,
-    )
-    .expect("the exact predicate runs");
+    let exact =
+        magnetic_embedding::realises_record_lattice_checked(&geometry, &witness.set, &scaled.map)
+            .expect("the exact predicate runs");
     let accepted = verify_scalar_gamma_input(&witness.request(Some(RealSign::Plus), scaled))
         .unwrap_or_else(|error| panic!("the containment policy: {error}"));
     assert_eq!(accepted.lattice_policy(), LatticePolicy::ContainmentOnly);
@@ -784,10 +810,14 @@ fn a_row_whose_two_tables_are_in_different_settings_is_refused_by_name() {
         .into_iter()
         .find(|witness| witness.sg == 48 && witness.source == "GM1+")
         .expect("SG 48 GM1+ is a scalar Gamma row");
-    let error = verify_scalar_gamma_input(&witness.request(Some(RealSign::Plus), witness.identity()))
-        .expect_err("an unaligned row is not silently paired");
+    let error =
+        verify_scalar_gamma_input(&witness.request(Some(RealSign::Plus), witness.identity()))
+            .expect_err("an unaligned row is not silently paired");
     assert!(
-        matches!(error, MagneticInputError::CharacterRowSettingMismatch { sg: 48, .. }),
+        matches!(
+            error,
+            MagneticInputError::CharacterRowSettingMismatch { sg: 48, .. }
+        ),
         "unexpected error {error}"
     );
     // The refusal is about the tables, not about the group: the embedding itself
@@ -811,7 +841,9 @@ fn a_row_whose_two_tables_are_in_different_settings_is_refused_by_name() {
         .iter()
         .map(|op| {
             let r = op.rotation;
-            [r[0][0], r[0][1], r[0][2], r[1][0], r[1][1], r[1][2], r[2][0], r[2][1], r[2][2]]
+            [
+                r[0][0], r[0][1], r[0][2], r[1][0], r[1][1], r[1][2], r[2][0], r[2][1], r[2][2],
+            ]
         })
         .collect();
     assert_eq!(row_rotations, parent_rotations);
@@ -835,7 +867,9 @@ fn a_row_whose_two_tables_are_in_different_settings_is_refused_by_name() {
         .map(|op| {
             let r = op.rotation;
             (
-                [r[0][0], r[0][1], r[0][2], r[1][0], r[1][1], r[1][2], r[2][0], r[2][1], r[2][2]],
+                [
+                    r[0][0], r[0][1], r[0][2], r[1][0], r[1][1], r[1][2], r[2][0], r[2][1], r[2][2],
+                ],
                 [
                     (op.translation[0] * 12.0).round() as i64,
                     (op.translation[1] * 12.0).round() as i64,
@@ -875,7 +909,10 @@ fn no_scalar_gamma_row_of_this_database_has_a_complex_character() {
             }
         }
     }
-    assert_eq!(scanned, 980, "scalar Gamma source rows in the shipped tables");
+    assert_eq!(
+        scanned, 980,
+        "scalar Gamma source rows in the shipped tables"
+    );
 }
 
 #[test]
@@ -891,5 +928,8 @@ fn the_number_of_magnetic_gamma_rows_with_a_coset_is_pinned() {
         }
     }
     assert_eq!(rows, 980, "scalar Gamma magnetic isotropy rows");
-    assert_eq!(with_coset, 750, "of those, rows whose set has an antiunitary coset");
+    assert_eq!(
+        with_coset, 750,
+        "of those, rows whose set has an antiunitary coset"
+    );
 }

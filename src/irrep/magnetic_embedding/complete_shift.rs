@@ -58,7 +58,7 @@
 //!   the mathematics pins, and the list is sorted so the output is a
 //!   deterministic function of the input.
 
-use super::{canonical_translation, gcd, parent_lattice_basis, Mat3I, Rat, ShiftComponents};
+use super::{Mat3I, Rat, ShiftComponents, canonical_translation, gcd, parent_lattice_basis};
 
 /// Largest number of discrete components [`solve_joint_congruence`] will
 /// materialize.  Each component contributes one exact point; the cap turns a
@@ -117,8 +117,8 @@ pub(super) fn solve_shift_components(
     equations: &[(Mat3I, [Rat; 3])],
     parent_lattice: &[[Rat; 3]],
 ) -> Result<ShiftComponents, ShiftEnumerationError> {
-    let (denominator, basis) = parent_lattice_basis(parent_lattice)
-        .map_err(|_| ShiftEnumerationError::Arithmetic)?;
+    let (denominator, basis) =
+        parent_lattice_basis(parent_lattice).map_err(|_| ShiftEnumerationError::Arithmetic)?;
     let change = transpose(&basis);
     let modulus = determinant(&change)?
         .checked_abs()
@@ -175,7 +175,8 @@ pub(super) fn solve_shift_components(
     }
     // `Rat` is not `Ord` (it is exhaustive over a sign-normalized fraction), so
     // the deterministic order is by the reduced numerator/denominator pairs.
-    representatives.sort_by_key(|point| point.map(|value| (value.numerator(), value.denominator())));
+    representatives
+        .sort_by_key(|point| point.map(|value| (value.numerator(), value.denominator())));
     representatives.dedup();
     let mut kernel: Vec<[Rat; 3]> = Vec::with_capacity(solution.kernel.len());
     for direction in &solution.kernel {
@@ -424,11 +425,7 @@ fn is_multiple_of_integer(value: &Rat, modulus: i128) -> bool {
 }
 
 /// `value - factor * other`, checked.
-fn subtract_product(
-    value: i128,
-    factor: i128,
-    other: i128,
-) -> Result<i128, ShiftEnumerationError> {
+fn subtract_product(value: i128, factor: i128, other: i128) -> Result<i128, ShiftEnumerationError> {
     factor
         .checked_mul(other)
         .and_then(|product| value.checked_sub(product))
@@ -726,8 +723,7 @@ fn cofactor(
         .checked_mul(matrix[second_row][second_column])
         .and_then(|value| {
             value.checked_sub(
-                matrix[first_row][second_column]
-                    .checked_mul(matrix[second_row][first_column])?,
+                matrix[first_row][second_column].checked_mul(matrix[second_row][first_column])?,
             )
         })
         .ok_or(ShiftEnumerationError::Arithmetic)?;
@@ -760,12 +756,7 @@ mod tests {
 
     /// The definition of the system, evaluated directly and **without** the
     /// solver: `rows x - rhs in modulus Z^m`.
-    fn defines(
-        rows: &[[i128; 3]],
-        rhs: &[Rat],
-        modulus: i128,
-        point: &[Rat; 3],
-    ) -> bool {
+    fn defines(rows: &[[i128; 3]], rhs: &[Rat], modulus: i128, point: &[Rat; 3]) -> bool {
         rows.iter().zip(rhs.iter()).all(|(row, value)| {
             let mut sum = Rat::ZERO;
             for (axis, entry) in point.iter().enumerate() {
@@ -798,9 +789,7 @@ mod tests {
                     .expect("small product");
                 sum = sum.checked_add(term).expect("small sum");
             }
-            *value = sum
-                .checked_sub(equation.1[row])
-                .expect("small difference");
+            *value = sum.checked_sub(equation.1[row]).expect("small difference");
         }
         in_parent_frame(difference, lattice)
     }
@@ -877,7 +866,10 @@ mod tests {
         let rhs = [equation.1[0], equation.1[1], equation.1[2]];
         let grid = grid_solutions(&rows, &rhs, 1, 4);
         for branch in &solution.representatives {
-            assert!(grid.contains(branch), "branch {branch:?} is not a grid point");
+            assert!(
+                grid.contains(branch),
+                "branch {branch:?} is not a grid point"
+            );
         }
         for point in &grid {
             assert!(
@@ -888,7 +880,11 @@ mod tests {
                 "grid point {point:?} is in no component of the solver"
             );
         }
-        assert_eq!(grid.len(), 4 * 4, "the quarter grid samples the kernel coset");
+        assert_eq!(
+            grid.len(),
+            4 * 4,
+            "the quarter grid samples the kernel coset"
+        );
     }
 
     /// The determinant of a 3x3 integer matrix, six-term expansion -- an
@@ -1114,15 +1110,14 @@ mod tests {
                 }
             }
             let axis_aligned = !solution.kernel.is_empty()
-                && solution.kernel.iter().all(|direction| {
-                    direction.iter().filter(|entry| **entry != 0).count() == 1
-                })
                 && solution
                     .kernel
                     .iter()
-                    .map(|direction| {
-                        (0..3).find(|axis| direction[*axis] != 0).expect("non-zero")
-                    })
+                    .all(|direction| direction.iter().filter(|entry| **entry != 0).count() == 1)
+                && solution
+                    .kernel
+                    .iter()
+                    .map(|direction| (0..3).find(|axis| direction[*axis] != 0).expect("non-zero"))
                     .collect::<BTreeSet<_>>()
                     .len()
                     == solution.kernel.len();
@@ -1143,8 +1138,7 @@ mod tests {
                 let fine = grid_solutions(&rows, &rhs, modulus, resolution * 2);
                 let coarse_classes: BTreeSet<Vec<(i128, i128)>> =
                     coarse.iter().map(shrunk).collect();
-                let fine_classes: BTreeSet<Vec<(i128, i128)>> =
-                    fine.iter().map(shrunk).collect();
+                let fine_classes: BTreeSet<Vec<(i128, i128)>> = fine.iter().map(shrunk).collect();
                 // With the free coordinates collapsed, refining the grid must add
                 // nothing: the pinned coordinates are already exact.
                 assert_eq!(
@@ -1175,8 +1169,14 @@ mod tests {
              empty_count={empty_counted} infeasible={infeasible}"
         );
         assert!(grid_compared > 20, "grid-compared systems: {grid_compared}");
-        assert!(counted + empty_counted > 50, "count-oracle systems: {counted}");
-        assert!(structure_only > 20, "structure-only systems: {structure_only}");
+        assert!(
+            counted + empty_counted > 50,
+            "count-oracle systems: {counted}"
+        );
+        assert!(
+            structure_only > 20,
+            "structure-only systems: {structure_only}"
+        );
         assert!(infeasible > 0, "infeasible systems: {infeasible}");
     }
 
@@ -1199,15 +1199,16 @@ mod tests {
         // does not.
         for first in 0..4 {
             for second in 0..3 {
-                let point = [
-                    ratio(1 + 3 * first, 3),
-                    ratio(second, 2),
-                    ratio(-1, 5),
-                ];
+                let point = [ratio(1 + 3 * first, 3), ratio(second, 2), ratio(-1, 5)];
                 assert!(defines(&rows, &rhs, 1, &point), "{point:?}");
             }
         }
-        assert!(!defines(&rows, &rhs, 1, &[ratio(2, 3), Rat::ZERO, Rat::ZERO]));
+        assert!(!defines(
+            &rows,
+            &rhs,
+            1,
+            &[ratio(2, 3), Rat::ZERO, Rat::ZERO]
+        ));
         // The kernel is exactly `ker_R rows`: the solver's basis spans it, so a
         // zero coefficient matrix must return all of R^3 as kernel and a single
         // component.
@@ -1236,12 +1237,14 @@ mod tests {
         );
         // `i128::MIN` as a pivot magnitude must not panic: the entry is selected
         // and the answer is the same explicit error.
-        assert!(solve_joint_congruence(
-            &[[i128::MIN, i128::MIN, 0], [0, i128::MIN, 0]],
-            &[Rat::ZERO, Rat::ZERO],
-            1,
-        )
-        .is_err());
+        assert!(
+            solve_joint_congruence(
+                &[[i128::MIN, i128::MIN, 0], [0, i128::MIN, 0]],
+                &[Rat::ZERO, Rat::ZERO],
+                1,
+            )
+            .is_err()
+        );
         // A row/right-hand-side mismatch is an internal contract violation.
         assert_eq!(
             solve_joint_congruence(&[[1, 0, 0]], &[], 1),
@@ -1256,12 +1259,9 @@ mod tests {
     fn the_joint_congruence_proves_inconsistency_but_never_capacity() {
         // 2 x_1 == 1/2 and x_1 == 0 have no common solution, although each row
         // alone is solvable.
-        let inconsistent = solve_joint_congruence(
-            &[[1, 0, 0], [2, 0, 0]],
-            &[Rat::ZERO, ratio(1, 2)],
-            1,
-        )
-        .expect("decided");
+        let inconsistent =
+            solve_joint_congruence(&[[1, 0, 0], [2, 0, 0]], &[Rat::ZERO, ratio(1, 2)], 1)
+                .expect("decided");
         assert_eq!(inconsistent, None, "the two rows contradict each other");
         // 100000 components exceed the documented cap.
         let capacity = solve_joint_congruence(&[[100_000, 0, 0]], &[Rat::ZERO], 1);
@@ -1334,11 +1334,7 @@ mod tests {
         for x in 0..refined {
             for y in 0..refined {
                 for z in 0..refined {
-                    let point = [
-                        ratio(x, refined),
-                        ratio(y, refined),
-                        ratio(z, refined),
-                    ];
+                    let point = [ratio(x, refined), ratio(y, refined), ratio(z, refined)];
                     if satisfies(&equations[0], &point, &lattice) {
                         finer.insert(key(&to_parent_frame(point, &lattice)));
                     }

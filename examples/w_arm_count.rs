@@ -21,10 +21,10 @@
 
 use std::collections::BTreeSet;
 
+use cryspglib::irrep::LabelConvention;
 use cryspglib::irrep::isotropy::{self, IsotropySubgroup, parent_primitive_basis};
 use cryspglib::irrep::query;
 use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, SubgroupEmbedding, Vec3R};
-use cryspglib::irrep::LabelConvention;
 use cryspglib::mathfunc::Mat3I;
 
 fn find_subgroup(ordinal: usize) -> Result<IsotropySubgroup, String> {
@@ -107,8 +107,8 @@ fn line_key(value: &Vec3R, lattice: &Lattice) -> Result<Vec3R, String> {
     let mut negated = [Rat::ZERO; 3];
     for (axis, slot) in negated.iter_mut().enumerate() {
         let entry = reduced.get(axis);
-        *slot = Rat::new(-entry.numerator(), entry.denominator())
-            .map_err(|error| error.to_string())?;
+        *slot =
+            Rat::new(-entry.numerator(), entry.denominator()).map_err(|error| error.to_string())?;
     }
     Ok(Vec3R::new(negated))
 }
@@ -118,8 +118,8 @@ fn same_line(left: &Vec3R, right: &Vec3R) -> Result<bool, String> {
     let mut negated = [Rat::ZERO; 3];
     for (axis, slot) in negated.iter_mut().enumerate() {
         let entry = right.get(axis);
-        *slot = Rat::new(-entry.numerator(), entry.denominator())
-            .map_err(|error| error.to_string())?;
+        *slot =
+            Rat::new(-entry.numerator(), entry.denominator()).map_err(|error| error.to_string())?;
     }
     let negative = Vec3R::new(negated);
     Ok(equal(left, right) || equal(left, &negative))
@@ -250,9 +250,7 @@ fn main() -> Result<(), String> {
                     let image = contragredient(*rotation, &gamma[current])?;
                     let key = line_key(&image, reduce_lattice)?;
                     for (index, candidate) in gamma.iter().enumerate() {
-                        if !seen[index]
-                            && same_line(&line_key(candidate, reduce_lattice)?, &key)?
-                        {
+                        if !seen[index] && same_line(&line_key(candidate, reduce_lattice)?, &key)? {
                             seen[index] = true;
                             stack.push(index);
                         }

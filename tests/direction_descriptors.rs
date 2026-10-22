@@ -11,8 +11,9 @@ use cryspglib::irrep::direction_descriptors_data::{
     OFFICIAL_RECORDS, OFFICIAL_TABLE_EMPTY, official_of,
 };
 use cryspglib::irrep::isotropy::{
-    self, IsotropyDirection, IsotropyError, OfficialDescriptor, magnetic_isotropy_subgroup_for_direction,
-    magnetic_isotropy_subgroups, official_direction_descriptor,
+    self, IsotropyDirection, IsotropyError, OfficialDescriptor,
+    magnetic_isotropy_subgroup_for_direction, magnetic_isotropy_subgroups,
+    official_direction_descriptor,
 };
 use cryspglib::irrep::{LabelConvention, query};
 
@@ -42,11 +43,7 @@ fn the_acceptance_records_carry_their_official_strings() {
             "sg {sg} {ml} {label}"
         );
         // The official string selects the row it came from...
-        let selected = subgroup(
-            *sg,
-            ml,
-            IsotropyDirection::OfficialDescriptor(text),
-        );
+        let selected = subgroup(*sg, ml, IsotropyDirection::OfficialDescriptor(text));
         assert_eq!(selected.record.direction_label, *label);
         // ... and so does the label.
         assert_eq!(
@@ -89,7 +86,12 @@ fn every_official_string_selects_its_own_direction() {
             }
         }
     }
-    assert_eq!(wrong, Vec::<String>::new(), "{} wrong selections", wrong.len());
+    assert_eq!(
+        wrong,
+        Vec::<String>::new(),
+        "{} wrong selections",
+        wrong.len()
+    );
     assert_eq!(checked, 15044, "the collected table has 15,044 directions");
     assert_eq!(OFFICIAL_RECORDS.len(), 4665);
     assert_eq!(OFFICIAL_TABLE_EMPTY.len(), 112);
@@ -137,8 +139,14 @@ fn the_official_and_internal_selectors_are_different() {
     assert_eq!(official_rows, 15044);
     // Measured on the collected corpus (scripts/data/direction_descriptors_v1.json):
     assert_eq!(same_as_internal, 7214, "rows whose two notations coincide");
-    assert_eq!(legacy_refuses, 7158, "official strings the internal selector refuses");
-    assert_eq!(legacy_other_row, 672, "official strings the internal selector sends elsewhere");
+    assert_eq!(
+        legacy_refuses, 7158,
+        "official strings the internal selector refuses"
+    );
+    assert_eq!(
+        legacy_other_row, 672,
+        "official strings the internal selector sends elsewhere"
+    );
 
     // The witness: SG 101 `X1` swaps `P1` and `P3`.  Their official strings are
     // each other's internal descriptor, so the legacy selector answers with the
@@ -152,15 +160,14 @@ fn the_official_and_internal_selectors_are_different() {
         IsotropyDirection::Descriptor("(a;a)"),
     )
     .expect("the internal notation still answers");
-    assert_eq!(legacy.record.direction_label, "P3", "the legacy row is the other one");
     assert_eq!(
-        subgroup(
-            101,
-            "X1",
-            IsotropyDirection::OfficialDescriptor("(a;a)")
-        )
-        .record
-        .direction_label,
+        legacy.record.direction_label, "P3",
+        "the legacy row is the other one"
+    );
+    assert_eq!(
+        subgroup(101, "X1", IsotropyDirection::OfficialDescriptor("(a;a)"))
+            .record
+            .direction_label,
         "P1"
     );
 }
@@ -226,7 +233,10 @@ fn empty_program_tables_cover_every_label_without_a_program_row() {
         }
     }
     assert_eq!(empty_labels, 195, "labels inside empty program tables");
-    assert_eq!(not_in_table, 0, "labels missing from a non-empty program table");
+    assert_eq!(
+        not_in_table, 0,
+        "labels missing from a non-empty program table"
+    );
 
     let (sg, ml, label) = witness.expect("some empty program table exists");
     let selected = subgroup(sg, ml, IsotropyDirection::Label(label));

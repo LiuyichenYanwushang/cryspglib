@@ -39,2292 +39,1582 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 1,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 1,
         ml: "R1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 1,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 1,
         ml: "U1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 1,
         ml: "V1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 1,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 1,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 1,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "R1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "R1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "T1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "T1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "U1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "U1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "V1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "V1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "X1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "X1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 2,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "B1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "B2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "C1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "C2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "D1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "D2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "E1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "E2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 3,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "B1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "B2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "C1C2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "D1D2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "E1E2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 4,
         ml: "Z1Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 5,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 5,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 5,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 5,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 5,
         ml: "L1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 5,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 5,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 5,
         ml: "V1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 5,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 5,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "B1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "B2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "C1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "C2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "D1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "D2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "E1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "E2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 6,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "A1A2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "B1B2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "C1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "C2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "D1D2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "E1E2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 7,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 8,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 8,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 8,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 8,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 8,
         ml: "L1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 8,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 8,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 8,
         ml: "V1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 8,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 8,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 9,
         ml: "A1A2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 9,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 9,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 9,
         ml: "L1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 9,
         ml: "M1M2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 9,
         ml: "V1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 9,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 9,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "A2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "A2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "B1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "B1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "B2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "B2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "C1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "C1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "C2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "C2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "D1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "D1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "D2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "D2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "E1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "E1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "E2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "E2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 10,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "A2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "A2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "B1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "B1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "B2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "B2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "C1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "D1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "E1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 11,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "A2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "A2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "L1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "L1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "M1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "M2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "M2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "V1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "V1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 12,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "B1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "C1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "C1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "C2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "C2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "D1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "E1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 13,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "B1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "C1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "D1+D2+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "D1-D2-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "E1+E2+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "E1-E2-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 14,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "L1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "L1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "V1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "V1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 15,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "R1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "R2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "R3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "R4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "S1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "S2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "S3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "S4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "T2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "T3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "T4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "U1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "U2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "U3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "U4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "X2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "X3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "X4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 16,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "S1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "S2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "S3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "S4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "X2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "X3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "X4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 17,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "R1R2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "R3R4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "S1S2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "S3S4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 18,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "R1R1",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "S1S2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "S3S4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "T1T3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "T2T4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "U1U4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "U2U3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 19,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 20,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 20,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 20,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 20,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 20,
@@ -2339,242 +1629,162 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 20,
         ml: "S1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 20,
         ml: "S2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 20,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 20,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 20,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 20,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 20,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 20,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "S1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "S2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "T2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "T3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "T4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 21,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
@@ -2601,1890 +1811,1292 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 22,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "T2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "T3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "T4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 22,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "S1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "S2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "T1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "T2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "X2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "X3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 23,
         ml: "X4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "S1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "S2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "T1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "T2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "X2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "X3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 24,
         ml: "X4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "R1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "R2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "R3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "R4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "S1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "S2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "S3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "S4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "T2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "T3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "T4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "U1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "U2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "U3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "U4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "X2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "X3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "X4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 25,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "R1R3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "R2R4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "S1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "S2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "S3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "S4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "T1T3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "T2T4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "U1U3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "U2U4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "X2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "X3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "X4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "Z1Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 26,
         ml: "Z2Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "R1R2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "R3R4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "S1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "S2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "S3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "S4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "T1T2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "T3T4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "U1U2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "U3U4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "X2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "X3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "X4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "Z1Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 27,
         ml: "Z3Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "T2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "T3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "T4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 28,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "R1R1",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "T1T4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "T2T3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "U1U1",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "Z1Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 29,
         ml: "Z2Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "U1U2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "U3U4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "X2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "X3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "X4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "Z1Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 30,
         ml: "Z3Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "T1T3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "T2T4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "Z1Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 31,
         ml: "Z2Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "R1R2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "R3R4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "S1S2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "S3S4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 32,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "R1R3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "R2R4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "S1S2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "S3S4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "U1U1",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "Z1Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 33,
         ml: "Z2Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "R1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "R2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "R3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "R4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "S1S2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "S3S4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "Z1Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 34,
         ml: "Z3Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "S1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "S2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "T2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "T3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "T4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 35,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 36,
@@ -4499,372 +3111,252 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 36,
         ml: "S1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "S2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "T1T3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "T2T4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "Z1Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 36,
         ml: "Z2Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "S1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "S2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "T1T2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "T3T4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "Z1Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 37,
         ml: "Z3Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "S1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "S2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "T2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "T3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "T4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 38,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
@@ -4889,224 +3381,152 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 39,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "T2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "T3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "T4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 39,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "S1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "S2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 40,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 41,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 41,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 41,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 41,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 41,
@@ -5131,76 +3551,52 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 41,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 41,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 41,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 41,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 41,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 41,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
@@ -5227,114 +3623,82 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 42,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "T2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "T3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "T4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "Y1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "Y2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "Y3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "Y4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 42,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 43,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 43,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 43,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 43,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 43,
@@ -5354,190 +3718,122 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 43,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 43,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 43,
         ml: "Z1Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 43,
         ml: "Z3Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "S1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "S2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "T1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "T2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "W1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "W2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "X2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "X3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 44,
         ml: "X4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 45,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 45,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 45,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 45,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 45,
@@ -5562,90 +3858,62 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 45,
         ml: "T1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 45,
         ml: "T2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 45,
         ml: "W1W1",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 45,
         ml: "W2W2",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 45,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 45,
         ml: "X2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 45,
         ml: "X3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 45,
         ml: "X4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 46,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 46,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 46,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 46,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 46,
@@ -5660,38 +3928,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 46,
         ml: "S1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 46,
         ml: "S2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 46,
         ml: "T1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 46,
         ml: "T2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 46,
@@ -5706,1584 +3958,1072 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 46,
         ml: "X1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 46,
         ml: "X2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 46,
         ml: "X3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 46,
         ml: "X4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "R1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "R1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "R2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "R2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "R3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "R3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "R4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "R4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "S1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "S1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "S2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "S2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "S3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "S3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "S4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "S4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "T1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "T1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "T2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "T2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "T3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "T3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "T4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "T4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "U1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "U1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "U2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "U2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "U3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "U3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "U4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "U4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "X1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "X1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "X2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "X2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "X3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "X3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "X4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "X4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 47,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "R1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "R1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "R2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "R2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "R3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "R3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "R4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "R4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "S2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "U2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 48,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "R2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "S1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "S1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "S2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "S2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "S3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "S3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "S4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "S4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "U2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "X1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "X1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "X2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "X2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "X3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "X3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "X4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "X4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 49,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "R2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "S2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "U2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 50,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "R2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "S2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "T1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "T1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "T2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "T2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "T3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "T3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "T4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "T4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "U2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 51,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "R2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 52,
@@ -7298,368 +5038,232 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 52,
         ml: "T1+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "T1-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "U2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 52,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "R1+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "R1-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "S2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "U1+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "U1-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 53,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
@@ -7674,38 +5278,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 54,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "S2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 54,
@@ -7720,436 +5308,292 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 54,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 54,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "R1+R2+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "R1-R2-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "R3+R4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "R3-R4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "S1+S2+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "S1-S2-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "S3+S4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "S3-S4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "U2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 55,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "R1+R2+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "R1-R2-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "R3+R4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "R3-R4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "S2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 56,
@@ -8174,112 +5618,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 56,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 56,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
@@ -8294,20 +5698,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 57,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "S2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 57,
@@ -8322,580 +5718,372 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 57,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "U2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "X1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "X1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "X2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "X2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "X3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "X3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "X4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "X4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 57,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "R2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "S1+S2+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "S1-S2-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "S3+S4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "S3-S4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "T1+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "T1-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "U1+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "U1-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 58,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "R2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "S1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "S2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "U1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "U2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 59,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 60,
@@ -8910,20 +6098,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 60,
         ml: "S1+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "S1-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 60,
@@ -8948,126 +6128,82 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 60,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 60,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "R1+R1+",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "R1-R1-",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 61,
@@ -9102,112 +6238,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 61,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 61,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 62,
@@ -9232,158 +6328,102 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 62,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "U1+U4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "U1-U4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "U2+U3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "U2-U3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "X1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "X2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 62,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
@@ -9410,186 +6450,122 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 63,
         ml: "S1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "S1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "S2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "S2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 63,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
@@ -9636,666 +6612,442 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 64,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 64,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "R1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "R1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "R2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "R2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "S1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "S1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "S2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "S2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "T1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "T1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "T2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "T2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "T3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "T3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "T4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "T4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 65,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "R1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "R1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "R2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "R2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "S1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "S1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "S2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "S2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 66,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
@@ -10344,226 +7096,162 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 67,
         ml: "T1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "T1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "T2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "T2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "T3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "T3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "T4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "T4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 67,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
@@ -10612,150 +7300,102 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 68,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 68,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
@@ -10804,226 +7444,162 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 69,
         ml: "T1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "T1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "T2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "T2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "T3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "T3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "T4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "T4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Y1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Y1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Y2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Y2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Y3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Y3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Y4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Y4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 69,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 70,
@@ -11066,368 +7642,232 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 70,
         ml: "T1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "T2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "Y1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "Y2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 70,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "R1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "R1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "R2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "R2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "S1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "S1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "S2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "S2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "T1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "T1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "T2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "T2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "W1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "W2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "W3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "W4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "X1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "X1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "X2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "X2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "X3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "X3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "X4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 71,
         ml: "X4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
@@ -11476,38 +7916,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 72,
         ml: "T1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "T1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "T2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "T2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 72,
@@ -11532,114 +7956,82 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 72,
         ml: "X1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "X1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "X2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "X2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "X3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "X3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "X4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 72,
         ml: "X4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
@@ -11722,186 +8114,122 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 73,
         ml: "X1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "X1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "X2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "X2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "X3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "X3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "X4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 73,
         ml: "X4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "R1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "R1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "R2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "R2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "S1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "S1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "S2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "S2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 74,
@@ -11950,532 +8278,362 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 74,
         ml: "X1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "X1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "X2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "X2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "X3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "X3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "X4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 74,
         ml: "X4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "A3A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "GM3GM4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "M3M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 75,
         ml: "Z3Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "A1A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "A2A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "GM3GM4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "M3M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "R1R2",
-        directions: &[
-            ("4D1", "(a,b;c,d)"),
-            ("C10", "(a,b;0,0)"),
-        ],
+        directions: &[("4D1", "(a,b;c,d)"), ("C10", "(a,b;0,0)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "Z1Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 76,
         ml: "Z2Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "A1A2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "GM3GM4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "M3M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "Z1Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 77,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "A1A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "A2A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "GM3GM4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "M3M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "R1R2",
-        directions: &[
-            ("4D1", "(a,b;c,d)"),
-            ("C10", "(a,b;0,0)"),
-        ],
+        directions: &[("4D1", "(a,b;c,d)"), ("C10", "(a,b;0,0)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "Z1Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 78,
         ml: "Z2Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 79,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 79,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 79,
         ml: "GM3GM4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 79,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 79,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 79,
         ml: "M3M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 79,
@@ -12495,78 +8653,52 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 79,
         ml: "P1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 79,
         ml: "P2P2",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 79,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 79,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 80,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 80,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 80,
         ml: "GM3GM4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 80,
         ml: "M1M2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 80,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 80,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 80,
@@ -12583,190 +8715,127 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 80,
         ml: "P1P2",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-            ("C10", "(a,0,b,0)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)"), ("C10", "(a,0,b,0)")],
     },
     OfficialRecord {
         sg: 80,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 80,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "A3A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "GM3GM4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "M3M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 81,
         ml: "Z3Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 82,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 82,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 82,
         ml: "GM3GM4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 82,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 82,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 82,
         ml: "M3M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 82,
@@ -12786,530 +8855,342 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 82,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 82,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "A2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "A2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "A3+A4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "A3-A4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "GM3+GM4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "GM3-GM4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "M1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "M2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "M2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "M3+M4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "M3-M4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "R1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "R1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "R2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "R2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "X1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "X1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "X2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "X2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "Z3+Z4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 83,
         ml: "Z3-Z4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "GM3+GM4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "GM3-GM4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "M1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "M2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "M2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "M3+M4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "M3-M4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "R1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "R1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "R2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "R2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "X1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "X1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "X2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "X2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 84,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "GM3+GM4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "GM3-GM4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 85,
@@ -13344,146 +9225,102 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 85,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "Z3+Z4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 85,
         ml: "Z3-Z4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "A2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "A2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "A3+A4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "A3-A4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "GM3+GM4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "GM3-GM4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 86,
@@ -13518,104 +9355,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 86,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 86,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "GM3+GM4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "GM3-GM4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "M1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "M2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "M2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "M3+M4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "M3-M4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 87,
@@ -13650,20 +9455,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 87,
         ml: "P1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "P2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 87,
@@ -13678,98 +9475,62 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 87,
         ml: "X1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "X1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "X2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 87,
         ml: "X2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 88,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 88,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 88,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 88,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 88,
         ml: "GM3+GM4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 88,
         ml: "GM3-GM4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 88,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 88,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 88,
@@ -13835,305 +9596,197 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 89,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "R3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "R4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 89,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "A1A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "A2A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "M1M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "M2M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 90,
@@ -14168,131 +9821,87 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 90,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 90,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 91,
@@ -14310,124 +9919,77 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 91,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 91,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 92,
         ml: "A1A2",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-            ("C20", "(a+b,1.414b,a-b,1.414a)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)"), ("C20", "(a+b,1.414b,a-b,1.414a)")],
     },
     OfficialRecord {
         sg: 92,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 92,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 92,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 92,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 92,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 92,
         ml: "M1M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 92,
         ml: "M2M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 92,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 92,
@@ -14465,323 +10027,207 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 92,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 92,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "R3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "R4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 93,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "A1A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "A2A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "M1M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "M2M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 94,
@@ -14816,131 +10262,87 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 94,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 94,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 95,
@@ -14958,124 +10360,77 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 95,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 95,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 96,
         ml: "A1A2",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-            ("C20", "(a+b,1.414b,a-b,1.414a)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)"), ("C20", "(a+b,1.414b,a-b,1.414a)")],
     },
     OfficialRecord {
         sg: 96,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 96,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 96,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 96,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 96,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 96,
         ml: "M1M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 96,
         ml: "M2M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 96,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 96,
@@ -15113,94 +10468,62 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 96,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 96,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P4", "(a,2.414a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P4", "(a,2.414a)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 97,
@@ -15243,20 +10566,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 97,
         ml: "P1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "P2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 97,
@@ -15271,112 +10586,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 97,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 97,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 98,
@@ -15428,341 +10703,217 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 98,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 98,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "R3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "R4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 99,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "A1A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "A2A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "M1M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "M2M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 100,
@@ -15797,136 +10948,92 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 100,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 100,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "A1A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "A2A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 101,
@@ -15951,158 +11058,102 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 101,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "Z1Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "Z2Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 101,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "M1M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "M2M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 102,
@@ -16137,120 +11188,82 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 102,
         ml: "Z1Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "Z2Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 102,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "A1A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "A2A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "A5A5",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 103,
@@ -16275,142 +11288,92 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 103,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "Z1Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "Z2Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 103,
         ml: "Z5Z5",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "A1A2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "A3A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "M1M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "M2M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 104,
@@ -16445,296 +11408,192 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 104,
         ml: "Z1Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "Z2Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 104,
         ml: "Z5Z5",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "A1A2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "A3A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "R3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "R4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "Z1Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "Z3Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 105,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "A1A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "A2A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "A5A5",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "M1M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "M2M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 106,
@@ -16769,99 +11628,67 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 106,
         ml: "Z1Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "Z3Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 106,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 107,
@@ -16904,20 +11731,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 107,
         ml: "P1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "P2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 107,
@@ -16932,112 +11751,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 107,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 107,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 108,
@@ -17073,112 +11852,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 108,
         ml: "P3P3",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "P4P4",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 108,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 109,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 109,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 109,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 109,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 109,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 109,
         ml: "M1M2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 109,
         ml: "M3M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 109,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 109,
@@ -17238,62 +11977,42 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 110,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 110,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 110,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 110,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 110,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 110,
         ml: "M1M2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 110,
         ml: "M3M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 110,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 110,
@@ -17312,10 +12031,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 110,
         ml: "P1P1",
-        directions: &[
-            ("4D10", "(a,0,0,b,c,0,0,d)"),
-            ("8D1", "(a,b,c,d,e,f,g,h)"),
-        ],
+        directions: &[("4D10", "(a,0,0,b,c,0,0,d)"), ("8D1", "(a,b,c,d,e,f,g,h)")],
     },
     OfficialRecord {
         sg: 110,
@@ -17335,497 +12051,317 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 111,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "R3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "R4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 111,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "A1A2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "A3A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "R3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "R4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "Z1Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "Z3Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 112,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "A1A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "A2A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "M1M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "M2M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 113,
@@ -17860,120 +12396,82 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 113,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 113,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "A1A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "A2A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "A5A5",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "M1M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "M2M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 114,
@@ -18008,342 +12506,222 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 114,
         ml: "Z1Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "Z3Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 114,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "R1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "R2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "R3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "R4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 115,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "A1A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "A2A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 116,
@@ -18368,144 +12746,92 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 116,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "Z1Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "Z2Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 116,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "A1A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "A2A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "M1M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "M2M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 117,
@@ -18540,136 +12866,92 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 117,
         ml: "Z1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "Z2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "Z3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "Z4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 117,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "M1M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "M2M3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 118,
@@ -18704,99 +12986,67 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 118,
         ml: "Z1Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "Z2Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 118,
         ml: "Z5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 119,
@@ -18839,148 +13089,92 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 119,
         ml: "P1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "P2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "P3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "P4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 119,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 120,
@@ -19026,112 +13220,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 120,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 120,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "M1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "M2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "M3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "M4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 121,
@@ -19174,98 +13328,62 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 121,
         ml: "X1",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "X2",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "X3",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 121,
         ml: "X4",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 122,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 122,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 122,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 122,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 122,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 122,
         ml: "M1M2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 122,
         ml: "M3M4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 122,
         ml: "M5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 122,
@@ -19315,460 +13433,292 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 123,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "A2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "A2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "A3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "A3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "A4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "A4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "A5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "A5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "M1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "M2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "M2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "M3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "M3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "M4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "M4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "M5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "M5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "R1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "R1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "R2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "R2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "R3+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "R3-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "R4+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "R4-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "X1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "X1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "X2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "X2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "X3+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "X3-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "X4+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "X4-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "Z5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 123,
         ml: "Z5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 124,
@@ -19783,150 +13733,102 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 124,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "M1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "M2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "M2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "M3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "M3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "M4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "M4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "M5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "M5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 124,
@@ -19975,92 +13877,52 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 124,
         ml: "X1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "X1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "X2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "X2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "X3+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "X3-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "X4+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "X4-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 124,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 124,
@@ -20075,148 +13937,92 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 125,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "A4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "M3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "M4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 125,
@@ -20297,222 +14103,142 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 125,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "Z5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 125,
         ml: "Z5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "A4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "M3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "M4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
@@ -20593,20 +14319,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 126,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 126,
@@ -20621,168 +14339,112 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 127,
         ml: "A1+A4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "A1-A4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "A2+A3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "A2-A3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "A5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "A5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "M1+M4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "M1-M4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "M2+M3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "M2-M3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "M5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "M5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 127,
@@ -20847,94 +14509,62 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 127,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "Z5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 127,
         ml: "Z5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 128,
@@ -20949,122 +14579,82 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 128,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "M1+M4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "M1-M4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "M2+M3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "M2-M3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "M5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "M5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 128,
@@ -21129,20 +14719,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 128,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 128,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 128,
@@ -21157,148 +14739,92 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 129,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "A4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "M3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "M4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 129,
@@ -21379,76 +14905,52 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 129,
         ml: "Z1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "Z1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "Z2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "Z2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "Z3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "Z3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "Z4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "Z4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "Z5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 129,
         ml: "Z5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 130,
@@ -21473,112 +14975,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 130,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "M3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "M4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 130,
@@ -21642,20 +15104,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 130,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 130,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 130,
@@ -21670,550 +15124,342 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 131,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "A4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "M1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "M2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "M2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "M3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "M3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "M4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "M4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "M5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "M5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "R1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "R1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "R2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "R2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "R3+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "R3-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "R4+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "R4-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "X1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "X1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "X2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "X2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "X3+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "X3-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "X4+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "X4-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 131,
         ml: "Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "A4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "M1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "M2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "M2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "M3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "M3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "M4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "M4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "M5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "M5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
@@ -22262,128 +15508,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 132,
         ml: "X1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "X1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "X2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "X2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "X3+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "X3-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "X4+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "X4-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 132,
         ml: "Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
@@ -22398,112 +15588,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 133,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "M3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "M4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
@@ -22584,222 +15734,142 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 133,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 133,
         ml: "Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "A2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "A2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "A3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "A3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "A4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "A4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "A5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "A5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "M3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "M4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
@@ -22880,38 +15950,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 134,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 134,
         ml: "Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 135,
@@ -22936,122 +15990,82 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 135,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "M1+M4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "M1-M4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "M2+M3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "M2-M3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "M5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "M5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 135,
@@ -23116,194 +16130,122 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 135,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 135,
         ml: "Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "A4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "M1+M4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "M1-M4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "M2+M3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "M2-M3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "M5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "M5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
@@ -23368,56 +16310,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 136,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 136,
         ml: "Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
@@ -23432,112 +16350,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 137,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "M3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "M4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
@@ -23618,194 +16496,122 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 137,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 137,
         ml: "Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "A1+A4+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "A1-A4-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "A2+A3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "A2-A3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "A5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "A5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "M3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "M4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
@@ -23869,186 +16675,122 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 138,
         ml: "Z1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "Z2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "Z3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 138,
         ml: "Z4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "M1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "M2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "M2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "M3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "M3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "M4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "M4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "M5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "M5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 139,
@@ -24129,38 +16871,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 139,
         ml: "P1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "P2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "P3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "P4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 139,
@@ -24187,222 +16913,142 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 139,
         ml: "X1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "X1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "X2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "X2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "X3+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "X3-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "X4+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 139,
         ml: "X4-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "M1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "M2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "M2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "M3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "M3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "M4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "M4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "M5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "M5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 140,
@@ -24524,184 +17170,112 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 140,
         ml: "X1+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "X1-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "X2+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "X2-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "X3+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "X3-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "X4+",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 140,
         ml: "X4-",
-        directions: &[
-            ("C1", "(a;b)"),
-            ("P1", "(a;a)"),
-            ("P3", "(a;0)"),
-        ],
+        directions: &[("C1", "(a;b)"), ("P1", "(a;a)"), ("P3", "(a;0)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "M3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 141,
         ml: "M4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 141,
@@ -24850,112 +17424,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 142,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "M1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "M2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "M3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 142,
         ml: "M4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 142,
@@ -25049,30 +17583,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 143,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 143,
         ml: "A2A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 143,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 143,
         ml: "GM2GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 143,
@@ -25087,39 +17613,27 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 143,
         ml: "M1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 144,
         ml: "A1A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 144,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 144,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 144,
         ml: "GM2GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 144,
@@ -25134,39 +17648,27 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 144,
         ml: "M1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 145,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 145,
         ml: "A2A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 145,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 145,
         ml: "GM2GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 145,
@@ -25181,34 +17683,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 145,
         ml: "M1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 146,
         ml: "F1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 146,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 146,
         ml: "GM2GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 146,
@@ -25223,81 +17713,57 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 146,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 146,
         ml: "T2T3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 147,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 147,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 147,
         ml: "A2+A3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 147,
         ml: "A2-A3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 147,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 147,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 147,
         ml: "GM2+GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 147,
         ml: "GM2-GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 147,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 147,
@@ -25312,10 +17778,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 147,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 147,
@@ -25349,11 +17812,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 147,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 147,
@@ -25368,11 +17827,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 148,
         ml: "F1+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 148,
@@ -25387,30 +17842,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 148,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 148,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 148,
         ml: "GM2+GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 148,
         ml: "GM2-GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 148,
@@ -25435,126 +17882,82 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 148,
         ml: "T1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 148,
         ml: "T1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 148,
         ml: "T2+T3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 148,
         ml: "T2-T3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "H3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 149,
         ml: "K3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 149,
@@ -25603,47 +18006,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 150,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 150,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 150,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 150,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 150,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 150,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 150,
@@ -25692,98 +18080,62 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 151,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 151,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 151,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 151,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 151,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 151,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 151,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 151,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 151,
         ml: "H3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 151,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 151,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 151,
         ml: "K3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 151,
@@ -25832,47 +18184,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 152,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 152,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 152,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 152,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 152,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 152,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 152,
@@ -25921,98 +18258,62 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 153,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 153,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 153,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 153,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 153,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 153,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 153,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 153,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 153,
         ml: "H3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 153,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 153,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 153,
         ml: "K3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 153,
@@ -26061,47 +18362,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 154,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 154,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 154,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 154,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 154,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 154,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 154,
@@ -26170,24 +18456,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 155,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 155,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 155,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 155,
@@ -26216,121 +18495,77 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 155,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 155,
         ml: "T2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 155,
         ml: "T3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "H3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 156,
         ml: "K3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 156,
@@ -26379,47 +18614,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 157,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 157,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 157,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 157,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 157,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 157,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 157,
@@ -26468,83 +18688,57 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 158,
         ml: "A1A2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 158,
         ml: "A3A3",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 158,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 158,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 158,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 158,
         ml: "H1H1",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 158,
         ml: "H2H2",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 158,
         ml: "H3H3",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 158,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 158,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 158,
         ml: "K3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 158,
@@ -26580,38 +18774,27 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 159,
         ml: "A1A2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 159,
         ml: "A3A3",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 159,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 159,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 159,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 159,
@@ -26667,24 +18850,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 160,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 160,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 160,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 160,
@@ -26713,25 +18889,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 160,
         ml: "T1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 160,
         ml: "T2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 160,
         ml: "T3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 161,
@@ -26756,24 +18924,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 161,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 161,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 161,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 161,
@@ -26789,125 +18950,82 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 161,
         ml: "T1T2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 161,
         ml: "T3T3",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "A2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "A2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "A3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "A3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 162,
@@ -26932,19 +19050,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 162,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 162,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 162,
@@ -27063,74 +19174,47 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 163,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 163,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 163,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 163,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 163,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 163,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 163,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 163,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 163,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 163,
@@ -27147,19 +19231,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 163,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 163,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 163,
@@ -27245,111 +19322,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 164,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "A2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "A2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "A3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "A3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 164,
@@ -27374,19 +19412,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 164,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 164,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 164,
@@ -27505,56 +19536,37 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 165,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 165,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 165,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 165,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 165,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 165,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 165,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 165,
@@ -27578,19 +19590,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 165,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 165,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 165,
@@ -27720,47 +19725,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 166,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 166,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 166,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 166,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 166,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 166,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 166,
@@ -27813,48 +19803,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 166,
         ml: "T1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 166,
         ml: "T1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 166,
         ml: "T2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 166,
         ml: "T2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 166,
         ml: "T3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 166,
         ml: "T3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 167,
@@ -27903,47 +19877,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 167,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 167,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 167,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 167,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 167,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 167,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 167,
@@ -27981,76 +19940,52 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 167,
         ml: "T3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 168,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 168,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 168,
         ml: "A3A5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 168,
         ml: "A4A6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 168,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 168,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 168,
         ml: "GM3GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 168,
         ml: "GM4GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 168,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 168,
@@ -28065,10 +20000,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 168,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 168,
@@ -28102,11 +20034,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 168,
         ml: "M1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 168,
@@ -28121,74 +20049,52 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 169,
         ml: "A1A6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 169,
         ml: "A2A5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 169,
         ml: "A3A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 169,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 169,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 169,
         ml: "GM3GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 169,
         ml: "GM4GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 169,
         ml: "H1H3",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-            ("C1", "(a,0,b,0)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)"), ("C1", "(a,0,b,0)")],
     },
     OfficialRecord {
         sg: 169,
         ml: "H2H2",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 169,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 169,
@@ -28212,11 +20118,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 169,
         ml: "M1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 169,
@@ -28231,74 +20133,52 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 170,
         ml: "A1A2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 170,
         ml: "A3A6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 170,
         ml: "A4A5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 170,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 170,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 170,
         ml: "GM3GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 170,
         ml: "GM4GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 170,
         ml: "H1H1",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 170,
         ml: "H2H3",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-            ("C1", "(a,0,b,0)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)"), ("C1", "(a,0,b,0)")],
     },
     OfficialRecord {
         sg: 170,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 170,
@@ -28322,11 +20202,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 170,
         ml: "M1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 170,
@@ -28341,67 +20217,47 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 171,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 171,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 171,
         ml: "A3A5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 171,
         ml: "A4A6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 171,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 171,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 171,
         ml: "GM3GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 171,
         ml: "GM4GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 171,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 171,
@@ -28416,10 +20272,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 171,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 171,
@@ -28453,11 +20306,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 171,
         ml: "M1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 171,
@@ -28472,58 +20321,42 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 172,
         ml: "A1A5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 172,
         ml: "A2A6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 172,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 172,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 172,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 172,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 172,
         ml: "GM3GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 172,
         ml: "GM4GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 172,
@@ -28538,19 +20371,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 172,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 172,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 172,
@@ -28584,11 +20410,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 172,
         ml: "M1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 172,
@@ -28603,74 +20425,52 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 173,
         ml: "A1A2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 173,
         ml: "A3A6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 173,
         ml: "A4A5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 173,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 173,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 173,
         ml: "GM3GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 173,
         ml: "GM4GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 173,
         ml: "H1H1",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 173,
         ml: "H2H3",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-            ("C1", "(a,0,b,0)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)"), ("C1", "(a,0,b,0)")],
     },
     OfficialRecord {
         sg: 173,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 173,
@@ -28694,11 +20494,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 173,
         ml: "M1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 173,
@@ -28713,58 +20509,42 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 174,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 174,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 174,
         ml: "A3A5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 174,
         ml: "A4A6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 174,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 174,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 174,
         ml: "GM3GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 174,
         ml: "GM4GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 174,
@@ -28789,11 +20569,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 174,
         ml: "M1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 174,
@@ -28808,132 +20584,92 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 175,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "A2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "A2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "A3+A5+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "A3-A5-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "A4+A6+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "A4-A6-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "GM3+GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "GM3-GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "GM4+GM6+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "GM4-GM6-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 175,
@@ -28958,19 +20694,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 175,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 175,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 175,
@@ -29034,11 +20763,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 175,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 175,
@@ -29073,11 +20798,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 176,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 176,
@@ -29091,58 +20812,42 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 176,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 176,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 176,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 176,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 176,
         ml: "GM3+GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 176,
         ml: "GM3-GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 176,
         ml: "GM4+GM6+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 176,
         ml: "GM4-GM6-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 176,
@@ -29174,19 +20879,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 176,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 176,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 176,
@@ -29232,11 +20930,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 176,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 176,
@@ -29271,111 +20965,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 177,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "A6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 177,
@@ -29400,19 +21055,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 177,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 177,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 177,
@@ -29522,74 +21170,47 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 178,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 178,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 178,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 178,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 178,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 178,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 178,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 178,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 178,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 178,
@@ -29615,19 +21236,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 178,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 178,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 178,
@@ -29707,74 +21321,47 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 179,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 179,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 179,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 179,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 179,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 179,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 179,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 179,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 179,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 179,
@@ -29800,19 +21387,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 179,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 179,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 179,
@@ -29892,111 +21472,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 180,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "A6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 180,
@@ -30021,19 +21562,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 180,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 180,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 180,
@@ -30143,111 +21677,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 181,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "A6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 181,
@@ -30272,19 +21767,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 181,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 181,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 181,
@@ -30394,74 +21882,47 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 182,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 182,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 182,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 182,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 182,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 182,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 182,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 182,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 182,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 182,
@@ -30487,19 +21948,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 182,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 182,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 182,
@@ -30579,111 +22033,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 183,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "A6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 183,
@@ -30708,19 +22123,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 183,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 183,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 183,
@@ -30830,75 +22238,52 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 184,
         ml: "A1A2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 184,
         ml: "A3A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 184,
         ml: "A5A5",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 184,
         ml: "A6A6",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 184,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 184,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 184,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 184,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 184,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 184,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 184,
@@ -30922,19 +22307,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 184,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 184,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 184,
@@ -31018,16 +22396,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 185,
         ml: "A1A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 185,
         ml: "A2A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 185,
@@ -31041,61 +22415,42 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 185,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 185,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 185,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 185,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 185,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 185,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 185,
         ml: "H1H1",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 185,
         ml: "H2H2",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 185,
@@ -31110,19 +22465,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 185,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 185,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 185,
@@ -31210,16 +22558,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 186,
         ml: "A1A4",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 186,
         ml: "A2A3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 186,
@@ -31233,47 +22577,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 186,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 186,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 186,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 186,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 186,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 186,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 186,
@@ -31299,19 +22628,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 186,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 186,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 186,
@@ -31399,198 +22721,122 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 187,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "A6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "H3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "H4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "H5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "H6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "K3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "K4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "K5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 187,
         ml: "K6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 187,
@@ -31687,11 +22933,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 188,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 188,
@@ -31705,47 +22947,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 188,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 188,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 188,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 188,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 188,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 188,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 188,
@@ -31777,53 +23004,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 188,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 188,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 188,
         ml: "K3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 188,
         ml: "K4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 188,
         ml: "K5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 188,
         ml: "K6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 188,
@@ -31896,93 +23102,62 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 189,
         ml: "A1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 189,
         ml: "A2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 189,
         ml: "A3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 189,
         ml: "A4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 189,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 189,
         ml: "A6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 189,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 189,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 189,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 189,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 189,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 189,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 189,
@@ -32088,56 +23263,37 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 190,
         ml: "A3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 190,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 190,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 190,
         ml: "GM3",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 190,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 190,
         ml: "GM5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 190,
         ml: "GM6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 190,
@@ -32210,221 +23366,142 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 191,
         ml: "A1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "A1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "A2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "A2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "A3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "A3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "A4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "A4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "A5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "A5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "A6+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "A6-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM6+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "GM6-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "H2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "H3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "H4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
@@ -32469,37 +23546,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 191,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "K3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
         ml: "K4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 191,
@@ -32743,111 +23805,72 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 192,
         ml: "A5",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "A6",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM6+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "GM6-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 192,
@@ -32889,37 +23912,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 192,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "K3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 192,
         ml: "K4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 192,
@@ -33097,20 +24105,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 193,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 193,
@@ -33132,93 +24132,62 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 193,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "GM6+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "GM6-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 193,
@@ -33261,37 +24230,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 193,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "K3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 193,
         ml: "K4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 193,
@@ -33495,20 +24449,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 194,
         ml: "A1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "A2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 194,
@@ -33530,93 +24476,62 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 194,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "GM3+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "GM3-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "GM4-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "GM5+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "GM5-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "GM6+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "GM6-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 194,
@@ -33672,37 +24587,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 194,
         ml: "K1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "K2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "K3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 194,
         ml: "K4",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 194,
@@ -33906,75 +24806,47 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 195,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 195,
         ml: "GM2GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 195,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 195,
         ml: "M1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 195,
         ml: "M2",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 195,
         ml: "M3",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 195,
         ml: "M4",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 195,
         ml: "R1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 195,
         ml: "R2R3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 195,
@@ -34029,25 +24901,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 196,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 196,
         ml: "GM2GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 196,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 196,
@@ -34076,7 +24940,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C12", "(a,b;a,b;0,0;0,0)"),
             ("C42", "(a,b;a,b;a,b;a,b)"),
             ("C45", "(a,b;a,b;-a,-b;a,b)"),
-            ("C56", "(a,b;0.500a+0.866b,-0.866a+0.500b;0.500a-0.866b,0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a+0.866b,-0.866a+0.500b;0.500a-0.866b,0.866a+0.500b;0,0)",
+            ),
         ],
     },
     OfficialRecord {
@@ -34142,75 +25009,47 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 196,
         ml: "X1",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 196,
         ml: "X2",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 196,
         ml: "X3",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 196,
         ml: "X4",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 197,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 197,
         ml: "GM2GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 197,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 197,
         ml: "H1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 197,
         ml: "H2H3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 197,
@@ -34259,25 +25098,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 198,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 198,
         ml: "GM2GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 198,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 198,
@@ -34300,17 +25131,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 198,
         ml: "R1R3",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-            ("C7", "(a+b,0.732b,a-b,0.732a)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)"), ("C7", "(a+b,0.732b,a-b,0.732a)")],
     },
     OfficialRecord {
         sg: 198,
         ml: "R2R2",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 198,
@@ -34329,39 +25155,27 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 199,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 199,
         ml: "GM2GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 199,
         ml: "GM4",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 199,
         ml: "H1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 199,
         ml: "H2H3",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 199,
@@ -34404,39 +25218,27 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 200,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 200,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 200,
         ml: "GM2+GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 200,
         ml: "GM2-GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 200,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 200,
@@ -34451,11 +25253,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 200,
         ml: "M1+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 200,
@@ -34470,11 +25268,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 200,
         ml: "M2+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 200,
@@ -34489,11 +25283,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 200,
         ml: "M3+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 200,
@@ -34508,11 +25298,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 200,
         ml: "M4+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 200,
@@ -34527,30 +25313,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 200,
         ml: "R1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 200,
         ml: "R1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 200,
         ml: "R2+R3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 200,
         ml: "R2-R3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 200,
@@ -34655,39 +25433,27 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 201,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 201,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 201,
         ml: "GM2+GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 201,
         ml: "GM2-GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 201,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 201,
@@ -34736,30 +25502,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 201,
         ml: "R1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 201,
         ml: "R1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 201,
         ml: "R2+R3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 201,
         ml: "R2-R3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 201,
@@ -34836,39 +25594,27 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 202,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 202,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 202,
         ml: "GM2+GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 202,
         ml: "GM2-GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 202,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 202,
@@ -34922,7 +25668,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C12", "(a,b;a,b;0,0;0,0)"),
             ("C42", "(a,b;a,b;a,b;a,b)"),
             ("C45", "(a,b;a,b;-a,-b;a,b)"),
-            ("C56", "(a,b;0.500a+0.866b,-0.866a+0.500b;0.500a-0.866b,0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a+0.866b,-0.866a+0.500b;0.500a-0.866b,0.866a+0.500b;0,0)",
+            ),
         ],
     },
     OfficialRecord {
@@ -34937,7 +25686,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C12", "(a,b;a,b;0,0;0,0)"),
             ("C42", "(a,b;a,b;a,b;a,b)"),
             ("C45", "(a,b;a,b;-a,-b;a,b)"),
-            ("C56", "(a,b;0.500a+0.866b,-0.866a+0.500b;0.500a-0.866b,0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a+0.866b,-0.866a+0.500b;0.500a-0.866b,0.866a+0.500b;0,0)",
+            ),
         ],
     },
     OfficialRecord {
@@ -35063,11 +25815,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 202,
         ml: "X1+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 202,
@@ -35082,11 +25830,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 202,
         ml: "X2+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 202,
@@ -35101,11 +25845,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 202,
         ml: "X3+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 202,
@@ -35120,11 +25860,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 202,
         ml: "X4+",
-        directions: &[
-            ("P1", "(a;0;0)"),
-            ("P3", "(a;a;a)"),
-            ("S1", "(a;b;c)"),
-        ],
+        directions: &[("P1", "(a;0;0)"), ("P3", "(a;a;a)"), ("S1", "(a;b;c)")],
     },
     OfficialRecord {
         sg: 202,
@@ -35139,39 +25875,27 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 203,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 203,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 203,
         ml: "GM2+GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 203,
         ml: "GM2-GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 203,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 203,
@@ -35224,7 +25948,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C1", "(a,b;0,0;0,0;0,0)"),
             ("C12", "(a,b;a,b;0,0;0,0)"),
             ("C42", "(a,b;a,b;a,b;a,b)"),
-            ("C56", "(a,b;0.500a+0.866b,-0.866a+0.500b;0.500a-0.866b,0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a+0.866b,-0.866a+0.500b;0.500a-0.866b,0.866a+0.500b;0,0)",
+            ),
         ],
     },
     OfficialRecord {
@@ -35238,7 +25965,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C1", "(a,b;0,0;0,0;0,0)"),
             ("C12", "(a,b;a,b;0,0;0,0)"),
             ("C42", "(a,b;a,b;a,b;a,b)"),
-            ("C56", "(a,b;0.500a+0.866b,-0.866a+0.500b;0.500a-0.866b,0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a+0.866b,-0.866a+0.500b;0.500a-0.866b,0.866a+0.500b;0,0)",
+            ),
         ],
     },
     OfficialRecord {
@@ -35249,15 +25979,24 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("4D1", "(a,b,c,d;0,0,0,0;0,0,0,0)"),
             ("4D2", "(a,b,0,0;0,0,0,0;0,c,0,d)"),
             ("4D3", "(a,0,b,0;c,d,0,0;0,0,0,0)"),
-            ("4D40", "(a+b,1.414b,-a+b,1.414a;c+d,1.414d,-c+d,1.414c;0,0,0,0)"),
+            (
+                "4D40",
+                "(a+b,1.414b,-a+b,1.414a;c+d,1.414d,-c+d,1.414c;0,0,0,0)",
+            ),
             ("4D6", "(a,0,0,b;0,c,0,d;0,0,0,0)"),
             ("4D68", "(a,b,c,d;a,b,c,d;a,b,c,d)"),
             ("4D7", "(a,0,0,b;c,0,d,0;0,0,0,0)"),
             ("4D8", "(a,b,a,b;0,c,d,0;0,0,0,0)"),
             ("4D9", "(a,b,0,0;0,c,d,0;0,0,0,0)"),
             ("6D3", "(a,b,0,0;0,c,d,0;0,e,0,f)"),
-            ("6D33", "(a+b,1.414b,-a+b,1.414a;c+d,1.414d,c-d,-1.414c;e+f,1.414f,-e+f,1.414e)"),
-            ("6D34", "(a+b,-1.414b,a-b,1.414a;c+d,1.414d,-c+d,1.414c;e+f,1.414f,-e+f,1.414e)"),
+            (
+                "6D33",
+                "(a+b,1.414b,-a+b,1.414a;c+d,1.414d,c-d,-1.414c;e+f,1.414f,-e+f,1.414e)",
+            ),
+            (
+                "6D34",
+                "(a+b,-1.414b,a-b,1.414a;c+d,1.414d,-c+d,1.414c;e+f,1.414f,-e+f,1.414e)",
+            ),
             ("6D4", "(a,0,b,0;c,d,0,0;0,e,f,0)"),
             ("8D1", "(a,b,c,d;e,f,g,h;0,0,0,0)"),
             ("C1", "(a,b,0,0;0,0,0,0;0,0,0,0)"),
@@ -35272,8 +26011,14 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C4", "(a,0,a,0;b,0,b,0;0,0,0,0)"),
             ("C5", "(a,0,a,0;0,b,0,0;0,0,0,0)"),
             ("C9", "(a,0,0,0;0,0,0,0;0,b,0,0)"),
-            ("C95", "(a+b,1.414b,a-b,-1.414a;-a+b,1.414a,a+b,1.414b;-a+b,1.414a,a+b,1.414b)"),
-            ("C96", "(a+b,1.414b,-a+b,1.414a;-a+b,1.414a,a+b,1.414b;a-b,1.414a,a+b,-1.414b)"),
+            (
+                "C95",
+                "(a+b,1.414b,a-b,-1.414a;-a+b,1.414a,a+b,1.414b;-a+b,1.414a,a+b,1.414b)",
+            ),
+            (
+                "C96",
+                "(a+b,1.414b,-a+b,1.414a;-a+b,1.414a,a+b,1.414b;a-b,1.414a,a+b,-1.414b)",
+            ),
             ("P1", "(a,0,a,0;0,0,0,0;0,0,0,0)"),
             ("P12", "(a,0,a,0;a,0,a,0;a,0,a,0)"),
             ("P13", "(a,0,a,0;a,0,-a,0;a,0,a,0)"),
@@ -35327,39 +26072,27 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 204,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 204,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 204,
         ml: "GM2+GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 204,
         ml: "GM2-GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 204,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 204,
@@ -35374,30 +26107,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 204,
         ml: "H1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 204,
         ml: "H1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 204,
         ml: "H2+H3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 204,
         ml: "H2-H3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 204,
@@ -35508,11 +26233,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 204,
         ml: "P1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 204,
@@ -35548,39 +26269,27 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 205,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 205,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 205,
         ml: "GM2+GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 205,
         ml: "GM2-GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 205,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 205,
@@ -35609,32 +26318,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 205,
         ml: "R1+R3+",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-            ("C7", "(a+b,0.732b,a-b,0.732a)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)"), ("C7", "(a+b,0.732b,a-b,0.732a)")],
     },
     OfficialRecord {
         sg: 205,
         ml: "R1-R3-",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-            ("C7", "(a+b,0.732b,a-b,0.732a)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)"), ("C7", "(a+b,0.732b,a-b,0.732a)")],
     },
     OfficialRecord {
         sg: 205,
         ml: "R2+R2+",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 205,
         ml: "R2-R2-",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 205,
@@ -35677,39 +26376,27 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 206,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 206,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 206,
         ml: "GM2+GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 206,
         ml: "GM2-GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 206,
         ml: "GM4+",
-        directions: &[
-            ("P1", "(a,0,0)"),
-            ("P3", "(a,a,a)"),
-            ("S1", "(a,b,c)"),
-        ],
+        directions: &[("P1", "(a,0,0)"), ("P3", "(a,a,a)"), ("S1", "(a,b,c)")],
     },
     OfficialRecord {
         sg: 206,
@@ -35724,30 +26411,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 206,
         ml: "H1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 206,
         ml: "H1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 206,
         ml: "H2+H3+",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 206,
         ml: "H2-H3-",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 206,
@@ -35829,24 +26508,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 207,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 207,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 207,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 207,
@@ -35931,25 +26603,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 207,
         ml: "R1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 207,
         ml: "R2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 207,
         ml: "R3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 207,
@@ -36058,24 +26722,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 208,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 208,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 208,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 208,
@@ -36160,25 +26817,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 208,
         ml: "R1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 208,
         ml: "R2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 208,
         ml: "R3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 208,
@@ -36287,24 +26936,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 209,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 209,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 209,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 209,
@@ -36382,7 +27024,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C50", "(a,b;a,-b;-a,b;a,b)"),
             ("C54", "(a,0.577a;a,0.577a;b,0.577b;b,0.577b)"),
             ("C55", "(a,0.577a;a,0.577a;b,0.577b;-b,-0.577b)"),
-            ("C56", "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)",
+            ),
             ("C7", "(a,0;0,0;0,0;b,0)"),
             ("C8", "(a,0;0,0;0,0;0,b)"),
             ("P14", "(a,0.577a;a,0.577a;0,0;0,0)"),
@@ -36567,24 +27212,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 210,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 210,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 210,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 210,
@@ -36649,7 +27287,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C18", "(a,b;0,0;0,0;b,a)"),
             ("C31", "(a,-a;0,0;0,0;b,-b)"),
             ("C42", "(a,b;a,b;a,b;a,b)"),
-            ("C56", "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)",
+            ),
             ("C7", "(a,a;0,0;0,0;b,b)"),
             ("C8", "(a,-a;0,0;0,0;b,b)"),
             ("P14", "(a,-a;0,0;0,0;-a,a)"),
@@ -36671,7 +27312,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("4D3", "(a,b,0,0;0,0,0,0;0,c,0,d)"),
             ("4D42", "(a,b,c,d;0,0,0,0;-0.707b+0.707d,c,0.707b+0.707d,a)"),
             ("4D6", "(a,0,0,b;c,0,d,0;0,0,0,0)"),
-            ("4D68", "(a,b,c,d;a,0.707b-0.707d,c,0.707b+0.707d;a,0.707b-0.707d,c,0.707b+0.707d)"),
+            (
+                "4D68",
+                "(a,b,c,d;a,0.707b-0.707d,c,0.707b+0.707d;a,0.707b-0.707d,c,0.707b+0.707d)",
+            ),
             ("4D7", "(a,0,0,b;0,c,0,d;0,0,0,0)"),
             ("4D8", "(a,b,0,0;c,d,c,0;0,0,0,0)"),
             ("4D9", "(a,b,0,0;0,c,d,c;0,0,0,0)"),
@@ -36697,8 +27341,14 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C60", "(a,b,a,b;1.414b,-a,0,a;0,0,0,0)"),
             ("C8", "(a,0,0,0;0,b,0,0;0,0,0,0)"),
             ("C9", "(a,0,a,0;0,b,0,0;0,0,0,0)"),
-            ("C94", "(a+b,1.414b,a-b,1.414a;a+b,-a+b,a-b,a+b;a+b,-a+b,a-b,a+b)"),
-            ("C97", "(a+b,-1.414b,-a+b,1.414a;a+b,a+b,-a+b,-a+b;a+b,-a+b,a-b,a+b)"),
+            (
+                "C94",
+                "(a+b,1.414b,a-b,1.414a;a+b,-a+b,a-b,a+b;a+b,-a+b,a-b,a+b)",
+            ),
+            (
+                "C97",
+                "(a+b,-1.414b,-a+b,1.414a;a+b,a+b,-a+b,-a+b;a+b,-a+b,a-b,a+b)",
+            ),
             ("P1", "(a,0,0,0;0,0,0,0;0,0,0,0)"),
             ("P10", "(a,0,0,0;0,a,0,0;0,0,0,0)"),
             ("P12", "(a,0,0,0;a,0,0,0;a,0,0,0)"),
@@ -36782,24 +27432,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 211,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 211,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 211,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 211,
@@ -36824,25 +27467,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 211,
         ml: "H1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 211,
         ml: "H2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 211,
         ml: "H3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 211,
@@ -36965,29 +27600,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 211,
         ml: "P1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 211,
         ml: "P2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 211,
         ml: "P3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 211,
@@ -37010,24 +27633,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 212,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 212,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 212,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 212,
@@ -37085,10 +27701,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 212,
         ml: "R1R2",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-            ("C5", "(a,2.414a,b,2.414b)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)"), ("C5", "(a,2.414a,b,2.414b)")],
     },
     OfficialRecord {
         sg: 212,
@@ -37144,24 +27757,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 213,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 213,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 213,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 213,
@@ -37219,10 +27825,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 213,
         ml: "R1R2",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-            ("C5", "(a,2.414a,b,2.414b)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)"), ("C5", "(a,2.414a,b,2.414b)")],
     },
     OfficialRecord {
         sg: 213,
@@ -37278,24 +27881,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 214,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 214,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 214,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 214,
@@ -37320,25 +27916,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 214,
         ml: "H1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 214,
         ml: "H2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 214,
         ml: "H3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 214,
@@ -37483,24 +28071,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 215,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 215,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 215,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 215,
@@ -37585,25 +28166,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 215,
         ml: "R1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 215,
         ml: "R2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 215,
         ml: "R3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 215,
@@ -37712,24 +28285,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 216,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 216,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 216,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 216,
@@ -37807,7 +28373,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C50", "(a,b;a,-b;-a,b;a,b)"),
             ("C54", "(a,0.577a;a,0.577a;b,0.577b;b,0.577b)"),
             ("C55", "(a,0.577a;a,0.577a;b,0.577b;-b,-0.577b)"),
-            ("C56", "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)",
+            ),
             ("C7", "(a,0;0,0;0,0;b,0)"),
             ("C8", "(a,0;0,0;0,0;0,b)"),
             ("P14", "(a,0.577a;a,0.577a;0,0;0,0)"),
@@ -38021,24 +28590,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 217,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 217,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 217,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 217,
@@ -38063,25 +28625,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 217,
         ml: "H1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 217,
         ml: "H2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 217,
         ml: "H3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 217,
@@ -38204,24 +28758,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 218,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 218,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 218,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 218,
@@ -38306,16 +28853,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 218,
         ml: "R1R2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 218,
         ml: "R3R3",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 218,
@@ -38381,24 +28924,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 219,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 219,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 219,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 219,
@@ -38449,7 +28985,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("4D20", "(a,b,c,d;a,b,c,d;-a,-b,-c,-d;a,b,c,d)"),
             ("4D23", "(a,b,c,d;d,c,-b,-a;d,c,-b,-a;a,b,c,d)"),
             ("4D25", "(a,b,c,d;d,c,-b,-a;-d,-c,b,a;a,b,c,d)"),
-            ("4D26", "(a,b,c,d;0.500a+0.866c,0.500b-0.866d,-0.866a+0.500c,0.866b+0.500d;0.500a-0.866c,0.500b+0.866d,0.866a+0.500c,-0.866b+0.500d;0,0,0,0)"),
+            (
+                "4D26",
+                "(a,b,c,d;0.500a+0.866c,0.500b-0.866d,-0.866a+0.500c,0.866b+0.500d;0.500a-0.866c,0.500b+0.866d,0.866a+0.500c,-0.866b+0.500d;0,0,0,0)",
+            ),
             ("4D6", "(a,b,c,d;a,b,c,d;0,0,0,0;0,0,0,0)"),
             ("8D1", "(a,b,c,d;e,f,g,h;0,0,0,0;0,0,0,0)"),
             ("8D7", "(a,b,c,d;e,f,g,h;e,f,g,h;a,b,c,d)"),
@@ -38579,24 +29118,17 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 220,
         ml: "GM1",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 220,
         ml: "GM2",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 220,
         ml: "GM3",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 220,
@@ -38621,16 +29153,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 220,
         ml: "H1H2",
-        directions: &[
-            ("C1", "(a,b)"),
-        ],
+        directions: &[("C1", "(a,b)")],
     },
     OfficialRecord {
         sg: 220,
         ml: "H3H3",
-        directions: &[
-            ("4D1", "(a,b,c,d)"),
-        ],
+        directions: &[("4D1", "(a,b,c,d)")],
     },
     OfficialRecord {
         sg: 220,
@@ -38669,47 +29197,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 221,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 221,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 221,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 221,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 221,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 221,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 221,
@@ -38898,48 +29411,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 221,
         ml: "R1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 221,
         ml: "R1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 221,
         ml: "R2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 221,
         ml: "R2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 221,
         ml: "R3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 221,
         ml: "R3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 221,
@@ -39152,47 +29649,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 222,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 222,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 222,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 222,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 222,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 222,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 222,
@@ -39335,11 +29817,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 222,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 222,
@@ -39475,47 +29953,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 223,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 223,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 223,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 223,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 223,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 223,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 223,
@@ -39704,11 +30167,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 223,
         ml: "R1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 223,
@@ -39856,47 +30315,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 224,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 224,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 224,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 224,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 224,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 224,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 224,
@@ -40039,48 +30483,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 224,
         ml: "R1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 224,
         ml: "R1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 224,
         ml: "R2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 224,
         ml: "R2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 224,
         ml: "R3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 224,
         ml: "R3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 224,
@@ -40289,47 +30717,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 225,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 225,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 225,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 225,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 225,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 225,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 225,
@@ -40463,7 +30876,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C50", "(a,b;a,-b;-a,b;a,b)"),
             ("C54", "(a,0.577a;a,0.577a;b,0.577b;b,0.577b)"),
             ("C55", "(a,0.577a;a,0.577a;b,0.577b;-b,-0.577b)"),
-            ("C56", "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)",
+            ),
             ("C7", "(a,0;0,0;0,0;b,0)"),
             ("C8", "(a,0;0,0;0,0;0,b)"),
             ("P14", "(a,0.577a;a,0.577a;0,0;0,0)"),
@@ -40502,7 +30918,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C50", "(a,b;-a,b;a,-b;a,b)"),
             ("C54", "(a,0;b,0;b,0;a,0)"),
             ("C55", "(a,0;b,0;-b,0;a,0)"),
-            ("C56", "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)",
+            ),
             ("C7", "(a,0.577a;b,0.577b;0,0;0,0)"),
             ("C8", "(a,0;0,0;0,0;0,b)"),
             ("P14", "(a,0;0,0;0,0;a,0)"),
@@ -40975,47 +31394,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 226,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 226,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 226,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 226,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 226,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 226,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 226,
@@ -41084,7 +31488,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("4D23", "(a,b,c,d;-b,a,-d,c;-b,a,-d,c;a,b,c,d)"),
             ("4D24", "(a,b,c,d;b,a,d,c;-b,-a,-d,-c;a,b,c,d)"),
             ("4D25", "(a,b,c,d;-b,a,-d,c;b,-a,d,-c;a,b,c,d)"),
-            ("4D26", "(a,b,c,d;0.500a+0.866c,0.500b-0.866d,-0.866a+0.500c,0.866b+0.500d;0.500a-0.866c,0.500b+0.866d,0.866a+0.500c,-0.866b+0.500d;0,0,0,0)"),
+            (
+                "4D26",
+                "(a,b,c,d;0.500a+0.866c,0.500b-0.866d,-0.866a+0.500c,0.866b+0.500d;0.500a-0.866c,0.500b+0.866d,0.866a+0.500c,-0.866b+0.500d;0,0,0,0)",
+            ),
             ("4D3", "(a,0,b,0;0,c,0,d;0,0,0,0;0,0,0,0)"),
             ("4D4", "(a,a,b,b;0,0,0,0;0,0,0,0;c,c,d,d)"),
             ("4D5", "(a,-a,b,-b;0,0,0,0;0,0,0,0;c,c,d,d)"),
@@ -41106,8 +31513,14 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C12", "(a,a,b,b;a,a,b,b;-a,-a,-b,-b;a,a,b,b)"),
             ("C13", "(a,a,b,b;a,-a,b,-b;a,-a,b,-b;a,a,b,b)"),
             ("C14", "(a,a,b,b;a,-a,b,-b;-a,a,-b,b;a,a,b,b)"),
-            ("C15", "(a,0,b,0;0.500a+0.866b,0,-0.866a+0.500b,0;0.500a-0.866b,0,0.866a+0.500b,0;0,0,0,0)"),
-            ("C16", "(a+b,-2b,-0.577a+1.732b,1.155a;a-b,a-b,0.577a+1.732b,0.577a+1.732b;0,0,0,0;-2b,a+b,1.155a,-0.577a+1.732b)"),
+            (
+                "C15",
+                "(a,0,b,0;0.500a+0.866b,0,-0.866a+0.500b,0;0.500a-0.866b,0,0.866a+0.500b,0;0,0,0,0)",
+            ),
+            (
+                "C16",
+                "(a+b,-2b,-0.577a+1.732b,1.155a;a-b,a-b,0.577a+1.732b,0.577a+1.732b;0,0,0,0;-2b,a+b,1.155a,-0.577a+1.732b)",
+            ),
             ("C2", "(a,a,b,b;0,0,0,0;0,0,0,0;0,0,0,0)"),
             ("C3", "(a,0,b,0;a,0,b,0;0,0,0,0;0,0,0,0)"),
             ("C4", "(a,0,b,0;0,0,0,0;0,0,0,0;0,a,0,b)"),
@@ -41515,47 +31928,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 227,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 227,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 227,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 227,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 227,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 227,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 227,
@@ -41689,7 +32087,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C42", "(a,b;a,b;a,b;a,b)"),
             ("C48", "(a,b;a,-b;a,-b;a,b)"),
             ("C54", "(a,0.577a;a,0.577a;b,0.577b;b,0.577b)"),
-            ("C56", "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)",
+            ),
             ("C7", "(a,0;0,0;0,0;b,0)"),
             ("C8", "(a,0;0,0;0,0;0,b)"),
             ("P14", "(a,0.577a;a,0.577a;0,0;0,0)"),
@@ -41724,7 +32125,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C42", "(a,b;a,b;a,b;a,b)"),
             ("C48", "(a,b;-a,b;-a,b;a,b)"),
             ("C54", "(a,0;b,0;b,0;a,0)"),
-            ("C56", "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)"),
+            (
+                "C56",
+                "(a,b;0.500a-0.866b,0.866a+0.500b;0.500a+0.866b,-0.866a+0.500b;0,0)",
+            ),
             ("C7", "(a,0.577a;b,0.577b;0,0;0,0)"),
             ("C8", "(a,0;0,0;0,0;0,b)"),
             ("P14", "(a,0;0,0;0,0;a,0)"),
@@ -41751,7 +32155,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("4D40", "(a+b,1.414b,-a+b,1.414a;c,d,d,c;0,0,0,0)"),
             ("4D41", "(a,b,c,d;0,0,0,0;a,0.707b+0.707d,c,-0.707b+0.707d)"),
             ("4D42", "(a,b,c,d;0,0,0,0;-0.707b+0.707d,c,0.707b+0.707d,a)"),
-            ("4D68", "(a,b,c,d;a,0.707b-0.707d,c,0.707b+0.707d;a,0.707b-0.707d,c,0.707b+0.707d)"),
+            (
+                "4D68",
+                "(a,b,c,d;a,0.707b-0.707d,c,0.707b+0.707d;a,0.707b-0.707d,c,0.707b+0.707d)",
+            ),
             ("4D8", "(a,b,0,0;c,d,c,0;0,0,0,0)"),
             ("4D9", "(a,b,0,0;0,c,d,c;0,0,0,0)"),
             ("6D15", "(a,b,a,0;c,d,e,f;c,-f,e,d)"),
@@ -41785,10 +32192,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C9", "(a,0,a,0;0,b,0,0;0,0,0,0)"),
             ("C92", "(a,0,-a,b;-a,0.707b,a,0.707b;a,0.707b,a,0.707b)"),
             ("C93", "(a,0,-a,b;a,0.707b,a,-0.707b;a,0.707b,a,0.707b)"),
-            ("C94", "(a+b,1.414b,a-b,1.414a;a+b,-a+b,a-b,a+b;a+b,-a+b,a-b,a+b)"),
-            ("C95", "(a+b,1.414b,-a+b,1.414a;-a+b,a-b,a+b,a+b;a-b,a+b,a+b,a-b)"),
-            ("C96", "(a+b,1.414b,-a+b,1.414a;a+b,a+b,a-b,-a+b;a-b,a+b,a+b,a-b)"),
-            ("C97", "(a+b,-1.414b,-a+b,1.414a;a-b,a-b,a+b,a+b;a+b,-a+b,a-b,a+b)"),
+            (
+                "C94",
+                "(a+b,1.414b,a-b,1.414a;a+b,-a+b,a-b,a+b;a+b,-a+b,a-b,a+b)",
+            ),
+            (
+                "C95",
+                "(a+b,1.414b,-a+b,1.414a;-a+b,a-b,a+b,a+b;a-b,a+b,a+b,a-b)",
+            ),
+            (
+                "C96",
+                "(a+b,1.414b,-a+b,1.414a;a+b,a+b,a-b,-a+b;a-b,a+b,a+b,a-b)",
+            ),
+            (
+                "C97",
+                "(a+b,-1.414b,-a+b,1.414a;a-b,a-b,a+b,a+b;a+b,-a+b,a-b,a+b)",
+            ),
             ("P1", "(a,0,0,0;0,0,0,0;0,0,0,0)"),
             ("P11", "(a,0.707a,0,0.707a;0,0,0,0;0,0,0,0)"),
             ("P12", "(a,0,0,0;a,0,0,0;a,0,0,0)"),
@@ -41831,7 +32250,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("4D40", "(a+b,1.414b,-a+b,1.414a;c,d,d,c;0,0,0,0)"),
             ("4D41", "(a,b,c,d;0,0,0,0;a,0.707b+0.707d,c,-0.707b+0.707d)"),
             ("4D42", "(a,b,c,d;0,0,0,0;-0.707b+0.707d,c,0.707b+0.707d,a)"),
-            ("4D68", "(a,b,c,d;a,0.707b-0.707d,c,0.707b+0.707d;a,0.707b-0.707d,c,0.707b+0.707d)"),
+            (
+                "4D68",
+                "(a,b,c,d;a,0.707b-0.707d,c,0.707b+0.707d;a,0.707b-0.707d,c,0.707b+0.707d)",
+            ),
             ("4D8", "(a,b,0,0;c,d,c,0;0,0,0,0)"),
             ("4D9", "(a,b,0,0;0,c,d,c;0,0,0,0)"),
             ("6D15", "(a,b,a,0;c,d,e,f;c,-f,e,d)"),
@@ -41865,10 +32287,22 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("C9", "(a,0,a,0;0,b,0,0;0,0,0,0)"),
             ("C92", "(a,0,-a,b;-a,0.707b,a,0.707b;a,0.707b,a,0.707b)"),
             ("C93", "(a,0,-a,b;a,0.707b,a,-0.707b;a,0.707b,a,0.707b)"),
-            ("C94", "(a+b,1.414b,a-b,1.414a;a+b,-a+b,a-b,a+b;a+b,-a+b,a-b,a+b)"),
-            ("C95", "(a+b,1.414b,-a+b,1.414a;-a+b,a-b,a+b,a+b;a-b,a+b,a+b,a-b)"),
-            ("C96", "(a+b,1.414b,-a+b,1.414a;a+b,a+b,a-b,-a+b;a-b,a+b,a+b,a-b)"),
-            ("C97", "(a+b,-1.414b,-a+b,1.414a;a-b,a-b,a+b,a+b;a+b,-a+b,a-b,a+b)"),
+            (
+                "C94",
+                "(a+b,1.414b,a-b,1.414a;a+b,-a+b,a-b,a+b;a+b,-a+b,a-b,a+b)",
+            ),
+            (
+                "C95",
+                "(a+b,1.414b,-a+b,1.414a;-a+b,a-b,a+b,a+b;a-b,a+b,a+b,a-b)",
+            ),
+            (
+                "C96",
+                "(a+b,1.414b,-a+b,1.414a;a+b,a+b,a-b,-a+b;a-b,a+b,a+b,a-b)",
+            ),
+            (
+                "C97",
+                "(a+b,-1.414b,-a+b,1.414a;a-b,a-b,a+b,a+b;a+b,-a+b,a-b,a+b)",
+            ),
             ("P1", "(a,0,0,0;0,0,0,0;0,0,0,0)"),
             ("P11", "(a,0.707a,0,0.707a;0,0,0,0;0,0,0,0)"),
             ("P12", "(a,0,0,0;a,0,0,0;a,0,0,0)"),
@@ -41996,47 +32430,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 228,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 228,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 228,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 228,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 228,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 228,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 228,
@@ -42093,7 +32512,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("4D18", "(a,b,c,d;a,b,c,d;a,b,c,d;a,b,c,d)"),
             ("4D2", "(a,0,b,0;c,0,d,0;0,0,0,0;0,0,0,0)"),
             ("4D23", "(a,b,c,d;-b,a,-d,c;-b,a,-d,c;a,b,c,d)"),
-            ("4D26", "(a,b,c,d;0.500a+0.866c,0.500b-0.866d,-0.866a+0.500c,0.866b+0.500d;0.500a-0.866c,0.500b+0.866d,0.866a+0.500c,-0.866b+0.500d;0,0,0,0)"),
+            (
+                "4D26",
+                "(a,b,c,d;0.500a+0.866c,0.500b-0.866d,-0.866a+0.500c,0.866b+0.500d;0.500a-0.866c,0.500b+0.866d,0.866a+0.500c,-0.866b+0.500d;0,0,0,0)",
+            ),
             ("4D3", "(a,0,b,0;0,c,0,d;0,0,0,0;0,0,0,0)"),
             ("4D4", "(a,a,b,b;0,0,0,0;0,0,0,0;c,c,d,d)"),
             ("4D5", "(a,-a,b,-b;0,0,0,0;0,0,0,0;c,c,d,d)"),
@@ -42104,8 +32526,14 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
             ("8D6", "(a,a,b,b;c,d,e,f;d,c,f,e;g,-g,h,-h)"),
             ("8D7", "(a,b,c,d;e,f,g,h;e,f,g,h;a,b,c,d)"),
             ("C1", "(a,0,b,0;0,0,0,0;0,0,0,0;0,0,0,0)"),
-            ("C15", "(a,0,b,0;0.500a+0.866b,0,-0.866a+0.500b,0;0.500a-0.866b,0,0.866a+0.500b,0;0,0,0,0)"),
-            ("C16", "(a+b,-2b,-0.577a+1.732b,1.155a;a-b,a-b,0.577a+1.732b,0.577a+1.732b;0,0,0,0;-2b,a+b,1.155a,-0.577a+1.732b)"),
+            (
+                "C15",
+                "(a,0,b,0;0.500a+0.866b,0,-0.866a+0.500b,0;0.500a-0.866b,0,0.866a+0.500b,0;0,0,0,0)",
+            ),
+            (
+                "C16",
+                "(a+b,-2b,-0.577a+1.732b,1.155a;a-b,a-b,0.577a+1.732b,0.577a+1.732b;0,0,0,0;-2b,a+b,1.155a,-0.577a+1.732b)",
+            ),
             ("C2", "(a,a,b,b;0,0,0,0;0,0,0,0;0,0,0,0)"),
             ("C3", "(a,0,b,0;a,0,b,0;0,0,0,0;0,0,0,0)"),
             ("C4", "(a,0,b,0;0,0,0,0;0,0,0,0;0,a,0,b)"),
@@ -42148,53 +32576,113 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
         sg: 228,
         ml: "W1W2",
         directions: &[
-            ("12D1", "(a,b,c,d,c,d,a,b;e,f,g,h,g,-h,e,-f;0,i,0,j,0,k,0,l)"),
-            ("12D2", "(a,b,c,d,c,d,a,b;e,f,g,h,g,-h,e,-f;i,0,j,0,k,0,l,0)"),
-            ("12D3", "(a,b,c,d,e,f,g,h;0.707b+0.707f,0.707a-0.707e,0.707d+0.707h,0.707c-0.707g,-0.707b+0.707f,0.707a+0.707e,-0.707d+0.707h,0.707c+0.707g;i+j,1.414j,k+l,1.414l,i-j,1.414i,k-l,1.414k)"),
-            ("12D4", "(a+d,b+c,-1.414c,1.414d,-a+d,-b+c,-1.414b,1.414a;e+h,f+g,1.414g,-1.414h,e-h,f-g,-1.414f,1.414e;i+l,j+k,1.414k,-1.414l,i-l,j-k,-1.414j,1.414i)"),
+            (
+                "12D1",
+                "(a,b,c,d,c,d,a,b;e,f,g,h,g,-h,e,-f;0,i,0,j,0,k,0,l)",
+            ),
+            (
+                "12D2",
+                "(a,b,c,d,c,d,a,b;e,f,g,h,g,-h,e,-f;i,0,j,0,k,0,l,0)",
+            ),
+            (
+                "12D3",
+                "(a,b,c,d,e,f,g,h;0.707b+0.707f,0.707a-0.707e,0.707d+0.707h,0.707c-0.707g,-0.707b+0.707f,0.707a+0.707e,-0.707d+0.707h,0.707c+0.707g;i+j,1.414j,k+l,1.414l,i-j,1.414i,k-l,1.414k)",
+            ),
+            (
+                "12D4",
+                "(a+d,b+c,-1.414c,1.414d,-a+d,-b+c,-1.414b,1.414a;e+h,f+g,1.414g,-1.414h,e-h,f-g,-1.414f,1.414e;i+l,j+k,1.414k,-1.414l,i-l,j-k,-1.414j,1.414i)",
+            ),
             ("16D1", "(a,b,c,d,e,f,g,h;i,j,k,l,m,n,o,p;0,0,0,0,0,0,0,0)"),
             ("24D1", "(a,b,c,d,e,f,g,h;i,j,k,l,m,n,o,p;q,r,s,t,u,v,w,x)"),
             ("4D1", "(a,0,b,0,c,0,d,0;0,0,0,0,0,0,0,0;0,0,0,0,0,0,0,0)"),
             ("4D10", "(a,0,b,0,b,0,a,0;0,c,0,-c,0,d,0,d;0,0,0,0,0,0,0,0)"),
-            ("4D11", "(a,b,c,d,c,d,a,b;-c,b,a,-d,a,d,-c,-b;0,0,0,0,0,0,0,0)"),
-            ("4D12", "(a,b,-a,-b,c,d,c,d;a,-d,a,d,c,b,-c,b;0,0,0,0,0,0,0,0)"),
-            ("4D13", "(a,b,c,d,c,d,a,b;0.707b-0.707d,0.707a+0.707c,-0.707b+0.707d,0.707a+0.707c,0.707b+0.707d,-0.707a+0.707c,0.707b+0.707d,0.707a-0.707c;0,0,0,0,0,0,0,0)"),
-            ("4D14", "(a,b,c,d,c,d,a,b;0.707b+0.707d,0.707a-0.707c,0.707b+0.707d,-0.707a+0.707c,-0.707b+0.707d,0.707a+0.707c,0.707b-0.707d,0.707a+0.707c;0,0,0,0,0,0,0,0)"),
-            ("4D15", "(a+d,b+c,-1.414c,1.414d,a-d,b-c,1.414b,-1.414a;-a+d,b+c,1.414b,-1.414d,a+d,b-c,1.414c,1.414a;0,0,0,0,0,0,0,0)"),
-            ("4D16", "(a+b,1.414b,c+d,1.414d,a-b,1.414a,c-d,1.414c;a+b,1.414b,c+d,1.414d,a-b,1.414a,c-d,1.414c;a+b,1.414b,c+d,1.414d,a-b,1.414a,c-d,1.414c)"),
-            ("4D17", "(a+d,b+c,-1.414c,1.414d,-a+d,-b+c,-1.414b,1.414a;a+d,b+c,-1.414c,1.414d,-a+d,-b+c,-1.414b,1.414a;a+d,b+c,-1.414c,1.414d,-a+d,-b+c,-1.414b,1.414a)"),
-            ("4D2", "(a+b,1.414b,c+d,1.414d,a-b,1.414a,c-d,1.414c;0,0,0,0,0,0,0,0;0,0,0,0,0,0,0,0)"),
+            (
+                "4D11",
+                "(a,b,c,d,c,d,a,b;-c,b,a,-d,a,d,-c,-b;0,0,0,0,0,0,0,0)",
+            ),
+            (
+                "4D12",
+                "(a,b,-a,-b,c,d,c,d;a,-d,a,d,c,b,-c,b;0,0,0,0,0,0,0,0)",
+            ),
+            (
+                "4D13",
+                "(a,b,c,d,c,d,a,b;0.707b-0.707d,0.707a+0.707c,-0.707b+0.707d,0.707a+0.707c,0.707b+0.707d,-0.707a+0.707c,0.707b+0.707d,0.707a-0.707c;0,0,0,0,0,0,0,0)",
+            ),
+            (
+                "4D14",
+                "(a,b,c,d,c,d,a,b;0.707b+0.707d,0.707a-0.707c,0.707b+0.707d,-0.707a+0.707c,-0.707b+0.707d,0.707a+0.707c,0.707b-0.707d,0.707a+0.707c;0,0,0,0,0,0,0,0)",
+            ),
+            (
+                "4D15",
+                "(a+d,b+c,-1.414c,1.414d,a-d,b-c,1.414b,-1.414a;-a+d,b+c,1.414b,-1.414d,a+d,b-c,1.414c,1.414a;0,0,0,0,0,0,0,0)",
+            ),
+            (
+                "4D16",
+                "(a+b,1.414b,c+d,1.414d,a-b,1.414a,c-d,1.414c;a+b,1.414b,c+d,1.414d,a-b,1.414a,c-d,1.414c;a+b,1.414b,c+d,1.414d,a-b,1.414a,c-d,1.414c)",
+            ),
+            (
+                "4D17",
+                "(a+d,b+c,-1.414c,1.414d,-a+d,-b+c,-1.414b,1.414a;a+d,b+c,-1.414c,1.414d,-a+d,-b+c,-1.414b,1.414a;a+d,b+c,-1.414c,1.414d,-a+d,-b+c,-1.414b,1.414a)",
+            ),
+            (
+                "4D2",
+                "(a+b,1.414b,c+d,1.414d,a-b,1.414a,c-d,1.414c;0,0,0,0,0,0,0,0;0,0,0,0,0,0,0,0)",
+            ),
             ("4D3", "(a,b,c,d,c,d,a,b;0,0,0,0,0,0,0,0;0,0,0,0,0,0,0,0)"),
             ("4D4", "(a,0,-a,0,b,0,b,0;c,0,c,0,d,0,-d,0;0,0,0,0,0,0,0,0)"),
             ("4D5", "(a,0,b,0,b,0,a,0;c,0,c,0,d,0,-d,0;0,0,0,0,0,0,0,0)"),
             ("4D6", "(a,0,-a,0,b,0,b,0;0,c,0,d,0,d,0,c;0,0,0,0,0,0,0,0)"),
             ("4D7", "(a,0,b,0,b,0,a,0;0,c,0,d,0,d,0,c;0,0,0,0,0,0,0,0)"),
-            ("4D8", "(a+d,b+c,-1.414c,1.414d,-a+d,-b+c,-1.414b,1.414a;0,0,0,0,0,0,0,0;0,0,0,0,0,0,0,0)"),
+            (
+                "4D8",
+                "(a+d,b+c,-1.414c,1.414d,-a+d,-b+c,-1.414b,1.414a;0,0,0,0,0,0,0,0;0,0,0,0,0,0,0,0)",
+            ),
             ("4D9", "(a,0,b,0,b,0,a,0;c,0,d,0,d,0,c,0;0,0,0,0,0,0,0,0)"),
-            ("6D1", "(a,0,-a,0,b,0,b,0;c,0,-c,0,d,0,d,0;e,0,-e,0,f,0,f,0)"),
+            (
+                "6D1",
+                "(a,0,-a,0,b,0,b,0;c,0,-c,0,d,0,d,0;e,0,-e,0,f,0,f,0)",
+            ),
             ("6D2", "(a,0,b,0,b,0,a,0;0,c,0,d,0,d,0,c;0,e,0,f,0,f,0,e)"),
             ("6D3", "(a,0,b,0,b,0,a,0;0,c,0,d,0,d,0,c;0,e,0,f,0,-f,0,-e)"),
             ("6D4", "(a,0,b,0,b,0,a,0;0,c,0,d,0,d,0,c;e,0,f,0,f,0,e,0)"),
             ("6D5", "(a,0,b,0,-b,0,-a,0;c,0,d,0,d,0,c,0;e,0,f,0,f,0,e,0)"),
             ("6D6", "(a,0,b,0,b,0,a,0;c,0,d,0,d,0,c,0;e,0,f,0,f,0,e,0)"),
-            ("6D7", "(a,b,-a,-b,c,d,c,d;a,-d,a,d,c,b,-c,b;e,0,0,0,f,0,0,0)"),
+            (
+                "6D7",
+                "(a,b,-a,-b,c,d,c,d;a,-d,a,d,c,b,-c,b;e,0,0,0,f,0,0,0)",
+            ),
             ("8D1", "(a,b,c,d,e,f,g,h;0,0,0,0,0,0,0,0;0,0,0,0,0,0,0,0)"),
             ("8D2", "(a,b,c,d,c,d,a,b;0,0,0,0,0,0,0,0;0,e,0,f,0,g,0,h)"),
             ("8D3", "(a,0,b,0,c,0,d,0;e,f,g,h,g,h,e,f;0,0,0,0,0,0,0,0)"),
             ("8D4", "(a,b,c,d,c,d,a,b;e,f,g,h,g,-h,e,-f;0,0,0,0,0,0,0,0)"),
             ("8D5", "(a,b,c,d,c,d,a,b;e,f,e,-f,g,h,-g,h;0,0,0,0,0,0,0,0)"),
-            ("8D6", "(a+d,b+c,1.414c,-1.414d,-a+d,-b+c,1.414b,-1.414a;e+h,f+g,-1.414g,1.414h,-e+h,-f+g,-1.414f,1.414e;0,0,0,0,0,0,0,0)"),
-            ("8D7", "(a,b,c,d,e,f,g,h;g,d,-e,-b,c,-h,-a,f;0,0,0,0,0,0,0,0)"),
-            ("8D8", "(a,b,c,d,e,f,g,h;0.707d+0.707h,-0.707c+0.707g,0.707b+0.707f,-0.707a+0.707e,0.707d-0.707h,0.707c+0.707g,0.707b-0.707f,0.707a+0.707e;0,0,0,0,0,0,0,0)"),
+            (
+                "8D6",
+                "(a+d,b+c,1.414c,-1.414d,-a+d,-b+c,1.414b,-1.414a;e+h,f+g,-1.414g,1.414h,-e+h,-f+g,-1.414f,1.414e;0,0,0,0,0,0,0,0)",
+            ),
+            (
+                "8D7",
+                "(a,b,c,d,e,f,g,h;g,d,-e,-b,c,-h,-a,f;0,0,0,0,0,0,0,0)",
+            ),
+            (
+                "8D8",
+                "(a,b,c,d,e,f,g,h;0.707d+0.707h,-0.707c+0.707g,0.707b+0.707f,-0.707a+0.707e,0.707d-0.707h,0.707c+0.707g,0.707b-0.707f,0.707a+0.707e;0,0,0,0,0,0,0,0)",
+            ),
             ("8D9", "(a,b,c,d,e,f,g,h;a,b,c,d,e,f,g,h;a,b,c,d,e,f,g,h)"),
             ("C1", "(a,0,0,0,b,0,0,0;0,0,0,0,0,0,0,0;0,0,0,0,0,0,0,0)"),
             ("C10", "(a,0,b,0,b,0,a,0;a,0,b,0,b,0,a,0;a,0,b,0,b,0,a,0)"),
             ("C2", "(a,0,-a,0,b,0,b,0;0,0,0,0,0,0,0,0;0,0,0,0,0,0,0,0)"),
             ("C3", "(a,0,b,0,b,0,a,0;0,0,0,0,0,0,0,0;0,0,0,0,0,0,0,0)"),
             ("C4", "(a,0,-a,0,b,0,b,0;a,0,a,0,b,0,-b,0;0,0,0,0,0,0,0,0)"),
-            ("C5", "(a,0,a,0,b,0,-b,0;0,0.707a-0.707b,0,0.707a+0.707b,0,0.707a+0.707b,0,0.707a-0.707b;0,0,0,0,0,0,0,0)"),
+            (
+                "C5",
+                "(a,0,a,0,b,0,-b,0;0,0.707a-0.707b,0,0.707a+0.707b,0,0.707a+0.707b,0,0.707a-0.707b;0,0,0,0,0,0,0,0)",
+            ),
             ("C6", "(a,0,b,0,b,0,a,0;a,0,-b,0,b,0,-a,0;0,0,0,0,0,0,0,0)"),
-            ("C7", "(a,0,b,0,b,0,a,0;0,0.707a-0.707b,0,-0.707a+0.707b,0,0.707a+0.707b,0,0.707a+0.707b;0,0,0,0,0,0,0,0)"),
+            (
+                "C7",
+                "(a,0,b,0,b,0,a,0;0,0.707a-0.707b,0,-0.707a+0.707b,0,0.707a+0.707b,0,0.707a+0.707b;0,0,0,0,0,0,0,0)",
+            ),
             ("C8", "(a,0,a,0,b,0,-b,0;-b,0,b,0,a,0,a,0;a,0,a,0,b,0,-b,0)"),
             ("C9", "(a,0,b,0,b,0,a,0;b,0,a,0,-a,0,-b,0;a,0,b,0,b,0,a,0)"),
         ],
@@ -42296,47 +32784,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 229,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 229,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 229,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 229,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 229,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 229,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 229,
@@ -42385,48 +32858,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 229,
         ml: "H1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 229,
         ml: "H1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 229,
         ml: "H2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 229,
         ml: "H2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 229,
         ml: "H3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 229,
         ml: "H3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 229,
@@ -42729,20 +33186,12 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 229,
         ml: "P1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 229,
         ml: "P2",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,a)"),
-            ("P3", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,a)"), ("P3", "(a,0)")],
     },
     OfficialRecord {
         sg: 229,
@@ -42838,47 +33287,32 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 230,
         ml: "GM1+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 230,
         ml: "GM1-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 230,
         ml: "GM2+",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 230,
         ml: "GM2-",
-        directions: &[
-            ("P1", "(a)"),
-        ],
+        directions: &[("P1", "(a)")],
     },
     OfficialRecord {
         sg: 230,
         ml: "GM3+",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)")],
     },
     OfficialRecord {
         sg: 230,
         ml: "GM3-",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P2", "(a,0.577a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P2", "(a,0.577a)")],
     },
     OfficialRecord {
         sg: 230,
@@ -42927,11 +33361,7 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
     OfficialRecord {
         sg: 230,
         ml: "H1",
-        directions: &[
-            ("C1", "(a,b)"),
-            ("P1", "(a,0)"),
-            ("P3", "(a,a)"),
-        ],
+        directions: &[("C1", "(a,b)"), ("P1", "(a,0)"), ("P3", "(a,a)")],
     },
     OfficialRecord {
         sg: 230,
@@ -43046,7 +33476,10 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
         ml: "P1P2",
         directions: &[
             ("4D15", "(a,b,c,d,c,d,a,b)"),
-            ("4D18", "(a+b+c,-2b+c,1.500c+d,-a+b-0.500c+d,2d,a-b-c,2b+0.500c-d,a+b-0.500c+d)"),
+            (
+                "4D18",
+                "(a+b+c,-2b+c,1.500c+d,-a+b-0.500c+d,2d,a-b-c,2b+0.500c-d,a+b-0.500c+d)",
+            ),
             ("4D3", "(a,b,c,0,-b,a,d,0)"),
             ("8D1", "(a,b,c,d,e,f,g,h)"),
             ("C14", "(a,a,b,b,b,b,a,a)"),
@@ -43059,14 +33492,23 @@ pub static OFFICIAL_RECORDS: &[OfficialRecord] = &[
         ml: "P3",
         directions: &[
             ("4D18", "(a,b,c,d,d,c,b,a)"),
-            ("4D27", "(a,b,c,1.732b,0.500a+0.866c,d,0.866a-0.500c,-0.577d)"),
-            ("4D29", "(a+d,b+c,1.732c,1.732d,-0.500a+0.500b-c+d,0.500a+0.500b-c-d,0.866a+0.866b,-0.866a+0.866b)"),
+            (
+                "4D27",
+                "(a,b,c,1.732b,0.500a+0.866c,d,0.866a-0.500c,-0.577d)",
+            ),
+            (
+                "4D29",
+                "(a+d,b+c,1.732c,1.732d,-0.500a+0.500b-c+d,0.500a+0.500b-c-d,0.866a+0.866b,-0.866a+0.866b)",
+            ),
             ("4D3", "(a,0,b,0,c,0,d,0)"),
             ("8D1", "(a,b,c,d,e,f,g,h)"),
             ("C29", "(a,0,0,b,0,a,b,0)"),
             ("C39", "(a,a,b,b,-a,a,b,-b)"),
             ("C52", "(a,b,a,-b,b,-a,b,a)"),
-            ("C57", "(a+b,b,0.577a+0.577b,1.155a-0.577b,b,a-b,-1.732b,0.577a+0.577b)"),
+            (
+                "C57",
+                "(a+b,b,0.577a+0.577b,1.155a-0.577b,b,a-b,-1.732b,0.577a+0.577b)",
+            ),
             ("C58", "(a+b,2.732b,-a+b,2.732a,2.732a,-a+b,2.732b,a+b)"),
         ],
     },
@@ -43186,7 +33628,8 @@ pub static OFFICIAL_TABLE_EMPTY: &[(u8, &str)] = &[
     (217, "P5P5"),
     (220, "P1P1"),
     (220, "P2P2"),
-    (220, "P3P3"),];
+    (220, "P3P3"),
+];
 
 /// The record for `(sg, ml)`, if the program prints direction strings for it.
 pub fn record(sg: u8, ml: &str) -> Option<&'static OfficialRecord> {

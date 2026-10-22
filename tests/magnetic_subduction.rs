@@ -9,12 +9,10 @@ use cryspglib::irrep::isotropy::IsotropyDirection;
 use cryspglib::irrep::magnetic_embedding::MagneticOperation;
 use cryspglib::irrep::magnetic_embedding::{canonical_translation, compose};
 use cryspglib::irrep::magnetic_input::{
-    EmbeddingEvidence, LatticePolicy, RealSign, RecordIdentity, ScalarGammaModel, ScalarGammaRequest,
-    SourceIdentity, verify_scalar_gamma_input,
+    EmbeddingEvidence, LatticePolicy, RealSign, RecordIdentity, ScalarGammaModel,
+    ScalarGammaRequest, SourceIdentity, verify_scalar_gamma_input,
 };
-use cryspglib::irrep::magnetic_subduction::{
-    MagneticSubduction, subduce_scalar_gamma,
-};
+use cryspglib::irrep::magnetic_subduction::{MagneticSubduction, subduce_scalar_gamma};
 use cryspglib::irrep::subduction::{Mat3R, Rat};
 use cryspglib::irrep::subduction_api::{SubductionRequest, subduce};
 use cryspglib::irrep::{LabelConvention, isotropy, magnetic_summary};
@@ -80,8 +78,16 @@ fn verify_reconstruction(model: &ScalarGammaModel, report: &MagneticSubduction<'
             if class.time_reversal {
                 continue;
             }
-            let left = class_of(&compose(class, &classes[first_anti]).unwrap(), classes, lattice);
-            let right = class_of(&compose(&classes[first_anti], class).unwrap(), classes, lattice);
+            let left = class_of(
+                &compose(class, &classes[first_anti]).unwrap(),
+                classes,
+                lattice,
+            );
+            let right = class_of(
+                &compose(&classes[first_anti], class).unwrap(),
+                classes,
+                lattice,
+            );
             assert_eq!(
                 operators[index].compose(&operators[first_anti]),
                 operators[left],
@@ -171,7 +177,10 @@ fn verify_raw_provenance(
     for (index, (api_operation, exact_operation)) in
         api.operations.iter().zip(&raw.operations).enumerate()
     {
-        assert_eq!(api_operation.rotation, exact_operation.rotation, "UNI {uni} index {index}");
+        assert_eq!(
+            api_operation.rotation, exact_operation.rotation,
+            "UNI {uni} index {index}"
+        );
         assert_eq!(
             api_operation.time_reversal, exact_operation.time_reversal,
             "UNI {uni} index {index}"
@@ -194,7 +203,10 @@ fn verify_raw_provenance(
     let mut seen = vec![false; raw.operations.len()];
     let mut mapped = Vec::with_capacity(gamma.operations.len());
     for (position, operation) in gamma.operations.iter().enumerate() {
-        assert_eq!(operation.column, position, "UNI {uni}: the columns are the positions");
+        assert_eq!(
+            operation.column, position,
+            "UNI {uni}: the columns are the positions"
+        );
         assert_eq!(
             operation.magnetic_operation_index, position,
             "UNI {uni}: the summary enumerates the raw list in order"
@@ -338,10 +350,10 @@ fn type_one_ordinary_agrees_with_the_ordinary_subduction() {
 
     // The ordinary subduction entry point on the same subgroup must name the same
     // target with the same dimension and multiplicity.
-    let direction = isotropy::magnetic_isotropy_subgroups(2, "GM1+", LabelConvention::Cdml).unwrap()
-        [index]
-    .record
-    .direction;
+    let direction = isotropy::magnetic_isotropy_subgroups(2, "GM1+", LabelConvention::Cdml)
+        .unwrap()[index]
+        .record
+        .direction;
     let ordinary = subduce(
         &SubductionRequest::new(2, "GM1+", LabelConvention::Cdml)
             .direction(IsotropyDirection::Label(direction)),
@@ -364,8 +376,22 @@ fn type_three_signs_share_the_target_and_differ_by_the_intertwiner() {
     // SG 2 GM1- is the black-white group UNI 6 with H = P1: its 1D type-A corep
     // GM1 is induced from P1's scalar GM1, not from the source irrep.
     let index = magnetic_row(2, "GM1-", 6);
-    let plus = gamma_model(2, "GM1-", "GM1-", index, Some(RealSign::Plus), Mat3R::identity());
-    let minus = gamma_model(2, "GM1-", "GM1-", index, Some(RealSign::Minus), Mat3R::identity());
+    let plus = gamma_model(
+        2,
+        "GM1-",
+        "GM1-",
+        index,
+        Some(RealSign::Plus),
+        Mat3R::identity(),
+    );
+    let minus = gamma_model(
+        2,
+        "GM1-",
+        "GM1-",
+        index,
+        Some(RealSign::Minus),
+        Mat3R::identity(),
+    );
     let plus_report = subduce_scalar_gamma(&plus).unwrap();
     let minus_report = subduce_scalar_gamma(&minus).unwrap();
 
@@ -397,10 +423,12 @@ fn type_three_signs_share_the_target_and_differ_by_the_intertwiner() {
         minus.actions()[1].value.value()
     );
     for (model, report) in [(&plus, &plus_report), (&minus, &minus_report)] {
-        assert!(report
-            .operators()
-            .iter()
-            .any(|operator| operator.is_antiunitary()));
+        assert!(
+            report
+                .operators()
+                .iter()
+                .any(|operator| operator.is_antiunitary())
+        );
         verify_reconstruction(model, report);
         verify_against_summary(report);
     }
@@ -442,7 +470,14 @@ fn the_target_identity_is_read_independently_of_the_source_label() {
     // H = P1: the target is labelled GM1, the scalar non-spinor corep of P1, so the
     // answer is not an echo of the source label and no spinor row is selected.
     let index = magnetic_row(3, "GM2", 10);
-    let model = gamma_model(3, "GM2", "GM2", index, Some(RealSign::Minus), Mat3R::identity());
+    let model = gamma_model(
+        3,
+        "GM2",
+        "GM2",
+        index,
+        Some(RealSign::Minus),
+        Mat3R::identity(),
+    );
     let report = subduce_scalar_gamma(&model).unwrap();
     assert_eq!(model.source_label(), "GM2");
     assert_eq!(report.target_label(), "GM1");
@@ -597,11 +632,21 @@ fn the_indexed_frame_provenance_yields_independent_character_targets() {
     ] {
         let index = magnetic_row(sg, condensing, uni);
         let mut answers = Vec::new();
-        let model = gamma_model(sg, source, condensing, index, Some(RealSign::Plus), Mat3R::identity());
+        let model = gamma_model(
+            sg,
+            source,
+            condensing,
+            index,
+            Some(RealSign::Plus),
+            Mat3R::identity(),
+        );
         let gamma = gamma_kpoint(uni);
-        let provenance = verify_raw_provenance(uni, &gamma, model.classes(), model.translation_lattice());
+        let provenance =
+            verify_raw_provenance(uni, &gamma, model.classes(), model.translation_lattice());
         assert!(
-            provenance.iter().all(|class| *class < model.classes().len()),
+            provenance
+                .iter()
+                .all(|class| *class < model.classes().len()),
             "UNI {uni}: every column maps to a class"
         );
         assert!(
@@ -618,8 +663,7 @@ fn the_indexed_frame_provenance_yields_independent_character_targets() {
             (RealSign::Plus, Complex64::new(1.0, 0.0)),
             (RealSign::Minus, Complex64::new(0.0, 1.0)),
         ] {
-            let model =
-                gamma_model(sg, source, condensing, index, Some(eta), Mat3R::identity());
+            let model = gamma_model(sg, source, condensing, index, Some(eta), Mat3R::identity());
             assert_eq!(model.uni(), uni);
             let report = subduce_scalar_gamma(&model)
                 .unwrap_or_else(|error| panic!("UNI {uni} eta {eta:?}: {error}"));
@@ -636,10 +680,12 @@ fn the_indexed_frame_provenance_yields_independent_character_targets() {
             assert_eq!(report.source_dimension(), 1);
             assert_eq!(report.covered_dimension(), 1);
             assert_eq!(report.intertwiner(), intertwiner);
-            assert!(report
-                .operators()
-                .iter()
-                .any(|operator| operator.is_antiunitary()));
+            assert!(
+                report
+                    .operators()
+                    .iter()
+                    .any(|operator| operator.is_antiunitary())
+            );
             verify_reconstruction(&model, &report);
             verify_against_summary(&report);
             answers.push(report.operators().to_vec());
@@ -666,7 +712,11 @@ fn repeated_antiunitary_constraints_keep_the_intertwiner() {
         let model = gamma_model(10, "GM1+", "GM2+", 0, Some(eta), Mat3R::identity());
         assert_eq!(model.uni(), 53);
         assert_eq!(
-            model.classes().iter().filter(|class| class.time_reversal).count(),
+            model
+                .classes()
+                .iter()
+                .filter(|class| class.time_reversal)
+                .count(),
             2
         );
         let report = subduce_scalar_gamma(&model).unwrap();
@@ -691,13 +741,19 @@ fn four_antiunitary_classes_with_a_nontrivial_h_character_are_reconstructed() {
         let model = gamma_model(12, "GM2+", "Y1+", 0, Some(eta), Mat3R::identity());
         assert_eq!(model.uni(), 56);
         assert_eq!(
-            model.classes().iter().filter(|class| class.time_reversal).count(),
+            model
+                .classes()
+                .iter()
+                .filter(|class| class.time_reversal)
+                .count(),
             4
         );
-        assert!(model
-            .actions()
-            .iter()
-            .any(|action| !action.class.time_reversal && action.value.value() == -1));
+        assert!(
+            model
+                .actions()
+                .iter()
+                .any(|action| !action.class.time_reversal && action.value.value() == -1)
+        );
         let report = subduce_scalar_gamma(&model).unwrap();
         assert_eq!(report.target_label(), "GM2+");
         assert_eq!(report.target_dimension(), 1);

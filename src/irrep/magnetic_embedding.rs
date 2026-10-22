@@ -290,7 +290,10 @@ impl std::fmt::Display for MagneticContractError {
             ),
             Self::Arithmetic => write!(f, "exact arithmetic failed while composing operations"),
             Self::ParentPrimitiveBasisUnavailable { sg } => {
-                write!(f, "the primitive basis of parent space group {sg} is unavailable")
+                write!(
+                    f,
+                    "the primitive basis of parent space group {sg} is unavailable"
+                )
             }
             Self::ParentBasisOffGrid { sg } => write!(
                 f,
@@ -482,9 +485,7 @@ pub fn canonical_translation(translation: [Rat; 3], lattice: &[[Rat; 3]]) -> [Ra
     for value in translation.iter().chain(lattice.iter().flatten()) {
         denominator = denominator / gcd(denominator, value.denominator()) * value.denominator();
     }
-    let scale = |value: Rat| -> i128 {
-        value.numerator() * (denominator / value.denominator())
-    };
+    let scale = |value: Rat| -> i128 { value.numerator() * (denominator / value.denominator()) };
     let reduce = |value: i128| -> i128 { value.rem_euclid(denominator) };
     let start = [
         reduce(scale(translation[0])),
@@ -814,7 +815,12 @@ pub fn verify_against_database(set: &MagneticOperationSet) -> Result<(), Magneti
             field: "operation count",
         });
     }
-    for (index, (left, right)) in set.operations.iter().zip(fresh.operations.iter()).enumerate() {
+    for (index, (left, right)) in set
+        .operations
+        .iter()
+        .zip(fresh.operations.iter())
+        .enumerate()
+    {
         if left.rotation != right.rotation {
             return Err(MagneticContractError::DatabaseMismatch {
                 uni: set.uni,
@@ -912,7 +918,12 @@ impl MagneticGeometry {
 
     /// Whether the record keeps the parent's basis and origin.
     pub fn is_identity(&self) -> bool {
-        self.basis == [[Rat::ONE, Rat::ZERO, Rat::ZERO], [Rat::ZERO, Rat::ONE, Rat::ZERO], [Rat::ZERO, Rat::ZERO, Rat::ONE]]
+        self.basis
+            == [
+                [Rat::ONE, Rat::ZERO, Rat::ZERO],
+                [Rat::ZERO, Rat::ONE, Rat::ZERO],
+                [Rat::ZERO, Rat::ZERO, Rat::ONE],
+            ]
             && self.origin.iter().all(|value| value.is_zero())
     }
 }
@@ -965,7 +976,10 @@ impl std::fmt::Display for GeometryError {
                 write!(f, "UNI {uni}: the subgroup basis is singular")
             }
             Self::UnreadableParent { sg } => {
-                write!(f, "the operations of parent space group {sg} are unavailable")
+                write!(
+                    f,
+                    "the operations of parent space group {sg} are unavailable"
+                )
             }
             Self::ParentTranslationOffGrid { sg } => write!(
                 f,
@@ -982,7 +996,10 @@ impl std::fmt::Display for GeometryError {
                  {rotation:?} into the parent"
             ),
             Self::ParentPrimitiveBasisUnavailable { sg } => {
-                write!(f, "the primitive basis of parent space group {sg} is unavailable")
+                write!(
+                    f,
+                    "the primitive basis of parent space group {sg} is unavailable"
+                )
             }
             Self::ParentBasisOffGrid { sg } => write!(
                 f,
@@ -1199,10 +1216,11 @@ pub fn measure_parent_containment(
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
 ) -> Result<ParentContainment, GeometryError> {
-    let parent = crate::irrep::query::symmetry_operations_of(geometry.parent_sg)
-        .map_err(|_| GeometryError::UnreadableParent {
+    let parent = crate::irrep::query::symmetry_operations_of(geometry.parent_sg).map_err(|_| {
+        GeometryError::UnreadableParent {
             sg: geometry.parent_sg,
-        })?;
+        }
+    })?;
     let mut parent_operations = Vec::with_capacity(parent.operations.len());
     for operation in parent.operations.iter() {
         let translation = [
@@ -1270,10 +1288,7 @@ pub fn measure_parent_containment(
             .expect("exact product");
         let mut mapped_translation = [Rat::ZERO; 3];
         for axis in 0..3 {
-            mapped_translation[axis] = moved
-                .get(axis)
-                .checked_add(shift[axis])
-                .expect("exact sum");
+            mapped_translation[axis] = moved.get(axis).checked_add(shift[axis]).expect("exact sum");
         }
         let found = parent_operations.iter().any(|candidate| {
             if candidate.rotation != mapped_rotation {
@@ -1368,10 +1383,11 @@ pub fn search_parent_setting(
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
 ) -> Result<SettingSearchReport, GeometryError> {
-    let parent = crate::irrep::query::symmetry_operations_of(geometry.parent_sg)
-        .map_err(|_| GeometryError::UnreadableParent {
+    let parent = crate::irrep::query::symmetry_operations_of(geometry.parent_sg).map_err(|_| {
+        GeometryError::UnreadableParent {
             sg: geometry.parent_sg,
-        })?;
+        }
+    })?;
     let mut parent_operations = Vec::with_capacity(parent.operations.len());
     for operation in parent.operations.iter() {
         let translation = [
@@ -1454,10 +1470,8 @@ pub fn search_parent_setting(
                 .map_err(|_| GeometryError::DegenerateBasis { uni: geometry.uni })?;
             let mut mapped_translation = [Rat::ZERO; 3];
             for axis in 0..3 {
-                mapped_translation[axis] = moved
-                    .get(axis)
-                    .checked_add(shift[axis])
-                    .expect("exact sum");
+                mapped_translation[axis] =
+                    moved.get(axis).checked_add(shift[axis]).expect("exact sum");
             }
             let found = parent_operations.iter().any(|candidate| {
                 if candidate.rotation != mapped_rotation {
@@ -1521,7 +1535,9 @@ pub fn basis_in_parent_conventional(
 }
 
 /// The record's origin expressed in the parent's conventional frame.
-pub fn origin_in_parent_conventional(geometry: &MagneticGeometry) -> Result<[Rat; 3], GeometryError> {
+pub fn origin_in_parent_conventional(
+    geometry: &MagneticGeometry,
+) -> Result<[Rat; 3], GeometryError> {
     let primitive = parent_primitive_basis_exact(geometry.parent_sg)?;
     let mut converted = [Rat::ZERO; 3];
     for (column, value) in converted.iter_mut().enumerate() {
@@ -1552,7 +1568,9 @@ pub fn conventional_lattice_index(geometry: &MagneticGeometry) -> Result<Rat, Ge
         .determinant()
         .map_err(|_| GeometryError::SingularConventionalBasis { uni: geometry.uni })?;
     Ok(if determinant.numerator() < 0 {
-        determinant.checked_neg().map_err(|_| GeometryError::Arithmetic)?
+        determinant
+            .checked_neg()
+            .map_err(|_| GeometryError::Arithmetic)?
     } else {
         determinant
     })
@@ -1565,8 +1583,8 @@ fn parent_primitive_basis_exact(sg: u8) -> Result<[[Rat; 3]; 3], GeometryError> 
     let mut exact = [[Rat::ZERO; 3]; 3];
     for (row, values) in primitive.iter().enumerate() {
         for (column, value) in values.iter().enumerate() {
-            exact[row][column] = exact_fraction(*value)
-                .ok_or(GeometryError::ParentBasisOffGrid { sg })?;
+            exact[row][column] =
+                exact_fraction(*value).ok_or(GeometryError::ParentBasisOffGrid { sg })?;
         }
     }
     Ok(exact)
@@ -1701,12 +1719,12 @@ fn realises_record_lattice(
     let Ok(inverse) = map.inverse() else {
         return false;
     };
-    record_lattice.iter().all(|row| {
-        match inverse.checked_mul_vector(&Vec3R::new(*row)) {
+    record_lattice
+        .iter()
+        .all(|row| match inverse.checked_mul_vector(&Vec3R::new(*row)) {
             Ok(pullback) => in_lattice(*pullback.as_array(), source_lattice),
             Err(_) => false,
-        }
-    })
+        })
 }
 
 /// The parent's operations, rotation set and translation-lattice generators,
@@ -1811,8 +1829,9 @@ fn class_equations(
     let mut equations = Vec::with_capacity(set.classes.len());
     for (index, operation) in set.classes.iter().enumerate() {
         let rotation = mapped_rotations[index];
-        let Some((_, parent_translation)) =
-            parent_operations.iter().find(|(candidate, _)| *candidate == rotation)
+        let Some((_, parent_translation)) = parent_operations
+            .iter()
+            .find(|(candidate, _)| *candidate == rotation)
         else {
             // Unreachable: the rotation screen accepted every mapped rotation.
             return Err(GeometryError::Arithmetic);
@@ -1894,9 +1913,7 @@ pub fn embedding_shift_components(
     };
     let equations = class_equations(&map, set, &mapped_rotations, &parent.operations)?;
     let solution = complete_shift::solve_shift_components(&equations, &parent.lattice)
-        .map_err(|_| GeometryError::ShiftEnumerationUnavailable {
-            uni: geometry.uni,
-        })?;
+        .map_err(|_| GeometryError::ShiftEnumerationUnavailable { uni: geometry.uni })?;
     Ok(ShiftComponents {
         representatives: solution.representatives,
         kernel: solution.kernel,
@@ -1925,22 +1942,31 @@ pub fn verify_embedding(
     map: Mat3R,
     shift: [Rat; 3],
 ) -> Result<(), GeometryError> {
-    let parent = crate::irrep::query::symmetry_operations_of(geometry.parent_sg)
-        .map_err(|_| GeometryError::UnreadableParent { sg: geometry.parent_sg })?;
+    let parent = crate::irrep::query::symmetry_operations_of(geometry.parent_sg).map_err(|_| {
+        GeometryError::UnreadableParent {
+            sg: geometry.parent_sg,
+        }
+    })?;
     let mut parent_operations: Vec<(Mat3I, [Rat; 3])> = Vec::new();
     let mut parent_rotations: Vec<Mat3I> = Vec::new();
     let mut parent_lattice: Vec<[Rat; 3]> = Vec::new();
     for operation in &parent.operations {
         let translation = [
-            exact_fraction(operation.translation[0]).ok_or(GeometryError::ParentTranslationOffGrid {
-                sg: geometry.parent_sg,
-            })?,
-            exact_fraction(operation.translation[1]).ok_or(GeometryError::ParentTranslationOffGrid {
-                sg: geometry.parent_sg,
-            })?,
-            exact_fraction(operation.translation[2]).ok_or(GeometryError::ParentTranslationOffGrid {
-                sg: geometry.parent_sg,
-            })?,
+            exact_fraction(operation.translation[0]).ok_or(
+                GeometryError::ParentTranslationOffGrid {
+                    sg: geometry.parent_sg,
+                },
+            )?,
+            exact_fraction(operation.translation[1]).ok_or(
+                GeometryError::ParentTranslationOffGrid {
+                    sg: geometry.parent_sg,
+                },
+            )?,
+            exact_fraction(operation.translation[2]).ok_or(
+                GeometryError::ParentTranslationOffGrid {
+                    sg: geometry.parent_sg,
+                },
+            )?,
         ];
         if !parent_rotations.contains(&operation.rotation) {
             parent_rotations.push(operation.rotation);
@@ -1956,9 +1982,7 @@ pub fn verify_embedding(
     // Complete containment first: the source lattice is a property of the map
     // alone, and no per-class equation below can replace this gate.
     if !source_lattice_lands_in_parent_checked(&map, set, &parent_lattice)? {
-        return Err(GeometryError::SourceLatticeNotInParent {
-            uni: geometry.uni,
-        });
+        return Err(GeometryError::SourceLatticeNotInParent { uni: geometry.uni });
     }
     let inverse = map
         .inverse()
@@ -2611,21 +2635,23 @@ fn embedding_is_consistent(
             };
             target[axis] = next;
         }
-        let hit = parent_operations.iter().any(|(parent_rotation, parent_translation)| {
-            if *parent_rotation != rotation {
-                return false;
-            }
-            let mut difference = [Rat::ZERO; 3];
-            for axis in 0..3 {
-                let Ok(next) = target[axis].checked_sub(parent_translation[axis]) else {
+        let hit = parent_operations
+            .iter()
+            .any(|(parent_rotation, parent_translation)| {
+                if *parent_rotation != rotation {
                     return false;
-                };
-                difference[axis] = next;
-            }
-            canonical_translation(difference, parent_lattice)
-                .iter()
-                .all(|value| value.is_zero())
-        });
+                }
+                let mut difference = [Rat::ZERO; 3];
+                for axis in 0..3 {
+                    let Ok(next) = target[axis].checked_sub(parent_translation[axis]) else {
+                        return false;
+                    };
+                    difference[axis] = next;
+                }
+                canonical_translation(difference, parent_lattice)
+                    .iter()
+                    .all(|value| value.is_zero())
+            });
         if !hit {
             return false;
         }
@@ -2644,9 +2670,7 @@ fn embedding_is_consistent(
 /// A particular solution plus a basis of the kernel.
 type LinearSolution = ([Rat; 3], Vec<[Rat; 3]>);
 
-fn solve_linear_system(
-    mut system: [[Rat; 4]; 3],
-) -> Result<Option<LinearSolution>, GeometryError> {
+fn solve_linear_system(mut system: [[Rat; 4]; 3]) -> Result<Option<LinearSolution>, GeometryError> {
     let mut pivots: Vec<usize> = Vec::new();
     let mut row = 0usize;
     for column in 0..3 {
@@ -2661,7 +2685,9 @@ fn solve_linear_system(
         system.swap(row, found);
         let pivot = system[row][column];
         for entry in system[row].iter_mut() {
-            *entry = entry.checked_div(pivot).map_err(|_| GeometryError::Arithmetic)?;
+            *entry = entry
+                .checked_div(pivot)
+                .map_err(|_| GeometryError::Arithmetic)?;
         }
         let pivot_row = system[row];
         for (other, values) in system.iter_mut().enumerate() {
@@ -2673,7 +2699,9 @@ fn solve_linear_system(
                 let term = pivot_row[entry]
                     .checked_mul(factor)
                     .map_err(|_| GeometryError::Arithmetic)?;
-                *value = value.checked_sub(term).map_err(|_| GeometryError::Arithmetic)?;
+                *value = value
+                    .checked_sub(term)
+                    .map_err(|_| GeometryError::Arithmetic)?;
             }
         }
         pivots.push(column);
@@ -2820,10 +2848,7 @@ fn plane_basis(normal: [i128; 3]) -> Result<[[i128; 3]; 2], GeometryError> {
     if divisor == 0 {
         return Err(GeometryError::Arithmetic);
     }
-    Ok([
-        [0, -c / divisor, b / divisor],
-        [divisor, -a * s, -a * t],
-    ])
+    Ok([[0, -c / divisor, b / divisor], [divisor, -a * s, -a * t]])
 }
 
 /// A `Z`-basis of the integer left kernel `{y in Z^3 : M^T y = 0}` of a 3x3
@@ -2855,8 +2880,7 @@ fn integer_left_kernel(matrix: &Mat3I) -> Result<Vec<[i128; 3]>, GeometryError> 
         let generator = primitive_vector(first).ok_or(GeometryError::Arithmetic)?;
         return Ok(plane_basis(generator)?.to_vec());
     };
-    let normal =
-        primitive_vector(cross_product(first, second)).ok_or(GeometryError::Arithmetic)?;
+    let normal = primitive_vector(cross_product(first, second)).ok_or(GeometryError::Arithmetic)?;
     for value in &columns {
         if dot_product(*value, normal) != 0 {
             return Ok(Vec::new());
@@ -2880,10 +2904,11 @@ fn saturated_row_basis(rows: &[[i128; 3]]) -> Result<Vec<[i128; 3]>, GeometryErr
         .copied()
         .find(|row| cross_product(first, *row) != [0, 0, 0]);
     let Some(second) = independent else {
-        return Ok(vec![primitive_vector(first).ok_or(GeometryError::Arithmetic)?]);
+        return Ok(vec![
+            primitive_vector(first).ok_or(GeometryError::Arithmetic)?,
+        ]);
     };
-    let normal =
-        primitive_vector(cross_product(first, second)).ok_or(GeometryError::Arithmetic)?;
+    let normal = primitive_vector(cross_product(first, second)).ok_or(GeometryError::Arithmetic)?;
     for row in rows {
         if dot_product(*row, normal) != 0 {
             return Ok(vec![[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
@@ -3026,9 +3051,7 @@ fn hermite_basis(rows: &[[i128; 3]]) -> Result<[[i128; 3]; 3], GeometryError> {
 /// table lists only the non-zero pure translations, and the implicit `Z^3` is
 /// what makes an integer target placeable at all.  Scaling by `D` keeps `K`
 /// inside `Z^3`, so all later arithmetic is integer arithmetic.
-fn parent_lattice_basis(
-    generators: &[[Rat; 3]],
-) -> Result<(i128, [[i128; 3]; 3]), GeometryError> {
+fn parent_lattice_basis(generators: &[[Rat; 3]]) -> Result<(i128, [[i128; 3]; 3]), GeometryError> {
     let mut denominator = 1i128;
     for value in generators.iter().flatten() {
         denominator = denominator / gcd(denominator, value.denominator()) * value.denominator();
@@ -3240,7 +3263,10 @@ mod tests {
             rows[0][1] = Rat::ONE;
             rows
         };
-        let inverse_transposed = Mat3R::new(rows).inverse().expect("non-singular").transpose();
+        let inverse_transposed = Mat3R::new(rows)
+            .inverse()
+            .expect("non-singular")
+            .transpose();
         let inverse = Mat3R::new(rows).inverse().expect("non-singular");
         let shear = matrix([[1, 0, 0], [1, 1, 0], [0, 0, 1]]);
         let image = shear
@@ -3251,7 +3277,10 @@ mod tests {
             .expect("product");
         let column_coordinates = inverse.checked_mul_vector(&image).expect("product");
         assert!(
-            !row_coordinates.as_array().iter().all(|value| value.is_integer()),
+            !row_coordinates
+                .as_array()
+                .iter()
+                .all(|value| value.is_integer()),
             "the row convention must reject (1,1,0)"
         );
         assert!(
@@ -3386,12 +3415,10 @@ mod tests {
             .expect("exact")
         );
         let identity = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-        assert!(anchor_congruence_is_feasible(
-            &identity,
-            &[fraction(5, 7), Rat::ZERO, Rat::ZERO],
-            &[]
-        )
-        .expect("exact"));
+        assert!(
+            anchor_congruence_is_feasible(&identity, &[fraction(5, 7), Rat::ZERO, Rat::ZERO], &[])
+                .expect("exact")
+        );
 
         // (5) the saturation of the coefficient system: the two-fold about `e_1`
         // with the parent lattice `Z^3 + (0, 0, 1/2)` gives the non-primitive row
@@ -3415,8 +3442,7 @@ mod tests {
         let mut difference = [[0i32; 3]; 3];
         for row in 0..3 {
             for column in 0..3 {
-                difference[row][column] =
-                    (if row == column { 1 } else { 0 }) - mapped[row][column];
+                difference[row][column] = (if row == column { 1 } else { 0 }) - mapped[row][column];
             }
         }
         assert_eq!(difference, [[2, 0, 0], [1, 0, 0], [0, 0, 2]]);
@@ -3537,8 +3563,7 @@ mod tests {
                     // the grid.
                     let mut base = [0i128; 3];
                     for axis in 0..3 {
-                        base[axis] =
-                            target[axis].numerator() * (grid / target[axis].denominator());
+                        base[axis] = target[axis].numerator() * (grid / target[axis].denominator());
                     }
                     let mut seen: std::collections::HashSet<[i128; 3]> =
                         std::collections::HashSet::new();
@@ -3614,5 +3639,4 @@ mod tests {
             "anchor congruence grid: {cases} cases, {solvable} solvable, {unsolvable} unsolvable"
         );
     }
-
 }

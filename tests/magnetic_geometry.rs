@@ -10,18 +10,16 @@
 //! which is the stage-2b work -- aligning the magnetic group's tabulated setting
 //! with the record's lattice.
 
+use cryspglib::irrep::magnetic_embedding::canonical_translation;
 use cryspglib::irrep::magnetic_embedding::{
     EmbeddingKind, GeometryAgreement, GeometryError, MagneticGeometry, MagneticOperation,
-    MagneticOperationSet,
-    basis_in_parent_conventional, compare_with_ordinary_geometry, conventional_lattice_index,
-    embedded_translation_lattice, embed_in_parent_conventional, embedding_shift_components,
-    full_translation_lattice,
-    parent_embedding_verdict,
-    geometry_of, magnetic_operations, measure_parent_containment, origin_in_parent_conventional,
+    MagneticOperationSet, basis_in_parent_conventional, compare_with_ordinary_geometry,
+    conventional_lattice_index, embed_in_parent_conventional, embedded_translation_lattice,
+    embedding_shift_components, full_translation_lattice, geometry_of, magnetic_operations,
+    measure_parent_containment, origin_in_parent_conventional, parent_embedding_verdict,
     search_parent_setting, translation_lattice, verify_embedding,
 };
 use cryspglib::irrep::query;
-use cryspglib::irrep::magnetic_embedding::canonical_translation;
 use cryspglib::irrep::subduction::{Lattice, Mat3R, Rat, Vec3R};
 
 fn first_record(sg: u8) -> cryspglib::irrep::types::MagneticIsotropyRecord {
@@ -50,7 +48,8 @@ fn every_magnetic_record_has_exact_readable_geometry() {
             assert!(geometry.index >= 1, "sg {sg}: a lattice index is positive");
             *indices.entry(geometry.index).or_insert(0) += 1;
             *origin_denominators.entry(record.origin[3]).or_insert(0) += 1;
-            let agreement = compare_with_ordinary_geometry(sg, row.ml_label, record.direction, &geometry);
+            let agreement =
+                compare_with_ordinary_geometry(sg, row.ml_label, record.direction, &geometry);
             *agreements
                 .entry(match agreement {
                     GeometryAgreement::Agree => "agree",
@@ -127,7 +126,10 @@ fn every_magnetic_record_has_exact_readable_geometry() {
     // Round r9b, item 1: with the change of basis on the correct side every
     // labelled pair spans the same lattice; the earlier 12,893 was the column
     // -lattice count, i.e. 2,346 false negatives and 0 false positives.
-    assert_eq!(same_lattice, 15_239, "rows whose ordinary row spans the same lattice");
+    assert_eq!(
+        same_lattice, 15_239,
+        "rows whose ordinary row spans the same lattice"
+    );
 }
 
 #[test]
@@ -221,8 +223,7 @@ fn the_setting_free_test_agrees_with_lattice_membership() {
                 let mut ordinary_rows = [[Rat::ZERO; 3]; 3];
                 for (row_index, values) in ordinary.basis.iter().enumerate() {
                     for (column, value) in values.iter().enumerate() {
-                        ordinary_rows[row_index][column] =
-                            Rat::from_integer(i128::from(*value));
+                        ordinary_rows[row_index][column] = Rat::from_integer(i128::from(*value));
                     }
                 }
                 let ordinary_lattice =
@@ -236,11 +237,16 @@ fn the_setting_free_test_agrees_with_lattice_membership() {
                         .all(|value| value.is_integer())
                 };
                 // Row lattices are equal iff each basis lies in the other's.
-                let forward = ordinary
+                let forward = ordinary.basis.iter().all(|row| {
+                    contains(
+                        &magnetic_lattice,
+                        row.map(|v| Rat::from_integer(i128::from(v))),
+                    )
+                });
+                let backward = geometry
                     .basis
                     .iter()
-                    .all(|row| contains(&magnetic_lattice, row.map(|v| Rat::from_integer(i128::from(v)))));
-                let backward = geometry.basis.iter().all(|row| contains(&ordinary_lattice, *row));
+                    .all(|row| contains(&ordinary_lattice, *row));
                 let expected = forward && backward;
                 assert_eq!(
                     geometry.spans_same_lattice_as(ordinary.basis),
@@ -265,8 +271,7 @@ fn the_setting_free_test_agrees_with_lattice_membership() {
 /// `verify_embedding` for a verdict.
 #[test]
 fn the_setting_search_family_is_not_a_decision_procedure() {
-    let mut histogram: std::collections::BTreeMap<usize, usize> =
-        std::collections::BTreeMap::new();
+    let mut histogram: std::collections::BTreeMap<usize, usize> = std::collections::BTreeMap::new();
     let mut unique = 0usize;
     for sg in 1..=230u8 {
         for row in query::magnetic_isotropy_subgroups_of(sg) {
@@ -469,9 +474,7 @@ fn the_parent_embedding_search_finds_the_identity_witnesses() {
         );
         let identity = embeddings
             .iter()
-            .find(|entry| {
-                entry.map == cryspglib::irrep::subduction::Mat3R::identity()
-            })
+            .find(|entry| entry.map == cryspglib::irrep::subduction::Mat3R::identity())
             .unwrap_or_else(|| panic!("SG {parent_sg} UNI {uni}: identity map missing"));
         assert_eq!(identity.kind, EmbeddingKind::Plain);
         assert!(
@@ -662,7 +665,10 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     let mut witness_counts: std::collections::BTreeMap<(u8, usize), (usize, usize)> =
         std::collections::BTreeMap::new();
     for sg in 1..=230u8 {
-        for (index, row) in query::magnetic_isotropy_subgroups_of(sg).into_iter().enumerate() {
+        for (index, row) in query::magnetic_isotropy_subgroups_of(sg)
+            .into_iter()
+            .enumerate()
+        {
             let record = row.subgroup;
             let is_witness = witnesses
                 .iter()
@@ -689,7 +695,10 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
             let embeddings = verdict.embeddings;
             entries += embeddings.len();
             *histogram.entry(embeddings.len()).or_insert(0) += 1;
-            let good = embeddings.iter().filter(|entry| entry.realises_record_lattice).count();
+            let good = embeddings
+                .iter()
+                .filter(|entry| entry.realises_record_lattice)
+                .count();
             *realising.entry(good).or_insert(0) += 1;
             if good == 1 {
                 unique_realising += 1;
@@ -790,7 +799,11 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     // reviewer aggregation keyed on `(parent_sg, UNI, map, shift, kind)` and
     // merged distinct records, which is why its 3,696 duplicates were neither
     // the entry count nor the pair count.)
-    assert_eq!(distinct_pairs.len(), 73_432, "distinct (record, map, shift)");
+    assert_eq!(
+        distinct_pairs.len(),
+        73_432,
+        "distinct (record, map, shift)"
+    );
     assert_eq!(distinct_maps.len(), 18_684, "distinct (record, map)");
     assert_eq!(histogram.get(&0), Some(&399), "records with no embedding");
     assert_eq!(
@@ -798,7 +811,10 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
         Some(&437),
         "records with no realising embedding"
     );
-    assert_eq!(unique_realising, 0, "no record has a unique realising embedding");
+    assert_eq!(
+        unique_realising, 0,
+        "no record has a unique realising embedding"
+    );
     // Round 23: the three-condition refutation must partition the zero rows, and
     // every row that has embeddings must have refused to certify (checked in the
     // loop).
@@ -1033,7 +1049,10 @@ fn parent_containment_of_the_naive_map_is_measured() {
     }
     assert_eq!(primitive, (9_726, 33_894, 48_618), "primitive parents");
     assert_eq!(centred, (6_995, 13_918, 35_471), "centred parents");
-    assert_eq!(failing_parents, 224, "parents with a unitary class outside the parent");
+    assert_eq!(
+        failing_parents, 224,
+        "parents with a unitary class outside the parent"
+    );
     assert_eq!(per_parent.get(&3), Some(&(16, 18, 31)));
 }
 
@@ -1057,7 +1076,11 @@ fn the_embedded_lattice_is_the_image_of_the_records_lattice() {
     let listed = translation_lattice(&set);
     let source = full_translation_lattice(&set);
     assert!(!listed.is_empty(), "UNI 20 lists a centring translation");
-    assert_eq!(source.len(), 3 + listed.len(), "Z^3 plus the listed generators");
+    assert_eq!(
+        source.len(),
+        3 + listed.len(),
+        "Z^3 plus the listed generators"
+    );
     let image = embedded_translation_lattice(&geometry, &set);
     assert_eq!(image.len(), source.len(), "one image per generator");
     // Every image is a lattice vector of the image lattice, and each generator's
@@ -1146,8 +1169,7 @@ fn the_full_translation_lattice_contains_the_cell_translations() {
             .operations
             .iter()
             .filter(|operation| {
-                operation.time_reversal
-                    && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+                operation.time_reversal && operation.rotation == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
             })
             .count();
     }
@@ -1195,7 +1217,9 @@ fn the_full_source_lattice_gate_rejects_the_round_20_counterexamples() {
         .expect("the round-20 record");
     let geometry = geometry_of(143, &record).expect("geometry");
     let set = magnetic_operations(1).expect("UNI 1");
-    let culprit = Mat3R::new(geometry.basis).inverse().expect("invertible basis");
+    let culprit = Mat3R::new(geometry.basis)
+        .inverse()
+        .expect("invertible basis");
     assert_eq!(
         verify_embedding(&geometry, &set, culprit, [Rat::ZERO; 3]),
         Err(GeometryError::SourceLatticeNotInParent { uni: 1 })
@@ -1255,13 +1279,19 @@ fn the_record_lattice_flag_is_equality() {
 
     // The identity on a primitive record realises `Z^3` exactly.
     let cell = synthetic(1, 1, [[1, 0, 0], [0, 1, 0], [0, 0, 1]], 1);
-    assert_eq!(entry_for(&cell, &Mat3R::identity()), (true, EmbeddingKind::Plain));
+    assert_eq!(
+        entry_for(&cell, &Mat3R::identity()),
+        (true, EmbeddingKind::Plain)
+    );
 
     // The same group with a doubled record lattice: containment still holds
     // (`Z^3` is mapped into `Z^3`), but `A L_M = Z^3 != 2Z^3`, so the flag is
     // false -- the case where "contained" and "realises the record" differ.
     let doubled = synthetic(1, 1, [[2, 0, 0], [0, 2, 0], [0, 0, 2]], 8);
-    assert_eq!(entry_for(&doubled, &Mat3R::identity()), (false, EmbeddingKind::Plain));
+    assert_eq!(
+        entry_for(&doubled, &Mat3R::identity()),
+        (false, EmbeddingKind::Plain)
+    );
     let set = magnetic_operations(1).expect("operations");
     verify_embedding(&doubled, &set, Mat3R::identity(), zero)
         .expect("the doubled record is still contained in the parent");
@@ -1300,7 +1330,9 @@ fn the_record_lattice_flag_is_equality() {
     // old listed-translation-only test called it true.
     let record = query::magnetic_isotropy_subgroups_of(1)
         .into_iter()
-        .find(|row| row.subgroup.mag_sg == 3 && row.subgroup.basis == [[0, 1, 0], [-1, 0, 0], [0, 0, 2]])
+        .find(|row| {
+            row.subgroup.mag_sg == 3 && row.subgroup.basis == [[0, 1, 0], [-1, 0, 0], [0, 0, 2]]
+        })
         .map(|row| row.subgroup)
         .expect("the Z1/P1 record");
     let geometry = geometry_of(1, &record).expect("geometry");
@@ -1413,8 +1445,12 @@ fn the_public_api_captures_the_missed_quarter_shifts() {
         );
         assert!(
             solution.representatives.iter().any(|representative| {
-                (0..3).all(|axis| (claimed[axis].checked_sub(representative[axis]).expect("exact"))
-                    .is_integer())
+                (0..3).all(|axis| {
+                    (claimed[axis]
+                        .checked_sub(representative[axis])
+                        .expect("exact"))
+                    .is_integer()
+                })
             }),
             "SG {parent_sg} UNI {uni}: the missed shift is not in any returned component"
         );
@@ -1423,10 +1459,7 @@ fn the_public_api_captures_the_missed_quarter_shifts() {
         // that builds the same map; both witnesses are reached through the
         // record's primitive and conventional bases, which coincide here.
         let embeddings = embed_in_parent_conventional(&geometry, &set).expect("search");
-        let same_map: Vec<_> = embeddings
-            .iter()
-            .filter(|entry| entry.map == map)
-            .collect();
+        let same_map: Vec<_> = embeddings.iter().filter(|entry| entry.map == map).collect();
         assert_eq!(
             same_map.len(),
             2 * components,
@@ -1439,7 +1472,11 @@ fn the_public_api_captures_the_missed_quarter_shifts() {
         }
         let distinct: std::collections::BTreeSet<[(i128, i128); 3]> = same_map
             .iter()
-            .map(|entry| entry.shift.map(|value| (value.numerator(), value.denominator())))
+            .map(|entry| {
+                entry
+                    .shift
+                    .map(|value| (value.numerator(), value.denominator()))
+            })
             .collect();
         assert_eq!(
             distinct.len(),
@@ -1470,8 +1507,8 @@ fn the_public_door_distinguishes_limits_from_refutations() {
         [Rat::ZERO, Rat::ZERO, Rat::ONE],
     ]);
     match embedding_shift_components(&geometry, &set, enormous) {
-        Err(GeometryError::Arithmetic)
-        | Err(GeometryError::ShiftEnumerationUnavailable { .. }) => {}
+        Err(GeometryError::Arithmetic) | Err(GeometryError::ShiftEnumerationUnavailable { .. }) => {
+        }
         other => panic!(
             "an exact-arithmetic limit must be unknown, not an empty solution set: {other:?}"
         ),
@@ -1584,7 +1621,10 @@ fn the_verdict_never_certifies_a_row_with_an_arithmetic_limit() {
         verdict.embeddings.is_empty(),
         "the centring vector cannot be pushed into Z^3 by a signed permutation"
     );
-    assert_eq!(verdict.candidates_without_witness, 0, "no arithmetic limit here");
+    assert_eq!(
+        verdict.candidates_without_witness, 0,
+        "no arithmetic limit here"
+    );
     assert!(
         verdict.excluded_by_source_lattice > 0,
         "the centring is refuted by the containment gate"
@@ -1610,7 +1650,10 @@ fn the_verdict_never_certifies_a_row_with_an_arithmetic_limit() {
     };
     let verdict = parent_embedding_verdict(&integer_geometry, &inverting).expect("decided");
     assert_eq!(verdict.embeddings, Vec::new());
-    assert_eq!(verdict.candidates_without_witness, 0, "no arithmetic limit here");
+    assert_eq!(
+        verdict.candidates_without_witness, 0,
+        "no arithmetic limit here"
+    );
     assert!(
         verdict.excluded_by_rotation > 0,
         "the inversion is refuted by the rotation screen"
