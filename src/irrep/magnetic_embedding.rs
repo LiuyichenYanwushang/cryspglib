@@ -58,7 +58,7 @@
 //! [`verify_against_database`] exists and why R9's acceptance is "align the
 //! operation set item by item with an independent source".
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::irrep::corep;
 use crate::irrep::subduction::{Mat3I, Mat3R, Rat, SubductionError, Vec3R};
@@ -221,6 +221,8 @@ pub enum MagneticContractError {
     },
     /// Exact arithmetic failed (overflow or a non-integral rotation product).
     Arithmetic,
+    /// Translation reduction exceeded its explicit coset budget; undecided.
+    ReductionCapacity { limit: usize },
     /// The parent's primitive basis could not be read.
     ParentPrimitiveBasisUnavailable { sg: u8 },
     /// The parent's primitive basis is not on the exact small grid.
@@ -288,7 +290,14 @@ impl std::fmt::Display for MagneticContractError {
                 f,
                 "UNI {uni}: {field} is recorded as {recorded} but the operations give {derived}"
             ),
-            Self::Arithmetic => write!(f, "exact arithmetic failed while composing operations"),
+            Self::Arithmetic => write!(
+                f,
+                "exact arithmetic failed while composing or reducing operations"
+            ),
+            Self::ReductionCapacity { limit } => write!(
+                f,
+                "magnetic translation reduction exceeded {limit} cosets; result unknown"
+            ),
             Self::ParentPrimitiveBasisUnavailable { sg } => {
                 write!(
                     f,
@@ -372,7 +381,7 @@ pub fn magnetic_operations(uni: usize) -> Result<MagneticOperationSet, MagneticC
         unitary_classes: 0,
         antiunitary_classes: 0,
     };
-    set.classes = classify(&set);
+    set.classes = classify(&set)?;
     set.unitary_classes = set
         .classes
         .iter()
@@ -384,19 +393,19 @@ pub fn magnetic_operations(uni: usize) -> Result<MagneticOperationSet, MagneticC
 
 /// One representative per class modulo the set's translation lattice, in
 /// first-seen order.
-fn classify(set: &MagneticOperationSet) -> Vec<MagneticOperation> {
+fn classify(set: &MagneticOperationSet) -> Result<Vec<MagneticOperation>, MagneticContractError> {
     let lattice = translation_lattice(set);
     let mut representatives: Vec<MagneticOperation> = Vec::new();
     let mut keys: Vec<MagneticKey> = Vec::new();
     for operation in &set.operations {
-        let key = MagneticKey::of(operation, &lattice);
+        let key = MagneticKey::of(operation, &lattice)?;
         if keys.contains(&key) {
             continue;
         }
         keys.push(key);
         representatives.push(*operation);
     }
-    representatives
+    Ok(representatives)
 }
 
 /// The non-zero pure translations `(E | τ, unprimed)` the set lists, exact.
@@ -479,57 +488,89 @@ fn gcd(mut left: i128, mut right: i128) -> i128 {
 /// lattice generators and their negatives), and the exact lexicographic minimum
 /// is returned.  No coefficient range has to be chosen: round r9a showed that a
 /// fixed range can miss the canonical representative (e.g. `1/2` modulo `1/6`
-/// needs coefficient three), so the reduction is range-free by construction.
+/// needs coefficient three). The complete coset is explored within an explicit
+/// state budget rather than an arbitrary coefficient box.
+///
+/// # Panics
+/// Panics if a coordinate denominator exceeds i128 or the coset exceeds 65,536
+/// states. Use [canonical_translation_checked] to receive these limits as errors.
 pub fn canonical_translation(translation: [Rat; 3], lattice: &[[Rat; 3]]) -> [Rat; 3] {
-    let mut denominator = 1i128;
-    for value in translation.iter().chain(lattice.iter().flatten()) {
-        denominator = denominator / gcd(denominator, value.denominator()) * value.denominator();
-    }
-    let scale = |value: Rat| -> i128 { value.numerator() * (denominator / value.denominator()) };
-    let reduce = |value: i128| -> i128 { value.rem_euclid(denominator) };
-    let start = [
-        reduce(scale(translation[0])),
-        reduce(scale(translation[1])),
-        reduce(scale(translation[2])),
-    ];
-    let generators: Vec<[i128; 3]> = lattice
-        .iter()
-        .map(|generator| {
-            [
-                reduce(scale(generator[0])),
-                reduce(scale(generator[1])),
-                reduce(scale(generator[2])),
-            ]
-        })
-        .filter(|generator| *generator != [0, 0, 0])
-        .collect();
+    canonical_translation_checked(translation, lattice)
+        .expect("exact magnetic translation reduction exceeded its arithmetic or capacity limit")
+}
 
-    let mut best = start;
-    let mut seen: std::collections::HashSet<[i128; 3]> = std::collections::HashSet::new();
-    let mut queue: Vec<[i128; 3]> = vec![start];
-    seen.insert(start);
-    while let Some(current) = queue.pop() {
-        if current < best {
-            best = current;
+/// Checked lexicographic reduction modulo the listed lattice generators and
+/// the implicit integer translations.
+///
+/// Each coordinate has its own common denominator. Unrelated denominators in
+/// different coordinates must not be multiplied together. Integer parts are
+/// removed *before* scaling, and modular addition never forms an overflowing
+/// sum. Thus any returned representative is exact in both debug and release.
+///
+/// An arithmetic/capacity error is an **unknown** result, never evidence that a
+/// vector is or is not in the lattice. The legacy [canonical_translation]
+/// wrapper panics on these errors; validation paths use this checked entry.
+///
+/// ponytail: bounded coset enumeration (65,536 states); use a checked lattice
+/// normal form if larger synthetic translation quotients need to be supported.
+pub fn canonical_translation_checked(
+    translation: [Rat; 3],
+    lattice: &[[Rat; 3]],
+) -> Result<[Rat; 3], MagneticContractError> {
+    const MAX_STATES: usize = 65_536;
+    let mut denominators = [1i128; 3];
+    for axis in 0..3 {
+        let mut denominator = translation[axis].denominator();
+        for generator in lattice {
+            let other = generator[axis].denominator();
+            denominator = (denominator / gcd(denominator, other))
+                .checked_mul(other)
+                .ok_or(MagneticContractError::Arithmetic)?;
         }
+        denominators[axis] = denominator;
+    }
+    let scale = |point: &[Rat; 3]| -> [i128; 3] {
+        std::array::from_fn(|axis| {
+            // 0 <= remainder < d and d divides D, hence remainder * (D/d) < D.
+            let value = point[axis];
+            value.numerator().rem_euclid(value.denominator())
+                * (denominators[axis] / value.denominator())
+        })
+    };
+    let start = scale(&translation);
+    let generators: Vec<_> = lattice.iter().map(scale).filter(|g| *g != [0; 3]).collect();
+    let mut seen = HashSet::from([start]);
+    let mut queue = VecDeque::from([start]);
+    let mut best = start;
+    while let Some(point) = queue.pop_front() {
+        best = best.min(point);
         for generator in &generators {
-            for sign in [1i128, -1] {
-                let candidate = [
-                    reduce(current[0] + sign * generator[0]),
-                    reduce(current[1] + sign * generator[1]),
-                    reduce(current[2] + sign * generator[2]),
-                ];
-                if seen.insert(candidate) {
-                    queue.push(candidate);
+            for add in [true, false] {
+                let next = std::array::from_fn(|axis| {
+                    let (x, g, d) = (point[axis], generator[axis], denominators[axis]);
+                    if add {
+                        if x >= d - g { x - (d - g) } else { x + g }
+                    } else if x < g {
+                        d - (g - x)
+                    } else {
+                        x - g
+                    }
+                });
+                if seen.insert(next) {
+                    if seen.len() > MAX_STATES {
+                        return Err(MagneticContractError::ReductionCapacity { limit: MAX_STATES });
+                    }
+                    queue.push_back(next);
                 }
             }
         }
     }
-    [
-        Rat::new(best[0], denominator).expect("non-zero denominator"),
-        Rat::new(best[1], denominator).expect("non-zero denominator"),
-        Rat::new(best[2], denominator).expect("non-zero denominator"),
-    ]
+    let mut reduced = [Rat::ZERO; 3];
+    for axis in 0..3 {
+        reduced[axis] = Rat::new(best[axis], denominators[axis])
+            .map_err(|_| MagneticContractError::Arithmetic)?;
+    }
+    Ok(reduced)
 }
 
 /// Group product `left * right` in the magnetic convention: rotations multiply,
@@ -568,9 +609,12 @@ struct MagneticKey {
 }
 
 impl MagneticKey {
-    fn of(operation: &MagneticOperation, lattice: &[[Rat; 3]]) -> Self {
-        let translation = canonical_translation(operation.translation, lattice);
-        Self {
+    fn of(
+        operation: &MagneticOperation,
+        lattice: &[[Rat; 3]],
+    ) -> Result<Self, MagneticContractError> {
+        let translation = canonical_translation_checked(operation.translation, lattice)?;
+        Ok(Self {
             rotation: operation.rotation,
             translation: [
                 (translation[0].numerator(), translation[0].denominator()),
@@ -578,16 +622,16 @@ impl MagneticKey {
                 (translation[2].numerator(), translation[2].denominator()),
             ],
             time_reversal: operation.time_reversal,
-        }
+        })
     }
 }
 
 /// Whether `vector` lies in the lattice (mod the integer translations), judged
 /// by whether its canonical class representative is the zero class.
-fn in_lattice(vector: [Rat; 3], lattice: &[[Rat; 3]]) -> bool {
-    canonical_translation(vector, lattice)
+fn in_lattice(vector: [Rat; 3], lattice: &[[Rat; 3]]) -> Result<bool, MagneticContractError> {
+    Ok(canonical_translation_checked(vector, lattice)?
         .iter()
-        .all(|value| value.is_zero())
+        .all(|value| value.is_zero()))
 }
 
 /// Prove that `set` is a group (modulo its translation lattice), that its
@@ -605,7 +649,7 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
     // Re-derive everything from `operations` first: a set whose bookkeeping was
     // edited after construction must not be verified through the stale copy.
     let lattice = translation_lattice(set);
-    let derived_classes = classify(set);
+    let derived_classes = classify(set)?;
     let derived_unitary = set
         .operations
         .iter()
@@ -648,8 +692,8 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
     let universe: HashMap<MagneticKey, usize> = classes
         .iter()
         .enumerate()
-        .map(|(index, operation)| (MagneticKey::of(operation, &lattice), index))
-        .collect();
+        .map(|(index, operation)| Ok((MagneticKey::of(operation, &lattice)?, index)))
+        .collect::<Result<_, MagneticContractError>>()?;
     if universe.len() != classes.len() {
         return Err(MagneticContractError::NotAGroup {
             uni: set.uni,
@@ -665,7 +709,7 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
             let image = rotation
                 .checked_mul_vector(&Vec3R::new(*generator))
                 .map_err(|_| MagneticContractError::Arithmetic)?;
-            if !in_lattice(*image.as_array(), &lattice) {
+            if !in_lattice(*image.as_array(), &lattice)? {
                 return Err(MagneticContractError::LatticeNotRotationInvariant { uni: set.uni });
             }
         }
@@ -675,7 +719,7 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
     for left in &classes {
         for right in &classes {
             let product = compose(left, right)?;
-            if !universe.contains_key(&MagneticKey::of(&product, &lattice)) {
+            if !universe.contains_key(&MagneticKey::of(&product, &lattice)?) {
                 return Err(MagneticContractError::NotAGroup {
                     uni: set.uni,
                     generated: 0,
@@ -688,14 +732,12 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
     // The identity class is present, and every class reaches it by repeated
     // multiplication (so every class has an inverse).
     let identity: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-    let is_identity = |operation: &MagneticOperation| {
-        operation.rotation == identity
-            && !operation.time_reversal
-            && canonical_translation(operation.translation, &lattice)
-                .iter()
-                .all(|value| value.is_zero())
+    let identity_key = MagneticKey {
+        rotation: identity,
+        translation: [(0, 1); 3],
+        time_reversal: false,
     };
-    if !classes.iter().any(is_identity) {
+    if !universe.contains_key(&identity_key) {
         return Err(MagneticContractError::NotAGroup {
             uni: set.uni,
             generated: 0,
@@ -706,7 +748,7 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
         let mut power = *operation;
         let mut reached = false;
         for _ in 0..classes.len() {
-            if is_identity(&power) {
+            if MagneticKey::of(&power, &lattice)? == identity_key {
                 reached = true;
                 break;
             }
@@ -737,8 +779,8 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
     let unitary_keys: HashMap<MagneticKey, usize> = unitary
         .iter()
         .enumerate()
-        .map(|(index, operation)| (MagneticKey::of(operation, &lattice), index))
-        .collect();
+        .map(|(index, operation)| Ok((MagneticKey::of(operation, &lattice)?, index)))
+        .collect::<Result<_, MagneticContractError>>()?;
     if unitary_keys.len() != unitary.len() {
         return Err(MagneticContractError::UnitaryNotClosed {
             uni: set.uni,
@@ -749,7 +791,7 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
     for left in &unitary {
         for right in &unitary {
             let product = compose(left, right)?;
-            if !unitary_keys.contains_key(&MagneticKey::of(&product, &lattice)) {
+            if !unitary_keys.contains_key(&MagneticKey::of(&product, &lattice)?) {
                 return Err(MagneticContractError::UnitaryNotClosed {
                     uni: set.uni,
                     generated: 0,
@@ -767,13 +809,7 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
             .expect("antiunitary classes exist");
         let mut coset: Vec<MagneticKey> = Vec::new();
         for unitary_operation in &unitary {
-            let product = compose(representative, unitary_operation).map_err(|_| {
-                MagneticContractError::AntiunitaryNotCoset {
-                    uni: set.uni,
-                    coset: 0,
-                    antiunitary: set.antiunitary_classes,
-                }
-            })?;
+            let product = compose(representative, unitary_operation)?;
             if !product.time_reversal {
                 return Err(MagneticContractError::AntiunitaryNotCoset {
                     uni: set.uni,
@@ -781,7 +817,7 @@ pub fn verify_group(set: &MagneticOperationSet) -> Result<(), MagneticContractEr
                     antiunitary: set.antiunitary_classes,
                 });
             }
-            let key = MagneticKey::of(&product, &lattice);
+            let key = MagneticKey::of(&product, &lattice)?;
             if !coset.contains(&key) {
                 coset.push(key);
             }
@@ -941,7 +977,8 @@ pub enum GeometryError {
     UnreadableParent { sg: u8 },
     /// The parent's translations are not on the small exact grid.
     ParentTranslationOffGrid { sg: u8 },
-    /// Exact arithmetic failed while converting frames.
+    /// Exact arithmetic failed, or bounded lattice reduction was undecided.
+    /// Neither case is a proof of non-containment.
     Arithmetic,
     /// The record's basis is singular in the parent's conventional frame.
     SingularConventionalBasis { uni: usize },
@@ -985,7 +1022,10 @@ impl std::fmt::Display for GeometryError {
                 f,
                 "parent space group {sg} has a translation off the exact grid"
             ),
-            Self::Arithmetic => write!(f, "exact arithmetic failed while converting frames"),
+            Self::Arithmetic => write!(
+                f,
+                "exact arithmetic or lattice reduction limit reached while converting frames"
+            ),
             Self::SingularConventionalBasis { uni } => write!(
                 f,
                 "UNI {uni}: the record's basis is singular in the parent's conventional frame"
@@ -1246,7 +1286,10 @@ pub fn measure_parent_containment(
         .collect();
 
     let map = geometry.map_matrix();
-    let inverse = map.inverse().expect("non-singular basis");
+    let inverse = map.inverse().map_err(|error| match error {
+        SubductionError::SingularMatrix => GeometryError::DegenerateBasis { uni: geometry.uni },
+        _ => GeometryError::Arithmetic,
+    })?;
 
     let mut result = ParentContainment {
         classes: set.class_count(),
@@ -1261,7 +1304,7 @@ pub fn measure_parent_containment(
         let conjugated = map
             .checked_mul(&rotation)
             .and_then(|product| product.checked_mul(&inverse))
-            .expect("exact product");
+            .map_err(|_| GeometryError::Arithmetic)?;
         let Ok(mapped_rotation) = conjugated.to_int_matrix() else {
             continue;
         };
@@ -1277,33 +1320,36 @@ pub fn measure_parent_containment(
                     .checked_add(
                         value
                             .checked_mul(Rat::from_integer(entry))
-                            .expect("exact product"),
+                            .map_err(|_| GeometryError::Arithmetic)?,
                     )
-                    .expect("exact sum");
+                    .map_err(|_| GeometryError::Arithmetic)?;
             }
             *cell = sum;
         }
         let moved = map
             .checked_mul_vector(&Vec3R::new(operation.translation))
-            .expect("exact product");
+            .map_err(|_| GeometryError::Arithmetic)?;
         let mut mapped_translation = [Rat::ZERO; 3];
         for axis in 0..3 {
-            mapped_translation[axis] = moved.get(axis).checked_add(shift[axis]).expect("exact sum");
+            mapped_translation[axis] = moved
+                .get(axis)
+                .checked_add(shift[axis])
+                .map_err(|_| GeometryError::Arithmetic)?;
         }
-        let found = parent_operations.iter().any(|candidate| {
-            if candidate.rotation != mapped_rotation {
-                return false;
-            }
+        let found = if let Some(candidate) = parent_operations
+            .iter()
+            .find(|candidate| candidate.rotation == mapped_rotation)
+        {
             let mut difference = [Rat::ZERO; 3];
             for axis in 0..3 {
                 difference[axis] = mapped_translation[axis]
                     .checked_sub(candidate.translation[axis])
-                    .expect("exact difference");
+                    .map_err(|_| GeometryError::Arithmetic)?;
             }
-            canonical_translation(difference, &parent_lattice)
-                .iter()
-                .all(|value| value.is_zero())
-        });
+            in_lattice(difference, &parent_lattice).map_err(|_| GeometryError::Arithmetic)?
+        } else {
+            false
+        };
         if operation.time_reversal {
             if parent_rotations.contains(&mapped_rotation) {
                 result.antiunitary_rotations_in_parent += 1;
@@ -1459,34 +1505,36 @@ pub fn search_parent_setting(
                         .checked_add(
                             value
                                 .checked_mul(Rat::from_integer(entry))
-                                .expect("exact product"),
+                                .map_err(|_| GeometryError::Arithmetic)?,
                         )
-                        .expect("exact sum");
+                        .map_err(|_| GeometryError::Arithmetic)?;
                 }
                 *cell = sum;
             }
             let moved = candidate
                 .checked_mul_vector(&Vec3R::new(operation.translation))
-                .map_err(|_| GeometryError::DegenerateBasis { uni: geometry.uni })?;
+                .map_err(|_| GeometryError::Arithmetic)?;
             let mut mapped_translation = [Rat::ZERO; 3];
             for axis in 0..3 {
-                mapped_translation[axis] =
-                    moved.get(axis).checked_add(shift[axis]).expect("exact sum");
+                mapped_translation[axis] = moved
+                    .get(axis)
+                    .checked_add(shift[axis])
+                    .map_err(|_| GeometryError::Arithmetic)?;
             }
-            let found = parent_operations.iter().any(|candidate| {
-                if candidate.rotation != mapped_rotation {
-                    return false;
-                }
+            let found = if let Some(candidate) = parent_operations
+                .iter()
+                .find(|candidate| candidate.rotation == mapped_rotation)
+            {
                 let mut difference = [Rat::ZERO; 3];
                 for axis in 0..3 {
                     difference[axis] = mapped_translation[axis]
                         .checked_sub(candidate.translation[axis])
-                        .expect("exact difference");
+                        .map_err(|_| GeometryError::Arithmetic)?;
                 }
-                canonical_translation(difference, &parent_lattice)
-                    .iter()
-                    .all(|value| value.is_zero())
-            });
+                in_lattice(difference, &parent_lattice).map_err(|_| GeometryError::Arithmetic)?
+            } else {
+                false
+            };
             if !found {
                 accepted = false;
                 break;
@@ -1616,7 +1664,7 @@ fn source_lattice_lands_in_parent_checked(
         let image = map
             .checked_mul_vector(&Vec3R::new(generator))
             .map_err(|_| GeometryError::Arithmetic)?;
-        if !in_lattice(*image.as_array(), parent_lattice) {
+        if !in_lattice(*image.as_array(), parent_lattice).map_err(|_| GeometryError::Arithmetic)? {
             return Ok(false);
         }
     }
@@ -1678,7 +1726,9 @@ pub fn realises_record_lattice_checked(
         let pullback = map_inverse
             .checked_mul_vector(&Vec3R::new(*row))
             .map_err(|_| GeometryError::Arithmetic)?;
-        if !in_lattice(*pullback.as_array(), &translation_lattice(set)) {
+        if !in_lattice(*pullback.as_array(), &translation_lattice(set))
+            .map_err(|_| GeometryError::Arithmetic)?
+        {
             return Ok(false);
         }
     }
@@ -1722,7 +1772,7 @@ fn realises_record_lattice(
     record_lattice
         .iter()
         .all(|row| match inverse.checked_mul_vector(&Vec3R::new(*row)) {
-            Ok(pullback) => in_lattice(*pullback.as_array(), source_lattice),
+            Ok(pullback) => in_lattice(*pullback.as_array(), source_lattice).unwrap_or(false),
             Err(_) => false,
         })
 }
@@ -2012,7 +2062,7 @@ pub fn verify_embedding(
         &mapped_rotations,
         &parent_operations,
         &parent_lattice,
-    ) {
+    )? {
         return Err(GeometryError::NotInParent {
             uni: geometry.uni,
             rotation: IDENTITY_ROTATION,
@@ -2527,7 +2577,11 @@ fn search_embeddings(
                             &mapped_rotations,
                             parent_operations,
                             parent_lattice,
-                        ) {
+                        )
+                        .unwrap_or(false)
+                        {
+                            // A failed recheck cannot certify absence: with no
+                            // witness this map remains unsettled below.
                             continue;
                         }
                         // The flag is a function of the MAP (and the record),
@@ -2606,59 +2660,38 @@ fn embedding_is_consistent(
     mapped_rotations: &[Mat3I],
     parent_operations: &[(Mat3I, [Rat; 3])],
     parent_lattice: &[[Rat; 3]],
-) -> bool {
-    for (index, operation) in set.classes.iter().enumerate() {
-        let rotation = mapped_rotations[index];
-        let mut shifted = [Rat::ZERO; 3];
-        for row in 0..3 {
-            let mut sum = Rat::ZERO;
-            for column in 0..3 {
-                let identity = i128::from(if row == column { 1 } else { 0 });
-                let entry = identity - i128::from(rotation[row][column]);
-                let Ok(term) = shift[column].checked_mul(Rat::from_integer(entry)) else {
-                    return false;
-                };
-                let Ok(next) = sum.checked_add(term) else {
-                    return false;
-                };
-                sum = next;
-            }
-            shifted[row] = sum;
-        }
-        let Ok(moved) = map.checked_mul_vector(&Vec3R::new(operation.translation)) else {
-            return false;
+) -> Result<bool, GeometryError> {
+    if mapped_rotations.len() != set.classes.len() {
+        return Err(GeometryError::Arithmetic);
+    }
+    for (operation, rotation) in set.classes.iter().zip(mapped_rotations) {
+        // Parent operations with the same rotation differ by a parent lattice
+        // vector, so one representative suffices. Do not turn arithmetic errors
+        // into a false non-containment verdict through an any/all predicate.
+        let Some((_, translation)) = parent_operations.iter().find(|(r, _)| r == rotation) else {
+            return Ok(false);
         };
-        let mut target = [Rat::ZERO; 3];
+        let moved = map
+            .checked_mul_vector(&Vec3R::new(operation.translation))
+            .map_err(|_| GeometryError::Arithmetic)?;
+        let rotated_shift = Mat3R::from_ints(*rotation)
+            .checked_mul_vector(&Vec3R::new(*shift))
+            .map_err(|_| GeometryError::Arithmetic)?;
+        let mut difference = [Rat::ZERO; 3];
         for axis in 0..3 {
-            let Ok(next) = moved.get(axis).checked_add(shifted[axis]) else {
-                return false;
-            };
-            target[axis] = next;
+            difference[axis] = moved
+                .get(axis)
+                .checked_add(shift[axis])
+                .and_then(|v| v.checked_sub(rotated_shift.get(axis)))
+                .and_then(|v| v.checked_sub(translation[axis]))
+                .map_err(|_| GeometryError::Arithmetic)?;
         }
-        let hit = parent_operations
-            .iter()
-            .any(|(parent_rotation, parent_translation)| {
-                if *parent_rotation != rotation {
-                    return false;
-                }
-                let mut difference = [Rat::ZERO; 3];
-                for axis in 0..3 {
-                    let Ok(next) = target[axis].checked_sub(parent_translation[axis]) else {
-                        return false;
-                    };
-                    difference[axis] = next;
-                }
-                canonical_translation(difference, parent_lattice)
-                    .iter()
-                    .all(|value| value.is_zero())
-            });
-        if !hit {
-            return false;
+        if !in_lattice(difference, parent_lattice).map_err(|_| GeometryError::Arithmetic)? {
+            return Ok(false);
         }
     }
-    true
+    Ok(true)
 }
-
 /// Exact Gaussian elimination on a 3x4 augmented system; `None` when
 /// inconsistent, otherwise a particular solution and a kernel basis.
 /// Solve `system` over the rationals.
@@ -3588,7 +3621,7 @@ mod tests {
                                     difference[axis] = Rat::new(scaled[axis], grid)
                                         .expect("the grid denominator is non-zero");
                                 }
-                                if in_lattice(difference, lattice) {
+                                if in_lattice(difference, lattice).unwrap() {
                                     witness = Some(point);
                                     break 'grid;
                                 }

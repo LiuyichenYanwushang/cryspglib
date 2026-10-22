@@ -58,7 +58,10 @@
 //!   the mathematics pins, and the list is sorted so the output is a
 //!   deterministic function of the input.
 
-use super::{Mat3I, Rat, ShiftComponents, canonical_translation, gcd, parent_lattice_basis};
+use super::{
+    MagneticContractError, Mat3I, Rat, ShiftComponents, canonical_translation_checked, gcd,
+    parent_lattice_basis,
+};
 
 /// Largest number of discrete components [`solve_joint_congruence`] will
 /// materialize.  Each component contributes one exact point; the cap turns a
@@ -171,7 +174,7 @@ pub(super) fn solve_shift_components(
                 .checked_div(Rat::from_integer(denominator))
                 .map_err(|_| ShiftEnumerationError::Arithmetic)?;
         }
-        representatives.push(to_parent_frame(point, parent_lattice));
+        representatives.push(to_parent_frame(point, parent_lattice)?);
     }
     // `Rat` is not `Ord` (it is exhaustive over a sign-normalized fraction), so
     // the deterministic order is by the reduced numerator/denominator pairs.
@@ -207,15 +210,15 @@ pub(super) fn solve_shift_components(
 }
 
 /// Reduce a shift into the parent frame's canonical class representative.
-fn to_parent_frame(point: [Rat; 3], parent_lattice: &[[Rat; 3]]) -> [Rat; 3] {
-    let canonical = canonical_translation(point, parent_lattice);
-    let mut out = [Rat::ZERO; 3];
-    for (index, value) in canonical.iter().enumerate() {
-        out[index] = *value;
-    }
-    out
+fn to_parent_frame(
+    point: [Rat; 3],
+    parent_lattice: &[[Rat; 3]],
+) -> Result<[Rat; 3], ShiftEnumerationError> {
+    canonical_translation_checked(point, parent_lattice).map_err(|error| match error {
+        MagneticContractError::ReductionCapacity { .. } => ShiftEnumerationError::Capacity,
+        _ => ShiftEnumerationError::Arithmetic,
+    })
 }
-
 /// Solve `rows x == rhs (mod modulus)` for `x in R^3/Z^3`, exactly and
 /// completely.
 ///
@@ -773,7 +776,8 @@ mod tests {
     /// Membership in the parent lattice, through the production reduction (a
     /// different code path from the solver's).
     fn in_parent_frame(point: [Rat; 3], lattice: &[[Rat; 3]]) -> bool {
-        canonical_translation(point, lattice)
+        canonical_translation_checked(point, lattice)
+            .unwrap()
             .iter()
             .all(|value| value.is_zero())
     }
@@ -1314,7 +1318,7 @@ mod tests {
                         ratio(z, resolution),
                     ];
                     if satisfies(&equations[0], &point, &lattice) {
-                        let canonical = to_parent_frame(point, &lattice);
+                        let canonical = to_parent_frame(point, &lattice).unwrap();
                         grid.insert(key(&canonical));
                     }
                 }
@@ -1336,7 +1340,7 @@ mod tests {
                 for z in 0..refined {
                     let point = [ratio(x, refined), ratio(y, refined), ratio(z, refined)];
                     if satisfies(&equations[0], &point, &lattice) {
-                        finer.insert(key(&to_parent_frame(point, &lattice)));
+                        finer.insert(key(&to_parent_frame(point, &lattice).unwrap()));
                     }
                 }
             }

@@ -22,6 +22,40 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 最新磁算术修复（R34，2026-10-23；基线 `314e378`）
+
+本人复现并修复了旧格归约的极端 i128 风险：全坐标共分母与未约化分子的乘法在 debug
+会 panic，在 release 会回绕。SG 1 的非整格映射被错误接受为 `Ok(())`，`MAX/3` 的
+归约曾得到 `1/5` 而非 `1/3`；类平移计算超限又被误报为 `NotInParent`。
+最终负例包括 UNI 2 中平方不是格平移的反幺正操作。初稿把 UNI 4 的任意平移反演当作
+非法群对照不成立（它仍平方为恒等），现明确作为**合法大数正例**；不引用初稿的错误推论。
+前后证据保留在 [release 负例](target/logs/r34-arithmetic/before-release-v2.txt)、
+[debug 旧边界](target/logs/r34-arithmetic/before-debug.txt) 与本轮最终验收目录。
+
+[magnetic_embedding](src/irrep/magnetic_embedding.rs) 新增 `canonical_translation_checked`：
+逐坐标 checked LCM，先去整数部分再缩放，不溢出的模加减，完整陪集遍历至 65,536 状态。
+超限返回具名 `MagneticContractError::ReductionCapacity`；加这个 variant 后，下游穷尽
+`match` 需补分支。群分类/公理、磁嵌入、checked 格相等、两条诊断路径与
+[完整 shift 求解器](src/irrep/magnetic_embedding/complete_shift.rs) 传播计算失败，
+不将其计作非包含证明。几何层的 `Arithmetic` 也表示有界格归约未决；搜索回验失败且
+没有见证的候选保持 unsettled。没有改 Rust 数据、依赖、普通算法或接入旧 WIP。
+
+[公开算术回归](tests/magnetic_arithmetic.rs) **13 项**：原负例、合法大数、MAX/MIN
+归约、宽模加法、单坐标 LCM 超限、65,536/65,537 状态边界、群验证容量错误、两条诊断
+与 scalar 输入错误传播；另以 216 个点逐一对照两个已知有限阶生成元的完整系数积枚举。
+最终冻结 [summary](target/logs/r34-accepted/battery/summary.txt)：**885 passed / 0 failed**
+（原 872 + 新 13），63 个测试壳、67/67 池作业、16/16 条腿 exit 0；三个普通 TSV 的
+42,074 / 80,294 / 11,010 行与既有 SHA 不变，4==8 线程；**239 个输入哈希前后相同**。
+[debug 回归](target/logs/r34-accepted/arithmetic-debug.txt) 13/0，附加 Python 格式化 7/0，
+格式、diff、严格 debug/release clippy 均通过。电池 701 s（构建 271 + example 发现 69 s），
+不是与上一轮热档的性能 A/B；本账本在冻结验收完成后更新。
+
+**边界仍明确**：旧无 Result 的 `canonical_translation` 兼容入口在算术/容量超限时仍会
+按文档 panic，应对外部大数输入使用 checked 入口。`Rat::checked_sub` 的 `MIN - MIN`
+仍可能因中间取负超限而返回错误，本轮只确保它不再被误判为不包含；不是无限精度承诺。
+本轮不增加数学分导覆盖；一般 Γ 的 B/C、复源/高维、非 Γ/full-star/spinor 与一般 setting
+仍未完成，ordinary `VERDICT complete` 仍不是项目完成。无删除、无 push。
+
 ### 最新工程检查点：用户要求的快照与格式化（2026-10-23）
 
 已按用户顺序完成两个**本地**提交：`d9c29e5` 保存当时全部 10 个未提交文件（含 R31 probe、
