@@ -58,9 +58,11 @@ module covers every pinned ordinal.  It never writes.
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -748,53 +750,49 @@ def _build_entries(oracle_dir):
 
 
 def parse_committed(text):
-    """Parse the committed entries back, for semantic comparison and tests.
+    """Parse every frozen-setting row, independent of Rust whitespace/layout.
 
-    The shipped module is the 15,239-record full table, so one entry is
-    `(ordinal, parent, child, U numerator, U denominator, child shift)`; a
-    caller that only wants its own legacy rows filters by ordinal.
+    The generated literals are also Python literals after expanding the three
+    named constants.  literal_eval accepts no executable expressions; shape and
+    integer checks below reject malformed rows instead of silently dropping them.
     """
     marker = "pub static FROZEN_EMBEDDING_SETTINGS"
     if marker not in text:
         raise GenerationError(f"{OUTPUT}: FROZEN_EMBEDDING_SETTINGS not found")
-    body = text[text.index(marker):].split("=", 1)[1]
-    body = body[body.index("[") + 1:body.rindex("];")]
-    constants = {"IDENTITY": IDENTITY, "CYCLIC": CYCLIC}
-    shifts = {"NO_SHIFT": list(ZERO_SHIFT)}
+    constants = {"IDENTITY": IDENTITY, "CYCLIC": CYCLIC, "NO_SHIFT": list(ZERO_SHIFT)}
+    try:
+        body = text.split(marker, 1)[1].split("=", 1)[1]
+        body = "\n".join(line.split("//", 1)[0] for line in body.splitlines())
+        body = body[:body.index(";")].strip()
+        if not body.startswith("&["):
+            raise ValueError("expected an array reference")
+        body = re.sub(r"\b(IDENTITY|CYCLIC|NO_SHIFT)\b", lambda m: repr(constants[m[0]]), body[1:])
+        rows = ast.literal_eval(body)
+    except (IndexError, SyntaxError, ValueError) as error:
+        raise GenerationError(f"cannot parse frozen settings: {error}") from error
+    if not isinstance(rows, list):
+        raise GenerationError("frozen settings must be an array")
     entries = []
-    for raw_line in body.splitlines():
-        line = raw_line.split("//")[0].strip()
-        if not line.startswith("("):
-            continue
-        fields = _split_top_level(line.strip().rstrip(",").strip("()"))
-        if len(fields) != 6:
-            raise GenerationError(f"cannot parse entry: {line!r}")
-        ordinal, parent, child = (int(fields[i]) for i in range(3))
-        setting_text, denominator_text, shift_text = fields[3], fields[4], fields[5]
-        if setting_text in constants:
-            setting = constants[setting_text]
-        else:
-            setting = [
-                [int(value) for value in row.split(",")]
-                for row in setting_text.strip("[]").split("], [")
-            ]
-        denominator = int(denominator_text)
+    for row in rows:
+        if not isinstance(row, tuple) or len(row) != 6:
+            raise GenerationError(f"cannot parse entry: {row!r}")
+        ordinal, parent, child, setting, denominator, shift = row
+        if not all(type(value) is int for value in (ordinal, parent, child, denominator)):
+            raise GenerationError(f"non-integer setting metadata: {row!r}")
         if denominator <= 0:
-            raise GenerationError(f"non-positive setting denominator: {line!r}")
-        if shift_text in shifts:
-            shift = list(shifts[shift_text])
-        else:
-            shift = [int(value) for value in shift_text.strip("[]").split(",")]
-        entries.append(
-            {
-                "ordinal": ordinal,
-                "parent": parent,
-                "child": child,
-                "setting": setting,
-                "setting_denominator": denominator,
-                "child_shift": shift,
-            }
-        )
+            raise GenerationError(f"non-positive setting denominator: {row!r}")
+        if not (isinstance(setting, list) and len(setting) == 3 and all(
+            isinstance(axis, list) and len(axis) == 3 and all(type(value) is int for value in axis)
+            for axis in setting
+        )):
+            raise GenerationError(f"invalid setting matrix: {row!r}")
+        if not (isinstance(shift, list) and len(shift) == 4
+                and all(type(value) is int for value in shift) and shift[3] > 0):
+            raise GenerationError(f"invalid child shift: {row!r}")
+        entries.append({
+            "ordinal": ordinal, "parent": parent, "child": child,
+            "setting": setting, "setting_denominator": denominator, "child_shift": shift,
+        })
     return entries
 
 
@@ -838,25 +836,6 @@ def check_ordinal_coverage(committed, record_count):
         f"(first {duplicated[:5]}) and carry {len(outside)} ordinals outside the "
         f"pinned range (first {outside[:5]})"
     )
-
-
-def _split_top_level(text):
-    """Split on commas that are not inside brackets."""
-    fields = []
-    depth = 0
-    current = ""
-    for character in text:
-        if character in "[":
-            depth += 1
-        elif character in "]":
-            depth -= 1
-        if character == "," and depth == 0:
-            fields.append(current.strip())
-            current = ""
-        else:
-            current += character
-    fields.append(current.strip())
-    return fields
 
 
 def rational_setting(entry):

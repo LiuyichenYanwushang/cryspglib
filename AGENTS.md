@@ -22,6 +22,40 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 最新工程检查点：用户要求的快照与格式化（2026-10-23）
+
+已按用户顺序完成两个**本地**提交：`d9c29e5` 保存当时全部 10 个未提交文件（含 R31 probe、
+R32 Type-C 增量与旧 WIP），随后执行 `cargo fmt` 并提交为 `e8a4ec5`（48 个 Rust 文件）。
+没有 push，没有删除文件；磁盘仍余约 65 GiB。旧
+[joint_congruence.rs](src/irrep/magnetic_embedding/joint_congruence.rs) 现在已跟踪，但仍未接入生产。
+以下历史条目的“未提交/未跟踪”只表示当时状态，不能作为当前 git 状态。
+
+格式化后首轮冻结验收有两条失败：Python setting 表解析器假设一行一个 tuple；官方方向表
+生成器未经过 rustfmt。另行检查发现 w 字符表的 Python 校验同样依赖紧凑排版。
+本轮修复共享 setting 解析器（标准库 `ast.literal_eval` + 全行结构/整数/分母校验），
+三个调用者共用它；三个生产生成器调用当前 Rust 工具链的 `rustfmt --edition 2024`，
+w 表校验接受两种排版。不改任何 Rust 表值、表示算法、公开 API 或依赖；不跳过多行条目，
+不降低逐字节生成校验。新增 [格式化回归](scripts/test_rustfmt_tables.py) 7 项，覆盖多行行数、
+重复/畸形行拒绝、全 15,239 条 setting 往返、三个生成器稳定性与方向数据篡改拒绝。
+
+最终冻结 [summary](target/logs/continuation-format-fixed/battery/summary.txt)：
+**872 passed / 0 failed**，62 个测试壳、66/66 池作业、16/16 条腿 exit 0；三 TSV 的
+42,074 / 80,294 / 11,010 行及既有 SHA 不变，4==8 线程；238 个输入哈希前后相同。
+附加格式化 7 项与 w 数据 4 项通过，`cargo fmt -- --check` 和 `git diff --check` 通过。
+电池 349 s，与另一条 Python 验收并发，不作性能 A/B。旧 `chainFast.sh` 的最终 exit 0
+**不能**代表全绿；本轮另逐条核对了所有腿及池作业退出码。
+
+扩展 Python 验收：直接 `discover -s scripts` 执行 288 项（271 通过、13 跳过、4 个
+包相对导入错误）；改用 `PYTHONPATH=scripts python3 -m unittest scripts.test_derive_iso_irrep_data_hall scripts.test_freeze_iso_irrep_data_hall scripts.test_iso_irrep_data_hall scripts.test_iso_irrep_exact`
+补跑 66 项全部通过。合计 **337 通过 / 13 跳过**，不声称最初那条 discovery 命令全绿。
+以 `scripts.test_*` 模块身份加载全部 23 个模块另实测得到 350 个测试、导入错误 0。
+日志见 [首次 discovery](target/logs/continuation-format-e8a4ec5/python-all-after.txt) 与
+[包上下文补跑](target/logs/continuation-format-e8a4ec5/python-package-tests.txt)。本账本在冻结验收后更新。
+
+**仍未完成**：一般 Γ 的 B/C、高维/复源、非 Γ/full-star 磁分导与一般 setting solver；
+旧 i128 格归约极端输入边界仍未修复。本轮没有新增数学覆盖，不把 ordinary gate 的
+`VERDICT complete` 当成整个项目完成。后续继续从已复现的输入/算术边界与受限 Γ 域推进。
+
 ### 最新磁嵌入增量（2026-10-10，第 24 轮；已提交 `9ef75f7`）
 
 第 23 轮 F1 的有限 shift 走查已替换为**联立全部类的精确同余解集**：

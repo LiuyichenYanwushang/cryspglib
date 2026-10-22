@@ -1,53 +1,23 @@
 #!/usr/bin/env python3
 """Read the committed frozen table and ask the engine which entries it accepts."""
-import json, re, sys
-sys.path.insert(0, '.')
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import generate_subduction_settings as settings
 import probe_census as pm
-
-CONST = {
-    "IDENTITY": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-    "CYCLIC": [[0, 0, 1], [1, 0, 0], [0, 1, 0]],
-}
-
-def split_top_level(text):
-    """Split a Rust tuple body on commas that are not inside brackets."""
-    parts, depth, current = [], 0, []
-    for char in text:
-        if char in "[(":
-            depth += 1
-        elif char in "])":
-            depth -= 1
-        if char == "," and depth == 0:
-            parts.append("".join(current).strip())
-            current = []
-        else:
-            current.append(char)
-    if current:
-        parts.append("".join(current).strip())
-    return parts
 
 
 def parse(path):
-    entries = []
-    for line in open(path, encoding="utf-8"):
-        stripped = line.strip()
-        if not stripped.startswith("(") or not stripped.endswith("),"):
-            continue
-        fields = split_top_level(stripped[1:-2])
-        if len(fields) != 6 or not fields[0].isdigit():
-            continue
-        ordinal, parent, child = int(fields[0]), int(fields[1]), int(fields[2])
-        token, denominator, shift_token = fields[3], int(fields[4]), fields[5]
-        if token in CONST:
-            u = CONST[token]
-        else:
-            nums = [int(v) for v in re.findall(r"-?\d+", token)]
-            assert len(nums) == 9, line
-            u = [nums[0:3], nums[3:6], nums[6:9]]
-        shift = [0, 0, 0, 1] if shift_token == "NO_SHIFT" else [
-            int(v) for v in re.findall(r"-?\d+", shift_token)]
-        entries.append((ordinal, parent, child, u, denominator, shift))
-    return entries
+    with open(path, encoding="utf-8") as handle:
+        rows = settings.parse_committed(handle.read())
+    return [
+        (row["ordinal"], row["parent"], row["child"], row["setting"],
+         row["setting_denominator"], row["child_shift"])
+        for row in rows
+    ]
+
 
 def main(path, out):
     entries = parse(path)

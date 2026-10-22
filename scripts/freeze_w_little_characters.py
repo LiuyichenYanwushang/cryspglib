@@ -1048,7 +1048,7 @@ def character_parts(value):
 
 
 def emit_rust(tables, missing, path):
-    """Write the frozen character tables as a generated Rust data module."""
+    """Write a Rust data module, formatted by the active toolchain's rustfmt."""
     lines = [
         "//! Little-group character tables of the parametric-k irreps behind the",
         "//! `other_wave_vector_subduction` rows.",
@@ -1150,8 +1150,12 @@ def emit_rust(tables, missing, path):
         lines.append(f"    ({sg}, \"{label}\"),")
     lines.append("];")
     lines.append("")
+    rendered = subprocess.run(
+        ["rustfmt", "--edition", "2024"], input="\n".join(lines),
+        text=True, capture_output=True, check=True,
+    ).stdout
     with open(path, "w", encoding="utf-8") as handle:
-        handle.write("\n".join(lines))
+        handle.write(rendered)
     return len(tables)
 
 

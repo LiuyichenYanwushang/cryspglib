@@ -9,6 +9,8 @@ The generated module is a read-only table keyed by ``(space group, Miller-Love
 label)`` with one entry per direction label; the query API lives in
 ``irrep::isotropy``.  ``--check`` regenerates in memory and exits non-zero when
 the committed file differs, which is how the gate keeps the two in sync.
+Generation uses rustfmt from the active Rust toolchain (edition 2024), so
+``cargo fmt`` and the byte-for-byte check agree.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 
 HEADER = '''//! Official direction descriptors of the ISOTROPY program (milestone R7).
@@ -136,7 +139,8 @@ def validate_universe(records: dict) -> None:
 
 
 def render(json_path: str) -> str:
-    payload = json.load(open(json_path, encoding="utf-8"))
+    with open(json_path, encoding="utf-8") as handle:
+        payload = json.load(handle)
     sources = payload["sources"]
     records = payload["records"]
     validate_universe(records)
@@ -174,12 +178,16 @@ def render(json_path: str) -> str:
         "directions": directions,
     }.items():
         head = head.replace("{" + name + "}", str(value))
-    return (
+    rendered = (
         head
         + "\n".join(body)
         + "\n"
         + FOOTER.replace("{empty_rows}", "\n".join(empty_rows))
     )
+    return subprocess.run(
+        ["rustfmt", "--edition", "2024"], input=rendered,
+        text=True, capture_output=True, check=True,
+    ).stdout
 
 
 def verify_empty_tables(json_path: str, jobs: int) -> int:
@@ -192,7 +200,8 @@ def verify_empty_tables(json_path: str, jobs: int) -> int:
     """
     import concurrent.futures  # noqa: PLC0415
 
-    payload = json.load(open(json_path, encoding="utf-8"))
+    with open(json_path, encoding="utf-8") as handle:
+        payload = json.load(handle)
     empty = sorted(
         key for key, entry in payload["records"].items() if entry["status"] == "empty"
     )
@@ -238,7 +247,8 @@ def main() -> int:
         if not os.path.isfile(args.output):
             print(f"{args.output} is missing", file=sys.stderr)
             return 1
-        current = open(args.output, encoding="utf-8").read()
+        with open(args.output, encoding="utf-8") as handle:
+            current = handle.read()
         if current != rendered:
             print(
                 f"{args.output} is stale; re-run {os.path.basename(__file__)}",

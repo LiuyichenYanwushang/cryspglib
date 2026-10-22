@@ -22,16 +22,17 @@ TABLE_RE = re.compile(
     r"LittleCharacterTable \{(?P<body>.*?)\n    \},", re.S
 )
 OP_RE = re.compile(
-    r'LittleOperation \{ element: "(?P<element>[^"]*)", '
-    r"rotation: \[(?P<rotation>.*?)\], translation: \[(?P<translation>.*?)\], "
-    r"character: \[(?P<real>-?\d+), (?P<imaginary>-?\d+)\] \}",
+    r'LittleOperation\s*\{\s*element:\s*"(?P<element>[^"]*)",\s*'
+    r"rotation:\s*\[(?P<rotation>.*?)\],\s*translation:\s*\[(?P<translation>.*?)\],\s*"
+    r"character:\s*\[\s*(?P<real>-?\d+),\s*(?P<imaginary>-?\d+)\s*,?\s*\]\s*,?\s*\}",
     re.S,
 )
 UNRESOLVED_RE = re.compile(r'\((\d+), "([A-Z0-9]+)"\)')
 
 
 def parse_tables():
-    text = open(DATA_PATH, encoding="utf-8").read()
+    with open(DATA_PATH, encoding="utf-8") as handle:
+        text = handle.read()
     tables = []
     for match in TABLE_RE.finditer(text):
         body = match.group("body")

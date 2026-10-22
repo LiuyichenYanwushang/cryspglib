@@ -27,14 +27,20 @@ task-8 subset and refuses to write the module).  It validates before it writes:
 
 ``--check`` assembles in memory and compares with the committed module instead of
 writing; ``--partial`` allows an incomplete table for experiments and says so.
+Emission uses rustfmt from the active Rust toolchain (edition 2024); readers
+accept both compact and formatted tuples without dropping multiline entries.
 """
 import argparse
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from fractions import Fraction
 from math import gcd
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import generate_subduction_settings as settings
 
 HEADER = '''//! Generated per-ordinal embedding settings for the full-subduction engine.
 //!
@@ -168,48 +174,21 @@ def load_jsonl(path, only_records):
     return records
 
 
-def split_top_level(text):
-    """Split on commas that are not inside `[...]`."""
-    fields = []
-    depth = 0
-    current = ""
-    for character in text:
-        if character == "[":
-            depth += 1
-        elif character == "]":
-            depth -= 1
-        if character == "," and depth == 0:
-            fields.append(current.strip())
-            current = ""
-        else:
-            current += character
-    fields.append(current.strip())
-    return fields
-
-
 def parse_committed(path):
-    """The `(ordinal, parent, child)` identity of every row of a module.
-
-    Used both for `--check` and to learn the ordinal set the shipped table must
-    keep covering, so a truncated input cannot pass as a complete table.  The
-    matrix field is not decoded here: `--check` compares the rendered text, and
-    the expected set only needs the ordinal.
-    """
-    entries = {}
+    """Read row identities with the same layout-independent parser as the gate."""
     if not os.path.exists(path):
         return None
-    with open(path, encoding="utf-8") as handle:
-        for line in handle:
-            stripped = line.split("//")[0].strip()
-            if not stripped.startswith("("):
-                continue
-            fields = split_top_level(stripped.rstrip(",").strip("()"))
-            if len(fields) != 6:
-                raise SystemExit(f"{path}: cannot parse entry {line!r}")
-            ordinal = int(fields[0])
-            if ordinal in entries:
-                raise SystemExit(f"{path}: ordinal {ordinal} appears twice")
-            entries[ordinal] = (int(fields[1]), int(fields[2]))
+    try:
+        with open(path, encoding="utf-8") as handle:
+            rows = settings.parse_committed(handle.read())
+    except settings.GenerationError as error:
+        raise SystemExit(f"{path}: {error}") from error
+    entries = {}
+    for row in rows:
+        ordinal = row["ordinal"]
+        if ordinal in entries:
+            raise SystemExit(f"{path}: ordinal {ordinal} appears twice")
+        entries[ordinal] = (row["parent"], row["child"])
     return entries
 
 
@@ -247,7 +226,10 @@ def render(entries):
             f" {rust_matrix(numerator, denominator)}, {denominator}, {shift_text}),\n"
         )
     lines.append("];\n")
-    return "".join(lines)
+    return subprocess.run(
+        ["rustfmt", "--edition", "2024"], input="".join(lines),
+        text=True, capture_output=True, check=True,
+    ).stdout
 
 
 def main(argv=None):
