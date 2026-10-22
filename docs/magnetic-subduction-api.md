@@ -235,3 +235,104 @@ CARGO_TARGET_DIR=target CARGO_BUILD_JOBS=8 RAYON_NUM_THREADS=8 \
 The ordinary-API regression `tests/subduction_api.rs` and the R26/R27/R29
 magnetic suites are run unchanged to show that registering this module does not
 alter the layers it wraps.  No dependency, commit or push is part of this round.
+
+## R32 increment: restricted paired type-C entry point
+
+R32 adds one incremental request/answer pair without changing the R30 surface:
+
+```text
+pub fn subduce_type_c(
+    request: &MagneticSubductionRequest<'_>,
+) -> Result<MagneticTypeCReport, MagneticTypeCError>
+```
+
+It resolves the same `MagneticSubductionRequest` through the same private
+resolver (parent check, source label/dimension, condensing row, four identities)
+and the same `verify_matrix_gamma_input`, then calls the restricted
+`magnetic_matrix_subduction::subduce_matrix_gamma_type_c`.  Only a two-
+dimensional source is accepted (`MagneticTypeCError::SourceDimensionNotTwo`
+otherwise).
+
+### Ownership and identity shape
+
+`MagneticTypeCReport` owns the actual verified `MatrixGammaModel` directly; it
+has no scalar branch.  `model()` and `matrix_model()` both return that model, and
+`source()`, `condensing()`, `record()`, `embedding()`, `classes()` and
+`translation_lattice()` are the same identity surfaces as
+`MagneticSubductionReport`.
+
+The legacy `MagneticTargetIdentity` (single `h_source` field),
+`MagneticOutcome` (two variants) and `subduce` are unchanged: no field or variant
+was added, so existing struct literals and exhaustive matches stay valid.  The
+paired identity is a new owned type:
+
+```text
+MagneticTypeCTargetIdentity {
+    magnetic_label: String,
+    magnetic_bc: Option<String>,   // always None: the summary has no corep BC field
+    unitary_sg: u8,
+    h_sources: [IrrepLabels; 2],   // both genuine CDML/BC ordinary-irrep identities
+    dimension: u32,                // 2
+    multiplicity: u32,             // 1
+}
+```
+
+`MagneticTypeCOutcome` carries that identity plus the normalized `2×2` complex
+copies, the reconstructed `TargetMatrixOperator` table and the checked
+`covered_dimension` (2).  Neither `h_sources` entry is a fabricated magnetic BC
+name; `magnetic_bc` stays `None`.
+
+### Witnesses
+
+Both requests use `source = SG 89 GM5`, `map = I`, `shift = 0`,
+`LatticePolicy::RequireExact`, `direction = Index(0)`, and both `η` signs:
+
+| condensing | UNI | H | `h_sources` (CDML / BC) | result |
+|---|---|---|---|---|
+| `GM2` | 749 | SG 16 P222 | `GM3`/`Γ4`, `GM4`/`Γ2` | display `GM3 + GM4`, dim 2, mult 1, covered 2 |
+| `GM4` | 751 | SG 21 C222 | `GM3`/`Γ4`, `GM4`/`Γ2` | same pair; `D(a0²) = -I` branch |
+
+The engine independently checks the target law, the non-zero complex
+intertwiner, `U†U = I₂`, full complex rank, covered dimension 2 and the
+complex-vector reconstruction for every class.  The two H identities are read
+from their own database rows; the source (`GM5`) and condensing (`GM2`/`GM4`)
+identities remain independent, and `H` is a different space group than the
+source's parent.
+
+The legacy `subduce` on the same UNI 749 request still refuses explicitly with
+`Matrix(NoMatchingTarget { examined: ["GM1", "GM2"] })`; it does not silently
+drop the second H identity or claim a one-source type-A success.  A Type-A
+record (for example UNI 747) is refused by the paired entry with
+`NoMatchingTarget` whose `examined` list is empty.
+
+### Errors and scope
+
+`MagneticTypeCError` is a separate enum (`Request`, `Engine`,
+`SourceDimensionNotTwo`), wrapping `MagneticSubductionApiError` or
+`MatrixTypeCError`; the R30 error enum keeps its original variants and sources.
+The paired engine's refusals include finite-domain exclusions (spinor,
+dimension, compound, non-Γ, finite non-real, off-grid, wrong source count) and
+unresolved data (missing/ambiguous H row, `NonFinite`, equivalent H pair,
+unresolved corep, provenance/identity mismatch).  The constants `dimension`,
+`multiplicity` and `covered_dimension` are engine-checked, not copied from a
+summary label.
+
+Out of scope: type-A/B targets through this entry, complex H characters,
+non-Γ/spinor sources, full-star, setting search and external corep oracles.
+The type-C classification itself is the summary's Wigner result; R32 does not
+recompute Wigner `W`.
+
+### Verification
+
+```text
+CARGO_TARGET_DIR=target CARGO_BUILD_JOBS=8 cargo test --offline \
+  --test magnetic_type_c_subduction
+CARGO_TARGET_DIR=target CARGO_BUILD_JOBS=8 cargo test --offline --lib \
+  magnetic_matrix_subduction::tests
+CARGO_TARGET_DIR=target CARGO_BUILD_JOBS=8 cargo clippy --offline --lib \
+  --test magnetic_type_c_subduction -- -D warnings
+```
+
+The legacy `tests/magnetic_subduction_api.rs`, `tests/magnetic_matrix_subduction.rs`
+and the R25–R31 suites are run unchanged.  No dependency, commit or push is part
+of R32.

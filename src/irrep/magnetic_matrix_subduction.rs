@@ -106,6 +106,26 @@
 //! higher-dimensional, type B/C and complex targets are refused by name or
 //! skipped as out of shape; no setting search, no phase substitution, no
 //! fallback `U`, and no new matrix framework is introduced.
+//!
+//! # R32: restricted paired type-C target
+//!
+//! [`subduce_matrix_gamma_type_c`] is the incremental companion for the type-C
+//! slice of the same certified source model: the target is a two-dimensional
+//! Γ corepresentation whose unitary restriction is **exactly two inequivalent
+//! non-spinor real `±1` one-dimensional H irreps**, exchanged by the
+//! antiunitary coset (both `D(a₀²) = +I` and `-I` are legal).  Its target table
+//! is constructed from the two independent H character tables and the actual
+//! `a₀`, `a₀²` and `a₀⁻¹ h a₀`; the twisted pairing, the square and every
+//! ordered pair are checked before the complex intertwiner is matched.  The
+//! real-linear Hom space of this complex (Schur-C) corep is two-dimensional
+//! (`I` and `diag(i, -i)` both intertwine it), so its dimension is deliberately
+//! **not** the multiplicity: the copy count is the number of normalized,
+//! pairwise-orthogonal copies under the source-dimension cap, and the success
+//! evidence is `U†U = I₂`, full complex rank, covered dimension 2 and the
+//! complex-vector reconstruction.  The legacy [`MatrixSubductionPiece`],
+//! [`MatrixSubductionError`] and [`subduce_matrix_gamma`] are unchanged; a
+//! type-C-only record is still refused by the legacy entry point with
+//! [`MatrixSubductionError::NoMatchingTarget`].
 
 use num_complex::Complex64;
 
@@ -122,7 +142,7 @@ use crate::irrep::magnetic_subduction;
 use crate::irrep::magnetic_summary::{self, MagneticCorepSummary, MagneticKPointSummary};
 use crate::irrep::query;
 use crate::irrep::subduction::{Mat3I, Rat};
-use crate::irrep::types::IrrepRecord;
+use crate::irrep::types::{CharacterRow, IrrepRecord};
 use crate::irrep::wigner;
 
 /// The Γ (k = 0) k-point coordinates the summary tables use.
@@ -2583,24 +2603,21 @@ fn check_target_law(
 }
 
 /// The best available `2×d` intertwiner copies for one target table.
-fn match_piece(
-    corep: &MagneticCorepSummary,
-    table: &TargetTable,
+/// The real-linear intertwiner kernel of `source → target`, and the normalized
+/// independent copies taken from it.
+///
+/// This is deliberately shared by the Type-A and restricted Type-C paths: the
+/// copy count is **not** the kernel dimension.  Copies are individually
+/// normalized (`U†U = I`) and pairwise orthogonal, and the caller still has to
+/// prove that they cover the source space.
+fn matching_copies(
     source: &RealCorep,
-    context: &TargetContext,
-    uni: usize,
-) -> Result<Option<MatrixSubductionPiece>, MatrixSubductionError> {
+    table: &TargetTable,
+) -> (Vec<Vec<f64>>, Vec<Vec<Complex64>>) {
     let dimension = table.dimension;
     let target = RealCorep::from_target(&table.operators);
     let (rows, width) = hom_rows(source, &target);
     let kernel = real_kernel(&rows, width);
-    if kernel.is_empty() {
-        return Ok(None);
-    }
-
-    // Keep copies that are individually normalized AND pairwise orthogonal
-    // (their cross blocks vanish), so the exhibited family is an orthonormal
-    // family in the certified Euclidean metric rather than merely independent.
     let mut chosen: Vec<Vec<Complex64>> = Vec::new();
     for vector in &kernel {
         let matrix = intertwiner_from_vector(vector, dimension);
@@ -2618,6 +2635,18 @@ fn match_piece(
             break;
         }
     }
+    (kernel, chosen)
+}
+
+fn match_piece(
+    corep: &MagneticCorepSummary,
+    table: &TargetTable,
+    source: &RealCorep,
+    context: &TargetContext,
+    uni: usize,
+) -> Result<Option<MatrixSubductionPiece>, MatrixSubductionError> {
+    let dimension = table.dimension;
+    let (_, chosen) = matching_copies(source, table);
     if chosen.is_empty() {
         return Ok(None);
     }
@@ -2763,7 +2792,24 @@ fn verify_reconstruction(
     model: &MatrixGammaModel,
     piece: &MatrixSubductionPiece,
 ) -> Result<(), MatrixSubductionError> {
-    let dimension = piece.dimension as usize;
+    verify_reconstruction_data(
+        model,
+        &piece.label,
+        piece.dimension as usize,
+        &piece.copies,
+        &piece.operators,
+    )
+}
+
+/// The shared complex-vector reconstruction check: it only needs the class
+/// actions, the target label for diagnostics, the copies and their operators.
+fn verify_reconstruction_data(
+    model: &MatrixGammaModel,
+    label: &str,
+    dimension: usize,
+    copies: &[Vec<Complex64>],
+    operators: &[TargetMatrixOperator],
+) -> Result<(), MatrixSubductionError> {
     let mut probes: Vec<Vec<Complex64>> = (0..dimension)
         .map(|index| {
             (0..dimension)
@@ -2783,7 +2829,7 @@ fn verify_reconstruction(
             .collect(),
     );
 
-    for copy in &piece.copies {
+    for copy in copies {
         for probe in &probes {
             let image: Vec<Complex64> = (0..SOURCE_DIMENSION)
                 .map(|row| {
@@ -2792,9 +2838,9 @@ fn verify_reconstruction(
                         .sum::<Complex64>()
                 })
                 .collect();
-            for class in 0..model.classes.len() {
+            for (class, operator) in operators.iter().enumerate().take(model.classes.len()) {
                 let source = model.actions[class].apply([image[0], image[1]]);
-                let target = piece.operators[class].apply(probe);
+                let target = operator.apply(probe);
                 let expected: Vec<Complex64> = (0..SOURCE_DIMENSION)
                     .map(|row| {
                         (0..dimension)
@@ -2807,7 +2853,7 @@ fn verify_reconstruction(
                 {
                     return Err(MatrixSubductionError::TargetCorepInconsistent {
                         uni: model.uni,
-                        label: piece.label.clone(),
+                        label: label.to_string(),
                         reason: format!(
                             "the complex reconstruction fails at class {class} for a copy"
                         ),
@@ -2817,6 +2863,1107 @@ fn verify_reconstruction(
         }
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// R32: restricted type-C paired-target subduction
+// ---------------------------------------------------------------------------
+
+/// The one-line scope fence of [`subduce_matrix_gamma_type_c`].
+pub const TYPE_C_SCOPE: &str = "Two-dimensional real non-spinor non-compound Gamma parent irrep \
+(certified operation-aware matrix table) restricted to an embedded magnetic group; target: one \
+Wigner type-C two-dimensional Gamma corepresentation whose unitary subgroup restriction is \
+exactly two inequivalent non-spinor real ±1 one-dimensional H irreps; the antiunitary coset \
+exchanges the pair.  Spinor, compound, non-Gamma, complex H characters, type-A/B targets, \
+other H-pair shapes and setting-search cases are outside this entry point.";
+
+/// Why one generated `H` character value is not usable as the real `±1` datum
+/// this restricted path requires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TypeCCharacterProblem {
+    /// NaN or infinity: unresolved data, not a domain exclusion.
+    NonFinite,
+    /// Finite but with a non-zero imaginary part.
+    NonReal,
+    /// Finite and real, but not within tolerance of `+1` or `-1`.
+    OffGrid,
+}
+
+impl TypeCCharacterProblem {
+    fn name(self) -> &'static str {
+        match self {
+            Self::NonFinite => "NonFinite",
+            Self::NonReal => "NonReal",
+            Self::OffGrid => "OffGrid",
+        }
+    }
+}
+
+/// Classify a stored real matrix entry on the finite `±1` grid.
+fn type_c_real_sign(value: f64) -> Result<i8, TypeCCharacterProblem> {
+    if !value.is_finite() {
+        return Err(TypeCCharacterProblem::NonFinite);
+    }
+    if (value - 1.0).abs() <= GRID_TOLERANCE {
+        Ok(1)
+    } else if (value + 1.0).abs() <= GRID_TOLERANCE {
+        Ok(-1)
+    } else {
+        Err(TypeCCharacterProblem::OffGrid)
+    }
+}
+
+/// Classify one generated complex character value on the finite real `±1` grid.
+///
+/// Non-finite values are unresolved; a finite non-zero imaginary part and a
+/// finite real value off the grid are domain exclusions.  This is a tolerance
+/// classification of generated `f64` data, not a proof about its exact binary
+/// value.
+fn type_c_complex_sign(value: Complex64) -> Result<i8, TypeCCharacterProblem> {
+    if !value.re.is_finite() || !value.im.is_finite() {
+        return Err(TypeCCharacterProblem::NonFinite);
+    }
+    if value.im.abs() > GRID_TOLERANCE {
+        return Err(TypeCCharacterProblem::NonReal);
+    }
+    type_c_real_sign(value.re)
+}
+
+/// Why the restricted paired type-C subduction was refused.
+///
+/// This is a separate enum from [`MatrixSubductionError`] so the existing
+/// public error type and its exhaustive matches are untouched.  Exclusions
+/// (spinor, compound, non-real finite, off-grid, dimension, non-Γ) are reported
+/// in [`Self::NoMatchingTarget`]'s `rejected` list; unavailable or non-finite
+/// data is an unresolved refusal, never a silent zero.
+#[derive(Debug)]
+pub enum MatrixTypeCError {
+    /// The magnetic corep summary of the model's UNI could not be computed.
+    SummaryFailed { uni: usize, reason: String },
+    /// The summary has no Γ k-point.
+    NoGammaKPoint { uni: usize },
+    /// A possibly two-dimensional non-spinor Γ corep could not be constructed,
+    /// so the target list is not known to be complete.
+    UnresolvedTargetData {
+        uni: usize,
+        source: String,
+        minimum_dimension: Option<usize>,
+        reason: String,
+    },
+    /// The R27 raw-operation provenance of the summary's Γ columns failed.
+    TargetProvenance { uni: usize, reason: String },
+    /// One H source record is missing, ambiguous or unusable as data.
+    HSource {
+        sg: u8,
+        label: String,
+        reason: String,
+    },
+    /// A finite generated character is outside the real `±1` domain or is
+    /// non-finite (see `problem`).
+    Character {
+        sg: u8,
+        label: &'static str,
+        problem: &'static str,
+    },
+    /// The two H sources are operation-by-operation equivalent, so the type-C
+    /// exchange is not meaningful: unresolved, not "no candidate".
+    EquivalentHSources {
+        uni: usize,
+        label: String,
+        first: &'static str,
+        second: &'static str,
+    },
+    /// The constructed target or its binding to `M` is inconsistent.
+    Inconsistent {
+        uni: usize,
+        label: String,
+        stage: &'static str,
+        reason: String,
+    },
+    /// No examined type-C candidate is equivalent to the restriction.
+    NoMatchingTarget {
+        parent_sg: u8,
+        source: &'static str,
+        uni: usize,
+        examined: Vec<String>,
+        rejected: Vec<String>,
+    },
+    /// More than one type-C candidate matches the restriction.
+    AmbiguousTarget { uni: usize, labels: Vec<String> },
+    /// The matched piece does not cover the whole two-dimensional source.
+    IncompleteDecomposition {
+        source_dimension: u32,
+        covered_dimension: u32,
+    },
+    /// The exhibited copy is not one orthonormal full-rank basis of the source.
+    SourceSpaceNotIsometric { covered_dimension: u32 },
+    /// Exact arithmetic failed inside the checker.
+    Arithmetic { reason: String },
+}
+
+impl std::fmt::Display for MatrixTypeCError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SummaryFailed { uni, reason } => {
+                write!(f, "UNI {uni}: the magnetic corep summary failed: {reason}")
+            }
+            Self::NoGammaKPoint { uni } => write!(f, "UNI {uni}: the summary has no Γ k-point"),
+            Self::UnresolvedTargetData {
+                uni,
+                source,
+                minimum_dimension,
+                reason,
+            } => write!(
+                f,
+                "UNI {uni}: the Γ corep of source {source} (minimum dimension {minimum_dimension:?}) \
+                 is unresolved: {reason}"
+            ),
+            Self::TargetProvenance { uni, reason } => write!(
+                f,
+                "UNI {uni}: the R27 raw-operation provenance of the Γ columns failed: {reason}"
+            ),
+            Self::HSource { sg, label, reason } => write!(
+                f,
+                "SG {sg}: the paired type-C H source {label:?} is unusable: {reason}"
+            ),
+            Self::Character { sg, label, problem } => write!(
+                f,
+                "SG {sg}: the H character of {label:?} is {problem}; the paired type-C domain \
+                 requires finite real ±1 values"
+            ),
+            Self::EquivalentHSources {
+                uni,
+                label,
+                first,
+                second,
+            } => write!(
+                f,
+                "UNI {uni}: the type-C corep {label} pairs {first} and {second}, whose character \
+                 rows are operation-by-operation equal; the exchange cannot be decided"
+            ),
+            Self::Inconsistent {
+                uni,
+                label,
+                stage,
+                reason,
+            } => write!(
+                f,
+                "UNI {uni}: the type-C target {label} is inconsistent at {stage}: {reason}"
+            ),
+            Self::NoMatchingTarget {
+                parent_sg,
+                source,
+                uni,
+                examined,
+                rejected,
+            } => write!(
+                f,
+                "SG {parent_sg} source {source} / UNI {uni}: none of the examined type-C targets \
+                 ({}) is realised; rejected: {}",
+                examined.join(", "),
+                rejected.join("; ")
+            ),
+            Self::AmbiguousTarget { uni, labels } => write!(
+                f,
+                "UNI {uni}: several type-C targets match the restriction: {}",
+                labels.join(", ")
+            ),
+            Self::IncompleteDecomposition {
+                source_dimension,
+                covered_dimension,
+            } => write!(
+                f,
+                "the type-C piece covers {covered_dimension} of {source_dimension} source dimensions"
+            ),
+            Self::SourceSpaceNotIsometric { covered_dimension } => write!(
+                f,
+                "the {covered_dimension} covered dimensions are not one orthonormal full-rank copy \
+                 of the two-dimensional source space"
+            ),
+            Self::Arithmetic { reason } => write!(f, "exact arithmetic failed: {reason}"),
+        }
+    }
+}
+
+impl std::error::Error for MatrixTypeCError {}
+
+/// One restricted type-C target of the magnetic group, with both independent H
+/// source identities and the complex intertwiner that realises it.
+#[derive(Debug, Clone)]
+pub struct MatrixTypeCPiece {
+    label: String,
+    unitary_sg: u8,
+    h_sources: [&'static str; 2],
+    dimension: u32,
+    multiplicity: u32,
+    copies: Vec<Vec<Complex64>>,
+    operators: Vec<TargetMatrixOperator>,
+}
+
+impl MatrixTypeCPiece {
+    /// The target corep display label as the magnetic summary names it.
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+
+    /// Space group number of the target's unitary subgroup `H`.
+    pub fn unitary_sg(&self) -> u8 {
+        self.unitary_sg
+    }
+
+    /// The two canonical CDML labels of the H irreps, in the summary's source
+    /// order.  Both are real data identities; neither is a magnetic BC label.
+    pub fn h_sources(&self) -> [&'static str; 2] {
+        self.h_sources
+    }
+
+    /// Dimension of this target corepresentation (two).
+    pub fn dimension(&self) -> u32 {
+        self.dimension
+    }
+
+    /// Multiplicity of this target in the restriction (one independent complex
+    /// copy for the restricted two-dimensional real target).
+    pub fn multiplicity(&self) -> u32 {
+        self.multiplicity
+    }
+
+    /// `multiplicity · dimension`, the source dimensions this piece covers.
+    pub fn covered_dimension(&self) -> u32 {
+        self.multiplicity * self.dimension
+    }
+
+    /// The independently normalized `2×2` complex intertwiners, `multiplicity`
+    /// of them, row-major with four entries each.
+    pub fn copies(&self) -> &[Vec<Complex64>] {
+        &self.copies
+    }
+
+    /// The reconstructed target operator of every class of `M`, in the model's
+    /// class order.
+    pub fn operators(&self) -> &[TargetMatrixOperator] {
+        &self.operators
+    }
+
+    /// The reconstructed target operator of one class.
+    pub fn operator_at(&self, index: usize) -> Option<&TargetMatrixOperator> {
+        self.operators.get(index)
+    }
+}
+
+/// The result of one restricted type-C Γ subduction.
+#[derive(Debug)]
+pub struct MatrixTypeCSubduction<'a> {
+    model: &'a MatrixGammaModel,
+    piece: MatrixTypeCPiece,
+    source_dimension: u32,
+    covered_dimension: u32,
+}
+
+impl MatrixTypeCSubduction<'_> {
+    /// The verified input model this report is about.
+    pub fn model(&self) -> &MatrixGammaModel {
+        self.model
+    }
+
+    /// The single paired type-C piece.
+    pub fn piece(&self) -> &MatrixTypeCPiece {
+        &self.piece
+    }
+
+    /// Dimension of the subduced source corepresentation (two).
+    pub fn source_dimension(&self) -> u32 {
+        self.source_dimension
+    }
+
+    /// `multiplicity · dimension`, checked equal to `source_dimension`.
+    pub fn covered_dimension(&self) -> u32 {
+        self.covered_dimension
+    }
+
+    /// One line stating what this entry point covers.
+    pub fn scope(&self) -> &'static str {
+        TYPE_C_SCOPE
+    }
+}
+
+/// One H source of a screened type-C pair, with its certified one-dimensional
+/// matrix table and the H-operation → PIR-row map.
+#[derive(Clone, Debug)]
+struct TypeCPairSource {
+    sg: u8,
+    label: &'static str,
+    h_to_pir: Vec<usize>,
+    certified: CertifiedTable,
+    typed: CharacterRow,
+}
+
+impl TypeCPairSource {
+    /// The real `±1` character of one H operation row, from the certified
+    /// matrix table and the typed row.  A disagreement is a data inconsistency.
+    fn sign_at_pir(
+        &self,
+        pir: usize,
+        corep_label: &str,
+        uni: usize,
+    ) -> Result<Result<i8, TypeCCharacterProblem>, MatrixTypeCError> {
+        let certified = type_c_real_sign(self.certified.matrices[pir][0]);
+        let typed = type_c_complex_sign(self.typed.values()[pir]);
+        match (certified, typed) {
+            (Ok(certified), Ok(typed)) if certified == typed => Ok(Ok(certified)),
+            (Ok(_), Ok(_)) => Err(MatrixTypeCError::HSource {
+                sg: self.sg,
+                label: self.label.to_string(),
+                reason: format!(
+                    "the certified and typed character signs differ at PIR row {pir} of {corep_label} (UNI {uni})"
+                ),
+            }),
+            (Err(problem), _) | (_, Err(problem)) => Ok(Err(problem)),
+        }
+    }
+}
+
+/// The screened pair: two independent H sources and their class characters.
+#[derive(Clone, Debug)]
+struct TypeCPair {
+    first: TypeCPairSource,
+    second: TypeCPairSource,
+    /// `characters[source][class]`, `0` on antiunitary classes.
+    characters: [Vec<i8>; 2],
+}
+
+/// Screen one summary type-C candidate against the restricted real `±1` pair
+/// domain.
+///
+/// `Ok(Ok(pair))` is a candidate, `Ok(Err(reason))` is a named domain exclusion
+/// and `Err(_)` is an unresolved/unusable-data refusal.
+fn screen_type_c_pair(
+    corep: &MagneticCorepSummary,
+    context: &TargetContext,
+    uni: usize,
+) -> Result<Result<TypeCPair, String>, MatrixTypeCError> {
+    if corep.corep_type != CorepType::C || corep.dim != 2 {
+        return Ok(Err(format!(
+            "not-type-C-dim-2({}:{})",
+            corep.dim, corep.corep_type as u8
+        )));
+    }
+    let sources = &corep.source_irreps;
+    if sources.len() != 2 {
+        return Ok(Err(format!("source-count({})", sources.len())));
+    }
+    let mut facts: Vec<TypeCPairSource> = Vec::with_capacity(2);
+    for (position, source) in sources.iter().enumerate() {
+        if source.spinor {
+            return Ok(Err(format!("spinor({position})")));
+        }
+        if source.dim != 1 {
+            return Ok(Err(format!("dimension({position}:{})", source.dim)));
+        }
+        if source.sg != context.h_sg {
+            return Err(MatrixTypeCError::HSource {
+                sg: source.sg,
+                label: source.ml.to_string(),
+                reason: format!(
+                    "the summary H source belongs to SG {} but the magnetic group's unitary subgroup is SG {}",
+                    source.sg, context.h_sg
+                ),
+            });
+        }
+        let matches = query::find_irreps(source.sg, source.ml, LabelConvention::Cdml);
+        let record = match matches.as_slice() {
+            [record] => *record,
+            [] => {
+                return Err(MatrixTypeCError::HSource {
+                    sg: source.sg,
+                    label: source.ml.to_string(),
+                    reason: "no database row carries this CDML label".to_string(),
+                });
+            }
+            _ => {
+                return Err(MatrixTypeCError::HSource {
+                    sg: source.sg,
+                    label: source.ml.to_string(),
+                    reason: format!("{} database rows carry this CDML label", matches.len()),
+                });
+            }
+        };
+        if record.spinor != source.spinor {
+            return Err(MatrixTypeCError::HSource {
+                sg: source.sg,
+                label: source.ml.to_string(),
+                reason: "the summary and database spinor flags disagree".to_string(),
+            });
+        }
+        if record.compound_metadata().is_some() {
+            return Ok(Err(format!("compound({position})")));
+        }
+        if record.dim as usize != 1 {
+            return Err(MatrixTypeCError::HSource {
+                sg: source.sg,
+                label: source.ml.to_string(),
+                reason: format!(
+                    "the summary selected-arm dimension is 1 but the record declares dimension {}",
+                    record.dim
+                ),
+            });
+        }
+        let k = record.k_vector();
+        if k.numerators != [0, 0, 0] || k.denominator != 1 {
+            return Ok(Err(format!("non-Gamma({position})")));
+        }
+        let certified =
+            certify_irrep_matrices(record, 1).map_err(|problem| MatrixTypeCError::HSource {
+                sg: source.sg,
+                label: source.ml.to_string(),
+                reason: format!("the one-dimensional matrix table is not certified: {problem}"),
+            })?;
+        let typed = record
+            .ordinary_scalar_selected_arm_block_trace()
+            .map_err(|error| MatrixTypeCError::HSource {
+                sg: source.sg,
+                label: source.ml.to_string(),
+                reason: format!("the typed selected-arm Γ row is unavailable: {error:?}"),
+            })?;
+        if typed.dimension() != 1 || typed.len() != certified.operations.len() {
+            return Err(MatrixTypeCError::HSource {
+                sg: source.sg,
+                label: source.ml.to_string(),
+                reason: format!(
+                    "the typed row has dimension {} and {} entries, but the certified table has {} operations",
+                    typed.dimension(),
+                    typed.len(),
+                    certified.operations.len()
+                ),
+            });
+        }
+        for index in 0..certified.matrices.len() {
+            let certified_sign = match type_c_real_sign(certified.matrices[index][0]) {
+                Ok(sign) => sign,
+                Err(TypeCCharacterProblem::NonFinite) => {
+                    return Err(MatrixTypeCError::Character {
+                        sg: source.sg,
+                        label: source.ml,
+                        problem: "NonFinite",
+                    });
+                }
+                Err(problem) => return Ok(Err(format!("{}({position})", problem.name()))),
+            };
+            match type_c_complex_sign(typed.values()[index]) {
+                Ok(typed_sign) if typed_sign == certified_sign => {}
+                Ok(_) => {
+                    return Err(MatrixTypeCError::HSource {
+                        sg: source.sg,
+                        label: source.ml.to_string(),
+                        reason: format!(
+                            "the typed and certified character signs differ at H row {index}"
+                        ),
+                    });
+                }
+                Err(TypeCCharacterProblem::NonFinite) => {
+                    return Err(MatrixTypeCError::Character {
+                        sg: source.sg,
+                        label: source.ml,
+                        problem: "NonFinite",
+                    });
+                }
+                Err(problem) => return Ok(Err(format!("{}({position})", problem.name()))),
+            }
+        }
+        let h_to_pir = wigner::build_h_to_irrep_op_map(
+            &context.h_seitz,
+            record.pir_rotations(),
+            record.pir_translations(),
+        )
+        .ok_or_else(|| MatrixTypeCError::HSource {
+            sg: source.sg,
+            label: source.ml.to_string(),
+            reason: "the H operations do not map one-to-one to the irrep's PIR rows".to_string(),
+        })?;
+        facts.push(TypeCPairSource {
+            sg: source.sg,
+            label: source.ml,
+            h_to_pir,
+            certified,
+            typed,
+        });
+    }
+
+    let mut characters: [Vec<i8>; 2] = [
+        vec![0; context.classes.len()],
+        vec![0; context.classes.len()],
+    ];
+    for (class, operation) in context.classes.iter().enumerate() {
+        if operation.time_reversal {
+            continue;
+        }
+        let h_index = context.unitary_operation_index(class).map_err(|error| {
+            MatrixTypeCError::Inconsistent {
+                uni,
+                label: corep.label.clone(),
+                stage: "H-class-binding",
+                reason: error.to_string(),
+            }
+        })?;
+        for (position, source) in facts.iter().enumerate() {
+            let pir =
+                *source
+                    .h_to_pir
+                    .get(h_index)
+                    .ok_or_else(|| MatrixTypeCError::Inconsistent {
+                        uni,
+                        label: corep.label.clone(),
+                        stage: "H-class-binding",
+                        reason: format!("H operation {h_index} has no PIR row"),
+                    })?;
+            let sign = match source.sign_at_pir(pir, &corep.label, uni)? {
+                Ok(sign) => sign,
+                Err(TypeCCharacterProblem::NonFinite) => {
+                    return Err(MatrixTypeCError::Character {
+                        sg: source.sg,
+                        label: source.label,
+                        problem: "NonFinite",
+                    });
+                }
+                Err(problem) => return Ok(Err(format!("{}({position})", problem.name()))),
+            };
+            characters[position][class] = sign;
+        }
+    }
+    let separating = (0..context.classes.len()).any(|class| {
+        !context.classes[class].time_reversal && characters[0][class] != characters[1][class]
+    });
+    if !separating {
+        return Err(MatrixTypeCError::EquivalentHSources {
+            uni,
+            label: corep.label.clone(),
+            first: facts[0].label,
+            second: facts[1].label,
+        });
+    }
+
+    // The summary's unitary TypeC character column is independently compared
+    // with χ1+χ2 on the same class.  Both routes must agree; neither replaces
+    // the other.
+    for (class, operation) in context.classes.iter().enumerate() {
+        if operation.time_reversal {
+            continue;
+        }
+        let columns = &context.class_columns[class];
+        if columns.is_empty() {
+            return Err(MatrixTypeCError::Inconsistent {
+                uni,
+                label: corep.label.clone(),
+                stage: "summary-character",
+                reason: format!("unitary class {class} has no summary column"),
+            });
+        }
+        let expected = f64::from(characters[0][class]) + f64::from(characters[1][class]);
+        for &column in columns {
+            let value = corep
+                .characters
+                .get(column)
+                .copied()
+                .flatten()
+                .ok_or_else(|| MatrixTypeCError::Inconsistent {
+                    uni,
+                    label: corep.label.clone(),
+                    stage: "summary-character",
+                    reason: format!("unitary class {class} has no summary character"),
+                })?;
+            if !value.re.is_finite() || !value.im.is_finite() {
+                return Err(MatrixTypeCError::Inconsistent {
+                    uni,
+                    label: corep.label.clone(),
+                    stage: "summary-character",
+                    reason: format!(
+                        "unitary class {class} has the non-finite summary character {value:?}"
+                    ),
+                });
+            }
+            if value.im.abs() > GRID_TOLERANCE {
+                return Err(MatrixTypeCError::Inconsistent {
+                    uni,
+                    label: corep.label.clone(),
+                    stage: "summary-character",
+                    reason: format!("unitary class {class} has the non-real character {value:?}"),
+                });
+            }
+            if (value.re - expected).abs() > GRID_TOLERANCE {
+                return Err(MatrixTypeCError::Inconsistent {
+                    uni,
+                    label: corep.label.clone(),
+                    stage: "summary-character",
+                    reason: format!(
+                        "unitary class {class}: summary character {} != χ1+χ2 {expected}",
+                        value.re
+                    ),
+                });
+            }
+        }
+    }
+
+    let second = facts.pop().expect("two H facts");
+    let first = facts.pop().expect("two H facts");
+    if first.sg != second.sg {
+        return Err(MatrixTypeCError::Inconsistent {
+            uni,
+            label: corep.label.clone(),
+            stage: "H-space-group",
+            reason: format!(
+                "the paired H sources belong to different space groups {} and {}",
+                first.sg, second.sg
+            ),
+        });
+    }
+    Ok(Ok(TypeCPair {
+        first,
+        second,
+        characters,
+    }))
+}
+
+/// Build the canonical type-C target table from the two H characters and the
+/// actual antiunitary representative `a0`.
+///
+/// The unitary part is `diag(χ1, χ2)`; the coset matrix is the real
+/// `X = [[0, 1], [s, 0]]` with `s = χ1(a0²) = χ2(a0²)`, so `X² = D(a0²)` (this
+/// includes the `-I` case).  The twisted pairing `χ1(a0⁻¹ h a0) = χ2(h)` and the
+/// full ordered-pair law are checked before the table is returned.
+fn build_type_c_table(
+    pair: &TypeCPair,
+    context: &TargetContext,
+    uni: usize,
+    label: &str,
+    a0: usize,
+) -> Result<TargetTable, MatrixTypeCError> {
+    if !context.classes[a0].time_reversal {
+        return Err(MatrixTypeCError::Inconsistent {
+            uni,
+            label: label.to_string(),
+            stage: "a0",
+            reason: format!("class {a0} is not antiunitary"),
+        });
+    }
+    let identity =
+        find_identity_class(&context.classes).ok_or_else(|| MatrixTypeCError::Inconsistent {
+            uni,
+            label: label.to_string(),
+            stage: "identity",
+            reason: "the class list has no identity class".to_string(),
+        })?;
+    let inverse =
+        inverse_class(&context.classes, &context.lattice, a0, identity).ok_or_else(|| {
+            MatrixTypeCError::Inconsistent {
+                uni,
+                label: label.to_string(),
+                stage: "a0-inverse",
+                reason: "the antiunitary representative has no inverse class".to_string(),
+            }
+        })?;
+    let square = product_class(
+        &context.classes[a0],
+        &context.classes[a0],
+        &context.classes,
+        &context.lattice,
+    )
+    .ok_or_else(|| MatrixTypeCError::Inconsistent {
+        uni,
+        label: label.to_string(),
+        stage: "square",
+        reason: "the antiunitary representative does not square to a class".to_string(),
+    })?;
+    if context.classes[square].time_reversal {
+        return Err(MatrixTypeCError::Inconsistent {
+            uni,
+            label: label.to_string(),
+            stage: "square",
+            reason: "the square of the antiunitary representative is antiunitary".to_string(),
+        });
+    }
+    let s = pair.characters[0][square];
+    if pair.characters[1][square] != s {
+        return Err(MatrixTypeCError::Inconsistent {
+            uni,
+            label: label.to_string(),
+            stage: "square",
+            reason: format!(
+                "χ1(a0²)={} and χ2(a0²)={} differ, so no diagonal square is possible",
+                pair.characters[0][square], pair.characters[1][square]
+            ),
+        });
+    }
+    // X² = s·I = diag(χ1(a0²), χ2(a0²)).
+    let x = [0.0, 1.0, f64::from(s), 0.0];
+    let square_matrix = matrix_product(&x, &x, 2);
+    let expected_square = [f64::from(s), 0.0, 0.0, f64::from(s)];
+    if !matrices_close(&square_matrix, &expected_square) {
+        return Err(MatrixTypeCError::Inconsistent {
+            uni,
+            label: label.to_string(),
+            stage: "square",
+            reason: "the canonical coset matrix does not square to D(a0²)".to_string(),
+        });
+    }
+    // The twisted pairing: σ(h) = a0⁻¹ h a0 is a unitary class and the two
+    // characters exchange under it.
+    for (class, operation) in context.classes.iter().enumerate() {
+        if operation.time_reversal {
+            continue;
+        }
+        let left =
+            compose(&context.classes[inverse], &context.classes[class]).map_err(|error| {
+                MatrixTypeCError::Arithmetic {
+                    reason: error.to_string(),
+                }
+            })?;
+        let conjugated =
+            compose(&left, &context.classes[a0]).map_err(|error| MatrixTypeCError::Arithmetic {
+                reason: error.to_string(),
+            })?;
+        let sigma =
+            find_model_class(&conjugated, &context.classes, &context.lattice).ok_or_else(|| {
+                MatrixTypeCError::Inconsistent {
+                    uni,
+                    label: label.to_string(),
+                    stage: "twist",
+                    reason: format!("the a0-conjugate of unitary class {class} is not a class"),
+                }
+            })?;
+        if context.classes[sigma].time_reversal {
+            return Err(MatrixTypeCError::Inconsistent {
+                uni,
+                label: label.to_string(),
+                stage: "twist",
+                reason: format!("the a0-conjugate of unitary class {class} is antiunitary"),
+            });
+        }
+        if pair.characters[0][sigma] != pair.characters[1][class]
+            || pair.characters[1][sigma] != pair.characters[0][class]
+        {
+            return Err(MatrixTypeCError::Inconsistent {
+                uni,
+                label: label.to_string(),
+                stage: "twist",
+                reason: format!(
+                    "class {class}: χ1(a0⁻¹ h a0)={}, χ2(h)={}; χ2(a0⁻¹ h a0)={}, χ1(h)={}",
+                    pair.characters[0][sigma],
+                    pair.characters[1][class],
+                    pair.characters[1][sigma],
+                    pair.characters[0][class]
+                ),
+            });
+        }
+    }
+
+    // Every antiunitary class is a0 times one unitary class; the coset
+    // representative is unique.
+    let mut anti_source = vec![usize::MAX; context.classes.len()];
+    let mut seen_unitary = vec![false; context.classes.len()];
+    for (class, operation) in context.classes.iter().enumerate() {
+        if !operation.time_reversal {
+            continue;
+        }
+        let product =
+            compose(&context.classes[inverse], &context.classes[class]).map_err(|error| {
+                MatrixTypeCError::Arithmetic {
+                    reason: error.to_string(),
+                }
+            })?;
+        let unitary_class = find_model_class(&product, &context.classes, &context.lattice)
+            .ok_or_else(|| MatrixTypeCError::Inconsistent {
+                uni,
+                label: label.to_string(),
+                stage: "coset",
+                reason: format!("the coset of class {class} has no unitary representative"),
+            })?;
+        if context.classes[unitary_class].time_reversal {
+            return Err(MatrixTypeCError::Inconsistent {
+                uni,
+                label: label.to_string(),
+                stage: "coset",
+                reason: format!("the coset of class {class} is not unitary"),
+            });
+        }
+        if std::mem::replace(&mut seen_unitary[unitary_class], true) {
+            return Err(MatrixTypeCError::Inconsistent {
+                uni,
+                label: label.to_string(),
+                stage: "coset",
+                reason: format!(
+                    "unitary class {unitary_class} is the coset representative of several antiunitary classes"
+                ),
+            });
+        }
+        anti_source[class] = unitary_class;
+    }
+
+    let mut operators: Vec<TargetMatrixOperator> = Vec::with_capacity(context.classes.len());
+    for (class, operation) in context.classes.iter().enumerate() {
+        let entries = if operation.time_reversal {
+            let h = anti_source[class];
+            let d = [
+                f64::from(pair.characters[0][h]),
+                0.0,
+                0.0,
+                f64::from(pair.characters[1][h]),
+            ];
+            matrix_product(&x, &d, 2)
+        } else {
+            vec![
+                f64::from(pair.characters[0][class]),
+                0.0,
+                0.0,
+                f64::from(pair.characters[1][class]),
+            ]
+        };
+        if !is_orthogonal(&entries, 2) {
+            return Err(MatrixTypeCError::Inconsistent {
+                uni,
+                label: label.to_string(),
+                stage: "operator",
+                reason: format!("the target operator of class {class} is not orthogonal"),
+            });
+        }
+        operators.push(TargetMatrixOperator {
+            dimension: 2,
+            entries,
+            antiunitary: operation.time_reversal,
+        });
+    }
+    let table = TargetTable {
+        dimension: 2,
+        operators,
+    };
+    check_target_law(&table, context).map_err(|error| MatrixTypeCError::Inconsistent {
+        uni,
+        label: label.to_string(),
+        stage: "target-law",
+        reason: error.to_string(),
+    })?;
+    Ok(table)
+}
+
+/// The explicit metric statement of one restricted type-C piece: `U†U = I₂`
+/// and `|det U| = 1`, so the single copy is a full-rank isometry of the whole
+/// two-dimensional source space.  This is the complex-dimension accounting; the
+/// real-linear kernel length is never used as a multiplicity.
+fn verify_type_c_isometry(piece: &MatrixTypeCPiece) -> bool {
+    if piece.dimension != 2 || piece.multiplicity != 1 || piece.copies.len() != 1 {
+        return false;
+    }
+    let copy = &piece.copies[0];
+    if copy.len() != 4 {
+        return false;
+    }
+    for row in 0..2 {
+        for column in 0..2 {
+            let entry: Complex64 = (0..2)
+                .map(|k| copy[k * 2 + row].conj() * copy[k * 2 + column])
+                .sum();
+            let expected = if row == column {
+                Complex64::new(1.0, 0.0)
+            } else {
+                Complex64::new(0.0, 0.0)
+            };
+            if !small((entry - expected).norm(), 1e-8) {
+                return false;
+            }
+        }
+    }
+    let determinant = copy[0] * copy[3] - copy[1] * copy[2];
+    if !determinant.re.is_finite()
+        || !determinant.im.is_finite()
+        || !small((determinant.norm() - 1.0).abs(), 1e-8)
+    {
+        return false;
+    }
+    true
+}
+
+/// Decompose the model's two-dimensional restriction into a magnetic group's
+/// **type-C** Γ corepresentation whose unitary restriction is exactly two
+/// inequivalent real `±1` one-dimensional H irreps, exhibiting the complex
+/// intertwiner and the reconstructed target operators.
+pub fn subduce_matrix_gamma_type_c(
+    model: &MatrixGammaModel,
+) -> Result<MatrixTypeCSubduction<'_>, MatrixTypeCError> {
+    let uni = model.uni;
+    let partial =
+        magnetic_summary::magnetic_irrep_summary_by_uni_partial(uni).map_err(|error| {
+            MatrixTypeCError::SummaryFailed {
+                uni,
+                reason: format!("{error:?}"),
+            }
+        })?;
+    let gamma = partial
+        .summary
+        .kpoints
+        .iter()
+        .find(|kpoint| kpoint.coords == GAMMA)
+        .ok_or(MatrixTypeCError::NoGammaKPoint { uni })?;
+    for unresolved in &partial.unresolved_coreps {
+        if unresolved.k_label == gamma.label
+            && !unresolved.spinor
+            && unresolved
+                .minimum_dimension
+                .is_none_or(|dimension| dimension <= SOURCE_DIMENSION)
+        {
+            return Err(MatrixTypeCError::UnresolvedTargetData {
+                uni,
+                source: unresolved.source_irrep.clone(),
+                minimum_dimension: unresolved.minimum_dimension,
+                reason: unresolved.reason.clone(),
+            });
+        }
+    }
+    let class_columns =
+        magnetic_subduction::proven_gamma_class_columns(uni, gamma, &model.classes, &model.lattice)
+            .map_err(|error| MatrixTypeCError::TargetProvenance {
+                uni,
+                reason: error.to_string(),
+            })?;
+    let context = TargetContext::build(uni, gamma, model, &class_columns).map_err(|error| {
+        MatrixTypeCError::Inconsistent {
+            uni,
+            label: String::new(),
+            stage: "context",
+            reason: error.to_string(),
+        }
+    })?;
+    let first_anti = match context.classes.iter().position(|class| class.time_reversal) {
+        Some(index) => index,
+        None => {
+            // A type-C corep needs an antiunitary coset that exchanges the two
+            // H components.  A group with no antiunitary class is outside the
+            // domain, not a data inconsistency: report the examined type-C
+            // candidates (if any) and the boundary reason.
+            let examined = gamma
+                .coreps
+                .iter()
+                .filter(|corep| corep.corep_type == CorepType::C && corep.dim == 2)
+                .map(|corep| corep.label.clone())
+                .collect();
+            return Err(MatrixTypeCError::NoMatchingTarget {
+                parent_sg: model.parent_sg,
+                source: model.source_label,
+                uni,
+                examined,
+                rejected: vec!["the magnetic group has no antiunitary coset".to_string()],
+            });
+        }
+    };
+    let source_corep = RealCorep::from_source(&model.actions);
+    let mut examined: Vec<String> = Vec::new();
+    let mut rejected: Vec<String> = Vec::new();
+    let mut pieces: Vec<MatrixTypeCPiece> = Vec::new();
+    for corep in &gamma.coreps {
+        if corep.corep_type != CorepType::C || corep.dim != 2 {
+            continue;
+        }
+        examined.push(corep.label.clone());
+        let pair = match screen_type_c_pair(corep, &context, uni)? {
+            Ok(pair) => pair,
+            Err(reason) => {
+                rejected.push(format!("{}: {reason}", corep.label));
+                continue;
+            }
+        };
+        let table = build_type_c_table(&pair, &context, uni, &corep.label, first_anti)?;
+        // The complex-entry real-linear Hom space of this type-C corep is
+        // **two**-dimensional: `I` and `diag(i, -i)` both satisfy the unitary
+        // and the antiunitary semi-linear self-intertwiner equations.  That
+        // kernel dimension is not a multiplicity: `matching_copies` keeps the
+        // independent copies selected by complex-column orthogonality under a
+        // fixed source dimension, so the two self-intertwiners do not become
+        // two copies of the same target.  The multiplicity below is therefore
+        // `copies.len()`, never `kernel.len()`.
+        let (_kernel, copies) = matching_copies(&source_corep, &table);
+        if copies.is_empty() {
+            rejected.push(format!("{}: no-intertwiner", corep.label));
+            continue;
+        }
+        let multiplicity = copies.len() as u32;
+        if multiplicity != 1 {
+            return Err(MatrixTypeCError::Inconsistent {
+                uni,
+                label: corep.label.clone(),
+                stage: "multiplicity",
+                reason: format!(
+                    "the type-C target has {multiplicity} independent copies in a two-dimensional source"
+                ),
+            });
+        }
+        let piece = MatrixTypeCPiece {
+            label: corep.label.clone(),
+            unitary_sg: context.h_sg,
+            h_sources: [pair.first.label, pair.second.label],
+            dimension: 2,
+            multiplicity,
+            copies,
+            operators: table.operators.clone(),
+        };
+        if pieces
+            .iter()
+            .any(|kept| kept.operators == piece.operators && kept.h_sources == piece.h_sources)
+        {
+            continue;
+        }
+        if let Some(kept) = pieces.iter().find(|kept| kept.operators == piece.operators) {
+            return Err(MatrixTypeCError::AmbiguousTarget {
+                uni,
+                labels: vec![kept.label.clone(), piece.label.clone()],
+            });
+        }
+        pieces.push(piece);
+    }
+    if pieces.is_empty() {
+        return Err(MatrixTypeCError::NoMatchingTarget {
+            parent_sg: model.parent_sg,
+            source: model.source_label,
+            uni,
+            examined,
+            rejected,
+        });
+    }
+    if pieces.len() > 1 {
+        return Err(MatrixTypeCError::AmbiguousTarget {
+            uni,
+            labels: pieces.iter().map(|piece| piece.label.clone()).collect(),
+        });
+    }
+    let piece = pieces.pop().expect("one matched type-C piece");
+    let covered = piece.covered_dimension();
+    if covered != SOURCE_DIMENSION as u32 {
+        return Err(MatrixTypeCError::IncompleteDecomposition {
+            source_dimension: SOURCE_DIMENSION as u32,
+            covered_dimension: covered,
+        });
+    }
+    if !verify_type_c_isometry(&piece) {
+        return Err(MatrixTypeCError::SourceSpaceNotIsometric {
+            covered_dimension: covered,
+        });
+    }
+    verify_reconstruction_data(
+        model,
+        &piece.label,
+        piece.dimension as usize,
+        &piece.copies,
+        &piece.operators,
+    )
+    .map_err(|error| MatrixTypeCError::Inconsistent {
+        uni,
+        label: piece.label.clone(),
+        stage: "reconstruction",
+        reason: error.to_string(),
+    })?;
+    Ok(MatrixTypeCSubduction {
+        model,
+        piece,
+        source_dimension: SOURCE_DIMENSION as u32,
+        covered_dimension: covered,
+    })
 }
 
 #[cfg(test)]
@@ -3053,5 +4200,414 @@ mod tests {
         assert!(normalize_intertwiner(&unit, 1).is_some());
         let nan_copy = vec![Complex64::new(f64::NAN, 0.0), Complex64::new(0.0, 0.0)];
         assert!(!copies_orthogonal(&nan_copy, &unit, 1));
+    }
+
+    // -----------------------------------------------------------------
+    // R32 restricted paired type-C tests
+    // -----------------------------------------------------------------
+
+    /// The two frozen paired witnesses, built through the public input path.
+    fn type_c_witness_model(condensing: &'static str, eta: RealSign) -> MatrixGammaModel {
+        use crate::irrep::subduction::Mat3R;
+        let request = MatrixGammaRequest::new(
+            SourceIdentity {
+                parent_sg: 89,
+                label: "GM5",
+                convention: LabelConvention::Cdml,
+            },
+            RecordIdentity {
+                parent_sg: 89,
+                condensing_label: condensing,
+                convention: LabelConvention::Cdml,
+                direction_index: 0,
+            },
+            Some(eta),
+        )
+        .with_embedding(EmbeddingEvidence {
+            map: Mat3R::from_ints([[1, 0, 0], [0, 1, 0], [0, 0, 1]]),
+            shift: [Rat::ZERO; 3],
+            lattice_policy: LatticePolicy::RequireExact,
+        });
+        verify_matrix_gamma_input(&request).expect("the frozen paired witness model verifies")
+    }
+
+    struct TypeCWitness {
+        model: MatrixGammaModel,
+        context: TargetContext,
+        corep: MagneticCorepSummary,
+        pair: TypeCPair,
+        table: TargetTable,
+    }
+
+    fn type_c_witness(condensing: &'static str) -> TypeCWitness {
+        let model = type_c_witness_model(condensing, RealSign::Plus);
+        let uni = model.uni();
+        let partial =
+            magnetic_summary::magnetic_irrep_summary_by_uni_partial(uni).expect("the UNI summary");
+        let gamma = partial
+            .summary
+            .kpoints
+            .iter()
+            .find(|kpoint| kpoint.coords == GAMMA)
+            .expect("the Gamma k-point");
+        let class_columns = magnetic_subduction::proven_gamma_class_columns(
+            uni,
+            gamma,
+            &model.classes,
+            &model.lattice,
+        )
+        .expect("the raw provenance");
+        let context =
+            TargetContext::build(uni, gamma, &model, &class_columns).expect("the target context");
+        let corep = gamma
+            .coreps
+            .iter()
+            .find(|corep| corep.corep_type == CorepType::C && corep.dim == 2)
+            .expect("the fixed witness has a type-C dim-2 corep")
+            .clone();
+        let pair = match screen_type_c_pair(&corep, &context, uni).expect("screenable data") {
+            Ok(pair) => pair,
+            Err(reason) => panic!("the fixed witness must screen: {reason}"),
+        };
+        let first_anti = context
+            .classes
+            .iter()
+            .position(|class| class.time_reversal)
+            .expect("an antiunitary class");
+        let table = build_type_c_table(&pair, &context, uni, &corep.label, first_anti)
+            .expect("the fixed witness target table");
+        TypeCWitness {
+            model,
+            context,
+            corep,
+            pair,
+            table,
+        }
+    }
+
+    /// Type C is the complex (Schur-C) corep type: the real-linear Hom space of
+    /// the target with itself is **two**-dimensional, generated by `I` and
+    /// `diag(i, -i)`.  Both are full-rank isometries, but they are not two
+    /// independent copies: the copy selection keeps one because their cross
+    /// Gram block does not vanish.  The production multiplicity is the copy
+    /// count, never the kernel dimension.
+    #[test]
+    fn the_type_c_hom_space_is_two_dimensional_but_the_multiplicity_is_one() {
+        for condensing in ["GM2", "GM4"] {
+            let witness = type_c_witness(condensing);
+            let target = RealCorep::from_target(&witness.table.operators);
+            let (rows, width) = hom_rows(&target, &target);
+            let kernel = real_kernel(&rows, width);
+            assert_eq!(
+                kernel.len(),
+                2,
+                "the type-C self-Hom space must be two-dimensional, not the copy count"
+            );
+            // Layout: (row·2 + column)·2 + {0 = re, 1 = im}.
+            let identity = vec![1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0];
+            let f = vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0];
+            for vector in [&identity, &f] {
+                for row in &rows {
+                    let residual: f64 = row
+                        .iter()
+                        .zip(vector.iter())
+                        .map(|(left, right)| left * right)
+                        .sum();
+                    assert!(
+                        residual.abs() < 1e-9,
+                        "I and diag(i, -i) must satisfy every self-Hom equation: {residual}"
+                    );
+                }
+            }
+            let source = RealCorep::from_source(&witness.model.actions);
+            let (kernel, copies) = matching_copies(&source, &witness.table);
+            assert_eq!(kernel.len(), 2);
+            assert_eq!(copies.len(), 1, "one independent complex copy, not two");
+        }
+    }
+
+    /// Both fixed witnesses have a real `±1` square sign and the canonical
+    /// off-diagonal coset matrix squares to it (the `-I` case is accepted).
+    #[test]
+    fn the_type_c_coset_matrix_square_matches_the_actual_a0_square() {
+        // UNI 749 has D(a0²) = +I; UNI 751 is the real -I branch.
+        for (condensing, expected_sign) in [("GM2", 1i8), ("GM4", -1i8)] {
+            let witness = type_c_witness(condensing);
+            let first_anti = witness
+                .context
+                .classes
+                .iter()
+                .position(|class| class.time_reversal)
+                .expect("anti class");
+            let square = product_class(
+                &witness.context.classes[first_anti],
+                &witness.context.classes[first_anti],
+                &witness.context.classes,
+                &witness.context.lattice,
+            )
+            .expect("a0 squared is a class");
+            let s = witness.pair.characters[0][square];
+            assert_eq!(witness.pair.characters[1][square], s);
+            assert_eq!(s, expected_sign);
+            let anti = witness
+                .table
+                .operators
+                .iter()
+                .position(|operator| operator.is_antiunitary())
+                .expect("an antiunitary operator");
+            let x = witness.table.operators[anti].entries();
+            let product = matrix_product(x, x, 2);
+            let expected = [f64::from(s), 0.0, 0.0, f64::from(s)];
+            assert!(
+                matrices_close(&product, &expected),
+                "the canonical X must square to s·I (s = {s})"
+            );
+        }
+    }
+
+    /// The actual frozen H pairs satisfy `χ1(a0⁻¹ h a0) = χ2(h)` and
+    /// `χ2(a0⁻¹ h a0) = χ1(h)` on every unitary class, with separating classes
+    /// present (the exchange is not vacuous).
+    #[test]
+    fn the_actual_witnesses_satisfy_the_a_twisted_pairing() {
+        for condensing in ["GM2", "GM4"] {
+            let witness = type_c_witness(condensing);
+            let first_anti = witness
+                .context
+                .classes
+                .iter()
+                .position(|class| class.time_reversal)
+                .expect("anti class");
+            let identity = find_identity_class(&witness.context.classes).expect("identity");
+            let inverse = inverse_class(
+                &witness.context.classes,
+                &witness.context.lattice,
+                first_anti,
+                identity,
+            )
+            .expect("a0 inverse");
+            let mut checked = 0usize;
+            let mut discriminating = 0usize;
+            for class in 0..witness.context.classes.len() {
+                if witness.context.classes[class].time_reversal {
+                    continue;
+                }
+                let left = compose(
+                    &witness.context.classes[inverse],
+                    &witness.context.classes[class],
+                )
+                .expect("a0^-1 h");
+                let conjugated =
+                    compose(&left, &witness.context.classes[first_anti]).expect("a0^-1 h a0");
+                let sigma = find_model_class(
+                    &conjugated,
+                    &witness.context.classes,
+                    &witness.context.lattice,
+                )
+                .expect("sigma is a class");
+                checked += 1;
+                if witness.pair.characters[0][class] != witness.pair.characters[1][class] {
+                    discriminating += 1;
+                }
+                assert_eq!(
+                    witness.pair.characters[0][sigma], witness.pair.characters[1][class],
+                    "{condensing}: χ1(σ(h)) != χ2(h) at class {class}"
+                );
+                assert_eq!(
+                    witness.pair.characters[1][sigma], witness.pair.characters[0][class],
+                    "{condensing}: χ2(σ(h)) != χ1(h) at class {class}"
+                );
+            }
+            assert!(checked >= 4);
+            assert!(
+                discriminating > 0,
+                "{condensing}: the two H characters must be discriminated on at least one class"
+            );
+        }
+    }
+
+    #[test]
+    fn type_c_character_classification_names_finite_and_non_finite_problems() {
+        let tol = GRID_TOLERANCE;
+        assert_eq!(type_c_real_sign(1.0), Ok(1));
+        assert_eq!(type_c_real_sign(-1.0), Ok(-1));
+        assert_eq!(type_c_real_sign(0.5), Err(TypeCCharacterProblem::OffGrid));
+        assert_eq!(
+            type_c_real_sign(f64::NAN),
+            Err(TypeCCharacterProblem::NonFinite)
+        );
+        assert_eq!(
+            type_c_real_sign(f64::INFINITY),
+            Err(TypeCCharacterProblem::NonFinite)
+        );
+        assert_eq!(
+            type_c_real_sign(f64::NEG_INFINITY),
+            Err(TypeCCharacterProblem::NonFinite)
+        );
+        assert_eq!(
+            type_c_complex_sign(Complex64::new(0.0, tol * 10.0)),
+            Err(TypeCCharacterProblem::NonReal)
+        );
+        assert_eq!(type_c_complex_sign(Complex64::new(1.0, tol * 0.5)), Ok(1));
+        assert_eq!(
+            type_c_complex_sign(Complex64::new(f64::NAN, 0.0)),
+            Err(TypeCCharacterProblem::NonFinite)
+        );
+        assert_eq!(
+            type_c_complex_sign(Complex64::new(0.0, f64::NAN)),
+            Err(TypeCCharacterProblem::NonFinite)
+        );
+    }
+
+    #[test]
+    fn the_same_h_pair_is_unresolved_not_no_candidate() {
+        let witness = type_c_witness("GM2");
+        let mut fake = witness.corep.clone();
+        fake.source_irreps[1] = fake.source_irreps[0].clone();
+        match screen_type_c_pair(&fake, &witness.context, 749) {
+            Err(MatrixTypeCError::EquivalentHSources {
+                uni, first, second, ..
+            }) => {
+                assert_eq!(uni, 749);
+                assert_eq!(first, "GM3");
+                assert_eq!(second, "GM3");
+            }
+            other => panic!("expected EquivalentHSources, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn type_c_metadata_boundaries_are_named_and_not_silently_skipped() {
+        let witness = type_c_witness("GM2");
+        // Spinor and dimension are finite-domain exclusions.
+        let mut spinor = witness.corep.clone();
+        spinor.source_irreps[0].spinor = true;
+        match screen_type_c_pair(&spinor, &witness.context, 749) {
+            Ok(Err(reason)) => assert_eq!(reason, "spinor(0)"),
+            other => panic!("expected a spinor exclusion, got {other:?}"),
+        }
+        let mut dimension = witness.corep.clone();
+        dimension.source_irreps[0].dim = 2;
+        match screen_type_c_pair(&dimension, &witness.context, 749) {
+            Ok(Err(reason)) => assert_eq!(reason, "dimension(0:2)"),
+            other => panic!("expected a dimension exclusion, got {other:?}"),
+        }
+        // A summary H source from another space group is an identity
+        // inconsistency, not a mathematical negative.
+        let mut wrong_group = witness.corep.clone();
+        wrong_group.source_irreps[0].sg = 1;
+        match screen_type_c_pair(&wrong_group, &witness.context, 749) {
+            Err(MatrixTypeCError::HSource { reason, .. }) => {
+                assert!(reason.contains("unitary subgroup"), "{reason}")
+            }
+            other => panic!("expected an HSource identity refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_twisted_character_tamper_is_refused_by_the_twist_guard() {
+        let witness = type_c_witness("GM2");
+        let first_anti = witness
+            .context
+            .classes
+            .iter()
+            .position(|class| class.time_reversal)
+            .expect("anti class");
+        let mut saw_twist = false;
+        for class in 0..witness.context.classes.len() {
+            if witness.context.classes[class].time_reversal
+                || witness.pair.characters[0][class] == witness.pair.characters[1][class]
+            {
+                continue;
+            }
+            let mut tampered = witness.pair.clone();
+            tampered.characters[0][class] = witness.pair.characters[1][class];
+            tampered.characters[1][class] = witness.pair.characters[0][class];
+            let built = build_type_c_table(
+                &tampered,
+                &witness.context,
+                749,
+                &witness.corep.label,
+                first_anti,
+            );
+            if let Err(MatrixTypeCError::Inconsistent { stage: "twist", .. }) = built {
+                saw_twist = true;
+                break;
+            }
+        }
+        assert!(
+            saw_twist,
+            "a swapped character at a separating class must break the twisted pairing"
+        );
+    }
+
+    #[test]
+    fn a_single_anti_entry_tamper_breaks_the_law_and_the_reconstruction() {
+        let witness = type_c_witness("GM2");
+        let mut tampered = witness.table.clone();
+        let anti = tampered
+            .operators
+            .iter()
+            .position(|operator| operator.is_antiunitary())
+            .expect("an antiunitary operator");
+        tampered.operators[anti].entries[1] = 0.0;
+        assert!(
+            check_target_law(&tampered, &witness.context).is_err(),
+            "a single tampered off-diagonal entry must break the ordered-pair law"
+        );
+        let source = RealCorep::from_source(&witness.model.actions);
+        let (_, copies) = matching_copies(&source, &witness.table);
+        assert_eq!(copies.len(), 1);
+        assert!(
+            verify_reconstruction_data(
+                &witness.model,
+                &witness.corep.label,
+                2,
+                &copies,
+                &tampered.operators,
+            )
+            .is_err(),
+            "the tampered operator table must fail the complex reconstruction"
+        );
+    }
+
+    #[test]
+    fn another_antiunitary_representative_builds_an_equivalent_target() {
+        let witness = type_c_witness("GM2");
+        let anti_classes: Vec<usize> = witness
+            .context
+            .classes
+            .iter()
+            .enumerate()
+            .filter(|(_, class)| class.time_reversal)
+            .map(|(index, _)| index)
+            .collect();
+        assert!(anti_classes.len() > 1);
+        let source = RealCorep::from_source(&witness.model.actions);
+        for a0 in &anti_classes {
+            let table = build_type_c_table(
+                &witness.pair,
+                &witness.context,
+                749,
+                &witness.corep.label,
+                *a0,
+            )
+            .expect("every antiunitary representative builds a lawful target");
+            check_target_law(&table, &witness.context).expect("the target law");
+            let (_, copies) = matching_copies(&source, &table);
+            assert_eq!(copies.len(), 1);
+            assert!(normalize_intertwiner(&copies[0], 2).is_some());
+        }
+    }
+
+    #[test]
+    fn a_wrong_raw_class_does_not_fall_back() {
+        let mut model = type_c_witness_model("GM2", RealSign::Plus);
+        assert_eq!(model.uni(), 749);
+        model.classes[0].rotation[0][0] = 2;
+        match subduce_matrix_gamma_type_c(&model) {
+            Err(MatrixTypeCError::TargetProvenance { uni, .. }) => assert_eq!(uni, 749),
+            other => panic!("expected the raw provenance refusal, got {other:?}"),
+        }
     }
 }

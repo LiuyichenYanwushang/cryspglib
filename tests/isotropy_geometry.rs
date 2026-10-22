@@ -149,7 +149,8 @@ fn magnetic_bns_symbols_are_indexed_by_uni() {
     assert_eq!(bns_of(1001), "P4/m'mm");
     assert_eq!(bns_of(1651), "Ia'-3'd'");
     // Every label list entry must be a single symbol, for all UNIs present.
-    for record in MAGNETIC_ISOTROPY_SUBGROUPS {
+    // Borrow the static table: by-value iteration copies it and overflows the stack.
+    for record in MAGNETIC_ISOTROPY_SUBGROUPS.iter() {
         assert!(
             !record.bns_label.contains('"') && !record.bns_label.contains("  "),
             "UNI {}: {:?}",

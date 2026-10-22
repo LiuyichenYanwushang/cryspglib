@@ -86,6 +86,18 @@
 //! Errors from the layers below are returned with their original source, never
 //! replaced by an identity-only answer or by a guessed row.
 //!
+//! R32 adds a **separate** restricted paired type-C entry point,
+//! [`subduce_type_c`], with its own [`MagneticTypeCReport`],
+//! [`MagneticTypeCTargetIdentity`] (two `h_sources`), [`MagneticTypeCOutcome`]
+//! and [`MagneticTypeCError`].  The legacy [`MagneticTargetIdentity`],
+//! [`MagneticOutcome`], [`MagneticSubductionReport`] and [`subduce`] keep their
+//! exact fields, variants and type-A-only matrix domain: a type-C-only record is
+//! still refused by [`subduce`] with its existing [`MagneticSubductionApiError`],
+//! so no caller's exhaustive match is broken and no second H identity is
+//! silently dropped.  [`subduce_type_c`] reuses the same private request resolver
+//! and the same [`matrix::verify_matrix_gamma_input`] model; only its target
+//! family is the two-inequivalent-real-`±1`-H type-C slice.
+//!
 //! ```
 //! use cryspglib::irrep::magnetic_input::{EmbeddingEvidence, RealSign, SourceIdentity};
 //! use cryspglib::irrep::magnetic_subduction_api::{
@@ -125,7 +137,7 @@ use crate::irrep::magnetic_input::{
     ScalarGammaModel, ScalarGammaRequest, SourceIdentity, TimeParity, verify_scalar_gamma_input,
 };
 use crate::irrep::magnetic_matrix_subduction::{
-    self as matrix, MatrixGammaModel, MatrixGammaRequest, MatrixSubductionError,
+    self as matrix, MatrixGammaModel, MatrixGammaRequest, MatrixSubductionError, MatrixTypeCError,
     TargetMatrixOperator,
 };
 use crate::irrep::magnetic_subduction::{self as scalar, MagneticSubductionError, TargetOperator};
@@ -1016,17 +1028,23 @@ fn h_source_labels(sg: u8, ml: &'static str) -> Result<IrrepLabels, MagneticSubd
     }
 }
 
-/// Answer one [`MagneticSubductionRequest`].
-///
-/// The source dimension decides which verified engine is called: dimension one
-/// goes through [`magnetic_input::verify_scalar_gamma_input`] then
-/// [`magnetic_subduction::subduce_scalar_gamma`]; dimension two goes through
-/// [`magnetic_matrix_subduction::verify_matrix_gamma_input`] then
-/// [`magnetic_matrix_subduction::subduce_matrix_gamma`].  Any other dimension is
-/// refused by name, because neither engine's mathematical scope contains it.
-pub fn subduce(
-    request: &MagneticSubductionRequest<'_>,
-) -> Result<MagneticSubductionReport, MagneticSubductionApiError> {
+/// The request-resolved identities and engine inputs shared by the legacy
+/// dispatch and the restricted type-C entry point.
+struct ResolvedMagneticRequest<'a> {
+    source: SourceIdentity<'a>,
+    source_identity: MagneticSourceIdentity,
+    condensing_identity: MagneticCondensingIdentity,
+    record_identity: MagneticRecordIdentity,
+    engine_record: RecordIdentity<'a>,
+    embedding: EmbeddingEvidence,
+    time_reversal: Option<RealSign>,
+}
+
+/// Resolve one request exactly as [`subduce`] always has: parent check, source
+/// label, source dimension, condensing row and the four identities.
+fn resolve_magnetic_request<'a>(
+    request: &MagneticSubductionRequest<'a>,
+) -> Result<ResolvedMagneticRequest<'a>, MagneticSubductionApiError> {
     let source = request.source;
     let record = request.record;
     if source.parent_sg != record.parent_sg {
@@ -1085,8 +1103,37 @@ pub fn subduce(
         convention: LabelConvention::Cdml,
         direction_index,
     };
-    let embedding = request.embedding;
-    let time_reversal = request.time_reversal;
+    Ok(ResolvedMagneticRequest {
+        source,
+        source_identity,
+        condensing_identity,
+        record_identity,
+        engine_record,
+        embedding: request.embedding,
+        time_reversal: request.time_reversal,
+    })
+}
+
+/// Answer one [`MagneticSubductionRequest`].
+///
+/// The source dimension decides which verified engine is called: dimension one
+/// goes through [`magnetic_input::verify_scalar_gamma_input`] then
+/// [`magnetic_subduction::subduce_scalar_gamma`]; dimension two goes through
+/// [`magnetic_matrix_subduction::verify_matrix_gamma_input`] then
+/// [`magnetic_matrix_subduction::subduce_matrix_gamma`].  Any other dimension is
+/// refused by name, because neither engine's mathematical scope contains it.
+pub fn subduce(
+    request: &MagneticSubductionRequest<'_>,
+) -> Result<MagneticSubductionReport, MagneticSubductionApiError> {
+    let ResolvedMagneticRequest {
+        source,
+        source_identity,
+        condensing_identity,
+        record_identity,
+        engine_record,
+        embedding,
+        time_reversal,
+    } = resolve_magnetic_request(request)?;
 
     let (model, outcome) = match source_identity.dimension {
         1 => {
@@ -1148,7 +1195,7 @@ pub fn subduce(
         dimension => {
             return Err(MagneticSubductionApiError::SourceDimensionUnsupported {
                 sg: source.parent_sg,
-                label: source_record.ml,
+                label: source_identity.labels.cdml,
                 dimension,
             });
         }
@@ -1162,6 +1209,288 @@ pub fn subduce(
     };
     Ok(MagneticSubductionReport {
         model,
+        source: source_identity,
+        condensing: condensing_identity,
+        record: record_identity,
+        embedding: embedding_identity,
+        outcome,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// R32: restricted paired type-C entry point
+// ---------------------------------------------------------------------------
+
+/// One magnetic Γ type-C corepresentation of `M`, reported with **both** of its
+/// unitary-subgroup `H` source irreps.
+///
+/// The legacy [`MagneticTargetIdentity`] has a single `h_source` field and is
+/// deliberately unchanged: adding a required partner field or a new
+/// [`MagneticOutcome`] variant would break existing struct literals and
+/// exhaustive matches.  This separate identity therefore carries the real pair.
+/// The magnetic corep display label stays a display label; `magnetic_bc` is
+/// always `None` because the summary has no BC field for corep labels.  The two
+/// `h_sources` entries are genuine ordinary-irrep identities with their own
+/// CDML and BC spellings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MagneticTypeCTargetIdentity {
+    /// Magnetic corep display label from the magnetic summary.
+    pub magnetic_label: String,
+    /// Magnetic corep BC label.  Always `None`; never filled from an H source.
+    pub magnetic_bc: Option<String>,
+    /// Space group number of the target's unitary subgroup `H`.
+    pub unitary_sg: u8,
+    /// The two verified H ordinary-irrep identities, in the summary's source
+    /// order.
+    pub h_sources: [IrrepLabels; 2],
+    /// Dimension of the magnetic corepresentation (two).
+    pub dimension: u32,
+    /// Multiplicity of this target in the restriction (one).
+    pub multiplicity: u32,
+}
+
+impl MagneticTypeCTargetIdentity {
+    /// `multiplicity · dimension`, the source dimension this target covers.
+    pub fn covered_dimension(&self) -> u32 {
+        self.multiplicity * self.dimension
+    }
+}
+
+/// The owned payload of one restricted type-C subduction.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MagneticTypeCOutcome {
+    /// The selected magnetic type-C corepresentation with both H identities.
+    pub target: MagneticTypeCTargetIdentity,
+    /// The normalized `2×2` complex intertwiners, `multiplicity` of them,
+    /// row-major.
+    pub copies: Vec<Vec<Complex64>>,
+    /// The reconstructed target operator of every class of `M`, in class order.
+    pub operators: Vec<TargetMatrixOperator>,
+    /// `Σ multiplicityᵢ · dimensionᵢ`, checked equal to the source dimension.
+    pub covered_dimension: u32,
+}
+
+/// Why a restricted type-C request could not be answered.
+///
+/// This is a new enum, so [`MagneticSubductionApiError`] and its exhaustive
+/// matches are untouched.  The request-resolution layer and the paired-type-C
+/// engine keep their own errors as sources.
+#[derive(Debug)]
+pub enum MagneticTypeCError {
+    /// The request could not be resolved into a source, a record and the four
+    /// identities.
+    Request(Box<MagneticSubductionApiError>),
+    /// The paired type-C engine refused the verified model.
+    Engine(Box<MatrixTypeCError>),
+    /// The resolved source is not the two-dimensional real matrix source this
+    /// entry point requires.
+    SourceDimensionNotTwo {
+        sg: u8,
+        label: &'static str,
+        dimension: u8,
+    },
+}
+
+impl std::fmt::Display for MagneticTypeCError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Request(error) => write!(f, "{error}"),
+            Self::Engine(error) => write!(f, "{error}"),
+            Self::SourceDimensionNotTwo {
+                sg,
+                label,
+                dimension,
+            } => write!(
+                f,
+                "SG {sg} source {label:?} has dimension {dimension}; the paired type-C entry point \
+                 requires the two-dimensional real matrix source"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MagneticTypeCError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Request(error) => Some(error.as_ref()),
+            Self::Engine(error) => Some(error.as_ref()),
+            Self::SourceDimensionNotTwo { .. } => None,
+        }
+    }
+}
+
+impl From<MagneticSubductionApiError> for MagneticTypeCError {
+    fn from(error: MagneticSubductionApiError) -> Self {
+        Self::Request(Box::new(error))
+    }
+}
+
+impl From<MatrixTypeCError> for MagneticTypeCError {
+    fn from(error: MatrixTypeCError) -> Self {
+        Self::Engine(Box::new(error))
+    }
+}
+
+impl From<MatrixSubductionError> for MagneticTypeCError {
+    fn from(error: MatrixSubductionError) -> Self {
+        Self::Request(Box::new(MagneticSubductionApiError::Matrix(Box::new(
+            error,
+        ))))
+    }
+}
+
+/// The complete answer to one restricted paired type-C request.
+///
+/// The report owns the actual verified [`MatrixGammaModel`] (there is no scalar
+/// branch here) and the same four identity surfaces as
+/// [`MagneticSubductionReport`].  The legacy report and outcome types are
+/// unchanged.
+#[derive(Debug)]
+pub struct MagneticTypeCReport {
+    model: MatrixGammaModel,
+    source: MagneticSourceIdentity,
+    condensing: MagneticCondensingIdentity,
+    record: MagneticRecordIdentity,
+    embedding: MagneticEmbeddingIdentity,
+    outcome: MagneticTypeCOutcome,
+}
+
+impl MagneticTypeCReport {
+    /// The verified two-dimensional real Γ matrix model.
+    pub fn model(&self) -> &MatrixGammaModel {
+        &self.model
+    }
+
+    /// The verified two-dimensional real Γ matrix model.
+    pub fn matrix_model(&self) -> &MatrixGammaModel {
+        &self.model
+    }
+
+    /// The verified subduced source identity.
+    pub fn source(&self) -> &MagneticSourceIdentity {
+        &self.source
+    }
+
+    /// The verified condensing irrep identity.
+    pub fn condensing(&self) -> &MagneticCondensingIdentity {
+        &self.condensing
+    }
+
+    /// The selected magnetic isotropy record.
+    pub fn record(&self) -> &MagneticRecordIdentity {
+        &self.record
+    }
+
+    /// The accepted embedding.
+    pub fn embedding(&self) -> &MagneticEmbeddingIdentity {
+        &self.embedding
+    }
+
+    /// The paired type-C payload.
+    pub fn outcome(&self) -> &MagneticTypeCOutcome {
+        &self.outcome
+    }
+
+    /// The selected type-C target with both H identities.
+    pub fn target(&self) -> &MagneticTypeCTargetIdentity {
+        &self.outcome.target
+    }
+
+    /// Dimension of the source irrep (two).
+    pub fn source_dimension(&self) -> u32 {
+        u32::from(self.source.dimension)
+    }
+
+    /// `multiplicity · dimension`, checked equal to the source dimension.
+    pub fn covered_dimension(&self) -> u32 {
+        self.outcome.covered_dimension
+    }
+
+    /// The parent action's `η`, or `None` when none was stated.
+    pub fn time_reversal(&self) -> Option<RealSign> {
+        self.model.time_reversal()
+    }
+
+    /// The parity of the parent action's `η`; `None` exactly when no `η` was
+    /// stated.  This is not the square of `T`.
+    pub fn time_parity(&self) -> Option<TimeParity> {
+        self.time_reversal().map(|sign| match sign {
+            RealSign::Plus => TimeParity::Even,
+            RealSign::Minus => TimeParity::Odd,
+        })
+    }
+
+    /// The classes of the magnetic group, in the result's class order.
+    pub fn classes(&self) -> &[MagneticOperation] {
+        self.model.classes()
+    }
+
+    /// The translation lattice the class comparisons reduced modulo.
+    pub fn translation_lattice(&self) -> &[[Rat; 3]] {
+        self.model.translation_lattice()
+    }
+}
+
+/// Answer one restricted paired type-C request.
+///
+/// This is the incremental companion of [`subduce`]: it resolves the same
+/// request through the same private resolver and the same
+/// [`matrix::verify_matrix_gamma_input`] model, then calls the restricted
+/// [`matrix::subduce_matrix_gamma_type_c`] engine.  Only a two-dimensional
+/// source is accepted; the legacy [`subduce`] keeps its type-A-only matrix
+/// domain and refuses a type-C record with its existing named error.
+pub fn subduce_type_c(
+    request: &MagneticSubductionRequest<'_>,
+) -> Result<MagneticTypeCReport, MagneticTypeCError> {
+    let ResolvedMagneticRequest {
+        source,
+        source_identity,
+        condensing_identity,
+        record_identity,
+        engine_record,
+        embedding,
+        time_reversal,
+    } = resolve_magnetic_request(request)?;
+    if source_identity.dimension != 2 {
+        return Err(MagneticTypeCError::SourceDimensionNotTwo {
+            sg: source.parent_sg,
+            label: source_identity.labels.cdml,
+            dimension: source_identity.dimension,
+        });
+    }
+    let matrix_model = matrix::verify_matrix_gamma_input(
+        &MatrixGammaRequest::new(source, engine_record, time_reversal).with_embedding(embedding),
+    )?;
+    let outcome = {
+        let result = matrix::subduce_matrix_gamma_type_c(&matrix_model)?;
+        let piece = result.piece();
+        let h_sources = piece.h_sources();
+        let target = MagneticTypeCTargetIdentity {
+            magnetic_label: piece.label().to_string(),
+            magnetic_bc: None,
+            unitary_sg: piece.unitary_sg(),
+            h_sources: [
+                h_source_labels(piece.unitary_sg(), h_sources[0])?,
+                h_source_labels(piece.unitary_sg(), h_sources[1])?,
+            ],
+            dimension: piece.dimension(),
+            multiplicity: piece.multiplicity(),
+        };
+        MagneticTypeCOutcome {
+            target,
+            copies: piece.copies().to_vec(),
+            operators: piece.operators().to_vec(),
+            covered_dimension: result.covered_dimension(),
+        }
+    };
+    let embedding_identity = MagneticEmbeddingIdentity {
+        map: *matrix_model.map(),
+        shift: *matrix_model.shift(),
+        lattice_policy: matrix_model.lattice_policy(),
+        realises_record_lattice: matrix_model.realises_record_lattice(),
+    };
+    Ok(MagneticTypeCReport {
+        model: matrix_model,
         source: source_identity,
         condensing: condensing_identity,
         record: record_identity,

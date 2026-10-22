@@ -145,3 +145,78 @@ PIR 操作表。这是样本级认证，不是全域覆盖率。
 R25/R26/R27 的既有公开入口、错误顺序与行为未改；本轮只新增模块，并在
 `magnetic_input.rs` 加少量 `pub(crate)` 可见性、在 `magnetic_subduction.rs` 加一个薄
 `pub(crate)` 包装复用 R27 的 raw provenance。未 commit / 未 push。
+
+## 7. R32 增量：受限双 H 的 Type-C 目标（`subduce_matrix_gamma_type_c`）
+
+第 32 轮在同一模块新增**受限** pair 入口，**不改** R29 的
+`MatrixGammaModel`、`MatrixSubductionPiece`、`MatrixSubductionError` 或
+`subduce_matrix_gamma`：
+
+```text
+pub fn subduce_matrix_gamma_type_c(
+    model: &MatrixGammaModel,
+) -> Result<MatrixTypeCSubduction<'_>, MatrixTypeCError>
+```
+
+输入模型仍只由 `verify_matrix_gamma_input` 构造；新入口不重复认证 source。目标域为：
+磁群 Γ corep **恰为 Wigner type C、维数 2**，其 H  unitary restriction 恰为**两个互不等价、
+非 spinor、非复合、维数 1、实 `±1`** 的 H irrep，反幺正 coset 交换两者。新结果
+`MatrixTypeCSubduction` + `MatrixTypeCPiece` 用 `h_sources() -> [&'static str; 2]` 保留两个
+真实 H 身份；`MatrixTypeCError` 是独立错误 enum，旧公开 enum 没有新增变体。
+
+### 7.1 目标构造与重数（与 Type A 的区别）
+
+- 每个 unitary class 的 H 字符由**两个独立 H record** 的已认证一维矩阵表给出
+  （`certify_irrep_matrices(record, 1)`，其 typed selected-arm 行与 legacy 行仍按 R29 口径
+  交叉核对），并用 summary 的 Γ 字符列独立核对 `trace(A(h)) = χ1(h)+χ2(h)`。
+- `a0` 是首个反幺正 class；实际计算 `σ(h) = a0⁻¹ h a0`（model class 合成 + 格归约），并检查
+  `χ1(σ(h)) = χ2(h)`、`χ2(σ(h)) = χ1(h)` 以及 `χ1(a0²) = χ2(a0²) = s ∈ {±1}`。
+- 目标表是 `D(h) = diag(χ1(h), χ2(h))` 与规范 coset 矩阵
+  `X = [[0, 1], [s, 0]]`（`X² = s·I = D(a0²)`，因此 **`s = -1` 的 `-I` 平方也是合法分支**），
+  反幺正类为 `D(a0 h) = X·D(h)·K`。随后对全部有序对重新检查
+  `D(g)·conj(D(h)) = D(gh)`。
+- 该 type-C corep 的复线性实 Hom 空间是 **2 维**：`I` 与 `diag(i, -i)` 都满足幺正与
+  反幺正半线性自 intertwiner 方程。**这不是两份 copies**：`matching_copies` 只保留复列空间
+  两两正交（`Uᵢ†Uⱼ = 0`）且受源维数上限约束的 copy，因此这里 `multiplicity = 1`。
+  生产代码不把 `kernel.len()` 当重数，也不使用实核维数。
+- 成功条件：`multiplicity · dimension = 2`，唯一 copy 的 `U†U = I₂`、`|det U| = 1`
+  （满复秩），并用非实探针逐类验证 `S(g)∘φ = φ∘T(g)`，`φ(z) = U z`，反幺正分支共轭像向量
+  `U z`。`X` 与 `-X` 是同一目标的合法 coset gauge（整体相位可吸收），不作为歧义。
+
+### 7.2 真实见证（全部 `RequireExact`、`map = I`、`shift = 0`、双 η）
+
+| 源 / 凝聚 / row | UNI | H | H 对（BC） | s = χ(a0²) | 结果 |
+|---|---|---|---|---|---|
+| SG89 `GM5` / `GM2` row0 | 749 | SG16 P222 | `GM3`(Γ4) + `GM4`(Γ2) | **+1** | 目标 label `GM3 + GM4`，dim 2 mult 1，4 个反幺正类；双 η 成功 |
+| SG89 `GM5` / `GM4` row0 | 751 | SG21 C222 | `GM3`(Γ4) + `GM4`(Γ2) | **-1** | 同上；`X² = D(a0²) = -I` 的 `-I` 分支被真实数据动态见证 |
+
+两个见证的 unitary restriction、`a0` 扭曲配对、完整有序对 law、非零复 `U`、`U†U = I₂`、
+`|det U| = 1`、covered 2 与复数向量重建都由实际运行执行。UNI749 的 `s=+1` 与 UNI751 的
+`s=-1` 由模块单测直接读取 `χ(a0²)` 并核对 `X² = sI`。旧入口对 UNI749 仍返回
+`NoMatchingTarget { examined = ["GM1", "GM2"] }`（既有 R29 测试保持），不会静默丢掉第二个 H。
+
+### 7.3 错误与边界（如实）
+
+- 域外排除以 `rejected` 具名列入 `NoMatchingTarget`：spinor H、维数不等于 1、
+  复合 H、非 Γ H、有限非实字符、有限但非 `±1`、source 数不是 2。真实数据中的两个见证
+  不受这些排除影响。
+- 未决/不可用数据是独立错误，**不是**“无候选”：缺 H row / 多个 H row、typed 行不可用、
+  `NonFinite`（NaN/∞/imag NaN）、两个 H 字符逐操作等价（`EquivalentHSources`）、
+  unresolved summary corep、无 Γ、provenance 失败、H 映射失败、以及
+  `source.sg` 与 `context.h_sg` 不一致或 summary/record 一维声明矛盾。
+- 模块单测动态见证：同一 H pair 的未决拒绝、spinor/维数排除、跨 H 空间组身份拒绝、
+  单个 anti 系数篡改（law 与 reconstruction 都拒绝）、twist 字符篡改（twist 守卫拒绝）、
+  换另一反幺正代表元仍构造等价目标、错误 raw class 触发 `TargetProvenance`、
+  NaN/±Inf/imag NaN → `NonFinite`、有限非实 → `NonReal`、0.5 → `OffGrid`。
+- **未动态见证**：复合 H 与非 Γ H 在固定见证域内没有真实 pair 候选，因此只由代码路径和
+  排除名单覆盖；`record.dim != 1` 的 summary/record 声明矛盾也没有真实数据负例。
+  `s=-1` 有真实见证（UNI751）；`s=+1` 由 UNI749 见证。
+- 不扩 type A/B、complex H、non-Γ 源、spinor、full-star、setting solver；无外部 corep
+  oracle；Type C 分类仍取自 summary 的 Wigner 结果，本入口没有重算 Wigner `W`。
+
+### 7.4 回归
+
+新增 `tests/magnetic_type_c_subduction.rs` 6 项：两个见证双 η 的低层 law/重建、
+高层双 CDML/BC 身份、旧 `subduce` 对 Type-C record 的具名拒绝、旧 Type A 见证不变、
+scalar 源拒绝、Type A record 的 `NoMatchingTarget`。模块内新增 10 项单测（见 §7.3；含实际见证 a-扭曲配对逐类检查与 `s=+1/-1` 两个真实分支）。
+旧 R29 公开行为与文档 §1–§6 不变。
