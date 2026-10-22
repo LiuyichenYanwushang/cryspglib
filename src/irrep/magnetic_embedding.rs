@@ -2258,6 +2258,19 @@ pub fn embed_via_primitive_lattices(
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
 ) -> Result<Vec<ParentEmbedding>, GeometryError> {
+    let source = verified_source_primitive_basis(geometry, set)?;
+    let target = Mat3R::new(basis_in_parent_conventional(geometry)?).transpose();
+    let map = target
+        .checked_mul(&source.inverse().map_err(|_| GeometryError::Arithmetic)?)
+        .map_err(|_| GeometryError::Arithmetic)?;
+    exact_embeddings_for_map(geometry, set, map, EmbeddingKind::PrimitiveLattice)
+}
+
+// A source basis is useful only after its full lattice and provenance are proved.
+fn verified_source_primitive_basis(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+) -> Result<Mat3R, GeometryError> {
     let unavailable = |reason: String| GeometryError::PrimitiveBridgeUnavailable {
         uni: geometry.uni,
         reason,
@@ -2293,12 +2306,118 @@ pub fn embed_via_primitive_lattices(
             "reference primitive basis differs from the full source lattice".into(),
         ));
     }
-    let source = Mat3R::new(basis_in_parent_conventional(&source_lattice)?).transpose();
+    Ok(Mat3R::new(basis_in_parent_conventional(&source_lattice)?).transpose())
+}
+
+/// An obstruction to ANY embedding with exactly the supplied record lattice.
+/// This concerns the literal lattice in `MagneticGeometry`, not every possible
+/// convention of the tabulated isotropy record, and not containment with a
+/// different period lattice. Origin shifts cannot remove this obstruction.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecordLatticeObstruction {
+    /// A rotation of the verified magnetic source, in its database frame.
+    pub source_rotation: Mat3I,
+    /// Rank of R-I over F_2 in a primitive basis of the full source lattice.
+    pub source_rank_mod_two: u8,
+    /// Distinct ranks for ALL parent rotations having the same trace and
+    /// determinant and preserving the supplied record lattice. The source rank
+    /// is absent; an empty list means even these prerequisites have no match.
+    pub parent_ranks_mod_two: Vec<u8>,
+}
+
+/// Test a basis-independent necessary condition for an exact-lattice embedding.
+///
+/// Let C and B span the full source and record lattices. Any exact embedding A
+/// gives U = B^-1 A C in GL(3,Z). For every source rotation R, a parent rotation
+/// S must therefore obey B^-1 S B = U (C^-1 R C) U^-1. Its trace, determinant and
+/// rank of R-I over F_2 are invariant. Enumerating the parent's complete rotation
+/// set can thus exclude ALL maps with this lattice, not merely the R24 family.
+///
+/// `Some` is such a certificate. `None` proves neither existence nor absence:
+/// this test does not solve simultaneous conjugacy, translations or origins.
+/// Bad provenance, unavailable source bases and arithmetic limits remain errors,
+/// using the same source-lattice checks as [`embed_via_primitive_lattices`].
+/// In particular, a certificate does not disprove the isotropy subgroup in a
+/// different record convention, nor an embedding with non-exact lattice policy.
+pub fn record_lattice_obstruction(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+) -> Result<Option<RecordLatticeObstruction>, GeometryError> {
+    let source = verified_source_primitive_basis(geometry, set)?;
+    let source_inverse = source.inverse().map_err(|_| GeometryError::Arithmetic)?;
     let target = Mat3R::new(basis_in_parent_conventional(geometry)?).transpose();
-    let map = target
-        .checked_mul(&source.inverse().map_err(|_| GeometryError::Arithmetic)?)
-        .map_err(|_| GeometryError::Arithmetic)?;
-    exact_embeddings_for_map(geometry, set, map, EmbeddingKind::PrimitiveLattice)
+    let target_inverse = target.inverse().map_err(|_| GeometryError::Arithmetic)?;
+    let in_basis = |rotation, basis: &Mat3R, inverse: &Mat3R| {
+        inverse
+            .checked_mul(&Mat3R::from_ints(rotation))
+            .and_then(|r| r.checked_mul(basis))
+            .map_err(|_| GeometryError::Arithmetic)
+    };
+    let spectrum = |rotation: Mat3I| -> Result<_, GeometryError> {
+        let trace: i128 = (0..3).map(|i| i128::from(rotation[i][i])).sum();
+        let determinant = Mat3R::from_ints(rotation)
+            .determinant()
+            .map_err(|_| GeometryError::Arithmetic)?;
+        Ok((trace, determinant))
+    };
+    let mut candidates = Vec::new();
+    for rotation in parent_frame(geometry.parent_sg)?.rotations {
+        let restricted = in_basis(rotation, &target, &target_inverse)?;
+        if restricted.is_integral() {
+            candidates.push((spectrum(rotation)?, rotation_rank_mod_two(&restricted)));
+        }
+    }
+    for operation in &set.classes {
+        let restricted = in_basis(operation.rotation, &source, &source_inverse)?;
+        if !restricted.is_integral() {
+            return Err(GeometryError::PrimitiveBridgeUnavailable {
+                uni: set.uni,
+                reason: "source rotation does not preserve its verified primitive lattice".into(),
+            });
+        }
+        let rank = rotation_rank_mod_two(&restricted);
+        let kind = spectrum(operation.rotation)?;
+        let mut parent_ranks: Vec<_> = candidates
+            .iter()
+            .filter(|(s, _)| *s == kind)
+            .map(|(_, r)| *r)
+            .collect();
+        if !parent_ranks.contains(&rank) {
+            parent_ranks.sort_unstable();
+            parent_ranks.dedup();
+            return Ok(Some(RecordLatticeObstruction {
+                source_rotation: operation.rotation,
+                source_rank_mod_two: rank,
+                parent_ranks_mod_two: parent_ranks,
+            }));
+        }
+    }
+    Ok(None)
+}
+
+// Gaussian elimination over F_2: three rows fit in three three-bit words.
+// Reduce entries BEFORE subtracting I, so even i128::MIN cannot overflow here.
+fn rotation_rank_mod_two(rotation: &Mat3R) -> u8 {
+    debug_assert!(rotation.is_integral());
+    let mut rows: [u8; 3] = std::array::from_fn(|i| {
+        (0..3).fold(0, |row, j| {
+            row | (((rotation.rows()[i][j].numerator().rem_euclid(2) as u8) ^ u8::from(i == j))
+                << j)
+        })
+    });
+    let mut rank = 0;
+    for column in 0..3 {
+        if let Some(pivot) = (rank..3).find(|&r| rows[r] & (1 << column) != 0) {
+            rows.swap(rank, pivot);
+            for r in rank + 1..3 {
+                if rows[r] & (1 << column) != 0 {
+                    rows[r] ^= rows[rank];
+                }
+            }
+            rank += 1;
+        }
+    }
+    rank as u8
 }
 
 /// Both bridge constructors validate the source, then share the entire exact
@@ -3406,6 +3525,34 @@ pub fn embedded_translation_lattice(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mod_two_rank_matches_all_binary_row_spans() {
+        for bits in 0..512u16 {
+            let matrix = Mat3R::from_ints(std::array::from_fn(|i| {
+                std::array::from_fn(|j| i32::from((bits >> (3 * i + j)) & 1))
+            }));
+            let rows: [u8; 3] = std::array::from_fn(|i| ((bits >> (3 * i)) as u8 & 7) ^ (1 << i));
+            let span: std::collections::BTreeSet<_> = (0..8)
+                .map(|mask| {
+                    (0..3)
+                        .filter(|i| mask & (1 << i) != 0)
+                        .fold(0, |value, i| value ^ rows[i])
+                })
+                .collect();
+            assert_eq!(1usize << rotation_rank_mod_two(&matrix), span.len());
+        }
+    }
+
+    #[test]
+    fn mod_two_rank_reduces_extreme_entries_before_subtracting_identity() {
+        let matrix = Mat3R::new([
+            [Rat::from_integer(i128::MIN), Rat::ZERO, Rat::ZERO],
+            [Rat::ZERO, Rat::from_integer(i128::MAX), Rat::ZERO],
+            [Rat::ZERO, Rat::ZERO, Rat::ONE],
+        ]);
+        assert_eq!(rotation_rank_mod_two(&matrix), 1);
+    }
 
     fn matrix(rows: [[i32; 3]; 3]) -> Mat3R {
         let mut exact = [[Rat::ZERO; 3]; 3];

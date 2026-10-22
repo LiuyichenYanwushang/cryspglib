@@ -22,6 +22,56 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 最新字面记录格障碍（R38，2026-10-23；基线 `f604cca`）
+
+已交付 [`record_lattice_obstruction`](src/irrep/magnetic_embedding.rs)，不再把所有缺口都
+当成“还没猜到 map”。复用 R37 的数据库、群公理和完整源格 C 校验；若 exact A 存在，
+则 U=B⁻¹AC∈GL(3,Z)，源与母群的格内旋转必须整数共轭，故 trace、determinant 与
+rank(R−I mod 2) 一致。枚举**全部母群旋转**后若缺少某个源秩，就排除对此字面记录格的
+**所有 exact map**，不是仅 R24 族。返回 None 不证明存在；来源、算术或容量失败仍是错误。
+没有新增 map 候选族、依赖或数据表；R37 仅抽取其原有源格校验以共用。
+
+全 **16,721** 条有 **56 条**字面格障碍，母群在 SG3–15。例如 SG3 A1/P1 UNI11 的
+源/可用母群模二秩为 0/1，D1/P1 UNI24 为 1/0。A1 的普通 H 校准后格也不等于磁记录
+按当前规则解释的原始格：上一轮“有同格 H 行”的元数据统计不能代替实际周期校验。
+这些证书**不否证其它 cell/axis convention，也不否证不同周期的包含**；A1 在 A=2I、
+零 shift 下的两 Γ 源 × 两 η 高层 ContainmentOnly 分导仍全部成功，RequireExact 拒绝。
+详细证明与边界见[接口说明](docs/magnetic-unitary-bridge.md)。
+
+新增[公开回归](tests/magnetic_lattice_obstruction.rs) **9 项**、模块 **2 项**、census
+**3 项**：完整 GL(3,F₂) 的 168 个矩阵直接检验共轭方程；168 个整数 unimodular 重选基；
+512 个二进制矩阵的独立行空间计数；MAX/MIN、非保格旋转、缺谱、错来源和奇异格控制。
+普查的独立审计在固定见证之后运行；任何证书/正见证冲突或计算错误都会使 gate 失败，
+既不反过来改选择，也不改 TSV 状态。新计数为 `records_literal_lattice_obstructed`，
+审计错误为 `lattice_obstruction_errors`。
+
+冻结[电池](target/logs/r38-accepted/battery/summary.txt)：**932 passed / 0 failed**
+（918+14），67 个测试壳、71/71 池作业、16/16 条腿全部 exit 0；另用
+[独立汇总](target/logs/r38-accepted/battery-audit.json)复算退出码与测试总数。
+三份 ordinary TSV 的行数、钉住 SHA 和 4==8 不变。**244 个工作区输入哈希前后相同**；
+本账本在验收后才更新。定向 debug 9+2+17 项、严格 debug/release clippy、格式与 diff
+均通过。电池 **631 s**（构建 244 + example 发现 68 s）；期间运行了只写 target 的小诊断，
+不作性能 A/B。
+
+同一冻结树的完整 Γ gate：[8 线程](target/logs/r38-accepted/gamma-8.txt) **87.6 s**、
+[4 线程](target/logs/r38-accepted/gamma-4.txt) **104.7 s**。fixed 仍 **15,587**，
+**140,934/140,934** 探针成功，输入/分导/重建/anchor 失败与新格审计错误全部 0。
+**151,068 条 TSV 数据行整体逐字节等于 R37**，不只是保留旧成功行；4/8 线程也相同，
+SHA 仍 `45aaacfc04621b5138e90c409c374fde6a785edd7c4e8b4857856992b903e92c`。
+未固定仍 1,134（R24 原因 964 族内无成员 +170 非 exact），其中 56 条由新证书解释，
+另 **1,078** 条没有本轮证书；新证书并未修改 R24 的认证范围。
+
+**仍未完成 / 下一步**：56 条需核对官方格约定；其它缺口需实际的点格/反幺正扩张，
+而不是重用一个提前返回 identity 的 H→H setting 查找器。UNI3/7 在剩余记录中均为 0，
+所以“仅平移/反演的 Type-IV 专用路线”不会增加当前覆盖，未实现。
+[单点实验](target/r39-symmorphic-extension-probe.rs)已将 SG3 B1 的保格母群旋转放入记录
+primitive 胞，添入允许的二阶反幺正平移，再由现有磁群识别器提议变换；得到
+A=diag(−2,−1,1)，零 shift 的 exact 见证及全部四个原点分支，两个 Γ 源 × 两 η
+[高层调用也通过](target/logs/r38-extension/sg3-b1-virtual-extension.txt)。**这只是一个未接入
+生产的实验，不计新增 fixed 或全表覆盖**；应先测量其适用性，特别是非 symmorphic H，
+并保留浮点只提议、全源格与磁操作 exact 回验的边界。一般 B/C、复源/高维、非 Γ/full-star、
+spinor 和 OP stabilizer 契约仍未完成。未删除项目、未 push；以下 R37 等统计保留为历史。
+
 ### 最新完整源格归一化（R37，2026-10-23；基线 `114fc90`）
 
 已交付 [`embed_via_primitive_lattices`](src/irrep/magnetic_embedding.rs)：以记录 primitive

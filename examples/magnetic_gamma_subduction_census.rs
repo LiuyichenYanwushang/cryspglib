@@ -92,7 +92,7 @@
 use cryspglib::irrep::magnetic_embedding::{
     EmbeddingKind, MagneticGeometry, MagneticOperationSet, ParentEmbedding,
     embed_via_primitive_lattices, embed_via_unitary_subgroup, geometry_of, magnetic_operations,
-    parent_embedding_verdict,
+    parent_embedding_verdict, record_lattice_obstruction,
 };
 use cryspglib::irrep::magnetic_input::{
     EmbeddingEvidence, LatticePolicy, MagneticInputError, RealSign, RecordIdentity,
@@ -824,6 +824,7 @@ struct Counters {
     /// Newly fixed by the unitary bridge after the R24 family had no exact witness.
     records_fixed_unitary_bridge: usize,
     records_fixed_primitive_lattice: usize,
+    records_literal_lattice_obstructed: usize,
     /// Of the fixed embeddings, those whose map is exactly the identity (the
     /// tabulated frame); the shift may still be a solved non-zero representative.
     records_fixed_identity_map: usize,
@@ -874,6 +875,7 @@ impl Counters {
             records_fixed,
             records_fixed_unitary_bridge,
             records_fixed_primitive_lattice,
+            records_literal_lattice_obstructed,
             records_fixed_identity_map,
             records_fixed_identity_zero_shift,
             records_no_fixed,
@@ -939,6 +941,21 @@ struct SgReport {
     sg: u8,
     counters: Counters,
     tsv: String,
+    lattice_errors: Vec<String>,
+}
+
+/// Independent audit, never a selector. A proof cannot contradict an existing
+/// exact witness; calculation failure is an error, not an unobstructed record.
+fn audit_record_lattice(sg: u8, record: &RecordRow, has_fixed: bool) -> Result<bool, String> {
+    let geometry = geometry_of(sg, &record_of(sg, record)).map_err(|e| e.to_string())?;
+    let set = magnetic_operations(record.uni).map_err(|e| e.to_string())?;
+    let obstruction = record_lattice_obstruction(&geometry, &set).map_err(|e| e.to_string())?;
+    if has_fixed && let Some(proof) = &obstruction {
+        return Err(format!(
+            "literal-lattice obstruction contradicts an exact witness: {proof:?}"
+        ));
+    }
+    Ok(obstruction.is_some())
 }
 
 /// Census one space group: fix one embedding per record, probe each eligible
@@ -947,6 +964,7 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
     let sg = inventory.sg;
     let mut counters = Counters::default();
     let mut tsv = String::new();
+    let mut lattice_errors = Vec::new();
     let eligible: Vec<&SourceRow> = inventory
         .sources
         .iter()
@@ -982,7 +1000,17 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
     // carry the same (record, source, η) shape as a probe, with a named reason.
     let mut no_fixed: Vec<(RecordRow, &'static str, String)> = Vec::new();
     for record in &inventory.records {
-        match fixed_embedding(sg, record) {
+        let fixed = fixed_embedding(sg, record);
+        match audit_record_lattice(sg, record, matches!(&fixed, FixedEmbedding::Fixed(_))) {
+            Ok(obstructed) => {
+                counters.records_literal_lattice_obstructed += usize::from(obstructed)
+            }
+            Err(detail) => lattice_errors.push(format!(
+                "SG{sg} {} index={} UNI{}: {detail}",
+                record.condensing, record.direction_index, record.uni
+            )),
+        }
+        match fixed {
             FixedEmbedding::Fixed(candidate) => {
                 let map = candidate.map;
                 let shift = candidate.shift;
@@ -1056,7 +1084,12 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
     counters.tsv_rows = counters.pairs_probed * 2 + counters.pairs_record_without_fixed * 2;
     counters.tsv_rows_record_without_fixed = counters.pairs_record_without_fixed * 2;
 
-    SgReport { sg, counters, tsv }
+    SgReport {
+        sg,
+        counters,
+        tsv,
+        lattice_errors,
+    }
 }
 
 /// Attribute one probe to its single stage.
@@ -2218,6 +2251,11 @@ fn main() -> ExitCode {
         println!("tsv_bytes {}", tsv.len());
     }
 
+    let lattice_errors: Vec<_> = reports
+        .iter()
+        .flat_map(|r| r.lattice_errors.iter().cloned())
+        .collect();
+
     // Per-space-group lines, in SG order.
     for report in &reports {
         println!("{}", report.counters.line(report.sg));
@@ -2234,6 +2272,11 @@ fn main() -> ExitCode {
     let anchor_violations = run_anchors();
 
     println!("records_total {}", counters.records_total);
+    println!(
+        "records_literal_lattice_obstructed {}",
+        counters.records_literal_lattice_obstructed
+    );
+    println!("lattice_obstruction_errors {}", lattice_errors.len());
     println!("records_with_fixed_embedding {}", counters.records_fixed);
     println!(
         "records_fixed_via_unitary_bridge {}",
@@ -2316,6 +2359,11 @@ fn main() -> ExitCode {
 
     if gate {
         let mut violations = anchor_violations.clone();
+        violations.extend(lattice_errors);
+        if counters.records_literal_lattice_obstructed > counters.records_no_fixed {
+            violations
+                .push("literal-lattice obstructions exceed records without a fixed witness".into());
+        }
         // The gate reads the rows that were actually emitted, per space group and
         // as one document: dropped rows, duplicated η, unknown or missing keys,
         // a record whose fixed (map, shift) is not one pair, and stage counts that
@@ -2924,6 +2972,55 @@ mod tests {
                 .unwrap()
         );
         assert!(same_primitive_lattice(a, Mat3R::from_ints([[0; 3]; 3])).is_err());
+    }
+
+    #[test]
+    fn literal_lattice_obstruction_counts_merge_without_changing_selections() {
+        let report = census_sg(&inventory_of(3));
+        assert_eq!(report.counters.records_literal_lattice_obstructed, 4);
+        assert!(report.lattice_errors.is_empty());
+        assert!(report.counters.records_no_fixed >= 4);
+        let mut counters = Counters::default();
+        counters.merge(&report.counters);
+        assert_eq!(counters.records_literal_lattice_obstructed, 4);
+    }
+
+    #[test]
+    fn an_obstruction_conflicting_with_a_positive_witness_is_a_gate_error() {
+        let inventory = inventory_of(3);
+        let record = inventory
+            .records
+            .iter()
+            .find(|r| r.condensing == "A1")
+            .unwrap();
+        assert!(audit_record_lattice(3, record, false).unwrap());
+        assert!(
+            audit_record_lattice(3, record, true)
+                .unwrap_err()
+                .contains("contradicts an exact witness")
+        );
+        let positive = inventory
+            .records
+            .iter()
+            .find(|r| r.condensing == "E1")
+            .unwrap();
+        assert!(!audit_record_lattice(3, positive, true).unwrap());
+    }
+
+    #[test]
+    fn obstruction_audit_errors_are_not_reported_as_no_obstruction() {
+        let inventory = inventory_of(3);
+        let mut record = *inventory
+            .records
+            .iter()
+            .find(|r| r.condensing == "A1")
+            .unwrap();
+        record.uni += 1;
+        assert!(
+            audit_record_lattice(3, &record, false)
+                .unwrap_err()
+                .contains("magnetic UNI differs")
+        );
     }
 
     /// The record inventory must agree with the independent query and must add

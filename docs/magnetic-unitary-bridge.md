@@ -1,4 +1,4 @@
-# 精确磁嵌入的几何桥接（R36–R37）
+# 精确磁嵌入的几何桥接与记录格障碍（R36–R38）
 
 [公开入口](../src/irrep/magnetic_embedding.rs)是
 `embed_via_unitary_subgroup(geometry, magnetic_set, ordinary_embedding)`。
@@ -69,6 +69,37 @@ T3/P1 必需的四分之一原点、SG19 Y1/P3 的“该 map 无解但另一 map
 `GeometryError::PrimitiveBridgeUnavailable`，算术/容量错误仍保留。穷尽 match 需补分支。
 空结果只针对这一种基对应；没有一般 setting 或 OP stabilizer 的否证。
 
+## 字面记录格的无解证书（R38）
+
+公开入口 `record_lattice_obstruction(geometry, magnetic_set)` 不构造候选 map。
+它复用 R37 的 provenance 与完整源格校验，检查是否有某个源旋转，在所有保持记录格的
+母群旋转中找不到相同的 trace、determinant 与模二秩。
+
+证明：令 C、B 分别为完整源格和给定记录格的 primitive 列矩阵。若存在 exact map A，
+则 U = B⁻¹ A C ∈ GL(3,Z)。对应的旋转必须满足
+
+**B⁻¹ S B = U (C⁻¹ R C) U⁻¹**。
+
+因此在 F₂ 上，R−I 的秩相同。母群的完整旋转集合是有限的；若某个源旋转的秩在所有
+同 trace/determinant 且保持记录格的母群旋转中都不出现，就排除了**对此字面格的所有
+exact map**，而不只是某个候选族。原点平移不改变这项障碍。
+
+- 返回 `Some(RecordLatticeObstruction)`：证书保存源旋转、源模二秩和全部兼容母群秩。
+- 返回 `None`：只有“这个必要条件没有发现障碍”；不是存在性证明，也没有解联立旋转、
+  平移或原点条件。计算/来源错误仍是错误，不转成 `None` 或证书。
+- SG3 A1/P1、UNI11 的源秩为 0，母群可用秩只有 1；D1/P1、UNI24 则反过来。
+  A1 仍能以 A=2I、零 shift 作非 exact 包含；两 Γ 源、两 η 的高层分导均通过。
+  因此这**不否证磁子群本身**，也不拒绝不同周期格的 `ContainmentOnly` 调用。
+
+[公开回归](../tests/magnetic_lattice_obstruction.rs)遍历全部 16,721 条记录，得到 **56 条**
+字面格障碍（母群均在 SG3–15）。另有完整 GL(3,F₂) 的 168 个元素直接检验两个反例的
+共轭方程、168 种整数 unimodular 重选基控制、所有 512 个二进制矩阵的独立行空间计数，
+以及非保格旋转、来源与算术错误控制。没有枚举新的物理 map 候选族。
+
+这 56 条应继续核对原始表与官方 cell/axis convention，不能靠更大的 map 搜索消除。
+R37 的 1,134 条缺口据此细分为 56 条字面格障碍与 **1,078 条仍未解决**；没有增加正见证，
+也没有把这些字面格结论扩写成其它 convention 或任意周期格的不存在性证明。
+
 ## 普查接入与边界
 
 [受限 Γ 普查](../examples/magnetic_gamma_subduction_census.rs)按以下顺序选择，并保留
@@ -82,7 +113,9 @@ T3/P1 必需的四分之一原点、SG19 Y1/P3 的“该 map 无解但另一 map
 R36 路线的准备/算术错误仍是 `unitary_bridge`，新增路线错误是 `additional_bridge`，
 均保留诊断，而不归入无见证。
 `certified_absence` 仍只指 R24 的有限族，绝不扩写为所有设置的无解证明。
-最新冻结统计见[账本](../AGENTS.md)，旧 R28 数字保留为历史。
+R38 的独立格审计在选取见证之后运行，不改变选择或 TSV。证书计数单列为
+`records_literal_lattice_obstructed`；`lattice_obstruction_errors` 包含计算失败和证书/正见证
+冲突，非零会使 gate 失败。最新冻结统计见[账本](../AGENTS.md)，旧 R28 数字保留为历史。
 
 这些入口证明 grey 母群包含和记录格相等，**不证明特定 order-parameter 向量的 stabilizer**，
 不保证唯一 basis/origin，也不提供完整 setting 分类。它没有改变任何表示域或进行非 Γ

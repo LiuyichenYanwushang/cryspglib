@@ -9,6 +9,8 @@
 > 也是旧版记录数，不能作为新版覆盖率；R24 自身的候选族及其认证口径没有改动。
 > **R37** 在保留这些选择之后，再尝试完整源格的 primitive 归一化与同格的其它普通 H
 > 记录。它们只提供经验证的几何见证，不声称证明 OP stabilizer；新统计仍见当前账本。
+> **R38** 增加独立的字面记录格障碍证书：56 条不可能在该字面格上 exact 嵌入，
+> 另 1,078 条缺口仍未解决。它不改变正见证或 TSV，也不否证其它 cell/axis convention。
 
 本文件是**只读诊断**的记录，不含生产算法改动。程序
 [examples/magnetic_gamma_subduction_census.rs](../examples/magnetic_gamma_subduction_census.rs)
