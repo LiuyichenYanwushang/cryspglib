@@ -10,7 +10,9 @@
 > **R37** 在保留这些选择之后，再尝试完整源格的 primitive 归一化与同格的其它普通 H
 > 记录。它们只提供经验证的几何见证，不声称证明 OP stabilizer；新统计仍见当前账本。
 > **R38** 增加独立的字面记录格障碍证书：56 条不可能在该字面格上 exact 嵌入，
-> 另 1,078 条缺口仍未解决。它不改变正见证或 TSV，也不否证其它 cell/axis convention。
+> 当轮另 1,078 条缺口仍未解决。它不改变正见证或 TSV，也不否证其它 cell/axis convention。
+> **R39** 再以成对辅助群与反幺正平移提议 map，最后用原始 M 精确验收；旧路线优先级不变。
+> 候选识别未决独立保留，不作为不存在性证明。最新覆盖与冻结数据见当前账本。
 
 本文件是**只读诊断**的记录，不含生产算法改动。程序
 [examples/magnetic_gamma_subduction_census.rs](../examples/magnetic_gamma_subduction_census.rs)

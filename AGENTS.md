@@ -22,6 +22,57 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 最新反幺正平移桥接（R39，2026-10-23；基线 `a67c26e`）
+
+已交付 [`embed_via_antitranslations`](<src/irrep/magnetic_embedding/antitranslation.rs>)。
+以普通 H 嵌入的**旋转子群**而非其周期，在源/记录 primitive 胞中构造去掉 H 平移的
+辅助群，保留反幺正平移；目标枚举 (½L)/L 的七个非零类，只保留母格内、H 模 L 固定的类。
+成对无 Hall 限制的识别提议 **A=B D_t⁻¹ D_s C⁻¹**，随后用**原始 M**重验完整格、全部
+共同原点分支与所有操作。非 symmorphic H 也可使用，螺旋/滑移条件没有从验收中删掉。
+没有新求解器、依赖、数据表或猜测小矩阵族；旧 R24/R36/R37 选择顺序完整保留。
+
+结果 `AntitranslationSearch` 分开返回 exact `embeddings` 与逐候选 `unresolved`；
+后者保存半格平移和 `SymError`，即使其它 H 点子群成功也保留。准备/精确算术失败仍是错误，
+空结果不否证其它 map；不适用的 Type I/II/III 不冒充已搜索。新增 `EmbeddingKind::Antitranslation`
+与 `AntitranslationBridgeUnavailable`，下游穷尽 match 需更新。见[接口与边界](<docs/magnetic-unitary-bridge.md>)。
+
+**fixed 15,587 → 16,414，新增 827**，全部为原先缺口的 Type IV；按旧原因是 754 条 R24
+族内无成员 +73 条非 exact。新增 7,844 个成功源/η 行。剩余 **307**（210 族内无成员 +97
+非 exact），其中 56 条字面格障碍、251 条无此证书；按类型为 117 Type IV +190 Type III。
+原 H 桥接 7,030 与 primitive 587 不变。普查额外记录 **39 次候选识别未决**，其中 29 次
+发生在已经由其它候选找回的记录上；这是候选次数，不是记录数，也不计作不存在性证明。
+
+新增[公开回归](<tests/magnetic_antitranslation_bridge.rs>) **9 项**、模块 **2 项**、census
+**2 项**：primitive/含心/非 symmorphic 正例、168 个 unimodular 重选基、原始 screw
+不能替换成辅助群、完整原点分支、身份/算术/范围负例、保留识别失败、16 个高层 source/η/标签
+逐操作复向量重建。单独全表对每条取**首个 H 号匹配普通行**得到
+[16,721, 12, 5,185, 11,524, 0, 150]，依次为总数/无 H 行/空结果/有见证/准备失败/候选未决；
+**11,524 不是新增数**，也不是其它 H 方向的穷尽结果。
+
+冻结[电池](<target/logs/r39-accepted/battery/summary.txt>) **945 passed / 0 failed**（932+13），
+68 个测试壳、72/72 池作业、16/16 条腿全部 exit 0；[独立审计](<target/logs/r39-accepted/battery-audit.json>)
+逐项复算退出码、测试数、三份 ordinary TSV 的行数/钉住 SHA/4==8，全部不变。
+**246 个输入哈希在电池和 Γ 验收前后相同**；本账本仅在核验后更新。
+定向 debug 9+2+19 项、严格 debug/release clippy、格式与 diff 也通过。
+电池 675 s（构建 230 + example 发现 62 s），与后半段 Γ 及只写 target 的小诊断有重叠，
+不作性能 A/B。
+
+同一冻结树的 Γ [8 线程](<target/logs/r39-accepted/gamma-8.txt>) **208.1 s**（与电池重叠）、
+[4 线程](<target/logs/r39-accepted/gamma-4.txt>) **106.6 s**：**148,778/148,778** 成功，
+输入/分导/重建/anchor/格审计错误均 0；另列的候选识别未决不是 0。
+151,068 数据行逐字节相同，2,290 行保持未执行，SHA
+`4a1ed5d84a2ac8bdb5c4a128eb8bcf903ce862d65681db836b23448aec3d93c9`；
+[逐行旧版比较](<target/logs/r39-accepted/compare-r38.txt>)证明 **140,934 个旧成功行每字段不变**，
+仅新增 7,844 成功行；首次探索输出也与冻结输出完全相同。
+
+**仍未完成 / 下一步**：307 条缺口与一般 B/C、复源/高维、非 Γ/full-star、spinor、
+setting/OP-stabilizer 契约仍未完成。下一条[仅 target 的实验](<target/r40-point-extension-probe.rs>)
+已枚举保格母群点扩张 H∪aH，使用成对零平移辅助群并重验原始 M，在 190 条 Type III 中
+找到 **167 条** exact 见证（H=SG1 的 123 条、H=SG2 的 44 条）；两个 η 的
+[334 次高层调用](<target/logs/r39-exploration/next-point-extensions-high-level.txt>)均通过。
+**尚未接入生产，不计新增覆盖**；应先复用现有辅助群组件并完善域、失败保留与回归，再验收。
+无删除、无 push。以下 R38 等数字保留为历史。
+
 ### 最新字面记录格障碍（R38，2026-10-23；基线 `f604cca`）
 
 已交付 [`record_lattice_obstruction`](src/irrep/magnetic_embedding.rs)，不再把所有缺口都

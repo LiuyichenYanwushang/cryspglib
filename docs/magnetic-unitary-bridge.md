@@ -1,4 +1,4 @@
-# 精确磁嵌入的几何桥接与记录格障碍（R36–R38）
+# 精确磁嵌入的几何桥接与记录格障碍（R36–R39）
 
 [公开入口](../src/irrep/magnetic_embedding.rs)是
 `embed_via_unitary_subgroup(geometry, magnetic_set, ordinary_embedding)`。
@@ -100,23 +100,56 @@ exact map**，而不只是某个候选族。原点平移不改变这项障碍。
 R37 的 1,134 条缺口据此细分为 56 条字面格障碍与 **1,078 条仍未解决**；没有增加正见证，
 也没有把这些字面格结论扩写成其它 convention 或任意周期格的不存在性证明。
 
+## 反幺正平移与成对辅助群（R39）
+
+`embed_via_antitranslations(geometry, set, ordinary_embedding)` 仅以普通 H 嵌入的
+**旋转子群**为候选，不再要求其校准周期与字面记录格相同。仍先检验母群/H/UNI 身份、
+数据库 provenance、群公理与完整源格 C；不适用的 Type I/II/III 返回空搜索。
+
+在源与目标 primitive 坐标中，分别以 H 的旋转构造**去掉 H 平移的辅助群**，保留二阶
+反幺正平移。目标遍历 (½L)/L 的七个非零类，只保留落入母群格且被 H 模 L 固定的类；
+这不是枚举小矩阵。现成识别器将两辅助群放入同一无 Hall 限制的 canonical frame，
+其线性变换 D_s、D_t 提议 **A = B D_t⁻¹ D_s C⁻¹**。不能用实际 M 的 Hall 作为辅助群
+的强制身份：去掉螺旋/滑移平移后可能变成另一空间群。
+
+辅助群只用于提议线性 map。验收使用**原始 M 的全部平移与操作**，重算完整格双向相等、
+全部共同原点分支和包含，因此非 symmorphic H 也可使用，不会把螺旋/滑移条件丢掉。
+不采用浮点原点；浮点标签和矩阵都不是接受证据，也不声称穷尽 setting/normalizer。
+
+返回 `AntitranslationSearch`：`embeddings` 均为 exact 见证，kind 为
+`Antitranslation`；`unresolved` 逐个保存识别失败的半格平移和原始 `SymError`。
+即使其它候选成功，也不清空这些未决项。准备/精确算术失败仍返回错误，不能变成无解。
+新增 `AntitranslationBridgeUnavailable`；调用者的穷尽 match 需更新。
+
+[公开回归](../tests/magnetic_antitranslation_bridge.rs)包含 SG3 B1/C1 与 SG4 B1、
+完整原点分支、168 种重选基、原始 screw 不能换成辅助群、身份/算术/范围负例、
+保留识别失败，以及 16 个 source/η/标签的高层逐操作复向量重建。
+全 16,721 条记录各取**首个 H 号匹配普通行**，独立得到 11,524 条有见证、5,185 条空结果、
+12 条无对应 H 行；准备失败 0、候选未决 150。**11,524 不是新增覆盖数**，也不是所有 H
+方向的穷尽结果。普查只在全部旧路线失败后使用，新增数与最新冻结验收见账本。
+
 ## 普查接入与边界
 
 [受限 Γ 普查](../examples/magnetic_gamma_subduction_census.rs)按以下顺序选择，并保留
 每一旧路线已经选出的见证：R24 exact → 同方向的 H 桥接 → primitive 格归一化 →
-同母群/凝聚 irrep 的其它普通方向。最后一步要求 H 号相同、primitive 记录格双向相等，
+同母群/凝聚 irrep 的其它普通方向 → R39 成对辅助群。R37 的其它方向桥接要求 H 号相同、primitive 记录格双向相等，
 再调用公开 H 桥接逐一验证；按既有精确全序选一个代表，不能用同体积代替同格。
-普通/磁方向标签不是同一编号系统，也不因找到其它方向的 H 就宣称两个 OP 向量等价。
+R39 则只取同 irrep、H 号匹配的旋转子群（按旋转集合去重），不复用该普通行的格；
+所有候选仍按同一全序选择。普通/磁方向标签不是同一编号系统，也不因找到其它方向的 H
+就宣称两个 OP 向量等价。
 
 选择只读取记录与几何，不读取待分导源、η 或分导结果。两种 H 来源合计报告为
 `records_fixed_via_unitary_bridge`，primitive 来源单列 `records_fixed_via_primitive_lattice`。
 R36 路线的准备/算术错误仍是 `unitary_bridge`，新增路线错误是 `additional_bridge`，
-均保留诊断，而不归入无见证。
+均保留诊断，而不归入无见证。R39 的准备/精确算术错误为 `antitranslation_bridge`；
+新增见证计入 `records_fixed_via_antitranslation`。候选识别未决单列为
+`antitranslation_unresolved_proposals`，逐项打印，不假装候选不存在；旧 R24 族内证书
+不因此扩张。已有成功不会因为其它浮点提议失败而被撤销。
 `certified_absence` 仍只指 R24 的有限族，绝不扩写为所有设置的无解证明。
 R38 的独立格审计在选取见证之后运行，不改变选择或 TSV。证书计数单列为
 `records_literal_lattice_obstructed`；`lattice_obstruction_errors` 包含计算失败和证书/正见证
 冲突，非零会使 gate 失败。最新冻结统计见[账本](../AGENTS.md)，旧 R28 数字保留为历史。
 
-这些入口证明 grey 母群包含和记录格相等，**不证明特定 order-parameter 向量的 stabilizer**，
+这些桥接入口证明 grey 母群包含和记录格相等，**不证明特定 order-parameter 向量的 stabilizer**，
 不保证唯一 basis/origin，也不提供完整 setting 分类。它没有改变任何表示域或进行非 Γ
 相位输运；高维、一般 B/C、非 Γ/full-star 与 spinor 分导仍须各自的作用契约与算法。

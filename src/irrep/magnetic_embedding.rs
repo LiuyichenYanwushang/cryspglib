@@ -69,6 +69,11 @@ use crate::irrep::subduction::{Mat3I, Mat3R, Rat, SubductionError, Vec3R};
 /// contract and the completeness argument.
 pub(crate) mod complete_shift;
 
+mod antitranslation;
+pub use antitranslation::{
+    AntitranslationProposalFailure, AntitranslationSearch, embed_via_antitranslations,
+};
+
 /// The complete set of origin shifts that make one fixed candidate map an
 /// embedding -- round 24's replacement for the finite `{+-1, +-1/2}` walk.
 ///
@@ -1006,6 +1011,10 @@ pub enum GeometryError {
     /// Magnetic data or the reference-cell primitive lattice could not be
     /// verified. This does not disprove other embeddings.
     PrimitiveBridgeUnavailable { uni: usize, reason: String },
+    /// The antitranslation proposal route could not be prepared. This is not
+    /// a nonexistence certificate; individual identifier failures are reported
+    /// separately by `AntitranslationSearch::unresolved`.
+    AntitranslationBridgeUnavailable { uni: usize, reason: String },
 }
 
 impl std::fmt::Display for GeometryError {
@@ -1057,6 +1066,9 @@ impl std::fmt::Display for GeometryError {
                 "UNI {uni}: the image of the group's full translation lattice leaves the \
                  parent's lattice"
             ),
+            Self::AntitranslationBridgeUnavailable { uni, reason } => {
+                write!(f, "UNI {uni}: antitranslation bridge unavailable: {reason}")
+            }
             Self::PrimitiveBridgeUnavailable { uni, reason } => {
                 write!(
                     f,
@@ -2120,6 +2132,9 @@ pub enum EmbeddingKind {
     /// The record's primitive basis mapped from the magnetic reference cell's
     /// verified full translation lattice; see [`embed_via_primitive_lattices`].
     PrimitiveLattice,
+    /// Paired auxiliary point-group/antitranslation frames, followed by exact
+    /// verification of the original group; see [`embed_via_antitranslations`].
+    Antitranslation,
 }
 
 /// One way to place the tabulated magnetic group inside the parent.
@@ -2678,7 +2693,8 @@ fn search_embeddings(
             EmbeddingKind::PrimitiveDual
             | EmbeddingKind::ConventionalDual
             | EmbeddingKind::UnitarySubgroup
-            | EmbeddingKind::PrimitiveLattice => continue,
+            | EmbeddingKind::PrimitiveLattice
+            | EmbeddingKind::Antitranslation => continue,
         };
         duals.push((dual_kind, dual));
     }
