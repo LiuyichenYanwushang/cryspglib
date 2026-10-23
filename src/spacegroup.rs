@@ -750,40 +750,30 @@ pub(crate) fn get_centering(correction_mat: &mut Mat3, tmat: &Mat3I, laue: Laue)
     }
 }
 
+/// For an index-two conventional cell, the nonzero translation class is v/2
+/// with T v = 0 modulo 2. Its unique nonzero kernel vector does not depend on
+/// a unimodular rebase of the primitive lattice (left multiplication of T).
 fn get_base_center(tmat: &Mat3I) -> Centering {
-    debug::debug_print(format_args!("lat_get_base_center\n"));
-
-    // C center
-    for row in tmat.iter().take(3) {
-        if row[0] == 0 && row[1] == 0 && row[2].abs() == 1 {
-            return Centering::CFace;
-        }
+    let half_class = (1..8).find(|&mask| {
+        tmat.iter().all(|row| {
+            row.iter()
+                .enumerate()
+                .map(|(i, x)| (x & 1) * ((mask >> i) & 1))
+                .sum::<i32>()
+                % 2
+                == 0
+        })
+    });
+    match half_class {
+        Some(3) => Centering::CFace,
+        Some(5) => Centering::BFace,
+        Some(6) => Centering::AFace,
+        Some(7) => Centering::Body,
+        // A single-axis half translation describes a nonprimitive axis,
+        // not one of the supported conventional centerings. Never silently
+        // discard an index-two translation by reporting Primitive.
+        _ => Centering::Error,
     }
-
-    // A center
-    for row in tmat.iter().take(3) {
-        if row[0].abs() == 1 && row[1] == 0 && row[2] == 0 {
-            return Centering::AFace;
-        }
-    }
-
-    // B center
-    for row in tmat.iter().take(3) {
-        if row[0] == 0 && row[1].abs() == 1 && row[2] == 0 {
-            return Centering::BFace;
-        }
-    }
-
-    // Body center
-    if (tmat[0][0].abs() + tmat[0][1].abs() + tmat[0][2].abs() == 2)
-        && (tmat[1][0].abs() + tmat[1][1].abs() + tmat[1][2].abs() == 2)
-        && (tmat[2][0].abs() + tmat[2][1].abs() + tmat[2][2].abs() == 2)
-    {
-        return Centering::Body;
-    }
-
-    debug::warning_print(format_args!("spglib: No centring was found.\n"));
-    Centering::Primitive
 }
 
 fn get_centering_shifts(shift: &mut [[f64; 3]; 3], centering: Centering) -> usize {
@@ -967,9 +957,136 @@ fn match_hall_symbol_db(
 mod tests {
     use super::*;
     use crate::cell::Cell;
+    use crate::mathfunc::mat_multiply_matrix_i3;
 
     const SYMPREC: f64 = 1e-5;
     const ANGLE_TOL: f64 = -1.0;
+
+    #[test]
+    fn index_two_centering_matches_independent_rational_inverse_quotients() {
+        use crate::irrep::subduction::{Mat3R, Rat};
+        let mut count = 0;
+        for mut code in 0..3_i32.pow(9) {
+            let t = std::array::from_fn(|_| {
+                std::array::from_fn(|_| {
+                    let value = code % 3 - 1;
+                    code /= 3;
+                    value
+                })
+            });
+            if mat_get_determinant_i3(&t).abs() != 2 {
+                continue;
+            }
+            let centering = get_base_center(&t);
+            assert_ne!(centering, Centering::Error, "T={t:?}");
+            let mut shifts = [[0.0; 3]; 3];
+            assert_eq!(get_centering_shifts(&mut shifts, centering), 2);
+            let expected = shifts[0].map(|x| Rat::new((2.0 * x) as i128, 2).unwrap());
+            let inverse = Mat3R::from_ints(t).inverse().unwrap();
+            let mut nonzero = false;
+            for j in 0..3 {
+                let column = std::array::from_fn(|i| {
+                    let x = inverse.rows()[i][j];
+                    Rat::new(x.numerator().rem_euclid(x.denominator()), x.denominator()).unwrap()
+                });
+                if column != [Rat::ZERO; 3] {
+                    assert_eq!(column, expected, "T={t:?}");
+                    nonzero = true;
+                }
+            }
+            assert!(nonzero);
+            count += 1;
+        }
+        assert_eq!(count, 3792);
+    }
+
+    #[test]
+    fn all_four_centerings_survive_unimodular_rebases_and_keep_corrections() {
+        let cases = [
+            ([[1, 1, 0], [-1, 1, 0], [0, 0, 1]], Centering::CFace),
+            ([[1, 0, 1], [0, 1, 0], [-1, 0, 1]], Centering::BFace),
+            ([[1, 0, 0], [0, 1, 1], [0, -1, 1]], Centering::AFace),
+            ([[0, 1, 1], [1, 0, 1], [1, 1, 0]], Centering::Body),
+        ];
+        let mut count = 0;
+        for bits in 0..512 {
+            let u = std::array::from_fn(|i| std::array::from_fn(|j| (bits >> (3 * i + j)) & 1));
+            if mat_get_determinant_i3(&u).abs() != 1 {
+                continue;
+            }
+            for (t, expected) in cases {
+                let rebased = mat_multiply_matrix_i3(&u, &t);
+                assert_eq!(get_base_center(&rebased), expected);
+                let mut correction = IDENTITY;
+                assert_eq!(
+                    get_centering(&mut correction, &rebased, Laue::Laue2M),
+                    Centering::CFace
+                );
+                let corrected = mat_multiply_matrix_id3(&rebased, &correction);
+                for row in corrected {
+                    for x in row {
+                        assert_eq!(x, x.round());
+                    }
+                    assert_eq!((row[0] + row[1]) / 2.0, ((row[0] + row[1]) / 2.0).round());
+                }
+                assert_eq!(mat_get_determinant_d3(&corrected).abs(), 2.0);
+            }
+            count += 1;
+        }
+        assert_eq!(count, 168);
+        for wide in [i32::MIN, i32::MAX] {
+            assert_eq!(
+                get_base_center(&[[1, 1, 0], [0, 2, 0], [wide, wide, 1]]),
+                Centering::CFace
+            );
+        }
+        let mut correction = IDENTITY;
+        assert_eq!(
+            get_centering(
+                &mut correction,
+                &[[2, 0, 0], [0, 1, 0], [0, 0, 1]],
+                Laue::Laue2M
+            ),
+            Centering::Error
+        );
+    }
+
+    #[test]
+    fn public_ordinary_and_magnetic_identification_keep_centering_after_rebasing() {
+        use crate::symmetry::MagneticSymmetry;
+        let r = [[0, 1, 0], [1, 0, 0], [-2, -2, -1]];
+        // Cholesky factor of (I + R^T R)/2: this is a valid physical metric.
+        let a = 3f64.sqrt();
+        let b = 2.0 / a;
+        let c = 1.0 / a;
+        let d = (3.0 - b * b).sqrt();
+        let e = (1.0 - b * c) / d;
+        let f = (1.0 - c * c - e * e).sqrt();
+        let lattice = [[a, b, c], [0.0, d, e], [0.0, 0.0, f]];
+        let v = [[1, 0, 0], [0, 1, 0], [1, 1, 1]];
+        let vi = [[1, 0, 0], [0, 1, 0], [-1, -1, 1]];
+        assert_eq!(mat_get_determinant_i3(&v), 1);
+        let r0 = mat_multiply_matrix_i3(&mat_multiply_matrix_i3(&v, &r), &vi);
+        assert_eq!(r0, [[0, 1, 0], [1, 0, 0], [0, 0, -1]]);
+        for (r, lattice) in [(r, lattice), (r0, mat_multiply_matrix_di3(&lattice, &vi))] {
+            let mut ordinary = Symmetry::with_capacity(2);
+            let mut magnetic = MagneticSymmetry::with_capacity(2);
+            for (i, r) in [[[1, 0, 0], [0, 1, 0], [0, 0, 1]], r]
+                .into_iter()
+                .enumerate()
+            {
+                ordinary.push(r, [0.0; 3]);
+                magnetic.push(r, [0.0; 3], i == 1);
+            }
+            let sg = search_spacegroup_with_symmetry(&ordinary, &lattice, SYMPREC).unwrap();
+            assert_eq!(sg.number, 5);
+            let msg = crate::magnetic_spacegroup::identify_with_parent_hall(
+                &lattice, &magnetic, None, SYMPREC,
+            )
+            .unwrap();
+            assert_eq!(msg.uni_number, 22);
+        }
+    }
 
     /// 辅助函数：根据晶格和原子位置搜索空间群
     /// 流程：Cell → get_primitive → search_spacegroup

@@ -370,5 +370,5 @@ fn whole_record_inventory_separates_witnesses_and_proposal_uncertainty() {
     println!(
         "antitranslation full inventory [records,no H,empty,positive,unavailable,unresolved]={counts:?}"
     );
-    assert_eq!(counts, [16721, 12, 5185, 11524, 0, 150]);
+    assert_eq!(counts, [16721, 12, 5184, 11525, 0, 130]);
 }

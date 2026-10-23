@@ -22,6 +22,62 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 最新共享定心修复（R41，2026-10-23；基线 `932b1b7`）
+
+已修复 [`get_base_center`](<src/spacegroup.rs#L753>) 的坐标行启发式。
+对 primitive→conventional 列矩阵 T，det=±2 时完整格商 T⁻¹Z³/Z³ 的唯一非零类为 v/2，
+精确解 **T v=0 mod 2** 得到 A/B/C/I；左乘整数 unimodular 变换不改变该核。
+单轴半平移不再静默报告 Primitive，而是 Error；既有 A/B/I→C 校正与指数 1/3/4 分支不变。
+只改这个共享生产函数，无新 API、依赖、候选 map 族或 setting 搜索。
+逐元素先取奇偶，内层不会因 i32 MAX/MIN 的 abs/求和溢出；不是整个 native 算术无界安全的承诺。
+
+[前](<target/logs/r41-exploration/centering-before.txt>)/[后](<target/logs/r41-exploration/centering-after.txt>)
+对照确认：R40 的普通 SG3 误判与磁未决，在同一合法 invariant 度量下变为 **SG5 /UNI22**，
+与显式 unimodular 等价输入一致。新增 **3 项模块回归**：全部 3,792 个小整数 det±2
+矩阵的有理逆格商独立对照；四种心型 ×168 个二进制 unimodular 重选基及校正、极值、
+非 primitive 轴拒绝；普通/磁公开识别的两帧控制。最终 debug 模块过滤 **27/0、1 ignored**
+（原有 ignored 未改）。[点扩张回归](<tests/magnetic_point_extension_bridge.rs>)从 132/36
+升级为 **168/0**，全部同时重验旧 map 与新提议；不再接受这 36 个已修复的失败。
+
+保留 R40 冻结电池生成的旧 release 库（[哈希](<target/logs/r41-exploration/baseline-library.sha256>)），
+同一[逐记录程序](<target/r41-extension-inventory.rs>)分别链接新旧库，完整回验每个返回见证。
+[A/B](<target/logs/r41-exploration/extension-ab.txt>)证明 **11,524 条旧反平移成功记录全保留**；
+新增首个 H 行见证仅 **SG229 N1+ 零基记录 10 /UNI70**，有 8 个 map/origin 条目。
+全表首个 H 行统计变为 **[16,721,12,5,184,11,525,0,130]**；18 条报告变化。
+候选未决 **150→130**，细分为 ReferenceGroupFailed **122→126**、UniMatchFailed **28→4**；
+不能把类别变化或净减少 20 说成全部失败已解决。首次公开套件的[失败](<target/logs/r41-exploration/extensions-debug-first.txt>)
+仅为旧统计钉值不符，先完成真实新旧 A/B 再更新；最终[两套 debug](<target/logs/r41-exploration/extensions-debug-final.txt>)
+**9/0 +8/0**，严格 debug clippy 通过。详细证明/边界见[桥接说明](<docs/magnetic-unitary-bridge.md>)。
+
+冻结[电池](<target/logs/r41-accepted/battery/summary.txt>) **958 passed /0 failed**（955+3），
+69 个测试壳、73/73 池作业、16/16 条腿 exit 0；[独立审计](<target/logs/r41-accepted/battery-audit.json>)
+逐项复算并核验三份 ordinary TSV 的行数、旧 SHA 与 4==8，全部不变。
+**248 个输入哈希验收前后相同**，本账本在核验后才更新。格式/diff 检查通过。
+电池 **791 s**（构建 316 + example 发现 84 s），与 Γ 和只写 target 的下一缺陷诊断重叠，
+不作性能 A/B。
+
+冻结 Γ [8 线程](<target/logs/r41-accepted/gamma-8.txt>) **457.0 s** /
+[4 线程](<target/logs/r41-accepted/gamma-4.txt>) **308.6 s**（低优先级且与电池重叠），
+**149,956/149,956** 成功，输入/分导/重建/anchor/格审计错误均 0。
+完整 **151,068 行**不仅 4==8，也逐字节等于 R40 和首次探索输出，SHA 仍
+`d69e01caee2d5e1ee7cba27f5ce1974c2de8a0d5e07bbe9c27449eb35fa2c8ca`。
+fixed **16,581**、缺口 **140**（126 族内无成员 +14 非 exact）、字面障碍 **56** 与所有
+路线选择/计数不变；本轮**不增加 census fixed 数**。反平移候选未决 **39→22**，点扩张仍 0。
+
+**下一步已定位，但未计生产修复**：[SG20 T1 诊断](<target/r42-reference-probe.rs>)的合法
+辅助群仍报 ReferenceGroupFailed；普通 XSG 在单位/真实度量下均失败，显式 unimodular
+U=[[1,0,1],[0,1,0],[1,0,0]] 后却识别为 **UNI23 /Hall9**。
+[输出](<target/logs/r41-exploration/next-reference.txt>)指出 R=[[3,−1,1],[4,−2,1],[−4,1,−2]]
+得到不合法 conventional 轴；[已有轴目录的独立检查](<target/logs/r41-exploration/next-axis-audit.json>)
+只有一个负特征轴 norm²<8，另两个**已经在目录中**的独立轴 norm²=11。
+[`laue2m`](<src/pointgroup.rs#L561>) 的硬编码 min_norm=8 把它们排除；
+[`get_axes`](<src/pointgroup.rs#L514>) 又丢弃各分支的 bool，公开接口仍以未初始化完的轴返回 Some。
+额外合法 R=[[-1,8,0],[0,1,0],[0,0,−1]] 的正特征轴超出目录时甚至返回 **Some(奇异 frame)**。
+下一轮应修共享选轴上限/失败传播，并检查 unique axis 确实找到，不能只传播最后一个 bool。
+不要扩充猜测矩阵表或改冻结输入。当前 SG20 记录已由其它路线成功，不预报新增覆盖。
+一般 B/C、复源/高维、非 Γ/full-star、spinor、140 条几何缺口和 setting/OP 契约仍未完成。
+未删除项目、未 push；以下数字保留为各轮历史。
+
 ### 最新分级点扩张（R40，2026-10-23；基线 `62d167d`）
 
 已交付 [`embed_via_point_extensions`](<src/irrep/magnetic_embedding/point_extension.rs>)：

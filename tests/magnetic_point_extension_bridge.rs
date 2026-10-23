@@ -112,11 +112,11 @@ fn the_original_antiunitary_screw_is_not_replaced_by_the_zero_translation_auxili
 }
 
 #[test]
-fn rebases_preserve_exact_witnesses_but_expose_identifier_limits() {
+fn rebases_preserve_exact_witnesses_and_find_all_binary_rebases() {
     let (g, s, h) = context(79, "GM3GM4", 0);
     let base = m::embed_via_point_extensions(&g, &s, &h).unwrap();
     assert!(!base.embeddings.is_empty());
-    let mut counts = [0usize; 3];
+    let mut count = 0;
     for bits in 0..512 {
         let u = Mat3R::from_ints(std::array::from_fn(|i| {
             std::array::from_fn(|j| (bits >> (3 * i + j)) & 1)
@@ -136,26 +136,15 @@ fn rebases_preserve_exact_witnesses_but_expose_identifier_limits() {
         // of whether the floating identifier proposes that map again.
         checked(&rebased, &s, &base.embeddings);
         checked(&rebased, &s, &report.embeddings);
-        counts[0] += 1;
-        if report.embeddings.is_empty() {
-            counts[2] += 1;
-            assert_eq!(report.unresolved.len(), 1, "bits={bits}");
-            assert_eq!(
-                report.unresolved[0].error,
-                cryspglib::SymError::MagneticUniMatchFailed
-            );
-            if bits == 87 {
-                assert_eq!(
-                    report.unresolved[0].anti_rotation,
-                    [[0, 1, 0], [1, 0, 0], [-2, -2, -1]]
-                );
-            }
-        } else {
-            counts[1] += 1;
-            assert!(report.unresolved.is_empty());
-        }
+        assert!(!report.embeddings.is_empty(), "bits={bits}");
+        assert!(
+            report.unresolved.is_empty(),
+            "bits={bits}: {:?}",
+            report.unresolved
+        );
+        count += 1;
     }
-    assert_eq!(counts, [168, 132, 36]);
+    assert_eq!(count, 168);
 }
 
 #[test]
