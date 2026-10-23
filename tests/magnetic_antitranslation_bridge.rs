@@ -229,31 +229,74 @@ fn inapplicable_colours_and_literal_lattice_obstructions_do_not_become_witnesses
 }
 
 #[test]
-fn identifier_failure_is_preserved_as_an_unresolved_proposal() {
+fn recovered_axes_do_not_hide_other_unresolved_proposals() {
     let (g, s, h) = context(20, "T1", 0);
     let report = m::embed_via_antitranslations(&g, &s, &h).unwrap();
-    assert!(report.embeddings.is_empty());
+    assert!(!report.embeddings.is_empty());
+    assert!(report.unresolved.is_empty());
+    checked(&g, &s, &report.embeddings);
+
+    // This first-H-row case has both a witness and a genuinely unresolved
+    // candidate. A success must not erase the other identification failure.
+    let (g, s, _) = context(91, "R1", 4);
+    let rows = isotropy::isotropy_subgroups(91, "R1", LabelConvention::Cdml).unwrap();
+    let hid = corep::identify_unitary_subgroup(s.uni).unwrap();
+    let h = SubgroupEmbedding::from_isotropy_subgroup(
+        rows.iter().find(|r| r.record.sg == hid).unwrap(),
+    )
+    .unwrap();
+    let report = m::embed_via_antitranslations(&g, &s, &h).unwrap();
+    assert!(!report.embeddings.is_empty());
+    checked(&g, &s, &report.embeddings);
     assert!(report.unresolved.iter().any(|f| f.translation
-        == [Rat::new(1, 2).unwrap(), Rat::ZERO, Rat::ZERO]
+        == [Rat::ZERO, Rat::new(1, 2).unwrap(), Rat::new(1, 2).unwrap()]
         && f.error == cryspglib::SymError::MagneticReferenceGroupFailed));
 }
 
 #[test]
 fn high_level_sources_eta_and_labels_reconstruct_the_original_actions() {
     let (mut cases, mut negative_unitary, mut anti) = (0, 0, 0);
-    for sg in [3, 4] {
-        let (g, s, h) = context(sg, "B1", 0);
+    // SG20 now selects a different valid embedding. Check both the prior
+    // witness and the newly selected one: they need not give the same label.
+    for (sg, label, explicit) in [
+        (3, "B1", None),
+        (4, "B1", None),
+        (
+            20,
+            "T1",
+            Some((
+                Mat3R::from_ints([[0, -1, 0], [-1, 0, 2], [-2, 0, 2]]),
+                [Rat::ZERO; 3],
+            )),
+        ),
+        (
+            20,
+            "T1",
+            Some((
+                Mat3R::from_ints([[-1, 0, -2], [0, 1, 0], [2, 0, 2]]),
+                [Rat::ZERO, Rat::ZERO, Rat::new(1, 4).unwrap()],
+            )),
+        ),
+    ] {
+        let (g, s, h) = context(sg, label, 0);
         let report = m::embed_via_antitranslations(&g, &s, &h).unwrap();
-        let entry = report
-            .embeddings
-            .iter()
-            .find(|e| e.shift == [Rat::ZERO; 3])
-            .unwrap();
-        let transform = SeitzTransform::new(entry.map, Vec3R::new(entry.shift));
-        let condensing = query::irreps_of(sg).iter().find(|r| r.ml == "B1").unwrap();
+        let (map, shift) = explicit.unwrap_or_else(|| {
+            let entry = report
+                .embeddings
+                .iter()
+                .find(|e| e.shift == [Rat::ZERO; 3])
+                .unwrap();
+            (entry.map, entry.shift)
+        });
+        assert!(m::realises_record_lattice_checked(&g, &s, &map).unwrap());
+        m::verify_embedding(&g, &s, map, shift).unwrap();
+        let transform = SeitzTransform::new(map, Vec3R::new(shift));
+        let record =
+            isotropy::magnetic_isotropy_subgroups(sg, label, LabelConvention::Cdml).unwrap()[0];
+        let condensing = query::irreps_of(sg).iter().find(|r| r.ml == label).unwrap();
         for source in query::irreps_of(sg)
             .iter()
-            .filter(|r| ["GM1", "GM2"].contains(&r.ml))
+            .filter(|r| !r.spinor && ["GM1", "GM2", "GM3", "GM4"].contains(&r.ml))
         {
             let row = source.ordinary_scalar_selected_arm_block_trace().unwrap();
             for eta in [RealSign::Plus, RealSign::Minus] {
@@ -267,13 +310,13 @@ fn high_level_sources_eta_and_labels_reconstruct_the_original_actions() {
                             convention,
                         },
                         MagneticRecordSelector::new(sg, &record_label, convention)
-                            .direction(IsotropyDirection::Label("P1"))
+                            .direction(IsotropyDirection::Label(record.record.direction))
                             .uni(s.uni),
                         Some(eta),
                     )
                     .with_embedding(EmbeddingEvidence {
-                        map: entry.map,
-                        shift: entry.shift,
+                        map,
+                        shift,
                         lattice_policy: LatticePolicy::RequireExact,
                     });
                     let report = subduce(&request).unwrap();
@@ -317,7 +360,7 @@ fn high_level_sources_eta_and_labels_reconstruct_the_original_actions() {
             }
         }
     }
-    assert_eq!(cases, 16);
+    assert_eq!(cases, 48);
     assert!(negative_unitary > 0 && anti > 0);
 }
 
@@ -370,5 +413,5 @@ fn whole_record_inventory_separates_witnesses_and_proposal_uncertainty() {
     println!(
         "antitranslation full inventory [records,no H,empty,positive,unavailable,unresolved]={counts:?}"
     );
-    assert_eq!(counts, [16721, 12, 5184, 11525, 0, 130]);
+    assert_eq!(counts, [16721, 12, 5170, 11539, 0, 114]);
 }

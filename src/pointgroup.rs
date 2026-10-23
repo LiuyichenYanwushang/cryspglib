@@ -388,7 +388,8 @@ pub fn pointgroup_from_rotations(rotations: &[Mat3I]) -> Result<(String, Mat3I, 
 
 /// 从旋转操作计算点群和标准方向变换矩阵。
 ///
-/// 无法识别时返回 `None`，不再返回 `number == 0` 的伪点群。
+/// 点群无法识别，或现有轴目录不能构成非奇异基时返回 `None`。
+/// 不把缺失的轴、部分构造的基或 `number == 0` 当作成功。
 pub fn get_transformation_matrix(
     rotations: &[Mat3I],
     aperiodic_axis: Option<AperiodicAxis>,
@@ -407,8 +408,15 @@ pub fn get_transformation_matrix(
     let pointgroup = get_pointgroup(pg_num).ok()?;
     let pointsym = get_pointsymmetry(rotations);
     let mut axes = [0; 3];
-    get_axes(&mut axes, pointgroup.laue, &pointsym, aperiodic_axis);
+    // ponytail: keep the fixed axis catalog; exact integer eigenspaces are
+    // needed if arbitrary unreduced input bases must be handled completely.
+    if !get_axes(&mut axes, pointgroup.laue, &pointsym, aperiodic_axis) {
+        return None;
+    }
     set_transformation_matrix(&mut transform_mat, &axes);
+    if mat_get_determinant_i3(&transform_mat) == 0 {
+        return None;
+    }
     Some((transform_mat, pointgroup))
 }
 
@@ -516,61 +524,49 @@ fn get_axes(
     laue: Laue,
     pointsym: &PointSymmetry,
     aperiodic_axis: Option<AperiodicAxis>,
-) {
+) -> bool {
     match laue {
         Laue::Laue1 => {
-            axes[0] = 0;
-            axes[1] = 1;
-            axes[2] = 2;
+            *axes = [0, 1, 2];
+            true
         }
-        Laue::Laue2M => {
-            if aperiodic_axis.is_none() {
-                laue2m(axes, pointsym);
-            } else {
-                layer_laue2m(
-                    axes,
-                    pointsym,
-                    aperiodic_axis.map(|a| a.axis_index() as i32).unwrap_or(-1),
-                );
-            }
-        }
-        Laue::LaueMMM => {
-            lauennn(
-                axes,
-                pointsym,
-                2,
-                aperiodic_axis.map(|a| a.axis_index() as i32).unwrap_or(-1),
-            );
-        }
-        Laue::Laue4M | Laue::Laue4MMM => {
-            laue_one_axis(axes, pointsym, 4);
-        }
+        Laue::Laue2M => match aperiodic_axis {
+            None => laue2m(axes, pointsym),
+            Some(axis) => layer_laue2m(axes, pointsym, axis.axis_index() as i32),
+        },
+        Laue::LaueMMM => lauennn(
+            axes,
+            pointsym,
+            2,
+            aperiodic_axis.map(|a| a.axis_index() as i32).unwrap_or(-1),
+        ),
+        Laue::Laue4M | Laue::Laue4MMM => laue_one_axis(axes, pointsym, 4),
         Laue::Laue3 | Laue::Laue3M | Laue::Laue6M | Laue::Laue6MMM => {
-            laue_one_axis(axes, pointsym, 3);
+            laue_one_axis(axes, pointsym, 3)
         }
-        Laue::LaueM3 => {
-            lauennn(axes, pointsym, 2, -1);
-        }
-        Laue::LaueM3M => {
-            lauennn(axes, pointsym, 4, -1);
-        }
-        _ => {}
+        Laue::LaueM3 => lauennn(axes, pointsym, 2, -1),
+        Laue::LaueM3M => lauennn(axes, pointsym, 4, -1),
+        Laue::None => false,
     }
 }
 
 fn laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry) -> bool {
     let mut prop_rot = [[0; 3]; 3];
 
-    // Find unique axis b (first axis in axes array for now, will be swapped later if needed logic in C was commented out)
-    // C code: axes[1] = get_rotation_axis
+    // Find the unique axis b before selecting its transverse plane.
+    let mut axis_found = false;
     for i in 0..pointsym.len() {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
         if mat_get_trace_i3(&prop_rot) == -1
             && let Some(axis) = get_rotation_axis(&prop_rot)
         {
             axes[1] = axis;
+            axis_found = true;
             break;
         }
+    }
+    if !axis_found {
+        return false;
     }
 
     let mut ortho_axes = [0; NUM_ROT_AXES];
@@ -579,7 +575,7 @@ fn laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry) -> bool {
         return false;
     }
 
-    let mut min_norm = 8;
+    let mut min_norm = i32::MAX;
     let mut is_found = false;
     for i in 0..num_ortho_axis {
         let norm = mat_norm_squared_i3(&ROT_AXES[ortho_axes[i]]);
@@ -593,7 +589,7 @@ fn laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry) -> bool {
         return false;
     }
 
-    min_norm = 8;
+    min_norm = i32::MAX;
     is_found = false;
     for i in 0..num_ortho_axis {
         let norm = mat_norm_squared_i3(&ROT_AXES[ortho_axes[i]]);
@@ -612,6 +608,7 @@ fn laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry) -> bool {
 
 fn layer_laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry, aperiodic_axis: i32) -> bool {
     let mut prop_rot = [[0; 3]; 3];
+    let mut axis_found = false;
 
     for i in 0..pointsym.len() {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
@@ -619,8 +616,12 @@ fn layer_laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry, aperiodic_axis:
             && let Some(axis) = get_rotation_axis(&prop_rot)
         {
             axes[0] = axis;
+            axis_found = true;
             break;
         }
+    }
+    if !axis_found {
+        return false;
     }
 
     let mut ortho_axes = [0; NUM_ROT_AXES];
@@ -634,7 +635,7 @@ fn layer_laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry, aperiodic_axis:
 
     if axis0_vec[ap_idx] == 1 || axis0_vec[ap_idx] == -1 {
         // Monoclinic/Oblique
-        let mut min_norm = 8;
+        let mut min_norm = i32::MAX;
         let mut is_found = false;
         for i in 0..num_ortho_axis {
             let norm = mat_norm_squared_i3(&ROT_AXES[ortho_axes[i]]);
@@ -648,7 +649,7 @@ fn layer_laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry, aperiodic_axis:
             return false;
         }
 
-        min_norm = 8;
+        min_norm = i32::MAX;
         is_found = false;
         for i in 0..num_ortho_axis {
             let norm = mat_norm_squared_i3(&ROT_AXES[ortho_axes[i]]);
@@ -663,7 +664,7 @@ fn layer_laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry, aperiodic_axis:
         }
     } else if axis0_vec[ap_idx] == 0 {
         // Monoclinic/Rectangular
-        let mut min_norm = 8;
+        let mut min_norm = i32::MAX;
         let mut is_found = false;
         for i in 0..num_ortho_axis {
             if ROT_AXES[ortho_axes[i]][ap_idx] == 0 {
@@ -679,7 +680,7 @@ fn layer_laue2m(axes: &mut [usize; 3], pointsym: &PointSymmetry, aperiodic_axis:
             return false;
         }
 
-        min_norm = 8;
+        min_norm = i32::MAX;
         is_found = false;
         for i in 0..num_ortho_axis {
             let v = ROT_AXES[ortho_axes[i]][ap_idx];
@@ -706,6 +707,7 @@ fn laue_one_axis(axes: &mut [usize; 3], pointsym: &PointSymmetry, rot_order: i32
     debug::debug_print(format_args!("laue_one_axis with rot_order {}\n", rot_order));
 
     let mut prop_rot = [[0; 3]; 3];
+    let mut axis_found = false;
 
     for i in 0..pointsym.len() {
         get_proper_rotation(&mut prop_rot, &pointsym.rot[i]);
@@ -714,8 +716,12 @@ fn laue_one_axis(axes: &mut [usize; 3], pointsym: &PointSymmetry, rot_order: i32
             && let Some(axis) = get_rotation_axis(&prop_rot)
         {
             axes[2] = axis;
+            axis_found = true;
             break;
         }
+    }
+    if !axis_found {
+        return false;
     }
 
     let mut ortho_axes = [0; NUM_ROT_AXES];
@@ -753,7 +759,7 @@ fn laue_one_axis(axes: &mut [usize; 3], pointsym: &PointSymmetry, rot_order: i32
         let mut t_mat = [[0; 3]; 3];
         set_transformation_matrix(&mut t_mat, &tmp_axes);
         let det = mat_get_determinant_i3(&t_mat).abs();
-        if det < 4 {
+        if (1..4).contains(&det) {
             axes[0] = tmp_axes[0];
             axes[1] = tmp_axes[1];
             axes_found = true;
@@ -798,17 +804,23 @@ fn lauennn(
             && axis != axes[1]
             && axis != axes[2]
         {
+            if count == axes.len() {
+                return false;
+            }
             axes[count] = axis;
             count += 1;
         }
     }
 
+    if count != axes.len() {
+        return false;
+    }
     if aperiodic_axis == -1 {
         sort_axes(axes);
+        true
     } else {
-        layer_check_and_sort_axes(axes, aperiodic_axis);
+        layer_check_and_sort_axes(axes, aperiodic_axis)
     }
-    true
 }
 
 fn get_rotation_axis(proper_rot: &Mat3I) -> Option<usize> {
@@ -901,7 +913,7 @@ fn sort_axes(axes: &mut [usize; 3]) {
     }
 }
 
-fn layer_check_and_sort_axes(axes: &mut [usize; 3], aperiodic_axis: i32) {
+fn layer_check_and_sort_axes(axes: &mut [usize; 3], aperiodic_axis: i32) -> bool {
     let ap_idx = aperiodic_axis as usize;
     let mut lattice_rank = 0;
     let mut arank = 0;
@@ -927,6 +939,206 @@ fn layer_check_and_sort_axes(axes: &mut [usize; 3], aperiodic_axis: i32) {
         }
     } else {
         debug::warning_print(format_args!("spglib: Invalid axes were found\n"));
-        axes.fill(0);
+        return false;
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::irrep::subduction::Mat3R;
+    use crate::symmetry::{MagneticSymmetry, Symmetry};
+
+    const REBASED_C2: Mat3I = [[3, -1, 1], [4, -2, 1], [-4, 1, -2]];
+    const CONVENTIONAL_C2: Mat3I = [[-1, 0, 0], [0, 1, 0], [0, 0, -1]];
+
+    #[test]
+    fn monoclinic_selection_uses_existing_long_catalog_axes() {
+        let (t, pg) = get_transformation_matrix(&[IDENTITY, REBASED_C2], None).unwrap();
+        assert_eq!(pg.number, 3);
+        assert_eq!(mat_get_determinant_i3(&t).abs(), 2);
+        assert_eq!(
+            mat_multiply_matrix_i3(&REBASED_C2, &t),
+            mat_multiply_matrix_i3(&t, &CONVENTIONAL_C2)
+        );
+        assert!((0..3).any(|j| mat_norm_squared_i3(&[t[0][j], t[1][j], t[2][j]]) == 11));
+    }
+
+    #[test]
+    fn ordinary_and_magnetic_search_accept_recovered_monoclinic_axes() {
+        // Cholesky factor of the invariant Gram matrix (I + R^T R)/2.
+        let a = 21_f64.sqrt();
+        let b = -7.5 / a;
+        let c = 7.5 / a;
+        let d = (3.5 - b * b).sqrt();
+        let e = (-2.5 - b * c) / d;
+        let f = (3.5 - c * c - e * e).sqrt();
+        let lattice = [[a, b, c], [0., d, e], [0., 0., f]];
+        let mut ordinary = Symmetry::with_capacity(2);
+        let mut magnetic = MagneticSymmetry::with_capacity(4);
+        for r in [IDENTITY, REBASED_C2] {
+            ordinary.push(r, [0.; 3]);
+            magnetic.push(r, [0.; 3], false);
+            magnetic.push(r, [0.5, 0., 0.], true);
+        }
+        let sg =
+            crate::spacegroup::search_spacegroup_with_symmetry(&ordinary, &lattice, 1e-5).unwrap();
+        assert_eq!(sg.number, 5);
+        let msg =
+            crate::magnetic_spacegroup::identify_with_parent_hall(&lattice, &magnetic, None, 1e-5)
+                .unwrap();
+        assert_eq!(msg.uni_number, 23);
+    }
+
+    #[test]
+    fn missing_catalog_axes_fail_closed_across_laue_families() {
+        for r in [
+            [[-1, 8, 0], [0, 1, 0], [0, 0, -1]], // unique axis outside the catalog
+            [[-1, 0, 0], [0, -1, 0], [0, 8, 1]], // second transverse axis outside it
+        ] {
+            assert_eq!(mat_multiply_matrix_i3(&r, &r), IDENTITY);
+            assert!(get_transformation_matrix(&[IDENTITY, r], None).is_none());
+            assert!(matches!(
+                pointgroup_from_rotations(&[IDENTITY, r]),
+                Err(SymError::PointgroupNotFound)
+            ));
+        }
+        // This shear preserves the periodic XY plane but hides a D2 axis.
+        let u = [[1, 4, 0], [0, 1, 0], [0, 0, 1]];
+        let ui = [[1, -4, 0], [0, 1, 0], [0, 0, 1]];
+        let orthorhombic = [
+            IDENTITY,
+            [[1, 0, 0], [0, -1, 0], [0, 0, -1]],
+            CONVENTIONAL_C2,
+            [[-1, 0, 0], [0, -1, 0], [0, 0, 1]],
+        ];
+        let changed =
+            orthorhombic.map(|r| mat_multiply_matrix_i3(&mat_multiply_matrix_i3(&u, &r), &ui));
+        for axis in [None, Some(AperiodicAxis::Z)] {
+            assert!(get_transformation_matrix(&orthorhombic, axis).is_some());
+            assert!(get_transformation_matrix(&changed, axis).is_none());
+        }
+        for axis in [AperiodicAxis::X, AperiodicAxis::Y, AperiodicAxis::Z] {
+            assert!(get_transformation_matrix(&[IDENTITY, CONVENTIONAL_C2], Some(axis)).is_some());
+        }
+        assert!(
+            get_transformation_matrix(&[IDENTITY, changed[2]], Some(AperiodicAxis::Z)).is_none()
+        );
+        // All three D2 axes exist, but they do not define this layer plane.
+        let tilt = [[1, 0, 0], [0, 1, 0], [1, 1, 1]];
+        let tilt_inverse = [[1, 0, 0], [0, 1, 0], [-1, -1, 1]];
+        let tilted = orthorhombic
+            .map(|r| mat_multiply_matrix_i3(&mat_multiply_matrix_i3(&tilt, &r), &tilt_inverse));
+        assert!(get_transformation_matrix(&tilted, None).is_some());
+        assert!(get_transformation_matrix(&tilted, Some(AperiodicAxis::Z)).is_none());
+        // Exercise the cubic fourfold-axis collector, not only its D2 sibling.
+        let hall = (1..=530)
+            .find(|&hall| crate::spg_database::get_spacegroup_type(hall).pointgroup_number == 30)
+            .unwrap();
+        let cubic = crate::spg_database::get_spacegroup_operations(hall).unwrap();
+        let changed: Vec<_> = cubic
+            .rot
+            .iter()
+            .map(|r| mat_multiply_matrix_i3(&mat_multiply_matrix_i3(&u, r), &ui))
+            .collect();
+        assert!(get_transformation_matrix(&changed, None).is_none());
+        for (r, order) in [
+            ([[0, -1, 0], [1, -1, 0], [0, 0, 1]], 3),
+            ([[0, -1, 0], [1, 0, 0], [0, 0, 1]], 4),
+        ] {
+            let u = [[1, 0, 4], [0, 1, 0], [0, 0, 1]];
+            let ui = [[1, 0, -4], [0, 1, 0], [0, 0, 1]];
+            let mut rotations = Vec::new();
+            let mut power = IDENTITY;
+            for _ in 0..order {
+                rotations.push(power);
+                power = mat_multiply_matrix_i3(&power, &r);
+            }
+            assert_eq!(power, IDENTITY);
+            assert!(get_transformation_matrix(&rotations, None).is_some());
+            let changed: Vec<_> = rotations
+                .iter()
+                .map(|r| mat_multiply_matrix_i3(&mat_multiply_matrix_i3(&u, r), &ui))
+                .collect();
+            assert!(get_transformation_matrix(&changed, None).is_none());
+        }
+    }
+
+    #[test]
+    fn every_database_hall_has_an_integral_nonsingular_point_frame() {
+        for hall in 1..=530 {
+            let operations = crate::spg_database::get_spacegroup_operations(hall).unwrap();
+            let (t, pg) = get_transformation_matrix(&operations.rot, None).unwrap();
+            assert_eq!(
+                pg.number,
+                crate::spg_database::get_spacegroup_type(hall).pointgroup_number
+            );
+            let t = Mat3R::from_ints(t);
+            let ti = t.inverse().unwrap();
+            for r in operations.rot {
+                assert!(
+                    ti.checked_mul(&Mat3R::from_ints(r))
+                        .unwrap()
+                        .checked_mul(&t)
+                        .unwrap()
+                        .is_integral(),
+                    "Hall{hall}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rebased_monoclinic_frames_match_independent_catalog_eigenspaces() {
+        let mut counts = [0; 2];
+        for bits in 0..512 {
+            let u = std::array::from_fn(|i| std::array::from_fn(|j| (bits >> (3 * i + j)) & 1));
+            if mat_get_determinant_i3(&u).abs() != 1 {
+                continue;
+            }
+            let ui = Mat3R::from_ints(u)
+                .inverse()
+                .unwrap()
+                .to_int_matrix()
+                .unwrap();
+            let r = mat_multiply_matrix_i3(&mat_multiply_matrix_i3(&u, &REBASED_C2), &ui);
+            let positive: Vec<_> = ROT_AXES
+                .iter()
+                .filter(|v| mat_multiply_matrix_vector_i3(&r, v) == **v)
+                .collect();
+            let negative: Vec<_> = ROT_AXES
+                .iter()
+                .filter(|v| mat_multiply_matrix_vector_i3(&r, v) == v.map(|x| -x))
+                .collect();
+            let possible = positive.iter().any(|b| {
+                negative.iter().any(|a| {
+                    negative.iter().any(|c| {
+                        let t = std::array::from_fn(|i| [a[i], b[i], c[i]]);
+                        mat_get_determinant_i3(&t) != 0
+                    })
+                })
+            });
+            match get_transformation_matrix(&[IDENTITY, r], None) {
+                Some((t, pg)) => {
+                    assert!(possible, "bits={bits}");
+                    assert_eq!(pg.number, 3);
+                    assert_ne!(mat_get_determinant_i3(&t), 0);
+                    assert_eq!(
+                        mat_multiply_matrix_i3(&r, &t),
+                        mat_multiply_matrix_i3(&t, &CONVENTIONAL_C2),
+                        "bits={bits}"
+                    );
+                    counts[0] += 1;
+                }
+                None => {
+                    assert!(!possible, "bits={bits}");
+                    counts[1] += 1;
+                }
+            }
+        }
+        assert_eq!(counts.iter().sum::<usize>(), 168);
+        assert!(counts.iter().all(|&n| n > 0));
+        println!("monoclinic catalog [available, unavailable]={counts:?}");
     }
 }

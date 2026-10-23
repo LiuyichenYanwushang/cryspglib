@@ -22,6 +22,68 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 最新共享选轴修复（R42，2026-10-23；基线 `a28dece`）
+
+已修复 [pointgroup](<src/pointgroup.rs>) 的单斜 norm²<8 隐性截断，以及各选轴分支失败
+被丢弃后仍返回 Some 的问题。完整搜索**原有 73 轴目录**，确认主轴存在、多轴分支收齐
+三个轴，传播层平面检查失败，拒绝奇异基；不扩目录、不新增猜测 map、依赖或求解器。
+SG20 T1 的 R=[[3,−1,1],[4,−2,1],[−4,1,−2]] 需要目录中 norm²=11 的轴，
+现在普通识别为 **SG5**，带半格反平移的磁辅助群为 **UNI23**。
+
+新增 **5 项模块回归**：原失败前实跑 1 passed /4 failed，修复后 5/0；覆盖主轴/横轴
+缺失、C2/D2/C3/C4/立方及层平面控制、530 Hall 的整非奇异点群帧。
+该 SG20 见证的 168 个 binary unimodular 重选基，以独立整数特征空间对照得到
+**138 个有效帧、30 个目录不足的 None**，不是 168 个都可重新识别，也不承诺任意重选基完备。
+[前](<target/logs/r42-exploration/axis-before.txt>)/[后](<target/logs/r42-exploration/axis-final.txt>)保留。
+
+[公开反平移回归](<tests/magnetic_antitranslation_bridge.rs>)升级原 SG20 失败为 exact 正例，
+另以 SG91 R1 零基记录 4 保留“有见证仍有其它候选未决”的控制。
+同一[逐记录程序](<target/r41-extension-inventory.rs>)与 R41 输出的[对照](<target/logs/r42-exploration/compare-r41.txt>)：
+全部 **11,525 条旧成功记录保留**，新增 14 条首个 H 行见证；统计变为
+**[16,721,12,5,170,11,539,0,114]**。14 条报告变化；ReferenceGroupFailed **126→114**，
+UniMatchFailed **4→0**。114 是候选数，分布在 64 条记录（35 有见证、29 空），不是无解数。
+最终反平移 debug **9/0**，点扩张 debug **8/0** 且其全表统计未变；严格 debug clippy 通过。
+
+Γ fixed **16,581→16,591，新增 10**（SG36 两条、SG63/64 各四条），均由反平移路线找回；
+该路线计数 **827→837**，H/primitive/点扩张仍为 7,030/587/167。
+剩余 **130** =116 条 R24 族内无成员 +14 条非 exact，字面格障碍仍 56；候选未决 **22→6**。
+**150,100/150,100** 受限 Γ 探针成功（新增 144），输入/分导/重建/anchor/格审计错误均 0。
+[逐行比较](<target/logs/r42-accepted-v2/compare-r41.txt>)确认 149,956 个旧成功全部保留，
+其中 **149,948 行每字段不变**；SG20 T1 /UNI23 的 8 行因新增候选选中了另一 map/origin，
+4 行 GM3/GM4 源的目标 GM1/GM2 交换。这**不是同一嵌入的 gauge 改名**：两种嵌入可以把
+H 放在母群不同位置。新旧明确 map 均重验全格/原始 M，并在 **48 个源/η/双标签/嵌入调用**
+中逐操作验证非平凡字符和复向量重建。旧 map 仍可显式调用；自动几何选择不保证 OP stabilizer。
+初版扩展该回归误纳入 SG3/4 的 spinor 标签而得到 NotApplicable，已明确按其非 spinor 域筛选，
+不是声称支持 spinor。解释见[桥接](<docs/magnetic-unitary-bridge.md>)与[普查](<docs/magnetic-gamma-census.md>)。
+
+**首轮冻结不合格**：[电池](<target/logs/r42-accepted/battery/summary.txt>)为 **962/1**，
+唯一失败是 census 单测仍期待已修复的 SG20 未决；driver 仍 exit 0，独立审计正确拒绝它。
+[该回归](<examples/magnetic_gamma_subduction_census.rs>)现同时断言 SG20 已恢复、SG203 W1
+记录 6 的真实未决仍与成功并存，debug census **20/0**。没有删除诊断或降低 gate。
+最终重新冻结的 [v2 电池](<target/logs/r42-accepted-v2/battery/summary.txt>) **963 passed /0 failed**
+（958+5），69 测试壳、73/73 池作业、16/16 条腿 exit 0；[独立审计](<target/logs/r42-accepted-v2/battery-audit.json>)
+逐项核验退出码及三份 ordinary TSV 的旧行数/SHA/4==8，均不变。
+**248 个输入哈希在最终全部验收前后相同**，本账本随后才更新；格式与 diff 检查通过。
+电池 **404 s**（热构建，example 发现 34 s），与 Γ 重叠，不作性能 A/B。
+
+最终 Γ [8 线程](<target/logs/r42-accepted-v2/gamma-8.txt>) **311.2 s** /
+[4 线程](<target/logs/r42-accepted-v2/gamma-4.txt>) **169.2 s**，低优先级且与电池重叠。
+**151,068 数据行、968 未执行行**；两份 TSV 逐字节相同，也等于首次探索及首轮冻结输出，
+SHA `3470bec578c886fed2e270dcfd687b36565f2370d5ec4ba3d8c31a9568d06bc2`。
+不是与 R41 整表相同；上述 152 行实际变化全部有独立比较与重建控制。
+
+**下一步只诊断，未接生产**：[SG91 R1](<target/r43-reference-probe.rs>)的剩余候选
+α=(0,½,½) 中 XSG 已成功，FSG primitive 旋转为 [[−1,0,0],[0,−3,−8],[0,1,3]]。
+[目录检查](<target/logs/r42-exploration/next-axis-audit.json>)证实只有一个负特征轴；
+第二个可取 (0,−4,1)，不在目录，当前诚实返回 None。已有 **Delaunay reducer** 的
+[独立控制](<target/logs/r42-exploration/next-reduction-control.txt>)无需新求解器便让该 FSG
+识别为 SG5/Hall9；等价 binary U86 的完整磁识别也为 UNI23/Hall9。
+下一轮优先追踪已有约化和坐标还原，而非扩轴表或直接写新 eigenspace solver；
+Cartesian bravais lattice 必须转换回坐标基（Q=U L_reduced⁻¹ L_conventional），不能混用。
+这还不是原候选经生产桥接的新增见证，SG91 本来也有其它见证，不预报覆盖收益。
+一般 B/C、复源/高维、非 Γ/full-star、spinor、130 条几何缺口及 setting/OP 契约仍未完成。
+未删除项目、未 push；以下均为各轮历史。
+
 ### 最新共享定心修复（R41，2026-10-23；基线 `932b1b7`）
 
 已修复 [`get_base_center`](<src/spacegroup.rs#L753>) 的坐标行启发式。

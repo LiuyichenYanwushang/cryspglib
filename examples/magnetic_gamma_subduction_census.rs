@@ -3142,25 +3142,34 @@ mod tests {
     }
 
     #[test]
-    fn unresolved_proposals_are_retained_when_another_h_point_subgroup_succeeds() {
-        let inventory = inventory_of(20);
-        let record = inventory
-            .records
-            .iter()
-            .find(|r| r.condensing == "T1" && r.direction_index == 0)
-            .unwrap();
-        let mut unresolved = Vec::new();
-        let FixedEmbedding::Fixed(chosen) =
-            fixed_embedding(20, record, &mut unresolved, &mut Vec::new())
-        else {
-            panic!("missing alternative H witness")
-        };
-        assert_eq!(chosen.kind, EmbeddingKind::Antitranslation);
-        assert!(
-            unresolved
+    fn resolved_proposals_do_not_hide_other_candidate_failures() {
+        for (sg, label, index, has_unresolved) in [
+            (20, "T1", 0, false), // R42 repaired the former identification failure.
+            (203, "W1", 6, true), // A witness still coexists with another failed proposal.
+        ] {
+            let inventory = inventory_of(sg);
+            let record = inventory
+                .records
                 .iter()
-                .any(|d| d.contains("MagneticReferenceGroupFailed"))
-        );
+                .find(|r| r.condensing == label && r.direction_index == index)
+                .unwrap();
+            let mut unresolved = Vec::new();
+            let FixedEmbedding::Fixed(chosen) =
+                fixed_embedding(sg, record, &mut unresolved, &mut Vec::new())
+            else {
+                panic!("missing alternative witness for SG{sg} {label}")
+            };
+            assert_eq!(chosen.kind, EmbeddingKind::Antitranslation);
+            if has_unresolved {
+                assert!(
+                    unresolved
+                        .iter()
+                        .any(|d| d.contains("MagneticReferenceGroupFailed"))
+                );
+            } else {
+                assert!(unresolved.is_empty());
+            }
+        }
     }
 
     #[test]
