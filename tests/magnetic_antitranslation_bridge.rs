@@ -229,15 +229,13 @@ fn inapplicable_colours_and_literal_lattice_obstructions_do_not_become_witnesses
 }
 
 #[test]
-fn recovered_axes_do_not_hide_other_unresolved_proposals() {
+fn recovered_axes_and_reduction_keep_bounded_failures_explicit() {
     let (g, s, h) = context(20, "T1", 0);
     let report = m::embed_via_antitranslations(&g, &s, &h).unwrap();
     assert!(!report.embeddings.is_empty());
     assert!(report.unresolved.is_empty());
     checked(&g, &s, &report.embeddings);
 
-    // This first-H-row case has both a witness and a genuinely unresolved
-    // candidate. A success must not erase the other identification failure.
     let (g, s, _) = context(91, "R1", 4);
     let rows = isotropy::isotropy_subgroups(91, "R1", LabelConvention::Cdml).unwrap();
     let hid = corep::identify_unitary_subgroup(s.uni).unwrap();
@@ -247,9 +245,48 @@ fn recovered_axes_do_not_hide_other_unresolved_proposals() {
     .unwrap();
     let report = m::embed_via_antitranslations(&g, &s, &h).unwrap();
     assert!(!report.embeddings.is_empty());
+    assert!(report.unresolved.is_empty());
     checked(&g, &s, &report.embeddings);
-    assert!(report.unresolved.iter().any(|f| f.translation
-        == [Rat::ZERO, Rat::new(1, 2).unwrap(), Rat::new(1, 2).unwrap()]
+
+    // Isolate the existing reducer's default budget from the test runner's
+    // environment, without mutating process-global environment in parallel tests.
+    const CHILD: &str = "CRYSPGLIB_TEST_BOUNDED_REFERENCE";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "recovered_axes_and_reduction_keep_bounded_failures_explicit",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("SPGLIB_NUM_ATTEMPTS", "1000")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    // This unimodular rebase keeps the exact lattice and old witness, but one
+    // proposal exceeds the bounded floating reducer. Other proposals succeed.
+    let u = Mat3R::from_ints([[1, 0, 256], [-1, 0, -257], [2, 1, 511]]);
+    assert_eq!(u.determinant().unwrap().numerator().abs(), 1);
+    let mut rebased = g.clone();
+    rebased.basis = *Mat3R::new(g.basis)
+        .transpose()
+        .checked_mul(&u)
+        .unwrap()
+        .transpose()
+        .rows();
+    checked(&rebased, &s, &report.embeddings);
+    let bounded = m::embed_via_antitranslations(&rebased, &s, &h).unwrap();
+    assert!(!bounded.embeddings.is_empty());
+    checked(&rebased, &s, &bounded.embeddings);
+    assert!(bounded.unresolved.iter().any(|f| f.translation
+        == [Rat::new(1, 2).unwrap(), Rat::new(1, 2).unwrap(), Rat::ZERO]
         && f.error == cryspglib::SymError::MagneticReferenceGroupFailed));
 }
 
@@ -413,5 +450,5 @@ fn whole_record_inventory_separates_witnesses_and_proposal_uncertainty() {
     println!(
         "antitranslation full inventory [records,no H,empty,positive,unavailable,unresolved]={counts:?}"
     );
-    assert_eq!(counts, [16721, 12, 5170, 11539, 0, 114]);
+    assert_eq!(counts, [16721, 12, 5141, 11568, 0, 0]);
 }

@@ -1,6 +1,6 @@
 //! Type-III proposals from finite, lattice-preserving parent point extensions.
 
-use super::antitranslation::{invariant_lattice, rational_frame, verified_auxiliary_group};
+use super::antitranslation::{rational_frame, verified_auxiliary_group};
 use super::{
     EmbeddingKind, GeometryError, MagneticGeometry, MagneticOperation, MagneticOperationSet, Mat3I,
     Mat3R, ParentEmbedding, Rat, basis_in_parent_conventional, exact_embeddings_for_map,
@@ -8,6 +8,7 @@ use super::{
 };
 use crate::SymError;
 use crate::irrep::subduction::SubgroupEmbedding;
+use crate::mathfunc::mat_get_invariant_lattice as invariant_lattice;
 use std::collections::BTreeSet;
 
 const IDENTITY: Mat3I = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];

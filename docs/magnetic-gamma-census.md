@@ -20,6 +20,9 @@
 > 另一合法嵌入（4 行目标标签改变），不是整个旧 TSV 不变。路线优先级不变，而同一路线
 > 候选增加可改变全序最小者；[新旧明确嵌入均有逐操作回归](<../tests/magnetic_antitranslation_bridge.rs>)。
 > 自动几何选择仍不证明 OP stabilizer，也不应将不同嵌入的目标标签直接当成同一结果比较。
+> **R43** 修复显式操作查询的约化/坐标还原，候选未决 6→0；fixed 16,591、成功探针
+> 150,100、剩余 130 均不变，151,068 行 TSV 与 R42 逐字节相同。首-H 单独报告新增
+> 29 条见证，但原已由其它候选覆盖，不能计作普查新增。仍不承诺任意病态基的识别完备性。
 
 本文件是**只读诊断**的记录，不含生产算法改动。程序
 [examples/magnetic_gamma_subduction_census.rs](../examples/magnetic_gamma_subduction_census.rs)

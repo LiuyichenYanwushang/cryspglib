@@ -22,6 +22,62 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 最新共享操作约化与检查暂停点（R43，2026-10-23；基线 `a1618b5`）
+
+已修复 [显式操作识别](<src/spacegroup.rs>) 的两个相连问题：给定操作不再在容差重试中
+被删成更小的群（单位格坐标查询的合法 D2 曾误报 SG3，而不是 SG16）；原始完整列表
+一次 Hall 匹配失败后，复用已有不变度量与 Delaunay reducer 约化，再匹配全部操作。
+[平均度量](<src/mathfunc.rs>) 从 [辅助群模块](<src/irrep/magnetic_embedding/antitranslation.rs>)
+移至共享层，数值计算逐字核对未改；不扩 73 轴目录、不加依赖、猜测 map 或新求解器，
+结构/原子搜索的容差重试不变。SG91 R1 原失败辅助群现识别为 UNI23，FSG 为 SG5。
+
+约化基 U 须整且 det=±1（此处用 i128 验行列式），旋转/平移都换基。
+**Q=U L_reduced⁻¹ L_std=L_aux⁻¹ L_std**；返回 Cartesian 晶格 L_input Q，标准帧原点不乘 U。
+保留输入手性，不能把反手性坐标重选基误当成晶体换手性。新增控制曾暴露初稿
+[SG76→78](<target/logs/r43-exploration/handedness-before.txt>)，修复后全部通过。
+[详细推导与边界](<docs/magnetic-unitary-bridge.md>)保留这一更正。
+
+新增 **4 项模块回归**，[旧实现](<target/logs/r43-exploration/lookup-before.txt>)实跑四项均失败；
+最终 [debug](<target/logs/r43-exploration/native-final.txt>) 为 **31/0、1 ignored**（原 ignored 未改）。
+覆盖全部 **530 Hall×两种手性=1,060** 个重选基、非零原点、含心/螺旋/滑移、真实 Cartesian
+与单位坐标两类入口、完整有色群及错误输入。逐向核验全部 Seitz 操作和整格生成元，不只看标签；
+[独立运行记录](<target/logs/r43-exploration/all-hall.txt>)有 1,052 个非零原点。
+
+同一 [报告器](<target/r41-extension-inventory.rs>) 分别链接保留的 R42 库和新库，逐个返回见证
+重验原始 M 和全格；旧库输出也与 R42 冻结前报告逐字节相同。
+[A/B](<target/logs/r43-exploration/extension-ab.txt>)：**11,539 个旧首-H 成功记录全部保留，新增29**，
+64 条报告变化；统计为 **[16,721,12,5,141,11,568,0,0]**，候选未决 **114→0**。
+不是新增29条总覆盖：它们早已被其它候选/路线覆盖。初次公开回归的 **7/2** 仅为已修复
+SG91 和旧钉值的断言过时；真实 A/B 后才升级断言，最终 [debug](<target/logs/r43-accepted/extensions-debug.txt>)
+**9/0 +8/0**，census debug **20/0**，严格 clippy 通过。
+
+未删掉失败语义：[公开回归](<tests/magnetic_antitranslation_bridge.rs>) 将 SG91 R1 记录4的
+primitive 基右乘 U=[[1,0,256],[-1,0,-257],[2,1,511]]，原 exact 见证仍成立；隔离子进程
+固定既有默认 1,000 次预算，新搜索有成功见证且 α=(½,½,0) 仍报 MagneticReferenceGroupFailed。
+[实际混合结果](<target/logs/r43-exploration/mixed-bound.txt>)为8个条目与1个未决。
+最初把全进程预算设为1的诊断在 H 准备阶段失败，不能当作有效候选证据；没有采用它。
+普查测试另断言恢复的 SG20/203 不产生新未决、已有诊断不被成功清空。约化仍是有界浮点搜索，
+不是任意病态基的完备算法；未决不证明无解，原始 M 的 exact 验收未放宽。
+
+冻结 [完整电池](<target/logs/r43-accepted/battery/summary.txt>) **967 passed /0 failed**（963+4），
+69 测试壳、73/73 池作业、16/16 条腿 exit0；[独立审计](<target/logs/r43-accepted/battery-audit.json>)
+核验每个退出码及三份 ordinary TSV 的旧行数/SHA/4==8，全部不变。
+**248 个输入哈希在全部验收前后相同**，验收脚本也单独钉住；本账本随后才更新。
+电池 **570s**（构建234s、example发现46s），与低优先级 Γ/debug 重叠，不作性能 A/B。
+
+最终 Γ [8线程](<target/logs/r43-accepted/gamma-8.txt>) **514.5s** /
+[4线程](<target/logs/r43-accepted/gamma-4.txt>) **108.1s**：**150,100/150,100** 探针成功，
+输入/分导/重建/anchor/格审计错误均0。两份 **151,068 行 TSV** 逐字节相同，也等于探索及
+R42 接受版，SHA仍 `3470bec578c886fed2e270dcfd687b36565f2370d5ec4ba3d8c31a9568d06bc2`。
+[逐行比较](<target/logs/r43-accepted/compare-r42.txt>)确认所有旧成功每字段不变，无新增成功行。
+fixed仍 **16,591**，缺口仍 **130**（116族内无成员+14非exact），字面格障碍56；
+H/primitive/反平移/点扩张计数仍为7,030/587/837/167，反平移未决 **6→0**，点扩张仍0。
+
+**按用户要求在本轮验收和本地提交后暂停，等待检查，不自动启动下一轮。**
+项目整体仍未完成：一般 B/C、复源/高维、非 Γ/full-star、spinor、130条几何缺口与
+setting/OP-stabilizer 契约仍在。长期目标应标记暂停而不是完成；未删除其它项目、未 push。
+以下为各轮历史。
+
 ### 最新共享选轴修复（R42，2026-10-23；基线 `a28dece`）
 
 已修复 [pointgroup](<src/pointgroup.rs>) 的单斜 norm²<8 隐性截断，以及各选轴分支失败

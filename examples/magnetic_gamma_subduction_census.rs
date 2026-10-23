@@ -3142,32 +3142,28 @@ mod tests {
     }
 
     #[test]
-    fn resolved_proposals_do_not_hide_other_candidate_failures() {
-        for (sg, label, index, has_unresolved) in [
-            (20, "T1", 0, false), // R42 repaired the former identification failure.
-            (203, "W1", 6, true), // A witness still coexists with another failed proposal.
-        ] {
+    fn recovered_proposals_preserve_earlier_diagnostics() {
+        for (sg, label, index) in [(20, "T1", 0), (203, "W1", 6)] {
             let inventory = inventory_of(sg);
             let record = inventory
                 .records
                 .iter()
                 .find(|r| r.condensing == label && r.direction_index == index)
                 .unwrap();
-            let mut unresolved = Vec::new();
-            let FixedEmbedding::Fixed(chosen) =
-                fixed_embedding(sg, record, &mut unresolved, &mut Vec::new())
-            else {
-                panic!("missing alternative witness for SG{sg} {label}")
-            };
-            assert_eq!(chosen.kind, EmbeddingKind::Antitranslation);
-            if has_unresolved {
-                assert!(
-                    unresolved
-                        .iter()
-                        .any(|d| d.contains("MagneticReferenceGroupFailed"))
-                );
-            } else {
-                assert!(unresolved.is_empty());
+            for mut unresolved in [
+                Vec::new(),
+                vec!["earlier candidate MagneticReferenceGroupFailed".to_owned()],
+            ] {
+                let earlier = unresolved.clone();
+                let FixedEmbedding::Fixed(chosen) =
+                    fixed_embedding(sg, record, &mut unresolved, &mut Vec::new())
+                else {
+                    panic!("missing alternative witness for SG{sg} {label}")
+                };
+                assert_eq!(chosen.kind, EmbeddingKind::Antitranslation);
+                // Both old failures are repaired. Existing diagnostics from a
+                // prior candidate must still survive a later successful search.
+                assert_eq!(unresolved, earlier);
             }
         }
     }

@@ -17,14 +17,14 @@
 use crate::SymError;
 use crate::cell::{AperiodicAxis, Cell, TensorRank, trim_cell};
 use crate::debug;
-use crate::delaunay::layer_delaunay_reduce_2d;
+use crate::delaunay::{delaunay_reduce, layer_delaunay_reduce_2d};
 
 use crate::hall_symbol::hal_match_hall_symbol_db;
 use crate::mathfunc::{
     Mat3, Mat3I, Vec3, mat_cast_matrix_3d_to_3i, mat_cast_matrix_3i_to_3d, mat_get_determinant_d3,
-    mat_get_determinant_i3, mat_get_similar_matrix_d3, mat_inverse_matrix_d3, mat_is_int_matrix,
-    mat_multiply_matrix_d3, mat_multiply_matrix_di3, mat_multiply_matrix_id3,
-    mat_multiply_matrix_vector_d3,
+    mat_get_determinant_i3, mat_get_invariant_lattice, mat_get_similar_matrix_d3,
+    mat_inverse_matrix_d3, mat_is_int_matrix, mat_multiply_matrix_d3, mat_multiply_matrix_di3,
+    mat_multiply_matrix_id3, mat_multiply_matrix_vector_d3,
 };
 use crate::niggli::reduce;
 use crate::pointgroup::{Holohedry, Laue, get_pointsymmetry, get_transformation_matrix};
@@ -273,26 +273,96 @@ pub fn search_spacegroup(
     )
 }
 
+/// Identify all supplied primitive-cell operations without discarding any.
+/// The returned Bravais lattice is Cartesian in the input lattice's frame.
 pub fn search_spacegroup_with_symmetry(
     symmetry: &Symmetry,
     prim_lat: &Mat3,
     symprec: f64,
 ) -> Result<Spacegroup, SymError> {
-    let mut primitive = Primitive::new(1);
-    let mut cell = Cell::new(1, TensorRank::NoSpin);
-    cell.lattice = *prim_lat;
-    cell.position[0] = [0.0; 3];
-    primitive.cell = Some(cell);
-
-    // Search ALL 530 Hall settings, not just the 230 preferred ones.
-    // The preferred-Hall fast path (SPACEGROUP_TO_HALL_NUMBER) can miss
-    // proper subgroups whose conventional setting differs from the parent
-    // group's preferred Hall (e.g. UNI 890: SG44 Imm2 vs Hall 215/216).
-    // A subgroup should be identifiable regardless of which Hall setting
-    // the input coordinates happen to match.
+    let error = SymError::SpacegroupSearchFailed;
+    let volume = mat_get_determinant_d3(prim_lat);
+    if symmetry.is_empty()
+        || symmetry.rot.len() != symmetry.trans.len()
+        || !symprec.is_finite()
+        || symprec <= 0.0
+        || get_pointsymmetry(&symmetry.rot).len() != symmetry.len()
+        || !volume.is_finite()
+        || volume == 0.0
+        || symmetry.trans.iter().flatten().any(|x| !x.is_finite())
+    {
+        return Err(error);
+    }
+    // Keep all Hall settings and existing successful choices. Unlike the
+    // structure-search path, an explicit operation list must not be reduced
+    // to a smaller group during tolerance retries.
     let candidates: Vec<i32> = (1..=530).collect();
+    let lookup = |operations: &Symmetry, lattice: Mat3| {
+        let mut primitive = Primitive::new(1);
+        let mut cell = Cell::new(1, TensorRank::NoSpin);
+        cell.lattice = lattice;
+        cell.position[0] = [0.0; 3];
+        primitive.cell = Some(cell);
+        let mut origin = [0.0; 3];
+        let mut conventional = [[0.0; 3]; 3];
+        let hall = search_hall_number(
+            &mut origin,
+            &mut conventional,
+            &candidates,
+            &primitive,
+            operations,
+            symprec,
+        )?;
+        get_spacegroup(hall, &origin, &conventional)
+    };
+    if let Some(spacegroup) = lookup(symmetry, *prim_lat) {
+        return Ok(spacegroup);
+    }
 
-    search_spacegroup_with_symmetry_core(&primitive, &candidates, symmetry, symprec, -1.0)
+    // The finite axis catalog assumes a suitably reduced cell. Reuse an
+    // invariant auxiliary metric and the existing Delaunay reducer, not guessed
+    // axes. The metric is only a search aid (some callers use unit lattice for
+    // coordinate-only identification); restore the caller's Cartesian frame.
+    let mut metric = mat_get_invariant_lattice(&symmetry.rot).ok_or(error)?;
+    // Preserve handedness: a coordinate reflection must not exchange P41/P43.
+    if volume < 0.0 {
+        metric = metric.map(|row| row.map(|x| -x));
+    }
+    // ponytail: bounded floating reduction; exact lattice normalization would
+    // be needed to guarantee arbitrary ill-conditioned input bases.
+    let reduced = delaunay_reduce(&metric, symprec).ok_or(error)?;
+    let metric_inverse = mat_inverse_matrix_d3(&metric, 0.0)?;
+    let u = mat_multiply_matrix_d3(&metric_inverse, &reduced);
+    if !mat_is_int_matrix(&u, 1e-8) {
+        return Err(error);
+    }
+    let u = mat_cast_matrix_3d_to_3i(&u);
+    // A wide determinant keeps this unimodularity check safe for i32 entries.
+    let w = u.map(|row| row.map(i128::from));
+    let det = w[0][0] * (w[1][1] * w[2][2] - w[1][2] * w[2][1])
+        - w[0][1] * (w[1][0] * w[2][2] - w[1][2] * w[2][0])
+        + w[0][2] * (w[1][0] * w[2][1] - w[1][1] * w[2][0]);
+    if det.abs() != 1 {
+        return Err(error);
+    }
+    let u = mat_cast_matrix_3i_to_3d(&u);
+    let inverse = mat_inverse_matrix_d3(&u, 0.0)?;
+    let mut changed = Symmetry::with_capacity(symmetry.len());
+    for (r, t) in symmetry.rot.iter().zip(&symmetry.trans) {
+        let r = mat_get_similar_matrix_d3(&mat_cast_matrix_3i_to_3d(r), &u, 0.0)?;
+        if !mat_is_int_matrix(&r, 1e-8) {
+            return Err(error);
+        }
+        let t = mat_multiply_matrix_vector_d3(&inverse, t);
+        if t.iter().any(|x| !x.is_finite()) {
+            return Err(error);
+        }
+        changed.push(mat_cast_matrix_3d_to_3i(&r), t);
+    }
+    let mut spacegroup = lookup(&changed, mat_multiply_matrix_d3(&metric, &u)).ok_or(error)?;
+    let basis = mat_multiply_matrix_d3(&metric_inverse, &spacegroup.bravais_lattice);
+    spacegroup.bravais_lattice = mat_multiply_matrix_d3(prim_lat, &basis);
+    Ok(spacegroup)
 }
 
 pub fn transform_to_primitive(
@@ -961,6 +1031,215 @@ mod tests {
 
     const SYMPREC: f64 = 1e-5;
     const ANGLE_TOL: f64 = -1.0;
+
+    type ColouredOp = (Mat3I, Vec3, bool);
+
+    fn ordinary_ops(symmetry: &Symmetry) -> Vec<ColouredOp> {
+        symmetry
+            .rot
+            .iter()
+            .zip(&symmetry.trans)
+            .map(|(&r, &t)| (r, t, false))
+            .collect()
+    }
+
+    // Independently compare both complete Seitz sets, including images of the
+    // three unit translations. Centered database cells need not have the same
+    // number of representatives as the primitive input.
+    fn assert_same_affine_group(
+        input: &[ColouredOp],
+        target: &[ColouredOp],
+        change: Mat3,
+        shift: Vec3,
+    ) {
+        let inverse = mat_inverse_matrix_d3(&change, 1e-12).unwrap();
+        let inverse_shift = mat_multiply_matrix_vector_d3(&inverse, &shift).map(|x| -x);
+        for (from, to, c, s, ci) in [
+            (input, target, change, shift, inverse),
+            (target, input, inverse, inverse_shift, change),
+        ] {
+            let translations = (0..3).map(|axis| {
+                let mut t = [0.; 3];
+                t[axis] = 1.;
+                ([[1, 0, 0], [0, 1, 0], [0, 0, 1]], t, false)
+            });
+            for (r, t, anti) in from.iter().copied().chain(translations) {
+                let rf = mat_multiply_matrix_d3(&mat_multiply_matrix_di3(&c, &r), &ci);
+                let ri = mat_cast_matrix_3d_to_3i(&rf);
+                assert!(
+                    rf.iter()
+                        .flatten()
+                        .zip(ri.iter().flatten())
+                        .all(|(a, b)| (a - f64::from(*b)).abs() < 1e-8)
+                );
+                let ct = mat_multiply_matrix_vector_d3(&c, &t);
+                let rs = mat_multiply_matrix_vector_d3(&rf, &s);
+                let tau: Vec3 = std::array::from_fn(|i| ct[i] + s[i] - rs[i]);
+                assert!(
+                    to.iter().any(|(dr, dt, da)| *dr == ri
+                        && *da == anti
+                        && (0..3).all(|i| {
+                            let delta = tau[i] - dt[i];
+                            (delta - delta.round()).abs() < 1e-8
+                        })),
+                    "unmatched operation {ri:?} {tau:?} anti={anti}"
+                );
+            }
+        }
+    }
+
+    fn checked_symmetry_lookup(input: &Symmetry, lattice: Mat3, expected_sg: usize) -> Spacegroup {
+        let result = search_spacegroup_with_symmetry(input, &lattice, SYMPREC).unwrap();
+        assert_eq!(result.number, expected_sg);
+        let basis = mat_multiply_matrix_d3(
+            &mat_inverse_matrix_d3(&lattice, 1e-12).unwrap(),
+            &result.bravais_lattice,
+        );
+        let change = mat_inverse_matrix_d3(&basis, 1e-12).unwrap();
+        let database = crate::spg_database::get_spacegroup_operations(result.hall_number).unwrap();
+        assert_same_affine_group(
+            &ordinary_ops(input),
+            &ordinary_ops(&database),
+            change,
+            result.origin_shift,
+        );
+        result
+    }
+
+    #[test]
+    fn unreduced_reference_lookup_restores_the_cartesian_and_coordinate_frames() {
+        let mut input = Symmetry::with_capacity(2);
+        input.push([[1, 0, 0], [0, 1, 0], [0, 0, 1]], [0.; 3]);
+        input.push([[-1, 0, 0], [0, -3, -8], [0, 1, 3]], [0.; 3]);
+        assert!(get_transformation_matrix(&input.rot, None).is_none());
+        let known_basis = [[1., 0., 0.], [0., -2., -4.], [0., 1., 1.]];
+        let conventional = [[2., 0., 0.3], [0., 3., 0.], [0., 0., 4.]];
+        let lattice = mat_multiply_matrix_d3(
+            &conventional,
+            &mat_inverse_matrix_d3(&known_basis, 0.).unwrap(),
+        );
+        // Unit lattice is used by the coordinate-only magnetic reference client.
+        for l in [lattice, IDENTITY] {
+            checked_symmetry_lookup(&input, l, 5);
+        }
+        for l in [[[0.0; 3]; 3], [[f64::NAN; 3]; 3], [[f64::INFINITY; 3]; 3]] {
+            assert!(search_spacegroup_with_symmetry(&input, &l, SYMPREC).is_err());
+        }
+        for tolerance in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(search_spacegroup_with_symmetry(&input, &lattice, tolerance).is_err());
+        }
+        let mut malformed = input.clone();
+        malformed.trans.pop();
+        assert!(search_spacegroup_with_symmetry(&malformed, &lattice, SYMPREC).is_err());
+        let mut incomplete = Symmetry::with_capacity(3);
+        for r in [
+            [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            [[1, 0, 0], [0, -1, 0], [0, 0, -1]],
+            [[-1, 0, 0], [0, 1, 0], [0, 0, -1]],
+        ] {
+            incomplete.push(r, [0.; 3]);
+        }
+        assert!(search_spacegroup_with_symmetry(&incomplete, &IDENTITY, SYMPREC).is_err());
+    }
+
+    #[test]
+    fn explicit_symmetry_lookup_does_not_drop_rotations() {
+        let u = [[1, 4, 0], [0, 1, 0], [0, 0, 1]];
+        let ui = [[1, -4, 0], [0, 1, 0], [0, 0, 1]];
+        let mut input = Symmetry::with_capacity(4);
+        for r in [
+            [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            [[1, 0, 0], [0, -1, 0], [0, 0, -1]],
+            [[-1, 0, 0], [0, 1, 0], [0, 0, -1]],
+            [[-1, 0, 0], [0, -1, 0], [0, 0, 1]],
+        ] {
+            input.push(
+                mat_multiply_matrix_i3(&mat_multiply_matrix_i3(&u, &r), &ui),
+                [0.; 3],
+            );
+        }
+        assert!(get_transformation_matrix(&input.rot, None).is_none());
+        // The old tolerance retry kept only the Euclidean rotations and returned SG3.
+        checked_symmetry_lookup(&input, IDENTITY, 16);
+    }
+
+    #[test]
+    fn unreduced_centered_and_screw_settings_keep_all_translations_and_origins() {
+        let origin = [0.125, 0.25, 0.375];
+        let mut shifted = 0;
+        for (u, ui) in [
+            (
+                [[1, 4, 0], [0, 1, 3], [0, 0, 1]],
+                [[1, -4, 12], [0, 1, -3], [0, 0, 1]],
+            ),
+            (
+                [[-1, 4, 0], [0, 1, 3], [0, 0, 1]],
+                [[-1, 4, -12], [0, 1, -3], [0, 0, 1]],
+            ),
+        ] {
+            for hall in 1..=530 {
+                let number = get_spacegroup_type(hall).number;
+                let database = crate::spg_database::get_spacegroup_operations(hall).unwrap();
+                let lattice = mat_get_invariant_lattice(&database.rot).unwrap();
+                let (p, primitive) =
+                    crate::primitive::get_primitive_symmetry(&database, SYMPREC).unwrap();
+                let lattice =
+                    mat_multiply_matrix_d3(&lattice, &mat_inverse_matrix_d3(&p, 0.).unwrap());
+                let lattice = mat_multiply_matrix_di3(&lattice, &ui);
+                let mut input = Symmetry::with_capacity(primitive.len());
+                for (&r, t) in primitive.rot.iter().zip(&primitive.trans) {
+                    let r = mat_multiply_matrix_i3(&mat_multiply_matrix_i3(&u, &r), &ui);
+                    let ct = crate::mathfunc::mat_multiply_matrix_vector_id3(&u, t);
+                    let rs = crate::mathfunc::mat_multiply_matrix_vector_id3(&r, &origin);
+                    input.push(
+                        r,
+                        std::array::from_fn(|i| (ct[i] + origin[i] - rs[i]).rem_euclid(1.)),
+                    );
+                }
+                let result = checked_symmetry_lookup(&input, lattice, number);
+                shifted += usize::from(result.origin_shift.iter().any(|x| x.abs() > 1e-8));
+            }
+        }
+        assert!(shifted > 0);
+    }
+
+    #[test]
+    fn magnetic_reference_reduction_preserves_the_full_coloured_group() {
+        use crate::symmetry::MagneticSymmetry;
+        let r = [[3, 1, -1], [-4, -2, 1], [4, 1, -2]];
+        let mut input = MagneticSymmetry::with_capacity(4);
+        for anti in [false, true] {
+            for r in [[[1, 0, 0], [0, 1, 0], [0, 0, 1]], r] {
+                input.push(r, if anti { [0., 0.5, 0.5] } else { [0.; 3] }, anti);
+            }
+        }
+        let basis = [[0., 1., 1.], [1., -1., -1.], [1., 1., 3.]];
+        let lattice = mat_multiply_matrix_d3(
+            &[[2., 0., 0.3], [0., 3., 0.], [0., 0., 4.]],
+            &mat_inverse_matrix_d3(&basis, 0.).unwrap(),
+        );
+        let result =
+            crate::magnetic_spacegroup::identify_with_parent_hall(&lattice, &input, None, SYMPREC)
+                .unwrap();
+        assert_eq!(result.uni_number, 23);
+        let target =
+            crate::msg_database::get_spacegroup_operations(result.uni_number, result.hall_number)
+                .unwrap();
+        let ops = |s: &MagneticSymmetry| {
+            s.rot
+                .iter()
+                .zip(&s.trans)
+                .zip(&s.timerev)
+                .map(|((&r, &t), &a)| (r, t, a))
+                .collect::<Vec<_>>()
+        };
+        assert_same_affine_group(
+            &ops(&input),
+            &ops(&target),
+            result.transformation_matrix,
+            result.origin_shift,
+        );
+    }
 
     #[test]
     fn index_two_centering_matches_independent_rational_inverse_quotients() {

@@ -316,6 +316,40 @@ pub fn mat_get_metric(lattice: &Mat3) -> Mat3 {
     mat_multiply_matrix_d3(&lattice_t, lattice)
 }
 
+// Identification metric for a complete finite rotation group: G = average R^T R.
+// Cholesky G=L L^T gives lattice L^T. This is not a measured crystal metric;
+// embedding callers still reverify proposed frames with their exact contracts.
+pub(crate) fn mat_get_invariant_lattice(rotations: &[Mat3I]) -> Option<Mat3> {
+    if rotations.is_empty() {
+        return None;
+    }
+    let mut g = [[0.0; 3]; 3];
+    for r in rotations {
+        for (i, row) in g.iter_mut().enumerate() {
+            for (j, value) in row.iter_mut().enumerate() {
+                for rrow in r {
+                    *value += f64::from(rrow[i]) * f64::from(rrow[j]);
+                }
+            }
+        }
+    }
+    for row in &mut g {
+        for value in row {
+            *value /= rotations.len() as f64;
+        }
+    }
+    let a = g[0][0].sqrt();
+    let b = g[1][0] / a;
+    let c = g[2][0] / a;
+    let d = (g[1][1] - b * b).sqrt();
+    let e = (g[2][1] - b * c) / d;
+    let f = (g[2][2] - c * c - e * e).sqrt();
+    if [a, b, c, d, e, f].iter().any(|v| !v.is_finite()) || a <= 0.0 || d <= 0.0 || f <= 0.0 {
+        return None;
+    }
+    Some([[a, b, c], [0.0, d, e], [0.0, 0.0, f]])
+}
+
 /// 向量范数平方 (double)
 #[inline]
 pub fn mat_norm_squared_d3(a: &Vec3) -> f64 {
