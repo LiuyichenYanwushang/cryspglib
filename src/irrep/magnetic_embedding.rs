@@ -2143,6 +2143,9 @@ pub enum EmbeddingKind {
     /// The record's primitive basis mapped from the magnetic reference cell's
     /// verified full translation lattice; see [`embed_via_primitive_lattices`].
     PrimitiveLattice,
+    /// A signed reorientation between the verified source and record primitive
+    /// lattices; only exact full-group witnesses are returned.
+    PrimitiveOrientation,
     /// Paired auxiliary point-group/antitranslation frames, followed by exact
     /// verification of the original group; see [`embed_via_antitranslations`].
     Antitranslation,
@@ -2293,6 +2296,37 @@ pub fn embed_via_primitive_lattices(
         .checked_mul(&source.inverse().map_err(|_| GeometryError::Arithmetic)?)
         .map_err(|_| GeometryError::Arithmetic)?;
     exact_embeddings_for_map(geometry, set, map, EmbeddingKind::PrimitiveLattice)
+}
+
+/// Test the 48 signed orientations between verified primitive source and record
+/// lattices, rather than permuting conventional axes before normalizing them.
+/// For primitive column bases C and B each proposal is A = B U C^-1.
+/// These finite orientations are not a full GL(3,Z) setting/normalizer search;
+/// an empty result says nothing about orientations outside this family. Every
+/// returned origin is solved jointly and rechecked with the original coloured
+/// operations and full source/record translation lattices.
+pub fn embed_via_oriented_primitive_lattices(
+    geometry: &MagneticGeometry,
+    set: &MagneticOperationSet,
+) -> Result<Vec<ParentEmbedding>, GeometryError> {
+    let source_inverse = verified_source_primitive_basis(geometry, set)?
+        .inverse()
+        .map_err(|_| GeometryError::Arithmetic)?;
+    let target = Mat3R::new(basis_in_parent_conventional(geometry)?).transpose();
+    let mut found = Vec::new();
+    for orientation in signed_permutations() {
+        let map = target
+            .checked_mul(&Mat3R::from_ints(orientation))
+            .and_then(|candidate| candidate.checked_mul(&source_inverse))
+            .map_err(|_| GeometryError::Arithmetic)?;
+        found.extend(exact_embeddings_for_map(
+            geometry,
+            set,
+            map,
+            EmbeddingKind::PrimitiveOrientation,
+        )?);
+    }
+    Ok(found)
 }
 
 // A source basis is useful only after its full lattice and provenance are proved.
@@ -2708,6 +2742,7 @@ fn search_embeddings(
             | EmbeddingKind::ConventionalDual
             | EmbeddingKind::UnitarySubgroup
             | EmbeddingKind::PrimitiveLattice
+            | EmbeddingKind::PrimitiveOrientation
             | EmbeddingKind::Antitranslation
             | EmbeddingKind::PointExtension => continue,
         };

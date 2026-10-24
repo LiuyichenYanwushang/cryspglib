@@ -1,4 +1,4 @@
-//! Restricted scalar-Γ magnetic-subduction census (R28, extended in R35–R37).
+//! Restricted scalar-Γ magnetic-subduction census (R28, extended through R44).
 //!
 //! This example is a census, not a new algorithm: it points the accepted R25
 //! input contract ([`verify_scalar_gamma_input`]) and the accepted R26/R27
@@ -26,7 +26,9 @@
 //!   provenance-derived route, not an expansion of the R24 map family. R37 then
 //!   tries primitive-lattice normalization, followed by other ordinary directions
 //!   of the same condensing irrep with identical H and record lattice. All old
-//!   choices are preserved; no route reads the source, η, or subduction outcome.
+//!   choices are preserved; R39/R40 add the antitranslation/point-extension
+//!   routes, and R44 last tries 48 verified primitive-lattice orientations.
+//!   No route reads the source, η, or subduction outcome.
 //!   These are geometric witnesses, not proofs of an OP stabilizer. A record
 //!   with no witness is
 //!   reported as such and not probed; whether that absence is *certified*, a
@@ -91,9 +93,9 @@
 
 use cryspglib::irrep::magnetic_embedding::{
     EmbeddingKind, MagneticGeometry, MagneticOperationSet, ParentEmbedding,
-    embed_via_antitranslations, embed_via_point_extensions, embed_via_primitive_lattices,
-    embed_via_unitary_subgroup, geometry_of, magnetic_operations, parent_embedding_verdict,
-    record_lattice_obstruction,
+    embed_via_antitranslations, embed_via_oriented_primitive_lattices, embed_via_point_extensions,
+    embed_via_primitive_lattices, embed_via_unitary_subgroup, geometry_of, magnetic_operations,
+    parent_embedding_verdict, record_lattice_obstruction,
 };
 use cryspglib::irrep::magnetic_input::{
     EmbeddingEvidence, LatticePolicy, MagneticInputError, RealSign, RecordIdentity,
@@ -479,6 +481,25 @@ fn fixed_embedding(
                 return FixedEmbedding::Error {
                     variant: "point_extension_bridge",
                     detail: sanitize(&detail),
+                };
+            }
+        }
+        // Last resort: orient the already verified full primitive lattices;
+        // never replace an earlier choice or use a source/eta-dependent result.
+        match embed_via_oriented_primitive_lattices(&geometry, &set) {
+            Ok(entries) => {
+                if let Some(chosen) = entries.into_iter().min_by_key(embedding_key) {
+                    return FixedEmbedding::Fixed(Box::new(FixedCandidate {
+                        map: chosen.map,
+                        shift: chosen.shift,
+                        kind: chosen.kind,
+                    }));
+                }
+            }
+            Err(error) => {
+                return FixedEmbedding::Error {
+                    variant: "primitive_orientation",
+                    detail: sanitize(&error.to_string()),
                 };
             }
         }
@@ -938,6 +959,7 @@ struct Counters {
     /// Newly fixed by the unitary bridge after the R24 family had no exact witness.
     records_fixed_unitary_bridge: usize,
     records_fixed_primitive_lattice: usize,
+    records_fixed_primitive_orientation: usize,
     records_fixed_antitranslation: usize,
     records_fixed_point_extension: usize,
     records_literal_lattice_obstructed: usize,
@@ -991,6 +1013,7 @@ impl Counters {
             records_fixed,
             records_fixed_unitary_bridge,
             records_fixed_primitive_lattice,
+            records_fixed_primitive_orientation,
             records_fixed_antitranslation,
             records_fixed_point_extension,
             records_literal_lattice_obstructed,
@@ -1150,6 +1173,8 @@ fn census_sg(inventory: &SgInventory) -> SgReport {
                     usize::from(candidate.kind == EmbeddingKind::UnitarySubgroup);
                 counters.records_fixed_primitive_lattice +=
                     usize::from(candidate.kind == EmbeddingKind::PrimitiveLattice);
+                counters.records_fixed_primitive_orientation +=
+                    usize::from(candidate.kind == EmbeddingKind::PrimitiveOrientation);
                 if map == Mat3R::identity() {
                     counters.records_fixed_identity_map += 1;
                     if shift.iter().all(|value| value.is_zero()) {
@@ -2448,6 +2473,10 @@ fn main() -> ExitCode {
         counters.records_fixed_primitive_lattice
     );
     println!(
+        "records_fixed_via_primitive_orientation {}",
+        counters.records_fixed_primitive_orientation
+    );
+    println!(
         "records_fixed_with_identity_map {}",
         counters.records_fixed_identity_map
     );
@@ -3169,7 +3198,49 @@ mod tests {
     }
 
     #[test]
-    fn point_extension_is_last_priority_and_its_counter_merges() {
+    fn primitive_orientation_is_a_last_resort_with_its_own_counter() {
+        let inventory = inventory_of(85);
+        let record = inventory
+            .records
+            .iter()
+            .find(|r| r.condensing == "GM3+GM4+" && r.direction_index == 0)
+            .unwrap();
+        let FixedEmbedding::Fixed(chosen) =
+            fixed_embedding(85, record, &mut Vec::new(), &mut Vec::new())
+        else {
+            panic!("missing oriented exact witness")
+        };
+        assert_eq!(chosen.kind, EmbeddingKind::PrimitiveOrientation);
+        let geometry = geometry_of(85, &record_of(85, record)).unwrap();
+        let set = magnetic_operations(record.uni).unwrap();
+        cryspglib::irrep::magnetic_embedding::verify_embedding(
+            &geometry,
+            &set,
+            chosen.map,
+            chosen.shift,
+        )
+        .unwrap();
+        assert!(
+            cryspglib::irrep::magnetic_embedding::realises_record_lattice_checked(
+                &geometry,
+                &set,
+                &chosen.map
+            )
+            .unwrap()
+        );
+        let report = census_sg(&inventory);
+        assert!(report.counters.records_fixed_primitive_orientation >= 1);
+        let mut counters = Counters::default();
+        counters.merge(&report.counters);
+        assert_eq!(
+            counters.records_fixed_primitive_orientation,
+            report.counters.records_fixed_primitive_orientation
+        );
+        assert_eq!(counters.records_error, 0);
+    }
+
+    #[test]
+    fn point_extension_precedes_primitive_orientation_and_its_counter_merges() {
         let inventory = inventory_of(79);
         let record = inventory
             .records

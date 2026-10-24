@@ -69,6 +69,33 @@ T3/P1 必需的四分之一原点、SG19 Y1/P3 的“该 map 无解但另一 map
 `GeometryError::PrimitiveBridgeUnavailable`，算术/容量错误仍保留。穷尽 match 需补分支。
 空结果只针对这一种基对应；没有一般 setting 或 OP stabilizer 的否证。
 
+## 完整格之间的有界基矢取向（R44）
+
+新公开入口 embed_via_oriented_primitive_lattices(geometry, set) 与 R37 共用**经数据库、
+群公理和双向完整源格验证**的参考 primitive 基 C；记录 primitive 基 B 仍按母群
+conventional 坐标求出。只在两个 primitive 坐标系之间尝试**现有的 48 个带符号
+置换 U**，候选 **A=B U C⁻¹**。它们是有限的基矢取向，不是常规胞的盲目置换；
+B、C 内的含心周期已经被约化为完整原始格。每个 A 复用现有的 exact 双向格检验、
+全部磁类的共同原点解集，以及对**原始** M 全部带色操作与平移的验收。
+结果用独立的 EmbeddingKind::PrimitiveOrientation 标识；来源或精确算术失败不转为空集。
+
+受限 Γ 普查把本路线排在 R24/H/单个 primitive/其它 H/反平移/点扩张**之后**。
+旧 fixed 选择不能被这 48 个新候选替换；来源、η 和分导结果均不参与选择。
+[公开回归](<../tests/magnetic_primitive_orientations.rs>)用 SG85/185/211 验证原先没有 fixed 的
+非零原点、不同参考格、完整磁操作；SG85 的 4 个 Γ 源 × 双 η × 两种标签共 16 次高层
+调用逐操作重建。SG3 A1 的既有字面格障碍仍返回空，篡改磁数据库操作列表仍被拒绝。
+
+独立 target 诊断对原有 **130** 条缺口逐条核对 48 个 U：经完整源格、原始磁操作、
+共同原点逐项验证，发现 **27** 条 exact 见证（[日志](<../target/r44-lattice-permutation.out>)）。
+接入后 fixed **16,591→16,618**，剩余 **103**：仍有 56 条字面格障碍；
+R24 族内认证 116→89 条、非 exact 14 条。两个 η 的新成功行 **300** 条，
+原有 **150,100** 条成功行每字段不变（[逐行比较](<../target/logs/r44-exploration/compare-r43.txt>)），
+不是把 R24 的族内无成员结论否定：它们的 map 不属于 R24 的 {S·B} 族。
+字面格障碍不因添加有界候选而改变。
+
+这是**有界候选路线**，绝非穷尽 GL(3,Z)、一般 setting/normalizer、OP stabilizer 或
+其它 cell/axis convention。找不到不能当作“不存在”。
+
 ## 字面记录格的无解证书（R38）
 
 公开入口 `record_lattice_obstruction(geometry, magnetic_set)` 不构造候选 map。

@@ -22,6 +22,58 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 完整源格的有限取向桥接（R44，2026-10-24；基线 `f893747`）
+
+用户在 R43 检查点后明确要求“继续”。本人只对剩余 130 条记录做 target 诊断，
+先复用 R37 的完整磁源格 C 和原始记录格 B，按 **A=B U C⁻¹** 逐一尝试
+**现有 48 个带符号置换 U**；没有用一般小矩阵表或宽松容差猜 map。
+[独立逐条输出](<target/r44-lattice-permutation.out>)在旧 release 库上验证所有新返回 map 的
+双向完整格、原始带色操作及全部原点，找到 **27** 条新 exact 记录。
+另试独立的模 3/5/7 单旋转秩与完整模 2 联立共轭，
+[实测](<target/r44-modular-probe.out>)对剩余记录未增一条新障碍；它们未接入生产。
+
+新增[公开有限路线](<src/irrep/magnetic_embedding.rs>) `embed_via_oriented_primitive_lattices`：
+沿用数据库 provenance、群公理、经**双向完整源格**核验的 C、R24 的 48 取向枚举器与
+已有的 exact 原点解/逐操作验收函数，源参考胞含心不被漏掉。新增
+`EmbeddingKind::PrimitiveOrientation` 独立标记，旧 R24 家族及 R37 单个 B C⁻¹ 均未改。
+[普查](<examples/magnetic_gamma_subduction_census.rs>)仅在 R24→H→primitive→其它 H→反平移→
+点扩张**全部无见证之后**才使用，优先级确保旧成功选择原样保留；独立计数错误不作空集。
+[公开回归](<tests/magnetic_primitive_orientations.rs>)四项覆盖 SG85/185/211 的确切见证、
+SG85 非零四分之一原点、SG3 A1 字面格障碍、源数据篡改；SG85 四个实一维 Γ 源 × 两 η ×
+两种标签的 16 个高层调用逐磁类验证普通字符、反幺正作用及复 intertwiner。
+新 census 断言固定路线及独立合并计数。
+新函数未实现无限 GL(3,Z)、一般 setting/normalizer 或 OP stabilizer；空结果不是不存在性证书。
+详细边界见[桥接文档](<docs/magnetic-unitary-bridge.md>)。
+
+冻结前首次 R44 [完整 Γ gate](<target/logs/r44-exploration/gamma-first.txt>)实测：
+**16,591→16,618** 条 fixed，余 **103**（剩余统计 89 个 R24 族内 certified、14 个
+no_realising；56 条字面格障碍不变）；R24 家族原有的 116 个 absence 证书本身仍成立，
+其中 27 个被**族外** exact 见证补足，不能把 89 误写为该候选族新证书总数。
+新增 **300 条**受限 Γ 成功行，累计 **150,400/150,400**；
+[与 R43 原整表逐行比较](<target/logs/r44-exploration/compare-r43.txt>)：旧 150,100 个成功
+**每字段不变**，新成功分属 27 条记录，151,068 行总体仍含 668 个未执行行。
+新 SHA `7eab6f27cd3e74f7b1767d3aa807d99a67dafe0bc2839cb7006a3a76eb3b4d6b`。
+
+验收前冻结 **249** 个输入文件哈希（含新增公开测试），在所有验收后均逐项不变；
+验收脚本 SHA 另钉。[完整电池](<target/logs/r44-accepted/battery/summary.txt>) **972/0**，
+70 个测试壳、74/74 个池作业、16/16 条腿 exit 0；独立
+[审计](<target/logs/r44-accepted/battery-audit.json>)确认各退出码，以及三个 ordinary TSV
+42,074/80,294/11,010 行的 R43 SHA 和 4==8 都不变。严格 clippy 与格式检查通过。
+debug [三套公开测试](<target/logs/r44-accepted/bridge-debug.txt>) **9/0+9/0+4/0**；
+原先缺少新函数的公开测试确实在[红色编译](<target/r44-orientation-before.txt>)失败。
+冻结[完整 Γ 8 线程](<target/logs/r44-accepted/gamma-8.txt>) /
+[4 线程](<target/logs/r44-accepted/gamma-4.txt>)全部 gate exit 0，
+完整 TSV 与首次探索及彼此逐字节一致，
+[独立审计](<target/logs/r44-accepted/gamma-audit.txt>)重算无旧成功改变、新增 27/300、
+全量 partition 和错误 0。运行与电池重叠，耗时不可当作性能 A/B。
+本账本在冻结验收**后**写入；此文件随后单独核对，其余 248 输入仍保持验收哈希。
+
+**仍未完成**：103 条记录尚无 fixed 见证（其中 56 条对原字面格已有不可 exact 的
+必要障碍），一般 B/C、复源和高维、非 Γ/full-star、spinor、一般 setting、
+OP stabilizer 尚未解决；任何 bounded family 空结果都不是一般无解。
+没有删除 TB_rs 以外项目，未 push 或部署。下面 R43 的“暂停”只是上一个
+检查点的历史状态，用户已在其后明确要求继续。
+
 ### 最新共享操作约化与检查暂停点（R43，2026-10-23；基线 `a1618b5`）
 
 已修复 [显式操作识别](<src/spacegroup.rs>) 的两个相连问题：给定操作不再在容差重试中

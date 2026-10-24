@@ -23,6 +23,9 @@
 > **R43** 修复显式操作查询的约化/坐标还原，候选未决 6→0；fixed 16,591、成功探针
 > 150,100、剩余 130 均不变，151,068 行 TSV 与 R42 逐字节相同。首-H 单独报告新增
 > 29 条见证，但原已由其它候选覆盖，不能计作普查新增。仍不承诺任意病态基的识别完备性。
+> **R44** 最后尝试经完整格验证的 48 种 primitive 基矢取向，新增 27 条 exact 记录，
+> fixed 16,618，剩余 103。新增 300 条受限 Γ 成功行，旧 150,100 条每字段不变；不扩展标量源域，
+> 也不证明 OP stabilizer 或任意 GL(3,Z) setting。详见[桥接边界](<magnetic-unitary-bridge.md>)。
 
 本文件是**只读诊断**的记录，不含生产算法改动。程序
 [examples/magnetic_gamma_subduction_census.rs](../examples/magnetic_gamma_subduction_census.rs)
