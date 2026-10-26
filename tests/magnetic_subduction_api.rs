@@ -514,6 +514,64 @@ fn aligned_matrix_sources_preserve_both_labels_and_eta_in_high_level_reports() {
 }
 
 #[test]
+fn orthogonal_h_candidates_preserve_high_level_real_decompositions() {
+    use cryspglib::irrep::isotropy::IsotropyDirection;
+    let q = Rat::new(1, 4).unwrap();
+    for (sg, uni, map, shift) in [
+        (207, 750, Mat3R::from_ints(IDENTITY), [Rat::ZERO; 3]),
+        (
+            210,
+            820,
+            Mat3R::new(
+                [[0, 0, -2], [1, -1, 0], [-1, -1, 0]].map(|r| r.map(|n| Rat::new(n, 2).unwrap())),
+            ),
+            [q; 3],
+        ),
+        (
+            214,
+            820,
+            Mat3R::from_ints(IDENTITY),
+            [Rat::ZERO, q, Rat::new(1, 8).unwrap()],
+        ),
+    ] {
+        let ir = query::irreps_of(sg);
+        let source = ir.iter().find(|r| r.ml == "GM3").unwrap();
+        let condensing = ir.iter().find(|r| r.ml == "GM4").unwrap();
+        for eta in [RealSign::Plus, RealSign::Minus] {
+            for convention in [LabelConvention::Cdml, LabelConvention::Bc] {
+                let s = source.label(convention).unwrap();
+                let c = condensing.label(convention).unwrap();
+                let request = MagneticSubductionRequest::new(
+                    SourceIdentity {
+                        parent_sg: sg,
+                        label: &s,
+                        convention,
+                    },
+                    MagneticRecordSelector::new(sg, &c, convention)
+                        .direction(IsotropyDirection::Index(0))
+                        .uni(uni),
+                    Some(eta),
+                )
+                .with_embedding(EmbeddingEvidence {
+                    map,
+                    shift,
+                    lattice_policy: LatticePolicy::RequireExact,
+                });
+                let report = subduce(&request).unwrap();
+                let model = report.matrix_model().unwrap();
+                assert_eq!(model.uni(), uni);
+                assert_eq!((model.source_label(), model.record_label()), ("GM3", "GM4"));
+                assert_eq!(*model.map(), map);
+                assert_eq!(*model.shift(), shift);
+                assert_eq!(model.time_reversal(), Some(eta));
+                assert_eq!(model.input_convention(), convention);
+                assert_matrix_reconstruction(model, &report);
+            }
+        }
+    }
+}
+
+#[test]
 fn matrix_type_i_split_and_multiplicity_witnesses_are_covered() {
     // Type I ordinary: SG 89 GM5 / GM1 is the parent itself (UNI 747).
     let type_i = subduce(&request(

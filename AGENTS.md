@@ -22,6 +22,61 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 正交目标排除与二维固定嵌入全域测量（R48，2026-10-26；基线 `08dcbdc`）
+
+先用[只读矩阵 census](<target/r48-matrix-census.rs>)从 R47 已接受的16,721个记录见证
+取固定 map/shift；不按源或分导结果重新选择。177个实二维非 compound、非 spinor Γ源，
+在其中 **12,106 个有合格源的记录**形成 **21,746 record/source 对×两η=43,492 次**。
+[原版完整测量](<target/logs/r48-exploration/matrix-baseline.tsv>)为 A成功39,944、受限C成功296、
+目标拒绝3,252，输入失败0。所有成功都独立检查复基向量1/i上的逐类重建及全源等距；
+不是仅每 SG 取一个记录的 R47 抽查，也不是全部高维/复源已支持。
+
+发现并[实际复现](<target/logs/r48-exploration/overlap-before.txt>)：SG207 GM3/GM4 的 UNI750
+限制本来是 H75 GM1⊕GM2，但旧循环构造了与源正交的复 H GM3/GM4，并因无独立数据库行
+报 TargetSourceUnresolved，阻断已有域内的分导。修改仅在[矩阵模块](<src/irrep/magnetic_matrix_subduction.rs>)
+加共用 has_unitary_overlap：原 R27 全列/类 provenance 后，对完整幺正限制求字符内积，
+**仅零重叠可跳过**。Type A 和受限 C 复用；每个平移类计一次，重复原始列对同一代表验证，
+不逐相邻值放任容差漂移，不使用反幺正 trace，不用此内积替代重数或矩阵证明。
+有限/缺失字符、H身份、identity维数、范数(A=1/C=2)、非整数/负重叠错误仍具名保留。
+正重叠仍经过旧 H矩阵、coset、复Hom、等距和重建链；源/目标域、公开类型、嵌入策略不变。
+同一 UNI750 的 SG89 GM5 确实需要复 H目标，仍拒绝，绝未把无记录一律转成跳过。
+
+新增[公开低层回归](<tests/magnetic_matrix_subduction.rs>)覆盖两η的真实修复和仍需复目标的
+正重叠拒绝；[高层](<tests/magnetic_subduction_api.rs>)覆盖 SG207/210/214、两η、CDML/BC
+的12次调用，含 F心格非整数map、四分之一/八分之一嵌入原点与复重建。
+两模块测试覆盖缺值、NaN/Inf、错误identity/H、非整数/负内积、重复/冲突/空列及容差漂移，
+并验证反幺正字符不参与计算。[文档](<docs/magnetic-matrix-gamma-subduction.md>) §9 说明排除门槛。
+
+最终[完整矩阵审计](<target/logs/r48-accepted/matrix-audit.json>)：**A成功40,060、C成功296、
+目标拒绝3,136**；新增 **116 次**成功，分属38记录、SG207–230共24母群。旧40,240成功
+状态、目标标签/维数/重数均不变；完整 target/operators/intertwiner 的确定性64位 Debug
+指纹均相同（不是保存了逐字完整负载，也不是加密等同性证明）。所有成功的群作用重建和
+全源等距仍独立验证。另724行只改变拒绝诊断，不计新增覆盖。
+[剩余错误分类](<target/logs/r48-accepted/failure-kinds.json>)为 A/C：NoMatchingTarget/HSource
+1,722、TargetSourceUnresolved/NoMatchingTarget 1,166、NoMatchingTarget/NoMatchingTarget 248；
+没有新 gate 数据错误或输入错误。旧成功 C 路由的 A 前驱均为 NoMatchingTarget，未以 C成功
+掩盖其它 A错误。最终矩阵 TSV 逐字等于探索接受结果；前后链接同一报告器，旧库/脚本/Γ输入
+哈希见[baseline](<target/logs/r48-exploration/matrix-baseline-inputs.sha256>)。
+
+冻结251个输入后，[完整电池](<target/logs/r48-accepted/battery/summary.txt>) **988/0**（984+4），
+71壳、75/75池作业、16/16腿 exit0；[独立退出码/计数审计](<target/logs/r48-accepted/battery-audit.json>)
+通过，普通三 TSV 的行数/SHA/4==8不变。[debug](<target/logs/r48-accepted/debug.txt>)12+10+6=28，
+[overlap模块](<target/logs/r48-accepted/overlap-units.txt>)2/0，合计30项；严格debug/release clippy、
+doc tests、Python/oracle、格式与diff全部通过。完整实一维Γ [4/8线程审计](<target/logs/r48-accepted/gamma-audit.json>)
+仍16,721 fixed/151,068 success、错误和未决0，整表逐字等于R45–R47，SHA仍
+`655b2fcbe95d4e56a48d3703d15ef8f017c89c2196ed6bdc556925a0d74a18cd`。
+251输入在全部验收前后不变，五个冻结driver哈希不变；账本仅验收后更新，其余250再核对。
+并发墙钟不作性能结论；没有删除项目，没有push/部署。
+
+**下一步有具体但未接生产的复目标见证**：[SG89 GM5→UNI750实验](<target/r49-complex-a-witness.rs>)
+复用 H75 compound_selected_arm_view 的 GM3/GM4 两个具名一维复组分，独立对照完整 Seitz
+和 summary 字符。令目标反幺正代表系数为1，由陪集生成其余复系数；验证全部半线性群律，
+用H字符投影与一个相位修正构造复 intertwiner。[双η均重建并正交完备](<target/logs/r48-exploration/next-complex-a.txt>)。
+这只是一个无平移见证，当前公开入口仍拒绝它，**不计生产新增成功或一般B/C实现**。
+下一步应复用现有 typed constituent/H-frame 绑定和 Hom 组件，让目标算子承载复系数，
+不能将复组分标签伪装成独立 IrrepRecord 或丢掉数据来源。剩余3,136矩阵拒绝、69 compound/
+87三维源、非Γ/full-star、spinor、一般setting/normalizer与OP-stabilizer仍未完成；目标保持active。
+
 ### 二维 Γ 矩阵源共同原点对齐（R47，2026-10-26；基线 `96c7ed5`）
 
 已把 R46 诊断接入[矩阵输入](<src/irrep/magnetic_matrix_subduction.rs>)，未扩猜测 map 或写

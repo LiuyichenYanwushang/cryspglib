@@ -336,6 +336,33 @@ fn nonzero_source_origins_bind_all_28_previously_unmatched_matrix_sources() {
 }
 
 #[test]
+fn orthogonal_complex_h_candidates_do_not_block_real_summands() {
+    for eta in [RealSign::Plus, RealSign::Minus] {
+        let model = witness_model(207, "GM3", "GM4", 0, IDENTITY, Some(eta));
+        assert_eq!(model.uni(), 750);
+        let result = subduce_matrix_gamma(&model).expect("GM1 + GM2 already covers the source");
+        assert_eq!(result.covered_dimension(), 2);
+        let mut labels: Vec<_> = result.pieces().iter().map(|p| p.source_label()).collect();
+        labels.sort();
+        assert_eq!(labels, ["GM1", "GM2"]);
+        for piece in result.pieces() {
+            assert_eq!((piece.dimension(), piece.multiplicity()), (1, 1));
+            assert_reconstruction(&model, piece);
+            for copy in piece.copies() {
+                assert_isometric_copy(copy, 1);
+            }
+        }
+    }
+    // The same M really needs complex H targets for this different source.
+    // Orthogonality is a rejection gate, not permission to discard missing data.
+    let needed = witness_model(89, "GM5", "GM3", 0, IDENTITY, Some(RealSign::Plus));
+    assert!(matches!(
+        subduce_matrix_gamma(&needed),
+        Err(MatrixSubductionError::TargetSourceUnresolved { .. })
+    ));
+}
+
+#[test]
 fn the_type_i_dim2_target_is_rebuilt_from_the_parent_irrep() {
     // SG 89 GM5 condensed along GM1 gives M = P422 itself (UNI 747): a Type I
     // ordinary two-dimensional Γ target.  The unitary part equals the source in

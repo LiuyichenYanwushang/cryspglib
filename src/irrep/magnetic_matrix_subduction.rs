@@ -2101,6 +2101,9 @@ pub fn subduce_matrix_gamma(
             continue;
         }
         examined.push(corep.label.clone());
+        if !has_unitary_overlap(model, corep, &context)? {
+            continue;
+        }
         let tables = build_target_tables(corep, &context, uni)?;
         for table in tables {
             if let Some(piece) = match_piece(corep, &table, &source_corep, &context, uni)? {
@@ -2154,6 +2157,96 @@ fn is_matrix_candidate(corep: &MagneticCorepSummary) -> bool {
         && !corep.source_irreps[0].spinor
         && corep.source_irreps[0].dim as usize == corep.dim
         && (corep.dim == 1 || corep.dim == 2)
+}
+
+/// Reject only targets orthogonal to the source on the unitary subgroup.
+/// This is NOT a multiplicity or an antiunitary character calculation. A
+/// positive overlap still requires the existing matrix construction, Hom,
+/// isometry and reconstruction gates, including their missing-data errors.
+/// Columns have already passed the R27 operation/class provenance proof.
+fn has_unitary_overlap(
+    model: &MatrixGammaModel,
+    corep: &MagneticCorepSummary,
+    context: &TargetContext,
+) -> Result<bool, MatrixSubductionError> {
+    let error = |reason: String| MatrixSubductionError::TargetCorepInconsistent {
+        uni: context.uni,
+        label: corep.label.clone(),
+        reason,
+    };
+    if corep.source_irreps.iter().any(|s| s.sg != context.h_sg) {
+        return Err(error(
+            "the target H identity differs from the context".into(),
+        ));
+    }
+    let expected_norm = match corep.corep_type {
+        CorepType::A => 1.0,
+        CorepType::C => 2.0,
+        _ => {
+            return Err(error(
+                "the unitary overlap gate is only for type A/C".into(),
+            ));
+        }
+    };
+    let identity = find_identity_class(&context.classes)
+        .ok_or_else(|| error("the class list has no identity".into()))?;
+    let (mut inner, mut norm, mut count) = (Complex64::new(0.0, 0.0), 0.0, 0usize);
+    for (class, operation) in context.classes.iter().enumerate() {
+        if operation.time_reversal {
+            continue;
+        }
+        let columns = &context.class_columns[class];
+        let mut character = None;
+        for &column in columns {
+            let value = corep
+                .characters
+                .get(column)
+                .copied()
+                .flatten()
+                .ok_or_else(|| error(format!("unitary class {class} has no summary character")))?;
+            if !value.re.is_finite() || !value.im.is_finite() {
+                return Err(error(format!(
+                    "unitary class {class} has a non-finite character"
+                )));
+            }
+            if let Some(previous) = character {
+                let difference: Complex64 = value - previous;
+                if difference.norm() > GRID_TOLERANCE {
+                    return Err(error(format!(
+                        "unitary class {class} has conflicting characters"
+                    )));
+                }
+            } else {
+                character = Some(value);
+            }
+        }
+        let character =
+            character.ok_or_else(|| error(format!("unitary class {class} has no columns")))?;
+        if class == identity
+            && (!close(character.re, corep.dim as f64) || !close(character.im, 0.0))
+        {
+            return Err(error(
+                "the target identity character disagrees with its dimension".into(),
+            ));
+        }
+        inner += matrix_trace(&model.actions[class].entries, SOURCE_DIMENSION) * character.conj();
+        norm += character.norm_sqr();
+        count += 1;
+    }
+    // A|H is irreducible; C|H consists of two inequivalent irreducibles.
+    // Malformed/non-finite data and nonintegral overlaps are never zeroes.
+    inner /= count as f64;
+    norm /= count as f64;
+    if !close(norm, expected_norm)
+        || !close(inner.im, 0.0)
+        || !close(inner.re, inner.re.round())
+        || inner.re < -GRID_TOLERANCE
+    {
+        return Err(error(format!(
+            "invalid unitary character norm {norm} or overlap {inner:?}"
+        )));
+    }
+    Ok(!close(inner.re, 0.0))
 }
 
 /// Everything the target construction needs from the magnetic group and the
@@ -3912,6 +4005,22 @@ pub fn subduce_matrix_gamma_type_c(
             continue;
         }
         examined.push(corep.label.clone());
+        // Leave the original metadata exclusions in charge of spinor and
+        // wrong-dimensional targets; their characters are not in this gate.
+        if corep.source_irreps.len() == 2
+            && corep.source_irreps.iter().all(|s| !s.spinor && s.dim == 1)
+            && !has_unitary_overlap(model, corep, &context).map_err(|error| {
+                MatrixTypeCError::Inconsistent {
+                    uni,
+                    label: corep.label.clone(),
+                    stage: "unitary-overlap",
+                    reason: error.to_string(),
+                }
+            })?
+        {
+            rejected.push(format!("{}: orthogonal-unitary-restriction", corep.label));
+            continue;
+        }
         let pair = match screen_type_c_pair(corep, &context, uni)? {
             Ok(pair) => pair,
             Err(reason) => {
@@ -4403,6 +4512,112 @@ mod tests {
             pair,
             table,
         }
+    }
+
+    #[test]
+    fn unitary_overlap_never_turns_bad_or_missing_characters_into_zero() {
+        let witness = type_c_witness("GM2");
+        let check =
+            |c: &MagneticCorepSummary| has_unitary_overlap(&witness.model, c, &witness.context);
+        assert!(check(&witness.corep).unwrap());
+        let unitary = witness
+            .context
+            .classes
+            .iter()
+            .position(|g| !g.time_reversal)
+            .unwrap();
+        let column = witness.context.class_columns[unitary][0];
+        for value in [
+            None,
+            Some(Complex64::new(f64::NAN, 0.0)),
+            Some(Complex64::new(f64::INFINITY, 0.0)),
+            Some(Complex64::new(0.0, f64::NAN)),
+            Some(Complex64::new(0.5, 0.0)),
+        ] {
+            let mut bad = witness.corep.clone();
+            bad.characters[column] = value;
+            assert!(matches!(
+                check(&bad),
+                Err(MatrixSubductionError::TargetCorepInconsistent { .. })
+            ));
+        }
+        let mut bad = witness.corep.clone();
+        bad.characters
+            .iter_mut()
+            .for_each(|x| *x = Some(Complex64::new(0.0, 0.0)));
+        assert!(check(&bad).is_err()); // not an orthogonal character
+        let mut bad = witness.corep.clone();
+        bad.source_irreps[0].sg = 1;
+        assert!(check(&bad).is_err());
+        let mut bad = witness.corep.clone();
+        let anti = witness
+            .context
+            .classes
+            .iter()
+            .position(|g| g.time_reversal)
+            .unwrap();
+        for &column in &witness.context.class_columns[anti] {
+            bad.characters[column] = Some(Complex64::new(f64::NAN, f64::INFINITY));
+        }
+        assert!(check(&bad).unwrap()); // antiunitary traces are not characters
+        let mut w = type_c_witness("GM2");
+        let identity = find_identity_class(&w.context.classes).unwrap();
+        w.model.actions[identity].entries[0] += 0.5;
+        assert!(has_unitary_overlap(&w.model, &w.corep, &w.context).is_err());
+        w.model.actions[identity].entries[0] -= 0.5;
+        for action in &mut w.model.actions {
+            for x in &mut action.entries {
+                *x = -*x;
+            }
+        }
+        assert!(has_unitary_overlap(&w.model, &w.corep, &w.context).is_err());
+    }
+
+    #[test]
+    fn unitary_overlap_counts_classes_not_redundant_summary_columns() {
+        let mut w = type_c_witness("GM4");
+        let class = w
+            .context
+            .classes
+            .iter()
+            .position(|g| !g.time_reversal)
+            .unwrap();
+        let column = w.context.class_columns[class][0];
+        w.context.class_columns[class].extend([column; 3]);
+        assert!(has_unitary_overlap(&w.model, &w.corep, &w.context).unwrap());
+        let mut bad = w.corep.clone();
+        let extra = bad.characters.len();
+        bad.characters.push(Some(
+            bad.characters[column].unwrap() + Complex64::new(0.5, 0.0),
+        ));
+        w.context.class_columns[class].push(extra);
+        assert!(has_unitary_overlap(&w.model, &bad, &w.context).is_err());
+        w.context.class_columns[class].clear();
+        assert!(has_unitary_overlap(&w.model, &w.corep, &w.context).is_err());
+        // Tolerances are relative to one representative, not a drifting chain.
+        let mut w = type_c_witness("GM4");
+        let zero_class = w
+            .context
+            .classes
+            .iter()
+            .enumerate()
+            .find(|(i, g)| {
+                !g.time_reversal
+                    && w.corep.characters[w.context.class_columns[*i][0]]
+                        .unwrap()
+                        .norm()
+                        < GRID_TOLERANCE
+            })
+            .unwrap()
+            .0;
+        for step in 1..=3 {
+            w.context.class_columns[zero_class].push(w.corep.characters.len());
+            w.corep.characters.push(Some(Complex64::new(
+                f64::from(step) * 0.75 * GRID_TOLERANCE,
+                0.0,
+            )));
+        }
+        assert!(has_unitary_overlap(&w.model, &w.corep, &w.context).is_err());
     }
 
     /// Type C is the complex (Schur-C) corep type: the real-linear Hom space of
