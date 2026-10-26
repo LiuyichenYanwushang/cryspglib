@@ -276,5 +276,5 @@ fn the_complete_record_census_has_no_silent_source_lattice_failures() {
         .reduce(|| (0, 0), |(a, b), (c, d)| (a + c, b + d));
     println!("primitive record census: records={records}, verified={verified}");
     assert_eq!(records, 16721);
-    assert_eq!(verified, 11766);
+    assert_eq!(verified, 11746);
 }

@@ -900,7 +900,9 @@ pub fn verify_against_database(set: &MagneticOperationSet) -> Result<(), Magneti
 ///
 /// The stored `basis` and `origin` are integers in the parent's **primitive**
 /// frame (see [`crate::irrep::types::MagneticIsotropyRecord`]); this type keeps
-/// them exactly, together with the lattice index `|det(basis)|`.
+/// them exactly, together with the lattice index `|det(basis)|`. This is the
+/// raw ISOTROPY primitive order, not necessarily the canonical one; use
+/// [`basis_in_parent_conventional`] when comparing with conventional operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MagneticGeometry {
     /// Parent space-group number (1–230).
@@ -1598,13 +1600,15 @@ pub fn search_parent_setting(
 /// The stored basis is given in the parent's *primitive* frame (see
 /// [`crate::irrep::types::MagneticIsotropyRecord`]), while the tabulated
 /// operations live in the conventional frame.  Any comparison with those
-/// operations must therefore go through this conversion, which is the same one
-/// [`crate::irrep::isotropy::basis_in_parent_conventional`] performs -- exact
-/// here, and refusing an off-grid parent basis instead of rounding.
+/// operations must therefore go through this conversion. Monoclinic raw
+/// primitive coefficients (x,y,z) become (y,z,x) before applying the canonical
+/// primitive basis; this is not a conventional-axis permutation for C centering.
+/// Raw records stay unchanged. Arithmetic is exact; off-grid bases are refused.
 pub fn basis_in_parent_conventional(
     geometry: &MagneticGeometry,
 ) -> Result<[[Rat; 3]; 3], GeometryError> {
     let primitive = parent_primitive_basis_exact(geometry.parent_sg)?;
+    let axes = crate::irrep::isotropy::magnetic_parent_axes(geometry.parent_sg);
     let mut converted = [[Rat::ZERO; 3]; 3];
     for (row, values) in converted.iter_mut().enumerate() {
         for (column, value) in values.iter_mut().enumerate() {
@@ -1612,7 +1616,7 @@ pub fn basis_in_parent_conventional(
             for (inner, generator) in primitive.iter().enumerate() {
                 sum = sum
                     .checked_add(
-                        geometry.basis[row][inner]
+                        geometry.basis[row][axes[inner]]
                             .checked_mul(generator[column])
                             .map_err(|_| GeometryError::Arithmetic)?,
                     )
@@ -1629,13 +1633,14 @@ pub fn origin_in_parent_conventional(
     geometry: &MagneticGeometry,
 ) -> Result<[Rat; 3], GeometryError> {
     let primitive = parent_primitive_basis_exact(geometry.parent_sg)?;
+    let axes = crate::irrep::isotropy::magnetic_parent_axes(geometry.parent_sg);
     let mut converted = [Rat::ZERO; 3];
     for (column, value) in converted.iter_mut().enumerate() {
         let mut sum = Rat::ZERO;
         for (inner, generator) in primitive.iter().enumerate() {
             sum = sum
                 .checked_add(
-                    geometry.origin[inner]
+                    geometry.origin[axes[inner]]
                         .checked_mul(generator[column])
                         .map_err(|_| GeometryError::Arithmetic)?,
                 )
@@ -2369,7 +2374,9 @@ fn verified_source_primitive_basis(
             "reference primitive basis differs from the full source lattice".into(),
         ));
     }
-    Ok(Mat3R::new(basis_in_parent_conventional(&source_lattice)?).transpose())
+    // This is a database reference cell, not a raw isotropy record. Keep its
+    // canonical primitive basis independent of the raw record axis ordering.
+    Ok(Mat3R::new(parent_primitive_basis_exact(reference_sg)?).transpose())
 }
 
 /// An obstruction to ANY embedding with exactly the supplied record lattice.

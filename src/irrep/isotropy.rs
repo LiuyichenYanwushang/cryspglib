@@ -1246,6 +1246,19 @@ pub fn format_isotropy_subgroups(
     Ok(lines.join("\n"))
 }
 
+// Raw magnetic records use the ISOTROPY primitive-vector order. For monoclinic
+// parents DISPLAY PARENT gives (p3,p1,p2) in the default data-Hall b-axis cell,
+// not (p1,p2,p3). This reindexes primitive coefficients, not conventional axes
+// (important for C centering). Raw records and ordinary calibrated settings stay
+// unchanged. Independently checked against all 262 monoclinic magnetic rows.
+pub(crate) fn magnetic_parent_axes(sg: u8) -> [usize; 3] {
+    if (3..=15).contains(&sg) {
+        [1, 2, 0]
+    } else {
+        [0, 1, 2]
+    }
+}
+
 /// Query magnetic isotropy records in the selected convention, showing both labels.
 pub fn format_magnetic_isotropy_subgroups(
     sg: u8,
@@ -1283,8 +1296,14 @@ pub fn format_magnetic_isotropy_subgroups(
             record.iso_label,
             record.direction,
             size,
-            format_basis(basis_in_parent_conventional(sg, record.basis)?),
-            format_origin(origin_shift_in_parent_conventional(sg, record.origin)?),
+            format_basis(basis_in_parent_conventional(
+                sg,
+                record.basis.map(|v| magnetic_parent_axes(sg).map(|i| v[i]))
+            )?),
+            format_origin(origin_shift_in_parent_conventional(sg, {
+                let [x, y, z] = magnetic_parent_axes(sg).map(|i| record.origin[i]);
+                [x, y, z, record.origin[3]]
+            })?),
         ));
     }
     Ok(lines.join("\n"))

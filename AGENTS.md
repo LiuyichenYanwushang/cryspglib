@@ -22,6 +22,71 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 单斜原始 primitive 帧修正与受限 Γ 几何闭合（R45，2026-10-26；基线 `22cf076`）
+
+用户继续授权本人推进。R44 的 103 条缺口全在 SG3–15；独立调用 bundled ISOTROPY
+9.6.1 发现原始记录使用的 primitive 顺序为 **(p3,p1,p2)**，而旧磁转换误用 canonical
+(p1,p2,p3)。例如 SG3 Y1 的 raw 第二轴加倍，在默认 b 唯一轴 conventional 帧实际是
+第一轴加倍；切到 c 唯一轴才与旧字面读法吻合。[官方手册](https://iso.byu.edu/isotropy_doc.php)
+给出选轴与 DISPLAY PARENT/SHOW BASIS 约定；不是由 UNI 标签猜测变换。
+
+[共享系数顺序](<src/irrep/isotropy.rs>)将 (x,y,z)→(y,z,x)，随后才乘 canonical primitive
+行基；对 C 心胞这**不等于 conventional 轴直接循环置换**。
+[exact 基/原点转换](<src/irrep/magnetic_embedding.rs>)和磁记录展示共用这一约定，
+[类型文档](<src/irrep/types.rs>)明确 raw provenance。原始表、geometry_of 的逐项读取、
+格指数、普通校准算法均不变；验证后的源参考胞 C 仍用 canonical 基，不再借 raw-record
+转换间接取 C。没有新增候选族、求解器、依赖、容差或模四证书。
+
+[永久独立 oracle 检查](<scripts/verify_magnetic_monoclinic_frames.py>)以 Fraction 比较
+**13 个母群帧、全部 262 条单斜磁记录的完整格及原点**，其中 **105 非零原点**，0 差异。
+[新公开回归](<tests/magnetic_monoclinic_frames.rs>)的三个几何断言在
+[旧实现](<target/r45-frames-before.txt>)实际失败（先修正测试自身的 Rat 负号编译错误，
+不把编译错误当几何红色证据）；最终四项通过，包括 **64 个 source/η/双标签高层调用**
+逐类对照非平凡字符、反幺正作用与复 intertwiner 重建。
+原先 56 条字面格证书以显式逆重编码的**合成负例**全部保留；实际 16,721 条原始记录
+在正确帧下均无该障碍。完整 GL(3,F₂)、重选基、provenance/算术错误和证书冲突 gate
+均未删除；不能再把这些合成格说成实际单斜记录格。
+
+完整 Γ：**16,721/16,721 fixed，151,068/151,068 探针成功**，原 103 条 /668 次未执行
+全部恢复；输入、分导、重建、anchor、格审计、候选未决均 0。路由优先级未改：
+R24 fixed **7,984**，H **7,119**，primitive **587**，反平移 **837**，点扩张 **167**，
+有限 primitive 取向 **27**。R24 的自身空族仍为 8,116（不是最终缺口），自身无 exact 见证的
+行 8,737；新 family entries/pairs/maps 为 **2,493,328 /1,366,968 /351,868**，
+联合同余排除仍 528，anchor 排除 376,952；[独立完整 gate](<target/logs/r45-accepted/battery/magnetic-census.txt>)
+重验所有返回见证并钉住这些变化。
+
+[逐身份键比较](<target/logs/r45-accepted/gamma-audit.txt>)：R44 的 150,400 个旧成功全保留，
+**149,768 行每字段不变**，另 **96 条单斜记录的 632 行仅 map 改变**，shift/目标/重数/
+operators/intertwiner 均不变；SG3–15 外行全不变。不是旧整表逐字相同。
+[额外逐记录核验](<target/r45-changed-map-audit.out>)对这 96 条的新旧 map 分别重验其
+自身完整格及全部原始带色操作；旧 map 仍全部满足母群包含，其中 **19** 个还 exact
+于修正格、**77** 个不再 exact。因此旧明确 map 不能未经格检查自动沿用 RequireExact。
+[独立桥接帧 A/B](<target/r45-route-frame-audit.out>)遍历 262 条，旧误读/正确帧的四路线
+非空数分别为 **[50,90,121,25] / [158,70,217,18]**；全表对应 H/单 primitive/首-H 反平移/
+首-H 点扩张为 **13,014 /11,746 /11,664 /2,865**。单 primitive 与点扩张路线的减少不是最终
+覆盖减少，所有输出都经双向格与原始操作重验；不能把单路线空结果当一般无解。
+
+首次[探索电池](<target/logs/r45-exploration/battery/summary.txt>)为 **958/17**，另旧 magnetic
+census 钉值失败，driver 仍 exit 0；这不是验收。逐项保留旧字面负例、解释并更新实测计数后，
+冻结 **251** 个输入，最终[完整电池](<target/logs/r45-accepted/battery/summary.txt>)为
+**976 passed /0 failed**（972+4），71 个壳、75/75 池作业、16/16 条腿 exit 0；
+[独立审计](<target/logs/r45-accepted/battery-audit.json>)确认退出码及 ordinary 三 TSV 的
+旧行数/SHA/4==8 全不变。严格 debug/release clippy、格式与 diff 检查通过。
+冻结[debug](<target/logs/r45-accepted/frame-debug.txt>) **9+4+4+21=38 项**通过，
+[独立官方 oracle](<target/logs/r45-accepted/oracle.txt>)通过。
+最终 Γ [8 线程](<target/logs/r45-accepted/gamma-8.txt>) /[4 线程](<target/logs/r45-accepted/gamma-4.txt>)
+的 151,068 数据行逐字节相同，也等于首次探索；SHA
+`655b2fcbe95d4e56a48d3703d15ef8f017c89c2196ed6bdc556925a0d74a18cd`。
+251 输入在全部验收前后逐项相同，验收脚本哈希也不变；本账本仅在验收**之后**更新，
+其余 250 输入再独立核对。电池与 Γ 并行的墙钟时间不作性能 A/B。
+
+**仍未完成**：现有有限语料的几何见证与实一维非 spinor Γ 域闭合，不等于项目整体完成。
+一般 B/C、复源/高维、non-Γ/full-star、spinor、一般 setting/normalizer 和 OP-stabilizer
+契约仍需推进；下一步应复用 typed 矩阵数据与已有有限二维路线，先补高维/复 Γ 输入契约，
+而不是继续扩大猜测 map 库。原始矩阵/操作 provenance 与错误边界不能放宽。
+没有删除其它项目、没有 push/部署。以下 R44/R38 的“剩余 103/56 障碍”是旧错误帧下的
+历史统计，已由本轮纠正，不能当当前结论。
+
 ### 完整源格的有限取向桥接（R44，2026-10-24；基线 `f893747`）
 
 用户在 R43 检查点后明确要求“继续”。本人只对剩余 130 条记录做 target 诊断，

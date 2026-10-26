@@ -226,7 +226,8 @@ fn inapplicable_colours_missing_parent_rotations_and_noninvariant_lattices_are_e
     );
     let (mut g, s, h) = context(10, "GM1-", 0);
     assert_eq!(h.subgroup_sg(), 3);
-    g.basis = *Mat3R::from_ints([[3, 0, 0], [1, 1, 0], [0, 0, 1]]).rows();
+    // Raw coefficients for the same synthetic noninvariant conventional lattice.
+    g.basis = *Mat3R::from_ints([[0, 3, 0], [0, 1, 1], [1, 0, 0]]).rows();
     assert!(
         m::embed_via_point_extensions(&g, &s, &h)
             .unwrap()
@@ -397,5 +398,5 @@ fn whole_record_inventory_verifies_every_returned_witness_and_retains_uncertaint
     println!(
         "point extension full inventory [records,no H,empty,positive,unavailable,unresolved]={counts:?}"
     );
-    assert_eq!(counts, [16721, 12, 13837, 2872, 0, 0]);
+    assert_eq!(counts, [16721, 12, 13844, 2865, 0, 0]);
 }

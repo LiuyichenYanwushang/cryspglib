@@ -401,8 +401,18 @@ fn the_conventional_frame_conversion_matches_the_isotropy_helper() {
             let record = row.subgroup;
             let geometry = geometry_of(sg, &record).expect("geometry");
             let exact = basis_in_parent_conventional(&geometry).expect("conversion");
-            let helper = cryspglib::irrep::isotropy::basis_in_parent_conventional(sg, record.basis)
-                .expect("helper");
+            // The ordinary helper has a canonical primitive-frame contract.
+            // Re-express raw monoclinic coefficients independently before comparing.
+            let mut canonical = record;
+            if (3..=15).contains(&sg) {
+                for v in &mut canonical.basis {
+                    v.rotate_left(1);
+                }
+                canonical.origin[..3].rotate_left(1);
+            }
+            let helper =
+                cryspglib::irrep::isotropy::basis_in_parent_conventional(sg, canonical.basis)
+                    .expect("helper");
             for axis in 0..3 {
                 for column in 0..3 {
                     let value = exact[axis][column].to_f64();
@@ -415,9 +425,11 @@ fn the_conventional_frame_conversion_matches_the_isotropy_helper() {
                 }
             }
             let exact_origin = origin_in_parent_conventional(&geometry).expect("origin");
-            let helper_origin =
-                cryspglib::irrep::isotropy::origin_shift_in_parent_conventional(sg, record.origin)
-                    .expect("helper origin");
+            let helper_origin = cryspglib::irrep::isotropy::origin_shift_in_parent_conventional(
+                sg,
+                canonical.origin,
+            )
+            .expect("helper origin");
             for axis in 0..3 {
                 assert!(
                     (exact_origin[axis].to_f64() - helper_origin[axis]).abs() < 1e-12,
@@ -808,7 +820,7 @@ fn the_embedding_census_on_the_stratified_subset_is_pinned() {
     assert_eq!(histogram.get(&0), Some(&399), "records with no embedding");
     assert_eq!(
         realising.get(&0),
-        Some(&437),
+        Some(&436),
         "records with no realising embedding"
     );
     assert_eq!(

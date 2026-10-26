@@ -56,12 +56,22 @@ fn primitive_centred_and_nonsymmorphic_sources_gain_exact_witnesses() {
     for (sg, label, uni) in [(3, "B1", 11), (3, "C1", 24), (4, "B1", 17)] {
         let (g, s, h) = context(sg, label, 0);
         assert_eq!(s.uni, uni);
+        // Keep the original negative proposal controls on their literal lattice;
+        // correcting the record frame can also make an earlier route succeed.
+        let mut literal = g.clone();
+        for v in &mut literal.basis {
+            v.rotate_right(1);
+        }
         assert!(
-            m::embed_via_unitary_subgroup(&g, &s, &h)
+            m::embed_via_unitary_subgroup(&literal, &s, &h)
                 .unwrap()
                 .is_empty()
         );
-        assert!(m::embed_via_primitive_lattices(&g, &s).unwrap().is_empty());
+        assert!(
+            m::embed_via_primitive_lattices(&literal, &s)
+                .unwrap()
+                .is_empty()
+        );
         let report = m::embed_via_antitranslations(&g, &s, &h).unwrap();
         assert!(!report.embeddings.is_empty());
         assert!(report.unresolved.is_empty());
@@ -217,7 +227,11 @@ fn inapplicable_colours_and_literal_lattice_obstructions_do_not_become_witnesses
             .is_empty()
     );
     for label in ["A1", "D1"] {
-        let (g, s, h) = context(3, label, 0);
+        let (mut g, s, h) = context(3, label, 0);
+        // Explicit synthetic old-frame negative, not the corrected record.
+        for v in &mut g.basis {
+            v.rotate_right(1);
+        }
         assert!(m::record_lattice_obstruction(&g, &s).unwrap().is_some());
         assert!(
             m::embed_via_antitranslations(&g, &s, &h)
@@ -450,5 +464,5 @@ fn whole_record_inventory_separates_witnesses_and_proposal_uncertainty() {
     println!(
         "antitranslation full inventory [records,no H,empty,positive,unavailable,unresolved]={counts:?}"
     );
-    assert_eq!(counts, [16721, 12, 5141, 11568, 0, 0]);
+    assert_eq!(counts, [16721, 12, 5045, 11664, 0, 0]);
 }

@@ -1480,7 +1480,10 @@ pub struct MagneticIsotropyRecord {
     /// Number of free parameters along this direction
     pub direction_free: u8,
     /// Primitive basis vectors of the magnetic subgroup lattice, expressed in
-    /// the parent's primitive-cell frame (row vectors).
+    /// the parent's raw ISOTROPY primitive-cell frame (row vectors). For SG3–15
+    /// this primitive-vector order is (p3,p1,p2), not the canonical (p1,p2,p3).
+    /// Use [`crate::irrep::magnetic_embedding::basis_in_parent_conventional`]
+    /// for comparisons with conventional-frame operations.
     pub basis: [[i32; 3]; 3],
     /// Origin of the magnetic subgroup setting relative to the parent origin,
     /// in the parent's primitive-cell frame, encoded exactly as

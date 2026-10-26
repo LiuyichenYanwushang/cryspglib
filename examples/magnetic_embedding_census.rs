@@ -337,9 +337,9 @@ fn rows() -> Vec<Row> {
 /// fails when any of these moves, so the numbers in the ledger cannot drift away
 /// from the code.
 const PINNED_ROWS: usize = 16_721;
-const PINNED_ENTRIES: usize = 2_490_592;
-const PINNED_DISTINCT_PAIRS: usize = 1_364_728;
-const PINNED_DISTINCT_MAPS: usize = 351_420;
+const PINNED_ENTRIES: usize = 2_493_328;
+const PINNED_DISTINCT_PAIRS: usize = 1_366_968;
+const PINNED_DISTINCT_MAPS: usize = 351_868;
 /// Rows the search returns no embedding for.  Round 24's complete shift
 /// solution set makes this the **decided** count for the candidate family: the
 /// round-23 review's in-family witnesses (SG 56 UNI 119 and SG 89 UNI 111) are
@@ -348,8 +348,8 @@ const PINNED_DISTINCT_MAPS: usize = 351_420;
 /// count).  `rows_without_embedding_certified` is every one of them, and the
 /// undecided residual is 0.
 const PINNED_WITHOUT_EMBEDDING: usize = 8_116;
-const PINNED_WITHOUT_REALISING: usize = 8_751;
-const PINNED_WITHOUT_REALISING_MAPS: usize = 8_751;
+const PINNED_WITHOUT_REALISING: usize = 8_737;
+const PINNED_WITHOUT_REALISING_MAPS: usize = 8_737;
 /// Round 23/24: of the rows with no candidate, this many are **refuted**
 /// exactly by one of the four conditions of an embedding (source lattice,
 /// rotation set, per-class placeability, joint consistency) rather than merely
@@ -368,7 +368,7 @@ const PINNED_CANDIDATES_WITHOUT_WITNESS: usize = 0;
 /// being unsolvable for **every** parent operation with the mapped rotation.
 /// Counted only after the two screens above, so this is the third exclusive
 /// attribute in the production screening order.
-const PINNED_EXCLUDED_BY_ANCHOR_CONGRUENCE: usize = 377_496;
+const PINNED_EXCLUDED_BY_ANCHOR_CONGRUENCE: usize = 376_952;
 /// Round 24: candidate maps excluded by the **joint** consistency of all class
 /// congruences -- they pass the three screens above, but no single shift places
 /// every class.  Fourth and last exclusive attribute in the screening order.

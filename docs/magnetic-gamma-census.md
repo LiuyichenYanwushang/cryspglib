@@ -26,6 +26,12 @@
 > **R44** 最后尝试经完整格验证的 48 种 primitive 基矢取向，新增 27 条 exact 记录，
 > fixed 16,618，剩余 103。新增 300 条受限 Γ 成功行，旧 150,100 条每字段不变；不扩展标量源域，
 > 也不证明 OP stabilizer 或任意 GL(3,Z) setting。详见[桥接边界](<magnetic-unitary-bridge.md>)。
+> **R45** 修正单斜原始 primitive 帧后，fixed **16,721/16,721**，探针 **151,068/151,068**，
+> 无剩余几何记录、无字面格障碍、无输入/分导/重建错误。独立官方对照覆盖全部 262 条单斜记录。
+> 旧成功仍全部成功，其中 96 条单斜记录的 632 行只改变 map，其余 149,768 行每字段不变；
+> 新增 103 条记录 /668 次成功调用。此前 56 条证书不适用于修正后的实际记录格。
+> 仍限实一维非 spinor Γ 源；这不是一般磁分导或 OP stabilizer 完成。详见
+> [帧修正、兼容性与验证边界](<magnetic-unitary-bridge.md#单斜原始-primitive-帧修正r45>)。
 
 本文件是**只读诊断**的记录，不含生产算法改动。程序
 [examples/magnetic_gamma_subduction_census.rs](../examples/magnetic_gamma_subduction_census.rs)

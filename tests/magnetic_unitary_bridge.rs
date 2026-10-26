@@ -326,5 +326,5 @@ fn the_full_record_census_keeps_the_bridge_domain_and_verified_count_explicit() 
         })
         .reduce(|| [0; 5], |a, b| std::array::from_fn(|i| a[i] + b[i]));
     println!("records/no ordinary/different H/empty/verified: {totals:?}");
-    assert_eq!(totals, [16721, 1482, 16, 2317, 12906]);
+    assert_eq!(totals, [16721, 1482, 16, 2209, 13014]);
 }

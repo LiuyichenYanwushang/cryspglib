@@ -14,10 +14,14 @@ fn context(label: &str) -> (MagneticGeometry, MagneticOperationSet) {
         IsotropyDirection::Label("P1"),
     )
     .unwrap();
-    (
-        m::geometry_of(3, &row.record).unwrap(),
-        m::magnetic_operations(row.record.mag_sg).unwrap(),
-    )
+    let mut geometry = m::geometry_of(3, &row.record).unwrap();
+    // Preserve the R38 literal negative lattice explicitly. R45 corrects the
+    // actual raw record frame; these synthetic coefficients undo that change.
+    for v in &mut geometry.basis {
+        v.rotate_right(1);
+    }
+    geometry.origin.rotate_right(1);
+    (geometry, m::magnetic_operations(row.record.mag_sg).unwrap())
 }
 
 #[test]
@@ -52,7 +56,7 @@ fn parent_rotations_must_match_spectrum_and_preserve_the_entire_record_lattice()
             .is_empty()
     );
     geometry.parent_sg = 3;
-    geometry.basis = *Mat3R::from_ints([[1, 1, 0], [0, 3, 0], [0, 0, 1]]).rows();
+    geometry.basis = *Mat3R::from_ints([[0, 1, 1], [0, 0, 3], [1, 0, 0]]).rows();
     geometry.index = 3;
     assert!(
         m::record_lattice_obstruction(&geometry, &set)
@@ -239,7 +243,7 @@ fn arithmetic_and_singular_lattices_cannot_turn_into_absence_certificates() {
 }
 
 #[test]
-fn all_records_separate_56_literal_lattice_obstructions_from_unresolved_cases() {
+fn corrected_records_are_unobstructed_but_all_56_old_literal_controls_still_obstruct() {
     let (records, obstructed) = (1u8..=230)
         .into_par_iter()
         .map(|sg| {
@@ -250,8 +254,18 @@ fn all_records_separate_56_literal_lattice_obstructions_from_unresolved_cases() 
                         .unwrap()
                 {
                     records += 1;
-                    let geometry = m::geometry_of(sg, &row.record).unwrap();
+                    let mut geometry = m::geometry_of(sg, &row.record).unwrap();
                     let set = m::magnetic_operations(row.record.mag_sg).unwrap();
+                    assert!(
+                        m::record_lattice_obstruction(&geometry, &set)
+                            .unwrap()
+                            .is_none()
+                    );
+                    if (3..=15).contains(&sg) {
+                        for v in &mut geometry.basis {
+                            v.rotate_right(1);
+                        }
+                    }
                     if let Some(proof) = m::record_lattice_obstruction(&geometry, &set).unwrap() {
                         assert!((3..=15).contains(&sg));
                         assert!(

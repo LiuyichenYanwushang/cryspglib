@@ -168,7 +168,11 @@ fn recovered_gamma_actions_reconstruct_for_both_parities_and_label_conventions()
 
 #[test]
 fn literal_lattice_obstruction_is_not_overridden_by_new_orientation_proposals() {
-    let (geometry, set) = context(3, "A1", 0);
+    let (mut geometry, set) = context(3, "A1", 0);
+    // Synthetic R38 literal lattice, not the corrected actual raw record frame.
+    for v in &mut geometry.basis {
+        v.rotate_right(1);
+    }
     assert!(
         m::record_lattice_obstruction(&geometry, &set)
             .unwrap()

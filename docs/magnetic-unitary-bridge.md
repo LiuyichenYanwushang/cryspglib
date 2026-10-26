@@ -1,4 +1,41 @@
-# 精确磁嵌入的几何桥接与记录格障碍（R36–R43）
+# 精确磁嵌入的几何桥接与记录格障碍（R36–R45）
+
+## 单斜原始 primitive 帧修正（R45）
+
+R44 剩余的 103 条都在 SG3–15；根因不是缺少更大的候选矩阵库，而是磁记录的原始
+primitive 系数被误当成 canonical primitive 系数。官方
+[ISOTROPY 手册](https://iso.byu.edu/isotropy_doc.php)说明新 ITA 默认使用 b 唯一轴；
+实际 bundled 9.6.1 的 `DISPLAY PARENT / SHOW BASIS` 在 P 单斜胞给出
+`(0,0,1),(1,0,0),(0,1,0)`，在 C 单斜胞给出
+`(0,0,1),(1/2,1/2,0),(-1/2,1/2,0)`。
+
+若 canonical primitive 行基为 P，磁原始行基就是 (P₃,P₁,P₂)。因此原始系数
+`(x,y,z)` 应先变成 `(y,z,x)` 再乘 P，基矢的每一行和原点均须处理。
+**这不是在 conventional 坐标直接循环换轴**；含心胞不可省略这一差别。
+[共享转换与展示](<../src/irrep/isotropy.rs>)使用同一个轴顺序，
+[精确磁几何](<../src/irrep/magnetic_embedding.rs>)保留原始整数记录、来源、格指数，
+只在转换为母群 conventional 坐标时应用它。普通校准算法不变；磁数据库参考胞的 C
+仍使用原 canonical primitive 基，不把它当作原始 isotropy 记录再换轴。
+
+[独立 oracle 检查](<../scripts/verify_magnetic_monoclinic_frames.py>)用 exact Fraction 比较
+**13 个母群帧、262 条磁记录的完整格和原点**，含 **105 个非零原点**，全部相符。
+[公开回归](<../tests/magnetic_monoclinic_frames.rs>)先在旧实现得到 3 项真实断言失败，
+再验证 P/C 帧、原始数据不变、非零原点与原先障碍/七条残余中的 exact 见证；
+另以 64 个 source/η/双标签高层调用逐类对照非平凡字符与复向量重建。
+不需要模四证书、新搜索族或更宽容差；先前 56 条证书只是错误帧下的字面格结论。
+证书算法仍保留，负例以明确合成的旧字面格继续验证，不把这些格再叫实际记录格。
+
+全 Γ census 首次实测 **16,721/16,721 条 fixed、151,068/151,068 探针成功**，
+新增 103 条记录 /668 次成功调用，实际记录的字面格障碍为 0。R44 的 150,400 个旧成功
+没有失败：149,768 行每字段不变，另 **96 条单斜记录的 632 行仅 map 改变**，
+shift、目标、重数、operators、intertwiner 均不变；其它母群行全不变。
+这是校正目标格后的选中嵌入改变，**不能说整张旧 TSV 没变**，也不能把旧 map 自动
+视为新记录的 RequireExact 见证。最终冻结证据与路由计数见[当前账本](<../AGENTS.md>)。
+
+这完成的是现有有限语料的几何见证和受限实一维非 spinor Γ 分导，不是项目整体完成；
+一般 B/C、复源/高维、non-Γ/full-star、spinor、setting/normalizer 与 OP stabilizer
+契约仍不在本轮声明中。下列 R36–R44 数字及 SG3 字面格例子保留为历史，须按上述修正阅读。
+
 
 [公开入口](../src/irrep/magnetic_embedding.rs)是
 `embed_via_unitary_subgroup(geometry, magnetic_set, ordinary_embedding)`。
