@@ -451,6 +451,69 @@ fn matrix_sg191_uses_the_real_bc_of_both_ordinary_identities() {
 }
 
 #[test]
+fn aligned_matrix_sources_preserve_both_labels_and_eta_in_high_level_reports() {
+    use cryspglib::irrep::isotropy::{self, IsotropyDirection};
+    let mut cases = 0;
+    let mut anti_actions = 0;
+    for (sg, condensing, uni, map) in [
+        (125, "Z1+", 1032, [[-1, 0, 0], [0, -1, 0], [0, 0, -2]]),
+        (141, "GM1+", 1211, IDENTITY),
+        (224, "R1+", 1635, [[0, 2, 0], [-2, 0, 0], [0, 0, 2]]),
+        (227, "GM1+", 1630, IDENTITY),
+    ] {
+        let ir = query::irreps_of(sg);
+        let condensing_ir = ir.iter().find(|r| r.ml == condensing).unwrap();
+        let rows =
+            isotropy::magnetic_isotropy_subgroups(sg, condensing, LabelConvention::Cdml).unwrap();
+        for source in if sg < 200 {
+            ["GM5+", "GM5-"]
+        } else {
+            ["GM3+", "GM3-"]
+        } {
+            let source_ir = ir.iter().find(|r| r.ml == source).unwrap();
+            for eta in [RealSign::Plus, RealSign::Minus] {
+                for convention in [LabelConvention::Cdml, LabelConvention::Bc] {
+                    let source_label = source_ir.label(convention).unwrap();
+                    let record_label = condensing_ir.label(convention).unwrap();
+                    let selector = MagneticRecordSelector::new(sg, &record_label, convention)
+                        .direction(IsotropyDirection::Label(rows[0].record.direction))
+                        .uni(uni);
+                    let req = MagneticSubductionRequest::new(
+                        SourceIdentity {
+                            parent_sg: sg,
+                            label: &source_label,
+                            convention,
+                        },
+                        selector,
+                        Some(eta),
+                    )
+                    .with_embedding(embedding(map, LatticePolicy::RequireExact));
+                    let report = subduce(&req)
+                        .unwrap_or_else(|e| panic!("SG{sg} {source} {eta:?} {convention:?}: {e}"));
+                    let model = report.matrix_model().unwrap();
+                    assert_eq!(model.uni(), uni);
+                    assert_eq!(model.source_label(), source);
+                    assert_eq!(model.record_label(), condensing);
+                    assert_eq!(model.input_convention(), convention);
+                    assert_eq!(model.time_reversal(), Some(eta));
+                    assert_ne!(*model.source_origin_shift(), [Rat::ZERO; 3]);
+                    assert_eq!(*model.shift(), [Rat::ZERO; 3]);
+                    assert_matrix_reconstruction(model, &report);
+                    anti_actions += model
+                        .source_operators()
+                        .iter()
+                        .filter(|o| o.is_antiunitary())
+                        .count();
+                    cases += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(cases, 32);
+    assert!(anti_actions > 0);
+}
+
+#[test]
 fn matrix_type_i_split_and_multiplicity_witnesses_are_covered() {
     // Type I ordinary: SG 89 GM5 / GM1 is the parent itself (UNI 747).
     let type_i = subduce(&request(

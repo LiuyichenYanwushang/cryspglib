@@ -49,8 +49,17 @@
 //! geometry as R25 ([`crate::irrep::magnetic_input`]'s parent frame and class
 //! mapping, reused crate-visibly) and is then bound to the unique stored
 //! operation row with the same rotation whose translation differs by a parent
-//! lattice vector.  The binding is not a fallback: nothing matches, or two rows
-//! match, is a named refusal.
+//! lattice vector. Before binding, R47 reuses the scalar input's exact data-Hall
+//! proof to align the **whole** certified source operation table by one common
+//! origin. It preserves row order and every Gamma matrix, checks the full
+//! centring lattice and rotation coverage, and never selects an origin per
+//! restricted class. [`MatrixGammaModel::source_origin_shift`] retains that witness,
+//! independently of the magnetic embedding's origin. Failure is
+//! [`MatrixSubductionError::SourceOriginAlignment`] with its underlying cause;
+//! arithmetic limits are not proofs of a setting mismatch. This does not
+//! establish a raw PIR basis/gauge or add non-Gamma transport.
+//! The binding is not a fallback: nothing matches, or two rows with different
+//! matrices match, is a named refusal.
 //!
 //! The parent grey action on the certified basis is
 //!
@@ -421,8 +430,16 @@ pub enum MatrixSubductionError {
         label: &'static str,
         problem: MatrixCertificationProblem,
     },
+    /// The certified source row cannot be aligned with the parent by one
+    /// data-Hall origin witness. The underlying error distinguishes a setting
+    /// mismatch from an arithmetic limit (an unknown, not a nonexistence proof).
+    SourceOriginAlignment {
+        sg: u8,
+        label: &'static str,
+        reason: Box<magnetic_input::MagneticInputError>,
+    },
     /// A mapped magnetic class has no stored source operation with its rotation
-    /// and translation class.
+    /// and translation class after the common source-origin alignment.
     SourceOperationUnmatched {
         sg: u8,
         label: &'static str,
@@ -569,6 +586,9 @@ impl std::fmt::Display for MatrixSubductionError {
             Self::SourceMatrixUncertified { sg, label, problem } => {
                 write!(f, "SG{sg} {label} source matrix table: {problem}")
             }
+            Self::SourceOriginAlignment { sg, label, reason } => {
+                write!(f, "SG{sg} {label} source-origin alignment: {reason}")
+            }
             Self::SourceOperationUnmatched {
                 sg,
                 label,
@@ -664,7 +684,15 @@ impl std::fmt::Display for MatrixSubductionError {
     }
 }
 
-impl std::error::Error for MatrixSubductionError {}
+impl std::error::Error for MatrixSubductionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::SourceOriginAlignment { reason, .. } => Some(reason.as_ref()),
+            Self::EmbeddingRejected(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<GeometryError> for MatrixSubductionError {
     fn from(error: GeometryError) -> Self {
@@ -835,6 +863,7 @@ pub struct MatrixGammaModel {
     uni: usize,
     map: crate::irrep::subduction::Mat3R,
     shift: [Rat; 3],
+    source_origin_shift: [Rat; 3],
     lattice_policy: LatticePolicy,
     realises_record_lattice: bool,
     time_reversal: Option<RealSign>,
@@ -897,6 +926,14 @@ impl MatrixGammaModel {
     /// The verified origin shift of the embedding.
     pub fn shift(&self) -> &[Rat; 3] {
         &self.shift
+    }
+
+    /// A common origin witness from the certified source operation frame to the
+    /// parent frame: t_parent = t_source + (I - R) delta, modulo the parent lattice.
+    /// This is distinct from the magnetic embedding's [`Self::shift`]. Gamma
+    /// matrices remain unchanged; this does not certify a raw PIR basis/gauge.
+    pub fn source_origin_shift(&self) -> &[Rat; 3] {
+        &self.source_origin_shift
     }
 
     /// The lattice policy the model was checked against.
@@ -1722,13 +1759,14 @@ pub fn verify_matrix_gamma_input(
     };
 
     // The source's own stored matrices, certified before any of them is used.
-    let certified = certify_irrep_matrices(source_irrep, SOURCE_DIMENSION).map_err(|problem| {
-        MatrixSubductionError::SourceMatrixUncertified {
-            sg: parent_sg,
-            label: source_irrep.ml,
-            problem,
-        }
-    })?;
+    let mut certified =
+        certify_irrep_matrices(source_irrep, SOURCE_DIMENSION).map_err(|problem| {
+            MatrixSubductionError::SourceMatrixUncertified {
+                sg: parent_sg,
+                label: source_irrep.ml,
+                problem,
+            }
+        })?;
     if certified.dimension() != SOURCE_DIMENSION {
         return Err(MatrixSubductionError::SourceDimensionNotTwo {
             sg: parent_sg,
@@ -1743,6 +1781,16 @@ pub fn verify_matrix_gamma_input(
             reason: format!("{error:?}"),
         }
     })?;
+    // Keep the matrix/operation row correspondence. The shared scalar proof
+    // anchors the whole source to its data Hall, including centring and every
+    // rotation, before solving one common origin for the complete group.
+    let source_origin_shift = parent
+        .align_source_operations(parent_sg, set.uni, &mut certified.operations)
+        .map_err(|error| MatrixSubductionError::SourceOriginAlignment {
+            sg: parent_sg,
+            label: source_irrep.ml,
+            reason: Box::new(error),
+        })?;
     let mapped = magnetic_input::mapped_classes(&set, &evidence, &parent).map_err(|error| {
         MatrixSubductionError::ClassMapping {
             reason: format!("{error:?}"),
@@ -1792,6 +1840,7 @@ pub fn verify_matrix_gamma_input(
         uni: set.uni,
         map: evidence.map,
         shift: evidence.shift,
+        source_origin_shift,
         lattice_policy: evidence.lattice_policy,
         realises_record_lattice,
         time_reversal,
@@ -4018,6 +4067,76 @@ mod tests {
             lattice,
             dimension,
         }
+    }
+
+    #[test]
+    fn all_177_in_domain_matrix_sources_have_a_common_origin() {
+        let (mut rows, mut shifted) = (0, 0);
+        for sg in 1..=230 {
+            let parent = ParentFrame::of(sg).unwrap();
+            for source in query::irreps_of(sg).iter().filter(|r| {
+                !r.spinor
+                    && r.dim == 2
+                    && r.compound_metadata().is_none()
+                    && r.k_vector().numerators == [0; 3]
+            }) {
+                let mut table = certify_irrep_matrices(source, 2).unwrap();
+                let matrices = table.matrices.clone();
+                let rotations: Vec<_> = table.operations.iter().map(|op| op.0).collect();
+                let shift = parent
+                    .align_source_operations(sg, 0, &mut table.operations)
+                    .unwrap_or_else(|e| panic!("SG{sg} {}: {e}", source.ml));
+                assert_eq!(table.matrices, matrices);
+                assert_eq!(
+                    table.operations.iter().map(|op| op.0).collect::<Vec<_>>(),
+                    rotations
+                );
+                assert!(
+                    table
+                        .operations
+                        .iter()
+                        .all(|&(r, t)| parent.has_operation(r, t))
+                );
+                assert!(parent.operations.iter().all(|(r, t)| {
+                    table
+                        .operations
+                        .iter()
+                        .any(|(s, u)| r == s && differs_by_lattice(t, u, &parent.lattice))
+                }));
+                rows += 1;
+                shifted += usize::from(shift != [Rat::ZERO; 3]);
+            }
+        }
+        assert_eq!((rows, shifted), (177, 28));
+    }
+
+    #[test]
+    fn a_coherent_matrix_table_in_the_wrong_source_frame_is_still_refused() {
+        use crate::irrep::subduction::{Mat3R, SeitzTransform, Vec3R};
+        let source = query::irreps_of(125)
+            .iter()
+            .find(|r| r.ml == "GM5+")
+            .unwrap();
+        let mut table = certify_irrep_matrices(source, 2).unwrap();
+        let parent = ParentFrame::of(125).unwrap();
+        assert!(parent.lattice.is_empty());
+        let change = SeitzTransform::new(
+            Mat3R::identity(),
+            Vec3R::new([Rat::new(1, 7).unwrap(), Rat::ZERO, Rat::ZERO]),
+        );
+        for (r, t) in &mut table.operations {
+            *t = *change
+                .map_translation(*r, &Vec3R::new(*t))
+                .unwrap()
+                .as_array();
+        }
+        // A whole-table origin shift preserves the matrix law and all traces,
+        // but the resulting Seitz row is no longer in its declared data Hall.
+        check_stored_matrix_law(&table.operations, &table.matrices, 2, &parent.lattice).unwrap();
+        assert!(matches!(
+            parent.align_source_operations(125, 1032, &mut table.operations),
+            Err(magnetic_input::MagneticInputError::CharacterRowSettingMismatch { .. })
+        ));
     }
 
     #[test]

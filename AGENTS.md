@@ -22,6 +22,62 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 二维 Γ 矩阵源共同原点对齐（R47，2026-10-26；基线 `96c7ed5`）
+
+已把 R46 诊断接入[矩阵输入](<src/irrep/magnetic_matrix_subduction.rs>)，未扩猜测 map 或写
+新求解器。[标量输入](<src/irrep/magnetic_input.rs>)只抽出原有“完整 source_origin 证明后
+逐行平移”的薄封装 align_source_operations；两条路径都复用原 data-Hall 锚定、完整心格
+双向一致、旋转覆盖与联立共同原点解。矩阵的正交性、迹、全部乘法律、commutant 和
+对 typed row 的认证在原点对齐之前照常执行；不允许用 M 的部分操作或逐操作的不同 δ
+绕过完整源群证明。坐标平移不重排源行，不改任何 Γ 矩阵；raw PIR basis/gauge 的旧限制保留。
+
+模型新增只读 source_origin_shift()，与磁嵌入 shift() 分开；高层 matrix_model() 可直接
+取得见证。新增 SourceOriginAlignment { sg, label, reason }，reason 保留 boxed
+MagneticInputError 并支持 Error::source，算术未决不冒充 setting 不相容；下游穷尽 match
+需加入新分支。旧输入域、标量行为、Type-A 与受限 Type-C 的目标家族不变。
+[接口文档](<docs/magnetic-matrix-gamma-subduction.md>) §8 明确这些边界。
+
+[公开回归](<tests/magnetic_matrix_subduction.rs>)原先在 SG125 GM5+ 实际得到
+SourceOperationUnmatched，见[红色证据](<target/logs/r47-exploration/origin-before.txt>)；
+修复后固定 **14 SG×两源=28** 个记录/源组合均完成分导。独立 1/48-cell 整数运算核验
+共同 δ、完整心矢、整个母群双向覆盖与每个磁类绑定到的原始源矩阵，再验证复向量重建。
+[高层回归](<tests/magnetic_subduction_api.rs>)另有 SG125/141/224/227 ×两源×两 η×CDML/BC
+的 **32 次**调用，保留身份、反幺正作用和重建；零源原点控制仍是零。
+模块全表验证 **177 个现有域内二维源 =149 零原点+28 非零原点**，不是磁记录 census。
+新增一个整表偏移 1/7 的合成负例：群律与全部矩阵/迹仍成立，但数据 Hall 来源错误仍拒绝。
+旧“逐操作可放置却无共同原点”、漏旋转、错心格、篡改来源负例直接经过共用封装。
+早期高层测试误用普通 direction_label 字段及固定 chunk lint 已修正；不当作数学红色证据。
+
+冻结 **251** 个输入后，[完整电池](<target/logs/r47-accepted/battery/summary.txt>)
+**984 passed /0 failed**（980+4），71 壳、75/75 池作业、16/16 条腿 exit0；
+[独立计数/退出码审计](<target/logs/r47-accepted/battery-audit.json>)通过，普通三 TSV 的
+旧行数/SHA/4==8 全不变。冻结[origin 模块](<target/logs/r47-accepted/origin-units.txt>)12/0、
+[coherent-source 负例](<target/logs/r47-accepted/source-provenance.txt>)1/0，
+[debug 五套公开测试](<target/logs/r47-accepted/debug.txt>) **16+11+5+9+6=47** 通过，
+合计 60 项；严格 debug/release clippy、doc tests、格式、diff 全通过。
+[单斜官方 oracle](<target/logs/r47-accepted/oracle.txt>)仍13 帧/262 记录/105 非零原点零差异。
+
+同一个[矩阵报告器](<target/r47-matrix-ab.rs>)先链接尚未重建的 R46 release 库，保留
+[旧库哈希](<target/logs/r47-exploration/old-release.sha256>)与[旧结果](<target/logs/r47-exploration/matrix-before.tsv>)，
+再链接接受版新库。仅每 SG 一个最大 operator 数的已固定记录、η=+ 的有界检查中，
+**149 成功/28 拒绝 →177 成功/0 拒绝**；[逐身份 A/B](<target/logs/r47-accepted/matrix-audit.json>)
+证明旧149行的 map/shift、完整磁类、源操作与 target/intertwiner 负载逐字相同，新增恰为旧28拒绝。
+这不是全部 record×matrix-source 的成功率，也不把新模型的原点字段当旧版已有字段比较。
+
+完整实一维 Γ [8 线程](<target/logs/r47-accepted/gamma-8.txt>)/[4 线程](<target/logs/r47-accepted/gamma-4.txt>)
+仍 **16,721 fixed /151,068 success**，错误/未决均零，整表逐字节等于 R45/R46；
+[审计](<target/logs/r47-accepted/gamma-audit.json>) SHA 仍
+`655b2fcbe95d4e56a48d3703d15ef8f017c89c2196ed6bdc556925a0d74a18cd`。
+251 输入在验收前后逐项不变，五个 driver 哈希也不变；本账本只在验收后更新，
+其余250文件再次核对。并行测试/电池/Γ 的墙钟不作性能 A/B。没有删除项目，没有 push/部署。
+
+**下一步不能盲扩 Type-B**：[只读目标诊断](<target/r48-type-b-inventory.rs>)重查 R31 的
+SG89/156/191 域，共320记录/110 UNI/Γ未决0；[两个 Type-B](<target/logs/r47-exploration/next-type-b.txt>)
+分别为 UNI3 /H1 GM2、UNI1233 /H143 GM4，**都为 spinor**，本非 spinor 实一维 H 子域候选0。
+不据此宣称其它母群没有 Type-B。应继续测量全部二维磁记录/目标族覆盖，分清一般 B/C、
+复 H、69 compound/87 三维源的真实缺口，再选择最小可认证扩展；非 Γ/full-star、spinor、
+一般 setting/normalizer 与 OP-stabilizer 契约仍未完成，长期目标保持 active。
+
 ### 审查缺陷闭合与矩阵源下一步诊断（R46，2026-10-26；基线 `b88e6c5`）
 
 用户此前明确要求 push 后开一个子 agent；已正常推送 origin/main 从 cf0a4ba 到

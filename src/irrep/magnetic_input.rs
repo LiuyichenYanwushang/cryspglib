@@ -1006,6 +1006,23 @@ impl ParentFrame {
         })
     }
 
+    /// Align a complete certified source row using one data-Hall origin witness.
+    /// Row order is retained, so values or matrices indexed by these operations
+    /// need no permutation. This is origin-only transport at Gamma, not a basis
+    /// setting search or a non-Gamma phase rule.
+    pub(crate) fn align_source_operations(
+        &self,
+        sg: u8,
+        uni: usize,
+        operations: &mut [(Mat3I, [Rat; 3])],
+    ) -> Result<[Rat; 3], MagneticInputError> {
+        let shift = self.source_origin(sg, uni, operations)?;
+        for (rotation, translation) in operations {
+            *translation = origin_shifted_translation(*rotation, *translation, shift)?;
+        }
+        Ok(shift)
+    }
+
     /// Align the full data-Hall group, not just the operations used by M.
     fn source_origin(
         &self,
@@ -1224,10 +1241,7 @@ fn read_character(
         }
         operations.push((rotation, translation));
     }
-    let source_origin_shift = parent.source_origin(sg, set.uni, &operations)?;
-    for (rotation, translation) in &mut operations {
-        *translation = origin_shifted_translation(*rotation, *translation, source_origin_shift)?;
-    }
+    let source_origin_shift = parent.align_source_operations(sg, set.uni, &mut operations)?;
     let negative_one = Rat::ONE.checked_neg().expect("one is representable");
     let mut out = Vec::with_capacity(mapped.len());
     for (index, class) in mapped.iter().enumerate() {
@@ -1436,7 +1450,7 @@ mod origin_tests {
             }))));
         }
         assert!(matches!(
-            parent.source_origin(48, 355, &row_operations(48, "GM1+")),
+            parent.align_source_operations(48, 355, &mut row_operations(48, "GM1+")),
             Err(MagneticInputError::CharacterRowSettingMismatch { .. })
         ));
     }
@@ -1447,7 +1461,7 @@ mod origin_tests {
         let mut row = row_operations(48, "GM1+");
         row[1].1[0] = row[1].1[0].checked_add(Rat::new(1, 7).unwrap()).unwrap();
         assert!(matches!(
-            parent.source_origin(48, 355, &row),
+            parent.align_source_operations(48, 355, &mut row),
             Err(MagneticInputError::CharacterRowSettingMismatch { .. })
         ));
     }
@@ -1458,7 +1472,7 @@ mod origin_tests {
         let mut row = row_operations(48, "GM1+");
         row.retain(|(r, _)| *r == IDENTITY_ROTATION);
         assert!(matches!(
-            parent.source_origin(48, 355, &row),
+            parent.align_source_operations(48, 355, &mut row),
             Err(MagneticInputError::CharacterRowSettingMismatch { .. })
         ));
     }
@@ -1469,7 +1483,7 @@ mod origin_tests {
         assert!(!parent.lattice.is_empty());
         parent.lattice.clear();
         assert!(matches!(
-            parent.source_origin(227, 0, &row_operations(227, "GM1+")),
+            parent.align_source_operations(227, 0, &mut row_operations(227, "GM1+")),
             Err(MagneticInputError::CharacterRowSettingMismatch { .. })
         ));
     }

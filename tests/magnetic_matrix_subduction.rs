@@ -181,6 +181,160 @@ fn assert_copies_span(copies: &[Vec<Complex64>], dimension: usize) {
     );
 }
 
+// R47: one fixed accepted embedding per affected parent, not a full census.
+const ORIGIN_WITNESSES: [(u8, &str, usize, [[i32; 3]; 3]); 14] = [
+    (125, "Z1+", 1032, [[-1, 0, 0], [0, -1, 0], [0, 0, -2]]),
+    (126, "GM1+", 1035, IDENTITY),
+    (129, "Z1+", 1080, [[-1, 0, 0], [0, -1, 0], [0, 0, -2]]),
+    (130, "GM1+", 1083, IDENTITY),
+    (133, "GM1+", 1119, IDENTITY),
+    (134, "A1+", 1220, [[-1, 1, 0], [1, 1, 0], [0, 0, -2]]),
+    (137, "GM1+", 1167, IDENTITY),
+    (138, "GM1+", 1179, IDENTITY),
+    (141, "GM1+", 1211, IDENTITY),
+    (142, "GM1+", 1221, IDENTITY),
+    (222, "GM1+", 1600, IDENTITY),
+    (224, "R1+", 1635, [[0, 2, 0], [-2, 0, 0], [0, 0, 2]]),
+    (227, "GM1+", 1630, IDENTITY),
+    (228, "GM1+", 1636, IDENTITY),
+];
+
+// Independent 1/48-cell integer arithmetic checks the common origin, full
+// centring classes and every matrix row binding, not just source characters.
+fn assert_aligned_source_action(model: &MatrixGammaModel) {
+    use cryspglib::irrep::query;
+    use cryspglib::irrep::subduction::{SeitzTransform, Vec3R};
+    let units = |x: f64| {
+        let y = x * 48.0;
+        assert!((y - y.round()).abs() < 1e-10);
+        y.round() as i128
+    };
+    let exact = |x: Rat| {
+        let y = x.checked_mul(Rat::from_integer(48)).unwrap();
+        assert_eq!(y.denominator(), 1);
+        y.numerator()
+    };
+    let delta = model.source_origin_shift().map(exact);
+    assert_ne!(delta, [0; 3]);
+    assert_eq!(*model.shift(), [Rat::ZERO; 3]);
+    let parent = query::symmetry_operations_of(model.parent_sg()).unwrap();
+    let centres: Vec<_> = parent
+        .operations
+        .iter()
+        .filter(|o| o.rotation == IDENTITY)
+        .map(|o| o.translation.map(units))
+        .collect();
+    let same = |a: [i128; 3], b: [i128; 3]| {
+        centres
+            .iter()
+            .any(|c| (0..3).all(|i| (a[i] - b[i] - c[i]).rem_euclid(48) == 0))
+    };
+    let source = query::irreps_of(model.parent_sg())
+        .iter()
+        .find(|s| s.ml == model.source_label())
+        .unwrap();
+    let raw: Vec<_> = source
+        .pir_rotations()
+        .as_chunks::<9>()
+        .0
+        .iter()
+        .zip(source.pir_translations().as_chunks::<3>().0)
+        .map(|(r, t)| {
+            (
+                [[r[0], r[1], r[2]], [r[3], r[4], r[5]], [r[6], r[7], r[8]]],
+                [units(t[0]), units(t[1]), units(t[2])],
+            )
+        })
+        .collect();
+    assert!(raw.iter().any(|(r, t)| {
+        !parent
+            .operations
+            .iter()
+            .any(|p| p.rotation == *r && same(*t, p.translation.map(units)))
+    }));
+    let aligned: Vec<_> = raw
+        .iter()
+        .map(|(r, t)| {
+            (
+                *r,
+                std::array::from_fn(|i| {
+                    t[i] + delta[i] - (0..3).map(|j| i128::from(r[i][j]) * delta[j]).sum::<i128>()
+                }),
+            )
+        })
+        .collect();
+    assert!(aligned.iter().all(|(r, t)| {
+        parent
+            .operations
+            .iter()
+            .any(|p| p.rotation == *r && same(*t, p.translation.map(units)))
+    }));
+    assert!(parent.operations.iter().all(|p| {
+        aligned
+            .iter()
+            .any(|(r, t)| p.rotation == *r && same(*t, p.translation.map(units)))
+    }));
+    let embedding = SeitzTransform::new(*model.map(), Vec3R::new(*model.shift()));
+    for (class, action) in model.classes().iter().zip(model.source_operators()) {
+        let r = embedding.map_rotation(class.rotation).unwrap();
+        let t = embedding
+            .map_translation(class.rotation, &Vec3R::new(class.translation))
+            .unwrap()
+            .as_array()
+            .map(exact);
+        let matches: Vec<_> = aligned
+            .iter()
+            .enumerate()
+            .filter(|(_, (s, u))| r == *s && same(t, *u))
+            .map(|(i, _)| i)
+            .collect();
+        assert!(!matches.is_empty());
+        assert_eq!(action.is_antiunitary(), class.time_reversal);
+        let eta = if class.time_reversal {
+            f64::from(model.time_reversal().unwrap().value())
+        } else {
+            1.0
+        };
+        for index in matches {
+            for (entry, expected) in action
+                .entries()
+                .iter()
+                .zip(&source.matrices()[4 * index..4 * index + 4])
+            {
+                assert!((entry - eta * expected).abs() < 1e-10);
+            }
+        }
+    }
+}
+
+#[test]
+fn nonzero_source_origins_bind_all_28_previously_unmatched_matrix_sources() {
+    let mut cases = 0;
+    for (sg, condensing, uni, map) in ORIGIN_WITNESSES {
+        let labels = if sg < 200 {
+            ["GM5+", "GM5-"]
+        } else {
+            ["GM3+", "GM3-"]
+        };
+        for source in labels {
+            let model = witness_model(sg, source, condensing, 0, map, Some(RealSign::Plus));
+            assert_eq!(model.uni(), uni);
+            assert_aligned_source_action(&model);
+            let report =
+                subduce_matrix_gamma(&model).unwrap_or_else(|e| panic!("SG{sg} {source}: {e}"));
+            assert_eq!(report.covered_dimension(), 2);
+            for piece in report.pieces() {
+                for copy in piece.copies() {
+                    assert_isometric_copy(copy, piece.dimension() as usize);
+                }
+                assert_reconstruction(&model, piece);
+            }
+            cases += 1;
+        }
+    }
+    assert_eq!(cases, 28);
+}
+
 #[test]
 fn the_type_i_dim2_target_is_rebuilt_from_the_parent_irrep() {
     // SG 89 GM5 condensed along GM1 gives M = P422 itself (UNI 747): a Type I
@@ -189,6 +343,7 @@ fn the_type_i_dim2_target_is_rebuilt_from_the_parent_irrep() {
     // ordinary end of the family and not as the antiunitary witness.
     let model = witness_model(89, "GM5", "GM1", 0, IDENTITY, Some(RealSign::Plus));
     assert_eq!(model.uni(), 747);
+    assert_eq!(*model.source_origin_shift(), [Rat::ZERO; 3]);
     assert_eq!(model.source_label(), "GM5");
     assert_eq!(model.source_dimension(), 2);
     assert_eq!(model.classes().len(), 8);

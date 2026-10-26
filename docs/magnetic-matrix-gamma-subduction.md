@@ -219,4 +219,30 @@ pub fn subduce_matrix_gamma_type_c(
 新增 `tests/magnetic_type_c_subduction.rs` 6 项：两个见证双 η 的低层 law/重建、
 高层双 CDML/BC 身份、旧 `subduce` 对 Type-C record 的具名拒绝、旧 Type A 见证不变、
 scalar 源拒绝、Type A record 的 `NoMatchingTarget`。模块内新增 10 项单测（见 §7.3；含实际见证 a-扭曲配对逐类检查与 `s=+1/-1` 两个真实分支）。
-旧 R29 公开行为与文档 §1–§6 不变。
+R32 当时未改变旧 R29 公开行为；R47 的源原点增量见下节。
+
+## 8. R47：二维源的共同原点对齐
+
+在原矩阵认证之后、绑定磁类之前，[矩阵输入](<../src/irrep/magnetic_matrix_subduction.rs>)
+复用[标量输入](<../src/irrep/magnetic_input.rs>)的完整 data-Hall 原点证明：源 Seitz 行必须
+属于声明的数据 Hall，完整心格双向一致、母群旋转覆盖齐全，再联立全部母群操作求一个
+共同 δ，逐操作验证 `τ_parent = τ_source + (I−R)δ mod L_parent`。
+不是只在 M 的已用操作上配旋转，也不是每个操作单独择原点；没有新的 setting solver。
+
+`MatrixGammaModel::source_origin_shift()` 保存源到母群帧的见证，与磁嵌入的 `shift()`
+分开。Γ 下只变换操作坐标，不改矩阵、行顺序、η、源/凝聚身份或 intertwiner 的定义。
+原认证链与 basis/gauge 限制完全保留，不能据此声称原始 PIR 存储已获 provenance 保证。
+标量路径共用同一薄封装，计算与原点选择未变。Type-A 和既有受限 Type-C 共用这个模型；
+没有扩大目标家族、复合/三维源、spinor、非 Γ 或 full-star 的适用域。
+
+新增错误 `MatrixSubductionError::SourceOriginAlignment { sg, label, reason }`，
+`reason` 保留 boxed `MagneticInputError` 并作为 error source；调用者的穷尽 match 需增加
+此分支。数据/共同原点不匹配与 Arithmetic 未决不能混为同一种无解证明。
+
+[公开几何/矩阵回归](<../tests/magnetic_matrix_subduction.rs>)固定 14 个母群的 28 个源/记录
+组合，以独立 1/48-cell 整数坐标与完整心矢对照共同原点、母群双向覆盖及每个矩阵绑定，
+再检验复 intertwiner 重建；[高层回归](<../tests/magnetic_subduction_api.rs>)覆盖双 η 和
+CDML/BC 标签。模块测试遍历现有域内二维源，另拒绝一个矩阵群律和字符均不变、但
+Seitz 行整体偏离声明 data-Hall 的合成输入。既有“逐操作可放置但无共同原点”、漏旋转、
+错误心格、篡改来源的负例现在直接经过共用封装。
+这些是固定源/嵌入检查，不是全部磁 record×matrix-source 的 census 或项目整体完成。
