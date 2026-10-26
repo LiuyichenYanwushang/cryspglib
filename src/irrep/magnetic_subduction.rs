@@ -1093,17 +1093,34 @@ fn build_target(
     first_anti: Option<usize>,
     uni: usize,
 ) -> Result<Vec<TargetOperator>, MagneticSubductionError> {
+    let values: Vec<_> = unitary
+        .iter()
+        .map(|&x| Complex64::new(f64::from(x), 0.0))
+        .collect();
+    build_scalar_target(corep, classes, lattice, &values, first_anti, uni)
+}
+
+/// Shared scalar coset construction; at a0 h the coefficient is conj(χ(h)).
+/// Callers must certify χ, the square, and the complete semilinear law.
+pub(crate) fn build_scalar_target(
+    corep: &MagneticCorepSummary,
+    classes: &[MagneticOperation],
+    lattice: &[[Rat; 3]],
+    unitary: &[Complex64],
+    first_anti: Option<usize>,
+    uni: usize,
+) -> Result<Vec<TargetOperator>, MagneticSubductionError> {
     let mut operators = vec![
         TargetOperator {
             value: Complex64::new(0.0, 0.0),
-            antiunitary: false,
+            antiunitary: false
         };
         classes.len()
     ];
     for (index, class) in classes.iter().enumerate() {
         if !class.time_reversal {
             operators[index] = TargetOperator {
-                value: Complex64::new(f64::from(unitary[index]), 0.0),
+                value: unitary[index],
                 antiunitary: false,
             };
         }
@@ -1154,7 +1171,12 @@ fn build_target(
             });
         }
         operators[image] = TargetOperator {
-            value: Complex64::new(f64::from(unitary[index]), 0.0),
+            // Preserve +0 imaginary parts of the legacy real tables.
+            value: if unitary[index].im == 0.0 {
+                unitary[index]
+            } else {
+                unitary[index].conj()
+            },
             antiunitary: true,
         };
     }

@@ -1217,6 +1217,98 @@ pub fn subduce(
     })
 }
 
+/// Owned answer for real/complex scalar type-A targets of a real 2D Γ source.
+/// Each piece retains its authoritative H storage identity; compound-component
+/// BC labels stay absent rather than borrowing the owner's compound BC label.
+#[derive(Debug)]
+pub struct MagneticScalarTargetsReport {
+    model: MatrixGammaModel,
+    source: MagneticSourceIdentity,
+    condensing: MagneticCondensingIdentity,
+    record: MagneticRecordIdentity,
+    embedding: MagneticEmbeddingIdentity,
+    pieces: Vec<matrix::ScalarTargetPiece>,
+}
+impl MagneticScalarTargetsReport {
+    /// This entry's target scope, not the legacy real-matrix target family.
+    pub fn scope(&self) -> &'static str {
+        matrix::SCALAR_TARGET_SCOPE
+    }
+    /// Certified source model, including the explicit embedding and η.
+    pub fn matrix_model(&self) -> &MatrixGammaModel {
+        &self.model
+    }
+    /// Verified source identity, independent of the condensing irrep.
+    pub fn source(&self) -> &MagneticSourceIdentity {
+        &self.source
+    }
+    /// Verified condensing identity.
+    pub fn condensing(&self) -> &MagneticCondensingIdentity {
+        &self.condensing
+    }
+    /// Selected original magnetic record.
+    pub fn record(&self) -> &MagneticRecordIdentity {
+        &self.record
+    }
+    /// Verified embedding; not a claim about the OP stabilizer.
+    pub fn embedding(&self) -> &MagneticEmbeddingIdentity {
+        &self.embedding
+    }
+    /// Complete scalar-target decomposition with operators and isometries.
+    pub fn pieces(&self) -> &[matrix::ScalarTargetPiece] {
+        &self.pieces
+    }
+    /// Source dimension (two).
+    pub fn source_dimension(&self) -> u32 {
+        self.model.source_dimension()
+    }
+    /// Sum of target multiplicities, certified to equal the source dimension.
+    pub fn covered_dimension(&self) -> u32 {
+        self.pieces
+            .iter()
+            .map(matrix::ScalarTargetPiece::multiplicity)
+            .sum()
+    }
+}
+
+/// Resolve the usual request, but require a real 2D Γ source and a complete
+/// decomposition into one-dimensional non-spinor type-A targets (real or
+/// complex). This explicit companion does not widen the legacy subduce result
+/// types or suppress its errors by trying another engine on failure.
+pub fn subduce_scalar_targets(
+    request: &MagneticSubductionRequest<'_>,
+) -> Result<MagneticScalarTargetsReport, MagneticSubductionApiError> {
+    let ResolvedMagneticRequest {
+        source,
+        source_identity,
+        condensing_identity,
+        record_identity,
+        engine_record,
+        embedding,
+        time_reversal,
+    } = resolve_magnetic_request(request)?;
+    let model = matrix::verify_matrix_gamma_input(
+        &MatrixGammaRequest::new(source, engine_record, time_reversal).with_embedding(embedding),
+    )?;
+    let pieces = matrix::subduce_matrix_gamma_scalar_targets(&model)?
+        .pieces()
+        .to_vec();
+    let embedding = MagneticEmbeddingIdentity {
+        map: *model.map(),
+        shift: *model.shift(),
+        lattice_policy: model.lattice_policy(),
+        realises_record_lattice: model.realises_record_lattice(),
+    };
+    Ok(MagneticScalarTargetsReport {
+        model,
+        source: source_identity,
+        condensing: condensing_identity,
+        record: record_identity,
+        embedding,
+        pieces,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // R32: restricted paired type-C entry point
 // ---------------------------------------------------------------------------

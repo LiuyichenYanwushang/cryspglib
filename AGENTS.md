@@ -22,6 +22,62 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 复一维 Type-A 目标与全域兼容验收（R49，2026-10-26；基线 21e753c）
+
+新增显式[低层 scalar-target 入口](<src/irrep/magnetic_matrix_subduction/scalar_targets.rs>)与
+[高层 subduce_scalar_targets](<src/irrep/magnetic_subduction_api.rs>)。源仍限实二维、非 compound、
+非 spinor Γ；目标限一维非 spinor Type A，可用实或复 H 字符。旧实矩阵、标量和受限 C API
+不改目标家族，也不自动换路由。新报告的 scope 与旧模型的 real-target scope 明确分开。
+
+复用完整 typed H 行：独立 scalar owner 或 metadata 具名的权威 CIR 组分；保留 owner 标签、
+component 与 irnumber，不伪造独立记录、不借用 compound BC 名、不暴露未存储的共轭行。
+一维 χ 就是矩阵；以其忠实实二维化复用完整 H 群律检查，再严格绑定整个 H data-Hall 表，
+核对所有幺正类/summary 列与心格冗余。R27 raw-index 来源证明和 R48 零重叠门槛仍在前面。
+规范 T(a₀)=K，故 T(a₀h)=conj(χ(h))K；检验全部半线性群律，负平方不能靠相位修成一维 A。
+共享 scalar coset builder 保留旧实表的 +0 虚部；复 Hom 只增加目标虚部交叉项，原实路径不变。
+复用核、copy 归一化、全源 Gram/投影恒等及逐操作复重建，不用字符内积或实核维数冒充重数。
+
+新增[公开回归](<tests/magnetic_scalar_targets.rs>)4项、模块3项，包含 SG89/91/97/141、双η、
+双标签的16次高层调用，覆盖 screw、心格与非零源原点；H CIR 标签/来源、实标量拆分、
+旧接口拒绝与新域外拒绝均保留。负例验证缺失/错误 H 声明、缺值/非有限字符、frame 错误、
+全部反幺正代表及负平方。初稿独立测试误用 summary 显示帧，验收前已改成通过原始操作
+索引关联 M 类；显示 H data-Hall 坐标从不直接当作原始 M 坐标。
+
+首轮全套通过后，最终审查发现新 H 映射错误遗漏目标标签；新增断言在
+[修复前实际失败](<target/logs/r49-exploration/label-before.txt>)，再复用既有 label_error 修正。
+[修复后模块](<target/logs/r49-exploration/label-after.txt>)3/0。下述最终证据全部重新冻结为 v2，
+不把首轮通过替代最终验证。当前 Rust 1.99.1 的严格 Clippy 另要求删除两条共享桥接路径中
+四处冗余 closure 借用；仅移除 &，未改变候选、算法、算术或错误语义。
+
+[完整双入口测量](<target/logs/r49-accepted-v2/matrix-audit.json>)仍用 R48 固定 map/shift，
+177源、12,106记录、21,746 record/source 对×两η=**43,492次**，输入错误0。
+旧 A40,060/C296/拒绝3,136 的状态和 detail **全部不变**；旧成功的标签/维数/重数和完整
+pieces 的确定性64位 Debug 指纹相同（不是加密等同性或逐字保存完整负载的证明）。
+新 scalar 入口 **33,468成功**：32,302个旧实标量控制保持目标标签/维数/重数，另补足
+**1,166次旧拒绝**，分属583对、348记录、115母群；其它8,054个旧二维 A/C成功仍诚实地
+不在新一维目标域内。新旧入口合计支持 **41,522/43,492** 次，不是旧入口自动新增成功。
+所有 scalar 成功另独立验证 H owner/组分身份、raw-index 字符关联、全部半线性乘法、
+复基向量/混合向量重建、Gram 和源投影；v2 整表逐字等于首轮，新增1166均来自旧正重叠
+TargetSourceUnresolved，不把一般缺数据视为零重叠。Python 审计的合成自测不是生产覆盖。
+
+最终[完整电池](<target/logs/r49-accepted-v2/battery/summary.txt>) **995/0**（988+7），
+72壳、76/76池作业、16/16腿 exit0；[独立审计](<target/logs/r49-accepted-v2/battery-audit.json>)
+逐项核查，ordinary 三 TSV 的旧行数/SHA/4==8不变。冻结[模块 debug](<target/logs/r49-accepted-v2/shared-debug.txt>)
+26/0、[公开 debug](<target/logs/r49-accepted-v2/public-debug.txt>)58/0，共84项；严格 debug/release
+clippy、doc tests、Python/oracle、格式与diff通过。[单斜官方对照](<target/logs/r49-accepted-v2/monoclinic-oracle.txt>)
+13帧/262记录/105非零原点，0差异。完整实一维Γ[4/8线程审计](<target/logs/r49-accepted-v2/gamma-audit.json>)
+仍16,721 fixed /151,068 success，错误和未决0，整表逐字等于R45–R48，SHA仍
+655b2fcbe95d4e56a48d3703d15ef8f017c89c2196ed6bdc556925a0d74a18cd。
+253个输入与7个driver在最终全部验收前后哈希相同；账本只在验收后更新，其余252再核对。
+并发墙钟不作性能结论。Rustup 清理权限障碍已由用户授权解除；没有删除其它项目、没有push/部署。
+
+**仍未完成**：[剩余域审计](<target/logs/r49-accepted/residual-audit.json>)为1,970次：
+1,722次受限 C 的 HSource 缺行（例如 SG100 GM5 / A5 row0、UNI688 的 H79 GM3），
+248次所在磁群没有反幺正陪集（例如 SG149 GM3 / K1 row2、UNI1231），不能一概按 C 处理。
+下一步复用 typed CIR 绑定及已有二维 Hom 分析复 H 配对，先做实证，不先建泛化矩阵框架。
+69 compound/87三维源、其它复源、一般B/C、非Γ/full-star、spinor、一般setting/normalizer
+与OP-stabilizer契约仍在域外；长期目标保持active。详见[边界文档 §10](<docs/magnetic-matrix-gamma-subduction.md>)。
+
 ### 正交目标排除与二维固定嵌入全域测量（R48，2026-10-26；基线 `08dcbdc`）
 
 先用[只读矩阵 census](<target/r48-matrix-census.rs>)从 R47 已接受的16,721个记录见证

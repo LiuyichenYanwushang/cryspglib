@@ -154,6 +154,12 @@ use crate::irrep::subduction::{Mat3I, Rat};
 use crate::irrep::types::{CharacterRow, IrrepRecord};
 use crate::irrep::wigner;
 
+mod scalar_targets;
+pub use scalar_targets::{
+    HCharacterStorage, SCALAR_TARGET_SCOPE, ScalarTargetPiece, ScalarTargetSubduction,
+    subduce_matrix_gamma_scalar_targets,
+};
+
 /// The Γ (k = 0) k-point coordinates the summary tables use.
 const GAMMA: (i8, i8, i8, i8) = (0, 0, 0, 1);
 
@@ -1350,6 +1356,15 @@ impl RealCorep {
 /// the sign of the imaginary coupling of the left factor.  That conjugation is
 /// what makes the solution space real-linear rather than complex-linear.
 fn hom_rows(left: &RealCorep, right: &RealCorep) -> (Vec<Vec<f64>>, usize) {
+    hom_rows_with_imaginary_target(left, right, None)
+}
+
+/// The source remains real; a complex target also couples Re(U) to Im(U).
+fn hom_rows_with_imaginary_target(
+    left: &RealCorep,
+    right: &RealCorep,
+    imaginary: Option<&[Vec<f64>]>,
+) -> (Vec<Vec<f64>>, usize) {
     let rows_dim = left.dimension;
     let columns_dim = right.dimension;
     let width = 2 * rows_dim * columns_dim;
@@ -1369,6 +1384,11 @@ fn hom_rows(left: &RealCorep, right: &RealCorep) -> (Vec<Vec<f64>>, usize) {
                 for j in 0..columns_dim {
                     re_row[(row * columns_dim + j) * 2] -= r[j * columns_dim + column];
                     im_row[(row * columns_dim + j) * 2 + 1] -= r[j * columns_dim + column];
+                    if let Some(imaginary) = imaginary {
+                        let value = imaginary[class][j * columns_dim + column];
+                        re_row[(row * columns_dim + j) * 2 + 1] += value;
+                        im_row[(row * columns_dim + j) * 2] -= value;
+                    }
                 }
                 rows.push(re_row);
                 rows.push(im_row);
@@ -2054,45 +2074,7 @@ pub fn subduce_matrix_gamma(
         convention: model.source_convention,
     })?;
     let uni = model.uni;
-    let partial =
-        magnetic_summary::magnetic_irrep_summary_by_uni_partial(uni).map_err(|error| {
-            MatrixSubductionError::SummaryFailed {
-                uni,
-                reason: format!("{error:?}"),
-            }
-        })?;
-    let gamma = partial
-        .summary
-        .kpoints
-        .iter()
-        .find(|kpoint| kpoint.coords == GAMMA)
-        .ok_or(MatrixSubductionError::NoGammaKPoint { uni })?;
-    for unresolved in &partial.unresolved_coreps {
-        if unresolved.k_label == gamma.label
-            && !unresolved.spinor
-            && unresolved
-                .minimum_dimension
-                .is_none_or(|dimension| dimension <= SOURCE_DIMENSION)
-        {
-            return Err(MatrixSubductionError::UnresolvedTargetData {
-                uni,
-                source: unresolved.source_irrep.clone(),
-                minimum_dimension: unresolved.minimum_dimension,
-                reason: unresolved.reason.clone(),
-            });
-        }
-    }
-
-    // The R27 proof that the summary's Γ columns really are the raw first-Hall
-    // operations, and that position, index and column associate exactly.
-    let class_columns =
-        magnetic_subduction::proven_gamma_class_columns(uni, gamma, &model.classes, &model.lattice)
-            .map_err(|error| MatrixSubductionError::TargetProvenance {
-                uni,
-                reason: error.to_string(),
-            })?;
-
-    let context = TargetContext::build(uni, gamma, model, &class_columns)?;
+    let (gamma, context) = prepare_matrix_targets(model)?;
     let source_corep = RealCorep::from_source(&model.actions);
     let mut examined: Vec<String> = Vec::new();
     let mut pieces: Vec<MatrixSubductionPiece> = Vec::new();
@@ -2148,6 +2130,53 @@ pub fn subduce_matrix_gamma(
         source_dimension: SOURCE_DIMENSION as u32,
         covered_dimension: covered,
     })
+}
+
+/// Shared unresolved-data fence and complete R27 target provenance proof.
+fn prepare_matrix_targets(
+    model: &MatrixGammaModel,
+) -> Result<(MagneticKPointSummary, TargetContext), MatrixSubductionError> {
+    let uni = model.uni;
+    let partial =
+        magnetic_summary::magnetic_irrep_summary_by_uni_partial(uni).map_err(|error| {
+            MatrixSubductionError::SummaryFailed {
+                uni,
+                reason: format!("{error:?}"),
+            }
+        })?;
+    let gamma = partial
+        .summary
+        .kpoints
+        .iter()
+        .find(|kpoint| kpoint.coords == GAMMA)
+        .ok_or(MatrixSubductionError::NoGammaKPoint { uni })?;
+    for unresolved in &partial.unresolved_coreps {
+        if unresolved.k_label == gamma.label
+            && !unresolved.spinor
+            && unresolved
+                .minimum_dimension
+                .is_none_or(|dimension| dimension <= SOURCE_DIMENSION)
+        {
+            return Err(MatrixSubductionError::UnresolvedTargetData {
+                uni,
+                source: unresolved.source_irrep.clone(),
+                minimum_dimension: unresolved.minimum_dimension,
+                reason: unresolved.reason.clone(),
+            });
+        }
+    }
+
+    // The R27 proof that the summary's Γ columns really are the raw first-Hall
+    // operations, and that position, index and column associate exactly.
+    let class_columns =
+        magnetic_subduction::proven_gamma_class_columns(uni, gamma, &model.classes, &model.lattice)
+            .map_err(|error| MatrixSubductionError::TargetProvenance {
+                uni,
+                reason: error.to_string(),
+            })?;
+
+    let context = TargetContext::build(uni, gamma, model, &class_columns)?;
+    Ok((gamma.clone(), context))
 }
 
 /// Whether a Γ corep is inside this module's target family.
@@ -2761,8 +2790,13 @@ fn matching_copies(
     let target = RealCorep::from_target(&table.operators);
     let (rows, width) = hom_rows(source, &target);
     let kernel = real_kernel(&rows, width);
+    let chosen = copies_from_kernel(&kernel, dimension);
+    (kernel, chosen)
+}
+
+fn copies_from_kernel(kernel: &[Vec<f64>], dimension: usize) -> Vec<Vec<Complex64>> {
     let mut chosen: Vec<Vec<Complex64>> = Vec::new();
-    for vector in &kernel {
+    for vector in kernel {
         let matrix = intertwiner_from_vector(vector, dimension);
         let Some(normalized) = normalize_intertwiner(&matrix, dimension) else {
             continue;
@@ -2778,7 +2812,7 @@ fn matching_copies(
             break;
         }
     }
-    (kernel, chosen)
+    chosen
 }
 
 fn match_piece(
@@ -2845,6 +2879,14 @@ fn verify_full_isometry(pieces: &[MatrixSubductionPiece]) -> bool {
                 columns.push(vec![copy[column], copy[dimension + column]]);
             }
         }
+    }
+    verify_column_isometry(&columns)
+}
+
+fn verify_column_isometry(columns: &[Vec<Complex64>]) -> bool {
+    let total = columns.len();
+    if total != SOURCE_DIMENSION || columns.iter().any(|c| c.len() != SOURCE_DIMENSION) {
+        return false;
     }
     // V†V = I_total
     for left in 0..total {
@@ -2953,6 +2995,18 @@ fn verify_reconstruction_data(
     copies: &[Vec<Complex64>],
     operators: &[TargetMatrixOperator],
 ) -> Result<(), MatrixSubductionError> {
+    verify_reconstruction_with(model, label, dimension, copies, |class, vector| {
+        operators[class].apply(vector)
+    })
+}
+
+fn verify_reconstruction_with(
+    model: &MatrixGammaModel,
+    label: &str,
+    dimension: usize,
+    copies: &[Vec<Complex64>],
+    apply: impl Fn(usize, &[Complex64]) -> Vec<Complex64>,
+) -> Result<(), MatrixSubductionError> {
     let mut probes: Vec<Vec<Complex64>> = (0..dimension)
         .map(|index| {
             (0..dimension)
@@ -2981,9 +3035,9 @@ fn verify_reconstruction_data(
                         .sum::<Complex64>()
                 })
                 .collect();
-            for (class, operator) in operators.iter().enumerate().take(model.classes.len()) {
+            for class in 0..model.classes.len() {
                 let source = model.actions[class].apply([image[0], image[1]]);
-                let target = operator.apply(probe);
+                let target = apply(class, probe);
                 let expected: Vec<Complex64> = (0..SOURCE_DIMENSION)
                     .map(|row| {
                         (0..dimension)

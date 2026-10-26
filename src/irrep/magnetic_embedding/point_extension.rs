@@ -107,7 +107,7 @@ pub fn embed_via_point_extensions(
         .collect::<Result<Vec<_>, GeometryError>>()?;
     // ponytail: one canonical frame, not a normalizer search. Keep failures
     // visible; broader setting coverage needs exact normalizer witnesses.
-    let source = verified_auxiliary_group(source_ops).map_err(&unavailable)?;
+    let source = verified_auxiliary_group(source_ops).map_err(unavailable)?;
     let lattice = invariant_lattice(&source.rot)
         .ok_or_else(|| unavailable("source invariant metric unavailable".into()))?;
     let source =
@@ -144,7 +144,7 @@ pub fn embed_via_point_extensions(
                 time_reversal,
             })
             .collect();
-        let target = verified_auxiliary_group(operations).map_err(&unavailable)?;
+        let target = verified_auxiliary_group(operations).map_err(unavailable)?;
         let lattice = invariant_lattice(&target.rot)
             .ok_or_else(|| unavailable("target invariant metric unavailable".into()))?;
         let target = match crate::magnetic_spacegroup::identify_with_parent_hall(

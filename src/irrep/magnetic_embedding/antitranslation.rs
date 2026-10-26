@@ -115,7 +115,7 @@ pub fn embed_via_antitranslations(
         source_rotations.insert(r.to_int_matrix().map_err(|_| GeometryError::Arithmetic)?);
     }
     let source_rotations: Vec<_> = source_rotations.into_iter().collect();
-    let source = virtual_group(&source_rotations, alpha).map_err(&unavailable)?;
+    let source = virtual_group(&source_rotations, alpha).map_err(unavailable)?;
     let source_metric = invariant_lattice(&source_rotations)
         .ok_or_else(|| unavailable("source invariant metric unavailable".into()))?;
     let source =
@@ -150,7 +150,7 @@ pub fn embed_via_antitranslations(
         if !fixed {
             continue;
         }
-        let target = virtual_group(&target_rotations, alpha).map_err(&unavailable)?;
+        let target = virtual_group(&target_rotations, alpha).map_err(unavailable)?;
         let target = match crate::magnetic_spacegroup::identify_with_parent_hall(
             &target_metric,
             &target,

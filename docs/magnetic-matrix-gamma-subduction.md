@@ -264,3 +264,58 @@ SG207 GM3 沿 GM4 的 UNI750：源的 H=SG75 限制为 GM1⊕GM2，但扫描随�
 没有把“没有独立记录”笼统改成跳过；例如同一 UNI750 的 SG89 GM5 仍在此域外。
 输入域、目标家族、嵌入选择与原有公开返回类型均不变。Type-C 对零重叠的拒绝理由
 记为 `orthogonal-unitary-restriction`；这不是一般 B/C、复源或高维算法。
+
+## 10. R49：实/复一维 Type-A 目标的显式伴随入口
+
+[目标实现](<../src/irrep/magnetic_matrix_subduction/scalar_targets.rs>)提供
+`subduce_matrix_gamma_scalar_targets(&MatrixGammaModel)`；[高层入口](<../src/irrep/magnetic_subduction_api.rs>)
+`subduce_scalar_targets(&MagneticSubductionRequest)`复用原有请求解析、四类身份与输入认证。
+源仍是现有**非 spinor、非 compound、实二维 Γ**模型；只接受能够完全分解到
+**一维非 spinor Type-A Γ**目标的情况，不承诺所有已接受的二维源都能在这个入口分解。
+旧 `subduce`、实矩阵目标算子和受限 Type-C API 不变；不在错误后静默换路由。
+新报告的 `scope()` / `SCALAR_TARGET_SCOPE`描述本入口，不能用模型的旧 scope 代替。
+
+### 10.1 字符来源不是伪造的独立 irrep
+
+H 字符必须来自唯一的独立 scalar record，或 compound metadata 具名、由
+`compound_selected_arm_view`实际公开的**权威 CIR 分量**。不把缺失行变成“无目标”，
+不选第一个歧义来源，也不把未存储的共轭行冒充另一条权威 CIR 行。
+`HCharacterStorage`保留 owner 的标签、component 位置及 CIR irnumber；
+`piece.source().labels()`仅返回该分量自身的真实标签映射，不能借用 owner 的 compound BC 名。
+
+一维情况下字符本身就是矩阵系数，因此允许直接使用复数 χ；这**不是**从高维字符恢复
+矩阵的算法。完整 typed H 行逐项验证有限性与单位模，使用 χ 的忠实实二维化
+`[[Re χ, −Im χ], [Im χ, Re χ]]`仅复用已有的完整有序对群律检查器。
+检查包括心格冗余行的一致性，不从中宣称原 PIR basis/gauge 获证。
+随后要求整个 H data-Hall Seitz 表与 typed 行严格双射，再经已有 H setting 映射绑定
+各 M 幺正类，并逐一对照全部对应 summary 列。
+
+R27 raw first-Hall 索引证明和 R48 零重叠排除门槛仍在前面执行；summary 的显示坐标
+属于 H data-Hall，**不是** M 的原始坐标。独立回归也通过 `magnetic_operation_index`
+关联原始带色 Seitz 操作，不把显示平移直接拿去配 M 类。
+
+### 10.2 复数陪集、Hom 与完整重建
+
+取第一个反幺正类 a₀，规范选择 `T(a₀)=K`，则
+
+```text
+T(h)     = χ(h)
+T(a₀ h) = conj(χ(h)) K
+```
+
+右侧的共轭不可省略。复用原 scalar coset 构造器，检验全部半线性乘法；这也验证
+`χ(a₀²)=+1`及扭曲共轭相容性。负平方不能用任意相位修成一维 Type A。
+不读取反幺正 trace，不从字符重叠推断重数；算术错误仍保留为 Arithmetic。
+
+输出复用已有 `TargetOperator`（复系数和反幺正标志），而非向实矩阵接口塞入丢失虚部
+的数据。复 Hom 在原有实线性系统中增加目标虚部的交叉项；源仍是原实模型。
+核、归一化、独立 copy 选择、全源 Gram/投影恒等与逐类复向量重建都复用原组件。
+必须实证完整覆盖二维源，缺覆盖、非等距、重建失败仍是错误；实核维数不是重数。
+
+[公开回归](<../tests/magnetic_scalar_targets.rs>)固定 SG89/91/97/141 的见证，含 screw、
+心格、非零源原点、双 η、CDML/BC 与独立操作重建；同时保留实标量拆分/重数控制、
+旧入口对确需复目标的拒绝、二维目标及非二维源的范围拒绝。模块负例覆盖缺失/错误 H
+身份声明、缺值/非有限 summary、H frame 不匹配、所有反幺正代表及不允许的负平方。
+
+这不扩展一般 B/C、二维复目标、复合/三维/复源、spinor、non-Γ/full-star、一般
+setting/normalizer 或 OP-stabilizer 契约；全项目仍未完成。
