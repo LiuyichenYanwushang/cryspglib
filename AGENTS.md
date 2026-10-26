@@ -22,6 +22,65 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 复共轭 H 配对目标与独立复核暂停（R50，2026-10-26；基线 3420466）
+
+用户要求“干完这个暂停一下，用 deepseek-flash 的 subagent 进行复核”。本轮实现、冻结验收、
+指定模型独立复核均已完成；收尾本地提交后**暂停，不自动进入下一轮**，需用户新指令继续。
+这是本轮完成，不是全项目完成；没有 push、部署或删除其它项目。
+
+新增[共轭配对低层入口](<src/irrep/magnetic_matrix_subduction/conjugate_pairs.rs>)及
+[高层 subduce_conjugate_pair](<src/irrep/magnetic_subduction_api.rs>)。源仍为实二维、非compound、
+非spinor Γ。复用 R49 的唯一权威 H scalar/CIR owner 解析及完整行认证/绑定，分别保留两条
+H 身份、owner/component/irnumber；不伪造独立记录、未存储的共轭行或 compound BC 名。
+存在 anti 的二维非实共轭对报告 MagneticTypeC；无 anti 则报告 UnitaryPair：**两个不等价
+复普通不可约表示的配对载体，不是二维复不可约表示，也不是 C**。后者的 H 字符范数为2；
+旧单源 A 仍1、旧 C 仍2，旧候选家族和 API 均不扩大，不新增自动 fallback。
+
+令 R(z)=[[Re z,−Im z],[Im z,Re z]]，T(h)=R(χ(h))，λ²=χ(a₀²)，T(a₀h)=R(λχ(h))K。
+R(χ(h)) 是实矩阵，不能误套 scalar A 的 conj(χ(h))。全部有序对群律证明平方/扭曲/陪集
+相容性；复用原实矩阵算子、Hom、copy归一化、全源Gram/投影与逐操作复重建，无新泛化
+矩阵框架。磁 C/纯幺正见证的 Hom 实核分别2/4，完整载体重数均1，不能把核维当重数。
+正重叠后先对照两条 H 行之和与所有 summary 列，再判断共轭目标范围；初稿顺序不当的
+[真实红灯](<target/logs/r50-exploration/pair-order-before.txt>)已修复。
+共享 target law 的 compose 溢出现在保留 Arithmetic，不再误说“乘积不是类”；另有
+[旧实现实跑红灯](<target/logs/r50-exploration/arithmetic-before.txt>)及修复后的模块验收。
+
+新增[公开回归](<tests/magnetic_conjugate_pairs.rs>)4项、模块3项。固定SG100/149/141、非平凡
+嵌入、心格/源原点、原始anti操作、双η与双标签16次高层调用；独立核对真实CIR、raw M索引
+与H显示帧、全群律、复基/混合向量重建和Gram/投影。三/四重全部anti代表含非实/负平方；
+错误A扭曲、数据缺失/非有限、错误代表、系数篡改及域外拒绝保留。早期测试编译/Clippy和
+文档末尾空行问题均在冻结前修正，不算数学红灯。边界见[§11](<docs/magnetic-matrix-gamma-subduction.md>)。
+
+[完整矩阵审计](<target/logs/r50-accepted/matrix-audit.json>)仍用相同固定几何：177源、12,106记录、
+21,746对×两η=**43,492次**。沿用旧A→受限C路由，另外显式调用scalar与pair入口；全部旧字段
+逐行不变：A40,060/C296/拒绝3,136及scalar33,468成功的状态/detail和确定性64位Debug指纹
+均保持（不冒称完整负载逐字保存或加密等同性证明）。新pair入口补足**1,970次**：
+**1,722磁C +248纯幺正pair**，分属985对、569记录、94母群；其它41,522次仅NoMatchingTarget。
+新旧合计 **43,492/43,492**，不是旧入口自动新增成功，也不是一般矩阵分导全部完成。
+全部pair成功独立核验存储来源、H字符、全群律与复重建；与冻结前1970条探针逐字相同。
+审计另用合成正例和五类破坏控制自测；这些合成检查不计生产覆盖。
+
+最终[完整电池](<target/logs/r50-accepted/battery/summary.txt>) **1,002/0**（995+7），73壳、77/77池
+作业、16/16腿exit0；[独立审计](<target/logs/r50-accepted/battery-audit.json>)核对每个退出码、
+计数及ordinary三TSV原行数/SHA/4==8。冻结debug 29模块+62公开=**91/0**；严格debug/release
+Clippy、doc tests、Python/oracle、格式与diff通过。[单斜官方oracle](<target/logs/r50-accepted/monoclinic-oracle.txt>)
+仍13帧/262记录/105非零原点，0差异。完整实一维Γ[4/8线程审计](<target/logs/r50-accepted/gamma-audit.json>)
+仍16,721 fixed /151,068 success，错误/未决0，逐字等于R45基线，SHA仍
+655b2fcbe95d4e56a48d3703d15ef8f017c89c2196ed6bdc556925a0d74a18cd。
+255输入、6driver与测量二进制在全部验收后哈希不变；仅随后更新本账本，其余254再次核对。
+并发墙钟不作性能结论。
+
+[deepseek-flash独立报告](<target/r50-review/report.md>)在六文件diff及直接调用链内**未发现已确认
+正确性缺陷**；独立实跑37项、严格Clippy，并自行构造H行/陪集/复作用探针，验证负与非实平方
+及错误共轭公式阴性控制。不是全库正确保证。其旁证误把选择性stderr的3,138行当全量进度；
+[Lead收尾说明](<target/r50-review/lead-closure.md>)依据driver解释：完整数据是43,492行matrix.tsv。
+保留的低风险加固建议：纯幺正packet异常norm/缺列/非有限summary专门负例、永久反幺正系数
+公式断言，以及既有H存储行群律checker的compose算术错误分类；未在固定全域取得实际反例。
+不为这些建议擅自开启下一轮。69 compound/87三维源、其它复源、一般B/C、spinor、非Γ/full-star、
+一般setting/normalizer与OP-stabilizer仍在域外；**本轮工作停止，项目目标未标完成**。
+运行时目标仍为active/disarmed：本子agent回报回合的pause状态更新被拒绝，自动续行已解除。
+不绕过此权限限制，不因此恢复工作或开始下一轮；paused状态字段需直接人类回合才能更新。
+
 ### 复一维 Type-A 目标与全域兼容验收（R49，2026-10-26；基线 21e753c）
 
 新增显式[低层 scalar-target 入口](<src/irrep/magnetic_matrix_subduction/scalar_targets.rs>)与

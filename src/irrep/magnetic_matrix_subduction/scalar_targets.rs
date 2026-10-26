@@ -112,14 +112,17 @@ fn data_error(
     }
 }
 
-struct HRow {
+pub(super) struct HRow {
     row: CharacterRow,
-    storage: HCharacterStorage,
+    pub(super) storage: HCharacterStorage,
 }
 
 /// Resolve only metadata-named owners. Never suppress a malformed typed view,
 /// choose the first ambiguous owner, or expose a generated conjugate as stored data.
-fn resolve_h_row(source: &SourceIrrepSummary, uni: usize) -> Result<HRow, MatrixSubductionError> {
+pub(super) fn resolve_h_row(
+    source: &SourceIrrepSummary,
+    uni: usize,
+) -> Result<HRow, MatrixSubductionError> {
     let error = |reason: String| MatrixSubductionError::TargetSourceUnresolved {
         uni,
         sg: source.sg,
@@ -198,7 +201,41 @@ fn unitary_values(
     corep: &MagneticCorepSummary,
     context: &TargetContext,
 ) -> Result<Vec<Complex64>, MatrixSubductionError> {
+    let values = bind_h_row(h, &corep.source_irreps[0], &corep.label, context)?;
     let fail = |s| data_error(context, &corep.label, s);
+    for (class, value) in values.iter().enumerate() {
+        if context.classes[class].time_reversal {
+            continue;
+        }
+        if context.class_columns[class].is_empty() {
+            return Err(fail("uncovered unitary class".into()));
+        }
+        for &column in &context.class_columns[class] {
+            let summary = corep
+                .characters
+                .get(column)
+                .copied()
+                .flatten()
+                .ok_or_else(|| fail("missing summary character".into()))?;
+            if !close(summary.re, value.re) || !close(summary.im, value.im) {
+                return Err(fail(format!(
+                    "typed H scalar and summary disagree at class {class}"
+                )));
+            }
+        }
+    }
+    Ok(values)
+}
+
+/// Certify a complete authoritative scalar H row and bind it to M's unitary
+/// classes. The caller must independently check its target's summary character.
+pub(super) fn bind_h_row(
+    h: &HRow,
+    source: &SourceIrrepSummary,
+    label: &str,
+    context: &TargetContext,
+) -> Result<Vec<Complex64>, MatrixSubductionError> {
+    let fail = |s| data_error(context, label, s);
     if h.row.dimension() != 1 || h.row.is_empty() || h.row.len() != h.row.operations().len() {
         return Err(fail("invalid scalar H row shape".into()));
     }
@@ -231,7 +268,7 @@ fn unitary_values(
         MatrixSubductionError::TargetMatrixUncertified {
             uni: context.uni,
             sg: context.h_sg,
-            label: corep.source_irreps[0].ml,
+            label: source.ml,
             problem,
         }
     })?;
@@ -253,25 +290,8 @@ fn unitary_values(
         }
         let h_index = context
             .unitary_operation_index(class)
-            .map_err(|error| label_error(error, context.uni, &corep.label))?;
-        let value = h.row.values()[map[h_index]];
-        if context.class_columns[class].is_empty() {
-            return Err(fail("uncovered unitary class".into()));
-        }
-        for &column in &context.class_columns[class] {
-            let summary = corep
-                .characters
-                .get(column)
-                .copied()
-                .flatten()
-                .ok_or_else(|| fail("missing summary character".into()))?;
-            if !close(summary.re, value.re) || !close(summary.im, value.im) {
-                return Err(fail(format!(
-                    "typed H scalar and summary disagree at class {class}"
-                )));
-            }
-        }
-        *slot = value;
+            .map_err(|error| label_error(error, context.uni, label))?;
+        *slot = h.row.values()[map[h_index]];
     }
     Ok(values)
 }

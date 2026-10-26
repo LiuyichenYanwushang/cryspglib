@@ -1309,6 +1309,95 @@ pub fn subduce_scalar_targets(
     })
 }
 
+/// Owned answer for a certified nonreal conjugate scalar H pair.
+/// The piece explicitly distinguishes a magnetic type-C corep from a reducible
+/// purely unitary complex pair; it never fabricates a standalone H record.
+#[derive(Debug)]
+pub struct MagneticConjugatePairReport {
+    model: MatrixGammaModel,
+    source: MagneticSourceIdentity,
+    condensing: MagneticCondensingIdentity,
+    record: MagneticRecordIdentity,
+    embedding: MagneticEmbeddingIdentity,
+    piece: matrix::ConjugatePairPiece,
+}
+impl MagneticConjugatePairReport {
+    /// Explicit target scope, distinct from the legacy matrix model scope.
+    pub fn scope(&self) -> &'static str {
+        matrix::CONJUGATE_PAIR_SCOPE
+    }
+    /// Certified source, η, original geometry and source-origin witness.
+    pub fn matrix_model(&self) -> &MatrixGammaModel {
+        &self.model
+    }
+    /// Source identity, independent of the condensing irrep.
+    pub fn source(&self) -> &MagneticSourceIdentity {
+        &self.source
+    }
+    /// Selected condensing identity.
+    pub fn condensing(&self) -> &MagneticCondensingIdentity {
+        &self.condensing
+    }
+    /// Selected original magnetic record.
+    pub fn record(&self) -> &MagneticRecordIdentity {
+        &self.record
+    }
+    /// Verified embedding, not a claim about the OP stabilizer.
+    pub fn embedding(&self) -> &MagneticEmbeddingIdentity {
+        &self.embedding
+    }
+    /// Both H sources, their authoritative storage, operators and isometries.
+    pub fn piece(&self) -> &matrix::ConjugatePairPiece {
+        &self.piece
+    }
+    /// Source dimension, two.
+    pub fn source_dimension(&self) -> u32 {
+        self.model.source_dimension()
+    }
+    /// Total exhibited pair-carrier dimension, certified to equal the source.
+    pub fn covered_dimension(&self) -> u32 {
+        self.piece.dimension() * self.piece.multiplicity()
+    }
+}
+
+/// Explicit conjugate-pair companion for the same verified real 2D Γ source.
+/// With no antiunitary coset this returns two complex ordinary irreps as one
+/// realification packet, not an irreducible 2D complex irrep. No fallback from
+/// or widening of existing result types or target families takes place.
+pub fn subduce_conjugate_pair(
+    request: &MagneticSubductionRequest<'_>,
+) -> Result<MagneticConjugatePairReport, MagneticSubductionApiError> {
+    let ResolvedMagneticRequest {
+        source,
+        source_identity,
+        condensing_identity,
+        record_identity,
+        engine_record,
+        embedding,
+        time_reversal,
+    } = resolve_magnetic_request(request)?;
+    let model = matrix::verify_matrix_gamma_input(
+        &MatrixGammaRequest::new(source, engine_record, time_reversal).with_embedding(embedding),
+    )?;
+    let piece = matrix::subduce_matrix_gamma_conjugate_pair(&model)?
+        .piece()
+        .clone();
+    let embedding = MagneticEmbeddingIdentity {
+        map: *model.map(),
+        shift: *model.shift(),
+        lattice_policy: model.lattice_policy(),
+        realises_record_lattice: model.realises_record_lattice(),
+    };
+    Ok(MagneticConjugatePairReport {
+        model,
+        source: source_identity,
+        condensing: condensing_identity,
+        record: record_identity,
+        embedding,
+        piece,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // R32: restricted paired type-C entry point
 // ---------------------------------------------------------------------------

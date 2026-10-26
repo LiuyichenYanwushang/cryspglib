@@ -154,6 +154,11 @@ use crate::irrep::subduction::{Mat3I, Rat};
 use crate::irrep::types::{CharacterRow, IrrepRecord};
 use crate::irrep::wigner;
 
+mod conjugate_pairs;
+pub use conjugate_pairs::{
+    CONJUGATE_PAIR_SCOPE, ConjugatePairKind, ConjugatePairPiece, ConjugatePairSubduction,
+    subduce_matrix_gamma_conjugate_pair,
+};
 mod scalar_targets;
 pub use scalar_targets::{
     HCharacterStorage, SCALAR_TARGET_SCOPE, ScalarTargetPiece, ScalarTargetSubduction,
@@ -2209,6 +2214,12 @@ fn has_unitary_overlap(
         ));
     }
     let expected_norm = match corep.corep_type {
+        CorepType::A
+            if corep.source_irreps.len() == 2
+                && !context.classes.iter().any(|g| g.time_reversal) =>
+        {
+            2.0
+        }
         CorepType::A => 1.0,
         CorepType::C => 2.0,
         _ => {
@@ -2262,7 +2273,8 @@ fn has_unitary_overlap(
         norm += character.norm_sqr();
         count += 1;
     }
-    // A|H is irreducible; C|H consists of two inequivalent irreducibles.
+    // A single H irrep has norm one. A purely unitary conjugate packet,
+    // like C|H, consists of two inequivalent irreducibles and has norm two.
     // Malformed/non-finite data and nonintegral overlaps are never zeroes.
     inner /= count as f64;
     norm /= count as f64;
@@ -2734,17 +2746,18 @@ fn check_target_law(
 ) -> Result<(), MatrixSubductionError> {
     for left in 0..context.classes.len() {
         for right in 0..context.classes.len() {
-            let expected = product_class(
-                &context.classes[left],
-                &context.classes[right],
-                &context.classes,
-                &context.lattice,
-            )
-            .ok_or_else(|| MatrixSubductionError::TargetCorepInconsistent {
-                uni: context.uni,
-                label: String::new(),
-                reason: format!("the product of classes {left} and {right} is not a class"),
-            })?;
+            let operation =
+                compose(&context.classes[left], &context.classes[right]).map_err(|error| {
+                    MatrixSubductionError::Arithmetic {
+                        reason: error.to_string(),
+                    }
+                })?;
+            let expected = find_model_class(&operation, &context.classes, &context.lattice)
+                .ok_or_else(|| MatrixSubductionError::TargetCorepInconsistent {
+                    uni: context.uni,
+                    label: String::new(),
+                    reason: format!("the product of classes {left} and {right} is not a class"),
+                })?;
             let left_operator = &table.operators[left];
             let right_operator = &table.operators[right];
             let factor: Vec<f64> = if left_operator.antiunitary {

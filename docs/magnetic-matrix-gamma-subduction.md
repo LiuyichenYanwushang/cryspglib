@@ -319,3 +319,45 @@ T(a₀ h) = conj(χ(h)) K
 
 这不扩展一般 B/C、二维复目标、复合/三维/复源、spinor、non-Γ/full-star、一般
 setting/normalizer 或 OP-stabilizer 契约；全项目仍未完成。
+
+## 11. R50：权威复共轭 H 配对的实二维载体
+
+[独立低层入口](<../src/irrep/magnetic_matrix_subduction/conjugate_pairs.rs>)
+subduce_matrix_gamma_conjugate_pair 与[高层入口](<../src/irrep/magnetic_subduction_api.rs>)
+subduce_conjugate_pair 仍使用同一个已认证实二维、非 compound、非 spinor Γ 源。
+只接纳两条已存储的一维非实 H 字符 χ、χ*；每条均通过 §10 的完整 typed 行认证与
+H data-Hall 绑定，不从 seed 捏造另一条数据。报告保留两条 H 身份与各自的 HCharacterStorage，
+标签必须用各分量的 labels()，不能借用 owner 的 compound BC 名。
+
+ConjugatePairKind 严格分开两种情况：
+
+- MagneticTypeC：存在反幺正陪集，原 summary 是二维 Type C。
+- UnitaryPair：没有反幺正操作，原 summary 将两条 H 源并列成 Type-A 标签。
+  此时输出的是**两个不等价复普通不可约表示的配对载体**，不是二维复不可约表示，更不是 C。
+
+两者的 H 字符范数都是2。R48 门槛仅为后一种显式双源、纯幺正 packet 增加此规则；
+旧单 H 源 A 仍为1，旧 C 仍为2，所有旧入口的候选过滤与结果类型不变。
+没有把零重叠变成重数证明，也没有新增自动 fallback。
+
+在规范实二维化 R(z)=[[Re z,−Im z],[Im z,Re z]] 基中取 T(h)=R(χ(h))。
+若有反幺正代表 a₀，取 λ=sqrt(χ(a₀²))，并定义 T(a₀h)=R(λχ(h))K。
+**此处不能共轭 χ(h)**：被 K 共轭的是实矩阵 R(χ(h))，不是其复参数。
+全部有序对半线性群律验证 χ 对 a₀ 共轭的不变性、平方与陪集相容性，不只核验平方。
+两个平方根相差的符号可由整体 i 相位的 intertwiner 吸收；不任意修改 H 字符。
+无反幺正陪集时仅使用 R(χ)。因此可直接复用 TargetMatrixOperator 与原实目标 Hom，
+不需要通用复矩阵框架或新求解器。
+
+每个成功必须有完整的2×2复 intertwiner、全源 Gram/投影恒等与逐操作复向量重建。
+单个磁 C 见证的 Hom 实核维数为2，纯幺正配对见证为4，但两者的完整载体重数都为1；
+从不把核维数当重数。全目标群律检查器也保留 compose 的 Arithmetic 错误，
+不再把溢出说成“乘积不属于群”；此修复有真实前失败/后通过的合成边界回归。
+
+[公开回归](<../tests/magnetic_conjugate_pairs.rs>)包括 SG100/149/141 的固定非平凡嵌入、
+原始反幺正平移、心格、非零源原点、双η和双标签。独立关联 raw M 索引与 H 显示列，
+核验每个 CIR 字符、全部乘法、复基向量/混合向量重建及 Gram/投影；旧入口仍拒绝这些见证。
+模块控制遍历三重/四重的所有反幺正代表，包括非实和负平方；错误 A 扭曲、缺长度、
+非有限值、错误代表、篡改单个系数与算术溢出均拒绝。
+
+该入口不接纳两个不同的实 H 字符、复一维 A 目标或单个实二维 H 目标；它们仍由原入口处理。
+不扩大源域，也不宣称完成一般 B/C、高维/复合源、spinor、非Γ/full-star、一般 setting、
+normalizer 或 OP-stabilizer。完整固定语料覆盖与项目整体完成是不同的口径。
