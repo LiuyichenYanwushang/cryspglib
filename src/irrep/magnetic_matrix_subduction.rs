@@ -1697,11 +1697,12 @@ pub fn verify_matrix_gamma_input(
     }
 
     let evidence = request.embedding;
-    if evidence.map.inverse().is_err() {
-        return Err(MatrixSubductionError::Arithmetic {
-            reason: "the selected map is singular".to_string(),
-        });
-    }
+    evidence
+        .map
+        .inverse()
+        .map_err(|error| MatrixSubductionError::Arithmetic {
+            reason: error.to_string(),
+        })?;
     magnetic_embedding::verify_embedding(&geometry, &set, evidence.map, evidence.shift)
         .map_err(MatrixSubductionError::EmbeddingRejected)?;
     let realises_record_lattice =

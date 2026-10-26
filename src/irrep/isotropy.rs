@@ -1095,6 +1095,10 @@ pub fn parent_primitive_basis(sg: u8) -> Result<[[f64; 3]; 3], IsotropyError> {
 ///
 /// The result is still a primitive basis of the subgroup lattice (not the
 /// subgroup's ITA conventional cell), now in parent conventional coordinates.
+/// Input coefficients refer to the canonical [`parent_primitive_basis`] order.
+/// Do not pass SG3–15 magnetic raw coefficients directly: their primitive
+/// order differs. Use [`crate::irrep::magnetic_embedding::basis_in_parent_conventional`]
+/// for magnetic records; this helper does not perform their axis reindexing.
 pub fn basis_in_parent_conventional(
     parent_sg: u8,
     basis: [[i32; 3]; 3],
@@ -1112,8 +1116,10 @@ pub fn basis_in_parent_conventional(
 /// Express the stored origin shift in the parent's conventional basis.
 ///
 /// This is a pure **frame conversion** of the stored value: `w_conventional =
-/// w_primitive · P`, with `P` the parent's primitive basis.  Values are only
-/// defined modulo the parent's lattice.
+/// w_primitive · P`, with `P` the parent's canonical primitive basis. Values are
+/// only defined modulo the parent's lattice. This helper does not reindex the
+/// SG3–15 magnetic raw order; for magnetic records use
+/// [`crate::irrep::magnetic_embedding::origin_in_parent_conventional`] instead.
 ///
 /// # Relation to the program's printed "Origin" column
 ///

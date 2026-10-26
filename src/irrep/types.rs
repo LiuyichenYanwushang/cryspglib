@@ -1486,8 +1486,10 @@ pub struct MagneticIsotropyRecord {
     /// for comparisons with conventional-frame operations.
     pub basis: [[i32; 3]; 3],
     /// Origin of the magnetic subgroup setting relative to the parent origin,
-    /// in the parent's primitive-cell frame, encoded exactly as
-    /// `[x, y, z, d]` meaning `(x/d, y/d, z/d)`.
+    /// in the same raw primitive order as [`Self::basis`], encoded exactly as
+    /// `[x, y, z, d]` meaning `(x/d, y/d, z/d)`. Use
+    /// [`crate::irrep::magnetic_embedding::origin_in_parent_conventional`]
+    /// to convert to the conventional frame.
     pub origin: [i32; 4],
 }
 

@@ -22,6 +22,61 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 审查缺陷闭合与矩阵源下一步诊断（R46，2026-10-26；基线 `b88e6c5`）
+
+用户此前明确要求 push 后开一个子 agent；已正常推送 origin/main 从 cf0a4ba 到
+b88e6c5（15 提交），远端哈希独立核对相同，未强推。
+[独立只读审查](<target/r45-review/report.md>)完整阅读 R45 的 17 文件 diff，并定向抽查
+其它高风险链，实跑 124 项通过、1 个原有 ignored，未发现范围内新引入阻断问题。
+这不是全库正确保证，也不是 R46 的独立审查。本轮继续由本人实施，无新增委派或 push。
+
+审查发现的 `map.inverse()` 溢出误报奇异来自旧 0d39ea4b；本人沿所有调用者追踪，
+另复现 [conventional_lattice_index](<src/irrep/magnetic_embedding.rs>) 的 determinant 错分，
+以及[标量输入](<src/irrep/magnetic_input.rs>)、[矩阵输入](<src/irrep/magnetic_matrix_subduction.rs>)
+预检查丢弃真实求逆原因。新增[公开回归](<tests/magnetic_arithmetic.rs>)在旧实现实际
+**13 pass /3 fail**，见[红色证据](<target/logs/r46-exploration/arithmetic-before.txt>)：
+A=diag(i128::MAX,i128::MAX,1) 非奇异但 determinant 溢出，不能报告 singular；
+同样的 synthetic record covolume 溢出不能否证格。现在仅 SingularMatrix 映射为奇异，
+其余求逆/行列式计算失败映射 Arithmetic；两个高层预检查及共享 mapped_classes 保留实际
+底层错误文本。现有公开 enum/返回类型不变，错误字符串现在准确区分溢出与奇异。
+真实奇异 map 仍拒绝，determinant API 的零值仍为零，±MAX 的可表示控制仍通过；
+不引入任意精度依赖、不扩大输入域、不改变同余解或正常候选选择。
+
+另完成审查的两项加固：[普通转换文档](<src/irrep/isotropy.rs>)明确 canonical-only，
+[磁 origin 字段](<src/irrep/types.rs>)指向正确磁入口，[synthetic geometry](<src/irrep/magnetic_embedding.rs>)
+明确 canonical (x,y,z) 应逆编码 raw (z,x,y)，不是 conventional 坐标循环。
+[源 primitive 回归](<tests/magnetic_primitive_bridge.rs>)新增 SG3(P)/SG5(C) Type-I 控制，
+直接断言非空、包含零 shift 且每个 map=I，再验全格与原始操作；不是只验生成格不变。
+该 C 顺序原来就正确，这条是防回归，不是新增几何修复。
+
+冻结 **251** 个输入后，[完整电池](<target/logs/r46-accepted/battery/summary.txt>)
+**980 passed /0 failed**（976+4），71 壳、75/75 池作业、16/16 条腿 exit 0；
+[独立退出码/计数审计](<target/logs/r46-accepted/battery-audit.json>)通过，普通三 TSV 原行数/
+SHA/4==8 全不变。冻结[debug](<target/logs/r46-accepted/debug.txt>) **16+11+10+4+10=51**
+通过；严格 debug/release clippy、doc tests、格式、diff 检查通过。
+[单斜官方 oracle](<target/logs/r46-accepted/oracle.txt>) 13 帧/262 记录/105 非零原点零差异。
+完整 Γ [8 线程](<target/logs/r46-accepted/gamma-8.txt>)/[4 线程](<target/logs/r46-accepted/gamma-4.txt>)
+均 **16,721 fixed /151,068 success**、全部错误/未决 0，整表逐字节等于 R45，
+[比较审计](<target/logs/r46-accepted/gamma-audit.json>)的 SHA 仍
+`655b2fcbe95d4e56a48d3703d15ef8f017c89c2196ed6bdc556925a0d74a18cd`。
+251 文件在全部验收前后逐项哈希相同，driver 哈希也不变；本账本在验收后才更新，
+其余 250 文件再次核对。并行电池/Γ/诊断的耗时不作性能 A/B。
+
+**下一步已有具体复现，尚未接生产**：[有界矩阵探针](<target/r47-matrix-input-probe.rs>)
+从 R45 已接受 TSV 为每个 SG 取 operator 数最大的一个记录（并列取首先遇到的），
+仅 η=+，不是全部 record/source census。333 个高维非 spinor Γ 源 =246 个二维+87 个三维；
+排除 69 个 compound 与87 个三维后，177 个现有二维域源里 **149 输入/分导成功，28 个
+SourceOperationUnmatched**，见[输出](<target/logs/r46-exploration/next-matrix-input.txt>)。
+这些拒绝来自 SG125/126/129/130/133/134/137/138/141/142/222/224/227/228，各两源。
+[额外原点诊断](<target/r47-matrix-origin-probe.rs>)复用相同记录的 scalar source_origin_shift，
+把所有 raw PIR Seitz 操作作一次共同原点变换，独立核验完整母群双向覆盖及每个已映射 M 类；
+[28/28 都可对齐](<target/logs/r46-exploration/next-matrix-origin.txt>)，含 SG141/142 八分之一
+原点与 SG227/228 F 心格。**这不是已经增加 28 个生产成功**，矩阵路径目前仍原样拒绝。
+下一轮应复用 ParentFrame::source_origin 的完整 data-Hall/双向格/共同原点证明，
+在矩阵模型中保留来源见证，避免只按旋转或对每个类单独择原点；不新增 setting solver。
+一般 B/C、69 compound/87 三维及其它复源、非 Γ/full-star、spinor、一般 setting/normalizer
+与 OP-stabilizer 契约仍未完成，长期目标保持 active。没有删除项目，没有自动 push/部署。
+
 ### 单斜原始 primitive 帧修正与受限 Γ 几何闭合（R45，2026-10-26；基线 `22cf076`）
 
 用户继续授权本人推进。R44 的 103 条缺口全在 SG3–15；独立调用 bundled ISOTROPY

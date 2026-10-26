@@ -5,7 +5,7 @@ use cryspglib::irrep::magnetic_embedding::{
     verify_embedding, verify_group,
 };
 use cryspglib::irrep::query;
-use cryspglib::irrep::subduction::{Mat3R, Rat};
+use cryspglib::irrep::subduction::{Mat3R, Rat, SubductionError};
 
 fn geometry(parent: u8, uni: usize) -> cryspglib::irrep::magnetic_embedding::MagneticGeometry {
     let record = query::magnetic_isotropy_subgroups_of(parent)
@@ -14,6 +14,102 @@ fn geometry(parent: u8, uni: usize) -> cryspglib::irrep::magnetic_embedding::Mag
         .unwrap()
         .subgroup;
     geometry_of(parent, &record).unwrap()
+}
+
+fn diagonal(x: i128, y: i128, z: i128) -> Mat3R {
+    Mat3R::new([
+        [Rat::from_integer(x), Rat::ZERO, Rat::ZERO],
+        [Rat::ZERO, Rat::from_integer(y), Rat::ZERO],
+        [Rat::ZERO, Rat::ZERO, Rat::from_integer(z)],
+    ])
+}
+
+#[test]
+fn inverse_overflow_is_not_a_singular_map_certificate() {
+    let geometry = geometry(1, 1);
+    let set = magnetic_operations(1).unwrap();
+    let large = diagonal(i128::MAX, i128::MAX, 1);
+    assert!(matches!(
+        large.inverse(),
+        Err(SubductionError::RationalOverflow { .. })
+    ));
+    assert_eq!(
+        verify_embedding(&geometry, &set, large, [Rat::ZERO; 3]),
+        Err(GeometryError::Arithmetic)
+    );
+    assert_eq!(
+        verify_embedding(&geometry, &set, diagonal(1, 1, 0), [Rat::ZERO; 3]),
+        Err(GeometryError::SingularConventionalBasis { uni: 1 })
+    );
+    // A representable large determinant is not rejected just for its magnitude.
+    verify_embedding(&geometry, &set, diagonal(i128::MAX, 1, 1), [Rat::ZERO; 3]).unwrap();
+}
+
+#[test]
+fn covolume_overflow_is_not_a_singular_record_certificate() {
+    use cryspglib::irrep::magnetic_embedding::conventional_lattice_index;
+    let mut g = geometry(1, 1);
+    g.basis = *diagonal(i128::MAX, i128::MAX, 1).rows();
+    assert_eq!(
+        conventional_lattice_index(&g),
+        Err(GeometryError::Arithmetic)
+    );
+    g.basis = *diagonal(-i128::MAX, 1, 1).rows();
+    assert_eq!(
+        conventional_lattice_index(&g),
+        Ok(Rat::from_integer(i128::MAX))
+    );
+    // This function measures determinant, not invertibility: zero still returns zero.
+    g.basis = *diagonal(1, 1, 0).rows();
+    assert_eq!(conventional_lattice_index(&g), Ok(Rat::ZERO));
+}
+
+#[test]
+fn scalar_and_matrix_inputs_preserve_the_actual_inverse_failure() {
+    use cryspglib::irrep::LabelConvention;
+    use cryspglib::irrep::magnetic_input::{
+        EmbeddingEvidence, LatticePolicy, MagneticInputError, RecordIdentity, ScalarGammaRequest,
+        SourceIdentity, verify_scalar_gamma_input,
+    };
+    use cryspglib::irrep::magnetic_matrix_subduction::{
+        MatrixGammaRequest, MatrixSubductionError, verify_matrix_gamma_input,
+    };
+    for map in [diagonal(i128::MAX, i128::MAX, 1), diagonal(1, 1, 0)] {
+        let expected = map.inverse().unwrap_err().to_string();
+        let record = RecordIdentity {
+            parent_sg: 89,
+            condensing_label: "GM1",
+            convention: LabelConvention::Cdml,
+            direction_index: 0,
+        };
+        let evidence = EmbeddingEvidence {
+            map,
+            shift: [Rat::ZERO; 3],
+            lattice_policy: LatticePolicy::ContainmentOnly,
+        };
+        let source = |label| SourceIdentity {
+            parent_sg: 89,
+            label,
+            convention: LabelConvention::Cdml,
+        };
+        let scalar = verify_scalar_gamma_input(
+            &ScalarGammaRequest::new(source("GM1"), record, None).with_embedding(evidence),
+        )
+        .unwrap_err();
+        let matrix = verify_matrix_gamma_input(
+            &MatrixGammaRequest::new(source("GM5"), record, None).with_embedding(evidence),
+        )
+        .unwrap_err();
+        let scalar_reason = match scalar {
+            MagneticInputError::Arithmetic(reason) => reason,
+            e => panic!("{e:?}"),
+        };
+        let matrix_reason = match matrix {
+            MatrixSubductionError::Arithmetic { reason } => reason,
+            e => panic!("{e:?}"),
+        };
+        assert_eq!((scalar_reason, matrix_reason), (expected.clone(), expected));
+    }
 }
 
 #[test]

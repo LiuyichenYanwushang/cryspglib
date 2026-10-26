@@ -783,11 +783,10 @@ pub fn verify_scalar_gamma_input(
     }
 
     let evidence = request.embedding;
-    if evidence.map.inverse().is_err() {
-        return Err(MagneticInputError::Arithmetic(
-            "the selected map is singular".to_string(),
-        ));
-    }
+    evidence
+        .map
+        .inverse()
+        .map_err(|error| MagneticInputError::Arithmetic(error.to_string()))?;
     verify_embedding(&geometry, &set, evidence.map, evidence.shift)
         .map_err(MagneticInputError::EmbeddingRejected)?;
     // The exact verdict is always recomputed and carried; the policy only decides
@@ -1145,7 +1144,7 @@ pub(crate) fn mapped_classes(
     let inverse = evidence
         .map
         .inverse()
-        .map_err(|_| MagneticInputError::Arithmetic("the selected map is singular".to_string()))?;
+        .map_err(|error| MagneticInputError::Arithmetic(error.to_string()))?;
     let mut mapped = Vec::with_capacity(set.classes.len());
     for class in &set.classes {
         let rotation = Mat3R::from_ints(class.rotation);

@@ -49,6 +49,37 @@ fn every_reference_primitive_lattice_matches_all_raw_source_translations() {
 }
 
 #[test]
+fn monoclinic_reference_source_order_is_canonical_not_raw() {
+    // SG3 P and SG5 C exercise both primitive and centred source cells.
+    for sg in [3, 5] {
+        let uni = (1..=1651)
+            .find(|&uni| {
+                let t = cryspglib::msg_database::get_magnetic_spacegroup_type(uni);
+                t.number == usize::from(sg) && t.type_ == cryspglib::MagneticType::Ordinary
+            })
+            .unwrap();
+        let set = m::magnetic_operations(uni).unwrap();
+        let geometry = MagneticGeometry {
+            parent_sg: sg,
+            uni,
+            // Canonical identity coefficients inverse-encoded into (p3,p1,p2).
+            basis: *Mat3R::from_ints([[0, 1, 0], [0, 0, 1], [1, 0, 0]]).rows(),
+            origin: [Rat::ZERO; 3],
+            index: 1,
+        };
+        let entries = m::embed_via_primitive_lattices(&geometry, &set).unwrap();
+        assert!(!entries.is_empty());
+        assert!(entries.iter().any(|e| e.shift == [Rat::ZERO; 3]));
+        for e in entries {
+            // Lattice equality alone cannot detect a wrong ordering of C.
+            assert_eq!(e.map, Mat3R::identity());
+            assert!(m::realises_record_lattice_checked(&geometry, &set, &e.map).unwrap());
+            m::verify_embedding(&geometry, &set, e.map, e.shift).unwrap();
+        }
+    }
+}
+
+#[test]
 fn centred_source_coordinates_require_the_source_primitive_inverse() {
     let (geometry, set) = context(21, "T1", "P1");
     assert_eq!(set.uni, 150);

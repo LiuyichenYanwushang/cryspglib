@@ -903,6 +903,9 @@ pub fn verify_against_database(set: &MagneticOperationSet) -> Result<(), Magneti
 /// them exactly, together with the lattice index `|det(basis)|`. This is the
 /// raw ISOTROPY primitive order, not necessarily the canonical one; use
 /// [`basis_in_parent_conventional`] when comparing with conventional operations.
+/// For synthetic SG3–15 input, canonical primitive coefficients (x,y,z) must
+/// be stored here as (z,x,y), for both basis rows and origin. These are primitive
+/// coefficients, not conventional coordinates (in particular for C centering).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MagneticGeometry {
     /// Parent space-group number (1–230).
@@ -1661,7 +1664,7 @@ pub fn conventional_lattice_index(geometry: &MagneticGeometry) -> Result<Rat, Ge
     let converted = basis_in_parent_conventional(geometry)?;
     let determinant = Mat3R::new(converted)
         .determinant()
-        .map_err(|_| GeometryError::SingularConventionalBasis { uni: geometry.uni })?;
+        .map_err(|_| GeometryError::Arithmetic)?;
     Ok(if determinant.numerator() < 0 {
         determinant
             .checked_neg()
@@ -2032,7 +2035,9 @@ pub fn embedding_shift_components(
 ///   parent operation.
 ///
 /// Success therefore means the tabulated group maps into the parent's grey
-/// group, not merely that its representatives do.
+/// group, not merely that its representatives do. An exact-arithmetic limit
+/// (including inversion overflow) returns [`GeometryError::Arithmetic`], not a
+/// certificate of singularity or non-containment.
 pub fn verify_embedding(
     geometry: &MagneticGeometry,
     set: &MagneticOperationSet,
@@ -2081,9 +2086,12 @@ pub fn verify_embedding(
     if !source_lattice_lands_in_parent_checked(&map, set, &parent_lattice)? {
         return Err(GeometryError::SourceLatticeNotInParent { uni: geometry.uni });
     }
-    let inverse = map
-        .inverse()
-        .map_err(|_| GeometryError::SingularConventionalBasis { uni: geometry.uni })?;
+    let inverse = map.inverse().map_err(|error| match error {
+        SubductionError::SingularMatrix => {
+            GeometryError::SingularConventionalBasis { uni: geometry.uni }
+        }
+        _ => GeometryError::Arithmetic,
+    })?;
     let mut mapped_rotations = Vec::with_capacity(set.classes.len());
     for operation in &set.classes {
         let rotation = Mat3R::from_ints(operation.rotation);
