@@ -154,6 +154,9 @@ use crate::irrep::subduction::{Mat3I, Rat};
 use crate::irrep::types::{CharacterRow, IrrepRecord};
 use crate::irrep::wigner;
 
+#[cfg(test)]
+mod source_inventory;
+
 mod conjugate_pairs;
 pub use conjugate_pairs::{
     CONJUGATE_PAIR_SCOPE, ConjugatePairKind, ConjugatePairPiece, ConjugatePairSubduction,

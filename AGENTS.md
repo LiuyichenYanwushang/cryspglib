@@ -22,6 +22,60 @@ that say "按 `CLAUDE.md` 跑基线" refer to this same file.
 > 本节原始基准：`00d85ef`（2026-09-24；本轮性能改动尚未提交）。当前风险与待办
 > 见 §3。
 
+### 完整域清点与下一最小源/目标见证（P1 / R52，2026-10-27；基线 0929424）
+
+用户再次明确“继续”。P1完成，[报告](<docs/representation-coverage-inventory.md>)记录全部分区、
+来源/算法缺口及可重复命令，[计划](<docs/completion-plan.md>)已据实细化P2a→P3a与P4两条支路。
+两个独立只读审计分别清点磁Γ目标、普通参数/spinor；主实现者亲自审阅、保存清点器、交叉验证，
+并编写[仅测试编译的源审计与见证](<src/irrep/magnetic_matrix_subduction/source_inventory.rs>)。
+**生产逻辑、数据和适用域没有改变**；不是一次B/compound实现，也不是全项目完成。
+
+[公共目录](<target/logs/r52-accepted/irrep-inventory.tsv>)8,388=4,105 ordinary+672 compound+3,611 spinor，
+全部typed视图可取；4,777非spinor ScalarStar构造成功，不等于新分导成功。
+[Γ源表](<target/logs/r52-accepted/source-inventory.tsv>)逐个核验1,313非spinor源的raw矩阵、
+typed迹、完整群律、commutant及完整data-Hall/心格/共同原点；与公共目录按身份逐行join一致。
+980实一维(152非零原点)、177实二维(28)、87实三维(20)、69二维compound(10)；后者均为
+两条不同且共轭复一维CIR，实commutant维数2，不是复不可约二维。其余实commutant1。
+三维/compound候选记录源对19,190/3,778，双η候选38,380/7,556，尚未作为生产成功计数。
+三维SG195 GM4数据通过而公开拒绝；同迹矩阵换行的畸形表仍由群律拒绝。
+
+[全部UNI目录](<target/logs/r52-accepted/magnetic-4-counts.json>)1,651组、Γ12,627个摘要，
+其它固定k40,166；fatal和未决0不意味着这些分导都已支持。Γ目标=8,037旧家族形状+
+320非spinor三维A+**20非spinor B**+4,250 spinor。69个Type-I双源packet另分，不能按raw A
+误说单个复不可约表示，也不是磁C。H字符范数A1/C2/B4/pure-unitary-packet2；2,128唯一H
+身份均有唯一owner/typed行，485个高维spinor H身份没有raw irrep矩阵。全部3,611公共
+spinor记录的矩阵载荷均空，SU(2)操作lift不能冒充它；一维字符也必须另验中心符号/anti sewing。
+
+20个非spinor B跨14个Type-III UNI，真实H均为一维实±1；独立探针86个anti代表均χ(a²)=-1。
+常驻见证**SG75源GM3GM4→GM2记录0/P1→UNI663**：map=I、shift=0、exact，双η逐有色操作
+验证源矩阵与独立T(h)=χ(h)I、T(a₀h)=χ(h)J K（J²=-I）的显式正交intertwiner；公开接口
+仍SourceIsCompound。14个UNI共17记录，其中14条需compound源；另3条UNI701在SG220/230
+涉及5个旧二维源对，旧10个η调用已经是2×GM1 A，不能预报20个新旧域成功。
+下一批先显式接compound载体、保留CIR身份与全源证明，再接窄B；三维随后，不先造泛化框架。
+
+[精确档案](<target/logs/r52-accepted/irrep-archives-summary.json>)PIR10,294=4,777固定+
+3,980线+1,307面+230体；CIR另为11,202。little_full额外6个槽为空，不是缺六条表示。
+5,517连续PIR族仅73条零k₀线具名注册，余5,444需认证/接入；2,049线与383面有非零k₀。
+先SG3 LD1LE1，再U1UA1；磁非Γ先SG1 Z1。普通固定非Γ/full-star已有成功，不能重写成未实现。
+195个普通方向串例外均为当前采集TableEmpty，紧凑原始拼写可能有输出，不能宣称不可获得。
+230个grey有群/共表示但无magnetic-isotropy记录；磁官方方向串仍不可直接选择，均单列来源边界。
+
+冻结**263输入**及**7driver**后，[全电池](<target/logs/r52-accepted/battery-audit.json>)
+**1,007/0**（1,004+3），75壳、79/79池作业、16/16腿exit0；ordinary三TSV原行数/SHA/4==8不变。
+冻结debug矩阵模块34/0，exact参数秩四项控制通过；严格debug/release Clippy、doc/Python/oracle、
+fmt/diff通过，单斜13帧/262记录/105非零原点仍0差异。[目标审计破坏控制](<target/logs/r52-accepted/audit-controls.txt>)
+正例exit0，丢行、错误B范数、错把unitary packet当C、缺H来源四类均exit1。
+新目录2线程独立探针与正式4/8线程的全部原始TSV逐字相同；公共源清单也逐字相同。
+[旧矩阵](<target/logs/r52-accepted/matrix-audit.json>)43,492全TSV逐字等于R50；
+[旧Γ](<target/logs/r52-accepted/gamma-audit.json>)16,721 fixed/151,068成功，4/8逐字等于R45，错误/未决0。
+全部输入/driver/测量二进制最终哈希不变；只在验收后更新账本与计划，其余261输入再核对。
+初稿typed API拼写/私有字段编译错误、Clone-on-Copy lint与审计enum Grey拼写已在冻结前修正；
+不算数学红灯。收尾read分页上限曾只读到319条SOURCE，分页读全后1,313身份join通过，
+不是源表缺项。并发墙钟不作性能结论；没有改其它项目、删除、push或部署。
+
+**下一步P2a/R53尚未实施。** 本回合已执行直接继续请求；目标仍paused/disarmed、revision7，
+resume仍被运行时拒绝，未绕过或新建目标。跨回合自动执行仍需目标卡片恢复，不是再次要求用户审批方案。
+
 ### 总体完成计划与复核加固闭合（P0 / R51，2026-10-27；基线 4b9703a）
 
 用户已要求“给出详细的完成计划，然后按照计划一步一步来”，解除上一轮工作暂停。
